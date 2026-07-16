@@ -71,12 +71,28 @@ Oh My Blender daemon (Node/TypeScript)
 
 ### Process boundary
 
-- The add-on starts or connects to `omb daemon` on loopback only.
-- The daemon creates Pi with `noTools: "builtin"` and an explicit Blender-domain tool list.
-- A random per-launch token authenticates the local WebSocket handshake.
+- The Blender add-on owns the daemon process. It starts `omb daemon --port 0`, reads one startup record from stdout, and terminates the child when the add-on unloads.
+- The daemon binds IPv4 `127.0.0.1` only. It does not bind wildcard or IPv6 addresses in v1.
+- The daemon creates Pi with `noTools: "all"`, an explicit Blender-domain tool list, an isolated `cwd`/`agentDir`/`SessionManager`, and a product-owned `BundledDirectorResourceLoader`.
+- `BundledDirectorResourceLoader` returns only audited Oh My Blender prompts and factories. It does not scan user or project extensions, skills, themes, prompt templates, context files, packages, or MCP configuration.
+- Startup asserts that the effective tool set exactly matches the bundled allowlist; a hostile `.pi` directory must not change it.
+- A 32-byte `crypto.randomBytes()` token authenticates one daemon launch. It is transferred only in the parent-owned startup pipe, retained in memory, never written to project files or logs, and zeroed on shutdown.
 - The add-on executes `bpy` operations on Blender's main thread through registered operators/timers.
 - The daemon never injects arbitrary Python into Blender.
 - Headless render workers consume immutable revision artifacts; they do not edit the live scene.
+
+### Protocol v1
+
+- The first WebSocket request must include the bearer token, `Host: 127.0.0.1:<port>`, and an absent or explicitly allowlisted local `Origin`; otherwise the socket closes with policy error `1008`.
+- `hello`: `{protocol, addon_version, blender_version, project_id, client_nonce}`.
+- `hello_ack`: `{protocol, daemon_version, session_id, server_nonce, capabilities}`.
+- `request`: `{id, method, params, expected_revision_id, deadline_ms}`.
+- `progress`: `{id, phase, completed, total}`.
+- `response`: `{id, result, resulting_revision_id}`.
+- `error`: `{id, code, message, retryable}`.
+- `cancel`: `{id}`; acknowledgement is required before the deadline.
+- IDs and nonces are unique per connection; replayed IDs are rejected. Maximum JSON message size is 1 MiB, maximum binary artifact frame is 16 MiB, and idle sockets close after 60 seconds.
+- Protocol mismatch closes before scene inspection. Reconnect creates a new token, socket, and session; pending requests fail rather than replay automatically.
 
 Pi's JSONL RPC remains a useful diagnostic/fallback interface, but the product daemon embeds `createAgentSession()` directly because the Blender bridge requires bidirectional tool calls and app-owned state. [Pi embedding guide](https://github.com/earendil-works/pi/blob/f7e060374541be0097ee015aaddb097a4f760984/packages/coding-agent/docs/sdk.md#L44-L178), [Pi RPC](https://github.com/earendil-works/pi/blob/f7e060374541be0097ee015aaddb097a4f760984/packages/coding-agent/docs/rpc.md#L1-L37)
 
@@ -93,6 +109,15 @@ packages/blender-tools/      model-facing domain operations
 blender-addon/oh_my_blender/ Blender panels, operators, observers
 docs/                        architecture and upstream-sync notes
 ```
+
+The first implementation updates the root `workspaces` list, root build/check/test scripts, and TypeScript project references so every new TypeScript package is covered by the existing toolchain. `blender-addon/` is checked independently by Blender's bundled Python and a small host-side test environment.
+
+Pinned bootstrap support matrix:
+
+- Node.js `>=22.19.0`, matching Pi's current engine requirement;
+- Blender `5.1.2` for the first vertical slice;
+- the Python runtime bundled with that Blender build for production add-on execution;
+- macOS arm64 first, followed by Linux after the local round trip is stable.
 
 Upstream-owned Pi areas remain unchanged unless a proven SDK blocker exists:
 
@@ -135,6 +160,8 @@ Storage for v1:
 - `.omb/journal.jsonl`: append-only operations and decisions;
 - `.omb/artifacts/<sha256>/`: previews, manifests, motion, and render outputs;
 - the Pi session stores reasoning provenance plus project/revision IDs only.
+
+Artifact paths are resolved beneath the project-owned `.omb/artifacts` root after canonicalization. Symlinks and traversal are rejected, writes use a temporary file plus atomic rename, the computed SHA-256 must match the requested artifact ID, and per-file/project quotas are enforced before commit. Imported `.blend` files open with automatic Python execution disabled.
 
 Rules:
 
@@ -200,6 +227,8 @@ The first validation scene is the existing 16-second boxing sequence because it 
 
 Pi does not include a built-in process permission system, so the runtime starts without `bash`, `edit`, `write`, or arbitrary filesystem tools. [Pi permissions](https://github.com/earendil-works/pi/blob/f7e060374541be0097ee015aaddb097a4f760984/README.md#L37-L45)
 
+The deny-by-default resource loader is part of the security boundary, not an optimization. A regression fixture places a hostile project extension, skill, prompt, context file, package declaration, and MCP config beside the test scene; startup must still expose only `inspect_project` and the bundled system prompt.
+
 Hard gates:
 
 - schema/version compatibility;
@@ -217,12 +246,15 @@ Visual critique may rank or explain candidates, but it never replaces determinis
 
 ### Phase 1 — Connection skeleton
 
-- add the new workspaces without editing Pi core;
+- add the new workspaces plus root workspace/build/check/test references without editing Pi core;
 - run `omb daemon` and connect the Blender add-on;
 - return a versioned scene manifest;
-- prove disconnect, cancel, timeout, and reconnect behavior.
+- prove authentication failure, protocol mismatch, disconnect, cancel, timeout, and reconnect behavior;
+- prove hostile local Pi resources are ignored.
 
 Exit: Blender can ask the daemon to inspect a scene, and no scene mutation is possible yet.
+
+The read-only `SceneManifestV1` contains `project_id`, `revision_id`, Blender version, scene name, frame range/fps, active camera ID, render resolution/aspect, object IDs/types/parent IDs, armature and bone IDs, cameras, lights, selected IDs, and deterministic scene hash. It contains no arbitrary file contents.
 
 ### Phase 2 — Transactional scene tools
 
@@ -269,11 +301,13 @@ Exit: the full brief → preview → inspect → revise → approve → render l
 | A good-looking frame hides geometric failure | Gate deterministic transform, contact, penetration, visibility, duration, and hash checks before visual review. |
 | Add-on and daemon versions drift | Reject incompatible protocol versions during the authenticated handshake before any scene operation. |
 | A partial revision changes approved work | Require locks and dependency hashes, then reject a result whose unrelated hashes changed. |
+| Inherited Pi automation publishes or mutates the wrong repository | Keep only generic CI active; preserve all release, catalog, contributor, and issue workflows under `.github/upstream-workflows-disabled/` until product-owned policies exist. |
 
 ## 12. Upstream strategy
 
 - `origin`: private `HaD0Yun/oh-my-blender`;
 - `upstream`: public `earendil-works/pi`, with push disabled locally;
+- every fresh clone runs `./scripts/setup-upstream.sh`; remote configuration is never assumed to travel through Git;
 - product work: `codex/*` branches, later normal feature branches;
 - sync: fetch upstream, create `sync/pi-YYYYMMDD`, run Pi checks plus Blender bridge integration, then merge;
 - never force-push upstream-derived shared branches;
@@ -299,5 +333,24 @@ The next approved work unit should add only:
 3. `blender-addon/oh_my_blender` with connect/disconnect and read-only scene inspection;
 4. one integration scenario proving Blender → daemon → Pi tool → Blender round-trip;
 5. teardown proof showing no daemon, socket, or Blender timer remains.
+
+The round-trip test injects a deterministic fake model/session factory, so it needs no provider key and always emits one `inspect_project` tool call. The test launches the daemon on an OS-assigned port, performs authenticated `hello`, requests the manifest, cancels one delayed request, disconnects, unloads the add-on, and asserts:
+
+- child process exited;
+- TCP connection to the assigned port is refused;
+- no Blender timer or handler remains registered;
+- no token or startup record remains on disk;
+- temporary project/session/artifact directories are absent;
+- `git status --porcelain` is unchanged.
+
+Initial verification commands:
+
+```sh
+npm ci --ignore-scripts
+npm run build
+npm run check
+npm test
+npm run test:omb-roundtrip
+```
 
 Do not add motion generation, camera authoring, rendering, marketplace support, or a custom GUI in the first commit.
