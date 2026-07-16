@@ -258,7 +258,19 @@ Exit: "second punch only" and "camera only" revisions preserve all unrelated app
 
 Exit: the full brief → preview → inspect → revise → approve → render loop works without opening a coding agent.
 
-## 11. Upstream strategy
+## 11. Risks and controls
+
+| Risk | Control |
+| --- | --- |
+| Pi upstream changes break the product | Keep product code in new workspaces, pin the tested Pi commit, and sync through a dedicated branch with integration QA. |
+| Blender's main thread freezes | Execute add-on work through operators/timers, stream progress, enforce deadlines, and support cancellation. |
+| Model-generated code corrupts a scene | Expose typed domain operations only; require an undo checkpoint and post-mutation inspection. |
+| Pi transcript disagrees with the scene | Treat `DirectorProject` and artifact hashes as canonical; the transcript stores pointers and reasoning only. |
+| A good-looking frame hides geometric failure | Gate deterministic transform, contact, penetration, visibility, duration, and hash checks before visual review. |
+| Add-on and daemon versions drift | Reject incompatible protocol versions during the authenticated handshake before any scene operation. |
+| A partial revision changes approved work | Require locks and dependency hashes, then reject a result whose unrelated hashes changed. |
+
+## 12. Upstream strategy
 
 - `origin`: private `HaD0Yun/oh-my-blender`;
 - `upstream`: public `earendil-works/pi`, with push disabled locally;
@@ -267,7 +279,7 @@ Exit: the full brief → preview → inspect → revise → approve → render l
 - never force-push upstream-derived shared branches;
 - keep product code outside upstream packages so conflicts remain structural rather than line-by-line.
 
-## 12. Explicit non-goals for v1
+## 13. Explicit non-goals for v1
 
 - forking or rebuilding Blender;
 - general natural-language access to every `bpy` API;
@@ -278,7 +290,7 @@ Exit: the full brief → preview → inspect → revise → approve → render l
 - a complete replacement for Blender's timeline, graph editor, or compositor;
 - supporting arbitrary rigs before the validated Mixamo/Core27 path works.
 
-## 13. First implementation commit
+## 14. First implementation commit
 
 The next approved work unit should add only:
 
