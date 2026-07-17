@@ -1,8 +1,8 @@
 """Canonical JSON serialization and revision hashing for Scene Snapshot v2.
 
 Contract: docs/SCENE-SNAPSHOT-V2.md section 4. Must stay byte-identical to
-packages/blender-director/src/canonical.ts; the shared fixture
-packages/blender-director/test/fixtures/canonical-numbers.json guards parity
+packages/director-core/src/canonical.ts; the shared fixture
+packages/blender-protocol/test/fixtures/canonical-numbers.json guards parity
 in both test suites. Pure stdlib so it runs outside Blender.
 """
 

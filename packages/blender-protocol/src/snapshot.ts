@@ -1,6 +1,6 @@
+import { canonicalJson, canonicalRevision } from "@oh-my-blender/director-core";
 import { type Static, Type } from "typebox";
 import { Parse } from "typebox/value";
-import { canonicalJson, canonicalRevision } from "./canonical-source.ts";
 
 const NameSchema = Type.String({ minLength: 1, maxLength: 256 });
 const NullableNameSchema = Type.Union([NameSchema, Type.Null()]);

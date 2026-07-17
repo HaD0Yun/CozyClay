@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { canonicalRevision } from "../src/canonical-source.ts";
+import { canonicalRevision } from "@oh-my-blender/director-core";
 import { createProjectManifest, parseSceneSnapshot } from "../src/snapshot.ts";
 
 const EXPECTED_BLENDER_REVISION = "b55013088657c73043d7fd104ba41119ab4e4c3e8bec38b861be48de304f1a17";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { canonicalJson } from "../src/canonical-source.ts";
+import { canonicalJson } from "@oh-my-blender/director-core";
 import { createProjectManifest, parseSceneSnapshot } from "../src/snapshot.ts";
 
 const validSnapshot = {
