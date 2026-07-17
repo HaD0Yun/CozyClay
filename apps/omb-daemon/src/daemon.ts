@@ -8,10 +8,11 @@ import { SessionState, type ActiveRequest } from "./session-state.ts";
 export type HandlerResult={ result:unknown; resulting_revision_id:string };
 export type Handler=(params:Record<string,unknown>, context:{signal:AbortSignal;request:Request;reportProgress:(phase:string,completed:number,total:number)=>void})=>Promise<HandlerResult>;
 export type DaemonOptions={port:number;clock?:Clock;handlers:Record<string,Handler>;stdout?:(line:string)=>void;stderr?:(line:string)=>void;helloTimeoutMs?:number;idleTimeoutMs?:number};
-export type Daemon={port:number;startup:ReturnType<typeof parseStartupRecord>;close():Promise<void>};
+export type Daemon={port:number;startup:ReturnType<typeof parseStartupRecord>;stopped:Promise<void>;close():Promise<void>};
 
 export async function start(options:DaemonOptions):Promise<Daemon>{
 	const clock=options.clock??systemClock, token=new BearerToken(clock), launchId=randomUUID(), nonces=new Set<string>();let accepted=false, connection:WebSocketConnection|undefined, draining=false, idle:ReturnType<typeof setTimeout>|undefined;
+	let resolveStopped!:()=>void;const stopped=new Promise<void>(resolve=>{resolveStopped=resolve;});
 	const server=http.createServer((_q,r)=>{r.writeHead(403);r.end();});
 	const closeServer=()=>new Promise<void>((resolve,reject)=>{if(!server.listening)return resolve();server.close(error=>error?reject(error):resolve());});
 	server.on("upgrade",(req,socket)=>{const ws=acceptUpgrade(req,socket,token,addressPort(),accepted);if(!ws)return;accepted=true;connection=ws;run(ws);});
@@ -30,8 +31,8 @@ export async function start(options:DaemonOptions):Promise<Daemon>{
 			try{const out=await handler(request.params,{signal:r.controller.signal,request,reportProgress:(phase,completed,total)=>{if(r.phase==="running")ws.sendText({type:"progress",id:r.id,phase,completed,total});}});if(state.complete(r)){state.terminal(r);ws.sendText({type:"response",id:r.id,...out});}}catch(e){if(r.phase==="running"&&state.complete(r)){state.terminal(r);ws.sendText(error(r.id,"HANDLER_ERROR",e instanceof Error?e.message:"handler failed",false));}}
 		}
 		async function finishCancellation(r:ActiveRequest){await Promise.resolve();if(state.terminal(r)&&!ws.socket.destroyed)ws.sendText(error(r.id,r.cause==="TIMEOUT"?"TIMEOUT":"CANCELLED",r.cause==="TIMEOUT"?"deadline expired":"request cancelled",false));}
-		async function shutdown(){if(draining)return;draining=true;server.close();const r=state.current;if(r)state.cancel(r.id,"SHUTDOWN");await Promise.resolve();ws.sendText({type:"shutdown_ack"});ws.close(1000);}
+		async function shutdown(){if(draining)return;draining=true;server.close();const r=state.current;if(r)state.cancel(r.id,"SHUTDOWN");await Promise.resolve();ws.sendText({type:"shutdown_ack"});ws.close(1000);clearTimeout(idle);token.zero();await closeServer().catch(()=>{});resolveStopped();}
 	}
-	return{port:addressPort(),startup,close:async()=>{draining=true;clearTimeout(idle);connection?.close(1000);token.zero();await closeServer();}};
+	return{port:addressPort(),startup,stopped,close:async()=>{draining=true;clearTimeout(idle);connection?.close(1000);token.zero();await closeServer();resolveStopped();}};
 }
 const error=(id:string,code:string,message:string,retryable:boolean)=>({type:"error",id,code,message,retryable});

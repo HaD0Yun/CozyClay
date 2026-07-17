@@ -87,7 +87,7 @@ jobs:
       - name: Export twice and require identical canonical revisions
         run: |
           BLENDER=~/blender-5.1.2/blender
-          PLAN=packages/blender-director/test/fixtures/ardy-camera-plan-v4.json
+          PLAN=packages/blender-protocol/test/fixtures/ardy-camera-plan-v4.json
           "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-a.json | tee /tmp/export-a.log
           "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-b.json | tee /tmp/export-b.log
           cmp /tmp/export-a.json /tmp/export-b.json
@@ -100,7 +100,7 @@ jobs:
         run: |
           node --import tsx --input-type=module -e '
             import { readFileSync } from "node:fs";
-            import { parseSceneSnapshot, createProjectManifest } from "./packages/blender-director/src/manifest.ts";
+            import { parseSceneSnapshot, createProjectManifest } from "./packages/blender-protocol/src/snapshot.ts";
             const snapshot = parseSceneSnapshot(JSON.parse(readFileSync("/tmp/export-a.json", "utf8")));
             const revision = createProjectManifest(snapshot).revision;
             const expected = process.env.OMB_REVISION;

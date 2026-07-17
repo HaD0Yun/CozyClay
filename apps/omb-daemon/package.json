@@ -3,5 +3,10 @@
   "private": true,
   "type": "module",
   "bin": { "omb-daemon": "src/main.ts" },
-  "scripts": { "test": "node --import tsx --test test/*.test.ts" }
+  "scripts": { "test": "node --import tsx --test test/*.test.ts" },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.9",
+    "@earendil-works/pi-coding-agent": "^0.80.9",
+    "@oh-my-blender/director-runtime": "0.1.0"
+  }
 }

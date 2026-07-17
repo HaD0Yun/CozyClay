@@ -8,7 +8,7 @@ import {
 import {
 	createInspectProjectTool,
 	type InspectProjectBridge,
-} from "../../blender-tools/src/inspect-project.ts";
+} from "@oh-my-blender/blender-tools/src/inspect-project.ts";
 import {
 	BundledDirectorResourceLoader,
 	DIRECTOR_PROMPT_DIGEST,

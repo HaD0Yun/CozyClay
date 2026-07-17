@@ -18,7 +18,7 @@ from oh_my_blender.canonical import (  # noqa: E402
     canonical_string,
 )
 
-FIXTURES = REPOSITORY_ROOT / "packages" / "blender-director" / "test" / "fixtures"
+FIXTURES = REPOSITORY_ROOT / "packages" / "blender-protocol" / "test" / "fixtures"
 
 
 class CanonicalNumberTest(unittest.TestCase):

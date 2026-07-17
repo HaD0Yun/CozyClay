@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+from os import PathLike
 import re
 import selectors
 import subprocess
@@ -23,8 +24,14 @@ class DaemonChild:
         self.process = process
 
     @classmethod
-    def spawn(cls, argv: Sequence[str]) -> "DaemonChild":
-        return cls(subprocess.Popen(list(argv), stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+    def spawn(
+        cls, argv: Sequence[str], *, cwd: str | PathLike[str] | None = None
+    ) -> "DaemonChild":
+        return cls(
+            subprocess.Popen(
+                list(argv), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+        )
 
     def kill(self) -> None:
         if self.process.poll() is None:

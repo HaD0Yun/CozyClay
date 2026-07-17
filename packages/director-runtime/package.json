@@ -4,11 +4,15 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"test": "node --import tsx --test test/*.test.ts"
+		"test": "node --import tsx --test test/*.test.ts",
+		"demo": "node --import tsx src/demo.ts"
 	},
 	"dependencies": {
 		"@earendil-works/pi-ai": "^0.80.9",
 		"@earendil-works/pi-coding-agent": "^0.80.9",
+		"@oh-my-blender/blender-tools": "0.1.0",
+		"@oh-my-blender/director-core": "0.1.0",
+		"@oh-my-blender/protocol": "0.1.0",
 		"typebox": "1.1.38"
 	}
 }

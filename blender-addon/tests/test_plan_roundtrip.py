@@ -17,8 +17,8 @@ from oh_my_blender.snapshot import (  # noqa: E402
     snapshot_revision,
 )
 
-PLAN_PATH = REPOSITORY_ROOT / "packages/blender-director/test/fixtures/ardy-camera-plan-v4.json"
-SNAPSHOT_PATH = REPOSITORY_ROOT / "packages/blender-director/test/fixtures/blender-exported-snapshot.json"
+PLAN_PATH = REPOSITORY_ROOT / "packages/blender-protocol/test/fixtures/ardy-camera-plan-v4.json"
+SNAPSHOT_PATH = REPOSITORY_ROOT / "packages/blender-protocol/test/fixtures/blender-exported-snapshot.json"
 if not SNAPSHOT_PATH.exists():
     raise unittest.SkipTest("generated Blender snapshot fixture is absent")
 
