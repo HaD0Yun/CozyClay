@@ -220,9 +220,10 @@ from plan to Blender scene, applied by the fixture builder (and later by `apply_
   frame N. Markers make cuts first-class in the snapshot instead of an inference over keyframe
   spacing.
 - Plan `up` must be `[0, 1, 0]` in v1; anything else is `UNSUPPORTED_PLAN_UP`.
-- Nondegeneracy preconditions: `position != look_at` and the viewing direction must not be
-  (anti)parallel to `up`; either degeneracy makes the basis singular and is rejected as
-  `UNSUPPORTED_PLAN_POSE`. Vertical (pole) shots are intentionally unsupported in v1.
+- Nondegeneracy preconditions: `|look_at - position| >= 1e-9`, and the angular sine between the
+  viewing direction and `up` must be `>= 1e-9` (i.e. `|up × direction| >= 1e-9 · |direction|`
+  with unit `up`); violations are rejected as `UNSUPPORTED_PLAN_POSE`. Vertical (pole) shots are
+  intentionally unsupported in v1.
 - Round-trip verification compares plan-derived pose values against snapshot f-curve values with
   absolute tolerance `1e-6` (euler/quaternion conversion is not byte-exact); the snapshot hash
   itself remains byte-exact.
