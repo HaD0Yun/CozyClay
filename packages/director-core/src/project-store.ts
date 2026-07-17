@@ -1,7 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 export interface DirectorProject extends Record<string, unknown> {
 	project_id: string;
@@ -12,8 +12,11 @@ export interface DirectorProject extends Record<string, unknown> {
 export type ProjectStoreErrorCode = "PROJECT_NOT_FOUND" | "PROJECT_CORRUPT" | "PROJECT_INVALID";
 
 export class ProjectStoreError extends Error {
-	constructor(readonly code: ProjectStoreErrorCode, message: string, options?: ErrorOptions) {
+	readonly code: ProjectStoreErrorCode;
+
+	constructor(code: ProjectStoreErrorCode, message: string, options?: ErrorOptions) {
 		super(message, options);
+		this.code = code;
 		this.name = "ProjectStoreError";
 	}
 }
@@ -21,9 +24,14 @@ export class ProjectStoreError extends Error {
 function isProject(value: unknown): value is DirectorProject {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
 	const project = value as Record<string, unknown>;
-	return typeof project.project_id === "string" && project.project_id.length > 0
-		&& Number.isInteger(project.schema_version) && (project.schema_version as number) >= 1
-		&& typeof project.current_revision_id === "string" && project.current_revision_id.length > 0;
+	return (
+		typeof project.project_id === "string" &&
+		project.project_id.length > 0 &&
+		Number.isInteger(project.schema_version) &&
+		(project.schema_version as number) >= 1 &&
+		typeof project.current_revision_id === "string" &&
+		project.current_revision_id.length > 0
+	);
 }
 
 export class ProjectStore {
@@ -31,7 +39,10 @@ export class ProjectStore {
 	readonly projectPath: string;
 	readonly journalPath: string;
 
-	constructor(readonly rootDir: string) {
+	readonly rootDir: string;
+
+	constructor(rootDir: string) {
+		this.rootDir = rootDir;
 		this.ombDirectory = join(rootDir, ".omb");
 		this.projectPath = join(this.ombDirectory, "project.json");
 		this.journalPath = join(this.ombDirectory, "journal.jsonl");
@@ -85,7 +96,8 @@ export class ProjectStore {
 		} catch (error) {
 			throw new ProjectStoreError("PROJECT_CORRUPT", "project.json is not valid JSON", { cause: error });
 		}
-		if (!isProject(project)) throw new ProjectStoreError("PROJECT_INVALID", "project.json has invalid required fields");
+		if (!isProject(project))
+			throw new ProjectStoreError("PROJECT_INVALID", "project.json has invalid required fields");
 		return project;
 	}
 }

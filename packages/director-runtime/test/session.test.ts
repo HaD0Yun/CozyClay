@@ -9,7 +9,9 @@ import { createDirectorSession } from "../src/session.ts";
 
 describe("director runtime session", () => {
 	const unregister: Array<() => void> = [];
-	afterEach(() => { while (unregister.length > 0) unregister.pop()?.(); });
+	afterEach(() => {
+		while (unregister.length > 0) unregister.pop()?.();
+	});
 
 	it("calls inspect_project through a live bridge in a real AgentSession", async () => {
 		const faux = registerFauxProvider();
@@ -23,11 +25,21 @@ describe("director runtime session", () => {
 		const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
 		const model = faux.getModel();
 		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
-		const fixture = JSON.parse(await readFile(new URL("../../blender-protocol/test/fixtures/blender-exported-snapshot.json", import.meta.url), "utf8"));
+		const fixture = JSON.parse(
+			await readFile(
+				new URL("../../blender-protocol/test/fixtures/blender-exported-snapshot.json", import.meta.url),
+				"utf8",
+			),
+		);
 		const manifest = createProjectManifest(parseSceneSnapshot(fixture));
 		let calls = 0;
 		const session = await createDirectorSession({
-			bridge: { inspectProject: async () => { calls += 1; return manifest; } },
+			bridge: {
+				inspectProject: async () => {
+					calls += 1;
+					return manifest;
+				},
+			},
 			model,
 			modelRuntime,
 		});

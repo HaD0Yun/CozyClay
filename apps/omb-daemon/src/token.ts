@@ -8,8 +8,10 @@ export class BearerToken {
 	private bytes: Buffer;
 	private expiresAt: number | undefined;
 	private consumed = false;
+	private readonly clock: Clock;
 
-	constructor(private readonly clock: Clock = systemClock, bytes = randomBytes(32)) {
+	constructor(clock: Clock = systemClock, bytes = randomBytes(32)) {
+		this.clock = clock;
 		if (bytes.length !== 32) throw new Error("bearer token must be 32 bytes");
 		this.bytes = Buffer.from(bytes);
 		this.value = this.bytes.toString("base64url");

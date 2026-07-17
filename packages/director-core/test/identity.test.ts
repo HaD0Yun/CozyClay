@@ -12,7 +12,8 @@ describe("stable identity (architecture §6)", () => {
 			"123e4567e89b42d3a456426614174000",
 			"not-a-uuid",
 			42,
-		]) assert.equal(isUuidV4Lowercase(invalid), false, String(invalid));
+		])
+			assert.equal(isUuidV4Lowercase(invalid), false, String(invalid));
 	});
 
 	it("generates lowercase UUIDv4 values", () => {

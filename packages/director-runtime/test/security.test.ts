@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import {
-	BundledDirectorResourceLoader,
-	DIRECTOR_PROMPT,
-	DIRECTOR_PROMPT_DIGEST,
-} from "../src/resource-loader.ts";
+import { type BundledDirectorResourceLoader, DIRECTOR_PROMPT, DIRECTOR_PROMPT_DIGEST } from "../src/resource-loader.ts";
 import { createDirectorSession, DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
 
 async function seedHostileResources(root: string, suffix = "startup") {
@@ -64,7 +60,11 @@ describe("hostile local resource isolation", () => {
 		const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
 		const model = faux.getModel();
 		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
-		const bridge = { inspectProject: async () => { throw new Error("not invoked"); } };
+		const bridge = {
+			inspectProject: async () => {
+				throw new Error("not invoked");
+			},
+		};
 
 		const first = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir });
 		const firstLoader = first.resourceLoader as BundledDirectorResourceLoader;
@@ -79,7 +79,10 @@ describe("hostile local resource isolation", () => {
 
 			const beforeDigest = firstLoader.promptDigest();
 			assert.throws(
-				() => firstLoader.extendResources({ skillPaths: [{ path: join(projectDir, ".pi/skills"), metadata: {} as never }] }),
+				() =>
+					firstLoader.extendResources({
+						skillPaths: [{ path: join(projectDir, ".pi/skills"), metadata: {} as never }],
+					}),
 				/RESOURCE_EXTENSION_DENIED/,
 			);
 			assert.equal(firstLoader.promptDigest(), beforeDigest);

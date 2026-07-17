@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createProjectManifest, parseSceneSnapshot } from "@oh-my-blender/protocol/src/snapshot.ts";
+import { createProjectManifest, parseSceneSnapshot } from "@oh-my-blender/protocol";
 import { createDirectorSession } from "./session.ts";
 
 const flagIndex = process.argv.indexOf("--manifest");
@@ -13,16 +13,30 @@ const raw: unknown = JSON.parse(await readFile(resolve(process.env.INIT_CWD ?? p
 const manifest = createProjectManifest(parseSceneSnapshot(raw));
 const faux = registerFauxProvider();
 try {
-	faux.setResponses([fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }), fauxAssistantMessage("scene inspected")]);
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+		fauxAssistantMessage("scene inspected"),
+	]);
 	const credentials = new InMemoryCredentialStore();
 	await credentials.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
 	const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
 	const model = faux.getModel();
 	modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
-	const session = await createDirectorSession({ bridge: { inspectProject: async () => manifest }, model, modelRuntime });
+	const session = await createDirectorSession({
+		bridge: { inspectProject: async () => manifest },
+		model,
+		modelRuntime,
+	});
 	try {
 		await session.prompt("Inspect the current Blender project before directing it.");
-		if (!session.messages.some((message) => message.role === "toolResult")) throw new Error("Pi completed without inspecting the Blender project");
-		process.stdout.write(`${JSON.stringify({ status: "ok", piTool: "inspect_project", revision: manifest.revision, scene: manifest.snapshot.scene.name, objects: manifest.snapshot.objects.map((object) => object.name) })}\n`);
-	} finally { session.dispose(); }
-} finally { faux.unregister(); }
+		if (!session.messages.some((message) => message.role === "toolResult"))
+			throw new Error("Pi completed without inspecting the Blender project");
+		process.stdout.write(
+			`${JSON.stringify({ status: "ok", piTool: "inspect_project", revision: manifest.revision, scene: manifest.snapshot.scene.name, objects: manifest.snapshot.objects.map((object) => object.name) })}\n`,
+		);
+	} finally {
+		session.dispose();
+	}
+} finally {
+	faux.unregister();
+}

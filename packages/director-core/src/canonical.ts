@@ -72,8 +72,7 @@ function compareCodePoints(left: string, right: string): number {
 	const rightPoints = [...right];
 	const shared = Math.min(leftPoints.length, rightPoints.length);
 	for (let index = 0; index < shared; index++) {
-		const difference =
-			(leftPoints[index].codePointAt(0) as number) - (rightPoints[index].codePointAt(0) as number);
+		const difference = (leftPoints[index].codePointAt(0) as number) - (rightPoints[index].codePointAt(0) as number);
 		if (difference !== 0) return difference;
 	}
 	return leftPoints.length - rightPoints.length;
@@ -101,5 +100,7 @@ export function canonicalJson(value: unknown): string {
 
 /** Lowercase-hex SHA-256 of the UTF-8 canonical bytes. */
 export function canonicalRevision(value: unknown): string {
-	return createHash("sha256").update(Buffer.from(canonicalJson(value), "utf8")).digest("hex");
+	return createHash("sha256")
+		.update(Buffer.from(canonicalJson(value), "utf8"))
+		.digest("hex");
 }

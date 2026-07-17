@@ -179,9 +179,10 @@ describe("scene manifest v2", () => {
 	});
 
 	it("matches the committed cross-language parity fixture", () => {
-		const fixture = JSON.parse(
-			readFileSync(new URL("fixtures/parity-snapshot.json", import.meta.url), "utf8"),
-		) as { revision: string; snapshot: unknown };
+		const fixture = JSON.parse(readFileSync(new URL("fixtures/parity-snapshot.json", import.meta.url), "utf8")) as {
+			revision: string;
+			snapshot: unknown;
+		};
 		const snapshot = parseSceneSnapshot(fixture.snapshot);
 		assert.equal(createProjectManifest(snapshot).revision, fixture.revision);
 	});

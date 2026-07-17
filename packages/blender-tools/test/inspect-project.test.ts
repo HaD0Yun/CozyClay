@@ -11,7 +11,7 @@ describe("inspect_project", () => {
 		const tool = createInspectProjectTool({ inspectProject: async () => current });
 		const replacement = { ...manifest, revision: "revision-new" };
 		current = replacement;
-		const result = await tool.execute({}, undefined as never);
+		const result = await tool.execute("test", {}, undefined, undefined, undefined as never);
 		assert.equal(tool.name, "inspect_project");
 		assert.equal(tool.label, "inspect_project");
 		assert.equal(result.content[0]?.type, "text");
@@ -21,7 +21,11 @@ describe("inspect_project", () => {
 
 	it("surfaces bridge rejection as a tool error", async () => {
 		const failure = new Error("bridge unavailable");
-		const tool = createInspectProjectTool({ inspectProject: async () => { throw failure; } });
-		await assert.rejects(tool.execute({}, undefined as never), failure);
+		const tool = createInspectProjectTool({
+			inspectProject: async () => {
+				throw failure;
+			},
+		});
+		await assert.rejects(tool.execute("test", {}, undefined, undefined, undefined as never), failure);
 	});
 });

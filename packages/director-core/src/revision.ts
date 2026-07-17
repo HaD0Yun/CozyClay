@@ -4,7 +4,9 @@ import { canonicalRevision } from "./canonical.ts";
 const REVISION_DOMAIN = "omb-revision-v1\0";
 
 function hashPreimage(fields: readonly string[]): string {
-	return createHash("sha256").update(Buffer.from(REVISION_DOMAIN + fields.join("\0"), "utf8")).digest("hex");
+	return createHash("sha256")
+		.update(Buffer.from(REVISION_DOMAIN + fields.join("\0"), "utf8"))
+		.digest("hex");
 }
 
 export function sceneHash(snapshot: unknown): string {

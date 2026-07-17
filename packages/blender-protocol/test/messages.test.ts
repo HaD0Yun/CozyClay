@@ -12,8 +12,20 @@ import {
 } from "../src/messages.ts";
 
 const messageTypes = [
-	"omb_daemon_ready", "hello", "hello_ack", "request", "progress", "response", "error",
-	"cancel", "cancel_ack", "rollback_ack", "shutdown", "shutdown_ack", "ping", "pong",
+	"omb_daemon_ready",
+	"hello",
+	"hello_ack",
+	"request",
+	"progress",
+	"response",
+	"error",
+	"cancel",
+	"cancel_ack",
+	"rollback_ack",
+	"shutdown",
+	"shutdown_ack",
+	"ping",
+	"pong",
 ] as const;
 const clientTypes = new Set(["hello", "request", "cancel", "rollback_ack", "shutdown", "ping"]);
 const directParsers: Record<string, (input: unknown) => unknown> = {

@@ -1,7 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { canonicalRevision } from "@oh-my-blender/director-core/src/canonical.ts";
-import { parseSceneSnapshot } from "@oh-my-blender/protocol/src/snapshot.ts";
+import { canonicalRevision } from "@oh-my-blender/director-core";
+import { parseSceneSnapshot } from "@oh-my-blender/protocol";
 import { createDirectorSession } from "./session.ts";
 
 const INSPECT_INSTRUCTION = "Inspect the current Blender project before directing it.";

@@ -6,12 +6,7 @@ const NameSchema = Type.String({ minLength: 1, maxLength: 256 });
 const NullableNameSchema = Type.Union([NameSchema, Type.Null()]);
 const Vector2Schema = Type.Tuple([Type.Number(), Type.Number()]);
 const Vector3Schema = Type.Tuple([Type.Number(), Type.Number(), Type.Number()]);
-const QuaternionSchema = Type.Tuple([
-	Type.Number(),
-	Type.Number(),
-	Type.Number(),
-	Type.Number(),
-]);
+const QuaternionSchema = Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()]);
 
 const SceneSchema = Type.Object(
 	{
@@ -51,11 +46,7 @@ const CameraSchema = Type.Object(
 	{
 		name: NameSchema,
 		lens: Type.Number({ exclusiveMinimum: 0 }),
-		sensorFit: Type.Union([
-			Type.Literal("AUTO"),
-			Type.Literal("HORIZONTAL"),
-			Type.Literal("VERTICAL"),
-		]),
+		sensorFit: Type.Union([Type.Literal("AUTO"), Type.Literal("HORIZONTAL"), Type.Literal("VERTICAL")]),
 		sensorWidth: Type.Number({ exclusiveMinimum: 0 }),
 		sensorHeight: Type.Number({ exclusiveMinimum: 0 }),
 		verticalFovRadians: Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: Math.PI }),
@@ -147,7 +138,6 @@ function validateQuaternion(quaternion: readonly [number, number, number, number
 	}
 }
 
-
 function compareCodePoints(left: string, right: string): number {
 	const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
 	const rightPoints = Array.from(right, (value) => value.codePointAt(0)!);
@@ -232,7 +222,9 @@ function validateSnapshot(snapshot: SceneSnapshot): void {
 		for (const fcurve of animation.fcurves) {
 			for (let index = 1; index < fcurve.keyframes.length; index += 1) {
 				if (fcurve.keyframes[index - 1]!.frame >= fcurve.keyframes[index]!.frame) {
-					throw new Error(`keyframe frames must be strictly increasing: ${animation.objectName}/${fcurve.dataPath}`);
+					throw new Error(
+						`keyframe frames must be strictly increasing: ${animation.objectName}/${fcurve.dataPath}`,
+					);
 				}
 			}
 		}

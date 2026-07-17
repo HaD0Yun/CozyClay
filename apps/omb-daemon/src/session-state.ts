@@ -6,7 +6,9 @@ export type ActiveRequest = { id:string; phase:RequestPhase; controller:AbortCon
 
 export class SessionState {
 	private active?: ActiveRequest; private tokens=4; private refilledAt:number;
-	constructor(private readonly clock:Clock, private readonly wake:(request:ActiveRequest)=>void) { this.refilledAt=clock.now(); }
+	private readonly clock: Clock;
+	private readonly wake: (request: ActiveRequest) => void;
+	constructor(clock:Clock, wake:(request:ActiveRequest)=>void) { this.clock=clock;this.wake=wake;this.refilledAt=clock.now(); }
 	consumeToken(): boolean { const now=this.clock.now();this.tokens=Math.min(4,this.tokens+(now-this.refilledAt)/1000);this.refilledAt=now;if(this.tokens<1)return false;this.tokens-=1;return true; }
 	get current():ActiveRequest|undefined{return this.active;}
 	begin(id:string, deadlineMs:number): "ok"|"busy" { if(this.active && this.active.phase!=="terminal")return "busy";const r:ActiveRequest={id,phase:"running",controller:new AbortController()};this.active=r;r.timer=setTimeout(()=>{if(this.cas(r,"running","cancelling")){r.cause="TIMEOUT";r.controller.abort();this.wake(r);}},deadlineMs);return "ok"; }

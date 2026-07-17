@@ -5,14 +5,8 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-	createInspectProjectTool,
-	type InspectProjectBridge,
-} from "@oh-my-blender/blender-tools/src/inspect-project.ts";
-import {
-	BundledDirectorResourceLoader,
-	DIRECTOR_PROMPT_DIGEST,
-} from "./resource-loader.ts";
+import { createInspectProjectTool, type InspectProjectBridge } from "@oh-my-blender/blender-tools";
+import { BundledDirectorResourceLoader, DIRECTOR_PROMPT_DIGEST } from "./resource-loader.ts";
 
 export const DIRECTOR_TOOL_ALLOWLIST = ["inspect_project"] as const;
 

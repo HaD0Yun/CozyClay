@@ -2,7 +2,7 @@
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createInspectHandler } from "@oh-my-blender/director-runtime/src/inspect-service.ts";
+import { createInspectHandler } from "@oh-my-blender/director-runtime";
 import { start } from "./daemon.ts";
 
 const index = process.argv.indexOf("--port");

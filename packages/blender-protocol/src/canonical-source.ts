@@ -1,1 +1,1 @@
-export * from "@oh-my-blender/director-core/src/canonical.ts";
+export * from "@oh-my-blender/director-core";
