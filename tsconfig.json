@@ -22,6 +22,12 @@
 			"@earendil-works/pi-agent-old/*": ["./packages/agent-old/src/*"]
 		}
 	},
-	"include": ["packages/*/src/**/*", "packages/*/test/**/*", "packages/coding-agent/examples/**/*"],
+	"include": [
+		"packages/*/src/**/*",
+		"packages/*/test/**/*",
+		"apps/*/src/**/*",
+		"apps/*/test/**/*",
+		"packages/coding-agent/examples/**/*"
+	],
 	"exclude": ["**/dist/**", "packages/coding-agent/examples/extensions/gondolin/**"]
 }
