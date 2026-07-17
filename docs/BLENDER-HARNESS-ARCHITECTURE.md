@@ -429,3 +429,63 @@ npm run test:omb-roundtrip
 ```
 
 Do not add motion generation, camera authoring, rendering, marketplace support, or a custom GUI in the first commit.
+
+## 15. Base gaps resolved before Phase 2
+
+The read-only slice exposed four base-level questions the sections above do not answer. These
+decisions are normative; mutation work must not start while any of them is unimplemented.
+
+### 15.1 Coordinate convention
+
+- **Blender scene space (Z-up, right-handed) is the only ground truth.** Snapshots, revisions,
+  hashes, patches, and hard gates all operate in Blender space exclusively.
+- **ARDY camera plan v1 is declared a Y-up document** and is converted exactly once, at plan
+  ingestion, by `(x, y, z)_ardy → (x, −z, y)_blender` applied to `position` and `look_at`, with
+  plan `up = [0, 1, 0]` mapping to Blender `[0, 0, 1]`. No other component may convert axes;
+  motion import (FBX/BVH) must land in Blender space at its own ingestion boundary.
+- The current fixture builder interprets plan coordinates literally (Y-up basis inside a Z-up
+  world). That is acceptable only for the hash round-trip proof; `apply_camera_plan` must ship
+  the ingestion conversion, and the fixture builder and SCENE-SNAPSHOT-V2 §5 must be amended in
+  the same change so both construct scenically coherent Z-up scenes.
+
+### 15.2 Snapshot tiering for real characters
+
+- The 1 MiB inline snapshot serves the structure/camera tier only. A rigged character
+  (hundreds of bones × hundreds of frames × 4+ channels) exceeds it by design, not by accident.
+- `inspect_project(scope, frame_range)` resolves this with tiers, not a bigger cap:
+  `structure` (objects/cameras/markers, no f-curves), `camera` (current v2 content), and
+  `animation(target, frame_range)` (windowed channels). Heavy channel data is persisted as
+  `omb-artifact://sha256/<digest>` motion artifacts per §6; the manifest stores per-entity
+  channel hashes so revisions stay cheap while motion bytes stay out of line.
+- The v2 whole-document hash remains the revision identity; per-entity hashes are a Merkle
+  refinement inside `SceneManifestV1`, not a second identity scheme.
+
+### 15.3 Concurrent user edits and undo
+
+- **The agent never locks the user out of their own scene.** Correctness comes from
+  invalidation, not exclusion: the add-on's depsgraph observer marks the live revision dirty on
+  any change not produced by the active agent patch, and every mutation re-verifies the live
+  scene hash against `expected_revision_id` on the main thread immediately before applying.
+  Dirty state fails the request with `STALE_BASE`; recovery is re-inspect, never force-apply.
+- **Agent checkpoints are scoped value snapshots, not global undo steps.** The add-on serializes
+  the pre-state of exactly the entities a typed patch will touch and restores by rewriting those
+  values. Blender's global undo stack is user territory: a user Ctrl+Z that alters agent-touched
+  state is simply another external edit caught by the observer/stale-base path. The add-on never
+  calls `ed.undo`/`ed.undo_push` on the model's behalf.
+- Long mutations run in timer-budgeted slices on the main thread (target ≤ 33 ms per tick) with
+  `progress` frames per §4; a patch that cannot be sliced must declare it and hold the UI for a
+  bounded, validated duration.
+
+### 15.4 Deferred to the motion track (owners assigned)
+
+- `analyze_motion(target, frame_range)` joins the internal bridge operations (§7): joint
+  velocity/acceleration extrema, contact events, and quiet valleys computed with Blender's
+  bundled NumPy; cut-placement preconditions consume its output.
+- `docs/DIRECTING-RULES.md` becomes the normative rulebook that turns the research corpus into
+  typed tool preconditions: cut placement at measured motion valleys, action peaks never split,
+  reciprocal scale change per cut ≤ 1.35×, 45–52 mm framing band, axis/line state transitions.
+- The evidence packet for visual observation (which render passes, proxy resolution, color
+  management, and how images enter Pi tool results) is specified together with
+  `assemble_preview`.
+- The rig-mapping contract (HumanML3D/Mixamo skeleton → armature bone names) is specified with
+  `generate_or_import_motion`, before any motion artifact is accepted.
