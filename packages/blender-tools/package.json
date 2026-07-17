@@ -1,0 +1,13 @@
+{
+	"name": "@oh-my-blender/blender-tools",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "node --import tsx --test test/*.test.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "^0.80.9",
+		"typebox": "1.1.38"
+	}
+}

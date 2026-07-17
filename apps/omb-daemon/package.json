@@ -1,0 +1,7 @@
+{
+  "name": "@oh-my-blender/omb-daemon",
+  "private": true,
+  "type": "module",
+  "bin": { "omb-daemon": "src/main.ts" },
+  "scripts": { "test": "node --import tsx --test test/*.test.ts" }
+}
