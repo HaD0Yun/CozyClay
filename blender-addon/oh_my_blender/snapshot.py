@@ -50,6 +50,36 @@ class UNSUPPORTED_PLAN_UP(ExportError):
     code = "UNSUPPORTED_PLAN_UP"
 
 
+class UNSUPPORTED_PLAN_POSE(ExportError):
+    code = "UNSUPPORTED_PLAN_POSE"
+
+
+_POSE_EPSILON = 1e-9
+
+
+def validate_plan_pose(
+    position: Sequence[float], look_at: Sequence[float], up: Sequence[float]
+) -> None:
+    """Reject camera poses that cannot form the section 5 right-handed basis.
+
+    A coincident position/target or a viewing direction (anti)parallel to the
+    plan up vector produces a singular basis; fail closed instead of emitting
+    a quaternion that does not implement the requested look-at pose.
+    """
+    direction = [float(t) - float(p) for t, p in zip(look_at, position)]
+    if not all(math.isfinite(value) for value in [*direction, *up]):
+        raise EXPORT_NONFINITE("plan pose contains NaN or infinity")
+    if math.hypot(*direction) < _POSE_EPSILON:
+        raise UNSUPPORTED_PLAN_POSE("plan pose position and look_at coincide")
+    cross = [
+        up[1] * direction[2] - up[2] * direction[1],
+        up[2] * direction[0] - up[0] * direction[2],
+        up[0] * direction[1] - up[1] * direction[0],
+    ]
+    if math.hypot(*cross) < _POSE_EPSILON * math.hypot(*direction):
+        raise UNSUPPORTED_PLAN_POSE("plan pose view direction is collinear with up")
+
+
 def canonical_quaternion(values: Sequence[float]) -> list[float]:
     """Normalize and sign-canonicalize a ``[w, x, y, z]`` quaternion."""
     if len(values) != 4:

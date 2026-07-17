@@ -17,11 +17,13 @@ from oh_my_blender.snapshot import (  # noqa: E402
     UNSUPPORTED_FCURVE_FEATURE,
     UNSUPPORTED_FPS_BASE,
     UNSUPPORTED_LINKED_DATABLOCK,
+    UNSUPPORTED_PLAN_POSE,
     UNSUPPORTED_PLAN_UP,
     ExportError,
     assemble_snapshot,
     canonical_quaternion,
     snapshot_revision,
+    validate_plan_pose,
 )
 
 
@@ -151,6 +153,24 @@ class ExportErrorSurfaceTest(unittest.TestCase):
         }
         self.assertEqual({error_type().code for error_type in error_types}, expected)
         self.assertTrue(all(issubclass(error_type, ExportError) for error_type in error_types))
+
+
+class ValidatePlanPoseTest(unittest.TestCase):
+    def test_valid_pose_passes(self) -> None:
+        validate_plan_pose([0.0, 2.15, 5.2], [0.0, 0.9, 0.0], [0.0, 1.0, 0.0])
+
+    def test_coincident_position_and_target_rejected(self) -> None:
+        with self.assertRaises(UNSUPPORTED_PLAN_POSE):
+            validate_plan_pose([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [0.0, 1.0, 0.0])
+
+    def test_up_collinear_view_rejected(self) -> None:
+        for target_y in (7.0, -7.0):
+            with self.subTest(target_y=target_y), self.assertRaises(UNSUPPORTED_PLAN_POSE):
+                validate_plan_pose([0.0, 2.0, 0.0], [0.0, target_y, 0.0], [0.0, 1.0, 0.0])
+
+    def test_nonfinite_pose_rejected(self) -> None:
+        with self.assertRaises(EXPORT_NONFINITE):
+            validate_plan_pose([0.0, float("nan"), 0.0], [0.0, 0.9, 0.0], [0.0, 1.0, 0.0])
 
 
 if __name__ == "__main__":

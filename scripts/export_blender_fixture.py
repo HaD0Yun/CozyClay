@@ -16,7 +16,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
 from oh_my_blender import manifest
-from oh_my_blender.snapshot import UNSUPPORTED_PLAN_UP
+from oh_my_blender.snapshot import UNSUPPORTED_PLAN_UP, validate_plan_pose
 
 
 class FixtureCreationError(RuntimeError):
@@ -56,8 +56,10 @@ def main() -> None:
     if keyframes[0]["transition"] != "smooth":
         raise FixtureCreationError("the first keyframe transition must be 'smooth'")
     for keyframe in keyframes:
-        if keyframe["pose"]["up"] != [0, 1, 0]:
+        pose = keyframe["pose"]
+        if pose["up"] != [0, 1, 0]:
             raise UNSUPPORTED_PLAN_UP(f"frame {keyframe['frame']} up must be [0, 1, 0]")
+        validate_plan_pose(pose["position"], pose["look_at"], pose["up"])
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
