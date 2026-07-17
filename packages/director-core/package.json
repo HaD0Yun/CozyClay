@@ -1,0 +1,9 @@
+{
+	"name": "@oh-my-blender/director-core",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "node --import tsx --test test/*.test.ts"
+	}
+}

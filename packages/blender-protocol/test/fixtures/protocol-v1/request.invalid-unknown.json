@@ -1,0 +1,1 @@
+{"type":"request","id":"123e4567-e89b-42d3-a456-426614174000","method":"inspect_project","params":{},"expected_revision_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","deadline_ms":1000,"unknown":true}
