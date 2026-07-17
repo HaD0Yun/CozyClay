@@ -1,17 +1,20 @@
-"""Create a deterministic Blender fixture and export its scene snapshot."""
+"""Apply an ARDY camera plan to a deterministic Blender scene and export it."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 import bpy
+from mathutils import Vector
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender.manifest import write_scene_snapshot
+from oh_my_blender import manifest
+from oh_my_blender.snapshot import UNSUPPORTED_PLAN_UP
 
 
 class FixtureCreationError(RuntimeError):
@@ -21,25 +24,89 @@ class FixtureCreationError(RuntimeError):
 def _arguments() -> argparse.Namespace:
     blender_arguments = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
+    parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(blender_arguments)
 
 
+
+def _set_interpolation(
+    animation_data: object, frame: int | None, interpolation: str
+) -> None:
+    action = animation_data.action
+    for fcurve in manifest.action_fcurves(action):
+        for point in fcurve.keyframe_points:
+            if frame is None or point.co.x == frame:
+                point.interpolation = interpolation
+                point.handle_left_type = "AUTO_CLAMPED"
+                point.handle_right_type = "AUTO_CLAMPED"
+
+
 def main() -> None:
     arguments = _arguments()
+    plan = json.loads(arguments.plan.read_text(encoding="utf-8"))
+    keyframes = plan["keyframes"]
+    for keyframe in keyframes:
+        if keyframe["pose"]["up"] != [0, 1, 0]:
+            raise UNSUPPORTED_PLAN_UP(f"frame {keyframe['frame']} up must be [0, 1, 0]")
+
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.name = "Boxing Demo"
-    scene.frame_start = 1
-    scene.frame_end = 384
+    scene.frame_start = 0
+    scene.frame_end = max(keyframe["frame"] for keyframe in keyframes)
     scene.render.fps = 24
+    scene.render.resolution_x = plan["output_format"]["width"]
+    scene.render.resolution_y = plan["output_format"]["height"]
+    scene.render.resolution_percentage = 100
+
     bpy.ops.mesh.primitive_cube_add(location=(0.0, 0.0, 1.0))
     fighter = bpy.context.active_object
     if fighter is None:
         raise FixtureCreationError("Blender did not create the fixture object")
     fighter.name = "Fighter"
-    write_scene_snapshot(arguments.output)
-    print(f"OMB_SNAPSHOT={arguments.output}")
+
+    camera_data = bpy.data.cameras.new("ARDY_CinematicCamera")
+    camera_data.sensor_fit = "VERTICAL"
+    camera = bpy.data.objects.new("ARDY_CinematicCamera", camera_data)
+    scene.collection.objects.link(camera)
+    scene.camera = camera
+    camera.rotation_mode = "QUATERNION"
+
+    for keyframe in keyframes:
+        frame = keyframe["frame"]
+        pose = keyframe["pose"]
+        camera.location = pose["position"]
+        direction = Vector(pose["look_at"]) - Vector(pose["position"])
+        camera.rotation_quaternion = direction.to_track_quat("-Z", "Y")
+        camera_data.angle = pose["vertical_fov_radians"]
+        camera.keyframe_insert(data_path="location", frame=frame)
+        camera.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+        # Blender 5.1 exposes Camera.angle as settable but not directly animatable.
+        # Seed an F-curve through lens, then retarget it to the protocol's angle path.
+        camera_data.keyframe_insert(data_path="lens", frame=frame)
+    angle_curve = next(
+        fcurve
+        for fcurve in manifest.action_fcurves(camera_data.animation_data.action)
+        if fcurve.data_path == "lens"
+    )
+    angle_curve.data_path = "angle"
+    for point, keyframe in zip(angle_curve.keyframe_points, keyframes, strict=True):
+        point.co.y = keyframe["pose"]["vertical_fov_radians"]
+
+    _set_interpolation(camera.animation_data, None, "BEZIER")
+    _set_interpolation(camera_data.animation_data, None, "BEZIER")
+    for index, keyframe in enumerate(keyframes):
+        if keyframe["transition"] != "cut":
+            continue
+        previous_frame = keyframes[index - 1]["frame"]
+        _set_interpolation(camera.animation_data, previous_frame, "CONSTANT")
+        _set_interpolation(camera_data.animation_data, previous_frame, "CONSTANT")
+        marker = scene.timeline_markers.new(f"CUT_{keyframe['frame']}", frame=keyframe["frame"])
+        marker.camera = camera
+
+    revision = manifest.write_scene_snapshot(arguments.output)
+    print(f"OMB_REVISION={revision}")
 
 
 main()

@@ -32,9 +32,19 @@ describe("Blender director session", () => {
 		});
 		const manifest = createProjectManifest(
 			parseSceneSnapshot({
-				schemaVersion: 1,
-				scene: { name: "Boxing", frameStart: 1, frameEnd: 384, fps: 24 },
+				schemaVersion: 2,
+				scene: {
+					name: "Boxing",
+					frameStart: 1,
+					frameEnd: 384,
+					fps: 24,
+					activeCamera: null,
+				},
+				render: { resolutionX: 1920, resolutionY: 1080, resolutionPercentage: 100 },
 				objects: [],
+				cameras: [],
+				markers: [],
+				animations: [],
 			}),
 		);
 
