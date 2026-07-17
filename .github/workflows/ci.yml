@@ -40,3 +40,70 @@ jobs:
 
       - name: Test
         run: npm test
+
+  blender-addon-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run headless add-on tests
+        run: python3 -m unittest discover -s blender-addon/tests -v
+
+  blender-export-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Cache Blender
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: ~/blender-5.1.2
+          key: blender-5.1.2-linux-x64
+
+      - name: Download pinned Blender 5.1.2
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/blender.tar.xz https://download.blender.org/release/Blender5.1/blender-5.1.2-linux-x64.tar.xz
+          mkdir -p ~/blender-5.1.2
+          tar -xJf /tmp/blender.tar.xz -C ~/blender-5.1.2 --strip-components=1
+
+      - name: Export twice and require identical canonical revisions
+        run: |
+          BLENDER=~/blender-5.1.2/blender
+          PLAN=packages/blender-director/test/fixtures/ardy-camera-plan-v4.json
+          "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-a.json | tee /tmp/export-a.log
+          "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-b.json | tee /tmp/export-b.log
+          cmp /tmp/export-a.json /tmp/export-b.json
+          REV_A=$(grep -o 'OMB_REVISION=[0-9a-f]*' /tmp/export-a.log | cut -d= -f2)
+          REV_B=$(grep -o 'OMB_REVISION=[0-9a-f]*' /tmp/export-b.log | cut -d= -f2)
+          test -n "$REV_A" && test "$REV_A" = "$REV_B"
+          echo "OMB_REVISION=$REV_A" >> "$GITHUB_ENV"
+
+      - name: Cross-language parity on the fresh export
+        run: |
+          node --import tsx --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { parseSceneSnapshot, createProjectManifest } from "./packages/blender-director/src/manifest.ts";
+            const snapshot = parseSceneSnapshot(JSON.parse(readFileSync("/tmp/export-a.json", "utf8")));
+            const revision = createProjectManifest(snapshot).revision;
+            const expected = process.env.OMB_REVISION;
+            if (revision !== expected) throw new Error(`parity mismatch: ts=${revision} python=${expected}`);
+            console.log(`cross-language parity ok: ${revision}`);
+          '

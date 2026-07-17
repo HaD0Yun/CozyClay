@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+import traceback
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
@@ -33,19 +35,26 @@ def _arguments() -> argparse.Namespace:
 def _set_interpolation(
     animation_data: object, frame: int | None, interpolation: str
 ) -> None:
-    action = animation_data.action
-    for fcurve in manifest.action_fcurves(action):
+    for fcurve in manifest.animation_fcurves(animation_data):
         for point in fcurve.keyframe_points:
             if frame is None or point.co.x == frame:
                 point.interpolation = interpolation
                 point.handle_left_type = "AUTO_CLAMPED"
                 point.handle_right_type = "AUTO_CLAMPED"
+                for name in ("back", "amplitude", "period"):
+                    setattr(
+                        point,
+                        name,
+                        bpy.types.Keyframe.bl_rna.properties[name].default,
+                    )
 
 
 def main() -> None:
     arguments = _arguments()
     plan = json.loads(arguments.plan.read_text(encoding="utf-8"))
     keyframes = plan["keyframes"]
+    if keyframes[0]["transition"] != "smooth":
+        raise FixtureCreationError("the first keyframe transition must be 'smooth'")
     for keyframe in keyframes:
         if keyframe["pose"]["up"] != [0, 1, 0]:
             raise UNSUPPORTED_PLAN_UP(f"frame {keyframe['frame']} up must be [0, 1, 0]")
@@ -77,8 +86,10 @@ def main() -> None:
         frame = keyframe["frame"]
         pose = keyframe["pose"]
         camera.location = pose["position"]
-        direction = Vector(pose["look_at"]) - Vector(pose["position"])
-        camera.rotation_quaternion = direction.to_track_quat("-Z", "Y")
+        z_axis = -(Vector(pose["look_at"]) - Vector(pose["position"])).normalized()
+        x_axis = Vector((0.0, 1.0, 0.0)).cross(z_axis).normalized()
+        y_axis = z_axis.cross(x_axis)
+        camera.rotation_quaternion = Matrix((x_axis, y_axis, z_axis)).transposed().to_quaternion()
         camera_data.angle = pose["vertical_fov_radians"]
         camera.keyframe_insert(data_path="location", frame=frame)
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame)
@@ -87,12 +98,15 @@ def main() -> None:
         camera_data.keyframe_insert(data_path="lens", frame=frame)
     angle_curve = next(
         fcurve
-        for fcurve in manifest.action_fcurves(camera_data.animation_data.action)
+        for fcurve in manifest.animation_fcurves(camera_data.animation_data)
         if fcurve.data_path == "lens"
     )
     angle_curve.data_path = "angle"
     for point, keyframe in zip(angle_curve.keyframe_points, keyframes, strict=True):
         point.co.y = keyframe["pose"]["vertical_fov_radians"]
+        point.handle_left_type = "AUTO_CLAMPED"
+        point.handle_right_type = "AUTO_CLAMPED"
+    angle_curve.update()
 
     _set_interpolation(camera.animation_data, None, "BEZIER")
     _set_interpolation(camera_data.animation_data, None, "BEZIER")
@@ -109,4 +123,11 @@ def main() -> None:
     print(f"OMB_REVISION={revision}")
 
 
-main()
+if __name__ == "__main__":
+    try:
+        main()
+    except BaseException:
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1)

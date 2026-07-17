@@ -207,10 +207,14 @@ The ARDY camera plan v1 (`{version, output_format, keyframes[{frame, pose{positi
 vertical_fov_radians}, transition}]}`) is adopted as a **committed protocol fixture**. The mapping
 from plan to Blender scene, applied by the fixture builder (and later by `apply_camera_plan`):
 
-- One camera object; plan `position`/`look_at` produce location and a `to_track_quat("-Z", "Y")`
-  rotation keyed on the camera object; `vertical_fov_radians` keys `Camera.angle` on the camera
-  datablock (`target: "cameraData"`, `dataPath: "angle"`).
+- One camera object; plan `position`/`look_at`/`up` produce location and an explicit right-handed
+  look-at basis (`z = -normalize(look_at - position)`, `x = normalize(up × z)`, `y = z × x`)
+  converted to a quaternion and keyed on the camera object. `to_track_quat("-Z", "Y")` is NOT
+  equivalent: its up parameter tracks world +Z, which contradicts the plan's `up = [0, 1, 0]`
+  semantics. `vertical_fov_radians` keys `Camera.angle` on the camera datablock
+  (`target: "cameraData"`, `dataPath: "angle"`).
 - `transition: "smooth"` spans use `BEZIER` interpolation with default auto-clamped handles.
+- The first keyframe must use `transition: "smooth"` because no N−1 key exists for a cut.
 - `transition: "cut"` is an adjacent-frame keyframe pair (N−1 hold, N new pose) with `CONSTANT`
   interpolation on the N−1 key, plus a timeline marker named `CUT_<N>` bound to the camera at
   frame N. Markers make cuts first-class in the snapshot instead of an inference over keyframe

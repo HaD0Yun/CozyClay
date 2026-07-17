@@ -1,6 +1,6 @@
 import { type Static, Type } from "typebox";
 import { Parse } from "typebox/value";
-import { canonicalRevision } from "./canonical.ts";
+import { canonicalJson, canonicalRevision } from "./canonical.ts";
 
 const NameSchema = Type.String({ minLength: 1, maxLength: 256 });
 const NullableNameSchema = Type.Union([NameSchema, Type.Null()]);
@@ -122,6 +122,31 @@ export interface ProjectManifest {
 	readonly revision: string;
 	readonly snapshot: SceneSnapshot;
 }
+function validateNfc(value: unknown, path = "$"): void {
+	if (typeof value === "string") {
+		if (value !== value.normalize("NFC")) throw new Error(`${path} must be NFC-normalized`);
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (let index = 0; index < value.length; index += 1) validateNfc(value[index], `${path}[${index}]`);
+		return;
+	}
+	if (value !== null && typeof value === "object") {
+		for (const [key, child] of Object.entries(value)) validateNfc(child, `${path}.${key}`);
+	}
+}
+
+function validateQuaternion(quaternion: readonly [number, number, number, number], path: string): void {
+	const [w, x, y, z] = quaternion;
+	if (Math.abs(Math.hypot(w, x, y, z) - 1) > 1e-6) {
+		throw new Error(`${path} must have unit length within 1e-6`);
+	}
+	const firstNonzeroVectorComponent = x !== 0 ? x : y !== 0 ? y : z;
+	if (w < 0 || (w === 0 && firstNonzeroVectorComponent <= 0)) {
+		throw new Error(`${path} must use canonical quaternion sign`);
+	}
+}
+
 
 function compareCodePoints(left: string, right: string): number {
 	const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
@@ -148,6 +173,7 @@ function compareNullableNames(left: string | null, right: string | null): number
 }
 
 function validateSnapshot(snapshot: SceneSnapshot): void {
+	validateNfc(snapshot);
 	if (snapshot.scene.frameStart > snapshot.scene.frameEnd) {
 		throw new Error("scene.frameStart must not exceed scene.frameEnd");
 	}
@@ -156,6 +182,7 @@ function validateSnapshot(snapshot: SceneSnapshot): void {
 	for (const object of snapshot.objects) {
 		if (objects.has(object.name)) throw new Error(`duplicate object name: ${object.name}`);
 		objects.set(object.name, object);
+		validateQuaternion(object.rotationQuaternion, `objects[${JSON.stringify(object.name)}].rotationQuaternion`);
 	}
 	for (const object of snapshot.objects) {
 		if (object.parent !== null && !objects.has(object.parent)) {
@@ -232,6 +259,10 @@ function validateSnapshot(snapshot: SceneSnapshot): void {
 export function parseSceneSnapshot(input: unknown): SceneSnapshot {
 	const snapshot = Parse(SceneSnapshotSchema, input);
 	validateSnapshot(snapshot);
+	const byteLength = Buffer.byteLength(canonicalJson(snapshot), "utf8");
+	if (byteLength > 1_048_576) {
+		throw new Error(`SNAPSHOT_TOO_LARGE: canonical snapshot is ${byteLength} bytes (maximum 1048576)`);
+	}
 	return snapshot;
 }
 

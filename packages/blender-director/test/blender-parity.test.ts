@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { canonicalRevision } from "../src/canonical.ts";
 import { createProjectManifest, parseSceneSnapshot } from "../src/manifest.ts";
 
-const EXPECTED_BLENDER_REVISION = "07dea05acce865052b3b91959cbbdb5c867d898f5ff8706b7c408fe0ad830aa5";
+const EXPECTED_BLENDER_REVISION = "b55013088657c73043d7fd104ba41119ab4e4c3e8bec38b861be48de304f1a17";
 const fixturePath = join(import.meta.dirname, "fixtures", "blender-exported-snapshot.json");
 
 describe("Blender-exported snapshot parity", () => {

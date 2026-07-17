@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -9,7 +10,7 @@ function readManifestPath(arguments_: readonly string[]): string {
 	const flagIndex = arguments_.indexOf("--manifest");
 	const path = flagIndex >= 0 ? arguments_[flagIndex + 1] : undefined;
 	if (!path) throw new Error("Usage: npm run demo -- --manifest /path/to/blender-scene.json");
-	return path;
+	return resolve(process.env.INIT_CWD ?? process.cwd(), path);
 }
 
 async function main(): Promise<void> {

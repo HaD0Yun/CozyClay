@@ -90,6 +90,52 @@ describe("scene manifest v2", () => {
 		malformed.objects.push(structuredClone(malformed.objects[1]));
 		assert.throws(() => parseSceneSnapshot(malformed), /duplicate object name/);
 	});
+	it("rejects strings that are not NFC-normalized before duplicate checks", () => {
+		const malformed = copyValid();
+		const composed = structuredClone(malformed.objects[1]);
+		composed.name = "\u00e9";
+		const decomposed = structuredClone(malformed.objects[1]);
+		decomposed.name = "e\u0301";
+		malformed.objects = [malformed.objects[0], decomposed, composed];
+		assert.throws(() => parseSceneSnapshot(malformed), /\$\.objects\[1\]\.name must be NFC-normalized/);
+	});
+
+	it("rejects a canonical snapshot larger than 1 MiB", () => {
+		const malformed = copyValid();
+		const template = malformed.objects[1];
+		malformed.objects = [
+			malformed.objects[0],
+			...Array.from({ length: 5_000 }, (_, index) => ({
+				...structuredClone(template),
+				name: `Object${index.toString().padStart(5, "0")}${"x".repeat(180)}`,
+			})),
+		];
+		assert.throws(() => parseSceneSnapshot(malformed), /SNAPSHOT_TOO_LARGE/);
+	});
+
+	it("rejects a non-unit quaternion", () => {
+		const malformed = copyValid();
+		malformed.objects[0].rotationQuaternion = [2, 0, 0, 0];
+		assert.throws(() => parseSceneSnapshot(malformed), /unit length/);
+	});
+
+	it("rejects a negative-w quaternion", () => {
+		const malformed = copyValid();
+		malformed.objects[0].rotationQuaternion = [-1, 0, 0, 0];
+		assert.throws(() => parseSceneSnapshot(malformed), /canonical quaternion sign/);
+	});
+
+	it("rejects a zero-w quaternion whose first nonzero vector component is negative", () => {
+		const malformed = copyValid();
+		malformed.objects[0].rotationQuaternion = [0, -1, 0, 0];
+		assert.throws(() => parseSceneSnapshot(malformed), /canonical quaternion sign/);
+	});
+
+	it("accepts a unit quaternion with canonical sign", () => {
+		const snapshot = copyValid();
+		snapshot.objects[0].rotationQuaternion = [0, 0, 1, 0];
+		assert.deepEqual(parseSceneSnapshot(snapshot).objects[0].rotationQuaternion, [0, 0, 1, 0]);
+	});
 
 	it("rejects non-increasing keyframe frames", () => {
 		const malformed = copyValid();
