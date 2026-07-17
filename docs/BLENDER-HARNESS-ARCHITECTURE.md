@@ -1,10 +1,28 @@
 # Oh My Blender — Bootstrap Architecture
 
-Status: implementation-ready plan, no product code yet
+Status: Phase 1 read-only vertical slice implemented
 
 Pi baseline: `earendil-works/pi@f7e060374541be0097ee015aaddb097a4f760984`
 
 Reference: `can1357/oh-my-pi@c0d0ad7629ebc895237e9ccc1f45008bd23bdaa4`
+
+## Current executable slice
+
+The repository now proves one real boundary end to end:
+
+```text
+Blender 5.1 scene → typed scene snapshot → stable revision → Pi AgentSession → inspect_project
+```
+
+Run it with a temporary manifest:
+
+```bash
+blender --background --factory-startup \
+  --python scripts/export_blender_fixture.py -- --output /tmp/omb-scene.json
+npm --prefix packages/blender-director run demo -- --manifest /tmp/omb-scene.json
+```
+
+This slice is intentionally read-only. It proves Blender extraction, boundary validation, deterministic revisioning, Pi embedding, and a deny-by-default tool surface before mutation, daemon, or UI work begins.
 
 ## 1. Decision
 

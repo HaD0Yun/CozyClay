@@ -1,0 +1,15 @@
+{
+	"name": "@oh-my-blender/director",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"demo": "node --import tsx src/demo.ts",
+		"test": "node --import tsx --test test/*.test.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "^0.80.9",
+		"@earendil-works/pi-coding-agent": "^0.80.9",
+		"typebox": "1.1.38"
+	}
+}
