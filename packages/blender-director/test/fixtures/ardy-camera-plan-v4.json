@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "output_format": {"width": 1920, "height": 1080},
+  "keyframes": [
+    {"frame": 0, "pose": {"position": [0.000000, 2.15, 5.200000], "look_at": [0.000000, 0.90, 0.000000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.47108996144172666}, "transition": "smooth"},
+    {"frame": 79, "pose": {"position": [-0.380000, 2.15, 5.880000], "look_at": [-0.380000, 0.90, 0.880000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.47108996144172666}, "transition": "smooth"},
+    {"frame": 80, "pose": {"position": [-4.385530, 2.00, 4.388669], "look_at": [-0.385530, 0.90, 0.888669], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.47108996144172666}, "transition": "cut"},
+    {"frame": 160, "pose": {"position": [-4.440000, 2.00, 4.340000], "look_at": [-0.440000, 0.90, 0.840000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.47108996144172666}, "transition": "smooth"},
+    {"frame": 161, "pose": {"position": [2.500000, 1.70, 4.000000], "look_at": [-0.440000, 0.92, 0.840000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.4545491545894453}, "transition": "cut"},
+    {"frame": 198, "pose": {"position": [2.250000, 1.72, 4.350000], "look_at": [-0.500000, 0.90, 1.100000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.4545491545894453}, "transition": "smooth"},
+    {"frame": 199, "pose": {"position": [2.000000, 1.85, 5.000000], "look_at": [-0.650000, 0.90, 1.550000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.47108996144172666}, "transition": "cut"},
+    {"frame": 242, "pose": {"position": [1.900000, 1.90, 5.350000], "look_at": [-0.820000, 0.90, 1.840000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.47108996144172666}, "transition": "smooth"},
+    {"frame": 243, "pose": {"position": [0.400000, 2.15, 6.400000], "look_at": [-0.840000, 0.90, 1.840000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.5212047834946819}, "transition": "cut"},
+    {"frame": 319, "pose": {"position": [-0.300000, 2.20, 7.200000], "look_at": [-0.800000, 0.90, 2.890000], "up": [0.0, 1.0, 0.0], "vertical_fov_radians": 0.5212047834946819}, "transition": "smooth"}
+  ]
+}

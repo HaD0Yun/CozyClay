@@ -1,0 +1,1199 @@
+{
+  "schemaVersion": 2,
+  "scene": {
+    "name": "Boxing Demo",
+    "frameStart": 0,
+    "frameEnd": 319,
+    "fps": 24,
+    "activeCamera": "ARDY_CinematicCamera"
+  },
+  "render": {
+    "resolutionX": 1920,
+    "resolutionY": 1080,
+    "resolutionPercentage": 100
+  },
+  "objects": [
+    {
+      "name": "ARDY_CinematicCamera",
+      "type": "CAMERA",
+      "parent": null,
+      "visible": true,
+      "location": [
+        -0.30000001192092896,
+        2.200000047683716,
+        7.199999809265137
+      ],
+      "rotationMode": "QUATERNION",
+      "rotationQuaternion": [
+        0.987776799154199,
+        -0.14479654782043663,
+        0.057104154453674005,
+        0.008370802595936087
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "Fighter",
+      "type": "MESH",
+      "parent": null,
+      "visible": true,
+      "location": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rotationMode": "XYZ",
+      "rotationQuaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "cameras": [
+    {
+      "name": "ARDY_CinematicCamera",
+      "lens": 45.000003814697266,
+      "sensorFit": "VERTICAL",
+      "sensorWidth": 36.0,
+      "sensorHeight": 24.0,
+      "verticalFovRadians": 0.5212047696113586,
+      "clipStart": 0.10000000149011612,
+      "clipEnd": 1000.0
+    }
+  ],
+  "markers": [
+    {
+      "name": "CUT_161",
+      "frame": 161,
+      "camera": "ARDY_CinematicCamera"
+    },
+    {
+      "name": "CUT_199",
+      "frame": 199,
+      "camera": "ARDY_CinematicCamera"
+    },
+    {
+      "name": "CUT_243",
+      "frame": 243,
+      "camera": "ARDY_CinematicCamera"
+    },
+    {
+      "name": "CUT_80",
+      "frame": 80,
+      "camera": "ARDY_CinematicCamera"
+    }
+  ],
+  "animations": [
+    {
+      "objectName": "ARDY_CinematicCamera",
+      "target": "cameraData",
+      "fcurves": [
+        {
+          "dataPath": "angle",
+          "arrayIndex": 0,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": 0.4710899591445923,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                0.4710899591445923
+              ],
+              "handleRight": [
+                26.33333396911621,
+                0.4710899591445923
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": 0.4710899591445923,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                0.4710899591445923
+              ],
+              "handleRight": [
+                79.33333587646484,
+                0.4710899591445923
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": 0.4710899591445923,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                0.4710899591445923
+              ],
+              "handleRight": [
+                106.66666412353516,
+                0.4710899591445923
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": 0.4710899591445923,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                0.4710899591445923
+              ],
+              "handleRight": [
+                160.3333282470703,
+                0.4710899591445923
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 0.4545491635799408,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                0.4545491635799408
+              ],
+              "handleRight": [
+                173.3333282470703,
+                0.4545491635799408
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 0.4545491635799408,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                0.4545491635799408
+              ],
+              "handleRight": [
+                198.3333282470703,
+                0.4545491635799408
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 0.4710899591445923,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                0.4710899591445923
+              ],
+              "handleRight": [
+                213.3333282470703,
+                0.4710899591445923
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 0.4710899591445923,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                0.4710899591445923
+              ],
+              "handleRight": [
+                242.3333282470703,
+                0.4710899591445923
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 0.5212047696113586,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                0.5212047696113586
+              ],
+              "handleRight": [
+                268.3333435058594,
+                0.5212047696113586
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": 0.5212047696113586,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                0.5212047696113586
+              ],
+              "handleRight": [
+                344.3333435058594,
+                0.5212047696113586
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "objectName": "ARDY_CinematicCamera",
+      "target": "object",
+      "fcurves": [
+        {
+          "dataPath": "location",
+          "arrayIndex": 0,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": 0.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                0.0
+              ],
+              "handleRight": [
+                26.33333396911621,
+                0.0
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": -0.3799999952316284,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                0.0
+              ],
+              "handleRight": [
+                79.33333587646484,
+                -0.38481011986732483
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": -4.3855299949646,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                -4.3848490715026855
+              ],
+              "handleRight": [
+                106.66666412353516,
+                -4.440000057220459
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": -4.440000057220459,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                -4.440000057220459
+              ],
+              "handleRight": [
+                160.3333282470703,
+                -4.440000057220459
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 2.5,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                2.5
+              ],
+              "handleRight": [
+                173.3333282470703,
+                2.5
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 2.25,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                2.5
+              ],
+              "handleRight": [
+                198.3333282470703,
+                2.2432432174682617
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 2.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                2.0023255348205566
+              ],
+              "handleRight": [
+                213.3333282470703,
+                1.899999976158142
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 1.899999976158142,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                2.0
+              ],
+              "handleRight": [
+                242.3333282470703,
+                1.8976744413375854
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 0.4000000059604645,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                0.40921053290367126
+              ],
+              "handleRight": [
+                268.3333435058594,
+                -0.30000004172325134
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": -0.30000001192092896,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                -0.30000001192092896
+              ],
+              "handleRight": [
+                344.3333435058594,
+                -0.30000001192092896
+              ]
+            }
+          ]
+        },
+        {
+          "dataPath": "location",
+          "arrayIndex": 1,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": 2.1500000953674316,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                2.1500000953674316
+              ],
+              "handleRight": [
+                26.33333396911621,
+                2.1500000953674316
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": 2.1500000953674316,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                2.1500000953674316
+              ],
+              "handleRight": [
+                79.33333587646484,
+                2.1500000953674316
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": 2.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                2.0
+              ],
+              "handleRight": [
+                106.66666412353516,
+                2.0
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": 2.0,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                2.0
+              ],
+              "handleRight": [
+                160.3333282470703,
+                2.0
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 1.7000000476837158,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                1.7000000476837158
+              ],
+              "handleRight": [
+                173.3333282470703,
+                1.7000000476837158
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 1.7200000286102295,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                1.7000000476837158
+              ],
+              "handleRight": [
+                198.3333282470703,
+                1.7205405235290527
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 1.850000023841858,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                1.8488372564315796
+              ],
+              "handleRight": [
+                213.3333282470703,
+                1.899999976158142
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 1.899999976158142,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                1.850000023841858
+              ],
+              "handleRight": [
+                242.3333282470703,
+                1.9011627435684204
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 2.1500000953674316,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                2.1493422985076904
+              ],
+              "handleRight": [
+                268.3333435058594,
+                2.200000047683716
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": 2.200000047683716,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                2.200000047683716
+              ],
+              "handleRight": [
+                344.3333435058594,
+                2.200000047683716
+              ]
+            }
+          ]
+        },
+        {
+          "dataPath": "location",
+          "arrayIndex": 2,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": 5.199999809265137,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                5.199999809265137
+              ],
+              "handleRight": [
+                26.33333396911621,
+                5.199999809265137
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": 5.880000114440918,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                5.880000114440918
+              ],
+              "handleRight": [
+                79.33333587646484,
+                5.880000114440918
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": 4.388669013977051,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                4.389277458190918
+              ],
+              "handleRight": [
+                106.66666412353516,
+                4.340000152587891
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": 4.340000152587891,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                4.388669013977051
+              ],
+              "handleRight": [
+                160.3333282470703,
+                4.339391708374023
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 4.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                4.0
+              ],
+              "handleRight": [
+                173.3333282470703,
+                4.0
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 4.349999904632568,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                4.0
+              ],
+              "handleRight": [
+                198.3333282470703,
+                4.359459400177002
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 5.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                4.991860389709473
+              ],
+              "handleRight": [
+                213.3333282470703,
+                5.349999904632568
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 5.349999904632568,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                5.0
+              ],
+              "handleRight": [
+                242.3333282470703,
+                5.358139514923096
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 6.400000095367432,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                6.389473915100098
+              ],
+              "handleRight": [
+                268.3333435058594,
+                7.199999809265137
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": 7.199999809265137,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                7.199999809265137
+              ],
+              "handleRight": [
+                344.3333435058594,
+                7.199999809265137
+              ]
+            }
+          ]
+        },
+        {
+          "dataPath": "rotation_quaternion",
+          "arrayIndex": 0,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": 0.9930514693260193,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                0.9930514693260193
+              ],
+              "handleRight": [
+                26.33333396911621,
+                0.9930514693260193
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": 0.9925075769424438,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                0.9930514693260193
+              ],
+              "handleRight": [
+                79.33333587646484,
+                0.9925006628036499
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": 0.9058963060379028,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                0.9058963060379028
+              ],
+              "handleRight": [
+                106.66666412353516,
+                0.9058963060379028
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": 0.9058963060379028,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                0.9058963060379028
+              ],
+              "handleRight": [
+                160.3333282470703,
+                0.9058963060379028
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 0.9269109964370728,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                0.9266994595527649
+              ],
+              "handleRight": [
+                173.3333282470703,
+                0.93473881483078
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 0.93473881483078,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                0.9269109964370728
+              ],
+              "handleRight": [
+                198.3333282470703,
+                0.9349503517150879
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 0.9413845539093018,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                0.9413845539093018
+              ],
+              "handleRight": [
+                213.3333282470703,
+                0.9413845539093018
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 0.9403644800186157,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                0.9403644800186157
+              ],
+              "handleRight": [
+                242.3333282470703,
+                0.9403644800186157
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 0.9829272031784058,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                0.9828633666038513
+              ],
+              "handleRight": [
+                268.3333435058594,
+                0.9877768158912659
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": 0.9877768158912659,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                0.9877768158912659
+              ],
+              "handleRight": [
+                344.3333435058594,
+                0.9877768158912659
+              ]
+            }
+          ]
+        },
+        {
+          "dataPath": "rotation_quaternion",
+          "arrayIndex": 1,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": -0.11768098920583725,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                -0.11768098920583725
+              ],
+              "handleRight": [
+                26.33333396911621,
+                -0.11768098920583725
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": -0.12218328565359116,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                -0.12218328565359116
+              ],
+              "handleRight": [
+                79.33333587646484,
+                -0.12218328565359116
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": -0.0927586778998375,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                -0.0927586778998375
+              ],
+              "handleRight": [
+                106.66666412353516,
+                -0.0927586704492569
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": -0.0927586704492569,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                -0.0927586778998375
+              ],
+              "handleRight": [
+                160.3333282470703,
+                -0.0927586704492569
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": -0.08308111876249313,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                -0.08308111876249313
+              ],
+              "handleRight": [
+                173.3333282470703,
+                -0.08308111876249313
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": -0.08919945359230042,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                -0.08308111876249313
+              ],
+              "handleRight": [
+                198.3333282470703,
+                -0.08936481177806854
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": -0.10159100592136383,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                -0.10152162611484528
+              ],
+              "handleRight": [
+                213.3333282470703,
+                -0.1045743077993393
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": -0.1045743077993393,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                -0.10159100592136383
+              ],
+              "handleRight": [
+                242.3333282470703,
+                -0.10464368760585785
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": -0.12780283391475677,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                -0.1275792270898819
+              ],
+              "handleRight": [
+                268.3333435058594,
+                -0.14479655027389526
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": -0.14479655027389526,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                -0.14479655027389526
+              ],
+              "handleRight": [
+                344.3333435058594,
+                -0.14479655027389526
+              ]
+            }
+          ]
+        },
+        {
+          "dataPath": "rotation_quaternion",
+          "arrayIndex": 2,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": -0.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                -0.0
+              ],
+              "handleRight": [
+                26.33333396911621,
+                -0.0
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": -0.0,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                -0.0
+              ],
+              "handleRight": [
+                79.33333587646484,
+                -0.0
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": -0.4110669791698456,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                -0.4110669791698456
+              ],
+              "handleRight": [
+                106.66666412353516,
+                -0.4110669791698456
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": -0.4110669493675232,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                -0.4110669791698456
+              ],
+              "handleRight": [
+                160.3333282470703,
+                -0.4110669493675232
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 0.3645080029964447,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                0.3645080029964447
+              ],
+              "handleRight": [
+                173.3333282470703,
+                0.3645080029964447
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 0.3424021601676941,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                0.3645080029964447
+              ],
+              "handleRight": [
+                198.3333282470703,
+                0.34180471301078796
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 0.31981757283210754,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                0.31981757283210754
+              ],
+              "handleRight": [
+                213.3333282470703,
+                0.31981757283210754
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 0.321712464094162,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                0.321712464094162
+              ],
+              "handleRight": [
+                242.3333282470703,
+                0.321712464094162
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 0.13126036524772644,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                0.13223610818386078
+              ],
+              "handleRight": [
+                268.3333435058594,
+                0.05710415542125702
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": 0.05710415542125702,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                0.05710415542125702
+              ],
+              "handleRight": [
+                344.3333435058594,
+                0.05710415542125702
+              ]
+            }
+          ]
+        },
+        {
+          "dataPath": "rotation_quaternion",
+          "arrayIndex": 3,
+          "keyframes": [
+            {
+              "frame": 0.0,
+              "value": -0.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -26.33333396911621,
+                -0.0
+              ],
+              "handleRight": [
+                26.33333396911621,
+                -0.0
+              ]
+            },
+            {
+              "frame": 79.0,
+              "value": -0.0,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                52.666664123535156,
+                -0.0
+              ],
+              "handleRight": [
+                79.33333587646484,
+                -0.0
+              ]
+            },
+            {
+              "frame": 80.0,
+              "value": -0.04209093749523163,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                79.66666412353516,
+                -0.04209093749523163
+              ],
+              "handleRight": [
+                106.66666412353516,
+                -0.04209093749523163
+              ]
+            },
+            {
+              "frame": 160.0,
+              "value": -0.04209093376994133,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                133.3333282470703,
+                -0.04209093749523163
+              ],
+              "handleRight": [
+                160.3333282470703,
+                -0.04209093376994133
+              ]
+            },
+            {
+              "frame": 161.0,
+              "value": 0.032671671360731125,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                160.6666717529297,
+                0.032671596854925156
+              ],
+              "handleRight": [
+                173.3333282470703,
+                0.03267446160316467
+              ]
+            },
+            {
+              "frame": 198.0,
+              "value": 0.03267446160316467,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                185.6666717529297,
+                0.032671671360731125
+              ],
+              "handleRight": [
+                198.3333282470703,
+                0.03267453610897064
+              ]
+            },
+            {
+              "frame": 199.0,
+              "value": 0.034513622522354126,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                198.6666717529297,
+                0.03448425605893135
+              ],
+              "handleRight": [
+                213.3333282470703,
+                0.035776399075984955
+              ]
+            },
+            {
+              "frame": 242.0,
+              "value": 0.035776399075984955,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                227.6666717529297,
+                0.035776399075984955
+              ],
+              "handleRight": [
+                242.3333282470703,
+                0.035776399075984955
+              ]
+            },
+            {
+              "frame": 243.0,
+              "value": 0.017066821455955505,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                242.6666717529297,
+                0.017181241884827614
+              ],
+              "handleRight": [
+                268.3333435058594,
+                0.008370802737772465
+              ]
+            },
+            {
+              "frame": 319.0,
+              "value": 0.008370802737772465,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                293.6666564941406,
+                0.008370802737772465
+              ],
+              "handleRight": [
+                344.3333435058594,
+                0.008370802737772465
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
