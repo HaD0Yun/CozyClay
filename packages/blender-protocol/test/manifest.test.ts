@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { canonicalJson } from "@oh-my-blender/director-core";
-import { createProjectManifest, parseSceneSnapshot } from "../src/snapshot.ts";
+import { parseSceneSnapshot } from "../src/snapshot.ts";
 
 const validSnapshot = {
 	schemaVersion: 2,
@@ -66,13 +64,9 @@ function copyValid(): any {
 }
 
 describe("scene manifest v2", () => {
-	it("parses a valid document and creates a stable revision", () => {
+	it("parses a valid document", () => {
 		const snapshot = parseSceneSnapshot(validSnapshot);
-		const first = createProjectManifest(snapshot);
-		const second = createProjectManifest(snapshot);
-		assert.match(first.revision, /^[a-f0-9]{64}$/);
-		assert.deepEqual(second, first);
-		assert.equal(first.snapshot.scene.fps, 24);
+		assert.equal(snapshot.scene.fps, 24);
 	});
 
 	it("rejects an unknown top-level field", () => {
@@ -98,19 +92,6 @@ describe("scene manifest v2", () => {
 		decomposed.name = "e\u0301";
 		malformed.objects = [malformed.objects[0], decomposed, composed];
 		assert.throws(() => parseSceneSnapshot(malformed), /\$\.objects\[1\]\.name must be NFC-normalized/);
-	});
-
-	it("rejects a canonical snapshot larger than 1 MiB", () => {
-		const malformed = copyValid();
-		const template = malformed.objects[1];
-		malformed.objects = [
-			malformed.objects[0],
-			...Array.from({ length: 5_000 }, (_, index) => ({
-				...structuredClone(template),
-				name: `Object${index.toString().padStart(5, "0")}${"x".repeat(180)}`,
-			})),
-		];
-		assert.throws(() => parseSceneSnapshot(malformed), /SNAPSHOT_TOO_LARGE/);
 	});
 
 	it("rejects a non-unit quaternion", () => {
@@ -169,21 +150,5 @@ describe("scene manifest v2", () => {
 		const malformed = copyValid();
 		malformed.scene.activeCamera = "Missing";
 		assert.throws(() => parseSceneSnapshot(malformed), /unknown camera/);
-	});
-
-	it("reparses canonical JSON idempotently", () => {
-		const snapshot = parseSceneSnapshot(validSnapshot);
-		const bytes = canonicalJson(snapshot);
-		const reparsed = parseSceneSnapshot(JSON.parse(bytes));
-		assert.equal(canonicalJson(reparsed), bytes);
-	});
-
-	it("matches the committed cross-language parity fixture", () => {
-		const fixture = JSON.parse(readFileSync(new URL("fixtures/parity-snapshot.json", import.meta.url), "utf8")) as {
-			revision: string;
-			snapshot: unknown;
-		};
-		const snapshot = parseSceneSnapshot(fixture.snapshot);
-		assert.equal(createProjectManifest(snapshot).revision, fixture.revision);
 	});
 });

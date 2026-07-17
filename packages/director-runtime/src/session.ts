@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import {
 	createAgentSession,
@@ -15,13 +18,17 @@ export interface DirectorSessionOptions {
 	readonly model: Model<string>;
 	readonly modelRuntime: ModelRuntime;
 	readonly cwd?: string;
+	readonly agentDir?: string;
 }
 
 export async function createDirectorSession(options: DirectorSessionOptions) {
 	const cwd = options.cwd ?? process.cwd();
+	const ownsAgentDir = options.agentDir === undefined;
+	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "omb-director-agent-"));
 	const resourceLoader = new BundledDirectorResourceLoader();
 	const { session } = await createAgentSession({
 		cwd,
+		agentDir,
 		model: options.model,
 		modelRuntime: options.modelRuntime,
 		thinkingLevel: "off",
@@ -47,6 +54,15 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		session.dispose();
 		throw new Error("DIRECTOR_PROMPT_DIGEST_MISMATCH");
 	}
+
+	const dispose = session.dispose.bind(session);
+	session.dispose = () => {
+		try {
+			dispose();
+		} finally {
+			if (ownsAgentDir) rmSync(agentDir, { recursive: true, force: true });
+		}
+	};
 
 	return session;
 }

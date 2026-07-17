@@ -1,6 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { canonicalRevision } from "@oh-my-blender/director-core";
+import { assertCanonicalSize, buildProjectManifest } from "@oh-my-blender/director-core";
 import { parseSceneSnapshot } from "@oh-my-blender/protocol";
 import { createDirectorSession } from "./session.ts";
 
@@ -12,9 +12,17 @@ export interface InspectHandlerOptions {
 }
 
 export function createInspectHandler(options: InspectHandlerOptions) {
-	return async (params: Record<string, unknown>, context: { signal: AbortSignal }) => {
+	return async (
+		params: Record<string, unknown>,
+		context: { signal: AbortSignal; request?: { expected_revision_id?: string } },
+	) => {
 		const snapshot = parseSceneSnapshot(params.snapshot);
-		const manifest = { revision: canonicalRevision(snapshot), snapshot };
+		assertCanonicalSize(snapshot);
+		const manifest = buildProjectManifest(snapshot);
+		const expectedRevision = context.request?.expected_revision_id;
+		if (expectedRevision !== undefined && expectedRevision !== manifest.revision) {
+			throw new Error(`STALE_BASE: expected ${expectedRevision}, current revision is ${manifest.revision}`);
+		}
 		const session = await createDirectorSession({
 			bridge: { inspectProject: async () => manifest },
 			model: options.model,

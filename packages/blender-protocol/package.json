@@ -10,7 +10,6 @@
 		"test": "node --import tsx --test test/*.test.ts"
 	},
 	"dependencies": {
-		"@oh-my-blender/director-core": "0.1.0",
 		"typebox": "1.1.38"
 	}
 }

@@ -8,5 +8,8 @@
 	},
 	"scripts": {
 		"test": "node --import tsx --test test/*.test.ts"
+	},
+	"dependencies": {
+		"@oh-my-blender/protocol": "0.1.0"
 	}
 }

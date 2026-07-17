@@ -33,14 +33,17 @@ class DaemonChild:
             )
         )
 
+    def close_streams(self) -> None:
+        """Close the owned stdout/stderr pipes idempotently."""
+        for stream in (self.process.stdout, self.process.stderr):
+            if stream is not None and not stream.closed:
+                stream.close()
+
     def kill(self) -> None:
         if self.process.poll() is None:
             self.process.kill()
         self.process.wait()
-        if self.process.stdout is not None:
-            self.process.stdout.close()
-        if self.process.stderr is not None:
-            self.process.stderr.close()
+        self.close_streams()
 
     def _fail(self, message: str) -> "None":
         self.kill()

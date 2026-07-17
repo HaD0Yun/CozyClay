@@ -19,7 +19,7 @@ Run it with a temporary manifest:
 ```bash
 blender --background --factory-startup \
   --python scripts/export_blender_fixture.py -- --output /tmp/omb-scene.json
-npm --prefix packages/blender-director run demo -- --manifest /tmp/omb-scene.json
+npm --prefix packages/director-runtime run demo -- --manifest /tmp/omb-scene.json
 ```
 
 This slice is intentionally read-only. It proves Blender extraction, boundary validation, deterministic revisioning, Pi embedding, and a deny-by-default tool surface before mutation, daemon, or UI work begins.
@@ -144,6 +144,8 @@ Ownership is behavioral, not merely directory naming:
 | `packages/blender-protocol` | protocol/message schemas and generated TypeScript/Python fixtures | daemon lifecycle or tool execution |
 | `packages/blender-tools` | `inspect_project` and later model-facing tool definitions; typed calls into the bridge | WebSocket authentication or Pi session construction |
 | `blender-addon/oh_my_blender` | explicit project initialization, Blender main-thread extraction, undo/checkpoint/rollback, daemon child ownership | model/provider logic |
+
+Canonical serialization, hashing, and manifest construction live in `packages/director-core`; `packages/blender-protocol` is schema-only and must not implement those behaviors.
 
 The first implementation updates the root `workspaces` list, root build/check/test scripts, and TypeScript project references so every new TypeScript package is covered by the existing toolchain. `blender-addon/` is checked independently by Blender's bundled Python and a small host-side test environment.
 
@@ -401,6 +403,10 @@ The next approved work unit should add only:
 8. teardown proof showing no daemon, socket, Pi session, or Blender timer remains.
 
 The acceptance test injects a deterministic fake **model** into `createDirectorSession()` and uses Pi's real `createAgentSession()` and `AgentSession` loop. The fake model emits one assistant `inspect_project` tool call, consumes the returned tool result, then emits one final assistant response. The test must not inject a fake `AgentSession`, call `inspect_project` directly, or bypass Pi tool dispatch; those shortcuts are permitted only in lower-level unit tests. No provider key or network call is required.
+
+### Protocol v1 request-bound snapshot bridge
+
+**PROTOCOL V1 REQUEST-BOUND SNAPSHOT BRIDGE:** Protocol v1 has no server-initiated request. The add-on extracts the scene snapshot on the Blender main thread **before** issuing the request, and the request carries that immutable snapshot in `params` plus `expected_revision_id`. The daemon validates the snapshot, computes its revision, verifies `expected_revision_id` against that computed revision, and then runs one Pi `inspect_project` turn whose bridge resolves to the request-bound in-memory manifest. The model never accesses raw `params` directly. Server-initiated Blender bridge requests are reserved for a versioned future protocol. This satisfies the §14 Blender → daemon → Pi → `inspect_project` → Pi → daemon chain for the read-only v1 slice.
 
 The integration test initializes and saves a fixture project, launches the daemon on an OS-assigned port, validates the exact startup record, performs authenticated `hello`, requests the manifest, cancels one delayed request, exercises one deadline and one `BUSY` response, disconnects, restarts once with a new launch/token/session, and unloads the add-on. To make disconnect rollback observable without adding a product mutation, a test-only bridge fault injector changes one harmless fixture property after checkpoint creation and severs the socket; it is not registered as a protocol method or Pi tool. The test asserts:
 

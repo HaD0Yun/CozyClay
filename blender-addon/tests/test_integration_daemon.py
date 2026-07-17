@@ -53,6 +53,8 @@ class DaemonIntegrationTest(unittest.TestCase):
         for child in self.children:
             if child.process.poll() is None:
                 child.kill()
+            else:
+                child.close_streams()
         for pid in pids:
             with self.assertRaises(ProcessLookupError, msg=f"daemon pid {pid} was not reaped"):
                 os.kill(pid, 0)

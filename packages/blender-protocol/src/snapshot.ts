@@ -1,4 +1,3 @@
-import { canonicalJson, canonicalRevision } from "@oh-my-blender/director-core";
 import { type Static, Type } from "typebox";
 import { Parse } from "typebox/value";
 
@@ -109,10 +108,6 @@ export const SceneSnapshotSchema = Type.Object(
 
 export type SceneSnapshot = Static<typeof SceneSnapshotSchema>;
 
-export interface ProjectManifest {
-	readonly revision: string;
-	readonly snapshot: SceneSnapshot;
-}
 function validateNfc(value: unknown, path = "$"): void {
 	if (typeof value === "string") {
 		if (value !== value.normalize("NFC")) throw new Error(`${path} must be NFC-normalized`);
@@ -162,7 +157,7 @@ function compareNullableNames(left: string | null, right: string | null): number
 	return compareCodePoints(left, right);
 }
 
-function validateSnapshot(snapshot: SceneSnapshot): void {
+export function validateSnapshot(snapshot: SceneSnapshot): void {
 	validateNfc(snapshot);
 	if (snapshot.scene.frameStart > snapshot.scene.frameEnd) {
 		throw new Error("scene.frameStart must not exceed scene.frameEnd");
@@ -251,13 +246,5 @@ function validateSnapshot(snapshot: SceneSnapshot): void {
 export function parseSceneSnapshot(input: unknown): SceneSnapshot {
 	const snapshot = Parse(SceneSnapshotSchema, input);
 	validateSnapshot(snapshot);
-	const byteLength = Buffer.byteLength(canonicalJson(snapshot), "utf8");
-	if (byteLength > 1_048_576) {
-		throw new Error(`SNAPSHOT_TOO_LARGE: canonical snapshot is ${byteLength} bytes (maximum 1048576)`);
-	}
 	return snapshot;
-}
-
-export function createProjectManifest(snapshot: SceneSnapshot): ProjectManifest {
-	return { revision: canonicalRevision(snapshot), snapshot };
 }

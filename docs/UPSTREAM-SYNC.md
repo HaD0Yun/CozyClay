@@ -26,7 +26,7 @@ git merge --no-ff upstream/main
 npm ci --ignore-scripts
 npm run build
 npm run check
-npm test
+npm --prefix apps/omb-daemon test
 ```
 
-Then run the Oh My Blender bridge integration suite before merging the sync branch. Never enable inherited Pi publishing or issue-management workflows as part of an upstream merge.
+The `apps/omb-daemon` test command above is the Oh My Blender bridge integration suite; run it before merging the sync branch. Never enable inherited Pi publishing or issue-management workflows as part of an upstream merge.

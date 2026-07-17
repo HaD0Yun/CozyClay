@@ -1,6 +1,11 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { SceneSnapshot } from "@oh-my-blender/protocol";
 import { Type } from "typebox";
-import type { ProjectManifest } from "../../blender-protocol/src/snapshot.ts";
+
+export interface ProjectManifest {
+	readonly revision: string;
+	readonly snapshot: SceneSnapshot;
+}
 
 export interface InspectProjectBridge {
 	inspectProject(): Promise<ProjectManifest>;

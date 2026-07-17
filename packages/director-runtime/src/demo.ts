@@ -3,14 +3,15 @@ import { resolve } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createProjectManifest, parseSceneSnapshot } from "@oh-my-blender/protocol";
+import { buildProjectManifest } from "@oh-my-blender/director-core";
+import { parseSceneSnapshot } from "@oh-my-blender/protocol";
 import { createDirectorSession } from "./session.ts";
 
 const flagIndex = process.argv.indexOf("--manifest");
 const path = flagIndex >= 0 ? process.argv[flagIndex + 1] : undefined;
 if (!path) throw new Error("Usage: npm run demo -- --manifest /path/to/blender-scene.json");
 const raw: unknown = JSON.parse(await readFile(resolve(process.env.INIT_CWD ?? process.cwd(), path), "utf8"));
-const manifest = createProjectManifest(parseSceneSnapshot(raw));
+const manifest = buildProjectManifest(parseSceneSnapshot(raw));
 const faux = registerFauxProvider();
 try {
 	faux.setResponses([

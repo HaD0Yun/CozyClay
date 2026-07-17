@@ -4,7 +4,8 @@ import { afterEach, describe, it } from "node:test";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createProjectManifest, parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
+import { buildProjectManifest } from "@oh-my-blender/director-core";
+import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
 import { createDirectorSession } from "../src/session.ts";
 
 describe("director runtime session", () => {
@@ -31,7 +32,7 @@ describe("director runtime session", () => {
 				"utf8",
 			),
 		);
-		const manifest = createProjectManifest(parseSceneSnapshot(fixture));
+		const manifest = buildProjectManifest(parseSceneSnapshot(fixture));
 		let calls = 0;
 		const session = await createDirectorSession({
 			bridge: {

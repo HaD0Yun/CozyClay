@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ProjectManifest } from "../../blender-protocol/src/snapshot.ts";
-import { createInspectProjectTool } from "../src/inspect-project.ts";
+import { createInspectProjectTool, type ProjectManifest } from "../src/inspect-project.ts";
 
 const manifest = { revision: "revision-live", snapshot: { schemaVersion: 2 } } as unknown as ProjectManifest;
 

@@ -66,7 +66,7 @@ describe("hostile local resource isolation", () => {
 			},
 		};
 
-		const first = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir });
+		const first = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir, agentDir });
 		const firstLoader = first.resourceLoader as BundledDirectorResourceLoader;
 		try {
 			assert.deepEqual(first.getActiveToolNames(), [...DIRECTOR_TOOL_ALLOWLIST]);
@@ -89,7 +89,7 @@ describe("hostile local resource isolation", () => {
 			assertBundleOnly(firstLoader);
 			firstLoader.extendResources({});
 
-			const second = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir });
+			const second = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir, agentDir });
 			try {
 				const secondLoader = second.resourceLoader as BundledDirectorResourceLoader;
 				assert.notEqual(secondLoader, firstLoader);

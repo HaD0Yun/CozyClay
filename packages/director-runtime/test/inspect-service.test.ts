@@ -44,6 +44,41 @@ it("validates a snapshot and returns the inspected canonical manifest", async ()
 	});
 });
 
+it("accepts a matching expected revision", async () => {
+	const runtime = await setup([
+		fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+		fauxAssistantMessage("done"),
+	]);
+	const snapshot = JSON.parse(
+		await readFile(
+			new URL("../../blender-protocol/test/fixtures/blender-exported-snapshot.json", import.meta.url),
+			"utf8",
+		),
+	);
+	const revision = canonicalRevision(snapshot);
+	const result = await createInspectHandler(runtime)({ snapshot }, {
+		signal: new AbortController().signal,
+		request: { expected_revision_id: revision },
+	} as never);
+	assert.equal(result.resulting_revision_id, revision);
+});
+
+it("rejects a stale expected revision before creating a session", async () => {
+	const runtime = await setup([]);
+	const snapshot = JSON.parse(
+		await readFile(
+			new URL("../../blender-protocol/test/fixtures/blender-exported-snapshot.json", import.meta.url),
+			"utf8",
+		),
+	);
+	await assert.rejects(
+		createInspectHandler(runtime)({ snapshot }, {
+			signal: new AbortController().signal,
+			request: { expected_revision_id: "stale" },
+		} as never),
+		/STALE_BASE/,
+	);
+});
 it("aborts an active Pi turn", async () => {
 	const runtime = await setup([]);
 	const controller = new AbortController();
