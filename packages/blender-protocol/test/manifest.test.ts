@@ -242,7 +242,7 @@ describe("SceneManifestV1 canonical state (architecture section 6)", () => {
 				v.objects.push(object(OTHER, "CAMERA"));
 				v.cameras = [camera(OTHER), camera(CAMERA_OBJECT)];
 			} else {
-				v.objects.push(object(OTHER, "LIGHT"), object(ARMATURE_OBJECT, "LIGHT"));
+				v.objects.push(object(ARMATURE_OBJECT, "LIGHT"), object(OTHER, "LIGHT"));
 				v.lights = [light(OTHER), light(ARMATURE_OBJECT)];
 			}
 			assert.throws(() => parseSceneManifest(v), /semantic order/);
