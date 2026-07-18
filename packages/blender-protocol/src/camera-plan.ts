@@ -74,8 +74,10 @@ export const CAMERA_PLAN_ERROR_CODES = [
 	"PLAN_FRAME_ORDER_INVALID",
 	"PLAN_FIRST_TRANSITION_NOT_SMOOTH",
 	// Row 19 is retained in the closed union but has no triggering branch:
-	// rows 11 and 17 force a range-start keyframe to be first, then row 18
-	// deterministically rejects its literal "cut" transition first.
+	// a cut placed exactly at the evidence range start would need an N-1
+	// subject sample at frame_range.start - 1, which lies outside any valid
+	// evidence document's representable range and can therefore never be
+	// present (row 12, EVIDENCE_SUBJECT_SAMPLE_MISSING, always fires first).
 	"PLAN_CUT_AT_RANGE_START",
 	"UNSUPPORTED_PLAN_UP",
 	"PLAN_ZERO_VIEW_DISTANCE",

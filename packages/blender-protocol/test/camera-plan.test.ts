@@ -132,20 +132,15 @@ test("row 18: first transition not literal smooth — PLAN_FIRST_TRANSITION_NOT_
 	);
 });
 
-test("row 19: cut at evidence range start — PLAN_CUT_AT_RANGE_START is subsumed by rows 11/17/18", () => {
-	assertCode(
-		"PLAN_FIRST_TRANSITION_NOT_SMOOTH",
-		(plan) => {
-			plan.keyframes[0]!.frame = 0;
-			plan.keyframes[0]!.transition = "cut";
-		},
-		(evidence) => {
-			evidence.analysis.subject_samples.unshift(
-				{ frame: -1, center: [0, 0, 0], height_m: 1 },
-				{ frame: 0, center: [0, 0, 0], height_m: 1 },
-			);
-		},
-	);
+test("row 19: cut at evidence range start — PLAN_CUT_AT_RANGE_START is subsumed by row 12, never row 18", () => {
+	// Deliberately no evidence mutation: a cut at frame_range.start would
+	// require an N-1 sample at frame_range.start - 1, which no valid evidence
+	// document can represent, so EVIDENCE_SUBJECT_SAMPLE_MISSING always fires
+	// before PLAN_FIRST_TRANSITION_NOT_SMOOTH could be reached.
+	assertCode("EVIDENCE_SUBJECT_SAMPLE_MISSING", (plan) => {
+		plan.keyframes[0]!.frame = 0;
+		plan.keyframes[0]!.transition = "cut";
+	});
 });
 
 test("row 20: up differs [0,1,0] by >1e-9/component — UNSUPPORTED_PLAN_UP", () => {
