@@ -72,6 +72,25 @@ const LightSchema = exact({
 });
 // The owning CAMERA object's entityId, or null.
 const MarkerSchema = exact({ name: name(), frame: Type.Integer(), cameraId: nullableUuid() });
+const CameraKeyframeSchema = exact({
+	frame: Type.Number(),
+	value: Type.Number(),
+	interpolation: Type.String({ minLength: 1 }),
+	handleLeft: Type.Tuple([Type.Number(), Type.Number()]),
+	handleRight: Type.Tuple([Type.Number(), Type.Number()]),
+	handleLeftType: Type.String({ minLength: 1 }),
+	handleRightType: Type.String({ minLength: 1 }),
+});
+const CameraFCurveSchema = exact({
+	dataPath: Type.String({ minLength: 1 }),
+	arrayIndex: Type.Integer({ minimum: 0 }),
+	keyframes: Type.Array(CameraKeyframeSchema),
+});
+const CameraAnimationSchema = exact({
+	objectId: uuid(),
+	target: Type.Union([Type.Literal("object"), Type.Literal("cameraData")]),
+	fcurves: Type.Array(CameraFCurveSchema),
+});
 
 export const SceneManifestV1Schema = exact({
 	schemaVersion: Type.Literal(1),
@@ -90,6 +109,24 @@ export const SceneManifestV1Schema = exact({
 });
 export type SceneManifestV1 = Static<typeof SceneManifestV1Schema>;
 export type SceneManifestV1HashFree = Omit<SceneManifestV1, "revisionId" | "sceneHash">;
+export const SceneManifestV2Schema = exact({
+	schemaVersion: Type.Literal(2),
+	projectId: uuid(),
+	revisionId: Type.String({ pattern: HASH_64 }),
+	sceneHash: Type.String({ pattern: HASH_64 }),
+	blenderVersion: Type.String(),
+	scene: SceneSchema,
+	render: RenderSchema,
+	objects: Type.Array(ObjectSchema),
+	bones: Type.Array(BoneSchema),
+	cameras: Type.Array(CameraSchema),
+	lights: Type.Array(LightSchema),
+	markers: Type.Array(MarkerSchema),
+	selectedEntityIds: Type.Array(uuid()),
+	cameraAnimations: Type.Array(CameraAnimationSchema),
+});
+export type SceneManifestV2 = Static<typeof SceneManifestV2Schema>;
+export type SceneManifestV2HashFree = Omit<SceneManifestV2, "revisionId" | "sceneHash">;
 
 function compareCodePoints(left: string, right: string): number {
 	const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
@@ -123,7 +160,7 @@ function gcd(a: number, b: number): number {
 	return a;
 }
 
-export function validateManifest(manifest: SceneManifestV1HashFree): void {
+export function validateManifest(manifest: SceneManifestV1HashFree | SceneManifestV2HashFree): void {
 	validateNfc(manifest);
 	if (manifest.scene.frameStart > manifest.scene.frameEnd) {
 		throw new Error("scene.frameStart must not exceed scene.frameEnd");
@@ -223,10 +260,56 @@ export function validateManifest(manifest: SceneManifestV1HashFree): void {
 	for (const marker of manifest.markers)
 		if (marker.cameraId !== null && !cameraObjectIds.has(marker.cameraId))
 			throw new Error(`marker ${marker.name} references unknown camera object: ${marker.cameraId}`);
+	if (manifest.schemaVersion === 2) {
+		assertSorted(
+			manifest.cameraAnimations,
+			(left, right) =>
+				compareCodePoints(left.objectId, right.objectId) || compareCodePoints(left.target, right.target),
+			"cameraAnimations",
+		);
+		assertUniqueBy(
+			manifest.cameraAnimations,
+			(animation) => `${animation.objectId}\0${animation.target}`,
+			"camera animation target",
+		);
+		for (const animation of manifest.cameraAnimations) {
+			if (!cameraObjectIds.has(animation.objectId)) {
+				throw new Error(`cameraAnimations entry must reference a CAMERA object: ${animation.objectId}`);
+			}
+			assertSorted(
+				animation.fcurves,
+				(left, right) => compareCodePoints(left.dataPath, right.dataPath) || left.arrayIndex - right.arrayIndex,
+				`cameraAnimations ${animation.objectId} fcurves`,
+			);
+			assertUniqueBy(
+				animation.fcurves,
+				(fcurve) => `${fcurve.dataPath}\0${fcurve.arrayIndex}`,
+				`cameraAnimations ${animation.objectId} fcurve`,
+			);
+			for (const fcurve of animation.fcurves) {
+				assertSorted(
+					fcurve.keyframes,
+					(left, right) => left.frame - right.frame,
+					`cameraAnimations ${animation.objectId} keyframes`,
+				);
+				for (let index = 1; index < fcurve.keyframes.length; index += 1) {
+					if (fcurve.keyframes[index - 1]!.frame >= fcurve.keyframes[index]!.frame) {
+						throw new Error(`cameraAnimations ${animation.objectId} keyframe frames must be strictly increasing`);
+					}
+				}
+			}
+		}
+	}
 }
 
 export function parseSceneManifest(input: unknown): SceneManifestV1 {
 	const manifest = Parse(SceneManifestV1Schema, input);
+	validateManifest(manifest);
+	return manifest;
+}
+
+export function parseSceneManifestV2(input: unknown): SceneManifestV2 {
+	const manifest = Parse(SceneManifestV2Schema, input);
 	validateManifest(manifest);
 	return manifest;
 }

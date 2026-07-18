@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	parseAddonBridgeMessage,
-	parseDaemonBridgeMessage,
-} from "../src/messages.ts";
+import { parseAddonBridgeMessage, parseDaemonBridgeMessage } from "../src/messages.ts";
 
 const ID = "00000000-0000-4000-8000-000000000001";
 const REQUEST_ID = "00000000-0000-4000-8000-000000000002";

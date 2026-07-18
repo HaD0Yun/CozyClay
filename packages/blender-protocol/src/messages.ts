@@ -2,6 +2,7 @@ import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
 
 export const PROTOCOL_VERSION = 1;
+export const MUTATION_PROTOCOL_VERSION = 2;
 
 const UUID_V4_LOWERCASE = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
 const HASH_64 = "^[0-9a-f]{64}$";
@@ -82,6 +83,56 @@ export const ShutdownSchema = exact({ type: Type.Literal("shutdown"), reason: Ty
 export const ShutdownAckSchema = exact({ type: Type.Literal("shutdown_ack") });
 export const PingSchema = exact({ type: Type.Literal("ping"), nonce: Type.String() });
 export const PongSchema = exact({ type: Type.Literal("pong"), nonce: Type.String() });
+export const BridgeRequestSchema = exact({
+	type: Type.Literal("bridge_request"),
+	id: uuid(),
+	request_id: uuid(),
+	method: Type.String({ minLength: 1 }),
+	params: Type.Record(Type.String(), Type.Unknown()),
+	expected_revision_id: hash(),
+	deadline_ms: Type.Integer({ minimum: 100, maximum: 30_000 }),
+});
+export const BridgeProgressSchema = exact({
+	type: Type.Literal("bridge_progress"),
+	id: uuid(),
+	request_id: uuid(),
+	phase: Type.String({ minLength: 1 }),
+	completed: Type.Integer({ minimum: 0 }),
+	total: Type.Integer({ minimum: 0 }),
+});
+export const BridgeResultSchema = exact({
+	type: Type.Literal("bridge_result"),
+	id: uuid(),
+	request_id: uuid(),
+	result: Type.Unknown(),
+});
+export const BridgeErrorSchema = exact({
+	type: Type.Literal("bridge_error"),
+	id: uuid(),
+	request_id: uuid(),
+	code: Type.String({ minLength: 1 }),
+	message: Type.String(),
+	retryable: Type.Boolean(),
+});
+export const BridgeCancelSchema = exact({
+	type: Type.Literal("bridge_cancel"),
+	id: uuid(),
+	request_id: uuid(),
+});
+export const BridgeCancelAckSchema = exact({
+	type: Type.Literal("bridge_cancel_ack"),
+	id: uuid(),
+	request_id: uuid(),
+	status: Type.Union([Type.Literal("accepted"), Type.Literal("already_terminal"), Type.Literal("unknown")]),
+});
+
+export const DaemonBridgeMessageSchema = Type.Union([BridgeRequestSchema, BridgeCancelSchema]);
+export const AddonBridgeMessageSchema = Type.Union([
+	BridgeProgressSchema,
+	BridgeResultSchema,
+	BridgeErrorSchema,
+	BridgeCancelAckSchema,
+]);
 
 export const ClientMessageSchema = Type.Union([
 	HelloSchema,
@@ -108,6 +159,14 @@ export type Request = Static<typeof RequestSchema>;
 export type Cancel = Static<typeof CancelSchema>;
 export type ClientMessage = Static<typeof ClientMessageSchema>;
 export type ServerMessage = Static<typeof ServerMessageSchema>;
+export type BridgeRequest = Static<typeof BridgeRequestSchema>;
+export type BridgeProgress = Static<typeof BridgeProgressSchema>;
+export type BridgeResult = Static<typeof BridgeResultSchema>;
+export type BridgeError = Static<typeof BridgeErrorSchema>;
+export type BridgeCancel = Static<typeof BridgeCancelSchema>;
+export type BridgeCancelAck = Static<typeof BridgeCancelAckSchema>;
+export type DaemonBridgeMessage = Static<typeof DaemonBridgeMessageSchema>;
+export type AddonBridgeMessage = Static<typeof AddonBridgeMessageSchema>;
 
 export const parseStartupRecord = (input: unknown): StartupRecord => Parse(StartupRecordSchema, input);
 export const parseHello = (input: unknown): Hello => Parse(HelloSchema, input);
@@ -153,5 +212,46 @@ export function parseServerMessage(input: unknown): ServerMessage {
 			return Parse(PongSchema, input);
 		default:
 			throw new Error(`unknown server message type: ${String(type)}`);
+	}
+}
+
+function assertMutationProtocol(protocolVersion: number): void {
+	if (protocolVersion !== MUTATION_PROTOCOL_VERSION) {
+		throw new Error(`mutation bridge requires protocol v2, received protocol v${protocolVersion}`);
+	}
+}
+
+export function parseDaemonBridgeMessage(input: unknown, protocolVersion: number): DaemonBridgeMessage {
+	assertMutationProtocol(protocolVersion);
+	const type = typeof input === "object" && input !== null ? (input as { type?: unknown }).type : undefined;
+	switch (type) {
+		case "bridge_request":
+			return Parse(BridgeRequestSchema, input);
+		case "bridge_cancel":
+			return Parse(BridgeCancelSchema, input);
+		default:
+			throw new Error(`unknown daemon bridge message type: ${String(type)}`);
+	}
+}
+
+export function parseAddonBridgeMessage(input: unknown, protocolVersion: number): AddonBridgeMessage {
+	assertMutationProtocol(protocolVersion);
+	const type = typeof input === "object" && input !== null ? (input as { type?: unknown }).type : undefined;
+	switch (type) {
+		case "bridge_progress": {
+			const progress = Parse(BridgeProgressSchema, input);
+			if (progress.completed > progress.total) {
+				throw new Error("bridge progress completed must not exceed total");
+			}
+			return progress;
+		}
+		case "bridge_result":
+			return Parse(BridgeResultSchema, input);
+		case "bridge_error":
+			return Parse(BridgeErrorSchema, input);
+		case "bridge_cancel_ack":
+			return Parse(BridgeCancelAckSchema, input);
+		default:
+			throw new Error(`unknown add-on bridge message type: ${String(type)}`);
 	}
 }

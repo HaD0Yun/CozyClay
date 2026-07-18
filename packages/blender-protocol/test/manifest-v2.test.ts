@@ -21,47 +21,57 @@ function manifest() {
 			activeCameraId: CAMERA_ID,
 		},
 		render: { resolutionX: 1920, resolutionY: 1080, resolutionPercentage: 100 },
-		objects: [{
-			entityId: CAMERA_ID,
-			name: "Camera",
-			type: "CAMERA",
-			parentId: null,
-			visible: true,
-			location: [0, 0, 0],
-			rotationQuaternion: [1, 0, 0, 0],
-			scale: [1, 1, 1],
-		}],
+		objects: [
+			{
+				entityId: CAMERA_ID,
+				name: "Camera",
+				type: "CAMERA",
+				parentId: null,
+				visible: true,
+				location: [0, 0, 0],
+				rotationQuaternion: [1, 0, 0, 0],
+				scale: [1, 1, 1],
+			},
+		],
 		bones: [],
-		cameras: [{
-			objectId: CAMERA_ID,
-			lens: 50,
-			sensorFit: "AUTO",
-			sensorWidth: 36,
-			sensorHeight: 24,
-			verticalFovRadians: 0.5,
-			clipStart: 0.1,
-			clipEnd: 1000,
-		}],
+		cameras: [
+			{
+				objectId: CAMERA_ID,
+				lens: 50,
+				sensorFit: "AUTO",
+				sensorWidth: 36,
+				sensorHeight: 24,
+				verticalFovRadians: 0.5,
+				clipStart: 0.1,
+				clipEnd: 1000,
+			},
+		],
 		lights: [],
 		markers: [],
 		selectedEntityIds: [],
-		cameraAnimations: [{
-			objectId: CAMERA_ID,
-			target: "object",
-			fcurves: [{
-				dataPath: "location",
-				arrayIndex: 0,
-				keyframes: [{
-					frame: 1,
-					value: 0,
-					interpolation: "BEZIER",
-					handleLeft: [0.5, 0],
-					handleRight: [1.5, 0],
-					handleLeftType: "AUTO_CLAMPED",
-					handleRightType: "AUTO_CLAMPED",
-				}],
-			}],
-		}],
+		cameraAnimations: [
+			{
+				objectId: CAMERA_ID,
+				target: "object",
+				fcurves: [
+					{
+						dataPath: "location",
+						arrayIndex: 0,
+						keyframes: [
+							{
+								frame: 1,
+								value: 0,
+								interpolation: "BEZIER",
+								handleLeft: [0.5, 0],
+								handleRight: [1.5, 0],
+								handleLeftType: "AUTO_CLAMPED",
+								handleRightType: "AUTO_CLAMPED",
+							},
+						],
+					},
+				],
+			},
+		],
 	};
 }
 
