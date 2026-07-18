@@ -1,6 +1,6 @@
-import type { SceneSnapshot } from "@oh-my-blender/protocol";
-import { canonicalJson } from "./canonical.ts";
-import { sceneHash } from "./revision.ts";
+import type { SceneManifestV1, SceneSnapshot } from "@oh-my-blender/protocol";
+import { canonicalJson, canonicalRevision } from "./canonical.ts";
+import { initialRevisionId, sceneHash } from "./revision.ts";
 
 export interface ProjectManifest {
 	readonly revision: string;
@@ -16,4 +16,15 @@ export function assertCanonicalSize(snapshot: SceneSnapshot): void {
 
 export function buildProjectManifest(snapshot: SceneSnapshot): ProjectManifest {
 	return { revision: sceneHash(snapshot), snapshot };
+}
+
+export function buildSceneManifestRevision(
+	manifestWithoutHashes: Omit<SceneManifestV1, "revisionId" | "sceneHash">,
+): SceneManifestV1 {
+	const computedSceneHash = canonicalRevision(manifestWithoutHashes);
+	return {
+		...manifestWithoutHashes,
+		revisionId: initialRevisionId(manifestWithoutHashes.projectId, computedSceneHash),
+		sceneHash: computedSceneHash,
+	};
 }

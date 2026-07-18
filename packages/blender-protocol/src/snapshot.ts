@@ -122,7 +122,7 @@ function validateNfc(value: unknown, path = "$"): void {
 	}
 }
 
-function validateQuaternion(quaternion: readonly [number, number, number, number], path: string): void {
+export function validateQuaternion(quaternion: readonly [number, number, number, number], path: string): void {
 	const [w, x, y, z] = quaternion;
 	if (Math.abs(Math.hypot(w, x, y, z) - 1) > 1e-6) {
 		throw new Error(`${path} must have unit length within 1e-6`);

@@ -1,0 +1,128 @@
+import copy
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from oh_my_blender.scene_manifest import (
+    INVALID_MANIFEST_REFERENCE,
+    INVALID_SCENE_MANIFEST,
+    build_scene_manifest,
+    finalize_scene_manifest,
+    rational_fps,
+)
+from oh_my_blender.snapshot import UNSUPPORTED_FPS_BASE
+
+PROJECT = "00000000-0000-4000-8000-000000000001"
+OBJECT = "00000000-0000-4000-8000-000000000002"
+CAMERA_OBJECT = "00000000-0000-4000-8000-000000000003"
+CAMERA = "00000000-0000-4000-8000-000000000004"
+LIGHT_OBJECT = "00000000-0000-4000-8000-000000000005"
+LIGHT = "00000000-0000-4000-8000-000000000006"
+BONE = "00000000-0000-4000-8000-000000000007"
+BONE_CHILD = "00000000-0000-4000-8000-000000000008"
+MISSING = "00000000-0000-4000-8000-000000000099"
+
+
+def obj(entity_id, name, kind="MESH", parent=None):
+    return {"entityId": entity_id, "name": name, "type": kind, "parentId": parent,
+            "visible": True, "location": [0, 0, 0], "rotationQuaternion": [1, 0, 0, 0], "scale": [1, 1, 1]}
+
+
+def parts():
+    return dict(
+        project_id=PROJECT,
+        blender_version="4.3.0",
+        scene={"name": "Scene", "frameStart": 1, "frameEnd": 250, "fpsNumerator": 24000,
+               "fpsDenominator": 1001, "activeCameraId": CAMERA},
+        render={"resolutionX": 1920, "resolutionY": 1080, "resolutionPercentage": 100},
+        objects=[obj(LIGHT_OBJECT, "Light", "LIGHT"), obj(OBJECT, "Cube"), obj(CAMERA_OBJECT, "Camera", "CAMERA")],
+        bones=[{"entityId": BONE_CHILD, "name": "Child", "armatureObjectId": OBJECT, "parentBoneId": BONE,
+                "location": [0, 0, 0], "rotationQuaternion": [1, 0, 0, 0], "scale": [1, 1, 1]},
+               {"entityId": BONE, "name": "Root", "armatureObjectId": OBJECT, "parentBoneId": None,
+                "location": [0, 0, 0], "rotationQuaternion": [1, 0, 0, 0], "scale": [1, 1, 1]}],
+        cameras=[{"entityId": CAMERA, "objectId": CAMERA_OBJECT, "lens": 50, "sensorFit": "AUTO",
+                  "sensorWidth": 36, "sensorHeight": 24, "verticalFovRadians": 0.5, "clipStart": 0.1, "clipEnd": 1000}],
+        lights=[{"entityId": LIGHT, "objectId": LIGHT_OBJECT, "lightType": "POINT", "color": [1, 0.5, 0],
+                 "energy": 1000, "spotSize": None, "spotBlend": None}],
+        markers=[{"name": "B", "frame": 2, "cameraId": None}, {"name": "A", "frame": 2, "cameraId": CAMERA},
+                 {"name": "A", "frame": 2, "cameraId": None}, {"name": "A", "frame": 1, "cameraId": CAMERA}],
+        selected_entity_ids=[OBJECT, CAMERA_OBJECT, OBJECT],
+    )
+
+
+class SceneManifestTests(unittest.TestCase):
+    def test_section_6_manifest_assembles_and_sorts_full_shape(self):
+        manifest = build_scene_manifest(**parts())
+        self.assertEqual([x["entityId"] for x in manifest["objects"]], [OBJECT, CAMERA_OBJECT, LIGHT_OBJECT])
+        self.assertEqual([x["entityId"] for x in manifest["bones"]], [BONE, BONE_CHILD])
+        self.assertEqual([(x["name"], x["frame"], x["cameraId"]) for x in manifest["markers"]],
+                         [("A", 1, CAMERA), ("A", 2, None), ("A", 2, CAMERA), ("B", 2, None)])
+        self.assertEqual(manifest["selectedEntityIds"], [OBJECT, CAMERA_OBJECT])
+        self.assertNotIn("sceneHash", manifest)
+
+    def test_section_6_minimal_manifest(self):
+        data = parts()
+        data.update(scene={**data["scene"], "activeCameraId": None}, objects=[], bones=[], cameras=[], lights=[], markers=[], selected_entity_ids=[])
+        self.assertEqual(build_scene_manifest(**data)["objects"], [])
+
+    def test_section_8_rational_fps_has_only_supported_exact_rules(self):
+        self.assertEqual(rational_fps(24, 1.0), (24, 1))
+        self.assertEqual(rational_fps(24, 1.001), (24000, 1001))
+        with self.assertRaises(UNSUPPORTED_FPS_BASE) as raised:
+            rational_fps(24, 1.5)
+        self.assertEqual(raised.exception.code, "UNSUPPORTED_FPS_BASE")
+
+    def test_section_6_hash_preimage_excludes_hash_fields(self):
+        manifest = build_scene_manifest(**parts())
+        baseline = finalize_scene_manifest(manifest)
+        polluted = {**manifest, "sceneHash": "garbage", "revisionId": "placeholder"}
+        self.assertEqual(finalize_scene_manifest(polluted), baseline)
+        self.assertRegex(baseline["sceneHash"], r"^[0-9a-f]{64}$")
+        self.assertRegex(baseline["revisionId"], r"^[0-9a-f]{64}$")
+
+    def assert_reference_rejected(self, mutate):
+        data = parts()
+        mutate(data)
+        with self.assertRaises(INVALID_MANIFEST_REFERENCE):
+            build_scene_manifest(**data)
+
+    def test_section_6_rejects_every_invalid_cross_reference(self):
+        cases = [
+            lambda d: d["objects"][2].update(parentId=MISSING),
+            lambda d: d["bones"][0].update(armatureObjectId=MISSING),
+            lambda d: d["bones"][0].update(parentBoneId=MISSING),
+            lambda d: d["cameras"][0].update(objectId=OBJECT),
+            lambda d: d.update(cameras=[]),
+            lambda d: d["lights"][0].update(objectId=OBJECT),
+            lambda d: d["scene"].update(activeCameraId=MISSING),
+            lambda d: d["markers"][0].update(cameraId=MISSING),
+        ]
+        for mutate in cases:
+            with self.subTest(mutate=mutate):
+                self.assert_reference_rejected(mutate)
+
+    def test_section_6_spot_fields_are_iff_spot(self):
+        data = parts()
+        data["lights"][0]["spotSize"] = 1.0
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+        data = parts()
+        data["lights"][0].update(lightType="SPOT", spotSize=None, spotBlend=0.5)
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+
+    def test_section_6_rejects_noncanonical_quaternion_and_uuid(self):
+        data = parts()
+        data["objects"][0]["rotationQuaternion"] = [-1, 0, 0, 0]
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+        data = parts()
+        data["project_id"] = "abcdefab-cdef-4abc-8abc-abcdefabcdef".upper()
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+
+
+if __name__ == "__main__":
+    unittest.main()
