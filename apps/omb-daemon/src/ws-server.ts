@@ -11,7 +11,7 @@ export class WebSocketConnection extends EventEmitter {
 	private buffer = Buffer.alloc(0); private fragments: Buffer[] = []; private fragmentBytes = 0;
 	private fragmentOpcode = 0; private closed = false;
 	readonly socket: Duplex;
-	constructor(socket: Duplex) { super();this.socket=socket; socket.on("data", b => this.read(b)); socket.on("close", () => this.emit("disconnect")); socket.on("error", () => { /* close event drives cleanup */ }); }
+	constructor(socket: Duplex) { super();this.socket=socket; socket.on("data", b => this.read(b)); socket.on("close", () => this.emit("disconnect")); socket.on("end", () => { if (!socket.writableEnded) socket.end(); }); socket.on("error", () => { /* close event drives cleanup */ }); }
 	sendText(value: unknown): void { this.frame(1, Buffer.from(JSON.stringify(value))); }
 	pong(payload: Buffer): void { this.frame(10, payload); }
 	close(code = 1000, reason = ""): void { if (this.closed) return; this.closed = true; const p = Buffer.alloc(2 + Buffer.byteLength(reason)); p.writeUInt16BE(code); p.write(reason, 2); this.frame(8, p); this.socket.end(); }

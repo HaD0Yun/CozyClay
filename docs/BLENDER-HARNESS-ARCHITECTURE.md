@@ -431,8 +431,16 @@ npm ci --ignore-scripts
 npm run build
 npm run check
 npm test
-npm run test:omb-roundtrip
+python3 -m unittest discover -s blender-addon/tests
 ```
+
+The `blender-addon` suite includes the real-daemon §14 integration scenario
+(`test_integration_daemon.py`), which launches `apps/omb-daemon` and drives the
+authenticated inspect round trip against a live Pi session.
+
+Legacy note: an aggregated `npm run test:omb-roundtrip` script is not defined;
+run the workspace `npm test` plus the add-on integration suite above.
+
 
 Do not add motion generation, camera authoring, rendering, marketplace support, or a custom GUI in the first commit.
 

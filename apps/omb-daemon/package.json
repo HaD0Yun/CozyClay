@@ -7,6 +7,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.80.9",
     "@earendil-works/pi-coding-agent": "^0.80.9",
-    "@oh-my-blender/director-runtime": "0.1.0"
+    "@oh-my-blender/director-runtime": "0.1.0",
+    "@oh-my-blender/protocol": "0.1.0"
   }
 }

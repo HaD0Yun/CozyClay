@@ -1,6 +1,6 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-import { parseClientMessage, parseHello, parseStartupRecord, PROTOCOL_VERSION, type Request } from "../../../packages/blender-protocol/src/messages.ts";
+import { parseClientMessage, parseHello, parseStartupRecord, PROTOCOL_VERSION, type Request } from "@oh-my-blender/protocol";
 import { BearerToken, randomNonce, systemClock, type Clock } from "./token.ts";
 import { acceptUpgrade, type WebSocketConnection } from "./ws-server.ts";
 import { SessionState, type ActiveRequest } from "./session-state.ts";
@@ -34,7 +34,7 @@ export async function start(options:DaemonOptions):Promise<Daemon>{
 			const task=(async()=>{try{const out=await handler(request.params,{signal:r.controller.signal,request,reportProgress:(phase,completed,total)=>{if(r.phase==="running")ws.sendText({type:"progress",id:r.id,phase,completed,total});}});if(state.complete(r)){state.terminal(r);ws.sendText({type:"response",id:r.id,...out});}}catch(e){if(r.phase==="running"&&state.complete(r)){state.terminal(r);const m=e instanceof Error?e.message:"handler failed";const parsed=/^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(m);ws.sendText(error(r.id,parsed?parsed[1]:"HANDLER_ERROR",parsed?parsed[2]:m,false));}}})();activeHandler=task;await task;if(activeHandler===task)activeHandler=undefined;
 		}
 		async function finishCancellation(r:ActiveRequest){await Promise.resolve();if(state.terminal(r)&&!ws.socket.destroyed)ws.sendText(error(r.id,r.cause==="TIMEOUT"?"TIMEOUT":"CANCELLED",r.cause==="TIMEOUT"?"deadline expired":"request cancelled",false));}
-		function drain(cause:"SHUTDOWN"|"DISCONNECT",acknowledge:boolean):Promise<void>{if(drainPromise)return drainPromise;draining=true;server.close();const r=state.current,cancelled=r?state.cancel(r.id,cause)==="accepted":false;drainPromise=(async()=>{if(cancelled&&activeHandler){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([activeHandler,new Promise<void>(resolve=>{timer=setTimeout(resolve,5000);})]);clearTimeout(timer);}if(acknowledge&&!ws.socket.destroyed)ws.sendText({type:"shutdown_ack"});if(!ws.socket.destroyed)ws.close(1000);clearTimeout(idle);token.zero();try{await closeServer();}catch(e){(options.stderr??(line=>process.stderr.write(line+"\n")))(`daemon cleanup failed: ${e instanceof Error?e.message:String(e)}`);}resolveStopped();})();return drainPromise;}
+		function drain(cause:"SHUTDOWN"|"DISCONNECT",acknowledge:boolean):Promise<void>{if(drainPromise)return drainPromise;draining=true;server.close();const r=state.current;if(r)state.cancel(r.id,cause);drainPromise=(async()=>{if(activeHandler){let timer:ReturnType<typeof setTimeout>|undefined;const bounded=new Promise<void>(resolve=>{timer=setTimeout(resolve,5000);});await Promise.race([activeHandler,bounded]);clearTimeout(timer);}if(acknowledge&&!ws.socket.destroyed)ws.sendText({type:"shutdown_ack"});if(!ws.socket.destroyed)ws.close(1000);clearTimeout(idle);token.zero();try{await closeServer();}catch(e){(options.stderr??(line=>process.stderr.write(line+"\n")))(`daemon cleanup failed: ${e instanceof Error?e.message:String(e)}`);}resolveStopped();})();return drainPromise;}
 	}
 	return{port:addressPort(),startup,stopped,close:async()=>{draining=true;clearTimeout(idle);connection?.close(1000);token.zero();await closeServer();resolveStopped();}};
 }
