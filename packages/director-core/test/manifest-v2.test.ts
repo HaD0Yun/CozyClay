@@ -78,6 +78,28 @@ describe("Architecture §6 / Snapshot v2 §2.6 canonical SceneManifestV2", () =>
 		const { revisionId: _revisionId, sceneHash: _sceneHash, ...preimage } = manifest;
 		assert.equal(manifest.sceneHash, canonicalRevision(preimage));
 	});
+	it("exact-parses a valid hash-free V2 manifest before hashing", () => {
+		const manifestInput = input();
+		const manifest = buildSceneManifestV2Revision(manifestInput);
+		const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFree } = manifest;
+		assert.deepEqual(hashFree, manifestInput);
+	});
+
+	it("rejects unknown top-level fields before hashing", () => {
+		const manifestInput = Object.assign(input(), { unexpected: true });
+		assert.throws(() => buildSceneManifestV2Revision(manifestInput));
+	});
+
+	it("rejects unknown nested camera animation fields before hashing", () => {
+		const manifestInput = input();
+		Object.assign(manifestInput.cameraAnimations[0]!, { unexpected: true });
+		assert.throws(() => buildSceneManifestV2Revision(manifestInput));
+	});
+
+	it("rejects the wrong V2 schemaVersion before hashing", () => {
+		const manifestInput = { ...input(), schemaVersion: 3 };
+		assert.throws(() => buildSceneManifestV2Revision(manifestInput as unknown as ReturnType<typeof input>));
+	});
 
 	it("Architecture §6 / Snapshot v2 §2.6: changing only camera f-curves necessarily changes scene_hash", () => {
 		const baseline = buildSceneManifestV2Revision(input());
