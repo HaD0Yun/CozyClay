@@ -48,6 +48,53 @@ def parts():
         markers=[{"name": "B", "frame": 2, "cameraId": None}, {"name": "A", "frame": 2, "cameraId": CAMERA_OBJECT},
                  {"name": "A", "frame": 2, "cameraId": None}, {"name": "A", "frame": 1, "cameraId": CAMERA_OBJECT}],
         selected_entity_ids=[OBJECT, CAMERA_OBJECT, OBJECT],
+        camera_animations=[
+            {
+                "objectId": CAMERA_OBJECT,
+                "target": "cameraData",
+                "fcurves": [{
+                    "dataPath": "lens",
+                    "arrayIndex": 0,
+                    "keyframes": [{
+                        "frame": 20.0,
+                        "value": 52.0,
+                        "interpolation": "BEZIER",
+                        "handleLeft": [19.0, 50.0],
+                        "handleRight": [21.0, 52.0],
+                        "handleLeftType": "AUTO_CLAMPED",
+                        "handleRightType": "AUTO_CLAMPED",
+                    }],
+                }],
+            },
+            {
+                "objectId": CAMERA_OBJECT,
+                "target": "object",
+                "fcurves": [{
+                    "dataPath": "location",
+                    "arrayIndex": 2,
+                    "keyframes": [
+                        {
+                            "frame": 20.0,
+                            "value": 4.0,
+                            "interpolation": "BEZIER",
+                            "handleLeft": [19.0, 3.0],
+                            "handleRight": [21.0, 4.0],
+                            "handleLeftType": "AUTO_CLAMPED",
+                            "handleRightType": "AUTO_CLAMPED",
+                        },
+                        {
+                            "frame": 1.0,
+                            "value": 3.0,
+                            "interpolation": "CONSTANT",
+                            "handleLeft": [1.0, 3.0],
+                            "handleRight": [2.0, 3.0],
+                            "handleLeftType": "FREE",
+                            "handleRightType": "FREE",
+                        },
+                    ],
+                }],
+            },
+        ],
     )
 
 
@@ -63,9 +110,45 @@ class SceneManifestTests(unittest.TestCase):
         self.assertNotIn("entityId", manifest["cameras"][0])
         self.assertNotIn("entityId", manifest["lights"][0])
 
+    def test_snapshot_v2_section_2_6_camera_animations_are_additive_and_semantically_sorted(self):
+        manifest = build_scene_manifest(**parts())
+        self.assertEqual(manifest["schemaVersion"], 2)
+        self.assertEqual(
+            [(item["objectId"], item["target"]) for item in manifest["cameraAnimations"]],
+            [(CAMERA_OBJECT, "cameraData"), (CAMERA_OBJECT, "object")],
+        )
+        self.assertEqual(
+            [keyframe["frame"] for keyframe in manifest["cameraAnimations"][1]["fcurves"][0]["keyframes"]],
+            [1.0, 20.0],
+        )
+
+    def test_architecture_section_6_full_v2_is_the_sole_hash_preimage(self):
+        baseline = finalize_scene_manifest(build_scene_manifest(**parts()))
+        changed_parts = parts()
+        changed_parts["camera_animations"][0]["fcurves"][0]["keyframes"][0]["value"] = 51.0
+        changed = finalize_scene_manifest(build_scene_manifest(**changed_parts))
+        self.assertNotEqual(changed["sceneHash"], baseline["sceneHash"])
+
+    def test_snapshot_v2_section_2_6_camera_animations_are_closed_and_correlated(self):
+        data = parts()
+        data["camera_animations"][0]["unknown"] = True
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+        data = parts()
+        data["camera_animations"][0]["objectId"] = OBJECT
+        with self.assertRaises(INVALID_MANIFEST_REFERENCE):
+            build_scene_manifest(**data)
+
+    def test_architecture_section_6_v1_manifest_cannot_be_used_for_mutation(self):
+        manifest = build_scene_manifest(**parts())
+        manifest["schemaVersion"] = 1
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            finalize_scene_manifest(manifest)
+
     def test_section_6_minimal_manifest(self):
         data = parts()
         data.update(scene={**data["scene"], "activeCameraId": None}, objects=[], bones=[], cameras=[], lights=[], markers=[], selected_entity_ids=[])
+        data["camera_animations"] = []
         self.assertEqual(build_scene_manifest(**data)["objects"], [])
 
     def test_section_8_rational_fps_has_only_supported_exact_rules(self):

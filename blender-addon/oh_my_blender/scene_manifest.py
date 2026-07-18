@@ -1,4 +1,4 @@
-"""Blender-independent assembly and validation for SceneManifestV1."""
+"""Blender-independent assembly and validation for SceneManifestV2."""
 
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ MAX_MAGNITUDE = 1e15
 
 _MANIFEST_KEYS = {
     "schemaVersion", "projectId", "revisionId", "sceneHash", "blenderVersion",
-    "scene", "render", "objects", "bones", "cameras", "lights", "markers", "selectedEntityIds",
+    "scene", "render", "objects", "bones", "cameras", "lights", "markers",
+    "selectedEntityIds", "cameraAnimations",
 }
 _SCENE_KEYS = {"name", "frameStart", "frameEnd", "fpsNumerator", "fpsDenominator", "activeCameraId"}
 _RENDER_KEYS = {"resolutionX", "resolutionY", "resolutionPercentage"}
@@ -30,6 +31,12 @@ _CAMERA_KEYS = {
 }
 _LIGHT_KEYS = {"objectId", "lightType", "color", "energy", "spotSize", "spotBlend"}
 _MARKER_KEYS = {"name", "frame", "cameraId"}
+_CAMERA_ANIMATION_KEYS = {"objectId", "target", "fcurves"}
+_FCURVE_KEYS = {"dataPath", "arrayIndex", "keyframes"}
+_KEYFRAME_KEYS = {
+    "frame", "value", "interpolation", "handleLeft", "handleRight",
+    "handleLeftType", "handleRightType",
+}
 
 
 class INVALID_SCENE_MANIFEST(ExportError):
@@ -123,8 +130,8 @@ def _assert_sorted(values: list, key, label: str) -> None:
 
 def _validate_manifest(manifest: dict) -> None:
     _exact_keys(manifest, _MANIFEST_KEYS, "manifest")
-    if manifest.get("schemaVersion") != 1:
-        _fail("schemaVersion", "must equal 1")
+    if manifest.get("schemaVersion") != 2:
+        _fail("schemaVersion", "must equal 2")
     _uuid(manifest.get("projectId"), "projectId")
     _string(manifest.get("blenderVersion"), "blenderVersion")
 
@@ -147,7 +154,7 @@ def _validate_manifest(manifest: dict) -> None:
     _integer(render.get("resolutionPercentage"), "render.resolutionPercentage", 1, 100)
 
     arrays = {}
-    for key in ("objects", "bones", "cameras", "lights", "markers", "selectedEntityIds"):
+    for key in ("objects", "bones", "cameras", "lights", "markers", "selectedEntityIds", "cameraAnimations"):
         value = manifest.get(key)
         if not isinstance(value, list):
             _fail(key, "must be an array")
@@ -281,6 +288,64 @@ def _validate_manifest(manifest: dict) -> None:
         _fail("selectedEntityIds", "must not contain duplicates")
     _assert_sorted(arrays["selectedEntityIds"], lambda value: value, "selectedEntityIds")
 
+    animation_targets: set[tuple[str, str]] = set()
+    for animation_index, animation in enumerate(arrays["cameraAnimations"]):
+        path = f"cameraAnimations[{animation_index}]"
+        _exact_keys(animation, _CAMERA_ANIMATION_KEYS, path)
+        _uuid(animation.get("objectId"), f"{path}.objectId")
+        if (
+            animation["objectId"] not in objects_by_id
+            or objects_by_id[animation["objectId"]]["type"] != "CAMERA"
+        ):
+            raise INVALID_MANIFEST_REFERENCE(f"{path}.objectId must reference a CAMERA object")
+        if animation.get("target") not in ("object", "cameraData"):
+            _fail(f"{path}.target", "is unsupported")
+        identity = (animation["objectId"], animation["target"])
+        if identity in animation_targets:
+            _fail("cameraAnimations", "must contain at most one entry per object and target")
+        animation_targets.add(identity)
+        fcurves = animation.get("fcurves")
+        if not isinstance(fcurves, list):
+            _fail(f"{path}.fcurves", "must be an array")
+        fcurve_identities: set[tuple[str, int]] = set()
+        for fcurve_index, fcurve in enumerate(fcurves):
+            fcurve_path = f"{path}.fcurves[{fcurve_index}]"
+            _exact_keys(fcurve, _FCURVE_KEYS, fcurve_path)
+            _string(fcurve.get("dataPath"), f"{fcurve_path}.dataPath", 1)
+            _integer(fcurve.get("arrayIndex"), f"{fcurve_path}.arrayIndex", 0)
+            fcurve_identity = (fcurve["dataPath"], fcurve["arrayIndex"])
+            if fcurve_identity in fcurve_identities:
+                _fail(f"{path}.fcurves", "must not contain duplicate dataPath and arrayIndex pairs")
+            fcurve_identities.add(fcurve_identity)
+            keyframes = fcurve.get("keyframes")
+            if not isinstance(keyframes, list):
+                _fail(f"{fcurve_path}.keyframes", "must be an array")
+            frames: set[float | int] = set()
+            for keyframe_index, keyframe in enumerate(keyframes):
+                keyframe_path = f"{fcurve_path}.keyframes[{keyframe_index}]"
+                _exact_keys(keyframe, _KEYFRAME_KEYS, keyframe_path)
+                _number(keyframe.get("frame"), f"{keyframe_path}.frame")
+                _number(keyframe.get("value"), f"{keyframe_path}.value")
+                if keyframe["frame"] in frames:
+                    _fail(f"{fcurve_path}.keyframes", "must not contain duplicate frames")
+                frames.add(keyframe["frame"])
+                _string(keyframe.get("interpolation"), f"{keyframe_path}.interpolation", 1)
+                _vector(keyframe.get("handleLeft"), 2, f"{keyframe_path}.handleLeft")
+                _vector(keyframe.get("handleRight"), 2, f"{keyframe_path}.handleRight")
+                _string(keyframe.get("handleLeftType"), f"{keyframe_path}.handleLeftType", 1)
+                _string(keyframe.get("handleRightType"), f"{keyframe_path}.handleRightType", 1)
+            _assert_sorted(keyframes, lambda item: item["frame"], f"{fcurve_path}.keyframes")
+        _assert_sorted(
+            fcurves,
+            lambda item: (item["dataPath"], item["arrayIndex"]),
+            f"{path}.fcurves",
+        )
+    _assert_sorted(
+        arrays["cameraAnimations"],
+        lambda item: (item["objectId"], item["target"]),
+        "cameraAnimations",
+    )
+
 
 def build_scene_manifest(
     project_id: str,
@@ -293,10 +358,17 @@ def build_scene_manifest(
     lights: list[dict],
     markers: list[dict],
     selected_entity_ids: list[str],
+    camera_animations: list[dict],
 ) -> dict:
     """Validate, copy, and semantically order already-extracted scene data."""
+    ordered_animations = copy.deepcopy(camera_animations)
+    for animation in ordered_animations:
+        for fcurve in animation["fcurves"]:
+            fcurve["keyframes"].sort(key=lambda item: item["frame"])
+        animation["fcurves"].sort(key=lambda item: (item["dataPath"], item["arrayIndex"]))
+    ordered_animations.sort(key=lambda item: (item["objectId"], item["target"]))
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "projectId": project_id,
         "blenderVersion": blender_version,
         "scene": copy.deepcopy(scene),
@@ -307,6 +379,7 @@ def build_scene_manifest(
         "lights": sorted(copy.deepcopy(lights), key=lambda item: item["objectId"]),
         "markers": sorted(copy.deepcopy(markers), key=lambda item: (item["name"], item["frame"], item["cameraId"] is not None, item["cameraId"] or "")),
         "selectedEntityIds": sorted(set(copy.deepcopy(selected_entity_ids))),
+        "cameraAnimations": ordered_animations,
     }
     _validate_manifest(manifest)
     return manifest

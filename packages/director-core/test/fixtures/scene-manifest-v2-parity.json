@@ -1,0 +1,261 @@
+{
+  "blenderVersion": "5.1.2",
+  "bones": [
+    {
+      "armatureObjectId": "00000000-0000-4000-8000-000000000003",
+      "entityId": "00000000-0000-4000-8000-000000000004",
+      "location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "name": "Bone",
+      "parentBoneId": null,
+      "rotationQuaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "cameras": [
+    {
+      "clipEnd": 1000.0,
+      "clipStart": 0.1,
+      "lens": 50.0,
+      "objectId": "00000000-0000-4000-8000-000000000001",
+      "sensorFit": "AUTO",
+      "sensorHeight": 24.0,
+      "sensorWidth": 36.0,
+      "verticalFovRadians": 0.691226616819516
+    }
+  ],
+  "lights": [
+    {
+      "color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "energy": 3.0,
+      "lightType": "SUN",
+      "objectId": "00000000-0000-4000-8000-000000000005",
+      "spotBlend": null,
+      "spotSize": null
+    }
+  ],
+  "markers": [
+    {
+      "cameraId": "00000000-0000-4000-8000-000000000001",
+      "frame": 10,
+      "name": "CUT_10"
+    }
+  ],
+  "objects": [
+    {
+      "entityId": "00000000-0000-4000-8000-000000000001",
+      "location": [
+        0.0,
+        -5.0,
+        1.5
+      ],
+      "name": "Camera",
+      "parentId": null,
+      "rotationQuaternion": [
+        0.9238795325112867,
+        0.3826834323650898,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "CAMERA",
+      "visible": true
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000003",
+      "location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "name": "Armature",
+      "parentId": null,
+      "rotationQuaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "ARMATURE",
+      "visible": true
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000005",
+      "location": [
+        2.0,
+        -2.0,
+        3.0
+      ],
+      "name": "Light",
+      "parentId": null,
+      "rotationQuaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "LIGHT",
+      "visible": true
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000007",
+      "location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "name": "Fighter",
+      "parentId": null,
+      "rotationQuaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "type": "MESH",
+      "visible": true
+    }
+  ],
+  "projectId": "00000000-0000-4000-8000-00000000000a",
+  "render": {
+    "resolutionPercentage": 100,
+    "resolutionX": 1920,
+    "resolutionY": 1080
+  },
+  "scene": {
+    "activeCameraId": "00000000-0000-4000-8000-000000000001",
+    "fpsDenominator": 1,
+    "fpsNumerator": 24,
+    "frameEnd": 320,
+    "frameStart": 1,
+    "name": "Boxing"
+  },
+  "schemaVersion": 2,
+  "selectedEntityIds": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000007"
+  ],
+  "cameraAnimations": [
+    {
+      "objectId": "00000000-0000-4000-8000-000000000001",
+      "target": "cameraData",
+      "fcurves": [
+        {
+          "dataPath": "lens",
+          "arrayIndex": 0,
+          "keyframes": [
+            {
+              "frame": 1.0,
+              "value": 50.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                1.0,
+                50.0
+              ],
+              "handleRight": [
+                4.0,
+                50.0
+              ],
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
+            },
+            {
+              "frame": 10.0,
+              "value": 52.0,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                7.0,
+                52.0
+              ],
+              "handleRight": [
+                10.0,
+                52.0
+              ],
+              "handleLeftType": "FREE",
+              "handleRightType": "FREE"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "objectId": "00000000-0000-4000-8000-000000000001",
+      "target": "object",
+      "fcurves": [
+        {
+          "dataPath": "location",
+          "arrayIndex": 2,
+          "keyframes": [
+            {
+              "frame": 1.0,
+              "value": 1.5,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                1.0,
+                1.5
+              ],
+              "handleRight": [
+                4.0,
+                1.5
+              ],
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
+            },
+            {
+              "frame": 10.0,
+              "value": 2.0,
+              "interpolation": "CONSTANT",
+              "handleLeft": [
+                7.0,
+                2.0
+              ],
+              "handleRight": [
+                10.0,
+                2.0
+              ],
+              "handleLeftType": "FREE",
+              "handleRightType": "FREE"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "revisionId": "ca8d4e064f2e3391958eeb0a7885cc4cd92f9d15d39cf2950909ec6294903ca3",
+  "sceneHash": "f65db0255801e77b209e1019a70d9d1bb4e82fe37e709ead111290934a8b8816"
+}

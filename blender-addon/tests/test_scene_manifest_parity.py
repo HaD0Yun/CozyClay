@@ -1,7 +1,7 @@
-"""Cross-language SceneManifestV1 revision parity (architecture doc section 6).
+"""Cross-language SceneManifestV2 revision parity (Architecture §6).
 
 The committed fixture is shared verbatim with
-packages/director-core/test/fixtures/scene-manifest-v1-parity.json; this
+packages/director-core/test/fixtures/scene-manifest-v2-parity.json; this
 test proves the Python producer reproduces its own committed sceneHash and
 revisionId, while packages/director-core/test/scene-manifest-parity.test.ts
 proves the TypeScript consumer reproduces the same values from Python's
@@ -26,12 +26,12 @@ FIXTURE_PATH = os.path.join(
     "director-core",
     "test",
     "fixtures",
-    "scene-manifest-v1-parity.json",
+    "scene-manifest-v2-parity.json",
 )
 
 
 class SceneManifestParityTest(unittest.TestCase):
-    def test_section_6_reproduces_the_committed_scene_hash_and_revision_id(self):
+    def test_architecture_section_6_and_snapshot_v2_section_2_6_reproduce_the_committed_v2_hash(self):
         with open(FIXTURE_PATH, encoding="utf-8") as handle:
             fixture = json.load(handle)
         without_hashes = {k: v for k, v in fixture.items() if k not in ("sceneHash", "revisionId")}
