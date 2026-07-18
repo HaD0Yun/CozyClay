@@ -3,8 +3,9 @@
 import subprocess
 import time
 from os import PathLike
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
+from .checkpoint import Checkpoint, restore, verify
 from .daemon_child import DaemonChild
 from .handshake import HandshakeError, build_hello, validate_hello_ack
 from .ws_client import WebSocketClient, WebSocketError
@@ -26,6 +27,34 @@ class Connection:
         self.child = child
         self.websocket = websocket
         self.state = "active"
+        self.active_checkpoint: Checkpoint | None = None
+
+    def hold_checkpoint(self, checkpoint: Checkpoint) -> None:
+        """Retain the sole in-flight mutation checkpoint."""
+        if self.active_checkpoint is not None:
+            raise ConnectionError("a mutation checkpoint is already active")
+        self.active_checkpoint = checkpoint
+
+    def release_checkpoint(self) -> Checkpoint | None:
+        """Clear and return the in-flight mutation checkpoint, if any."""
+        checkpoint = self.active_checkpoint
+        self.active_checkpoint = None
+        return checkpoint
+
+    def restore_on_unexpected_loss(
+        self,
+        apply_fn: Callable[[str, dict], None],
+        read_fn: Callable[[str], dict],
+    ) -> bool:
+        """Restore and verify the held checkpoint after unexpected socket loss."""
+        checkpoint = self.active_checkpoint
+        if checkpoint is None:
+            return True
+        try:
+            restore(checkpoint, apply_fn)
+            return verify(checkpoint, read_fn)
+        finally:
+            self.active_checkpoint = None
 
     @classmethod
     def start(
@@ -106,6 +135,39 @@ def verify_reconnect_hash(
         raise ConnectionError(
             "live scene hash does not match the canonical current revision"
         )
+
+
+def reconnect(
+    argv: Sequence[str],
+    *,
+    cwd: str | PathLike[str],
+    project_id: str,
+    addon_version: str,
+    blender_version: str,
+    expected_scene_hash: str,
+    live_scene_hash_fn: Callable[[], str],
+    child_type: type[DaemonChild] = DaemonChild,
+    websocket_type: type[WebSocketClient] = WebSocketClient,
+) -> Connection:
+    """Start a fresh connection and expose it only after scene verification."""
+    connection = Connection.start(
+        argv,
+        cwd=cwd,
+        project_id=project_id,
+        addon_version=addon_version,
+        blender_version=blender_version,
+        child_type=child_type,
+        websocket_type=websocket_type,
+    )
+    try:
+        verify_reconnect_hash(live_scene_hash_fn(), expected_scene_hash)
+    except ConnectionError:
+        try:
+            connection.disconnect("reconnect_hash_mismatch")
+        except Exception:
+            pass
+        raise
+    return connection
 
 
 def _test_only_inject_disconnect_fault(

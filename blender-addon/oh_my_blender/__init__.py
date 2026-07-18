@@ -1,6 +1,6 @@
 """Blender-side bridge for Oh My Blender."""
 
-from .identity import assign_entity_ids, new_project_id
+from .identity import IdentityError, assign_entity_ids, new_project_id
 from . import project_store
 
 bl_info = {
@@ -33,6 +33,23 @@ if bpy is not None:
             if project_created:
                 scene["omb.project_id"] = new_project_id()
 
+            directory = bpy.path.abspath("//")
+            try:
+                project_store.prepare_project_index(
+                    directory, scene["omb.project_id"], project_created
+                )
+            except (project_store.ProjectStoreError, IdentityError) as exc:
+                if project_created:
+                    del scene["omb.project_id"]
+                message = (
+                    "Scene project_id does not match .omb/project.json; "
+                    "use an explicit recovery step, not Initialize Project"
+                    if isinstance(exc, IdentityError)
+                    else str(exc)
+                )
+                self.report({"ERROR"}, message)
+                return {"CANCELLED"}
+
             entities = []
             ordered = []
             for object_index, obj in enumerate(scene.objects):
@@ -46,13 +63,10 @@ if bpy is not None:
                         ordered.append((key, bone.get("omb.entity_id")))
 
             assignments = project_store.repair_entity_ids(ordered)
-            entities_by_key = dict(entities)
-            for key, entity_id in assignments.items():
-                entities_by_key[key]["omb.entity_id"] = entity_id
-
-            directory = bpy.path.abspath("//")
+            originals = project_store.apply_property_assignments(
+                dict(entities), assignments
+            )
             try:
-                project_store.write_project_index(directory, scene["omb.project_id"])
                 if project_created or assignments:
                     project_store.append_journal(
                         directory,
@@ -63,6 +77,7 @@ if bpy is not None:
                         },
                     )
             except project_store.ProjectStoreError as exc:
+                project_store.restore_property_assignments(originals)
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
             if not project_created and not assignments:
@@ -113,8 +128,9 @@ if bpy is not None:
                 return {"CANCELLED"}
 
             entities_by_key = dict(entities)
-            for key, entity_id in assignments.items():
-                entities_by_key[key]["omb.entity_id"] = entity_id
+            originals = project_store.apply_property_assignments(
+                entities_by_key, assignments
+            )
             try:
                 project_store.append_journal(
                     directory,
@@ -125,6 +141,7 @@ if bpy is not None:
                     },
                 )
             except project_store.ProjectStoreError as exc:
+                project_store.restore_property_assignments(originals)
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
             return {"FINISHED"}
@@ -146,13 +163,22 @@ if bpy is not None:
                 return {"CANCELLED"}
             repository_root = Path(__file__).resolve().parents[2]
             try:
+                project_store.verify_connect_precondition(
+                    bpy.path.abspath("//"), project_id, bpy.data.is_dirty
+                )
                 connection.connect(
                     cwd=repository_root,
                     project_id=project_id,
                     addon_version=".".join(str(part) for part in bl_info["version"]),
                     blender_version=bpy.app.version_string,
                 )
-            except (connection.ConnectionError, StartupError, WebSocketError) as exc:
+            except (
+                project_store.ProjectStoreError,
+                IdentityError,
+                connection.ConnectionError,
+                StartupError,
+                WebSocketError,
+            ) as exc:
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
             return {"FINISHED"}
@@ -188,5 +214,8 @@ def register() -> None:
 
 def unregister() -> None:
     if bpy is not None:
+        from . import connection
+
+        connection.disconnect_active("addon_unload")
         for cls in reversed(_CLASSES):
             bpy.utils.unregister_class(cls)

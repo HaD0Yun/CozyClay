@@ -3,15 +3,18 @@
 import pathlib
 import subprocess
 import sys
+from unittest import mock
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
+from oh_my_blender.checkpoint import create_checkpoint
 from oh_my_blender.connection import (
     Connection,
     ConnectionError,
     _test_only_inject_disconnect_fault,
     verify_reconnect_hash,
+    reconnect,
 )
 
 
@@ -101,6 +104,93 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(child.killed)
         self.assertEqual(len(process.wait_calls), 1)
 
+
+    def test_checkpoint_hold_and_release_enforce_single_in_flight(self):
+        connection = Connection(FakeChild(FakeProcess()), FakeSocket())
+        first = create_checkpoint({"object:cube": {"visible": True}})
+        second = create_checkpoint({"object:sphere": {"visible": False}})
+
+        connection.hold_checkpoint(first)
+        with self.assertRaises(ConnectionError):
+            connection.hold_checkpoint(second)
+        self.assertIs(connection.release_checkpoint(), first)
+        self.assertIsNone(connection.release_checkpoint())
+
+    def test_unexpected_loss_restores_then_verifies_and_clears_checkpoint(self):
+        connection = Connection(FakeChild(FakeProcess()), FakeSocket())
+        checkpoint = create_checkpoint({"object:cube": {"visible": True}})
+        connection.hold_checkpoint(checkpoint)
+        scene = {"object:cube": {"visible": False}}
+        calls = []
+
+        def apply(key, values):
+            calls.append(("restore", key))
+            scene[key] = values
+
+        def read(key):
+            calls.append(("verify", key))
+            return scene[key]
+
+        self.assertTrue(connection.restore_on_unexpected_loss(apply, read))
+        self.assertEqual(calls, [("restore", "object:cube"), ("verify", "object:cube")])
+        self.assertIsNone(connection.active_checkpoint)
+
+    def test_unexpected_loss_failed_verification_still_clears_checkpoint(self):
+        connection = Connection(FakeChild(FakeProcess()), FakeSocket())
+        connection.hold_checkpoint(
+            create_checkpoint({"object:cube": {"visible": True}})
+        )
+
+        self.assertFalse(
+            connection.restore_on_unexpected_loss(
+                lambda key, values: None,
+                lambda key: {"visible": False},
+            )
+        )
+        self.assertIsNone(connection.active_checkpoint)
+
+    def test_unexpected_loss_without_checkpoint_is_no_op(self):
+        connection = Connection(FakeChild(FakeProcess()), FakeSocket())
+        apply = mock.Mock()
+        read = mock.Mock()
+
+        self.assertTrue(connection.restore_on_unexpected_loss(apply, read))
+        apply.assert_not_called()
+        read.assert_not_called()
+
+    def test_reconnect_accepts_matching_live_hash(self):
+        connection = mock.Mock()
+        with mock.patch.object(Connection, "start", return_value=connection) as start:
+            result = reconnect(
+                ("daemon",),
+                cwd="/tmp",
+                project_id="project",
+                addon_version="1",
+                blender_version="4",
+                expected_scene_hash="ab12",
+                live_scene_hash_fn=lambda: "ab12",
+            )
+
+        self.assertIs(result, connection)
+        start.assert_called_once()
+        connection.disconnect.assert_not_called()
+
+    def test_reconnect_mismatch_disconnects_and_reraises_original_error(self):
+        connection = mock.Mock()
+        connection.disconnect.side_effect = RuntimeError("disconnect failed")
+        with mock.patch.object(Connection, "start", return_value=connection):
+            with self.assertRaisesRegex(ConnectionError, "canonical current revision"):
+                reconnect(
+                    ("daemon",),
+                    cwd="/tmp",
+                    project_id="project",
+                    addon_version="1",
+                    blender_version="4",
+                    expected_scene_hash="cd34",
+                    live_scene_hash_fn=lambda: "ab12",
+                )
+
+        connection.disconnect.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()

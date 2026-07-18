@@ -15,8 +15,13 @@ class CheckpointError(RuntimeError):
 class Checkpoint:
     """An in-memory value snapshot and its deterministic pre-state hash."""
 
-    entities: dict[str, dict]
+    _entities: dict[str, dict]
     state_hash: str
+
+    @property
+    def entities(self) -> dict[str, dict]:
+        """Return a fresh copy so callers cannot mutate the retained snapshot."""
+        return copy.deepcopy(self._entities)
 
 
 def _state_hash(entities: dict[str, dict]) -> str:

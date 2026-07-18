@@ -93,6 +93,55 @@ def verify_project_ids_match(scene_project_id: object, stored_project_id: object
     validate_project_ids(scene_project_id, stored_project_id)
 
 
+def verify_connect_precondition(
+    directory: str, scene_project_id: object, is_dirty: bool
+) -> None:
+    """Refuse a connection unless saved state and durable identity agree."""
+    if is_dirty:
+        raise ProjectStoreError("Save unsaved changes before connecting")
+    stored = read_project_index(directory)
+    if stored is None:
+        raise ProjectStoreError("Project is not initialized in .omb/project.json")
+    verify_project_ids_match(scene_project_id, stored.get("project_id"))
+
+
+def prepare_project_index(
+    directory: str, scene_project_id: str, project_created: bool
+) -> bool:
+    """Persist a new/missing index, or verify an existing index without rewriting it."""
+    stored = None if project_created else read_project_index(directory)
+    if stored is not None:
+        verify_project_ids_match(scene_project_id, stored.get("project_id"))
+        return False
+    write_project_index(directory, scene_project_id)
+    return True
+
+
+def apply_property_assignments(
+    entities: dict[str, object], assignments: dict[str, str]
+) -> list[tuple[object, bool, object]]:
+    """Apply ID-property assignments while retaining exact rollback state."""
+    originals = []
+    for key, value in assignments.items():
+        entity = entities[key]
+        existed = "omb.entity_id" in entity  # type: ignore[operator]
+        original = entity.get("omb.entity_id") if existed else None  # type: ignore[attr-defined]
+        originals.append((entity, existed, original))
+        entity["omb.entity_id"] = value  # type: ignore[index]
+    return originals
+
+
+def restore_property_assignments(
+    originals: Iterable[tuple[object, bool, object]],
+) -> None:
+    """Restore ID properties, deleting keys which were originally absent."""
+    for entity, existed, original in originals:
+        if existed:
+            entity["omb.entity_id"] = original  # type: ignore[index]
+        elif "omb.entity_id" in entity:  # type: ignore[operator]
+            del entity["omb.entity_id"]  # type: ignore[attr-defined]
+
+
 def repair_entity_ids(entries: Iterable[tuple[str, object]]) -> dict[str, str]:
     """Return fresh-ID assignments using serialized first-owner-keeps-it order."""
     existing: dict[str, object] = {}

@@ -56,6 +56,23 @@ class CheckpointTests(unittest.TestCase):
 
         self.assertEqual(create_checkpoint(first).state_hash, create_checkpoint(second).state_hash)
 
+    def test_snapshot_is_defensively_copied_at_input_and_on_every_access(self):
+        original = {"object:cube": {"location": [1.0, 2.0, 3.0]}}
+        checkpoint = create_checkpoint(original)
+        original["object:cube"]["location"][0] = 9.0
+        exposed = checkpoint.entities
+        exposed["object:cube"]["location"][1] = 8.0
+
+        restored = {}
+        restore(checkpoint, lambda key, values: restored.__setitem__(key, values))
+
+        self.assertEqual(restored, {"object:cube": {"location": [1.0, 2.0, 3.0]}})
+        self.assertTrue(verify(checkpoint, lambda key: restored[key]))
+        self.assertEqual(
+            checkpoint.entities,
+            {"object:cube": {"location": [1.0, 2.0, 3.0]}},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

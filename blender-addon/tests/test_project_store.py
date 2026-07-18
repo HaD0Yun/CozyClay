@@ -14,8 +14,12 @@ from oh_my_blender.identity import IdentityError
 from oh_my_blender.project_store import (
     ProjectStoreError,
     append_journal,
+    apply_property_assignments,
+    prepare_project_index,
     read_project_index,
     repair_entity_ids,
+    restore_property_assignments,
+    verify_connect_precondition,
     verify_project_ids_match,
     write_project_index,
 )
@@ -90,6 +94,58 @@ class ProjectStoreTests(unittest.TestCase):
             with self.assertRaises(ProjectStoreError):
                 append_journal(directory, {"project_id": PROJECT_ID})
 
+    def test_lines_203_204_connect_precondition_rejects_dirty_missing_and_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ProjectStoreError, "unsaved changes"):
+                verify_connect_precondition(directory, PROJECT_ID, True)
+            with self.assertRaisesRegex(ProjectStoreError, "not initialized"):
+                verify_connect_precondition(directory, PROJECT_ID, False)
+            write_project_index(directory, OTHER_ID)
+            with self.assertRaises(IdentityError):
+                verify_connect_precondition(directory, PROJECT_ID, False)
+
+    def test_line_203_connect_precondition_accepts_matching_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write_project_index(directory, PROJECT_ID)
+            self.assertIsNone(verify_connect_precondition(directory, PROJECT_ID, False))
+
+    def test_lines_203_206_reinitialize_matching_index_is_noop_and_mismatch_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write_project_index(directory, PROJECT_ID, {"future": "preserved"})
+            with mock.patch("oh_my_blender.project_store.write_project_index") as write:
+                self.assertFalse(prepare_project_index(directory, PROJECT_ID, False))
+                write.assert_not_called()
+            with self.assertRaises(IdentityError):
+                prepare_project_index(directory, OTHER_ID, False)
+            self.assertEqual(
+                read_project_index(directory),
+                {"project_id": PROJECT_ID, "future": "preserved"},
+            )
+
+    def test_lines_203_206_initialize_writes_first_time_and_reestablishes_missing_index(self):
+        for project_created in (True, False):
+            with self.subTest(project_created=project_created):
+                with tempfile.TemporaryDirectory() as directory:
+                    self.assertTrue(
+                        prepare_project_index(directory, PROJECT_ID, project_created)
+                    )
+                    self.assertEqual(read_project_index(directory), {"project_id": PROJECT_ID})
+
+    def test_line_210_failed_journal_rollback_restores_values_and_absence(self):
+        existing = {"omb.entity_id": PROJECT_ID}
+        brand_new = {}
+        originals = apply_property_assignments(
+            {"existing": existing, "new": brand_new},
+            {"existing": OTHER_ID, "new": PROJECT_ID},
+        )
+        with self.assertRaises(ProjectStoreError):
+            try:
+                raise ProjectStoreError("journal failed")
+            except ProjectStoreError:
+                restore_property_assignments(originals)
+                raise
+        self.assertEqual(existing, {"omb.entity_id": PROJECT_ID})
+        self.assertNotIn("omb.entity_id", brand_new)
     def test_line_205_repair_keeps_first_valid_id_and_reassigns_later_duplicates(self):
         """§5 line 205: first serialized owner keeps a valid ID; later duplicates change."""
         entries = [
