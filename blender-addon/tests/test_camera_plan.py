@@ -63,6 +63,7 @@ class CameraPlanRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["roundTrip"])
         self.assertTrue(self.results["stableHash"])
         self.assertTrue(self.results["unrelatedUnchanged"])
+        self.assertTrue(self.results["evidenceCuts"])
 
     def test_commit_failure_rolls_back_and_retains_no_checkpoint(self):
         self.assertTrue(self.results["rollback"])

@@ -10,6 +10,7 @@ import traceback
 from pathlib import Path
 
 import bpy
+from mathutils import Matrix, Vector
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
@@ -21,6 +22,8 @@ from oh_my_blender.camera_plan import (
     validate_smooth_fcurves,
 )
 from oh_my_blender.fixture_registry import BOXING_V4_EVIDENCE_SHA256
+from oh_my_blender.canonical import canonical_revision
+from oh_my_blender.fixture_registry import convert_ardy_plan_pose_to_blender
 from oh_my_blender.manifest import animation_fcurves, extract_scene_manifest_v2
 
 REVISION = "ca8d4e064f2e3391958eeb0a7885cc4cd92f9d15d39cf2950909ec6294903ca3"
@@ -108,6 +111,60 @@ def expect_error(animation_values, smooth_frames, expected, mutate) -> str:
     raise AssertionError("smooth mutation unexpectedly passed")
 
 
+def _round_trip_values_match(manifest: dict, plan: dict) -> bool:
+    animations = {
+        animation["target"]: animation
+        for animation in manifest["cameraAnimations"]
+        if animation["objectId"] == manifest["scene"]["activeCameraId"]
+    }
+    object_curves = {
+        (curve["dataPath"], curve["arrayIndex"]): curve
+        for curve in animations["object"]["fcurves"]
+    }
+    data_curves = {
+        (curve["dataPath"], curve["arrayIndex"]): curve
+        for curve in animations["cameraData"]["fcurves"]
+    }
+    for keyframe in plan["keyframes"]:
+        frame = float(keyframe["frame"])
+        converted = convert_ardy_plan_pose_to_blender(keyframe["pose"])
+        position = Vector(converted["position"])
+        look_at = Vector(converted["look_at"])
+        up = Vector(converted["up"])
+        z_axis = -(look_at - position).normalized()
+        x_axis = up.cross(z_axis).normalized()
+        y_axis = z_axis.cross(x_axis)
+        quaternion = Matrix((x_axis, y_axis, z_axis)).transposed().to_quaternion()
+        expected = {
+            **{("location", index): float(value) for index, value in enumerate(position)},
+            **{
+                ("rotation_quaternion", index): float(value)
+                for index, value in enumerate(quaternion)
+            },
+            ("angle", 0): float(converted["vertical_fov_radians"]),
+        }
+        for curve_key, value in expected.items():
+            curve = (
+                data_curves[curve_key]
+                if curve_key[0] == "angle"
+                else object_curves[curve_key]
+            )
+            actual = next(
+                point["value"]
+                for point in curve["keyframes"]
+                if abs(point["frame"] - frame) <= 1e-6
+            )
+            if abs(actual - value) > 1e-6:
+                return False
+    return True
+
+
+def _subject_hash(manifest: dict) -> str:
+    subject = next(
+        item for item in manifest["objects"] if item["entityId"] == SUBJECT_ID
+    )
+    return canonical_revision(subject)
+
 def main() -> None:
     setup_scene()
     plan = bound_plan()
@@ -119,6 +176,7 @@ def main() -> None:
     # Losing commit race: target was newly created, so rollback must remove it and restore scope.
     connection = Connection()
     before = extract_scene_manifest_v2()
+    subject_hash_before = _subject_hash(before)
     try:
         apply_camera_plan_transaction(
             plan,
@@ -137,13 +195,35 @@ def main() -> None:
     second = apply_camera_plan_transaction(plan, SCENE_HASH, Connection(), lambda _result: None)
     second_manifest = second["manifest"]
     results["cuts"] = sorted(marker.frame for marker in scene.timeline_markers if marker.name.startswith("CUT_"))
-    results["roundTrip"] = all(
-        marker.name == f"CUT_{marker.frame}" and marker.camera == scene.camera
-        for marker in scene.timeline_markers
-        if marker.name.startswith("CUT_")
+    results["roundTrip"] = (
+        all(
+            marker.name == f"CUT_{marker.frame}" and marker.camera == scene.camera
+            for marker in scene.timeline_markers
+            if marker.name.startswith("CUT_")
+        )
+        and _round_trip_values_match(second_manifest, plan)
     )
     results["stableHash"] = first_manifest["sceneHash"] == second_manifest["sceneHash"]
-    results["unrelatedUnchanged"] = tuple(untouched.location) == untouched_before
+    results["unrelatedUnchanged"] = (
+        tuple(untouched.location) == untouched_before
+        and _subject_hash(second_manifest) == subject_hash_before
+    )
+    evidence = json.loads(
+        (
+            REPOSITORY_ROOT
+            / "blender-addon/oh_my_blender/fixtures/boxing-v4-directing-evidence.json"
+        ).read_text(encoding="utf-8")
+    )
+    valleys = evidence["analysis"]["motion_valley_frames"]
+    peak_ranges = evidence["analysis"]["action_peak_ranges"]
+    results["evidenceCuts"] = all(
+        any(abs(cut - valley) <= 1 for valley in valleys)
+        and not any(
+            value_range["start"] - 1 <= cut <= value_range["end"] + 1
+            for value_range in peak_ranges
+        )
+        for cut in results["cuts"]
+    )
     changed_plan = copy.deepcopy(plan)
     changed_plan["output_format"]["width"] = 1280
     changed_plan["keyframes"][0]["pose"]["position"][0] = 9.0
