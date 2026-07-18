@@ -64,6 +64,14 @@ class CameraPlanRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["stableHash"])
         self.assertTrue(self.results["unrelatedUnchanged"])
         self.assertTrue(self.results["evidenceCuts"])
+        self.assertEqual(self.results["row29PassedCuts"], [80, 161, 199, 243])
+        self.assertEqual(self.results["row30PassedCuts"], [80, 161, 199, 243])
+        self.assertEqual(len(self.results["row32ScaleRatios"]), 4)
+        self.assertTrue(
+            all(ratio <= 1.35 + 1e-6 for ratio in self.results["row32ScaleRatios"])
+        )
+        self.assertEqual(len(set(self.results["row34AxisSigns"])), 1)
+        self.assertNotEqual(self.results["row34AxisSigns"][0], 0)
 
     def test_commit_failure_rolls_back_and_retains_no_checkpoint(self):
         self.assertTrue(self.results["rollback"])

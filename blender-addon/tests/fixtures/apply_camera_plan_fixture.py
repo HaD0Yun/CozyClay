@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import sys
 import traceback
@@ -216,13 +217,76 @@ def main() -> None:
     )
     valleys = evidence["analysis"]["motion_valley_frames"]
     peak_ranges = evidence["analysis"]["action_peak_ranges"]
-    results["evidenceCuts"] = all(
-        any(abs(cut - valley) <= 1 for valley in valleys)
-        and not any(
-            value_range["start"] - 1 <= cut <= value_range["end"] + 1
+    cuts_with_indices = [
+        (index, keyframe)
+        for index, keyframe in enumerate(plan["keyframes"])
+        if keyframe["transition"] == "cut"
+    ]
+    results["row29PassedCuts"] = [
+        keyframe["frame"]
+        for _index, keyframe in cuts_with_indices
+        if any(abs(keyframe["frame"] - valley) <= 1 for valley in valleys)
+    ]
+    results["row30PassedCuts"] = [
+        keyframe["frame"]
+        for _index, keyframe in cuts_with_indices
+        if not any(
+            value_range["start"] - 1
+            <= keyframe["frame"]
+            <= value_range["end"] + 1
             for value_range in peak_ranges
         )
-        for cut in results["cuts"]
+    ]
+
+    samples = {
+        sample["frame"]: sample
+        for sample in evidence["analysis"]["subject_samples"]
+    }
+    scale_ratios = []
+    for index, keyframe in cuts_with_indices:
+        previous_pose = plan["keyframes"][index - 1]["pose"]
+        before = samples[keyframe["frame"] - 1]
+        after_sample = samples[keyframe["frame"]]
+
+        def projected_scale(pose, sample):
+            camera_position = Vector(
+                convert_ardy_plan_pose_to_blender(pose)["position"]
+            )
+            distance = (camera_position - Vector(sample["center"])).length
+            return sample["height_m"] / (
+                distance * 2 * math.tan(pose["vertical_fov_radians"] / 2)
+            )
+
+        before_scale = projected_scale(previous_pose, before)
+        after_scale = projected_scale(keyframe["pose"], after_sample)
+        scale_ratios.append(
+            max(before_scale, after_scale) / min(before_scale, after_scale)
+        )
+    results["row32ScaleRatios"] = scale_ratios
+
+    axis = evidence["analysis"]["action_axis"]
+    axis_side = (
+        (Vector(axis["b"]) - Vector(axis["a"]))
+        .cross(Vector(axis["up"]))
+        .normalized()
+    )
+    side_scores = [
+        (
+            Vector(convert_ardy_plan_pose_to_blender(keyframe["pose"])["position"])
+            - Vector(axis["a"])
+        ).dot(axis_side)
+        for keyframe in plan["keyframes"]
+    ]
+    results["row34AxisSigns"] = [
+        1 if score > 0 else -1 if score < 0 else 0
+        for score in side_scores
+    ]
+    results["evidenceCuts"] = (
+        results["row29PassedCuts"] == results["cuts"]
+        and results["row30PassedCuts"] == results["cuts"]
+        and all(ratio <= 1.35 + 1e-6 for ratio in scale_ratios)
+        and len(set(results["row34AxisSigns"])) == 1
+        and results["row34AxisSigns"][0] != 0
     )
     changed_plan = copy.deepcopy(plan)
     changed_plan["output_format"]["width"] = 1280
