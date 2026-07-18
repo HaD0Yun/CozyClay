@@ -18,6 +18,11 @@ from .snapshot import (
     canonical_quaternion,
     snapshot_revision,
 )
+from .scene_manifest import (
+    build_scene_manifest,
+    finalize_scene_manifest,
+    rational_fps,
+)
 
 
 def _text(value: str) -> str:
@@ -104,13 +109,20 @@ def animation_fcurves(animation_data: object) -> list[object]:
     return result
 
 
-def _animation_snapshot(object_name: str, target: str, animation_data: object) -> dict | None:
+def _animation_snapshot(
+    object_identity: str,
+    target: str,
+    animation_data: object,
+    *,
+    identity_key: str = "objectName",
+    include_handle_types: bool = False,
+) -> dict | None:
     if animation_data is None:
         return None
     drivers = animation_data.drivers
     if len(drivers):
         raise UNSUPPORTED_FCURVE_FEATURE(
-            f"{object_name!r} {target} animation uses drivers"
+            f"{object_identity!r} {target} animation uses drivers"
         )
     action = animation_data.action
     if action is None:
@@ -125,7 +137,7 @@ def _animation_snapshot(object_name: str, target: str, animation_data: object) -
     for fcurve in animation_fcurves(animation_data):
         if len(fcurve.modifiers):
             raise UNSUPPORTED_FCURVE_FEATURE(
-                f"{object_name!r} {target} f-curve uses modifiers"
+                f"{object_identity!r} {target} f-curve uses modifiers"
             )
         keyframes = []
         for point in fcurve.keyframe_points:
@@ -135,18 +147,20 @@ def _animation_snapshot(object_name: str, target: str, animation_data: object) -
                 or any(getattr(point, name) != default for name, default in easing_defaults.items())
             ):
                 raise UNSUPPORTED_FCURVE_FEATURE(
-                    f"{object_name!r} {target} f-curve uses unsupported easing, "
+                    f"{object_identity!r} {target} f-curve uses unsupported easing, "
                     "interpolation, or easing parameters"
                 )
-            keyframes.append(
-                {
-                    "frame": float(point.co.x),
-                    "value": float(point.co.y),
-                    "interpolation": point.interpolation,
-                    "handleLeft": [float(point.handle_left.x), float(point.handle_left.y)],
-                    "handleRight": [float(point.handle_right.x), float(point.handle_right.y)],
-                }
-            )
+            keyframe = {
+                "frame": float(point.co.x),
+                "value": float(point.co.y),
+                "interpolation": point.interpolation,
+                "handleLeft": [float(point.handle_left.x), float(point.handle_left.y)],
+                "handleRight": [float(point.handle_right.x), float(point.handle_right.y)],
+            }
+            if include_handle_types:
+                keyframe["handleLeftType"] = _text(point.handle_left_type)
+                keyframe["handleRightType"] = _text(point.handle_right_type)
+            keyframes.append(keyframe)
         fcurves.append(
             {
                 "dataPath": _text(fcurve.data_path),
@@ -154,8 +168,156 @@ def _animation_snapshot(object_name: str, target: str, animation_data: object) -
                 "keyframes": keyframes,
             }
         )
-    return {"objectName": _text(object_name), "target": _text(target), "fcurves": fcurves}
+    return {identity_key: _text(object_identity), "target": _text(target), "fcurves": fcurves}
 
+
+def _entity_id(entity: object, label: str) -> str:
+    entity_id = entity.get("omb.entity_id")
+    if not isinstance(entity_id, str):
+        raise ValueError(f"{label} is missing omb.entity_id")
+    return entity_id
+
+
+def _manifest_object(scene_object: bpy.types.Object) -> dict:
+    snapshot = _object_snapshot(scene_object)
+    return {
+        "entityId": _entity_id(scene_object, f"object {scene_object.name!r}"),
+        "name": snapshot["name"],
+        "type": snapshot["type"],
+        "parentId": (
+            _entity_id(scene_object.parent, f"parent of object {scene_object.name!r}")
+            if scene_object.parent
+            else None
+        ),
+        "visible": snapshot["visible"],
+        "location": snapshot["location"],
+        "rotationQuaternion": snapshot["rotationQuaternion"],
+        "scale": snapshot["scale"],
+    }
+
+
+def _manifest_bones(scene_objects: list[bpy.types.Object]) -> list[dict]:
+    bones = []
+    for scene_object in scene_objects:
+        if scene_object.type != "ARMATURE":
+            continue
+        armature_id = _entity_id(scene_object, f"armature {scene_object.name!r}")
+        for bone in scene_object.data.bones:
+            location, rotation, scale = bone.matrix_local.decompose()
+            bones.append(
+                {
+                    "entityId": _entity_id(bone, f"bone {bone.name!r}"),
+                    "name": _text(bone.name),
+                    "armatureObjectId": armature_id,
+                    "parentBoneId": (
+                        _entity_id(bone.parent, f"parent of bone {bone.name!r}")
+                        if bone.parent
+                        else None
+                    ),
+                    "location": _vector(location),
+                    "rotationQuaternion": canonical_quaternion(rotation),
+                    "scale": _vector(scale),
+                }
+            )
+    return bones
+
+
+def extract_scene_manifest_v2() -> dict:
+    """Extract the active Blender scene through the closed SceneManifestV2 path."""
+    blender_scene = bpy.context.scene
+    project_id = blender_scene.get("omb.project_id")
+    if not isinstance(project_id, str):
+        raise ValueError("scene is missing omb.project_id")
+
+    scene_objects = list(blender_scene.objects)
+    object_ids = {
+        scene_object: _entity_id(scene_object, f"object {scene_object.name!r}")
+        for scene_object in scene_objects
+    }
+    cameras = []
+    lights = []
+    animations = []
+    for scene_object in scene_objects:
+        object_id = object_ids[scene_object]
+        if scene_object.type == "CAMERA":
+            camera = scene_object.data
+            cameras.append(
+                {
+                    "objectId": object_id,
+                    "lens": float(camera.lens),
+                    "sensorFit": _text(camera.sensor_fit),
+                    "sensorWidth": float(camera.sensor_width),
+                    "sensorHeight": float(camera.sensor_height),
+                    "verticalFovRadians": float(camera.angle_y),
+                    "clipStart": float(camera.clip_start),
+                    "clipEnd": float(camera.clip_end),
+                }
+            )
+            for target, animation_data in (
+                ("object", scene_object.animation_data),
+                ("cameraData", camera.animation_data),
+            ):
+                animation = _animation_snapshot(
+                    object_id,
+                    target,
+                    animation_data,
+                    identity_key="objectId",
+                    include_handle_types=True,
+                )
+                if animation is not None:
+                    animations.append(animation)
+        elif scene_object.type == "LIGHT":
+            light = scene_object.data
+            lights.append(
+                {
+                    "objectId": object_id,
+                    "lightType": _text(light.type),
+                    "color": _vector(light.color),
+                    "energy": float(light.energy),
+                    "spotSize": float(light.spot_size) if light.type == "SPOT" else None,
+                    "spotBlend": float(light.spot_blend) if light.type == "SPOT" else None,
+                }
+            )
+
+    fps_numerator, fps_denominator = rational_fps(
+        int(blender_scene.render.fps), float(blender_scene.render.fps_base)
+    )
+    manifest = build_scene_manifest(
+        project_id=project_id,
+        blender_version=_text(bpy.app.version_string),
+        scene={
+            "name": _text(blender_scene.name),
+            "frameStart": int(blender_scene.frame_start),
+            "frameEnd": int(blender_scene.frame_end),
+            "fpsNumerator": fps_numerator,
+            "fpsDenominator": fps_denominator,
+            "activeCameraId": object_ids.get(blender_scene.camera),
+        },
+        render={
+            "resolutionX": int(blender_scene.render.resolution_x),
+            "resolutionY": int(blender_scene.render.resolution_y),
+            "resolutionPercentage": int(blender_scene.render.resolution_percentage),
+        },
+        objects=[_manifest_object(scene_object) for scene_object in scene_objects],
+        bones=_manifest_bones(scene_objects),
+        cameras=cameras,
+        lights=lights,
+        markers=[
+            {
+                "name": _text(marker.name),
+                "frame": int(marker.frame),
+                "cameraId": object_ids.get(marker.camera),
+            }
+            for marker in blender_scene.timeline_markers
+        ],
+        selected_entity_ids=[
+            object_ids[scene_object]
+            for scene_object in scene_objects
+            if scene_object.select_get()
+        ],
+        camera_animations=animations,
+    )
+    return finalize_scene_manifest(manifest)
 
 def extract_scene_snapshot() -> dict:
     """Extract the active Blender scene into a Scene Snapshot v2 dictionary."""
@@ -224,5 +386,17 @@ def write_scene_snapshot(output_path: Path) -> str:
         encoding="utf-8",
     )
     revision = snapshot_revision(snapshot)
+    print(revision)
+    return revision
+
+
+def write_scene_manifest_v2(output_path: Path) -> str:
+    """Write a real Blender-extracted SceneManifestV2 and return its revision."""
+    scene_manifest = extract_scene_manifest_v2()
+    output_path.write_text(
+        json.dumps(scene_manifest, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    revision = scene_manifest["revisionId"]
     print(revision)
     return revision

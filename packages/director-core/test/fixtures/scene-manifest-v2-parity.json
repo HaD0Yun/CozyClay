@@ -1,16 +1,55 @@
 {
+  "schemaVersion": 2,
+  "projectId": "00000000-0000-4000-8000-00000000000a",
   "blenderVersion": "5.1.2",
-  "bones": [
+  "scene": {
+    "name": "Blender Generated V2 Parity",
+    "frameStart": 1,
+    "frameEnd": 24,
+    "fpsNumerator": 24,
+    "fpsDenominator": 1,
+    "activeCameraId": "00000000-0000-4000-8000-000000000001"
+  },
+  "render": {
+    "resolutionX": 1280,
+    "resolutionY": 720,
+    "resolutionPercentage": 100
+  },
+  "objects": [
     {
-      "armatureObjectId": "00000000-0000-4000-8000-000000000003",
-      "entityId": "00000000-0000-4000-8000-000000000004",
+      "entityId": "00000000-0000-4000-8000-000000000001",
+      "name": "Parity Camera",
+      "type": "CAMERA",
+      "parentId": null,
+      "visible": true,
+      "location": [
+        2.0,
+        -4.0,
+        3.5
+      ],
+      "rotationQuaternion": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000002",
+      "name": "Parity Subject",
+      "type": "MESH",
+      "parentId": null,
+      "visible": true,
       "location": [
         0.0,
         0.0,
         0.0
       ],
-      "name": "Bone",
-      "parentBoneId": null,
       "rotationQuaternion": [
         1.0,
         0.0,
@@ -24,151 +63,29 @@
       ]
     }
   ],
+  "bones": [],
   "cameras": [
     {
-      "clipEnd": 1000.0,
-      "clipStart": 0.1,
-      "lens": 50.0,
       "objectId": "00000000-0000-4000-8000-000000000001",
-      "sensorFit": "AUTO",
-      "sensorHeight": 24.0,
+      "lens": 55.0,
+      "sensorFit": "VERTICAL",
       "sensorWidth": 36.0,
-      "verticalFovRadians": 0.691226616819516
+      "sensorHeight": 24.0,
+      "verticalFovRadians": 0.4296308159828186,
+      "clipStart": 0.10000000149011612,
+      "clipEnd": 1000.0
     }
   ],
-  "lights": [
-    {
-      "color": [
-        1.0,
-        1.0,
-        1.0
-      ],
-      "energy": 3.0,
-      "lightType": "SUN",
-      "objectId": "00000000-0000-4000-8000-000000000005",
-      "spotBlend": null,
-      "spotSize": null
-    }
-  ],
+  "lights": [],
   "markers": [
     {
-      "cameraId": "00000000-0000-4000-8000-000000000001",
-      "frame": 10,
-      "name": "CUT_10"
+      "name": "Camera cut",
+      "frame": 12,
+      "cameraId": "00000000-0000-4000-8000-000000000001"
     }
   ],
-  "objects": [
-    {
-      "entityId": "00000000-0000-4000-8000-000000000001",
-      "location": [
-        0.0,
-        -5.0,
-        1.5
-      ],
-      "name": "Camera",
-      "parentId": null,
-      "rotationQuaternion": [
-        0.9238795325112867,
-        0.3826834323650898,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
-      "type": "CAMERA",
-      "visible": true
-    },
-    {
-      "entityId": "00000000-0000-4000-8000-000000000003",
-      "location": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "name": "Armature",
-      "parentId": null,
-      "rotationQuaternion": [
-        1.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
-      "type": "ARMATURE",
-      "visible": true
-    },
-    {
-      "entityId": "00000000-0000-4000-8000-000000000005",
-      "location": [
-        2.0,
-        -2.0,
-        3.0
-      ],
-      "name": "Light",
-      "parentId": null,
-      "rotationQuaternion": [
-        1.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
-      "type": "LIGHT",
-      "visible": true
-    },
-    {
-      "entityId": "00000000-0000-4000-8000-000000000007",
-      "location": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "name": "Fighter",
-      "parentId": null,
-      "rotationQuaternion": [
-        1.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "scale": [
-        1.0,
-        1.0,
-        1.0
-      ],
-      "type": "MESH",
-      "visible": true
-    }
-  ],
-  "projectId": "00000000-0000-4000-8000-00000000000a",
-  "render": {
-    "resolutionPercentage": 100,
-    "resolutionX": 1920,
-    "resolutionY": 1080
-  },
-  "scene": {
-    "activeCameraId": "00000000-0000-4000-8000-000000000001",
-    "fpsDenominator": 1,
-    "fpsNumerator": 24,
-    "frameEnd": 320,
-    "frameStart": 1,
-    "name": "Boxing"
-  },
-  "schemaVersion": 2,
   "selectedEntityIds": [
-    "00000000-0000-4000-8000-000000000001",
-    "00000000-0000-4000-8000-000000000007"
+    "00000000-0000-4000-8000-000000000001"
   ],
   "cameraAnimations": [
     {
@@ -181,33 +98,33 @@
           "keyframes": [
             {
               "frame": 1.0,
-              "value": 50.0,
+              "value": 35.0,
               "interpolation": "BEZIER",
               "handleLeft": [
-                1.0,
-                50.0
+                -6.666666507720947,
+                35.0
               ],
               "handleRight": [
-                4.0,
-                50.0
+                8.666666030883789,
+                35.0
               ],
               "handleLeftType": "AUTO_CLAMPED",
               "handleRightType": "AUTO_CLAMPED"
             },
             {
-              "frame": 10.0,
-              "value": 52.0,
-              "interpolation": "CONSTANT",
+              "frame": 24.0,
+              "value": 55.0,
+              "interpolation": "BEZIER",
               "handleLeft": [
-                7.0,
-                52.0
+                16.33333396911621,
+                55.0
               ],
               "handleRight": [
-                10.0,
-                52.0
+                31.66666603088379,
+                55.0
               ],
-              "handleLeftType": "FREE",
-              "handleRightType": "FREE"
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
             }
           ]
         }
@@ -219,43 +136,115 @@
       "fcurves": [
         {
           "dataPath": "location",
-          "arrayIndex": 2,
+          "arrayIndex": 0,
           "keyframes": [
             {
               "frame": 1.0,
-              "value": 1.5,
+              "value": 0.0,
               "interpolation": "BEZIER",
               "handleLeft": [
-                1.0,
-                1.5
+                -6.666666507720947,
+                0.0
               ],
               "handleRight": [
-                4.0,
-                1.5
+                8.666666030883789,
+                0.0
               ],
               "handleLeftType": "AUTO_CLAMPED",
               "handleRightType": "AUTO_CLAMPED"
             },
             {
-              "frame": 10.0,
+              "frame": 24.0,
               "value": 2.0,
-              "interpolation": "CONSTANT",
+              "interpolation": "BEZIER",
               "handleLeft": [
-                7.0,
+                16.33333396911621,
                 2.0
               ],
               "handleRight": [
-                10.0,
+                31.66666603088379,
                 2.0
               ],
-              "handleLeftType": "FREE",
-              "handleRightType": "FREE"
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
+            }
+          ]
+        },
+        {
+          "dataPath": "location",
+          "arrayIndex": 1,
+          "keyframes": [
+            {
+              "frame": 1.0,
+              "value": -6.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -6.666666507720947,
+                -6.0
+              ],
+              "handleRight": [
+                8.666666030883789,
+                -6.0
+              ],
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
+            },
+            {
+              "frame": 24.0,
+              "value": -4.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                16.33333396911621,
+                -4.0
+              ],
+              "handleRight": [
+                31.66666603088379,
+                -4.0
+              ],
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
+            }
+          ]
+        },
+        {
+          "dataPath": "location",
+          "arrayIndex": 2,
+          "keyframes": [
+            {
+              "frame": 1.0,
+              "value": 2.0,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                -6.666666507720947,
+                2.0
+              ],
+              "handleRight": [
+                8.666666030883789,
+                2.0
+              ],
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
+            },
+            {
+              "frame": 24.0,
+              "value": 3.5,
+              "interpolation": "BEZIER",
+              "handleLeft": [
+                16.33333396911621,
+                3.5
+              ],
+              "handleRight": [
+                31.66666603088379,
+                3.5
+              ],
+              "handleLeftType": "AUTO_CLAMPED",
+              "handleRightType": "AUTO_CLAMPED"
             }
           ]
         }
       ]
     }
   ],
-  "revisionId": "ca8d4e064f2e3391958eeb0a7885cc4cd92f9d15d39cf2950909ec6294903ca3",
-  "sceneHash": "f65db0255801e77b209e1019a70d9d1bb4e82fe37e709ead111290934a8b8816"
+  "revisionId": "232f91e79494865fa4f664cf164ae66b6602b57d8d7a82d1d47ff84c900d1ac2",
+  "sceneHash": "fc2615b638ee023e6648fa5761a251fd1d2f85e857442243eb74b53e37ddc739"
 }
