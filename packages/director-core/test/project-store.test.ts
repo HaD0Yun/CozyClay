@@ -61,4 +61,62 @@ describe("project persistence (architecture §6)", () => {
 			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
 		);
 	});
+	it("recovers a durable journal entry after failure before index replacement without duplicating it", async () => {
+		const { root, store } = await createStore();
+		const base = project(1);
+		const child = project(2);
+		await store.writeProject(base);
+
+		const writeProject = store.writeProject.bind(store);
+		store.writeProject = async (value) => {
+			if (value.current_revision_id === child.current_revision_id) throw new Error("simulated index failure");
+			await writeProject(value);
+		};
+		await assert.rejects(
+			store.commitRevision(base.current_revision_id, child, { revision_id: child.current_revision_id }),
+			/simulated index failure/,
+		);
+
+		assert.deepEqual(await store.readProject(), base);
+		const journalPath = join(root, ".omb", "journal.jsonl");
+		assert.equal((await readFile(journalPath, "utf8")).trimEnd().split("\n").length, 1);
+
+		const restartedStore = new ProjectStore(root);
+		await restartedStore.commitRevision(base.current_revision_id, child, {
+			revision_id: child.current_revision_id,
+		});
+
+		assert.deepEqual(await restartedStore.readProject(), child);
+		assert.equal((await readFile(journalPath, "utf8")).trimEnd().split("\n").length, 1);
+	});
+
+	it("treats retry as successful when index replacement completed before reporting failure", async () => {
+		const { root, store } = await createStore();
+		const base = project(1);
+		const child = project(2);
+		await store.writeProject(base);
+
+		const writeProject = store.writeProject.bind(store);
+		store.writeProject = async (value) => {
+			await writeProject(value);
+			if (value.current_revision_id === child.current_revision_id) throw new Error("simulated post-index crash");
+		};
+		await assert.rejects(
+			store.commitRevision(base.current_revision_id, child, { revision_id: child.current_revision_id }),
+			/simulated post-index crash/,
+		);
+
+		const restartedStore = new ProjectStore(root);
+		await restartedStore.commitRevision(base.current_revision_id, child, {
+			revision_id: child.current_revision_id,
+		});
+
+		assert.deepEqual(await restartedStore.readProject(), child);
+		const lines = (await readFile(join(root, ".omb", "journal.jsonl"), "utf8")).trimEnd().split("\n");
+		assert.equal(lines.length, 1);
+		const record = JSON.parse(lines[0]) as Record<string, unknown>;
+		assert.match(record.transaction_id as string, /^[0-9a-f]{64}$/);
+		assert.equal(record.expected_revision_id, base.current_revision_id);
+		assert.equal(record.target_revision_id, child.current_revision_id);
+	});
 });
