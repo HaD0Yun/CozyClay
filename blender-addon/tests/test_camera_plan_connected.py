@@ -11,6 +11,10 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLENDER = Path(shutil.which("blender") or "/opt/homebrew/bin/blender")
 SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/connected_camera_plan_fixture.py"
+RECONCILIATION_SCRIPT = (
+    REPOSITORY_ROOT
+    / "blender-addon/tests/fixtures/connected_commit_reconciliation_fixture.py"
+)
 
 
 @unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
@@ -65,6 +69,52 @@ class CameraPlanConnectedTests(unittest.TestCase):
             "ACTION_AXIS_CROSSING",
         ])
 
+
+    def test_post_bridge_result_ack_loss_reconciles_live_and_durable_scene(self):
+        for branch_args in ((), ("--fail-commit",)):
+            with self.subTest(branch=branch_args or ("committed",)):
+                completed = subprocess.run(
+                    [
+                        str(BLENDER),
+                        "--background",
+                        "--factory-startup",
+                        "--python",
+                        str(RECONCILIATION_SCRIPT),
+                        "--",
+                        *branch_args,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    f"reconciliation fixture failed\nstdout:\n{completed.stdout}\n"
+                    f"stderr:\n{completed.stderr}",
+                )
+                lines = [
+                    line for line in completed.stdout.splitlines()
+                    if line.startswith("OMB_COMMIT_RECONCILIATION_RESULTS=")
+                ]
+                self.assertEqual(len(lines), 1, completed.stdout)
+                result = json.loads(lines[0].split("=", 1)[1])
+                self.assertEqual(
+                    result["liveSceneHash"],
+                    result["durableSceneHash"],
+                    result,
+                )
+                self.assertEqual(
+                    result["liveRevision"],
+                    result["durableRevision"],
+                    result,
+                )
+                self.assertIn(
+                    result["reconciliation"]["outcome"],
+                    {"committed", "not_committed"},
+                )
 
 if __name__ == "__main__":
     unittest.main()

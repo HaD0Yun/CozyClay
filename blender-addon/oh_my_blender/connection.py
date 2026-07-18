@@ -25,6 +25,10 @@ class ConnectionError(RuntimeError):
     """The owned daemon connection violated its lifecycle contract."""
 
 
+class DurableCommitReconciliationRequired(ConnectionError):
+    """A post-mutation durable outcome cannot be determined safely."""
+
+
 class Connection:
     """One daemon child and its single authenticated WebSocket."""
 
@@ -38,6 +42,7 @@ class Connection:
         self.websocket = websocket
         self.state = "active"
         self.active_checkpoint: Checkpoint | None = None
+        self.durable_commit_reconciliation: dict | None = None
         self._bridge_cancellations: dict[str, threading.Event] = {}
         self._terminal_bridge_ids: set[str] = set()
         self._reader_thread: threading.Thread | None = None
@@ -128,12 +133,23 @@ class Connection:
                 try:
                     message = self.websocket.recv_json()
                 except StopIteration:
+                    self.state = "lost"
+                    if (
+                        self.active_checkpoint is not None
+                        and self.durable_commit_reconciliation is None
+                    ):
+                        self._main_thread_messages.put({
+                            "type": "_restore_checkpoint",
+                        })
                     return
                 except TimeoutError:
                     continue
                 except (OSError, WebSocketError):
                     self.state = "lost"
-                    if self.active_checkpoint is not None:
+                    if (
+                        self.active_checkpoint is not None
+                        and self.durable_commit_reconciliation is None
+                    ):
                         self._main_thread_messages.put({
                             "type": "_restore_checkpoint",
                         })
@@ -281,6 +297,147 @@ class Connection:
         finally:
             self.active_checkpoint = None
 
+    def _candidate_revision_id(self, result: dict) -> str:
+        try:
+            revision_id = result["manifest"]["revisionId"]
+        except (KeyError, TypeError) as error:
+            raise ConnectionError(
+                "camera-plan mutation result does not retain a candidate revision"
+            ) from error
+        if (
+            not isinstance(revision_id, str)
+            or len(revision_id) != 64
+            or any(character not in "0123456789abcdef" for character in revision_id)
+        ):
+            raise ConnectionError("camera-plan candidate revision is invalid")
+        return revision_id
+
+    def _read_durable_revision_id(self) -> str:
+        if self.project_directory is None:
+            raise DurableCommitReconciliationRequired(
+                "camera-plan commit reconciliation required: "
+                "durable project directory is unavailable"
+            )
+        try:
+            project = json.loads(
+                (self.project_directory / ".omb/project.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            revision_id = project["current_revision_id"]
+        except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+            raise DurableCommitReconciliationRequired(
+                "camera-plan commit reconciliation required: "
+                f"durable project state is unavailable: {error}"
+            ) from error
+        if (
+            not isinstance(revision_id, str)
+            or len(revision_id) != 64
+            or any(character not in "0123456789abcdef" for character in revision_id)
+        ):
+            raise DurableCommitReconciliationRequired(
+                "camera-plan commit reconciliation required: "
+                "durable current revision is invalid"
+            )
+        return revision_id
+
+    def reconcile_durable_bridge_commit(
+        self, *, base_is_definitive: bool = False
+    ) -> str:
+        """Idempotently compare an in-doubt mutation with durable project state."""
+        reconciliation = self.durable_commit_reconciliation
+        if reconciliation is None:
+            raise ConnectionError("no durable bridge commit is awaiting reconciliation")
+        outcome = reconciliation["outcome"]
+        if outcome in ("committed", "not_committed"):
+            return outcome
+        try:
+            durable_revision_id = self._read_durable_revision_id()
+        except DurableCommitReconciliationRequired:
+            reconciliation["outcome"] = "reconciliation_required"
+            raise
+        candidate_revision_id = reconciliation["candidate_revision_id"]
+        base_revision_id = reconciliation["base_revision_id"]
+        if durable_revision_id == candidate_revision_id:
+            reconciliation["outcome"] = "committed"
+            self.release_checkpoint()
+            return "committed"
+        if durable_revision_id == base_revision_id:
+            if base_is_definitive:
+                reconciliation["outcome"] = "not_committed"
+                return "not_committed"
+            reconciliation["outcome"] = "in_doubt"
+            return "in_doubt"
+        reconciliation["outcome"] = "reconciliation_required"
+        raise DurableCommitReconciliationRequired(
+            "camera-plan commit reconciliation required: durable project is at "
+            f"unexpected revision {durable_revision_id}"
+        )
+
+    def _record_durable_response(self, message: dict) -> dict:
+        reconciliation = self.durable_commit_reconciliation
+        if reconciliation is None:
+            raise ConnectionError("durable bridge response has no retained candidate")
+        if message.get("resulting_revision_id") != reconciliation["candidate_revision_id"]:
+            reconciliation["outcome"] = "reconciliation_required"
+            raise DurableCommitReconciliationRequired(
+                "camera-plan commit reconciliation required: "
+                "daemon response does not match the candidate revision"
+            )
+        reconciliation["outcome"] = "committed"
+        self.release_checkpoint()
+        self.last_bridge_response = message
+        return message
+
+    def _child_has_exited(self) -> bool:
+        poll = getattr(self.child.process, "poll", None)
+        return callable(poll) and poll() is not None
+
+    def _await_in_doubt_resolution(
+        self,
+        response_queue: queue.Queue | None,
+        request_id: str,
+    ) -> dict:
+        reconciliation_deadline = time.monotonic() + 8.0
+        while time.monotonic() < reconciliation_deadline:
+            outcome = self.reconcile_durable_bridge_commit()
+            if outcome == "committed":
+                return {
+                    "type": "response",
+                    "id": request_id,
+                    "resulting_revision_id": self.durable_commit_reconciliation[
+                        "candidate_revision_id"
+                    ],
+                    "reconciled": True,
+                }
+            message = None
+            if response_queue is not None:
+                try:
+                    message = response_queue.get_nowait()
+                except queue.Empty:
+                    pass
+            if isinstance(message, dict) and message.get("type") == "response":
+                return self._record_durable_response(message)
+            if isinstance(message, dict) and message.get("type") == "error":
+                self.reconcile_durable_bridge_commit(base_is_definitive=True)
+                raise ConnectionError(
+                    "camera-plan durable commit failed: "
+                    f"{message.get('code', 'UNKNOWN')}"
+                )
+            if self._child_has_exited() and (
+                self.reconcile_durable_bridge_commit(base_is_definitive=True)
+                == "not_committed"
+            ):
+                raise ConnectionError(
+                    "camera-plan durable commit did not complete before connection loss"
+                )
+            time.sleep(0.01)
+        self.durable_commit_reconciliation["outcome"] = "reconciliation_required"
+        raise DurableCommitReconciliationRequired(
+            "camera-plan commit reconciliation required: "
+            "durable outcome remained in doubt"
+        )
+
     def await_durable_bridge_commit(
         self,
         bridge_id: str,
@@ -288,47 +445,70 @@ class Connection:
         result: dict,
         deadline: float | None = None,
     ) -> dict:
-        """Send a bridge result and wait until the daemon reports durable commit."""
+        """Send a bridge result and retain the mutation until durable resolution."""
+        candidate_revision_id = self._candidate_revision_id(result)
+        base_revision_id = result.get("expected_revision_id")
+        if not isinstance(base_revision_id, str):
+            raise ConnectionError("camera-plan mutation result does not retain its base revision")
+        self.durable_commit_reconciliation = {
+            "bridge_id": bridge_id,
+            "request_id": request_id,
+            "base_revision_id": base_revision_id,
+            "candidate_revision_id": candidate_revision_id,
+            "outcome": "awaiting_ack",
+        }
         response_queue = None
         if self._reader_thread is not None and self._reader_thread.is_alive():
             response_queue = queue.Queue(maxsize=1)
             self._response_queues[request_id] = response_queue
-        self._send_json({
-            "type": "bridge_result",
-            "id": bridge_id,
-            "request_id": request_id,
-            "result": result,
-        })
+        try:
+            self._send_json({
+                "type": "bridge_result",
+                "id": bridge_id,
+                "request_id": request_id,
+                "result": result,
+            })
+        except (OSError, StopIteration, TimeoutError, WebSocketError):
+            self.durable_commit_reconciliation["outcome"] = "in_doubt"
+            try:
+                return self._await_in_doubt_resolution(
+                    response_queue, request_id
+                )
+            finally:
+                self._response_queues.pop(request_id, None)
         try:
             while True:
                 remaining = None
                 if deadline is not None:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise ConnectionError(
-                            "camera-plan commit acknowledgement timed out"
+                        self.durable_commit_reconciliation["outcome"] = "in_doubt"
+                        return self._await_in_doubt_resolution(
+                            response_queue, request_id
                         )
-                if response_queue is not None:
-                    try:
+                try:
+                    if response_queue is not None:
                         message = response_queue.get(timeout=remaining)
-                    except queue.Empty as error:
-                        raise ConnectionError(
-                            "camera-plan commit acknowledgement timed out"
-                        ) from error
-                else:
-                    socket = getattr(self.websocket, "socket", None)
-                    if socket is not None and remaining is not None:
-                        socket.settimeout(remaining)
-                    message = self.websocket.recv_json()
-                    if (
-                        not isinstance(message, dict)
-                        or message.get("id") != request_id
-                    ):
-                        continue
+                    else:
+                        socket = getattr(self.websocket, "socket", None)
+                        if socket is not None and remaining is not None:
+                            socket.settimeout(remaining)
+                        message = self.websocket.recv_json()
+                except queue.Empty:
+                    self.durable_commit_reconciliation["outcome"] = "in_doubt"
+                    return self._await_in_doubt_resolution(response_queue, request_id)
+                except (OSError, StopIteration, TimeoutError, WebSocketError):
+                    self.durable_commit_reconciliation["outcome"] = "in_doubt"
+                    return self._await_in_doubt_resolution(response_queue, request_id)
+                if (
+                    not isinstance(message, dict)
+                    or message.get("id") != request_id
+                ):
+                    continue
                 if message.get("type") == "response":
-                    self.last_bridge_response = message
-                    return message
+                    return self._record_durable_response(message)
                 if message.get("type") == "error":
+                    self.durable_commit_reconciliation["outcome"] = "not_committed"
                     raise ConnectionError(
                         "camera-plan durable commit failed: "
                         f"{message.get('code', 'UNKNOWN')}"

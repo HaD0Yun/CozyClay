@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import Callable
 
+from .connection import DurableCommitReconciliationRequired
 from .checkpoint import Checkpoint, create_checkpoint, restore, verify
 from .fixture_registry import (
     convert_ardy_plan_pose_to_blender,
@@ -761,7 +762,13 @@ def apply_camera_plan_transaction(
         connection.release_checkpoint()
         _remove_unused_actions(action_backups)
         return result
+    except DurableCommitReconciliationRequired:
+        # The live mutation and checkpoint are intentionally retained until a
+        # later durable-state reconciliation can determine the terminal action.
+        raise
     except BaseException:
+        if connection.active_checkpoint is not checkpoint:
+            raise
         mutated_target = bpy.data.objects.get(_TARGET_NAME)
         mutated_actions = (
             mutated_target.animation_data.action
