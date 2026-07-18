@@ -73,6 +73,9 @@ export const CAMERA_PLAN_ERROR_CODES = [
 	"PLAN_MINIMUM_TWO_KEYFRAMES",
 	"PLAN_FRAME_ORDER_INVALID",
 	"PLAN_FIRST_TRANSITION_NOT_SMOOTH",
+	// Row 19 is retained in the closed union but has no triggering branch:
+	// rows 11 and 17 force a range-start keyframe to be first, then row 18
+	// deterministically rejects its literal "cut" transition first.
 	"PLAN_CUT_AT_RANGE_START",
 	"UNSUPPORTED_PLAN_UP",
 	"PLAN_ZERO_VIEW_DISTANCE",
@@ -175,9 +178,6 @@ export function validateCameraPlan(input: unknown, evidence: DirectingAnalysisEv
 	}
 	if (plan.keyframes[0]!.transition !== "smooth") {
 		fail("PLAN_FIRST_TRANSITION_NOT_SMOOTH", "first transition must be literal smooth");
-	}
-	if (plan.keyframes.some((keyframe) => keyframe.transition === "cut" && keyframe.frame === start)) {
-		fail("PLAN_CUT_AT_RANGE_START", "a cut cannot occur at the evidence range start");
 	}
 
 	for (const keyframe of plan.keyframes) {
