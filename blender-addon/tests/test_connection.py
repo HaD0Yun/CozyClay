@@ -1,7 +1,9 @@
 """Tests for add-on connection lifecycle orchestration."""
 
+import json
 import pathlib
 import subprocess
+import tempfile
 import sys
 from unittest import mock
 import unittest
@@ -107,6 +109,147 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(child.killed)
         self.assertEqual(len(process.wait_calls), 1)
 
+    def test_bridge_request_dispatches_operator_on_blender_main_thread(self):
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+        blender = mock.Mock()
+        blender.app.timers.register.return_value = None
+        message = {
+            "type": "bridge_request",
+            "id": "bridge",
+            "request_id": "request",
+            "method": "apply_camera_plan",
+            "params": {"schema_version": 1},
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 5000,
+        }
+
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.dispatch_bridge_message(message)
+
+        blender.app.timers.register.assert_not_called()
+        blender.ops.omb.apply_camera_plan.assert_called_once_with(
+            plan_json=json.dumps(message["params"], separators=(",", ":")),
+            current_scene_hash="b" * 64,
+            bridge_id="bridge",
+            request_id="request",
+            deadline_ms=5000,
+        )
+
+    def test_bridge_request_reads_durable_base_hash_from_project_store(self):
+        socket = FakeSocket()
+        blender = mock.Mock()
+        blender.app.timers.register.side_effect = lambda callback, **_kwargs: callback()
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "project_id": "project",
+                "current_revision_id": "a" * 64,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            with mock.patch.object(connection_module, "bpy", blender):
+                connection.dispatch_bridge_message({
+                    "type": "bridge_request",
+                    "id": "bridge",
+                    "request_id": "request",
+                    "method": "apply_camera_plan",
+                    "params": {},
+                    "expected_revision_id": "a" * 64,
+                    "deadline_ms": 5000,
+                })
+
+        blender.ops.omb.apply_camera_plan.assert_called_once()
+        self.assertEqual(
+            blender.ops.omb.apply_camera_plan.call_args.kwargs["current_scene_hash"],
+            "b" * 64,
+        )
+
+    def test_bridge_dispatcher_receive_loop_routes_requests(self):
+        request = {
+            "type": "bridge_request",
+            "id": "bridge",
+            "request_id": "request",
+            "method": "apply_camera_plan",
+            "params": {},
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 5000,
+        }
+        connection = Connection(
+            FakeChild(FakeProcess()),
+            FakeSocket([request]),
+        )
+        blender = mock.Mock()
+        blender.app.timers.register.return_value = None
+
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.start_bridge_dispatcher()
+            connection._reader_thread.join(timeout=1)
+            connection.pump_bridge_messages()
+
+        blender.app.timers.register.assert_called_once()
+        blender.ops.omb.apply_camera_plan.assert_called_once()
+    def test_bridge_cancel_marks_active_transaction_and_acknowledges(self):
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+        blender = mock.Mock()
+        blender.app.timers.register.return_value = None
+        request = {
+            "type": "bridge_request",
+            "id": "bridge",
+            "request_id": "request",
+            "method": "apply_camera_plan",
+            "params": {},
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 5000,
+        }
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.dispatch_bridge_message(request)
+            connection.dispatch_bridge_message({
+                "type": "bridge_cancel",
+                "id": "bridge",
+                "request_id": "request",
+            })
+
+        self.assertTrue(connection.is_bridge_cancelled("bridge"))
+        self.assertEqual(socket.sent[-1], {
+            "type": "bridge_cancel_ack",
+            "id": "bridge",
+            "request_id": "request",
+            "status": "accepted",
+        })
+
+    def test_unsupported_bridge_method_returns_correlated_bridge_error(self):
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+
+        connection.dispatch_bridge_message({
+            "type": "bridge_request",
+            "id": "bridge",
+            "request_id": "request",
+            "method": "arbitrary_python",
+            "params": {},
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 5000,
+        })
+
+        self.assertEqual(socket.sent[-1], {
+            "type": "bridge_error",
+            "id": "bridge",
+            "request_id": "request",
+            "code": "METHOD_NOT_SUPPORTED",
+            "message": "unsupported bridge method: arbitrary_python",
+            "retryable": False,
+        })
     def test_bridge_checkpoint_releases_only_after_durable_response(self):
         socket = FakeSocket([
             {"type": "progress", "id": "other"},

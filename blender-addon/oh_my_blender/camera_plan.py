@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import time
 import uuid
@@ -59,8 +60,219 @@ class CAMERA_PLAN_DEADLINE_EXCEEDED(CameraPlanError):
     code = "CAMERA_PLAN_DEADLINE_EXCEEDED"
 
 
+class STALE_BASE(CameraPlanError):
+    code = "STALE_BASE"
+
+class CameraPlanValidationError(CameraPlanError):
+    """One precedence-ordered CameraPlanV1 validation failure."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+
+
 _TARGET_NAME = "OMB Camera"
 _TOLERANCE = 1e-6
+
+def _validation_error(code: str, message: str) -> None:
+    raise CameraPlanValidationError(code, message)
+
+
+def _subtract(a: list, b: list) -> list[float]:
+    return [float(a[index]) - float(b[index]) for index in range(3)]
+
+
+def _dot(a: list, b: list) -> float:
+    return sum(float(a[index]) * float(b[index]) for index in range(3))
+
+
+def _cross(a: list, b: list) -> list[float]:
+    return [
+        float(a[1]) * float(b[2]) - float(a[2]) * float(b[1]),
+        float(a[2]) * float(b[0]) - float(a[0]) * float(b[2]),
+        float(a[0]) * float(b[1]) - float(a[1]) * float(b[0]),
+    ]
+
+
+def _magnitude(value: list) -> float:
+    return math.hypot(*(float(component) for component in value))
+
+
+def _ardy_to_blender(value: list) -> list[float]:
+    return [float(value[0]), -float(value[2]), float(value[1])]
+
+
+def _projected_scale(pose: dict, sample: dict) -> float:
+    denominator = (
+        _magnitude(
+            _subtract(_ardy_to_blender(pose["position"]), sample["center"])
+        )
+        * 2
+        * math.tan(float(pose["vertical_fov_radians"]) / 2)
+    )
+    if denominator == 0:
+        return math.inf
+    return float(sample["height_m"]) / denominator
+
+
+def validate_camera_plan(plan_value: object, evidence: dict) -> dict:
+    """Validate production CameraPlanV1 predicates in G010 row order."""
+    plan = parse_camera_plan(plan_value)
+    start = evidence["frame_range"]["start"]
+    end = evidence["frame_range"]["end"]
+
+    if any(keyframe["frame"] < start or keyframe["frame"] > end for keyframe in plan["keyframes"]):
+        _validation_error(
+            "PLAN_FRAME_OUT_OF_EVIDENCE_RANGE",
+            "plan keyframe lies outside the valid evidence range",
+        )
+
+    samples_by_frame = {
+        sample["frame"]: sample for sample in evidence["analysis"]["subject_samples"]
+    }
+    for keyframe in plan["keyframes"]:
+        if (
+            keyframe["transition"] == "cut"
+            and (
+                keyframe["frame"] - 1 not in samples_by_frame
+                or keyframe["frame"] not in samples_by_frame
+            )
+        ):
+            _validation_error(
+                "EVIDENCE_SUBJECT_SAMPLE_MISSING",
+                f"cut {keyframe['frame']} requires exact subject samples N-1 and N",
+            )
+
+    action_axis = evidence["analysis"]["action_axis"]
+    axis = _subtract(action_axis["b"], action_axis["a"])
+    axis_length = _magnitude(axis)
+    if axis_length < 1e-9:
+        _validation_error(
+            "EVIDENCE_ACTION_AXIS_ZERO_LENGTH",
+            "action axis length is below 1e-9",
+        )
+    axis_cross_up = _cross(axis, action_axis["up"])
+    axis_cross_up_length = _magnitude(axis_cross_up)
+    if axis_cross_up_length < 1e-9:
+        _validation_error(
+            "EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP",
+            "action axis is parallel to evidence up",
+        )
+
+    if any(not float(keyframe["frame"]).is_integer() for keyframe in plan["keyframes"]):
+        _validation_error("PLAN_FRAME_NOT_INTEGER", "keyframe frames must be integers")
+    if len(plan["keyframes"]) < 2:
+        raise PLAN_MINIMUM_TWO_KEYFRAMES("camera plan requires at least two keyframes")
+    for index in range(1, len(plan["keyframes"])):
+        if plan["keyframes"][index]["frame"] <= plan["keyframes"][index - 1]["frame"]:
+            _validation_error(
+                "PLAN_FRAME_ORDER_INVALID",
+                "keyframe frames must be strictly increasing",
+            )
+    if plan["keyframes"][0]["transition"] != "smooth":
+        _validation_error(
+            "PLAN_FIRST_TRANSITION_NOT_SMOOTH",
+            "first transition must be literal smooth",
+        )
+
+    for keyframe in plan["keyframes"]:
+        pose = keyframe["pose"]
+        if any(
+            abs(float(component) - expected) > 1e-9
+            for component, expected in zip(pose["up"], [0.0, 1.0, 0.0], strict=True)
+        ):
+            _validation_error(
+                "UNSUPPORTED_PLAN_UP",
+                "plan up must equal [0,1,0] within 1e-9 per component",
+            )
+        direction = _subtract(pose["look_at"], pose["position"])
+        distance = _magnitude(direction)
+        if distance < 1e-9:
+            _validation_error(
+                "PLAN_ZERO_VIEW_DISTANCE",
+                "camera view distance is below 1e-9",
+            )
+        sine = _magnitude(_cross(pose["up"], direction)) / (
+            _magnitude(pose["up"]) * distance
+        )
+        if sine < 1e-9:
+            _validation_error(
+                "PLAN_POSE_COLLINEAR_UP",
+                "camera direction is collinear with up",
+            )
+
+    for keyframe in plan["keyframes"]:
+        fov = float(keyframe["pose"]["vertical_fov_radians"])
+        framing_distance = 12 / math.tan(fov / 2)
+        if framing_distance < 45 - _TOLERANCE or framing_distance > 52 + _TOLERANCE:
+            _validation_error(
+                "FRAMING_BAND_VIOLATION",
+                "vertical field of view lies outside the 45..52 framing band",
+            )
+
+    cuts = [
+        (index, keyframe)
+        for index, keyframe in enumerate(plan["keyframes"])
+        if keyframe["transition"] == "cut"
+    ]
+    for _index, keyframe in cuts:
+        if not any(
+            abs(frame - keyframe["frame"]) <= 1
+            for frame in evidence["analysis"]["motion_valley_frames"]
+        ):
+            _validation_error(
+                "CUT_NOT_AT_MOTION_VALLEY",
+                f"cut {keyframe['frame']} has no motion valley within one frame",
+            )
+    for _index, keyframe in cuts:
+        if any(
+            keyframe["frame"] >= peak["start"] - 1
+            and keyframe["frame"] <= peak["end"] + 1
+            for peak in evidence["analysis"]["action_peak_ranges"]
+        ):
+            _validation_error(
+                "CUT_SPLITS_ACTION_PEAK",
+                f"cut {keyframe['frame']} intersects an expanded action peak",
+            )
+
+    for index, keyframe in cuts:
+        if index == 0:
+            continue
+        previous_pose = plan["keyframes"][index - 1]["pose"]
+        before = samples_by_frame[keyframe["frame"] - 1]
+        after = samples_by_frame[keyframe["frame"]]
+        projected = [
+            _projected_scale(previous_pose, before),
+            _projected_scale(keyframe["pose"], after),
+        ]
+        if any(not math.isfinite(value) or value <= 0 for value in projected):
+            _validation_error(
+                "CUT_SCALE_UNDEFINED",
+                f"cut {keyframe['frame']} has undefined projected subject scale",
+            )
+        if max(projected) / min(projected) > 1.35 + _TOLERANCE:
+            _validation_error(
+                "CUT_SCALE_DISCONTINUITY",
+                f"cut {keyframe['frame']} exceeds the subject-scale continuity ratio",
+            )
+
+    side = [component / axis_cross_up_length for component in axis_cross_up]
+    side_scores = [
+        _dot(
+            _subtract(_ardy_to_blender(keyframe["pose"]["position"]), action_axis["a"]),
+            side,
+        )
+        for keyframe in plan["keyframes"]
+    ]
+    if any(abs(score) < _TOLERANCE for score in side_scores):
+        _validation_error("CAMERA_ON_ACTION_AXIS", "camera lies on the action axis")
+    initial_sign = 1 if side_scores[0] > 0 else -1
+    if any((1 if score > 0 else -1) != initial_sign for score in side_scores):
+        _validation_error(
+            "ACTION_AXIS_CROSSING",
+            "camera changes side across the action axis",
+        )
+    return plan
 
 
 def _fcurves(animation_data: object | None) -> list[object]:
@@ -382,20 +594,26 @@ def _read_scope(_entity_key: str) -> dict:
     return _scope_state(bpy.context.scene)["camera_plan_scope"]
 
 
+def _target_entity_id(scene: object) -> str:
+    project_id = scene.get("omb.project_id")
+    digest = bytearray(
+        hashlib.sha256(f"{project_id}\0{_TARGET_NAME}".encode("utf-8")).digest()[:16]
+    )
+    digest[6] = (digest[6] & 0x0F) | 0x40
+    digest[8] = (digest[8] & 0x3F) | 0x80
+    return str(uuid.UUID(bytes=bytes(digest)))
+
+
 def _camera_for_plan(scene: object) -> object:
     camera = bpy.data.objects.get(_TARGET_NAME)
     if camera is None:
         camera_data = bpy.data.cameras.new(f"{_TARGET_NAME} Data")
         camera_data.sensor_fit = "VERTICAL"
         camera = bpy.data.objects.new(_TARGET_NAME, camera_data)
-        camera["omb.entity_id"] = str(uuid.uuid4())
+        camera["omb.entity_id"] = _target_entity_id(scene)
         scene.collection.objects.link(camera)
     if camera.type != "CAMERA":
         raise CameraPlanError(f"{_TARGET_NAME!r} exists but is not a camera")
-    for obj in scene.objects:
-        obj.select_set(False)
-    camera.select_set(True)
-    bpy.context.view_layer.objects.active = camera
     scene.camera = camera
     camera.rotation_mode = "QUATERNION"
     return camera
@@ -467,6 +685,12 @@ def _remove_unused_actions(actions: tuple[object | None, object | None]) -> None
             pass
 
 
+def _extract_live_scene_manifest() -> dict:
+    from .manifest import extract_scene_manifest_v2
+
+    return extract_scene_manifest_v2()
+
+
 def _check_abort(deadline: float | None, cancelled: Callable[[], bool]) -> None:
     if cancelled():
         raise CAMERA_PLAN_CANCELLED("camera plan was cancelled")
@@ -487,10 +711,14 @@ def apply_camera_plan_transaction(
     if bpy is None:
         raise CameraPlanError("apply_camera_plan requires Blender")
     plan = parse_camera_plan(plan_value)
-    load_authorized_fixture(plan, current_scene_hash)
-    if len(plan["keyframes"]) < 2:
-        raise PLAN_MINIMUM_TWO_KEYFRAMES("camera plan requires at least two keyframes")
+    evidence = load_authorized_fixture(plan, current_scene_hash)
+    plan = validate_camera_plan(plan, evidence)
     _check_abort(deadline, cancelled)
+    live_manifest = _extract_live_scene_manifest()
+    if live_manifest["sceneHash"] != evidence["scene_hash"]:
+        raise STALE_BASE(
+            "live main-thread SceneManifestV2 hash differs from the durable expected base"
+        )
 
     scene = bpy.context.scene
     target_before = bpy.data.objects.get(_TARGET_NAME)
@@ -518,6 +746,8 @@ def apply_camera_plan_transaction(
         expected_handles = capture_smooth_handles(animation_values, smooth_frames)
         validate_smooth_fcurves(animation_values, smooth_frames, expected_handles)
         _check_abort(deadline, cancelled)
+        scene.frame_set(scene.frame_current)
+        bpy.context.view_layer.update()
 
         from .manifest import extract_scene_manifest_v2
 

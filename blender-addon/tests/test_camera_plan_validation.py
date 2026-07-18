@@ -32,8 +32,8 @@ from oh_my_blender.fixture_registry import (
     parse_camera_plan,
 )
 
-REVISION = "ca8d4e064f2e3391958eeb0a7885cc4cd92f9d15d39cf2950909ec6294903ca3"
-SCENE_HASH = "f65db0255801e77b209e1019a70d9d1bb4e82fe37e709ead111290934a8b8816"
+REVISION = "c59200165750fb69d58f84452a3cd996748580a40f71a4c6aa2f7294889f0390"
+SCENE_HASH = "d8ea1a36e2a0eca68316f70eaba12e4f9182dac5872fa0230f7483f4e748c5ac"
 PRODUCER = ("omb.approved_fixture", "test", "f31de2b9d7232e5fdf56c8de4a1ecc80f7cbc4fb6c5743d6eef644d4caeacb59")
 
 

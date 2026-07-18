@@ -151,8 +151,6 @@ if bpy is not None:
         bl_label = "Connect"
 
         def execute(self, context):
-            from pathlib import Path
-
             from . import connection
             from .daemon_child import StartupError
             from .ws_client import WebSocketError
@@ -161,13 +159,13 @@ if bpy is not None:
             if not project_id:
                 self.report({"ERROR"}, "Initialize and save the project before connecting")
                 return {"CANCELLED"}
-            repository_root = Path(__file__).resolve().parents[2]
+            project_directory = bpy.path.abspath("//")
             try:
                 project_store.verify_connect_precondition(
-                    bpy.path.abspath("//"), project_id, bpy.data.is_dirty
+                    project_directory, project_id, bpy.data.is_dirty
                 )
                 connection.connect(
-                    cwd=repository_root,
+                    cwd=project_directory,
                     project_id=project_id,
                     addon_version=".".join(str(part) for part in bl_info["version"]),
                     blender_version=bpy.app.version_string,
@@ -213,8 +211,24 @@ if bpy is not None:
                 return {"CANCELLED"}
 
             deadline = time.monotonic() + self.deadline_ms / 1000
+            active._send_json({
+                "type": "bridge_progress",
+                "id": self.bridge_id,
+                "request_id": self.request_id,
+                "phase": "mutating",
+                "completed": 0,
+                "total": 1,
+            })
 
             def commit(result):
+                active._send_json({
+                    "type": "bridge_progress",
+                    "id": self.bridge_id,
+                    "request_id": self.request_id,
+                    "phase": "durable_commit",
+                    "completed": 1,
+                    "total": 1,
+                })
                 return active.await_durable_bridge_commit(
                     self.bridge_id,
                     self.request_id,
@@ -223,9 +237,14 @@ if bpy is not None:
                 )
 
             def complete(_result, error):
-                if error is None or active.websocket.closed:
+                active.finish_bridge(self.bridge_id)
+                if (
+                    error is None
+                    or active.websocket.closed
+                    or isinstance(error, connection.ConnectionError)
+                ):
                     return
-                active.websocket.send_json({
+                active._send_json({
                     "type": "bridge_error",
                     "id": self.bridge_id,
                     "request_id": self.request_id,
@@ -234,14 +253,18 @@ if bpy is not None:
                     "retryable": False,
                 })
 
-            camera_plan.schedule_camera_plan_transaction(
-                plan,
-                self.current_scene_hash,
-                active,
-                commit,
-                complete,
-                deadline=deadline,
-            )
+            try:
+                result = camera_plan.apply_camera_plan_transaction(
+                    plan,
+                    self.current_scene_hash,
+                    active,
+                    commit,
+                    deadline=deadline,
+                    cancelled=lambda: active.is_bridge_cancelled(self.bridge_id),
+                )
+                complete(result, None)
+            except BaseException as error:
+                complete(None, error)
             return {"FINISHED"}
 
     class OMB_OT_disconnect(bpy.types.Operator):

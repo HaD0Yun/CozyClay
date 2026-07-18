@@ -27,8 +27,8 @@ from oh_my_blender.canonical import canonical_revision
 from oh_my_blender.fixture_registry import convert_ardy_plan_pose_to_blender
 from oh_my_blender.manifest import animation_fcurves, extract_scene_manifest_v2
 
-REVISION = "ca8d4e064f2e3391958eeb0a7885cc4cd92f9d15d39cf2950909ec6294903ca3"
-SCENE_HASH = "f65db0255801e77b209e1019a70d9d1bb4e82fe37e709ead111290934a8b8816"
+REVISION = "c59200165750fb69d58f84452a3cd996748580a40f71a4c6aa2f7294889f0390"
+SCENE_HASH = "d8ea1a36e2a0eca68316f70eaba12e4f9182dac5872fa0230f7483f4e748c5ac"
 PROJECT_ID = "00000000-0000-4000-8000-00000000000a"
 SUBJECT_ID = "00000000-0000-4000-8000-000000000002"
 
@@ -88,6 +88,7 @@ def camera_animation():
 
 
 def fresh(plan: dict):
+    setup_scene()
     connection = Connection()
     apply_camera_plan_transaction(plan, SCENE_HASH, connection, lambda _result: None)
     camera, animation_values = camera_animation()
@@ -191,8 +192,18 @@ def main() -> None:
     results["rollback"] = before["sceneHash"] == after["sceneHash"] and "OMB Camera" not in bpy.data.objects
     results["checkpointReleased"] = connection.active_checkpoint is None
 
+    selected_before = [obj.name for obj in scene.objects if obj.select_get()]
+    active_before = bpy.context.view_layer.objects.active.name
     first = apply_camera_plan_transaction(plan, SCENE_HASH, Connection(), lambda _result: None)
     first_manifest = first["manifest"]
+    results["selectionPreserved"] = (
+        [obj.name for obj in scene.objects if obj.select_get()] == selected_before
+        and bpy.context.view_layer.objects.active.name == active_before
+    )
+
+    setup_scene()
+    scene = bpy.context.scene
+    untouched = bpy.data.objects["Untouched Subject"]
     second = apply_camera_plan_transaction(plan, SCENE_HASH, Connection(), lambda _result: None)
     second_manifest = second["manifest"]
     results["cuts"] = sorted(marker.frame for marker in scene.timeline_markers if marker.name.startswith("CUT_"))
@@ -288,6 +299,8 @@ def main() -> None:
         and len(set(results["row34AxisSigns"])) == 1
         and results["row34AxisSigns"][0] != 0
     )
+    setup_scene()
+    rollback_base = extract_scene_manifest_v2()
     changed_plan = copy.deepcopy(plan)
     changed_plan["output_format"]["width"] = 1280
     changed_plan["keyframes"][0]["pose"]["position"][0] = 9.0
@@ -303,7 +316,7 @@ def main() -> None:
         pass
     restored_existing = extract_scene_manifest_v2()
     results["existingRollback"] = (
-        restored_existing["sceneHash"] == second_manifest["sceneHash"]
+        restored_existing["sceneHash"] == rollback_base["sceneHash"]
         and existing_connection.active_checkpoint is None
     )
 

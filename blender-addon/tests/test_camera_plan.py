@@ -63,6 +63,7 @@ class CameraPlanRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["roundTrip"])
         self.assertTrue(self.results["stableHash"])
         self.assertTrue(self.results["unrelatedUnchanged"])
+        self.assertTrue(self.results["selectionPreserved"])
         self.assertTrue(self.results["evidenceCuts"])
         self.assertEqual(self.results["row29PassedCuts"], [80, 161, 199, 243])
         self.assertEqual(self.results["row30PassedCuts"], [80, 161, 199, 243])
