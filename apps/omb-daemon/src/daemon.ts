@@ -11,6 +11,7 @@ import {
 	parseStartupRecord,
 	PROTOCOL_VERSION,
 	type CameraPlanV1,
+	type CameraPlanMutationCandidate,
 	type Request,
 } from "@oh-my-blender/protocol";
 import { SessionState, type ActiveRequest } from "./session-state.ts";
@@ -23,17 +24,13 @@ export interface ApplyCameraPlanProgress {
 	readonly completed: number;
 	readonly total: number;
 }
-export interface ApplyCameraPlanResult {
-	readonly resulting_revision_id: string;
-	readonly [key: string]: unknown;
-}
 export type ApplyCameraPlan = (
 	plan: CameraPlanV1,
 	context: {
 		readonly signal: AbortSignal | undefined;
 		readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	},
-) => Promise<ApplyCameraPlanResult>;
+) => Promise<CameraPlanMutationCandidate>;
 export interface HandlerContext {
 	readonly signal: AbortSignal;
 	readonly request: Request;
@@ -61,7 +58,7 @@ type PendingBridge = {
 	readonly id: string;
 	readonly requestId: string;
 	readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
-	readonly resolve: (result: ApplyCameraPlanResult) => void;
+	readonly resolve: (result: CameraPlanMutationCandidate) => void;
 	readonly reject: (error: Error) => void;
 	removeAbortListener(): void;
 };
@@ -215,7 +212,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					pendingBridge = undefined;
 					pending.removeAbortListener();
 					if (bridgeMessage.type === "bridge_result") {
-						pending.resolve(bridgeMessage.result as ApplyCameraPlanResult);
+						pending.resolve(bridgeMessage.result as CameraPlanMutationCandidate);
 					} else if (bridgeMessage.type === "bridge_error") {
 						pending.reject(new Error(`${bridgeMessage.code}: ${bridgeMessage.message}`));
 					} else {
@@ -267,7 +264,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			request: Request,
 			plan: CameraPlanV1,
 			context: Parameters<ApplyCameraPlan>[1],
-		): Promise<ApplyCameraPlanResult> {
+		): Promise<CameraPlanMutationCandidate> {
 			if (mutationSession === undefined) {
 				throw new Error("MUTATION_BRIDGE_UNAVAILABLE: apply_camera_plan requires protocol v2");
 			}
@@ -291,7 +288,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				mutationSession,
 				new Set([request.id]),
 			);
-			return new Promise<ApplyCameraPlanResult>((resolve, reject) => {
+			return new Promise<CameraPlanMutationCandidate>((resolve, reject) => {
 				const abort = () => {
 					if (pendingBridge?.id !== id || mutationSession === undefined) return;
 					try {

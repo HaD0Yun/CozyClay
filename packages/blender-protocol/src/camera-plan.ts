@@ -1,5 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
+import { SceneManifestV2Schema } from "./manifest.ts";
 
 const HASH_64 = "^[0-9a-f]{64}$";
 const exact = <T extends Record<string, TSchema>>(properties: T) =>
@@ -31,6 +32,12 @@ export const CameraPlanV1Schema = exact({
 });
 
 export type CameraPlanV1 = Static<typeof CameraPlanV1Schema>;
+export const CameraPlanMutationCandidateSchema = exact({
+	expected_revision_id: Type.String({ pattern: HASH_64 }),
+	scene_hash: Type.String({ pattern: HASH_64 }),
+	manifest: SceneManifestV2Schema,
+});
+export type CameraPlanMutationCandidate = Static<typeof CameraPlanMutationCandidateSchema>;
 export type Vector3 = [number, number, number];
 
 export interface DirectingAnalysisEvidenceV1 {
@@ -106,6 +113,13 @@ export function parseCameraPlan(input: unknown): CameraPlanV1 {
 		return Parse(CameraPlanV1Schema, input);
 	} catch {
 		return fail("INVALID_CAMERA_PLAN_SCHEMA", "plan must match the closed CameraPlanV1 schema");
+	}
+}
+export function parseCameraPlanMutationCandidate(input: unknown): CameraPlanMutationCandidate {
+	try {
+		return Parse(CameraPlanMutationCandidateSchema, input);
+	} catch {
+		throw new Error("INVALID_MUTATION_RESULT: add-on result must match the closed mutation candidate schema");
 	}
 }
 

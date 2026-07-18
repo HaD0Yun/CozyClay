@@ -1,12 +1,13 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type {
-	ApplyCameraPlanBridge,
-	ApplyCameraPlanProgress,
-	ApplyCameraPlanResult,
-} from "@oh-my-blender/blender-tools";
+import type { ApplyCameraPlanProgress } from "@oh-my-blender/blender-tools";
 import { assertCanonicalSize, buildProjectManifest } from "@oh-my-blender/director-core";
-import { parseSceneSnapshot } from "@oh-my-blender/protocol";
+import { type CameraPlanMutationCandidate, type CameraPlanV1, parseSceneSnapshot } from "@oh-my-blender/protocol";
+import {
+	type CameraPlanRevisionStore,
+	commitCameraPlanMutation,
+	createDirectorProjectStore,
+} from "./apply-camera-plan-service.ts";
 import { createDirectorSession } from "./session.ts";
 
 const INSPECT_INSTRUCTION = "Inspect the current Blender project before directing it.";
@@ -14,6 +15,7 @@ const INSPECT_INSTRUCTION = "Inspect the current Blender project before directin
 export interface InspectHandlerOptions {
 	readonly model: Model<string>;
 	readonly modelRuntime: ModelRuntime;
+	readonly store?: CameraPlanRevisionStore;
 }
 
 export interface DirectorHandlerContext {
@@ -21,15 +23,16 @@ export interface DirectorHandlerContext {
 	readonly request?: { expected_revision_id?: string };
 	readonly reportProgress?: (phase: string, completed: number, total: number) => void;
 	readonly applyCameraPlan?: (
-		plan: Parameters<ApplyCameraPlanBridge["applyCameraPlan"]>[0],
+		plan: CameraPlanV1,
 		context: {
 			readonly signal: AbortSignal | undefined;
 			readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 		},
-	) => Promise<ApplyCameraPlanResult>;
+	) => Promise<CameraPlanMutationCandidate>;
 }
 
 export function createInspectHandler(options: InspectHandlerOptions) {
+	const store = options.store ?? createDirectorProjectStore(process.cwd());
 	return async (params: Record<string, unknown>, context: DirectorHandlerContext) => {
 		const snapshot = parseSceneSnapshot(params.snapshot);
 		assertCanonicalSize(snapshot);
@@ -51,13 +54,14 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 					if (context.applyCameraPlan === undefined) {
 						throw new Error("MUTATION_BRIDGE_UNAVAILABLE: protocol v2 mutation bridge is required");
 					}
-					const result = await context.applyCameraPlan(plan, {
+					const candidate = await context.applyCameraPlan(plan, {
 						signal: bridgeContext.signal,
 						reportProgress: (progress) => {
 							bridgeContext.reportProgress(progress);
 							context.reportProgress?.(progress.phase, progress.completed, progress.total);
 						},
 					});
+					const result = await commitCameraPlanMutation(store, plan, candidate);
 					resultingRevision = result.resulting_revision_id;
 					return result;
 				},

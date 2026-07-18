@@ -35,7 +35,7 @@ test("§4 protocol-v2 apply_camera_plan reuses one correlated MutationBridgeSess
 	const progress:Array<{phase:string;completed:number;total:number}>=[];
 	const {d,c}=await readyV2({handlers:{ok:async(_,{applyCameraPlan,signal})=>{
 		const result=await applyCameraPlan(plan,{signal,reportProgress:value=>progress.push(value)});
-		return{result,resulting_revision_id:result.resulting_revision_id};
+		return{result,resulting_revision_id:"1".repeat(64)};
 	}}});
 	try{
 		const q=request();c.send(q);

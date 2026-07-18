@@ -2,7 +2,11 @@
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createApplyCameraPlanHandler, createInspectHandler } from "@oh-my-blender/director-runtime";
+import {
+	createApplyCameraPlanHandler,
+	createDirectorProjectStore,
+	createInspectHandler,
+} from "@oh-my-blender/director-runtime";
 import { start } from "./daemon.ts";
 
 const index = process.argv.indexOf("--port");
@@ -20,11 +24,12 @@ await credentials.modify(faux.getModel().provider, async () => ({ type: "api_key
 const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
 const model = faux.getModel();
 modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
+const store = createDirectorProjectStore(process.cwd());
 const daemon = await start({
 	port,
 	handlers: {
-		inspect_project: createInspectHandler({ model, modelRuntime }),
-		apply_camera_plan: createApplyCameraPlanHandler(),
+		inspect_project: createInspectHandler({ model, modelRuntime, store }),
+		apply_camera_plan: createApplyCameraPlanHandler({ store }),
 	},
 });
 // Architecture §4 cleanup order ends with "and exit": once the protocol

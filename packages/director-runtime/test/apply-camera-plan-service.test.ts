@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import type { CameraPlanV1 } from "@oh-my-blender/protocol";
-import { createApplyCameraPlanHandler } from "../src/apply-camera-plan-service.ts";
+import type { DirectorProject } from "@oh-my-blender/director-core";
+import { type CameraPlanV1, parseSceneManifestV2 } from "@oh-my-blender/protocol";
+import { type CameraPlanRevisionStore, createApplyCameraPlanHandler } from "../src/apply-camera-plan-service.ts";
 
 const plan: CameraPlanV1 = {
 	schema_version: 1,
@@ -11,21 +13,59 @@ const plan: CameraPlanV1 = {
 	keyframes: [
 		{
 			frame: 1,
-			pose: { position: [0, 0, 50], look_at: [0, 0, 0], up: [0, 1, 0], vertical_fov_radians: 0.5 },
+			pose: {
+				position: [0, 0, 50],
+				look_at: [0, 0, 0],
+				up: [0, 1, 0],
+				vertical_fov_radians: 0.5,
+			},
 			transition: "smooth",
 		},
 	],
 };
 
+const manifest = parseSceneManifestV2(
+	JSON.parse(
+		await readFile(
+			new URL("../../director-core/test/fixtures/scene-manifest-v2-parity.json", import.meta.url),
+			"utf8",
+		),
+	),
+);
+
+function fakeStore(events: string[] = []): CameraPlanRevisionStore {
+	const current: DirectorProject = {
+		project_id: manifest.projectId,
+		schema_version: 1,
+		current_revision_id: plan.expected_revision_id,
+	};
+	return {
+		readProject: async () => current,
+		commitRevision: async (expected, child, journal) => {
+			assert.equal(expected, plan.expected_revision_id);
+			assert.equal(child.current_revision_id, manifest.revisionId);
+			assert.equal(child.manifest, manifest);
+			assert.deepEqual(journal, {
+				type: "apply_camera_plan",
+				evidence_sha256: plan.evidence_sha256,
+				expected_revision_id: plan.expected_revision_id,
+				resulting_revision_id: manifest.revisionId,
+				scene_hash: manifest.sceneHash,
+			});
+			events.push("commit:durable");
+		},
+	};
+}
+
 test("row 35: live main-thread V2 hash differs — STALE_BASE", async () => {
 	let dispatched = false;
 	await assert.rejects(
-		createApplyCameraPlanHandler()(plan, {
+		createApplyCameraPlanHandler({ store: fakeStore() })(plan, {
 			signal: new AbortController().signal,
 			request: { expected_revision_id: "c".repeat(64) },
 			applyCameraPlan: async () => {
 				dispatched = true;
-				return { resulting_revision_id: "d".repeat(64) };
+				return { expected_revision_id: plan.expected_revision_id, scene_hash: manifest.sceneHash, manifest };
 			},
 		}),
 		/STALE_BASE/,
@@ -33,11 +73,12 @@ test("row 35: live main-thread V2 hash differs — STALE_BASE", async () => {
 	assert.equal(dispatched, false);
 });
 
-test("routes apply_camera_plan through the negotiated bridge with cancellation and progress", async () => {
+test("commits the mutation candidate durably before returning the top-level response", async () => {
 	const controller = new AbortController();
 	const progress: Array<[string, number, number]> = [];
+	const events: string[] = [];
 	let received: CameraPlanV1 | undefined;
-	const output = await createApplyCameraPlanHandler()(plan, {
+	const output = await createApplyCameraPlanHandler({ store: fakeStore(events) })(plan, {
 		signal: controller.signal,
 		request: { expected_revision_id: plan.expected_revision_id },
 		reportProgress: (phase, completed, total) => progress.push([phase, completed, total]),
@@ -45,10 +86,32 @@ test("routes apply_camera_plan through the negotiated bridge with cancellation a
 			received = value;
 			assert.equal(context.signal, controller.signal);
 			context.reportProgress({ phase: "mutating", completed: 1, total: 2 });
-			return { resulting_revision_id: "d".repeat(64), scene_hash: "e".repeat(64) };
+			events.push("bridge:result");
+			return { expected_revision_id: plan.expected_revision_id, scene_hash: manifest.sceneHash, manifest };
 		},
 	});
+	events.push("handler:resolved");
 	assert.deepEqual(received, plan);
 	assert.deepEqual(progress, [["mutating", 1, 2]]);
-	assert.equal(output.resulting_revision_id, "d".repeat(64));
+	assert.deepEqual(events, ["bridge:result", "commit:durable", "handler:resolved"]);
+	assert.equal(output.resulting_revision_id, manifest.revisionId);
+});
+
+test("commit conflict rejects the mutation so the add-on receives a top-level error", async () => {
+	const store = fakeStore();
+	store.commitRevision = async () => {
+		throw new Error("STALE_BASE: commit conflict");
+	};
+	await assert.rejects(
+		createApplyCameraPlanHandler({ store })(plan, {
+			signal: new AbortController().signal,
+			request: { expected_revision_id: plan.expected_revision_id },
+			applyCameraPlan: async () => ({
+				expected_revision_id: plan.expected_revision_id,
+				scene_hash: manifest.sceneHash,
+				manifest,
+			}),
+		}),
+		/STALE_BASE: commit conflict/,
+	);
 });
