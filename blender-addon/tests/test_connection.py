@@ -107,6 +107,35 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(child.killed)
         self.assertEqual(len(process.wait_calls), 1)
 
+    def test_bridge_checkpoint_releases_only_after_durable_response(self):
+        socket = FakeSocket([
+            {"type": "progress", "id": "other"},
+            {"type": "response", "id": "request", "result": {}},
+        ])
+        connection = Connection(FakeChild(FakeProcess()), socket)
+
+        response = connection.await_durable_bridge_commit(
+            "bridge",
+            "request",
+            {"scene_hash": "a" * 64},
+        )
+
+        self.assertEqual(response["type"], "response")
+        self.assertEqual(socket.sent, [{
+            "type": "bridge_result",
+            "id": "bridge",
+            "request_id": "request",
+            "result": {"scene_hash": "a" * 64},
+        }])
+
+    def test_bridge_commit_error_is_a_transaction_failure(self):
+        socket = FakeSocket([
+            {"type": "error", "id": "request", "code": "STALE_BASE"},
+        ])
+        connection = Connection(FakeChild(FakeProcess()), socket)
+
+        with self.assertRaisesRegex(ConnectionError, "STALE_BASE"):
+            connection.await_durable_bridge_commit("bridge", "request", {})
 
     def test_checkpoint_hold_and_release_enforce_single_in_flight(self):
         connection = Connection(FakeChild(FakeProcess()), FakeSocket())

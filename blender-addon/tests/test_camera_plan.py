@@ -67,6 +67,7 @@ class CameraPlanRealBlenderTests(unittest.TestCase):
     def test_commit_failure_rolls_back_and_retains_no_checkpoint(self):
         self.assertTrue(self.results["rollback"])
         self.assertTrue(self.results["checkpointReleased"])
+        self.assertTrue(self.results["existingRollback"])
 
 
 if __name__ == "__main__":

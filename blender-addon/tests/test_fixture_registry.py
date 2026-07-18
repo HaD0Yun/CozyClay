@@ -1,8 +1,10 @@
 import copy
 import os
 import sys
+import stat
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -83,15 +85,25 @@ class FixtureRegistryTests(unittest.TestCase):
                 load_authorized_fixture(camera_plan(), SCENE_HASH)
 
     def test_architecture_section_6_package_resource_must_be_a_regular_nonsymlink_file(self):
-        with patch("pathlib.Path.is_symlink", return_value=True):
+        real_stat = (
+            Path(__file__).resolve().parents[1]
+            / "oh_my_blender"
+            / "fixtures"
+            / "boxing-v4-directing-evidence.json"
+        ).lstat()
+        unsafe_stat = os.stat_result((
+            stat.S_IFLNK | 0o777,
+            *tuple(real_stat)[1:],
+        ))
+        with patch("pathlib.Path.lstat", return_value=unsafe_stat):
             with self.assertRaises(UNTRUSTED_DIRECTING_EVIDENCE):
                 load_authorized_fixture(camera_plan(), SCENE_HASH)
 
-    def test_snapshot_v2_section_5_every_plan_frame_is_covered_by_bound_evidence_range(self):
+    def test_plan_range_is_validated_after_python_evidence_trust_boundary(self):
         plan = camera_plan()
         plan["keyframes"][-1]["frame"] = 320
-        with self.assertRaises(UNTRUSTED_DIRECTING_EVIDENCE):
-            load_authorized_fixture(plan, SCENE_HASH)
+        evidence = load_authorized_fixture(plan, SCENE_HASH)
+        self.assertEqual(evidence["frame_range"]["end"], 319)
 
     def test_architecture_section_6_evidence_schema_is_closed_and_caller_metadata_cannot_authorize(self):
         evidence = load_authorized_fixture(camera_plan(), SCENE_HASH)

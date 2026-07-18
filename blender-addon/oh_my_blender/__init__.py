@@ -183,6 +183,67 @@ if bpy is not None:
                 return {"CANCELLED"}
             return {"FINISHED"}
 
+    class OMB_OT_apply_camera_plan(bpy.types.Operator):
+        """Internal protocol-v2 bridge operator; never accepts arbitrary Python."""
+
+        bl_idname = "omb.apply_camera_plan"
+        bl_label = "Apply Camera Plan"
+        bl_options = {"INTERNAL"}
+
+        plan_json: bpy.props.StringProperty(options={"HIDDEN"})
+        current_scene_hash: bpy.props.StringProperty(options={"HIDDEN"})
+        bridge_id: bpy.props.StringProperty(options={"HIDDEN"})
+        request_id: bpy.props.StringProperty(options={"HIDDEN"})
+        deadline_ms: bpy.props.IntProperty(default=30_000, min=1, options={"HIDDEN"})
+
+        def execute(self, _context):
+            import json
+            import time
+
+            from . import camera_plan, connection
+
+            active = connection._active_connection
+            if active is None or active.state != "active":
+                self.report({"ERROR"}, "No active daemon connection")
+                return {"CANCELLED"}
+            try:
+                plan = json.loads(self.plan_json)
+            except (TypeError, ValueError) as exc:
+                self.report({"ERROR"}, f"Invalid camera plan JSON: {exc}")
+                return {"CANCELLED"}
+
+            deadline = time.monotonic() + self.deadline_ms / 1000
+
+            def commit(result):
+                return active.await_durable_bridge_commit(
+                    self.bridge_id,
+                    self.request_id,
+                    result,
+                    deadline,
+                )
+
+            def complete(_result, error):
+                if error is None or active.websocket.closed:
+                    return
+                active.websocket.send_json({
+                    "type": "bridge_error",
+                    "id": self.bridge_id,
+                    "request_id": self.request_id,
+                    "code": getattr(error, "code", type(error).__name__),
+                    "message": str(error),
+                    "retryable": False,
+                })
+
+            camera_plan.schedule_camera_plan_transaction(
+                plan,
+                self.current_scene_hash,
+                active,
+                commit,
+                complete,
+                deadline=deadline,
+            )
+            return {"FINISHED"}
+
     class OMB_OT_disconnect(bpy.types.Operator):
         bl_idname = "omb.disconnect"
         bl_label = "Disconnect"
@@ -199,6 +260,7 @@ if bpy is not None:
         OMB_OT_initialize_project,
         OMB_OT_repair_ids,
         OMB_OT_connect,
+        OMB_OT_apply_camera_plan,
         OMB_OT_disconnect,
     )
 else:

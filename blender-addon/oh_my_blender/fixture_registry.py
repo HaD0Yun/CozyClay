@@ -6,6 +6,8 @@ import copy
 import hashlib
 import json
 import math
+import os
+import stat
 import re
 from pathlib import Path
 from types import MappingProxyType
@@ -42,12 +44,52 @@ _FIXTURE_REGISTRY = MappingProxyType({
 })
 
 
-class INVALID_CAMERA_PLAN(ValueError):
-    code = "INVALID_CAMERA_PLAN"
+class INVALID_CAMERA_PLAN_SCHEMA(ValueError):
+    code = "INVALID_CAMERA_PLAN_SCHEMA"
+
+
+# Compatibility name retained for callers which catch the former broad class.
+INVALID_CAMERA_PLAN = INVALID_CAMERA_PLAN_SCHEMA
 
 
 class UNTRUSTED_DIRECTING_EVIDENCE(ValueError):
     code = "UNTRUSTED_DIRECTING_EVIDENCE"
+
+
+class UNTRUSTED_EVIDENCE_DIGEST(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "UNTRUSTED_EVIDENCE_DIGEST"
+
+
+class TRUSTED_FIXTURE_NOT_FOUND(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "TRUSTED_FIXTURE_NOT_FOUND"
+
+
+class TRUSTED_FIXTURE_PATH_UNSAFE(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "TRUSTED_FIXTURE_PATH_UNSAFE"
+
+
+class EVIDENCE_DIGEST_MISMATCH(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "EVIDENCE_DIGEST_MISMATCH"
+
+
+class EVIDENCE_DOCUMENT_MALFORMED(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "EVIDENCE_DOCUMENT_MALFORMED"
+
+
+class EVIDENCE_DOCUMENT_SCHEMA_INVALID(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "EVIDENCE_DOCUMENT_SCHEMA_INVALID"
+
+
+class EVIDENCE_RANGE_INVALID(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "EVIDENCE_RANGE_INVALID"
+
+
+class EVIDENCE_REVISION_MISMATCH(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "EVIDENCE_REVISION_MISMATCH"
+
+
+class EVIDENCE_SCENE_HASH_MISMATCH(UNTRUSTED_DIRECTING_EVIDENCE):
+    code = "EVIDENCE_SCENE_HASH_MISMATCH"
 
 
 def _fail(error_type: type[ValueError], path: str, requirement: str) -> None:
@@ -123,55 +165,50 @@ def convert_ardy_plan_pose_to_blender(pose_value: object) -> dict:
 
 
 def parse_camera_plan(value: object) -> dict:
-    """Validate and copy a closed CameraPlanV1 document without converting it."""
-    plan = _exact_keys(value, _CAMERA_PLAN_KEYS, "plan", INVALID_CAMERA_PLAN)
+    """Validate only the closed CameraPlanV1 schema (precedence row 1)."""
+    error = INVALID_CAMERA_PLAN_SCHEMA
+    plan = _exact_keys(value, _CAMERA_PLAN_KEYS, "plan", error)
     if plan["schema_version"] != 1:
-        _fail(INVALID_CAMERA_PLAN, "plan.schema_version", "must equal 1")
-    _hash(plan["expected_revision_id"], "plan.expected_revision_id", INVALID_CAMERA_PLAN)
-    _hash(plan["evidence_sha256"], "plan.evidence_sha256", INVALID_CAMERA_PLAN)
-    output = _exact_keys(plan["output_format"], _OUTPUT_FORMAT_KEYS, "plan.output_format", INVALID_CAMERA_PLAN)
-    _integer(output["width"], "plan.output_format.width", INVALID_CAMERA_PLAN, 1)
-    _integer(output["height"], "plan.output_format.height", INVALID_CAMERA_PLAN, 1)
+        _fail(error, "plan.schema_version", "must equal 1")
+    _hash(plan["expected_revision_id"], "plan.expected_revision_id", error)
+    _hash(plan["evidence_sha256"], "plan.evidence_sha256", error)
+    output = _exact_keys(plan["output_format"], _OUTPUT_FORMAT_KEYS, "plan.output_format", error)
+    _integer(output["width"], "plan.output_format.width", error, 1)
+    _integer(output["height"], "plan.output_format.height", error, 1)
     keyframes = plan["keyframes"]
     if not isinstance(keyframes, list) or not keyframes:
-        _fail(INVALID_CAMERA_PLAN, "plan.keyframes", "must be a non-empty array")
-    previous_frame = -1
+        _fail(error, "plan.keyframes", "must be a non-empty array")
     for index, keyframe in enumerate(keyframes):
         path = f"plan.keyframes[{index}]"
-        item = _exact_keys(keyframe, _PLAN_KEYFRAME_KEYS, path, INVALID_CAMERA_PLAN)
-        frame = _integer(item["frame"], f"{path}.frame", INVALID_CAMERA_PLAN)
-        if frame <= previous_frame:
-            _fail(INVALID_CAMERA_PLAN, "plan.keyframes", "must have strictly increasing frames")
-        previous_frame = frame
-        pose = _exact_keys(item["pose"], _POSE_KEYS, f"{path}.pose", INVALID_CAMERA_PLAN)
-        _vector(pose["position"], f"{path}.pose.position", INVALID_CAMERA_PLAN)
-        _vector(pose["look_at"], f"{path}.pose.look_at", INVALID_CAMERA_PLAN)
-        _vector(pose["up"], f"{path}.pose.up", INVALID_CAMERA_PLAN)
-        if pose["up"] != [0.0, 1.0, 0.0]:
-            _fail(INVALID_CAMERA_PLAN, f"{path}.pose.up", "must equal ARDY [0, 1, 0]")
-        fov = _number(pose["vertical_fov_radians"], f"{path}.pose.vertical_fov_radians", INVALID_CAMERA_PLAN)
+        item = _exact_keys(keyframe, _PLAN_KEYFRAME_KEYS, path, error)
+        _number(item["frame"], f"{path}.frame", error)
+        pose = _exact_keys(item["pose"], _POSE_KEYS, f"{path}.pose", error)
+        _vector(pose["position"], f"{path}.pose.position", error)
+        _vector(pose["look_at"], f"{path}.pose.look_at", error)
+        _vector(pose["up"], f"{path}.pose.up", error)
+        fov = _number(
+            pose["vertical_fov_radians"],
+            f"{path}.pose.vertical_fov_radians",
+            error,
+        )
         if not 0 < fov < math.pi:
-            _fail(INVALID_CAMERA_PLAN, f"{path}.pose.vertical_fov_radians", "must be between 0 and pi")
+            _fail(error, f"{path}.pose.vertical_fov_radians", "must be between 0 and pi")
         if item["transition"] not in ("smooth", "cut"):
-            _fail(INVALID_CAMERA_PLAN, f"{path}.transition", "must be smooth or cut")
-    if keyframes[0]["transition"] != "smooth":
-        _fail(INVALID_CAMERA_PLAN, "plan.keyframes[0].transition", "must be smooth")
+            _fail(error, f"{path}.transition", "must be smooth or cut")
     return copy.deepcopy(plan)
 
 
 def parse_directing_analysis_evidence(value: object) -> dict:
     """Validate and copy a closed DirectingAnalysisEvidenceV1 payload."""
-    error = UNTRUSTED_DIRECTING_EVIDENCE
+    error = EVIDENCE_DOCUMENT_SCHEMA_INVALID
     evidence = _exact_keys(value, _EVIDENCE_KEYS, "evidence", error)
     if evidence["schema_version"] != 1:
         _fail(error, "evidence.schema_version", "must equal 1")
     _hash(evidence["revision_id"], "evidence.revision_id", error)
     _hash(evidence["scene_hash"], "evidence.scene_hash", error)
     frame_range = _exact_keys(evidence["frame_range"], _FRAME_RANGE_KEYS, "evidence.frame_range", error)
-    start = _integer(frame_range["start"], "evidence.frame_range.start", error)
-    end = _integer(frame_range["end"], "evidence.frame_range.end", error)
-    if end < start:
-        _fail(error, "evidence.frame_range", "must have end >= start")
+    start = _number(frame_range["start"], "evidence.frame_range.start", error)
+    end = _number(frame_range["end"], "evidence.frame_range.end", error)
     producer = _exact_keys(evidence["producer"], _PRODUCER_KEYS, "evidence.producer", error)
     _string(producer["id"], "evidence.producer.id", error)
     _string(producer["version"], "evidence.producer.version", error)
@@ -219,42 +256,77 @@ def parse_directing_analysis_evidence(value: object) -> dict:
 
 
 def load_authorized_fixture(plan_value: object, current_scene_hash: str) -> dict:
-    """Load evidence only through the compiled digest-to-resource identity table."""
+    """Apply evidence trust rows 1-10 in their exact atomic precedence."""
     plan = parse_camera_plan(plan_value)
     registered = _FIXTURE_REGISTRY.get(plan["evidence_sha256"])
     if registered is None:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("evidence digest is not authorized")
+        raise UNTRUSTED_EVIDENCE_DIGEST("evidence digest is not authorized")
+
     _fixture_identity, resource_name, expected_producer = registered
     fixture_directory = Path(__file__).resolve().parent / "fixtures"
     resource = fixture_directory / resource_name
+    if not resource.exists():
+        raise TRUSTED_FIXTURE_NOT_FOUND("configured fixture resource does not exist")
+
     try:
-        if resource.is_symlink() or not resource.is_file():
-            raise UNTRUSTED_DIRECTING_EVIDENCE("fixture resource must be a regular nonsymlink file")
-        resolved = resource.resolve(strict=True)
-        if resolved.parent != fixture_directory.resolve(strict=True):
-            raise UNTRUSTED_DIRECTING_EVIDENCE("fixture resource escaped its package directory")
+        resource_stat = resource.lstat()
+        resolved_directory = fixture_directory.resolve(strict=True)
+        resolved_resource = resource.resolve(strict=True)
+    except OSError as error:
+        raise TRUSTED_FIXTURE_PATH_UNSAFE("fixture resource could not be safely resolved") from error
+    if (
+        stat.S_ISLNK(resource_stat.st_mode)
+        or not stat.S_ISREG(resource_stat.st_mode)
+        or resource_stat.st_uid != os.getuid()
+        or resolved_resource.parent != resolved_directory
+    ):
+        raise TRUSTED_FIXTURE_PATH_UNSAFE(
+            "fixture resource must be an owned regular nonsymlink file inside its package directory"
+        )
+
+    try:
         evidence_bytes = resource.read_bytes()
     except OSError as error:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture resource could not be loaded") from error
+        raise TRUSTED_FIXTURE_PATH_UNSAFE("fixture resource could not be safely read") from error
     actual_digest = hashlib.sha256(evidence_bytes).hexdigest()
     if actual_digest != plan["evidence_sha256"]:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture digest mismatch")
+        raise EVIDENCE_DIGEST_MISMATCH("fixture digest differs from its plan and core table")
+
     try:
-        evidence = parse_directing_analysis_evidence(json.loads(evidence_bytes.decode("utf-8")))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture is not canonical JSON") from error
-    if canonical_json(evidence).encode("utf-8") != evidence_bytes:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture bytes are not canonical")
+        parsed_value = json.loads(evidence_bytes.decode("utf-8"))
+        if canonical_json(parsed_value).encode("utf-8") != evidence_bytes:
+            raise EVIDENCE_DOCUMENT_MALFORMED("fixture bytes are not canonical JSON")
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as error:
+        if isinstance(error, EVIDENCE_DOCUMENT_MALFORMED):
+            raise
+        raise EVIDENCE_DOCUMENT_MALFORMED("fixture is not canonical JSON") from error
+
+    evidence = parse_directing_analysis_evidence(parsed_value)
     producer = evidence["producer"]
     producer_tuple = (producer["id"], producer["version"], producer["digest"])
     if producer_tuple != expected_producer:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture producer does not match its core-owned identity")
+        raise EVIDENCE_DOCUMENT_SCHEMA_INVALID(
+            "fixture producer does not match its core-owned identity"
+        )
+
+    frame_range = evidence["frame_range"]
+    start = frame_range["start"]
+    end = frame_range["end"]
+    if (
+        isinstance(start, bool)
+        or not isinstance(start, int)
+        or isinstance(end, bool)
+        or not isinstance(end, int)
+        or start < 0
+        or end < start
+    ):
+        raise EVIDENCE_RANGE_INVALID(
+            "evidence range bounds must be nonnegative integers with start <= end"
+        )
     if evidence["revision_id"] != plan["expected_revision_id"]:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture revision does not match the plan base")
+        raise EVIDENCE_REVISION_MISMATCH("fixture revision does not match the plan base")
     if evidence["scene_hash"] != current_scene_hash:
-        raise UNTRUSTED_DIRECTING_EVIDENCE("fixture scene hash does not match the current revision")
-    start = evidence["frame_range"]["start"]
-    end = evidence["frame_range"]["end"]
-    if any(keyframe["frame"] < start or keyframe["frame"] > end for keyframe in plan["keyframes"]):
-        raise UNTRUSTED_DIRECTING_EVIDENCE("plan keyframe lies outside the fixture range")
+        raise EVIDENCE_SCENE_HASH_MISMATCH(
+            "fixture scene hash does not match the current revision"
+        )
     return evidence

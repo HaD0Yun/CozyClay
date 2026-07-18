@@ -56,6 +56,37 @@ class Connection:
             return verify(checkpoint, read_fn)
         finally:
             self.active_checkpoint = None
+    def await_durable_bridge_commit(
+        self,
+        bridge_id: str,
+        request_id: str,
+        result: dict,
+        deadline: float | None = None,
+    ) -> dict:
+        """Send a bridge result and wait until the daemon reports durable commit."""
+        self.websocket.send_json({
+            "type": "bridge_result",
+            "id": bridge_id,
+            "request_id": request_id,
+            "result": result,
+        })
+        while True:
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ConnectionError("camera-plan commit acknowledgement timed out")
+                socket = getattr(self.websocket, "socket", None)
+                if socket is not None:
+                    socket.settimeout(remaining)
+            message = self.websocket.recv_json()
+            if not isinstance(message, dict) or message.get("id") != request_id:
+                continue
+            if message.get("type") == "response":
+                return message
+            if message.get("type") == "error":
+                raise ConnectionError(
+                    f"camera-plan durable commit failed: {message.get('code', 'UNKNOWN')}"
+                )
 
     @classmethod
     def start(
