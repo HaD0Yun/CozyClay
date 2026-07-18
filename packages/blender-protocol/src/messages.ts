@@ -122,6 +122,16 @@ export const BridgeProgressSchema = exact({
 	completed: Type.Integer({ minimum: 0 }),
 	total: Type.Integer({ minimum: 0 }),
 });
+export const BridgeArtifactChunkSchema = exact({
+	type: Type.Literal("bridge_artifact_chunk"),
+	id: uuid(),
+	request_id: uuid(),
+	frame: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+	chunk_index: Type.Integer({ minimum: 0, maximum: 31 }),
+	total_chunks: Type.Integer({ minimum: 1, maximum: 32 }),
+	byte_length: Type.Integer({ minimum: 1, maximum: 512 * 1024 }),
+	data_base64: Type.String({ minLength: 4, maxLength: 699_052, pattern: "^[A-Za-z0-9+/]*={0,2}$" }),
+});
 export const BridgeResultSchema = exact({
 	type: Type.Literal("bridge_result"),
 	id: uuid(),
@@ -151,6 +161,7 @@ export const BridgeCancelAckSchema = exact({
 export const DaemonBridgeMessageSchema = Type.Union([BridgeRequestSchema, BridgeCancelSchema]);
 export const AddonBridgeMessageSchema = Type.Union([
 	BridgeProgressSchema,
+	BridgeArtifactChunkSchema,
 	BridgeResultSchema,
 	BridgeErrorSchema,
 	BridgeCancelAckSchema,
@@ -183,6 +194,7 @@ export type ClientMessage = Static<typeof ClientMessageSchema>;
 export type ServerMessage = Static<typeof ServerMessageSchema>;
 export type BridgeRequest = Static<typeof BridgeRequestSchema>;
 export type BridgeProgress = Static<typeof BridgeProgressSchema>;
+export type BridgeArtifactChunk = Static<typeof BridgeArtifactChunkSchema>;
 export type BridgeResult = Static<typeof BridgeResultSchema>;
 export type BridgeError = Static<typeof BridgeErrorSchema>;
 export type BridgeCancel = Static<typeof BridgeCancelSchema>;
@@ -331,6 +343,14 @@ export function parseAddonBridgeMessage(input: unknown, session: MutationBridgeS
 			}
 			session.assertOpen(progress.id, progress.request_id);
 			return progress;
+		}
+		case "bridge_artifact_chunk": {
+			const chunk = Parse(BridgeArtifactChunkSchema, input);
+			if (chunk.chunk_index >= chunk.total_chunks) {
+				throw new Error("bridge artifact chunk index must be below total_chunks");
+			}
+			session.assertOpen(chunk.id, chunk.request_id);
+			return chunk;
 		}
 		case "bridge_result": {
 			const result = Parse(BridgeResultSchema, input);

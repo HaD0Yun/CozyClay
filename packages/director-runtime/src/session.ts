@@ -12,14 +12,16 @@ import {
 	type ApplyCameraPlanBridge,
 	createApplyCameraPlanTool,
 	createInspectProjectTool,
+	createRenderQaFramesTool,
 	type InspectProjectBridge,
+	type RenderQaFramesBridge,
 } from "@oh-my-blender/blender-tools";
 import { BundledDirectorResourceLoader, DIRECTOR_PROMPT_DIGEST } from "./resource-loader.ts";
 
-export const DIRECTOR_TOOL_ALLOWLIST = ["inspect_project", "apply_camera_plan"] as const;
+export const DIRECTOR_TOOL_ALLOWLIST = ["inspect_project", "apply_camera_plan", "render_qa_frames"] as const;
 
 export interface DirectorSessionOptions {
-	readonly bridge: InspectProjectBridge & Partial<ApplyCameraPlanBridge>;
+	readonly bridge: InspectProjectBridge & Partial<ApplyCameraPlanBridge & RenderQaFramesBridge>;
 	readonly model: Model<string>;
 	readonly modelRuntime: ModelRuntime;
 	readonly cwd?: string;
@@ -35,8 +37,15 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		options.bridge.applyCameraPlan === undefined
 			? undefined
 			: { applyCameraPlan: options.bridge.applyCameraPlan.bind(options.bridge) };
-	const enabledTools =
-		mutationBridge === undefined ? DIRECTOR_TOOL_ALLOWLIST.slice(0, 1) : [...DIRECTOR_TOOL_ALLOWLIST];
+	const renderBridge =
+		options.bridge.renderQaFrames === undefined
+			? undefined
+			: { renderQaFrames: options.bridge.renderQaFrames.bind(options.bridge) };
+	const enabledTools = [
+		"inspect_project",
+		...(mutationBridge === undefined ? [] : (["apply_camera_plan"] as const)),
+		...(renderBridge === undefined ? [] : (["render_qa_frames"] as const)),
+	];
 	const { session } = await createAgentSession({
 		cwd,
 		agentDir,
@@ -44,10 +53,11 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		modelRuntime: options.modelRuntime,
 		thinkingLevel: "off",
 		resourceLoader,
-		customTools:
-			mutationBridge === undefined
-				? [createInspectProjectTool(options.bridge)]
-				: [createInspectProjectTool(options.bridge), createApplyCameraPlanTool(mutationBridge)],
+		customTools: [
+			createInspectProjectTool(options.bridge),
+			...(mutationBridge === undefined ? [] : [createApplyCameraPlanTool(mutationBridge)]),
+			...(renderBridge === undefined ? [] : [createRenderQaFramesTool(renderBridge)]),
+		],
 		tools: enabledTools,
 		sessionManager: SessionManager.inMemory(cwd),
 		settingsManager: SettingsManager.inMemory({
