@@ -142,6 +142,7 @@ class DaemonIntegrationTest(unittest.TestCase):
                 str(snapshot_path),
             ],
             cwd=REPOSITORY_ROOT,
+            env={**os.environ, "OMB_DAEMON_ARGS": "--faux"},
             check=False,
             capture_output=True,
             text=True,
@@ -155,6 +156,19 @@ class DaemonIntegrationTest(unittest.TestCase):
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
         revision = canonical_revision(snapshot)
         self.assertIn(f"OMB_REVISION={revision}", completed.stdout)
+        self.assertIn("OMB_CONNECT_CYCLE=true", completed.stdout)
+        # architecture doc line 92 ("the add-on owns exactly one daemon
+        # child"): the operator-owned child from the Connect/Disconnect
+        # cycle above must be reaped by the time the fixture process exits,
+        # since Disconnect drains it before the fixture even reaches
+        # unregister(). It ran and exited inside the already-completed
+        # Blender subprocess, so there is no separate PID for tearDown to
+        # track here -- only confirm the marker line reports a real PID.
+        connect_pid_lines = [
+            line for line in completed.stdout.splitlines() if line.startswith("OMB_CONNECT_CHILD_PID=")
+        ]
+        self.assertEqual(len(connect_pid_lines), 1)
+        self.assertTrue(connect_pid_lines[0].removeprefix("OMB_CONNECT_CHILD_PID=").isdigit())
 
         project_index = json.loads(
             (project_directory / ".omb" / "project.json").read_text(encoding="utf-8")

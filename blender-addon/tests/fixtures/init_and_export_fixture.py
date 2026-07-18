@@ -54,6 +54,32 @@ def main() -> None:
             raise RuntimeError("persisted project_id does not match initialized scene")
         print(f"OMB_PROJECT_ID={project_id}")
         print(f"OMB_REVISION={revision}")
+
+        # Architecture doc line 92-99/section 14: prove the add-on's OWN
+        # registered Connect/Disconnect operators actually own a real daemon
+        # child and authenticated WebSocket -- not a separate test-only
+        # WebSocket path -- closing the launch-configuration composition gap
+        # (OMB_DAEMON_ARGS is supplied by the calling test harness).
+        from oh_my_blender import connection
+
+        connect_result = bpy.ops.omb.connect()
+        if connect_result != {"FINISHED"}:
+            raise RuntimeError(f"Connect returned {connect_result}")
+        active = connection._active_connection
+        if active is None or active.state != "active":
+            raise RuntimeError("Connect did not retain an active connection")
+        if active.child.process.poll() is not None:
+            raise RuntimeError("Connect's owned daemon child is not running")
+        print(f"OMB_CONNECT_CHILD_PID={active.child.process.pid}")
+
+        disconnect_result = bpy.ops.omb.disconnect()
+        if disconnect_result != {"FINISHED"}:
+            raise RuntimeError(f"Disconnect returned {disconnect_result}")
+        if connection._active_connection is not None:
+            raise RuntimeError("Disconnect did not release the active connection")
+        if active.child.process.poll() is None:
+            raise RuntimeError("Disconnect did not terminate its owned daemon child")
+        print("OMB_CONNECT_CYCLE=true")
     finally:
         unregister()
 

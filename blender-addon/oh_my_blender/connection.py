@@ -1,5 +1,6 @@
 """Owned daemon and WebSocket connection lifecycle for the Blender add-on."""
 
+import os
 import subprocess
 import time
 from os import PathLike
@@ -186,18 +187,45 @@ def _test_only_inject_disconnect_fault(
 _active_connection: Connection | None = None
 
 
+_DAEMON_ARGS_ENV = "OMB_DAEMON_ARGS"
+
+
+def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
+    """Resolve the daemon launch mode; never silently default to a fake provider.
+
+    apps/omb-daemon/src/main.ts accepts only an explicit `--faux` test-provider
+    invocation today (no real model-provider configuration exists yet in this
+    phase). The add-on itself must not hard-code that -- or any other -- mode:
+    the caller (an explicit `daemon_args` argument, e.g. from the integration
+    test) or the `OMB_DAEMON_ARGS` environment variable (e.g. from a future
+    real deployment's launcher) must say so explicitly.
+    """
+    if daemon_args is not None:
+        return ("node", "--import", "tsx", "apps/omb-daemon/src/main.ts", "--port", "0", *daemon_args)
+    configured = os.environ.get(_DAEMON_ARGS_ENV)
+    if configured is None:
+        raise ConnectionError(
+            "NOT_CONFIGURED: no daemon launch mode is configured; set the "
+            f"{_DAEMON_ARGS_ENV} environment variable (or pass daemon_args "
+            "explicitly) to a supported mode such as '--faux' for the test "
+            "provider before connecting"
+        )
+    return ("node", "--import", "tsx", "apps/omb-daemon/src/main.ts", "--port", "0", *configured.split())
+
+
 def connect(
     *,
     cwd: str | PathLike[str],
     project_id: str,
     addon_version: str,
     blender_version: str,
+    daemon_args: Sequence[str] | None = None,
 ) -> Connection:
     """Create and retain the add-on's sole daemon connection."""
     global _active_connection
     if _active_connection is not None and _active_connection.state != "stopped":
         raise ConnectionError("the add-on already owns an active daemon connection")
-    argv = ("node", "--import", "tsx", "apps/omb-daemon/src/main.ts", "--port", "0")
+    argv = _resolve_daemon_argv(daemon_args)
     _active_connection = Connection.start(
         argv,
         cwd=cwd,

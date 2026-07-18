@@ -13,9 +13,12 @@ from oh_my_blender.connection import (
     Connection,
     ConnectionError,
     _test_only_inject_disconnect_fault,
+    connect,
+    disconnect_active,
     verify_reconnect_hash,
     reconnect,
 )
+from oh_my_blender import connection as connection_module
 
 
 class FakeProcess:
@@ -191,6 +194,43 @@ class ConnectionTests(unittest.TestCase):
                 )
 
         connection.disconnect.assert_called_once()
+
+    def test_connect_refuses_when_no_daemon_launch_mode_is_configured(self):
+        """architecture doc line 92-99: never silently fall back to a fake provider."""
+        connection_module._active_connection = None
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(ConnectionError, "NOT_CONFIGURED"):
+                connect(cwd="/tmp", project_id="project", addon_version="1", blender_version="4")
+
+    def test_connect_uses_explicit_daemon_args_over_the_environment(self):
+        connection_module._active_connection = None
+        fake = mock.Mock()
+        fake.state = "active"
+        with mock.patch.object(Connection, "start", return_value=fake) as start:
+            with mock.patch.dict("os.environ", {"OMB_DAEMON_ARGS": "--should-not-be-used"}, clear=True):
+                result = connect(
+                    cwd="/tmp",
+                    project_id="project",
+                    addon_version="1",
+                    blender_version="4",
+                    daemon_args=("--faux",),
+                )
+        self.assertIs(result, fake)
+        argv = start.call_args.args[0]
+        self.assertEqual(argv[-1], "--faux")
+        self.assertNotIn("--should-not-be-used", argv)
+        disconnect_active("test_cleanup")
+
+    def test_connect_falls_back_to_the_environment_variable_when_unspecified(self):
+        connection_module._active_connection = None
+        fake = mock.Mock()
+        fake.state = "active"
+        with mock.patch.object(Connection, "start", return_value=fake) as start:
+            with mock.patch.dict("os.environ", {"OMB_DAEMON_ARGS": "--faux"}, clear=True):
+                connect(cwd="/tmp", project_id="project", addon_version="1", blender_version="4")
+        argv = start.call_args.args[0]
+        self.assertEqual(argv[-1], "--faux")
+        disconnect_active("test_cleanup")
 
 if __name__ == "__main__":
     unittest.main()
