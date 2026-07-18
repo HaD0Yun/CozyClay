@@ -132,6 +132,22 @@ test("row 18: first transition not literal smooth — PLAN_FIRST_TRANSITION_NOT_
 	);
 });
 
+test("row 19: cut at evidence range start — PLAN_CUT_AT_RANGE_START is subsumed by rows 11/17/18", () => {
+	assertCode(
+		"PLAN_FIRST_TRANSITION_NOT_SMOOTH",
+		(plan) => {
+			plan.keyframes[0]!.frame = 0;
+			plan.keyframes[0]!.transition = "cut";
+		},
+		(evidence) => {
+			evidence.analysis.subject_samples.unshift(
+				{ frame: -1, center: [0, 0, 0], height_m: 1 },
+				{ frame: 0, center: [0, 0, 0], height_m: 1 },
+			);
+		},
+	);
+});
+
 test("row 20: up differs [0,1,0] by >1e-9/component — UNSUPPORTED_PLAN_UP", () => {
 	assertCode("UNSUPPORTED_PLAN_UP", (plan) => {
 		plan.keyframes[0]!.pose.up = [0, 1, 1e-8];
