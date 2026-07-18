@@ -67,6 +67,9 @@ describe("hostile local resource isolation", () => {
 			applyCameraPlan: async () => {
 				throw new Error("not invoked");
 			},
+			renderQaFrames: async () => {
+				throw new Error("not invoked");
+			},
 		};
 
 		const first = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir, agentDir });

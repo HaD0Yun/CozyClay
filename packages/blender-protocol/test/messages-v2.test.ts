@@ -56,6 +56,16 @@ const progress = {
 	completed: 1,
 	total: 2,
 } as const;
+const artifactChunk = {
+	type: "bridge_artifact_chunk",
+	id: ID,
+	request_id: REQUEST_ID,
+	frame: 80,
+	chunk_index: 0,
+	total_chunks: 1,
+	byte_length: 3,
+	data_base64: "cG5n",
+} as const;
 const result = { type: "bridge_result", id: ID, request_id: REQUEST_ID, result: { sceneHash: HASH } } as const;
 const bridgeError = {
 	type: "bridge_error",
@@ -71,6 +81,7 @@ const cancelAck = { type: "bridge_cancel_ack", id: ID, request_id: REQUEST_ID, s
 const validMessages = [
 	{ direction: "daemon" as const, value: request },
 	{ direction: "addon" as const, value: progress },
+	{ direction: "addon" as const, value: artifactChunk },
 	{ direction: "addon" as const, value: result },
 	{ direction: "addon" as const, value: bridgeError },
 	{ direction: "daemon" as const, value: cancel },
@@ -153,6 +164,13 @@ describe("Architecture §4 protocol v2 mutation bridge", () => {
 		assert.throws(() => parseWithOpenBridge({ ...request, deadline_ms: 99 }));
 		assert.throws(() => parseWithOpenBridge({ ...request, deadline_ms: 30_001 }));
 		assert.throws(() => parseWithOpenBridge({ ...progress, completed: 3, total: 2 }), /completed/i);
+	});
+
+	it("G011: artifact chunks reuse an open protocol-v2 bridge and stay below the 1 MiB JSON cap", () => {
+		assert.deepEqual(parseWithOpenBridge(artifactChunk), artifactChunk);
+		assert.throws(() => parseWithOpenBridge({ ...artifactChunk, byte_length: 512 * 1024 + 1 }));
+		assert.throws(() => parseWithOpenBridge({ ...artifactChunk, chunk_index: 32 }));
+		assert.throws(() => parseWithOpenBridge({ ...artifactChunk, data_base64: "A".repeat(699_053) }));
 	});
 
 	it("Architecture §4: bridge cancellation acknowledgement uses the exact terminal status union", () => {

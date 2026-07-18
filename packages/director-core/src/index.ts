@@ -1,3 +1,4 @@
+export * from "./artifact-store.ts";
 export * from "./canonical.ts";
 export * from "./identity.ts";
 export * from "./manifest.ts";

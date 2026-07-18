@@ -1,8 +1,15 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ApplyCameraPlanProgress } from "@oh-my-blender/blender-tools";
+import type { ApplyCameraPlanProgress, RenderQaFramesProgress } from "@oh-my-blender/blender-tools";
 import { assertCanonicalSize, buildProjectManifest } from "@oh-my-blender/director-core";
-import { type CameraPlanMutationCandidate, type CameraPlanV1, parseSceneSnapshot } from "@oh-my-blender/protocol";
+import {
+	type CameraPlanMutationCandidate,
+	type CameraPlanV1,
+	parseRenderQaFramesResult,
+	parseSceneSnapshot,
+	type RenderQaFramesRequestV1,
+	type RenderQaFramesResultV1,
+} from "@oh-my-blender/protocol";
 import {
 	type CameraPlanRevisionStore,
 	commitCameraPlanMutation,
@@ -29,6 +36,13 @@ export interface DirectorHandlerContext {
 			readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 		},
 	) => Promise<CameraPlanMutationCandidate>;
+	readonly renderQaFrames?: (
+		request: RenderQaFramesRequestV1,
+		context: {
+			readonly signal: AbortSignal | undefined;
+			readonly reportProgress: (progress: RenderQaFramesProgress) => void;
+		},
+	) => Promise<RenderQaFramesResultV1>;
 	readonly beginDurableCommit?: () => void;
 }
 
@@ -64,6 +78,35 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 					});
 					const result = await commitCameraPlanMutation(store, plan, candidate, context.beginDurableCommit);
 					resultingRevision = result.resulting_revision_id;
+					return result;
+				},
+				renderQaFrames: async (request, bridgeContext) => {
+					if (request.revision_id !== resultingRevision) {
+						throw new Error(
+							`STALE_BASE: expected ${request.revision_id}, current revision is ${resultingRevision}`,
+						);
+					}
+					if (context.renderQaFrames === undefined) {
+						throw new Error("RENDER_BRIDGE_UNAVAILABLE: protocol v2 bridge is required");
+					}
+					const result = parseRenderQaFramesResult(
+						await context.renderQaFrames(request, {
+							signal: bridgeContext.signal,
+							reportProgress: (progress) => {
+								bridgeContext.reportProgress(progress);
+								context.reportProgress?.(progress.phase, progress.completed, progress.total);
+							},
+						}),
+					);
+					if (result.revision_id !== request.revision_id) {
+						throw new Error("STALE_BASE: render result does not bind the requested revision");
+					}
+					if (
+						result.frames.length !== request.frames.length ||
+						result.frames.some((frame, index) => frame.frame !== request.frames[index])
+					) {
+						throw new Error("INVALID_RENDER_QA_RESULT: result frames must exactly match the requested frames");
+					}
 					return result;
 				},
 			},
