@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	CameraPlanValidationError,
 	type CameraPlanV1,
+	CameraPlanValidationError,
 	type DirectingAnalysisEvidenceV1,
 	validateCameraPlan,
 } from "../src/camera-plan.ts";
@@ -41,7 +41,7 @@ function validEvidence(): DirectingAnalysisEvidenceV1 {
 		analysis: {
 			motion_valley_frames: [100],
 			action_peak_ranges: [],
-			action_axis: { a: [0, 0, 0], b: [20, 0, 0], up: [0, 1, 0] },
+			action_axis: { a: [0, 0, 0], b: [20, 0, 0], up: [0, 0, 1] },
 			subject_samples: [
 				{ frame: 99, center: [10, 0, 0], height_m: 1 },
 				{ frame: 100, center: [10, 0, 0], height_m: 1 },
@@ -68,8 +68,7 @@ function assertCode(
 test("row 1: closed plan schema parse — INVALID_CAMERA_PLAN_SCHEMA", () => {
 	assert.throws(
 		() => validateCameraPlan({ ...validPlan(), extra: true }, validEvidence()),
-		(error: unknown) =>
-			error instanceof CameraPlanValidationError && error.code === "INVALID_CAMERA_PLAN_SCHEMA",
+		(error: unknown) => error instanceof CameraPlanValidationError && error.code === "INVALID_CAMERA_PLAN_SCHEMA",
 	);
 });
 
@@ -93,7 +92,7 @@ test("row 13: |axis_b-axis_a|<1e-9 — EVIDENCE_ACTION_AXIS_ZERO_LENGTH", () => 
 
 test("row 14: |cross(axis,up)|<1e-9 after row 13 — EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP", () => {
 	assertCode("EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP", undefined, (evidence) => {
-		evidence.analysis.action_axis.b = [0, 20, 0];
+		evidence.analysis.action_axis.b = [0, 0, 20];
 	});
 });
 
@@ -170,16 +169,9 @@ test("row 30: cut in peak range expanded ±1 — CUT_SPLITS_ACTION_PEAK", () => 
 });
 
 test("row 31: projected subject scale nonfinite/nonpositive — CUT_SCALE_UNDEFINED", () => {
-	assertCode(
-		"CUT_SCALE_UNDEFINED",
-		(plan) => {
-			plan.keyframes[0]!.pose.position = [0, 0, 1e-9];
-			plan.keyframes[1]!.pose.position = [10, 0, 1e-9];
-		},
-		(evidence) => {
-			for (const sample of evidence.analysis.subject_samples) sample.height_m = Number.MAX_VALUE;
-		},
-	);
+	assertCode("CUT_SCALE_UNDEFINED", undefined, (evidence) => {
+		for (const sample of evidence.analysis.subject_samples) sample.height_m = Number.MIN_VALUE;
+	});
 });
 
 test("row 32: cut scale max/min >1.35+1e-6 — CUT_SCALE_DISCONTINUITY", () => {
@@ -189,10 +181,16 @@ test("row 32: cut scale max/min >1.35+1e-6 — CUT_SCALE_DISCONTINUITY", () => {
 });
 
 test("row 33: absolute axis-side score <1e-6 — CAMERA_ON_ACTION_AXIS", () => {
-	assertCode("CAMERA_ON_ACTION_AXIS", (plan) => {
-		plan.keyframes[0]!.pose.position = [0, 0, 0];
-		plan.keyframes[0]!.pose.look_at = [0, 0, 50];
-	});
+	assertCode(
+		"CAMERA_ON_ACTION_AXIS",
+		(plan) => {
+			plan.keyframes[0]!.pose.position = [0, 0, 0];
+			plan.keyframes[0]!.pose.look_at = [0, 0, 50];
+		},
+		(evidence) => {
+			evidence.analysis.subject_samples[0]!.center = [0, -50, 0];
+		},
+	);
 });
 
 test("row 34: axis-side sign changes — ACTION_AXIS_CROSSING", () => {

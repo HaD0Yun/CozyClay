@@ -40,6 +40,9 @@ describe("director runtime session", () => {
 					calls += 1;
 					return manifest;
 				},
+				applyCameraPlan: async () => {
+					throw new Error("not invoked");
+				},
 			},
 			model,
 			modelRuntime,

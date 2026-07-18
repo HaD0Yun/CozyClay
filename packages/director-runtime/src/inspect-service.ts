@@ -1,5 +1,10 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type {
+	ApplyCameraPlanBridge,
+	ApplyCameraPlanProgress,
+	ApplyCameraPlanResult,
+} from "@oh-my-blender/blender-tools";
 import { assertCanonicalSize, buildProjectManifest } from "@oh-my-blender/director-core";
 import { parseSceneSnapshot } from "@oh-my-blender/protocol";
 import { createDirectorSession } from "./session.ts";
@@ -11,11 +16,21 @@ export interface InspectHandlerOptions {
 	readonly modelRuntime: ModelRuntime;
 }
 
+export interface DirectorHandlerContext {
+	readonly signal: AbortSignal;
+	readonly request?: { expected_revision_id?: string };
+	readonly reportProgress?: (phase: string, completed: number, total: number) => void;
+	readonly applyCameraPlan?: (
+		plan: Parameters<ApplyCameraPlanBridge["applyCameraPlan"]>[0],
+		context: {
+			readonly signal: AbortSignal | undefined;
+			readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
+		},
+	) => Promise<ApplyCameraPlanResult>;
+}
+
 export function createInspectHandler(options: InspectHandlerOptions) {
-	return async (
-		params: Record<string, unknown>,
-		context: { signal: AbortSignal; request?: { expected_revision_id?: string } },
-	) => {
+	return async (params: Record<string, unknown>, context: DirectorHandlerContext) => {
 		const snapshot = parseSceneSnapshot(params.snapshot);
 		assertCanonicalSize(snapshot);
 		const manifest = buildProjectManifest(snapshot);
@@ -23,8 +38,30 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 		if (expectedRevision !== undefined && expectedRevision !== manifest.revision) {
 			throw new Error(`STALE_BASE: expected ${expectedRevision}, current revision is ${manifest.revision}`);
 		}
+		let resultingRevision = manifest.revision;
 		const session = await createDirectorSession({
-			bridge: { inspectProject: async () => manifest },
+			bridge: {
+				inspectProject: async () => manifest,
+				applyCameraPlan: async (plan, bridgeContext) => {
+					if (plan.expected_revision_id !== manifest.revision) {
+						throw new Error(
+							`STALE_BASE: expected ${plan.expected_revision_id}, current revision is ${manifest.revision}`,
+						);
+					}
+					if (context.applyCameraPlan === undefined) {
+						throw new Error("MUTATION_BRIDGE_UNAVAILABLE: protocol v2 mutation bridge is required");
+					}
+					const result = await context.applyCameraPlan(plan, {
+						signal: bridgeContext.signal,
+						reportProgress: (progress) => {
+							bridgeContext.reportProgress(progress);
+							context.reportProgress?.(progress.phase, progress.completed, progress.total);
+						},
+					});
+					resultingRevision = result.resulting_revision_id;
+					return result;
+				},
+			},
 			model: options.model,
 			modelRuntime: options.modelRuntime,
 		});
@@ -42,7 +79,7 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 					sceneName: snapshot.scene.name,
 					objectNames: snapshot.objects.map((object) => object.name),
 				},
-				resulting_revision_id: manifest.revision,
+				resulting_revision_id: resultingRevision,
 			};
 		} finally {
 			context.signal.removeEventListener("abort", abort);

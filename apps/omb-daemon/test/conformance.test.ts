@@ -3,18 +3,21 @@ import net, {type Socket} from "node:net";
 import {randomUUID} from "node:crypto";
 import {spawn} from "node:child_process";
 import test from "node:test";
-import {parseStartupRecord} from "@oh-my-blender/protocol";
+import {parseStartupRecord,type CameraPlanV1} from "@oh-my-blender/protocol";
 import {start,type DaemonOptions} from "../src/daemon.ts";
 
 const key="AAAAAAAAAAAAAAAAAAAAAA==", nonce=()=>Buffer.alloc(16,Math.floor(Math.random()*255)).toString("base64url");
 const hello=(n=nonce())=>({type:"hello",protocol:1,addon_version:"1",blender_version:"4",project_id:randomUUID(),client_nonce:n});
+const helloV2=(n=nonce())=>({type:"hello",protocol:2,addon_version:"1",blender_version:"4",project_id:randomUUID(),client_nonce:n,capabilities:["mutation_bridge_v2"]});
 const request=(over:Record<string,unknown>={})=>({type:"request",id:randomUUID(),method:"ok",params:{},expected_revision_id:"0".repeat(64),deadline_ms:1000,...over});
+const bridgePlan=():CameraPlanV1=>({schema_version:1,expected_revision_id:"0".repeat(64),evidence_sha256:"a".repeat(64),output_format:{width:1,height:1},keyframes:[{frame:1,pose:{position:[0,0,1],look_at:[0,0,0],up:[0,1,0],vertical_fov_radians:0.5},transition:"smooth"}]});
 function frame(value:unknown,{masked=true,fin=true,opcode=1,rsv=0}:{masked?:boolean;fin?:boolean;opcode?:number;rsv?:number}={}){const p=Buffer.isBuffer(value)?value:Buffer.from(JSON.stringify(value));const ext=p.length<126?0:p.length<65536?2:8,h=Buffer.alloc(2+ext+(masked?4:0));h[0]=(fin?128:0)|(rsv&0x70)|opcode;h[1]=(masked?128:0)|(ext===0?p.length:ext===2?126:127);if(ext===2)h.writeUInt16BE(p.length,2);if(ext===8)h.writeBigUInt64BE(BigInt(p.length),2);if(masked){const o=2+ext;h.fill(7,o,o+4);const q=Buffer.from(p);for(let i=0;i<q.length;i++)q[i]^=7;return Buffer.concat([h,q]);}return Buffer.concat([h,p]);}
 class Client{messages:any[]=[];closes:number[]=[];private buf=Buffer.alloc(0);readonly socket:Socket;constructor(socket:Socket){this.socket=socket;socket.on("data",b=>this.read(b));}send(v:unknown,o?:Parameters<typeof frame>[1]){this.socket.write(frame(v,o));}async next(pred=(x:any)=>true,ms=1000){const found=this.messages.find(pred);if(found)return found;return new Promise<any>((resolve,reject)=>{const timer=setTimeout(()=>{cleanup();reject(new Error("message timeout"));},ms),poll=setInterval(()=>{const x=this.messages.find(pred);if(x){cleanup();resolve(x);}},2);const cleanup=()=>{clearTimeout(timer);clearInterval(poll);};});}private read(b:Buffer){this.buf=Buffer.concat([this.buf,b]);while(this.buf.length>=2){let len=this.buf[1]!&127,o=2;if(len===126){if(this.buf.length<4)return;len=this.buf.readUInt16BE(2);o=4;}else if(len===127){if(this.buf.length<10)return;len=Number(this.buf.readBigUInt64BE(2));o=10;}if(this.buf.length<o+len)return;const op=this.buf[0]!&15,p=this.buf.subarray(o,o+len);this.buf=this.buf.subarray(o+len);if(op===1)this.messages.push(JSON.parse(p.toString()));if(op===8)this.closes.push(p.length>=2?p.readUInt16BE():1000);}}}
 async function upgrade(options:Partial<DaemonOptions>={},headers:Record<string,string>={}){const d=await start({port:0,handlers:{ok:async()=>({result:{ok:true},resulting_revision_id:"1".repeat(64)})},stdout:()=>{},...options});const c=await connect(d.port,d.startup.bearer_token,headers);return{d,c};}
 function connect(port:number,token:string,headers:Record<string,string>={}){return new Promise<Client>((resolve,reject)=>{const s=net.connect(port,"127.0.0.1",()=>s.write(`GET / HTTP/1.1\r\nHost: ${headers.Host??`127.0.0.1:${port}`}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nAuthorization: ${headers.Authorization??`Bearer ${token}`}\r\n${headers.Origin?`Origin: ${headers.Origin}\r\n`:""}\r\n`));let pre="";const done=(b:Buffer)=>{pre+=b.toString("latin1");if(!pre.includes("\r\n\r\n"))return;if(!pre.startsWith("HTTP/1.1 101")){s.destroy();reject(new Error(pre.split("\r\n")[0]));return;}s.off("data",done);resolve(new Client(s));};s.on("data",done);s.on("error",reject);});}
 async function rejected(d:any,headers:Record<string,string>={}){await assert.rejects(connect(d.port,d.startup.bearer_token,headers),/403/);}
 async function ready(options:Partial<DaemonOptions>={}){const x=await upgrade(options);x.c.send(hello());await x.c.next(m=>m.type==="hello_ack");return x;}
+async function readyV2(options:Partial<DaemonOptions>={}){const x=await upgrade(options);x.c.send(helloV2());const ack=await x.c.next(m=>m.type==="hello_ack");assert.equal(ack.protocol,2);return x;}
 
 for(const [name,headers] of [["wrong token",{Authorization:"Bearer bad"}],["wrong Host",{Host:"localhost"}],["wrong Origin",{Origin:"http://evil"}],["lowercase Authorization scheme",{Authorization:"bearer x"}]] as const)test(`§4 upgrade 403: ${name}; no upgrade`,async()=>{const d=await start({port:0,handlers:{},stdout:()=>{}});try{await rejected(d,headers);}finally{await d.close();}});
 test("§4 upgrade 403: expired token",async()=>{let now=0;const d=await start({port:0,clock:{now:()=>now},handlers:{},stdout:()=>{}});try{now=10000;await rejected(d);}finally{await d.close();}});
@@ -27,6 +30,64 @@ test("§4 close 1008: unmasked client frame",async()=>{const {d,c}=await upgrade
 test("§4 close 1008: reserved WebSocket bit",async()=>{const {d,c}=await upgrade();try{c.send(hello());await c.next(m=>m.type==="hello_ack");c.send({type:"ping",nonce:"x"},{rsv:0x40});await new Promise(r=>setTimeout(r,20));assert.deepEqual(c.closes,[1008]);await new Promise<void>(r=>c.socket.closed?r():c.socket.once("close",()=>r()));assert.equal(c.socket.closed,true);}finally{c.socket.destroy();await d.close();}});
 test("§4 close 1008: hello later than configured window",async()=>{const {d,c}=await upgrade({helloTimeoutMs:15});try{await new Promise(r=>setTimeout(r,30));assert.deepEqual(c.closes,[1008]);}finally{c.socket.destroy();await d.close();}});
 test("§4 hello_ack fields and capabilities",async()=>{const {d,c}=await upgrade();try{c.send(hello());const a=await c.next();assert.equal(a.protocol,1);assert.match(a.session_id,/^[0-9a-f-]{36}$/);assert.match(a.server_nonce,/^[A-Za-z0-9_-]{22}$/);assert.deepEqual(a.capabilities,["inspect_project"]);}finally{c.socket.destroy();await d.close();}});
+test("§4 protocol-v2 apply_camera_plan reuses one correlated MutationBridgeSession for progress and result",async()=>{
+	const plan={schema_version:1 as const,expected_revision_id:"0".repeat(64),evidence_sha256:"a".repeat(64),output_format:{width:640,height:360},keyframes:[{frame:1,pose:{position:[0,0,50] as [number,number,number],look_at:[0,0,0] as [number,number,number],up:[0,1,0] as [number,number,number],vertical_fov_radians:0.5},transition:"smooth" as const}]};
+	const progress:Array<{phase:string;completed:number;total:number}>=[];
+	const {d,c}=await readyV2({handlers:{ok:async(_,{applyCameraPlan,signal})=>{
+		const result=await applyCameraPlan(plan,{signal,reportProgress:value=>progress.push(value)});
+		return{result,resulting_revision_id:result.resulting_revision_id};
+	}}});
+	try{
+		const q=request();c.send(q);
+		const bridge=await c.next(m=>m.type==="bridge_request");
+		assert.equal(bridge.request_id,q.id);assert.equal(bridge.method,"apply_camera_plan");assert.equal(bridge.expected_revision_id,q.expected_revision_id);assert.deepEqual(bridge.params,plan);
+		c.send({type:"bridge_progress",id:bridge.id,request_id:q.id,phase:"mutating",completed:1,total:2});
+		c.send({type:"bridge_result",id:bridge.id,request_id:q.id,result:{resulting_revision_id:"1".repeat(64)}});
+		const response=await c.next(m=>m.type==="response"&&m.id===q.id);
+		assert.equal(response.resulting_revision_id,"1".repeat(64));assert.deepEqual(progress,[{phase:"mutating",completed:1,total:2}]);
+	}finally{c.socket.destroy();await d.close();}
+});
+test("§4 protocol-v2 top-level cancellation sends bridge_cancel and cannot partially succeed",async()=>{
+	let settled=false;
+	const {d,c}=await readyV2({handlers:{ok:async(_,{applyCameraPlan,signal})=>{
+		try{return{result:await applyCameraPlan(bridgePlan(),{signal,reportProgress:()=>{}}),resulting_revision_id:"1".repeat(64)};}finally{settled=true;}
+	}}});
+	try{
+		const q=request();c.send(q);const bridge=await c.next(m=>m.type==="bridge_request");
+		c.send({type:"cancel",id:q.id});
+		assert.equal((await c.next(m=>m.type==="cancel_ack"&&m.id===q.id)).status,"accepted");
+		const cancel=await c.next(m=>m.type==="bridge_cancel");assert.equal(cancel.id,bridge.id);assert.equal(cancel.request_id,q.id);
+		assert.equal((await c.next(m=>m.type==="error"&&m.id===q.id)).code,"CANCELLED");
+		c.send({type:"bridge_cancel_ack",id:bridge.id,request_id:q.id,status:"accepted"});
+		await new Promise(resolve=>setTimeout(resolve,10));assert.equal(settled,true);
+		assert.equal(c.messages.filter(m=>m.id===q.id&&(m.type==="error"||m.type==="response")).length,1);
+	}finally{c.socket.destroy();await d.close();}
+});
+test("§4 protocol-v2 deadline race sends bridge_cancel and only TIMEOUT wins",async()=>{
+	const {d,c}=await readyV2({
+		handlers:{
+			ok:async(_,{applyCameraPlan,signal})=>({
+				result:await applyCameraPlan(bridgePlan(),{signal,reportProgress:()=>{}}),
+				resulting_revision_id:"1".repeat(64),
+			}),
+		},
+	});
+	try{
+		const q=request({deadline_ms:100});c.send(q);const bridge=await c.next(m=>m.type==="bridge_request");
+		const cancel=await c.next(m=>m.type==="bridge_cancel",300);assert.equal(cancel.id,bridge.id);
+		assert.equal((await c.next(m=>m.type==="error"&&m.id===q.id,300)).code,"TIMEOUT");
+		c.send({type:"bridge_cancel_ack",id:bridge.id,request_id:q.id,status:"accepted"});
+		await new Promise(resolve=>setTimeout(resolve,10));
+		assert.equal(c.messages.filter(m=>m.id===q.id&&(m.type==="error"||m.type==="response")).length,1);
+	}finally{c.socket.destroy();await d.close();}
+});
+test("§4 protocol-v2 disconnect rejects the open bridge and drains its handler",async()=>{
+	let settled=false;
+	const {d,c}=await readyV2({handlers:{ok:async(_,{applyCameraPlan,signal})=>{try{await applyCameraPlan(bridgePlan(),{signal,reportProgress:()=>{}});return{result:{},resulting_revision_id:"1".repeat(64)};}finally{settled=true;}}}});
+	const q=request();c.send(q);await c.next(m=>m.type==="bridge_request");c.socket.destroy();
+	await Promise.race([d.stopped,new Promise((_,reject)=>setTimeout(()=>reject(new Error("stopped timeout")),2000))]);
+	assert.equal(settled,true);
+});
 
 for(const n of [99,30001])test(`§4 INVALID_DEADLINE for ${n}`,async()=>{const {d,c}=await ready();try{const q=request({deadline_ms:n});c.send(q);assert.equal((await c.next(m=>m.id===q.id)).code,"INVALID_DEADLINE");}finally{c.socket.destroy();await d.close();}});
 for(const n of [100,30000])test(`§4 deadline ${n} is accepted`,async()=>{const {d,c}=await ready();try{const q=request({deadline_ms:n});c.send(q);assert.equal((await c.next(m=>m.id===q.id)).type,"response");}finally{c.socket.destroy();await d.close();}});
