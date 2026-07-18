@@ -22,23 +22,45 @@ export const StartupRecordSchema = exact({
 	bearer_token: Type.String({ pattern: BASE64URL_32 }),
 	expires_in_ms: Type.Literal(10_000),
 });
-export const HelloSchema = exact({
+const helloProperties = {
 	type: Type.Literal("hello"),
-	protocol: Type.Literal(PROTOCOL_VERSION),
 	addon_version: Type.String(),
 	blender_version: Type.String(),
 	project_id: uuid(),
 	client_nonce: Type.String({ pattern: BASE64URL_16 }),
-});
-export const HelloAckSchema = exact({
+};
+const helloAckProperties = {
 	type: Type.Literal("hello_ack"),
-	protocol: Type.Literal(PROTOCOL_VERSION),
 	daemon_version: Type.String(),
 	launch_id: uuid(),
 	session_id: uuid(),
 	server_nonce: Type.String({ pattern: BASE64URL_16 }),
+};
+export const MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2";
+const mutationCapabilities = () =>
+	Type.Array(Type.Literal(MUTATION_BRIDGE_CAPABILITY), { minItems: 1, maxItems: 1, uniqueItems: true });
+
+export const HelloV1Schema = exact({
+	...helloProperties,
+	protocol: Type.Literal(PROTOCOL_VERSION),
+});
+export const HelloV2Schema = exact({
+	...helloProperties,
+	protocol: Type.Literal(MUTATION_PROTOCOL_VERSION),
+	capabilities: mutationCapabilities(),
+});
+export const HelloSchema = Type.Union([HelloV1Schema, HelloV2Schema]);
+export const HelloAckV1Schema = exact({
+	...helloAckProperties,
+	protocol: Type.Literal(PROTOCOL_VERSION),
 	capabilities: Type.Array(Type.String()),
 });
+export const HelloAckV2Schema = exact({
+	...helloAckProperties,
+	protocol: Type.Literal(MUTATION_PROTOCOL_VERSION),
+	capabilities: mutationCapabilities(),
+});
+export const HelloAckSchema = Type.Union([HelloAckV1Schema, HelloAckV2Schema]);
 export const RequestSchema = exact({
 	type: Type.Literal("request"),
 	id: uuid(),
@@ -215,27 +237,91 @@ export function parseServerMessage(input: unknown): ServerMessage {
 	}
 }
 
-function assertMutationProtocol(protocolVersion: number): void {
-	if (protocolVersion !== MUTATION_PROTOCOL_VERSION) {
-		throw new Error(`mutation bridge requires protocol v2, received protocol v${protocolVersion}`);
+const negotiatedMutationSessions = new WeakSet<MutationBridgeSession>();
+export class MutationBridgeSession {
+	readonly protocol = MUTATION_PROTOCOL_VERSION;
+	readonly capability = MUTATION_BRIDGE_CAPABILITY;
+	private readonly openBridgeByRequest = new Map<string, string>();
+	private readonly openRequestByBridge = new Map<string, string>();
+	private readonly terminalBridgeIds = new Set<string>();
+
+	registerRequest(message: BridgeRequest, activeRequestIds: ReadonlySet<string>): void {
+		if (!activeRequestIds.has(message.request_id)) {
+			throw new Error(`bridge parent ${message.request_id} is not an active top-level request`);
+		}
+		if (this.terminalBridgeIds.has(message.id)) {
+			throw new Error(`bridge id ${message.id} reached a terminal state and cannot be replayed`);
+		}
+		if (this.openBridgeByRequest.has(message.request_id)) {
+			throw new Error(`top-level request ${message.request_id} already has an open bridge`);
+		}
+		if (this.openRequestByBridge.has(message.id)) {
+			throw new Error(`bridge id ${message.id} is already open`);
+		}
+		this.openBridgeByRequest.set(message.request_id, message.id);
+		this.openRequestByBridge.set(message.id, message.request_id);
+	}
+
+	assertOpen(id: string, requestId: string): void {
+		if (this.terminalBridgeIds.has(id)) {
+			throw new Error(`bridge id ${id} already reached a terminal state`);
+		}
+		if (this.openBridgeByRequest.get(requestId) !== id || this.openRequestByBridge.get(id) !== requestId) {
+			throw new Error(`bridge correlation does not match an open bridge: ${id}/${requestId}`);
+		}
+	}
+
+	complete(id: string, requestId: string): void {
+		this.assertOpen(id, requestId);
+		this.openBridgeByRequest.delete(requestId);
+		this.openRequestByBridge.delete(id);
+		this.terminalBridgeIds.add(id);
 	}
 }
 
-export function parseDaemonBridgeMessage(input: unknown, protocolVersion: number): DaemonBridgeMessage {
-	assertMutationProtocol(protocolVersion);
+export function negotiateMutationBridge(helloInput: unknown, helloAckInput: unknown): MutationBridgeSession {
+	const hello = parseHello(helloInput);
+	const helloAck = parseHelloAck(helloAckInput);
+	if (hello.protocol !== MUTATION_PROTOCOL_VERSION || helloAck.protocol !== MUTATION_PROTOCOL_VERSION) {
+		throw new Error("mutation bridge requires a protocol v2 hello/hello_ack negotiation");
+	}
+	const session = new MutationBridgeSession();
+	negotiatedMutationSessions.add(session);
+	Object.freeze(session);
+	return session;
+}
+
+function assertMutationSession(session: MutationBridgeSession): void {
+	if (!(session instanceof MutationBridgeSession) || !negotiatedMutationSessions.has(session)) {
+		throw new Error("mutation bridge requires a negotiated protocol v2 session");
+	}
+}
+
+export function parseDaemonBridgeMessage(
+	input: unknown,
+	session: MutationBridgeSession,
+	activeRequestIds: ReadonlySet<string>,
+): DaemonBridgeMessage {
+	assertMutationSession(session);
 	const type = typeof input === "object" && input !== null ? (input as { type?: unknown }).type : undefined;
 	switch (type) {
-		case "bridge_request":
-			return Parse(BridgeRequestSchema, input);
-		case "bridge_cancel":
-			return Parse(BridgeCancelSchema, input);
+		case "bridge_request": {
+			const request = Parse(BridgeRequestSchema, input);
+			session.registerRequest(request, activeRequestIds);
+			return request;
+		}
+		case "bridge_cancel": {
+			const cancel = Parse(BridgeCancelSchema, input);
+			session.assertOpen(cancel.id, cancel.request_id);
+			return cancel;
+		}
 		default:
 			throw new Error(`unknown daemon bridge message type: ${String(type)}`);
 	}
 }
 
-export function parseAddonBridgeMessage(input: unknown, protocolVersion: number): AddonBridgeMessage {
-	assertMutationProtocol(protocolVersion);
+export function parseAddonBridgeMessage(input: unknown, session: MutationBridgeSession): AddonBridgeMessage {
+	assertMutationSession(session);
 	const type = typeof input === "object" && input !== null ? (input as { type?: unknown }).type : undefined;
 	switch (type) {
 		case "bridge_progress": {
@@ -243,14 +329,24 @@ export function parseAddonBridgeMessage(input: unknown, protocolVersion: number)
 			if (progress.completed > progress.total) {
 				throw new Error("bridge progress completed must not exceed total");
 			}
+			session.assertOpen(progress.id, progress.request_id);
 			return progress;
 		}
-		case "bridge_result":
-			return Parse(BridgeResultSchema, input);
-		case "bridge_error":
-			return Parse(BridgeErrorSchema, input);
-		case "bridge_cancel_ack":
-			return Parse(BridgeCancelAckSchema, input);
+		case "bridge_result": {
+			const result = Parse(BridgeResultSchema, input);
+			session.complete(result.id, result.request_id);
+			return result;
+		}
+		case "bridge_error": {
+			const error = Parse(BridgeErrorSchema, input);
+			session.complete(error.id, error.request_id);
+			return error;
+		}
+		case "bridge_cancel_ack": {
+			const cancelAck = Parse(BridgeCancelAckSchema, input);
+			session.complete(cancelAck.id, cancelAck.request_id);
+			return cancelAck;
+		}
 		default:
 			throw new Error(`unknown add-on bridge message type: ${String(type)}`);
 	}
