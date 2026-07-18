@@ -267,6 +267,95 @@ if bpy is not None:
                 complete(None, error)
             return {"FINISHED"}
 
+    class OMB_OT_render_qa_frames(bpy.types.Operator):
+        """Internal protocol-v2 QA renderer; never accepts arbitrary paths."""
+
+        bl_idname = "omb.render_qa_frames"
+        bl_label = "Render QA Frames"
+        bl_options = {"INTERNAL"}
+
+        request_json: bpy.props.StringProperty(options={"HIDDEN"})
+        current_scene_hash: bpy.props.StringProperty(options={"HIDDEN"})
+        bridge_id: bpy.props.StringProperty(options={"HIDDEN"})
+        request_id: bpy.props.StringProperty(options={"HIDDEN"})
+        deadline_ms: bpy.props.IntProperty(default=30_000, min=1, max=30_000, options={"HIDDEN"})
+
+        def execute(self, _context):
+            import json
+            import time
+
+            from . import connection, qa_render
+
+            active = connection._active_connection
+            if active is None or active.state != "active":
+                self.report({"ERROR"}, "No active daemon connection")
+                return {"CANCELLED"}
+            try:
+                request = json.loads(self.request_json)
+            except (TypeError, ValueError) as exc:
+                self.report({"ERROR"}, f"Invalid QA render request JSON: {exc}")
+                return {"CANCELLED"}
+
+            deadline = time.monotonic() + min(self.deadline_ms, 30_000) / 1000
+            active._send_json({
+                "type": "bridge_progress",
+                "id": self.bridge_id,
+                "request_id": self.request_id,
+                "phase": "rendering",
+                "completed": 0,
+                "total": len(request.get("frames", ())),
+            })
+            try:
+                result = qa_render.render_qa_frames_transaction(
+                    request,
+                    self.current_scene_hash,
+                    deadline=deadline,
+                    cancelled=lambda: active.is_bridge_cancelled(self.bridge_id),
+                )
+                metadata_frames = []
+                total = len(result["frames"])
+                for completed, frame_result in enumerate(result["frames"], start=1):
+                    metadata, chunks = qa_render.split_frame_for_bridge(frame_result)
+                    for chunk in chunks:
+                        if active.is_bridge_cancelled(self.bridge_id):
+                            raise qa_render.RENDER_QA_CANCELLED(
+                                "render QA was cancelled during artifact streaming"
+                            )
+                        active._send_json({
+                            "type": "bridge_artifact_chunk",
+                            "id": self.bridge_id,
+                            "request_id": self.request_id,
+                            **chunk,
+                        })
+                    metadata_frames.append(metadata)
+                    active._send_json({
+                        "type": "bridge_progress",
+                        "id": self.bridge_id,
+                        "request_id": self.request_id,
+                        "phase": "publishing",
+                        "completed": completed,
+                        "total": total,
+                    })
+                active._send_json({
+                    "type": "bridge_result",
+                    "id": self.bridge_id,
+                    "request_id": self.request_id,
+                    "result": {**result, "frames": metadata_frames},
+                })
+            except BaseException as error:
+                if not active.websocket.closed:
+                    active._send_json({
+                        "type": "bridge_error",
+                        "id": self.bridge_id,
+                        "request_id": self.request_id,
+                        "code": getattr(error, "code", type(error).__name__),
+                        "message": str(error),
+                        "retryable": False,
+                    })
+            finally:
+                active.finish_bridge(self.bridge_id)
+            return {"FINISHED"}
+
     class OMB_OT_disconnect(bpy.types.Operator):
         bl_idname = "omb.disconnect"
         bl_label = "Disconnect"
@@ -284,6 +373,7 @@ if bpy is not None:
         OMB_OT_repair_ids,
         OMB_OT_connect,
         OMB_OT_apply_camera_plan,
+        OMB_OT_render_qa_frames,
         OMB_OT_disconnect,
     )
 else:

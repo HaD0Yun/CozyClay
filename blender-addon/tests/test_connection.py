@@ -155,6 +155,37 @@ class ConnectionTests(unittest.TestCase):
             deadline_ms=5000,
         )
 
+    def test_render_qa_frames_uses_the_existing_main_thread_bridge_dispatcher(self):
+        """Task clause: use `start_bridge_dispatcher`/main-thread dispatch, not a parallel path."""
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+        blender = mock.Mock()
+        message = {
+            "type": "bridge_request",
+            "id": "qa-bridge",
+            "request_id": "qa-request",
+            "method": "render_qa_frames",
+            "params": {
+                "schema_version": 1,
+                "revision_id": "a" * 64,
+                "frames": [80, 161, 199],
+            },
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 30000,
+        }
+
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.dispatch_bridge_message(message)
+
+        blender.ops.omb.render_qa_frames.assert_called_once_with(
+            request_json=json.dumps(message["params"], separators=(",", ":")),
+            current_scene_hash="b" * 64,
+            bridge_id="qa-bridge",
+            request_id="qa-request",
+            deadline_ms=30000,
+        )
+
     def test_bridge_request_reads_durable_base_hash_from_project_store(self):
         socket = FakeSocket()
         blender = mock.Mock()

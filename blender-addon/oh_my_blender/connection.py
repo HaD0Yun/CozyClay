@@ -214,7 +214,7 @@ class Connection:
             return
         if message_type != "bridge_request":
             raise ConnectionError("unsupported daemon bridge message")
-        if message.get("method") != "apply_camera_plan":
+        if message.get("method") not in ("apply_camera_plan", "render_qa_frames"):
             self._send_bridge_error(
                 message,
                 "METHOD_NOT_SUPPORTED",
@@ -237,7 +237,7 @@ class Connection:
             self._send_bridge_error(
                 message,
                 "INVALID_BRIDGE_REQUEST",
-                "apply_camera_plan bridge request has invalid fields",
+                f"{message.get('method')} bridge request has invalid fields",
             )
             return
         try:
@@ -267,13 +267,22 @@ class Connection:
             )
             return
         try:
-            bpy.ops.omb.apply_camera_plan(
-                plan_json=json.dumps(message["params"], separators=(",", ":")),
-                current_scene_hash=current_scene_hash,
-                bridge_id=bridge_id,
-                request_id=message["request_id"],
-                deadline_ms=message["deadline_ms"],
-            )
+            if message["method"] == "apply_camera_plan":
+                bpy.ops.omb.apply_camera_plan(
+                    plan_json=json.dumps(message["params"], separators=(",", ":")),
+                    current_scene_hash=current_scene_hash,
+                    bridge_id=bridge_id,
+                    request_id=message["request_id"],
+                    deadline_ms=message["deadline_ms"],
+                )
+            else:
+                bpy.ops.omb.render_qa_frames(
+                    request_json=json.dumps(message["params"], separators=(",", ":")),
+                    current_scene_hash=current_scene_hash,
+                    bridge_id=bridge_id,
+                    request_id=message["request_id"],
+                    deadline_ms=message["deadline_ms"],
+                )
         except BaseException as error:
             self.finish_bridge(bridge_id)
             self._send_bridge_error(
