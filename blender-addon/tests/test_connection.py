@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import tempfile
 import sys
+import time
 from unittest import mock
 import unittest
 
@@ -14,6 +15,7 @@ from oh_my_blender.checkpoint import create_checkpoint
 from oh_my_blender.connection import (
     Connection,
     ConnectionError,
+    DurableCommitReconciliationRequired,
     _test_only_inject_disconnect_fault,
     connect,
     disconnect_active,
@@ -24,8 +26,9 @@ from oh_my_blender import connection as connection_module
 
 
 class FakeProcess:
-    def __init__(self, times_out=False):
+    def __init__(self, times_out=False, exited=False):
         self.times_out = times_out
+        self.exited = exited
         self.wait_calls = []
 
     def wait(self, timeout=None):
@@ -33,6 +36,9 @@ class FakeProcess:
         if self.times_out:
             raise subprocess.TimeoutExpired("daemon", timeout)
         return 0
+
+    def poll(self):
+        return 0 if self.exited else None
 
 
 class FakeChild:
@@ -63,6 +69,18 @@ class FakeSocket:
     def close(self):
         self.closed = True
 
+
+
+BASE_REVISION = "a" * 64
+CANDIDATE_REVISION = "c" * 64
+
+
+def mutation_result():
+    return {
+        "expected_revision_id": BASE_REVISION,
+        "scene_hash": "b" * 64,
+        "manifest": {"revisionId": CANDIDATE_REVISION},
+    }
 
 class ConnectionTests(unittest.TestCase):
     def test_reconnect_gate_accepts_equal_hashes(self):
@@ -253,22 +271,31 @@ class ConnectionTests(unittest.TestCase):
     def test_bridge_checkpoint_releases_only_after_durable_response(self):
         socket = FakeSocket([
             {"type": "progress", "id": "other"},
-            {"type": "response", "id": "request", "result": {}},
+            {
+                "type": "response",
+                "id": "request",
+                "result": {},
+                "resulting_revision_id": CANDIDATE_REVISION,
+            },
         ])
         connection = Connection(FakeChild(FakeProcess()), socket)
+        checkpoint = create_checkpoint({"object:cube": {"visible": True}})
+        connection.hold_checkpoint(checkpoint)
 
         response = connection.await_durable_bridge_commit(
             "bridge",
             "request",
-            {"scene_hash": "a" * 64},
+            mutation_result(),
         )
 
         self.assertEqual(response["type"], "response")
+        self.assertIsNone(connection.active_checkpoint)
+        self.assertEqual(connection.durable_commit_reconciliation["outcome"], "committed")
         self.assertEqual(socket.sent, [{
             "type": "bridge_result",
             "id": "bridge",
             "request_id": "request",
-            "result": {"scene_hash": "a" * 64},
+            "result": mutation_result(),
         }])
 
     def test_bridge_commit_error_is_a_transaction_failure(self):
@@ -278,7 +305,99 @@ class ConnectionTests(unittest.TestCase):
         connection = Connection(FakeChild(FakeProcess()), socket)
 
         with self.assertRaisesRegex(ConnectionError, "STALE_BASE"):
-            connection.await_durable_bridge_commit("bridge", "request", {})
+            connection.await_durable_bridge_commit(
+                "bridge", "request", mutation_result()
+            )
+        self.assertEqual(
+            connection.durable_commit_reconciliation["outcome"],
+            "not_committed",
+        )
+
+    def test_timeout_reconciles_committed_candidate_and_releases_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "current_revision_id": CANDIDATE_REVISION,
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                FakeSocket(),
+                project_directory=directory,
+            )
+            checkpoint = create_checkpoint({"object:cube": {"visible": True}})
+            connection.hold_checkpoint(checkpoint)
+
+            response = connection.await_durable_bridge_commit(
+                "bridge",
+                "request",
+                mutation_result(),
+                deadline=time.monotonic() - 1,
+            )
+
+        self.assertTrue(response["reconciled"])
+        self.assertIsNone(connection.active_checkpoint)
+        self.assertEqual(connection.reconcile_durable_bridge_commit(), "committed")
+        self.assertIsNone(connection.release_checkpoint())
+
+    def test_timeout_with_definitive_base_preserves_checkpoint_for_rollback_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "current_revision_id": BASE_REVISION,
+            }))
+            socket = FakeSocket()
+            socket.closed = True
+            connection = Connection(
+                FakeChild(FakeProcess(exited=True)),
+                socket,
+                project_directory=directory,
+            )
+            checkpoint = create_checkpoint({"object:cube": {"visible": True}})
+            connection.hold_checkpoint(checkpoint)
+
+            with self.assertRaisesRegex(ConnectionError, "did not complete"):
+                connection.await_durable_bridge_commit(
+                    "bridge",
+                    "request",
+                    mutation_result(),
+                    deadline=time.monotonic() - 1,
+                )
+
+        self.assertIs(connection.active_checkpoint, checkpoint)
+        self.assertEqual(
+            connection.reconcile_durable_bridge_commit(),
+            "not_committed",
+        )
+        self.assertIs(connection.release_checkpoint(), checkpoint)
+        self.assertIsNone(connection.release_checkpoint())
+
+    def test_timeout_with_unreadable_project_requires_recovery_without_rollback(self):
+        connection = Connection(
+            FakeChild(FakeProcess()),
+            FakeSocket(),
+            project_directory="/missing/project",
+        )
+        checkpoint = create_checkpoint({"object:cube": {"visible": True}})
+        connection.hold_checkpoint(checkpoint)
+
+        with self.assertRaisesRegex(
+            DurableCommitReconciliationRequired,
+            "reconciliation required",
+        ):
+            connection.await_durable_bridge_commit(
+                "bridge",
+                "request",
+                mutation_result(),
+                deadline=time.monotonic() - 1,
+            )
+
+        self.assertIs(connection.active_checkpoint, checkpoint)
+        self.assertEqual(
+            connection.durable_commit_reconciliation["outcome"],
+            "reconciliation_required",
+        )
 
     def test_checkpoint_hold_and_release_enforce_single_in_flight(self):
         connection = Connection(FakeChild(FakeProcess()), FakeSocket())
