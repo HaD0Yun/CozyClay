@@ -57,6 +57,13 @@ def main() -> None:
     finally:
         unregister()
 
+    # architecture doc line 415 ("no Blender ... handler remains registered")
+    # -- the operator classes themselves must not survive unregister().
+    for class_name in ("OMB_OT_initialize_project", "OMB_OT_repair_ids", "OMB_OT_connect", "OMB_OT_disconnect"):
+        if hasattr(bpy.types, class_name):
+            raise RuntimeError(f"{class_name} remained registered after unregister()")
+    print("OMB_OPERATORS_UNREGISTERED=true")
+
 
 if __name__ == "__main__":
     try:

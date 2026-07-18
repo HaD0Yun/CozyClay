@@ -164,7 +164,16 @@ class DaemonIntegrationTest(unittest.TestCase):
         self.assertEqual(parsed_project_id.version, 4)
         self.assertEqual(str(parsed_project_id), project_id)
         self.assertIn(f"OMB_PROJECT_ID={project_id}", completed.stdout)
+        self.assertIn("OMB_OPERATORS_UNREGISTERED=true", completed.stdout)
         self.assertTrue((project_directory / ".omb" / "journal.jsonl").is_file())
+        journal_lines = (
+            (project_directory / ".omb" / "journal.jsonl").read_text(encoding="utf-8").splitlines()
+        )
+        self.assertEqual(len(journal_lines), 1, "Initialize Project must append exactly one journal entry")
+        journal_entry = json.loads(journal_lines[0])
+        self.assertEqual(journal_entry["type"], "initialize_project")
+        self.assertEqual(journal_entry["project_id"], project_id)
+        self.assertGreaterEqual(journal_entry["assigned_entity_count"], 1)
         self.assertTrue((project_directory / "fixture.blend").is_file())
         return snapshot, revision, project_id, completed
 
