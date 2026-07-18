@@ -1,4 +1,3 @@
-import copy
 import os
 import sys
 import unittest
@@ -17,9 +16,8 @@ from oh_my_blender.snapshot import UNSUPPORTED_FPS_BASE
 PROJECT = "00000000-0000-4000-8000-000000000001"
 OBJECT = "00000000-0000-4000-8000-000000000002"
 CAMERA_OBJECT = "00000000-0000-4000-8000-000000000003"
-CAMERA = "00000000-0000-4000-8000-000000000004"
 LIGHT_OBJECT = "00000000-0000-4000-8000-000000000005"
-LIGHT = "00000000-0000-4000-8000-000000000006"
+ARMATURE_OBJECT = "00000000-0000-4000-8000-000000000006"
 BONE = "00000000-0000-4000-8000-000000000007"
 BONE_CHILD = "00000000-0000-4000-8000-000000000008"
 MISSING = "00000000-0000-4000-8000-000000000099"
@@ -35,19 +33,20 @@ def parts():
         project_id=PROJECT,
         blender_version="4.3.0",
         scene={"name": "Scene", "frameStart": 1, "frameEnd": 250, "fpsNumerator": 24000,
-               "fpsDenominator": 1001, "activeCameraId": CAMERA},
+               "fpsDenominator": 1001, "activeCameraId": CAMERA_OBJECT},
         render={"resolutionX": 1920, "resolutionY": 1080, "resolutionPercentage": 100},
-        objects=[obj(LIGHT_OBJECT, "Light", "LIGHT"), obj(OBJECT, "Cube"), obj(CAMERA_OBJECT, "Camera", "CAMERA")],
-        bones=[{"entityId": BONE_CHILD, "name": "Child", "armatureObjectId": OBJECT, "parentBoneId": BONE,
+        objects=[obj(LIGHT_OBJECT, "Light", "LIGHT"), obj(OBJECT, "Cube"), obj(CAMERA_OBJECT, "Camera", "CAMERA"),
+                 obj(ARMATURE_OBJECT, "Armature", "ARMATURE")],
+        bones=[{"entityId": BONE_CHILD, "name": "Child", "armatureObjectId": ARMATURE_OBJECT, "parentBoneId": BONE,
                 "location": [0, 0, 0], "rotationQuaternion": [1, 0, 0, 0], "scale": [1, 1, 1]},
-               {"entityId": BONE, "name": "Root", "armatureObjectId": OBJECT, "parentBoneId": None,
+               {"entityId": BONE, "name": "Root", "armatureObjectId": ARMATURE_OBJECT, "parentBoneId": None,
                 "location": [0, 0, 0], "rotationQuaternion": [1, 0, 0, 0], "scale": [1, 1, 1]}],
-        cameras=[{"entityId": CAMERA, "objectId": CAMERA_OBJECT, "lens": 50, "sensorFit": "AUTO",
+        cameras=[{"objectId": CAMERA_OBJECT, "lens": 50, "sensorFit": "AUTO",
                   "sensorWidth": 36, "sensorHeight": 24, "verticalFovRadians": 0.5, "clipStart": 0.1, "clipEnd": 1000}],
-        lights=[{"entityId": LIGHT, "objectId": LIGHT_OBJECT, "lightType": "POINT", "color": [1, 0.5, 0],
+        lights=[{"objectId": LIGHT_OBJECT, "lightType": "POINT", "color": [1, 0.5, 0],
                  "energy": 1000, "spotSize": None, "spotBlend": None}],
-        markers=[{"name": "B", "frame": 2, "cameraId": None}, {"name": "A", "frame": 2, "cameraId": CAMERA},
-                 {"name": "A", "frame": 2, "cameraId": None}, {"name": "A", "frame": 1, "cameraId": CAMERA}],
+        markers=[{"name": "B", "frame": 2, "cameraId": None}, {"name": "A", "frame": 2, "cameraId": CAMERA_OBJECT},
+                 {"name": "A", "frame": 2, "cameraId": None}, {"name": "A", "frame": 1, "cameraId": CAMERA_OBJECT}],
         selected_entity_ids=[OBJECT, CAMERA_OBJECT, OBJECT],
     )
 
@@ -55,12 +54,14 @@ def parts():
 class SceneManifestTests(unittest.TestCase):
     def test_section_6_manifest_assembles_and_sorts_full_shape(self):
         manifest = build_scene_manifest(**parts())
-        self.assertEqual([x["entityId"] for x in manifest["objects"]], [OBJECT, CAMERA_OBJECT, LIGHT_OBJECT])
+        self.assertEqual([x["entityId"] for x in manifest["objects"]], sorted([OBJECT, CAMERA_OBJECT, LIGHT_OBJECT, ARMATURE_OBJECT]))
         self.assertEqual([x["entityId"] for x in manifest["bones"]], [BONE, BONE_CHILD])
         self.assertEqual([(x["name"], x["frame"], x["cameraId"]) for x in manifest["markers"]],
-                         [("A", 1, CAMERA), ("A", 2, None), ("A", 2, CAMERA), ("B", 2, None)])
+                         [("A", 1, CAMERA_OBJECT), ("A", 2, None), ("A", 2, CAMERA_OBJECT), ("B", 2, None)])
         self.assertEqual(manifest["selectedEntityIds"], [OBJECT, CAMERA_OBJECT])
         self.assertNotIn("sceneHash", manifest)
+        self.assertNotIn("entityId", manifest["cameras"][0])
+        self.assertNotIn("entityId", manifest["lights"][0])
 
     def test_section_6_minimal_manifest(self):
         data = parts()
@@ -74,6 +75,12 @@ class SceneManifestTests(unittest.TestCase):
             rational_fps(24, 1.5)
         self.assertEqual(raised.exception.code, "UNSUPPORTED_FPS_BASE")
 
+    def test_section_8_rejects_non_reduced_fps_rational(self):
+        data = parts()
+        data["scene"] = {**data["scene"], "fpsNumerator": 48000, "fpsDenominator": 2002}
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+
     def test_section_6_hash_preimage_excludes_hash_fields(self):
         manifest = build_scene_manifest(**parts())
         baseline = finalize_scene_manifest(manifest)
@@ -81,6 +88,20 @@ class SceneManifestTests(unittest.TestCase):
         self.assertEqual(finalize_scene_manifest(polluted), baseline)
         self.assertRegex(baseline["sceneHash"], r"^[0-9a-f]{64}$")
         self.assertRegex(baseline["revisionId"], r"^[0-9a-f]{64}$")
+
+    def test_section_6_finalize_rejects_out_of_order_input(self):
+        manifest = build_scene_manifest(**parts())
+        manifest["objects"] = list(reversed(manifest["objects"]))
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            finalize_scene_manifest(manifest)
+
+    def test_section_6_rejects_unknown_top_level_and_nested_fields(self):
+        manifest = build_scene_manifest(**parts())
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            finalize_scene_manifest({**manifest, "unknown": True})
+        polluted = {**manifest, "scene": {**manifest["scene"], "unknown": True}}
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            finalize_scene_manifest(polluted)
 
     def assert_reference_rejected(self, mutate):
         data = parts()
@@ -93,15 +114,27 @@ class SceneManifestTests(unittest.TestCase):
             lambda d: d["objects"][2].update(parentId=MISSING),
             lambda d: d["bones"][0].update(armatureObjectId=MISSING),
             lambda d: d["bones"][0].update(parentBoneId=MISSING),
+            lambda d: d["bones"][0].update(armatureObjectId=d["objects"][1]["entityId"]),  # OBJECT is type MESH
             lambda d: d["cameras"][0].update(objectId=OBJECT),
             lambda d: d.update(cameras=[]),
             lambda d: d["lights"][0].update(objectId=OBJECT),
+            lambda d: d.update(lights=[]),
             lambda d: d["scene"].update(activeCameraId=MISSING),
             lambda d: d["markers"][0].update(cameraId=MISSING),
         ]
         for mutate in cases:
             with self.subTest(mutate=mutate):
                 self.assert_reference_rejected(mutate)
+
+    def test_section_6_rejects_duplicate_camera_and_light_object_entries(self):
+        data = parts()
+        data["cameras"] = data["cameras"] + [dict(data["cameras"][0])]
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
+        data = parts()
+        data["lights"] = data["lights"] + [dict(data["lights"][0])]
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            build_scene_manifest(**data)
 
     def test_section_6_spot_fields_are_iff_spot(self):
         data = parts()

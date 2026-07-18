@@ -1,4 +1,5 @@
-import type { SceneManifestV1, SceneSnapshot } from "@oh-my-blender/protocol";
+import type { SceneManifestV1, SceneManifestV1HashFree, SceneSnapshot } from "@oh-my-blender/protocol";
+import { validateManifest } from "@oh-my-blender/protocol";
 import { canonicalJson, canonicalRevision } from "./canonical.ts";
 import { initialRevisionId, sceneHash } from "./revision.ts";
 
@@ -18,13 +19,17 @@ export function buildProjectManifest(snapshot: SceneSnapshot): ProjectManifest {
 	return { revision: sceneHash(snapshot), snapshot };
 }
 
-export function buildSceneManifestRevision(
-	manifestWithoutHashes: Omit<SceneManifestV1, "revisionId" | "sceneHash">,
-): SceneManifestV1 {
-	const computedSceneHash = canonicalRevision(manifestWithoutHashes);
+export function buildSceneManifestRevision(manifestWithoutHashes: SceneManifestV1HashFree): SceneManifestV1 {
+	// Runtime callers (not just the type system) must never let a stale
+	// revisionId/sceneHash leak into the hash preimage: strip both keys
+	// unconditionally before validating or hashing, mirroring the Python
+	// finalize_scene_manifest()'s explicit .pop() of both fields.
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...clean } = manifestWithoutHashes as SceneManifestV1;
+	validateManifest(clean);
+	const computedSceneHash = canonicalRevision(clean);
 	return {
-		...manifestWithoutHashes,
-		revisionId: initialRevisionId(manifestWithoutHashes.projectId, computedSceneHash),
+		...clean,
+		revisionId: initialRevisionId(clean.projectId, computedSceneHash),
 		sceneHash: computedSceneHash,
 	};
 }

@@ -28,7 +28,6 @@
     {
       "clipEnd": 1000.0,
       "clipStart": 0.1,
-      "entityId": "00000000-0000-4000-8000-000000000002",
       "lens": 50.0,
       "objectId": "00000000-0000-4000-8000-000000000001",
       "sensorFit": "AUTO",
@@ -45,7 +44,6 @@
         1.0
       ],
       "energy": 3.0,
-      "entityId": "00000000-0000-4000-8000-000000000006",
       "lightType": "SUN",
       "objectId": "00000000-0000-4000-8000-000000000005",
       "spotBlend": null,
@@ -54,7 +52,7 @@
   ],
   "markers": [
     {
-      "cameraId": "00000000-0000-4000-8000-000000000002",
+      "cameraId": "00000000-0000-4000-8000-000000000001",
       "frame": 10,
       "name": "CUT_10"
     }
@@ -159,16 +157,16 @@
     "resolutionX": 1920,
     "resolutionY": 1080
   },
-  "revisionId": "19cd2387ca7d1a7c7f24adf4f76594b8c05417b02720e7ba8d6db5cfb077cc39",
+  "revisionId": "2e9e310ba74a45b0142b898f5a84182e412ba0deb17819f261d057532b8e2d13",
   "scene": {
-    "activeCameraId": "00000000-0000-4000-8000-000000000002",
+    "activeCameraId": "00000000-0000-4000-8000-000000000001",
     "fpsDenominator": 1,
     "fpsNumerator": 24,
     "frameEnd": 320,
     "frameStart": 1,
     "name": "Boxing"
   },
-  "sceneHash": "feae51aa0bc5ed4798d076dc63ef272cf42db35b775dee0492bf5af412569657",
+  "sceneHash": "f583182111cf588e2f4699c544fd92ac1e98ff05eabb3911411ee0462582f986",
   "schemaVersion": 1,
   "selectedEntityIds": [
     "00000000-0000-4000-8000-000000000001",

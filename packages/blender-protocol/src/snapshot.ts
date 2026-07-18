@@ -108,7 +108,7 @@ export const SceneSnapshotSchema = Type.Object(
 
 export type SceneSnapshot = Static<typeof SceneSnapshotSchema>;
 
-function validateNfc(value: unknown, path = "$"): void {
+export function validateNfc(value: unknown, path = "$"): void {
 	if (typeof value === "string") {
 		if (value !== value.normalize("NFC")) throw new Error(`${path} must be NFC-normalized`);
 		return;

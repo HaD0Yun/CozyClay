@@ -16,6 +16,21 @@ _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_MAGNITUDE = 1e15
 
+_MANIFEST_KEYS = {
+    "schemaVersion", "projectId", "revisionId", "sceneHash", "blenderVersion",
+    "scene", "render", "objects", "bones", "cameras", "lights", "markers", "selectedEntityIds",
+}
+_SCENE_KEYS = {"name", "frameStart", "frameEnd", "fpsNumerator", "fpsDenominator", "activeCameraId"}
+_RENDER_KEYS = {"resolutionX", "resolutionY", "resolutionPercentage"}
+_OBJECT_KEYS = {"entityId", "name", "type", "parentId", "visible", "location", "rotationQuaternion", "scale"}
+_BONE_KEYS = {"entityId", "name", "armatureObjectId", "parentBoneId", "location", "rotationQuaternion", "scale"}
+_CAMERA_KEYS = {
+    "objectId", "lens", "sensorFit", "sensorWidth", "sensorHeight",
+    "verticalFovRadians", "clipStart", "clipEnd",
+}
+_LIGHT_KEYS = {"objectId", "lightType", "color", "energy", "spotSize", "spotBlend"}
+_MARKER_KEYS = {"name", "frame", "cameraId"}
+
 
 class INVALID_SCENE_MANIFEST(ExportError):
     code = "INVALID_SCENE_MANIFEST"
@@ -40,6 +55,14 @@ def rational_fps(fps: int, fps_base: float) -> tuple[int, int]:
 
 def _fail(path: str, requirement: str) -> None:
     raise INVALID_SCENE_MANIFEST(f"{path} {requirement}")
+
+
+def _exact_keys(value: object, expected: set[str], path: str) -> None:
+    if not isinstance(value, dict):
+        _fail(path, "must be an object")
+    extra = set(value) - expected
+    if extra:
+        _fail(path, f"has unknown fields: {sorted(extra)}")
 
 
 def _uuid(value: object, path: str, nullable: bool = False) -> None:
@@ -92,9 +115,14 @@ def _quaternion(value: object, path: str) -> None:
         _fail(path, "must use canonical quaternion sign")
 
 
+def _assert_sorted(values: list, key, label: str) -> None:
+    for index in range(1, len(values)):
+        if key(values[index - 1]) > key(values[index]):
+            _fail(label, "must be in semantic order")
+
+
 def _validate_manifest(manifest: dict) -> None:
-    if not isinstance(manifest, dict):
-        _fail("manifest", "must be an object")
+    _exact_keys(manifest, _MANIFEST_KEYS, "manifest")
     if manifest.get("schemaVersion") != 1:
         _fail("schemaVersion", "must equal 1")
     _uuid(manifest.get("projectId"), "projectId")
@@ -102,8 +130,8 @@ def _validate_manifest(manifest: dict) -> None:
 
     scene = manifest.get("scene")
     render = manifest.get("render")
-    if not isinstance(scene, dict) or not isinstance(render, dict):
-        _fail("scene/render", "must be objects")
+    _exact_keys(scene, _SCENE_KEYS, "scene")
+    _exact_keys(render, _RENDER_KEYS, "render")
     _string(scene.get("name"), "scene.name", 1, 256)
     _integer(scene.get("frameStart"), "scene.frameStart", 0, 1_048_574)
     _integer(scene.get("frameEnd"), "scene.frameEnd", 0, 1_048_574)
@@ -111,6 +139,8 @@ def _validate_manifest(manifest: dict) -> None:
         _fail("scene.frameEnd", "must be >= scene.frameStart")
     _integer(scene.get("fpsNumerator"), "scene.fpsNumerator", 1)
     _integer(scene.get("fpsDenominator"), "scene.fpsDenominator", 1)
+    if gcd(scene["fpsNumerator"], scene["fpsDenominator"]) != 1:
+        _fail("scene.fpsNumerator/fpsDenominator", "must be a reduced rational")
     _uuid(scene.get("activeCameraId"), "scene.activeCameraId", True)
     for key, maximum in (("resolutionX", 65536), ("resolutionY", 65536)):
         _integer(render.get(key), f"render.{key}", 1, maximum)
@@ -123,16 +153,20 @@ def _validate_manifest(manifest: dict) -> None:
             _fail(key, "must be an array")
         arrays[key] = value
 
-    ids: dict[str, set[str]] = {key: set() for key in ("objects", "bones", "cameras", "lights")}
-    for key in ids:
+    # objects/bones are identified by their own entityId; cameras/lights are
+    # identified by their owning object's entityId (architecture doc line 203:
+    # "Camera, light, and armature identities use their owning object ID").
+    entity_ids: dict[str, set[str]] = {"objects": set(), "bones": set()}
+    for key, item_keys in (("objects", _OBJECT_KEYS), ("bones", _BONE_KEYS)):
         for index, item in enumerate(arrays[key]):
-            if not isinstance(item, dict):
-                _fail(f"{key}[{index}]", "must be an object")
+            _exact_keys(item, item_keys, f"{key}[{index}]")
             _uuid(item.get("entityId"), f"{key}[{index}].entityId")
             entity_id = item["entityId"]
-            if entity_id in ids[key]:
+            if entity_id in entity_ids[key]:
                 _fail(key, "must not contain duplicate entityId values")
-            ids[key].add(entity_id)
+            entity_ids[key].add(entity_id)
+    _assert_sorted(arrays["objects"], lambda item: item["entityId"], "objects")
+    _assert_sorted(arrays["bones"], lambda item: item["entityId"], "bones")
 
     objects_by_id = {item["entityId"]: item for item in arrays["objects"]}
     for index, item in enumerate(arrays["objects"]):
@@ -156,14 +190,18 @@ def _validate_manifest(manifest: dict) -> None:
         _vector(item.get("location"), 3, f"{path}.location")
         _quaternion(item.get("rotationQuaternion"), f"{path}.rotationQuaternion")
         _vector(item.get("scale"), 3, f"{path}.scale")
-        if item["armatureObjectId"] not in objects_by_id:
+        armature = objects_by_id.get(item["armatureObjectId"])
+        if armature is None:
             raise INVALID_MANIFEST_REFERENCE(f"{path}.armatureObjectId references no object")
-        if item["parentBoneId"] is not None and item["parentBoneId"] not in ids["bones"]:
+        if armature["type"] != "ARMATURE":
+            raise INVALID_MANIFEST_REFERENCE(f"{path}.armatureObjectId must reference an ARMATURE object")
+        if item["parentBoneId"] is not None and item["parentBoneId"] not in entity_ids["bones"]:
             raise INVALID_MANIFEST_REFERENCE(f"{path}.parentBoneId references no bone")
 
     camera_object_ids: set[str] = set()
     for index, item in enumerate(arrays["cameras"]):
         path = f"cameras[{index}]"
+        _exact_keys(item, _CAMERA_KEYS, path)
         _uuid(item.get("objectId"), f"{path}.objectId")
         if item["objectId"] in camera_object_ids:
             _fail("cameras", "must contain exactly one entry per camera object")
@@ -185,13 +223,19 @@ def _validate_manifest(manifest: dict) -> None:
         _number(item.get("clipEnd"), f"{path}.clipEnd")
         if item["clipEnd"] <= item["clipStart"]:
             _fail(f"{path}.clipEnd", "must be > clipStart")
+    _assert_sorted(arrays["cameras"], lambda item: item["objectId"], "cameras")
     expected_camera_objects = {key for key, item in objects_by_id.items() if item["type"] == "CAMERA"}
     if camera_object_ids != expected_camera_objects:
         raise INVALID_MANIFEST_REFERENCE("every CAMERA object must have exactly one camera entry")
 
+    light_object_ids: set[str] = set()
     for index, item in enumerate(arrays["lights"]):
         path = f"lights[{index}]"
+        _exact_keys(item, _LIGHT_KEYS, path)
         _uuid(item.get("objectId"), f"{path}.objectId")
+        if item["objectId"] in light_object_ids:
+            _fail("lights", "must contain exactly one entry per light object")
+        light_object_ids.add(item["objectId"])
         if item["objectId"] not in objects_by_id or objects_by_id[item["objectId"]]["type"] != "LIGHT":
             raise INVALID_MANIFEST_REFERENCE(f"{path}.objectId must reference a LIGHT object")
         if item.get("lightType") not in ("POINT", "SUN", "SPOT", "AREA"):
@@ -207,21 +251,35 @@ def _validate_manifest(manifest: dict) -> None:
                 _number(value, f"{path}.{field}")
             elif value is not None:
                 _fail(f"{path}.{field}", "must be null for non-SPOT lights")
+    _assert_sorted(arrays["lights"], lambda item: item["objectId"], "lights")
+    expected_light_objects = {key for key, item in objects_by_id.items() if item["type"] == "LIGHT"}
+    if light_object_ids != expected_light_objects:
+        raise INVALID_MANIFEST_REFERENCE("every LIGHT object must have exactly one light entry")
 
-    camera_ids = ids["cameras"]
-    if scene["activeCameraId"] is not None and scene["activeCameraId"] not in camera_ids:
+    # activeCameraId/markers[].cameraId reference the owning CAMERA object's
+    # entityId directly, matching camera identity (line 203) -- not a
+    # separate per-camera-entry identifier.
+    if scene["activeCameraId"] is not None and scene["activeCameraId"] not in camera_object_ids:
         raise INVALID_MANIFEST_REFERENCE("scene.activeCameraId references no camera")
     for index, item in enumerate(arrays["markers"]):
         path = f"markers[{index}]"
-        if not isinstance(item, dict):
-            _fail(path, "must be an object")
+        _exact_keys(item, _MARKER_KEYS, path)
         _string(item.get("name"), f"{path}.name")
         _integer(item.get("frame"), f"{path}.frame")
         _uuid(item.get("cameraId"), f"{path}.cameraId", True)
-        if item["cameraId"] is not None and item["cameraId"] not in camera_ids:
+        if item["cameraId"] is not None and item["cameraId"] not in camera_object_ids:
             raise INVALID_MANIFEST_REFERENCE(f"{path}.cameraId references no camera")
+    _assert_sorted(
+        arrays["markers"],
+        lambda item: (item["name"], item["frame"], item["cameraId"] is not None, item["cameraId"] or ""),
+        "markers",
+    )
+
     for index, entity_id in enumerate(arrays["selectedEntityIds"]):
         _uuid(entity_id, f"selectedEntityIds[{index}]")
+    if len(set(arrays["selectedEntityIds"])) != len(arrays["selectedEntityIds"]):
+        _fail("selectedEntityIds", "must not contain duplicates")
+    _assert_sorted(arrays["selectedEntityIds"], lambda value: value, "selectedEntityIds")
 
 
 def build_scene_manifest(
@@ -245,8 +303,8 @@ def build_scene_manifest(
         "render": copy.deepcopy(render),
         "objects": sorted(copy.deepcopy(objects), key=lambda item: item["entityId"]),
         "bones": sorted(copy.deepcopy(bones), key=lambda item: item["entityId"]),
-        "cameras": sorted(copy.deepcopy(cameras), key=lambda item: item["entityId"]),
-        "lights": sorted(copy.deepcopy(lights), key=lambda item: item["entityId"]),
+        "cameras": sorted(copy.deepcopy(cameras), key=lambda item: item["objectId"]),
+        "lights": sorted(copy.deepcopy(lights), key=lambda item: item["objectId"]),
         "markers": sorted(copy.deepcopy(markers), key=lambda item: (item["name"], item["frame"], item["cameraId"] is not None, item["cameraId"] or "")),
         "selectedEntityIds": sorted(set(copy.deepcopy(selected_entity_ids))),
     }
