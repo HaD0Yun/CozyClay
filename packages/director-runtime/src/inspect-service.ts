@@ -29,6 +29,7 @@ export interface DirectorHandlerContext {
 			readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 		},
 	) => Promise<CameraPlanMutationCandidate>;
+	readonly beginDurableCommit?: () => void;
 }
 
 export function createInspectHandler(options: InspectHandlerOptions) {
@@ -61,7 +62,7 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 							context.reportProgress?.(progress.phase, progress.completed, progress.total);
 						},
 					});
-					const result = await commitCameraPlanMutation(store, plan, candidate);
+					const result = await commitCameraPlanMutation(store, plan, candidate, context.beginDurableCommit);
 					resultingRevision = result.resulting_revision_id;
 					return result;
 				},

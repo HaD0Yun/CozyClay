@@ -114,3 +114,59 @@ test("§4 client_nonce reuse within launch closes 1008",async()=>{const {d,c}=aw
 test("§4 malformed request consumes a rate-limit token",async()=>{const {d,c}=await ready();try{c.send(Buffer.from("{"));await new Promise(r=>setTimeout(r,5));for(let i=0;i<3;i++){const q=request({method:"none"});c.send(q);assert.equal((await c.next(m=>m.id===q.id)).code,"METHOD_NOT_ALLOWED");}const q=request({method:"none"});c.send(q);assert.equal((await c.next(m=>m.id===q.id)).code,"RATE_LIMITED");}finally{c.socket.destroy();await d.close();}});
 test("§4 abrupt client FIN drains the active handler and refuses subsequent TCP connects",async()=>{let aborted=false,settled=false,entered!:()=>void;const enteredP=new Promise<void>(r=>entered=r);const {d,c}=await ready({handlers:{ok:async(_,{signal})=>{entered();await new Promise<void>(r=>signal.addEventListener("abort",()=>{aborted=true;r();},{once:true}));settled=true;return{result:{},resulting_revision_id:"1".repeat(64)}}}});c.send(request());await enteredP;c.socket.destroy();await Promise.race([d.stopped,new Promise((_,reject)=>setTimeout(()=>reject(new Error("stopped timeout")),2000))]);assert.equal(aborted,true);assert.equal(settled,true);await assert.rejects(new Promise<void>((resolve,reject)=>{const s=net.connect(d.port,"127.0.0.1",()=>{s.destroy();resolve();});s.on("error",reject);}));});
 test("§4 shutdown waits for a handler started after a prior cancellation, and rejects new requests during drain",async()=>{let releaseA!:()=>void,releaseB!:()=>void,settledA=false,settledB=false,calls=0;const gateA=new Promise<void>(r=>releaseA=r),gateB=new Promise<void>(r=>releaseB=r);const {d,c}=await ready({handlers:{ok:async()=>{calls++;if(calls===1){await gateA;settledA=true;}else{await gateB;settledB=true;}return{result:{},resulting_revision_id:"1".repeat(64)};}}});const qa=request();c.send(qa);c.send({type:"cancel",id:qa.id});assert.equal((await c.next(m=>m.type==="cancel_ack")).status,"accepted");await c.next(m=>m.id===qa.id&&m.type==="error");const qb=request();c.send(qb);await new Promise(r=>setTimeout(r,10));c.send({type:"shutdown",reason:"qa"});await new Promise(r=>setTimeout(r,20));assert.equal(c.messages.some(m=>m.type==="shutdown_ack"),false);const qc=request();c.send(qc);const rejected=await c.next(m=>m.id===qc.id);assert.equal(rejected.code,"SHUTTING_DOWN");assert.equal(rejected.retryable,true);assert.equal(settledA,false);assert.equal(settledB,false);releaseA();await new Promise(r=>setTimeout(r,15));assert.equal(c.messages.some(m=>m.type==="shutdown_ack"),false);assert.equal(settledB,false);releaseB();await c.next(m=>m.type==="shutdown_ack");assert.equal(settledA,true);assert.equal(settledB,true);await d.stopped;});
+
+for (const race of ["cancel", "timeout", "disconnect"] as const) {
+	test(`§4 protocol-v2 durable commit owns the terminal outcome against ${race}`, async () => {
+		let beginCommit!: () => void;
+		let releaseCommit!: () => void;
+		const commitStarted = new Promise<void>((resolve) => {
+			beginCommit = resolve;
+		});
+		const commitGate = new Promise<void>((resolve) => {
+			releaseCommit = resolve;
+		});
+		let committed = false;
+		const { d, c } = await readyV2({
+			handlers: {
+				ok: async (_, { applyCameraPlan, beginDurableCommit, signal }) => {
+					const result = await applyCameraPlan(bridgePlan(), { signal, reportProgress: () => {} });
+					beginDurableCommit();
+					beginCommit();
+					await commitGate;
+					committed = true;
+					return { result, resulting_revision_id: "1".repeat(64) };
+				},
+			},
+		});
+		const q = request({ deadline_ms: race === "timeout" ? 100 : 1_000 });
+		c.send(q);
+		const bridge = await c.next((message) => message.type === "bridge_request");
+		c.send({
+			type: "bridge_result",
+			id: bridge.id,
+			request_id: q.id,
+			result: { resulting_revision_id: "1".repeat(64) },
+		});
+		await commitStarted;
+		if (race === "cancel") {
+			c.send({ type: "cancel", id: q.id });
+			assert.equal((await c.next((message) => message.type === "cancel_ack")).status, "already_terminal");
+		} else if (race === "timeout") {
+			await new Promise((resolve) => setTimeout(resolve, 120));
+			assert.equal(c.messages.some((message) => message.type === "error" && message.id === q.id), false);
+		} else {
+			c.socket.destroy();
+		}
+		releaseCommit();
+		if (race === "disconnect") {
+			await d.stopped;
+		} else {
+			const response = await c.next((message) => message.type === "response" && message.id === q.id);
+			assert.equal(response.resulting_revision_id, "1".repeat(64));
+			assert.equal(c.messages.some((message) => message.type === "error" && message.id === q.id), false);
+			c.socket.destroy();
+			await d.close();
+		}
+		assert.equal(committed, true);
+	});
+}

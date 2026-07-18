@@ -36,6 +36,7 @@ export interface HandlerContext {
 	readonly request: Request;
 	readonly reportProgress: (phase: string, completed: number, total: number) => void;
 	readonly applyCameraPlan: ApplyCameraPlan;
+	readonly beginDurableCommit: () => void;
 }
 export type Handler = (params: Record<string, unknown>, context: HandlerContext) => Promise<HandlerResult>;
 export type DaemonOptions = {
@@ -345,13 +346,18 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 							}
 						},
 						applyCameraPlan: (plan, context) => applyCameraPlan(request, plan, context),
+						beginDurableCommit: () => {
+							if (!state.beginDurableCommit(active)) {
+								throw new Error(`${active.cause ?? "CANCELLED"}: cancellation won before durable commit`);
+							}
+						},
 					});
 					if (state.complete(active)) {
 						state.terminal(active);
 						websocket.sendText({ type: "response", id: active.id, ...output });
 					}
 				} catch (cause) {
-					if (active.phase === "running" && state.complete(active)) {
+					if (state.complete(active)) {
 						state.terminal(active);
 						const message = cause instanceof Error ? cause.message : "handler failed";
 						const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);

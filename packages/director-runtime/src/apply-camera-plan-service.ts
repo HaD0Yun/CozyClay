@@ -1,5 +1,5 @@
 import type { ApplyCameraPlanResult } from "@oh-my-blender/blender-tools";
-import { type DirectorProject, ProjectStore } from "@oh-my-blender/director-core";
+import { buildSceneManifestV2Revision, type DirectorProject, ProjectStore } from "@oh-my-blender/director-core";
 import {
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
@@ -23,6 +23,7 @@ export async function commitCameraPlanMutation(
 	store: CameraPlanRevisionStore,
 	plan: CameraPlanV1,
 	input: unknown,
+	beginDurableCommit: () => void = () => {},
 ): Promise<ApplyCameraPlanResult> {
 	const candidate = parseCameraPlanMutationCandidate(input);
 	if (candidate.expected_revision_id !== plan.expected_revision_id) {
@@ -33,6 +34,15 @@ export async function commitCameraPlanMutation(
 	if (candidate.scene_hash !== candidate.manifest.sceneHash) {
 		throw new Error("INVALID_MUTATION_RESULT: scene_hash must equal manifest.sceneHash");
 	}
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
+	const rebuiltManifest = buildSceneManifestV2Revision(hashFreeManifest);
+	if (
+		candidate.scene_hash !== rebuiltManifest.sceneHash ||
+		candidate.manifest.sceneHash !== rebuiltManifest.sceneHash ||
+		candidate.manifest.revisionId !== rebuiltManifest.revisionId
+	) {
+		throw new Error("INVALID_MUTATION_RESULT: manifest hashes do not match its canonical content");
+	}
 	const current = await store.readProject();
 	if (current.project_id !== candidate.manifest.projectId) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest projectId does not match the current project");
@@ -42,6 +52,7 @@ export async function commitCameraPlanMutation(
 		current_revision_id: candidate.manifest.revisionId,
 		manifest: candidate.manifest,
 	};
+	beginDurableCommit();
 	await store.commitRevision(plan.expected_revision_id, child, {
 		type: "apply_camera_plan",
 		evidence_sha256: plan.evidence_sha256,
@@ -71,7 +82,7 @@ export function createApplyCameraPlanHandler(options: ApplyCameraPlanHandlerOpti
 				context.reportProgress?.(progress.phase, progress.completed, progress.total);
 			},
 		});
-		const result = await commitCameraPlanMutation(store, plan, candidate);
+		const result = await commitCameraPlanMutation(store, plan, candidate, context.beginDurableCommit);
 		return { result, resulting_revision_id: result.resulting_revision_id };
 	};
 }

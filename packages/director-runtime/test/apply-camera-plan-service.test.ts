@@ -82,6 +82,7 @@ test("commits the mutation candidate durably before returning the top-level resp
 		signal: controller.signal,
 		request: { expected_revision_id: plan.expected_revision_id },
 		reportProgress: (phase, completed, total) => progress.push([phase, completed, total]),
+		beginDurableCommit: () => events.push("commit:owned"),
 		applyCameraPlan: async (value, context) => {
 			received = value;
 			assert.equal(context.signal, controller.signal);
@@ -93,7 +94,7 @@ test("commits the mutation candidate durably before returning the top-level resp
 	events.push("handler:resolved");
 	assert.deepEqual(received, plan);
 	assert.deepEqual(progress, [["mutating", 1, 2]]);
-	assert.deepEqual(events, ["bridge:result", "commit:durable", "handler:resolved"]);
+	assert.deepEqual(events, ["bridge:result", "commit:owned", "commit:durable", "handler:resolved"]);
 	assert.equal(output.resulting_revision_id, manifest.revisionId);
 });
 
@@ -114,4 +115,73 @@ test("commit conflict rejects the mutation so the add-on receives a top-level er
 		}),
 		/STALE_BASE: commit conflict/,
 	);
+});
+
+test("rejects a mutation candidate whose manifest content does not match its supplied hashes", async () => {
+	const tampered = structuredClone(manifest);
+	tampered.cameraAnimations[0]!.fcurves[0]!.keyframes[0]!.value += 1;
+	let committed = false;
+	const store = fakeStore();
+	store.commitRevision = async () => {
+		committed = true;
+	};
+	await assert.rejects(
+		createApplyCameraPlanHandler({ store })(plan, {
+			signal: new AbortController().signal,
+			request: { expected_revision_id: plan.expected_revision_id },
+			applyCameraPlan: async () => ({
+				expected_revision_id: plan.expected_revision_id,
+				scene_hash: tampered.sceneHash,
+				manifest: tampered,
+			}),
+		}),
+		/INVALID_MUTATION_RESULT/,
+	);
+	assert.equal(committed, false);
+});
+
+test("rejects a mutation candidate whose revisionId does not match the recomputed revision", async () => {
+	const tampered = { ...manifest, revisionId: "d".repeat(64) };
+	let committed = false;
+	const store = fakeStore();
+	store.commitRevision = async () => {
+		committed = true;
+	};
+	await assert.rejects(
+		createApplyCameraPlanHandler({ store })(plan, {
+			signal: new AbortController().signal,
+			request: { expected_revision_id: plan.expected_revision_id },
+			applyCameraPlan: async () => ({
+				expected_revision_id: plan.expected_revision_id,
+				scene_hash: tampered.sceneHash,
+				manifest: tampered,
+			}),
+		}),
+		/INVALID_MUTATION_RESULT/,
+	);
+	assert.equal(committed, false);
+});
+
+test("does not call commitRevision when cancellation wins the durable-commit barrier", async () => {
+	let committed = false;
+	const store = fakeStore();
+	store.commitRevision = async () => {
+		committed = true;
+	};
+	await assert.rejects(
+		createApplyCameraPlanHandler({ store })(plan, {
+			signal: AbortSignal.abort(),
+			request: { expected_revision_id: plan.expected_revision_id },
+			beginDurableCommit: () => {
+				throw new Error("CANCELLED: cancellation won before durable commit");
+			},
+			applyCameraPlan: async () => ({
+				expected_revision_id: plan.expected_revision_id,
+				scene_hash: manifest.sceneHash,
+				manifest,
+			}),
+		}),
+		/CANCELLED/,
+	);
+	assert.equal(committed, false);
 });
