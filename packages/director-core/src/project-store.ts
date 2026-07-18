@@ -9,7 +9,7 @@ export interface DirectorProject extends Record<string, unknown> {
 	current_revision_id: string;
 }
 
-export type ProjectStoreErrorCode = "PROJECT_NOT_FOUND" | "PROJECT_CORRUPT" | "PROJECT_INVALID";
+export type ProjectStoreErrorCode = "PROJECT_NOT_FOUND" | "PROJECT_CORRUPT" | "PROJECT_INVALID" | "STALE_BASE";
 
 export class ProjectStoreError extends Error {
 	readonly code: ProjectStoreErrorCode;
@@ -40,6 +40,7 @@ export class ProjectStore {
 	readonly journalPath: string;
 
 	readonly rootDir: string;
+	private commitTail: Promise<void> = Promise.resolve();
 
 	constructor(rootDir: string) {
 		this.rootDir = rootDir;
@@ -78,6 +79,22 @@ export class ProjectStore {
 		} finally {
 			await handle.close();
 		}
+	}
+
+	async commitRevision(expectedRevisionId: string, project: DirectorProject, journalEntry: unknown): Promise<void> {
+		const commit = this.commitTail.then(async () => {
+			const current = await this.readProject();
+			if (current.current_revision_id !== expectedRevisionId) {
+				throw new ProjectStoreError(
+					"STALE_BASE",
+					`expected revision ${expectedRevisionId}, current revision is ${current.current_revision_id}`,
+				);
+			}
+			await this.appendJournal(journalEntry);
+			await this.writeProject(project);
+		});
+		this.commitTail = commit.catch(() => undefined);
+		return commit;
 	}
 
 	async readProject(): Promise<DirectorProject> {
