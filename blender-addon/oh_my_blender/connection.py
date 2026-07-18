@@ -29,6 +29,12 @@ class DurableCommitReconciliationRequired(ConnectionError):
     """A post-mutation durable outcome cannot be determined safely."""
 
 
+class StaleBridgeBase(ConnectionError):
+    """The durable project revision differs from the bridge request."""
+
+    code = "STALE_BASE"
+
+
 class Connection:
     """One daemon child and its single authenticated WebSocket."""
 
@@ -64,7 +70,7 @@ class Connection:
                 )
             )
             if project["current_revision_id"] != expected_revision_id:
-                raise ConnectionError(
+                raise StaleBridgeBase(
                     "durable project revision does not match the bridge request"
                 )
             scene_hash = project["manifest"]["sceneHash"]
@@ -249,7 +255,7 @@ class Connection:
         except ConnectionError as error:
             self._send_bridge_error(
                 message,
-                "DURABLE_BASE_UNAVAILABLE",
+                getattr(error, "code", "DURABLE_BASE_UNAVAILABLE"),
                 str(error),
             )
             return

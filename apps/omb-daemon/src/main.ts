@@ -6,6 +6,8 @@ import {
 	createApplyCameraPlanHandler,
 	createDirectorProjectStore,
 	createInspectHandler,
+	createRenderArtifactPublisher,
+	createRenderQaFramesHandler,
 } from "@oh-my-blender/director-runtime";
 import { start } from "./daemon.ts";
 
@@ -25,12 +27,15 @@ const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null }
 const model = faux.getModel();
 modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
 const store = createDirectorProjectStore(process.cwd());
+const publishArtifact = createRenderArtifactPublisher(process.cwd());
 const daemon = await start({
 	port,
 	handlers: {
 		inspect_project: createInspectHandler({ model, modelRuntime, store }),
 		apply_camera_plan: createApplyCameraPlanHandler({ store }),
+		render_qa_frames: createRenderQaFramesHandler(),
 	},
+	publishArtifact,
 });
 // Architecture §4 cleanup order ends with "and exit": once the protocol
 // shutdown drain completes, the child process must terminate even if the

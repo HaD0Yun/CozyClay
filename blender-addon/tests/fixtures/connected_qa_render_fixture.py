@@ -145,6 +145,7 @@ def main() -> None:
                 "digest": digest,
                 "rereadDigest": hashlib.sha256(payload_path.read_bytes()).hexdigest(),
             })
+        time.sleep(1.01)
 
         _stale_id, stale_responses = send_request(
             connection,
@@ -153,6 +154,7 @@ def main() -> None:
             REVISION,
         )
         stale = receive(connection, stale_responses)
+        time.sleep(1.01)
 
         _limit_id, limit_responses = send_request(
             connection,
@@ -161,6 +163,7 @@ def main() -> None:
             revision,
         )
         limit = receive(connection, limit_responses)
+        time.sleep(1.01)
 
         artifact_root = omb / "artifacts"
         before_cancel = sorted(

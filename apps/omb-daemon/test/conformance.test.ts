@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import net, {type Socket} from "node:net";
-import {randomUUID} from "node:crypto";
+import {createHash,randomUUID} from "node:crypto";
 import {spawn} from "node:child_process";
 import test from "node:test";
 import {parseStartupRecord,type CameraPlanV1} from "@oh-my-blender/protocol";
@@ -46,6 +46,74 @@ test("§4 protocol-v2 apply_camera_plan reuses one correlated MutationBridgeSess
 		const response=await c.next(m=>m.type==="response"&&m.id===q.id);
 		assert.equal(response.resulting_revision_id,"1".repeat(64));assert.deepEqual(progress,[{phase:"mutating",completed:1,total:2}]);
 	}finally{c.socket.destroy();await d.close();}
+});
+
+test("G011 existing protocol-v2 bridge assembles bounded artifact chunks and publishes metadata only", async () => {
+	const revision = "0".repeat(64);
+	const bytes = Buffer.from("connected-render-png");
+	const sha256 = createHash("sha256").update(bytes).digest("hex");
+	let published: Uint8Array | undefined;
+	const { d, c } = await readyV2({
+		publishArtifact: async (artifact) => {
+			assert.equal(artifact.sha256, sha256);
+			assert.equal(artifact.byteLength, bytes.byteLength);
+			published = artifact.bytes;
+			return { sha256, byteLength: bytes.byteLength, uri: `omb-artifact://sha256/${sha256}` };
+		},
+		handlers: {
+			ok: async (_params, { renderQaFrames, signal }) => ({
+				result: await renderQaFrames(
+					{ schema_version: 1, revision_id: revision, frames: [80] },
+					{ signal, reportProgress: () => {} },
+				),
+				resulting_revision_id: revision,
+			}),
+		},
+	});
+	try {
+		const q = request({ expected_revision_id: revision });
+		c.send(q);
+		const bridge = await c.next((message) => message.type === "bridge_request");
+		assert.equal(bridge.method, "render_qa_frames");
+		const split = 7;
+		for (const [chunk_index, chunk] of [bytes.subarray(0, split), bytes.subarray(split)].entries()) {
+			c.send({
+				type: "bridge_artifact_chunk",
+				id: bridge.id,
+				request_id: q.id,
+				frame: 80,
+				chunk_index,
+				total_chunks: 2,
+				byte_length: chunk.byteLength,
+				data_base64: chunk.toString("base64"),
+			});
+		}
+		c.send({
+			type: "bridge_result",
+			id: bridge.id,
+			request_id: q.id,
+			result: {
+				schema_version: 1,
+				revision_id: revision,
+				profile_version: "omb-qa-png-v1",
+				frames: [{
+					frame: 80,
+					width: 640,
+					height: 360,
+					profile_version: "omb-qa-png-v1",
+					byte_length: bytes.byteLength,
+					sha256,
+				}],
+			},
+		});
+		const response = await c.next((message) => message.type === "response" && message.id === q.id);
+		assert.deepEqual(Buffer.from(published!), bytes);
+		assert.equal(response.result.frames[0].uri, `omb-artifact://sha256/${sha256}`);
+		assert.equal("data_base64" in response.result.frames[0], false);
+	} finally {
+		c.socket.destroy();
+		await d.close();
+	}
 });
 test("§4 protocol-v2 top-level cancellation sends bridge_cancel and cannot partially succeed",async()=>{
 	let settled=false;
