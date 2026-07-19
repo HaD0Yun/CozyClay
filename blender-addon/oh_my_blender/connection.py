@@ -7,6 +7,7 @@ import queue
 import subprocess
 import threading
 import time
+from enum import Enum
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -35,6 +36,23 @@ class StaleBridgeBase(ConnectionError):
 
     code = "STALE_BASE"
 
+class LifecycleState(str, Enum):
+    """Closed lifecycle contract shared by the detector, UI, and restart path."""
+
+    ACTIVE = "active"
+    LOST = "lost"
+    DISCONNECTED = "disconnected"
+    RECOVERY_REQUIRED = "recovery_required"
+    DRAINING = "draining"
+    STOPPED = "stopped"
+
+
+RECONNECTABLE_STATES = frozenset({
+    LifecycleState.LOST,
+    LifecycleState.DISCONNECTED,
+    LifecycleState.RECOVERY_REQUIRED,
+})
+
 
 class Connection:
     """One daemon child and its single authenticated WebSocket."""
@@ -50,7 +68,7 @@ class Connection:
     ):
         self.child = child
         self.websocket = websocket
-        self.state = "active"
+        self.state = LifecycleState.ACTIVE
         self.tools_exposed = tools_exposed
         self.identity = identity
         self.active_checkpoint: Checkpoint | None = None
@@ -68,9 +86,14 @@ class Connection:
 
     def expose_tools(self) -> None:
         """Expose bridge tools only after the reconnect scene gate succeeds."""
-        if self.state != "active":
+        if self.state != LifecycleState.ACTIVE:
             raise ConnectionError("cannot expose tools on an inactive connection")
         self.tools_exposed = True
+
+    def require_recovery(self) -> None:
+        """Hide every bridge tool and retain a terminal recovery state."""
+        self.tools_exposed = False
+        self.state = LifecycleState.RECOVERY_REQUIRED
 
     def _durable_scene_hash(self, expected_revision_id: str) -> str:
         if self.project_directory is None:
@@ -129,11 +152,11 @@ class Connection:
                 break
             self.dispatch_bridge_message(message)
 
-        if self.state == "lost":
+        if self.state == LifecycleState.LOST:
             self.tools_exposed = False
             if self.active_checkpoint is not None:
                 if self.durable_commit_reconciliation is not None:
-                    self.state = "recovery_required"
+                    self.state = LifecycleState.RECOVERY_REQUIRED
                 else:
                     from .camera_plan import _read_scope, _restore_scope
 
@@ -144,12 +167,22 @@ class Connection:
                     except BaseException:
                         restored = False
                     self.state = (
-                        "disconnected" if restored else "recovery_required"
+                        LifecycleState.DISCONNECTED
+                        if restored
+                        else LifecycleState.RECOVERY_REQUIRED
                     )
             else:
-                self.state = "disconnected"
+                self.state = LifecycleState.DISCONNECTED
+        if self.state != LifecycleState.ACTIVE:
+            if not self.websocket.closed:
+                try:
+                    self.websocket.close()
+                except (OSError, WebSocketError):
+                    pass
+            if self._reader_thread is not None and self._reader_thread.is_alive():
+                self._reader_thread.join(timeout=0.2)
             return None
-        return 0.01 if self.state == "active" else None
+        return 0.01
 
 
     def start_bridge_dispatcher(self) -> None:
@@ -163,16 +196,16 @@ class Connection:
             bpy.app.timers.register(self.pump_bridge_messages, first_interval=0.0)
 
         def receive_loop() -> None:
-            while self.state == "active" and not self.websocket.closed:
+            while self.state == LifecycleState.ACTIVE and not self.websocket.closed:
                 try:
                     message = self.websocket.recv_json()
                 except StopIteration:
-                    self.state = "lost"
+                    self.state = LifecycleState.LOST
                     return
                 except TimeoutError:
                     continue
                 except (OSError, WebSocketError):
-                    self.state = "lost"
+                    self.state = LifecycleState.LOST
                     return
                 if not isinstance(message, dict):
                     continue
@@ -329,11 +362,11 @@ class Connection:
             except OSError:
                 socket_closed = True
         if (
-            self.state != "active"
+            self.state != LifecycleState.ACTIVE
             or socket_closed
             or self._child_has_exited()
         ):
-            self.state = "lost"
+            self.state = LifecycleState.LOST
             raise ConnectionError(
                 f"daemon connection was lost during camera-plan phase {phase}"
             )
@@ -631,9 +664,11 @@ class Connection:
 
     def disconnect(self, reason: str, timeout: float = 8.0) -> None:
         """Drain the daemon, then force-kill only if its exit exceeds the bound."""
-        if self.state == "stopped":
+        if self.state == LifecycleState.STOPPED:
             return
-        self.state = "draining"
+        self.state = LifecycleState.DRAINING
+        if bpy is not None and bpy.app.timers.is_registered(self.pump_bridge_messages):
+            bpy.app.timers.unregister(self.pump_bridge_messages)
         deadline = time.monotonic() + timeout
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=min(0.2, timeout))
@@ -660,7 +695,17 @@ class Connection:
             self.child.close_streams()
         except subprocess.TimeoutExpired:
             self.child.kill()
-        self.state = "stopped"
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=0.2)
+        self._response_queues.clear()
+        self._bridge_cancellations.clear()
+        self._terminal_bridge_ids.clear()
+        while True:
+            try:
+                self._main_thread_messages.get_nowait()
+            except queue.Empty:
+                break
+        self.state = LifecycleState.STOPPED
 
 
 def verify_reconnect_hash(
@@ -709,7 +754,8 @@ def _confirm_previous_child_exit(previous_connection: Connection | None) -> None
     poll = getattr(previous_connection.child.process, "poll", None)
     if not callable(poll):
         raise ConnectionError("previous daemon child exit cannot be confirmed")
-    if poll() is None:
+    poll()
+    if previous_connection.state != LifecycleState.STOPPED:
         previous_connection.disconnect("restart_after_unexpected_loss")
     if poll() is None:
         raise ConnectionError("previous daemon child did not exit before restart")
@@ -851,13 +897,12 @@ def connect(
     global _active_connection
     previous = _active_connection
     if previous is not None and previous.state not in (
-        "stopped",
-        "lost",
-        "recovery-required",
+        LifecycleState.STOPPED,
+        *RECONNECTABLE_STATES,
     ):
         raise ConnectionError("the add-on already owns an active daemon connection")
     argv = _resolve_daemon_argv(daemon_args)
-    if previous is not None and previous.state in ("lost", "recovery-required"):
+    if previous is not None and previous.state in RECONNECTABLE_STATES:
         replacement = reconnect(
             argv,
             cwd=cwd,
@@ -882,7 +927,7 @@ def connect(
 def disconnect_active(reason: str) -> bool:
     """Disconnect and release the retained connection, if one exists."""
     global _active_connection
-    if _active_connection is None or _active_connection.state == "stopped":
+    if _active_connection is None or _active_connection.state == LifecycleState.STOPPED:
         _active_connection = None
         return False
     active = _active_connection

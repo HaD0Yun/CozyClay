@@ -508,6 +508,8 @@ class ConnectionTests(unittest.TestCase):
         )
         self.assertIsNone(connection.active_checkpoint)
         self.assertEqual(connection.state, "disconnected")
+        self.assertTrue(socket.closed)
+        self.assertFalse(connection._reader_thread.is_alive())
 
     def test_failed_timer_restore_enters_recovery_required_and_hides_mutations(self):
         """Architecture §4/§15.3: failed verification leaves recovery-required with tools hidden."""
@@ -713,30 +715,37 @@ class ConnectionTests(unittest.TestCase):
         self.assertNotIn("--should-not-be-used", argv)
         disconnect_active("test_cleanup")
 
-    def test_connect_restarts_lost_child_through_durable_hash_gate(self):
-        """Architecture §4: production Connect uses the full restart hash gate."""
-        previous = mock.Mock()
-        previous.state = "lost"
-        replacement = mock.Mock()
-        replacement.state = "active"
-        connection_module._active_connection = previous
-        with mock.patch.object(
-            connection_module,
-            "reconnect",
-            return_value=replacement,
-        ) as restart:
-            result = connect(
-                cwd="/tmp",
-                project_id="project",
-                addon_version="1",
-                blender_version="4",
-                daemon_args=("--faux",),
-            )
+    def test_connect_restarts_post_detector_states_through_durable_hash_gate(self):
+        """Production Connect routes every timer-produced terminal state through restart."""
+        for state in ("disconnected", "recovery_required"):
+            with self.subTest(state=state):
+                previous = mock.Mock()
+                previous.state = state
+                replacement = mock.Mock()
+                replacement.state = "active"
+                connection_module._active_connection = previous
+                with mock.patch.object(
+                    connection_module,
+                    "reconnect",
+                    return_value=replacement,
+                ) as restart:
+                    result = connect(
+                        cwd="/tmp",
+                        project_id="project",
+                        addon_version="1",
+                        blender_version="4",
+                        daemon_args=("--faux",),
+                    )
 
-        self.assertIs(result, replacement)
-        self.assertIs(restart.call_args.kwargs["previous_connection"], previous)
-        self.assertTrue(callable(restart.call_args.kwargs["live_scene_hash_fn"]))
-        disconnect_active("test_cleanup")
+                self.assertIs(result, replacement)
+                self.assertIs(
+                    restart.call_args.kwargs["previous_connection"],
+                    previous,
+                )
+                self.assertTrue(
+                    callable(restart.call_args.kwargs["live_scene_hash_fn"])
+                )
+                connection_module._active_connection = None
 
     def test_connect_falls_back_to_the_environment_variable_when_unspecified(self):
         connection_module._active_connection = None

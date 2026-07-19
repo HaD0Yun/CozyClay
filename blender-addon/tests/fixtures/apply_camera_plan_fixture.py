@@ -75,7 +75,7 @@ def setup_scene() -> None:
     scene.render.fps = 24
     scene.render.fps_base = 1.0
     bpy.ops.mesh.primitive_cube_add(location=(3.0, 4.0, 5.0))
-    subject = bpy.context.active_object
+    subject = bpy.data.objects["Cube"]
     subject.name = "Untouched Subject"
     subject["omb.entity_id"] = SUBJECT_ID
 

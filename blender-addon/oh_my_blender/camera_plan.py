@@ -795,6 +795,7 @@ def apply_camera_plan_transaction(
             )
             else None,
         )
+        recovered = False
         try:
             restore(
                 checkpoint,
@@ -812,7 +813,10 @@ def apply_camera_plan_transaction(
                 else None
                 for action in mutated_actions
             ))
+            recovered = True
         finally:
+            if not recovered:
+                connection.require_recovery()
             connection.release_checkpoint()
         raise
 

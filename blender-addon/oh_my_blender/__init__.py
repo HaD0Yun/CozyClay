@@ -162,7 +162,7 @@ if bpy is not None:
             project_directory = bpy.path.abspath("//")
             try:
                 active = connection._active_connection
-                if active is not None and active.state in ("lost", "recovery-required"):
+                if active is not None and active.state in connection.RECONNECTABLE_STATES:
                     stored = project_store.read_project_index(project_directory)
                     if stored is None:
                         raise project_store.ProjectStoreError(
@@ -214,7 +214,7 @@ if bpy is not None:
             active = connection._active_connection
             if (
                 active is None
-                or active.state != "active"
+                or active.state != connection.LifecycleState.ACTIVE
                 or not active.tools_exposed
             ):
                 self.report({"ERROR"}, "No verified active daemon connection")
@@ -304,7 +304,7 @@ if bpy is not None:
             active = connection._active_connection
             if (
                 active is None
-                or active.state != "active"
+                or active.state != connection.LifecycleState.ACTIVE
                 or not active.tools_exposed
             ):
                 self.report({"ERROR"}, "No verified active daemon connection")

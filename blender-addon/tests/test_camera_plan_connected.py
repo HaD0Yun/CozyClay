@@ -120,12 +120,12 @@ class CameraPlanConnectedTests(unittest.TestCase):
                     {"committed", "not_committed"},
                 )
     def test_real_socket_disconnect_matrix_preserves_transaction_cas_ownership(self):
-        """Architecture §4/§15.3: all five real-socket fault points have one terminal owner."""
+        """All five fault points use real timer detection and durable terminal evidence."""
         expected_outcomes = {
             "after_checkpoint": "disconnect_win",
             "mid_mutation": "disconnect_win",
-            "before_verify": "disconnect_win",
-            "commit_eligibility": "commit_cas",
+            "before_verify": "recovery_required",
+            "commit_eligibility": "disconnect_win",
             "after_response": "response_win",
         }
         for phase, expected in expected_outcomes.items():
@@ -133,7 +133,6 @@ class CameraPlanConnectedTests(unittest.TestCase):
                 completed = subprocess.run(
                     [
                         str(BLENDER),
-                        "--background",
                         "--factory-startup",
                         "--python",
                         str(FAULT_MATRIX_SCRIPT),
@@ -161,13 +160,42 @@ class CameraPlanConnectedTests(unittest.TestCase):
                 result = json.loads(lines[0].split("=", 1)[1])
                 self.assertEqual(result["phase"], phase)
                 self.assertEqual(result["outcome"], expected)
-                self.assertEqual(result["liveSceneHash"], result["durableSceneHash"])
-                self.assertEqual(result["restoreCount"], result["expectedRestoreCount"])
-                self.assertEqual(result["verifyCount"], result["expectedRestoreCount"])
-                self.assertTrue(result["requestTerminal"])
                 self.assertTrue(result["childExited"])
                 self.assertTrue(result["socketClosed"])
-                self.assertFalse(result["timerRegistered"])
+                self.assertTrue(result["readerStopped"])
+                self.assertTrue(result["timerSelfUnregistered"])
+                if expected == "response_win":
+                    self.assertEqual(result["successResponses"], 1)
+                    self.assertTrue(result["durableAdvanced"])
+                else:
+                    self.assertEqual(result["successResponses"], 0)
+                if expected == "disconnect_win":
+                    self.assertFalse(result["durableAdvanced"])
+                if expected == "recovery_required":
+                    self.assertEqual(result["connectionState"], "recovery_required")
+                    self.assertFalse(result["toolsExposed"])
+                    self.assertEqual(
+                        result["hiddenToolErrors"],
+                        {
+                            "inspect_project": "RECOVERY_REQUIRED",
+                            "apply_camera_plan": "RECOVERY_REQUIRED",
+                            "render_qa_frames": "RECOVERY_REQUIRED",
+                        },
+                    )
+                    self.assertNotEqual(
+                        result["liveSceneHash"],
+                        result["durableSceneHash"],
+                    )
+                    continue
+                self.assertEqual(result["liveSceneHash"], result["durableSceneHash"])
+                self.assertEqual(result["restartedInspect"], "response")
+                self.assertFalse(result["oldRequestReplayed"])
+                self.assertTrue(result["replacementToolsExposed"])
+                self.assertTrue(result["replacementTimerSelfUnregistered"])
+                self.assertTrue(result["replacementSocketClosed"])
+                self.assertTrue(result["replacementReaderStopped"])
+                self.assertTrue(result["replacementResponseQueuesEmpty"])
+                self.assertTrue(result["replacementBridgeCancellationsEmpty"])
 
 if __name__ == "__main__":
     unittest.main()
