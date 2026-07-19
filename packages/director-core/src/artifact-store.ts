@@ -1,10 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants, type Stats } from "node:fs";
-import { type FileHandle, link, lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
+import { type FileHandle, link, lstat, mkdir, open, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const HASH_64 = /^[0-9a-f]{64}$/;
 const URI = /^omb-artifact:\/\/sha256\/([0-9a-f]{64})$/;
+const UPLOAD = /^upload-([0-9a-f]{32})$/;
+const RESERVATION = /^upload-([0-9a-f]{32})\.reservation$/;
+const LOCK_RETRY_MS = 10;
+const LOCK_TIMEOUT_MS = 5_000;
+const STALE_LOCK_MS = 30_000;
+const descriptorFallbacks = new Map<number, string>();
 
 export interface ArtifactStoreLimits {
 	readonly maxArtifactBytes: number;
@@ -57,57 +63,127 @@ interface ArtifactStoreOptions {
 	readonly limits?: ArtifactStoreLimits;
 }
 
+interface AnchoredDirectory {
+	readonly label: string;
+	readonly handle: FileHandle;
+	readonly stat: Stats;
+	readonly parent?: AnchoredDirectory;
+	readonly leaf?: string;
+	readonly originalPath?: string;
+}
+
+interface ReservationRecord {
+	readonly pid: number;
+	readonly byteLength: number;
+	readonly expectedSha256: string;
+	readonly reservedBytes: number;
+}
+
 const fail = (code: ArtifactStoreErrorCode, message: string, cause?: unknown): never => {
 	throw new ArtifactStoreError(code, message, cause === undefined ? undefined : { cause });
 };
 const currentUid = (): number | undefined => process.getuid?.();
+const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+const descriptorPath = (handle: FileHandle, leaf?: string): string => {
+	let base: string;
+	if (process.platform === "linux") base = `/proc/self/fd/${handle.fd}`;
+	else {
+		const fallback = descriptorFallbacks.get(handle.fd);
+		if (fallback === undefined) return fail("ARTIFACT_PATH_UNSAFE", "directory descriptor has no verified path");
+		// Darwin's /dev/fd directory descriptors cannot be traversed and Node exposes no openat(2).
+		// Retain and verify the descriptor before every operation, then verify its parent entry again.
+		// A replacement confined to the interval between those checks remains a documented Node limitation.
+		base = fallback;
+	}
+	return leaf === undefined ? base : `${base}/${leaf}`;
+};
 
-function assertOwnedDirectory(stat: Stats, label: string, expectedDevice?: bigint): void {
+function assertOwnedDirectory(stat: Stats, label: string, expectedDevice?: number): void {
 	if (!stat.isDirectory() || stat.isSymbolicLink())
 		fail("ARTIFACT_PATH_UNSAFE", `${label} must be a no-follow directory`);
 	const uid = currentUid();
 	if (uid !== undefined && stat.uid !== uid) fail("ARTIFACT_PATH_UNSAFE", `${label} has the wrong owner`);
-	if (expectedDevice !== undefined && BigInt(stat.dev) !== expectedDevice) {
+	if (expectedDevice !== undefined && stat.dev !== expectedDevice)
 		fail("ARTIFACT_PATH_UNSAFE", `${label} crosses a filesystem boundary`);
-	}
 }
 
-function assertOwnedPayload(stat: Stats, label: string): void {
-	if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
-		fail("ARTIFACT_PATH_UNSAFE", `${label} must be a regular file with one link`);
-	}
+function assertOwnedFile(stat: Stats, label: string, expectedDevice: number, allowedLinks = 1): void {
+	if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== allowedLinks)
+		fail("ARTIFACT_PATH_UNSAFE", `${label} must be a regular file with ${allowedLinks} link(s)`);
 	const uid = currentUid();
 	if (uid !== undefined && stat.uid !== uid) fail("ARTIFACT_PATH_UNSAFE", `${label} has the wrong owner`);
+	if (stat.dev !== expectedDevice) fail("ARTIFACT_PATH_UNSAFE", `${label} crosses a filesystem boundary`);
 	if ((stat.mode & 0o077) !== 0) fail("ARTIFACT_PATH_UNSAFE", `${label} must not grant group or other permissions`);
 }
 
-async function pathStat(path: string, label: string): Promise<Stats> {
+async function safeLstat(path: string, label: string): Promise<Stats> {
 	try {
-		return await lstat(path, { bigint: false });
+		return await lstat(path);
 	} catch (error) {
 		return fail("ARTIFACT_PATH_UNSAFE", `${label} cannot be anchored`, error);
 	}
 }
 
-async function ensureDirectory(path: string, label: string, expectedDevice?: bigint): Promise<Stats> {
+async function openRoot(path: string): Promise<AnchoredDirectory> {
+	const entry = await safeLstat(path, "project directory");
+	assertOwnedDirectory(entry, "project directory");
+	let handle: FileHandle;
 	try {
-		await mkdir(path, { mode: 0o700 });
+		handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-			fail("ARTIFACT_PATH_UNSAFE", `${label} cannot be created`, error);
+		return fail("ARTIFACT_PATH_UNSAFE", "project directory cannot be opened", error);
 	}
-	const stat = await pathStat(path, label);
-	assertOwnedDirectory(stat, label, expectedDevice);
-	const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+	const stat = await handle.stat();
+	assertOwnedDirectory(stat, "project directory");
+	if (stat.dev !== entry.dev || stat.ino !== entry.ino)
+		fail("ARTIFACT_PATH_UNSAFE", "project directory changed while opening");
+	descriptorFallbacks.set(handle.fd, path);
+	return { label: "project directory", handle, stat, originalPath: path };
+}
+
+async function openChild(
+	parent: AnchoredDirectory,
+	leaf: string,
+	label: string,
+	create: boolean,
+): Promise<AnchoredDirectory> {
+	const path = descriptorPath(parent.handle, leaf);
+	if (create) {
+		try {
+			await mkdir(path, { mode: 0o700 });
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+				fail("ARTIFACT_PATH_UNSAFE", `${label} cannot be created`, error);
+		}
+	}
+	const entry = await safeLstat(path, label);
+	assertOwnedDirectory(entry, label, parent.stat.dev);
+	let handle: FileHandle;
 	try {
-		const descriptorStat = await handle.stat();
-		assertOwnedDirectory(descriptorStat, label, expectedDevice);
-		if (descriptorStat.dev !== stat.dev || descriptorStat.ino !== stat.ino)
-			fail("ARTIFACT_PATH_UNSAFE", `${label} changed while opening`);
-	} finally {
-		await handle.close();
+		handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+	} catch (error) {
+		return fail("ARTIFACT_PATH_UNSAFE", `${label} cannot be opened`, error);
 	}
-	return stat;
+	const stat = await handle.stat();
+	assertOwnedDirectory(stat, label, parent.stat.dev);
+	if (stat.dev !== entry.dev || stat.ino !== entry.ino) fail("ARTIFACT_PATH_UNSAFE", `${label} changed while opening`);
+	descriptorFallbacks.set(handle.fd, path);
+	return { label, handle, stat, parent, leaf };
+}
+
+async function verifyDirectory(directory: AnchoredDirectory): Promise<void> {
+	const own = await directory.handle.stat();
+	assertOwnedDirectory(own, directory.label, directory.stat.dev);
+	if (own.dev !== directory.stat.dev || own.ino !== directory.stat.ino)
+		fail("ARTIFACT_PATH_UNSAFE", `${directory.label} descriptor changed`);
+	const entryPath = directory.parent
+		? descriptorPath(directory.parent.handle, directory.leaf)
+		: directory.originalPath;
+	if (entryPath === undefined) return fail("ARTIFACT_PATH_UNSAFE", `${directory.label} has no parent anchor`);
+	const entry = await safeLstat(entryPath, directory.label);
+	assertOwnedDirectory(entry, directory.label, directory.stat.dev);
+	if (entry.dev !== own.dev || entry.ino !== own.ino)
+		fail("ARTIFACT_PATH_UNSAFE", `${directory.label} no longer matches its parent entry`);
 }
 
 export class ArtifactStore {
@@ -115,112 +191,272 @@ export class ArtifactStore {
 	readonly artifactsDir: string;
 	readonly tempDir: string;
 	readonly limits: ArtifactStoreLimits;
-	private activeUploads = 0;
-	private activeReservationBytes = 0;
-	private stateTail: Promise<void> = Promise.resolve();
+	private readonly project: AnchoredDirectory;
+	private readonly omb: AnchoredDirectory;
+	private readonly artifacts: AnchoredDirectory;
+	private readonly temp: AnchoredDirectory;
+	private closed = false;
 
-	private constructor(rootDir: string, limits: ArtifactStoreLimits) {
+	private constructor(
+		rootDir: string,
+		limits: ArtifactStoreLimits,
+		project: AnchoredDirectory,
+		omb: AnchoredDirectory,
+		artifacts: AnchoredDirectory,
+		temp: AnchoredDirectory,
+	) {
 		this.rootDir = rootDir;
 		this.artifactsDir = join(rootDir, ".omb", "artifacts");
 		this.tempDir = join(this.artifactsDir, ".tmp");
 		this.limits = limits;
+		this.project = project;
+		this.omb = omb;
+		this.artifacts = artifacts;
+		this.temp = temp;
 	}
 
 	static async open(rootDir: string, options: ArtifactStoreOptions = {}): Promise<ArtifactStore> {
-		const store = new ArtifactStore(rootDir, options.limits ?? DEFAULT_ARTIFACT_STORE_LIMITS);
-		await store.anchorHierarchy(true);
-		return store;
+		const opened: AnchoredDirectory[] = [];
+		try {
+			const project = await openRoot(rootDir);
+			opened.push(project);
+			const omb = await openChild(project, ".omb", ".omb", true);
+			opened.push(omb);
+			const artifacts = await openChild(omb, "artifacts", ".omb/artifacts", true);
+			opened.push(artifacts);
+			const temp = await openChild(artifacts, ".tmp", ".omb/artifacts/.tmp", true);
+			opened.push(temp);
+			const store = new ArtifactStore(
+				rootDir,
+				options.limits ?? DEFAULT_ARTIFACT_STORE_LIMITS,
+				project,
+				omb,
+				artifacts,
+				temp,
+			);
+			await store.withProjectLock(() => store.recoverTempsLocked());
+			return store;
+		} catch (error) {
+			for (const directory of opened.reverse()) {
+				descriptorFallbacks.delete(directory.handle.fd);
+				await directory.handle.close();
+			}
+			throw error;
+		}
 	}
 
-	private async anchorHierarchy(create: boolean): Promise<void> {
-		const root = await pathStat(this.rootDir, "project directory");
-		assertOwnedDirectory(root, "project directory");
-		const device = BigInt(root.dev);
-		if (!create) return;
-		const omb = await ensureDirectory(join(this.rootDir, ".omb"), ".omb", device);
-		await ensureDirectory(this.artifactsDir, ".omb/artifacts", BigInt(omb.dev));
-		await ensureDirectory(this.tempDir, ".omb/artifacts/.tmp", device);
+	private async verifyHierarchy(): Promise<void> {
+		await verifyDirectory(this.project);
+		await verifyDirectory(this.omb);
+		await verifyDirectory(this.artifacts);
+		await verifyDirectory(this.temp);
 	}
 
-	private async serialized<T>(operation: () => Promise<T>): Promise<T> {
-		const result = this.stateTail.then(operation);
-		this.stateTail = result.then(
-			() => undefined,
-			() => undefined,
-		);
+	private async withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
+		await this.verifyHierarchy();
+		const lockPath = descriptorPath(this.omb.handle, "artifact-store.lock");
+		const deadline = Date.now() + LOCK_TIMEOUT_MS;
+		let lock: FileHandle | undefined;
+		while (lock === undefined) {
+			try {
+				lock = await open(
+					lockPath,
+					constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_RDWR,
+					0o600,
+				);
+				await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
+				await lock.sync();
+				await this.omb.handle.sync();
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+					fail("ARTIFACT_PATH_UNSAFE", "project artifact lock cannot be acquired", error);
+				await this.breakStaleLock(lockPath);
+				if (Date.now() >= deadline) fail("ARTIFACT_PATH_UNSAFE", "project artifact lock timed out");
+				await sleep(LOCK_RETRY_MS);
+			}
+		}
+		const release = async (): Promise<void> => {
+			const held = await lock.stat();
+			await lock.close();
+			try {
+				const entry = await lstat(lockPath);
+				if (entry.dev !== held.dev || entry.ino !== held.ino)
+					fail("ARTIFACT_PATH_UNSAFE", "project artifact lock was replaced");
+				await unlink(lockPath);
+				await this.omb.handle.sync();
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			}
+		};
+		let result: T;
+		try {
+			await this.verifyHierarchy();
+			result = await operation();
+		} catch (error) {
+			await release();
+			throw error;
+		}
+		await release();
 		return result;
 	}
 
-	private async committedBytes(): Promise<number> {
-		let total = 0;
-		for (const entry of await readdir(this.artifactsDir, { withFileTypes: true })) {
-			if (entry.name === ".tmp") continue;
-			if (!HASH_64.test(entry.name) || !entry.isDirectory() || entry.isSymbolicLink()) {
-				fail("ARTIFACT_PATH_UNSAFE", `unexpected artifact entry ${entry.name}`);
-			}
-			const payload = join(this.artifactsDir, entry.name, "payload");
-			let stat: Stats;
+	private async breakStaleLock(lockPath: string): Promise<void> {
+		let stat: Stats;
+		try {
+			stat = await lstat(lockPath);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+			throw error;
+		}
+		assertOwnedFile(stat, "project artifact lock", this.project.stat.dev);
+		if (Date.now() - stat.mtimeMs < STALE_LOCK_MS) return;
+		let pid = -1;
+		try {
+			const parsed = JSON.parse(await readFile(lockPath, "utf8")) as { pid?: unknown };
+			if (typeof parsed.pid === "number") pid = parsed.pid;
+		} catch {}
+		if (pid > 0) {
 			try {
-				stat = await pathStat(payload, `artifact ${entry.name}`);
+				process.kill(pid, 0);
+				return;
 			} catch (error) {
-				if (
-					(error as ArtifactStoreError).cause &&
-					((error as ArtifactStoreError).cause as NodeJS.ErrnoException).code === "ENOENT"
-				)
-					continue;
-				throw error;
+				if ((error as NodeJS.ErrnoException).code !== "ESRCH") return;
 			}
-			assertOwnedPayload(stat, `artifact ${entry.name}`);
-			total += stat.size;
+		}
+		const current = await lstat(lockPath);
+		if (current.dev === stat.dev && current.ino === stat.ino) await unlink(lockPath);
+	}
+
+	private async committedBytes(): Promise<number> {
+		const walk = async (directory: AnchoredDirectory): Promise<number> => {
+			let total = 0;
+			for (const entry of await readdir(descriptorPath(directory.handle), { withFileTypes: true })) {
+				const path = descriptorPath(directory.handle, entry.name);
+				const stat = await safeLstat(path, `artifact entry ${entry.name}`);
+				if (stat.isSymbolicLink()) fail("ARTIFACT_PATH_UNSAFE", `artifact entry ${entry.name} is a symlink`);
+				if (stat.isFile()) {
+					assertOwnedFile(stat, `artifact entry ${entry.name}`, this.project.stat.dev);
+					total += stat.size;
+					continue;
+				}
+				if (!stat.isDirectory()) fail("ARTIFACT_PATH_UNSAFE", `artifact entry ${entry.name} has an unsafe type`);
+				const child = await openChild(directory, entry.name, `artifact entry ${entry.name}`, false);
+				try {
+					total += await walk(child);
+				} finally {
+					await child.handle.close();
+				}
+			}
+			return total;
+		};
+		let total = 0;
+		for (const entry of await readdir(descriptorPath(this.artifacts.handle), { withFileTypes: true })) {
+			if (entry.name === ".tmp") continue;
+			if (!HASH_64.test(entry.name) || !entry.isDirectory() || entry.isSymbolicLink())
+				fail("ARTIFACT_PATH_UNSAFE", `unexpected artifact entry ${entry.name}`);
+			const child = await openChild(this.artifacts, entry.name, `artifact directory ${entry.name}`, false);
+			try {
+				total += await walk(child);
+			} finally {
+				await child.handle.close();
+			}
 		}
 		return total;
 	}
 
-	async reserve(request: ArtifactReservationRequest): Promise<ArtifactReservation> {
-		if (
-			!HASH_64.test(request.expectedSha256) ||
-			!Number.isSafeInteger(request.byteLength) ||
-			request.byteLength < 0
-		) {
-			fail("INVALID_ARTIFACT_DESCRIPTOR", "expectedSha256 and byteLength are invalid");
+	private async activeReservations(): Promise<{ count: number; bytes: number }> {
+		let count = 0;
+		let bytes = 0;
+		for (const entry of await readdir(descriptorPath(this.temp.handle), { withFileTypes: true })) {
+			const match = RESERVATION.exec(entry.name);
+			if (match === null) continue;
+			const record = await this.readReservationRecord(entry.name);
+			const uploadPath = descriptorPath(this.temp.handle, `upload-${match[1]}`);
+			const stat = await safeLstat(uploadPath, `temporary upload-${match[1]}`);
+			assertOwnedFile(stat, `temporary upload-${match[1]}`, this.project.stat.dev);
+			if (stat.size !== record.byteLength)
+				fail("ARTIFACT_PATH_UNSAFE", "reservation length does not match its temporary file");
+			count += 1;
+			bytes += record.reservedBytes;
 		}
+		return { count, bytes };
+	}
+
+	private async readReservationRecord(leaf: string): Promise<ReservationRecord> {
+		const path = descriptorPath(this.temp.handle, leaf);
+		const stat = await safeLstat(path, `reservation ${leaf}`);
+		assertOwnedFile(stat, `reservation ${leaf}`, this.project.stat.dev);
+		try {
+			const value = JSON.parse(await readFile(path, "utf8")) as Partial<ReservationRecord>;
+			if (
+				!Number.isSafeInteger(value.pid) ||
+				!Number.isSafeInteger(value.byteLength) ||
+				(value.byteLength ?? -1) < 0 ||
+				!Number.isSafeInteger(value.reservedBytes) ||
+				(value.reservedBytes ?? -1) < 0 ||
+				(value.reservedBytes ?? Number.POSITIVE_INFINITY) > (value.byteLength ?? -1) ||
+				typeof value.expectedSha256 !== "string" ||
+				!HASH_64.test(value.expectedSha256)
+			)
+				fail("ARTIFACT_PATH_UNSAFE", `reservation ${leaf} is malformed`);
+			return value as ReservationRecord;
+		} catch (error) {
+			if (error instanceof ArtifactStoreError) throw error;
+			return fail("ARTIFACT_PATH_UNSAFE", `reservation ${leaf} is malformed`, error);
+		}
+	}
+
+	async reserve(request: ArtifactReservationRequest): Promise<ArtifactReservation> {
+		if (!HASH_64.test(request.expectedSha256) || !Number.isSafeInteger(request.byteLength) || request.byteLength < 0)
+			fail("INVALID_ARTIFACT_DESCRIPTOR", "expectedSha256 and byteLength are invalid");
 		if (request.byteLength > this.limits.maxArtifactBytes)
 			fail("ARTIFACT_TOO_LARGE", "declared length exceeds the per-artifact limit");
-		return this.serialized(async () => {
-			await this.anchorHierarchy(true);
+		return this.withProjectLock(async () => {
 			let reservationBytes = request.byteLength;
 			try {
 				const existing = await this.read(`omb-artifact://sha256/${request.expectedSha256}`);
-				if (existing.byteLength !== request.byteLength) {
+				if (existing.byteLength !== request.byteLength)
 					fail("ARTIFACT_COLLISION", "existing payload length differs from the declaration");
-				}
 				reservationBytes = 0;
 			} catch (error) {
 				if (!(error instanceof ArtifactStoreError) || error.code !== "ARTIFACT_NOT_FOUND") throw error;
 			}
-			if (this.activeUploads >= this.limits.maxConcurrentUploads)
+			const active = await this.activeReservations();
+			if (active.count >= this.limits.maxConcurrentUploads)
 				fail("TOO_MANY_UPLOADS", "concurrent upload limit reached");
-			if (this.activeReservationBytes + reservationBytes > this.limits.maxActiveReservationBytes) {
+			if (active.bytes + reservationBytes > this.limits.maxActiveReservationBytes)
 				fail("ACTIVE_RESERVATION_QUOTA_EXCEEDED", "active reservation byte limit reached");
-			}
-			if (
-				(await this.committedBytes()) + this.activeReservationBytes + reservationBytes >
-				this.limits.maxProjectBytes
-			) {
+			if ((await this.committedBytes()) + active.bytes + reservationBytes > this.limits.maxProjectBytes)
 				fail("PROJECT_QUOTA_EXCEEDED", "committed bytes plus reservations exceed the project quota");
+
+			const id = randomBytes(16).toString("hex");
+			const leaf = `upload-${id}`;
+			const tempPath = descriptorPath(this.temp.handle, leaf);
+			const recordLeaf = `${leaf}.reservation`;
+			const recordPath = descriptorPath(this.temp.handle, recordLeaf);
+			let handle: FileHandle | undefined;
+			try {
+				handle = await open(
+					tempPath,
+					constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_RDWR,
+					0o600,
+				);
+				await handle.truncate(request.byteLength);
+				const stat = await handle.stat();
+				assertOwnedFile(stat, leaf, this.project.stat.dev);
+				await writeFile(
+					recordPath,
+					JSON.stringify({ pid: process.pid, ...request, reservedBytes: reservationBytes }),
+					{ flag: "wx", mode: 0o600 },
+				);
+				await this.temp.handle.sync();
+				return new ArtifactReservation(this, request, reservationBytes, leaf, recordLeaf, handle);
+			} catch (error) {
+				await handle?.close().catch(() => undefined);
+				await unlink(tempPath).catch(() => undefined);
+				await unlink(recordPath).catch(() => undefined);
+				throw error;
 			}
-			const leaf = `upload-${randomBytes(16).toString("hex")}`;
-			const tempPath = join(this.tempDir, leaf);
-			const handle = await open(
-				tempPath,
-				constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_WRONLY,
-				0o600,
-			);
-			const stat = await handle.stat();
-			assertOwnedPayload(stat, leaf);
-			this.activeUploads += 1;
-			this.activeReservationBytes += reservationBytes;
-			return new ArtifactReservation(this, request, reservationBytes, tempPath, handle);
 		});
 	}
 
@@ -241,12 +477,11 @@ export class ArtifactStore {
 	async read(uri: string): Promise<Uint8Array> {
 		const match = URI.exec(uri);
 		if (match === null) throw new ArtifactStoreError("INVALID_ARTIFACT_DESCRIPTOR", "URI is not canonical");
-		await this.anchorHierarchy(true);
+		await this.verifyHierarchy();
 		const digestValue = match[1]!;
-		const payload = join(this.artifactsDir, digestValue, "payload");
-		let stat: Stats;
+		let digestDirectory: AnchoredDirectory;
 		try {
-			stat = await pathStat(payload, `artifact ${digestValue}`);
+			digestDirectory = await openChild(this.artifacts, digestValue, `artifact directory ${digestValue}`, false);
 		} catch (error) {
 			if (
 				(error as ArtifactStoreError).cause &&
@@ -255,105 +490,228 @@ export class ArtifactStore {
 				fail("ARTIFACT_NOT_FOUND", digestValue);
 			throw error;
 		}
-		assertOwnedPayload(stat, `artifact ${digestValue}`);
-		const handle = await open(payload, constants.O_RDONLY | constants.O_NOFOLLOW);
 		try {
-			const opened = await handle.stat();
-			assertOwnedPayload(opened, `artifact ${digestValue}`);
-			if (opened.dev !== stat.dev || opened.ino !== stat.ino)
-				fail("ARTIFACT_PATH_UNSAFE", "payload changed while opening");
-			const bytes = await handle.readFile();
-			if (createHash("sha256").update(bytes).digest("hex") !== digestValue)
-				fail("ARTIFACT_COLLISION", "stored payload does not match its digest directory");
-			return bytes;
+			const payloadPath = descriptorPath(digestDirectory.handle, "payload");
+			let handle: FileHandle;
+			try {
+				handle = await open(payloadPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") fail("ARTIFACT_NOT_FOUND", digestValue);
+				throw error;
+			}
+			try {
+				const stat = await handle.stat();
+				assertOwnedFile(stat, `artifact ${digestValue}`, this.project.stat.dev);
+				const bytes = await handle.readFile();
+				if (createHash("sha256").update(bytes).digest("hex") !== digestValue)
+					fail("ARTIFACT_COLLISION", "stored payload does not match its digest directory");
+				return bytes;
+			} finally {
+				await handle.close();
+			}
 		} finally {
-			await handle.close();
+			await digestDirectory.handle.close();
 		}
 	}
 
 	async recoverTemps(): Promise<void> {
-		await this.anchorHierarchy(true);
-		for (const entry of await readdir(this.tempDir, { withFileTypes: true })) {
-			if (!/^upload-[0-9a-f]{32}$/.test(entry.name)) {
-				fail("ARTIFACT_PATH_UNSAFE", `unexpected temporary entry ${entry.name}`);
+		await this.withProjectLock(() => this.recoverTempsLocked());
+	}
+
+	private async recoverTempsLocked(): Promise<void> {
+		const entries = await readdir(descriptorPath(this.temp.handle), { withFileTypes: true });
+		const live = new Set<string>();
+		for (const entry of entries) {
+			const match = RESERVATION.exec(entry.name);
+			if (match === null) continue;
+			const record = await this.readReservationRecord(entry.name);
+			let running = record.pid === process.pid;
+			if (!running) {
+				try {
+					process.kill(record.pid, 0);
+					running = true;
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ESRCH") running = true;
+				}
 			}
-			const path = join(this.tempDir, entry.name);
-			const stat = await pathStat(path, `temporary ${entry.name}`);
+			if (running) live.add(match[1]!);
+			else {
+				await this.unlinkSafe(`upload-${match[1]}`, true);
+				await this.unlinkSafe(entry.name, true);
+			}
+		}
+		for (const entry of entries) {
+			const match = UPLOAD.exec(entry.name);
+			if (match === null) {
+				if (RESERVATION.test(entry.name)) continue;
+				return fail("ARTIFACT_PATH_UNSAFE", `unexpected temporary entry ${entry.name}`);
+			}
+			if (live.has(match[1]!)) continue;
+			const path = descriptorPath(this.temp.handle, entry.name);
+			const stat = await safeLstat(path, `temporary ${entry.name}`);
 			if (stat.nlink === 1) {
-				assertOwnedPayload(stat, `temporary ${entry.name}`);
+				assertOwnedFile(stat, `temporary ${entry.name}`, this.project.stat.dev);
 				await unlink(path);
 				continue;
 			}
-			if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 2 || (stat.mode & 0o077) !== 0) {
-				fail("ARTIFACT_PATH_UNSAFE", `temporary ${entry.name} has unsafe crash metadata`);
-			}
-			const uid = currentUid();
-			if (uid !== undefined && stat.uid !== uid) {
-				fail("ARTIFACT_PATH_UNSAFE", `temporary ${entry.name} has the wrong owner`);
-			}
+			assertOwnedFile(stat, `temporary ${entry.name}`, this.project.stat.dev, 2);
 			const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-			let bytes: Buffer;
+			let digestValue: string;
 			try {
-				const opened = await handle.stat();
-				if (opened.dev !== stat.dev || opened.ino !== stat.ino) {
-					fail("ARTIFACT_PATH_UNSAFE", `temporary ${entry.name} changed while opening`);
-				}
-				bytes = await handle.readFile();
+				const hash = createHash("sha256");
+				for await (const chunk of handle.createReadStream()) hash.update(chunk);
+				digestValue = hash.digest("hex");
 			} finally {
 				await handle.close();
 			}
-			const digestValue = createHash("sha256").update(bytes).digest("hex");
-			const payload = await pathStat(join(this.artifactsDir, digestValue, "payload"), `artifact ${digestValue}`);
-			if (payload.dev !== stat.dev || payload.ino !== stat.ino || payload.nlink !== 2) {
-				fail("ARTIFACT_PATH_UNSAFE", `temporary ${entry.name} is not linked to its digest payload`);
+			const digestDirectory = await openChild(
+				this.artifacts,
+				digestValue,
+				`artifact directory ${digestValue}`,
+				false,
+			);
+			try {
+				const payload = await safeLstat(
+					descriptorPath(digestDirectory.handle, "payload"),
+					`artifact ${digestValue}`,
+				);
+				if (payload.dev !== stat.dev || payload.ino !== stat.ino || payload.nlink !== 2)
+					fail("ARTIFACT_PATH_UNSAFE", `temporary ${entry.name} is not linked to its digest payload`);
+			} finally {
+				await digestDirectory.handle.close();
 			}
 			await unlink(path);
 		}
+		await this.temp.handle.sync();
 	}
 
-	async finishReservation(bytes: number): Promise<void> {
-		await this.serialized(async () => {
-			this.activeUploads -= 1;
-			this.activeReservationBytes -= bytes;
+	private async unlinkSafe(leaf: string, allowMissing: boolean, allowedLinks = 1): Promise<void> {
+		const path = descriptorPath(this.temp.handle, leaf);
+		try {
+			const stat = await lstat(path);
+			assertOwnedFile(stat, `temporary ${leaf}`, this.project.stat.dev, allowedLinks);
+			await unlink(path);
+		} catch (error) {
+			if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+			throw error;
+		}
+	}
+
+	async commitReservation(reservation: ArtifactReservation, actualDigest: string): Promise<ArtifactDescriptor> {
+		return this.withProjectLock(async () => {
+			await this.verifyHierarchy();
+			const finalTemp = await reservation.handle.stat();
+			assertOwnedFile(finalTemp, reservation.leaf, this.project.stat.dev);
+			const digestDirectory = await openChild(
+				this.artifacts,
+				actualDigest,
+				`artifact directory ${actualDigest}`,
+				true,
+			);
+			try {
+				const payloadPath = descriptorPath(digestDirectory.handle, "payload");
+				const tempPath = descriptorPath(this.temp.handle, reservation.leaf);
+				try {
+					// Node exposes neither renameat2(RENAME_NOREPLACE) nor renameatx_np(RENAME_EXCL).
+					// A descriptor-anchored hard link is the strongest atomic no-replace primitive it exposes:
+					// link creation is exclusive, and a crash before temp unlink is recovered from the two links.
+					await link(tempPath, payloadPath);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+					const existing = await this.read(`omb-artifact://sha256/${actualDigest}`);
+					if (existing.byteLength !== reservation.request.byteLength)
+						fail("ARTIFACT_COLLISION", "existing payload length differs");
+					await this.unlinkSafe(reservation.leaf, false);
+					await this.unlinkSafe(reservation.recordLeaf, false);
+					await this.temp.handle.sync();
+					return reservation.descriptor(actualDigest);
+				}
+				await digestDirectory.handle.sync();
+				const published = await safeLstat(payloadPath, `artifact ${actualDigest}`);
+				if (published.dev !== finalTemp.dev || published.ino !== finalTemp.ino || published.nlink !== 2)
+					fail("ARTIFACT_PATH_UNSAFE", "published payload does not match the verified temporary file");
+				await this.unlinkSafe(reservation.leaf, false, 2);
+				const singleLink = await safeLstat(payloadPath, `artifact ${actualDigest}`);
+				assertOwnedFile(singleLink, `artifact ${actualDigest}`, this.project.stat.dev);
+				await this.unlinkSafe(reservation.recordLeaf, false);
+				await this.temp.handle.sync();
+				await digestDirectory.handle.sync();
+				return reservation.descriptor(actualDigest);
+			} finally {
+				await digestDirectory.handle.close();
+			}
 		});
+	}
+
+	async abortReservation(reservation: ArtifactReservation): Promise<void> {
+		await this.withProjectLock(async () => {
+			await this.unlinkSafe(reservation.leaf, true);
+			await this.unlinkSafe(reservation.recordLeaf, true);
+			await this.temp.handle.sync();
+		});
+	}
+
+	async close(): Promise<void> {
+		if (this.closed) return;
+		this.closed = true;
+		for (const directory of [this.temp, this.artifacts, this.omb, this.project]) {
+			descriptorFallbacks.delete(directory.handle.fd);
+			await directory.handle.close();
+		}
 	}
 }
 
 export class ArtifactReservation {
+	readonly store: ArtifactStore;
+	readonly request: ArtifactReservationRequest;
+	readonly reservationBytes: number;
+	readonly leaf: string;
+	readonly recordLeaf: string;
+	readonly handle: FileHandle;
 	private readonly hash = createHash("sha256");
-	private readonly store: ArtifactStore;
-	private readonly request: ArtifactReservationRequest;
-	private readonly reservationBytes: number;
-	private readonly tempPath: string;
-	private readonly handle: FileHandle;
+	private readonly ranges: Array<{ start: number; end: number }> = [];
 	private written = 0;
+	private sequential = true;
 	private closed = false;
 
 	constructor(
 		store: ArtifactStore,
 		request: ArtifactReservationRequest,
 		reservationBytes: number,
-		tempPath: string,
+		leaf: string,
+		recordLeaf: string,
 		handle: FileHandle,
 	) {
 		this.store = store;
 		this.request = request;
 		this.reservationBytes = reservationBytes;
-		this.tempPath = tempPath;
+		this.leaf = leaf;
+		this.recordLeaf = recordLeaf;
 		this.handle = handle;
 	}
 
-	async write(chunk: Uint8Array): Promise<void> {
+	async write(chunk: Uint8Array, position = this.written): Promise<void> {
 		if (this.closed) fail("ARTIFACT_UPLOAD_CLOSED", "upload is terminal");
-		if (!(chunk instanceof Uint8Array))
-			fail("INVALID_ARTIFACT_DESCRIPTOR", "artifact chunks must be Uint8Array values");
-		if (this.written + chunk.byteLength > this.request.byteLength) {
+		if (!(chunk instanceof Uint8Array) || !Number.isSafeInteger(position) || position < 0)
+			fail("INVALID_ARTIFACT_DESCRIPTOR", "artifact chunk and position are invalid");
+		const end = position + chunk.byteLength;
+		if (end > this.request.byteLength) {
 			await this.abort();
 			fail("ARTIFACT_LENGTH_MISMATCH", "stream exceeded its declared byte length");
 		}
-		await this.handle.write(chunk);
-		this.hash.update(chunk);
+		if (this.ranges.some((range) => position < range.end && end > range.start)) {
+			await this.abort();
+			fail("ARTIFACT_LENGTH_MISMATCH", "artifact chunks overlap");
+		}
+		await this.handle.write(chunk, 0, chunk.byteLength, position);
+		if (position === this.written && this.sequential) this.hash.update(chunk);
+		else this.sequential = false;
+		this.ranges.push({ start: position, end });
 		this.written += chunk.byteLength;
+	}
+
+	async writeAt(position: number, chunk: Uint8Array): Promise<void> {
+		await this.write(chunk, position);
 	}
 
 	async commit(): Promise<ArtifactDescriptor> {
@@ -361,50 +719,43 @@ export class ArtifactReservation {
 		try {
 			if (this.written !== this.request.byteLength)
 				fail("ARTIFACT_LENGTH_MISMATCH", "stream did not match its declared byte length");
-			const actualDigest = this.hash.digest("hex");
+			let actualDigest: string;
+			if (this.sequential) actualDigest = this.hash.digest("hex");
+			else {
+				const hash = createHash("sha256");
+				for await (const chunk of this.handle.createReadStream({
+					start: 0,
+					end: this.request.byteLength - 1,
+					autoClose: false,
+				}))
+					hash.update(chunk);
+				actualDigest = hash.digest("hex");
+			}
 			if (actualDigest !== this.request.expectedSha256)
 				fail("ARTIFACT_DIGEST_MISMATCH", "stream did not match its declared digest");
 			await this.handle.sync();
-			await this.handle.close();
-			const digestDir = join(this.store.artifactsDir, actualDigest);
-			await ensureDirectory(digestDir, `artifact directory ${actualDigest}`);
-			const payload = join(digestDir, "payload");
-			try {
-				await link(this.tempPath, payload);
-				await unlink(this.tempPath);
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-				const existing = await this.store.read(`omb-artifact://sha256/${actualDigest}`);
-				if (existing.byteLength !== this.request.byteLength)
-					fail("ARTIFACT_COLLISION", "existing payload length differs");
-				await unlink(this.tempPath);
-			}
-			const published = await pathStat(payload, `artifact ${actualDigest}`);
-			assertOwnedPayload(published, `artifact ${actualDigest}`);
+			const descriptor = await this.store.commitReservation(this, actualDigest);
 			this.closed = true;
-			await this.store.finishReservation(this.reservationBytes);
-			return {
-				sha256: actualDigest,
-				uri: `omb-artifact://sha256/${actualDigest}`,
-				byteLength: this.request.byteLength,
-			};
+			await this.handle.close();
+			return descriptor;
 		} catch (error) {
 			await this.abort();
 			throw error;
 		}
 	}
 
+	descriptor(actualDigest: string): ArtifactDescriptor {
+		return {
+			sha256: actualDigest,
+			uri: `omb-artifact://sha256/${actualDigest}`,
+			byteLength: this.request.byteLength,
+		};
+	}
+
 	async abort(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
-		try {
-			await this.handle.close();
-		} catch {}
-		try {
-			await unlink(this.tempPath);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		}
-		await this.store.finishReservation(this.reservationBytes);
+		await this.handle.close().catch(() => undefined);
+		await this.store.abortReservation(this);
 	}
 }
