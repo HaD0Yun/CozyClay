@@ -106,14 +106,32 @@ def verify_connect_precondition(
 
 
 def prepare_project_index(
-    directory: str, scene_project_id: str, project_created: bool
+    directory: str,
+    scene_project_id: str,
+    project_created: bool,
+    manifest: dict | None = None,
 ) -> bool:
-    """Persist a new/missing index, or verify an existing index without rewriting it."""
+    """Persist a missing or legacy index, or verify a durable document unchanged."""
     stored = None if project_created else read_project_index(directory)
     if stored is not None:
         verify_project_ids_match(scene_project_id, stored.get("project_id"))
-        return False
-    write_project_index(directory, scene_project_id)
+        if manifest is None or "current_revision_id" in stored:
+            return False
+    if manifest is None:
+        write_project_index(directory, scene_project_id)
+    else:
+        revision_id = manifest.get("revisionId") if isinstance(manifest, dict) else None
+        if not isinstance(revision_id, str) or not revision_id:
+            raise ProjectStoreError("scene manifest requires a nonempty revisionId")
+        write_project_index(
+            directory,
+            scene_project_id,
+            {
+                "schema_version": 1,
+                "current_revision_id": revision_id,
+                "manifest": manifest,
+            },
+        )
     return True
 
 

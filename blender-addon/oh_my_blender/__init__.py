@@ -18,6 +18,10 @@ except ImportError:  # pragma: no cover - exercised by importing this package
 
 
 if bpy is not None:
+    try:
+        from . import manifest
+    except ImportError:  # Host-side UI tests provide bpy without Blender's mathutils.
+        manifest = None
     class OMB_OT_initialize_project(bpy.types.Operator):
         bl_idname = "omb.initialize_project"
         bl_label = "Initialize Project"
@@ -35,9 +39,15 @@ if bpy is not None:
 
             directory = bpy.path.abspath("//")
             try:
-                project_store.prepare_project_index(
-                    directory, scene["omb.project_id"], project_created
+                stored = (
+                    None
+                    if project_created
+                    else project_store.read_project_index(directory)
                 )
+                if stored is not None:
+                    project_store.verify_project_ids_match(
+                        scene["omb.project_id"], stored.get("project_id")
+                    )
             except (project_store.ProjectStoreError, IdentityError) as exc:
                 if project_created:
                     del scene["omb.project_id"]
@@ -66,6 +76,24 @@ if bpy is not None:
             originals = project_store.apply_property_assignments(
                 dict(entities), assignments
             )
+            try:
+                if stored is None or "current_revision_id" not in stored:
+                    if manifest is None:
+                        raise project_store.ProjectStoreError(
+                            "Scene manifest extraction is unavailable"
+                        )
+                    project_store.prepare_project_index(
+                        directory,
+                        scene["omb.project_id"],
+                        project_created,
+                        manifest.extract_scene_manifest_v2(),
+                    )
+            except (project_store.ProjectStoreError, IdentityError) as exc:
+                project_store.restore_property_assignments(originals)
+                if project_created:
+                    del scene["omb.project_id"]
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
             try:
                 if project_created or assignments:
                     project_store.append_journal(
