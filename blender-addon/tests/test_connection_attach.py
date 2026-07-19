@@ -296,13 +296,25 @@ class AttachConnectionTests(unittest.TestCase):
 
                 runtime_directory = pathlib.Path(issued["runtime_directory"])
                 handoff = runtime_directory / "attach-handoff.json"
-                handoff.write_text(json.dumps({
-                    "schema_version": 1,
-                    "project_id": "33333333-3333-4333-8333-333333333333",
-                    "ticket": issued["ticket"],
-                    "expires_at_ms": 9_999_999_999_999,
-                }), encoding="utf-8")
-                os.chmod(handoff, 0o600)
+                self.assertTrue(handoff.is_file())
+                self.assertEqual(stat.S_IMODE(handoff.stat().st_mode), 0o600)
+                handoff_payload = json.loads(handoff.read_text(encoding="utf-8"))
+                self.assertEqual(handoff_payload["schema_version"], 1)
+                self.assertEqual(
+                    handoff_payload["project_id"],
+                    "33333333-3333-4333-8333-333333333333",
+                )
+                self.assertEqual(handoff_payload["ticket"], issued["ticket"])
+                self.assertIsInstance(handoff_payload["expires_at_ms"], int)
+                self.assertGreater(handoff_payload["expires_at_ms"], 0)
+
+                daemon_argv = subprocess.run(
+                    ["ps", "-p", str(process.pid), "-o", "command="],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+                self.assertNotIn(issued["ticket"], daemon_argv)
                 bridge = connect_from_handoff(
                     cwd=project,
                     project_id="33333333-3333-4333-8333-333333333333",
@@ -328,6 +340,11 @@ class AttachConnectionTests(unittest.TestCase):
                 self.assertEqual(controller.recv_json()["type"], "shutdown_ack")
                 process.wait(timeout=3.0)
                 self.assertEqual(process.returncode, 0)
+                captured_stdout = startup_line + process.stdout.read()
+                assert process.stderr is not None
+                captured_stderr = process.stderr.read()
+                self.assertNotIn(issued["ticket"], captured_stdout)
+                self.assertNotIn(issued["ticket"], captured_stderr)
             finally:
                 if bridge is not None:
                     bridge.disconnect("test_cleanup", timeout=0.1)

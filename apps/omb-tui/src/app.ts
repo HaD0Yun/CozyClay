@@ -162,6 +162,8 @@ export class DirectorTui {
 			if (attached) {
 				clearInterval(this.bridgeTicketTimer);
 				this.bridgeTicketTimer = undefined;
+				this.bridgeText.setText("Blender attached");
+				this.render();
 				return;
 			}
 			this.startBridgeTicketReissue();
@@ -190,7 +192,7 @@ export class DirectorTui {
 		try {
 			const ticket = await this.session.issueBridgeTicket();
 			this.bridgeText.setText(
-				`Blender attach: runtime=${ticket.runtimeDirectory} ticket=${ticket.ticket} expires=${ticket.expiresInMs}ms`,
+				`Blender attach: handoff ready (expires in ${Math.ceil(ticket.expiresInMs / 1_000)}s)`,
 			);
 			this.render();
 		} catch (error) {

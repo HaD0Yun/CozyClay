@@ -11,6 +11,7 @@ const BASE_ENVIRONMENT_ALLOWLIST = [
 	"LC_ALL",
 	"LC_CTYPE",
 	"TMPDIR",
+	"XDG_RUNTIME_DIR",
 	"TEMP",
 	"TMP",
 	"SYSTEMROOT",
@@ -112,7 +113,10 @@ function isolatedEnvironment(
 	for (const name of BASE_ENVIRONMENT_ALLOWLIST) {
 		if (source[name]) environment[name] = source[name];
 	}
-	if (runtimeBaseDirectory !== undefined) environment.TMPDIR = runtimeBaseDirectory;
+	if (runtimeBaseDirectory !== undefined) {
+		environment.XDG_RUNTIME_DIR = runtimeBaseDirectory;
+		environment.TMPDIR = runtimeBaseDirectory;
+	}
 	environment.TSX_TSCONFIG_PATH = path.join(repositoryRoot, "tsconfig.json");
 	const provider = flagValue(arguments_, "--provider");
 	if (provider !== undefined) {

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DirectorEvent, DirectorServerMessage } from "../src/protocol.ts";
-import { connectController, reconnectController } from "../src/controller.ts";
+import { connectController, reconnectController, resolveProjectId } from "../src/controller.ts";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const launchId = "33333333-3333-4333-8333-333333333333";
@@ -357,6 +357,53 @@ test("the controller hello carries the durable project identity when one exists"
 		await session.disconnect();
 	} finally {
 		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("the controller hello falls back to a path identity only when the project index is absent", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-project-id-absent-"));
+	const projectDirectory = path.join(root, "project");
+	await mkdir(projectDirectory);
+	try {
+		assert.match(
+			await resolveProjectId(projectDirectory),
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("the controller rejects corrupt durable project JSON", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-project-id-corrupt-"));
+	const projectDirectory = path.join(root, "project");
+	await mkdir(path.join(projectDirectory, ".omb"), { recursive: true });
+	await writeFile(path.join(projectDirectory, ".omb", "project.json"), "{not json");
+	try {
+		await assert.rejects(
+			resolveProjectId(projectDirectory),
+			/CONTROLLER_PROJECT_INVALID: malformed JSON/,
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("the controller rejects an invalid durable project id", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-project-id-invalid-"));
+	const projectDirectory = path.join(root, "project");
+	await mkdir(path.join(projectDirectory, ".omb"), { recursive: true });
+	await writeFile(
+		path.join(projectDirectory, ".omb", "project.json"),
+		JSON.stringify({ schema_version: 1, project_id: "not-a-project-id" }),
+	);
+	try {
+		await assert.rejects(
+			resolveProjectId(projectDirectory),
+			/CONTROLLER_PROJECT_INVALID: invalid project record/,
+		);
+	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });

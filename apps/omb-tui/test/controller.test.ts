@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { connectController } from "../src/controller.ts";
-import { controllerCredentialPath, discoverControllers } from "../src/discovery.ts";
+import { controllerCredentialPath, defaultRuntimeBaseDirectory, discoverControllers } from "../src/discovery.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -76,6 +76,44 @@ test("real daemon spawn, detach, discovery reattach, and TUI exit preserve the d
 		assert.equal(resumed.pid, first.pid);
 		assert.equal(await resumed.ping("reattached"), "reattached");
 		await resumed.shutdown();
+	} finally {
+		if (spawnedPid !== undefined && await processIsAlive(spawnedPid)) process.kill(spawnedPid, "SIGTERM");
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("XDG runtime resolution and daemon advertisement use the same directory", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-xdg-test-"));
+	const projectDirectory = path.join(root, "project");
+	const xdgRuntimeDirectory = path.join(root, "xdg");
+	const tmpDirectory = path.join(root, "tmp");
+	await Promise.all([mkdir(projectDirectory), mkdir(xdgRuntimeDirectory), mkdir(tmpDirectory)]);
+	const environment = {
+		...process.env,
+		OMB_NODE_EXECUTABLE: process.execPath,
+		XDG_RUNTIME_DIR: xdgRuntimeDirectory,
+		TMPDIR: tmpDirectory,
+	};
+	let spawnedPid: number | undefined;
+	try {
+		assert.equal(defaultRuntimeBaseDirectory(environment), xdgRuntimeDirectory);
+		const session = await connectController({
+			projectDirectory,
+			daemonArguments: ["--faux"],
+			environment,
+			repositoryRoot,
+		});
+		spawnedPid = session.pid;
+		assert.equal(session.runtimeDirectory.startsWith(path.join(xdgRuntimeDirectory, "omb-")), true);
+		assert.equal((await discoverControllers({
+			projectDirectory,
+			runtimeBaseDirectory: xdgRuntimeDirectory,
+		})).length, 1);
+		assert.equal((await discoverControllers({
+			projectDirectory,
+			runtimeBaseDirectory: tmpDirectory,
+		})).length, 0);
+		await session.shutdown();
 	} finally {
 		if (spawnedPid !== undefined && await processIsAlive(spawnedPid)) process.kill(spawnedPid, "SIGTERM");
 		await rm(root, { recursive: true, force: true });

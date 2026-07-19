@@ -103,14 +103,23 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
  * .omb/project.json; the path-derived fallback exists only for projects
  * that have not been initialized yet.
  */
-async function projectId(projectDirectory: string): Promise<string> {
+export async function resolveProjectId(projectDirectory: string): Promise<string> {
+	const file = path.join(projectDirectory, ".omb", "project.json");
+	let raw: string;
 	try {
-		const raw = await readFile(path.join(projectDirectory, ".omb", "project.json"), "utf8");
+		raw = await readFile(file, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallbackProjectId(projectDirectory);
+		throw new Error(`CONTROLLER_PROJECT_INVALID: cannot read ${file}`, { cause: error });
+	}
+	try {
 		const parsed: unknown = JSON.parse(raw);
-		const stored = isRecord(parsed) ? parsed.project_id : undefined;
+		const stored = isRecord(parsed) && parsed.schema_version === 1 ? parsed.project_id : undefined;
 		if (typeof stored === "string" && UUID_PATTERN.test(stored)) return stored;
-	} catch {}
-	return fallbackProjectId(projectDirectory);
+	} catch (error) {
+		throw new Error(`CONTROLLER_PROJECT_INVALID: malformed JSON in ${file}`, { cause: error });
+	}
+	throw new Error(`CONTROLLER_PROJECT_INVALID: invalid project record in ${file}`);
 }
 
 async function authenticateController(options: {
@@ -125,25 +134,26 @@ async function authenticateController(options: {
 		credential: options.credential,
 		signal: options.signal,
 	});
-	const helloAckPromise = websocket.next(
-		(message) => isRecord(message) && message.type === "hello_ack",
-		2_000,
-		options.signal,
-	);
-	const authPromise = websocket.next(
-		(message) => isRecord(message) && message.type === "controller_auth",
-		2_000,
-		options.signal,
-	);
-	websocket.send({
-		type: "hello",
-		protocol: 1,
-		addon_version: "omb-tui/0.1.0",
-		blender_version: "n/a",
-		project_id: await projectId(options.projectDirectory),
-		client_nonce: randomBytes(16).toString("base64url"),
-	});
 	try {
+		const projectIdentity = await resolveProjectId(options.projectDirectory);
+		const helloAckPromise = websocket.next(
+			(message) => isRecord(message) && message.type === "hello_ack",
+			2_000,
+			options.signal,
+		);
+		const authPromise = websocket.next(
+			(message) => isRecord(message) && message.type === "controller_auth",
+			2_000,
+			options.signal,
+		);
+		websocket.send({
+			type: "hello",
+			protocol: 1,
+			addon_version: "omb-tui/0.1.0",
+			blender_version: "n/a",
+			project_id: projectIdentity,
+			client_nonce: randomBytes(16).toString("base64url"),
+		});
 		const [helloAck, auth] = await Promise.all([helloAckPromise, authPromise]);
 		if (!isDirectorServerMessage(helloAck) || helloAck.type !== "hello_ack") {
 			throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid hello acknowledgement");
