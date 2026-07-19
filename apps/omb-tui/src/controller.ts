@@ -12,7 +12,9 @@ import {
 import { launchDaemon } from "./launcher.ts";
 import {
 	isDirectorServerMessage,
+	type DirectorEvent,
 	type DirectorServerMessage,
+	type DirectorTranscriptRequest,
 	type DirectorTurnRequest,
 } from "./protocol.ts";
 import { connectWebSocket, type ControllerWebSocket } from "./ws-client.ts";
@@ -20,6 +22,16 @@ import { connectWebSocket, type ControllerWebSocket } from "./ws-client.ts";
 const ZERO_REVISION = "0".repeat(64);
 const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
 const DIRECTOR_TURN_CAPABILITY = "director_turn_v1";
+const DIRECTOR_TRANSCRIPT_PAGE_SIZE = 64;
+
+function isDirectorEvent(message: DirectorServerMessage): message is DirectorEvent {
+	return message.type === "director_turn_started" ||
+		message.type === "director_tool_call_started" ||
+		message.type === "director_tool_call_finished" ||
+		message.type === "director_turn_completed" ||
+		message.type === "director_turn_failed" ||
+		message.type === "director_turn_cancelled";
+}
 
 export interface ConnectControllerOptions {
 	readonly projectDirectory: string;
@@ -72,16 +84,16 @@ async function authenticateController(options: {
 	});
 	try {
 		const [helloAck, auth] = await Promise.all([helloAckPromise, authPromise]);
-		if (!isRecord(helloAck) || !Array.isArray(helloAck.capabilities)) {
+		if (!isDirectorServerMessage(helloAck) || helloAck.type !== "hello_ack") {
 			throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid hello acknowledgement");
 		}
-		if (!isRecord(auth) || typeof auth.resume_token !== "string") {
+		if (!isDirectorServerMessage(auth) || auth.type !== "controller_auth") {
 			throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid controller credential");
 		}
 		return {
 			websocket,
 			resumeToken: auth.resume_token,
-			capabilities: helloAck.capabilities.filter((value): value is string => typeof value === "string"),
+			capabilities: helloAck.capabilities,
 		};
 	} catch (error) {
 		websocket.disconnect();
@@ -119,6 +131,38 @@ async function attachExisting(
 	if (lastError instanceof Error && lastError.message.startsWith("CONTROLLER_CONNECT_FAILED:")) return undefined;
 	throw lastError;
 }
+class TranscriptReplay {
+	private readonly websocket: ControllerWebSocket;
+	private readonly liveEvents: DirectorEvent[] = [];
+	private replayedEvents: readonly DirectorEvent[] = [];
+	private readonly listener: (message: unknown) => void;
+
+	constructor(websocket: ControllerWebSocket) {
+		this.websocket = websocket;
+		this.listener = (message: unknown) => {
+			if (isDirectorServerMessage(message) && isDirectorEvent(message)) this.liveEvents.push(message);
+		};
+		this.websocket.on("message", this.listener);
+	}
+
+	setReplayed(events: readonly DirectorEvent[]): void {
+		this.replayedEvents = events;
+	}
+
+	finish(): readonly DirectorServerMessage[] {
+		this.websocket.off("message", this.listener);
+		const merged: DirectorEvent[] = [];
+		const seen = new Set<string>();
+		for (const event of [...this.replayedEvents, ...this.liveEvents]) {
+			const key = `${event.id}:${event.sequence}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			merged.push(event);
+		}
+		return merged;
+	}
+
+}
 
 export class ControllerSession {
 	readonly connectionKind: "spawned" | "attached";
@@ -138,7 +182,7 @@ export class ControllerSession {
 		readonly port: number;
 		readonly runtimeDirectory: string;
 		readonly identity: ControllerIdentity;
-		readonly initialMessages: readonly DirectorServerMessage[];
+		readonly transcriptReplay: TranscriptReplay;
 	}) {
 		this.connectionKind = options.connectionKind;
 		this.pid = options.pid;
@@ -147,11 +191,11 @@ export class ControllerSession {
 		this.websocket = options.identity.websocket;
 		this.resumeToken = options.identity.resumeToken;
 		this.capabilities = options.identity.capabilities;
-		this.initialMessages = options.initialMessages;
-		for (const message of this.initialMessages) this.observe(message);
 		this.websocket.on("message", (message: unknown) => {
 			if (isDirectorServerMessage(message)) this.observe(message);
 		});
+		this.initialMessages = options.transcriptReplay.finish();
+		for (const message of this.initialMessages) this.observe(message);
 	}
 
 	onMessage(listener: (message: DirectorServerMessage) => void): () => void {
@@ -208,11 +252,9 @@ export class ControllerSession {
 		const response = this.websocket.next((message) => isRecord(message) && message.type === "attach_ticket");
 		this.websocket.send({ type: "issue_attach_ticket", role: "bridge" });
 		const message = await response;
-		if (
-			!isRecord(message) ||
-			typeof message.ticket !== "string" ||
-			typeof message.expires_in_ms !== "number"
-		) throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid attach ticket");
+		if (!isDirectorServerMessage(message) || message.type !== "attach_ticket") {
+			throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid attach ticket");
+		}
 		return {
 			runtimeDirectory: this.runtimeDirectory,
 			ticket: message.ticket,
@@ -249,18 +291,41 @@ export class ControllerSession {
 	}
 }
 
-async function fetchTranscript(identity: ControllerIdentity): Promise<readonly DirectorServerMessage[]> {
-	if (!identity.capabilities.includes(DIRECTOR_TRANSCRIPT_CAPABILITY)) return [];
-	const id = randomUUID();
-	const response = identity.websocket.next(
-		(message) => isRecord(message) && message.type === "director_transcript" && message.id === id,
-	);
-	identity.websocket.send({ type: "director_transcript_request", id });
-	const message = await response;
-	if (!isDirectorServerMessage(message) || message.type !== "director_transcript") {
-		throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid director transcript");
+async function fetchTranscript(identity: ControllerIdentity): Promise<TranscriptReplay> {
+	const replay = new TranscriptReplay(identity.websocket);
+	if (!identity.capabilities.includes(DIRECTOR_TRANSCRIPT_CAPABILITY)) return replay;
+	const events: DirectorEvent[] = [];
+	let cursor = 0;
+	try {
+		while (true) {
+			const request: DirectorTranscriptRequest = {
+				type: "director_transcript_request",
+				id: randomUUID(),
+				cursor,
+				page_size: DIRECTOR_TRANSCRIPT_PAGE_SIZE,
+			};
+			const response = identity.websocket.next(
+				(message) => isRecord(message) && message.type === "director_transcript" && message.id === request.id,
+			);
+			identity.websocket.send(request);
+			const message = await response;
+			if (!isDirectorServerMessage(message) || message.type !== "director_transcript") {
+				throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid director transcript");
+			}
+			events.push(...message.events);
+			if (message.next_cursor === null) break;
+			if (message.next_cursor <= cursor) {
+				throw new Error("CONTROLLER_PROTOCOL_ERROR: director transcript cursor did not advance");
+			}
+			cursor = message.next_cursor;
+		}
+		replay.setReplayed(events);
+		return replay;
+	} catch (error) {
+		replay.finish();
+		identity.websocket.disconnect();
+		throw error;
 	}
-	return [message];
 }
 
 export async function connectController(options: ConnectControllerOptions): Promise<ControllerSession> {
@@ -271,14 +336,14 @@ export async function connectController(options: ConnectControllerOptions): Prom
 	for (const candidate of candidates) {
 		const identity = await attachExisting(candidate, projectDirectory);
 		if (identity === undefined) continue;
-		const initialMessages = await fetchTranscript(identity);
+		const transcriptReplay = await fetchTranscript(identity);
 		return new ControllerSession({
 			connectionKind: "attached",
 			pid: candidate.pid,
 			port: candidate.port,
 			runtimeDirectory: candidate.runtimeDirectory,
 			identity,
-			initialMessages,
+			transcriptReplay,
 		});
 	}
 
@@ -305,13 +370,13 @@ export async function connectController(options: ConnectControllerOptions): Prom
 		pid: launched.startup.pid,
 		resumeToken: identity.resumeToken,
 	});
-	const initialMessages = await fetchTranscript(identity);
+	const transcriptReplay = await fetchTranscript(identity);
 	return new ControllerSession({
 		connectionKind: "spawned",
 		pid: launched.startup.pid,
 		port: launched.startup.port,
 		runtimeDirectory,
 		identity,
-		initialMessages,
+		transcriptReplay,
 	});
 }

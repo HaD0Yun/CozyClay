@@ -68,6 +68,7 @@ test("persisted transcript replaces local history on reattach", () => {
 				{ type: "director_turn_started", id: requestId, sequence: 0, at, prompt: "Restored prompt" },
 				{ type: "director_turn_cancelled", id: requestId, sequence: 1, at },
 			],
+			next_cursor: null,
 		},
 	]);
 

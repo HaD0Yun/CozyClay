@@ -1,175 +1,133 @@
-export type DirectorToolName =
-	| "inspect_project"
-	| "stage_scene"
-	| "apply_camera_plan"
-	| "render_qa_frames";
+import {
+	parseDirectorTurnEvent,
+	parseServerMessage,
+	type ClientMessage,
+	type DirectorToolName,
+	type DirectorTurn,
+	type DirectorTurnEvent,
+	type ServerMessage,
+} from "@oh-my-blender/protocol";
 
-interface DirectorEventBase {
+export type { DirectorToolName };
+export type DirectorEvent = DirectorTurnEvent;
+export type DirectorTurnRequest = DirectorTurn;
+
+export interface DirectorTranscriptRequest {
+	readonly type: "director_transcript_request";
 	readonly id: string;
-	readonly sequence: number;
-	readonly at: string;
+	readonly cursor: number;
+	readonly page_size: number;
 }
-
-export interface DirectorTurnStarted extends DirectorEventBase {
-	readonly type: "director_turn_started";
-	readonly prompt: string;
-}
-
-export interface DirectorToolCallStarted extends DirectorEventBase {
-	readonly type: "director_tool_call_started";
-	readonly tool_call_id: string;
-	readonly tool_name: DirectorToolName;
-	readonly params_summary: string;
-}
-
-export interface DirectorToolCallFinished extends DirectorEventBase {
-	readonly type: "director_tool_call_finished";
-	readonly tool_call_id: string;
-	readonly tool_name: DirectorToolName;
-	readonly result_digest: string;
-	readonly is_error: boolean;
-}
-
-export interface DirectorTurnCompleted extends DirectorEventBase {
-	readonly type: "director_turn_completed";
-	readonly summary: string;
-	readonly resulting_revision_id: string;
-}
-
-export interface DirectorTurnFailed extends DirectorEventBase {
-	readonly type: "director_turn_failed";
-	readonly code: string;
-	readonly message: string;
-	readonly retryable: boolean;
-}
-
-export interface DirectorTurnCancelled extends DirectorEventBase {
-	readonly type: "director_turn_cancelled";
-}
-
-export type DirectorEvent =
-	| DirectorTurnStarted
-	| DirectorToolCallStarted
-	| DirectorToolCallFinished
-	| DirectorTurnCompleted
-	| DirectorTurnFailed
-	| DirectorTurnCancelled;
 
 export interface DirectorTranscript {
 	readonly type: "director_transcript";
 	readonly id: string;
 	readonly session_id: string;
 	readonly events: readonly DirectorEvent[];
+	readonly next_cursor: number | null;
 }
 
-export type DirectorServerMessage =
-	| DirectorEvent
-	| DirectorTranscript
-	| { readonly type: "hello_ack"; readonly [key: string]: unknown }
-	| { readonly type: "controller_auth"; readonly resume_token: string; readonly launch_id: string }
-	| { readonly type: "progress"; readonly id: string; readonly phase: string; readonly completed: number; readonly total: number }
-	| { readonly type: "cancel_ack"; readonly id: string; readonly status: "accepted" | "already_terminal" | "unknown" }
-	| { readonly type: "error"; readonly id: string; readonly code: string; readonly message: string; readonly retryable: boolean }
-	| { readonly type: "pong"; readonly nonce: string }
-	| { readonly type: "shutdown_ack" };
-
-export interface DirectorTurnRequest {
-	readonly type: "director_turn";
-	readonly id: string;
-	readonly prompt: string;
-	readonly expected_revision_id: string;
-	readonly deadline_ms: number;
+export interface ControllerAuth {
+	readonly type: "controller_auth";
+	readonly resume_token: string;
+	readonly launch_id: string;
 }
 
-export interface DirectorTranscriptRequest {
-	readonly type: "director_transcript_request";
-	readonly id: string;
+export interface AttachTicket {
+	readonly type: "attach_ticket";
+	readonly role: "bridge";
+	readonly ticket: string;
+	readonly expires_in_ms: number;
+	readonly launch_id: string;
+	readonly runtime_directory?: string;
 }
 
-export type DirectorClientMessage =
-	| DirectorTurnRequest
-	| DirectorTranscriptRequest
-	| { readonly type: "cancel"; readonly id: string }
-	| { readonly type: "ping"; readonly nonce: string }
-	| { readonly type: "shutdown"; readonly reason: string }
-	| Readonly<Record<string, unknown>>;
+export interface IssueAttachTicket {
+	readonly type: "issue_attach_ticket";
+	readonly role: "bridge";
+}
+
+export type DirectorServerMessage = Exclude<ServerMessage, { readonly type: "director_transcript" }> |
+	DirectorTranscript |
+	ControllerAuth |
+	AttachTicket;
+export type DirectorClientMessage = Exclude<ClientMessage, { readonly type: "director_transcript_request" }> |
+	DirectorTranscriptRequest |
+	IssueAttachTicket;
+
+const UUID_V4_LOWERCASE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const BASE64URL_32 = /^[A-Za-z0-9_-]{43}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function hasEventBase(value: Record<string, unknown>): boolean {
-	return typeof value.id === "string" &&
-		Number.isSafeInteger(value.sequence) &&
-		(value.sequence as number) >= 0 &&
-		typeof value.at === "string";
+
+function hasExactKeys(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean {
+	const keys = Object.keys(value);
+	return required.every((key) => Object.hasOwn(value, key)) &&
+		keys.every((key) => required.includes(key) || optional.includes(key));
 }
 
-function isToolName(value: unknown): value is DirectorToolName {
-	return value === "inspect_project" ||
-		value === "stage_scene" ||
-		value === "apply_camera_plan" ||
-		value === "render_qa_frames";
+function isControllerAuth(value: Record<string, unknown>): value is Record<string, unknown> & ControllerAuth {
+	return hasExactKeys(value, ["type", "resume_token", "launch_id"]) &&
+		value.type === "controller_auth" &&
+		typeof value.resume_token === "string" &&
+		BASE64URL_32.test(value.resume_token) &&
+		typeof value.launch_id === "string" &&
+		UUID_V4_LOWERCASE.test(value.launch_id);
 }
 
-function isDirectorEvent(value: unknown): value is DirectorEvent {
-	if (!isRecord(value) || typeof value.type !== "string" || !hasEventBase(value)) return false;
-	switch (value.type) {
-		case "director_turn_started":
-			return typeof value.prompt === "string";
-		case "director_tool_call_started":
-			return typeof value.tool_call_id === "string" &&
-				isToolName(value.tool_name) &&
-				typeof value.params_summary === "string";
-		case "director_tool_call_finished":
-			return typeof value.tool_call_id === "string" &&
-				isToolName(value.tool_name) &&
-				typeof value.result_digest === "string" &&
-				typeof value.is_error === "boolean";
-		case "director_turn_completed":
-			return typeof value.summary === "string" && typeof value.resulting_revision_id === "string";
-		case "director_turn_failed":
-			return typeof value.code === "string" &&
-				typeof value.message === "string" &&
-				typeof value.retryable === "boolean";
-		case "director_turn_cancelled":
-			return true;
-		default:
-			return false;
+function isAttachTicket(value: Record<string, unknown>): value is Record<string, unknown> & AttachTicket {
+	return hasExactKeys(
+		value,
+		["type", "role", "ticket", "expires_in_ms", "launch_id"],
+		["runtime_directory"],
+	) &&
+		value.type === "attach_ticket" &&
+		value.role === "bridge" &&
+		typeof value.ticket === "string" &&
+		BASE64URL_32.test(value.ticket) &&
+		Number.isSafeInteger(value.expires_in_ms) &&
+		(value.expires_in_ms as number) >= 100 &&
+		(value.expires_in_ms as number) <= 60_000 &&
+		typeof value.launch_id === "string" &&
+		UUID_V4_LOWERCASE.test(value.launch_id) &&
+		(!Object.hasOwn(value, "runtime_directory") || typeof value.runtime_directory === "string");
+}
+
+function isDirectorTranscript(value: Record<string, unknown>): value is Record<string, unknown> & DirectorTranscript {
+	if (
+		!hasExactKeys(value, ["type", "id", "session_id", "events", "next_cursor"]) ||
+		value.type !== "director_transcript" ||
+		typeof value.id !== "string" ||
+		!UUID_V4_LOWERCASE.test(value.id) ||
+		typeof value.session_id !== "string" ||
+		!UUID_V4_LOWERCASE.test(value.session_id) ||
+		!Array.isArray(value.events) ||
+		value.events.length > 64 ||
+		(value.next_cursor !== null &&
+			(!Number.isSafeInteger(value.next_cursor) ||
+				(value.next_cursor as number) < 1 ||
+				(value.next_cursor as number) > 10_000))
+	) return false;
+	try {
+		for (const event of value.events) parseDirectorTurnEvent(event);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
-
 export function isDirectorServerMessage(value: unknown): value is DirectorServerMessage {
-	if (!isRecord(value) || typeof value.type !== "string") return false;
-	if (isDirectorEvent(value)) return true;
-	switch (value.type) {
-		case "director_transcript":
-			return typeof value.id === "string" &&
-				typeof value.session_id === "string" &&
-				Array.isArray(value.events) &&
-				value.events.every(isDirectorEvent);
-		case "hello_ack":
-			return true;
-		case "controller_auth":
-			return typeof value.resume_token === "string" && typeof value.launch_id === "string";
-		case "progress":
-			return typeof value.id === "string" &&
-				typeof value.phase === "string" &&
-				Number.isSafeInteger(value.completed) &&
-				Number.isSafeInteger(value.total);
-		case "cancel_ack":
-			return typeof value.id === "string" &&
-				(value.status === "accepted" || value.status === "already_terminal" || value.status === "unknown");
-		case "error":
-			return typeof value.id === "string" &&
-				typeof value.code === "string" &&
-				typeof value.message === "string" &&
-				typeof value.retryable === "boolean";
-		case "pong":
-			return typeof value.nonce === "string";
-		case "shutdown_ack":
-			return true;
-		default:
-			return false;
+	if (isRecord(value)) {
+		if (value.type === "controller_auth") return isControllerAuth(value);
+		if (value.type === "attach_ticket") return isAttachTicket(value);
+		if (value.type === "director_transcript") return isDirectorTranscript(value);
+	}
+	try {
+		parseServerMessage(value);
+		return true;
+	} catch {
+		return false;
 	}
 }
