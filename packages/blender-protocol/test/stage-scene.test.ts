@@ -46,7 +46,8 @@ test("rejects duplicate daemon-issued entity IDs with a distinct code", async ()
 
 test("rejects duplicate stable names with a distinct code", async () => {
 	const plan = (await fixture("valid-plan")) as StageScenePlanV1;
-	plan.operations[2] = { ...plan.operations[2], name: "Floor" };
+	const light = plan.operations[2] as Extract<StageScenePlanV1["operations"][number], { op: "upsert_area_light" }>;
+	plan.operations[2] = { ...light, name: "Floor" };
 	assert.throws(
 		() => parseStageScenePlan(plan),
 		(error: unknown) =>
