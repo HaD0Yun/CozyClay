@@ -122,11 +122,14 @@ class FakePagedDaemon {
 		}
 	}
 
+	readonly receivedHelloProjectIds: string[] = [];
+
 	private handle(value: unknown): void {
 		if (typeof value !== "object" || value === null) return;
 		const message = value as Record<string, unknown>;
 		switch (message.type) {
 			case "hello":
+				if (typeof message.project_id === "string") this.receivedHelloProjectIds.push(message.project_id);
 				this.send({
 					type: "hello_ack",
 					protocol: 1,
@@ -334,6 +337,29 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 		await new Promise((resolve) => setTimeout(resolve, 5));
 	}
 }
+
+test("the controller hello carries the durable project identity when one exists", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-project-id-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	const durableId = "9c956df6-c126-4008-b793-33e28ff904da";
+	await mkdir(path.join(projectDirectory, ".omb"));
+	await writeFile(
+		path.join(projectDirectory, ".omb", "project.json"),
+		JSON.stringify({ schema_version: 1, project_id: durableId }),
+	);
+	const daemon = await FakePagedDaemon.start({ events: [] });
+	try {
+		await advertiseFakeDaemon(runtimeBaseDirectory, projectDirectory, daemon);
+		const session = await connectController({ projectDirectory, runtimeBaseDirectory, daemonArguments: [] });
+		assert.deepEqual(daemon.receivedHelloProjectIds, [durableId]);
+		await session.disconnect();
+	} finally {
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 test("controller keepalive prevents an idle daemon disconnect and stops on exit", async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-keepalive-"));

@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -86,12 +86,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function projectId(projectDirectory: string): string {
+function fallbackProjectId(projectDirectory: string): string {
 	const bytes = createHash("sha256").update(projectDirectory).digest().subarray(0, 16);
 	bytes[6] = (bytes[6]! & 0x0f) | 0x40;
 	bytes[8] = (bytes[8]! & 0x3f) | 0x80;
 	const hex = bytes.toString("hex");
 	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/**
+ * The durable project identity drives attach-handoff binding: the daemon
+ * embeds this id in attach-handoff.json and the Blender add-on refuses
+ * handoffs whose project does not match the scene. Read the real id from
+ * .omb/project.json; the path-derived fallback exists only for projects
+ * that have not been initialized yet.
+ */
+async function projectId(projectDirectory: string): Promise<string> {
+	try {
+		const raw = await readFile(path.join(projectDirectory, ".omb", "project.json"), "utf8");
+		const parsed: unknown = JSON.parse(raw);
+		const stored = isRecord(parsed) ? parsed.project_id : undefined;
+		if (typeof stored === "string" && UUID_PATTERN.test(stored)) return stored;
+	} catch {}
+	return fallbackProjectId(projectDirectory);
 }
 
 async function authenticateController(options: {
@@ -121,7 +140,7 @@ async function authenticateController(options: {
 		protocol: 1,
 		addon_version: "omb-tui/0.1.0",
 		blender_version: "n/a",
-		project_id: projectId(options.projectDirectory),
+		project_id: await projectId(options.projectDirectory),
 		client_nonce: randomBytes(16).toString("base64url"),
 	});
 	try {
