@@ -26,19 +26,20 @@ BLENDER = Path("/opt/homebrew/bin/blender")
 BLENDER_FIXTURE_SCRIPT = (
     REPOSITORY_ROOT / "blender-addon/tests/fixtures/init_and_export_fixture.py"
 )
-DAEMON_COMMAND = ["node", "--import", "tsx", "apps/omb-daemon/src/main.ts", "--port", "0", "--faux"]
+NODE_SEARCH_RESULT = shutil.which("node")
+if NODE_SEARCH_RESULT is None:
+    raise unittest.SkipTest("node is unavailable")
+NODE_EXECUTABLE = str(Path(NODE_SEARCH_RESULT).resolve(strict=True))
+DAEMON_COMMAND = [NODE_EXECUTABLE, "--import", "tsx", "apps/omb-daemon/src/main.ts", "--port", "0", "--faux"]
 DELAYED_DAEMON_COMMAND = [
-    "node",
+    NODE_EXECUTABLE,
     "--import",
     "tsx",
     "blender-addon/tests/fixtures/delayed_faux_daemon.ts",
 ]
-
-if shutil.which("node") is None:
-    raise unittest.SkipTest("node is unavailable")
 try:
     subprocess.run(
-        ["node", "--import", "tsx", "-e", ""],
+        [NODE_EXECUTABLE, "--import", "tsx", "-e", ""],
         cwd=REPOSITORY_ROOT,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -142,7 +143,11 @@ class DaemonIntegrationTest(unittest.TestCase):
                 str(snapshot_path),
             ],
             cwd=REPOSITORY_ROOT,
-            env={**os.environ, "OMB_DAEMON_ARGS": "--faux"},
+            env={
+                **os.environ,
+                "OMB_DAEMON_ARGS": "--faux",
+                "OMB_NODE_EXECUTABLE": NODE_EXECUTABLE,
+            },
             check=False,
             capture_output=True,
             text=True,

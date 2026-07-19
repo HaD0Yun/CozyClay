@@ -11,6 +11,7 @@ from unittest import mock
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
+TEST_EXECUTABLE = str(pathlib.Path(sys.executable).resolve(strict=True))
 
 from oh_my_blender.checkpoint import create_checkpoint
 from oh_my_blender.connection import (
@@ -18,6 +19,7 @@ from oh_my_blender.connection import (
     ConnectionError,
     DurableCommitReconciliationRequired,
     _test_only_inject_disconnect_fault,
+    _resolve_daemon_argv,
     connect,
     disconnect_active,
     verify_reconnect_hash,
@@ -731,7 +733,14 @@ class ConnectionTests(unittest.TestCase):
         fake = mock.Mock()
         fake.state = "active"
         with mock.patch.object(Connection, "start", return_value=fake) as start:
-            with mock.patch.dict("os.environ", {"OMB_DAEMON_ARGS": "--should-not-be-used"}, clear=True):
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "OMB_DAEMON_ARGS": "--should-not-be-used",
+                    "OMB_NODE_EXECUTABLE": TEST_EXECUTABLE,
+                },
+                clear=True,
+            ):
                 result = connect(
                     cwd="/tmp",
                     project_id="project",
@@ -754,7 +763,9 @@ class ConnectionTests(unittest.TestCase):
                 replacement = mock.Mock()
                 replacement.state = "active"
                 connection_module._active_connection = previous
-                with mock.patch.object(
+                with mock.patch.dict(
+                    "os.environ", {"OMB_NODE_EXECUTABLE": TEST_EXECUTABLE}, clear=True
+                ), mock.patch.object(
                     connection_module,
                     "reconnect",
                     return_value=replacement,
@@ -782,11 +793,44 @@ class ConnectionTests(unittest.TestCase):
         fake = mock.Mock()
         fake.state = "active"
         with mock.patch.object(Connection, "start", return_value=fake) as start:
-            with mock.patch.dict("os.environ", {"OMB_DAEMON_ARGS": "--faux"}, clear=True):
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    "OMB_DAEMON_ARGS": "--faux",
+                    "OMB_NODE_EXECUTABLE": TEST_EXECUTABLE,
+                },
+                clear=True,
+            ):
                 connect(cwd="/tmp", project_id="project", addon_version="1", blender_version="4")
         argv = start.call_args.args[0]
         self.assertEqual(argv[-1], "--faux")
         disconnect_active("test_cleanup")
+
+    def test_daemon_argv_requires_absolute_verified_node_without_path_search(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"OMB_NODE_EXECUTABLE": TEST_EXECUTABLE, "PATH": "/attacker-controlled"},
+            clear=True,
+        ):
+            argv = _resolve_daemon_argv(("--faux",))
+        self.assertEqual(argv[0], TEST_EXECUTABLE)
+        self.assertTrue(pathlib.Path(argv[0]).is_absolute())
+        with mock.patch.dict(
+            "os.environ",
+            {"OMB_NODE_EXECUTABLE": "node", "PATH": "/attacker-controlled"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ConnectionError, "must be absolute"):
+                _resolve_daemon_argv(("--faux",))
+
+        with mock.patch.dict(
+            "os.environ", {"OMB_NODE_EXECUTABLE": TEST_EXECUTABLE}, clear=True
+        ):
+            with self.assertRaisesRegex(ConnectionError, "unsupported daemon arguments"):
+                _resolve_daemon_argv((
+                    "--provider", "anthropic", "--model", "claude-haiku-4-5",
+                    "--api-key", "must-not-reach-child-argv",
+                ))
 
 if __name__ == "__main__":
     unittest.main()

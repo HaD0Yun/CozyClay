@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import unittest
@@ -10,6 +11,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLENDER = Path(shutil.which("blender") or "/opt/homebrew/bin/blender")
+NODE_EXECUTABLE = Path(shutil.which("node") or "/nonexistent").resolve()
 SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/connected_camera_plan_fixture.py"
 RECONCILIATION_SCRIPT = (
     REPOSITORY_ROOT
@@ -21,12 +23,13 @@ FAULT_MATRIX_SCRIPT = (
 )
 
 
-@unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
+@unittest.skipUnless(BLENDER.is_file() and NODE_EXECUTABLE.is_file(), "Blender or Node is unavailable")
 class CameraPlanConnectedTests(unittest.TestCase):
     def test_inspect_apply_inspect_uses_real_v2_bridge_and_exact_codes(self):
         completed = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(SCRIPT)],
             cwd=REPOSITORY_ROOT,
+            env={**os.environ, "OMB_NODE_EXECUTABLE": str(NODE_EXECUTABLE)},
             check=False,
             capture_output=True,
             text=True,
@@ -88,6 +91,7 @@ class CameraPlanConnectedTests(unittest.TestCase):
                         *branch_args,
                     ],
                     cwd=REPOSITORY_ROOT,
+                    env={**os.environ, "OMB_NODE_EXECUTABLE": str(NODE_EXECUTABLE)},
                     check=False,
                     capture_output=True,
                     text=True,
@@ -141,6 +145,7 @@ class CameraPlanConnectedTests(unittest.TestCase):
                         phase,
                     ],
                     cwd=REPOSITORY_ROOT,
+                    env={**os.environ, "OMB_NODE_EXECUTABLE": str(NODE_EXECUTABLE)},
                     check=False,
                     capture_output=True,
                     text=True,

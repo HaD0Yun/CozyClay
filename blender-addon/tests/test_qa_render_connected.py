@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import unittest
@@ -10,16 +11,18 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLENDER = Path(shutil.which("blender") or "/opt/homebrew/bin/blender")
+NODE_EXECUTABLE = Path(shutil.which("node") or "/nonexistent").resolve()
 SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/connected_qa_render_fixture.py"
 
 
-@unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
+@unittest.skipUnless(BLENDER.is_file() and NODE_EXECUTABLE.is_file(), "Blender or Node is unavailable")
 class RenderQaFramesConnectedTests(unittest.TestCase):
     def test_clause_real_inspect_apply_render_bridge_publishes_verifiable_artifacts(self):
         """Task clause: mandatory real connected e2e through the actual protocol-v2 bridge."""
         completed = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(SCRIPT)],
             cwd=REPOSITORY_ROOT,
+            env={**os.environ, "OMB_NODE_EXECUTABLE": str(NODE_EXECUTABLE)},
             check=False,
             capture_output=True,
             text=True,

@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import subprocess
+import shlex
 import threading
 import time
 from enum import Enum
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from .checkpoint import Checkpoint, restore, verify
-from .daemon_child import DaemonChild
+from .daemon_child import DaemonChild, UnsafeExecutableError, verify_executable
 from .handshake import HandshakeError, build_hello, validate_hello_ack
 from .ws_client import WebSocketClient, WebSocketError
 
@@ -856,18 +857,11 @@ _active_connection: Connection | None = None
 
 
 _DAEMON_ARGS_ENV = "OMB_DAEMON_ARGS"
+_NODE_EXECUTABLE_ENV = "OMB_NODE_EXECUTABLE"
 
 
 def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
-    """Resolve the daemon launch mode; never silently default to a fake provider.
-
-    apps/omb-daemon/src/main.ts accepts only an explicit `--faux` test-provider
-    invocation today (no real model-provider configuration exists yet in this
-    phase). The add-on itself must not hard-code that -- or any other -- mode:
-    the caller (an explicit `daemon_args` argument, e.g. from the integration
-    test) or the `OMB_DAEMON_ARGS` environment variable (e.g. from a future
-    real deployment's launcher) must say so explicitly.
-    """
+    """Resolve an explicit launch mode and a safety-verified absolute Node path."""
     repository_root = Path(__file__).resolve().parents[2]
     daemon_main = str(repository_root / "apps/omb-daemon/src/main.ts")
     tsx_loader = next(
@@ -880,17 +874,56 @@ def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
     )
     if tsx_loader is None:
         raise ConnectionError("NOT_CONFIGURED: tsx runtime is unavailable")
-    if daemon_args is not None:
-        return ("node", "--import", str(tsx_loader), daemon_main, "--port", "0", *daemon_args)
-    configured = os.environ.get(_DAEMON_ARGS_ENV)
-    if configured is None:
+    configured_node = os.environ.get(_NODE_EXECUTABLE_ENV)
+    if configured_node is None:
         raise ConnectionError(
-            "NOT_CONFIGURED: no daemon launch mode is configured; set the "
-            f"{_DAEMON_ARGS_ENV} environment variable (or pass daemon_args "
-            "explicitly) to a supported mode such as '--faux' for the test "
-            "provider before connecting"
+            f"NOT_CONFIGURED: {_NODE_EXECUTABLE_ENV} must be an absolute trusted Node executable"
         )
-    return ("node", "--import", str(tsx_loader), daemon_main, "--port", "0", *configured.split())
+    try:
+        node_executable = verify_executable(configured_node)
+    except UnsafeExecutableError as error:
+        raise ConnectionError(str(error)) from error
+    if daemon_args is None:
+        configured = os.environ.get(_DAEMON_ARGS_ENV)
+        if configured is None:
+            raise ConnectionError(
+                "NOT_CONFIGURED: no daemon launch mode is configured; set the "
+                f"{_DAEMON_ARGS_ENV} environment variable (or pass daemon_args "
+                "explicitly) to '--faux' or explicit '--provider <id> --model <id>'"
+            )
+        daemon_args = tuple(shlex.split(configured))
+    daemon_args = tuple(daemon_args)
+    if daemon_args != ("--faux",):
+        parsed: dict[str, str] = {}
+        index = 0
+        while index < len(daemon_args):
+            flag = daemon_args[index]
+            if (
+                flag not in ("--provider", "--model")
+                or flag in parsed
+                or index + 1 >= len(daemon_args)
+                or not daemon_args[index + 1]
+                or daemon_args[index + 1].startswith("--")
+            ):
+                raise ConnectionError(
+                    "INVALID_ARGUMENT: unsupported daemon arguments; credentials "
+                    "must be supplied only through the provider environment variable"
+                )
+            parsed[flag] = daemon_args[index + 1]
+            index += 2
+        if set(parsed) != {"--provider", "--model"}:
+            raise ConnectionError(
+                "NOT_CONFIGURED: explicit --provider <id> and --model <id> are required"
+            )
+    return (
+        node_executable,
+        "--import",
+        str(tsx_loader),
+        daemon_main,
+        "--port",
+        "0",
+        *daemon_args,
+    )
 
 
 def _live_scene_hash() -> str:

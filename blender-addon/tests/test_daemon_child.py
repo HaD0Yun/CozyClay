@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 import sys
 import unittest
 import uuid
@@ -8,7 +9,7 @@ from oh_my_blender.daemon_child import DaemonChild, StartupError
 
 
 def script(body):
-    return [sys.executable, "-c", body]
+    return [str(Path(sys.executable).resolve(strict=True)), "-c", body]
 
 
 class DaemonChildTests(unittest.TestCase):

@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
 	createApplyCameraPlanHandler,
 	createDirectorProjectStore,
@@ -9,37 +6,48 @@ import {
 	createRenderArtifactReservationFactory,
 	createRenderQaFramesHandler,
 } from "@oh-my-blender/director-runtime";
+import { createBootRuntime, parseBootArguments } from "./boot.ts";
 import { start } from "./daemon.ts";
 
-const index = process.argv.indexOf("--port");
-const port = index >= 0 ? Number(process.argv[index + 1]) : 0;
-if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be an integer from 0 through 65535");
-if (!process.argv.includes("--faux")) throw new Error("NOT_CONFIGURED: a model provider is required (use --faux for the test provider)");
+async function main(): Promise<void> {
+	const boot = parseBootArguments(process.argv.slice(2));
+	const runtime = await createBootRuntime(boot);
+	if (runtime.credentialEnvironmentVariable !== undefined) {
+		delete process.env[runtime.credentialEnvironmentVariable];
+	}
+	try {
+		const store = createDirectorProjectStore(process.cwd());
+		const beginArtifactReservations = createRenderArtifactReservationFactory(process.cwd());
+		const inspect = createInspectHandler({ model: runtime.model, modelRuntime: runtime.modelRuntime, store });
+		const daemon = await start({
+			port: boot.port,
+			handlers: {
+				inspect_project: async (params, context) => {
+					try {
+						return await inspect(params, context);
+					} catch {
+						throw new Error("MODEL_PROVIDER_ERROR: provider request failed");
+					}
+				},
+				apply_camera_plan: createApplyCameraPlanHandler({ store }),
+				render_qa_frames: createRenderQaFramesHandler(),
+			},
+			beginArtifactReservations,
+		});
+		// Architecture §4 cleanup order ends with "and exit": once the protocol
+		// shutdown drain completes, the child process must terminate even if the
+		// model runtime still holds event-loop handles.
+		await daemon.stopped;
+	} finally {
+		await runtime.dispose();
+	}
+}
 
-const faux = registerFauxProvider();
-faux.setResponses([
-	fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
-	fauxAssistantMessage("scene inspected"),
-]);
-const credentials = new InMemoryCredentialStore();
-await credentials.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
-const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
-const model = faux.getModel();
-modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
-const store = createDirectorProjectStore(process.cwd());
-const beginArtifactReservations = createRenderArtifactReservationFactory(process.cwd());
-const daemon = await start({
-	port,
-	handlers: {
-		inspect_project: createInspectHandler({ model, modelRuntime, store }),
-		apply_camera_plan: createApplyCameraPlanHandler({ store }),
-		render_qa_frames: createRenderQaFramesHandler(),
-	},
-	beginArtifactReservations,
-});
-// Architecture §4 cleanup order ends with "and exit": once the protocol
-// shutdown drain completes, the child process must terminate even if the
-// model runtime still holds event-loop handles.
-await daemon.stopped;
-faux.unregister();
-process.exit(0);
+try {
+	await main();
+	process.exit(0);
+} catch (error) {
+	const message = error instanceof Error ? error.message : "PROVIDER_BOOT_FAILED: daemon startup failed";
+	process.stderr.write(`${message.slice(0, 512)}\n`);
+	process.exit(1);
+}
