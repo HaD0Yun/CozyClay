@@ -604,8 +604,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		const pending = pendingBridge;
 		pendingBridge = undefined;
 		pending.removeAbortListener();
-		await abortArtifactFrames(pending);
 		pending.reject(new Error(`${code}: ${message}`));
+		await abortArtifactFrames(pending);
 	}
 
 	function bridgeTransport() {
@@ -1067,6 +1067,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				} catch {
 					void failPendingBridge("CANCELLED", "inspect bridge cancellation failed");
 				}
+				void failPendingBridge("CANCELLED", "inspect bridge cancelled");
 			};
 			const signal = context.signal;
 			pendingBridge = {
@@ -1150,6 +1151,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				} catch {
 					void failPendingBridge("CANCELLED", "mutation bridge cancellation failed");
 				}
+				void failPendingBridge("CANCELLED", "mutation bridge cancelled");
 			};
 			const signal = context.signal;
 			pendingBridge = {
@@ -1217,6 +1219,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				} catch {
 					void failPendingBridge("CANCELLED", "stage bridge cancellation failed");
 				}
+				void failPendingBridge("CANCELLED", "stage bridge cancelled");
 			};
 			const signal = context.signal;
 			pendingBridge = {
@@ -1291,6 +1294,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				} catch {
 					void failPendingBridge("CANCELLED", "render bridge cancellation failed");
 				}
+				void failPendingBridge("CANCELLED", "render bridge cancelled");
 			};
 			const signal = context.signal;
 			pendingBridge = {

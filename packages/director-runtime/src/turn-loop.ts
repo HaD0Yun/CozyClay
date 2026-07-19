@@ -213,6 +213,8 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 		},
 	};
 
+	const SESSION_IDLE_TIMEOUT_MS = 4_000;
+
 	const getSession = () => {
 		if (sessionPromise === undefined) {
 			sessionPromise = createDirectorSession({
@@ -224,6 +226,16 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			});
 		}
 		return sessionPromise;
+	};
+	const resetSession = (session: Awaited<ReturnType<typeof createDirectorSession>>) => {
+		if (sessionPromise === undefined) return;
+		const cached = sessionPromise;
+		sessionPromise = undefined;
+		// Recreating the session drops in-model conversation context. The daemon's
+		// durable transcript remains the source of truth across this recovery.
+		void cached.then((value) => {
+			if (value === session) value.dispose();
+		});
 	};
 
 	return {
@@ -256,8 +268,11 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				}
 			};
 			const unsubscribe = session.subscribe(listener);
-			const abort = () => session.abort();
+			const abort = () => {
+				void session.abort();
+			};
 			runOptions.signal.addEventListener("abort", abort, { once: true });
+			let idleReached = false;
 			try {
 				if (runOptions.signal.aborted) abort();
 				await session.prompt(runOptions.prompt);
@@ -277,6 +292,19 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 					toolCallOrder: [...state.toolCallOrder],
 				};
 			} finally {
+				let idleTimeout: ReturnType<typeof setTimeout> | undefined;
+				const abortResult = await Promise.race([
+					session.abort().then(
+						() => true,
+						() => false,
+					),
+					new Promise<false>((resolve) => {
+						idleTimeout = setTimeout(() => resolve(false), SESSION_IDLE_TIMEOUT_MS);
+					}),
+				]);
+				if (idleTimeout !== undefined) clearTimeout(idleTimeout);
+				idleReached = abortResult && !session.isStreaming;
+				if (!idleReached) resetSession(session);
 				runOptions.signal.removeEventListener("abort", abort);
 				unsubscribe();
 				active = undefined;

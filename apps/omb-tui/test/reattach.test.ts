@@ -25,6 +25,7 @@ type TranscriptRequest = {
 
 class FakePagedDaemon {
 	readonly receivedTurns: unknown[] = [];
+	readonly receivedPings: string[] = [];
 	maxSentMessageBytes = 0;
 	private readonly server: Server;
 	private readonly events: readonly DirectorEvent[];
@@ -69,7 +70,11 @@ class FakePagedDaemon {
 
 	private accept(socket: Socket): void {
 		this.socket = socket;
+		let idleTimer = setTimeout(() => socket.destroy(), 2_000);
+		socket.on("close", () => clearTimeout(idleTimer));
 		socket.on("data", (chunk) => {
+			clearTimeout(idleTimer);
+			idleTimer = setTimeout(() => socket.destroy(), 2_000);
 			this.input = Buffer.concat([this.input, chunk]);
 			this.read();
 		});
@@ -139,6 +144,7 @@ class FakePagedDaemon {
 				this.receivedTurns.push(value);
 				break;
 			case "ping":
+				if (typeof message.nonce === "string") this.receivedPings.push(message.nonce);
 				this.send({ type: "pong", nonce: message.nonce });
 				break;
 		}
@@ -226,6 +232,33 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 	}
 }
 
+test("controller keepalive prevents an idle daemon disconnect and stops on exit", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-keepalive-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	const daemon = await FakePagedDaemon.start({ events: [] });
+	try {
+		await advertiseFakeDaemon(runtimeBaseDirectory, projectDirectory, daemon);
+		const session = await connectController({
+			projectDirectory,
+			runtimeBaseDirectory,
+			daemonArguments: [],
+			keepaliveIntervalMs: 200,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 5_100));
+		assert.ok(daemon.receivedPings.length >= 20);
+		assert.equal(new Set(daemon.receivedPings).size, daemon.receivedPings.length);
+		assert.equal(await session.ping("still-alive"), "still-alive");
+		await session.disconnect();
+		const countAfterExit = daemon.receivedPings.length;
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		assert.equal(daemon.receivedPings.length, countAfterExit);
+	} finally {
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
 test("reattach fetches a transcript larger than 1 MiB through bounded pages", async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-paged-"));
 	const projectDirectory = path.join(root, "project");

@@ -23,6 +23,7 @@ const ZERO_REVISION = "0".repeat(64);
 const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
 const DIRECTOR_TURN_CAPABILITY = "director_turn_v1";
 const DIRECTOR_TRANSCRIPT_PAGE_SIZE = 64;
+const CONTROLLER_KEEPALIVE_INTERVAL_MS = 20_000;
 
 function isDirectorEvent(message: DirectorServerMessage): message is DirectorEvent {
 	return message.type === "director_turn_started" ||
@@ -40,6 +41,7 @@ export interface ConnectControllerOptions {
 	readonly repositoryRoot?: string;
 	readonly runtimeBaseDirectory?: string;
 	readonly startupTimeoutMs?: number;
+	readonly keepaliveIntervalMs?: number;
 }
 
 export interface BridgeAttachTicket {
@@ -173,6 +175,7 @@ export class ControllerSession {
 	readonly capabilities: readonly string[];
 	readonly initialMessages: readonly DirectorServerMessage[];
 	private readonly websocket: ControllerWebSocket;
+	private readonly keepaliveTimer: ReturnType<typeof setInterval>;
 	private currentRevisionId = ZERO_REVISION;
 	private activeRequestId: string | undefined;
 
@@ -183,6 +186,7 @@ export class ControllerSession {
 		readonly runtimeDirectory: string;
 		readonly identity: ControllerIdentity;
 		readonly transcriptReplay: TranscriptReplay;
+		readonly keepaliveIntervalMs?: number;
 	}) {
 		this.connectionKind = options.connectionKind;
 		this.pid = options.pid;
@@ -194,6 +198,15 @@ export class ControllerSession {
 		this.websocket.on("message", (message: unknown) => {
 			if (isDirectorServerMessage(message)) this.observe(message);
 		});
+		this.keepaliveTimer = setInterval(() => {
+			try {
+				this.websocket.send({ type: "ping", nonce: randomUUID() });
+			} catch {
+				// The close event owns connection recovery.
+			}
+		}, options.keepaliveIntervalMs ?? CONTROLLER_KEEPALIVE_INTERVAL_MS);
+		this.keepaliveTimer.unref();
+		this.websocket.once("close", () => clearInterval(this.keepaliveTimer));
 		this.initialMessages = options.transcriptReplay.finish();
 		for (const message of this.initialMessages) this.observe(message);
 	}
@@ -344,6 +357,7 @@ export async function connectController(options: ConnectControllerOptions): Prom
 			runtimeDirectory: candidate.runtimeDirectory,
 			identity,
 			transcriptReplay,
+			keepaliveIntervalMs: options.keepaliveIntervalMs,
 		});
 	}
 
@@ -378,5 +392,6 @@ export async function connectController(options: ConnectControllerOptions): Prom
 		runtimeDirectory,
 		identity,
 		transcriptReplay,
+		keepaliveIntervalMs: options.keepaliveIntervalMs,
 	});
 }

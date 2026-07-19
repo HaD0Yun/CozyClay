@@ -38,7 +38,8 @@ function isTerminalMessage(message: DirectorServerMessage): boolean {
 }
 
 export class DirectorTui {
-	private readonly session: ControllerSession;
+	private session: ControllerSession;
+	private readonly reconnect: (() => Promise<ControllerSession>) | undefined;
 	private readonly tui: TUI;
 	private readonly transcriptText = new Text("", 1, 0);
 	private readonly statusText = new Text("", 1, 0);
@@ -46,16 +47,22 @@ export class DirectorTui {
 	private readonly input = new Input();
 	private readonly interruptController = new InterruptController();
 	private state: TranscriptState = createTranscriptState();
-	private connected = true;
+	private connectionStatus: "connected" | "reconnecting" | "disconnected" = "connected";
 	private stopped = false;
+	private reconnecting = false;
 	private resolveStopped!: () => void;
 	private readonly stoppedPromise: Promise<void>;
 	private removeMessageListener: () => void = () => {};
 	private removeDisconnectListener: () => void = () => {};
 	private removeInputListener: () => void = () => {};
 
-	constructor(session: ControllerSession, terminal: Terminal = new ProcessTerminal()) {
+	constructor(
+		session: ControllerSession,
+		terminal: Terminal = new ProcessTerminal(),
+		reconnect?: () => Promise<ControllerSession>,
+	) {
 		this.session = session;
+		this.reconnect = reconnect;
 		this.tui = new TUI(terminal, true);
 		this.stoppedPromise = new Promise((resolve) => {
 			this.resolveStopped = resolve;
@@ -74,12 +81,7 @@ export class DirectorTui {
 	}
 
 	async run(): Promise<void> {
-		this.removeMessageListener = this.session.onMessage((message) => this.receive(message));
-		this.removeDisconnectListener = this.session.onDisconnect(() => {
-			this.connected = false;
-			this.state = { ...this.state, status: "disconnected", activeRequestId: undefined, taskStatus: undefined };
-			this.render();
-		});
+		this.attachSession(this.session);
 		this.removeInputListener = this.tui.addInputListener((data) => {
 			if (!getKeybindings().matches(data, "tui.input.copy")) return undefined;
 			const action = this.interruptController.interrupt(this.state.activeRequestId);
@@ -145,14 +147,59 @@ export class DirectorTui {
 
 	private render(): void {
 		this.transcriptText.setText(formatTranscript(this.state) || "No turns yet.");
-		this.statusText.setText(formatStatus(this.state, this.connected ? "connected" : "disconnected"));
+		this.statusText.setText(formatStatus(this.state, this.connectionStatus));
 		this.tui.requestRender();
 	}
+	private attachSession(session: ControllerSession): void {
+		this.removeMessageListener();
+		this.removeDisconnectListener();
+		this.session = session;
+		for (const message of session.initialMessages) this.receive(message);
+		this.removeMessageListener = session.onMessage((message) => this.receive(message));
+		this.removeDisconnectListener = session.onDisconnect(() => {
+			if (this.stopped || session !== this.session) return;
+			this.connectionStatus = this.reconnect === undefined ? "disconnected" : "reconnecting";
+			this.state = { ...this.state, activeRequestId: undefined, taskStatus: undefined };
+			this.render();
+			if (this.reconnect !== undefined) void this.reconnectLoop();
+		});
+	}
+
+	private async reconnectLoop(): Promise<void> {
+		if (this.reconnecting || this.reconnect === undefined) return;
+		this.reconnecting = true;
+		let delayMs = 1_000;
+		try {
+			while (!this.stopped) {
+				await new Promise((resolve) => {
+					const timer = setTimeout(resolve, delayMs);
+					timer.unref();
+				});
+				if (this.stopped) return;
+				try {
+					const session = await this.reconnect();
+					if (this.stopped) {
+						await session.disconnect();
+						return;
+					}
+					this.connectionStatus = "connected";
+					this.attachSession(session);
+					this.render();
+					return;
+				} catch {
+					delayMs = Math.min(delayMs * 2, 30_000);
+				}
+			}
+		} finally {
+			this.reconnecting = false;
+		}
+	}
+
 }
 
 export async function runDirectorTui(options: RunDirectorTuiOptions): Promise<void> {
 	const session = await connectController(options);
-	const app = new DirectorTui(session, options.terminal);
+	const app = new DirectorTui(session, options.terminal, () => connectController(options));
 	const close = () => {
 		void app.exit();
 	};

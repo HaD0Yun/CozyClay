@@ -214,4 +214,63 @@ describe("bounded director turn loop", () => {
 			loop.dispose();
 		}
 	});
+	it("can run a second turn after cancelling a blocked tool", async () => {
+		const initial = await initialManifest();
+		const configured = await runtime([
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("stage_scene", stageRequest(initial.revision)), { stopReason: "toolUse" }),
+			fauxAssistantMessage("cancelled"),
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("Recovered on the second turn."),
+		]);
+		let inspections = 0;
+		let stageStarted!: () => void;
+		const stageStart = new Promise<void>((resolve) => {
+			stageStarted = resolve;
+		});
+		const loop = createDirectorTurnLoop({
+			...configured,
+			bridge: {
+				inspectProject: async () => {
+					inspections += 1;
+					return initial;
+				},
+				stageScene: async (_request, context) => {
+					stageStarted();
+					return new Promise((_resolve, reject) => {
+						context.signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+					});
+				},
+				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
+				renderQaFrames: async () => ({
+					schema_version: 1,
+					revision_id: initial.revision,
+					profile_version: "omb-qa-png-v1",
+					frames: [],
+				}),
+			},
+		});
+		try {
+			const controller = new AbortController();
+			const first = loop.run({
+				prompt: "start then block",
+				expectedRevisionId: initial.revision,
+				signal: controller.signal,
+			});
+			await stageStart;
+			controller.abort();
+			await assert.rejects(first);
+
+			const second = await loop.run({
+				prompt: "inspect and finish",
+				expectedRevisionId: initial.revision,
+				signal: new AbortController().signal,
+			});
+			assert.equal(second.summary, "Recovered on the second turn.");
+			assert.equal(inspections, 3);
+		} finally {
+			loop.dispose();
+		}
+	});
 });

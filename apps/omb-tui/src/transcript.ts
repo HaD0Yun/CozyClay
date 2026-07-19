@@ -148,7 +148,10 @@ export function formatTranscript(state: TranscriptState): string {
 	return [...state.events.map(formatEvent), ...state.notices].join("\n");
 }
 
-export function formatStatus(state: TranscriptState, connection: "connected" | "disconnected"): string {
+export function formatStatus(
+	state: TranscriptState,
+	connection: "connected" | "reconnecting" | "disconnected",
+): string {
 	const task = state.taskStatus === undefined ? "" : ` | ${state.taskStatus}`;
 	return `${connection} | ${state.status}${task}`;
 }
