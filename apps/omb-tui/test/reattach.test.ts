@@ -27,6 +27,7 @@ class FakePagedDaemon {
 	readonly receivedTurns: unknown[] = [];
 	readonly receivedPings: string[] = [];
 	maxSentMessageBytes = 0;
+	closedSockets = 0;
 	private readonly server: Server;
 	private readonly events: readonly DirectorEvent[];
 	private readonly raceEvents: readonly DirectorEvent[];
@@ -70,9 +71,14 @@ class FakePagedDaemon {
 	}
 
 	private accept(socket: Socket): void {
+		this.upgraded = false;
+		this.input = Buffer.alloc(0);
 		this.socket = socket;
 		let idleTimer = setTimeout(() => socket.destroy(), 2_000);
-		socket.on("close", () => clearTimeout(idleTimer));
+		socket.on("close", () => {
+			clearTimeout(idleTimer);
+			this.closedSockets++;
+		});
 		socket.on("data", (chunk) => {
 			clearTimeout(idleTimer);
 			idleTimer = setTimeout(() => socket.destroy(), 2_000);
@@ -386,6 +392,26 @@ test("the controller rejects corrupt durable project JSON", async () => {
 			/CONTROLLER_PROJECT_INVALID: malformed JSON/,
 		);
 	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("controller closes the fake-daemon socket when durable project identity is corrupt", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-project-id-corrupt-socket-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(path.join(projectDirectory, ".omb"), { recursive: true }), mkdir(runtimeBaseDirectory)]);
+	await writeFile(path.join(projectDirectory, ".omb", "project.json"), "{not json");
+	const daemon = await FakePagedDaemon.start({ events: [] });
+	try {
+		await advertiseFakeDaemon(runtimeBaseDirectory, projectDirectory, daemon);
+		await assert.rejects(
+			connectController({ projectDirectory, runtimeBaseDirectory, daemonArguments: [] }),
+			/CONTROLLER_PROJECT_INVALID: malformed JSON/,
+		);
+		await waitFor(() => daemon.closedSockets >= 1);
+	} finally {
+		await daemon.close();
 		await rm(root, { recursive: true, force: true });
 	}
 });

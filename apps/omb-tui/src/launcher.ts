@@ -11,7 +11,6 @@ const BASE_ENVIRONMENT_ALLOWLIST = [
 	"LC_ALL",
 	"LC_CTYPE",
 	"TMPDIR",
-	"XDG_RUNTIME_DIR",
 	"TEMP",
 	"TMP",
 	"SYSTEMROOT",
@@ -114,6 +113,9 @@ function isolatedEnvironment(
 		if (source[name]) environment[name] = source[name];
 	}
 	if (runtimeBaseDirectory !== undefined) {
+		if (!path.isAbsolute(runtimeBaseDirectory)) {
+			throw new Error("INVALID_ARGUMENT: runtime base directory must be absolute");
+		}
 		environment.XDG_RUNTIME_DIR = runtimeBaseDirectory;
 		environment.TMPDIR = runtimeBaseDirectory;
 	}

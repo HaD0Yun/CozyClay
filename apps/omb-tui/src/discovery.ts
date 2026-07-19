@@ -34,7 +34,8 @@ function userRuntimeDirectory(baseDirectory: string): string {
 export function defaultRuntimeBaseDirectory(environment: Readonly<Record<string, string | undefined>>): string {
 	const xdgRuntimeDirectory = environment.XDG_RUNTIME_DIR;
 	if (xdgRuntimeDirectory && path.isAbsolute(xdgRuntimeDirectory)) return xdgRuntimeDirectory;
-	return environment.TMPDIR && path.isAbsolute(environment.TMPDIR) ? environment.TMPDIR : os.tmpdir();
+	if (environment.TMPDIR && path.isAbsolute(environment.TMPDIR)) return environment.TMPDIR;
+	return path.resolve(os.tmpdir());
 }
 
 async function verifyPrivateDirectory(directory: string): Promise<void> {

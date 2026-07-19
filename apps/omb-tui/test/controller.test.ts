@@ -82,6 +82,17 @@ test("real daemon spawn, detach, discovery reattach, and TUI exit preserve the d
 	}
 });
 
+test("runtime base selection rejects relative candidates and always returns an absolute path", () => {
+	const absoluteTmp = path.join(path.parse(process.cwd()).root, "selected-tmp");
+	assert.equal(
+		defaultRuntimeBaseDirectory({ XDG_RUNTIME_DIR: "relative-xdg", TMPDIR: absoluteTmp }),
+		absoluteTmp,
+		"a relative XDG candidate must fall through to the next absolute candidate",
+	);
+	const fallback = defaultRuntimeBaseDirectory({ XDG_RUNTIME_DIR: "relative-xdg", TMPDIR: "relative-tmp" });
+	assert.equal(path.isAbsolute(fallback), true, "platform fallback must be absolute");
+	assert.notEqual(fallback, "relative-tmp");
+});
 test("XDG runtime resolution and daemon advertisement use the same directory", async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-xdg-test-"));
 	const projectDirectory = path.join(root, "project");

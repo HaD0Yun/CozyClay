@@ -237,6 +237,28 @@ class AttachConnectionTests(unittest.TestCase):
                 )
 
     def test_attach_discovers_and_connects_to_a_real_daemon(self):
+        with (
+            tempfile.TemporaryDirectory() as xdg_runtime,
+            tempfile.TemporaryDirectory() as xdg_tmp,
+        ):
+            environment = os.environ.copy()
+            environment["XDG_RUNTIME_DIR"] = xdg_runtime
+            environment["TMPDIR"] = xdg_tmp
+            with self.subTest(runtime_base="XDG_RUNTIME_DIR"):
+                self._assert_real_daemon_default_discovery(
+                    environment, pathlib.Path(xdg_runtime)
+                )
+
+        with tempfile.TemporaryDirectory() as tmp_runtime:
+            environment = os.environ.copy()
+            environment.pop("XDG_RUNTIME_DIR", None)
+            environment["TMPDIR"] = tmp_runtime
+            with self.subTest(runtime_base="TMPDIR"):
+                self._assert_real_daemon_default_discovery(
+                    environment, pathlib.Path(tmp_runtime)
+                )
+
+    def _assert_real_daemon_default_discovery(self, environment, expected_base):
         repository_root = pathlib.Path(__file__).parents[2]
         loader = next(
             parent / "node_modules/tsx/dist/loader.mjs"
@@ -259,6 +281,7 @@ class AttachConnectionTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=environment,
             )
             controller = None
             bridge = None
@@ -295,6 +318,12 @@ class AttachConnectionTests(unittest.TestCase):
                 self.assertEqual(issued["type"], "attach_ticket")
 
                 runtime_directory = pathlib.Path(issued["runtime_directory"])
+                getuid = getattr(os, "getuid", None)
+                uid = getuid() if callable(getuid) else "user"
+                self.assertEqual(
+                    runtime_directory.parent,
+                    expected_base / f"omb-{uid}",
+                )
                 handoff = runtime_directory / "attach-handoff.json"
                 self.assertTrue(handoff.is_file())
                 self.assertEqual(stat.S_IMODE(handoff.stat().st_mode), 0o600)
@@ -315,13 +344,16 @@ class AttachConnectionTests(unittest.TestCase):
                     text=True,
                 ).stdout
                 self.assertNotIn(issued["ticket"], daemon_argv)
-                bridge = connect_from_handoff(
-                    cwd=project,
-                    project_id="33333333-3333-4333-8333-333333333333",
-                    addon_version="0.1.0",
-                    blender_version="4.3.0",
-                    runtime_user_directory=runtime_directory.parent,
-                )
+                with (
+                    mock.patch.dict(os.environ, environment, clear=True),
+                    mock.patch("tempfile.tempdir", None),
+                ):
+                    bridge = connect_from_handoff(
+                        cwd=project,
+                        project_id="33333333-3333-4333-8333-333333333333",
+                        addon_version="0.1.0",
+                        blender_version="4.3.0",
+                    )
                 self.assertFalse(handoff.exists())
                 bridge.disconnect("test_detach", timeout=0.1)
                 bridge = None
