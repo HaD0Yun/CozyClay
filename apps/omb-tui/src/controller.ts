@@ -9,7 +9,7 @@ import {
 	removeControllerCredential,
 	type DiscoveredController,
 } from "./discovery.ts";
-import { launchDaemon } from "./launcher.ts";
+import { launchDaemon, terminateDaemon } from "./launcher.ts";
 import {
 	isDirectorServerMessage,
 	type DirectorEvent,
@@ -24,6 +24,32 @@ const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
 const DIRECTOR_TURN_CAPABILITY = "director_turn_v1";
 const DIRECTOR_TRANSCRIPT_PAGE_SIZE = 64;
 const CONTROLLER_KEEPALIVE_INTERVAL_MS = 20_000;
+
+function throwIfAborted(signal?: AbortSignal): void {
+	if (signal?.aborted) throw new Error("CONTROLLER_RECONNECT_ABORTED");
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+			return;
+		}
+		const timer = setTimeout(done, delayMs);
+		function done(): void {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", aborted);
+			resolve();
+		}
+		function aborted(): void {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", aborted);
+			reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+		}
+		signal?.addEventListener("abort", aborted, { once: true });
+		timer.unref();
+	});
+}
 
 function isDirectorEvent(message: DirectorServerMessage): message is DirectorEvent {
 	return message.type === "director_turn_started" ||
@@ -72,10 +98,24 @@ async function authenticateController(options: {
 	readonly port: number;
 	readonly credential: string;
 	readonly projectDirectory: string;
+	readonly signal?: AbortSignal;
 }): Promise<ControllerIdentity> {
-	const websocket = await connectWebSocket({ host: "127.0.0.1", port: options.port, credential: options.credential });
-	const helloAckPromise = websocket.next((message) => isRecord(message) && message.type === "hello_ack");
-	const authPromise = websocket.next((message) => isRecord(message) && message.type === "controller_auth");
+	const websocket = await connectWebSocket({
+		host: "127.0.0.1",
+		port: options.port,
+		credential: options.credential,
+		signal: options.signal,
+	});
+	const helloAckPromise = websocket.next(
+		(message) => isRecord(message) && message.type === "hello_ack",
+		2_000,
+		options.signal,
+	);
+	const authPromise = websocket.next(
+		(message) => isRecord(message) && message.type === "controller_auth",
+		2_000,
+		options.signal,
+	);
 	websocket.send({
 		type: "hello",
 		protocol: 1,
@@ -115,6 +155,7 @@ function processIsAlive(pid: number): boolean {
 async function attachExisting(
 	candidate: DiscoveredController,
 	projectDirectory: string,
+	signal?: AbortSignal,
 ): Promise<ControllerIdentity | undefined> {
 	if (!processIsAlive(candidate.pid)) return undefined;
 	let lastError: unknown;
@@ -124,10 +165,11 @@ async function attachExisting(
 				port: candidate.port,
 				credential: candidate.resumeToken,
 				projectDirectory,
+				signal,
 			});
 		} catch (error) {
 			lastError = error;
-			await new Promise((resolve) => setTimeout(resolve, 20));
+			await abortableDelay(20, signal);
 		}
 	}
 	if (lastError instanceof Error && lastError.message.startsWith("CONTROLLER_CONNECT_FAILED:")) return undefined;
@@ -304,7 +346,8 @@ export class ControllerSession {
 	}
 }
 
-async function fetchTranscript(identity: ControllerIdentity): Promise<TranscriptReplay> {
+async function fetchTranscript(identity: ControllerIdentity, signal?: AbortSignal): Promise<TranscriptReplay> {
+	throwIfAborted(signal);
 	const replay = new TranscriptReplay(identity.websocket);
 	if (!identity.capabilities.includes(DIRECTOR_TRANSCRIPT_CAPABILITY)) return replay;
 	const events: DirectorEvent[] = [];
@@ -319,6 +362,8 @@ async function fetchTranscript(identity: ControllerIdentity): Promise<Transcript
 			};
 			const response = identity.websocket.next(
 				(message) => isRecord(message) && message.type === "director_transcript" && message.id === request.id,
+				2_000,
+				signal,
 			);
 			identity.websocket.send(request);
 			const message = await response;
@@ -346,6 +391,7 @@ async function spawnController(
 	projectDirectory: string,
 	runtimeBaseDirectory: string,
 	environment: Readonly<Record<string, string | undefined>>,
+	signal?: AbortSignal,
 ): Promise<ControllerSession> {
 	const repositoryRoot = options.repositoryRoot ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 	const launched = await launchDaemon({
@@ -355,50 +401,74 @@ async function spawnController(
 		environment,
 		runtimeBaseDirectory,
 		startupTimeoutMs: options.startupTimeoutMs,
+		signal,
 	});
 	const uid = typeof process.getuid === "function" ? process.getuid() : "user";
 	const runtimeDirectory = path.join(runtimeBaseDirectory, `omb-${uid}`, launched.startup.launch_id);
-	const identity = await authenticateController({
-		port: launched.startup.port,
-		credential: launched.startup.bearer_token,
-		projectDirectory,
-	});
-	await persistControllerCredential({
-		runtimeDirectory,
-		projectDirectory,
-		launchId: launched.startup.launch_id,
-		pid: launched.startup.pid,
-		resumeToken: identity.resumeToken,
-	});
-	const transcriptReplay = await fetchTranscript(identity);
-	return new ControllerSession({
-		connectionKind: "spawned",
-		pid: launched.startup.pid,
-		port: launched.startup.port,
-		runtimeDirectory,
-		identity,
-		transcriptReplay,
-		keepaliveIntervalMs: options.keepaliveIntervalMs,
-	});
+	let identity: ControllerIdentity | undefined;
+	try {
+		throwIfAborted(signal);
+		identity = await authenticateController({
+			port: launched.startup.port,
+			credential: launched.startup.bearer_token,
+			projectDirectory,
+			signal,
+		});
+		throwIfAborted(signal);
+		await persistControllerCredential({
+			runtimeDirectory,
+			projectDirectory,
+			launchId: launched.startup.launch_id,
+			pid: launched.startup.pid,
+			resumeToken: identity.resumeToken,
+		});
+		throwIfAborted(signal);
+		const transcriptReplay = await fetchTranscript(identity, signal);
+		throwIfAborted(signal);
+		return new ControllerSession({
+			connectionKind: "spawned",
+			pid: launched.startup.pid,
+			port: launched.startup.port,
+			runtimeDirectory,
+			identity,
+			transcriptReplay,
+			keepaliveIntervalMs: options.keepaliveIntervalMs,
+		});
+	} catch (error) {
+		identity?.websocket.disconnect();
+		try {
+			await removeControllerCredential(runtimeDirectory);
+		} finally {
+			await terminateDaemon(launched.child);
+		}
+		throw error;
+	}
 }
 
 async function attachedSession(
 	candidate: DiscoveredController,
 	projectDirectory: string,
 	keepaliveIntervalMs?: number,
+	signal?: AbortSignal,
 ): Promise<ControllerSession | undefined> {
-	const identity = await attachExisting(candidate, projectDirectory);
+	const identity = await attachExisting(candidate, projectDirectory, signal);
 	if (identity === undefined) return undefined;
-	const transcriptReplay = await fetchTranscript(identity);
-	return new ControllerSession({
-		connectionKind: "attached",
-		pid: candidate.pid,
-		port: candidate.port,
-		runtimeDirectory: candidate.runtimeDirectory,
-		identity,
-		transcriptReplay,
-		keepaliveIntervalMs,
-	});
+	try {
+		const transcriptReplay = await fetchTranscript(identity, signal);
+		throwIfAborted(signal);
+		return new ControllerSession({
+			connectionKind: "attached",
+			pid: candidate.pid,
+			port: candidate.port,
+			runtimeDirectory: candidate.runtimeDirectory,
+			identity,
+			transcriptReplay,
+			keepaliveIntervalMs,
+		});
+	} catch (error) {
+		identity.websocket.disconnect();
+		throw error;
+	}
 }
 
 export async function connectController(options: ConnectControllerOptions): Promise<ControllerSession> {
@@ -427,28 +497,18 @@ export async function reconnectController(
 		for (const candidate of candidates) {
 			if (!processIsAlive(candidate.pid)) continue;
 			liveCandidate = true;
-			const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs);
+			const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs, signal);
 			if (session !== undefined) return session;
 		}
 		if (!liveCandidate) {
-			const session = await spawnController(options, projectDirectory, runtimeBaseDirectory, environment);
+			const session = await spawnController(options, projectDirectory, runtimeBaseDirectory, environment, signal);
 			if (signal.aborted) {
 				await session.shutdown();
 				throw new Error("CONTROLLER_RECONNECT_ABORTED");
 			}
 			return session;
 		}
-		await new Promise<void>((resolve) => {
-			const timer = setTimeout(done, delayMs);
-			function done(): void {
-				clearTimeout(timer);
-				signal.removeEventListener("abort", done);
-				resolve();
-			}
-			signal.addEventListener("abort", done, { once: true });
-			if (signal.aborted) done();
-			timer.unref();
-		});
+		await abortableDelay(delayMs, signal);
 		delayMs = Math.min(delayMs * 2, 2_000);
 	}
 	throw new Error("CONTROLLER_RECONNECT_ABORTED");

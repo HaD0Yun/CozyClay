@@ -30,8 +30,12 @@ export class ControllerWebSocket extends EventEmitter {
 		this.sendFrame(1, Buffer.from(JSON.stringify(value)));
 	}
 
-	async next(predicate: (message: unknown) => boolean, timeoutMs = 2_000): Promise<unknown> {
+	async next(predicate: (message: unknown) => boolean, timeoutMs = 2_000, signal?: AbortSignal): Promise<unknown> {
 		return new Promise((resolve, reject) => {
+			if (signal?.aborted) {
+				reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+				return;
+			}
 			const timer = setTimeout(() => {
 				cleanup();
 				reject(new Error("CONTROLLER_TIMEOUT: daemon message timed out"));
@@ -45,13 +49,19 @@ export class ControllerWebSocket extends EventEmitter {
 				cleanup();
 				reject(new Error("CONTROLLER_DISCONNECTED: daemon connection closed"));
 			};
+			const onAbort = () => {
+				cleanup();
+				reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+			};
 			const cleanup = () => {
 				clearTimeout(timer);
 				this.off("message", onMessage);
 				this.off("close", onClose);
+				signal?.removeEventListener("abort", onAbort);
 			};
 			this.on("message", onMessage);
 			this.on("close", onClose);
+			signal?.addEventListener("abort", onAbort, { once: true });
 		});
 	}
 
@@ -154,8 +164,13 @@ export async function connectWebSocket(options: {
 	readonly port: number;
 	readonly credential: string;
 	readonly timeoutMs?: number;
+	readonly signal?: AbortSignal;
 }): Promise<ControllerWebSocket> {
 	return new Promise((resolve, reject) => {
+		if (options.signal?.aborted) {
+			reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+			return;
+		}
 		const socket = net.connect(options.port, options.host);
 		const key = randomBytes(16).toString("base64");
 		const expectedAccept = createHash("sha1").update(key + GUID).digest("base64");
@@ -168,11 +183,13 @@ export async function connectWebSocket(options: {
 			socket.off("connect", onConnect);
 			socket.off("data", onData);
 			socket.off("error", onError);
+			options.signal?.removeEventListener("abort", onAbort);
 			if (error !== undefined) {
 				socket.destroy();
 				reject(error);
 			} else resolve(websocket!);
 		};
+		const onAbort = () => finish(new Error("CONTROLLER_RECONNECT_ABORTED"));
 		const onConnect = () => {
 			socket.write(
 				`GET / HTTP/1.1\r\nHost: 127.0.0.1:${options.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nAuthorization: Bearer ${options.credential}\r\nX-OMB-Role: controller\r\n\r\n`,
@@ -194,6 +211,7 @@ export async function connectWebSocket(options: {
 		};
 		const onError = () => finish(new Error("CONTROLLER_CONNECT_FAILED: daemon endpoint is unavailable"));
 		const timer = setTimeout(() => finish(new Error("CONTROLLER_CONNECT_FAILED: daemon connection timed out")), options.timeoutMs ?? 2_000);
+		options.signal?.addEventListener("abort", onAbort, { once: true });
 		socket.once("connect", onConnect);
 		socket.on("data", onData);
 		socket.once("error", onError);

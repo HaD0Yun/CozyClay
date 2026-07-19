@@ -238,6 +238,7 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 		});
 	};
 
+	let abandonActive: (() => void) | undefined;
 	return {
 		async run(runOptions: DirectorTurnRunOptions): Promise<DirectorTurnResult> {
 			if (disposed) throw new Error("DIRECTOR_LOOP_DISPOSED: director loop is disposed");
@@ -277,6 +278,15 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			const abort = () => {
 				void session.abort();
 			};
+			let cleanedUp = false;
+			const cleanup = () => {
+				if (cleanedUp) return;
+				cleanedUp = true;
+				runOptions.signal.removeEventListener("abort", abort);
+				unsubscribe();
+				if (active === state) active = undefined;
+			};
+			abandonActive = cleanup;
 			runOptions.signal.addEventListener("abort", abort, { once: true });
 			let idleReached = false;
 			try {
@@ -311,13 +321,14 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				if (idleTimeout !== undefined) clearTimeout(idleTimeout);
 				idleReached = abortResult && !session.isStreaming;
 				if (!idleReached) resetSession(session);
-				runOptions.signal.removeEventListener("abort", abort);
-				unsubscribe();
-				active = undefined;
+				cleanup();
+				if (abandonActive === cleanup) abandonActive = undefined;
 			}
 		},
 		dispose(): void {
 			disposed = true;
+			abandonActive?.();
+			abandonActive = undefined;
 			void sessionPromise?.then((session) => session.dispose());
 		},
 	};
@@ -448,6 +459,10 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 		},
 		dispose(): void {
 			loop.dispose();
+		},
+		forceDispose() {
+			loop.dispose();
+			return createDirectorTurnHandler(options);
 		},
 	};
 }

@@ -97,6 +97,7 @@ export interface DirectorTurnService {
 		readonly toolCallOrder: readonly DirectorToolName[];
 	}>;
 	dispose(): void;
+	forceDispose(): DirectorTurnService;
 }
 export interface HandlerContext {
 	readonly signal: AbortSignal;
@@ -149,6 +150,7 @@ export type DaemonOptions = {
 	helloTimeoutMs?: number;
 	idleTimeoutMs?: number;
 	attachTicketTtlMs?: number;
+	directorTeardownTimeoutMs?: number;
 	runtimeBaseDirectory?: string;
 };
 export type Daemon = {
@@ -539,6 +541,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	const directorEventTails = new Map<string, Promise<void>>();
 	const directorCommitRevisions = new Map<string, string>();
 	const directorCleanupBarriers = new Map<string, Promise<void>>();
+	let directorTurn = options.directorTurn;
+	let directorGeneration = 0;
 	let pendingBridge: PendingBridge | undefined;
 	const retiredBridges = new Map<string, RetiredBridge>();
 	let bridgeMessageTail: Promise<void> = Promise.resolve();
@@ -646,8 +650,24 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		};
 	}
 
+	const directorTeardownTimeoutMs = options.directorTeardownTimeoutMs ?? 10_000;
 	async function finishCancellation(request: ActiveRequest) {
-		await directorCleanupBarriers.get(request.id);
+		const cleanupBarrier = directorCleanupBarriers.get(request.id);
+		if (cleanupBarrier !== undefined) {
+			let teardownTimer: ReturnType<typeof setTimeout> | undefined;
+			const settled = await Promise.race([
+				cleanupBarrier.then(() => true),
+				new Promise<false>((resolve) => {
+					teardownTimer = setTimeout(() => resolve(false), directorTeardownTimeoutMs);
+				}),
+			]);
+			if (teardownTimer !== undefined) clearTimeout(teardownTimer);
+			if (!settled && directorCleanupBarriers.get(request.id) === cleanupBarrier) {
+				directorGeneration += 1;
+				directorTurn = directorTurn?.forceDispose();
+				directorCleanupBarriers.delete(request.id);
+			}
+		}
 		const retired = Array.from(retiredBridges.values()).find(
 			(candidate) => candidate.pending.requestId === request.id,
 		);
@@ -692,7 +712,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				await Promise.race([Promise.allSettled(Array.from(activeHandlers)), bounded]);
 				clearTimeout(timer);
 			}
-			options.directorTurn?.dispose();
+			directorTurn?.dispose();
 			if (acknowledge !== undefined && !acknowledge.socket.destroyed) {
 				acknowledge.sendText({ type: "shutdown_ack" });
 			}
@@ -865,7 +885,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									session_id: transcript.sessionId,
 									server_nonce: randomNonce(),
 									capabilities:
-										options.directorTurn === undefined
+										directorTurn === undefined
 											? ["inspect_project"]
 											: [
 													"inspect_project",
@@ -1381,9 +1401,10 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			return sendControl(protocolError(turn.id, "INVALID_REQUEST", "request id has already been used", false));
 		}
 		seenRequestIds.add(turn.id);
-		if (options.directorTurn === undefined) {
+		if (directorTurn === undefined) {
 			return sendControl(protocolError(turn.id, "METHOD_NOT_ALLOWED", "director turns are not enabled", false));
 		}
+		const service = directorTurn;
 		if (state.begin(turn.id, turn.deadline_ms) === "busy") {
 			return sendControl(protocolError(turn.id, "BUSY", "one request is already active", true));
 		}
@@ -1398,38 +1419,50 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			resolveCleanup = resolve;
 		});
 		directorCleanupBarriers.set(turn.id, cleanupBarrier);
+		const generation = directorGeneration;
+		const isCurrentTurn = () => generation === directorGeneration;
+		const requireCurrentTurn = () => {
+			if (!isCurrentTurn()) throw new Error("DIRECTOR_TURN_QUARANTINED: director turn was abandoned");
+		};
 		const task = (async () => {
 			try {
 				await queueDirectorEvent(turn.id, {
 					type: "director_turn_started",
 					prompt: turn.prompt,
 				});
-				const result = await options.directorTurn!.run(
+				const result = await service.run(
 					turn,
 					{
 						signal: active.controller.signal,
-						inspectProject: (expectedRevisionId) =>
-							runTrustedDirectorTool(() =>
+						inspectProject: (expectedRevisionId) => {
+							requireCurrentTurn();
+							return runTrustedDirectorTool(() =>
 								inspectProject(parent(expectedRevisionId), {
 									signal: active.controller.signal,
 									reportProgress: () => {},
 								}),
-							),
+							);
+						},
 						applyCameraPlan: async (plan, context) => {
+							requireCurrentTurn();
 							const candidate = await runTrustedDirectorTool(() =>
 								applyCameraPlan(parent(plan.expected_revision_id), plan, context),
 							);
+							requireCurrentTurn();
 							directorCommitRevisions.set(turn.id, candidate.manifest.revisionId);
 							return candidate;
 						},
 						stageScene: async (plan, context) => {
+							requireCurrentTurn();
 							const candidate = await runTrustedDirectorTool(() =>
 								stageScene(parent(plan.expected_revision_id), plan, context),
 							);
+							requireCurrentTurn();
 							directorCommitRevisions.set(turn.id, candidate.manifest.revisionId);
 							return candidate;
 						},
 						renderQaFrames: async (renderRequest, context) => {
+							requireCurrentTurn();
 							let beganCommit = false;
 							try {
 								return await runTrustedDirectorTool(() =>
@@ -1438,6 +1471,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									renderRequest,
 									context,
 									() => {
+										requireCurrentTurn();
 										if (!state.beginDurableCommit(active)) {
 											throw new Error(
 												`${active.cause ?? "CANCELLED"}: cancellation won before artifact publication`,
@@ -1448,15 +1482,17 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									),
 								);
 							} finally {
-								if (beganCommit) state.finishDurableCommit(active);
+								if (beganCommit && isCurrentTurn()) state.finishDurableCommit(active);
 							}
 						},
 						beginDurableCommit: () => {
+							requireCurrentTurn();
 							if (!state.beginDurableCommit(active)) {
 								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
 							}
 						},
 						finishDurableCommit: () => {
+							requireCurrentTurn();
 							if (!state.finishDurableCommit(active)) {
 								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
 							}
@@ -1475,6 +1511,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						},
 					},
 					(event) => {
+						if (!isCurrentTurn()) return;
 						if (event.type === "started") {
 							void queueDirectorEvent(turn.id, {
 								type: "director_tool_call_started",
@@ -1493,6 +1530,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						}
 					},
 				);
+				if (!isCurrentTurn()) return;
 				await directorEventTails.get(turn.id);
 				if (state.complete(active)) {
 					await queueDirectorEvent(turn.id, {
@@ -1503,6 +1541,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					state.terminal(active);
 				}
 			} catch (cause) {
+				if (!isCurrentTurn()) return;
 				await directorEventTails.get(turn.id)?.catch(() => undefined);
 				if (state.complete(active)) {
 					const failure =
@@ -1533,7 +1572,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				}
 			} finally {
 				resolveCleanup();
-				directorCleanupBarriers.delete(turn.id);
+				if (directorCleanupBarriers.get(turn.id) === cleanupBarrier) {
+					directorCleanupBarriers.delete(turn.id);
+				}
 			}
 		})();
 		activeHandlers.add(task);

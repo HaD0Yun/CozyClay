@@ -21,7 +21,7 @@ import {
 	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
 import { createBootRuntime } from "../src/boot.ts";
-import { start, type Daemon } from "../src/daemon.ts";
+import { start, type Daemon, type DirectorTurnService, type DirectorTurnToolEvent } from "../src/daemon.ts";
 
 const PARENT_REVISION = "a".repeat(64);
 const PNG_BYTES = Buffer.from(
@@ -488,6 +488,9 @@ test("director turns reuse top-level cancel and persist one cancelled terminal e
 				}
 			},
 			dispose: () => {},
+			forceDispose() {
+				return this;
+			},
 		},
 	});
 	let control: Awaited<ReturnType<typeof attachController>> | undefined;
@@ -535,6 +538,95 @@ test("director turns reuse top-level cancel and persist one cancelled terminal e
 			),
 			false,
 		);
+	} finally {
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("a non-settling cancelled director turn is quarantined before the replacement runs", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-quarantine-"));
+	let settleWedged!: (result: {
+		summary: string;
+		resultingRevisionId: string;
+		toolCallOrder: [];
+	}) => void;
+	let emitWedged!: (event: DirectorTurnToolEvent) => void;
+	const replacement: DirectorTurnService = {
+		run: async () => ({
+			summary: "Replacement completed.",
+			resultingRevisionId: PARENT_REVISION,
+			toolCallOrder: [] as const,
+		}),
+		dispose: () => {},
+		forceDispose() {
+			return this;
+		},
+	};
+	const wedged: DirectorTurnService = {
+		run: async (_turn, _context, onToolEvent) =>
+			await new Promise<{
+				summary: string;
+				resultingRevisionId: string;
+				toolCallOrder: [];
+			}>((resolve) => {
+				settleWedged = resolve;
+				emitWedged = onToolEvent;
+			}),
+		dispose: () => {},
+		forceDispose: () => replacement,
+	};
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		stdout: () => {},
+		directorTurn: wedged,
+		directorTeardownTimeoutMs: 25,
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	try {
+		control = await attachController(daemon);
+		const wedgedId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: wedgedId,
+			prompt: "Never settle.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		await control.client.next((message) => message.type === "director_turn_started" && message.id === wedgedId);
+		control.client.send({ type: "cancel", id: wedgedId });
+		await control.client.next((message) => message.type === "director_turn_cancelled" && message.id === wedgedId);
+
+		const replacementId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: replacementId,
+			prompt: "Complete.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		const completed = await control.client.next(
+			(message) => message.type === "director_turn_completed" && message.id === replacementId,
+		);
+		assert.equal(completed.summary, "Replacement completed.");
+
+		const eventCount = control.client.messages.length;
+		emitWedged({
+			type: "started",
+			toolName: "inspect_project",
+			toolCallId: "late",
+			paramsSummary: "late",
+		});
+		settleWedged({
+			summary: "Late completion.",
+			resultingRevisionId: PARENT_REVISION,
+			toolCallOrder: [],
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(control.client.messages.length, eventCount);
 	} finally {
 		control?.client.socket.destroy();
 		await daemon.close();
@@ -607,6 +699,9 @@ test("G013 untrusted provider failures are fixed before WebSocket and persistenc
 				throw new Error(`AUTH_ERROR: provider response Authorization: Bearer ${sentinel}`);
 			},
 			dispose: () => {},
+			forceDispose() {
+				return this;
+			},
 		},
 	});
 	let control: Awaited<ReturnType<typeof attachController>> | undefined;
@@ -648,6 +743,9 @@ test("director loop contract violations surface their trusted fixed message, not
 				throw new DirectorLoopContractError("DIRECTOR_LOOP_INCOMPLETE", `turn ended after mutation ${sentinel}`);
 			},
 			dispose: () => {},
+			forceDispose() {
+				return this;
+			},
 		},
 	});
 	let control: Awaited<ReturnType<typeof attachController>> | undefined;

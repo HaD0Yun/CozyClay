@@ -15,6 +15,7 @@ const BASE_ENVIRONMENT_ALLOWLIST = [
 	"TMP",
 	"SYSTEMROOT",
 ] as const;
+const DAEMON_TERMINATION_TIMEOUT_MS = 250;
 
 const PROVIDER_CREDENTIALS: Readonly<Record<string, string>> = {
 	"ant-ling": "ANT_LING_API_KEY",
@@ -55,6 +56,7 @@ export interface LaunchDaemonOptions {
 	readonly environment: Readonly<Record<string, string | undefined>>;
 	readonly runtimeBaseDirectory?: string;
 	readonly startupTimeoutMs?: number;
+	readonly signal?: AbortSignal;
 }
 
 export interface LaunchedDaemon {
@@ -165,8 +167,12 @@ async function commandFor(options: LaunchDaemonOptions): Promise<{ executable: s
 	};
 }
 
-function readStartup(child: ChildProcess, timeoutMs: number): Promise<StartupRecord> {
+function readStartup(child: ChildProcess, timeoutMs: number, signal?: AbortSignal): Promise<StartupRecord> {
 	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+			return;
+		}
 		if (child.stdout === null) return reject(new Error("DAEMON_START_FAILED: startup stdout is unavailable"));
 		let buffer = "";
 		let settled = false;
@@ -177,6 +183,7 @@ function readStartup(child: ChildProcess, timeoutMs: number): Promise<StartupRec
 			child.stdout?.off("data", onData);
 			child.off("error", onError);
 			child.off("exit", onExit);
+			signal?.removeEventListener("abort", onAbort);
 			if (error !== undefined) reject(error);
 			else resolve(record!);
 		};
@@ -195,11 +202,37 @@ function readStartup(child: ChildProcess, timeoutMs: number): Promise<StartupRec
 		};
 		const onError = () => finish(new Error("DAEMON_START_FAILED: daemon process could not start"));
 		const onExit = () => finish(new Error("DAEMON_START_FAILED: daemon exited before startup"));
+		const onAbort = () => finish(new Error("CONTROLLER_RECONNECT_ABORTED"));
 		const timer = setTimeout(() => finish(new Error("DAEMON_START_FAILED: startup timed out")), timeoutMs);
+		signal?.addEventListener("abort", onAbort, { once: true });
 		child.stdout.on("data", onData);
 		child.once("error", onError);
 		child.once("exit", onExit);
 	});
+}
+
+function waitForExit(child: ChildProcess): Promise<boolean> {
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			child.off("exit", onExit);
+			resolve(false);
+		}, DAEMON_TERMINATION_TIMEOUT_MS);
+		const onExit = () => {
+			clearTimeout(timer);
+			resolve(true);
+		};
+		timer.unref();
+		child.once("exit", onExit);
+	});
+}
+
+export async function terminateDaemon(child: ChildProcess): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return;
+	if (!child.kill("SIGTERM")) return;
+	if (await waitForExit(child)) return;
+	if (!child.kill("SIGKILL")) return;
+	await waitForExit(child);
 }
 
 export async function launchDaemon(options: LaunchDaemonOptions): Promise<LaunchedDaemon> {
@@ -218,12 +251,12 @@ export async function launchDaemon(options: LaunchDaemonOptions): Promise<Launch
 		windowsHide: true,
 	});
 	try {
-		const startup = await readStartup(child, options.startupTimeoutMs ?? 5_000);
+		const startup = await readStartup(child, options.startupTimeoutMs ?? 5_000, options.signal);
 		child.stdout?.destroy();
 		child.unref();
 		return { startup, child };
 	} catch (error) {
-		child.kill("SIGTERM");
+		await terminateDaemon(child);
 		throw error;
 	}
 }

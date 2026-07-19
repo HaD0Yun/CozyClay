@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import net, { type Server, type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -205,6 +205,65 @@ async function advertiseFakeDaemon(root: string, projectDirectory: string, daemo
 		}),
 		{ mode: 0o600 },
 	);
+}
+
+async function writeDaemonStandIn(root: string): Promise<string> {
+	const executable = path.join(root, "daemon-stand-in.mjs");
+	await writeFile(
+		executable,
+		`#!/usr/bin/env node
+import fs from "node:fs";
+import net from "node:net";
+
+const mode = fs.readFileSync("stand-in-mode", "utf8").trim();
+const server = net.createServer((socket) => {
+	socket.once("data", () => {
+		fs.writeFileSync("stand-in-requested", String(process.pid));
+		if (mode === "reject") socket.end("HTTP/1.1 403 Forbidden\\r\\nConnection: close\\r\\n\\r\\n");
+	});
+});
+server.listen(0, "127.0.0.1", () => {
+	const address = server.address();
+	fs.writeFileSync("stand-in-pid", String(process.pid));
+	console.log(JSON.stringify({
+		type: "omb_daemon_ready",
+		protocol: 1,
+		port: address.port,
+		pid: process.pid,
+		launch_id: "${launchId}",
+		bearer_token: "${"B".repeat(43)}",
+		expires_in_ms: 10000
+	}));
+});
+`,
+	);
+	await chmod(executable, 0o700);
+	return realpath(executable);
+}
+
+async function waitForFile(file: string): Promise<string> {
+	const deadline = Date.now() + 1_000;
+	while (true) {
+		try {
+			return await readFile(file, "utf8");
+		} catch {
+			if (Date.now() >= deadline) throw new Error(`timed out waiting for ${file}`);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+	}
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+	const deadline = Date.now() + 1_000;
+	while (true) {
+		try {
+			process.kill(pid, 0);
+		} catch {
+			return;
+		}
+		if (Date.now() >= deadline) throw new Error(`child process ${pid} was not terminated`);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
 }
 
 async function unusedPort(): Promise<number> {
@@ -439,6 +498,98 @@ test("aborting an in-flight reconnect stops promptly without spawning a daemon",
 		setTimeout(() => abortController.abort(), 25);
 		await assert.rejects(reconnect, /CONTROLLER_RECONNECT_ABORTED/);
 		assert.ok(Date.now() - startedAt < 500, "aborted reconnect should settle promptly");
+	} finally {
+		abortController.abort();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("aborting reconnect to a silent advertised endpoint settles promptly without spawning", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-reconnect-silent-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	const sockets = new Set<Socket>();
+	const server = net.createServer((socket) => {
+		sockets.add(socket);
+		socket.once("close", () => sockets.delete(socket));
+	});
+	await new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(0, "127.0.0.1", () => {
+			server.off("error", reject);
+			resolve();
+		});
+	});
+	const address = server.address();
+	if (address === null || typeof address === "string") throw new Error("silent endpoint is not listening");
+	await advertiseController(runtimeBaseDirectory, projectDirectory, { port: address.port, pid: process.pid });
+	const abortController = new AbortController();
+	try {
+		const startedAt = Date.now();
+		const reconnect = reconnectController(
+			{ projectDirectory, runtimeBaseDirectory, daemonArguments: [], environment: {} },
+			abortController.signal,
+		);
+		setTimeout(() => abortController.abort(), 25);
+		await assert.rejects(reconnect, /CONTROLLER_RECONNECT_ABORTED/);
+		assert.ok(Date.now() - startedAt < 500, "silent endpoint abort should settle promptly");
+	} finally {
+		abortController.abort();
+		for (const socket of sockets) socket.destroy();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("post-launch controller authentication failure terminates the spawned daemon", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-spawn-auth-failure-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await writeFile(path.join(projectDirectory, "stand-in-mode"), "reject");
+	const executable = await writeDaemonStandIn(root);
+	try {
+		await assert.rejects(
+			connectController({
+				projectDirectory,
+				runtimeBaseDirectory,
+				daemonArguments: ["--faux"],
+				environment: { OMB_DAEMON_EXECUTABLE: executable, PATH: process.env.PATH },
+			}),
+			/CONTROLLER_AUTH_FAILED/,
+		);
+		const pid = Number(await waitForFile(path.join(projectDirectory, "stand-in-pid")));
+		await waitForProcessExit(pid);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("aborting after daemon startup while authentication is silent terminates the child promptly", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-spawn-auth-abort-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await writeFile(path.join(projectDirectory, "stand-in-mode"), "silent");
+	const executable = await writeDaemonStandIn(root);
+	const abortController = new AbortController();
+	try {
+		const startedAt = Date.now();
+		const reconnect = reconnectController(
+			{
+				projectDirectory,
+				runtimeBaseDirectory,
+				daemonArguments: ["--faux"],
+				environment: { OMB_DAEMON_EXECUTABLE: executable, PATH: process.env.PATH },
+			},
+			abortController.signal,
+		);
+		const pid = Number(await waitForFile(path.join(projectDirectory, "stand-in-requested")));
+		abortController.abort();
+		await assert.rejects(reconnect, /CONTROLLER_RECONNECT_ABORTED/);
+		assert.ok(Date.now() - startedAt < 500, "post-startup abort should settle promptly");
+		await waitForProcessExit(pid);
 	} finally {
 		abortController.abort();
 		await rm(root, { recursive: true, force: true });
