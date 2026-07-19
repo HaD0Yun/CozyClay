@@ -1,4 +1,10 @@
-"""Drive the registered panel through Blender's real UI redraw context."""
+"""Exercise real Blender bridge operators and panel formatting against live task state.
+
+Blender background mode has no VIEW_3D window/area/region, so panel formatting is
+invoked directly with a recorder rather than presented as interactive UI rendering.
+The in-flight snapshots are captured from inside transactions reached through real
+``dispatch_bridge_message`` and registered ``bpy.ops.omb`` operator execution.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,6 @@ import json
 import os
 from pathlib import Path
 import sys
-import threading
 from types import SimpleNamespace
 
 import bpy
@@ -63,9 +68,14 @@ class LayoutRecorder:
     def __init__(self):
         self.bl_rna = SimpleNamespace(identifier="UILayout")
         self.labels = []
+        self.operators = []
 
     def label(self, *, text, **_kwargs):
         self.labels.append(text)
+
+    def operator(self, operator, **_kwargs):
+        self.operators.append(operator)
+        return SimpleNamespace()
 
 
 def main() -> None:
@@ -83,6 +93,7 @@ def main() -> None:
         captures.append({
             "layoutType": layout.bl_rna.identifier,
             "labels": list(labels),
+            "operators": list(layout.operators),
         })
         return labels
 
@@ -98,6 +109,7 @@ def main() -> None:
     )
 
     def camera_transaction(_plan, _scene_hash, _active, commit, **_kwargs):
+        redraw()
         result = {
             "expected_revision_id": REVISION,
             "scene_hash": "b" * 64,
@@ -107,6 +119,7 @@ def main() -> None:
         return result
 
     def qa_transaction(_request, _scene_hash, *, progress, **_kwargs):
+        redraw()
         progress("validating", 0, 2)
         progress("rendering", 0, 2)
         progress("rendered", 2, 2)
@@ -132,62 +145,52 @@ def main() -> None:
     def disconnected():
         connection._active_connection = None
 
-    def camera_in_flight():
+    def camera_lifecycle():
         connection._active_connection = active
-        active.begin_task("apply_camera_plan", {
-            "expected_revision_id": REVISION,
-            "keyframes": [{}, {}],
-            "credential": CREDENTIAL_SENTINEL,
-        })
-        active.update_task_progress("mutating", 0, 1)
-        active._bridge_cancellations["camera-bridge"] = threading.Event()
         socket.response = {
             "type": "response",
             "id": "camera-request",
             "resulting_revision_id": CANDIDATE_REVISION,
         }
-
-    def camera_finished():
-        bpy.ops.omb.apply_camera_plan(
-            plan_json=json.dumps({"expected_revision_id": REVISION}),
-            current_scene_hash="b" * 64,
-            bridge_id="camera-bridge",
-            request_id="camera-request",
-            deadline_ms=30000,
-        )
-
-    def qa_in_flight():
-        active.begin_task("render_qa_frames", {
-            "schema_version": 1,
-            "revision_id": REVISION,
-            "frames": [80, 161],
-            "credential": CREDENTIAL_SENTINEL,
+        active.dispatch_bridge_message({
+            "type": "bridge_request",
+            "id": "camera-bridge",
+            "request_id": "camera-request",
+            "method": "apply_camera_plan",
+            "params": {
+                "expected_revision_id": REVISION,
+                "keyframes": [{}, {}],
+                "credential": CREDENTIAL_SENTINEL,
+            },
+            "expected_revision_id": REVISION,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 30000,
         })
-        active.update_task_progress("rendering", 0, 2)
-        active._bridge_cancellations["qa-bridge"] = threading.Event()
 
-    def qa_finished():
-        bpy.ops.omb.render_qa_frames(
-            request_json=json.dumps({
+    def qa_lifecycle():
+        active.dispatch_bridge_message({
+            "type": "bridge_request",
+            "id": "qa-bridge",
+            "request_id": "qa-request",
+            "method": "render_qa_frames",
+            "params": {
                 "schema_version": 1,
                 "revision_id": REVISION,
                 "frames": [80, 161],
-            }),
-            current_scene_hash="b" * 64,
-            bridge_id="qa-bridge",
-            request_id="qa-request",
-            deadline_ms=30000,
-        )
+                "credential": CREDENTIAL_SENTINEL,
+            },
+            "expected_revision_id": REVISION,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 30000,
+        })
 
     def recovery():
         active.require_recovery()
 
     stages.extend([
         disconnected,
-        camera_in_flight,
-        camera_finished,
-        qa_in_flight,
-        qa_finished,
+        camera_lifecycle,
+        qa_lifecycle,
         recovery,
     ])
 
@@ -215,7 +218,11 @@ def main() -> None:
         "category": panel_type.bl_category,
         "captures": captures,
         "credentialSuppressed": CREDENTIAL_SENTINEL not in rendered,
-        "operators": [],
+        "operators": [
+            operator
+            for capture in captures
+            for operator in capture["operators"]
+        ],
     }
     cleanup()
     result["unregistered"] = not hasattr(bpy.types, "OMB_PT_pi_status")

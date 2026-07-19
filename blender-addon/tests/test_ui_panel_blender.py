@@ -1,4 +1,4 @@
-"""Real-Blender registration and rendered-content clause for the Pi status panel."""
+"""Real-Blender operator lifecycle and panel formatter integration coverage."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/ui_panel_fixture.py"
 
 @unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
 class UiPanelBlenderTests(unittest.TestCase):
-    def test_registered_panel_redraws_real_operator_lifecycle_without_controls(self):
+    def test_real_operator_lifecycle_formats_live_status_without_operator_calls(self):
         completed = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(SCRIPT)],
             cwd=REPOSITORY_ROOT,
