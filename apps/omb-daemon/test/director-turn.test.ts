@@ -969,6 +969,71 @@ test("rejected cancelled-terminal append is contained and shuts the daemon down"
 	}
 });
 
+test("a throwing stderr sink cannot abort the persistence fail-stop sequence", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-persistence-throwing-sink-"));
+	const backing = await DirectorTranscriptStore.open(root);
+	const unhandled: unknown[] = [];
+	const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+	process.on("unhandledRejection", recordUnhandled);
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		directorTeardownTimeoutMs: 25,
+		directorTurn: {
+			run: async (_turn, context) =>
+				await new Promise((_, reject) => {
+					const abort = () => reject(new Error("aborted"));
+					context.signal.addEventListener("abort", abort, { once: true });
+					if (context.signal.aborted) abort();
+				}),
+			dispose: () => {},
+			forceDispose() {
+				return this;
+			},
+		},
+		transcriptStore: {
+			sessionId: backing.sessionId,
+			append: async (event) => {
+				if (event.type === "director_turn_cancelled") throw new Error("disk rejected append");
+				await backing.append(event);
+			},
+			page: (request) => backing.page(request),
+		},
+		stdout: () => {},
+		stderr: () => {
+			throw new Error("diagnostic sink exploded");
+		},
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	try {
+		control = await attachController(daemon);
+		const turnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: turnId,
+			prompt: "Cancel me.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		await control.client.next((message) => message.type === "director_turn_started" && message.id === turnId);
+		control.client.send({ type: "cancel", id: turnId });
+		// Shutdown must still complete even though every diagnostic write throws.
+		await daemon.stopped;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(
+			control.client.messages.some((message) => message.type === "director_turn_cancelled" && message.id === turnId),
+			false,
+		);
+		assert.deepEqual(unhandled, []);
+	} finally {
+		process.off("unhandledRejection", recordUnhandled);
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("cancel and request deadline abort every pending artifact reservation acquisition", async () => {
 	const root = await mkdtemp(join(tmpdir(), "omb-director-acquisition-abort-"));
 	let pendingAcquisitions = 0;

@@ -650,7 +650,18 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			bridge.sendText(value);
 		}
 	};
-	const state = new SessionState(clock, (request) => void finishCancellation(request));
+	const state = new SessionState(clock, (request) => {
+		// Total wake boundary: cancellation cleanup must never escape as an
+		// unhandled rejection, whatever its internal failure handlers do.
+		finishCancellation(request).catch(() => undefined);
+	});
+
+	function emitDiagnostic(line: string): void {
+		// Diagnostics must never abort a fail-safe sequence.
+		try {
+			(options.stderr ?? ((text: string) => process.stderr.write(`${text}\n`)))(line);
+		} catch {}
+	}
 
 	function quarantineSignal(pending: PendingBridge): Promise<void> {
 		pending.quarantine ??= new Promise<void>((resolve) => {
@@ -756,21 +767,23 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				} catch (cause) {
 					persistenceUnhealthy = true;
 					attachTickets.zero();
-					const detail = cause instanceof Error ? cause.message : String(cause);
-					(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
-						`director cancellation persistence failed for request ${request.id}: ${detail}`,
-					);
-					const control = activeControl();
-					if (control !== undefined && !control.websocket.socket.destroyed) {
-						control.websocket.close(1011, "transcript persistence failure");
+					try {
+						const detail = cause instanceof Error ? cause.message : String(cause);
+						emitDiagnostic(`director cancellation persistence failed for request ${request.id}: ${detail}`);
+						const control = activeControl();
+						if (control !== undefined && !control.websocket.socket.destroyed) {
+							control.websocket.close(1011, "transcript persistence failure");
+						}
+					} finally {
+						// Shutdown is unconditional: independent of diagnostics and close.
+						void drain("SHUTDOWN").catch((error) => {
+							emitDiagnostic(
+								`daemon shutdown failed after transcript persistence failure for request ${request.id}: ${
+									error instanceof Error ? error.message : String(error)
+								}`,
+							);
+						});
 					}
-					void drain("SHUTDOWN").catch((error) => {
-						(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
-							`daemon shutdown failed after transcript persistence failure for request ${request.id}: ${
-								error instanceof Error ? error.message : String(error)
-							}`,
-						);
-					});
 				}
 				return;
 			}
@@ -782,7 +795,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			);
 			sendTerminal(request.id, error);
 		} catch (cause) {
-			(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
+			emitDiagnostic(
 				`director cancellation cleanup failed for request ${request.id}: ${
 					cause instanceof Error ? cause.message : String(cause)
 				}`,
@@ -835,9 +848,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				await closeServer();
 				await runtimeAdvertisement?.cleanup();
 			} catch (error) {
-				(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
-					`daemon cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				emitDiagnostic(`daemon cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
 			}
 			resolveStoppedOnce();
 		})();
