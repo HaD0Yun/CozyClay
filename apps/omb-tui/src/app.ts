@@ -13,6 +13,7 @@ import type { DirectorServerMessage } from "./protocol.ts";
 import {
 	appendTranscriptNotice,
 	createTranscriptState,
+	evaluatePromptSubmission,
 	formatStatus,
 	formatTranscript,
 	markTurnSubmitted,
@@ -118,8 +119,15 @@ export class DirectorTui {
 	}
 
 	private submit(prompt: string): void {
+		const gate = evaluatePromptSubmission(this.state, prompt);
+		if (gate.prompt === undefined) {
+			if (prompt.trim().length === 0) this.input.setValue("");
+			if (gate.notice !== undefined) this.state = appendTranscriptNotice(this.state, gate.notice);
+			this.render();
+			return;
+		}
 		try {
-			const requestId = this.session.sendTurn(prompt);
+			const requestId = this.session.sendTurn(gate.prompt);
 			this.input.setValue("");
 			this.state = markTurnSubmitted(this.state, requestId);
 		} catch (error) {

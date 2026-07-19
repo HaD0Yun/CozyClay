@@ -94,17 +94,37 @@ export function reduceDirectorMessage(state: TranscriptState, message: DirectorS
 			};
 		case "cancel_ack":
 			return message.status === "accepted" ? { ...state, status: "cancelling", activeRequestId: message.id } : state;
-		case "error":
+		case "error": {
+			const notices = [...state.notices, `${message.code}: ${message.message}`];
+			// An error for a request other than the active turn (e.g. a rejected
+			// duplicate submission) must not clear active-turn tracking.
+			if (state.activeRequestId !== undefined && message.id !== state.activeRequestId) {
+				return { ...state, notices };
+			}
 			return {
 				...state,
 				status: "failed",
 				activeRequestId: undefined,
-				notices: [...state.notices, `${message.code}: ${message.message}`],
+				notices,
 				taskStatus: undefined,
 			};
+		}
 		default:
 			return state;
 	}
+}
+
+/** Client-side submit gate: empty prompts are dropped, one turn at a time. */
+export function evaluatePromptSubmission(
+	state: TranscriptState,
+	prompt: string,
+): { readonly prompt?: string; readonly notice?: string } {
+	const trimmed = prompt.trim();
+	if (trimmed.length === 0) return {};
+	if (state.activeRequestId !== undefined || state.status === "cancelling") {
+		return { notice: "A director turn is still active - wait for it to finish or press Ctrl-C to cancel." };
+	}
+	return { prompt: trimmed };
 }
 
 function formatEvent(event: DirectorEvent): string {

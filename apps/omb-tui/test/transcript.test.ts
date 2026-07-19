@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	createTranscriptState,
+	evaluatePromptSubmission,
 	formatTranscript,
 	reduceDirectorMessage,
 	type DirectorServerMessage,
@@ -92,4 +93,27 @@ test("failed turns retain the protocol error without exposing raw payloads", () 
 
 	assert.equal(state.status, "failed");
 	assert.match(formatTranscript(state), /MODEL_PROVIDER_ERROR: provider request failed/);
+});
+
+test("a rejected duplicate submission error does not clear active-turn tracking", () => {
+	const rejectedId = "55555555-5555-4555-8555-555555555555";
+	const state = reduce([
+		{ type: "director_turn_started", id: requestId, sequence: 0, at, prompt: "Build a product shot" },
+		{ type: "error", id: rejectedId, code: "BUSY", message: "one director turn is already active", retryable: true },
+	]);
+	assert.equal(state.activeRequestId, requestId);
+	assert.equal(state.status, "running");
+	assert.match(state.notices.join("\n"), /BUSY/);
+});
+
+test("prompt submission gate drops empty prompts and blocks concurrent turns", () => {
+	const idle = createTranscriptState();
+	assert.deepEqual(evaluatePromptSubmission(idle, "   "), {});
+	assert.deepEqual(evaluatePromptSubmission(idle, "  stage a cube  "), { prompt: "stage a cube" });
+	const running = reduce([
+		{ type: "director_turn_started", id: requestId, sequence: 0, at, prompt: "first" },
+	]);
+	const blocked = evaluatePromptSubmission(running, "second");
+	assert.equal(blocked.prompt, undefined);
+	assert.match(blocked.notice ?? "", /still active/);
 });
