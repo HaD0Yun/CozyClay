@@ -1,14 +1,18 @@
+import { randomUUID } from "node:crypto";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ApplyCameraPlanProgress, RenderQaFramesProgress } from "@oh-my-blender/blender-tools";
+import type { ApplyCameraPlanProgress, RenderQaFramesProgress, StageSceneProgress } from "@oh-my-blender/blender-tools";
 import { assertCanonicalSize, buildProjectManifest } from "@oh-my-blender/director-core";
 import {
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
+	canonicalizeStageScenePlan,
 	parseRenderQaFramesResult,
 	parseSceneSnapshot,
 	type RenderQaFramesRequestV1,
 	type RenderQaFramesResultV1,
+	type StageSceneMutationCandidate,
+	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
 import {
 	type CameraPlanRevisionStore,
@@ -16,6 +20,7 @@ import {
 	createDirectorProjectStore,
 } from "./apply-camera-plan-service.ts";
 import { createDirectorSession } from "./session.ts";
+import { commitStageSceneMutation } from "./stage-scene-service.ts";
 
 const INSPECT_INSTRUCTION = "Inspect the current Blender project before directing it.";
 
@@ -36,6 +41,13 @@ export interface DirectorHandlerContext {
 			readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 		},
 	) => Promise<CameraPlanMutationCandidate>;
+	readonly stageScene?: (
+		plan: StageScenePlanV1,
+		context: {
+			readonly signal: AbortSignal | undefined;
+			readonly reportProgress: (progress: StageSceneProgress) => void;
+		},
+	) => Promise<StageSceneMutationCandidate>;
 	readonly renderQaFrames?: (
 		request: RenderQaFramesRequestV1,
 		context: {
@@ -77,6 +89,27 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 						},
 					});
 					const result = await commitCameraPlanMutation(store, plan, candidate, context.beginDurableCommit);
+					resultingRevision = result.resulting_revision_id;
+					return result;
+				},
+				stageScene: async (request, bridgeContext) => {
+					if (request.expected_revision_id !== resultingRevision) {
+						throw new Error(
+							`STALE_BASE: expected ${request.expected_revision_id}, current revision is ${resultingRevision}`,
+						);
+					}
+					if (context.stageScene === undefined) {
+						throw new Error("MUTATION_BRIDGE_UNAVAILABLE: protocol v2 mutation bridge is required");
+					}
+					const plan = canonicalizeStageScenePlan(request, randomUUID);
+					const candidate = await context.stageScene(plan, {
+						signal: bridgeContext.signal,
+						reportProgress: (progress) => {
+							bridgeContext.reportProgress(progress);
+							context.reportProgress?.(progress.phase, progress.completed, progress.total);
+						},
+					});
+					const result = await commitStageSceneMutation(store, plan, candidate, context.beginDurableCommit);
 					resultingRevision = result.resulting_revision_id;
 					return result;
 				},

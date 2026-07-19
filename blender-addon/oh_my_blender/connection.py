@@ -74,6 +74,7 @@ class TaskStatus:
 _TASK_KINDS = {
     "apply_camera_plan": "camera_plan",
     "render_qa_frames": "qa_render",
+    "stage_scene": "stage_scene",
 }
 _TASK_PHASES = frozenset({
     "dispatching",
@@ -115,6 +116,12 @@ def _task_descriptor(method: str, params: object) -> tuple[str, int]:
         revision = _digest_prefix(value.get("expected_revision_id"))
         noun = "keyframe" if count == 1 else "keyframes"
         return f"Camera plan revision {revision}, {count} camera-plan {noun}", 1
+    if method == "stage_scene":
+        operations = value.get("operations")
+        count = len(operations) if isinstance(operations, list) else 0
+        revision = _digest_prefix(value.get("expected_revision_id"))
+        noun = "operation" if count == 1 else "operations"
+        return f"Stage scene revision {revision}, {count} {noun}", count
     frames = value.get("frames")
     safe_frames = [
         frame for frame in frames
@@ -222,6 +229,7 @@ class Connection:
         self.tools_exposed = tools_exposed
         self.identity = identity
         self.active_checkpoint: Checkpoint | None = None
+        self._checkpoint_recovery: Callable[[], bool] | None = None
         self.durable_commit_reconciliation: dict | None = None
         self.task_status = TaskStatus()
         self._bridge_cancellations: dict[str, threading.Event] = {}
@@ -384,16 +392,22 @@ class Connection:
             raise ConnectionError("durable project scene hash is invalid")
         return scene_hash
 
-    def hold_checkpoint(self, checkpoint: Checkpoint) -> None:
-        """Retain the sole in-flight mutation checkpoint."""
+    def hold_checkpoint(
+        self,
+        checkpoint: Checkpoint,
+        recovery_fn: Callable[[], bool] | None = None,
+    ) -> None:
+        """Retain the sole in-flight mutation checkpoint and optional recovery."""
         if self.active_checkpoint is not None:
             raise ConnectionError("a mutation checkpoint is already active")
         self.active_checkpoint = checkpoint
+        self._checkpoint_recovery = recovery_fn
 
     def release_checkpoint(self) -> Checkpoint | None:
         """Clear and return the in-flight mutation checkpoint, if any."""
         checkpoint = self.active_checkpoint
         self.active_checkpoint = None
+        self._checkpoint_recovery = None
         return checkpoint
 
     def is_bridge_cancelled(self, bridge_id: str) -> bool:
@@ -423,14 +437,23 @@ class Connection:
                 if self.durable_commit_reconciliation is not None:
                     self.state = LifecycleState.RECOVERY_REQUIRED
                 else:
-                    from .camera_plan import _read_scope, _restore_scope
+                    if self._checkpoint_recovery is not None:
+                        try:
+                            restored = self._checkpoint_recovery()
+                        except BaseException:
+                            restored = False
+                        finally:
+                            self.active_checkpoint = None
+                            self._checkpoint_recovery = None
+                    else:
+                        from .camera_plan import _read_scope, _restore_scope
 
-                    try:
-                        restored = self.restore_on_unexpected_loss(
-                            _restore_scope, _read_scope
-                        )
-                    except BaseException:
-                        restored = False
+                        try:
+                            restored = self.restore_on_unexpected_loss(
+                                _restore_scope, _read_scope
+                            )
+                        except BaseException:
+                            restored = False
                     self.state = (
                         LifecycleState.DISCONNECTED
                         if restored
@@ -550,7 +573,7 @@ class Connection:
                 "tool capabilities remain hidden until reconnect verification succeeds",
             )
             return
-        if message.get("method") not in ("apply_camera_plan", "render_qa_frames"):
+        if message.get("method") not in ("apply_camera_plan", "stage_scene", "render_qa_frames"):
             self._send_bridge_error(
                 message,
                 "METHOD_NOT_SUPPORTED",
@@ -613,6 +636,14 @@ class Connection:
                     request_id=message["request_id"],
                     deadline_ms=message["deadline_ms"],
                 )
+            elif message["method"] == "stage_scene":
+                bpy.ops.omb.stage_scene(
+                    plan_json=json.dumps(message["params"], separators=(",", ":")),
+                    current_scene_hash=current_scene_hash,
+                    bridge_id=bridge_id,
+                    request_id=message["request_id"],
+                    deadline_ms=message["deadline_ms"],
+                )
             else:
                 bpy.ops.omb.render_qa_frames(
                     request_json=json.dumps(message["params"], separators=(",", ":")),
@@ -667,6 +698,7 @@ class Connection:
             return verify(checkpoint, read_fn)
         finally:
             self.active_checkpoint = None
+            self._checkpoint_recovery = None
 
     def _candidate_revision_id(self, result: dict) -> str:
         try:

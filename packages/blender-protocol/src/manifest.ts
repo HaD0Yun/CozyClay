@@ -70,6 +70,33 @@ const LightSchema = exact({
 	spotSize: Type.Union([Type.Number(), Type.Null()]),
 	spotBlend: Type.Union([Type.Number(), Type.Null()]),
 });
+const LightV3Schema = exact({
+	objectId: uuid(),
+	lightType: Type.Union([Type.Literal("POINT"), Type.Literal("SUN"), Type.Literal("SPOT"), Type.Literal("AREA")]),
+	color: Type.Tuple([
+		Type.Number({ minimum: 0, maximum: 1 }),
+		Type.Number({ minimum: 0, maximum: 1 }),
+		Type.Number({ minimum: 0, maximum: 1 }),
+	]),
+	energy: Type.Number({ minimum: 0 }),
+	spotSize: Type.Union([Type.Number(), Type.Null()]),
+	spotBlend: Type.Union([Type.Number(), Type.Null()]),
+	areaSize: Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.Null()]),
+});
+const StagePrimitiveSchema = exact({
+	objectId: uuid(),
+	primitiveType: Type.Union([Type.Literal("PLANE"), Type.Literal("CUBE"), Type.Literal("UV_SPHERE")]),
+});
+const StageMaterialSchema = exact({
+	objectId: uuid(),
+	materialName: name(),
+	baseColor: Type.Tuple([
+		Type.Number({ minimum: 0, maximum: 1 }),
+		Type.Number({ minimum: 0, maximum: 1 }),
+		Type.Number({ minimum: 0, maximum: 1 }),
+		Type.Number({ minimum: 0, maximum: 1 }),
+	]),
+});
 // The owning CAMERA object's entityId, or null.
 const MarkerSchema = exact({ name: name(), frame: Type.Integer(), cameraId: nullableUuid() });
 const CameraKeyframeSchema = exact({
@@ -127,6 +154,26 @@ export const SceneManifestV2Schema = exact({
 });
 export type SceneManifestV2 = Static<typeof SceneManifestV2Schema>;
 export type SceneManifestV2HashFree = Omit<SceneManifestV2, "revisionId" | "sceneHash">;
+export const SceneManifestV3Schema = exact({
+	schemaVersion: Type.Literal(3),
+	projectId: uuid(),
+	revisionId: Type.String({ pattern: HASH_64 }),
+	sceneHash: Type.String({ pattern: HASH_64 }),
+	blenderVersion: Type.String(),
+	scene: SceneSchema,
+	render: RenderSchema,
+	objects: Type.Array(ObjectSchema),
+	bones: Type.Array(BoneSchema),
+	cameras: Type.Array(CameraSchema),
+	lights: Type.Array(LightV3Schema),
+	markers: Type.Array(MarkerSchema),
+	selectedEntityIds: Type.Array(uuid()),
+	cameraAnimations: Type.Array(CameraAnimationSchema),
+	stagePrimitives: Type.Array(StagePrimitiveSchema),
+	stageMaterials: Type.Array(StageMaterialSchema),
+});
+export type SceneManifestV3 = Static<typeof SceneManifestV3Schema>;
+export type SceneManifestV3HashFree = Omit<SceneManifestV3, "revisionId" | "sceneHash">;
 
 function compareCodePoints(left: string, right: string): number {
 	const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
@@ -160,7 +207,9 @@ function gcd(a: number, b: number): number {
 	return a;
 }
 
-export function validateManifest(manifest: SceneManifestV1HashFree | SceneManifestV2HashFree): void {
+export function validateManifest(
+	manifest: SceneManifestV1HashFree | SceneManifestV2HashFree | SceneManifestV3HashFree,
+): void {
 	validateNfc(manifest);
 	if (manifest.scene.frameStart > manifest.scene.frameEnd) {
 		throw new Error("scene.frameStart must not exceed scene.frameEnd");
@@ -260,7 +309,7 @@ export function validateManifest(manifest: SceneManifestV1HashFree | SceneManife
 	for (const marker of manifest.markers)
 		if (marker.cameraId !== null && !cameraObjectIds.has(marker.cameraId))
 			throw new Error(`marker ${marker.name} references unknown camera object: ${marker.cameraId}`);
-	if (manifest.schemaVersion === 2) {
+	if (manifest.schemaVersion !== 1) {
 		assertSorted(
 			manifest.cameraAnimations,
 			(left, right) =>
@@ -300,6 +349,28 @@ export function validateManifest(manifest: SceneManifestV1HashFree | SceneManife
 			}
 		}
 	}
+	if (manifest.schemaVersion === 3) {
+		for (const light of manifest.lights) {
+			const isArea = light.lightType === "AREA";
+			if ((isArea && light.areaSize === null) || (!isArea && light.areaSize !== null)) {
+				throw new Error(`light ${light.objectId} areaSize must be non-null if and only if lightType is AREA`);
+			}
+		}
+		assertSorted(manifest.stagePrimitives, byObjectId, "stagePrimitives");
+		assertUniqueBy(manifest.stagePrimitives, (primitive) => primitive.objectId, "stage primitive objectId");
+		for (const primitive of manifest.stagePrimitives) {
+			if (objects.get(primitive.objectId)?.type !== "MESH") {
+				throw new Error(`stagePrimitives entry must reference a MESH object: ${primitive.objectId}`);
+			}
+		}
+		assertSorted(manifest.stageMaterials, byObjectId, "stageMaterials");
+		assertUniqueBy(manifest.stageMaterials, (material) => material.objectId, "stage material objectId");
+		for (const material of manifest.stageMaterials) {
+			if (objects.get(material.objectId)?.type !== "MESH") {
+				throw new Error(`stageMaterials entry must reference a MESH object: ${material.objectId}`);
+			}
+		}
+	}
 }
 
 export function parseSceneManifest(input: unknown): SceneManifestV1 {
@@ -310,6 +381,11 @@ export function parseSceneManifest(input: unknown): SceneManifestV1 {
 
 export function parseSceneManifestV2(input: unknown): SceneManifestV2 {
 	const manifest = Parse(SceneManifestV2Schema, input);
+	validateManifest(manifest);
+	return manifest;
+}
+export function parseSceneManifestV3(input: unknown): SceneManifestV3 {
+	const manifest = Parse(SceneManifestV3Schema, input);
 	validateManifest(manifest);
 	return manifest;
 }

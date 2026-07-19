@@ -3,3 +3,4 @@ export * from "./manifest.ts";
 export * from "./messages.ts";
 export * from "./render-qa-frames.ts";
 export * from "./snapshot.ts";
+export * from "./stage-scene.ts";

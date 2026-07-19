@@ -6,7 +6,7 @@ import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earen
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { buildProjectManifest } from "@oh-my-blender/director-core";
 import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
-import { createDirectorSession } from "../src/session.ts";
+import { createDirectorSession, DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
 
 describe("director runtime session", () => {
 	const unregister: Array<() => void> = [];
@@ -43,10 +43,14 @@ describe("director runtime session", () => {
 				applyCameraPlan: async () => {
 					throw new Error("not invoked");
 				},
+				stageScene: async () => {
+					throw new Error("not invoked");
+				},
 			},
 			model,
 			modelRuntime,
 		});
+		assert.deepEqual(session.getActiveToolNames(), ["inspect_project", "stage_scene", "apply_camera_plan"]);
 		try {
 			await session.prompt("inspect this Blender scene");
 			assert.equal(calls, 1);
@@ -56,5 +60,14 @@ describe("director runtime session", () => {
 		} finally {
 			session.dispose();
 		}
+	});
+
+	it("keeps stage_scene in the closed production allowlist", () => {
+		assert.deepEqual(DIRECTOR_TOOL_ALLOWLIST, [
+			"inspect_project",
+			"stage_scene",
+			"apply_camera_plan",
+			"render_qa_frames",
+		]);
 	});
 });

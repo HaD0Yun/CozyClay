@@ -300,6 +300,117 @@ if bpy is not None:
                 complete(None, error)
             return {"FINISHED"}
 
+    class OMB_OT_stage_scene(bpy.types.Operator):
+        """Internal Pi-driven stage_scene operator; never exposed as a UI button."""
+
+        bl_idname = "omb.stage_scene"
+        bl_label = "Stage Scene"
+        bl_options = {"INTERNAL"}
+
+        plan_json: bpy.props.StringProperty(options={"HIDDEN"})
+        current_scene_hash: bpy.props.StringProperty(options={"HIDDEN"})
+        bridge_id: bpy.props.StringProperty(options={"HIDDEN"})
+        request_id: bpy.props.StringProperty(options={"HIDDEN"})
+        deadline_ms: bpy.props.IntProperty(
+            default=30_000, min=1, max=30_000, options={"HIDDEN"}
+        )
+
+        def execute(self, _context):
+            import json
+            import time
+
+            from . import connection, stage_scene
+
+            active = connection._active_connection
+            if (
+                active is None
+                or active.state != connection.LifecycleState.ACTIVE
+                or not active.tools_exposed
+            ):
+                self.report({"ERROR"}, "No verified active daemon connection")
+                return {"CANCELLED"}
+            try:
+                plan = json.loads(self.plan_json)
+            except (TypeError, ValueError) as exc:
+                self.report({"ERROR"}, f"Invalid stage scene JSON: {exc}")
+                return {"CANCELLED"}
+
+            deadline = time.monotonic() + min(self.deadline_ms, 30_000) / 1000
+            operation_count = len(plan.get("operations", ()))
+            active.update_task_progress("mutating", 0, operation_count)
+            active._send_json({
+                "type": "bridge_progress",
+                "id": self.bridge_id,
+                "request_id": self.request_id,
+                "phase": "mutating",
+                "completed": 0,
+                "total": operation_count,
+            })
+
+            def commit(result):
+                active.update_task_progress("durable_commit", 1, 1)
+                active._send_json({
+                    "type": "bridge_progress",
+                    "id": self.bridge_id,
+                    "request_id": self.request_id,
+                    "phase": "durable_commit",
+                    "completed": 1,
+                    "total": 1,
+                })
+                return active.await_durable_bridge_commit(
+                    self.bridge_id,
+                    self.request_id,
+                    result,
+                    deadline,
+                )
+
+            def complete(result, error):
+                active.finish_bridge(self.bridge_id)
+                if error is None:
+                    revision_id = (
+                        result.get("manifest", {}).get("revisionId")
+                        if isinstance(result, dict)
+                        else None
+                    )
+                    active.finish_task("success", revision_id=revision_id)
+                    return
+                code = getattr(error, "code", type(error).__name__)
+                if code == "STAGE_SCENE_CANCELLED":
+                    active.finish_task("cancelled")
+                elif isinstance(
+                    error, connection.DurableCommitReconciliationRequired
+                ):
+                    active.finish_task("recovery_required")
+                else:
+                    active.finish_task("error", code=code)
+                if (
+                    active.websocket.closed
+                    or isinstance(error, connection.ConnectionError)
+                ):
+                    return
+                active._send_json({
+                    "type": "bridge_error",
+                    "id": self.bridge_id,
+                    "request_id": self.request_id,
+                    "code": code,
+                    "message": str(error),
+                    "retryable": False,
+                })
+
+            try:
+                result = stage_scene.apply_stage_scene_transaction(
+                    plan,
+                    self.current_scene_hash,
+                    active,
+                    commit,
+                    deadline=deadline,
+                    cancelled=lambda: active.is_bridge_cancelled(self.bridge_id),
+                )
+                complete(result, None)
+            except BaseException as error:
+                complete(None, error)
+            return {"FINISHED"}
+
     class OMB_OT_render_qa_frames(bpy.types.Operator):
         """Internal protocol-v2 QA renderer; never accepts arbitrary paths."""
 
@@ -448,6 +559,7 @@ if bpy is not None:
         OMB_OT_repair_ids,
         OMB_OT_connect,
         OMB_OT_apply_camera_plan,
+        OMB_OT_stage_scene,
         OMB_OT_render_qa_frames,
         OMB_OT_disconnect,
         OMB_PT_pi_status,

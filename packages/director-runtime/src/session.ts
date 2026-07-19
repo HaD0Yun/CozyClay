@@ -13,15 +13,22 @@ import {
 	createApplyCameraPlanTool,
 	createInspectProjectTool,
 	createRenderQaFramesTool,
+	createStageSceneTool,
 	type InspectProjectBridge,
 	type RenderQaFramesBridge,
+	type StageSceneBridge,
 } from "@oh-my-blender/blender-tools";
 import { BundledDirectorResourceLoader, DIRECTOR_PROMPT_DIGEST } from "./resource-loader.ts";
 
-export const DIRECTOR_TOOL_ALLOWLIST = ["inspect_project", "apply_camera_plan", "render_qa_frames"] as const;
+export const DIRECTOR_TOOL_ALLOWLIST = [
+	"inspect_project",
+	"stage_scene",
+	"apply_camera_plan",
+	"render_qa_frames",
+] as const;
 
 export interface DirectorSessionOptions {
-	readonly bridge: InspectProjectBridge & Partial<ApplyCameraPlanBridge & RenderQaFramesBridge>;
+	readonly bridge: InspectProjectBridge & Partial<ApplyCameraPlanBridge & RenderQaFramesBridge & StageSceneBridge>;
 	readonly model: Model<string>;
 	readonly modelRuntime: ModelRuntime;
 	readonly cwd?: string;
@@ -37,12 +44,17 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		options.bridge.applyCameraPlan === undefined
 			? undefined
 			: { applyCameraPlan: options.bridge.applyCameraPlan.bind(options.bridge) };
+	const stageBridge =
+		options.bridge.stageScene === undefined
+			? undefined
+			: { stageScene: options.bridge.stageScene.bind(options.bridge) };
 	const renderBridge =
 		options.bridge.renderQaFrames === undefined
 			? undefined
 			: { renderQaFrames: options.bridge.renderQaFrames.bind(options.bridge) };
 	const enabledTools = [
 		"inspect_project",
+		...(stageBridge === undefined ? [] : (["stage_scene"] as const)),
 		...(mutationBridge === undefined ? [] : (["apply_camera_plan"] as const)),
 		...(renderBridge === undefined ? [] : (["render_qa_frames"] as const)),
 	];
@@ -55,6 +67,7 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		resourceLoader,
 		customTools: [
 			createInspectProjectTool(options.bridge),
+			...(stageBridge === undefined ? [] : [createStageSceneTool(stageBridge)]),
 			...(mutationBridge === undefined ? [] : [createApplyCameraPlanTool(mutationBridge)]),
 			...(renderBridge === undefined ? [] : [createRenderQaFramesTool(renderBridge)]),
 		],

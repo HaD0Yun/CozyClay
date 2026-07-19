@@ -16,5 +16,6 @@ qa_render.py
 revision.py
 scene_manifest.py
 snapshot.py
+stage_scene.py
 ui_panel.py
 ws_client.py

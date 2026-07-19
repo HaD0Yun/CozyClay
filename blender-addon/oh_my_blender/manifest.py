@@ -20,6 +20,7 @@ from .snapshot import (
 )
 from .scene_manifest import (
     build_scene_manifest,
+    build_scene_manifest_v3,
     finalize_scene_manifest,
     rational_fps,
 )
@@ -222,8 +223,37 @@ def _manifest_bones(scene_objects: list[bpy.types.Object]) -> list[dict]:
     return bones
 
 
-def extract_scene_manifest_v2() -> dict:
-    """Extract the active Blender scene through the closed SceneManifestV2 path."""
+def _stage_manifest_entries(
+    scene_objects: list[bpy.types.Object],
+    object_ids: dict[bpy.types.Object, str],
+) -> tuple[list[dict], list[dict]]:
+    primitives = []
+    materials = []
+    for scene_object in scene_objects:
+        object_id = object_ids[scene_object]
+        primitive_type = scene_object.get("omb.stage_primitive_type")
+        if primitive_type in ("PLANE", "CUBE", "UV_SPHERE"):
+            primitives.append({
+                "objectId": object_id,
+                "primitiveType": primitive_type,
+            })
+        if scene_object.type != "MESH" or not scene_object.material_slots:
+            continue
+        material = scene_object.material_slots[0].material
+        if (
+            material is not None
+            and material.get("omb.generated_for_entity_id") == object_id
+        ):
+            materials.append({
+                "objectId": object_id,
+                "materialName": _text(material.name),
+                "baseColor": _vector(material.diffuse_color),
+            })
+    return primitives, materials
+
+
+def _extract_scene_manifest(schema_version: int) -> dict:
+    """Extract the active Blender scene through the negotiated manifest path."""
     blender_scene = bpy.context.scene
     project_id = blender_scene.get("omb.project_id")
     if not isinstance(project_id, str):
@@ -268,21 +298,24 @@ def extract_scene_manifest_v2() -> dict:
                     animations.append(animation)
         elif scene_object.type == "LIGHT":
             light = scene_object.data
-            lights.append(
-                {
-                    "objectId": object_id,
-                    "lightType": _text(light.type),
-                    "color": _vector(light.color),
-                    "energy": float(light.energy),
-                    "spotSize": float(light.spot_size) if light.type == "SPOT" else None,
-                    "spotBlend": float(light.spot_blend) if light.type == "SPOT" else None,
-                }
-            )
+            light_entry = {
+                "objectId": object_id,
+                "lightType": _text(light.type),
+                "color": _vector(light.color),
+                "energy": float(light.energy),
+                "spotSize": float(light.spot_size) if light.type == "SPOT" else None,
+                "spotBlend": float(light.spot_blend) if light.type == "SPOT" else None,
+            }
+            if schema_version == 3:
+                light_entry["areaSize"] = (
+                    float(light.size) if light.type == "AREA" else None
+                )
+            lights.append(light_entry)
 
     fps_numerator, fps_denominator = rational_fps(
         int(blender_scene.render.fps), float(blender_scene.render.fps_base)
     )
-    manifest = build_scene_manifest(
+    manifest_parts = dict(
         project_id=project_id,
         blender_version=_text(bpy.app.version_string),
         scene={
@@ -317,7 +350,28 @@ def extract_scene_manifest_v2() -> dict:
         ],
         camera_animations=animations,
     )
+    if schema_version == 3:
+        stage_primitives, stage_materials = _stage_manifest_entries(
+            scene_objects, object_ids
+        )
+        manifest = build_scene_manifest_v3(
+            **manifest_parts,
+            stage_primitives=stage_primitives,
+            stage_materials=stage_materials,
+        )
+    else:
+        manifest = build_scene_manifest(**manifest_parts)
     return finalize_scene_manifest(manifest)
+
+
+def extract_scene_manifest_v2() -> dict:
+    """Extract the active Blender scene through SceneManifestV2."""
+    return _extract_scene_manifest(2)
+
+
+def extract_scene_manifest_v3() -> dict:
+    """Extract stage_scene state through the additive SceneManifestV3."""
+    return _extract_scene_manifest(3)
 
 def extract_scene_snapshot() -> dict:
     """Extract the active Blender scene into a Scene Snapshot v2 dictionary."""

@@ -19,6 +19,8 @@ import {
 	type RenderQaFramesRequestV1,
 	type RenderQaFramesResultV1,
 	type Request,
+	type StageSceneMutationCandidate,
+	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
 import {
 	AttachTicketBroker,
@@ -43,11 +45,19 @@ export type ApplyCameraPlan = (
 		readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	},
 ) => Promise<CameraPlanMutationCandidate>;
+export type StageScene = (
+	plan: StageScenePlanV1,
+	context: {
+		readonly signal: AbortSignal | undefined;
+		readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
+	},
+) => Promise<StageSceneMutationCandidate>;
 export interface HandlerContext {
 	readonly signal: AbortSignal;
 	readonly request: Request;
 	readonly reportProgress: (phase: string, completed: number, total: number) => void;
 	readonly applyCameraPlan: ApplyCameraPlan;
+	readonly stageScene: StageScene;
 	readonly renderQaFrames: RenderQaFrames;
 	readonly beginDurableCommit: () => void;
 }
@@ -117,7 +127,7 @@ type PendingArtifactFrame = {
 type PendingBridge = {
 	readonly id: string;
 	readonly requestId: string;
-	readonly method: "apply_camera_plan" | "render_qa_frames";
+	readonly method: "apply_camera_plan" | "stage_scene" | "render_qa_frames";
 	readonly renderRequest?: RenderQaFramesRequestV1;
 	readonly artifactFrames: Map<number, PendingArtifactFrame>;
 	totalArtifactBytes: number;
@@ -873,6 +883,69 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			if (signal?.aborted) abort();
 		});
 	}
+	async function stageScene(
+		request: Request,
+		plan: StageScenePlanV1,
+		context: Parameters<StageScene>[1],
+	): Promise<StageSceneMutationCandidate> {
+		const transport = bridgeTransport();
+		if (transport === undefined) {
+			throw new Error("MUTATION_BRIDGE_UNAVAILABLE: stage_scene requires an attached protocol-v2 bridge");
+		}
+		if (pendingBridge !== undefined) throw new Error("BUSY: one mutation bridge is already open");
+		if (plan.expected_revision_id !== request.expected_revision_id) {
+			throw new Error(
+				`STALE_BASE: plan expected ${plan.expected_revision_id}, request expected ${request.expected_revision_id}`,
+			);
+		}
+		const id = randomUUID();
+		const bridgeRequest = parseDaemonBridgeMessage(
+			{
+				type: "bridge_request",
+				id,
+				request_id: request.id,
+				method: "stage_scene",
+				params: plan,
+				expected_revision_id: request.expected_revision_id,
+				deadline_ms: request.deadline_ms,
+			},
+			transport.mutationSession,
+			new Set([request.id]),
+		);
+		bridgeTerminalTargets.set(request.id, transport.websocket);
+		return new Promise<StageSceneMutationCandidate>((resolve, reject) => {
+			const abort = () => {
+				if (pendingBridge?.id !== id) return;
+				try {
+					transport.websocket.sendText(
+						parseDaemonBridgeMessage(
+							{ type: "bridge_cancel", id, request_id: request.id },
+							transport.mutationSession,
+							new Set([request.id]),
+						),
+					);
+				} catch {
+					void failPendingBridge("CANCELLED", "stage bridge cancellation failed");
+				}
+			};
+			const signal = context.signal;
+			pendingBridge = {
+				id,
+				requestId: request.id,
+				method: "stage_scene",
+				artifactFrames: new Map(),
+				totalArtifactBytes: 0,
+				reportProgress: context.reportProgress,
+				resolve: (result) => resolve(result as StageSceneMutationCandidate),
+				reject,
+				removeAbortListener: () => signal?.removeEventListener("abort", abort),
+			};
+			signal?.addEventListener("abort", abort, { once: true });
+			transport.websocket.sendText(bridgeRequest);
+			if (signal?.aborted) abort();
+		});
+	}
+
 
 	async function renderQaFrames(
 		request: Request,
@@ -978,6 +1051,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						}
 					},
 					applyCameraPlan: (plan, context) => applyCameraPlan(request, plan, context),
+					stageScene: (plan, context) => stageScene(request, plan, context),
 					renderQaFrames: (renderRequest, context) =>
 						renderQaFrames(request, renderRequest, context, () => {
 							if (!state.beginDurableCommit(active)) {

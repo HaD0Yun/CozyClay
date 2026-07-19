@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "expected_revision_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "operations": [
+    {
+      "op": "add_primitive",
+      "entity_id": "11111111-1111-4111-8111-111111111111",
+      "primitive_type": "PLANE",
+      "name": "Floor",
+      "location": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [5, 5, 1],
+      "parent": null
+    }
+  ]
+}

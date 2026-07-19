@@ -1,4 +1,4 @@
-"""Blender-independent assembly and validation for SceneManifestV2."""
+"""Blender-independent assembly and validation for SceneManifestV2/V3."""
 
 from __future__ import annotations
 
@@ -8,19 +8,20 @@ import re
 import unicodedata
 from math import gcd
 
-from .canonical import canonical_revision
-from .revision import initial_revision_id
+from .canonical import canonical_json, canonical_revision
+from .revision import child_revision_id, initial_revision_id
 from .snapshot import EXPORT_MAGNITUDE, EXPORT_NONFINITE, ExportError, UNSUPPORTED_FPS_BASE
 
 _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_MAGNITUDE = 1e15
 
-_MANIFEST_KEYS = {
+_MANIFEST_V2_KEYS = {
     "schemaVersion", "projectId", "revisionId", "sceneHash", "blenderVersion",
     "scene", "render", "objects", "bones", "cameras", "lights", "markers",
     "selectedEntityIds", "cameraAnimations",
 }
+_MANIFEST_V3_KEYS = _MANIFEST_V2_KEYS | {"stagePrimitives", "stageMaterials"}
 _SCENE_KEYS = {"name", "frameStart", "frameEnd", "fpsNumerator", "fpsDenominator", "activeCameraId"}
 _RENDER_KEYS = {"resolutionX", "resolutionY", "resolutionPercentage"}
 _OBJECT_KEYS = {"entityId", "name", "type", "parentId", "visible", "location", "rotationQuaternion", "scale"}
@@ -30,6 +31,9 @@ _CAMERA_KEYS = {
     "verticalFovRadians", "clipStart", "clipEnd",
 }
 _LIGHT_KEYS = {"objectId", "lightType", "color", "energy", "spotSize", "spotBlend"}
+_LIGHT_V3_KEYS = _LIGHT_KEYS | {"areaSize"}
+_STAGE_PRIMITIVE_KEYS = {"objectId", "primitiveType"}
+_STAGE_MATERIAL_KEYS = {"objectId", "materialName", "baseColor"}
 _MARKER_KEYS = {"name", "frame", "cameraId"}
 _CAMERA_ANIMATION_KEYS = {"objectId", "target", "fcurves"}
 _FCURVE_KEYS = {"dataPath", "arrayIndex", "keyframes"}
@@ -129,9 +133,14 @@ def _assert_sorted(values: list, key, label: str) -> None:
 
 
 def _validate_manifest(manifest: dict) -> None:
-    _exact_keys(manifest, _MANIFEST_KEYS, "manifest")
-    if manifest.get("schemaVersion") != 2:
-        _fail("schemaVersion", "must equal 2")
+    schema_version = manifest.get("schemaVersion")
+    if schema_version not in (2, 3):
+        _fail("schemaVersion", "must equal 2 or 3")
+    _exact_keys(
+        manifest,
+        _MANIFEST_V3_KEYS if schema_version == 3 else _MANIFEST_V2_KEYS,
+        "manifest",
+    )
     _uuid(manifest.get("projectId"), "projectId")
     _string(manifest.get("blenderVersion"), "blenderVersion")
 
@@ -154,7 +163,13 @@ def _validate_manifest(manifest: dict) -> None:
     _integer(render.get("resolutionPercentage"), "render.resolutionPercentage", 1, 100)
 
     arrays = {}
-    for key in ("objects", "bones", "cameras", "lights", "markers", "selectedEntityIds", "cameraAnimations"):
+    array_keys = [
+        "objects", "bones", "cameras", "lights", "markers",
+        "selectedEntityIds", "cameraAnimations",
+    ]
+    if schema_version == 3:
+        array_keys.extend(("stagePrimitives", "stageMaterials"))
+    for key in array_keys:
         value = manifest.get(key)
         if not isinstance(value, list):
             _fail(key, "must be an array")
@@ -238,7 +253,7 @@ def _validate_manifest(manifest: dict) -> None:
     light_object_ids: set[str] = set()
     for index, item in enumerate(arrays["lights"]):
         path = f"lights[{index}]"
-        _exact_keys(item, _LIGHT_KEYS, path)
+        _exact_keys(item, _LIGHT_V3_KEYS if schema_version == 3 else _LIGHT_KEYS, path)
         _uuid(item.get("objectId"), f"{path}.objectId")
         if item["objectId"] in light_object_ids:
             _fail("lights", "must contain exactly one entry per light object")
@@ -258,6 +273,14 @@ def _validate_manifest(manifest: dict) -> None:
                 _number(value, f"{path}.{field}")
             elif value is not None:
                 _fail(f"{path}.{field}", "must be null for non-SPOT lights")
+        if schema_version == 3:
+            area_size = item.get("areaSize")
+            if item["lightType"] == "AREA":
+                _number(area_size, f"{path}.areaSize")
+                if area_size <= 0:
+                    _fail(f"{path}.areaSize", "must be > 0")
+            elif area_size is not None:
+                _fail(f"{path}.areaSize", "must be null for non-AREA lights")
     _assert_sorted(arrays["lights"], lambda item: item["objectId"], "lights")
     expected_light_objects = {key for key, item in objects_by_id.items() if item["type"] == "LIGHT"}
     if light_object_ids != expected_light_objects:
@@ -287,6 +310,33 @@ def _validate_manifest(manifest: dict) -> None:
     if len(set(arrays["selectedEntityIds"])) != len(arrays["selectedEntityIds"]):
         _fail("selectedEntityIds", "must not contain duplicates")
     _assert_sorted(arrays["selectedEntityIds"], lambda value: value, "selectedEntityIds")
+
+    if schema_version == 3:
+        for key, item_keys in (
+            ("stagePrimitives", _STAGE_PRIMITIVE_KEYS),
+            ("stageMaterials", _STAGE_MATERIAL_KEYS),
+        ):
+            seen_object_ids: set[str] = set()
+            for index, item in enumerate(arrays[key]):
+                path = f"{key}[{index}]"
+                _exact_keys(item, item_keys, path)
+                _uuid(item.get("objectId"), f"{path}.objectId")
+                if item["objectId"] in seen_object_ids:
+                    _fail(key, "must not contain duplicate objectId values")
+                seen_object_ids.add(item["objectId"])
+                if objects_by_id.get(item["objectId"], {}).get("type") != "MESH":
+                    raise INVALID_MANIFEST_REFERENCE(
+                        f"{path}.objectId must reference a MESH object"
+                    )
+                if key == "stagePrimitives":
+                    if item.get("primitiveType") not in ("PLANE", "CUBE", "UV_SPHERE"):
+                        _fail(f"{path}.primitiveType", "is unsupported")
+                else:
+                    _string(item.get("materialName"), f"{path}.materialName", 1, 256)
+                    _vector(item.get("baseColor"), 4, f"{path}.baseColor")
+                    if any(component < 0 or component > 1 for component in item["baseColor"]):
+                        _fail(f"{path}.baseColor", "components must be between 0 and 1")
+            _assert_sorted(arrays[key], lambda item: item["objectId"], key)
 
     animation_targets: set[tuple[str, str]] = set()
     for animation_index, animation in enumerate(arrays["cameraAnimations"]):
@@ -385,6 +435,34 @@ def build_scene_manifest(
     return manifest
 
 
+def build_scene_manifest_v3(
+    *,
+    stage_primitives: list[dict],
+    stage_materials: list[dict],
+    **parts,
+) -> dict:
+    """Build the minimal additive manifest needed by stage_scene."""
+    lights = copy.deepcopy(parts["lights"])
+    v2_parts = {
+        **parts,
+        "lights": [
+            {key: value for key, value in item.items() if key != "areaSize"}
+            for item in lights
+        ],
+    }
+    manifest = build_scene_manifest(**v2_parts)
+    manifest["schemaVersion"] = 3
+    manifest["lights"] = sorted(lights, key=lambda item: item["objectId"])
+    manifest["stagePrimitives"] = sorted(
+        copy.deepcopy(stage_primitives), key=lambda item: item["objectId"]
+    )
+    manifest["stageMaterials"] = sorted(
+        copy.deepcopy(stage_materials), key=lambda item: item["objectId"]
+    )
+    _validate_manifest(manifest)
+    return manifest
+
+
 def finalize_scene_manifest(manifest_without_hashes: dict) -> dict:
     """Add canonical scene and initial revision hashes, excluding both from the preimage."""
     manifest = copy.deepcopy(manifest_without_hashes)
@@ -393,4 +471,26 @@ def finalize_scene_manifest(manifest_without_hashes: dict) -> dict:
     _validate_manifest(manifest)
     scene_hash = canonical_revision(manifest)
     revision_id = initial_revision_id(manifest["projectId"], scene_hash)
+    return {**manifest, "revisionId": revision_id, "sceneHash": scene_hash}
+
+
+def finalize_scene_manifest_child(
+    manifest_without_hashes: dict,
+    parent_revision_id: str,
+    canonical_operation: object,
+    canonical_dependency_hashes: object = (),
+) -> dict:
+    """Hash a V3 scene and bind it to the real parent/operation child chain."""
+    manifest = copy.deepcopy(manifest_without_hashes)
+    manifest.pop("sceneHash", None)
+    manifest.pop("revisionId", None)
+    _validate_manifest(manifest)
+    scene_hash = canonical_revision(manifest)
+    revision_id = child_revision_id(
+        manifest["projectId"],
+        parent_revision_id,
+        canonical_json(canonical_operation),
+        scene_hash,
+        canonical_json(list(canonical_dependency_hashes)),
+    )
     return {**manifest, "revisionId": revision_id, "sceneHash": scene_hash}

@@ -15,8 +15,8 @@ async function seedHostileResources(root: string, suffix = "startup") {
 		[`.pi/skills/hostile-${suffix}/SKILL.md`]: "# hostile skill",
 		[`.pi/prompts/hostile-${suffix}.md`]: "hostile prompt",
 		[`.pi/themes/hostile-${suffix}.json`]: "{}",
-		["AGENTS.md"]: "hostile context",
-		["package.json"]: JSON.stringify({ pi: { extensions: ["./hostile.ts"] } }),
+		"AGENTS.md": "hostile context",
+		"package.json": JSON.stringify({ pi: { extensions: ["./hostile.ts"] } }),
 		[`.pi/mcp-${suffix}.json`]: JSON.stringify({ mcpServers: { hostile: {} } }),
 	};
 	for (const [relative, content] of Object.entries(files)) {
@@ -65,6 +65,9 @@ describe("hostile local resource isolation", () => {
 				throw new Error("not invoked");
 			},
 			applyCameraPlan: async () => {
+				throw new Error("not invoked");
+			},
+			stageScene: async () => {
 				throw new Error("not invoked");
 			},
 			renderQaFrames: async () => {

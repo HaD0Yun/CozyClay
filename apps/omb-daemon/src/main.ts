@@ -5,6 +5,7 @@ import {
 	createInspectHandler,
 	createRenderArtifactReservationFactory,
 	createRenderQaFramesHandler,
+	createStageSceneHandler,
 } from "@oh-my-blender/director-runtime";
 import { createBootRuntime, parseBootArguments } from "./boot.ts";
 import { start } from "./daemon.ts";
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
 					}
 				},
 				apply_camera_plan: createApplyCameraPlanHandler({ store }),
+				stage_scene: createStageSceneHandler({ store }),
 				render_qa_frames: createRenderQaFramesHandler(),
 			},
 			beginArtifactReservations,

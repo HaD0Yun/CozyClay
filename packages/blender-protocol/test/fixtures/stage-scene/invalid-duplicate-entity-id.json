@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "expected_revision_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "operations": [
+    {
+      "op": "add_primitive",
+      "entity_id": "11111111-1111-4111-8111-111111111111",
+      "primitive_type": "CUBE",
+      "name": "Hero Cube",
+      "location": [0, 0, 1],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1]
+    },
+    {
+      "op": "upsert_area_light",
+      "entity_id": "11111111-1111-4111-8111-111111111111",
+      "name": "Key Light",
+      "location": [4, -4, 6],
+      "rotation": [0.5, 0, 0.8],
+      "scale": [1, 1, 1],
+      "energy": 800,
+      "color": [1, 0.9, 0.8],
+      "size": 3
+    }
+  ]
+}

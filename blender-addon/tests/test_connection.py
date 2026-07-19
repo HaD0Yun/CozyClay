@@ -222,6 +222,40 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(connection.task_status.total, 3)
         self.assertIn("frames 80, 161, 199", connection.task_status.descriptor)
 
+    def test_stage_scene_uses_existing_main_thread_bridge_and_safe_status(self):
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+        blender = mock.Mock()
+        message = {
+            "type": "bridge_request",
+            "id": "stage-bridge",
+            "request_id": "stage-request",
+            "method": "stage_scene",
+            "params": {
+                "schema_version": 1,
+                "expected_revision_id": "a" * 64,
+                "operations": [{"op": "add_primitive"}],
+                "secret": "credential",
+            },
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 30000,
+        }
+
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.dispatch_bridge_message(message)
+
+        blender.ops.omb.stage_scene.assert_called_once_with(
+            plan_json=json.dumps(message["params"], separators=(",", ":")),
+            current_scene_hash="b" * 64,
+            bridge_id="stage-bridge",
+            request_id="stage-request",
+            deadline_ms=30000,
+        )
+        self.assertEqual(connection.task_status.task_kind, "stage_scene")
+        self.assertIn("1 operation", connection.task_status.descriptor)
+        self.assertNotIn("secret", connection.task_status.descriptor)
+
     def test_bridge_request_reads_durable_base_hash_from_project_store(self):
         socket = FakeSocket()
         blender = mock.Mock()

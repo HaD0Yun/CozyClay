@@ -3,11 +3,13 @@ import type {
 	SceneManifestV1HashFree,
 	SceneManifestV2,
 	SceneManifestV2HashFree,
+	SceneManifestV3,
+	SceneManifestV3HashFree,
 	SceneSnapshot,
 } from "@oh-my-blender/protocol";
-import { parseSceneManifestV2, validateManifest } from "@oh-my-blender/protocol";
+import { parseSceneManifestV2, parseSceneManifestV3, validateManifest } from "@oh-my-blender/protocol";
 import { canonicalJson, canonicalRevision } from "./canonical.ts";
-import { initialRevisionId, sceneHash } from "./revision.ts";
+import { childRevisionId, initialRevisionId, sceneHash } from "./revision.ts";
 
 const HASH_PLACEHOLDER = "0".repeat(64);
 
@@ -56,6 +58,32 @@ export function buildSceneManifestV2Revision(manifestWithoutHashes: SceneManifes
 	return {
 		...clean,
 		revisionId: initialRevisionId(clean.projectId, computedSceneHash),
+		sceneHash: computedSceneHash,
+	};
+}
+export function buildSceneManifestV3Revision(
+	manifestWithoutHashes: SceneManifestV3HashFree,
+	parentRevisionId: string,
+	canonicalOperation: unknown,
+	canonicalDependencyHashes: unknown = [],
+): SceneManifestV3 {
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...unparsed } = manifestWithoutHashes as SceneManifestV3;
+	const parsed = parseSceneManifestV3({
+		...unparsed,
+		revisionId: HASH_PLACEHOLDER,
+		sceneHash: HASH_PLACEHOLDER,
+	});
+	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
+	const computedSceneHash = canonicalRevision(clean);
+	return {
+		...clean,
+		revisionId: childRevisionId(
+			clean.projectId,
+			parentRevisionId,
+			canonicalJson(canonicalOperation),
+			computedSceneHash,
+			canonicalJson(canonicalDependencyHashes),
+		),
 		sceneHash: computedSceneHash,
 	};
 }
