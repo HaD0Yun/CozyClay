@@ -161,9 +161,20 @@ if bpy is not None:
                 return {"CANCELLED"}
             project_directory = bpy.path.abspath("//")
             try:
-                project_store.verify_connect_precondition(
-                    project_directory, project_id, bpy.data.is_dirty
-                )
+                active = connection._active_connection
+                if active is not None and active.state in ("lost", "recovery-required"):
+                    stored = project_store.read_project_index(project_directory)
+                    if stored is None:
+                        raise project_store.ProjectStoreError(
+                            "Project is not initialized in .omb/project.json"
+                        )
+                    project_store.verify_project_ids_match(
+                        project_id, stored.get("project_id")
+                    )
+                else:
+                    project_store.verify_connect_precondition(
+                        project_directory, project_id, bpy.data.is_dirty
+                    )
                 connection.connect(
                     cwd=project_directory,
                     project_id=project_id,
@@ -201,8 +212,12 @@ if bpy is not None:
             from . import camera_plan, connection
 
             active = connection._active_connection
-            if active is None or active.state != "active":
-                self.report({"ERROR"}, "No active daemon connection")
+            if (
+                active is None
+                or active.state != "active"
+                or not active.tools_exposed
+            ):
+                self.report({"ERROR"}, "No verified active daemon connection")
                 return {"CANCELLED"}
             try:
                 plan = json.loads(self.plan_json)
@@ -287,8 +302,12 @@ if bpy is not None:
             from . import connection, qa_render
 
             active = connection._active_connection
-            if active is None or active.state != "active":
-                self.report({"ERROR"}, "No active daemon connection")
+            if (
+                active is None
+                or active.state != "active"
+                or not active.tools_exposed
+            ):
+                self.report({"ERROR"}, "No verified active daemon connection")
                 return {"CANCELLED"}
             try:
                 request = json.loads(self.request_json)

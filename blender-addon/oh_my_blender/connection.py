@@ -1,5 +1,6 @@
 """Owned daemon and WebSocket connection lifecycle for the Blender add-on."""
 
+import hashlib
 import json
 import os
 import queue
@@ -43,10 +44,15 @@ class Connection:
         child: DaemonChild,
         websocket: WebSocketClient,
         project_directory: str | PathLike[str] | None = None,
+        *,
+        tools_exposed: bool = True,
+        identity: dict[str, str] | None = None,
     ):
         self.child = child
         self.websocket = websocket
         self.state = "active"
+        self.tools_exposed = tools_exposed
+        self.identity = identity
         self.active_checkpoint: Checkpoint | None = None
         self.durable_commit_reconciliation: dict | None = None
         self._bridge_cancellations: dict[str, threading.Event] = {}
@@ -59,6 +65,12 @@ class Connection:
         self.project_directory = (
             Path(project_directory) if project_directory is not None else None
         )
+
+    def expose_tools(self) -> None:
+        """Expose bridge tools only after the reconnect scene gate succeeds."""
+        if self.state != "active":
+            raise ConnectionError("cannot expose tools on an inactive connection")
+        self.tools_exposed = True
 
     def _durable_scene_hash(self, expected_revision_id: str) -> str:
         if self.project_directory is None:
@@ -222,6 +234,13 @@ class Connection:
             return
         if message_type != "bridge_request":
             raise ConnectionError("unsupported daemon bridge message")
+        if not self.tools_exposed:
+            self._send_bridge_error(
+                message,
+                "RECOVERY_REQUIRED",
+                "tool capabilities remain hidden until reconnect verification succeeds",
+            )
+            return
         if message.get("method") not in ("apply_camera_plan", "render_qa_frames"):
             self._send_bridge_error(
                 message,
@@ -564,6 +583,7 @@ class Connection:
         blender_version: str,
         child_type: type[DaemonChild] = DaemonChild,
         websocket_type: type[WebSocketClient] = WebSocketClient,
+        expose_tools: bool = True,
     ) -> "Connection":
         """Spawn, authenticate, and complete the protocol-v2 hello exchange."""
         child = child_type.spawn(argv, cwd=cwd)
@@ -571,18 +591,32 @@ class Connection:
         try:
             record = child.read_startup_record()
             token = record["bearer_token"]
+            token_fingerprint = hashlib.sha256(token.encode("ascii")).hexdigest()
             websocket = websocket_type.connect(record["port"], token, timeout=3.0)
             token = None
             if hasattr(websocket, "socket"):
                 websocket.socket.settimeout(3.0)
-            websocket.send_json(build_hello(project_id, addon_version, blender_version))
+            hello = build_hello(project_id, addon_version, blender_version)
+            websocket.send_json(hello)
             try:
                 ack = validate_hello_ack(websocket.recv_json())
             except HandshakeError as exc:
                 raise ConnectionError(str(exc)) from exc
             if ack["launch_id"] != record["launch_id"]:
                 raise ConnectionError("hello_ack launch_id does not match daemon launch")
-            connection = cls(child, websocket, project_directory=cwd)
+            connection = cls(
+                child,
+                websocket,
+                project_directory=cwd,
+                tools_exposed=expose_tools,
+                identity={
+                    "launch_id": record["launch_id"],
+                    "bearer_token_fingerprint": token_fingerprint,
+                    "client_nonce": hello["client_nonce"],
+                    "session_id": ack["session_id"],
+                    "server_nonce": ack["server_nonce"],
+                },
+            )
             if bpy is not None:
                 connection.start_bridge_dispatcher()
             return connection
@@ -632,10 +666,78 @@ class Connection:
 def verify_reconnect_hash(
     live_scene_hash: str, canonical_revision_scene_hash: str
 ) -> None:
-    """Enforce the protocol-v1 full-restart scene consistency gate."""
+    """Enforce the protocol-v2 full-restart scene consistency gate."""
     if live_scene_hash != canonical_revision_scene_hash:
         raise ConnectionError(
             "live scene hash does not match the canonical current revision"
+        )
+
+
+def _read_reconnect_scene_hash(cwd: str | PathLike[str]) -> str:
+    try:
+        project = json.loads(
+            (Path(cwd) / ".omb/project.json").read_text(encoding="utf-8")
+        )
+        current_revision_id = project["current_revision_id"]
+        manifest = project["manifest"]
+        manifest_revision_id = manifest["revisionId"]
+        scene_hash = manifest["sceneHash"]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ConnectionError(
+            f"durable canonical current revision is unavailable: {error}"
+        ) from error
+    if manifest_revision_id != current_revision_id:
+        raise ConnectionError(
+            "durable canonical manifest does not match the current revision"
+        )
+    for name, value in (
+        ("current revision", current_revision_id),
+        ("scene hash", scene_hash),
+    ):
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ConnectionError(f"durable canonical {name} is invalid")
+    return scene_hash
+
+
+def _confirm_previous_child_exit(previous_connection: Connection | None) -> None:
+    if previous_connection is None:
+        return
+    poll = getattr(previous_connection.child.process, "poll", None)
+    if not callable(poll):
+        raise ConnectionError("previous daemon child exit cannot be confirmed")
+    if poll() is None:
+        previous_connection.disconnect("restart_after_unexpected_loss")
+    if poll() is None:
+        raise ConnectionError("previous daemon child did not exit before restart")
+
+
+def _verify_fresh_connection_identity(
+    previous_connection: Connection | None, replacement: Connection
+) -> None:
+    if previous_connection is None:
+        return
+    previous_identity = previous_connection.identity
+    replacement_identity = replacement.identity
+    if not isinstance(previous_identity, dict) or not isinstance(replacement_identity, dict):
+        return
+    reused = [
+        name
+        for name in (
+            "launch_id",
+            "bearer_token_fingerprint",
+            "client_nonce",
+            "session_id",
+            "server_nonce",
+        )
+        if previous_identity.get(name) == replacement_identity.get(name)
+    ]
+    if reused:
+        raise ConnectionError(
+            "replacement daemon reused restart identities: " + ", ".join(reused)
         )
 
 
@@ -646,12 +748,14 @@ def reconnect(
     project_id: str,
     addon_version: str,
     blender_version: str,
-    expected_scene_hash: str,
     live_scene_hash_fn: Callable[[], str],
+    previous_connection: Connection | None = None,
     child_type: type[DaemonChild] = DaemonChild,
     websocket_type: type[WebSocketClient] = WebSocketClient,
 ) -> Connection:
-    """Start a fresh connection and expose it only after scene verification."""
+    """Restart with fresh identities and expose tools only after the V2 hash gate."""
+    _confirm_previous_child_exit(previous_connection)
+    expected_scene_hash = _read_reconnect_scene_hash(cwd)
     connection = Connection.start(
         argv,
         cwd=cwd,
@@ -660,10 +764,13 @@ def reconnect(
         blender_version=blender_version,
         child_type=child_type,
         websocket_type=websocket_type,
+        expose_tools=False,
     )
     try:
+        _verify_fresh_connection_identity(previous_connection, connection)
         verify_reconnect_hash(live_scene_hash_fn(), expected_scene_hash)
-    except ConnectionError:
+        connection.expose_tools()
+    except Exception:
         try:
             connection.disconnect("reconnect_hash_mismatch")
         except Exception:
@@ -726,6 +833,12 @@ def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
     return ("node", "--import", str(tsx_loader), daemon_main, "--port", "0", *configured.split())
 
 
+def _live_scene_hash() -> str:
+    from .manifest import extract_scene_manifest_v2
+
+    return extract_scene_manifest_v2()["sceneHash"]
+
+
 def connect(
     *,
     cwd: str | PathLike[str],
@@ -734,19 +847,36 @@ def connect(
     blender_version: str,
     daemon_args: Sequence[str] | None = None,
 ) -> Connection:
-    """Create and retain the add-on's sole daemon connection."""
+    """Create or hash-gate a replacement for the add-on's sole daemon connection."""
     global _active_connection
-    if _active_connection is not None and _active_connection.state != "stopped":
+    previous = _active_connection
+    if previous is not None and previous.state not in (
+        "stopped",
+        "lost",
+        "recovery-required",
+    ):
         raise ConnectionError("the add-on already owns an active daemon connection")
     argv = _resolve_daemon_argv(daemon_args)
-    _active_connection = Connection.start(
-        argv,
-        cwd=cwd,
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-    )
-    return _active_connection
+    if previous is not None and previous.state in ("lost", "recovery-required"):
+        replacement = reconnect(
+            argv,
+            cwd=cwd,
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+            live_scene_hash_fn=_live_scene_hash,
+            previous_connection=previous,
+        )
+    else:
+        replacement = Connection.start(
+            argv,
+            cwd=cwd,
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+        )
+    _active_connection = replacement
+    return replacement
 
 
 def disconnect_active(reason: str) -> bool:

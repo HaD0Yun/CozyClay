@@ -156,6 +156,30 @@ class ConnectionTests(unittest.TestCase):
             deadline_ms=5000,
         )
 
+    def test_reconnecting_connection_hides_mutating_tool_capabilities(self):
+        """Architecture §4: reconnect exposes zero tools until full V2 equality."""
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+        connection.tools_exposed = False
+        blender = mock.Mock()
+        message = {
+            "type": "bridge_request",
+            "id": "bridge",
+            "request_id": "request",
+            "method": "apply_camera_plan",
+            "params": {"schema_version": 1},
+            "expected_revision_id": "a" * 64,
+            "current_scene_hash": "b" * 64,
+            "deadline_ms": 5000,
+        }
+
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.dispatch_bridge_message(message)
+
+        blender.ops.omb.apply_camera_plan.assert_not_called()
+        self.assertEqual(socket.sent[0]["type"], "bridge_error")
+        self.assertEqual(socket.sent[0]["code"], "RECOVERY_REQUIRED")
+
     def test_render_qa_frames_uses_the_existing_main_thread_bridge_dispatcher(self):
         """Task clause: use `start_bridge_dispatcher`/main-thread dispatch, not a parallel path."""
         socket = FakeSocket()
@@ -548,39 +572,120 @@ class ConnectionTests(unittest.TestCase):
         apply.assert_not_called()
         read.assert_not_called()
 
-    def test_reconnect_accepts_matching_live_hash(self):
+    def test_reconnect_reads_durable_hash_and_exposes_tools_only_after_live_v2_equality(self):
+        """Architecture §4: fresh reconnect re-inspects full V2 before capabilities."""
         connection = mock.Mock()
-        with mock.patch.object(Connection, "start", return_value=connection) as start:
-            result = reconnect(
-                ("daemon",),
-                cwd="/tmp",
-                project_id="project",
-                addon_version="1",
-                blender_version="4",
-                expected_scene_hash="ab12",
-                live_scene_hash_fn=lambda: "ab12",
-            )
-
-        self.assertIs(result, connection)
-        start.assert_called_once()
-        connection.disconnect.assert_not_called()
-
-    def test_reconnect_mismatch_disconnects_and_reraises_original_error(self):
-        connection = mock.Mock()
-        connection.disconnect.side_effect = RuntimeError("disconnect failed")
-        with mock.patch.object(Connection, "start", return_value=connection):
-            with self.assertRaisesRegex(ConnectionError, "canonical current revision"):
-                reconnect(
+        connection.tools_exposed = False
+        connection.child.process.poll.return_value = None
+        previous = mock.Mock()
+        previous.state = "lost"
+        previous.child.process.poll.return_value = 0
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "current_revision_id": BASE_REVISION,
+                "manifest": {
+                    "revisionId": BASE_REVISION,
+                    "sceneHash": "b" * 64,
+                },
+            }))
+            with mock.patch.object(Connection, "start", return_value=connection) as start:
+                result = reconnect(
                     ("daemon",),
-                    cwd="/tmp",
+                    cwd=directory,
                     project_id="project",
                     addon_version="1",
                     blender_version="4",
-                    expected_scene_hash="cd34",
-                    live_scene_hash_fn=lambda: "ab12",
+                    live_scene_hash_fn=lambda: "b" * 64,
+                    previous_connection=previous,
                 )
 
-        connection.disconnect.assert_called_once()
+        self.assertIs(result, connection)
+        start.assert_called_once_with(
+            ("daemon",),
+            cwd=directory,
+            project_id="project",
+            addon_version="1",
+            blender_version="4",
+            child_type=mock.ANY,
+            websocket_type=mock.ANY,
+            expose_tools=False,
+        )
+        connection.expose_tools.assert_called_once_with()
+        connection.disconnect.assert_not_called()
+
+    def test_reconnect_confirms_old_child_exit_before_spawning_replacement(self):
+        """Architecture §4: full restart confirms the old child exited first."""
+        events = []
+        previous = mock.Mock()
+        previous.state = "lost"
+        previous.child.process.poll.side_effect = [None, 0]
+
+        def disconnect(_reason):
+            events.append("old-exited")
+
+        previous.disconnect.side_effect = disconnect
+        replacement = mock.Mock()
+        replacement.tools_exposed = False
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "current_revision_id": BASE_REVISION,
+                "manifest": {
+                    "revisionId": BASE_REVISION,
+                    "sceneHash": "b" * 64,
+                },
+            }))
+            with mock.patch.object(
+                Connection,
+                "start",
+                side_effect=lambda *_args, **_kwargs: events.append("replacement-started") or replacement,
+            ):
+                reconnect(
+                    ("daemon",),
+                    cwd=directory,
+                    project_id="project",
+                    addon_version="1",
+                    blender_version="4",
+                    live_scene_hash_fn=lambda: "b" * 64,
+                    previous_connection=previous,
+                )
+
+        self.assertEqual(events, ["old-exited", "replacement-started"])
+
+    def test_reconnect_mismatch_terminates_replacement_with_zero_tool_exposure(self):
+        """Architecture §4: hash mismatch terminates replacement and exposes zero tools."""
+        connection = mock.Mock()
+        connection.tools_exposed = False
+        previous = mock.Mock()
+        previous.state = "stopped"
+        previous.child.process.poll.return_value = 0
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "current_revision_id": BASE_REVISION,
+                "manifest": {
+                    "revisionId": BASE_REVISION,
+                    "sceneHash": "c" * 64,
+                },
+            }))
+            with mock.patch.object(Connection, "start", return_value=connection):
+                with self.assertRaisesRegex(ConnectionError, "canonical current revision"):
+                    reconnect(
+                        ("daemon",),
+                        cwd=directory,
+                        project_id="project",
+                        addon_version="1",
+                        blender_version="4",
+                        live_scene_hash_fn=lambda: "b" * 64,
+                        previous_connection=previous,
+                    )
+
+        connection.expose_tools.assert_not_called()
+        connection.disconnect.assert_called_once_with("reconnect_hash_mismatch")
 
     def test_connect_refuses_when_no_daemon_launch_mode_is_configured(self):
         """architecture doc line 92-99: never silently fall back to a fake provider."""
@@ -606,6 +711,31 @@ class ConnectionTests(unittest.TestCase):
         argv = start.call_args.args[0]
         self.assertEqual(argv[-1], "--faux")
         self.assertNotIn("--should-not-be-used", argv)
+        disconnect_active("test_cleanup")
+
+    def test_connect_restarts_lost_child_through_durable_hash_gate(self):
+        """Architecture §4: production Connect uses the full restart hash gate."""
+        previous = mock.Mock()
+        previous.state = "lost"
+        replacement = mock.Mock()
+        replacement.state = "active"
+        connection_module._active_connection = previous
+        with mock.patch.object(
+            connection_module,
+            "reconnect",
+            return_value=replacement,
+        ) as restart:
+            result = connect(
+                cwd="/tmp",
+                project_id="project",
+                addon_version="1",
+                blender_version="4",
+                daemon_args=("--faux",),
+            )
+
+        self.assertIs(result, replacement)
+        self.assertIs(restart.call_args.kwargs["previous_connection"], previous)
+        self.assertTrue(callable(restart.call_args.kwargs["live_scene_hash_fn"]))
         disconnect_active("test_cleanup")
 
     def test_connect_falls_back_to_the_environment_variable_when_unspecified(self):
