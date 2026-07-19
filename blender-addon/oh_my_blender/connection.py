@@ -80,6 +80,7 @@ class Connection:
         self._main_thread_messages: queue.Queue = queue.Queue()
         self.last_bridge_response: dict | None = None
         self._send_lock = threading.Lock()
+        self._state_lock = threading.Lock()
         self.project_directory = (
             Path(project_directory) if project_directory is not None else None
         )
@@ -93,7 +94,14 @@ class Connection:
     def require_recovery(self) -> None:
         """Hide every bridge tool and retain a terminal recovery state."""
         self.tools_exposed = False
-        self.state = LifecycleState.RECOVERY_REQUIRED
+        with self._state_lock:
+            self.state = LifecycleState.RECOVERY_REQUIRED
+
+    def _mark_lost_if_active(self) -> None:
+        """Record reader failure without replacing a main-thread terminal state."""
+        with self._state_lock:
+            if self.state == LifecycleState.ACTIVE:
+                self.state = LifecycleState.LOST
 
     def _durable_scene_hash(self, expected_revision_id: str) -> str:
         if self.project_directory is None:
@@ -200,12 +208,12 @@ class Connection:
                 try:
                     message = self.websocket.recv_json()
                 except StopIteration:
-                    self.state = LifecycleState.LOST
+                    self._mark_lost_if_active()
                     return
                 except TimeoutError:
                     continue
                 except (OSError, WebSocketError):
-                    self.state = LifecycleState.LOST
+                    self._mark_lost_if_active()
                     return
                 if not isinstance(message, dict):
                     continue

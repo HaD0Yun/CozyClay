@@ -270,6 +270,36 @@ class ConnectionTests(unittest.TestCase):
 
         blender.app.timers.register.assert_called_once()
         blender.ops.omb.apply_camera_plan.assert_called_once()
+
+    def test_reader_failure_does_not_overwrite_recovery_required(self):
+        """A late socket error must not replace the transaction's terminal state."""
+        entered_receive = threading.Event()
+        fail_receive = threading.Event()
+
+        class DelayedFailureSocket(FakeSocket):
+            def recv_json(self):
+                entered_receive.set()
+                fail_receive.wait(timeout=1)
+                raise OSError("socket closed")
+
+        connection = Connection(
+            FakeChild(FakeProcess()),
+            DelayedFailureSocket(),
+        )
+        blender = mock.Mock()
+        blender.app.timers.register.return_value = None
+
+        with mock.patch.object(connection_module, "bpy", blender):
+            connection.start_bridge_dispatcher()
+            self.assertTrue(entered_receive.wait(timeout=1))
+            connection.require_recovery()
+            fail_receive.set()
+            connection._reader_thread.join(timeout=1)
+
+        self.assertFalse(connection._reader_thread.is_alive())
+        self.assertEqual(connection.state, "recovery_required")
+        self.assertFalse(connection.tools_exposed)
+
     def test_bridge_cancel_marks_active_transaction_and_acknowledges(self):
         socket = FakeSocket()
         connection = Connection(FakeChild(FakeProcess()), socket)
