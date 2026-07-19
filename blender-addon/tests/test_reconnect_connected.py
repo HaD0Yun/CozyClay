@@ -42,6 +42,7 @@ class ReconnectConnectedTests(unittest.TestCase):
             "identitiesFresh",
             "requestIdsFresh",
             "toolsExposedAfterGate",
+            "productionActiveConnection",
             "responseWinPreserved",
             "mismatchRejected",
             "rejectedChildExited",

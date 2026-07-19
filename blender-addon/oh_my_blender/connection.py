@@ -77,6 +77,7 @@ class Connection:
         self._terminal_bridge_ids: set[str] = set()
         self._reader_thread: threading.Thread | None = None
         self._response_queues: dict[str, queue.Queue] = {}
+        self._cancel_ack_queues: dict[str, queue.Queue] = {}
         self._main_thread_messages: queue.Queue = queue.Queue()
         self.last_bridge_response: dict | None = None
         self._send_lock = threading.Lock()
@@ -223,10 +224,14 @@ class Connection:
                 if message.get("type") == "bridge_cancel":
                     self.dispatch_bridge_message(message)
                     continue
-                if message.get("type") in ("response", "error"):
+                if message.get("type") == "cancel_ack":
+                    response_queue = self._cancel_ack_queues.get(message.get("id"))
+                elif message.get("type") in ("response", "error"):
                     response_queue = self._response_queues.get(message.get("id"))
-                    if response_queue is not None:
-                        response_queue.put(message)
+                else:
+                    response_queue = None
+                if response_queue is not None:
+                    response_queue.put(message)
 
         self._reader_thread = threading.Thread(
             target=receive_loop,
@@ -706,6 +711,7 @@ class Connection:
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=0.2)
         self._response_queues.clear()
+        self._cancel_ack_queues.clear()
         self._bridge_cancellations.clear()
         self._terminal_bridge_ids.clear()
         while True:

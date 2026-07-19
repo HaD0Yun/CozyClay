@@ -29,7 +29,6 @@ from oh_my_blender.connection import (
     ConnectionError,
     LifecycleState,
     _resolve_daemon_argv,
-    reconnect,
 )
 from oh_my_blender.daemon_child import DaemonChild
 from oh_my_blender.manifest import extract_scene_manifest_v2, extract_scene_snapshot
@@ -137,18 +136,16 @@ def main() -> None:
         first.child.kill()
         old_child_exited = first.child.process.poll() is not None
 
-        second = reconnect(
-            _resolve_daemon_argv(("--faux",)),
+        second = connection_module.connect(
             cwd=directory,
             project_id=PROJECT_ID,
             addon_version="0.1.0",
             blender_version=bpy.app.version_string,
-            live_scene_hash_fn=lambda: extract_scene_manifest_v2()["sceneHash"],
-            previous_connection=first,
+            daemon_args=("--faux",),
         )
         connections.append(second)
         child_pids.append(second.child.process.pid)
-        connection_module._active_connection = second
+        production_active_connection = connection_module._active_connection is second
         second_identity = dict(second.identity or {})
         identity_keys = {
             "launch_id",
@@ -167,19 +164,28 @@ def main() -> None:
         sever_socket(second)
         second.child.kill()
         mismatch_rejected = False
+        original_reconnect = connection_module.reconnect
+
+        def reconnect_with_recording_child(argv, **kwargs):
+            return original_reconnect(
+                argv,
+                **kwargs,
+                child_type=RecordingDaemonChild,
+            )
+
+        connection_module.reconnect = reconnect_with_recording_child
         try:
-            reconnect(
-                _resolve_daemon_argv(("--faux",)),
+            connection_module.connect(
                 cwd=directory,
                 project_id=PROJECT_ID,
                 addon_version="0.1.0",
                 blender_version=bpy.app.version_string,
-                live_scene_hash_fn=lambda: extract_scene_manifest_v2()["sceneHash"],
-                previous_connection=second,
-                child_type=RecordingDaemonChild,
+                daemon_args=("--faux",),
             )
         except ConnectionError as error:
             mismatch_rejected = "canonical current revision" in str(error)
+        finally:
+            connection_module.reconnect = original_reconnect
         if len(RecordingDaemonChild.spawned) != 1:
             raise RuntimeError("mismatch reconnect did not launch exactly one replacement child")
         rejected_child = RecordingDaemonChild.spawned[0]
@@ -191,6 +197,7 @@ def main() -> None:
             "identitiesFresh": identities_fresh,
             "requestIdsFresh": apply_request_id != inspect_request_id,
             "toolsExposedAfterGate": second.tools_exposed,
+            "productionActiveConnection": production_active_connection,
             "reconnectedInspect": inspect_response["type"],
             "responseWinPreserved": durable_after_apply["current_revision_id"] == live_after_apply["revisionId"],
             "mismatchRejected": mismatch_rejected,
@@ -217,6 +224,8 @@ def main() -> None:
                 raise RuntimeError("websocket descriptor leaked")
             if connection._response_queues:
                 raise RuntimeError("response queues leaked")
+            if connection._cancel_ack_queues:
+                raise RuntimeError("cancel acknowledgement queues leaked")
             if connection._bridge_cancellations:
                 raise RuntimeError("bridge cancellation map leaked")
             if connection._terminal_bridge_ids:

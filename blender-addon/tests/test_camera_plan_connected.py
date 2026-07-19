@@ -189,12 +189,17 @@ class CameraPlanConnectedTests(unittest.TestCase):
                     continue
                 self.assertEqual(result["liveSceneHash"], result["durableSceneHash"])
                 self.assertEqual(result["restartedInspect"], "response")
-                self.assertFalse(result["oldRequestReplayed"])
+                self.assertEqual(
+                    result["oldRequestCancelAck"],
+                    {"type": "cancel_ack", "correlated": True, "status": "unknown"},
+                )
+                self.assertEqual(result["oldRequestUnexpectedTraffic"], [])
                 self.assertTrue(result["replacementToolsExposed"])
                 self.assertTrue(result["replacementTimerSelfUnregistered"])
                 self.assertTrue(result["replacementSocketClosed"])
                 self.assertTrue(result["replacementReaderStopped"])
                 self.assertTrue(result["replacementResponseQueuesEmpty"])
+                self.assertTrue(result["replacementCancelAckQueuesEmpty"])
                 self.assertTrue(result["replacementBridgeCancellationsEmpty"])
 
 if __name__ == "__main__":

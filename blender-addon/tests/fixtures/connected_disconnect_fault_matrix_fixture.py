@@ -166,12 +166,15 @@ def main() -> None:
         replacement: Connection | None = None
         inspect_responses: queue.Queue | None = None
         old_id_responses: queue.Queue | None = None
+        restarted_inspect: dict | None = None
+        old_request_cancel_ack: dict | None = None
+        old_request_unexpected: list[dict] = []
         inspect_request_id: str | None = None
         observed: dict = {}
 
         def observe() -> float | None:
             nonlocal stage, replacement, inspect_responses, old_id_responses
-            nonlocal inspect_request_id, result
+            nonlocal inspect_request_id, restarted_inspect, old_request_cancel_ack, result
             try:
                 if time.monotonic() >= deadline:
                     raise RuntimeError(f"fault fixture timed out in {stage}")
@@ -188,7 +191,7 @@ def main() -> None:
                     project = json.loads((omb / "project.json").read_text(encoding="utf-8"))
                     live_manifest = extract_scene_manifest_v2()
                     durable_advanced = project["current_revision_id"] != REVISION
-                    if connection.state == LifecycleState.RECOVERY_REQUIRED and phase == "before_verify":
+                    if connection.state == LifecycleState.RECOVERY_REQUIRED:
                         outcome = "recovery_required"
                     elif len(success_responses) == 1 and durable_advanced:
                         outcome = "response_win"
@@ -247,7 +250,11 @@ def main() -> None:
                     )
                     connections.append(replacement)
                     old_id_responses = queue.Queue()
-                    replacement._response_queues[request_id] = old_id_responses
+                    replacement._cancel_ack_queues[request_id] = old_id_responses
+                    replacement._send_json({
+                        "type": "cancel",
+                        "id": request_id,
+                    })
                     inspect_request_id = str(uuid.uuid4())
                     inspect_responses = queue.Queue(maxsize=1)
                     replacement._response_queues[inspect_request_id] = inspect_responses
@@ -268,14 +275,34 @@ def main() -> None:
                     assert inspect_responses is not None
                     assert old_id_responses is not None
                     assert inspect_request_id is not None
-                    try:
-                        inspect_response = inspect_responses.get_nowait()
-                    except queue.Empty:
+                    while True:
+                        try:
+                            old_id_message = old_id_responses.get_nowait()
+                        except queue.Empty:
+                            break
+                        if (
+                            old_request_cancel_ack is None
+                            and old_id_message.get("type") == "cancel_ack"
+                        ):
+                            old_request_cancel_ack = old_id_message
+                        else:
+                            old_request_unexpected.append(old_id_message)
+                    if restarted_inspect is None:
+                        try:
+                            restarted_inspect = inspect_responses.get_nowait()
+                        except queue.Empty:
+                            pass
+                    if restarted_inspect is None or old_request_cancel_ack is None:
                         return 0.01
                     replacement._response_queues.pop(inspect_request_id, None)
-                    replacement._response_queues.pop(request_id, None)
-                    observed["restartedInspect"] = inspect_response.get("type")
-                    observed["oldRequestReplayed"] = not old_id_responses.empty()
+                    replacement._cancel_ack_queues.pop(request_id, None)
+                    observed["restartedInspect"] = restarted_inspect.get("type")
+                    observed["oldRequestCancelAck"] = {
+                        "type": old_request_cancel_ack.get("type"),
+                        "correlated": old_request_cancel_ack.get("id") == request_id,
+                        "status": old_request_cancel_ack.get("status"),
+                    }
+                    observed["oldRequestUnexpectedTraffic"] = old_request_unexpected
                     observed["replacementToolsExposed"] = replacement.tools_exposed
                     replacement_timer = replacement.pump_bridge_messages
                     observed["replacementTimer"] = replacement_timer
@@ -295,6 +322,7 @@ def main() -> None:
                 observed["replacementSocketClosed"] = replacement.websocket.closed
                 observed["replacementReaderStopped"] = not reader_alive
                 observed["replacementResponseQueuesEmpty"] = not replacement._response_queues
+                observed["replacementCancelAckQueuesEmpty"] = not replacement._cancel_ack_queues
                 observed["replacementBridgeCancellationsEmpty"] = not replacement._bridge_cancellations
                 result = observed
                 finish()
