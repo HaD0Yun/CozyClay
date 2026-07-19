@@ -219,6 +219,7 @@ const PNG_SIGNATURE_HEX = "89504e470d0a1a0a";
 const MAX_BRIDGE_MESSAGE_BYTES = 18 * 1024 * 1024;
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
 const TRUSTED_DIRECTOR_FAILURE_MESSAGES = {
+	PERSISTENCE_UNHEALTHY: "transcript persistence is unavailable",
 	ARTIFACT_STORE_UNAVAILABLE: "artifact store unavailable",
 	BLENDER_UNAVAILABLE: "Blender bridge unavailable",
 	BUSY: "bridge is busy",
@@ -584,6 +585,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	const retiredBridges = new Map<string, RetiredBridge>();
 	let bridgeMessageTail: Promise<void> = Promise.resolve();
 	let draining = false;
+	let persistenceUnhealthy = false;
 	let shutdownPromise: Promise<void> | undefined;
 	let runtimeAdvertisement: Awaited<ReturnType<typeof createRuntimeAdvertisement>> | undefined;
 	let resolveStopped!: () => void;
@@ -713,60 +715,82 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	}
 
 	const directorTeardownTimeoutMs = options.directorTeardownTimeoutMs ?? 10_000;
-	async function finishCancellation(request: ActiveRequest) {
+	async function finishCancellation(request: ActiveRequest): Promise<void> {
 		let teardownTimer: ReturnType<typeof setTimeout> | undefined;
-		let deadlineExpired = false;
-		const cancellationDeadline = new Promise<false>((resolve) => {
-			teardownTimer = setTimeout(() => {
-				deadlineExpired = true;
-				resolve(false);
-			}, directorTeardownTimeoutMs);
-		});
-		const cleanupBarrier = directorCleanupBarriers.get(request.id);
-		if (cleanupBarrier !== undefined) {
-			const settled = await Promise.race([cleanupBarrier.then(() => true), cancellationDeadline]);
-			if (!settled && directorCleanupBarriers.get(request.id) === cleanupBarrier) {
-				directorGeneration += 1;
-				directorTurn = directorTurn?.forceDispose();
-				directorCleanupBarriers.delete(request.id);
-			}
-		}
-		const retired = Array.from(retiredBridges.values()).find(
-			(candidate) => candidate.pending.requestId === request.id,
-		);
-		if (retired !== undefined && !deadlineExpired) {
-			await Promise.race([retired.artifactCleanup.then(() => true), cancellationDeadline]);
-		}
-		if (retired !== undefined && deadlineExpired) forceDisposeRetiredBridge(retired);
-		if (!directorSequences.has(request.id) && teardownTimer !== undefined) clearTimeout(teardownTimer);
-		if (!state.terminal(request)) return;
-		if (directorSequences.has(request.id)) {
-			const publication = queueDirectorEvent(request.id, { type: "director_turn_cancelled" });
-			let persistenceTimer: ReturnType<typeof setTimeout> | undefined;
-			const persistenceDeadline = new Promise<false>((resolve) => {
-				persistenceTimer = setTimeout(() => resolve(false), directorTeardownTimeoutMs);
+		let persistenceTimer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			let deadlineExpired = false;
+			const cancellationDeadline = new Promise<false>((resolve) => {
+				teardownTimer = setTimeout(() => {
+					deadlineExpired = true;
+					resolve(false);
+				}, directorTeardownTimeoutMs);
 			});
-			const published = await Promise.race([publication.then(() => true), persistenceDeadline]);
-			if (persistenceTimer !== undefined) clearTimeout(persistenceTimer);
-			if (!published) {
-				const control = activeControl();
-				(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
-					`director cancellation persistence timed out for request ${request.id}`,
-				);
-				if (control !== undefined && !control.websocket.socket.destroyed) {
-					control.websocket.close(1011, "transcript persistence timeout");
+			const cleanupBarrier = directorCleanupBarriers.get(request.id);
+			if (cleanupBarrier !== undefined) {
+				const settled = await Promise.race([cleanupBarrier.then(() => true), cancellationDeadline]);
+				if (!settled && directorCleanupBarriers.get(request.id) === cleanupBarrier) {
+					directorGeneration += 1;
+					directorTurn = directorTurn?.forceDispose();
+					directorCleanupBarriers.delete(request.id);
 				}
 			}
+			const retired = Array.from(retiredBridges.values()).find(
+				(candidate) => candidate.pending.requestId === request.id,
+			);
+			if (retired !== undefined && !deadlineExpired) {
+				await Promise.race([retired.artifactCleanup.then(() => true), cancellationDeadline]);
+			}
+			if (retired !== undefined && deadlineExpired) forceDisposeRetiredBridge(retired);
+			if (!state.terminal(request)) return;
+			if (directorSequences.has(request.id)) {
+				const publication = queueDirectorEvent(request.id, { type: "director_turn_cancelled" });
+				const persistenceDeadline = new Promise<never>((_resolve, reject) => {
+					persistenceTimer = setTimeout(
+						() => reject(new Error("transcript persistence timed out")),
+						directorTeardownTimeoutMs,
+					);
+				});
+				try {
+					await Promise.race([publication, persistenceDeadline]);
+				} catch (cause) {
+					persistenceUnhealthy = true;
+					attachTickets.zero();
+					const detail = cause instanceof Error ? cause.message : String(cause);
+					(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
+						`director cancellation persistence failed for request ${request.id}: ${detail}`,
+					);
+					const control = activeControl();
+					if (control !== undefined && !control.websocket.socket.destroyed) {
+						control.websocket.close(1011, "transcript persistence failure");
+					}
+					void drain("SHUTDOWN").catch((error) => {
+						(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
+							`daemon shutdown failed after transcript persistence failure for request ${request.id}: ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+						);
+					});
+				}
+				return;
+			}
+			const error = protocolError(
+				request.id,
+				request.cause === "TIMEOUT" ? "TIMEOUT" : "CANCELLED",
+				request.cause === "TIMEOUT" ? "deadline expired" : "request cancelled",
+				false,
+			);
+			sendTerminal(request.id, error);
+		} catch (cause) {
+			(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
+				`director cancellation cleanup failed for request ${request.id}: ${
+					cause instanceof Error ? cause.message : String(cause)
+				}`,
+			);
+		} finally {
 			if (teardownTimer !== undefined) clearTimeout(teardownTimer);
-			return;
+			if (persistenceTimer !== undefined) clearTimeout(persistenceTimer);
 		}
-		const error = protocolError(
-			request.id,
-			request.cause === "TIMEOUT" ? "TIMEOUT" : "CANCELLED",
-			request.cause === "TIMEOUT" ? "deadline expired" : "request cancelled",
-			false,
-		);
-		sendTerminal(request.id, error);
 	}
 
 	async function drain(
@@ -1000,6 +1024,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			}
 			const rawType = typeof raw === "object" && raw !== null ? (raw as { type?: unknown }).type : undefined;
 			if (rawType === "issue_attach_ticket") {
+				if (persistenceUnhealthy) return;
 				if (
 					role === "controller" &&
 					isRecord(raw) &&
@@ -1486,6 +1511,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	}
 
 	async function executeDirectorTurn(turn: DirectorTurn) {
+		if (persistenceUnhealthy) {
+			return sendControl(
+				protocolError(
+					turn.id,
+					"PERSISTENCE_UNHEALTHY",
+					TRUSTED_DIRECTOR_FAILURE_MESSAGES.PERSISTENCE_UNHEALTHY,
+					false,
+				),
+			);
+		}
 		if (draining) {
 			return sendControl(protocolError(turn.id, "SHUTTING_DOWN", "daemon is shutting down", true));
 		}
