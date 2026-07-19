@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	createDirectorTurnHandler,
+	DirectorLoopContractError,
 	type CameraPlanRevisionStore,
 } from "@oh-my-blender/director-runtime";
 import {
@@ -585,6 +586,47 @@ test("G013 untrusted provider failures are fixed before WebSocket and persistenc
 		);
 		assert.equal(failed.code, "MODEL_PROVIDER_ERROR");
 		assert.equal(failed.message, "provider request failed");
+		assert.doesNotMatch(JSON.stringify(control.client.messages), new RegExp(sentinel));
+		const source = await readFile(join(root, ".omb", "director-transcript.json"), "utf8");
+		assert.doesNotMatch(source, new RegExp(sentinel));
+	} finally {
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("director loop contract violations surface their trusted fixed message, not MODEL_PROVIDER_ERROR", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-contract-"));
+	const sentinel = "omb-loop-sentinel-DO-NOT-PERSIST";
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		stdout: () => {},
+		directorTurn: {
+			run: async () => {
+				throw new DirectorLoopContractError("DIRECTOR_LOOP_INCOMPLETE", `turn ended after mutation ${sentinel}`);
+			},
+			dispose: () => {},
+		},
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	try {
+		control = await attachController(daemon);
+		const turnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: turnId,
+			prompt: "Trigger a loop contract violation.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		const failed = await control.client.next(
+			(message) => message.type === "director_turn_failed" && message.id === turnId,
+		);
+		assert.equal(failed.code, "DIRECTOR_LOOP_INCOMPLETE");
+		assert.equal(failed.message, "director turn ended before its verification inspect");
 		assert.doesNotMatch(JSON.stringify(control.client.messages), new RegExp(sentinel));
 		const source = await readFile(join(root, ".omb", "director-transcript.json"), "utf8");
 		assert.doesNotMatch(source, new RegExp(sentinel));

@@ -112,6 +112,20 @@ function assistantSummary(message: AssistantMessage): string {
 		.trim();
 }
 
+/**
+ * Turn-contract violation raised by the loop itself (never by provider/tool
+ * code). The daemon maps these by instanceof to trusted fixed messages, so
+ * untrusted errors cannot spoof them with a string prefix.
+ */
+export class DirectorLoopContractError extends Error {
+	readonly code: "DIRECTOR_LOOP_INCOMPLETE" | "DIRECTOR_SUMMARY_MISSING";
+
+	constructor(code: "DIRECTOR_LOOP_INCOMPLETE" | "DIRECTOR_SUMMARY_MISSING", message: string) {
+		super(`${code}: ${message}`);
+		this.code = code;
+	}
+}
+
 function fail(state: RunState, code: string, message: string): never {
 	const error = new Error(`${code}: ${message}`);
 	state.violation = error;
@@ -249,13 +263,14 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				await session.prompt(runOptions.prompt);
 				if (state.violation !== undefined) throw state.violation;
 				if (state.phase !== "verification_inspected" && state.phase !== "rendered" && state.phase !== "repaired") {
-					throw new Error(`DIRECTOR_LOOP_INCOMPLETE: turn ended after ${state.phase}`);
+					throw new DirectorLoopContractError("DIRECTOR_LOOP_INCOMPLETE", `turn ended after ${state.phase}`);
 				}
 				const last = session.messages.at(-1);
 				if (last?.role !== "assistant")
-					throw new Error("DIRECTOR_SUMMARY_MISSING: final assistant message is required");
+					throw new DirectorLoopContractError("DIRECTOR_SUMMARY_MISSING", "final assistant message is required");
 				const summary = assistantSummary(last);
-				if (summary.length === 0) throw new Error("DIRECTOR_SUMMARY_MISSING: final assistant text is required");
+				if (summary.length === 0)
+					throw new DirectorLoopContractError("DIRECTOR_SUMMARY_MISSING", "final assistant text is required");
 				return {
 					summary: summary.slice(0, 8_192),
 					resultingRevisionId: state.currentRevisionId,

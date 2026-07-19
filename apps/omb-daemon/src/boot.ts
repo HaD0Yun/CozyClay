@@ -19,6 +19,9 @@ const PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES: Readonly<Record<string, string>
 	moonshotai: "MOONSHOT_API_KEY",
 	nvidia: "NVIDIA_API_KEY",
 	openai: "OPENAI_API_KEY",
+	// OAuth access tokens (JWT with embedded account claim) pass through the
+	// same isolated env boot; the Codex API extracts the account id from the JWT.
+	"openai-codex": "OPENAI_CODEX_ACCESS_TOKEN",
 	"opencode-go": "OPENCODE_API_KEY",
 	opencode: "OPENCODE_API_KEY",
 	openrouter: "OPENROUTER_API_KEY",
@@ -233,7 +236,19 @@ export async function createBootRuntime(
 	if (key === undefined || key.trim() === "") {
 		throw new Error(`MISSING_CREDENTIAL: ${credentialEnvironmentVariable} must contain a nonempty API key`);
 	}
-	await credentials.modify(boot.provider, async () => ({ type: "api_key", key }));
+	if (boot.provider === "openai-codex") {
+		// openai-codex has no api-key auth path; store the env-supplied access
+		// token as a non-refreshable oauth credential. With allowModelNetwork
+		// disabled the runtime never attempts a refresh before expiry.
+		await credentials.modify(boot.provider, async () => ({
+			type: "oauth",
+			access: key,
+			refresh: "",
+			expires: jwtExpiryMilliseconds(key) ?? Date.now() + 8 * 60 * 60 * 1000,
+		}));
+	} else {
+		await credentials.modify(boot.provider, async () => ({ type: "api_key", key }));
+	}
 	return {
 		model: model as Model<string>,
 		modelRuntime,
@@ -242,4 +257,18 @@ export async function createBootRuntime(
 			await credentials.delete(boot.provider);
 		},
 	};
+}
+
+function jwtExpiryMilliseconds(token: string): number | undefined {
+	const parts = token.split(".");
+	if (parts.length !== 3 || parts[1] === undefined) return undefined;
+	try {
+		const claims: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+		const exp = (claims as { exp?: unknown }).exp;
+		if (typeof exp !== "number" || !Number.isFinite(exp)) return undefined;
+		const expires = exp * 1000;
+		return expires > Date.now() ? expires : undefined;
+	} catch {
+		return undefined;
+	}
 }

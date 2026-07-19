@@ -33,6 +33,7 @@ const PROVIDER_CREDENTIALS: Readonly<Record<string, string>> = {
 	moonshotai: "MOONSHOT_API_KEY",
 	nvidia: "NVIDIA_API_KEY",
 	openai: "OPENAI_API_KEY",
+	"openai-codex": "OPENAI_CODEX_ACCESS_TOKEN",
 	"opencode-go": "OPENCODE_API_KEY",
 	opencode: "OPENCODE_API_KEY",
 	openrouter: "OPENROUTER_API_KEY",

@@ -7,8 +7,14 @@ interface ResourceExtensionPaths {
 	themePaths?: unknown[];
 }
 
-export const DIRECTOR_PROMPT = "You direct Blender through explicit, inspectable tools. Never invent scene state.";
-export const DIRECTOR_PROMPT_DIGEST = "59a08cefea73ba66e89561cca3e50a98664ddfb863ce38ee8bcd516ad3997e73";
+export const DIRECTOR_PROMPT =
+	"You direct Blender through explicit, inspectable tools. Never invent scene state. " +
+	"Turn contract: begin by calling inspect_project. Make at most one primary scene mutation " +
+	"(stage_scene or apply_camera_plan). After any mutation you MUST call inspect_project again " +
+	"to verify the result before ending the turn. You may call render_qa_frames once to check the " +
+	"rendered result, and make at most one further repair mutation if it reveals a problem. " +
+	"Finish with a short text summary of what changed.";
+export const DIRECTOR_PROMPT_DIGEST = "c8ef5659c6ecd40c4020f922be38a09a300ede4ec73ab0278dad8781fce1c98c";
 
 function isEmptyRequest(request: ResourceExtensionPaths): boolean {
 	return (

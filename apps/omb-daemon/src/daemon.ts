@@ -31,6 +31,7 @@ import {
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
+import { DirectorLoopContractError } from "@oh-my-blender/director-runtime";
 import {
 	AttachTicketBroker,
 	ControllerCredential,
@@ -201,6 +202,8 @@ const TRUSTED_DIRECTOR_FAILURE_MESSAGES = {
 	BUSY: "bridge is busy",
 	CAPABILITY_NOT_NEGOTIATED: "required bridge capability was not negotiated",
 	DURABLE_BASE_UNAVAILABLE: "durable bridge base unavailable",
+	DIRECTOR_LOOP_INCOMPLETE: "director turn ended before its verification inspect",
+	DIRECTOR_SUMMARY_MISSING: "director turn ended without a final summary",
 	DURABLE_COMMIT_STATE: "durable commit state invalid",
 	INSPECT_BRIDGE_UNAVAILABLE: "inspection bridge unavailable",
 	INVALID_ARTIFACT_DESCRIPTOR: "artifact descriptor invalid",
@@ -1442,10 +1445,15 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									code: cause.code,
 									message: cause.message,
 								}
-							: {
-									code: "MODEL_PROVIDER_ERROR",
-									message: "provider request failed",
-								};
+							: cause instanceof DirectorLoopContractError
+								? {
+										code: cause.code,
+										message: TRUSTED_DIRECTOR_FAILURE_MESSAGES[cause.code],
+									}
+								: {
+										code: "MODEL_PROVIDER_ERROR",
+										message: "provider request failed",
+									};
 					try {
 						await queueDirectorEvent(turn.id, {
 							type: "director_turn_failed",

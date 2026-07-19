@@ -93,6 +93,19 @@ test("G013 loads a supported catalog model through an in-memory credential store
 	}
 });
 
+test("openai-codex boots through the isolated env with an OAuth access token as the credential", async () => {
+	const boot = parseBootArguments(["--provider", "openai-codex", "--model", "gpt-5.6-sol"]);
+	await assert.rejects(createBootRuntime(boot, {}), /MISSING_CREDENTIAL.*OPENAI_CODEX_ACCESS_TOKEN/);
+	const runtime = await createBootRuntime(boot, { OPENAI_CODEX_ACCESS_TOKEN: sentinel });
+	try {
+		assert.equal(runtime.model.provider, "openai-codex");
+		assert.equal(runtime.model.id, "gpt-5.6-sol");
+		assert.equal(runtime.credentialEnvironmentVariable, "OPENAI_CODEX_ACCESS_TOKEN");
+	} finally {
+		await runtime.dispose();
+	}
+});
+
 test("G013 real-provider startup keeps the sentinel out of argv, stdout, stderr, and project files", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "omb-g013-"));
 	const args = [
