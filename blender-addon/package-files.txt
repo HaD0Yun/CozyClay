@@ -1,0 +1,20 @@
+# Exact archive-root paths shipped in the Blender Extension.
+__init__.py
+blender_manifest.toml
+camera_plan.py
+canonical.py
+checkpoint.py
+connection.py
+daemon_child.py
+fixture_registry.py
+fixtures/boxing-v4-directing-evidence.json
+handshake.py
+identity.py
+manifest.py
+project_store.py
+qa_render.py
+revision.py
+scene_manifest.py
+snapshot.py
+ui_panel.py
+ws_client.py
