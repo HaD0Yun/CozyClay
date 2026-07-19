@@ -628,7 +628,12 @@ def _clear_plan_artifacts(scene: object, camera: object) -> None:
             scene.timeline_markers.remove(marker)
 
 
-def _apply_keyframes(scene: object, camera: object, plan: dict) -> tuple[set[int], set[int]]:
+def _apply_keyframes(
+    scene: object,
+    camera: object,
+    plan: dict,
+    connection_guard: Callable[[str], None],
+) -> tuple[set[int], set[int]]:
     keyframes = plan["keyframes"]
     cut_previous_frames = {
         int(keyframes[index - 1]["frame"])
@@ -656,6 +661,7 @@ def _apply_keyframes(scene: object, camera: object, plan: dict) -> tuple[set[int
         camera.keyframe_insert(data_path="location", frame=frame)
         camera.keyframe_insert(data_path="rotation_quaternion", frame=frame)
         camera.data.keyframe_insert(data_path="lens", frame=frame)
+        connection_guard("keyframe_write")
 
     angle_curve = next(
         fcurve for fcurve in _fcurves(camera.data.animation_data) if fcurve.data_path == "lens"
@@ -672,6 +678,7 @@ def _apply_keyframes(scene: object, camera: object, plan: dict) -> tuple[set[int
             frame = int(keyframe["frame"])
             marker = scene.timeline_markers.new(f"CUT_{frame}", frame=frame)
             marker.camera = camera
+            connection_guard("marker_write")
     return smooth_frames, cut_previous_frames
 
 
@@ -737,18 +744,25 @@ def apply_camera_plan_transaction(
     checkpoint: Checkpoint = create_checkpoint(_scope_state(scene))
     connection.hold_checkpoint(checkpoint)
     try:
+        connection.ensure_mutation_connection("after_checkpoint")
         camera = _camera_for_plan(scene)
         _clear_plan_artifacts(scene, camera)
         scene.render.resolution_x = int(plan["output_format"]["width"])
         scene.render.resolution_y = int(plan["output_format"]["height"])
         scene.render.resolution_percentage = 100
-        smooth_frames, _cut_previous_frames = _apply_keyframes(scene, camera, plan)
+        smooth_frames, _cut_previous_frames = _apply_keyframes(
+            scene,
+            camera,
+            plan,
+            connection.ensure_mutation_connection,
+        )
         animation_values = [camera.animation_data, camera.data.animation_data]
         expected_handles = capture_smooth_handles(animation_values, smooth_frames)
         validate_smooth_fcurves(animation_values, smooth_frames, expected_handles)
         _check_abort(deadline, cancelled)
         scene.frame_set(scene.frame_current)
         bpy.context.view_layer.update()
+        connection.ensure_mutation_connection("before_verify")
 
         from .manifest import extract_scene_manifest_v2
 

@@ -109,18 +109,34 @@ class Connection:
             self.websocket.send_json(message)
 
     def pump_bridge_messages(self) -> float | None:
-        """Run a bounded batch of queued Blender work on the main thread."""
+        """Run queued Blender work and recover socket loss on the main thread."""
         for _index in range(8):
             try:
                 message = self._main_thread_messages.get_nowait()
             except queue.Empty:
                 break
-            if message.get("type") == "_restore_checkpoint":
-                from .camera_plan import _read_scope, _restore_scope
+            self.dispatch_bridge_message(message)
 
-                self.restore_on_unexpected_loss(_restore_scope, _read_scope)
+        if self.state == "lost":
+            self.tools_exposed = False
+            if self.active_checkpoint is not None:
+                if self.durable_commit_reconciliation is not None:
+                    self.state = "recovery_required"
+                else:
+                    from .camera_plan import _read_scope, _restore_scope
+
+                    try:
+                        restored = self.restore_on_unexpected_loss(
+                            _restore_scope, _read_scope
+                        )
+                    except BaseException:
+                        restored = False
+                    self.state = (
+                        "disconnected" if restored else "recovery_required"
+                    )
             else:
-                self.dispatch_bridge_message(message)
+                self.state = "disconnected"
+            return None
         return 0.01 if self.state == "active" else None
 
 
@@ -140,25 +156,11 @@ class Connection:
                     message = self.websocket.recv_json()
                 except StopIteration:
                     self.state = "lost"
-                    if (
-                        self.active_checkpoint is not None
-                        and self.durable_commit_reconciliation is None
-                    ):
-                        self._main_thread_messages.put({
-                            "type": "_restore_checkpoint",
-                        })
                     return
                 except TimeoutError:
                     continue
                 except (OSError, WebSocketError):
                     self.state = "lost"
-                    if (
-                        self.active_checkpoint is not None
-                        and self.durable_commit_reconciliation is None
-                    ):
-                        self._main_thread_messages.put({
-                            "type": "_restore_checkpoint",
-                        })
                     return
                 if not isinstance(message, dict):
                     continue
@@ -295,6 +297,26 @@ class Connection:
                 message,
                 getattr(error, "code", type(error).__name__),
                 str(error),
+            )
+
+    def ensure_mutation_connection(self, phase: str) -> None:
+        """Enforce the socket-loss barrier between main-thread mutation phases."""
+        socket = getattr(self.websocket, "socket", None)
+        fileno = getattr(socket, "fileno", None)
+        socket_closed = self.websocket.closed
+        if callable(fileno):
+            try:
+                socket_closed = socket_closed or fileno() < 0
+            except OSError:
+                socket_closed = True
+        if (
+            self.state != "active"
+            or socket_closed
+            or self._child_has_exited()
+        ):
+            self.state = "lost"
+            raise ConnectionError(
+                f"daemon connection was lost during camera-plan phase {phase}"
             )
 
     def restore_on_unexpected_loss(

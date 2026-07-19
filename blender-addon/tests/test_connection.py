@@ -4,6 +4,7 @@ import json
 import pathlib
 import subprocess
 import tempfile
+import threading
 import sys
 import time
 from unittest import mock
@@ -440,6 +441,70 @@ class ConnectionTests(unittest.TestCase):
             connection.hold_checkpoint(second)
         self.assertIs(connection.release_checkpoint(), first)
         self.assertIsNone(connection.release_checkpoint())
+    def test_blender_timer_handles_real_eof_once_on_main_thread(self):
+        """Architecture §4/§15.3: EOF callback records only; Blender timer restores/verifies once."""
+        socket = FakeSocket()
+        connection = Connection(FakeChild(FakeProcess()), socket)
+        checkpoint = create_checkpoint({"camera_plan_scope": {"visible": True}})
+        connection.hold_checkpoint(checkpoint)
+        blender = mock.Mock()
+        callbacks = []
+        blender.app.timers.register.side_effect = (
+            lambda callback, **_kwargs: callbacks.append(callback)
+        )
+        scene = {"camera_plan_scope": {"visible": False}}
+        main_thread_calls = []
+
+        def restore_scope(key, values):
+            main_thread_calls.append(("restore", threading.get_ident(), key))
+            scene[key] = values
+
+        def read_scope(key):
+            main_thread_calls.append(("verify", threading.get_ident(), key))
+            return scene[key]
+
+        main_thread_id = threading.get_ident()
+        with (
+            mock.patch.object(connection_module, "bpy", blender),
+            mock.patch("oh_my_blender.camera_plan._restore_scope", restore_scope),
+            mock.patch("oh_my_blender.camera_plan._read_scope", read_scope),
+        ):
+            connection.start_bridge_dispatcher()
+            connection._reader_thread.join(timeout=1)
+            self.assertEqual(connection.state, "lost")
+            self.assertIsNone(callbacks[0]())
+            self.assertIsNone(callbacks[0]())
+
+        self.assertEqual(
+            main_thread_calls,
+            [
+                ("restore", main_thread_id, "camera_plan_scope"),
+                ("verify", main_thread_id, "camera_plan_scope"),
+            ],
+        )
+        self.assertIsNone(connection.active_checkpoint)
+        self.assertEqual(connection.state, "disconnected")
+
+    def test_failed_timer_restore_enters_recovery_required_and_hides_mutations(self):
+        """Architecture §4/§15.3: failed verification leaves recovery-required with tools hidden."""
+        connection = Connection(FakeChild(FakeProcess()), FakeSocket())
+        connection.hold_checkpoint(
+            create_checkpoint({"camera_plan_scope": {"visible": True}})
+        )
+        connection.state = "lost"
+
+        with (
+            mock.patch("oh_my_blender.camera_plan._restore_scope"),
+            mock.patch(
+                "oh_my_blender.camera_plan._read_scope",
+                return_value={"visible": False},
+            ),
+        ):
+            self.assertIsNone(connection.pump_bridge_messages())
+
+        self.assertEqual(connection.state, "recovery_required")
+        self.assertFalse(connection.tools_exposed)
+        self.assertIsNone(connection.active_checkpoint)
 
     def test_unexpected_loss_restores_then_verifies_and_clears_checkpoint(self):
         connection = Connection(FakeChild(FakeProcess()), FakeSocket())

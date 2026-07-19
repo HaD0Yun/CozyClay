@@ -36,6 +36,8 @@ SUBJECT_ID = "00000000-0000-4000-8000-000000000002"
 class Connection:
     def __init__(self):
         self.active_checkpoint = None
+    def ensure_mutation_connection(self, _phase):
+        return None
 
     def hold_checkpoint(self, checkpoint):
         if self.active_checkpoint is not None:

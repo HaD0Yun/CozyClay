@@ -23,6 +23,8 @@ from oh_my_blender.qa_render import _scope_state, render_qa_frames_transaction
 class Connection:
     def __init__(self):
         self.active_checkpoint = None
+    def ensure_mutation_connection(self, _phase):
+        return None
 
     def hold_checkpoint(self, checkpoint):
         self.active_checkpoint = checkpoint

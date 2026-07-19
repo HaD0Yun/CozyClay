@@ -15,6 +15,10 @@ RECONCILIATION_SCRIPT = (
     REPOSITORY_ROOT
     / "blender-addon/tests/fixtures/connected_commit_reconciliation_fixture.py"
 )
+FAULT_MATRIX_SCRIPT = (
+    REPOSITORY_ROOT
+    / "blender-addon/tests/fixtures/connected_disconnect_fault_matrix_fixture.py"
+)
 
 
 @unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
@@ -115,6 +119,55 @@ class CameraPlanConnectedTests(unittest.TestCase):
                     result["reconciliation"]["outcome"],
                     {"committed", "not_committed"},
                 )
+    def test_real_socket_disconnect_matrix_preserves_transaction_cas_ownership(self):
+        """Architecture §4/§15.3: all five real-socket fault points have one terminal owner."""
+        expected_outcomes = {
+            "after_checkpoint": "disconnect_win",
+            "mid_mutation": "disconnect_win",
+            "before_verify": "disconnect_win",
+            "commit_eligibility": "commit_cas",
+            "after_response": "response_win",
+        }
+        for phase, expected in expected_outcomes.items():
+            with self.subTest(phase=phase):
+                completed = subprocess.run(
+                    [
+                        str(BLENDER),
+                        "--background",
+                        "--factory-startup",
+                        "--python",
+                        str(FAULT_MATRIX_SCRIPT),
+                        "--",
+                        "--fault-phase",
+                        phase,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    f"fault matrix fixture failed ({phase})\n"
+                    f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+                )
+                lines = [
+                    line for line in completed.stdout.splitlines()
+                    if line.startswith("OMB_DISCONNECT_FAULT_RESULTS=")
+                ]
+                self.assertEqual(len(lines), 1, completed.stdout)
+                result = json.loads(lines[0].split("=", 1)[1])
+                self.assertEqual(result["phase"], phase)
+                self.assertEqual(result["outcome"], expected)
+                self.assertEqual(result["liveSceneHash"], result["durableSceneHash"])
+                self.assertEqual(result["restoreCount"], result["expectedRestoreCount"])
+                self.assertEqual(result["verifyCount"], result["expectedRestoreCount"])
+                self.assertTrue(result["requestTerminal"])
+                self.assertTrue(result["childExited"])
+                self.assertTrue(result["socketClosed"])
+                self.assertFalse(result["timerRegistered"])
 
 if __name__ == "__main__":
     unittest.main()
