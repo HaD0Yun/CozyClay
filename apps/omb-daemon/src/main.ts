@@ -2,6 +2,7 @@
 import {
 	createApplyCameraPlanHandler,
 	createDirectorProjectStore,
+	createDirectorTurnHandler,
 	createInspectHandler,
 	createRenderArtifactReservationFactory,
 	createRenderQaFramesHandler,
@@ -20,8 +21,16 @@ async function main(): Promise<void> {
 		const store = createDirectorProjectStore(process.cwd());
 		const beginArtifactReservations = createRenderArtifactReservationFactory(process.cwd());
 		const inspect = createInspectHandler({ model: runtime.model, modelRuntime: runtime.modelRuntime, store });
+		const directorTurn = createDirectorTurnHandler({
+			model: runtime.model,
+			modelRuntime: runtime.modelRuntime,
+			store,
+			cwd: process.cwd(),
+		});
 		const daemon = await start({
 			port: boot.port,
+			projectDirectory: process.cwd(),
+			directorTurn,
 			handlers: {
 				inspect_project: async (params, context) => {
 					try {

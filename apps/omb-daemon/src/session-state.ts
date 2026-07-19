@@ -13,6 +13,7 @@ export class SessionState {
 	get current():ActiveRequest|undefined{return this.active;}
 	begin(id:string, deadlineMs:number): "ok"|"busy" { if(this.active && this.active.phase!=="terminal")return "busy";const r:ActiveRequest={id,phase:"running",controller:new AbortController()};this.active=r;r.timer=setTimeout(()=>{if(this.cas(r,"running","cancelling")){r.cause="TIMEOUT";r.controller.abort();this.wake(r);}},deadlineMs);return "ok"; }
 	beginDurableCommit(r: ActiveRequest): boolean { return this.cas(r, "running", "durable_commit"); }
+	finishDurableCommit(r: ActiveRequest): boolean { return this.cas(r, "durable_commit", "running"); }
 	complete(r:ActiveRequest):boolean{return this.cas(r,"running","completing") || this.cas(r,"durable_commit","completing");}
 	cancel(id:string,cause:TerminalCause="CANCELLED"):"accepted"|"already_terminal"|"unknown" { const r=this.active;if(!r||r.id!==id)return "unknown";if(this.cas(r,"running","cancelling")){r.cause=cause;r.controller.abort();this.wake(r);return "accepted";}return "already_terminal"; }
 	terminal(r:ActiveRequest):boolean { if(r!==this.active || r.phase==="terminal")return false;clearTimeout(r.timer);r.phase="terminal";return true; }

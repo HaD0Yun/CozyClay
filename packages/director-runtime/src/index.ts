@@ -4,3 +4,4 @@ export * from "./render-qa-frames-service.ts";
 export * from "./resource-loader.ts";
 export * from "./session.ts";
 export * from "./stage-scene-service.ts";
+export * from "./turn-loop.ts";

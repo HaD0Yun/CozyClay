@@ -12,13 +12,19 @@ A real provider credential is accepted only through the provider-standard enviro
 | Child stderr | Provider libraries may include request headers, environment values, or exception text; an undrained pipe can deadlock. | Drain continuously from process start. Redact every configured secret across read chunk boundaries before retaining data. Keep only a bounded ring buffer and expose only redacted diagnostics. |
 | Thrown exceptions and user-facing errors | Provider/auth errors may echo credentials or unbounded upstream text. | Configuration failures use bounded fixed messages containing only nonsecret provider/model identifiers. Child diagnostics are redacted and bounded before surfacing. |
 | WebSocket traffic | Credentials included in prompts, tool payloads, or errors become observable and persistable. | Credential material is used only by the in-memory credential store/provider request path and is never placed in daemon handlers or protocol messages. |
-| `.omb` project/session files and artifact files | Persisted configuration, errors, or request material could retain keys. | Provider boot does not write credentials or auth diagnostics. Project/session/artifact stores receive no credential value. |
+| `.omb` project/session, director transcript, and artifact files | Persisted configuration, errors, prompts, model output, or request material could retain keys. | Provider boot does not write credentials or auth diagnostics. Project/session/artifact stores receive no credential value. The director transcript admits only its closed event schema described below. |
 | Crash reports and logs | argv, inherited environment, stdout/stderr, or exception objects may be captured. | Minimize argv/environment, copy the selected key into the in-memory credential store, immediately remove its environment entry, use fixed redacted errors, and dispose the stored credential on shutdown. Never log raw caught provider errors at the boot boundary. |
 | Test snapshots and fixtures | Sentinel keys can accidentally become committed expected output. | Tests use dummy sentinels only in process environment/input and assert sentinel absence from argv, diagnostics, stdout, WebSocket messages, and files. No fixture or snapshot contains a usable key. |
 
 The boundary fails closed for absent/empty credentials, unknown providers/models, unsafe executables, malformed startup output, or unredactable startup failures. Diagnostics are bounded; raw stderr is never exposed.
 
 The platform allowlist is `PATH`, `HOME`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TMPDIR`, `TEMP`, `TMP`, and `SYSTEMROOT`; empty entries are omitted. The sole additional entry in real-provider mode is that provider's credential variable. `OMB_NODE_EXECUTABLE` and `OMB_DAEMON_ARGS` configure the parent launcher and are not forwarded.
+
+### Director transcript sink
+
+The daemon persists `.omb/director-transcript.json` as a mode-`0600`, atomically replaced, closed-schema file. Its authorized content is a random session ID plus bounded turn events: the user's prompt, bounded final summary or fixed daemon error, tool name, structural parameter-key summary, and a SHA-256 digest of the tool result. Raw provider requests or responses, credential-store values, environment entries, caught provider errors, raw tool parameters/results, and QA image bytes are not authorized transcript content. Tool-result digests preserve correlation without making the result itself a persistence sink.
+
+Only an authenticated controller can fetch this transcript. A reconnect receives the same persisted session ID and events; bridge attach credentials, controller resume credentials, bearer tokens, and provider credentials are excluded from both the file and transcript protocol messages. Automated coverage places a provider credential sentinel in the daemon environment, completes a controller turn, and asserts exact sentinel absence from the resulting transcript file.
 
 ## Manual opt-in real-provider smoke test
 

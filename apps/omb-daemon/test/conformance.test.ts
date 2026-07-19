@@ -7,6 +7,7 @@ import {parseStartupRecord,type CameraPlanV1} from "@oh-my-blender/protocol";
 import {start,type DaemonOptions} from "../src/daemon.ts";
 
 const key="AAAAAAAAAAAAAAAAAAAAAA==", nonce=()=>Buffer.alloc(16,Math.floor(Math.random()*255)).toString("base64url");
+const QA_PNG=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=","base64");
 const hello=(n=nonce())=>({type:"hello",protocol:1,addon_version:"1",blender_version:"4",project_id:randomUUID(),client_nonce:n});
 const helloV2=(n=nonce())=>({type:"hello",protocol:2,addon_version:"1",blender_version:"4",project_id:randomUUID(),client_nonce:n,capabilities:["mutation_bridge_v2"]});
 const helloV3=(n=nonce())=>({...helloV2(n),capabilities:["mutation_bridge_v2","scene_manifest_v3"]});
@@ -61,9 +62,9 @@ test("§4 protocol-v2 apply_camera_plan reuses one correlated MutationBridgeSess
 	}finally{c.socket.destroy();await d.close();}
 });
 
-test("G011 streams out-of-order chunks positionally into a declared reservation and returns metadata only", async () => {
+test("G011 streams out-of-order chunks positionally and returns bounded QA image content", async () => {
 	const revision = "0".repeat(64);
-	const bytes = Buffer.from("connected-render-png");
+	const bytes = QA_PNG;
 	const sha256 = createHash("sha256").update(bytes).digest("hex");
 	const written = Buffer.alloc(bytes.byteLength);
 	let committed = false;
@@ -135,6 +136,7 @@ test("G011 streams out-of-order chunks positionally into a declared reservation 
 					profile_version: "omb-qa-png-v1",
 					byte_length: bytes.byteLength,
 					sha256,
+					image: { mime_type: "image/png", data_base64: bytes.toString("base64") },
 				}],
 			},
 		});
@@ -142,7 +144,7 @@ test("G011 streams out-of-order chunks positionally into a declared reservation 
 		assert.equal(committed, true);
 		assert.deepEqual(written, bytes);
 		assert.equal(response.result.frames[0].uri, `omb-artifact://sha256/${sha256}`);
-		assert.equal("data_base64" in response.result.frames[0], false);
+		assert.equal(response.result.frames[0].image.data_base64, bytes.toString("base64"));
 	} finally {
 		c.socket.destroy();
 		await d.close();
@@ -266,6 +268,7 @@ function sendRenderResult(
 				profile_version: "omb-qa-png-v1",
 				byte_length: bytes.byteLength,
 				sha256,
+				image: { mime_type: "image/png", data_base64: Buffer.from(bytes).toString("base64") },
 			}],
 		},
 	});
@@ -364,7 +367,7 @@ test("G011 rejects declarations over 128 MiB as a batch and aborts prior reserva
 	}
 });
 
-test("G011 rejects a tampered digest at reservation commit", async () => {
+test("G011 rejects image content whose digest does not match metadata", async () => {
 	const stream = await startRenderCase();
 	const bytes = Buffer.from("authentic bytes");
 	const tamperedSha = "f".repeat(64);
@@ -373,7 +376,7 @@ test("G011 rejects a tampered digest at reservation commit", async () => {
 		sendArtifactChunk(stream, 80, bytes);
 		sendRenderResult(stream, 80, bytes, tamperedSha);
 		const error = await stream.c.next((message) => message.type === "error" && message.id === stream.q.id);
-		assert.equal(error.code, "ARTIFACT_DIGEST_MISMATCH");
+		assert.equal(error.code, "INVALID_RENDER_QA_RESULT");
 		assert.equal(stream.reservations[0]?.aborted, true);
 		assert.equal(stream.reservations[0]?.committed, false);
 	} finally {
@@ -381,6 +384,7 @@ test("G011 rejects a tampered digest at reservation commit", async () => {
 		await stream.d.close();
 	}
 });
+
 
 test("G011 cancellation after the first streamed chunk aborts publication", async () => {
 	const stream = await startRenderCase();

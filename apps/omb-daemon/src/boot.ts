@@ -1,4 +1,4 @@
-import { InMemoryCredentialStore, type Model } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, type Context, type Model } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -86,6 +86,106 @@ export function parseBootArguments(argv: readonly string[]): BootArguments {
 	return { port, mode: "provider", provider, model };
 }
 
+function fauxResultRevision(details: unknown): string {
+	if (typeof details !== "object" || details === null || Array.isArray(details)) {
+		throw new Error("FAUX_SCENARIO_INVALID: tool result details are missing");
+	}
+	const value = details as Record<string, unknown>;
+	for (const key of ["resulting_revision_id", "revision", "revision_id"]) {
+		const revision = value[key];
+		if (typeof revision === "string" && /^[0-9a-f]{64}$/.test(revision)) return revision;
+	}
+	throw new Error("FAUX_SCENARIO_INVALID: tool result revision is missing");
+}
+
+function fauxScenarioResponse(context: Context) {
+	let lastUserIndex = -1;
+	for (let index = context.messages.length - 1; index >= 0; index--) {
+		if (context.messages[index]?.role === "user") {
+			lastUserIndex = index;
+			break;
+		}
+	}
+	const current = context.messages.slice(lastUserIndex + 1);
+	const toolResults = current.filter((message) => message.role === "toolResult");
+	const user = context.messages[lastUserIndex];
+	const prompt =
+		user?.role === "user"
+			? typeof user.content === "string"
+				? user.content
+				: user.content
+						.filter((block) => block.type === "text")
+						.map((block) => block.text)
+						.join("\n")
+			: "";
+
+	if (prompt === "Inspect the current Blender project before directing it.") {
+		return toolResults.length === 0
+			? fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" })
+			: fauxAssistantMessage("scene inspected");
+	}
+
+	switch (toolResults.length) {
+		case 0:
+			return fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" });
+		case 1: {
+			const revision = fauxResultRevision(toolResults[0]!.details);
+			return fauxAssistantMessage(
+				fauxToolCall("stage_scene", {
+					schema_version: 1,
+					expected_revision_id: revision,
+					operations: [
+						{
+							op: "add_primitive",
+							primitive_type: "CUBE",
+							name: "OMB Hero",
+							location: [0, 0, 0],
+							rotation: [0, 0, 0],
+							scale: [1, 1, 1],
+						},
+					],
+				}),
+				{ stopReason: "toolUse" },
+			);
+		}
+		case 2:
+			return fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" });
+		case 3: {
+			const revision = fauxResultRevision(toolResults[2]!.details);
+			return fauxAssistantMessage(
+				fauxToolCall("render_qa_frames", { schema_version: 1, revision_id: revision, frames: [1] }),
+				{ stopReason: "toolUse" },
+			);
+		}
+		case 4: {
+			const revision = fauxResultRevision(toolResults[3]!.details);
+			return fauxAssistantMessage(
+				fauxToolCall("apply_camera_plan", {
+					schema_version: 1,
+					expected_revision_id: revision,
+					evidence_sha256: "e".repeat(64),
+					output_format: { width: 640, height: 360 },
+					keyframes: [
+						{
+							frame: 1,
+							pose: {
+								position: [0, -5, 2],
+								look_at: [0, 0, 0],
+								up: [0, 0, 1],
+								vertical_fov_radians: 0.7,
+							},
+							transition: "smooth",
+						},
+					],
+				}),
+				{ stopReason: "toolUse" },
+			);
+		}
+		default:
+			return fauxAssistantMessage("Built the OMB hero scene, verified QA, and repaired the camera.");
+	}
+}
+
 export async function createBootRuntime(
 	boot: BootArguments,
 	environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -94,10 +194,7 @@ export async function createBootRuntime(
 	const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
 	if (boot.mode === "faux") {
 		const faux = registerFauxProvider();
-		faux.setResponses([
-			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
-			fauxAssistantMessage("scene inspected"),
-		]);
+		faux.setResponses(Array.from({ length: 256 }, () => fauxScenarioResponse));
 		const model = faux.getModel();
 		await credentials.modify(model.provider, async () => ({ type: "api_key", key: "faux-key" }));
 		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });

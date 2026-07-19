@@ -12,6 +12,7 @@ const exact = <T extends Record<string, TSchema>>(properties: T) =>
 	Type.Object(properties, { additionalProperties: false });
 const uuid = () => Type.String({ pattern: UUID_V4_LOWERCASE });
 const hash = () => Type.String({ pattern: HASH_64 });
+const ISO_8601_UTC = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$";
 
 export const StartupRecordSchema = exact({
 	type: Type.Literal("omb_daemon_ready"),
@@ -38,6 +39,8 @@ const helloAckProperties = {
 };
 export const MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2";
 export const SCENE_MANIFEST_V3_CAPABILITY = "scene_manifest_v3";
+export const DIRECTOR_TURN_CAPABILITY = "director_turn_v1";
+export const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
 const mutationCapabilities = () =>
 	Type.Union([
 		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY)]),
@@ -98,6 +101,80 @@ export const CancelAckSchema = exact({
 	type: Type.Literal("cancel_ack"),
 	id: uuid(),
 	status: Type.Union([Type.Literal("accepted"), Type.Literal("already_terminal"), Type.Literal("unknown")]),
+});
+export const DirectorTurnSchema = exact({
+	type: Type.Literal("director_turn"),
+	id: uuid(),
+	prompt: Type.String({ minLength: 1, maxLength: 8_192 }),
+	expected_revision_id: hash(),
+	deadline_ms: Type.Integer({ minimum: 100, maximum: 30_000 }),
+});
+export const DirectorTranscriptRequestSchema = exact({
+	type: Type.Literal("director_transcript_request"),
+	id: uuid(),
+});
+const directorToolName = () =>
+	Type.Union([
+		Type.Literal("inspect_project"),
+		Type.Literal("stage_scene"),
+		Type.Literal("apply_camera_plan"),
+		Type.Literal("render_qa_frames"),
+	]);
+const directorEventProperties = {
+	id: uuid(),
+	sequence: Type.Integer({ minimum: 0 }),
+	at: Type.String({ pattern: ISO_8601_UTC }),
+};
+export const DirectorTurnStartedSchema = exact({
+	type: Type.Literal("director_turn_started"),
+	...directorEventProperties,
+	prompt: Type.String({ minLength: 1, maxLength: 8_192 }),
+});
+export const DirectorToolCallStartedSchema = exact({
+	type: Type.Literal("director_tool_call_started"),
+	...directorEventProperties,
+	tool_call_id: Type.String({ minLength: 1, maxLength: 128 }),
+	tool_name: directorToolName(),
+	params_summary: Type.String({ maxLength: 512 }),
+});
+export const DirectorToolCallFinishedSchema = exact({
+	type: Type.Literal("director_tool_call_finished"),
+	...directorEventProperties,
+	tool_call_id: Type.String({ minLength: 1, maxLength: 128 }),
+	tool_name: directorToolName(),
+	result_digest: hash(),
+	is_error: Type.Boolean(),
+});
+export const DirectorTurnCompletedSchema = exact({
+	type: Type.Literal("director_turn_completed"),
+	...directorEventProperties,
+	summary: Type.String({ minLength: 1, maxLength: 8_192 }),
+	resulting_revision_id: hash(),
+});
+export const DirectorTurnFailedSchema = exact({
+	type: Type.Literal("director_turn_failed"),
+	...directorEventProperties,
+	code: Type.String({ minLength: 1, maxLength: 128 }),
+	message: Type.String({ maxLength: 1_024 }),
+	retryable: Type.Boolean(),
+});
+export const DirectorTurnCancelledSchema = exact({
+	type: Type.Literal("director_turn_cancelled"),
+	...directorEventProperties,
+});
+export const DirectorTurnEventSchema = Type.Union([
+	DirectorTurnStartedSchema,
+	DirectorToolCallStartedSchema,
+	DirectorToolCallFinishedSchema,
+	DirectorTurnCompletedSchema,
+	DirectorTurnFailedSchema,
+	DirectorTurnCancelledSchema,
+]);
+export const DirectorTranscriptSchema = exact({
+	type: Type.Literal("director_transcript"),
+	id: uuid(),
+	session_id: uuid(),
+	events: Type.Array(DirectorTurnEventSchema, { maxItems: 10_000 }),
 });
 export const RollbackAckSchema = exact({
 	type: Type.Literal("rollback_ack"),
@@ -200,6 +277,8 @@ export const AddonBridgeMessageSchema = Type.Union([
 export const ClientMessageSchema = Type.Union([
 	HelloSchema,
 	RequestSchema,
+	DirectorTurnSchema,
+	DirectorTranscriptRequestSchema,
 	CancelSchema,
 	RollbackAckSchema,
 	ShutdownSchema,
@@ -213,6 +292,8 @@ export const ServerMessageSchema = Type.Union([
 	CancelAckSchema,
 	ShutdownAckSchema,
 	PongSchema,
+	DirectorTurnEventSchema,
+	DirectorTranscriptSchema,
 ]);
 
 export type StartupRecord = Static<typeof StartupRecordSchema>;
@@ -222,6 +303,11 @@ export type Request = Static<typeof RequestSchema>;
 export type Cancel = Static<typeof CancelSchema>;
 export type ClientMessage = Static<typeof ClientMessageSchema>;
 export type ServerMessage = Static<typeof ServerMessageSchema>;
+export type DirectorTurn = Static<typeof DirectorTurnSchema>;
+export type DirectorTranscriptRequest = Static<typeof DirectorTranscriptRequestSchema>;
+export type DirectorToolName = Static<ReturnType<typeof directorToolName>>;
+export type DirectorTurnEvent = Static<typeof DirectorTurnEventSchema>;
+export type DirectorTranscript = Static<typeof DirectorTranscriptSchema>;
 export type BridgeRequest = Static<typeof BridgeRequestSchema>;
 export type BridgeProgress = Static<typeof BridgeProgressSchema>;
 export type BridgeArtifactBegin = Static<typeof BridgeArtifactBeginSchema>;
@@ -239,6 +325,11 @@ export const parseHello = (input: unknown): Hello => Parse(HelloSchema, input);
 export const parseHelloAck = (input: unknown): HelloAck => Parse(HelloAckSchema, input);
 export const parseRequest = (input: unknown): Request => Parse(RequestSchema, input);
 export const parseCancel = (input: unknown): Cancel => Parse(CancelSchema, input);
+export const parseDirectorTurn = (input: unknown): DirectorTurn => Parse(DirectorTurnSchema, input);
+export const parseDirectorTranscriptRequest = (input: unknown): DirectorTranscriptRequest =>
+	Parse(DirectorTranscriptRequestSchema, input);
+export const parseDirectorTurnEvent = (input: unknown): DirectorTurnEvent => Parse(DirectorTurnEventSchema, input);
+export const parseDirectorTranscript = (input: unknown): DirectorTranscript => Parse(DirectorTranscriptSchema, input);
 export function parseClientMessage(input: unknown): ClientMessage {
 	const type = typeof input === "object" && input !== null ? (input as { type?: unknown }).type : undefined;
 	switch (type) {
@@ -246,6 +337,10 @@ export function parseClientMessage(input: unknown): ClientMessage {
 			return Parse(HelloSchema, input);
 		case "request":
 			return Parse(RequestSchema, input);
+		case "director_turn":
+			return Parse(DirectorTurnSchema, input);
+		case "director_transcript_request":
+			return Parse(DirectorTranscriptRequestSchema, input);
 		case "cancel":
 			return Parse(CancelSchema, input);
 		case "rollback_ack":
@@ -276,6 +371,15 @@ export function parseServerMessage(input: unknown): ServerMessage {
 			return Parse(ShutdownAckSchema, input);
 		case "pong":
 			return Parse(PongSchema, input);
+		case "director_turn_started":
+		case "director_tool_call_started":
+		case "director_tool_call_finished":
+		case "director_turn_completed":
+		case "director_turn_failed":
+		case "director_turn_cancelled":
+			return Parse(DirectorTurnEventSchema, input);
+		case "director_transcript":
+			return Parse(DirectorTranscriptSchema, input);
 		default:
 			throw new Error(`unknown server message type: ${String(type)}`);
 	}

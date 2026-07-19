@@ -1,26 +1,33 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import http from "node:http";
 import {
+	DIRECTOR_TRANSCRIPT_CAPABILITY,
+	DIRECTOR_TURN_CAPABILITY,
 	MUTATION_PROTOCOL_VERSION,
 	MUTATION_BRIDGE_CAPABILITY,
 	MutationBridgeSession,
 	negotiateMutationBridge,
 	parseAddonBridgeMessage,
 	parseClientMessage,
+	parseDirectorTurnEvent,
 	parseDaemonBridgeMessage,
 	parseHello,
 	parseRenderQaFramesRequest,
+	parseSceneSnapshot,
 	parseStartupRecord,
 	PROTOCOL_VERSION,
 	SCENE_MANIFEST_V3_CAPABILITY,
 	type BridgeArtifactBegin,
 	type BridgeArtifactBatchBegin,
 	type BridgeArtifactChunk,
+	type DirectorToolName,
+	type DirectorTurn,
 	type CameraPlanV1,
 	type CameraPlanMutationCandidate,
 	type RenderQaFramesRequestV1,
 	type RenderQaFramesResultV1,
 	type Request,
+	type SceneSnapshot,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
@@ -30,6 +37,7 @@ import {
 	createRuntimeAdvertisement,
 	type ClientRole,
 } from "./control-plane.ts";
+import { DirectorTranscriptStore } from "./transcript-store.ts";
 import { SessionState, type ActiveRequest } from "./session-state.ts";
 import { BearerToken, randomNonce, systemClock, type Clock } from "./token.ts";
 import { acceptUpgrade, readClientRole, type WebSocketConnection } from "./ws-server.ts";
@@ -54,6 +62,41 @@ export type StageScene = (
 		readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	},
 ) => Promise<StageSceneMutationCandidate>;
+export type DirectorTurnToolEvent =
+	| {
+			readonly type: "started";
+			readonly toolName: DirectorToolName;
+			readonly toolCallId: string;
+			readonly paramsSummary: string;
+	  }
+	| {
+			readonly type: "finished";
+			readonly toolName: DirectorToolName;
+			readonly toolCallId: string;
+			readonly digest: string;
+			readonly isError: boolean;
+	  };
+export interface DirectorTurnContext {
+	readonly signal: AbortSignal;
+	inspectProject(expectedRevisionId: string): Promise<{ readonly revision: string; readonly snapshot: SceneSnapshot }>;
+	readonly applyCameraPlan: ApplyCameraPlan;
+	readonly stageScene: StageScene;
+	readonly renderQaFrames: RenderQaFrames;
+	beginDurableCommit(): void;
+	finishDurableCommit(): void;
+}
+export interface DirectorTurnService {
+	run(
+		turn: DirectorTurn,
+		context: DirectorTurnContext,
+		onToolEvent: (event: DirectorTurnToolEvent) => void,
+	): Promise<{
+		readonly summary: string;
+		readonly resultingRevisionId: string;
+		readonly toolCallOrder: readonly DirectorToolName[];
+	}>;
+	dispose(): void;
+}
 export interface HandlerContext {
 	readonly signal: AbortSignal;
 	readonly request: Request;
@@ -96,6 +139,8 @@ export type DaemonOptions = {
 	port: number;
 	clock?: Clock;
 	handlers: Record<string, Handler>;
+	directorTurn?: DirectorTurnService;
+	projectDirectory?: string;
 	beginArtifactReservation?: BeginArtifactReservation;
 	beginArtifactReservations?: BeginArtifactReservations;
 	stdout?: (line: string) => void;
@@ -129,7 +174,7 @@ type PendingArtifactFrame = {
 type PendingBridge = {
 	readonly id: string;
 	readonly requestId: string;
-	readonly method: "apply_camera_plan" | "stage_scene" | "render_qa_frames";
+	readonly method: "inspect_project" | "apply_camera_plan" | "stage_scene" | "render_qa_frames";
 	readonly renderRequest?: RenderQaFramesRequestV1;
 	readonly artifactFrames: Map<number, PendingArtifactFrame>;
 	totalArtifactBytes: number;
@@ -145,6 +190,11 @@ type PendingBridge = {
 
 const MAX_RENDER_FRAME_BYTES = 16 * 1024 * 1024;
 const MAX_RENDER_BATCH_BYTES = 128 * 1024 * 1024;
+const MAX_QA_IMAGE_FRAME_BYTES = 2 * 1024 * 1024;
+const MAX_QA_IMAGE_BATCH_BYTES = 12 * 1024 * 1024;
+const PNG_SIGNATURE_HEX = "89504e470d0a1a0a";
+const MAX_BRIDGE_MESSAGE_BYTES = 18 * 1024 * 1024;
+const BOOTSTRAP_REVISION_ID = "0".repeat(64);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -310,12 +360,14 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 		readonly byteLength: number;
 		readonly sha256: string;
 		readonly reservation: RenderArtifactReservation;
+		readonly image: { readonly mime_type: "image/png"; readonly data_base64: string };
 	}> = [];
+	let totalImageBytes = 0;
 	for (const [index, expectedFrame] of pending.renderRequest.frames.entries()) {
 		const metadata = raw.frames[index];
 		if (
 			!isRecord(metadata) ||
-			!hasExactKeys(metadata, ["byte_length", "frame", "height", "profile_version", "sha256", "width"]) ||
+			!hasExactKeys(metadata, ["byte_length", "frame", "height", "image", "profile_version", "sha256", "width"]) ||
 			metadata.frame !== expectedFrame ||
 			metadata.width !== 640 ||
 			metadata.height !== 360 ||
@@ -327,6 +379,33 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 			!/^[0-9a-f]{64}$/.test(metadata.sha256)
 		) {
 			throw new Error("INVALID_RENDER_QA_RESULT: frame metadata is invalid");
+		}
+		const image = metadata.image;
+		if (
+			!isRecord(image) ||
+			!hasExactKeys(image, ["data_base64", "mime_type"]) ||
+			image.mime_type !== "image/png" ||
+			typeof image.data_base64 !== "string"
+		) {
+			throw new Error("INVALID_RENDER_QA_RESULT: frame image content is invalid");
+		}
+		const imageBytes = Buffer.from(image.data_base64, "base64");
+		if (imageBytes.toString("base64") !== image.data_base64) {
+			throw new Error("INVALID_RENDER_QA_RESULT: frame image base64 is not canonical");
+		}
+		totalImageBytes += imageBytes.byteLength;
+		if (
+			imageBytes.byteLength > MAX_QA_IMAGE_FRAME_BYTES ||
+			totalImageBytes > MAX_QA_IMAGE_BATCH_BYTES
+		) {
+			throw new Error("RENDER_QA_IMAGE_CONTENT_LIMIT: QA image content exceeds the bounded context budget");
+		}
+		if (
+			imageBytes.byteLength !== metadata.byte_length ||
+			createHash("sha256").update(imageBytes).digest("hex") !== metadata.sha256 ||
+			imageBytes.subarray(0, 8).toString("hex") !== PNG_SIGNATURE_HEX
+		) {
+			throw new Error("INVALID_RENDER_QA_RESULT: frame image does not match its PNG metadata");
 		}
 		const streamed = pending.artifactFrames.get(expectedFrame);
 		if (
@@ -344,6 +423,7 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 			byteLength: streamed.totalByteLength,
 			sha256: streamed.sha256,
 			reservation: streamed.reservation,
+			image: { mime_type: "image/png", data_base64: image.data_base64 },
 		});
 	}
 
@@ -358,15 +438,17 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 		) {
 			throw new Error("INVALID_ARTIFACT_DESCRIPTOR: publisher returned mismatched metadata");
 		}
-		frames.push({
+		const frame = {
 			frame: candidate.frame,
-			width: 640,
-			height: 360,
-			profile_version: "omb-qa-png-v1",
+			width: 640 as const,
+			height: 360 as const,
+			profile_version: "omb-qa-png-v1" as const,
 			byte_length: candidate.byteLength,
 			sha256: candidate.sha256,
 			uri: descriptor.uri,
-		});
+			image: candidate.image,
+		};
+		frames.push(frame);
 	}
 	return {
 		schema_version: 1,
@@ -378,6 +460,7 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 
 export async function start(options: DaemonOptions): Promise<Daemon> {
 	const clock = options.clock ?? systemClock;
+	const transcript = await DirectorTranscriptStore.open(options.projectDirectory ?? process.cwd());
 	const token = new BearerToken(clock);
 	const controllerCredential = new ControllerCredential();
 	const attachTickets = new AttachTicketBroker(clock, options.attachTicketTtlMs);
@@ -393,6 +476,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	const controlEvents: unknown[] = [];
 	const activeHandlers = new Set<Promise<void>>();
 	const bridgeTerminalTargets = new Map<string, WebSocketConnection>();
+	const directorSequences = new Map<string, number>();
+	const directorEventTails = new Map<string, Promise<void>>();
 	let pendingBridge: PendingBridge | undefined;
 	let bridgeMessageTail: Promise<void> = Promise.resolve();
 	let draining = false;
@@ -431,6 +516,27 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		const control = activeControl();
 		if (control?.helloComplete && !control.websocket.socket.destroyed) control.websocket.sendText(value);
 	};
+	const queueDirectorEvent = (
+		requestId: string,
+		value: Omit<Record<string, unknown>, "id" | "sequence" | "at">,
+	): Promise<void> => {
+		const sequence = directorSequences.get(requestId) ?? 0;
+		directorSequences.set(requestId, sequence + 1);
+		const event = parseDirectorTurnEvent({
+			...value,
+			id: requestId,
+			sequence,
+			at: new Date(clock.now()).toISOString(),
+		});
+		const previous = (directorEventTails.get(requestId) ?? Promise.resolve()).catch(() => undefined);
+		const queued = previous.then(async () => {
+			await transcript.append(event);
+			sendControl(event, false);
+		});
+		directorEventTails.set(requestId, queued);
+		void queued.catch(() => undefined);
+		return queued;
+	};
 	const sendTerminal = (requestId: string, value: unknown) => {
 		sendControl(value);
 		const bridge = bridgeTerminalTargets.get(requestId);
@@ -461,15 +567,18 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 
 	async function finishCancellation(request: ActiveRequest) {
 		if (pendingBridge?.requestId === request.id) await pendingBridge.artifactCleanup;
-		if (state.terminal(request)) {
-			const error = protocolError(
-				request.id,
-				request.cause === "TIMEOUT" ? "TIMEOUT" : "CANCELLED",
-				request.cause === "TIMEOUT" ? "deadline expired" : "request cancelled",
-				false,
-			);
-			sendTerminal(request.id, error);
+		if (!state.terminal(request)) return;
+		if (directorSequences.has(request.id)) {
+			await queueDirectorEvent(request.id, { type: "director_turn_cancelled" });
+			return;
 		}
+		const error = protocolError(
+			request.id,
+			request.cause === "TIMEOUT" ? "TIMEOUT" : "CANCELLED",
+			request.cause === "TIMEOUT" ? "deadline expired" : "request cancelled",
+			false,
+		);
+		sendTerminal(request.id, error);
 	}
 
 	async function drain(
@@ -498,6 +607,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				await Promise.race([Promise.allSettled(Array.from(activeHandlers)), bounded]);
 				clearTimeout(timer);
 			}
+			options.directorTurn?.dispose();
 			if (acknowledge !== undefined && !acknowledge.socket.destroyed) {
 				acknowledge.sendText({ type: "shutdown_ack" });
 			}
@@ -541,6 +651,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				}
 				return token.consume(candidate);
 			},
+			role === "bridge" ? MAX_BRIDGE_MESSAGE_BYTES : undefined,
 		);
 		if (!websocket) return;
 		const connection = { websocket, helloComplete: false };
@@ -653,7 +764,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									protocol: MUTATION_PROTOCOL_VERSION,
 									daemon_version: "0.1.0",
 									launch_id: launchId,
-									session_id: randomUUID(),
+									session_id: transcript.sessionId,
 									server_nonce: randomNonce(),
 									capabilities: hello.capabilities.some(
 										(capability) => capability === SCENE_MANIFEST_V3_CAPABILITY,
@@ -666,9 +777,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									protocol: PROTOCOL_VERSION,
 									daemon_version: "0.1.0",
 									launch_id: launchId,
-									session_id: randomUUID(),
+									session_id: transcript.sessionId,
 									server_nonce: randomNonce(),
-									capabilities: ["inspect_project"],
+									capabilities:
+										options.directorTurn === undefined
+											? ["inspect_project"]
+											: [
+													"inspect_project",
+													DIRECTOR_TURN_CAPABILITY,
+													DIRECTOR_TRANSCRIPT_CAPABILITY,
+												],
 								};
 					if (hello.protocol === MUTATION_PROTOCOL_VERSION) {
 						connection.mutationSession = negotiateMutationBridge(hello, ack);
@@ -780,6 +898,37 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				return;
 			}
 			if (role === "bridge") return;
+			if (rawType === "director_transcript_request") {
+				if (role !== "controller") return;
+				try {
+					const request = parseClientMessage(raw);
+					if (request.type === "director_transcript_request") {
+						websocket.sendText(transcript.snapshot(request.id));
+					}
+				} catch {
+					state.consumeToken();
+				}
+				return;
+			}
+			if (rawType === "director_turn") {
+				if (role !== "controller") return;
+				if (!state.consumeToken()) {
+					return sendControl(
+						protocolError((raw as { id?: string }).id ?? "", "RATE_LIMITED", "rate limit exceeded", true),
+					);
+				}
+				let turn: DirectorTurn;
+				try {
+					const parsed = parseClientMessage(raw);
+					if (parsed.type !== "director_turn") throw new Error("invalid director turn");
+					turn = parsed;
+				} catch {
+					return sendControl(
+						protocolError((raw as { id?: string }).id ?? "", "INVALID_REQUEST", "invalid director turn", false),
+					);
+				}
+				return executeDirectorTurn(turn);
+			}
 			if (rawType === "request") {
 				if (!state.consumeToken()) {
 					return sendControl(
@@ -826,9 +975,87 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			if (parsed.type === "shutdown") await drain("SHUTDOWN", websocket);
 		}
 	}
+	type BridgeParentRequest = Pick<Request, "id" | "expected_revision_id" | "deadline_ms">;
+
+	async function inspectProject(
+		request: BridgeParentRequest,
+		context: Parameters<ApplyCameraPlan>[1],
+	): Promise<{ readonly revision: string; readonly snapshot: SceneSnapshot }> {
+		const transport = bridgeTransport();
+		if (transport === undefined) {
+			throw new Error("INSPECT_BRIDGE_UNAVAILABLE: inspect_project requires an attached protocol-v2 bridge");
+		}
+		if (pendingBridge !== undefined) throw new Error("BUSY: one protocol-v2 bridge is already open");
+		const id = randomUUID();
+		const bridgeRequest = parseDaemonBridgeMessage(
+			{
+				type: "bridge_request",
+				id,
+				request_id: request.id,
+				method: "inspect_project",
+				params: {},
+				expected_revision_id: request.expected_revision_id,
+				deadline_ms: request.deadline_ms,
+			},
+			transport.mutationSession,
+			new Set([request.id]),
+		);
+		bridgeTerminalTargets.set(request.id, transport.websocket);
+		return new Promise((resolve, reject) => {
+			const abort = () => {
+				if (pendingBridge?.id !== id) return;
+				try {
+					transport.websocket.sendText(
+						parseDaemonBridgeMessage(
+							{ type: "bridge_cancel", id, request_id: request.id },
+							transport.mutationSession,
+							new Set([request.id]),
+						),
+					);
+				} catch {
+					void failPendingBridge("CANCELLED", "inspect bridge cancellation failed");
+				}
+			};
+			const signal = context.signal;
+			pendingBridge = {
+				id,
+				requestId: request.id,
+				method: "inspect_project",
+				artifactFrames: new Map(),
+				totalArtifactBytes: 0,
+				reportProgress: context.reportProgress,
+				resolve: (result) => {
+					if (
+						!isRecord(result) ||
+						!hasExactKeys(result, ["revision", "snapshot"]) ||
+						typeof result.revision !== "string" ||
+						!/^[0-9a-f]{64}$/.test(result.revision) ||
+						(request.expected_revision_id !== BOOTSTRAP_REVISION_ID &&
+							result.revision !== request.expected_revision_id)
+					) {
+						reject(new Error("INVALID_INSPECT_RESULT: bridge inspection does not bind the expected revision"));
+						return;
+					}
+					try {
+						resolve({
+							revision: result.revision,
+							snapshot: parseSceneSnapshot(result.snapshot),
+						});
+					} catch {
+						reject(new Error("INVALID_INSPECT_RESULT: bridge returned an invalid scene snapshot"));
+					}
+				},
+				reject,
+				removeAbortListener: () => signal?.removeEventListener("abort", abort),
+			};
+			signal?.addEventListener("abort", abort, { once: true });
+			transport.websocket.sendText(bridgeRequest);
+			if (signal?.aborted) abort();
+		});
+	}
 
 	async function applyCameraPlan(
-		request: Request,
+		request: BridgeParentRequest,
 		plan: CameraPlanV1,
 		context: Parameters<ApplyCameraPlan>[1],
 	): Promise<CameraPlanMutationCandidate> {
@@ -890,7 +1117,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		});
 	}
 	async function stageScene(
-		request: Request,
+		request: BridgeParentRequest,
 		plan: StageScenePlanV1,
 		context: Parameters<StageScene>[1],
 	): Promise<StageSceneMutationCandidate> {
@@ -959,7 +1186,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 
 
 	async function renderQaFrames(
-		request: Request,
+		request: BridgeParentRequest,
 		requestValue: RenderQaFramesRequestV1,
 		context: Parameters<RenderQaFrames>[1],
 		beginArtifactCommit: () => void,
@@ -1031,6 +1258,133 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			transport.websocket.sendText(bridgeRequest);
 			if (signal?.aborted) abort();
 		});
+	}
+
+	async function executeDirectorTurn(turn: DirectorTurn) {
+		if (draining) {
+			return sendControl(protocolError(turn.id, "SHUTTING_DOWN", "daemon is shutting down", true));
+		}
+		if (seenRequestIds.has(turn.id)) {
+			return sendControl(protocolError(turn.id, "INVALID_REQUEST", "request id has already been used", false));
+		}
+		seenRequestIds.add(turn.id);
+		if (options.directorTurn === undefined) {
+			return sendControl(protocolError(turn.id, "METHOD_NOT_ALLOWED", "director turns are not enabled", false));
+		}
+		if (state.begin(turn.id, turn.deadline_ms) === "busy") {
+			return sendControl(protocolError(turn.id, "BUSY", "one request is already active", true));
+		}
+		const active = state.current!;
+		const parent = (expectedRevisionId: string): BridgeParentRequest => ({
+			id: turn.id,
+			expected_revision_id: expectedRevisionId,
+			deadline_ms: turn.deadline_ms,
+		});
+		const task = (async () => {
+			try {
+				await queueDirectorEvent(turn.id, {
+					type: "director_turn_started",
+					prompt: turn.prompt,
+				});
+				const result = await options.directorTurn!.run(
+					turn,
+					{
+						signal: active.controller.signal,
+						inspectProject: (expectedRevisionId) =>
+							inspectProject(parent(expectedRevisionId), {
+								signal: active.controller.signal,
+								reportProgress: () => {},
+							}),
+						applyCameraPlan: (plan, context) =>
+							applyCameraPlan(parent(plan.expected_revision_id), plan, context),
+						stageScene: (plan, context) =>
+							stageScene(parent(plan.expected_revision_id), plan, context),
+						renderQaFrames: async (renderRequest, context) => {
+							let beganCommit = false;
+							try {
+								return await renderQaFrames(
+									parent(renderRequest.revision_id),
+									renderRequest,
+									context,
+									() => {
+										if (!state.beginDurableCommit(active)) {
+											throw new Error(
+												`${active.cause ?? "CANCELLED"}: cancellation won before artifact publication`,
+											);
+										}
+										beganCommit = true;
+									},
+								);
+							} finally {
+								if (beganCommit) state.finishDurableCommit(active);
+							}
+						},
+						beginDurableCommit: () => {
+							if (!state.beginDurableCommit(active)) {
+								throw new Error(
+									`${active.cause ?? "CANCELLED"}: cancellation won before durable commit`,
+								);
+							}
+						},
+						finishDurableCommit: () => {
+							if (!state.finishDurableCommit(active)) {
+								throw new Error("DURABLE_COMMIT_STATE: director commit did not own the active state");
+							}
+						},
+					},
+					(event) => {
+						if (event.type === "started") {
+							void queueDirectorEvent(turn.id, {
+								type: "director_tool_call_started",
+								tool_call_id: event.toolCallId,
+								tool_name: event.toolName,
+								params_summary: event.paramsSummary,
+							});
+						} else {
+							void queueDirectorEvent(turn.id, {
+								type: "director_tool_call_finished",
+								tool_call_id: event.toolCallId,
+								tool_name: event.toolName,
+								result_digest: event.digest,
+								is_error: event.isError,
+							});
+						}
+					},
+				);
+				await directorEventTails.get(turn.id);
+				if (state.complete(active)) {
+					await queueDirectorEvent(turn.id, {
+						type: "director_turn_completed",
+						summary: result.summary,
+						resulting_revision_id: result.resultingRevisionId,
+					});
+					state.terminal(active);
+				}
+			} catch (cause) {
+				await directorEventTails.get(turn.id)?.catch(() => undefined);
+				if (state.complete(active)) {
+					const message = cause instanceof Error ? cause.message : "director turn failed";
+					const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);
+					try {
+						await queueDirectorEvent(turn.id, {
+							type: "director_turn_failed",
+							code: parsed?.[1] ?? "DIRECTOR_TURN_ERROR",
+							message: (parsed?.[2] ?? message).slice(0, 1_024),
+							retryable: false,
+						});
+					} finally {
+						state.terminal(active);
+					}
+				}
+			}
+		})();
+		activeHandlers.add(task);
+		try {
+			await task;
+		} finally {
+			activeHandlers.delete(task);
+			bridgeTerminalTargets.delete(turn.id);
+		}
 	}
 
 	async function execute(request: Request) {
