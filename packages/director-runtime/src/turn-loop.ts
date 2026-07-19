@@ -242,13 +242,19 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 		async run(runOptions: DirectorTurnRunOptions): Promise<DirectorTurnResult> {
 			if (disposed) throw new Error("DIRECTOR_LOOP_DISPOSED: director loop is disposed");
 			if (active !== undefined) throw new Error("DIRECTOR_LOOP_BUSY: one director turn is already active");
-			const session = await getSession();
 			const state: RunState = {
 				phase: "initial",
 				currentRevisionId: runOptions.expectedRevisionId,
 				toolCallOrder: [],
 			};
 			active = state;
+			let session: Awaited<ReturnType<typeof createDirectorSession>>;
+			try {
+				session = await getSession();
+			} catch (error) {
+				active = undefined;
+				throw error;
+			}
 			const listener = (event: AgentSessionEvent) => {
 				if (event.type === "tool_execution_start" && isDirectorToolName(event.toolName)) {
 					runOptions.onToolEvent?.({

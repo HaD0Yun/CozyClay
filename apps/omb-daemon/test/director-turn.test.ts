@@ -457,18 +457,36 @@ test("bridge transport accepts QA payloads large enough for the daemon image-con
 
 test("director turns reuse top-level cancel and persist one cancelled terminal event", async () => {
 	const root = await mkdtemp(join(tmpdir(), "omb-director-cancel-"));
+	let running = false;
 	const daemon = await start({
 		port: 0,
 		handlers: {},
 		projectDirectory: root,
 		stdout: () => {},
 		directorTurn: {
-			run: async (_turn, context) =>
-				new Promise((_resolve, reject) => {
-					const abort = () => reject(new Error("aborted"));
-					context.signal.addEventListener("abort", abort, { once: true });
-					if (context.signal.aborted) abort();
-				}),
+			run: async (_turn, context) => {
+				if (running) throw new Error("DIRECTOR_LOOP_BUSY: cleanup is still active");
+				running = true;
+				try {
+					if (_turn.prompt === "Complete immediately.") {
+						return {
+							summary: "Second turn completed.",
+							resultingRevisionId: PARENT_REVISION,
+							toolCallOrder: [],
+						};
+					}
+					await new Promise<void>((_resolve, reject) => {
+						const abort = () => {
+							setTimeout(() => reject(new Error("aborted")), 25);
+						};
+						context.signal.addEventListener("abort", abort, { once: true });
+						if (context.signal.aborted) abort();
+					});
+					throw new Error("unreachable");
+				} finally {
+					running = false;
+				}
+			},
 			dispose: () => {},
 		},
 	});
@@ -488,6 +506,27 @@ test("director turns reuse top-level cancel and persist one cancelled terminal e
 		const ack = await control.client.next((message) => message.type === "cancel_ack" && message.id === turnId);
 		assert.equal(ack.status, "accepted");
 		await control.client.next((message) => message.type === "director_turn_cancelled" && message.id === turnId);
+		const secondTurnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: secondTurnId,
+			prompt: "Complete immediately.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		const completed = await control.client.next(
+			(message) => message.type === "director_turn_completed" && message.id === secondTurnId,
+		);
+		assert.equal(completed.summary, "Second turn completed.");
+		assert.equal(
+			control.client.messages.some(
+				(message) =>
+					message.id === secondTurnId &&
+					message.type === "director_turn_failed" &&
+					(message.code === "MODEL_PROVIDER_ERROR" || message.code === "DIRECTOR_LOOP_BUSY"),
+			),
+			false,
+		);
 		assert.equal(
 			control.client.messages.some(
 				(message) =>

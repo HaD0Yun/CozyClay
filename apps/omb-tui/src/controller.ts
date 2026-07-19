@@ -251,11 +251,11 @@ export class ControllerSession {
 
 	async ping(nonce: string): Promise<string> {
 		const response = this.websocket.next(
-			(message) => isRecord(message) && message.type === "pong" && message.nonce === nonce,
+			(message) => isDirectorServerMessage(message) && message.type === "pong" && message.nonce === nonce,
 		);
 		this.websocket.send({ type: "ping", nonce });
 		const message = await response;
-		if (!isRecord(message) || typeof message.nonce !== "string") {
+		if (!isDirectorServerMessage(message) || message.type !== "pong") {
 			throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid pong");
 		}
 		return message.nonce;
@@ -341,26 +341,12 @@ async function fetchTranscript(identity: ControllerIdentity): Promise<Transcript
 	}
 }
 
-export async function connectController(options: ConnectControllerOptions): Promise<ControllerSession> {
-	const environment = options.environment ?? process.env;
-	const projectDirectory = await realpath(options.projectDirectory);
-	const runtimeBaseDirectory = options.runtimeBaseDirectory ?? defaultRuntimeBaseDirectory(environment);
-	const candidates = await discoverControllers({ projectDirectory, runtimeBaseDirectory });
-	for (const candidate of candidates) {
-		const identity = await attachExisting(candidate, projectDirectory);
-		if (identity === undefined) continue;
-		const transcriptReplay = await fetchTranscript(identity);
-		return new ControllerSession({
-			connectionKind: "attached",
-			pid: candidate.pid,
-			port: candidate.port,
-			runtimeDirectory: candidate.runtimeDirectory,
-			identity,
-			transcriptReplay,
-			keepaliveIntervalMs: options.keepaliveIntervalMs,
-		});
-	}
-
+async function spawnController(
+	options: ConnectControllerOptions,
+	projectDirectory: string,
+	runtimeBaseDirectory: string,
+	environment: Readonly<Record<string, string | undefined>>,
+): Promise<ControllerSession> {
 	const repositoryRoot = options.repositoryRoot ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 	const launched = await launchDaemon({
 		projectDirectory,
@@ -394,4 +380,76 @@ export async function connectController(options: ConnectControllerOptions): Prom
 		transcriptReplay,
 		keepaliveIntervalMs: options.keepaliveIntervalMs,
 	});
+}
+
+async function attachedSession(
+	candidate: DiscoveredController,
+	projectDirectory: string,
+	keepaliveIntervalMs?: number,
+): Promise<ControllerSession | undefined> {
+	const identity = await attachExisting(candidate, projectDirectory);
+	if (identity === undefined) return undefined;
+	const transcriptReplay = await fetchTranscript(identity);
+	return new ControllerSession({
+		connectionKind: "attached",
+		pid: candidate.pid,
+		port: candidate.port,
+		runtimeDirectory: candidate.runtimeDirectory,
+		identity,
+		transcriptReplay,
+		keepaliveIntervalMs,
+	});
+}
+
+export async function connectController(options: ConnectControllerOptions): Promise<ControllerSession> {
+	const environment = options.environment ?? process.env;
+	const projectDirectory = await realpath(options.projectDirectory);
+	const runtimeBaseDirectory = options.runtimeBaseDirectory ?? defaultRuntimeBaseDirectory(environment);
+	const candidates = await discoverControllers({ projectDirectory, runtimeBaseDirectory });
+	for (const candidate of candidates) {
+		const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs);
+		if (session !== undefined) return session;
+	}
+	return spawnController(options, projectDirectory, runtimeBaseDirectory, environment);
+}
+
+export async function reconnectController(
+	options: ConnectControllerOptions,
+	signal: AbortSignal,
+): Promise<ControllerSession> {
+	const environment = options.environment ?? process.env;
+	const projectDirectory = await realpath(options.projectDirectory);
+	const runtimeBaseDirectory = options.runtimeBaseDirectory ?? defaultRuntimeBaseDirectory(environment);
+	let delayMs = 100;
+	while (!signal.aborted) {
+		const candidates = await discoverControllers({ projectDirectory, runtimeBaseDirectory });
+		let liveCandidate = false;
+		for (const candidate of candidates) {
+			if (!processIsAlive(candidate.pid)) continue;
+			liveCandidate = true;
+			const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs);
+			if (session !== undefined) return session;
+		}
+		if (!liveCandidate) {
+			const session = await spawnController(options, projectDirectory, runtimeBaseDirectory, environment);
+			if (signal.aborted) {
+				await session.shutdown();
+				throw new Error("CONTROLLER_RECONNECT_ABORTED");
+			}
+			return session;
+		}
+		await new Promise<void>((resolve) => {
+			const timer = setTimeout(done, delayMs);
+			function done(): void {
+				clearTimeout(timer);
+				signal.removeEventListener("abort", done);
+				resolve();
+			}
+			signal.addEventListener("abort", done, { once: true });
+			if (signal.aborted) done();
+			timer.unref();
+		});
+		delayMs = Math.min(delayMs * 2, 2_000);
+	}
+	throw new Error("CONTROLLER_RECONNECT_ABORTED");
 }

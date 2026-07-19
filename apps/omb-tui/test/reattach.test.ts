@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DirectorEvent, DirectorServerMessage } from "../src/protocol.ts";
-import { connectController } from "../src/controller.ts";
+import { connectController, reconnectController } from "../src/controller.ts";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const launchId = "33333333-3333-4333-8333-333333333333";
@@ -44,12 +44,13 @@ class FakePagedDaemon {
 	static async start(options: {
 		readonly events: readonly DirectorEvent[];
 		readonly raceEvents?: readonly DirectorEvent[];
+		readonly port?: number;
 	}): Promise<FakePagedDaemon> {
 		const server = net.createServer();
 		const daemon = new FakePagedDaemon(server, options.events, options.raceEvents ?? []);
 		await new Promise<void>((resolve, reject) => {
 			server.once("error", reject);
-			server.listen(0, "127.0.0.1", () => {
+			server.listen(options.port ?? 0, "127.0.0.1", () => {
 				server.off("error", reject);
 				resolve();
 			});
@@ -206,6 +207,49 @@ async function advertiseFakeDaemon(root: string, projectDirectory: string, daemo
 	);
 }
 
+async function unusedPort(): Promise<number> {
+	const server = net.createServer();
+	await new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(0, "127.0.0.1", () => {
+			server.off("error", reject);
+			resolve();
+		});
+	});
+	const address = server.address();
+	if (address === null || typeof address === "string") throw new Error("port reservation failed");
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+	return address.port;
+}
+
+async function advertiseController(
+	root: string,
+	projectDirectory: string,
+	options: { readonly port: number; readonly pid: number },
+): Promise<void> {
+	const uid = typeof process.getuid === "function" ? process.getuid() : "user";
+	const userDirectory = path.join(root, `omb-${uid}`);
+	const runtimeDirectory = path.join(userDirectory, launchId);
+	await mkdir(userDirectory, { mode: 0o700 });
+	await mkdir(runtimeDirectory, { mode: 0o700 });
+	await writeFile(
+		path.join(runtimeDirectory, "endpoint.json"),
+		JSON.stringify({ schema_version: 1, host: "127.0.0.1", port: options.port, launch_id: launchId }),
+		{ mode: 0o600 },
+	);
+	await writeFile(
+		path.join(userDirectory, `controller-${launchId}.json`),
+		JSON.stringify({
+			schema_version: 1,
+			launch_id: launchId,
+			project_directory: await realpath(projectDirectory),
+			pid: options.pid,
+			resume_token: resumeToken,
+		}),
+		{ mode: 0o600 },
+	);
+}
+
 function transcriptEvents(messages: readonly DirectorServerMessage[]): DirectorEvent[] {
 	const events: DirectorEvent[] = [];
 	for (const message of messages) {
@@ -323,6 +367,80 @@ test("reattach merges live terminal events emitted while replay is in flight", a
 		await session.disconnect();
 	} finally {
 		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("reconnect retries a live advertised daemon without spawning until its endpoint accepts", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-reconnect-live-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	const port = await unusedPort();
+	await advertiseController(runtimeBaseDirectory, projectDirectory, { port, pid: process.pid });
+	const abortController = new AbortController();
+	const reconnect = reconnectController(
+		{ projectDirectory, runtimeBaseDirectory, daemonArguments: [], environment: {} },
+		abortController.signal,
+	);
+	let daemon: FakePagedDaemon | undefined;
+	try {
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		daemon = await FakePagedDaemon.start({ events: [], port });
+		const session = await reconnect;
+		assert.equal(session.connectionKind, "attached");
+		assert.equal(session.port, port);
+		await session.disconnect();
+	} finally {
+		abortController.abort();
+		await daemon?.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("reconnect attempts to spawn when the advertised daemon process is dead", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-reconnect-dead-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await advertiseController(runtimeBaseDirectory, projectDirectory, {
+		port: await unusedPort(),
+		pid: 2_147_483_647,
+	});
+	try {
+		await assert.rejects(
+			reconnectController(
+				{ projectDirectory, runtimeBaseDirectory, daemonArguments: ["--faux"], environment: {} },
+				new AbortController().signal,
+			),
+			/NOT_CONFIGURED: set OMB_DAEMON_EXECUTABLE or OMB_NODE_EXECUTABLE/,
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("aborting an in-flight reconnect stops promptly without spawning a daemon", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-reconnect-abort-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await advertiseController(runtimeBaseDirectory, projectDirectory, {
+		port: await unusedPort(),
+		pid: process.pid,
+	});
+	const abortController = new AbortController();
+	try {
+		const startedAt = Date.now();
+		const reconnect = reconnectController(
+			{ projectDirectory, runtimeBaseDirectory, daemonArguments: [], environment: {} },
+			abortController.signal,
+		);
+		setTimeout(() => abortController.abort(), 25);
+		await assert.rejects(reconnect, /CONTROLLER_RECONNECT_ABORTED/);
+		assert.ok(Date.now() - startedAt < 500, "aborted reconnect should settle promptly");
+	} finally {
+		abortController.abort();
 		await rm(root, { recursive: true, force: true });
 	}
 });

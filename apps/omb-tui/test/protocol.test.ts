@@ -53,6 +53,7 @@ test("TUI accepts and rejects canonical server fixtures identically", () => {
 			next_cursor: 0,
 		},
 		{ type: "pong", nonce: "probe" },
+		{ type: "pong", nonce: "probe", extra: true },
 		{ type: "shutdown_ack" },
 		{ type: "director_turn_started", id: "not-a-uuid", sequence: 0, at, prompt: "Build a scene" },
 		{ type: "director_turn_started", id: requestId, sequence: 0, at: "yesterday", prompt: "Build a scene" },

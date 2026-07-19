@@ -153,6 +153,7 @@ test("G011 streams out-of-order chunks positionally and returns bounded QA image
 
 type StreamReservationState = {
 	aborted: boolean;
+	abortCalls: number;
 	committed: boolean;
 	writes: Array<{ position: number; bytes: Buffer }>;
 };
@@ -168,7 +169,7 @@ async function startRenderCase(frames: number[] = [80]) {
 	const { d, c } = await readyV2({
 		beginArtifactReservation: async (declaration) => {
 			declarations.push(declaration);
-			const state: StreamReservationState = { aborted: false, committed: false, writes: [] };
+			const state: StreamReservationState = { aborted: false, abortCalls: 0, committed: false, writes: [] };
 			reservations.push(state);
 			return {
 				writeAt: async (position: number, chunk: Uint8Array) => {
@@ -189,6 +190,7 @@ async function startRenderCase(frames: number[] = [80]) {
 					};
 				},
 				abort: async () => {
+					state.abortCalls += 1;
 					state.aborted = true;
 				},
 			};
@@ -421,6 +423,29 @@ test("G011 cancelled bridge drains late artifact frames until its terminal ackno
 
 		sendArtifactBegin(stream, 81, bytes);
 		sendArtifactChunk(stream, 81, bytes);
+		const nextRequest = request({ expected_revision_id: stream.revision });
+		stream.c.send(nextRequest);
+		const nextBridge = await stream.c.next(
+			(message) => message.type === "bridge_request" && message.request_id === nextRequest.id,
+		);
+		stream.c.send({
+			type: "bridge_progress",
+			id: stream.bridge.id,
+			request_id: stream.q.id,
+			phase: 42,
+		});
+		stream.c.send({
+			type: "bridge_error",
+			id: nextBridge.id,
+			request_id: nextRequest.id,
+			code: "CURRENT_BRIDGE_FAILURE",
+			message: "current bridge remained active",
+			retryable: false,
+		});
+		const currentError = await stream.c.next(
+			(message) => message.type === "error" && message.id === nextRequest.id,
+		);
+		assert.equal(currentError.code, "CURRENT_BRIDGE_FAILURE");
 		stream.c.send({
 			type: "bridge_cancel_ack",
 			id: stream.bridge.id,
@@ -432,6 +457,7 @@ test("G011 cancelled bridge drains late artifact frames until its terminal ackno
 		assert.equal(stream.declarations.length, 1);
 		assert.equal(stream.reservations.length, 1);
 		assert.equal(stream.reservations[0]?.aborted, true);
+		assert.equal(stream.reservations[0]?.abortCalls, 1);
 		assert.equal(stream.reservations[0]?.committed, false);
 	} finally {
 		stream.c.socket.destroy();

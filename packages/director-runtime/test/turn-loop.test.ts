@@ -273,4 +273,44 @@ describe("bounded director turn loop", () => {
 			loop.dispose();
 		}
 	});
+	it("rejects a concurrent run while the initial session is being created", async () => {
+		const initial = await initialManifest();
+		const configured = await runtime([
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("Initial turn completed."),
+		]);
+		const loop = createDirectorTurnLoop({
+			...configured,
+			bridge: {
+				inspectProject: async () => initial,
+				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
+				renderQaFrames: async () => ({
+					schema_version: 1,
+					revision_id: initial.revision,
+					profile_version: "omb-qa-png-v1",
+					frames: [],
+				}),
+			},
+		});
+		try {
+			const first = loop.run({
+				prompt: "create the session",
+				expectedRevisionId: initial.revision,
+				signal: new AbortController().signal,
+			});
+			await assert.rejects(
+				loop.run({
+					prompt: "race session creation",
+					expectedRevisionId: initial.revision,
+					signal: new AbortController().signal,
+				}),
+				/DIRECTOR_LOOP_BUSY/,
+			);
+			assert.equal((await first).summary, "Initial turn completed.");
+		} finally {
+			loop.dispose();
+		}
+	});
 });

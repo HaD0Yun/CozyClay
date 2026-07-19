@@ -26,6 +26,17 @@ def log(*parts: object) -> None:
 
 
 def setup() -> None:
+    # Eligibility gate BEFORE any destructive work: this bootstrap builds a
+    # brand-new demo project. An existing durable project (or blend) must be
+    # reused or removed explicitly; the scene wipe/save below must not run.
+    blend_file = PROJECT_DIR / "omb-live-demo.blend"
+    project_file = PROJECT_DIR / ".omb" / "project.json"
+    if project_file.exists() or blend_file.exists():
+        raise RuntimeError(
+            f"OMB_DEMO_PROJECT_DIR already contains a project ({PROJECT_DIR}); "
+            "reuse it with the normal launch path or point at a fresh directory"
+        )
+
     for scene_object in list(bpy.data.objects):
         bpy.data.objects.remove(scene_object, do_unlink=True)
 
@@ -37,16 +48,19 @@ def setup() -> None:
     bpy.context.scene.camera = camera
 
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
-    bpy.ops.wm.save_as_mainfile(filepath=str(PROJECT_DIR / "omb-live-demo.blend"))
+    bpy.ops.wm.save_as_mainfile(filepath=str(blend_file))
     oh_my_blender.register()
     bpy.ops.omb.initialize_project()
     if bpy.data.is_dirty:
         bpy.ops.wm.save_mainfile()
 
     project_id = bpy.context.scene.get("omb.project_id")
-    project_file = PROJECT_DIR / ".omb" / "project.json"
+    if not project_id:
+        raise RuntimeError("initialize_project did not assign a scene project id")
     # initialize_project owns durable-document seeding; verify instead of writing.
     project_document = json.loads(project_file.read_text(encoding="utf-8"))
+    if project_document.get("project_id") != project_id:
+        raise RuntimeError("durable project identity does not match the scene")
     if "current_revision_id" not in project_document:
         raise RuntimeError(
             "initialize_project did not produce a durable revision document; "

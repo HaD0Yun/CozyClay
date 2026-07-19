@@ -394,8 +394,9 @@ async function recordArtifactChunk(pending: PendingBridge, chunk: BridgeArtifact
 }
 
 async function abortArtifactFrames(pending: PendingBridge): Promise<void> {
-	await Promise.allSettled(Array.from(pending.artifactFrames.values(), (frame) => frame.reservation.abort()));
+	const frames = Array.from(pending.artifactFrames.values());
 	pending.artifactFrames.clear();
+	await Promise.allSettled(frames.map((frame) => frame.reservation.abort()));
 }
 
 async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promise<RenderQaFramesResultV1> {
@@ -537,6 +538,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	const directorSequences = new Map<string, number>();
 	const directorEventTails = new Map<string, Promise<void>>();
 	const directorCommitRevisions = new Map<string, string>();
+	const directorCleanupBarriers = new Map<string, Promise<void>>();
 	let pendingBridge: PendingBridge | undefined;
 	const retiredBridges = new Map<string, RetiredBridge>();
 	let bridgeMessageTail: Promise<void> = Promise.resolve();
@@ -610,12 +612,14 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	function retireBridge(pending: PendingBridge): Promise<void> {
 		const existing = retiredBridges.get(pending.id);
 		if (existing !== undefined) return existing.artifactCleanup;
-		const artifactCleanup = (async () => {
-			try {
-				await pending.artifactSetup;
-			} catch {}
-			await abortArtifactFrames(pending);
-		})();
+		const artifactCleanup =
+			pending.artifactCleanup ??=
+				(async () => {
+					try {
+						await pending.artifactSetup;
+					} catch {}
+					await abortArtifactFrames(pending);
+				})();
 		const retirementTimer = setTimeout(() => {
 			void artifactCleanup.finally(() => retiredBridges.delete(pending.id));
 		}, RETIRED_BRIDGE_TTL_MS);
@@ -643,6 +647,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	}
 
 	async function finishCancellation(request: ActiveRequest) {
+		await directorCleanupBarriers.get(request.id);
 		const retired = Array.from(retiredBridges.values()).find(
 			(candidate) => candidate.pending.requestId === request.id,
 		);
@@ -917,24 +922,32 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				) {
 					return;
 				}
+				const rawId = isRecord(raw) && typeof raw.id === "string" ? raw.id : undefined;
+				const rawRequestId =
+					isRecord(raw) && typeof raw.request_id === "string" ? raw.request_id : undefined;
+				const retired = rawId === undefined ? undefined : retiredBridges.get(rawId);
+				if (rawId !== undefined && retired !== undefined) {
+					if (rawRequestId !== retired.pending.requestId) return;
+					if (
+						rawType === "bridge_error" ||
+						rawType === "bridge_cancel_ack" ||
+						rawType === "bridge_result"
+					) {
+						await retired.artifactCleanup;
+						clearTimeout(retired.retirementTimer);
+						retiredBridges.delete(rawId);
+					}
+					return;
+				}
+				if (
+					pendingBridge === undefined ||
+					rawId !== pendingBridge.id ||
+					rawRequestId !== pendingBridge.requestId
+				) {
+					return;
+				}
 				try {
 					const bridgeMessage = parseAddonBridgeMessage(raw, connection.mutationSession);
-					const retired = retiredBridges.get(bridgeMessage.id);
-					if (retired !== undefined) {
-						if (bridgeMessage.request_id !== retired.pending.requestId) return;
-						if (
-							bridgeMessage.type === "bridge_error" ||
-							bridgeMessage.type === "bridge_cancel_ack" ||
-							bridgeMessage.type === "bridge_result"
-						) {
-							await retired.artifactCleanup;
-							clearTimeout(retired.retirementTimer);
-							retiredBridges.delete(bridgeMessage.id);
-						}
-						return;
-					}
-					if (pendingBridge === undefined) return;
-					if (bridgeMessage.id !== pendingBridge.id || bridgeMessage.request_id !== pendingBridge.requestId) return;
 					if (bridgeMessage.type === "bridge_progress") {
 						pendingBridge.reportProgress({
 							phase: bridgeMessage.phase,
@@ -985,6 +998,13 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						}
 					}
 				} catch (error) {
+					if (
+						pendingBridge === undefined ||
+						rawId !== pendingBridge.id ||
+						rawRequestId !== pendingBridge.requestId
+					) {
+						return;
+					}
 					const message = error instanceof Error ? error.message : "invalid add-on bridge message";
 					const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);
 					await failPendingBridge(parsed?.[1] ?? "INVALID_BRIDGE_MESSAGE", parsed?.[2] ?? message);
@@ -1319,12 +1339,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				if (pendingBridge?.id !== id) return;
 				pendingBridge.cancelled = true;
 				const cancellingBridge = pendingBridge;
-				pendingBridge.artifactCleanup = (async () => {
-					try {
-						await cancellingBridge.artifactSetup;
-					} catch {}
-					await abortArtifactFrames(cancellingBridge);
-				})();
+				void retireBridge(cancellingBridge);
 				try {
 					transport.websocket.sendText(
 						parseDaemonBridgeMessage(
@@ -1378,6 +1393,11 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			expected_revision_id: expectedRevisionId,
 			deadline_ms: turn.deadline_ms,
 		});
+		let resolveCleanup!: () => void;
+		const cleanupBarrier = new Promise<void>((resolve) => {
+			resolveCleanup = resolve;
+		});
+		directorCleanupBarriers.set(turn.id, cleanupBarrier);
 		const task = (async () => {
 			try {
 				await queueDirectorEvent(turn.id, {
@@ -1511,6 +1531,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						state.terminal(active);
 					}
 				}
+			} finally {
+				resolveCleanup();
+				directorCleanupBarriers.delete(turn.id);
 			}
 		})();
 		activeHandlers.add(task);

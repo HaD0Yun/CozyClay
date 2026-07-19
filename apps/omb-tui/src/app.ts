@@ -7,7 +7,7 @@ import {
 	TUI,
 	type Terminal,
 } from "@earendil-works/pi-tui";
-import { connectController, type ControllerSession } from "./controller.ts";
+import { connectController, reconnectController, type ControllerSession } from "./controller.ts";
 import { InterruptController } from "./interrupt.ts";
 import type { DirectorServerMessage } from "./protocol.ts";
 import {
@@ -39,7 +39,7 @@ function isTerminalMessage(message: DirectorServerMessage): boolean {
 
 export class DirectorTui {
 	private session: ControllerSession;
-	private readonly reconnect: (() => Promise<ControllerSession>) | undefined;
+	private readonly reconnect: ((signal: AbortSignal) => Promise<ControllerSession>) | undefined;
 	private readonly tui: TUI;
 	private readonly transcriptText = new Text("", 1, 0);
 	private readonly statusText = new Text("", 1, 0);
@@ -50,6 +50,8 @@ export class DirectorTui {
 	private connectionStatus: "connected" | "reconnecting" | "disconnected" = "connected";
 	private stopped = false;
 	private reconnecting = false;
+	private readonly reconnectAbortController = new AbortController();
+	private reconnectPromise: Promise<void> | undefined;
 	private resolveStopped!: () => void;
 	private readonly stoppedPromise: Promise<void>;
 	private removeMessageListener: () => void = () => {};
@@ -59,7 +61,7 @@ export class DirectorTui {
 	constructor(
 		session: ControllerSession,
 		terminal: Terminal = new ProcessTerminal(),
-		reconnect?: () => Promise<ControllerSession>,
+		reconnect?: (signal: AbortSignal) => Promise<ControllerSession>,
 	) {
 		this.session = session;
 		this.reconnect = reconnect;
@@ -111,6 +113,8 @@ export class DirectorTui {
 	async exit(): Promise<void> {
 		if (this.stopped) return;
 		this.stopped = true;
+		this.reconnectAbortController.abort();
+		if (this.reconnectPromise !== undefined) await this.reconnectPromise;
 		this.removeMessageListener();
 		this.removeDisconnectListener();
 		this.removeInputListener();
@@ -161,7 +165,10 @@ export class DirectorTui {
 			this.connectionStatus = this.reconnect === undefined ? "disconnected" : "reconnecting";
 			this.state = { ...this.state, activeRequestId: undefined, taskStatus: undefined };
 			this.render();
-			if (this.reconnect !== undefined) void this.reconnectLoop();
+			if (this.reconnect !== undefined) {
+				this.reconnectPromise = this.reconnectLoop();
+				void this.reconnectPromise;
+			}
 		});
 	}
 
@@ -171,13 +178,20 @@ export class DirectorTui {
 		let delayMs = 1_000;
 		try {
 			while (!this.stopped) {
-				await new Promise((resolve) => {
-					const timer = setTimeout(resolve, delayMs);
+				await new Promise<void>((resolve) => {
+					const timer = setTimeout(done, delayMs);
+					const signal = this.reconnectAbortController.signal;
+					function done(): void {
+						clearTimeout(timer);
+						signal.removeEventListener("abort", done);
+						resolve();
+					}
+					signal.addEventListener("abort", done, { once: true });
 					timer.unref();
 				});
 				if (this.stopped) return;
 				try {
-					const session = await this.reconnect();
+					const session = await this.reconnect(this.reconnectAbortController.signal);
 					if (this.stopped) {
 						await session.disconnect();
 						return;
@@ -199,7 +213,7 @@ export class DirectorTui {
 
 export async function runDirectorTui(options: RunDirectorTuiOptions): Promise<void> {
 	const session = await connectController(options);
-	const app = new DirectorTui(session, options.terminal, () => connectController(options));
+	const app = new DirectorTui(session, options.terminal, (signal) => reconnectController(options, signal));
 	const close = () => {
 		void app.exit();
 	};
