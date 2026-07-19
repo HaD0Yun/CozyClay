@@ -343,7 +343,7 @@ export function negotiateMutationBridge(helloInput: unknown, helloAckInput: unkn
 	}
 	const session = new MutationBridgeSession(
 		helloCapabilities.has(SCENE_MANIFEST_V3_CAPABILITY) &&
-			helloAck.capabilities.includes(SCENE_MANIFEST_V3_CAPABILITY),
+			(helloAck.capabilities as readonly string[]).includes(SCENE_MANIFEST_V3_CAPABILITY),
 	);
 	negotiatedMutationSessions.add(session);
 	Object.freeze(session);
