@@ -26,7 +26,7 @@ export function createRenderQaFramesTool(bridge: RenderQaFramesBridge) {
 		name: "render_qa_frames",
 		label: "render_qa_frames",
 		description:
-			"Render up to 12 deterministic 640x360 QA PNG frames for an exact Blender revision. revision_id is required; results contain artifact metadata and canonical URIs only.",
+			"Render up to 12 deterministic 640x360 QA PNG frames for an exact Blender revision. Returns canonical artifact URIs plus model-visible image/png content capped at 2 MiB per frame and 12 MiB per batch.",
 		parameters: RenderQaFramesRequestV1Schema,
 		executionMode: "sequential",
 		execute: async (_toolCallId, request, signal, onUpdate) => {
@@ -38,8 +38,30 @@ export function createRenderQaFramesTool(bridge: RenderQaFramesBridge) {
 						details: progress,
 					}),
 			});
+			const modelMetadata = {
+				schema_version: result.schema_version,
+				revision_id: result.revision_id,
+				profile_version: result.profile_version,
+				frames: result.frames.map((frame) => ({
+					frame: frame.frame,
+					width: frame.width,
+					height: frame.height,
+					profile_version: frame.profile_version,
+					byte_length: frame.byte_length,
+					sha256: frame.sha256,
+					uri: frame.uri,
+					image: { mime_type: frame.image.mime_type },
+				})),
+			};
 			return {
-				content: [{ type: "text" as const, text: JSON.stringify(result) }],
+				content: [
+					{ type: "text" as const, text: JSON.stringify(modelMetadata) },
+					...result.frames.map((frame) => ({
+						type: "image" as const,
+						mimeType: frame.image.mime_type,
+						data: frame.image.data_base64,
+					})),
+				],
 				details: result,
 			};
 		},

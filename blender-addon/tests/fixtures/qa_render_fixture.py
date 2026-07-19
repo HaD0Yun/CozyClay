@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import sys
 import tempfile
@@ -17,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from apply_camera_plan_fixture import SCENE_HASH, bound_plan, setup_scene
 from oh_my_blender.camera_plan import apply_camera_plan_transaction
 from oh_my_blender.manifest import extract_scene_manifest_v2
-from oh_my_blender.qa_render import _scope_state, render_qa_frames_transaction
+from oh_my_blender.qa_render import _scope_state, render_qa_frames_transaction, split_frame_for_bridge
 
 
 class Connection:
@@ -56,6 +57,8 @@ def main() -> None:
     )
     frame = result["frames"][0]
     png = base64.b64decode(frame["png_base64"], validate=True)
+    metadata, _begin, _chunks = split_frame_for_bridge(frame)
+    model_png = base64.b64decode(metadata["image"]["data_base64"], validate=True)
     with tempfile.TemporaryDirectory(prefix="omb-qa-verify-") as directory:
         path = Path(directory) / "frame.png"
         path.write_bytes(png)
@@ -70,6 +73,11 @@ def main() -> None:
     output = {
         "dimensions": dimensions,
         "profile": result["profile_version"],
+        "imageMimeType": metadata["image"]["mime_type"],
+        "decodedByteLength": len(model_png),
+        "declaredByteLength": metadata["byte_length"],
+        "payloadDigest": hashlib.sha256(model_png).hexdigest(),
+        "declaredDigest": metadata["sha256"],
         "opaqueBackground": opaque_background,
         "scopeRestored": _scope_state(bpy.context.scene) == before_scope,
         "sceneHashRestored": after_manifest["sceneHash"] == before_manifest["sceneHash"],

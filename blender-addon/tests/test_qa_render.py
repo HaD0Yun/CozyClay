@@ -118,9 +118,10 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             ("rendered", 2, 2),
         ])
 
-    def test_clause_frame_bytes_stream_as_bounded_existing_bridge_chunks(self):
-        """Coordination clause: no unbounded image bytes appear directly in tool results."""
+    def test_clause_frame_bytes_stream_as_artifacts_and_bounded_model_image_content(self):
+        """QA bytes retain G011 artifact streaming and add bounded model-visible PNG content."""
         png = b"0123456789"
+        encoded = base64.b64encode(png).decode("ascii")
         frame = {
             "frame": 8,
             "width": 640,
@@ -128,11 +129,15 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             "profile_version": "omb-qa-png-v1",
             "byte_length": len(png),
             "sha256": hashlib.sha256(png).hexdigest(),
-            "png_base64": base64.b64encode(png).decode("ascii"),
+            "png_base64": encoded,
         }
         with mock.patch.object(qa_render, "MAX_CHUNK_BYTES", 4):
             metadata, begin, chunks = qa_render.split_frame_for_bridge(frame)
         self.assertNotIn("png_base64", metadata)
+        self.assertEqual(
+            metadata["image"],
+            {"mime_type": "image/png", "data_base64": encoded},
+        )
         self.assertEqual(
             begin,
             {
@@ -199,6 +204,28 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             mock.patch.object(qa_render, "MAX_BATCH_BYTES", 6),
         ):
             with self.assertRaises(qa_render.RENDER_QA_BATCH_BYTES_EXCEEDED):
+                qa_render.render_qa_frames_transaction(
+                    request([1, 2]),
+                    SCENE_HASH,
+                    live_scene_hash=lambda _expected: SCENE_HASH,
+                    render_batch=lambda *_args, **_kwargs: [(1, b"1234"), (2, b"5678")],
+                )
+
+    def test_clause_model_image_content_has_a_distinct_size_error(self):
+        """Viewport evidence is capped independently from the G011 artifact lane."""
+        with mock.patch.object(qa_render, "MAX_IMAGE_FRAME_BYTES", 4):
+            with self.assertRaises(qa_render.RENDER_QA_IMAGE_CONTENT_LIMIT):
+                qa_render.render_qa_frames_transaction(
+                    request([1]),
+                    SCENE_HASH,
+                    live_scene_hash=lambda _expected: SCENE_HASH,
+                    render_batch=lambda *_args, **_kwargs: [(1, b"12345")],
+                )
+        with (
+            mock.patch.object(qa_render, "MAX_IMAGE_FRAME_BYTES", 4),
+            mock.patch.object(qa_render, "MAX_IMAGE_BATCH_BYTES", 6),
+        ):
+            with self.assertRaises(qa_render.RENDER_QA_IMAGE_CONTENT_LIMIT):
                 qa_render.render_qa_frames_transaction(
                     request([1, 2]),
                     SCENE_HASH,

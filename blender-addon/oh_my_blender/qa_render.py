@@ -24,6 +24,9 @@ HEIGHT = 360
 MAX_FRAMES = 12
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 MAX_BATCH_BYTES = 128 * 1024 * 1024
+# Model-visible viewport evidence caps; G011 artifact streaming caps above stay unchanged.
+MAX_IMAGE_FRAME_BYTES = 2 * 1024 * 1024
+MAX_IMAGE_BATCH_BYTES = 12 * 1024 * 1024
 MAX_DEADLINE_SECONDS = 30.0
 MAX_CHUNK_BYTES = 512 * 1024
 MAX_CHUNKS_PER_FRAME = 32
@@ -59,6 +62,10 @@ class RENDER_QA_FRAME_BYTES_EXCEEDED(RenderQaError):
 
 class RENDER_QA_BATCH_BYTES_EXCEEDED(RenderQaError):
     code = "RENDER_QA_BATCH_BYTES_EXCEEDED"
+
+
+class RENDER_QA_IMAGE_CONTENT_LIMIT(RenderQaError):
+    code = "RENDER_QA_IMAGE_CONTENT_LIMIT"
 
 
 class RENDER_QA_RESTORE_FAILED(RenderQaError):
@@ -292,6 +299,10 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
         raise RenderQaError("renderer byte length changed before bridge streaming")
     if hashlib.sha256(data).hexdigest() != frame_result.get("sha256"):
         raise RenderQaError("renderer digest changed before bridge streaming")
+    if len(data) > MAX_IMAGE_FRAME_BYTES:
+        raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+            f"model-visible frame exceeds the {MAX_IMAGE_FRAME_BYTES}-byte limit"
+        )
     chunks_data = [
         data[offset : offset + MAX_CHUNK_BYTES]
         for offset in range(0, len(data), MAX_CHUNK_BYTES)
@@ -316,6 +327,10 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
         key: value
         for key, value in frame_result.items()
         if key != "png_base64"
+    }
+    metadata["image"] = {
+        "mime_type": "image/png",
+        "data_base64": encoded,
     }
     begin = {
         "frame": frame_result["frame"],
@@ -372,6 +387,7 @@ def render_qa_frames_transaction(
         raise RenderQaError("renderer returned frames out of contract order")
 
     total_bytes = 0
+    total_image_bytes = 0
     results = []
     for frame, data in rendered:
         if len(data) > MAX_FRAME_BYTES:
@@ -382,6 +398,17 @@ def render_qa_frames_transaction(
         if total_bytes > MAX_BATCH_BYTES:
             raise RENDER_QA_BATCH_BYTES_EXCEEDED(
                 f"render batch exceeds the {MAX_BATCH_BYTES}-byte limit"
+            )
+        if len(data) > MAX_IMAGE_FRAME_BYTES:
+            raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+                f"model-visible frame {frame} exceeds the "
+                f"{MAX_IMAGE_FRAME_BYTES}-byte limit"
+            )
+        total_image_bytes += len(data)
+        if total_image_bytes > MAX_IMAGE_BATCH_BYTES:
+            raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+                f"model-visible render batch exceeds the "
+                f"{MAX_IMAGE_BATCH_BYTES}-byte limit"
             )
         results.append({
             "frame": frame,

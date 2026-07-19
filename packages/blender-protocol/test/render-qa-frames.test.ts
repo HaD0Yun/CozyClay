@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { parseRenderQaFramesRequest, parseRenderQaFramesResult } from "../src/render-qa-frames.ts";
+import {
+	parseRenderQaFramesRequest,
+	parseRenderQaFramesResult,
+	RENDER_QA_MAX_IMAGE_BATCH_BYTES,
+	RENDER_QA_MAX_IMAGE_FRAME_BYTES,
+} from "../src/render-qa-frames.ts";
 
 const revision = "a".repeat(64);
 
@@ -27,8 +33,9 @@ test("G011: request is closed and rejects unknown fields", () => {
 	);
 });
 
-test("G011: result binds exact revision and per-frame 640x360 profile/hash/URI metadata", () => {
-	const sha256 = "b".repeat(64);
+test("G011/G016: result binds artifact metadata to a closed low-resolution PNG image payload", () => {
+	const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from("bounded-image")]);
+	const sha256 = createHash("sha256").update(png).digest("hex");
 	const result = parseRenderQaFramesResult({
 		schema_version: 1,
 		revision_id: revision,
@@ -39,28 +46,108 @@ test("G011: result binds exact revision and per-frame 640x360 profile/hash/URI m
 				width: 640,
 				height: 360,
 				profile_version: "omb-qa-png-v1",
-				byte_length: 42,
+				byte_length: png.byteLength,
 				sha256,
 				uri: `omb-artifact://sha256/${sha256}`,
+				image: {
+					mime_type: "image/png",
+					data_base64: png.toString("base64"),
+				},
 			},
 		],
 	});
 	assert.equal(result.revision_id, revision);
+	assert.equal(Buffer.from(result.frames[0]!.image.data_base64, "base64").compare(png), 0);
 	assert.throws(() => parseRenderQaFramesResult({ ...result, revision_id: "stale" }));
 	assert.throws(() =>
 		parseRenderQaFramesResult({ ...result, frames: [{ ...result.frames[0], uri: "file:///tmp/x" }] }),
 	);
 	assert.throws(() => parseRenderQaFramesResult({ ...result, frames: [{ ...result.frames[0], width: 1 }] }));
+	assert.throws(() =>
+		parseRenderQaFramesResult({
+			...result,
+			frames: [{ ...result.frames[0], image: { ...result.frames[0]!.image, extra: true } }],
+		}),
+	);
+	assert.throws(() =>
+		parseRenderQaFramesResult({
+			...result,
+			frames: [{ ...result.frames[0], image: { mime_type: "image/jpeg", data_base64: png.toString("base64") } }],
+		}),
+	);
 	assert.throws(
 		() =>
 			parseRenderQaFramesResult({
 				...result,
-				frames: Array.from({ length: 9 }, (_, frame) => ({
-					...result.frames[0],
-					frame,
-					byte_length: 16 * 1024 * 1024,
-				})),
+				frames: [{ ...result.frames[0], image: { mime_type: "image/png", data_base64: "!!!!!!!!!!!!" } }],
 			}),
-		/128 MiB/,
+		/INVALID_RENDER_QA_RESULT/,
+	);
+	assert.throws(
+		() =>
+			parseRenderQaFramesResult({
+				...result,
+				frames: [
+					{
+						...result.frames[0],
+						image: { mime_type: "image/png", data_base64: Buffer.from("not-png").toString("base64") },
+					},
+				],
+			}),
+		/INVALID_RENDER_QA_RESULT/,
+	);
+});
+
+test("G016: low-resolution image content has distinct per-frame and batch size errors", () => {
+	assert.equal(RENDER_QA_MAX_IMAGE_FRAME_BYTES, 2 * 1024 * 1024);
+	assert.equal(RENDER_QA_MAX_IMAGE_BATCH_BYTES, 12 * 1024 * 1024);
+	const oversizedBase64 = "A".repeat(4 * Math.ceil((RENDER_QA_MAX_IMAGE_FRAME_BYTES + 1) / 3));
+	assert.throws(
+		() =>
+			parseRenderQaFramesResult({
+				schema_version: 1,
+				revision_id: revision,
+				profile_version: "omb-qa-png-v1",
+				frames: [
+					{
+						frame: 1,
+						width: 640,
+						height: 360,
+						profile_version: "omb-qa-png-v1",
+						byte_length: RENDER_QA_MAX_IMAGE_FRAME_BYTES + 1,
+						sha256: "b".repeat(64),
+						uri: `omb-artifact://sha256/${"b".repeat(64)}`,
+						image: { mime_type: "image/png", data_base64: oversizedBase64 },
+					},
+				],
+			}),
+		/RENDER_QA_IMAGE_CONTENT_LIMIT/,
+	);
+
+	const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+	const fullFrame = Buffer.alloc(RENDER_QA_MAX_IMAGE_FRAME_BYTES);
+	pngSignature.copy(fullFrame);
+	const batchPayloads = [...Array.from({ length: 6 }, () => fullFrame), pngSignature];
+	assert.throws(
+		() =>
+			parseRenderQaFramesResult({
+				schema_version: 1,
+				revision_id: revision,
+				profile_version: "omb-qa-png-v1",
+				frames: batchPayloads.map((payload, frame) => {
+					const sha256 = createHash("sha256").update(payload).digest("hex");
+					return {
+						frame,
+						width: 640 as const,
+						height: 360 as const,
+						profile_version: "omb-qa-png-v1" as const,
+						byte_length: payload.byteLength,
+						sha256,
+						uri: `omb-artifact://sha256/${sha256}`,
+						image: { mime_type: "image/png" as const, data_base64: payload.toString("base64") },
+					};
+				}),
+			}),
+		/RENDER_QA_IMAGE_CONTENT_LIMIT: batch/,
 	);
 });

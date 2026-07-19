@@ -3,12 +3,24 @@ import { test } from "node:test";
 import type { RenderQaFramesRequestV1, RenderQaFramesResultV1 } from "@oh-my-blender/protocol";
 import { createRenderQaFramesTool } from "../src/render-qa-frames.ts";
 
-const request: RenderQaFramesRequestV1 = { schema_version: 1, revision_id: "a".repeat(64), frames: [80, 161, 199] };
+const request: RenderQaFramesRequestV1 = { schema_version: 1, revision_id: "a".repeat(64), frames: [80] };
+const pngBase64 = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64");
 const result: RenderQaFramesResultV1 = {
 	schema_version: 1,
 	revision_id: request.revision_id,
 	profile_version: "omb-qa-png-v1",
-	frames: [],
+	frames: [
+		{
+			frame: 80,
+			width: 640,
+			height: 360,
+			profile_version: "omb-qa-png-v1",
+			byte_length: 8,
+			sha256: "b".repeat(64),
+			uri: `omb-artifact://sha256/${"b".repeat(64)}`,
+			image: { mime_type: "image/png", data_base64: pngBase64 },
+		},
+	],
 };
 
 test("G011: render_qa_frames is an exact allowlist tool requiring revision_id with no arbitrary paths", () => {
@@ -19,7 +31,7 @@ test("G011: render_qa_frames is an exact allowlist tool requiring revision_id wi
 	assert.equal(tool.parameters.additionalProperties, false);
 });
 
-test("G011: render_qa_frames dispatches through the supplied existing bridge and returns metadata only", async () => {
+test("G016: render_qa_frames returns metadata plus proper Pi image content blocks", async () => {
 	let received: RenderQaFramesRequestV1 | undefined;
 	const tool = createRenderQaFramesTool({
 		renderQaFrames: async (value) => {
@@ -30,5 +42,26 @@ test("G011: render_qa_frames dispatches through the supplied existing bridge and
 	const output = await tool.execute("call", request, undefined, undefined, undefined as never);
 	assert.deepEqual(received, request);
 	assert.equal(output.details, result);
-	assert.equal(JSON.stringify(output).includes("image_bytes"), false);
+	const metadataText = JSON.stringify({
+		schema_version: result.schema_version,
+		revision_id: result.revision_id,
+		profile_version: result.profile_version,
+		frames: [
+			{
+				frame: 80,
+				width: 640,
+				height: 360,
+				profile_version: "omb-qa-png-v1",
+				byte_length: 8,
+				sha256: "b".repeat(64),
+				uri: `omb-artifact://sha256/${"b".repeat(64)}`,
+				image: { mime_type: "image/png" },
+			},
+		],
+	});
+	assert.equal(metadataText.includes(pngBase64), false);
+	assert.deepEqual(output.content, [
+		{ type: "text", text: metadataText },
+		{ type: "image", mimeType: "image/png", data: pngBase64 },
+	]);
 });

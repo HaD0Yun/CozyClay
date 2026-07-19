@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import queue
@@ -145,6 +146,11 @@ def main() -> None:
                 raise RuntimeError("published artifact digest mismatch")
             if frame["uri"] != f"omb-artifact://sha256/{digest}":
                 raise RuntimeError("artifact URI is not canonical")
+            model_image = frame["image"]
+            model_payload = base64.b64decode(
+                model_image["data_base64"],
+                validate=True,
+            )
             image = bpy.data.images.load(str(payload_path), check_existing=False)
             dimensions = list(image.size)
             bpy.data.images.remove(image)
@@ -155,6 +161,8 @@ def main() -> None:
                 "declaredLength": frame["byte_length"],
                 "digest": digest,
                 "rereadDigest": hashlib.sha256(payload_path.read_bytes()).hexdigest(),
+                "imageMimeType": model_image["mime_type"],
+                "modelContentMatchesArtifact": model_payload == payload,
             })
         time.sleep(1.01)
 
