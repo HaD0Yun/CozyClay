@@ -5,7 +5,6 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 const PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES: Readonly<Record<string, string>> = {
 	"ant-ling": "ANT_LING_API_KEY",
 	anthropic: "ANTHROPIC_API_KEY",
-	"azure-openai-responses": "AZURE_OPENAI_API_KEY",
 	cerebras: "CEREBRAS_API_KEY",
 	deepseek: "DEEPSEEK_API_KEY",
 	fireworks: "FIREWORKS_API_KEY",

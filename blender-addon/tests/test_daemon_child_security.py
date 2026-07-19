@@ -11,13 +11,18 @@ import unittest
 
 from oh_my_blender.daemon_child import (
     DaemonChild,
+    StartupError,
     UnsafeExecutableError,
+    _StderrDrain,
     verify_executable,
 )
 
 
 PYTHON = str(Path(sys.executable).resolve(strict=True))
 SENTINEL = "omb-sentinel-secret-DO-NOT-LOG"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OMB_DAEMON = REPO_ROOT / "apps" / "omb-daemon"
+NODE = str(Path(shutil.which("node") or "").resolve(strict=True))
 
 
 def script(body, *arguments):
@@ -61,6 +66,32 @@ class DaemonChildSecurityTests(unittest.TestCase):
             },
         )
 
+    def test_azure_openai_provider_fails_closed_before_startup(self):
+        child = DaemonChild.spawn(
+            [
+                NODE,
+                "--import",
+                "tsx",
+                str(OMB_DAEMON / "src" / "main.ts"),
+                "--provider",
+                "azure-openai-responses",
+                "--model",
+                "gpt-4",
+            ],
+            cwd=OMB_DAEMON,
+            environment={"AZURE_OPENAI_API_KEY": SENTINEL},
+        )
+        try:
+            with self.assertRaisesRegex(
+                StartupError,
+                r"UNSUPPORTED_PROVIDER.*does not support isolated API-key boot",
+            ):
+                child.read_startup_record(timeout=3)
+        finally:
+            if child.process.poll() is None:
+                child.kill()
+        self.assertNotIn(SENTINEL, child.stderr_diagnostics)
+
     def test_faux_child_receives_no_parent_credentials_and_sentinel_reaches_no_sink(self):
         body = record_code(suffix="sys.stderr.write('diagnostic-only'); time.sleep(.05)")
         with tempfile.TemporaryDirectory() as directory:
@@ -93,6 +124,23 @@ class DaemonChildSecurityTests(unittest.TestCase):
             with self.assertRaises(UnsafeExecutableError):
                 verify_executable(Path(directory) / "missing")
 
+    def test_executable_rejects_non_regular_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(UnsafeExecutableError):
+                verify_executable(Path(directory).resolve())
+
+    def test_executable_rejects_uid_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory).resolve() / "node"
+            shutil.copy2(PYTHON, target)
+            target.chmod(target.stat().st_mode | stat.S_IXUSR)
+            with mock.patch(
+                "oh_my_blender.daemon_child.os.getuid",
+                return_value=target.stat().st_uid + 1,
+            ):
+                with self.assertRaises(UnsafeExecutableError):
+                    verify_executable(target)
+
     def test_stderr_is_continuously_drained_chunk_redacted_and_bounded_during_operation(self):
         prefix = (
             "sys.stderr.buffer.write(b'x'*70000); sys.stderr.buffer.flush(); "
@@ -109,6 +157,38 @@ class DaemonChildSecurityTests(unittest.TestCase):
         self.assertIn("[REDACTED]", child.stderr_diagnostics)
         self.assertLessEqual(len(child.stderr_diagnostics.encode()), child.stderr_limit_bytes)
         self.assertEqual(child.stderr_bytes_drained, 70000 + len(SENTINEL.encode()))
+
+    def test_stderr_redacts_secret_split_at_exact_read_chunk_boundary(self):
+        secret = SENTINEL.encode()
+        first_fragment = b"omb-sentinel-secret-"
+        second_fragment = b"DO-NOT-LOG"
+        chunks = [
+            *([b"x" * 4096] * 16),
+            b"x" * (4096 - len(first_fragment)) + first_fragment,
+            second_fragment,
+            b"",
+        ]
+
+        class ChunkSource:
+            @staticmethod
+            def fileno():
+                return 42
+
+        drain = _StderrDrain(ChunkSource(), [secret], 80 * 1024)
+        with mock.patch(
+            "oh_my_blender.daemon_child.os.read",
+            side_effect=chunks,
+        ) as read:
+            drain._run()
+
+        self.assertGreater(drain.bytes_drained, 64 * 1024)
+        self.assertEqual(len(chunks[-3]), 4096)
+        self.assertTrue(chunks[-3].endswith(first_fragment))
+        self.assertEqual(chunks[-2], second_fragment)
+        self.assertEqual(read.call_count, len(chunks))
+        read.assert_called_with(42, 4096)
+        self.assertNotIn(SENTINEL, drain.text)
+        self.assertIn("[REDACTED]", drain.text)
 
     def test_stderr_burst_during_shutdown_never_blocks(self):
         suffix = "sys.stderr.buffer.write(b'y'*131072); sys.stderr.buffer.flush()"

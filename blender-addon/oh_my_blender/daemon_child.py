@@ -23,7 +23,6 @@ _BASE_ENVIRONMENT_ALLOWLIST = (
 _PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES = {
     "ant-ling": "ANT_LING_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
-    "azure-openai-responses": "AZURE_OPENAI_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
