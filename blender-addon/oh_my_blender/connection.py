@@ -8,6 +8,7 @@ import subprocess
 import shlex
 import threading
 import time
+from dataclasses import dataclass, replace
 from enum import Enum
 from os import PathLike
 from pathlib import Path
@@ -55,6 +56,73 @@ RECONNECTABLE_STATES = frozenset({
 })
 
 
+@dataclass(frozen=True)
+class TaskStatus:
+    """Closed, credential-free status retained for the read-only Blender UI."""
+
+    task_kind: str | None = None
+    descriptor: str = "Awaiting Pi-issued task"
+    phase: str = "idle"
+    completed: int = 0
+    total: int = 0
+    outcome: str | None = None
+    evidence: str = "No retained evidence"
+
+
+_TASK_KINDS = {
+    "apply_camera_plan": "camera_plan",
+    "render_qa_frames": "qa_render",
+}
+_TASK_PHASES = frozenset({
+    "dispatching",
+    "validating",
+    "mutating",
+    "durable_commit",
+    "rendering",
+    "rendered",
+    "publishing",
+    "recovery_required",
+    "disconnected",
+    "recovered",
+})
+_TASK_OUTCOMES = frozenset({
+    "success",
+    "error",
+    "cancelled",
+    "disconnected",
+    "recovery_required",
+    "recovered",
+})
+
+
+def _digest_prefix(value: object) -> str:
+    if (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    ):
+        return value[:12]
+    return "unavailable"
+
+
+def _task_descriptor(method: str, params: object) -> tuple[str, int]:
+    value = params if isinstance(params, dict) else {}
+    if method == "apply_camera_plan":
+        keyframes = value.get("keyframes")
+        count = len(keyframes) if isinstance(keyframes, list) else 0
+        revision = _digest_prefix(value.get("expected_revision_id"))
+        noun = "keyframe" if count == 1 else "keyframes"
+        return f"Camera plan revision {revision}, {count} camera-plan {noun}", 1
+    frames = value.get("frames")
+    safe_frames = [
+        frame for frame in frames
+        if isinstance(frame, int) and not isinstance(frame, bool)
+    ] if isinstance(frames, list) else []
+    rendered_frames = ", ".join(str(frame) for frame in safe_frames) or "none"
+    revision = _digest_prefix(value.get("revision_id"))
+    return f"QA render revision {revision}, frames {rendered_frames}", len(safe_frames)
+
+
 class Connection:
     """One daemon child and its single authenticated WebSocket."""
 
@@ -74,6 +142,7 @@ class Connection:
         self.identity = identity
         self.active_checkpoint: Checkpoint | None = None
         self.durable_commit_reconciliation: dict | None = None
+        self.task_status = TaskStatus()
         self._bridge_cancellations: dict[str, threading.Event] = {}
         self._terminal_bridge_ids: set[str] = set()
         self._reader_thread: threading.Thread | None = None
@@ -87,6 +156,110 @@ class Connection:
             Path(project_directory) if project_directory is not None else None
         )
 
+    def begin_task(self, method: str, params: object) -> None:
+        """Replace retained terminal evidence only when a real bridge task starts."""
+        task_kind = _TASK_KINDS.get(method)
+        if task_kind is None:
+            raise ConnectionError("unsupported task status method")
+        descriptor, total = _task_descriptor(method, params)
+        self.task_status = TaskStatus(
+            task_kind=task_kind,
+            descriptor=descriptor,
+            phase="dispatching",
+            completed=0,
+            total=total,
+        )
+
+    def update_task_progress(self, phase: str, completed: int, total: int) -> None:
+        """Update progress using only closed phases and bounded integer counts."""
+        if phase not in _TASK_PHASES:
+            raise ConnectionError("unsupported task status phase")
+        if (
+            isinstance(completed, bool)
+            or isinstance(total, bool)
+            or not isinstance(completed, int)
+            or not isinstance(total, int)
+            or completed < 0
+            or total < 0
+            or completed > total
+        ):
+            raise ConnectionError("invalid task status progress")
+        self.task_status = replace(
+            self.task_status,
+            phase=phase,
+            completed=completed,
+            total=total,
+        )
+
+    def finish_task(
+        self,
+        outcome: str,
+        *,
+        code: object = None,
+        revision_id: object = None,
+        frames: object = None,
+    ) -> None:
+        """Retain a terminal outcome with evidence derived from closed safe fields."""
+        if outcome not in _TASK_OUTCOMES:
+            raise ConnectionError("unsupported task status outcome")
+        evidence = "No retained evidence"
+        if outcome == "cancelled":
+            evidence = "Cancellation accepted"
+        elif outcome == "disconnected":
+            evidence = "Connection disconnected"
+        elif outcome == "recovery_required":
+            evidence = "Recovery required"
+        elif outcome == "recovered":
+            evidence = self.task_status.evidence
+        elif outcome == "error":
+            safe_code = (
+                code
+                if isinstance(code, str)
+                and code
+                and len(code) <= 64
+                and all(
+                    character.isupper()
+                    or character.isdigit()
+                    or character == "_"
+                    for character in code
+                )
+                else "UNKNOWN"
+            )
+            evidence = f"Error code: {safe_code}"
+        elif self.task_status.task_kind == "camera_plan":
+            evidence = f"Revision sha256:{_digest_prefix(revision_id)}"
+        elif self.task_status.task_kind == "qa_render":
+            safe_frames = frames if isinstance(frames, list) else []
+            summaries = []
+            for frame in safe_frames:
+                if not isinstance(frame, dict):
+                    continue
+                number = frame.get("frame")
+                if isinstance(number, int) and not isinstance(number, bool):
+                    summaries.append(
+                        f"{number}:sha256:{_digest_prefix(frame.get('sha256'))}"
+                    )
+            evidence = (
+                "Frames " + ", ".join(summaries)
+                if summaries
+                else "No retained evidence"
+            )
+        terminal_phase = {
+            "disconnected": "disconnected",
+            "recovery_required": "recovery_required",
+            "recovered": "recovered",
+        }.get(outcome, self.task_status.phase)
+        self.task_status = replace(
+            self.task_status,
+            phase=terminal_phase,
+            outcome=outcome,
+            evidence=evidence,
+        )
+
+    def _finish_in_flight_for_lifecycle(self, outcome: str) -> None:
+        if self.task_status.outcome is None:
+            self.finish_task(outcome)
+
     def expose_tools(self) -> None:
         """Expose bridge tools only after the reconnect scene gate succeeds."""
         if self.state != LifecycleState.ACTIVE:
@@ -98,6 +271,7 @@ class Connection:
         self.tools_exposed = False
         with self._state_lock:
             self.state = LifecycleState.RECOVERY_REQUIRED
+        self._finish_in_flight_for_lifecycle("recovery_required")
 
     def _mark_lost_if_active(self) -> None:
         """Record reader failure without replacing a main-thread terminal state."""
@@ -183,6 +357,11 @@ class Connection:
                     )
             else:
                 self.state = LifecycleState.DISCONNECTED
+            self._finish_in_flight_for_lifecycle(
+                "recovery_required"
+                if self.state == LifecycleState.RECOVERY_REQUIRED
+                else "disconnected"
+            )
         if self.state != LifecycleState.ACTIVE:
             if not self.websocket.closed:
                 try:
@@ -278,6 +457,8 @@ class Connection:
                 "request_id": request_id,
                 "status": status,
             })
+            if status == "accepted":
+                self.finish_task("cancelled")
             return
         if message_type != "bridge_request":
             raise ConnectionError("unsupported daemon bridge message")
@@ -332,8 +513,10 @@ class Connection:
             self._send_bridge_error(message, "BUSY", "a mutation bridge is already active")
             return
         self._bridge_cancellations[bridge_id] = threading.Event()
+        self.begin_task(message["method"], message["params"])
         if bpy is None:
             self.finish_bridge(bridge_id)
+            self.finish_task("error", code="BLENDER_UNAVAILABLE")
             self._send_bridge_error(
                 message,
                 "BLENDER_UNAVAILABLE",
@@ -359,6 +542,10 @@ class Connection:
                 )
         except BaseException as error:
             self.finish_bridge(bridge_id)
+            self.finish_task(
+                "error",
+                code=getattr(error, "code", type(error).__name__),
+            )
             self._send_bridge_error(
                 message,
                 getattr(error, "code", type(error).__name__),
@@ -463,6 +650,7 @@ class Connection:
         base_revision_id = reconciliation["base_revision_id"]
         if durable_revision_id == candidate_revision_id:
             reconciliation["outcome"] = "committed"
+            self.finish_task("success", revision_id=candidate_revision_id)
             self.release_checkpoint()
             return "committed"
         if durable_revision_id == base_revision_id:
@@ -490,6 +678,10 @@ class Connection:
         reconciliation["outcome"] = "committed"
         self.release_checkpoint()
         self.last_bridge_response = message
+        self.finish_task(
+            "success",
+            revision_id=message.get("resulting_revision_id"),
+        )
         return message
 
     def _child_has_exited(self) -> bool:
@@ -553,6 +745,7 @@ class Connection:
         base_revision_id = result.get("expected_revision_id")
         if not isinstance(base_revision_id, str):
             raise ConnectionError("camera-plan mutation result does not retain its base revision")
+        self.update_task_progress("durable_commit", 1, 1)
         self.durable_commit_reconciliation = {
             "bridge_id": bridge_id,
             "request_id": request_id,
@@ -681,6 +874,7 @@ class Connection:
         if self.state == LifecycleState.STOPPED:
             return
         self.state = LifecycleState.DRAINING
+        self._finish_in_flight_for_lifecycle("disconnected")
         if bpy is not None and bpy.app.timers.is_registered(self.pump_bridge_messages):
             bpy.app.timers.unregister(self.pump_bridge_messages)
         deadline = time.monotonic() + timeout
@@ -831,6 +1025,16 @@ def reconnect(
         _verify_fresh_connection_identity(previous_connection, connection)
         verify_reconnect_hash(live_scene_hash_fn(), expected_scene_hash)
         connection.expose_tools()
+        if (
+            previous_connection is not None
+            and isinstance(previous_connection.task_status, TaskStatus)
+            and previous_connection.task_status.task_kind is not None
+        ):
+            connection.task_status = replace(
+                previous_connection.task_status,
+                phase="recovered",
+                outcome="recovered",
+            )
     except Exception:
         try:
             connection.disconnect("reconnect_hash_mismatch")

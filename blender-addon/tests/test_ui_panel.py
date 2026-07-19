@@ -153,18 +153,25 @@ class UiPanelTests(unittest.TestCase):
         active = types.SimpleNamespace(
             state=self.connection_module.LifecycleState.RECOVERY_REQUIRED,
             tools_exposed=False,
-            identity=None,
-            active_checkpoint=object(),
-            durable_commit_reconciliation={"outcome": "reconciliation_required"},
-            last_bridge_response=None,
+            task_status=self.connection_module.TaskStatus(
+                task_kind="qa_render",
+                descriptor="QA render revision aaaaaaaa, frames 80, 161",
+                phase="publishing",
+                completed=1,
+                total=2,
+                outcome="recovery_required",
+                evidence="Frame 80 sha256:bbbbbbbbbbbb",
+            ),
             child=types.SimpleNamespace(process=types.SimpleNamespace(args=["node", "main.ts", "--faux"])),
         )
         layout = self._draw(active)
         self.assertEqual(layout.operators, [])
-        self.assertIn("Task: Camera plan mutation", layout.labels)
-        self.assertIn("Progress: Mutation checkpoint retained", layout.labels)
-        self.assertIn("Evidence: Durable commit reconciliation required", layout.labels)
-        self.assertIn("Prompt: Controlled by Pi", layout.labels)
+        self.assertIn("Task: QA render", layout.labels)
+        self.assertIn("Descriptor: QA render revision aaaaaaaa, frames 80, 161", layout.labels)
+        self.assertIn("Progress: Publishing (1/2)", layout.labels)
+        self.assertIn("Outcome: Recovery required", layout.labels)
+        self.assertIn("Evidence: Frame 80 sha256:bbbbbbbbbbbb", layout.labels)
+        self.assertFalse(any(label.startswith("Prompt:") for label in layout.labels))
 
 
 if __name__ == "__main__":

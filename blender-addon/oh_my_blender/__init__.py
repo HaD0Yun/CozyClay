@@ -226,6 +226,7 @@ if bpy is not None:
                 return {"CANCELLED"}
 
             deadline = time.monotonic() + self.deadline_ms / 1000
+            active.update_task_progress("mutating", 0, 1)
             active._send_json({
                 "type": "bridge_progress",
                 "id": self.bridge_id,
@@ -236,6 +237,7 @@ if bpy is not None:
             })
 
             def commit(result):
+                active.update_task_progress("durable_commit", 1, 1)
                 active._send_json({
                     "type": "bridge_progress",
                     "id": self.bridge_id,
@@ -251,11 +253,27 @@ if bpy is not None:
                     deadline,
                 )
 
-            def complete(_result, error):
+            def complete(result, error):
                 active.finish_bridge(self.bridge_id)
+                if error is None:
+                    revision_id = (
+                        result.get("manifest", {}).get("revisionId")
+                        if isinstance(result, dict)
+                        else None
+                    )
+                    active.finish_task("success", revision_id=revision_id)
+                    return
+                code = getattr(error, "code", type(error).__name__)
+                if code == "CAMERA_PLAN_CANCELLED":
+                    active.finish_task("cancelled")
+                elif isinstance(
+                    error, connection.DurableCommitReconciliationRequired
+                ):
+                    active.finish_task("recovery_required")
+                else:
+                    active.finish_task("error", code=code)
                 if (
-                    error is None
-                    or active.websocket.closed
+                    active.websocket.closed
                     or isinstance(error, connection.ConnectionError)
                 ):
                     return
@@ -263,7 +281,7 @@ if bpy is not None:
                     "type": "bridge_error",
                     "id": self.bridge_id,
                     "request_id": self.request_id,
-                    "code": getattr(error, "code", type(error).__name__),
+                    "code": code,
                     "message": str(error),
                     "retryable": False,
                 })
@@ -316,6 +334,11 @@ if bpy is not None:
                 return {"CANCELLED"}
 
             deadline = time.monotonic() + min(self.deadline_ms, 30_000) / 1000
+            active.update_task_progress(
+                "rendering",
+                0,
+                len(request.get("frames", ())),
+            )
             active._send_json({
                 "type": "bridge_progress",
                 "id": self.bridge_id,
@@ -330,6 +353,7 @@ if bpy is not None:
                     self.current_scene_hash,
                     deadline=deadline,
                     cancelled=lambda: active.is_bridge_cancelled(self.bridge_id),
+                    progress=active.update_task_progress,
                 )
                 prepared_frames = [
                     qa_render.split_frame_for_bridge(frame_result)
@@ -366,13 +390,20 @@ if bpy is not None:
                         "completed": completed,
                         "total": total,
                     })
+                    active.update_task_progress("publishing", completed, total)
                 active._send_json({
                     "type": "bridge_result",
                     "id": self.bridge_id,
                     "request_id": self.request_id,
                     "result": {**result, "frames": metadata_frames},
                 })
+                active.finish_task("success", frames=metadata_frames)
             except BaseException as error:
+                code = getattr(error, "code", type(error).__name__)
+                if code == "RENDER_QA_CANCELLED":
+                    active.finish_task("cancelled")
+                else:
+                    active.finish_task("error", code=code)
                 if not active.websocket.closed:
                     active._send_json({
                         "type": "bridge_error",

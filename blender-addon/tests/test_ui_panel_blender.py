@@ -15,7 +15,7 @@ SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/ui_panel_fixture.py"
 
 @unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
 class UiPanelBlenderTests(unittest.TestCase):
-    def test_panel_registers_renders_recovery_state_and_unloads(self):
+    def test_registered_panel_redraws_real_operator_lifecycle_without_controls(self):
         completed = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(SCRIPT)],
             cwd=REPOSITORY_ROOT,
@@ -41,10 +41,29 @@ class UiPanelBlenderTests(unittest.TestCase):
         self.assertEqual(result["spaceType"], "VIEW_3D")
         self.assertEqual(result["regionType"], "UI")
         self.assertEqual(result["category"], "Oh My Blender")
-        self.assertIn("Lifecycle: Recovery required", result["labels"])
-        self.assertIn("Tools: Hidden until verified recovery", result["labels"])
-        self.assertIn("Provider: anthropic", result["labels"])
-        self.assertIn("Model: claude-sonnet-4", result["labels"])
+        self.assertTrue(result["credentialSuppressed"], result)
+        self.assertGreater(len(result["captures"]), 4, result)
+        self.assertTrue(
+            all(capture["layoutType"] == "UILayout" for capture in result["captures"]),
+            result,
+        )
+        labels = [
+            label
+            for capture in result["captures"]
+            for label in capture["labels"]
+        ]
+        self.assertIn("Lifecycle: Not connected", labels)
+        self.assertIn("Task: Camera plan", labels)
+        self.assertIn("Progress: Mutating (0/1)", labels)
+        self.assertIn("Evidence: Revision sha256:cccccccccccc", labels)
+        self.assertIn("Task: QA render", labels)
+        self.assertIn("Progress: Rendering (0/2)", labels)
+        self.assertIn(
+            "Evidence: Frames 80:sha256:2d711642b726, 161:sha256:2d711642b726",
+            labels,
+        )
+        self.assertIn("Lifecycle: Recovery required", labels)
+        self.assertIn("Tools: Hidden until verified recovery", labels)
         self.assertEqual(result["operators"], [])
 
 

@@ -98,6 +98,26 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             "png_base64": base64.b64encode(png).decode("ascii"),
         }])
 
+    def test_transaction_reports_real_render_phases(self):
+        phases = []
+        qa_render.render_qa_frames_transaction(
+            request([8, 9]),
+            SCENE_HASH,
+            live_scene_hash=lambda: SCENE_HASH,
+            render_batch=lambda frames, **_kwargs: [
+                (frame, f"png-{frame}".encode()) for frame in frames
+            ],
+            progress=lambda phase, completed, total: phases.append(
+                (phase, completed, total)
+            ),
+        )
+
+        self.assertEqual(phases, [
+            ("validating", 0, 2),
+            ("rendering", 0, 2),
+            ("rendered", 2, 2),
+        ])
+
     def test_clause_frame_bytes_stream_as_bounded_existing_bridge_chunks(self):
         """Coordination clause: no unbounded image bytes appear directly in tool results."""
         png = b"0123456789"

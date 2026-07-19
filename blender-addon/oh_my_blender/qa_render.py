@@ -331,6 +331,7 @@ def render_qa_frames_transaction(
     deadline: float | None = None,
     live_scene_hash: Callable[[], str] = _live_scene_hash,
     render_batch: Callable[..., list[tuple[int, bytes]]] = _render_batch,
+    progress: Callable[[str, int, int], None] = lambda _phase, _completed, _total: None,
 ) -> dict:
     """Render a bounded batch and return internal bytes for daemon-side publication."""
     if bpy is None and render_batch is _render_batch:
@@ -347,6 +348,7 @@ def render_qa_frames_transaction(
         frame_start=frame_start,
         frame_end=frame_end,
     )
+    progress("validating", 0, len(request["frames"]))
     effective_deadline = min(
         deadline if deadline is not None else float("inf"),
         time.monotonic() + MAX_DEADLINE_SECONDS,
@@ -356,11 +358,13 @@ def render_qa_frames_transaction(
         raise RENDER_QA_STALE_REVISION(
             "live main-thread SceneManifestV2 hash differs from the durable expected base"
         )
+    progress("rendering", 0, len(request["frames"]))
     rendered = render_batch(
         request["frames"],
         deadline=effective_deadline,
         cancelled=cancelled,
     )
+    progress("rendered", len(rendered), len(request["frames"]))
     if [frame for frame, _data in rendered] != request["frames"]:
         raise RenderQaError("renderer returned frames out of contract order")
 

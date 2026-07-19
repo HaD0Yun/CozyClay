@@ -56,57 +56,68 @@ def _provider_and_model(active: object) -> tuple[str, str]:
     )
 
 
-def _task_progress_evidence(active: object) -> tuple[str, str, str]:
-    checkpoint = getattr(active, "active_checkpoint", None)
-    reconciliation = getattr(active, "durable_commit_reconciliation", None)
-    response = getattr(active, "last_bridge_response", None)
-    if checkpoint is not None:
-        task = "Camera plan mutation"
-        progress = "Mutation checkpoint retained"
-    elif reconciliation is not None:
-        task = "Durable commit reconciliation"
-        progress = "Awaiting verified durable outcome"
-    else:
-        task = "Idle"
-        progress = "Awaiting Pi-issued task"
+def _task_snapshot(active: object) -> tuple[str, str, str, str, str]:
+    status = getattr(active, "task_status", None)
+    kind = getattr(status, "task_kind", None)
+    task = {
+        "camera_plan": "Camera plan",
+        "qa_render": "QA render",
+    }.get(kind, "Idle")
+    descriptor = getattr(status, "descriptor", "Awaiting Pi-issued task")
+    phase = getattr(status, "phase", "idle")
+    completed = getattr(status, "completed", 0)
+    total = getattr(status, "total", 0)
+    rendered_phase = str(phase).replace("_", " ").capitalize()
+    progress = (
+        f"{rendered_phase} ({completed}/{total})"
+        if isinstance(total, int) and total > 0
+        else rendered_phase
+    )
+    outcome = getattr(status, "outcome", None)
+    rendered_outcome = (
+        str(outcome).replace("_", " ").capitalize()
+        if outcome is not None
+        else "Pending"
+    )
+    evidence = getattr(status, "evidence", "No retained evidence")
+    return task, descriptor, progress, rendered_outcome, evidence
 
-    if isinstance(reconciliation, dict):
-        outcome = reconciliation.get("outcome")
-        rendered = str(outcome).replace("_", " ") if outcome else "pending"
-        evidence = f"Durable commit {rendered}"
-    elif response is not None:
-        evidence = "Durable bridge response received"
-    else:
-        evidence = "No retained evidence"
-    return task, progress, evidence
 
-
-def draw_status(layout: object, active: object | None) -> None:
+def draw_status(layout: object, active: object | None) -> tuple[str, ...]:
     """Render status labels only; never expose mutation controls or secret-bearing data."""
-    layout.label(text="Pi-driven controls")
-    layout.label(text="Prompt: Controlled by Pi")
+    labels = ["Pi-driven controls"]
     if active is None:
-        layout.label(text="Lifecycle: Not connected")
-        layout.label(text="Provider: Unavailable")
-        layout.label(text="Model: Unavailable")
-        layout.label(text="Task: Idle")
-        layout.label(text="Progress: Awaiting Pi connection")
-        layout.label(text="Evidence: No retained evidence")
-        layout.label(text="Tools: Hidden while disconnected")
-        return
-
-    state = getattr(active, "state", LifecycleState.STOPPED)
-    layout.label(text=f"Lifecycle: {_LIFECYCLE_LABELS.get(state, 'Unknown')}")
-    provider, model = _provider_and_model(active)
-    layout.label(text=f"Provider: {provider}")
-    layout.label(text=f"Model: {model}")
-    task, progress, evidence = _task_progress_evidence(active)
-    layout.label(text=f"Task: {task}")
-    layout.label(text=f"Progress: {progress}")
-    layout.label(text=f"Evidence: {evidence}")
-    if getattr(active, "tools_exposed", False):
-        layout.label(text="Tools: Available to Pi")
-    elif state is LifecycleState.RECOVERY_REQUIRED:
-        layout.label(text="Tools: Hidden until verified recovery")
+        labels.extend([
+            "Lifecycle: Not connected",
+            "Provider: Unavailable",
+            "Model: Unavailable",
+            "Task: Idle",
+            "Descriptor: Awaiting Pi-issued task",
+            "Progress: Awaiting Pi connection",
+            "Outcome: Pending",
+            "Evidence: No retained evidence",
+            "Tools: Hidden while disconnected",
+        ])
     else:
-        layout.label(text="Tools: Hidden while degraded")
+        state = getattr(active, "state", LifecycleState.STOPPED)
+        provider, model = _provider_and_model(active)
+        task, descriptor, progress, outcome, evidence = _task_snapshot(active)
+        labels.extend([
+            f"Lifecycle: {_LIFECYCLE_LABELS.get(state, 'Unknown')}",
+            f"Provider: {provider}",
+            f"Model: {model}",
+            f"Task: {task}",
+            f"Descriptor: {descriptor}",
+            f"Progress: {progress}",
+            f"Outcome: {outcome}",
+            f"Evidence: {evidence}",
+        ])
+        if getattr(active, "tools_exposed", False):
+            labels.append("Tools: Available to Pi")
+        elif state is LifecycleState.RECOVERY_REQUIRED:
+            labels.append("Tools: Hidden until verified recovery")
+        else:
+            labels.append("Tools: Hidden while degraded")
+    for text in labels:
+        layout.label(text=text)
+    return tuple(labels)

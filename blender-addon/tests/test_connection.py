@@ -140,7 +140,7 @@ class ConnectionTests(unittest.TestCase):
             "id": "bridge",
             "request_id": "request",
             "method": "apply_camera_plan",
-            "params": {"schema_version": 1},
+            "params": {"schema_version": 1, "keyframes": [{}], "secret": "credential"},
             "expected_revision_id": "a" * 64,
             "current_scene_hash": "b" * 64,
             "deadline_ms": 5000,
@@ -157,6 +157,10 @@ class ConnectionTests(unittest.TestCase):
             request_id="request",
             deadline_ms=5000,
         )
+        self.assertEqual(connection.task_status.task_kind, "camera_plan")
+        self.assertEqual(connection.task_status.phase, "dispatching")
+        self.assertIn("1 camera-plan keyframe", connection.task_status.descriptor)
+        self.assertNotIn("secret", connection.task_status.descriptor)
 
     def test_reconnecting_connection_hides_mutating_tool_capabilities(self):
         """Architecture §4: reconnect exposes zero tools until full V2 equality."""
@@ -212,6 +216,11 @@ class ConnectionTests(unittest.TestCase):
             request_id="qa-request",
             deadline_ms=30000,
         )
+        self.assertEqual(connection.task_status.task_kind, "qa_render")
+        self.assertEqual(connection.task_status.phase, "dispatching")
+        self.assertEqual(connection.task_status.completed, 0)
+        self.assertEqual(connection.task_status.total, 3)
+        self.assertIn("frames 80, 161, 199", connection.task_status.descriptor)
 
     def test_bridge_request_reads_durable_base_hash_from_project_store(self):
         socket = FakeSocket()
@@ -301,6 +310,8 @@ class ConnectionTests(unittest.TestCase):
         self.assertFalse(connection._reader_thread.is_alive())
         self.assertEqual(connection.state, "recovery_required")
         self.assertFalse(connection.tools_exposed)
+        self.assertEqual(connection.task_status.outcome, "recovery_required")
+        self.assertEqual(connection.task_status.evidence, "Recovery required")
 
     def test_bridge_cancel_marks_active_transaction_and_acknowledges(self):
         socket = FakeSocket()
@@ -332,6 +343,8 @@ class ConnectionTests(unittest.TestCase):
             "request_id": "request",
             "status": "accepted",
         })
+        self.assertEqual(connection.task_status.outcome, "cancelled")
+        self.assertEqual(connection.task_status.evidence, "Cancellation accepted")
 
     def test_unsupported_bridge_method_returns_correlated_bridge_error(self):
         socket = FakeSocket()
