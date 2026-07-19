@@ -126,6 +126,18 @@ def main():
     node_color_drift_hashes = extract_scene_manifest_v3()["sceneHash"] != staged["sceneHash"]
     principled.inputs["Base Color"].default_value = original_node_color
     material_drift_restored = extract_scene_manifest_v3()["sceneHash"] == staged["sceneHash"]
+    # Blender >= 4 cannot disable material nodes: the use_nodes setter is a no-op,
+    # so useNodes cannot drift. Prove the extractor reads live node state instead by
+    # removing the Principled node (principledBaseColor -> None) and restoring it.
+    floor_material.use_nodes = False
+    use_nodes_permanently_enabled = floor_material.use_nodes is True
+    saved_principled_color = tuple(principled.inputs["Base Color"].default_value)
+    floor_material.node_tree.nodes.remove(principled)
+    principled_removal_drift = extract_scene_manifest_v3()["sceneHash"] != staged["sceneHash"]
+    restored_node = floor_material.node_tree.nodes.new("ShaderNodeBsdfPrincipled")
+    restored_node.name = "Principled BSDF"
+    restored_node.inputs["Base Color"].default_value = saved_principled_color
+    principled_removal_restored = extract_scene_manifest_v3()["sceneHash"] == staged["sceneHash"]
 
     before_creation_failure = extract_scene_manifest_v3()
     failure_plan = plan(
@@ -197,16 +209,23 @@ def main():
     def attempt_delete(entity_id):
         before = extract_scene_manifest_v3()
         code = None
+        commit_entered = False
+
+        def commit(_candidate):
+            nonlocal commit_entered
+            commit_entered = True
+            return None
+
         try:
             apply_stage_scene_transaction(
                 plan(first["manifest"]["revisionId"], [{"op": "delete_entity", "entity_id": entity_id}]),
                 before["sceneHash"],
                 connection,
-                lambda _candidate: None,
+                commit,
             )
         except BaseException as error:
             code = getattr(error, "code", type(error).__name__)
-        return code, extract_scene_manifest_v3() == before
+        return code, extract_scene_manifest_v3() == before, commit_entered
 
     shared_mesh = bpy.data.meshes.new("Shared Mesh")
     shared_mesh_target = bpy.data.objects.new("Shared Mesh Target", shared_mesh)
@@ -216,7 +235,7 @@ def main():
     shared_mesh_other["omb.entity_id"] = OTHER_MESH_ID
     bpy.context.scene.collection.objects.link(shared_mesh_target)
     bpy.context.scene.collection.objects.link(shared_mesh_other)
-    shared_mesh_code, shared_mesh_rollback = attempt_delete(SHARED_MESH_ID)
+    shared_mesh_code, shared_mesh_rollback, shared_mesh_commit_entered = attempt_delete(SHARED_MESH_ID)
     for name in ("Shared Mesh Target", "Shared Mesh Other"):
         scene_object = bpy.data.objects.get(name)
         if scene_object is not None:
@@ -232,7 +251,7 @@ def main():
     shared_light_other["omb.entity_id"] = OTHER_LIGHT_ID
     bpy.context.scene.collection.objects.link(shared_light_target)
     bpy.context.scene.collection.objects.link(shared_light_other)
-    shared_light_code, shared_light_rollback = attempt_delete(SHARED_LIGHT_ID)
+    shared_light_code, shared_light_rollback, shared_light_commit_entered = attempt_delete(SHARED_LIGHT_ID)
     for name in ("Shared Light Target", "Shared Light Other"):
         scene_object = bpy.data.objects.get(name)
         if scene_object is not None:
@@ -253,7 +272,7 @@ def main():
     other_mesh.materials.append(shared_material)
     bpy.context.scene.collection.objects.link(material_target)
     bpy.context.scene.collection.objects.link(material_other)
-    shared_material_code, shared_material_rollback = attempt_delete(SHARED_MATERIAL_ID)
+    shared_material_code, shared_material_rollback, shared_material_commit_entered = attempt_delete(SHARED_MATERIAL_ID)
     for name in ("Shared Material Target", "Shared Material Other"):
         scene_object = bpy.data.objects.get(name)
         if scene_object is not None:
@@ -273,7 +292,7 @@ def main():
     exclusive_target["omb.entity_id"] = EXCLUSIVE_ID
     exclusive_target["omb.owned_project_id"] = PROJECT_ID
     bpy.context.scene.collection.objects.link(exclusive_target)
-    exclusive_code, _exclusive_rollback = attempt_delete(EXCLUSIVE_ID)
+    exclusive_code, _exclusive_rollback, exclusive_commit_entered = attempt_delete(EXCLUSIVE_ID)
     exclusive_destroyed = (
         exclusive_code is None
         and bpy.data.objects.get("Exclusive Target") is None
@@ -321,6 +340,9 @@ def main():
         ),
         "nodeColorDriftHashes": node_color_drift_hashes,
         "materialDriftRestored": material_drift_restored,
+        "useNodesPermanentlyEnabled": use_nodes_permanently_enabled,
+        "principledRemovalDrift": principled_removal_drift,
+        "principledRemovalRestored": principled_removal_restored,
         "creationRollback": creation_rollback,
         "checkpointReleased": checkpoint_released,
         "deleteRetainedBeforeAck": delete_retained_before_ack,
@@ -334,7 +356,11 @@ def main():
         "sharedLightRollback": shared_light_rollback,
         "sharedMaterialCode": shared_material_code,
         "sharedMaterialRollback": shared_material_rollback,
+        "sharedMeshCommitEntered": shared_mesh_commit_entered,
+        "sharedLightCommitEntered": shared_light_commit_entered,
+        "sharedMaterialCommitEntered": shared_material_commit_entered,
         "exclusiveDeleteDestroyed": exclusive_destroyed,
+        "exclusiveCommitEntered": exclusive_commit_entered,
         "collisionIdentity": collision_identity,
         "collisionManifestName": collision_manifest_name,
     }

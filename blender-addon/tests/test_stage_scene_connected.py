@@ -44,6 +44,10 @@ class StageSceneConnectedTests(unittest.TestCase):
         self.assertTrue(result["cubeStillPresent"])
         self.assertTrue(result["sphereDestroyed"])
         self.assertTrue(result["deleteRevisionAdvanced"])
+        self.assertEqual(result["sharedDeleteCodes"], ["STAGE_SCENE_SHARED_DATABLOCK"] * 3)
+        self.assertTrue(result["sharedDeleteDurableUnchanged"])
+        self.assertTrue(result["sharedDeleteTargetsPresent"])
+        self.assertTrue(result["sharedDeleteLiveMatchesDurable"])
 
 
 if __name__ == "__main__":

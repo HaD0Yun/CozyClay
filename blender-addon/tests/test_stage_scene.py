@@ -44,6 +44,14 @@ class StageSceneRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["nodeColorDriftHashes"])
         self.assertTrue(self.results["materialDriftRestored"])
 
+    def test_node_state_drift_advances_hash_through_real_extractor(self):
+        # Blender >= 4 keeps use_nodes permanently enabled (setter is a no-op), so
+        # useNodes cannot drift; live node-state reads are proven via Principled
+        # node removal driving principledBaseColor to None and back.
+        self.assertTrue(self.results["useNodesPermanentlyEnabled"])
+        self.assertTrue(self.results["principledRemovalDrift"])
+        self.assertTrue(self.results["principledRemovalRestored"])
+
     def test_creation_failure_rolls_back_bit_perfect(self):
         self.assertTrue(self.results["creationRollback"])
         self.assertTrue(self.results["checkpointReleased"])
@@ -65,9 +73,11 @@ class StageSceneRealBlenderTests(unittest.TestCase):
                     "STAGE_SCENE_SHARED_DATABLOCK",
                 )
                 self.assertTrue(self.results[f"shared{kind}Rollback"])
+                self.assertFalse(self.results[f"shared{kind}CommitEntered"])
 
     def test_exclusive_datablocks_are_destroyed_after_ack(self):
         self.assertTrue(self.results["exclusiveDeleteDestroyed"])
+        self.assertTrue(self.results["exclusiveCommitEntered"])
 
     def test_light_rename_collision_reports_actual_blender_name(self):
         identity = self.results["collisionIdentity"]

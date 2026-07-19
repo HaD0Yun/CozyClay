@@ -173,6 +173,54 @@ def main() -> None:
             send_request(connection, delete_request, durable["current_revision_id"]),
         )
         after_delete = json.loads((omb / "project.json").read_text(encoding="utf-8"))
+
+        def attempt_shared_delete(entity_id):
+            time.sleep(1.01)
+            revision = after_delete["current_revision_id"]
+            before_durable = (omb / "project.json").read_text(encoding="utf-8")
+            response = receive(
+                connection,
+                send_request(
+                    connection,
+                    request(revision, [{"op": "delete_entity", "entity_id": entity_id}]),
+                    revision,
+                ),
+            )
+            after_durable = (omb / "project.json").read_text(encoding="utf-8")
+            return {
+                "code": response.get("code"),
+                "durableUnchanged": (
+                    before_durable == after_durable
+                    and json.loads(after_durable)["current_revision_id"] == revision
+                ),
+                "targetPresent": any(
+                    obj.get("omb.entity_id") == entity_id for obj in bpy.context.scene.objects
+                ),
+            }
+
+        light_id = next(item["entityId"] for item in durable_manifest["objects"] if item["name"] == "Key Light")
+        cube_object = next(obj for obj in bpy.context.scene.objects if obj.get("omb.entity_id") == cube_id)
+        light_object = next(obj for obj in bpy.context.scene.objects if obj.get("omb.entity_id") == light_id)
+
+        mesh_peer = bpy.data.objects.new("Cube Mesh Peer", cube_object.data)
+        shared_mesh_outcome = attempt_shared_delete(cube_id)
+        bpy.data.objects.remove(mesh_peer, do_unlink=True)
+
+        light_peer = bpy.data.objects.new("Light Data Peer", light_object.data)
+        shared_light_outcome = attempt_shared_delete(light_id)
+        bpy.data.objects.remove(light_peer, do_unlink=True)
+
+        material_peer_mesh = bpy.data.meshes.new("Material Peer Mesh")
+        material_peer_mesh.materials.append(cube_object.material_slots[0].material)
+        material_peer = bpy.data.objects.new("Material Peer", material_peer_mesh)
+        shared_material_outcome = attempt_shared_delete(cube_id)
+        bpy.data.objects.remove(material_peer, do_unlink=True)
+        bpy.data.meshes.remove(material_peer_mesh)
+
+        shared_outcomes = [shared_mesh_outcome, shared_light_outcome, shared_material_outcome]
+        live_matches_durable = (
+            extract_scene_manifest_v3()["sceneHash"] == after_delete["manifest"]["sceneHash"]
+        )
         print("OMB_CONNECTED_STAGE_RESULTS=" + json.dumps({
             "createResponse": created_response.get("type"),
             "rollbackCode": rollback_response.get("code"),
@@ -189,6 +237,10 @@ def main() -> None:
             "cubeStillPresent": any(obj.get("omb.entity_id") == cube_id for obj in bpy.context.scene.objects),
             "sphereDestroyed": all(obj.get("omb.entity_id") != sphere_id for obj in bpy.data.objects),
             "deleteRevisionAdvanced": after_delete["current_revision_id"] != durable["current_revision_id"],
+            "sharedDeleteCodes": [outcome["code"] for outcome in shared_outcomes],
+            "sharedDeleteDurableUnchanged": all(outcome["durableUnchanged"] for outcome in shared_outcomes),
+            "sharedDeleteTargetsPresent": all(outcome["targetPresent"] for outcome in shared_outcomes),
+            "sharedDeleteLiveMatchesDurable": live_matches_durable,
         }, separators=(",", ":")))
     finally:
         stage_scene.apply_stage_scene_transaction = original_apply

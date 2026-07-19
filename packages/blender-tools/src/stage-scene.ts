@@ -1,5 +1,9 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { type StageSceneRequestV1, StageSceneRequestV1Schema } from "@oh-my-blender/protocol";
+import {
+	type StageSceneEntityIdentity,
+	type StageSceneRequestV1,
+	StageSceneRequestV1Schema,
+} from "@oh-my-blender/protocol";
 
 export interface StageSceneProgress {
 	readonly phase: string;
@@ -10,6 +14,7 @@ export interface StageSceneProgress {
 export interface StageSceneResult {
 	readonly resulting_revision_id: string;
 	readonly scene_hash?: string;
+	readonly entity_identities: readonly StageSceneEntityIdentity[];
 	readonly [key: string]: unknown;
 }
 
