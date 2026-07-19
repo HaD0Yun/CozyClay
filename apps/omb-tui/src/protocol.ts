@@ -1,31 +1,17 @@
 import {
-	parseDirectorTurnEvent,
 	parseServerMessage,
 	type ClientMessage,
+	type DirectorTranscript,
+	type DirectorTranscriptRequest,
 	type DirectorToolName,
 	type DirectorTurn,
 	type DirectorTurnEvent,
 	type ServerMessage,
 } from "@oh-my-blender/protocol";
 
-export type { DirectorToolName };
+export type { DirectorTranscript, DirectorTranscriptRequest, DirectorToolName };
 export type DirectorEvent = DirectorTurnEvent;
 export type DirectorTurnRequest = DirectorTurn;
-
-export interface DirectorTranscriptRequest {
-	readonly type: "director_transcript_request";
-	readonly id: string;
-	readonly cursor: number;
-	readonly page_size: number;
-}
-
-export interface DirectorTranscript {
-	readonly type: "director_transcript";
-	readonly id: string;
-	readonly session_id: string;
-	readonly events: readonly DirectorEvent[];
-	readonly next_cursor: number | null;
-}
 
 export interface ControllerAuth {
 	readonly type: "controller_auth";
@@ -47,13 +33,8 @@ export interface IssueAttachTicket {
 	readonly role: "bridge";
 }
 
-export type DirectorServerMessage = Exclude<ServerMessage, { readonly type: "director_transcript" }> |
-	DirectorTranscript |
-	ControllerAuth |
-	AttachTicket;
-export type DirectorClientMessage = Exclude<ClientMessage, { readonly type: "director_transcript_request" }> |
-	DirectorTranscriptRequest |
-	IssueAttachTicket;
+export type DirectorServerMessage = ServerMessage | ControllerAuth | AttachTicket;
+export type DirectorClientMessage = ClientMessage | IssueAttachTicket;
 
 const UUID_V4_LOWERCASE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const BASE64URL_32 = /^[A-Za-z0-9_-]{43}$/;
@@ -95,34 +76,10 @@ function isAttachTicket(value: Record<string, unknown>): value is Record<string,
 		(!Object.hasOwn(value, "runtime_directory") || typeof value.runtime_directory === "string");
 }
 
-function isDirectorTranscript(value: Record<string, unknown>): value is Record<string, unknown> & DirectorTranscript {
-	if (
-		!hasExactKeys(value, ["type", "id", "session_id", "events", "next_cursor"]) ||
-		value.type !== "director_transcript" ||
-		typeof value.id !== "string" ||
-		!UUID_V4_LOWERCASE.test(value.id) ||
-		typeof value.session_id !== "string" ||
-		!UUID_V4_LOWERCASE.test(value.session_id) ||
-		!Array.isArray(value.events) ||
-		value.events.length > 64 ||
-		(value.next_cursor !== null &&
-			(!Number.isSafeInteger(value.next_cursor) ||
-				(value.next_cursor as number) < 1 ||
-				(value.next_cursor as number) > 10_000))
-	) return false;
-	try {
-		for (const event of value.events) parseDirectorTurnEvent(event);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 export function isDirectorServerMessage(value: unknown): value is DirectorServerMessage {
 	if (isRecord(value)) {
 		if (value.type === "controller_auth") return isControllerAuth(value);
 		if (value.type === "attach_ticket") return isAttachTicket(value);
-		if (value.type === "director_transcript") return isDirectorTranscript(value);
 	}
 	try {
 		parseServerMessage(value);
