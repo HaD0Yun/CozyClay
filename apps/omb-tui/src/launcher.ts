@@ -211,42 +211,52 @@ function readStartup(child: ChildProcess, timeoutMs: number, signal?: AbortSigna
 	});
 }
 
-function waitForExit(child: ChildProcess): Promise<boolean> {
+function waitForExit(child: ChildProcess, timeoutMs?: number): Promise<boolean> {
 	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
 	return new Promise((resolve) => {
-		const timer = setTimeout(() => {
-			child.off("exit", onExit);
-			resolve(false);
-		}, DAEMON_TERMINATION_TIMEOUT_MS);
+		let timer: NodeJS.Timeout | undefined;
 		const onExit = () => {
-			clearTimeout(timer);
+			if (timer !== undefined) clearTimeout(timer);
 			resolve(true);
 		};
-		timer.unref();
+		if (timeoutMs !== undefined) {
+			timer = setTimeout(() => {
+				child.off("exit", onExit);
+				resolve(false);
+			}, timeoutMs);
+		}
 		child.once("exit", onExit);
 	});
 }
 
 export async function terminateDaemon(child: ChildProcess): Promise<void> {
 	if (child.exitCode !== null || child.signalCode !== null) return;
-	if (!child.kill("SIGTERM")) return;
-	if (await waitForExit(child)) return;
-	if (!child.kill("SIGKILL")) return;
-	await waitForExit(child);
+	child.ref();
+	try {
+		if (!child.kill("SIGTERM")) return;
+		if (await waitForExit(child, DAEMON_TERMINATION_TIMEOUT_MS)) return;
+		if (!child.kill("SIGKILL")) return;
+		await waitForExit(child);
+	} finally {
+		child.unref();
+	}
 }
 
 export async function launchDaemon(options: LaunchDaemonOptions): Promise<LaunchedDaemon> {
+	if (options.signal?.aborted) throw new Error("CONTROLLER_RECONNECT_ABORTED");
 	validateDaemonArguments(options.daemonArguments);
 	const command = await commandFor(options);
+	const environment = isolatedEnvironment(
+		options.daemonArguments,
+		options.environment,
+		options.runtimeBaseDirectory,
+		options.repositoryRoot,
+	);
+	if (options.signal?.aborted) throw new Error("CONTROLLER_RECONNECT_ABORTED");
 	const child = spawn(command.executable, command.arguments, {
 		cwd: options.projectDirectory,
 		detached: true,
-		env: isolatedEnvironment(
-			options.daemonArguments,
-			options.environment,
-			options.runtimeBaseDirectory,
-			options.repositoryRoot,
-		),
+		env: environment,
 		stdio: ["ignore", "pipe", "ignore"],
 		windowsHide: true,
 	});

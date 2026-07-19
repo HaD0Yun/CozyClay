@@ -634,6 +634,120 @@ test("a non-settling cancelled director turn is quarantined before the replaceme
 	}
 });
 
+test("cancelled render quarantines a non-settling artifact setup at the cancellation deadline", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-artifact-quarantine-"));
+	const artifactEvents: string[] = [];
+	let setupStarted = false;
+	let settleReservation!: (reservation: {
+		writeAt(offset: number, bytes: Uint8Array): Promise<void>;
+		commit(): Promise<{ uri: string; sha256: string; byteLength: number }>;
+		abort(): Promise<void>;
+	}) => void;
+	const service: DirectorTurnService = {
+		run: async (turn, context) => {
+			if (turn.prompt === "Complete.") {
+				return {
+					summary: "Replacement completed.",
+					resultingRevisionId: PARENT_REVISION,
+					toolCallOrder: [] as const,
+				};
+			}
+			await context.renderQaFrames(
+				{ schema_version: 1, revision_id: PARENT_REVISION, frames: [1] },
+				{ signal: context.signal, reportProgress: () => {} },
+			);
+			throw new Error("unreachable");
+		},
+		dispose: () => {},
+		forceDispose() {
+			return this;
+		},
+	};
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		stdout: () => {},
+		directorTurn: service,
+		directorTeardownTimeoutMs: 25,
+		beginArtifactReservation: () =>
+			new Promise((resolve) => {
+				setupStarted = true;
+				settleReservation = resolve;
+			}),
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	let bridge: Client | undefined;
+	try {
+		control = await attachController(daemon);
+		bridge = await attachBridge(daemon, control.client);
+		const turnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: turnId,
+			prompt: "Render.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		const request = await bridge.next(
+			(message) => message.type === "bridge_request" && message.request_id === turnId,
+		);
+		bridge.send({
+			type: "bridge_artifact_begin",
+			id: request.id,
+			request_id: turnId,
+			frame: 1,
+			total_chunks: 1,
+			total_byte_length: PNG_BYTES.byteLength,
+			sha256: PNG_DIGEST,
+		});
+		while (!setupStarted) await new Promise((resolve) => setTimeout(resolve, 2));
+		control.client.send({ type: "cancel", id: turnId });
+		await control.client.next(
+			(message) => message.type === "director_turn_cancelled" && message.id === turnId,
+			250,
+		);
+
+		const replacementId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: replacementId,
+			prompt: "Complete.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		await control.client.next(
+			(message) => message.type === "director_turn_completed" && message.id === replacementId,
+		);
+
+		const eventCount = control.client.messages.length;
+		settleReservation({
+			writeAt: async () => {
+				artifactEvents.push("write");
+			},
+			commit: async () => {
+				artifactEvents.push("commit");
+				return {
+					uri: `omb-artifact://sha256/${PNG_DIGEST}`,
+					sha256: PNG_DIGEST,
+					byteLength: PNG_BYTES.byteLength,
+				};
+			},
+			abort: async () => {
+				artifactEvents.push("abort");
+			},
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.deepEqual(artifactEvents, ["abort"]);
+		assert.equal(control.client.messages.length, eventCount);
+	} finally {
+		bridge?.socket.destroy();
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("transcript replay pages more than 1 MiB of history below the controller frame limit", async () => {
 	const root = await mkdtemp(join(tmpdir(), "omb-director-paging-"));
 	const events = Array.from({ length: 192 }, (_, sequence) => ({

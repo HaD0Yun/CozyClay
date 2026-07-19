@@ -184,6 +184,7 @@ type PendingBridge = {
 	artifactCleanup?: Promise<void>;
 	artifactSetup?: Promise<void>;
 	cancelled?: boolean;
+	quarantined?: boolean;
 	readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	readonly beginArtifactCommit?: () => void;
 	readonly resolve: (result: unknown) => void;
@@ -295,7 +296,11 @@ async function beginArtifactFrame(
 		byteLength: begin.total_byte_length,
 	});
 	if (pending.cancelled) {
-		await reservation.abort();
+		if (pending.quarantined) {
+			void reservation.abort().catch(() => undefined);
+		} else {
+			await reservation.abort();
+		}
 		throw new Error("CANCELLED: artifact reservation completed after cancellation");
 	}
 	pending.artifactFrames.set(begin.frame, {
@@ -342,7 +347,12 @@ async function beginArtifactBatch(
 		begin.frames.map((frame) => ({ sha256: frame.sha256, byteLength: frame.total_byte_length })),
 	);
 	if (pending.cancelled) {
-		await Promise.allSettled(reservations.map((reservation) => reservation.abort()));
+		const aborts = reservations.map((reservation) => reservation.abort());
+		if (pending.quarantined) {
+			for (const abort of aborts) void abort.catch(() => undefined);
+		} else {
+			await Promise.allSettled(aborts);
+		}
 		throw new Error("CANCELLED: artifact reservation batch completed after cancellation");
 	}
 	if (reservations.length !== begin.frames.length) {
@@ -391,6 +401,7 @@ async function recordArtifactChunk(pending: PendingBridge, chunk: BridgeArtifact
 		}
 	}
 	await frame.reservation.writeAt(chunk.byte_offset, bytes);
+	if (pending.quarantined) return;
 	frame.chunks.set(chunk.chunk_index, { offset: chunk.byte_offset, byteLength: bytes.byteLength });
 	frame.receivedBytes += bytes.byteLength;
 }
@@ -492,6 +503,9 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 	const frames: RenderQaFramesResultV1["frames"][number][] = [];
 	for (const candidate of candidates) {
 		const descriptor = await candidate.reservation.commit();
+		if (pending.quarantined) {
+			throw new Error("CANCELLED: artifact commit completed after cancellation");
+		}
 		if (
 			descriptor.sha256 !== candidate.sha256 ||
 			descriptor.byteLength !== candidate.byteLength ||
@@ -632,6 +646,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		return artifactCleanup;
 	}
 
+	function forceDisposeRetiredBridge(retired: RetiredBridge): void {
+		retired.pending.quarantined = true;
+		const frames = Array.from(retired.pending.artifactFrames.values());
+		retired.pending.artifactFrames.clear();
+		for (const frame of frames) void frame.reservation.abort().catch(() => undefined);
+		clearTimeout(retired.retirementTimer);
+		retiredBridges.delete(retired.pending.id);
+		void retired.artifactCleanup.catch(() => undefined);
+	}
+
 	async function failPendingBridge(code: string, message: string): Promise<void> {
 		if (pendingBridge === undefined) return;
 		const pending = pendingBridge;
@@ -652,16 +676,17 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 
 	const directorTeardownTimeoutMs = options.directorTeardownTimeoutMs ?? 10_000;
 	async function finishCancellation(request: ActiveRequest) {
+		let teardownTimer: ReturnType<typeof setTimeout> | undefined;
+		let deadlineExpired = false;
+		const cancellationDeadline = new Promise<false>((resolve) => {
+			teardownTimer = setTimeout(() => {
+				deadlineExpired = true;
+				resolve(false);
+			}, directorTeardownTimeoutMs);
+		});
 		const cleanupBarrier = directorCleanupBarriers.get(request.id);
 		if (cleanupBarrier !== undefined) {
-			let teardownTimer: ReturnType<typeof setTimeout> | undefined;
-			const settled = await Promise.race([
-				cleanupBarrier.then(() => true),
-				new Promise<false>((resolve) => {
-					teardownTimer = setTimeout(() => resolve(false), directorTeardownTimeoutMs);
-				}),
-			]);
-			if (teardownTimer !== undefined) clearTimeout(teardownTimer);
+			const settled = await Promise.race([cleanupBarrier.then(() => true), cancellationDeadline]);
 			if (!settled && directorCleanupBarriers.get(request.id) === cleanupBarrier) {
 				directorGeneration += 1;
 				directorTurn = directorTurn?.forceDispose();
@@ -671,7 +696,11 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		const retired = Array.from(retiredBridges.values()).find(
 			(candidate) => candidate.pending.requestId === request.id,
 		);
-		await retired?.artifactCleanup;
+		if (retired !== undefined && !deadlineExpired) {
+			await Promise.race([retired.artifactCleanup.then(() => true), cancellationDeadline]);
+		}
+		if (retired !== undefined && deadlineExpired) forceDisposeRetiredBridge(retired);
+		if (teardownTimer !== undefined) clearTimeout(teardownTimer);
 		if (!state.terminal(request)) return;
 		if (directorSequences.has(request.id)) {
 			await queueDirectorEvent(request.id, { type: "director_turn_cancelled" });
