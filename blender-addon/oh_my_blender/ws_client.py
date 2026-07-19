@@ -140,12 +140,17 @@ class WebSocketClient:
     def close(self, code: int = 1000) -> int | None:
         if self.closed: return None
         if not (1000 <= code <= 4999): raise ValueError("invalid close code")
-        self._send_frame(8, struct.pack("!H", code))
         received = None
         try:
-            fin, opcode, payload = self._recv_frame()
-            if fin and opcode == 8 and len(payload) >= 2: received = struct.unpack("!H", payload[:2])[0]
+            self._send_frame(8, struct.pack("!H", code))
+            try:
+                fin, opcode, payload = self._recv_frame()
+                if fin and opcode == 8 and len(payload) >= 2: received = struct.unpack("!H", payload[:2])[0]
+            except (OSError, WebSocketError):
+                pass
         except (OSError, WebSocketError):
             pass
-        self.closed = True; self.socket.close()
+        finally:
+            self.closed = True
+            self.socket.close()
         return received

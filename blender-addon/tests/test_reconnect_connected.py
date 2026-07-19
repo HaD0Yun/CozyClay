@@ -45,6 +45,7 @@ class ReconnectConnectedTests(unittest.TestCase):
             "responseWinPreserved",
             "mismatchRejected",
             "rejectedChildExited",
+            "resourcesReleased",
         ):
             self.assertTrue(result[key], f"{key} failed: {result}")
 

@@ -9,6 +9,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -23,7 +24,13 @@ import oh_my_blender
 import oh_my_blender.connection as connection_module
 from apply_camera_plan_fixture import PROJECT_ID, REVISION, bound_plan, setup_scene
 from oh_my_blender.canonical import canonical_revision
-from oh_my_blender.connection import Connection, ConnectionError, _resolve_daemon_argv, reconnect
+from oh_my_blender.connection import (
+    Connection,
+    ConnectionError,
+    LifecycleState,
+    _resolve_daemon_argv,
+    reconnect,
+)
 from oh_my_blender.daemon_child import DaemonChild
 from oh_my_blender.manifest import extract_scene_manifest_v2, extract_scene_snapshot
 
@@ -51,23 +58,26 @@ def sever_socket(connection: Connection) -> None:
 def send_inspect(connection: Connection, request_id: str) -> dict:
     responses = queue.Queue(maxsize=1)
     connection._response_queues[request_id] = responses
-    snapshot = extract_scene_snapshot()
-    connection._send_json({
-        "type": "request",
-        "id": request_id,
-        "method": "inspect_project",
-        "params": {"snapshot": snapshot},
-        "expected_revision_id": canonical_revision(snapshot),
-        "deadline_ms": 30000,
-    })
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        connection.pump_bridge_messages()
-        try:
-            return responses.get_nowait()
-        except queue.Empty:
-            time.sleep(0.01)
-    raise RuntimeError("reconnected inspect timed out")
+    try:
+        snapshot = extract_scene_snapshot()
+        connection._send_json({
+            "type": "request",
+            "id": request_id,
+            "method": "inspect_project",
+            "params": {"snapshot": snapshot},
+            "expected_revision_id": canonical_revision(snapshot),
+            "deadline_ms": 30000,
+        })
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            connection.pump_bridge_messages()
+            try:
+                return responses.get_nowait()
+            except queue.Empty:
+                time.sleep(0.01)
+        raise RuntimeError("reconnected inspect timed out")
+    finally:
+        connection._response_queues.pop(request_id, None)
 
 
 def main() -> None:
@@ -188,12 +198,36 @@ def main() -> None:
         }
     finally:
         for connection in connections:
-            if connection.child.process.poll() is None:
-                try:
-                    connection.disconnect("reconnect_fixture_complete")
-                except BaseException:
-                    connection.child.kill()
+            if connection.state != LifecycleState.STOPPED:
+                connection.disconnect("reconnect_fixture_complete")
         connection_module._active_connection = None
+        for connection in connections:
+            reader = connection._reader_thread
+            if reader is not None and reader.is_alive():
+                raise RuntimeError("bridge receiver thread leaked")
+            if bpy.app.timers.is_registered(connection.pump_bridge_messages):
+                raise RuntimeError("connection timer leaked")
+            if not connection.websocket.closed:
+                raise RuntimeError("websocket lifecycle flag remained open")
+            try:
+                socket_open = connection.websocket.socket.fileno() >= 0
+            except OSError:
+                socket_open = False
+            if socket_open:
+                raise RuntimeError("websocket descriptor leaked")
+            if connection._response_queues:
+                raise RuntimeError("response queues leaked")
+            if connection._bridge_cancellations:
+                raise RuntimeError("bridge cancellation map leaked")
+            if connection._terminal_bridge_ids:
+                raise RuntimeError("terminal bridge IDs leaked")
+            if not connection._main_thread_messages.empty():
+                raise RuntimeError("main-thread bridge queue leaked")
+        if any(
+            thread.is_alive() and thread.name == "omb-bridge-receiver"
+            for thread in threading.enumerate()
+        ):
+            raise RuntimeError("detached bridge receiver thread leaked")
         oh_my_blender.unregister()
         shutil.rmtree(directory, ignore_errors=True)
         if directory.exists():
@@ -204,6 +238,8 @@ def main() -> None:
             except ProcessLookupError:
                 continue
             raise RuntimeError(f"daemon child {pid} leaked")
+        if result is not None:
+            result["resourcesReleased"] = True
 
     print("OMB_RECONNECT_FAULT_RESULTS=" + json.dumps(result, separators=(",", ":")))
 

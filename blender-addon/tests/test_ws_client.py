@@ -5,6 +5,7 @@ import socket
 import struct
 import threading
 import unittest
+from unittest import mock
 
 from oh_my_blender.ws_client import MessageTooLarge, WebSocketClient
 
@@ -72,6 +73,16 @@ class WebSocketTests(unittest.TestCase):
         server = Server(); client = WebSocketClient.connect(server.port, "secret", timeout=1)
         with self.assertRaises(MessageTooLarge): client.send_text("x" * (1024 * 1024 + 1))
         client.close(); server.thread.join(1)
+
+    def test_close_marks_transport_closed_when_close_frame_send_fails(self):
+        sock = mock.Mock()
+        sock.sendall.side_effect = OSError("severed")
+        client = WebSocketClient(sock)
+
+        client.close()
+
+        self.assertTrue(client.closed)
+        sock.close.assert_called_once_with()
 
 
 if __name__ == "__main__": unittest.main()
