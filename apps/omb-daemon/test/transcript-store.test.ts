@@ -30,7 +30,22 @@ test("persists a closed transcript atomically and resumes its stable session id"
 
 		const second = await DirectorTranscriptStore.open(root);
 		assert.equal(second.sessionId, first.sessionId);
-		assert.deepEqual(second.snapshot("00000000-0000-4000-8000-000000000002").events, first.events);
+		const firstPage = second.page({
+			type: "director_transcript_request",
+			id: "00000000-0000-4000-8000-000000000002",
+			cursor: 0,
+			page_size: 1,
+		});
+		assert.deepEqual(firstPage.events, first.events.slice(0, 1));
+		assert.equal(firstPage.next_cursor, 1);
+		const secondPage = second.page({
+			type: "director_transcript_request",
+			id: "00000000-0000-4000-8000-000000000003",
+			cursor: firstPage.next_cursor,
+			page_size: 1,
+		});
+		assert.deepEqual(secondPage.events, first.events.slice(1));
+		assert.equal(secondPage.next_cursor, null);
 		assert.equal((await stat(join(root, ".omb", "director-transcript.json"))).mode & 0o777, 0o600);
 		assert.deepEqual(JSON.parse(await readFile(join(root, ".omb", "director-transcript.json"), "utf8")), {
 			schema_version: 1,

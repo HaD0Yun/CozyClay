@@ -82,6 +82,7 @@ _TASK_KINDS = {
     "render_qa_frames": "qa_render",
     "stage_scene": "stage_scene",
 }
+_BOOTSTRAP_REVISION_ID = "0" * 64
 _TASK_PHASES = frozenset({
     "dispatching",
     "validating",
@@ -383,7 +384,12 @@ class Connection:
             if self.state == LifecycleState.ACTIVE:
                 self.state = LifecycleState.LOST
 
-    def _durable_scene_hash(self, expected_revision_id: str) -> str:
+    def _durable_project_base(
+        self,
+        expected_revision_id: str,
+        *,
+        allow_bootstrap: bool = False,
+    ) -> tuple[str, str]:
         if self.project_directory is None:
             raise ConnectionError("durable project directory is unavailable")
         try:
@@ -392,20 +398,57 @@ class Connection:
                     encoding="utf-8"
                 )
             )
-            if project["current_revision_id"] != expected_revision_id:
-                raise StaleBridgeBase(
-                    "durable project revision does not match the bridge request"
-                )
+            revision_id = project["current_revision_id"]
             scene_hash = project["manifest"]["sceneHash"]
         except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
             raise ConnectionError(f"durable project manifest is unavailable: {error}") from error
         if (
-            not isinstance(scene_hash, str)
-            or len(scene_hash) != 64
-            or any(character not in "0123456789abcdef" for character in scene_hash)
+            revision_id != expected_revision_id
+            and not (
+                allow_bootstrap
+                and expected_revision_id == _BOOTSTRAP_REVISION_ID
+            )
         ):
-            raise ConnectionError("durable project scene hash is invalid")
-        return scene_hash
+            raise StaleBridgeBase(
+                "durable project revision does not match the bridge request"
+            )
+        for name, value in (
+            ("revision", revision_id),
+            ("scene hash", scene_hash),
+        ):
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+            ):
+                raise ConnectionError(f"durable project {name} is invalid")
+        return revision_id, scene_hash
+
+    def _durable_scene_hash(self, expected_revision_id: str) -> str:
+        return self._durable_project_base(expected_revision_id)[1]
+
+    def _inspect_project_result(
+        self,
+        revision_id: str,
+        current_scene_hash: str,
+    ) -> dict:
+        from .manifest import (
+            extract_scene_manifest_v2,
+            extract_scene_manifest_v3,
+            extract_scene_snapshot,
+        )
+
+        live_manifest = extract_scene_manifest_v2()
+        if live_manifest["sceneHash"] != current_scene_hash:
+            live_manifest = extract_scene_manifest_v3()
+        if live_manifest["sceneHash"] != current_scene_hash:
+            raise StaleBridgeBase(
+                "live Blender scene does not match the durable project substrate"
+            )
+        return {
+            "revision": revision_id,
+            "snapshot": extract_scene_snapshot(),
+        }
 
     def hold_checkpoint(
         self,
@@ -588,7 +631,12 @@ class Connection:
                 "tool capabilities remain hidden until reconnect verification succeeds",
             )
             return
-        if message.get("method") not in ("apply_camera_plan", "stage_scene", "render_qa_frames"):
+        if message.get("method") not in (
+            "inspect_project",
+            "apply_camera_plan",
+            "stage_scene",
+            "render_qa_frames",
+        ):
             self._send_bridge_error(
                 message,
                 "METHOD_NOT_SUPPORTED",
@@ -626,7 +674,15 @@ class Connection:
             return
         try:
             current_scene_hash = message.get("current_scene_hash")
-            if current_scene_hash is None:
+            durable_revision_id = message["expected_revision_id"]
+            if message["method"] == "inspect_project":
+                durable_revision_id, durable_scene_hash = self._durable_project_base(
+                    message["expected_revision_id"],
+                    allow_bootstrap=True,
+                )
+                if current_scene_hash is None:
+                    current_scene_hash = durable_scene_hash
+            elif current_scene_hash is None:
                 current_scene_hash = self._durable_scene_hash(
                     message["expected_revision_id"]
                 )
@@ -642,15 +698,38 @@ class Connection:
             self._send_bridge_error(message, "BUSY", "a mutation bridge is already active")
             return
         self._bridge_cancellations[bridge_id] = threading.Event()
-        self.begin_task(message["method"], message["params"])
+        if message["method"] != "inspect_project":
+            self.begin_task(message["method"], message["params"])
         if bpy is None:
             self.finish_bridge(bridge_id)
-            self.finish_task("error", code="BLENDER_UNAVAILABLE")
+            if message["method"] != "inspect_project":
+                self.finish_task("error", code="BLENDER_UNAVAILABLE")
             self._send_bridge_error(
                 message,
                 "BLENDER_UNAVAILABLE",
                 "bridge dispatch requires Blender",
             )
+            return
+        if message["method"] == "inspect_project":
+            try:
+                result = self._inspect_project_result(
+                    durable_revision_id,
+                    current_scene_hash,
+                )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
             return
         try:
             if message["method"] == "apply_camera_plan":

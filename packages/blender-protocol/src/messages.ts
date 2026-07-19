@@ -109,9 +109,13 @@ export const DirectorTurnSchema = exact({
 	expected_revision_id: hash(),
 	deadline_ms: Type.Integer({ minimum: 100, maximum: 30_000 }),
 });
+export const DIRECTOR_TRANSCRIPT_MAX_EVENTS = 10_000;
+export const DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE = 64;
 export const DirectorTranscriptRequestSchema = exact({
 	type: Type.Literal("director_transcript_request"),
 	id: uuid(),
+	cursor: Type.Integer({ minimum: 0, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }),
+	page_size: Type.Integer({ minimum: 1, maximum: DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE }),
 });
 const directorToolName = () =>
 	Type.Union([
@@ -174,7 +178,8 @@ export const DirectorTranscriptSchema = exact({
 	type: Type.Literal("director_transcript"),
 	id: uuid(),
 	session_id: uuid(),
-	events: Type.Array(DirectorTurnEventSchema, { maxItems: 10_000 }),
+	events: Type.Array(DirectorTurnEventSchema, { maxItems: DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE }),
+	next_cursor: Type.Union([Type.Integer({ minimum: 1, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }), Type.Null()]),
 });
 export const RollbackAckSchema = exact({
 	type: Type.Literal("rollback_ack"),

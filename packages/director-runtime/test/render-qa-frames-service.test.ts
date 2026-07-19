@@ -63,3 +63,28 @@ test("G011: runtime rejects stale revision before dispatch", async () => {
 	);
 	assert.equal(dispatched, false);
 });
+
+test("render QA image cap violations retain their distinct protocol code", async () => {
+	const oversized = {
+		...result,
+		frames: [
+			{
+				...result.frames[0],
+				image: {
+					mime_type: "image/png" as const,
+					data_base64: Buffer.alloc(2 * 1024 * 1024 + 1).toString("base64"),
+				},
+			},
+			result.frames[1],
+		],
+	};
+	await assert.rejects(
+		createRenderQaFramesHandler()(request, {
+			signal: new AbortController().signal,
+			request: { expected_revision_id: revision },
+			renderQaFrames: async () => oversized,
+		}),
+		(error: unknown) =>
+			error instanceof Error && error.message === "RENDER_QA_IMAGE_CONTENT_LIMIT: frame image exceeds 2 MiB",
+	);
+});

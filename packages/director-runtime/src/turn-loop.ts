@@ -17,6 +17,7 @@ import {
 	canonicalizeStageScenePlan,
 	type DirectorToolName,
 	type DirectorTurn,
+	parseRenderQaFramesResult,
 	type RenderQaFramesRequestV1,
 	type RenderQaFramesResultV1,
 	type StageSceneMutationCandidate,
@@ -27,7 +28,6 @@ import {
 	commitCameraPlanMutation,
 	createDirectorProjectStore,
 } from "./apply-camera-plan-service.ts";
-import { parseRenderQaFramesResultWithImageCompat } from "./render-qa-frames-service.ts";
 import { createDirectorSession } from "./session.ts";
 import { commitStageSceneMutation } from "./stage-scene-service.ts";
 
@@ -363,9 +363,7 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 				return result;
 			},
 			renderQaFrames: async (request, bridgeContext) => {
-				const result = parseRenderQaFramesResultWithImageCompat(
-					await activeContext().renderQaFrames(request, bridgeContext),
-				);
+				const result = parseRenderQaFramesResult(await activeContext().renderQaFrames(request, bridgeContext));
 				if (
 					result.revision_id !== request.revision_id ||
 					result.frames.length !== request.frames.length ||

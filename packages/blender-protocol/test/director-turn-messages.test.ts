@@ -77,9 +77,13 @@ describe("director controller turn protocol", () => {
 		assert.throws(() => parseClientMessage({ ...request, extra: true }));
 	});
 
-	it("accepts a closed transcript fetch request", () => {
-		const request = { type: "director_transcript_request", id: FETCH_ID } as const;
+	it("accepts a closed bounded transcript page request", () => {
+		const request = { type: "director_transcript_request", id: FETCH_ID, cursor: 0, page_size: 64 } as const;
 		assert.deepEqual(parseClientMessage(request), request);
+		assert.throws(() => parseClientMessage({ ...request, cursor: -1 }));
+		assert.throws(() => parseClientMessage({ ...request, cursor: 10_001 }));
+		assert.throws(() => parseClientMessage({ ...request, page_size: 0 }));
+		assert.throws(() => parseClientMessage({ ...request, page_size: 65 }));
 		assert.throws(() => parseClientMessage({ ...request, extra: true }));
 	});
 
@@ -99,15 +103,27 @@ describe("director controller turn protocol", () => {
 		assert.throws(() => parseDirectorTurnEvent({ ...events[2], result_digest: "not-a-digest" }));
 	});
 
-	it("returns a closed transcript snapshot containing only turn events", () => {
+	it("returns a closed bounded transcript page containing only turn events", () => {
 		const transcript = {
 			type: "director_transcript",
 			id: FETCH_ID,
 			session_id: SESSION_ID,
 			events: events.slice(0, 4),
+			next_cursor: 4,
 		} as const;
 		assert.deepEqual(parseServerMessage(transcript), transcript);
+		assert.deepEqual(parseServerMessage({ ...transcript, next_cursor: null }), {
+			...transcript,
+			next_cursor: null,
+		});
 		assert.throws(() => parseServerMessage({ ...transcript, extra: true }));
+		assert.throws(() => parseServerMessage({ ...transcript, next_cursor: -1 }));
 		assert.throws(() => parseServerMessage({ ...transcript, events: [{ type: "progress" }] }));
+		assert.throws(() =>
+			parseServerMessage({
+				...transcript,
+				events: Array.from({ length: 65 }, () => events[0]),
+			}),
+		);
 	});
 });

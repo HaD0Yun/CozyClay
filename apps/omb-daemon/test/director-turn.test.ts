@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import net, { type Socket } from "node:net";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -48,6 +48,7 @@ function frame(value: unknown): Buffer {
 
 class Client {
 	readonly messages: Record<string, unknown>[] = [];
+	readonly messageByteLengths: number[] = [];
 	readonly socket: Socket;
 	private buffer = Buffer.alloc(0);
 
@@ -88,7 +89,10 @@ class Client {
 			const opcode = this.buffer[0]! & 15;
 			const payload = this.buffer.subarray(offset, offset + length);
 			this.buffer = this.buffer.subarray(offset + length);
-			if (opcode === 1) this.messages.push(JSON.parse(payload.toString()) as Record<string, unknown>);
+			if (opcode === 1) {
+				this.messageByteLengths.push(payload.byteLength);
+				this.messages.push(JSON.parse(payload.toString()) as Record<string, unknown>);
+			}
 		}
 	}
 }
@@ -344,7 +348,7 @@ test("a faux AgentSession completes a deterministic director turn over real cont
 		assert.deepEqual(toolStarts.map((message) => message.tool_name), methods);
 
 		const fetchId = randomUUID();
-		control.client.send({ type: "director_transcript_request", id: fetchId });
+		control.client.send({ type: "director_transcript_request", id: fetchId, cursor: 0, page_size: 64 });
 		const liveTranscript = await control.client.next(
 			(message) => message.type === "director_transcript" && message.id === fetchId,
 		);
@@ -358,7 +362,12 @@ test("a faux AgentSession completes a deterministic director turn over real cont
 		const resumed = await attachController(daemon);
 		try {
 			const resumedFetchId = randomUUID();
-			resumed.client.send({ type: "director_transcript_request", id: resumedFetchId });
+			resumed.client.send({
+				type: "director_transcript_request",
+				id: resumedFetchId,
+				cursor: 0,
+				page_size: 64,
+			});
 			const resumedTranscript = await resumed.client.next(
 				(message) => message.type === "director_transcript" && message.id === resumedFetchId,
 			);
@@ -493,22 +502,70 @@ test("director turns reuse top-level cancel and persist one cancelled terminal e
 	}
 });
 
-test("G013 provider credential sentinel never reaches the persisted director transcript", async () => {
+test("transcript replay pages more than 1 MiB of history below the controller frame limit", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-paging-"));
+	const events = Array.from({ length: 192 }, (_, sequence) => ({
+		type: "director_turn_started",
+		id: "00000000-0000-4000-8000-000000000001",
+		sequence,
+		at: "2026-07-19T18:00:00.000Z",
+		prompt: "x".repeat(8_192),
+	}));
+	assert.ok(Buffer.byteLength(JSON.stringify(events)) > 1024 * 1024);
+	await mkdir(join(root, ".omb"), { recursive: true });
+	await writeFile(
+		join(root, ".omb", "director-transcript.json"),
+		JSON.stringify({
+			schema_version: 1,
+			session_id: "00000000-0000-4000-8000-000000000002",
+			events,
+		}),
+		{ mode: 0o600 },
+	);
+	const daemon = await start({ port: 0, handlers: {}, projectDirectory: root, stdout: () => {} });
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	try {
+		control = await attachController(daemon);
+		const replayed: unknown[] = [];
+		let cursor = 0;
+		while (true) {
+			const id = randomUUID();
+			control.client.send({
+				type: "director_transcript_request",
+				id,
+				cursor,
+				page_size: 64,
+			});
+			const page = await control.client.next(
+				(message) => message.type === "director_transcript" && message.id === id,
+			);
+			const messageIndex = control.client.messages.indexOf(page);
+			assert.ok(control.client.messageByteLengths[messageIndex]! < 1024 * 1024);
+			replayed.push(...(page.events as unknown[]));
+			if (page.next_cursor === null) break;
+			assert.ok(typeof page.next_cursor === "number" && page.next_cursor > cursor);
+			cursor = page.next_cursor;
+		}
+		assert.deepEqual(replayed, events);
+	} finally {
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("G013 untrusted provider failures are fixed before WebSocket and persistence sinks", async () => {
 	const root = await mkdtemp(join(tmpdir(), "omb-director-sentinel-"));
 	const sentinel = "omb-provider-sentinel-DO-NOT-PERSIST";
-	const previous = process.env.ANTHROPIC_API_KEY;
-	process.env.ANTHROPIC_API_KEY = sentinel;
 	const daemon = await start({
 		port: 0,
 		handlers: {},
 		projectDirectory: root,
 		stdout: () => {},
 		directorTurn: {
-			run: async (turn) => ({
-				summary: "Director turn completed without credential material.",
-				resultingRevisionId: turn.expected_revision_id,
-				toolCallOrder: [],
-			}),
+			run: async () => {
+				throw new Error(`AUTH_ERROR: provider response Authorization: Bearer ${sentinel}`);
+			},
 			dispose: () => {},
 		},
 	});
@@ -519,16 +576,19 @@ test("G013 provider credential sentinel never reaches the persisted director tra
 		control.client.send({
 			type: "director_turn",
 			id: turnId,
-			prompt: "Record a safe transcript.",
+			prompt: "Trigger an adversarial provider failure.",
 			expected_revision_id: PARENT_REVISION,
 			deadline_ms: 30_000,
 		});
-		await control.client.next((message) => message.type === "director_turn_completed" && message.id === turnId);
+		const failed = await control.client.next(
+			(message) => message.type === "director_turn_failed" && message.id === turnId,
+		);
+		assert.equal(failed.code, "MODEL_PROVIDER_ERROR");
+		assert.equal(failed.message, "provider request failed");
+		assert.doesNotMatch(JSON.stringify(control.client.messages), new RegExp(sentinel));
 		const source = await readFile(join(root, ".omb", "director-transcript.json"), "utf8");
 		assert.doesNotMatch(source, new RegExp(sentinel));
 	} finally {
-		if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
-		else process.env.ANTHROPIC_API_KEY = previous;
 		control?.client.socket.destroy();
 		await daemon.close();
 		await rm(root, { recursive: true, force: true });

@@ -195,6 +195,54 @@ const MAX_QA_IMAGE_BATCH_BYTES = 12 * 1024 * 1024;
 const PNG_SIGNATURE_HEX = "89504e470d0a1a0a";
 const MAX_BRIDGE_MESSAGE_BYTES = 18 * 1024 * 1024;
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
+const TRUSTED_DIRECTOR_FAILURE_MESSAGES = {
+	ARTIFACT_STORE_UNAVAILABLE: "artifact store unavailable",
+	BLENDER_UNAVAILABLE: "Blender bridge unavailable",
+	BUSY: "bridge is busy",
+	CAPABILITY_NOT_NEGOTIATED: "required bridge capability was not negotiated",
+	DURABLE_BASE_UNAVAILABLE: "durable bridge base unavailable",
+	DURABLE_COMMIT_STATE: "durable commit state invalid",
+	INSPECT_BRIDGE_UNAVAILABLE: "inspection bridge unavailable",
+	INVALID_ARTIFACT_DESCRIPTOR: "artifact descriptor invalid",
+	INVALID_BRIDGE_MESSAGE: "bridge message invalid",
+	INVALID_INSPECT_RESULT: "inspection result invalid",
+	INVALID_RENDER_QA_RESULT: "render QA result invalid",
+	METHOD_NOT_SUPPORTED: "bridge method not supported",
+	MUTATION_BRIDGE_UNAVAILABLE: "mutation bridge unavailable",
+	RECOVERY_REQUIRED: "bridge recovery required",
+	RENDER_BRIDGE_UNAVAILABLE: "render bridge unavailable",
+	RENDER_QA_BATCH_BYTES_EXCEEDED: "render QA batch exceeds its byte limit",
+	RENDER_QA_FRAME_BYTES_EXCEEDED: "render QA frame exceeds its byte limit",
+	RENDER_QA_IMAGE_CONTENT_LIMIT: "render QA image content exceeds its byte limit",
+	STALE_BASE: "expected revision is stale",
+} as const;
+
+class TrustedDirectorFailure extends Error {
+	readonly code: keyof typeof TRUSTED_DIRECTOR_FAILURE_MESSAGES;
+
+	constructor(code: keyof typeof TRUSTED_DIRECTOR_FAILURE_MESSAGES) {
+		super(TRUSTED_DIRECTOR_FAILURE_MESSAGES[code]);
+		this.code = code;
+	}
+}
+
+function rethrowTrustedDirectorFailure(cause: unknown): never {
+	const message = cause instanceof Error ? cause.message : "";
+	const parsed = /^([A-Z][A-Z0-9_]+):/.exec(message);
+	const code = parsed?.[1];
+	if (code !== undefined && Object.hasOwn(TRUSTED_DIRECTOR_FAILURE_MESSAGES, code)) {
+		throw new TrustedDirectorFailure(code as keyof typeof TRUSTED_DIRECTOR_FAILURE_MESSAGES);
+	}
+	throw cause;
+}
+
+async function runTrustedDirectorTool<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (cause) {
+		rethrowTrustedDirectorFailure(cause);
+	}
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -478,6 +526,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	const bridgeTerminalTargets = new Map<string, WebSocketConnection>();
 	const directorSequences = new Map<string, number>();
 	const directorEventTails = new Map<string, Promise<void>>();
+	const directorCommitRevisions = new Map<string, string>();
 	let pendingBridge: PendingBridge | undefined;
 	let bridgeMessageTail: Promise<void> = Promise.resolve();
 	let draining = false;
@@ -903,7 +952,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				try {
 					const request = parseClientMessage(raw);
 					if (request.type === "director_transcript_request") {
-						websocket.sendText(transcript.snapshot(request.id));
+						websocket.sendText(transcript.page(request));
 					}
 				} catch {
 					state.consumeToken();
@@ -1291,18 +1340,31 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					{
 						signal: active.controller.signal,
 						inspectProject: (expectedRevisionId) =>
-							inspectProject(parent(expectedRevisionId), {
-								signal: active.controller.signal,
-								reportProgress: () => {},
-							}),
-						applyCameraPlan: (plan, context) =>
-							applyCameraPlan(parent(plan.expected_revision_id), plan, context),
-						stageScene: (plan, context) =>
-							stageScene(parent(plan.expected_revision_id), plan, context),
+							runTrustedDirectorTool(() =>
+								inspectProject(parent(expectedRevisionId), {
+									signal: active.controller.signal,
+									reportProgress: () => {},
+								}),
+							),
+						applyCameraPlan: async (plan, context) => {
+							const candidate = await runTrustedDirectorTool(() =>
+								applyCameraPlan(parent(plan.expected_revision_id), plan, context),
+							);
+							directorCommitRevisions.set(turn.id, candidate.manifest.revisionId);
+							return candidate;
+						},
+						stageScene: async (plan, context) => {
+							const candidate = await runTrustedDirectorTool(() =>
+								stageScene(parent(plan.expected_revision_id), plan, context),
+							);
+							directorCommitRevisions.set(turn.id, candidate.manifest.revisionId);
+							return candidate;
+						},
 						renderQaFrames: async (renderRequest, context) => {
 							let beganCommit = false;
 							try {
-								return await renderQaFrames(
+								return await runTrustedDirectorTool(() =>
+									renderQaFrames(
 									parent(renderRequest.revision_id),
 									renderRequest,
 									context,
@@ -1314,6 +1376,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 										}
 										beganCommit = true;
 									},
+									),
 								);
 							} finally {
 								if (beganCommit) state.finishDurableCommit(active);
@@ -1321,15 +1384,25 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						},
 						beginDurableCommit: () => {
 							if (!state.beginDurableCommit(active)) {
-								throw new Error(
-									`${active.cause ?? "CANCELLED"}: cancellation won before durable commit`,
-								);
+								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
 							}
 						},
 						finishDurableCommit: () => {
 							if (!state.finishDurableCommit(active)) {
-								throw new Error("DURABLE_COMMIT_STATE: director commit did not own the active state");
+								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
 							}
+							const revision = directorCommitRevisions.get(turn.id);
+							const bridge = bridgeTerminalTargets.get(turn.id);
+							if (revision === undefined || bridge === undefined || bridge.socket.destroyed) {
+								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
+							}
+							directorCommitRevisions.delete(turn.id);
+							bridge.sendText({
+								type: "response",
+								id: turn.id,
+								result: {},
+								resulting_revision_id: revision,
+							});
 						},
 					},
 					(event) => {
@@ -1363,13 +1436,21 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			} catch (cause) {
 				await directorEventTails.get(turn.id)?.catch(() => undefined);
 				if (state.complete(active)) {
-					const message = cause instanceof Error ? cause.message : "director turn failed";
-					const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);
+					const failure =
+						cause instanceof TrustedDirectorFailure
+							? {
+									code: cause.code,
+									message: cause.message,
+								}
+							: {
+									code: "MODEL_PROVIDER_ERROR",
+									message: "provider request failed",
+								};
 					try {
 						await queueDirectorEvent(turn.id, {
 							type: "director_turn_failed",
-							code: parsed?.[1] ?? "DIRECTOR_TURN_ERROR",
-							message: (parsed?.[2] ?? message).slice(0, 1_024),
+							code: failure.code,
+							message: failure.message,
 							retryable: false,
 						});
 					} finally {
@@ -1383,6 +1464,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			await task;
 		} finally {
 			activeHandlers.delete(task);
+			directorCommitRevisions.delete(turn.id);
 			bridgeTerminalTargets.delete(turn.id);
 		}
 	}

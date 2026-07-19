@@ -1,33 +1,6 @@
 import { ArtifactStore } from "@oh-my-blender/director-core";
-import type { RenderQaFramesResultV1 } from "@oh-my-blender/protocol";
 import { parseRenderQaFramesRequest, parseRenderQaFramesResult } from "@oh-my-blender/protocol";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
-
-export function parseRenderQaFramesResultWithImageCompat(input: unknown): RenderQaFramesResultV1 {
-	try {
-		return parseRenderQaFramesResult(input);
-	} catch (error) {
-		if (input === null || typeof input !== "object" || Array.isArray(input)) throw error;
-		const candidate = input as Record<string, unknown>;
-		if (!Array.isArray(candidate.frames)) throw error;
-		const frames = candidate.frames.map((frame) => {
-			if (frame === null || typeof frame !== "object" || Array.isArray(frame)) throw error;
-			const { image, ...metadata } = frame as Record<string, unknown>;
-			if (
-				image === null ||
-				typeof image !== "object" ||
-				Array.isArray(image) ||
-				(image as Record<string, unknown>).mime_type !== "image/png" ||
-				typeof (image as Record<string, unknown>).data_base64 !== "string"
-			) {
-				throw error;
-			}
-			return metadata;
-		});
-		parseRenderQaFramesResult({ ...candidate, frames });
-		return input as RenderQaFramesResultV1;
-	}
-}
 
 export interface RenderArtifactDeclaration {
 	readonly sha256: string;
@@ -62,7 +35,7 @@ export function createRenderQaFramesHandler() {
 			signal: context.signal,
 			reportProgress: (progress) => context.reportProgress?.(progress.phase, progress.completed, progress.total),
 		});
-		const result = parseRenderQaFramesResultWithImageCompat(raw);
+		const result = parseRenderQaFramesResult(raw);
 		if (result.revision_id !== request.revision_id) {
 			throw new Error("STALE_BASE: render result does not bind the requested revision");
 		}

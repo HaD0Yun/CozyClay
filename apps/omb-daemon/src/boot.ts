@@ -167,12 +167,22 @@ function fauxScenarioResponse(context: Context) {
 					output_format: { width: 640, height: 360 },
 					keyframes: [
 						{
-							frame: 1,
+							frame: 0,
 							pose: {
-								position: [0, -5, 2],
-								look_at: [0, 0, 0],
-								up: [0, 0, 1],
-								vertical_fov_radians: 0.7,
+								position: [0, 2.15, 5.2],
+								look_at: [0, 0.9, 0],
+								up: [0, 1, 0],
+								vertical_fov_radians: 0.47108996144172666,
+							},
+							transition: "smooth",
+						},
+						{
+							frame: 79,
+							pose: {
+								position: [-0.38, 2.15, 5.88],
+								look_at: [-0.38, 0.9, 0.88],
+								up: [0, 1, 0],
+								vertical_fov_radians: 0.47108996144172666,
 							},
 							transition: "smooth",
 						},

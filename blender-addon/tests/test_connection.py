@@ -7,6 +7,7 @@ import tempfile
 import threading
 import sys
 import time
+import types
 from unittest import mock
 import unittest
 
@@ -255,6 +256,64 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(connection.task_status.task_kind, "stage_scene")
         self.assertIn("1 operation", connection.task_status.descriptor)
         self.assertNotIn("secret", connection.task_status.descriptor)
+
+    def test_inspect_project_uses_substrate_aware_main_thread_snapshot_path(self):
+        socket = FakeSocket()
+        with tempfile.TemporaryDirectory() as directory:
+            omb = pathlib.Path(directory, ".omb")
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "project_id": "project",
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            blender = mock.Mock()
+            snapshot = {"schemaVersion": 2, "scene": {"name": "Scene"}}
+            message = {
+                "type": "bridge_request",
+                "id": "inspect-bridge",
+                "request_id": "inspect-request",
+                "method": "inspect_project",
+                "params": {},
+                "expected_revision_id": "0" * 64,
+                "deadline_ms": 5000,
+            }
+
+            manifest_module = types.SimpleNamespace(
+                extract_scene_manifest_v2=mock.Mock(return_value={"sceneHash": "c" * 64}),
+                extract_scene_manifest_v3=mock.Mock(return_value={"sceneHash": "b" * 64}),
+                extract_scene_snapshot=mock.Mock(return_value=snapshot),
+            )
+            with (
+                mock.patch.object(connection_module, "bpy", blender),
+                mock.patch.dict(
+                    sys.modules,
+                    {"oh_my_blender.manifest": manifest_module},
+                ),
+            ):
+                connection.dispatch_bridge_message(message)
+
+        manifest_module.extract_scene_manifest_v2.assert_called_once_with()
+        manifest_module.extract_scene_manifest_v3.assert_called_once_with()
+        manifest_module.extract_scene_snapshot.assert_called_once_with()
+        self.assertEqual(socket.sent, [{
+            "type": "bridge_result",
+            "id": "inspect-bridge",
+            "request_id": "inspect-request",
+            "result": {
+                "revision": BASE_REVISION,
+                "snapshot": snapshot,
+            },
+        }])
+        self.assertFalse(connection._bridge_cancellations)
+        blender.ops.omb.apply_camera_plan.assert_not_called()
+        blender.ops.omb.stage_scene.assert_not_called()
+        blender.ops.omb.render_qa_frames.assert_not_called()
 
     def test_bridge_request_reads_durable_base_hash_from_project_store(self):
         socket = FakeSocket()

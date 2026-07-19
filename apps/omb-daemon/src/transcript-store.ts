@@ -3,14 +3,15 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	DIRECTOR_TRANSCRIPT_MAX_EVENTS,
 	parseDirectorTranscript,
 	parseDirectorTurnEvent,
 	type DirectorTranscript,
+	type DirectorTranscriptRequest,
 	type DirectorTurnEvent,
 } from "@oh-my-blender/protocol";
 
 const TRANSCRIPT_SCHEMA_VERSION = 1;
-const MAX_TRANSCRIPT_EVENTS = 10_000;
 
 interface PersistedTranscript {
 	readonly schema_version: typeof TRANSCRIPT_SCHEMA_VERSION;
@@ -29,16 +30,10 @@ function parsePersistedTranscript(input: unknown): PersistedTranscript {
 	if (input.schema_version !== TRANSCRIPT_SCHEMA_VERSION || typeof input.session_id !== "string") {
 		throw new Error("TRANSCRIPT_CORRUPT: transcript header is invalid");
 	}
-	if (!Array.isArray(input.events) || input.events.length > MAX_TRANSCRIPT_EVENTS) {
+	if (!Array.isArray(input.events) || input.events.length > DIRECTOR_TRANSCRIPT_MAX_EVENTS) {
 		throw new Error("TRANSCRIPT_CORRUPT: transcript event list is invalid");
 	}
 	const events = input.events.map((event) => parseDirectorTurnEvent(event));
-	parseDirectorTranscript({
-		type: "director_transcript",
-		id: randomUUID(),
-		session_id: input.session_id,
-		events,
-	});
 	return { schema_version: TRANSCRIPT_SCHEMA_VERSION, session_id: input.session_id, events };
 }
 
@@ -78,18 +73,20 @@ export class DirectorTranscriptStore {
 		return [...this.persistedEvents];
 	}
 
-	snapshot(requestId: string): DirectorTranscript {
+	page(request: DirectorTranscriptRequest): DirectorTranscript {
+		const end = Math.min(request.cursor + request.page_size, this.persistedEvents.length);
 		return parseDirectorTranscript({
 			type: "director_transcript",
-			id: requestId,
+			id: request.id,
 			session_id: this.sessionId,
-			events: this.persistedEvents,
+			events: this.persistedEvents.slice(request.cursor, end),
+			next_cursor: end < this.persistedEvents.length ? end : null,
 		});
 	}
 
 	async append(input: DirectorTurnEvent): Promise<void> {
 		const event = parseDirectorTurnEvent(input);
-		if (this.persistedEvents.length >= MAX_TRANSCRIPT_EVENTS) {
+		if (this.persistedEvents.length >= DIRECTOR_TRANSCRIPT_MAX_EVENTS) {
 			throw new Error("TRANSCRIPT_EVENT_LIMIT: transcript contains 10000 events");
 		}
 		const write = this.writeTail.then(async () => {
