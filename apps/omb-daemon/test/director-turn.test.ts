@@ -22,6 +22,7 @@ import {
 } from "@oh-my-blender/protocol";
 import { createBootRuntime } from "../src/boot.ts";
 import { start, type Daemon, type DirectorTurnService, type DirectorTurnToolEvent } from "../src/daemon.ts";
+import { DirectorTranscriptStore } from "../src/transcript-store.ts";
 
 const PARENT_REVISION = "a".repeat(64);
 const PNG_BYTES = Buffer.from(
@@ -50,6 +51,7 @@ function frame(value: unknown): Buffer {
 class Client {
 	readonly messages: Record<string, unknown>[] = [];
 	readonly messageByteLengths: number[] = [];
+	readonly closeCodes: number[] = [];
 	readonly socket: Socket;
 	private buffer = Buffer.alloc(0);
 
@@ -93,6 +95,8 @@ class Client {
 			if (opcode === 1) {
 				this.messageByteLengths.push(payload.byteLength);
 				this.messages.push(JSON.parse(payload.toString()) as Record<string, unknown>);
+			} else if (opcode === 8) {
+				this.closeCodes.push(payload.byteLength >= 2 ? payload.readUInt16BE(0) : 1005);
 			}
 		}
 	}
@@ -634,10 +638,11 @@ test("a non-settling cancelled director turn is quarantined before the replaceme
 	}
 });
 
-test("cancelled render quarantines a non-settling artifact setup at the cancellation deadline", async () => {
+test("wedged artifact setup quarantines retired bridge messages and permits replacement bridge work", async () => {
 	const root = await mkdtemp(join(tmpdir(), "omb-director-artifact-quarantine-"));
 	const artifactEvents: string[] = [];
 	let setupStarted = false;
+	let setupCalls = 0;
 	let settleReservation!: (reservation: {
 		writeAt(offset: number, bytes: Uint8Array): Promise<void>;
 		commit(): Promise<{ uri: string; sha256: string; byteLength: number }>;
@@ -645,18 +650,15 @@ test("cancelled render quarantines a non-settling artifact setup at the cancella
 	}) => void;
 	const service: DirectorTurnService = {
 		run: async (turn, context) => {
-			if (turn.prompt === "Complete.") {
-				return {
-					summary: "Replacement completed.",
-					resultingRevisionId: PARENT_REVISION,
-					toolCallOrder: [] as const,
-				};
-			}
-			await context.renderQaFrames(
+			const result = await context.renderQaFrames(
 				{ schema_version: 1, revision_id: PARENT_REVISION, frames: [1] },
 				{ signal: context.signal, reportProgress: () => {} },
 			);
-			throw new Error("unreachable");
+			return {
+				summary: turn.prompt === "Complete." ? `Replacement rendered ${result.frames.length} frame.` : "unreachable",
+				resultingRevisionId: PARENT_REVISION,
+				toolCallOrder: [] as const,
+			};
 		},
 		dispose: () => {},
 		forceDispose() {
@@ -670,11 +672,31 @@ test("cancelled render quarantines a non-settling artifact setup at the cancella
 		stdout: () => {},
 		directorTurn: service,
 		directorTeardownTimeoutMs: 25,
-		beginArtifactReservation: () =>
-			new Promise((resolve) => {
-				setupStarted = true;
-				settleReservation = resolve;
-			}),
+		beginArtifactReservation: (declaration) => {
+			setupCalls += 1;
+			if (setupCalls === 1) {
+				return new Promise((resolve) => {
+					setupStarted = true;
+					settleReservation = resolve;
+				});
+			}
+			return Promise.resolve({
+				writeAt: async () => {
+					artifactEvents.push("replacement-write");
+				},
+				commit: async () => {
+					artifactEvents.push("replacement-commit");
+					return {
+						uri: `omb-artifact://sha256/${declaration.sha256}`,
+						sha256: declaration.sha256,
+						byteLength: declaration.byteLength,
+					};
+				},
+				abort: async () => {
+					artifactEvents.push("replacement-abort");
+				},
+			});
+		},
 	});
 	let control: Awaited<ReturnType<typeof attachController>> | undefined;
 	let bridge: Client | undefined;
@@ -703,6 +725,12 @@ test("cancelled render quarantines a non-settling artifact setup at the cancella
 		});
 		while (!setupStarted) await new Promise((resolve) => setTimeout(resolve, 2));
 		control.client.send({ type: "cancel", id: turnId });
+		bridge.send({
+			type: "bridge_cancel_ack",
+			id: request.id,
+			request_id: turnId,
+			status: "accepted",
+		});
 		await control.client.next(
 			(message) => message.type === "director_turn_cancelled" && message.id === turnId,
 			250,
@@ -716,9 +744,54 @@ test("cancelled render quarantines a non-settling artifact setup at the cancella
 			expected_revision_id: PARENT_REVISION,
 			deadline_ms: 30_000,
 		});
-		await control.client.next(
-			(message) => message.type === "director_turn_completed" && message.id === replacementId,
+		const replacementRequest = await bridge.next(
+			(message) => message.type === "bridge_request" && message.request_id === replacementId,
+			250,
 		);
+		bridge.send({
+			type: "bridge_artifact_begin",
+			id: replacementRequest.id,
+			request_id: replacementId,
+			frame: 1,
+			total_chunks: 1,
+			total_byte_length: PNG_BYTES.byteLength,
+			sha256: PNG_DIGEST,
+		});
+		bridge.send({
+			type: "bridge_artifact_chunk",
+			id: replacementRequest.id,
+			request_id: replacementId,
+			frame: 1,
+			chunk_index: 0,
+			total_chunks: 1,
+			byte_offset: 0,
+			byte_length: PNG_BYTES.byteLength,
+			data_base64: PNG_BYTES.toString("base64"),
+		});
+		bridge.send({
+			type: "bridge_result",
+			id: replacementRequest.id,
+			request_id: replacementId,
+			result: {
+				schema_version: 1,
+				revision_id: PARENT_REVISION,
+				profile_version: "omb-qa-png-v1",
+				frames: [{
+					frame: 1,
+					width: 640,
+					height: 360,
+					profile_version: "omb-qa-png-v1",
+					byte_length: PNG_BYTES.byteLength,
+					sha256: PNG_DIGEST,
+					image: { mime_type: "image/png", data_base64: PNG_BYTES.toString("base64") },
+				}],
+			},
+		});
+		const completed = await control.client.next(
+			(message) => message.type === "director_turn_completed" && message.id === replacementId,
+			250,
+		);
+		assert.equal(completed.summary, "Replacement rendered 1 frame.");
 
 		const eventCount = control.client.messages.length;
 		settleReservation({
@@ -738,7 +811,7 @@ test("cancelled render quarantines a non-settling artifact setup at the cancella
 			},
 		});
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		assert.deepEqual(artifactEvents, ["abort"]);
+		assert.deepEqual(artifactEvents, ["replacement-write", "replacement-commit", "abort"]);
 		assert.equal(control.client.messages.length, eventCount);
 	} finally {
 		bridge?.socket.destroy();
@@ -748,6 +821,234 @@ test("cancelled render quarantines a non-settling artifact setup at the cancella
 	}
 });
 
+test("cancelled terminal persistence timeout closes control with 1011 and permits reconnect", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-persistence-timeout-"));
+	const backing = await DirectorTranscriptStore.open(root);
+	const diagnostics: string[] = [];
+	const service: DirectorTurnService = {
+		run: async (_turn, context) =>
+			await new Promise((_, reject) => {
+				const abort = () => reject(new Error("aborted"));
+				context.signal.addEventListener("abort", abort, { once: true });
+				if (context.signal.aborted) abort();
+			}),
+		dispose: () => {},
+		forceDispose() {
+			return this;
+		},
+	};
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		directorTurn: service,
+		directorTeardownTimeoutMs: 25,
+		transcriptStore: {
+			sessionId: backing.sessionId,
+			append: async (event) => {
+				if (event.type === "director_turn_cancelled") await new Promise(() => {});
+				await backing.append(event);
+			},
+			page: (request) => backing.page(request),
+		},
+		stdout: () => {},
+		stderr: (line) => diagnostics.push(line),
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	let resumed: Awaited<ReturnType<typeof attachController>> | undefined;
+	try {
+		control = await attachController(daemon);
+		const turnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: turnId,
+			prompt: "Cancel me.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		await control.client.next((message) => message.type === "director_turn_started" && message.id === turnId);
+		control.client.send({ type: "cancel", id: turnId });
+		const deadline = Date.now() + 500;
+		while (control.client.closeCodes.length === 0 && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 2));
+		}
+		assert.deepEqual(control.client.closeCodes, [1011]);
+		assert.equal(
+			control.client.messages.some((message) => message.type === "director_turn_cancelled" && message.id === turnId),
+			false,
+		);
+		assert.equal(diagnostics.some((line) => line.includes(`persistence timed out for request ${turnId}`)), true);
+
+		resumed = await attachController(daemon, control.resumeToken);
+		const requestId = randomUUID();
+		resumed.client.send({ type: "director_transcript_request", id: requestId, cursor: 0, page_size: 64 });
+		const transcript = await resumed.client.next(
+			(message) => message.type === "director_transcript" && message.id === requestId,
+		);
+		assert.equal(Array.isArray(transcript.events), true);
+	} finally {
+		resumed?.client.socket.destroy();
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("cancel aborts every pending artifact reservation acquisition", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-acquisition-abort-"));
+	let pendingAcquisitions = 0;
+	let abortedAcquisitions = 0;
+	const service: DirectorTurnService = {
+		run: async (_turn, context) => {
+			await context.renderQaFrames(
+				{ schema_version: 1, revision_id: PARENT_REVISION, frames: [1] },
+				{ signal: context.signal, reportProgress: () => {} },
+			);
+			throw new Error("unreachable");
+		},
+		dispose: () => {},
+		forceDispose() {
+			return this;
+		},
+	};
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		directorTurn: service,
+		directorTeardownTimeoutMs: 25,
+		beginArtifactReservation: (_declaration, signal) => {
+			assert.ok(signal);
+			pendingAcquisitions += 1;
+			signal.addEventListener("abort", () => {
+				pendingAcquisitions -= 1;
+				abortedAcquisitions += 1;
+			}, { once: true });
+			return new Promise(() => {});
+		},
+		stdout: () => {},
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	let bridge: Client | undefined;
+	try {
+		control = await attachController(daemon);
+		bridge = await attachBridge(daemon, control.client);
+		for (let index = 0; index < 3; index += 1) {
+			const turnId = randomUUID();
+			control.client.send({
+				type: "director_turn",
+				id: turnId,
+				prompt: "Render.",
+				expected_revision_id: PARENT_REVISION,
+				deadline_ms: 30_000,
+			});
+			const request = await bridge.next(
+				(message) => message.type === "bridge_request" && message.request_id === turnId,
+			);
+			bridge.send({
+				type: "bridge_artifact_begin",
+				id: request.id,
+				request_id: turnId,
+				frame: 1,
+				total_chunks: 1,
+				total_byte_length: PNG_BYTES.byteLength,
+				sha256: PNG_DIGEST,
+			});
+			while (pendingAcquisitions !== 1) await new Promise((resolve) => setTimeout(resolve, 2));
+			control.client.send({ type: "cancel", id: turnId });
+			await control.client.next(
+				(message) => message.type === "director_turn_cancelled" && message.id === turnId,
+				250,
+			);
+			assert.equal(pendingAcquisitions, 0);
+		}
+		assert.equal(abortedAcquisitions, 3);
+	} finally {
+		bridge?.socket.destroy();
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("synchronous reservation abort failure does not escape as an unhandled rejection", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-throwing-abort-"));
+	const unhandled: unknown[] = [];
+	const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+	process.on("unhandledRejection", recordUnhandled);
+	const service: DirectorTurnService = {
+		run: async (_turn, context) => {
+			await context.renderQaFrames(
+				{ schema_version: 1, revision_id: PARENT_REVISION, frames: [1] },
+				{ signal: context.signal, reportProgress: () => {} },
+			);
+			throw new Error("unreachable");
+		},
+		dispose: () => {},
+		forceDispose() {
+			return this;
+		},
+	};
+	const daemon = await start({
+		port: 0,
+		handlers: {},
+		projectDirectory: root,
+		directorTurn: service,
+		directorTeardownTimeoutMs: 25,
+		beginArtifactReservation: async () => ({
+			writeAt: async () => {},
+			commit: async () => ({
+				uri: `omb-artifact://sha256/${PNG_DIGEST}`,
+				sha256: PNG_DIGEST,
+				byteLength: PNG_BYTES.byteLength,
+			}),
+			abort: () => {
+				throw new Error("synchronous abort failure");
+			},
+		}),
+		stdout: () => {},
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	let bridge: Client | undefined;
+	try {
+		control = await attachController(daemon);
+		bridge = await attachBridge(daemon, control.client);
+		const turnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: turnId,
+			prompt: "Render.",
+			expected_revision_id: PARENT_REVISION,
+			deadline_ms: 30_000,
+		});
+		const request = await bridge.next(
+			(message) => message.type === "bridge_request" && message.request_id === turnId,
+		);
+		bridge.send({
+			type: "bridge_artifact_begin",
+			id: request.id,
+			request_id: turnId,
+			frame: 1,
+			total_chunks: 1,
+			total_byte_length: PNG_BYTES.byteLength,
+			sha256: PNG_DIGEST,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		control.client.send({ type: "cancel", id: turnId });
+		await control.client.next(
+			(message) => message.type === "director_turn_cancelled" && message.id === turnId,
+			250,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.deepEqual(unhandled, []);
+	} finally {
+		process.off("unhandledRejection", recordUnhandled);
+		bridge?.socket.destroy();
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
 test("transcript replay pages more than 1 MiB of history below the controller frame limit", async () => {
 	const root = await mkdtemp(join(tmpdir(), "omb-director-paging-"));
 	const events = Array.from({ length: 192 }, (_, sequence) => ({

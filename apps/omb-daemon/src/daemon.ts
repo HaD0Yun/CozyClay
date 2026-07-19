@@ -125,9 +125,11 @@ export interface RenderArtifactReservation {
 }
 export type BeginArtifactReservation = (
 	artifact: RenderArtifactDeclaration,
+	signal?: AbortSignal,
 ) => Promise<RenderArtifactReservation>;
 export type BeginArtifactReservations = (
 	artifacts: readonly RenderArtifactDeclaration[],
+	signal?: AbortSignal,
 ) => Promise<readonly RenderArtifactReservation[]>;
 export type RenderQaFrames = (
 	request: RenderQaFramesRequestV1,
@@ -137,12 +139,19 @@ export type RenderQaFrames = (
 	},
 ) => Promise<RenderQaFramesResultV1>;
 
+export interface TranscriptStore {
+	readonly sessionId: string;
+	append(event: Parameters<DirectorTranscriptStore["append"]>[0]): Promise<void>;
+	page(request: Parameters<DirectorTranscriptStore["page"]>[0]): ReturnType<DirectorTranscriptStore["page"]>;
+}
+
 export type DaemonOptions = {
 	port: number;
 	clock?: Clock;
 	handlers: Record<string, Handler>;
 	directorTurn?: DirectorTurnService;
 	projectDirectory?: string;
+	transcriptStore?: TranscriptStore;
 	beginArtifactReservation?: BeginArtifactReservation;
 	beginArtifactReservations?: BeginArtifactReservations;
 	stdout?: (line: string) => void;
@@ -181,6 +190,9 @@ type PendingBridge = {
 	readonly renderRequest?: RenderQaFramesRequestV1;
 	readonly artifactFrames: Map<number, PendingArtifactFrame>;
 	totalArtifactBytes: number;
+	readonly signal?: AbortSignal;
+	quarantine?: Promise<void>;
+	resolveQuarantine?: () => void;
 	artifactCleanup?: Promise<void>;
 	artifactSetup?: Promise<void>;
 	cancelled?: boolean;
@@ -291,13 +303,18 @@ async function beginArtifactFrame(
 	if (pending.totalArtifactBytes + begin.total_byte_length > MAX_RENDER_BATCH_BYTES) {
 		throw new Error("RENDER_QA_BATCH_BYTES_EXCEEDED: declared artifacts exceed 128 MiB");
 	}
-	const reservation = await beginReservation({
-		sha256: begin.sha256,
-		byteLength: begin.total_byte_length,
-	});
+	const reservation = await beginReservation(
+		{
+			sha256: begin.sha256,
+			byteLength: begin.total_byte_length,
+		},
+		pending.signal,
+	);
 	if (pending.cancelled) {
 		if (pending.quarantined) {
-			void reservation.abort().catch(() => undefined);
+			void Promise.resolve()
+				.then(() => reservation.abort())
+				.catch(() => undefined);
 		} else {
 			await reservation.abort();
 		}
@@ -345,9 +362,12 @@ async function beginArtifactBatch(
 	}
 	const reservations = await beginReservations(
 		begin.frames.map((frame) => ({ sha256: frame.sha256, byteLength: frame.total_byte_length })),
+		pending.signal,
 	);
 	if (pending.cancelled) {
-		const aborts = reservations.map((reservation) => reservation.abort());
+		const aborts = reservations.map((reservation) =>
+			Promise.resolve().then(() => reservation.abort()),
+		);
 		if (pending.quarantined) {
 			for (const abort of aborts) void abort.catch(() => undefined);
 		} else {
@@ -409,7 +429,9 @@ async function recordArtifactChunk(pending: PendingBridge, chunk: BridgeArtifact
 async function abortArtifactFrames(pending: PendingBridge): Promise<void> {
 	const frames = Array.from(pending.artifactFrames.values());
 	pending.artifactFrames.clear();
-	await Promise.allSettled(frames.map((frame) => frame.reservation.abort()));
+	await Promise.allSettled(
+		frames.map((frame) => Promise.resolve().then(() => frame.reservation.abort())),
+	);
 }
 
 async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promise<RenderQaFramesResultV1> {
@@ -535,7 +557,8 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 
 export async function start(options: DaemonOptions): Promise<Daemon> {
 	const clock = options.clock ?? systemClock;
-	const transcript = await DirectorTranscriptStore.open(options.projectDirectory ?? process.cwd());
+	const transcript =
+		options.transcriptStore ?? (await DirectorTranscriptStore.open(options.projectDirectory ?? process.cwd()));
 	const token = new BearerToken(clock);
 	const controllerCredential = new ControllerCredential();
 	const attachTickets = new AttachTicketBroker(clock, options.attachTicketTtlMs);
@@ -627,19 +650,29 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	};
 	const state = new SessionState(clock, (request) => void finishCancellation(request));
 
+	function quarantineSignal(pending: PendingBridge): Promise<void> {
+		pending.quarantine ??= new Promise<void>((resolve) => {
+			pending.resolveQuarantine = resolve;
+		});
+		return pending.quarantine;
+	}
+
 	function retireBridge(pending: PendingBridge): Promise<void> {
 		const existing = retiredBridges.get(pending.id);
 		if (existing !== undefined) return existing.artifactCleanup;
+		quarantineSignal(pending);
 		const artifactCleanup =
 			pending.artifactCleanup ??=
 				(async () => {
 					try {
-						await pending.artifactSetup;
+						await Promise.race([pending.artifactSetup, pending.quarantine]);
 					} catch {}
-					await abortArtifactFrames(pending);
+					if (!pending.quarantined) await abortArtifactFrames(pending);
 				})();
 		const retirementTimer = setTimeout(() => {
-			void artifactCleanup.finally(() => retiredBridges.delete(pending.id));
+			void artifactCleanup
+				.finally(() => retiredBridges.delete(pending.id))
+				.catch(() => undefined);
 		}, RETIRED_BRIDGE_TTL_MS);
 		retirementTimer.unref();
 		retiredBridges.set(pending.id, { pending, artifactCleanup, retirementTimer });
@@ -648,9 +681,14 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 
 	function forceDisposeRetiredBridge(retired: RetiredBridge): void {
 		retired.pending.quarantined = true;
+		retired.pending.resolveQuarantine?.();
 		const frames = Array.from(retired.pending.artifactFrames.values());
 		retired.pending.artifactFrames.clear();
-		for (const frame of frames) void frame.reservation.abort().catch(() => undefined);
+		for (const frame of frames) {
+			void Promise.resolve()
+				.then(() => frame.reservation.abort())
+				.catch(() => undefined);
+		}
 		clearTimeout(retired.retirementTimer);
 		retiredBridges.delete(retired.pending.id);
 		void retired.artifactCleanup.catch(() => undefined);
@@ -700,10 +738,26 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			await Promise.race([retired.artifactCleanup.then(() => true), cancellationDeadline]);
 		}
 		if (retired !== undefined && deadlineExpired) forceDisposeRetiredBridge(retired);
-		if (teardownTimer !== undefined) clearTimeout(teardownTimer);
+		if (!directorSequences.has(request.id) && teardownTimer !== undefined) clearTimeout(teardownTimer);
 		if (!state.terminal(request)) return;
 		if (directorSequences.has(request.id)) {
-			await queueDirectorEvent(request.id, { type: "director_turn_cancelled" });
+			const publication = queueDirectorEvent(request.id, { type: "director_turn_cancelled" });
+			let persistenceTimer: ReturnType<typeof setTimeout> | undefined;
+			const persistenceDeadline = new Promise<false>((resolve) => {
+				persistenceTimer = setTimeout(() => resolve(false), directorTeardownTimeoutMs);
+			});
+			const published = await Promise.race([publication.then(() => true), persistenceDeadline]);
+			if (persistenceTimer !== undefined) clearTimeout(persistenceTimer);
+			if (!published) {
+				const control = activeControl();
+				(options.stderr ?? ((line) => process.stderr.write(`${line}\n`)))(
+					`director cancellation persistence timed out for request ${request.id}`,
+				);
+				if (control !== undefined && !control.websocket.socket.destroyed) {
+					control.websocket.close(1011, "transcript persistence timeout");
+				}
+			}
+			if (teardownTimer !== undefined) clearTimeout(teardownTimer);
 			return;
 		}
 		const error = protocolError(
@@ -982,7 +1036,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						rawType === "bridge_cancel_ack" ||
 						rawType === "bridge_result"
 					) {
-						await retired.artifactCleanup;
+						await Promise.race([retired.artifactCleanup, retired.pending.quarantine ?? Promise.resolve()]);
+						if (retired.pending.quarantined) return;
 						clearTimeout(retired.retirementTimer);
 						retiredBridges.delete(rawId);
 					}
@@ -1011,7 +1066,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 							bridgeMessage,
 							options.beginArtifactReservations,
 						);
-						await pendingBridge.artifactSetup;
+						const setup = pendingBridge.artifactSetup;
+						void setup.catch(() => undefined);
+						await Promise.race([setup, quarantineSignal(pendingBridge)]);
 						return;
 					}
 					if (bridgeMessage.type === "bridge_artifact_begin") {
@@ -1020,7 +1077,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 							bridgeMessage,
 							options.beginArtifactReservation,
 						);
-						await pendingBridge.artifactSetup;
+						const setup = pendingBridge.artifactSetup;
+						void setup.catch(() => undefined);
+						await Promise.race([setup, quarantineSignal(pendingBridge)]);
 						return;
 					}
 					if (bridgeMessage.type === "bridge_artifact_chunk") {
@@ -1187,6 +1246,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "inspect_project",
 				artifactFrames: new Map(),
 				totalArtifactBytes: 0,
+				signal,
 				reportProgress: context.reportProgress,
 				resolve: (result) => {
 					if (
@@ -1271,6 +1331,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "apply_camera_plan",
 				artifactFrames: new Map(),
 				totalArtifactBytes: 0,
+				signal,
 				reportProgress: context.reportProgress,
 				resolve: (result) => resolve(result as CameraPlanMutationCandidate),
 				reject,
@@ -1339,6 +1400,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "stage_scene",
 				artifactFrames: new Map(),
 				totalArtifactBytes: 0,
+				signal,
 				reportProgress: context.reportProgress,
 				resolve: (result) => resolve(result as StageSceneMutationCandidate),
 				reject,
@@ -1410,6 +1472,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				renderRequest,
 				artifactFrames: new Map(),
 				totalArtifactBytes: 0,
+				signal,
 				reportProgress: context.reportProgress,
 				beginArtifactCommit,
 				resolve: (result) => resolve(result as RenderQaFramesResultV1),
