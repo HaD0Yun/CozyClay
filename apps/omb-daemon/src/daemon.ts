@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import http from "node:http";
 import {
 	MUTATION_PROTOCOL_VERSION,
+	MUTATION_BRIDGE_CAPABILITY,
 	MutationBridgeSession,
 	negotiateMutationBridge,
 	parseAddonBridgeMessage,
@@ -11,6 +12,7 @@ import {
 	parseRenderQaFramesRequest,
 	parseStartupRecord,
 	PROTOCOL_VERSION,
+	SCENE_MANIFEST_V3_CAPABILITY,
 	type BridgeArtifactBegin,
 	type BridgeArtifactBatchBegin,
 	type BridgeArtifactChunk,
@@ -653,7 +655,11 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									launch_id: launchId,
 									session_id: randomUUID(),
 									server_nonce: randomNonce(),
-									capabilities: ["mutation_bridge_v2" as const],
+									capabilities: hello.capabilities.some(
+										(capability) => capability === SCENE_MANIFEST_V3_CAPABILITY,
+									)
+										? [MUTATION_BRIDGE_CAPABILITY, SCENE_MANIFEST_V3_CAPABILITY]
+										: [MUTATION_BRIDGE_CAPABILITY],
 								}
 							: {
 									type: "hello_ack" as const,
@@ -892,6 +898,11 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		if (transport === undefined) {
 			throw new Error("MUTATION_BRIDGE_UNAVAILABLE: stage_scene requires an attached protocol-v2 bridge");
 		}
+		if (!transport.mutationSession.supportsStageScene) {
+			throw new Error(
+				`CAPABILITY_NOT_NEGOTIATED: stage_scene requires ${SCENE_MANIFEST_V3_CAPABILITY}`,
+			);
+		}
 		if (pendingBridge !== undefined) throw new Error("BUSY: one mutation bridge is already open");
 		if (plan.expected_revision_id !== request.expected_revision_id) {
 			throw new Error(
@@ -1034,6 +1045,21 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			return sendControl(protocolError(request.id, "BUSY", "one request is already active", true));
 		}
 		const active = state.current!;
+		if (
+			request.method === "stage_scene" &&
+			!bridgeTransport()?.mutationSession.supportsStageScene
+		) {
+			state.complete(active);
+			state.terminal(active);
+			return sendControl(
+				protocolError(
+					request.id,
+					"CAPABILITY_NOT_NEGOTIATED",
+					`stage_scene requires ${SCENE_MANIFEST_V3_CAPABILITY}`,
+					false,
+				),
+			);
+		}
 		const handler = options.handlers[request.method];
 		if (!handler) {
 			state.complete(active);

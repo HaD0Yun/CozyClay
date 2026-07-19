@@ -1,5 +1,10 @@
 import type { ApplyCameraPlanResult } from "@oh-my-blender/blender-tools";
-import { buildSceneManifestV2Revision, type DirectorProject, ProjectStore } from "@oh-my-blender/director-core";
+import {
+	buildSceneManifestV2Revision,
+	buildSceneManifestV3Revision,
+	type DirectorProject,
+	ProjectStore,
+} from "@oh-my-blender/director-core";
 import {
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
@@ -34,8 +39,25 @@ export async function commitCameraPlanMutation(
 	if (candidate.scene_hash !== candidate.manifest.sceneHash) {
 		throw new Error("INVALID_MUTATION_RESULT: scene_hash must equal manifest.sceneHash");
 	}
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-	const rebuiltManifest = buildSceneManifestV2Revision(hashFreeManifest);
+	const current = await store.readProject();
+	const durableManifest =
+		typeof current.manifest === "object" && current.manifest !== null
+			? (current.manifest as { schemaVersion?: unknown })
+			: undefined;
+	if (
+		(durableManifest?.schemaVersion === 2 || durableManifest?.schemaVersion === 3) &&
+		durableManifest.schemaVersion !== candidate.manifest.schemaVersion
+	) {
+		throw new Error("INVALID_MUTATION_RESULT: manifest schema must match the durable substrate");
+	}
+	const rebuiltManifest = (() => {
+		if (candidate.manifest.schemaVersion === 3) {
+			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
+			return buildSceneManifestV3Revision(hashFreeManifest, plan.expected_revision_id, plan);
+		}
+		const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
+		return buildSceneManifestV2Revision(hashFreeManifest);
+	})();
 	if (
 		candidate.scene_hash !== rebuiltManifest.sceneHash ||
 		candidate.manifest.sceneHash !== rebuiltManifest.sceneHash ||
@@ -43,7 +65,6 @@ export async function commitCameraPlanMutation(
 	) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest hashes do not match its canonical content");
 	}
-	const current = await store.readProject();
 	if (current.project_id !== candidate.manifest.projectId) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest projectId does not match the current project");
 	}

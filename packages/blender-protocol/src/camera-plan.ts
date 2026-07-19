@@ -1,6 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
-import { SceneManifestV2Schema } from "./manifest.ts";
+import { SceneManifestV2Schema, SceneManifestV3Schema } from "./manifest.ts";
 
 const HASH_64 = "^[0-9a-f]{64}$";
 const exact = <T extends Record<string, TSchema>>(properties: T) =>
@@ -35,7 +35,7 @@ export type CameraPlanV1 = Static<typeof CameraPlanV1Schema>;
 export const CameraPlanMutationCandidateSchema = exact({
 	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	scene_hash: Type.String({ pattern: HASH_64 }),
-	manifest: SceneManifestV2Schema,
+	manifest: Type.Union([SceneManifestV2Schema, SceneManifestV3Schema]),
 });
 export type CameraPlanMutationCandidate = Static<typeof CameraPlanMutationCandidateSchema>;
 export type Vector3 = [number, number, number];

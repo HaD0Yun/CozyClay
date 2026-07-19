@@ -678,7 +678,7 @@ class ConnectionTests(unittest.TestCase):
                     project_id="project",
                     addon_version="1",
                     blender_version="4",
-                    live_scene_hash_fn=lambda: "b" * 64,
+                    live_scene_hash_fn=lambda _expected: "b" * 64,
                     previous_connection=previous,
                 )
 
@@ -730,7 +730,7 @@ class ConnectionTests(unittest.TestCase):
                     project_id="project",
                     addon_version="1",
                     blender_version="4",
-                    live_scene_hash_fn=lambda: "b" * 64,
+                    live_scene_hash_fn=lambda _expected: "b" * 64,
                     previous_connection=previous,
                 )
 
@@ -761,7 +761,7 @@ class ConnectionTests(unittest.TestCase):
                         project_id="project",
                         addon_version="1",
                         blender_version="4",
-                        live_scene_hash_fn=lambda: "b" * 64,
+                        live_scene_hash_fn=lambda _expected: "b" * 64,
                         previous_connection=previous,
                     )
 

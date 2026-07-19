@@ -693,10 +693,18 @@ def _remove_unused_actions(actions: tuple[object | None, object | None]) -> None
             pass
 
 
-def _extract_live_scene_manifest() -> dict:
-    from .manifest import extract_scene_manifest_v2
+def _extract_live_scene_manifest(current_scene_hash: str) -> dict:
+    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
 
-    return extract_scene_manifest_v2()
+    v2 = extract_scene_manifest_v2()
+    if v2["sceneHash"] == current_scene_hash:
+        return v2
+    v3 = extract_scene_manifest_v3()
+    if v3["sceneHash"] == current_scene_hash:
+        return v3
+    raise STALE_BASE(
+        "live main-thread manifest hash differs from the durable expected base"
+    )
 
 
 def _check_abort(deadline: float | None, cancelled: Callable[[], bool]) -> None:
@@ -722,10 +730,10 @@ def apply_camera_plan_transaction(
     evidence = load_authorized_fixture(plan, current_scene_hash)
     plan = validate_camera_plan(plan, evidence)
     _check_abort(deadline, cancelled)
-    live_manifest = _extract_live_scene_manifest()
+    live_manifest = _extract_live_scene_manifest(current_scene_hash)
     if live_manifest["sceneHash"] != evidence["scene_hash"]:
         raise STALE_BASE(
-            "live main-thread SceneManifestV2 hash differs from the durable expected base"
+            "live main-thread manifest hash differs from the authorized evidence base"
         )
 
     scene = bpy.context.scene
@@ -764,9 +772,19 @@ def apply_camera_plan_transaction(
         bpy.context.view_layer.update()
         connection.ensure_mutation_connection("before_verify")
 
-        from .manifest import extract_scene_manifest_v2
+        if live_manifest["schemaVersion"] == 3:
+            from .manifest import extract_scene_manifest_v3
+            from .scene_manifest import finalize_scene_manifest_child
 
-        manifest = extract_scene_manifest_v2()
+            manifest = finalize_scene_manifest_child(
+                extract_scene_manifest_v3(),
+                plan["expected_revision_id"],
+                plan,
+            )
+        else:
+            from .manifest import extract_scene_manifest_v2
+
+            manifest = extract_scene_manifest_v2()
         result = {
             "expected_revision_id": plan["expected_revision_id"],
             "scene_hash": manifest["sceneHash"],

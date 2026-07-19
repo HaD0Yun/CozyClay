@@ -272,10 +272,13 @@ def _render_batch(
                 bpy.data.worlds.remove(temporary_world)
 
 
-def _live_scene_hash() -> str:
-    from .manifest import extract_scene_manifest_v2
+def _live_scene_hash(current_scene_hash: str) -> str:
+    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
 
-    return extract_scene_manifest_v2()["sceneHash"]
+    v2_hash = extract_scene_manifest_v2()["sceneHash"]
+    if v2_hash == current_scene_hash:
+        return v2_hash
+    return extract_scene_manifest_v3()["sceneHash"]
 
 
 def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
@@ -329,7 +332,7 @@ def render_qa_frames_transaction(
     *,
     cancelled: Callable[[], bool] = lambda: False,
     deadline: float | None = None,
-    live_scene_hash: Callable[[], str] = _live_scene_hash,
+    live_scene_hash: Callable[[str], str] = _live_scene_hash,
     render_batch: Callable[..., list[tuple[int, bytes]]] = _render_batch,
     progress: Callable[[str, int, int], None] = lambda _phase, _completed, _total: None,
 ) -> dict:
@@ -354,9 +357,9 @@ def render_qa_frames_transaction(
         time.monotonic() + MAX_DEADLINE_SECONDS,
     )
     _check_abort(effective_deadline, cancelled)
-    if live_scene_hash() != current_scene_hash:
+    if live_scene_hash(current_scene_hash) != current_scene_hash:
         raise RENDER_QA_STALE_REVISION(
-            "live main-thread SceneManifestV2 hash differs from the durable expected base"
+            "live main-thread manifest hash differs from the durable expected base"
         )
     progress("rendering", 0, len(request["frames"]))
     rendered = render_batch(

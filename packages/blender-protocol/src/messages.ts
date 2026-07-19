@@ -37,8 +37,12 @@ const helloAckProperties = {
 	server_nonce: Type.String({ pattern: BASE64URL_16 }),
 };
 export const MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2";
+export const SCENE_MANIFEST_V3_CAPABILITY = "scene_manifest_v3";
 const mutationCapabilities = () =>
-	Type.Array(Type.Literal(MUTATION_BRIDGE_CAPABILITY), { minItems: 1, maxItems: 1, uniqueItems: true });
+	Type.Union([
+		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY)]),
+		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY), Type.Literal(SCENE_MANIFEST_V3_CAPABILITY)]),
+	]);
 
 export const HelloV1Schema = exact({
 	...helloProperties,
@@ -281,11 +285,19 @@ const negotiatedMutationSessions = new WeakSet<MutationBridgeSession>();
 export class MutationBridgeSession {
 	readonly protocol = MUTATION_PROTOCOL_VERSION;
 	readonly capability = MUTATION_BRIDGE_CAPABILITY;
+	readonly supportsStageScene: boolean;
 	private readonly openBridgeByRequest = new Map<string, string>();
 	private readonly openRequestByBridge = new Map<string, string>();
 	private readonly terminalBridgeIds = new Set<string>();
 
+	constructor(supportsStageScene = false) {
+		this.supportsStageScene = supportsStageScene;
+	}
+
 	registerRequest(message: BridgeRequest, activeRequestIds: ReadonlySet<string>): void {
+		if (message.method === "stage_scene" && !this.supportsStageScene) {
+			throw new Error(`stage_scene requires negotiated ${SCENE_MANIFEST_V3_CAPABILITY} capability`);
+		}
 		if (!activeRequestIds.has(message.request_id)) {
 			throw new Error(`bridge parent ${message.request_id} is not an active top-level request`);
 		}
@@ -325,7 +337,14 @@ export function negotiateMutationBridge(helloInput: unknown, helloAckInput: unkn
 	if (hello.protocol !== MUTATION_PROTOCOL_VERSION || helloAck.protocol !== MUTATION_PROTOCOL_VERSION) {
 		throw new Error("mutation bridge requires a protocol v2 hello/hello_ack negotiation");
 	}
-	const session = new MutationBridgeSession();
+	const helloCapabilities = new Set(hello.capabilities);
+	if (helloAck.capabilities.some((capability) => !helloCapabilities.has(capability))) {
+		throw new Error("hello_ack capability was not offered by hello");
+	}
+	const session = new MutationBridgeSession(
+		helloCapabilities.has(SCENE_MANIFEST_V3_CAPABILITY) &&
+			helloAck.capabilities.includes(SCENE_MANIFEST_V3_CAPABILITY),
+	);
 	negotiatedMutationSessions.add(session);
 	Object.freeze(session);
 	return session;

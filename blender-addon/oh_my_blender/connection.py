@@ -18,7 +18,13 @@ from uuid import UUID
 
 from .checkpoint import Checkpoint, restore, verify
 from .daemon_child import DaemonChild, UnsafeExecutableError, verify_executable
-from .handshake import HandshakeError, build_hello, validate_hello_ack
+from .handshake import (
+    HandshakeError,
+    MUTATION_BRIDGE_CAPABILITY,
+    SCENE_MANIFEST_V3_CAPABILITY,
+    build_hello,
+    validate_hello_ack,
+)
 from .ws_client import WebSocketClient, WebSocketError
 
 try:  # Blender is intentionally absent from host-side unit tests.
@@ -222,12 +228,21 @@ class Connection:
         *,
         tools_exposed: bool = True,
         identity: dict[str, str] | None = None,
+        capabilities: frozenset[str] | None = None,
     ):
         self.child = child
         self.websocket = websocket
         self.state = LifecycleState.ACTIVE
         self.tools_exposed = tools_exposed
         self.identity = identity
+        self.capabilities = (
+            capabilities
+            if capabilities is not None
+            else frozenset({
+                MUTATION_BRIDGE_CAPABILITY,
+                SCENE_MANIFEST_V3_CAPABILITY,
+            })
+        )
         self.active_checkpoint: Checkpoint | None = None
         self._checkpoint_recovery: Callable[[], bool] | None = None
         self.durable_commit_reconciliation: dict | None = None
@@ -578,6 +593,16 @@ class Connection:
                 message,
                 "METHOD_NOT_SUPPORTED",
                 f"unsupported bridge method: {message.get('method')}",
+            )
+            return
+        if (
+            message.get("method") == "stage_scene"
+            and SCENE_MANIFEST_V3_CAPABILITY not in self.capabilities
+        ):
+            self._send_bridge_error(
+                message,
+                "CAPABILITY_NOT_NEGOTIATED",
+                "stage_scene requires negotiated scene_manifest_v3 capability",
             )
             return
         required_fields = {
@@ -964,6 +989,7 @@ class Connection:
                 websocket,
                 project_directory=cwd,
                 tools_exposed=expose_tools,
+                capabilities=frozenset(ack["capabilities"]),
                 identity={
                     "launch_id": record["launch_id"],
                     "bearer_token_fingerprint": token_fingerprint,
@@ -1040,6 +1066,7 @@ class Connection:
                 websocket,
                 project_directory=cwd,
                 tools_exposed=expose_tools,
+                capabilities=frozenset(ack["capabilities"]),
                 identity={
                     "launch_id": endpoint["launch_id"],
                     "attach_ticket_fingerprint": ticket_fingerprint,
@@ -1204,7 +1231,7 @@ def reconnect(
     project_id: str,
     addon_version: str,
     blender_version: str,
-    live_scene_hash_fn: Callable[[], str],
+    live_scene_hash_fn: Callable[[str], str],
     previous_connection: Connection | None = None,
     child_type: type[DaemonChild] = DaemonChild,
     websocket_type: type[WebSocketClient] = WebSocketClient,
@@ -1224,7 +1251,10 @@ def reconnect(
     )
     try:
         _verify_fresh_connection_identity(previous_connection, connection)
-        verify_reconnect_hash(live_scene_hash_fn(), expected_scene_hash)
+        verify_reconnect_hash(
+            live_scene_hash_fn(expected_scene_hash),
+            expected_scene_hash,
+        )
         connection.expose_tools()
         if (
             previous_connection is not None
@@ -1367,10 +1397,13 @@ def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
     return _resolve_development_daemon_argv(configured_node, resolved_args)
 
 
-def _live_scene_hash() -> str:
-    from .manifest import extract_scene_manifest_v2
+def _live_scene_hash(current_scene_hash: str) -> str:
+    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
 
-    return extract_scene_manifest_v2()["sceneHash"]
+    v2_hash = extract_scene_manifest_v2()["sceneHash"]
+    if v2_hash == current_scene_hash:
+        return v2_hash
+    return extract_scene_manifest_v3()["sceneHash"]
 
 
 def connect(
@@ -1418,7 +1451,10 @@ def connect(
         )
         try:
             if expected_scene_hash is not None:
-                verify_reconnect_hash(_live_scene_hash(), expected_scene_hash)
+                verify_reconnect_hash(
+                    _live_scene_hash(expected_scene_hash),
+                    expected_scene_hash,
+                )
                 replacement.expose_tools()
                 if previous is not None and previous.task_status.task_kind is not None:
                     replacement.task_status = replace(

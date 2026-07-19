@@ -17,7 +17,8 @@ const PROJECT_ID = "00000000-0000-4000-8000-000000000005";
 const LAUNCH_ID = "00000000-0000-4000-8000-000000000006";
 const SESSION_ID = "00000000-0000-4000-8000-000000000007";
 const HASH = "a".repeat(64);
-const CAPABILITY = "mutation_bridge_v2";
+const MUTATION_CAPABILITY = "mutation_bridge_v2";
+const STAGE_CAPABILITY = "scene_manifest_v3";
 const ACTIVE_REQUESTS = new Set([REQUEST_ID]);
 
 const v2Hello = {
@@ -27,7 +28,7 @@ const v2Hello = {
 	blender_version: "4.5.0",
 	project_id: PROJECT_ID,
 	client_nonce: "AAAAAAAAAAAAAAAAAAAAAA",
-	capabilities: [CAPABILITY],
+	capabilities: [MUTATION_CAPABILITY, STAGE_CAPABILITY],
 } as const;
 const v2HelloAck = {
 	type: "hello_ack",
@@ -36,7 +37,7 @@ const v2HelloAck = {
 	launch_id: LAUNCH_ID,
 	session_id: SESSION_ID,
 	server_nonce: "BBBBBBBBBBBBBBBBBBBBBB",
-	capabilities: [CAPABILITY],
+	capabilities: [MUTATION_CAPABILITY, STAGE_CAPABILITY],
 } as const;
 
 const request = {
@@ -138,7 +139,29 @@ describe("Architecture §4 protocol v2 mutation bridge", () => {
 		delete (v1Hello as { capabilities?: readonly string[] }).capabilities;
 		assert.throws(() => negotiateMutationBridge(v1Hello, v1HelloAck), /protocol v2|mutation/i);
 		assert.throws(() => negotiateMutationBridge({ ...v2Hello, unknown: true }, v2HelloAck));
-		assert.throws(() => negotiateMutationBridge({ ...v2Hello, capabilities: [CAPABILITY, "unknown"] }, v2HelloAck));
+		assert.throws(() =>
+			negotiateMutationBridge({ ...v2Hello, capabilities: [MUTATION_CAPABILITY, "unknown"] }, v2HelloAck),
+		);
+	});
+	it("negotiates staging separately while preserving V2-only camera and render bridges", () => {
+		const stagingSession = createSession();
+		assert.equal(stagingSession.supportsStageScene, true);
+
+		const v2OnlyHello = { ...v2Hello, capabilities: [MUTATION_CAPABILITY] };
+		const v2OnlyAck = { ...v2HelloAck, capabilities: [MUTATION_CAPABILITY] };
+		const v2OnlySession = negotiateMutationBridge(v2OnlyHello, v2OnlyAck);
+		assert.equal(v2OnlySession.supportsStageScene, false);
+		assert.deepEqual(parseDaemonBridgeMessage(request, v2OnlySession, ACTIVE_REQUESTS), request);
+		assert.throws(
+			() =>
+				parseDaemonBridgeMessage(
+					{ ...request, method: "stage_scene" },
+					negotiateMutationBridge(v2OnlyHello, v2OnlyAck),
+					ACTIVE_REQUESTS,
+				),
+			/scene_manifest_v3|stage_scene/i,
+		);
+		assert.throws(() => negotiateMutationBridge(v2OnlyHello, v2HelloAck), /not offered|capability/i);
 	});
 
 	it("Architecture §4: bridge parsing requires the immutable negotiated-session marker", () => {

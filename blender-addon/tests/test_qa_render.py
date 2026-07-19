@@ -71,7 +71,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             qa_render.render_qa_frames_transaction(
                 request([1]),
                 SCENE_HASH,
-                live_scene_hash=lambda: "3" * 64,
+                live_scene_hash=lambda _expected: "3" * 64,
                 render_batch=lambda *_args, **_kwargs: rendered.append(True),
             )
         self.assertEqual(rendered, [])
@@ -82,7 +82,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
         result = qa_render.render_qa_frames_transaction(
             request([8]),
             SCENE_HASH,
-            live_scene_hash=lambda: SCENE_HASH,
+            live_scene_hash=lambda _expected: SCENE_HASH,
             render_batch=lambda frames, **_kwargs: [(frames[0], png)],
         )
         self.assertEqual(result["revision_id"], REVISION)
@@ -103,7 +103,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
         qa_render.render_qa_frames_transaction(
             request([8, 9]),
             SCENE_HASH,
-            live_scene_hash=lambda: SCENE_HASH,
+            live_scene_hash=lambda _expected: SCENE_HASH,
             render_batch=lambda frames, **_kwargs: [
                 (frame, f"png-{frame}".encode()) for frame in frames
             ],
@@ -156,7 +156,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             qa_render.render_qa_frames_transaction(
                 request([1]),
                 SCENE_HASH,
-                live_scene_hash=lambda: SCENE_HASH,
+                live_scene_hash=lambda _expected: SCENE_HASH,
                 deadline=time.monotonic() - 0.001,
                 render_batch=lambda *_args, **_kwargs: self.fail("rendered after deadline"),
             )
@@ -178,7 +178,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
                 qa_render.render_qa_frames_transaction(
                     request([1, 2]),
                     SCENE_HASH,
-                    live_scene_hash=lambda: SCENE_HASH,
+                    live_scene_hash=lambda _expected: SCENE_HASH,
                     cancelled=lambda: True,
                     render_batch=cancelled_batch,
                 )
@@ -191,7 +191,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
                 qa_render.render_qa_frames_transaction(
                     request([1]),
                     SCENE_HASH,
-                    live_scene_hash=lambda: SCENE_HASH,
+                    live_scene_hash=lambda _expected: SCENE_HASH,
                     render_batch=lambda *_args, **_kwargs: [(1, b"12345")],
                 )
         with (
@@ -202,7 +202,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
                 qa_render.render_qa_frames_transaction(
                     request([1, 2]),
                     SCENE_HASH,
-                    live_scene_hash=lambda: SCENE_HASH,
+                    live_scene_hash=lambda _expected: SCENE_HASH,
                     render_batch=lambda *_args, **_kwargs: [(1, b"1234"), (2, b"5678")],
                 )
 
