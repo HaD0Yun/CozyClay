@@ -1,0 +1,11 @@
+{
+  "name": "@oh-my-blender/omb-tui",
+  "private": true,
+  "type": "module",
+  "bin": { "omb": "src/main.ts" },
+  "scripts": { "test": "node --import tsx --test test/*.test.ts" },
+  "dependencies": {
+    "@earendil-works/pi-tui": "0.80.9",
+    "@oh-my-blender/protocol": "0.1.0"
+  }
+}
