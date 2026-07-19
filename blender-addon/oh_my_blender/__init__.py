@@ -1,7 +1,7 @@
 """Blender-side bridge for Oh My Blender."""
 
 from .identity import IdentityError, assign_entity_ids, new_project_id
-from . import project_store
+from . import project_store, ui_panel
 
 bl_info = {
     "name": "Oh My Blender",
@@ -386,6 +386,20 @@ if bpy is not None:
                 active.finish_bridge(self.bridge_id)
             return {"FINISHED"}
 
+    class OMB_PT_pi_status(bpy.types.Panel):
+        """Read-only observability for the Pi-controlled bridge."""
+
+        bl_idname = "OMB_PT_pi_status"
+        bl_label = "Pi Status"
+        bl_space_type = "VIEW_3D"
+        bl_region_type = "UI"
+        bl_category = "Oh My Blender"
+
+        def draw(self, _context):
+            from . import connection
+
+            ui_panel.draw_status(self.layout, connection._active_connection)
+
     class OMB_OT_disconnect(bpy.types.Operator):
         bl_idname = "omb.disconnect"
         bl_label = "Disconnect"
@@ -405,16 +419,20 @@ if bpy is not None:
         OMB_OT_apply_camera_plan,
         OMB_OT_render_qa_frames,
         OMB_OT_disconnect,
+        OMB_PT_pi_status,
     )
 else:
     _CLASSES = ()
+_registered_classes: list[type] = []
 
 
 def register() -> None:
-    """Register operators without starting external processes."""
+    """Register operators and the read-only Pi status panel."""
     if bpy is not None:
         for cls in _CLASSES:
-            bpy.utils.register_class(cls)
+            if cls not in _registered_classes:
+                bpy.utils.register_class(cls)
+                _registered_classes.append(cls)
 
 
 def unregister() -> None:
@@ -422,5 +440,5 @@ def unregister() -> None:
         from . import connection
 
         connection.disconnect_active("addon_unload")
-        for cls in reversed(_CLASSES):
-            bpy.utils.unregister_class(cls)
+        while _registered_classes:
+            bpy.utils.unregister_class(_registered_classes.pop())
