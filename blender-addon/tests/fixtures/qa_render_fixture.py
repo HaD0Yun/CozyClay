@@ -41,6 +41,7 @@ def main() -> None:
         Connection(),
         lambda _result: None,
     )
+    bpy.context.scene.render.film_transparent = True
     before_manifest = extract_scene_manifest_v2()
     before_scope = _scope_state(bpy.context.scene)
     result = render_qa_frames_transaction(
@@ -58,11 +59,16 @@ def main() -> None:
         path.write_bytes(png)
         image = bpy.data.images.load(str(path), check_existing=False)
         dimensions = list(image.size)
+        opaque_background = all(
+            image.pixels[index] == 1.0
+            for index in range(3, len(image.pixels), 4)
+        )
         bpy.data.images.remove(image)
     after_manifest = extract_scene_manifest_v2()
     output = {
         "dimensions": dimensions,
         "profile": result["profile_version"],
+        "opaqueBackground": opaque_background,
         "scopeRestored": _scope_state(bpy.context.scene) == before_scope,
         "sceneHashRestored": after_manifest["sceneHash"] == before_manifest["sceneHash"],
         "revisionRestored": after_manifest["revisionId"] == before_manifest["revisionId"],

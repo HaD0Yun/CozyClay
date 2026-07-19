@@ -56,6 +56,28 @@ const progress = {
 	completed: 1,
 	total: 2,
 } as const;
+const artifactBegin = {
+	type: "bridge_artifact_begin",
+	id: ID,
+	request_id: REQUEST_ID,
+	frame: 80,
+	total_chunks: 1,
+	total_byte_length: 3,
+	sha256: HASH,
+} as const;
+const artifactBatchBegin = {
+	type: "bridge_artifact_batch_begin",
+	id: ID,
+	request_id: REQUEST_ID,
+	frames: [
+		{
+			frame: 80,
+			total_chunks: 1,
+			total_byte_length: 3,
+			sha256: HASH,
+		},
+	],
+} as const;
 const artifactChunk = {
 	type: "bridge_artifact_chunk",
 	id: ID,
@@ -63,6 +85,7 @@ const artifactChunk = {
 	frame: 80,
 	chunk_index: 0,
 	total_chunks: 1,
+	byte_offset: 0,
 	byte_length: 3,
 	data_base64: "cG5n",
 } as const;
@@ -81,6 +104,8 @@ const cancelAck = { type: "bridge_cancel_ack", id: ID, request_id: REQUEST_ID, s
 const validMessages = [
 	{ direction: "daemon" as const, value: request },
 	{ direction: "addon" as const, value: progress },
+	{ direction: "addon" as const, value: artifactBegin },
+	{ direction: "addon" as const, value: artifactBatchBegin },
 	{ direction: "addon" as const, value: artifactChunk },
 	{ direction: "addon" as const, value: result },
 	{ direction: "addon" as const, value: bridgeError },
@@ -168,6 +193,9 @@ describe("Architecture §4 protocol v2 mutation bridge", () => {
 
 	it("G011: artifact chunks reuse an open protocol-v2 bridge and stay below the 1 MiB JSON cap", () => {
 		assert.deepEqual(parseWithOpenBridge(artifactChunk), artifactChunk);
+		assert.deepEqual(parseWithOpenBridge(artifactBegin), artifactBegin);
+		assert.deepEqual(parseWithOpenBridge(artifactBatchBegin), artifactBatchBegin);
+		assert.throws(() => parseWithOpenBridge({ ...artifactBegin, total_byte_length: 512 * 1024 * 1024 + 1 }));
 		assert.throws(() => parseWithOpenBridge({ ...artifactChunk, byte_length: 512 * 1024 + 1 }));
 		assert.throws(() => parseWithOpenBridge({ ...artifactChunk, chunk_index: 32 }));
 		assert.throws(() => parseWithOpenBridge({ ...artifactChunk, data_base64: "A".repeat(699_053) }));

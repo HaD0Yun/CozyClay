@@ -134,6 +134,7 @@ def _scope_state(scene: object) -> dict[str, dict]:
             "filepath": render.filepath,
             "use_file_extension": render.use_file_extension,
             "use_motion_blur": render.use_motion_blur,
+            "film_transparent": render.film_transparent,
             "use_stamp": render.use_stamp,
         },
         "cycles": {
@@ -195,6 +196,7 @@ def _configure_profile(scene: object, output_path: Path) -> object:
     scene.cycles.use_denoising = False
     scene.cycles.use_preview_denoising = False
     render.use_motion_blur = False
+    render.film_transparent = False
     render.resolution_x = WIDTH
     render.resolution_y = HEIGHT
     render.resolution_percentage = 100
@@ -276,7 +278,7 @@ def _live_scene_hash() -> str:
     return extract_scene_manifest_v2()["sceneHash"]
 
 
-def split_frame_for_bridge(frame_result: dict) -> tuple[dict, list[dict]]:
+def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
     """Split one verified PNG into bounded protocol-v2 artifact chunks."""
     encoded = frame_result.get("png_base64")
     try:
@@ -301,6 +303,7 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, list[dict]]:
             "frame": frame_result["frame"],
             "chunk_index": index,
             "total_chunks": total_chunks,
+            "byte_offset": index * MAX_CHUNK_BYTES,
             "byte_length": len(chunk),
             "data_base64": base64.b64encode(chunk).decode("ascii"),
         }
@@ -311,7 +314,13 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, list[dict]]:
         for key, value in frame_result.items()
         if key != "png_base64"
     }
-    return metadata, chunks
+    begin = {
+        "frame": frame_result["frame"],
+        "total_chunks": total_chunks,
+        "total_byte_length": frame_result["byte_length"],
+        "sha256": frame_result["sha256"],
+    }
+    return metadata, begin, chunks
 
 
 def render_qa_frames_transaction(

@@ -48,17 +48,25 @@ test("§4 protocol-v2 apply_camera_plan reuses one correlated MutationBridgeSess
 	}finally{c.socket.destroy();await d.close();}
 });
 
-test("G011 existing protocol-v2 bridge assembles bounded artifact chunks and publishes metadata only", async () => {
+test("G011 streams out-of-order chunks positionally into a declared reservation and returns metadata only", async () => {
 	const revision = "0".repeat(64);
 	const bytes = Buffer.from("connected-render-png");
 	const sha256 = createHash("sha256").update(bytes).digest("hex");
-	let published: Uint8Array | undefined;
+	const written = Buffer.alloc(bytes.byteLength);
+	let committed = false;
 	const { d, c } = await readyV2({
-		publishArtifact: async (artifact) => {
-			assert.equal(artifact.sha256, sha256);
-			assert.equal(artifact.byteLength, bytes.byteLength);
-			published = artifact.bytes;
-			return { sha256, byteLength: bytes.byteLength, uri: `omb-artifact://sha256/${sha256}` };
+		beginArtifactReservation: async (declaration) => {
+			assert.deepEqual(declaration, { sha256, byteLength: bytes.byteLength });
+			return {
+				writeAt: async (position, chunk) => {
+					written.set(chunk, position);
+				},
+				commit: async () => {
+					committed = true;
+					return { sha256, byteLength: bytes.byteLength, uri: `omb-artifact://sha256/${sha256}` };
+				},
+				abort: async () => {},
+			};
 		},
 		handlers: {
 			ok: async (_params, { renderQaFrames, signal }) => ({
@@ -74,16 +82,27 @@ test("G011 existing protocol-v2 bridge assembles bounded artifact chunks and pub
 		const q = request({ expected_revision_id: revision });
 		c.send(q);
 		const bridge = await c.next((message) => message.type === "bridge_request");
-		assert.equal(bridge.method, "render_qa_frames");
 		const split = 7;
-		for (const [chunk_index, chunk] of [bytes.subarray(0, split), bytes.subarray(split)].entries()) {
+		const chunks = [bytes.subarray(0, split), bytes.subarray(split)];
+		c.send({
+			type: "bridge_artifact_begin",
+			id: bridge.id,
+			request_id: q.id,
+			frame: 80,
+			total_chunks: chunks.length,
+			total_byte_length: bytes.byteLength,
+			sha256,
+		});
+		for (const chunk_index of [1, 0]) {
+			const chunk = chunks[chunk_index]!;
 			c.send({
 				type: "bridge_artifact_chunk",
 				id: bridge.id,
 				request_id: q.id,
 				frame: 80,
 				chunk_index,
-				total_chunks: 2,
+				total_chunks: chunks.length,
+				byte_offset: chunk_index === 0 ? 0 : split,
 				byte_length: chunk.byteLength,
 				data_base64: chunk.toString("base64"),
 			});
@@ -107,13 +126,278 @@ test("G011 existing protocol-v2 bridge assembles bounded artifact chunks and pub
 			},
 		});
 		const response = await c.next((message) => message.type === "response" && message.id === q.id);
-		assert.deepEqual(Buffer.from(published!), bytes);
+		assert.equal(committed, true);
+		assert.deepEqual(written, bytes);
 		assert.equal(response.result.frames[0].uri, `omb-artifact://sha256/${sha256}`);
 		assert.equal("data_base64" in response.result.frames[0], false);
 	} finally {
 		c.socket.destroy();
 		await d.close();
 	}
+});
+
+type StreamReservationState = {
+	aborted: boolean;
+	committed: boolean;
+	writes: Array<{ position: number; bytes: Buffer }>;
+};
+
+async function startRenderCase(frames: number[] = [80]) {
+	const revision = "0".repeat(64);
+	const reservations: StreamReservationState[] = [];
+	const declarations: Array<{ sha256: string; byteLength: number }> = [];
+	let firstWrite!: () => void;
+	const firstWriteReceived = new Promise<void>((resolve) => {
+		firstWrite = resolve;
+	});
+	const { d, c } = await readyV2({
+		beginArtifactReservation: async (declaration) => {
+			declarations.push(declaration);
+			const state: StreamReservationState = { aborted: false, committed: false, writes: [] };
+			reservations.push(state);
+			return {
+				writeAt: async (position: number, chunk: Uint8Array) => {
+					state.writes.push({ position, bytes: Buffer.from(chunk) });
+					firstWrite();
+				},
+				commit: async () => {
+					const payload = Buffer.alloc(declaration.byteLength);
+					for (const write of state.writes) payload.set(write.bytes, write.position);
+					if (createHash("sha256").update(payload).digest("hex") !== declaration.sha256) {
+						throw new Error("ARTIFACT_DIGEST_MISMATCH: streamed bytes differ from the declaration");
+					}
+					state.committed = true;
+					return {
+						sha256: declaration.sha256,
+						byteLength: declaration.byteLength,
+						uri: `omb-artifact://sha256/${declaration.sha256}`,
+					};
+				},
+				abort: async () => {
+					state.aborted = true;
+				},
+			};
+		},
+		handlers: {
+			ok: async (_params, { renderQaFrames, signal }) => ({
+				result: await renderQaFrames(
+					{ schema_version: 1, revision_id: revision, frames },
+					{ signal, reportProgress: () => {} },
+				),
+				resulting_revision_id: revision,
+			}),
+		},
+	});
+	const q = request({ expected_revision_id: revision });
+	c.send(q);
+	const bridge = await c.next((message) => message.type === "bridge_request");
+	return { d, c, q, bridge, revision, reservations, declarations, firstWriteReceived };
+}
+
+function sendArtifactBegin(
+	stream: Awaited<ReturnType<typeof startRenderCase>>,
+	frameNumber: number,
+	bytes: Uint8Array,
+	totalChunks = 1,
+	sha256 = createHash("sha256").update(bytes).digest("hex"),
+) {
+	stream.c.send({
+		type: "bridge_artifact_begin",
+		id: stream.bridge.id,
+		request_id: stream.q.id,
+		frame: frameNumber,
+		total_chunks: totalChunks,
+		total_byte_length: bytes.byteLength,
+		sha256,
+	});
+}
+
+function sendArtifactChunk(
+	stream: Awaited<ReturnType<typeof startRenderCase>>,
+	frameNumber: number,
+	bytes: Uint8Array,
+	overrides: Record<string, unknown> = {},
+) {
+	stream.c.send({
+		type: "bridge_artifact_chunk",
+		id: stream.bridge.id,
+		request_id: stream.q.id,
+		frame: frameNumber,
+		chunk_index: 0,
+		total_chunks: 1,
+		byte_offset: 0,
+		byte_length: bytes.byteLength,
+		data_base64: Buffer.from(bytes).toString("base64"),
+		...overrides,
+	});
+}
+
+function sendRenderResult(
+	stream: Awaited<ReturnType<typeof startRenderCase>>,
+	frameNumber: number,
+	bytes: Uint8Array,
+	sha256 = createHash("sha256").update(bytes).digest("hex"),
+) {
+	stream.c.send({
+		type: "bridge_result",
+		id: stream.bridge.id,
+		request_id: stream.q.id,
+		result: {
+			schema_version: 1,
+			revision_id: stream.revision,
+			profile_version: "omb-qa-png-v1",
+			frames: [{
+				frame: frameNumber,
+				width: 640,
+				height: 360,
+				profile_version: "omb-qa-png-v1",
+				byte_length: bytes.byteLength,
+				sha256,
+			}],
+		},
+	});
+}
+
+for (const [name, sendInvalid] of [
+	["duplicate index", (stream: Awaited<ReturnType<typeof startRenderCase>>, bytes: Buffer) => {
+		sendArtifactChunk(stream, 80, bytes);
+		sendArtifactChunk(stream, 80, bytes);
+	}],
+	["changed total_chunks", (stream: Awaited<ReturnType<typeof startRenderCase>>, bytes: Buffer) => {
+		sendArtifactChunk(stream, 80, bytes, { total_chunks: 2 });
+	}],
+	["malformed base64", (stream: Awaited<ReturnType<typeof startRenderCase>>, bytes: Buffer) => {
+		sendArtifactChunk(stream, 80, bytes, { data_base64: "!!!!" });
+	}],
+	["changed decoded length", (stream: Awaited<ReturnType<typeof startRenderCase>>, bytes: Buffer) => {
+		sendArtifactChunk(stream, 80, bytes, { byte_length: bytes.byteLength + 1 });
+	}],
+] as const) {
+	test(`G011 aborts the reservation on ${name}`, async () => {
+		const stream = await startRenderCase();
+		const bytes = Buffer.from("chunk");
+		try {
+			sendArtifactBegin(stream, 80, bytes);
+			sendInvalid(stream, bytes);
+			const error = await stream.c.next((message) => message.type === "error" && message.id === stream.q.id);
+			assert.equal(error.code, name === "malformed base64" ? "INVALID_BRIDGE_MESSAGE" : "INVALID_RENDER_QA_RESULT");
+			assert.equal(stream.reservations[0]?.aborted, true);
+		} finally {
+			stream.c.socket.destroy();
+			await stream.d.close();
+		}
+	});
+}
+
+test("G011 rejects and aborts an incomplete frame", async () => {
+	const stream = await startRenderCase();
+	const bytes = Buffer.from("incomplete");
+	try {
+		sendArtifactBegin(stream, 80, bytes, 2);
+		sendArtifactChunk(stream, 80, bytes.subarray(0, 3), { total_chunks: 2 });
+		sendRenderResult(stream, 80, bytes);
+		const error = await stream.c.next((message) => message.type === "error" && message.id === stream.q.id);
+		assert.equal(error.code, "INVALID_RENDER_QA_RESULT");
+		assert.equal(stream.reservations[0]?.aborted, true);
+	} finally {
+		stream.c.socket.destroy();
+		await stream.d.close();
+	}
+});
+
+test("G011 rejects a declaration over 16 MiB before reserving it", async () => {
+	const stream = await startRenderCase();
+	try {
+		stream.c.send({
+			type: "bridge_artifact_begin",
+			id: stream.bridge.id,
+			request_id: stream.q.id,
+			frame: 80,
+			total_chunks: 32,
+			total_byte_length: 16 * 1024 * 1024 + 1,
+			sha256: "a".repeat(64),
+		});
+		const error = await stream.c.next((message) => message.type === "error" && message.id === stream.q.id);
+		assert.equal(error.code, "RENDER_QA_FRAME_BYTES_EXCEEDED");
+		assert.equal(stream.declarations.length, 0);
+	} finally {
+		stream.c.socket.destroy();
+		await stream.d.close();
+	}
+});
+
+test("G011 rejects declarations over 128 MiB as a batch and aborts prior reservations", async () => {
+	const frames = Array.from({ length: 9 }, (_, index) => index + 1);
+	const stream = await startRenderCase(frames);
+	try {
+		for (const frameNumber of frames) {
+			stream.c.send({
+				type: "bridge_artifact_begin",
+				id: stream.bridge.id,
+				request_id: stream.q.id,
+				frame: frameNumber,
+				total_chunks: 32,
+				total_byte_length: 16 * 1024 * 1024,
+				sha256: String(frameNumber).padStart(64, "0"),
+			});
+		}
+		const error = await stream.c.next((message) => message.type === "error" && message.id === stream.q.id);
+		assert.equal(error.code, "RENDER_QA_BATCH_BYTES_EXCEEDED");
+		assert.equal(stream.reservations.length, 8);
+		assert.equal(stream.reservations.every((reservation) => reservation.aborted), true);
+	} finally {
+		stream.c.socket.destroy();
+		await stream.d.close();
+	}
+});
+
+test("G011 rejects a tampered digest at reservation commit", async () => {
+	const stream = await startRenderCase();
+	const bytes = Buffer.from("authentic bytes");
+	const tamperedSha = "f".repeat(64);
+	try {
+		sendArtifactBegin(stream, 80, bytes, 1, tamperedSha);
+		sendArtifactChunk(stream, 80, bytes);
+		sendRenderResult(stream, 80, bytes, tamperedSha);
+		const error = await stream.c.next((message) => message.type === "error" && message.id === stream.q.id);
+		assert.equal(error.code, "ARTIFACT_DIGEST_MISMATCH");
+		assert.equal(stream.reservations[0]?.aborted, true);
+		assert.equal(stream.reservations[0]?.committed, false);
+	} finally {
+		stream.c.socket.destroy();
+		await stream.d.close();
+	}
+});
+
+test("G011 cancellation after the first streamed chunk aborts publication", async () => {
+	const stream = await startRenderCase();
+	const bytes = Buffer.from("cancelled stream");
+	try {
+		sendArtifactBegin(stream, 80, bytes);
+		sendArtifactChunk(stream, 80, bytes);
+		await stream.firstWriteReceived;
+		stream.c.send({ type: "cancel", id: stream.q.id });
+		assert.equal((await stream.c.next((message) => message.type === "cancel_ack")).status, "accepted");
+		assert.equal((await stream.c.next((message) => message.type === "error" && message.id === stream.q.id)).code, "CANCELLED");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(stream.reservations[0]?.aborted, true);
+		assert.equal(stream.reservations[0]?.committed, false);
+	} finally {
+		stream.c.socket.destroy();
+		await stream.d.close();
+	}
+});
+
+test("G011 disconnect after the first streamed chunk aborts publication", async () => {
+	const stream = await startRenderCase();
+	const bytes = Buffer.from("disconnected stream");
+	sendArtifactBegin(stream, 80, bytes);
+	sendArtifactChunk(stream, 80, bytes);
+	await stream.firstWriteReceived;
+	stream.c.socket.destroy();
+	await stream.d.stopped;
+	assert.equal(stream.reservations[0]?.aborted, true);
+	assert.equal(stream.reservations[0]?.committed, false);
 });
 test("§4 protocol-v2 top-level cancellation sends bridge_cancel and cannot partially succeed",async()=>{
 	let settled=false;

@@ -111,8 +111,18 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             "png_base64": base64.b64encode(png).decode("ascii"),
         }
         with mock.patch.object(qa_render, "MAX_CHUNK_BYTES", 4):
-            metadata, chunks = qa_render.split_frame_for_bridge(frame)
+            metadata, begin, chunks = qa_render.split_frame_for_bridge(frame)
         self.assertNotIn("png_base64", metadata)
+        self.assertEqual(
+            begin,
+            {
+                "frame": 8,
+                "total_chunks": 3,
+                "total_byte_length": len(png),
+                "sha256": frame["sha256"],
+            },
+        )
+        self.assertEqual([chunk["byte_offset"] for chunk in chunks], [0, 4, 8])
         self.assertEqual([chunk["chunk_index"] for chunk in chunks], [0, 1, 2])
         self.assertTrue(all(chunk["byte_length"] <= 4 for chunk in chunks))
         self.assertEqual(

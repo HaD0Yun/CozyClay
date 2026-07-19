@@ -38,6 +38,7 @@ class RenderQaFramesBlenderTests(unittest.TestCase):
         result = json.loads(lines[0].split("=", 1)[1])
         self.assertEqual(result["dimensions"], [640, 360])
         self.assertEqual(result["profile"], "omb-qa-png-v1")
+        self.assertTrue(result["opaqueBackground"], result)
         self.assertEqual(result["pngSignature"], [137, 80, 78, 71, 13, 10, 26, 10])
         self.assertTrue(result["scopeRestored"], result)
         self.assertTrue(result["sceneHashRestored"], result)

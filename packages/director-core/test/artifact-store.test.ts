@@ -72,6 +72,25 @@ test("Architecture §6: reservation limits enforce per-artifact/project/concurre
 	await activeFirst.abort();
 });
 
+test("Architecture §6: one transactional batch reserves multiple artifacts under one upload slot", async () => {
+	const store = await openStore(await root(), {
+		limits: { ...limits, maxProjectBytes: 20, maxActiveReservationBytes: 20 },
+	});
+	const batch = await store.reserveBatch([
+		{ expectedSha256: "a".repeat(64), byteLength: 3 },
+		{ expectedSha256: "b".repeat(64), byteLength: 3 },
+		{ expectedSha256: "c".repeat(64), byteLength: 3 },
+	]);
+	assert.equal(batch.length, 3);
+	const competing = await store.reserve({ expectedSha256: "d".repeat(64), byteLength: 1 });
+	await assert.rejects(
+		store.reserve({ expectedSha256: "e".repeat(64), byteLength: 1 }),
+		(error: unknown) => (error as ArtifactStoreError).code === "TOO_MANY_UPLOADS",
+	);
+	await competing.abort();
+	await Promise.all(batch.map((reservation) => reservation.abort()));
+});
+
 test("Architecture §6: no-follow anchoring rejects symlink, hardlink, wrong-owner, wrong-type, and unsafe-mode targets", async () => {
 	const project = await root();
 	await mkdir(join(project, ".omb"));

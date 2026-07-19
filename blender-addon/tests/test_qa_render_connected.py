@@ -42,10 +42,12 @@ class RenderQaFramesConnectedTests(unittest.TestCase):
             self.assertEqual(artifact["dimensions"], [640, 360])
             self.assertEqual(artifact["byteLength"], artifact["declaredLength"])
             self.assertEqual(artifact["digest"], artifact["rereadDigest"])
-        self.assertIn(result["staleCode"], {"STALE_BASE", "HANDLER_ERROR"})
-        self.assertIsNotNone(result["limitCode"])
+        self.assertEqual(result["staleCode"], "STALE_BASE")
+        self.assertEqual(result["limitCode"], "RENDER_QA_FRAME_LIMIT")
+        self.assertFalse(result["resultHasByteFields"], result)
         self.assertEqual(result["cancelCode"], "CANCELLED")
         self.assertTrue(result["cancelArtifactsUnchanged"], result)
+        self.assertTrue(result["cancelAfterChunk"], result)
         self.assertEqual(result["tempEntryCount"], 0)
 
 

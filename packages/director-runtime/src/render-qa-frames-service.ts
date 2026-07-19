@@ -3,19 +3,21 @@ import type { RenderQaFramesResultV1 } from "@oh-my-blender/protocol";
 import { parseRenderQaFramesRequest, parseRenderQaFramesResult } from "@oh-my-blender/protocol";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
-export interface RenderArtifactPayload {
+export interface RenderArtifactDeclaration {
 	readonly sha256: string;
 	readonly byteLength: number;
-	readonly bytes: Uint8Array;
 }
 
-export function createRenderArtifactPublisher(rootDirectory: string) {
+export function createRenderArtifactReservationFactory(rootDirectory: string) {
 	let store: Promise<ArtifactStore> | undefined;
-	return async (artifact: RenderArtifactPayload) => {
+	return async (artifacts: readonly RenderArtifactDeclaration[]) => {
 		store ??= ArtifactStore.open(rootDirectory);
-		return (await store).publish({ expectedSha256: artifact.sha256, byteLength: artifact.byteLength }, [
-			artifact.bytes,
-		]);
+		return (await store).reserveBatch(
+			artifacts.map((artifact) => ({
+				expectedSha256: artifact.sha256,
+				byteLength: artifact.byteLength,
+			})),
+		);
 	};
 }
 

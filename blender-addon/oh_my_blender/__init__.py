@@ -312,10 +312,21 @@ if bpy is not None:
                     deadline=deadline,
                     cancelled=lambda: active.is_bridge_cancelled(self.bridge_id),
                 )
+                prepared_frames = [
+                    qa_render.split_frame_for_bridge(frame_result)
+                    for frame_result in result["frames"]
+                ]
                 metadata_frames = []
-                total = len(result["frames"])
-                for completed, frame_result in enumerate(result["frames"], start=1):
-                    metadata, chunks = qa_render.split_frame_for_bridge(frame_result)
+                total = len(prepared_frames)
+                active._send_json({
+                    "type": "bridge_artifact_batch_begin",
+                    "id": self.bridge_id,
+                    "request_id": self.request_id,
+                    "frames": [begin for _metadata, begin, _chunks in prepared_frames],
+                })
+                for completed, (metadata, _begin, chunks) in enumerate(
+                    prepared_frames, start=1
+                ):
                     for chunk in chunks:
                         if active.is_bridge_cancelled(self.bridge_id):
                             raise qa_render.RENDER_QA_CANCELLED(

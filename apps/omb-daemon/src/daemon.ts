@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import http from "node:http";
 import {
 	MUTATION_PROTOCOL_VERSION,
@@ -11,6 +11,8 @@ import {
 	parseRenderQaFramesRequest,
 	parseStartupRecord,
 	PROTOCOL_VERSION,
+	type BridgeArtifactBegin,
+	type BridgeArtifactBatchBegin,
 	type BridgeArtifactChunk,
 	type CameraPlanV1,
 	type CameraPlanMutationCandidate,
@@ -44,17 +46,26 @@ export interface HandlerContext {
 	readonly beginDurableCommit: () => void;
 }
 export type Handler = (params: Record<string, unknown>, context: HandlerContext) => Promise<HandlerResult>;
-export interface RenderArtifactPayload {
+export interface RenderArtifactDeclaration {
 	readonly sha256: string;
 	readonly byteLength: number;
-	readonly bytes: Uint8Array;
 }
 export interface RenderArtifactDescriptor {
 	readonly sha256: string;
 	readonly byteLength: number;
 	readonly uri: string;
 }
-export type PublishArtifact = (artifact: RenderArtifactPayload) => Promise<RenderArtifactDescriptor>;
+export interface RenderArtifactReservation {
+	writeAt(position: number, chunk: Uint8Array): Promise<void>;
+	commit(): Promise<RenderArtifactDescriptor>;
+	abort(): Promise<void>;
+}
+export type BeginArtifactReservation = (
+	artifact: RenderArtifactDeclaration,
+) => Promise<RenderArtifactReservation>;
+export type BeginArtifactReservations = (
+	artifacts: readonly RenderArtifactDeclaration[],
+) => Promise<readonly RenderArtifactReservation[]>;
 export type RenderQaFrames = (
 	request: RenderQaFramesRequestV1,
 	context: {
@@ -67,7 +78,8 @@ export type DaemonOptions = {
 	port: number;
 	clock?: Clock;
 	handlers: Record<string, Handler>;
-	publishArtifact?: PublishArtifact;
+	beginArtifactReservation?: BeginArtifactReservation;
+	beginArtifactReservations?: BeginArtifactReservations;
 	stdout?: (line: string) => void;
 	stderr?: (line: string) => void;
 	helloTimeoutMs?: number;
@@ -80,9 +92,17 @@ export type Daemon = {
 	close(): Promise<void>;
 };
 
+type PendingArtifactChunk = {
+	readonly offset: number;
+	readonly byteLength: number;
+};
 type PendingArtifactFrame = {
 	readonly totalChunks: number;
-	readonly chunks: Map<number, Uint8Array>;
+	readonly totalByteLength: number;
+	readonly sha256: string;
+	readonly reservation: RenderArtifactReservation;
+	readonly chunks: Map<number, PendingArtifactChunk>;
+	receivedBytes: number;
 };
 
 type PendingBridge = {
@@ -92,6 +112,9 @@ type PendingBridge = {
 	readonly renderRequest?: RenderQaFramesRequestV1;
 	readonly artifactFrames: Map<number, PendingArtifactFrame>;
 	totalArtifactBytes: number;
+	artifactCleanup?: Promise<void>;
+	artifactSetup?: Promise<void>;
+	cancelled?: boolean;
 	readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	readonly beginArtifactCommit?: () => void;
 	readonly resolve: (result: unknown) => void;
@@ -112,44 +135,142 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 	return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
-function recordArtifactChunk(pending: PendingBridge, chunk: BridgeArtifactChunk): void {
+async function beginArtifactFrame(
+	pending: PendingBridge,
+	begin: BridgeArtifactBegin,
+	beginReservation: BeginArtifactReservation | undefined,
+): Promise<void> {
+	if (
+		pending.method !== "render_qa_frames" ||
+		pending.renderRequest === undefined ||
+		beginReservation === undefined
+	) {
+		throw new Error("ARTIFACT_STORE_UNAVAILABLE: artifact declarations require render_qa_frames");
+	}
+	if (!pending.renderRequest.frames.includes(begin.frame)) {
+		throw new Error("INVALID_RENDER_QA_RESULT: artifact declaration frame was not requested");
+	}
+	if (pending.artifactFrames.has(begin.frame)) {
+		throw new Error("INVALID_RENDER_QA_RESULT: duplicate artifact declaration");
+	}
+	if (begin.total_byte_length > MAX_RENDER_FRAME_BYTES) {
+		throw new Error("RENDER_QA_FRAME_BYTES_EXCEEDED: declared artifact exceeds 16 MiB");
+	}
+	if (pending.totalArtifactBytes + begin.total_byte_length > MAX_RENDER_BATCH_BYTES) {
+		throw new Error("RENDER_QA_BATCH_BYTES_EXCEEDED: declared artifacts exceed 128 MiB");
+	}
+	const reservation = await beginReservation({
+		sha256: begin.sha256,
+		byteLength: begin.total_byte_length,
+	});
+	if (pending.cancelled) {
+		await reservation.abort();
+		throw new Error("CANCELLED: artifact reservation completed after cancellation");
+	}
+	pending.artifactFrames.set(begin.frame, {
+		totalChunks: begin.total_chunks,
+		totalByteLength: begin.total_byte_length,
+		sha256: begin.sha256,
+		reservation,
+		chunks: new Map(),
+		receivedBytes: 0,
+	});
+	pending.totalArtifactBytes += begin.total_byte_length;
+}
+
+async function beginArtifactBatch(
+	pending: PendingBridge,
+	begin: BridgeArtifactBatchBegin,
+	beginReservations: BeginArtifactReservations | undefined,
+): Promise<void> {
+	if (
+		pending.method !== "render_qa_frames" ||
+		pending.renderRequest === undefined ||
+		beginReservations === undefined
+	) {
+		throw new Error("ARTIFACT_STORE_UNAVAILABLE: artifact batch declarations require render_qa_frames");
+	}
+	if (
+		pending.artifactFrames.size !== 0 ||
+		begin.frames.length !== pending.renderRequest.frames.length ||
+		begin.frames.some((frame, index) => frame.frame !== pending.renderRequest?.frames[index])
+	) {
+		throw new Error("INVALID_RENDER_QA_RESULT: artifact batch must exactly match requested frames");
+	}
+	let totalBytes = 0;
+	for (const frame of begin.frames) {
+		if (frame.total_byte_length > MAX_RENDER_FRAME_BYTES) {
+			throw new Error("RENDER_QA_FRAME_BYTES_EXCEEDED: declared artifact exceeds 16 MiB");
+		}
+		totalBytes += frame.total_byte_length;
+	}
+	if (totalBytes > MAX_RENDER_BATCH_BYTES) {
+		throw new Error("RENDER_QA_BATCH_BYTES_EXCEEDED: declared artifacts exceed 128 MiB");
+	}
+	const reservations = await beginReservations(
+		begin.frames.map((frame) => ({ sha256: frame.sha256, byteLength: frame.total_byte_length })),
+	);
+	if (pending.cancelled) {
+		await Promise.allSettled(reservations.map((reservation) => reservation.abort()));
+		throw new Error("CANCELLED: artifact reservation batch completed after cancellation");
+	}
+	if (reservations.length !== begin.frames.length) {
+		await Promise.allSettled(reservations.map((reservation) => reservation.abort()));
+		throw new Error("ARTIFACT_STORE_UNAVAILABLE: reservation batch length is invalid");
+	}
+	for (const [index, frame] of begin.frames.entries()) {
+		pending.artifactFrames.set(frame.frame, {
+			totalChunks: frame.total_chunks,
+			totalByteLength: frame.total_byte_length,
+			sha256: frame.sha256,
+			reservation: reservations[index]!,
+			chunks: new Map(),
+			receivedBytes: 0,
+		});
+	}
+	pending.totalArtifactBytes = totalBytes;
+}
+
+async function recordArtifactChunk(pending: PendingBridge, chunk: BridgeArtifactChunk): Promise<void> {
 	if (pending.method !== "render_qa_frames" || pending.renderRequest === undefined) {
 		throw new Error("INVALID_BRIDGE_MESSAGE: artifact chunks require render_qa_frames");
 	}
-	if (!pending.renderRequest.frames.includes(chunk.frame)) {
-		throw new Error("INVALID_RENDER_QA_RESULT: artifact chunk frame was not requested");
-	}
-	const bytes = Buffer.from(chunk.data_base64, "base64");
-	if (bytes.toString("base64") !== chunk.data_base64 || bytes.byteLength !== chunk.byte_length) {
-		throw new Error("INVALID_RENDER_QA_RESULT: artifact chunk base64 or byte length is invalid");
-	}
-	let frame = pending.artifactFrames.get(chunk.frame);
+	const frame = pending.artifactFrames.get(chunk.frame);
 	if (frame === undefined) {
-		frame = { totalChunks: chunk.total_chunks, chunks: new Map() };
-		pending.artifactFrames.set(chunk.frame, frame);
-	} else if (frame.totalChunks !== chunk.total_chunks) {
+		throw new Error("INVALID_RENDER_QA_RESULT: artifact chunk arrived before its declaration");
+	}
+	if (frame.totalChunks !== chunk.total_chunks) {
 		throw new Error("INVALID_RENDER_QA_RESULT: artifact total_chunks changed mid-stream");
 	}
 	if (frame.chunks.has(chunk.chunk_index)) {
 		throw new Error("INVALID_RENDER_QA_RESULT: duplicate artifact chunk index");
 	}
-	if (pending.totalArtifactBytes + bytes.byteLength > MAX_RENDER_BATCH_BYTES) {
-		throw new Error("RENDER_QA_BATCH_BYTES_EXCEEDED: artifact chunks exceed 128 MiB");
+	const bytes = Buffer.from(chunk.data_base64, "base64");
+	if (bytes.toString("base64") !== chunk.data_base64 || bytes.byteLength !== chunk.byte_length) {
+		throw new Error("INVALID_RENDER_QA_RESULT: artifact chunk base64 or byte length is invalid");
 	}
-	frame.chunks.set(chunk.chunk_index, bytes);
-	pending.totalArtifactBytes += bytes.byteLength;
+	const end = chunk.byte_offset + bytes.byteLength;
+	if (end > frame.totalByteLength) {
+		throw new Error("INVALID_RENDER_QA_RESULT: artifact chunk exceeds its declared byte length");
+	}
+	for (const recorded of frame.chunks.values()) {
+		const recordedEnd = recorded.offset + recorded.byteLength;
+		if (chunk.byte_offset < recordedEnd && recorded.offset < end) {
+			throw new Error("INVALID_RENDER_QA_RESULT: artifact chunk byte ranges overlap");
+		}
+	}
+	await frame.reservation.writeAt(chunk.byte_offset, bytes);
+	frame.chunks.set(chunk.chunk_index, { offset: chunk.byte_offset, byteLength: bytes.byteLength });
+	frame.receivedBytes += bytes.byteLength;
 }
 
-async function finalizeRenderResult(
-	pending: PendingBridge,
-	raw: unknown,
-	publishArtifact: PublishArtifact | undefined,
-): Promise<RenderQaFramesResultV1> {
-	if (
-		pending.renderRequest === undefined ||
-		pending.beginArtifactCommit === undefined ||
-		publishArtifact === undefined
-	) {
+async function abortArtifactFrames(pending: PendingBridge): Promise<void> {
+	await Promise.allSettled(Array.from(pending.artifactFrames.values(), (frame) => frame.reservation.abort()));
+	pending.artifactFrames.clear();
+}
+
+async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promise<RenderQaFramesResultV1> {
+	if (pending.renderRequest === undefined || pending.beginArtifactCommit === undefined) {
 		throw new Error("ARTIFACT_STORE_UNAVAILABLE: render artifact publication is unavailable");
 	}
 	if (
@@ -167,7 +288,7 @@ async function finalizeRenderResult(
 		readonly frame: number;
 		readonly byteLength: number;
 		readonly sha256: string;
-		readonly bytes: Uint8Array;
+		readonly reservation: RenderArtifactReservation;
 	}> = [];
 	for (const [index, expectedFrame] of pending.renderRequest.frames.entries()) {
 		const metadata = raw.frames[index];
@@ -186,31 +307,29 @@ async function finalizeRenderResult(
 		) {
 			throw new Error("INVALID_RENDER_QA_RESULT: frame metadata is invalid");
 		}
-		const byteLength = metadata.byte_length as number;
-		const sha256 = metadata.sha256;
 		const streamed = pending.artifactFrames.get(expectedFrame);
-		if (streamed === undefined || streamed.chunks.size !== streamed.totalChunks) {
+		if (
+			streamed === undefined ||
+			streamed.chunks.size !== streamed.totalChunks ||
+			streamed.receivedBytes !== streamed.totalByteLength
+		) {
 			throw new Error("INVALID_RENDER_QA_RESULT: frame artifact chunks are incomplete");
 		}
-		const ordered: Uint8Array[] = [];
-		for (let chunkIndex = 0; chunkIndex < streamed.totalChunks; chunkIndex += 1) {
-			const chunk = streamed.chunks.get(chunkIndex);
-			if (chunk === undefined) {
-				throw new Error("INVALID_RENDER_QA_RESULT: frame artifact chunk index is missing");
-			}
-			ordered.push(chunk);
+		if (metadata.byte_length !== streamed.totalByteLength || metadata.sha256 !== streamed.sha256) {
+			throw new Error("INVALID_RENDER_QA_RESULT: final metadata changed from the artifact declaration");
 		}
-		const bytes = Buffer.concat(ordered);
-		if (bytes.byteLength !== byteLength || createHash("sha256").update(bytes).digest("hex") !== sha256) {
-			throw new Error("INVALID_RENDER_QA_RESULT: frame artifact digest or length does not match metadata");
-		}
-		candidates.push({ frame: expectedFrame, byteLength, sha256, bytes });
+		candidates.push({
+			frame: expectedFrame,
+			byteLength: streamed.totalByteLength,
+			sha256: streamed.sha256,
+			reservation: streamed.reservation,
+		});
 	}
 
 	pending.beginArtifactCommit();
 	const frames: RenderQaFramesResultV1["frames"][number][] = [];
 	for (const candidate of candidates) {
-		const descriptor = await publishArtifact(candidate);
+		const descriptor = await candidate.reservation.commit();
 		if (
 			descriptor.sha256 !== candidate.sha256 ||
 			descriptor.byteLength !== candidate.byteLength ||
@@ -293,6 +412,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		let pendingBridge: PendingBridge | undefined;
 		let drainPromise: Promise<void> | undefined;
 		const activeHandlers = new Set<Promise<void>>();
+		let bridgeMessageTail: Promise<void> = Promise.resolve();
 		const helloTimer = setTimeout(() => {
 			if (!helloComplete) websocket.close(1008, "hello timeout");
 		}, options.helloTimeoutMs ?? 3_000);
@@ -304,7 +424,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		resetIdle();
 		websocket.on("text", (text: string) => {
 			resetIdle();
-			void message(text);
+			let isBridgeMessage = false;
+			try {
+				const value = JSON.parse(text) as { type?: unknown };
+				isBridgeMessage = typeof value.type === "string" && value.type.startsWith("bridge_");
+			} catch {}
+			if (isBridgeMessage) {
+				bridgeMessageTail = bridgeMessageTail.then(() => message(text));
+			} else {
+				void message(text);
+			}
 		});
 		websocket.on("disconnect", () => {
 			clearTimeout(helloTimer);
@@ -312,11 +441,12 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			void drain("DISCONNECT", false);
 		});
 
-		function failPendingBridge(code: string, message: string): void {
+		async function failPendingBridge(code: string, message: string): Promise<void> {
 			if (pendingBridge === undefined) return;
 			const pending = pendingBridge;
 			pendingBridge = undefined;
 			pending.removeAbortListener();
+			await abortArtifactFrames(pending);
 			pending.reject(new Error(`${code}: ${message}`));
 		}
 
@@ -381,15 +511,33 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						});
 						return;
 					}
+					if (bridgeMessage.type === "bridge_artifact_batch_begin") {
+						pendingBridge.artifactSetup = beginArtifactBatch(
+							pendingBridge,
+							bridgeMessage,
+							options.beginArtifactReservations,
+						);
+						await pendingBridge.artifactSetup;
+						return;
+					}
+					if (bridgeMessage.type === "bridge_artifact_begin") {
+						pendingBridge.artifactSetup = beginArtifactFrame(
+							pendingBridge,
+							bridgeMessage,
+							options.beginArtifactReservation,
+						);
+						await pendingBridge.artifactSetup;
+						return;
+					}
 					if (bridgeMessage.type === "bridge_artifact_chunk") {
-						recordArtifactChunk(pendingBridge, bridgeMessage);
+						await recordArtifactChunk(pendingBridge, bridgeMessage);
 						return;
 					}
 					const pending = pendingBridge;
 					if (bridgeMessage.type === "bridge_result") {
 						const result =
 							pending.method === "render_qa_frames"
-								? await finalizeRenderResult(pending, bridgeMessage.result, options.publishArtifact)
+								? await finalizeRenderResult(pending, bridgeMessage.result)
 								: bridgeMessage.result;
 						pendingBridge = undefined;
 						pending.removeAbortListener();
@@ -397,6 +545,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					} else {
 						pendingBridge = undefined;
 						pending.removeAbortListener();
+						await abortArtifactFrames(pending);
 						if (bridgeMessage.type === "bridge_error") {
 							pending.reject(new Error(`${bridgeMessage.code}: ${bridgeMessage.message}`));
 						} else {
@@ -406,7 +555,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				} catch (error) {
 					const message = error instanceof Error ? error.message : "invalid add-on bridge message";
 					const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);
-					failPendingBridge(parsed?.[1] ?? "INVALID_BRIDGE_MESSAGE", parsed?.[2] ?? message);
+					await failPendingBridge(parsed?.[1] ?? "INVALID_BRIDGE_MESSAGE", parsed?.[2] ?? message);
 				}
 				return;
 			}
@@ -487,7 +636,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 							),
 						);
 					} catch {
-						failPendingBridge("CANCELLED", "mutation bridge cancellation failed");
+						void failPendingBridge("CANCELLED", "mutation bridge cancellation failed");
 					}
 				};
 				const signal = context.signal;
@@ -541,6 +690,14 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			return new Promise<RenderQaFramesResultV1>((resolve, reject) => {
 				const abort = () => {
 					if (pendingBridge?.id !== id || mutationSession === undefined) return;
+					pendingBridge.cancelled = true;
+					const cancellingBridge = pendingBridge;
+					pendingBridge.artifactCleanup = (async () => {
+						try {
+							await cancellingBridge.artifactSetup;
+						} catch {}
+						await abortArtifactFrames(cancellingBridge);
+					})();
 					try {
 						websocket.sendText(
 							parseDaemonBridgeMessage(
@@ -550,7 +707,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 							),
 						);
 					} catch {
-						failPendingBridge("CANCELLED", "render bridge cancellation failed");
+						void failPendingBridge("CANCELLED", "render bridge cancellation failed");
 					}
 				};
 				const signal = context.signal;
@@ -636,7 +793,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		}
 
 		async function finishCancellation(request: ActiveRequest) {
-			await Promise.resolve();
+			if (pendingBridge?.requestId === request.id) {
+				await pendingBridge.artifactCleanup;
+			}
 			if (state.terminal(request) && !websocket.socket.destroyed) {
 				websocket.sendText(
 					protocolError(
@@ -655,8 +814,10 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			server.close();
 			const active = state.current;
 			if (active) state.cancel(active.id, cause);
-			if (cause === "DISCONNECT") failPendingBridge("DISCONNECT", "add-on disconnected during mutation");
 			drainPromise = (async () => {
+				if (cause === "DISCONNECT") {
+					await failPendingBridge("DISCONNECT", "add-on disconnected during mutation");
+				}
 				if (activeHandlers.size) {
 					let timer: ReturnType<typeof setTimeout> | undefined;
 					const bounded = new Promise<void>((resolve) => {

@@ -77,6 +77,7 @@ interface ReservationRecord {
 	readonly byteLength: number;
 	readonly expectedSha256: string;
 	readonly reservedBytes: number;
+	readonly groupId: string;
 }
 
 const fail = (code: ArtifactStoreErrorCode, message: string, cause?: unknown): never => {
@@ -365,7 +366,7 @@ export class ArtifactStore {
 	}
 
 	private async activeReservations(): Promise<{ count: number; bytes: number }> {
-		let count = 0;
+		const groups = new Set<string>();
 		let bytes = 0;
 		for (const entry of await readdir(descriptorPath(this.temp.handle), { withFileTypes: true })) {
 			const match = RESERVATION.exec(entry.name);
@@ -376,10 +377,10 @@ export class ArtifactStore {
 			assertOwnedFile(stat, `temporary upload-${match[1]}`, this.project.stat.dev);
 			if (stat.size !== record.byteLength)
 				fail("ARTIFACT_PATH_UNSAFE", "reservation length does not match its temporary file");
-			count += 1;
+			groups.add(record.groupId);
 			bytes += record.reservedBytes;
 		}
-		return { count, bytes };
+		return { count: groups.size, bytes };
 	}
 
 	private async readReservationRecord(leaf: string): Promise<ReservationRecord> {
@@ -396,7 +397,9 @@ export class ArtifactStore {
 				(value.reservedBytes ?? -1) < 0 ||
 				(value.reservedBytes ?? Number.POSITIVE_INFINITY) > (value.byteLength ?? -1) ||
 				typeof value.expectedSha256 !== "string" ||
-				!HASH_64.test(value.expectedSha256)
+				!HASH_64.test(value.expectedSha256) ||
+				typeof value.groupId !== "string" ||
+				!HASH_64.test(value.groupId)
 			)
 				fail("ARTIFACT_PATH_UNSAFE", `reservation ${leaf} is malformed`);
 			return value as ReservationRecord;
@@ -407,54 +410,87 @@ export class ArtifactStore {
 	}
 
 	async reserve(request: ArtifactReservationRequest): Promise<ArtifactReservation> {
-		if (!HASH_64.test(request.expectedSha256) || !Number.isSafeInteger(request.byteLength) || request.byteLength < 0)
-			fail("INVALID_ARTIFACT_DESCRIPTOR", "expectedSha256 and byteLength are invalid");
-		if (request.byteLength > this.limits.maxArtifactBytes)
-			fail("ARTIFACT_TOO_LARGE", "declared length exceeds the per-artifact limit");
+		const reservations = await this.reserveBatch([request]);
+		return reservations[0]!;
+	}
+
+	async reserveBatch(requests: readonly ArtifactReservationRequest[]): Promise<ArtifactReservation[]> {
+		if (requests.length === 0) fail("INVALID_ARTIFACT_DESCRIPTOR", "reservation batch must not be empty");
+		for (const request of requests) {
+			if (
+				!HASH_64.test(request.expectedSha256) ||
+				!Number.isSafeInteger(request.byteLength) ||
+				request.byteLength < 0
+			)
+				fail("INVALID_ARTIFACT_DESCRIPTOR", "expectedSha256 and byteLength are invalid");
+			if (request.byteLength > this.limits.maxArtifactBytes)
+				fail("ARTIFACT_TOO_LARGE", "declared length exceeds the per-artifact limit");
+		}
 		return this.withProjectLock(async () => {
-			let reservationBytes = request.byteLength;
-			try {
-				const existing = await this.read(`omb-artifact://sha256/${request.expectedSha256}`);
-				if (existing.byteLength !== request.byteLength)
-					fail("ARTIFACT_COLLISION", "existing payload length differs from the declaration");
-				reservationBytes = 0;
-			} catch (error) {
-				if (!(error instanceof ArtifactStoreError) || error.code !== "ARTIFACT_NOT_FOUND") throw error;
+			const declarations: Array<{ request: ArtifactReservationRequest; reservationBytes: number }> = [];
+			for (const request of requests) {
+				let reservationBytes = request.byteLength;
+				try {
+					const existing = await this.read(`omb-artifact://sha256/${request.expectedSha256}`);
+					if (existing.byteLength !== request.byteLength)
+						fail("ARTIFACT_COLLISION", "existing payload length differs from the declaration");
+					reservationBytes = 0;
+				} catch (error) {
+					if (!(error instanceof ArtifactStoreError) || error.code !== "ARTIFACT_NOT_FOUND") throw error;
+				}
+				declarations.push({ request, reservationBytes });
 			}
 			const active = await this.activeReservations();
 			if (active.count >= this.limits.maxConcurrentUploads)
 				fail("TOO_MANY_UPLOADS", "concurrent upload limit reached");
-			if (active.bytes + reservationBytes > this.limits.maxActiveReservationBytes)
+			const batchBytes = declarations.reduce((total, declaration) => total + declaration.reservationBytes, 0);
+			if (active.bytes + batchBytes > this.limits.maxActiveReservationBytes)
 				fail("ACTIVE_RESERVATION_QUOTA_EXCEEDED", "active reservation byte limit reached");
-			if ((await this.committedBytes()) + active.bytes + reservationBytes > this.limits.maxProjectBytes)
+			if ((await this.committedBytes()) + active.bytes + batchBytes > this.limits.maxProjectBytes)
 				fail("PROJECT_QUOTA_EXCEEDED", "committed bytes plus reservations exceed the project quota");
 
-			const id = randomBytes(16).toString("hex");
-			const leaf = `upload-${id}`;
-			const tempPath = descriptorPath(this.temp.handle, leaf);
-			const recordLeaf = `${leaf}.reservation`;
-			const recordPath = descriptorPath(this.temp.handle, recordLeaf);
-			let handle: FileHandle | undefined;
+			const groupId = randomBytes(32).toString("hex");
+			const reservations: ArtifactReservation[] = [];
 			try {
-				handle = await open(
-					tempPath,
-					constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_RDWR,
-					0o600,
-				);
-				await handle.truncate(request.byteLength);
-				const stat = await handle.stat();
-				assertOwnedFile(stat, leaf, this.project.stat.dev);
-				await writeFile(
-					recordPath,
-					JSON.stringify({ pid: process.pid, ...request, reservedBytes: reservationBytes }),
-					{ flag: "wx", mode: 0o600 },
-				);
+				for (const { request, reservationBytes } of declarations) {
+					const id = randomBytes(16).toString("hex");
+					const leaf = `upload-${id}`;
+					const tempPath = descriptorPath(this.temp.handle, leaf);
+					const recordLeaf = `${leaf}.reservation`;
+					const recordPath = descriptorPath(this.temp.handle, recordLeaf);
+					let handle: FileHandle | undefined;
+					try {
+						handle = await open(
+							tempPath,
+							constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_RDWR,
+							0o600,
+						);
+						await handle.truncate(request.byteLength);
+						const stat = await handle.stat();
+						assertOwnedFile(stat, leaf, this.project.stat.dev);
+						await writeFile(
+							recordPath,
+							JSON.stringify({ pid: process.pid, ...request, reservedBytes: reservationBytes, groupId }),
+							{ flag: "wx", mode: 0o600 },
+						);
+						reservations.push(new ArtifactReservation(this, request, reservationBytes, leaf, recordLeaf, handle));
+					} catch (error) {
+						await handle?.close().catch(() => undefined);
+						await unlink(tempPath).catch(() => undefined);
+						await unlink(recordPath).catch(() => undefined);
+						throw error;
+					}
+				}
 				await this.temp.handle.sync();
-				return new ArtifactReservation(this, request, reservationBytes, leaf, recordLeaf, handle);
+				return reservations;
 			} catch (error) {
-				await handle?.close().catch(() => undefined);
-				await unlink(tempPath).catch(() => undefined);
-				await unlink(recordPath).catch(() => undefined);
+				await Promise.allSettled(
+					reservations.flatMap((reservation) => [
+						reservation.handle.close(),
+						unlink(descriptorPath(this.temp.handle, reservation.leaf)),
+						unlink(descriptorPath(this.temp.handle, reservation.recordLeaf)),
+					]),
+				);
 				throw error;
 			}
 		});

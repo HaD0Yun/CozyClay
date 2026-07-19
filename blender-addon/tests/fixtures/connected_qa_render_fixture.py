@@ -57,6 +57,17 @@ def receive(connection: Connection, responses: queue.Queue, timeout: float = 35)
     raise RuntimeError("daemon response timed out")
 
 
+def contains_byte_field(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            key in {"data_base64", "png_base64"} or contains_byte_field(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(contains_byte_field(item) for item in value)
+    return False
+
+
 def main() -> None:
     setup_scene()
     base_manifest = extract_scene_manifest_v2()
@@ -176,12 +187,21 @@ def main() -> None:
             {"schema_version": 1, "revision_id": revision, "frames": list(range(90, 102))},
             revision,
         )
+        first_chunk_sent = threading.Event()
+        send_json = connection._send_json
 
-        def cancel_soon():
-            time.sleep(0.1)
-            connection._send_json({"type": "cancel", "id": cancel_id})
+        def observe_stream(message: dict) -> None:
+            send_json(message)
+            if message.get("type") == "bridge_artifact_chunk":
+                first_chunk_sent.set()
 
-        threading.Thread(target=cancel_soon, daemon=True).start()
+        connection._send_json = observe_stream
+
+        def cancel_after_first_chunk() -> None:
+            if first_chunk_sent.wait(timeout=30):
+                connection._send_json({"type": "cancel", "id": cancel_id})
+
+        threading.Thread(target=cancel_after_first_chunk, daemon=True).start()
         cancelled = receive(connection, cancel_responses)
         after_cancel = sorted(
             path.name for path in artifact_root.iterdir()
@@ -194,6 +214,8 @@ def main() -> None:
             "revision": result["revision_id"],
             "staleCode": stale.get("code"),
             "limitCode": limit.get("code"),
+            "resultHasByteFields": contains_byte_field(result),
+            "cancelAfterChunk": first_chunk_sent.is_set(),
             "cancelCode": cancelled.get("code"),
             "cancelArtifactsUnchanged": before_cancel == after_cancel,
             "tempEntryCount": len(temp_entries),

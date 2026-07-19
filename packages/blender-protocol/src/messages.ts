@@ -122,6 +122,29 @@ export const BridgeProgressSchema = exact({
 	completed: Type.Integer({ minimum: 0 }),
 	total: Type.Integer({ minimum: 0 }),
 });
+export const BridgeArtifactBeginSchema = exact({
+	type: Type.Literal("bridge_artifact_begin"),
+	id: uuid(),
+	request_id: uuid(),
+	frame: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+	total_chunks: Type.Integer({ minimum: 1, maximum: 32 }),
+	total_byte_length: Type.Integer({ minimum: 1, maximum: 512 * 1024 * 1024 }),
+	sha256: hash(),
+});
+export const BridgeArtifactBatchBeginSchema = exact({
+	type: Type.Literal("bridge_artifact_batch_begin"),
+	id: uuid(),
+	request_id: uuid(),
+	frames: Type.Array(
+		exact({
+			frame: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
+			total_chunks: Type.Integer({ minimum: 1, maximum: 32 }),
+			total_byte_length: Type.Integer({ minimum: 1, maximum: 512 * 1024 * 1024 }),
+			sha256: hash(),
+		}),
+		{ minItems: 1, maxItems: 12 },
+	),
+});
 export const BridgeArtifactChunkSchema = exact({
 	type: Type.Literal("bridge_artifact_chunk"),
 	id: uuid(),
@@ -129,6 +152,7 @@ export const BridgeArtifactChunkSchema = exact({
 	frame: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
 	chunk_index: Type.Integer({ minimum: 0, maximum: 31 }),
 	total_chunks: Type.Integer({ minimum: 1, maximum: 32 }),
+	byte_offset: Type.Integer({ minimum: 0, maximum: 16 * 1024 * 1024 - 1 }),
 	byte_length: Type.Integer({ minimum: 1, maximum: 512 * 1024 }),
 	data_base64: Type.String({ minLength: 4, maxLength: 699_052, pattern: "^[A-Za-z0-9+/]*={0,2}$" }),
 });
@@ -161,6 +185,8 @@ export const BridgeCancelAckSchema = exact({
 export const DaemonBridgeMessageSchema = Type.Union([BridgeRequestSchema, BridgeCancelSchema]);
 export const AddonBridgeMessageSchema = Type.Union([
 	BridgeProgressSchema,
+	BridgeArtifactBeginSchema,
+	BridgeArtifactBatchBeginSchema,
 	BridgeArtifactChunkSchema,
 	BridgeResultSchema,
 	BridgeErrorSchema,
@@ -194,6 +220,8 @@ export type ClientMessage = Static<typeof ClientMessageSchema>;
 export type ServerMessage = Static<typeof ServerMessageSchema>;
 export type BridgeRequest = Static<typeof BridgeRequestSchema>;
 export type BridgeProgress = Static<typeof BridgeProgressSchema>;
+export type BridgeArtifactBegin = Static<typeof BridgeArtifactBeginSchema>;
+export type BridgeArtifactBatchBegin = Static<typeof BridgeArtifactBatchBeginSchema>;
 export type BridgeArtifactChunk = Static<typeof BridgeArtifactChunkSchema>;
 export type BridgeResult = Static<typeof BridgeResultSchema>;
 export type BridgeError = Static<typeof BridgeErrorSchema>;
@@ -343,6 +371,16 @@ export function parseAddonBridgeMessage(input: unknown, session: MutationBridgeS
 			}
 			session.assertOpen(progress.id, progress.request_id);
 			return progress;
+		}
+		case "bridge_artifact_begin": {
+			const begin = Parse(BridgeArtifactBeginSchema, input);
+			session.assertOpen(begin.id, begin.request_id);
+			return begin;
+		}
+		case "bridge_artifact_batch_begin": {
+			const begin = Parse(BridgeArtifactBatchBeginSchema, input);
+			session.assertOpen(begin.id, begin.request_id);
+			return begin;
 		}
 		case "bridge_artifact_chunk": {
 			const chunk = Parse(BridgeArtifactChunkSchema, input);
