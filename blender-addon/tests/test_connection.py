@@ -832,5 +832,58 @@ class ConnectionTests(unittest.TestCase):
                     "--api-key", "must-not-reach-child-argv",
                 ))
 
+    def test_daemon_argv_supports_verified_installed_executable(self):
+        with mock.patch.dict(
+            "os.environ",
+            {"OMB_DAEMON_EXECUTABLE": TEST_EXECUTABLE},
+            clear=True,
+        ):
+            argv = _resolve_daemon_argv(("--faux",))
+        self.assertEqual(argv, (TEST_EXECUTABLE, "--port", "0", "--faux"))
+
+    def test_daemon_argv_rejects_ambiguous_executable_configuration(self):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "OMB_DAEMON_EXECUTABLE": TEST_EXECUTABLE,
+                "OMB_NODE_EXECUTABLE": TEST_EXECUTABLE,
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ConnectionError, "INVALID_ARGUMENT.*both"):
+                _resolve_daemon_argv(("--faux",))
+
+    def test_installed_daemon_uses_shared_executable_safety_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = pathlib.Path(directory).resolve() / "daemon"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o700)
+            symlink = pathlib.Path(directory).resolve() / "daemon-link"
+            symlink.symlink_to(executable)
+
+            for configured, expected in (
+                ("daemon", "must be absolute"),
+                (str(symlink), "regular nonsymlink"),
+            ):
+                with self.subTest(configured=configured), mock.patch.dict(
+                    "os.environ",
+                    {"OMB_DAEMON_EXECUTABLE": configured},
+                    clear=True,
+                ):
+                    with self.assertRaisesRegex(ConnectionError, expected):
+                        _resolve_daemon_argv(("--faux",))
+
+            with mock.patch.dict(
+                "os.environ",
+                {"OMB_DAEMON_EXECUTABLE": str(executable)},
+                clear=True,
+            ), mock.patch(
+                "oh_my_blender.daemon_child.os.getuid",
+                return_value=executable.stat().st_uid + 1,
+            ):
+                with self.assertRaisesRegex(ConnectionError, "owned executable"):
+                    _resolve_daemon_argv(("--faux",))
+
+
 if __name__ == "__main__":
     unittest.main()

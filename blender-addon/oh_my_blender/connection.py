@@ -857,11 +857,65 @@ _active_connection: Connection | None = None
 
 
 _DAEMON_ARGS_ENV = "OMB_DAEMON_ARGS"
+_DAEMON_EXECUTABLE_ENV = "OMB_DAEMON_EXECUTABLE"
 _NODE_EXECUTABLE_ENV = "OMB_NODE_EXECUTABLE"
 
 
-def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
-    """Resolve an explicit launch mode and a safety-verified absolute Node path."""
+def _verified_executable(configured: str) -> str:
+    try:
+        return verify_executable(configured)
+    except UnsafeExecutableError as error:
+        raise ConnectionError(str(error)) from error
+
+
+def _resolve_daemon_args(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
+    if daemon_args is None:
+        configured = os.environ.get(_DAEMON_ARGS_ENV)
+        if configured is None:
+            raise ConnectionError(
+                "NOT_CONFIGURED: no daemon launch mode is configured; set the "
+                f"{_DAEMON_ARGS_ENV} environment variable (or pass daemon_args "
+                "explicitly) to '--faux' or explicit '--provider <id> --model <id>'"
+            )
+        daemon_args = tuple(shlex.split(configured))
+    resolved = tuple(daemon_args)
+    if resolved == ("--faux",):
+        return resolved
+
+    parsed: dict[str, str] = {}
+    index = 0
+    while index < len(resolved):
+        flag = resolved[index]
+        if (
+            flag not in ("--provider", "--model")
+            or flag in parsed
+            or index + 1 >= len(resolved)
+            or not resolved[index + 1]
+            or resolved[index + 1].startswith("--")
+        ):
+            raise ConnectionError(
+                "INVALID_ARGUMENT: unsupported daemon arguments; credentials "
+                "must be supplied only through the provider environment variable"
+            )
+        parsed[flag] = resolved[index + 1]
+        index += 2
+    if set(parsed) != {"--provider", "--model"}:
+        raise ConnectionError(
+            "NOT_CONFIGURED: explicit --provider <id> and --model <id> are required"
+        )
+    return resolved
+
+
+def _resolve_installed_daemon_argv(
+    configured_executable: str, daemon_args: tuple[str, ...]
+) -> tuple[str, ...]:
+    executable = _verified_executable(configured_executable)
+    return (executable, "--port", "0", *daemon_args)
+
+
+def _resolve_development_daemon_argv(
+    configured_node: str, daemon_args: tuple[str, ...]
+) -> tuple[str, ...]:
     repository_root = Path(__file__).resolve().parents[2]
     daemon_main = str(repository_root / "apps/omb-daemon/src/main.ts")
     tsx_loader = next(
@@ -874,47 +928,7 @@ def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
     )
     if tsx_loader is None:
         raise ConnectionError("NOT_CONFIGURED: tsx runtime is unavailable")
-    configured_node = os.environ.get(_NODE_EXECUTABLE_ENV)
-    if configured_node is None:
-        raise ConnectionError(
-            f"NOT_CONFIGURED: {_NODE_EXECUTABLE_ENV} must be an absolute trusted Node executable"
-        )
-    try:
-        node_executable = verify_executable(configured_node)
-    except UnsafeExecutableError as error:
-        raise ConnectionError(str(error)) from error
-    if daemon_args is None:
-        configured = os.environ.get(_DAEMON_ARGS_ENV)
-        if configured is None:
-            raise ConnectionError(
-                "NOT_CONFIGURED: no daemon launch mode is configured; set the "
-                f"{_DAEMON_ARGS_ENV} environment variable (or pass daemon_args "
-                "explicitly) to '--faux' or explicit '--provider <id> --model <id>'"
-            )
-        daemon_args = tuple(shlex.split(configured))
-    daemon_args = tuple(daemon_args)
-    if daemon_args != ("--faux",):
-        parsed: dict[str, str] = {}
-        index = 0
-        while index < len(daemon_args):
-            flag = daemon_args[index]
-            if (
-                flag not in ("--provider", "--model")
-                or flag in parsed
-                or index + 1 >= len(daemon_args)
-                or not daemon_args[index + 1]
-                or daemon_args[index + 1].startswith("--")
-            ):
-                raise ConnectionError(
-                    "INVALID_ARGUMENT: unsupported daemon arguments; credentials "
-                    "must be supplied only through the provider environment variable"
-                )
-            parsed[flag] = daemon_args[index + 1]
-            index += 2
-        if set(parsed) != {"--provider", "--model"}:
-            raise ConnectionError(
-                "NOT_CONFIGURED: explicit --provider <id> and --model <id> are required"
-            )
+    node_executable = _verified_executable(configured_node)
     return (
         node_executable,
         "--import",
@@ -924,6 +938,28 @@ def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
         "0",
         *daemon_args,
     )
+
+
+def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
+    """Resolve one explicit launch mode with a safety-verified executable."""
+    configured_daemon = os.environ.get(_DAEMON_EXECUTABLE_ENV)
+    configured_node = os.environ.get(_NODE_EXECUTABLE_ENV)
+    if configured_daemon is not None and configured_node is not None:
+        raise ConnectionError(
+            "INVALID_ARGUMENT: both OMB_DAEMON_EXECUTABLE and "
+            "OMB_NODE_EXECUTABLE are set; configure exactly one"
+        )
+    if configured_daemon is None and configured_node is None:
+        raise ConnectionError(
+            "NOT_CONFIGURED: set OMB_DAEMON_EXECUTABLE for an installed daemon "
+            "or OMB_NODE_EXECUTABLE for repository development"
+        )
+
+    resolved_args = _resolve_daemon_args(daemon_args)
+    if configured_daemon is not None:
+        return _resolve_installed_daemon_argv(configured_daemon, resolved_args)
+    assert configured_node is not None
+    return _resolve_development_daemon_argv(configured_node, resolved_args)
 
 
 def _live_scene_hash() -> str:

@@ -7,6 +7,8 @@ from typing import Any
 
 PROTOCOL_VERSION = 2
 MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2"
+EXPECTED_DAEMON_VERSION = "0.1.0"
+_SEMANTIC_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _NONCE = re.compile(r"^[A-Za-z0-9_-]{22}$")
 
@@ -34,7 +36,21 @@ def validate_hello_ack(ack: Any) -> dict[str, Any]:
         raise HandshakeError("hello_ack must contain exactly the protocol-v2 fields")
     if ack["type"] != "hello_ack" or ack["protocol"] != PROTOCOL_VERSION:
         raise HandshakeError("invalid hello_ack discriminator or protocol")
-    if not all(isinstance(ack[key], str) and ack[key] for key in ("daemon_version", "launch_id", "session_id", "server_nonce")):
+    daemon_version = ack["daemon_version"]
+    if (
+        not isinstance(daemon_version, str)
+        or _SEMANTIC_VERSION.fullmatch(daemon_version) is None
+        or daemon_version != EXPECTED_DAEMON_VERSION
+    ):
+        raise HandshakeError(
+            "incompatible daemon version: expected "
+            f"{EXPECTED_DAEMON_VERSION}, received {daemon_version!r}; "
+            "install a matching Oh My Blender daemon"
+        )
+    if not all(
+        isinstance(ack[key], str) and ack[key]
+        for key in ("launch_id", "session_id", "server_nonce")
+    ):
         raise HandshakeError("invalid hello_ack string field")
     if not _UUID4.fullmatch(ack["launch_id"]) or not _UUID4.fullmatch(ack["session_id"]):
         raise HandshakeError("launch_id and session_id must be lowercase UUIDv4")

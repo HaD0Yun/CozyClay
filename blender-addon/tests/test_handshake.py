@@ -42,6 +42,22 @@ class HandshakeTests(unittest.TestCase):
             with self.subTest(ack=ack), self.assertRaises(HandshakeError):
                 validate_hello_ack(ack)
 
+    def test_protocol_v2_hello_ack_requires_matching_semantic_daemon_version(self):
+        valid = {
+            "type": "hello_ack",
+            "protocol": 2,
+            "daemon_version": "0.1.0",
+            "launch_id": str(uuid.uuid4()),
+            "session_id": str(uuid.uuid4()),
+            "server_nonce": base64.urlsafe_b64encode(b"x" * 16).decode().rstrip("="),
+            "capabilities": ["mutation_bridge_v2"],
+        }
+        for daemon_version in ("0.2.0", "v0.1", "", "0.1.0-dev"):
+            with self.subTest(daemon_version=daemon_version), self.assertRaisesRegex(
+                HandshakeError, "incompatible daemon version"
+            ):
+                validate_hello_ack(dict(valid, daemon_version=daemon_version))
+
 
 if __name__ == "__main__":
     unittest.main()
