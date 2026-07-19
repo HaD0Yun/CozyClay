@@ -55,7 +55,8 @@ def receive(connection: Connection, responses: queue.Queue, timeout: float = 30)
         "stage_scene response timed out: "
         f"state={connection.state}, status={connection.task_status}, "
         f"reader_alive={connection._reader_thread.is_alive() if connection._reader_thread else None}, "
-        f"child_exit={connection.child.process.poll()}, sent={connection.websocket.closed}"
+        f"child_exit={connection.child.process.poll()}, sent={connection.websocket.closed}, "
+        f"stderr={connection.child.stderr_diagnostics}"
     )
 
 
@@ -126,6 +127,19 @@ def main() -> None:
         durable_manifest = durable["manifest"]
         cube_id = next(item["entityId"] for item in durable_manifest["objects"] if item["name"] == "Hero Cube")
         sphere_id = next(item["entityId"] for item in durable_manifest["objects"] if item["name"] == "Hero Sphere")
+        identities = created_response["result"]["entity_identities"]
+        objects_by_id = {
+            item["entityId"]: item
+            for item in durable_manifest["objects"]
+        }
+        identity_mapping_valid = (
+            {item["requested_name"] for item in identities}
+            == {"Floor", "Hero Cube", "Hero Sphere", "Key Light"}
+            and all(
+                objects_by_id[item["entity_id"]]["name"] == item["actual_name"]
+                for item in identities
+            )
+        )
 
         time.sleep(1.01)
         before_rollback = extract_scene_manifest_v3()
@@ -171,6 +185,7 @@ def main() -> None:
             } | {sphere_id},
             "manifestAdvanced": durable_manifest["sceneHash"] != base["sceneHash"],
             "stageCounts": [len(durable_manifest["stagePrimitives"]), len(durable_manifest["stageMaterials"])],
+            "identityMappingValid": identity_mapping_valid,
             "cubeStillPresent": any(obj.get("omb.entity_id") == cube_id for obj in bpy.context.scene.objects),
             "sphereDestroyed": all(obj.get("omb.entity_id") != sphere_id for obj in bpy.data.objects),
             "deleteRevisionAdvanced": after_delete["current_revision_id"] != durable["current_revision_id"],

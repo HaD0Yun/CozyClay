@@ -40,6 +40,10 @@ class StageSceneRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["manifestAdvanced"])
         self.assertTrue(self.results["manifestStageState"])
 
+    def test_node_material_drift_advances_manifest_hash(self):
+        self.assertTrue(self.results["nodeColorDriftHashes"])
+        self.assertTrue(self.results["materialDriftRestored"])
+
     def test_creation_failure_rolls_back_bit_perfect(self):
         self.assertTrue(self.results["creationRollback"])
         self.assertTrue(self.results["checkpointReleased"])
@@ -52,6 +56,25 @@ class StageSceneRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["deleteRetainedUntilAck"])
         self.assertTrue(self.results["deleteDestroyedAfterAck"])
         self.assertEqual(self.results["userDeleteCode"], "STAGE_SCENE_TARGET_NOT_OMB_OWNED")
+
+    def test_rejects_shared_mesh_light_and_generated_material_datablocks(self):
+        for kind in ("Mesh", "Light", "Material"):
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    self.results[f"shared{kind}Code"],
+                    "STAGE_SCENE_SHARED_DATABLOCK",
+                )
+                self.assertTrue(self.results[f"shared{kind}Rollback"])
+
+    def test_exclusive_datablocks_are_destroyed_after_ack(self):
+        self.assertTrue(self.results["exclusiveDeleteDestroyed"])
+
+    def test_light_rename_collision_reports_actual_blender_name(self):
+        identity = self.results["collisionIdentity"]
+        self.assertEqual(identity["entity_id"], "44444444-4444-4444-8444-444444444444")
+        self.assertEqual(identity["requested_name"], "Collision Light")
+        self.assertEqual(identity["actual_name"], "Collision Light.001")
+        self.assertEqual(self.results["collisionManifestName"], identity["actual_name"])
 
 
 if __name__ == "__main__":

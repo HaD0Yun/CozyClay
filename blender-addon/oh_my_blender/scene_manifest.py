@@ -33,7 +33,10 @@ _CAMERA_KEYS = {
 _LIGHT_KEYS = {"objectId", "lightType", "color", "energy", "spotSize", "spotBlend"}
 _LIGHT_V3_KEYS = _LIGHT_KEYS | {"areaSize"}
 _STAGE_PRIMITIVE_KEYS = {"objectId", "primitiveType"}
-_STAGE_MATERIAL_KEYS = {"objectId", "materialName", "baseColor"}
+_STAGE_MATERIAL_KEYS = {
+    "objectId", "materialName", "baseColor", "useNodes",
+    "principledBaseColor",
+}
 _MARKER_KEYS = {"name", "frame", "cameraId"}
 _CAMERA_ANIMATION_KEYS = {"objectId", "target", "fcurves"}
 _FCURVE_KEYS = {"dataPath", "arrayIndex", "keyframes"}
@@ -336,6 +339,23 @@ def _validate_manifest(manifest: dict) -> None:
                     _vector(item.get("baseColor"), 4, f"{path}.baseColor")
                     if any(component < 0 or component > 1 for component in item["baseColor"]):
                         _fail(f"{path}.baseColor", "components must be between 0 and 1")
+                    if not isinstance(item.get("useNodes"), bool):
+                        _fail(f"{path}.useNodes", "must be a boolean")
+                    principled_base_color = item.get("principledBaseColor")
+                    if principled_base_color is not None:
+                        _vector(
+                            principled_base_color,
+                            4,
+                            f"{path}.principledBaseColor",
+                        )
+                        if any(
+                            component < 0 or component > 1
+                            for component in principled_base_color
+                        ):
+                            _fail(
+                                f"{path}.principledBaseColor",
+                                "components must be between 0 and 1",
+                            )
             _assert_sorted(arrays[key], lambda item: item["objectId"], key)
 
     animation_targets: set[tuple[str, str]] = set()

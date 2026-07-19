@@ -27,6 +27,8 @@ function stagedManifest(): Record<string, unknown> {
 				objectId: "00000000-0000-4000-8000-000000000002",
 				materialName: "OMB Material 00000000",
 				baseColor: [0.12, 0.18, 0.3, 1],
+				useNodes: true,
+				principledBaseColor: [0.12, 0.18, 0.3, 1],
 			},
 		],
 	};
@@ -37,6 +39,8 @@ test("SceneManifestV3 minimally hashes staged primitive and material state", () 
 	assert.equal(manifest.schemaVersion, 3);
 	assert.equal(manifest.stagePrimitives[0]?.primitiveType, "CUBE");
 	assert.deepEqual(manifest.stageMaterials[0]?.baseColor, [0.12, 0.18, 0.3, 1]);
+	assert.equal(manifest.stageMaterials[0]?.useNodes, true);
+	assert.deepEqual(manifest.stageMaterials[0]?.principledBaseColor, [0.12, 0.18, 0.3, 1]);
 });
 
 test("V3 stage arrays remain closed and reference scene objects", () => {

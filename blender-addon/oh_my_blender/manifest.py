@@ -244,10 +244,21 @@ def _stage_manifest_entries(
             material is not None
             and material.get("omb.generated_for_entity_id") == object_id
         ):
+            principled = (
+                material.node_tree.nodes.get("Principled BSDF")
+                if material.node_tree is not None
+                else None
+            )
             materials.append({
                 "objectId": object_id,
                 "materialName": _text(material.name),
                 "baseColor": _vector(material.diffuse_color),
+                "useNodes": bool(material.use_nodes),
+                "principledBaseColor": (
+                    _vector(principled.inputs["Base Color"].default_value)
+                    if principled is not None
+                    else None
+                ),
             })
     return primitives, materials
 

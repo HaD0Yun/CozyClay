@@ -96,6 +96,16 @@ const StageMaterialSchema = exact({
 		Type.Number({ minimum: 0, maximum: 1 }),
 		Type.Number({ minimum: 0, maximum: 1 }),
 	]),
+	useNodes: Type.Boolean(),
+	principledBaseColor: Type.Union([
+		Type.Tuple([
+			Type.Number({ minimum: 0, maximum: 1 }),
+			Type.Number({ minimum: 0, maximum: 1 }),
+			Type.Number({ minimum: 0, maximum: 1 }),
+			Type.Number({ minimum: 0, maximum: 1 }),
+		]),
+		Type.Null(),
+	]),
 });
 // The owning CAMERA object's entityId, or null.
 const MarkerSchema = exact({ name: name(), frame: Type.Integer(), cameraId: nullableUuid() });

@@ -110,15 +110,22 @@ export const StageSceneRequestV1Schema = exact({
 		{ minItems: 1, maxItems: 256 },
 	),
 });
+export const StageSceneEntityIdentitySchema = exact({
+	entity_id: uuid(),
+	requested_name: stableName(),
+	actual_name: stableName(),
+});
 export const StageSceneMutationCandidateSchema = exact({
 	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	scene_hash: Type.String({ pattern: HASH_64 }),
 	manifest: SceneManifestV3Schema,
+	entity_identities: Type.Array(StageSceneEntityIdentitySchema, { maxItems: 256 }),
 });
 
 export type StageSceneOperationV1 = Static<typeof StageSceneOperationV1Schema>;
 export type StageScenePlanV1 = Static<typeof StageScenePlanV1Schema>;
 export type StageSceneRequestV1 = Static<typeof StageSceneRequestV1Schema>;
+export type StageSceneEntityIdentity = Static<typeof StageSceneEntityIdentitySchema>;
 export type StageSceneMutationCandidate = Static<typeof StageSceneMutationCandidateSchema>;
 
 export const STAGE_SCENE_ERROR_CODES = [
@@ -127,6 +134,7 @@ export const STAGE_SCENE_ERROR_CODES = [
 	"STAGE_SCENE_ENTITY_ID_DUPLICATE",
 	"STAGE_SCENE_STABLE_NAME_DUPLICATE",
 	"STAGE_SCENE_NAME_REFERENCE_UNKNOWN",
+	"STAGE_SCENE_SHARED_DATABLOCK",
 ] as const;
 export type StageSceneErrorCode = (typeof STAGE_SCENE_ERROR_CODES)[number];
 

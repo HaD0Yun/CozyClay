@@ -48,7 +48,18 @@ function candidate(plan: StageScenePlanV1): StageSceneMutationCandidate {
 		parent,
 		plan,
 	);
-	return { expected_revision_id: parent, scene_hash: manifest.sceneHash, manifest };
+	return {
+		expected_revision_id: parent,
+		scene_hash: manifest.sceneHash,
+		manifest,
+		entity_identities: [
+			{
+				entity_id: ENTITY_ID,
+				requested_name: "Parity Subject",
+				actual_name: "Parity Subject",
+			},
+		],
+	};
 }
 
 function fakeStore(events: string[]): StageSceneRevisionStore {
@@ -98,6 +109,13 @@ test("allocates daemon-owned IDs before dispatch and commits the real child revi
 	);
 	assert.deepEqual(events, ["bridge:result", "commit:owned", "commit:durable"]);
 	assert.equal(output.resulting_revision_id, output.result.resulting_revision_id);
+	assert.deepEqual(output.result.entity_identities, [
+		{
+			entity_id: ENTITY_ID,
+			requested_name: "Parity Subject",
+			actual_name: "Parity Subject",
+		},
+	]);
 });
 
 test("rejects forged or incorrectly chained candidate revisions before durable commit", async () => {
@@ -113,6 +131,29 @@ test("rejects forged or incorrectly chained candidate revisions before durable c
 			stageScene: async (plan) => {
 				const value = candidate(plan);
 				return { ...value, manifest: { ...value.manifest, revisionId: "f".repeat(64) } };
+			},
+		}),
+		/INVALID_MUTATION_RESULT/,
+	);
+	assert.equal(committed, false);
+});
+
+test("rejects identity mappings that disagree with the plan or candidate manifest", async () => {
+	let committed = false;
+	const store = fakeStore([]);
+	store.commitRevision = async () => {
+		committed = true;
+	};
+	await assert.rejects(
+		createStageSceneHandler({ store, allocateEntityId: () => ENTITY_ID })(request, {
+			signal: new AbortController().signal,
+			request: { expected_revision_id: parent },
+			stageScene: async (plan) => {
+				const value = candidate(plan);
+				return {
+					...value,
+					entity_identities: [{ ...value.entity_identities[0]!, actual_name: "Parity Subject.001" }],
+				};
 			},
 		}),
 		/INVALID_MUTATION_RESULT/,

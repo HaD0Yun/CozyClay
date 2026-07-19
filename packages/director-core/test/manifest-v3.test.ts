@@ -44,7 +44,7 @@ test("builds a real child revision from parent, canonical operation, and V3 scen
 	assert.notEqual(manifest.revisionId, manifest.sceneHash);
 });
 
-test("changing only staged material color advances both scene hash and child revision", () => {
+test("each authoritative staged material field advances scene and child revisions", () => {
 	const { revisionId: _revisionId, sceneHash: _sceneHash, ...base } = v2;
 	const common = {
 		...base,
@@ -52,34 +52,26 @@ test("changing only staged material color advances both scene hash and child rev
 		lights: [],
 		stagePrimitives: [{ objectId: "00000000-0000-4000-8000-000000000002" as const, primitiveType: "CUBE" as const }],
 	};
-	const first = buildSceneManifestV3Revision(
+	const material = {
+		objectId: "00000000-0000-4000-8000-000000000002",
+		materialName: "OMB Material",
+		baseColor: [0.1, 0.2, 0.3, 1] as [number, number, number, number],
+		useNodes: true,
+		principledBaseColor: [0.1, 0.2, 0.3, 1] as [number, number, number, number],
+	};
+	const build = (stageMaterial: typeof material) =>
+		buildSceneManifestV3Revision({ ...common, stageMaterials: [stageMaterial] }, parent, operation);
+	const first = build(material);
+	for (const changed of [
+		{ ...material, baseColor: [0.8, 0.2, 0.3, 1] as [number, number, number, number] },
 		{
-			...common,
-			stageMaterials: [
-				{
-					objectId: "00000000-0000-4000-8000-000000000002",
-					materialName: "OMB Material",
-					baseColor: [0.1, 0.2, 0.3, 1],
-				},
-			],
+			...material,
+			principledBaseColor: [0.8, 0.2, 0.3, 1] as [number, number, number, number],
 		},
-		parent,
-		operation,
-	);
-	const second = buildSceneManifestV3Revision(
-		{
-			...common,
-			stageMaterials: [
-				{
-					objectId: "00000000-0000-4000-8000-000000000002",
-					materialName: "OMB Material",
-					baseColor: [0.8, 0.2, 0.3, 1],
-				},
-			],
-		},
-		parent,
-		operation,
-	);
-	assert.notEqual(first.sceneHash, second.sceneHash);
-	assert.notEqual(first.revisionId, second.revisionId);
+		{ ...material, useNodes: false },
+	]) {
+		const next = build(changed);
+		assert.notEqual(first.sceneHash, next.sceneHash);
+		assert.notEqual(first.revisionId, next.revisionId);
+	}
 });

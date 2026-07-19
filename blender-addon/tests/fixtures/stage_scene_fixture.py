@@ -19,6 +19,14 @@ SPHERE_ID = "33333333-3333-4333-8333-333333333333"
 LIGHT_ID = "44444444-4444-4444-8444-444444444444"
 EXTRA_ID = "55555555-5555-4555-8555-555555555555"
 USER_ID = "66666666-6666-4666-8666-666666666666"
+SHARED_MESH_ID = "77777777-7777-4777-8777-777777777777"
+SHARED_LIGHT_ID = "88888888-8888-4888-8888-888888888888"
+SHARED_MATERIAL_ID = "99999999-9999-4999-8999-999999999999"
+EXCLUSIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+OTHER_MESH_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+OTHER_LIGHT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+OTHER_MATERIAL_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+COLLISION_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
 
 class FakeConnection:
@@ -106,6 +114,19 @@ def main():
     staged = extract_scene_manifest_v3()
     ids = {scene_object.get("omb.entity_id") for scene_object in bpy.context.scene.objects}
 
+    floor_object = next(
+        scene_object
+        for scene_object in bpy.context.scene.objects
+        if scene_object.get("omb.entity_id") == FLOOR_ID
+    )
+    floor_material = floor_object.material_slots[0].material
+    principled = floor_material.node_tree.nodes["Principled BSDF"]
+    original_node_color = tuple(principled.inputs["Base Color"].default_value)
+    principled.inputs["Base Color"].default_value = [0.9, 0.1, 0.2, 1]
+    node_color_drift_hashes = extract_scene_manifest_v3()["sceneHash"] != staged["sceneHash"]
+    principled.inputs["Base Color"].default_value = original_node_color
+    material_drift_restored = extract_scene_manifest_v3()["sceneHash"] == staged["sceneHash"]
+
     before_creation_failure = extract_scene_manifest_v3()
     failure_plan = plan(
         first["manifest"]["revisionId"],
@@ -173,6 +194,122 @@ def main():
     except BaseException as error:
         user_code = getattr(error, "code", type(error).__name__)
 
+    def attempt_delete(entity_id):
+        before = extract_scene_manifest_v3()
+        code = None
+        try:
+            apply_stage_scene_transaction(
+                plan(first["manifest"]["revisionId"], [{"op": "delete_entity", "entity_id": entity_id}]),
+                before["sceneHash"],
+                connection,
+                lambda _candidate: None,
+            )
+        except BaseException as error:
+            code = getattr(error, "code", type(error).__name__)
+        return code, extract_scene_manifest_v3() == before
+
+    shared_mesh = bpy.data.meshes.new("Shared Mesh")
+    shared_mesh_target = bpy.data.objects.new("Shared Mesh Target", shared_mesh)
+    shared_mesh_target["omb.entity_id"] = SHARED_MESH_ID
+    shared_mesh_target["omb.owned_project_id"] = PROJECT_ID
+    shared_mesh_other = bpy.data.objects.new("Shared Mesh Other", shared_mesh)
+    shared_mesh_other["omb.entity_id"] = OTHER_MESH_ID
+    bpy.context.scene.collection.objects.link(shared_mesh_target)
+    bpy.context.scene.collection.objects.link(shared_mesh_other)
+    shared_mesh_code, shared_mesh_rollback = attempt_delete(SHARED_MESH_ID)
+    for name in ("Shared Mesh Target", "Shared Mesh Other"):
+        scene_object = bpy.data.objects.get(name)
+        if scene_object is not None:
+            bpy.data.objects.remove(scene_object, do_unlink=True)
+    if shared_mesh.name in bpy.data.meshes and shared_mesh.users == 0:
+        bpy.data.meshes.remove(shared_mesh)
+
+    shared_light = bpy.data.lights.new("Shared Light Data", "AREA")
+    shared_light_target = bpy.data.objects.new("Shared Light Target", shared_light)
+    shared_light_target["omb.entity_id"] = SHARED_LIGHT_ID
+    shared_light_target["omb.owned_project_id"] = PROJECT_ID
+    shared_light_other = bpy.data.objects.new("Shared Light Other", shared_light)
+    shared_light_other["omb.entity_id"] = OTHER_LIGHT_ID
+    bpy.context.scene.collection.objects.link(shared_light_target)
+    bpy.context.scene.collection.objects.link(shared_light_other)
+    shared_light_code, shared_light_rollback = attempt_delete(SHARED_LIGHT_ID)
+    for name in ("Shared Light Target", "Shared Light Other"):
+        scene_object = bpy.data.objects.get(name)
+        if scene_object is not None:
+            bpy.data.objects.remove(scene_object, do_unlink=True)
+    if shared_light.name in bpy.data.lights and shared_light.users == 0:
+        bpy.data.lights.remove(shared_light)
+
+    target_mesh = bpy.data.meshes.new("Shared Material Target Mesh")
+    other_mesh = bpy.data.meshes.new("Shared Material Other Mesh")
+    shared_material = bpy.data.materials.new("Shared Generated Material")
+    shared_material["omb.generated_for_entity_id"] = SHARED_MATERIAL_ID
+    material_target = bpy.data.objects.new("Shared Material Target", target_mesh)
+    material_target["omb.entity_id"] = SHARED_MATERIAL_ID
+    material_target["omb.owned_project_id"] = PROJECT_ID
+    material_other = bpy.data.objects.new("Shared Material Other", other_mesh)
+    material_other["omb.entity_id"] = OTHER_MATERIAL_ID
+    target_mesh.materials.append(shared_material)
+    other_mesh.materials.append(shared_material)
+    bpy.context.scene.collection.objects.link(material_target)
+    bpy.context.scene.collection.objects.link(material_other)
+    shared_material_code, shared_material_rollback = attempt_delete(SHARED_MATERIAL_ID)
+    for name in ("Shared Material Target", "Shared Material Other"):
+        scene_object = bpy.data.objects.get(name)
+        if scene_object is not None:
+            bpy.data.objects.remove(scene_object, do_unlink=True)
+    for name in ("Shared Material Target Mesh", "Shared Material Other Mesh"):
+        datablock = bpy.data.meshes.get(name)
+        if datablock is not None and datablock.users == 0:
+            bpy.data.meshes.remove(datablock)
+    if shared_material.name in bpy.data.materials and shared_material.users == 0:
+        bpy.data.materials.remove(shared_material)
+
+    exclusive_mesh = bpy.data.meshes.new("Exclusive Mesh")
+    exclusive_material = bpy.data.materials.new("Exclusive Generated Material")
+    exclusive_material["omb.generated_for_entity_id"] = EXCLUSIVE_ID
+    exclusive_mesh.materials.append(exclusive_material)
+    exclusive_target = bpy.data.objects.new("Exclusive Target", exclusive_mesh)
+    exclusive_target["omb.entity_id"] = EXCLUSIVE_ID
+    exclusive_target["omb.owned_project_id"] = PROJECT_ID
+    bpy.context.scene.collection.objects.link(exclusive_target)
+    exclusive_code, _exclusive_rollback = attempt_delete(EXCLUSIVE_ID)
+    exclusive_destroyed = (
+        exclusive_code is None
+        and bpy.data.objects.get("Exclusive Target") is None
+        and bpy.data.meshes.get("Exclusive Mesh") is None
+        and bpy.data.materials.get("Exclusive Generated Material") is None
+    )
+
+    collision_mesh = bpy.data.meshes.new("Collision Mesh")
+    collision_object = bpy.data.objects.new("Collision Light", collision_mesh)
+    collision_object["omb.entity_id"] = COLLISION_ID
+    bpy.context.scene.collection.objects.link(collision_object)
+    collision_result = apply_stage_scene_transaction(
+        plan(first["manifest"]["revisionId"], [{
+            "op": "upsert_area_light",
+            "entity_id": LIGHT_ID,
+            "name": "Collision Light",
+            **transform(location=(4, -4, 6)),
+            "energy": 800,
+            "color": [1, 0.9, 0.8],
+            "size": 3,
+        }]),
+        extract_scene_manifest_v3()["sceneHash"],
+        connection,
+        lambda _candidate: None,
+    )
+    collision_identity = collision_result["entity_identities"][0]
+    collision_manifest_name = next(
+        item["name"]
+        for item in collision_result["manifest"]["objects"]
+        if item["entityId"] == LIGHT_ID
+    )
+    bpy.data.objects.get(collision_identity["actual_name"]).name = "Key Light"
+    bpy.data.objects.remove(collision_object, do_unlink=True)
+    if collision_mesh.users == 0:
+        bpy.data.meshes.remove(collision_mesh)
+
     results = {
         "created": all(bpy.data.objects.get(name) is not None for name in ("Floor", "Hero Cube", "Key Light")),
         "idsExact": {FLOOR_ID, CUBE_ID, SPHERE_ID, LIGHT_ID}.issubset(ids),
@@ -182,6 +319,8 @@ def main():
             and len(staged["stageMaterials"]) == 3
             and next(light for light in staged["lights"] if light["objectId"] == LIGHT_ID)["areaSize"] == 3
         ),
+        "nodeColorDriftHashes": node_color_drift_hashes,
+        "materialDriftRestored": material_drift_restored,
         "creationRollback": creation_rollback,
         "checkpointReleased": checkpoint_released,
         "deleteRetainedBeforeAck": delete_retained_before_ack,
@@ -189,6 +328,15 @@ def main():
         "deleteRetainedUntilAck": delete_retained_until_ack,
         "deleteDestroyedAfterAck": bpy.data.objects.get("Hero Sphere") is None,
         "userDeleteCode": user_code,
+        "sharedMeshCode": shared_mesh_code,
+        "sharedMeshRollback": shared_mesh_rollback,
+        "sharedLightCode": shared_light_code,
+        "sharedLightRollback": shared_light_rollback,
+        "sharedMaterialCode": shared_material_code,
+        "sharedMaterialRollback": shared_material_rollback,
+        "exclusiveDeleteDestroyed": exclusive_destroyed,
+        "collisionIdentity": collision_identity,
+        "collisionManifestName": collision_manifest_name,
     }
     print("OMB_STAGE_SCENE_RESULTS=" + json.dumps(results, sort_keys=True))
 

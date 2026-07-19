@@ -21,6 +21,28 @@ export interface StageSceneHandlerOptions {
 
 export const createStageSceneProjectStore = (rootDir: string): StageSceneRevisionStore => new ProjectStore(rootDir);
 
+function validateEntityIdentities(plan: StageScenePlanV1, candidate: StageSceneMutationCandidate): void {
+	const namedOperations = plan.operations.filter(
+		(operation) => operation.op === "add_primitive" || operation.op === "upsert_area_light",
+	);
+	if (candidate.entity_identities.length !== namedOperations.length) {
+		throw new Error("INVALID_MUTATION_RESULT: entity identity mapping must cover every named operation");
+	}
+	const objectsById = new Map(candidate.manifest.objects.map((object) => [object.entityId, object]));
+	for (const [index, operation] of namedOperations.entries()) {
+		const identity = candidate.entity_identities[index];
+		const actualObject = objectsById.get(operation.entity_id);
+		if (
+			identity?.entity_id !== operation.entity_id ||
+			identity.requested_name !== operation.name ||
+			actualObject === undefined ||
+			identity.actual_name !== actualObject.name
+		) {
+			throw new Error("INVALID_MUTATION_RESULT: entity identity mapping disagrees with the plan or manifest");
+		}
+	}
+}
+
 export async function commitStageSceneMutation(
 	store: StageSceneRevisionStore,
 	plan: StageScenePlanV1,
@@ -45,6 +67,7 @@ export async function commitStageSceneMutation(
 	) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest hashes do not match the child revision chain");
 	}
+	validateEntityIdentities(plan, candidate);
 	const current = await store.readProject();
 	if (current.project_id !== candidate.manifest.projectId) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest projectId does not match the current project");
@@ -62,7 +85,11 @@ export async function commitStageSceneMutation(
 		scene_hash: candidate.scene_hash,
 		canonical_plan: plan,
 	});
-	return { resulting_revision_id: candidate.manifest.revisionId, scene_hash: candidate.scene_hash };
+	return {
+		resulting_revision_id: candidate.manifest.revisionId,
+		scene_hash: candidate.scene_hash,
+		entity_identities: candidate.entity_identities,
+	};
 }
 
 export function createStageSceneHandler(options: StageSceneHandlerOptions = {}) {

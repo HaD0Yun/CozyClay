@@ -60,6 +60,10 @@ class STAGE_SCENE_TARGET_TYPE_INVALID(StageSceneError):
     code = "STAGE_SCENE_TARGET_TYPE_INVALID"
 
 
+class STAGE_SCENE_SHARED_DATABLOCK(StageSceneError):
+    code = "STAGE_SCENE_SHARED_DATABLOCK"
+
+
 class STAGE_SCENE_CANCELLED(StageSceneError):
     code = "STAGE_SCENE_CANCELLED"
 
@@ -205,6 +209,26 @@ def _require_owned_entity(entity_id: str, project_id: str):
             f"entity {entity_id} was not created by OMB for this project"
         )
     return scene_object
+
+
+def _require_exclusive_datablocks(scene_object: object) -> None:
+    data = scene_object.data
+    if data is not None and data.users > 1:
+        raise STAGE_SCENE_SHARED_DATABLOCK(
+            f"entity {scene_object['omb.entity_id']} data is shared by {data.users} users"
+        )
+    if scene_object.type != "MESH":
+        return
+    for material in data.materials:
+        if (
+            material is not None
+            and isinstance(material.get("omb.generated_for_entity_id"), str)
+            and material.users > 1
+        ):
+            raise STAGE_SCENE_SHARED_DATABLOCK(
+                f"entity {scene_object['omb.entity_id']} generated material "
+                f"{material.name!r} is shared by {material.users} users"
+            )
 
 
 def _destroy_object(scene_object: object) -> None:
@@ -521,9 +545,11 @@ def apply_stage_scene_transaction(
             elif operation["op"] == "upsert_area_light":
                 _upsert_area_light(operation, transaction, project_id)
             else:
-                transaction.quarantine(
-                    _require_owned_entity(operation["entity_id"], project_id)
+                scene_object = _require_owned_entity(
+                    operation["entity_id"], project_id
                 )
+                _require_exclusive_datablocks(scene_object)
+                transaction.quarantine(scene_object)
             connection.ensure_mutation_connection(operation["op"])
         bpy.context.view_layer.update()
         _check_abort(deadline, cancelled)
@@ -534,10 +560,24 @@ def apply_stage_scene_transaction(
             plan["expected_revision_id"],
             plan,
         )
+        objects_by_id = {
+            scene_object["entityId"]: scene_object
+            for scene_object in candidate_manifest["objects"]
+        }
+        entity_identities = [
+            {
+                "entity_id": operation["entity_id"],
+                "requested_name": operation["name"],
+                "actual_name": objects_by_id[operation["entity_id"]]["name"],
+            }
+            for operation in plan["operations"]
+            if operation["op"] in ("add_primitive", "upsert_area_light")
+        ]
         result = {
             "expected_revision_id": plan["expected_revision_id"],
             "scene_hash": candidate_manifest["sceneHash"],
             "manifest": candidate_manifest,
+            "entity_identities": entity_identities,
         }
         commit_fn(result)
         transaction.finalize_deletions()

@@ -37,6 +37,8 @@ class SceneManifestV3Tests(unittest.TestCase):
                 "objectId": OBJECT,
                 "materialName": "OMB Material",
                 "baseColor": [0.1, 0.2, 0.3, 1],
+                "useNodes": True,
+                "principledBaseColor": [0.1, 0.2, 0.3, 1],
             }],
         )
         return value
@@ -61,6 +63,23 @@ class SceneManifestV3Tests(unittest.TestCase):
             finalize_scene_manifest_child(build_scene_manifest_v3(**changed), PARENT, PLAN)["sceneHash"],
             finalized["sceneHash"],
         )
+
+    def test_node_base_color_and_use_nodes_each_advance_hash(self):
+        baseline = finalize_scene_manifest_child(
+            build_scene_manifest_v3(**self.v3_parts()), PARENT, PLAN
+        )
+        for field, value in (
+            ("principledBaseColor", [0.8, 0.2, 0.3, 1]),
+            ("useNodes", False),
+        ):
+            with self.subTest(field=field):
+                changed = self.v3_parts()
+                changed["stage_materials"][0][field] = value
+                finalized = finalize_scene_manifest_child(
+                    build_scene_manifest_v3(**changed), PARENT, PLAN
+                )
+                self.assertNotEqual(finalized["sceneHash"], baseline["sceneHash"])
+                self.assertNotEqual(finalized["revisionId"], baseline["revisionId"])
 
     def test_v3_stage_references_and_area_size_are_closed(self):
         missing = self.v3_parts()

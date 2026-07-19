@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
 	canonicalizeStageScenePlan,
+	parseStageSceneMutationCandidate,
 	parseStageScenePlan,
 	type StageScenePlanV1,
 	StageSceneValidationError,
@@ -33,6 +34,39 @@ test("rejects unknown fields with the schema-only error code", async () => {
 		(error: unknown) =>
 			error instanceof StageSceneValidationError && error.code === "INVALID_STAGE_SCENE_PLAN_SCHEMA",
 	);
+});
+
+test("parses a closed per-entity identity mapping", async () => {
+	const v2 = JSON.parse(
+		await readFile(
+			new URL("../../director-core/test/fixtures/scene-manifest-v2-parity.json", import.meta.url),
+			"utf8",
+		),
+	) as Record<string, unknown>;
+	const manifest = {
+		...v2,
+		schemaVersion: 3,
+		lights: [],
+		stagePrimitives: [],
+		stageMaterials: [],
+	};
+	const candidate = parseStageSceneMutationCandidate({
+		expected_revision_id: "a".repeat(64),
+		scene_hash: v2.sceneHash as string,
+		manifest,
+		entity_identities: [
+			{
+				entity_id: IDS[0],
+				requested_name: "Requested Name",
+				actual_name: "Actual Name.001",
+			},
+		],
+	});
+	assert.equal(candidate.entity_identities[0]?.actual_name, "Actual Name.001");
+
+	const extra = structuredClone(candidate);
+	(extra.entity_identities[0] as Record<string, unknown>).unexpected = true;
+	assert.throws(() => parseStageSceneMutationCandidate(extra), /INVALID_MUTATION_RESULT/);
 });
 
 test("rejects duplicate daemon-issued entity IDs with a distinct code", async () => {

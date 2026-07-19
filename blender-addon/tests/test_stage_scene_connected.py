@@ -38,6 +38,7 @@ class StageSceneConnectedTests(unittest.TestCase):
         self.assertTrue(result["rollbackExact"])
         self.assertEqual(result["deleteResponse"], "response")
         self.assertTrue(result["daemonIdsMatch"])
+        self.assertTrue(result["identityMappingValid"])
         self.assertTrue(result["manifestAdvanced"])
         self.assertEqual(result["stageCounts"], [3, 3])
         self.assertTrue(result["cubeStillPresent"])
