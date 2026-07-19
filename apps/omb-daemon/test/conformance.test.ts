@@ -405,6 +405,40 @@ test("G011 cancellation after the first streamed chunk aborts publication", asyn
 	}
 });
 
+test("G011 cancelled bridge drains late artifact frames until its terminal acknowledgement", async () => {
+	const stream = await startRenderCase();
+	const bytes = Buffer.from("cancelled stream");
+	try {
+		sendArtifactBegin(stream, 80, bytes);
+		sendArtifactChunk(stream, 80, bytes);
+		await stream.firstWriteReceived;
+		stream.c.send({ type: "cancel", id: stream.q.id });
+		assert.equal((await stream.c.next((message) => message.type === "cancel_ack")).status, "accepted");
+		assert.equal(
+			(await stream.c.next((message) => message.type === "error" && message.id === stream.q.id)).code,
+			"CANCELLED",
+		);
+
+		sendArtifactBegin(stream, 81, bytes);
+		sendArtifactChunk(stream, 81, bytes);
+		stream.c.send({
+			type: "bridge_cancel_ack",
+			id: stream.bridge.id,
+			request_id: stream.q.id,
+			status: "accepted",
+		});
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		assert.equal(stream.declarations.length, 1);
+		assert.equal(stream.reservations.length, 1);
+		assert.equal(stream.reservations[0]?.aborted, true);
+		assert.equal(stream.reservations[0]?.committed, false);
+	} finally {
+		stream.c.socket.destroy();
+		await stream.d.close();
+	}
+});
+
 test("G011 disconnect after the first streamed chunk aborts publication", async () => {
 	const stream = await startRenderCase();
 	const bytes = Buffer.from("disconnected stream");

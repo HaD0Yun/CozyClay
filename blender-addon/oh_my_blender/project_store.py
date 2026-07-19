@@ -62,6 +62,11 @@ def write_project_index(directory: str, project_id: str, extra: dict | None = No
             os.fsync(handle.fileno())
         os.replace(temporary_path, final_path)
         temporary_path = None
+        directory_descriptor = os.open(omb_directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
     except (OSError, TypeError, ValueError) as exc:
         raise ProjectStoreError(f"cannot write project index: {exc}") from exc
     finally:
@@ -112,13 +117,20 @@ def prepare_project_index(
     manifest: dict | None = None,
 ) -> bool:
     """Persist a missing or legacy index, or verify a durable document unchanged."""
-    stored = None if project_created else read_project_index(directory)
+    stored = read_project_index(directory)
+    if project_created and stored is not None:
+        raise ProjectStoreError(
+            ".omb/project.json already exists; use an explicit recovery step, "
+            "not Initialize Project"
+        )
     if stored is not None:
         verify_project_ids_match(scene_project_id, stored.get("project_id"))
-        if manifest is None or "current_revision_id" in stored:
+        if "current_revision_id" in stored:
             return False
     if manifest is None:
-        write_project_index(directory, scene_project_id)
+        raise ProjectStoreError(
+            "scene manifest is required to create or upgrade project index"
+        )
     else:
         revision_id = manifest.get("revisionId") if isinstance(manifest, dict) else None
         if not isinstance(revision_id, str) or not revision_id:

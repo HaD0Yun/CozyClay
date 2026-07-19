@@ -27,6 +27,7 @@ from oh_my_blender.project_store import (
 
 PROJECT_ID = "123e4567-e89b-42d3-a456-426614174000"
 OTHER_ID = "223e4567-e89b-42d3-a456-426614174000"
+MANIFEST = {"revisionId": "a" * 64, "entities": []}
 
 
 class ProjectStoreTests(unittest.TestCase):
@@ -73,6 +74,23 @@ class ProjectStoreTests(unittest.TestCase):
                     write_project_index(directory, OTHER_ID)
             self.assertEqual(read_project_index(directory), {"project_id": PROJECT_ID})
 
+    def test_project_index_fsyncs_containing_directory_after_replace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch(
+                    "oh_my_blender.project_store.os.open", wraps=os.open
+                ) as open_mock,
+                mock.patch(
+                    "oh_my_blender.project_store.os.fsync", wraps=os.fsync
+                ) as fsync_mock,
+            ):
+                write_project_index(directory, PROJECT_ID)
+            self.assertEqual(
+                open_mock.call_args_list[-1],
+                mock.call(Path(directory, ".omb"), os.O_RDONLY),
+            )
+            self.assertEqual(fsync_mock.call_count, 2)
+
     def test_line_210_journal_appends_one_durable_ordered_json_line_per_call(self):
         with tempfile.TemporaryDirectory() as directory:
             entries = [
@@ -111,7 +129,15 @@ class ProjectStoreTests(unittest.TestCase):
 
     def test_lines_203_206_reinitialize_matching_index_is_noop_and_mismatch_refused(self):
         with tempfile.TemporaryDirectory() as directory:
-            write_project_index(directory, PROJECT_ID, {"future": "preserved"})
+            write_project_index(
+                directory,
+                PROJECT_ID,
+                {
+                    "current_revision_id": MANIFEST["revisionId"],
+                    "manifest": MANIFEST,
+                    "future": "preserved",
+                },
+            )
             with mock.patch("oh_my_blender.project_store.write_project_index") as write:
                 self.assertFalse(prepare_project_index(directory, PROJECT_ID, False))
                 write.assert_not_called()
@@ -119,17 +145,50 @@ class ProjectStoreTests(unittest.TestCase):
                 prepare_project_index(directory, OTHER_ID, False)
             self.assertEqual(
                 read_project_index(directory),
-                {"project_id": PROJECT_ID, "future": "preserved"},
+                {
+                    "current_revision_id": MANIFEST["revisionId"],
+                    "manifest": MANIFEST,
+                    "project_id": PROJECT_ID,
+                    "future": "preserved",
+                },
             )
 
-    def test_lines_203_206_initialize_writes_first_time_and_reestablishes_missing_index(self):
+    def test_lines_203_206_initialize_writes_full_document_and_reestablishes_missing_index(self):
         for project_created in (True, False):
             with self.subTest(project_created=project_created):
                 with tempfile.TemporaryDirectory() as directory:
                     self.assertTrue(
-                        prepare_project_index(directory, PROJECT_ID, project_created)
+                        prepare_project_index(
+                            directory, PROJECT_ID, project_created, MANIFEST
+                        )
                     )
-                    self.assertEqual(read_project_index(directory), {"project_id": PROJECT_ID})
+                    self.assertEqual(
+                        read_project_index(directory),
+                        {
+                            "schema_version": 1,
+                            "project_id": PROJECT_ID,
+                            "current_revision_id": MANIFEST["revisionId"],
+                            "manifest": MANIFEST,
+                        },
+                    )
+
+    def test_prepare_requires_manifest_for_creation_and_legacy_upgrade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ProjectStoreError, "manifest is required"):
+                prepare_project_index(directory, PROJECT_ID, True)
+            write_project_index(directory, PROJECT_ID)
+            with self.assertRaisesRegex(ProjectStoreError, "manifest is required"):
+                prepare_project_index(directory, PROJECT_ID, False)
+
+    def test_project_created_rereads_and_refuses_racing_existing_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write_project_index(directory, PROJECT_ID, {"sentinel": "preserved"})
+            with self.assertRaisesRegex(ProjectStoreError, "explicit recovery"):
+                prepare_project_index(directory, PROJECT_ID, True, MANIFEST)
+            self.assertEqual(
+                read_project_index(directory),
+                {"project_id": PROJECT_ID, "sentinel": "preserved"},
+            )
 
     def test_line_210_failed_journal_rollback_restores_values_and_absence(self):
         existing = {"omb.entity_id": PROJECT_ID}

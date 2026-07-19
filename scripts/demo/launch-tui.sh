@@ -27,19 +27,18 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
   fi
 done
 
-if [[ "$PROVIDER" == "openai-codex" && -z "${OPENAI_CODEX_ACCESS_TOKEN:-}" ]]; then
-  AUTH_DB="${HOME}/.gjc/agent/agent.db"
-  if [[ ! -f "$AUTH_DB" ]]; then
-    echo "Codex auth store not found at $AUTH_DB; run gjc /login first" >&2
-    exit 1
-  fi
-  if ! OPENAI_CODEX_ACCESS_TOKEN="$(AUTH_DB="$AUTH_DB" python3 - <<'PY'
-import base64
+if [[ "$PROVIDER" == "openai-codex" ]]; then
+  if [[ -z "${OPENAI_CODEX_ACCESS_TOKEN:-}" ]]; then
+    AUTH_DB="${HOME}/.gjc/agent/agent.db"
+    if [[ ! -f "$AUTH_DB" ]]; then
+      echo "Codex auth store not found at $AUTH_DB; run gjc /login first" >&2
+      exit 1
+    fi
+    if ! OPENAI_CODEX_ACCESS_TOKEN="$(AUTH_DB="$AUTH_DB" python3 - <<'PY'
 import json
 import os
 import sqlite3
 import sys
-import time
 
 try:
     with sqlite3.connect(os.environ["AUTH_DB"]) as connection:
@@ -51,21 +50,45 @@ try:
     access = json.loads(row[0]).get("access")
     if not access:
         raise RuntimeError("openai-codex credential has no access token; run gjc /login first")
-    segment = access.split(".")[1]
-    claims = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
-    remaining = claims.get("exp", 0) - time.time()
-    if remaining < 600:
-        raise RuntimeError("Codex access token is expired or expires within 10 minutes; refresh it with gjc")
-except (IndexError, KeyError, ValueError, json.JSONDecodeError, sqlite3.Error, RuntimeError) as error:
+except (ValueError, json.JSONDecodeError, sqlite3.Error, RuntimeError) as error:
     print(f"Cannot load Codex credentials: {error}", file=sys.stderr)
     sys.exit(1)
 print(access)
 PY
 )"; then
+      exit 1
+    fi
+    TOKEN_SOURCE="the gjc auth store"
+  else
+    TOKEN_SOURCE="the environment"
+  fi
+  # Structural/expiry validation applies to every token source (env or store).
+  if ! OMB_TOKEN_CANDIDATE="$OPENAI_CODEX_ACCESS_TOKEN" python3 - <<'PY'
+import base64
+import json
+import os
+import sys
+import time
+
+try:
+    access = os.environ["OMB_TOKEN_CANDIDATE"]
+    parts = access.split(".")
+    if len(parts) != 3:
+        raise RuntimeError("Codex access token is not a JWT")
+    segment = parts[1]
+    claims = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
+    remaining = claims.get("exp", 0) - time.time()
+    if remaining < 600:
+        raise RuntimeError("Codex access token is expired or expires within 10 minutes; refresh it with gjc")
+except (KeyError, ValueError, json.JSONDecodeError, RuntimeError) as error:
+    print(f"Codex credential validation failed: {error}", file=sys.stderr)
+    sys.exit(1)
+PY
+  then
     exit 1
   fi
   export OPENAI_CODEX_ACCESS_TOKEN
-  echo "Codex access token loaded from the gjc auth store"
+  echo "Codex access token validated from ${TOKEN_SOURCE}"
 fi
 
 if [[ "$PROVIDER" == "anthropic" && -z "${ANTHROPIC_API_KEY:-}" ]]; then

@@ -55,6 +55,18 @@ class InitializeProjectDurableTests(unittest.TestCase):
         self.assertEqual(self.results["mismatchResult"], ["CANCELLED"])
         self.assertTrue(self.results["mismatchUnchanged"])
 
+    def test_missing_scene_id_with_existing_document_is_rejected_without_mutation(self):
+        self.assertEqual(self.results["existingResult"], ["CANCELLED"])
+        self.assertTrue(self.results["existingUnchanged"])
+
+    def test_corrupt_existing_document_fails_closed_without_mutation(self):
+        self.assertEqual(self.results["corruptResult"], ["CANCELLED"])
+        self.assertTrue(self.results["corruptUnchanged"])
+
+    def test_journal_failure_after_publish_keeps_scene_and_document_consistent(self):
+        self.assertEqual(self.results["journalFailureResult"], ["CANCELLED"])
+        self.assertTrue(self.results["journalFailureConsistent"])
+
 
 if __name__ == "__main__":
     unittest.main()

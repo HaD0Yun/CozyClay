@@ -20,7 +20,9 @@ except ImportError:  # pragma: no cover - exercised by importing this package
 if bpy is not None:
     try:
         from . import manifest
-    except ImportError:  # Host-side UI tests provide bpy without Blender's mathutils.
+    except ImportError as exc:  # Host-side UI tests omit Blender's mathutils.
+        if exc.name != "mathutils":
+            raise
         manifest = None
     class OMB_OT_initialize_project(bpy.types.Operator):
         bl_idname = "omb.initialize_project"
@@ -34,23 +36,19 @@ if bpy is not None:
 
             scene = context.scene
             project_created = not scene.get("omb.project_id")
-            if project_created:
-                scene["omb.project_id"] = new_project_id()
-
             directory = bpy.path.abspath("//")
             try:
-                stored = (
-                    None
-                    if project_created
-                    else project_store.read_project_index(directory)
-                )
+                stored = project_store.read_project_index(directory)
+                if project_created and stored is not None:
+                    raise project_store.ProjectStoreError(
+                        ".omb/project.json already exists; use an explicit recovery "
+                        "step, not Initialize Project"
+                    )
                 if stored is not None:
                     project_store.verify_project_ids_match(
                         scene["omb.project_id"], stored.get("project_id")
                     )
             except (project_store.ProjectStoreError, IdentityError) as exc:
-                if project_created:
-                    del scene["omb.project_id"]
                 message = (
                     "Scene project_id does not match .omb/project.json; "
                     "use an explicit recovery step, not Initialize Project"
@@ -59,6 +57,9 @@ if bpy is not None:
                 )
                 self.report({"ERROR"}, message)
                 return {"CANCELLED"}
+
+            if project_created:
+                scene["omb.project_id"] = new_project_id()
 
             entities = []
             ordered = []
@@ -76,13 +77,14 @@ if bpy is not None:
             originals = project_store.apply_property_assignments(
                 dict(entities), assignments
             )
+            index_published = False
             try:
                 if stored is None or "current_revision_id" not in stored:
                     if manifest is None:
                         raise project_store.ProjectStoreError(
                             "Scene manifest extraction is unavailable"
                         )
-                    project_store.prepare_project_index(
+                    index_published = project_store.prepare_project_index(
                         directory,
                         scene["omb.project_id"],
                         project_created,
@@ -105,8 +107,16 @@ if bpy is not None:
                         },
                     )
             except project_store.ProjectStoreError as exc:
-                project_store.restore_property_assignments(originals)
-                self.report({"ERROR"}, str(exc))
+                if not index_published:
+                    project_store.restore_property_assignments(originals)
+                    if project_created:
+                        del scene["omb.project_id"]
+                    self.report({"ERROR"}, str(exc))
+                else:
+                    self.report(
+                        {"WARNING"},
+                        f"{exc}; project document was committed and remains initialized",
+                    )
                 return {"CANCELLED"}
             if not project_created and not assignments:
                 self.report({"INFO"}, "Project already initialized; no new IDs assigned")

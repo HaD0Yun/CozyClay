@@ -19,7 +19,6 @@ sys.path.insert(0, str(REPO_ROOT / "blender-addon"))
 
 import oh_my_blender
 import oh_my_blender.connection as connection_module
-from oh_my_blender.manifest import extract_scene_manifest_v2
 
 
 def log(*parts: object) -> None:
@@ -46,19 +45,12 @@ def setup() -> None:
 
     project_id = bpy.context.scene.get("omb.project_id")
     project_file = PROJECT_DIR / ".omb" / "project.json"
+    # initialize_project owns durable-document seeding; verify instead of writing.
     project_document = json.loads(project_file.read_text(encoding="utf-8"))
-    if not project_document.get("current_revision_id"):
-        base_manifest = extract_scene_manifest_v2()
-        project_file.write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "project_id": project_id,
-                    "current_revision_id": base_manifest["revisionId"],
-                    "manifest": base_manifest,
-                }
-            ),
-            encoding="utf-8",
+    if "current_revision_id" not in project_document:
+        raise RuntimeError(
+            "initialize_project did not produce a durable revision document; "
+            "update the oh_my_blender add-on instead of reseeding here"
         )
 
     try:
