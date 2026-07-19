@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { EventEmitter } from "node:events";
-import { BearerToken } from "./token.ts";
+import type { ClientRole } from "./control-plane.ts";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX = 1024 * 1024;
@@ -19,11 +19,51 @@ export class WebSocketConnection extends EventEmitter {
 	private read(chunk: Buffer): void { this.buffer=Buffer.concat([this.buffer,chunk]); while (this.buffer.length >= 2) { const a=this.buffer[0]!, b=this.buffer[1]!; if(a&0x70)return this.close(1008,"reserved bits unsupported"); const fin=!!(a&128), opcode=a&15, masked=!!(b&128); if (!masked) return this.close(1008,"client frames must be masked"); let len=b&127, off=2; if(len===126){if(this.buffer.length<4)return;len=this.buffer.readUInt16BE(2);off=4;} else if(len===127){if(this.buffer.length<10)return;const n=this.buffer.readBigUInt64BE(2);if(n>BigInt(MAX))return this.close(1009);len=Number(n);off=10;} if(this.buffer.length<off+4+len)return; const mask=this.buffer.subarray(off,off+4);off+=4;const data=Buffer.from(this.buffer.subarray(off,off+len));this.buffer=this.buffer.subarray(off+len);for(let i=0;i<data.length;i++)data[i]^=mask[i&3]!; if(opcode>=8 && (!fin || len>125)) return this.close(1008); if(opcode===8){const code=data.length>=2?data.readUInt16BE(0):1000;this.close(code);return;} if(opcode===9){this.pong(data);continue;} if(opcode===10){this.emit("pong",data);continue;} if(opcode===2)return this.close(1008,"binary unsupported"); if(opcode===1){if(this.fragmentOpcode)return this.close(1008); if(fin){if(len>MAX)return this.close(1009);this.emit("text",data.toString("utf8"));}else{this.fragmentOpcode=1;this.fragments=[data];this.fragmentBytes=len;}} else if(opcode===0){if(!this.fragmentOpcode)return this.close(1008);this.fragmentBytes+=len;if(this.fragmentBytes>MAX)return this.close(1009);this.fragments.push(data);if(fin){const msg=Buffer.concat(this.fragments).toString("utf8");this.fragments=[];this.fragmentOpcode=0;this.fragmentBytes=0;this.emit("text",msg);}} else return this.close(1008); } }
 }
 
-export function acceptUpgrade(req: IncomingMessage, socket: Duplex, token: BearerToken, port: number, alreadyAccepted: boolean): WebSocketConnection | undefined {
-	const reject=()=>{socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");return undefined;};
-	if(alreadyAccepted || req.headers.host!==`127.0.0.1:${port}` || (req.headers.origin!==undefined && req.headers.origin!==`http://127.0.0.1:${port}`)) return reject();
-	const key=req.headers["sec-websocket-key"], auth=req.headers.authorization;
-	if(req.headers.upgrade?.toLowerCase()!== "websocket" || req.headers["sec-websocket-version"]!== "13" || typeof key!== "string" || Buffer.from(key,"base64").length!==16) return reject();
-	if(typeof auth!=="string" || !auth.startsWith("Bearer ") || !token.consume(auth.slice(7))) return reject();
-	const accept=createHash("sha1").update(key+GUID).digest("base64"); socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`); return new WebSocketConnection(socket);
+export function readClientRole(req: IncomingMessage): ClientRole | undefined {
+	const value = req.headers["x-omb-role"];
+	if (value === undefined) return "legacy";
+	if (value === "controller" || value === "bridge") return value;
+	return undefined;
+}
+
+export function acceptUpgrade(
+	req: IncomingMessage,
+	socket: Duplex,
+	port: number,
+	alreadyAccepted: boolean,
+	authenticate: (credential: string) => boolean,
+): WebSocketConnection | undefined {
+	const reject = () => {
+		socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+		return undefined;
+	};
+	if (
+		alreadyAccepted ||
+		req.headers.host !== `127.0.0.1:${port}` ||
+		(req.headers.origin !== undefined && req.headers.origin !== `http://127.0.0.1:${port}`)
+	) {
+		return reject();
+	}
+	const key = req.headers["sec-websocket-key"];
+	const auth = req.headers.authorization;
+	if (
+		req.headers.upgrade?.toLowerCase() !== "websocket" ||
+		req.headers["sec-websocket-version"] !== "13" ||
+		typeof key !== "string" ||
+		Buffer.from(key, "base64").length !== 16
+	) {
+		return reject();
+	}
+	if (
+		typeof auth !== "string" ||
+		!auth.startsWith("Bearer ") ||
+		!authenticate(auth.slice(7))
+	) {
+		return reject();
+	}
+	const accept = createHash("sha1").update(key + GUID).digest("base64");
+	socket.write(
+		`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+	);
+	return new WebSocketConnection(socket);
 }

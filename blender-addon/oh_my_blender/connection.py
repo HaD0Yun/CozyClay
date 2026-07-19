@@ -6,6 +6,7 @@ import os
 import queue
 import subprocess
 import shlex
+import stat
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -13,6 +14,7 @@ from enum import Enum
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Sequence
+from uuid import UUID
 
 from .checkpoint import Checkpoint, restore, verify
 from .daemon_child import DaemonChild, UnsafeExecutableError, verify_executable
@@ -123,12 +125,91 @@ def _task_descriptor(method: str, params: object) -> tuple[str, int]:
     return f"QA render revision {revision}, frames {rendered_frames}", len(safe_frames)
 
 
+def _owned_by_current_user(metadata: os.stat_result) -> bool:
+    getuid = getattr(os, "getuid", None)
+    return not callable(getuid) or metadata.st_uid == getuid()
+
+
+def _verify_private_runtime_directory(directory: Path) -> None:
+    try:
+        metadata = directory.lstat()
+    except OSError as error:
+        raise ConnectionError(f"runtime directory is unavailable: {error}") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise ConnectionError("runtime directory must be a nonsymlink directory")
+    if not _owned_by_current_user(metadata):
+        raise ConnectionError("runtime directory must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ConnectionError("runtime directory must be private (mode 0700)")
+
+
+def _read_runtime_endpoint(
+    runtime_directory: str | PathLike[str],
+) -> dict[str, str | int]:
+    directory = Path(runtime_directory)
+    _verify_private_runtime_directory(directory.parent)
+    _verify_private_runtime_directory(directory)
+    endpoint_path = directory / "endpoint.json"
+    try:
+        metadata = endpoint_path.lstat()
+    except OSError as error:
+        raise ConnectionError(f"runtime endpoint is unavailable: {error}") from error
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ConnectionError("runtime endpoint must not be a symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ConnectionError("runtime endpoint must be a regular file")
+    if not _owned_by_current_user(metadata):
+        raise ConnectionError("runtime endpoint must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ConnectionError("runtime endpoint must be private (mode 0600)")
+    descriptor = -1
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(endpoint_path, flags)
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+            raise ConnectionError("runtime endpoint changed during verification")
+        with os.fdopen(descriptor, encoding="utf-8") as stream:
+            descriptor = -1
+            endpoint = json.load(stream)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ConnectionError(f"runtime endpoint is invalid: {error}") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    expected_fields = {"schema_version", "launch_id", "host", "port"}
+    if not isinstance(endpoint, dict) or set(endpoint) != expected_fields:
+        raise ConnectionError("runtime endpoint fields are invalid")
+    launch_id = endpoint["launch_id"]
+    try:
+        parsed_launch_id = UUID(launch_id)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ConnectionError("runtime endpoint launch_id is invalid") from error
+    if (
+        parsed_launch_id.version != 4
+        or str(parsed_launch_id) != launch_id
+        or directory.name != launch_id
+    ):
+        raise ConnectionError("runtime endpoint launch_id does not match its directory")
+    port = endpoint["port"]
+    if (
+        endpoint["schema_version"] != 1
+        or endpoint["host"] != "127.0.0.1"
+        or isinstance(port, bool)
+        or not isinstance(port, int)
+        or port < 1
+        or port > 65535
+    ):
+        raise ConnectionError("runtime endpoint values are invalid")
+    return endpoint
+
+
 class Connection:
-    """One daemon child and its single authenticated WebSocket."""
+    """One owned daemon child or attached daemon bridge connection."""
 
     def __init__(
         self,
-        child: DaemonChild,
+        child: DaemonChild | None,
         websocket: WebSocketClient,
         project_directory: str | PathLike[str] | None = None,
         *,
@@ -685,6 +766,8 @@ class Connection:
         return message
 
     def _child_has_exited(self) -> bool:
+        if self.child is None:
+            return False
         poll = getattr(self.child.process, "poll", None)
         return callable(poll) and poll() is not None
 
@@ -869,6 +952,82 @@ class Connection:
             child.kill()
             raise
 
+    @classmethod
+    def attach(
+        cls,
+        runtime_directory: str | PathLike[str],
+        attach_ticket: str,
+        *,
+        cwd: str | PathLike[str],
+        project_id: str,
+        addon_version: str,
+        blender_version: str,
+        websocket_type: type[WebSocketClient] = WebSocketClient,
+        expose_tools: bool = True,
+    ) -> "Connection":
+        """Discover and authenticate an existing daemon as its Blender bridge."""
+        endpoint = _read_runtime_endpoint(runtime_directory)
+        if (
+            not isinstance(attach_ticket, str)
+            or len(attach_ticket) != 43
+            or any(
+                not (
+                    character.isascii()
+                    and (character.isalnum() or character in "_-")
+                )
+                for character in attach_ticket
+            )
+        ):
+            raise ConnectionError("attach ticket must be a 32-byte base64url credential")
+        websocket = None
+        ticket_fingerprint = hashlib.sha256(
+            attach_ticket.encode("ascii")
+        ).hexdigest()
+        try:
+            websocket = websocket_type.connect(
+                endpoint["port"],
+                attach_ticket,
+                timeout=3.0,
+                role="bridge",
+            )
+            attach_ticket = ""
+            if hasattr(websocket, "socket"):
+                websocket.socket.settimeout(3.0)
+            hello = build_hello(project_id, addon_version, blender_version)
+            websocket.send_json(hello)
+            try:
+                ack = validate_hello_ack(websocket.recv_json())
+            except HandshakeError as exc:
+                raise ConnectionError(str(exc)) from exc
+            if ack["launch_id"] != endpoint["launch_id"]:
+                raise ConnectionError(
+                    "hello_ack launch_id does not match runtime advertisement"
+                )
+            connection = cls(
+                None,
+                websocket,
+                project_directory=cwd,
+                tools_exposed=expose_tools,
+                identity={
+                    "launch_id": endpoint["launch_id"],
+                    "attach_ticket_fingerprint": ticket_fingerprint,
+                    "attach_mode": "ticket",
+                    "client_nonce": hello["client_nonce"],
+                    "session_id": ack["session_id"],
+                    "server_nonce": ack["server_nonce"],
+                },
+            )
+            if bpy is not None:
+                connection.start_bridge_dispatcher()
+            return connection
+        except Exception:
+            if websocket is not None:
+                try:
+                    websocket.close()
+                except Exception:
+                    pass
+            raise
+
     def disconnect(self, reason: str, timeout: float = 8.0) -> None:
         """Drain the daemon, then force-kill only if its exit exceeds the bound."""
         if self.state == LifecycleState.STOPPED:
@@ -880,7 +1039,13 @@ class Connection:
         deadline = time.monotonic() + timeout
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=min(0.2, timeout))
-        if not self.websocket.closed:
+        if self.child is None:
+            if not self.websocket.closed:
+                try:
+                    self.websocket.close()
+                except (OSError, WebSocketError):
+                    pass
+        elif not self.websocket.closed:
             try:
                 self._send_json({"type": "shutdown", "reason": reason})
                 while time.monotonic() < deadline:
@@ -897,12 +1062,13 @@ class Connection:
                     self.websocket.close()
                 except (OSError, WebSocketError):
                     pass
-        remaining = max(0.0, deadline - time.monotonic())
-        try:
-            self.child.process.wait(timeout=remaining)
-            self.child.close_streams()
-        except subprocess.TimeoutExpired:
-            self.child.kill()
+        if self.child is not None:
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                self.child.process.wait(timeout=remaining)
+                self.child.close_streams()
+            except subprocess.TimeoutExpired:
+                self.child.kill()
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=0.2)
         self._response_queues.clear()
@@ -959,6 +1125,9 @@ def _read_reconnect_scene_hash(cwd: str | PathLike[str]) -> str:
 
 def _confirm_previous_child_exit(previous_connection: Connection | None) -> None:
     if previous_connection is None:
+        return
+    if previous_connection.child is None:
+        previous_connection.disconnect("restart_after_unexpected_loss")
         return
     poll = getattr(previous_connection.child.process, "poll", None)
     if not callable(poll):
@@ -1179,8 +1348,10 @@ def connect(
     addon_version: str,
     blender_version: str,
     daemon_args: Sequence[str] | None = None,
+    attach_runtime_directory: str | PathLike[str] | None = None,
+    attach_ticket: str | None = None,
 ) -> Connection:
-    """Create or hash-gate a replacement for the add-on's sole daemon connection."""
+    """Create, attach, or hash-gate the add-on's sole daemon connection."""
     global _active_connection
     previous = _active_connection
     if previous is not None and previous.state not in (
@@ -1188,25 +1359,64 @@ def connect(
         *RECONNECTABLE_STATES,
     ):
         raise ConnectionError("the add-on already owns an active daemon connection")
-    argv = _resolve_daemon_argv(daemon_args)
-    if previous is not None and previous.state in RECONNECTABLE_STATES:
-        replacement = reconnect(
-            argv,
+    attach_mode = attach_runtime_directory is not None or attach_ticket is not None
+    if attach_mode and (
+        attach_runtime_directory is None
+        or attach_ticket is None
+        or daemon_args is not None
+    ):
+        raise ConnectionError(
+            "attach mode requires exactly a runtime directory and attach ticket"
+        )
+    if attach_mode:
+        recovering = previous is not None and previous.state in RECONNECTABLE_STATES
+        expected_scene_hash = _read_reconnect_scene_hash(cwd) if recovering else None
+        if recovering:
+            previous.disconnect("reattach_after_unexpected_loss")
+        assert attach_runtime_directory is not None
+        assert attach_ticket is not None
+        replacement = Connection.attach(
+            attach_runtime_directory,
+            attach_ticket,
             cwd=cwd,
             project_id=project_id,
             addon_version=addon_version,
             blender_version=blender_version,
-            live_scene_hash_fn=_live_scene_hash,
-            previous_connection=previous,
+            expose_tools=not recovering,
         )
+        try:
+            if expected_scene_hash is not None:
+                verify_reconnect_hash(_live_scene_hash(), expected_scene_hash)
+                replacement.expose_tools()
+                if previous is not None and previous.task_status.task_kind is not None:
+                    replacement.task_status = replace(
+                        previous.task_status,
+                        phase="recovered",
+                        outcome="recovered",
+                    )
+        except Exception:
+            replacement.disconnect("reattach_hash_mismatch")
+            raise
     else:
-        replacement = Connection.start(
-            argv,
-            cwd=cwd,
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-        )
+        argv = _resolve_daemon_argv(daemon_args)
+        if previous is not None and previous.state in RECONNECTABLE_STATES:
+            replacement = reconnect(
+                argv,
+                cwd=cwd,
+                project_id=project_id,
+                addon_version=addon_version,
+                blender_version=blender_version,
+                live_scene_hash_fn=_live_scene_hash,
+                previous_connection=previous,
+            )
+        else:
+            replacement = Connection.start(
+                argv,
+                cwd=cwd,
+                project_id=project_id,
+                addon_version=addon_version,
+                blender_version=blender_version,
+            )
     _active_connection = replacement
     return replacement
 

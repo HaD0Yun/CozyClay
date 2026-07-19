@@ -30,13 +30,23 @@ class WebSocketClient:
         self.closed = False
 
     @classmethod
-    def connect(cls, port: int, token: str, timeout: float = 10.0) -> "WebSocketClient":
+    def connect(
+        cls,
+        port: int,
+        token: str,
+        timeout: float = 10.0,
+        *,
+        role: str | None = None,
+    ) -> "WebSocketClient":
+        if role not in (None, "controller", "bridge"):
+            raise ValueError("invalid WebSocket client role")
         sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
         sock.settimeout(timeout)
         key = base64.b64encode(os.urandom(16)).decode("ascii")
+        role_header = f"X-OMB-Role: {role}\r\n" if role is not None else ""
         request = (f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
                    f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
-                   f"Authorization: Bearer {token}\r\n\r\n")
+                   f"Authorization: Bearer {token}\r\n{role_header}\r\n")
         try:
             sock.sendall(request.encode("ascii"))
             raw = bytearray()

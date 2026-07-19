@@ -34,10 +34,20 @@ async function main(): Promise<void> {
 			},
 			beginArtifactReservations,
 		});
-		// Architecture §4 cleanup order ends with "and exit": once the protocol
-		// shutdown drain completes, the child process must terminate even if the
-		// model runtime still holds event-loop handles.
-		await daemon.stopped;
+		const closeFromSignal = () => {
+			void daemon.close();
+		};
+		process.once("SIGINT", closeFromSignal);
+		process.once("SIGTERM", closeFromSignal);
+		try {
+			// Architecture §4 cleanup order ends with "and exit": once the protocol
+			// shutdown drain completes, the child process must terminate even if the
+			// model runtime still holds event-loop handles.
+			await daemon.stopped;
+		} finally {
+			process.off("SIGINT", closeFromSignal);
+			process.off("SIGTERM", closeFromSignal);
+		}
 	} finally {
 		await runtime.dispose();
 	}
