@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { lstat, mkdir, open, readFile, rmdir, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rmdir, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Clock } from "./token.ts";
@@ -120,9 +120,18 @@ export interface RuntimeEndpoint {
 	readonly port: number;
 }
 
+export interface AttachHandoff {
+	readonly schema_version: 1;
+	readonly project_id: string;
+	readonly ticket: string;
+	readonly expires_at_ms: number;
+}
+
 export interface RuntimeAdvertisement {
 	readonly directory: string;
 	readonly endpoint: RuntimeEndpoint;
+	writeAttachHandoff(handoff: AttachHandoff): Promise<void>;
+	removeAttachHandoff(): Promise<void>;
 	cleanup(): Promise<void>;
 }
 
@@ -185,13 +194,55 @@ export async function createRuntimeAdvertisement(options: {
 	if (written !== `${JSON.stringify(endpoint)}\n`) {
 		throw new Error("RUNTIME_ADVERTISEMENT_FAILED: endpoint verification failed");
 	}
+	const handoffPath = path.join(directory, "attach-handoff.json");
+	let handoffWrite = Promise.resolve();
+	const removeAttachHandoff = async () => {
+		try {
+			await unlink(handoffPath);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
+	};
+	const writeAttachHandoff = (handoff: AttachHandoff) => {
+		const write = handoffWrite.then(async () => {
+			const temporaryPath = path.join(directory, `.attach-handoff.${randomBytes(16).toString("hex")}.tmp`);
+			const contents = Buffer.from(`${JSON.stringify(handoff)}\n`, "utf8");
+			let handle;
+			try {
+				handle = await open(temporaryPath, "wx", 0o600);
+				await handle.writeFile(contents);
+				await handle.sync();
+				await handle.close();
+				handle = undefined;
+				await rename(temporaryPath, handoffPath);
+			} finally {
+				contents.fill(0);
+				await handle?.close();
+				try {
+					await unlink(temporaryPath);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				}
+			}
+		});
+		handoffWrite = write.catch(() => undefined);
+		return write;
+	};
 	let cleaned = false;
 	return {
 		directory,
 		endpoint,
+		writeAttachHandoff,
+		removeAttachHandoff: () => {
+			const removal = handoffWrite.then(removeAttachHandoff);
+			handoffWrite = removal.catch(() => undefined);
+			return removal;
+		},
 		cleanup: async () => {
 			if (cleaned) return;
 			cleaned = true;
+			await handoffWrite;
+			await removeAttachHandoff();
 			try {
 				await unlink(endpointPath);
 			} catch (error) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import net, { type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -146,10 +146,11 @@ async function connect(port: number, credential: string, role: "controller" | "b
 
 async function controller(daemon: Daemon, credential = daemon.startup.bearer_token) {
 	const client = await connect(daemon.port, credential, "controller");
-	client.send(controllerHello());
+	const hello = controllerHello();
+	client.send(hello);
 	await client.next((message) => message.type === "hello_ack");
 	const auth = await client.next((message) => message.type === "controller_auth");
-	return { client, resumeToken: auth.resume_token as string };
+	return { client, resumeToken: auth.resume_token as string, projectId: hello.project_id };
 }
 
 async function issueBridgeTicket(client: Client): Promise<string> {
@@ -188,6 +189,36 @@ test("daemon advertises its endpoint in a private runtime launch directory", asy
 			host: "127.0.0.1",
 			port: daemon.port,
 		});
+	} finally {
+		await daemon.close();
+	}
+});
+
+test("daemon atomically replaces the project-bound private attach handoff and removes it on consumption", async () => {
+	const base = await mkdtemp(path.join(os.tmpdir(), "omb-handoff-test-"));
+	const daemon = await start({ port: 0, handlers: {}, stdout: () => {}, runtimeBaseDirectory: base });
+	try {
+		const control = await controller(daemon);
+		const first = await issueBridgeTicket(control.client);
+		const handoffPath = path.join(daemon.runtimeDirectory, "attach-handoff.json");
+		const firstHandoff = JSON.parse(await readFile(handoffPath, "utf8"));
+		assert.equal(Number.isSafeInteger(firstHandoff.expires_at_ms), true);
+		assert.deepEqual({ ...firstHandoff, expires_at_ms: 0 }, {
+			schema_version: 1,
+			project_id: control.projectId,
+			ticket: first,
+			expires_at_ms: 0,
+		});
+		assert.equal((await stat(handoffPath)).mode & 0o777, 0o600);
+
+		const second = await issueBridgeTicket(control.client);
+		assert.notEqual(second, first);
+		assert.equal(JSON.parse(await readFile(handoffPath, "utf8")).ticket, second);
+
+		const bridge = await connect(daemon.port, second, "bridge");
+		bridge.send(bridgeHello());
+		await bridge.next((message) => message.type === "hello_ack");
+		await assert.rejects(access(handoffPath));
 	} finally {
 		await daemon.close();
 	}

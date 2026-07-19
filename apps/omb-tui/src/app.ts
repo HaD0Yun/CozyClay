@@ -57,6 +57,9 @@ export class DirectorTui {
 	private removeMessageListener: () => void = () => {};
 	private removeDisconnectListener: () => void = () => {};
 	private removeInputListener: () => void = () => {};
+	private removeBridgeStatusListener: () => void = () => {};
+	private bridgeTicketTimer: ReturnType<typeof setInterval> | undefined;
+	private bridgeTicketPending = false;
 
 	constructor(
 		session: ControllerSession,
@@ -96,15 +99,6 @@ export class DirectorTui {
 			}
 			return { consume: true };
 		});
-		try {
-			const ticket = await this.session.issueBridgeTicket();
-			this.bridgeText.setText(
-				`Blender attach: runtime=${ticket.runtimeDirectory} ticket=${ticket.ticket} expires=${ticket.expiresInMs}ms`,
-			);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : "attach ticket unavailable";
-			this.state = appendTranscriptNotice(this.state, message);
-		}
 		this.tui.start();
 		this.render();
 		await this.stoppedPromise;
@@ -117,6 +111,8 @@ export class DirectorTui {
 		if (this.reconnectPromise !== undefined) await this.reconnectPromise;
 		this.removeMessageListener();
 		this.removeDisconnectListener();
+		this.removeBridgeStatusListener();
+		clearInterval(this.bridgeTicketTimer);
 		this.removeInputListener();
 		await this.session.disconnect();
 		await this.tui.terminal.drainInput(250, 25);
@@ -157,9 +153,19 @@ export class DirectorTui {
 	private attachSession(session: ControllerSession): void {
 		this.removeMessageListener();
 		this.removeDisconnectListener();
+		this.removeBridgeStatusListener();
 		this.session = session;
 		for (const message of session.initialMessages) this.receive(message);
 		this.removeMessageListener = session.onMessage((message) => this.receive(message));
+		this.removeBridgeStatusListener = session.onBridgeStatus((attached) => {
+			if (session !== this.session || this.stopped) return;
+			if (attached) {
+				clearInterval(this.bridgeTicketTimer);
+				this.bridgeTicketTimer = undefined;
+				return;
+			}
+			this.startBridgeTicketReissue();
+		});
 		this.removeDisconnectListener = session.onDisconnect(() => {
 			if (this.stopped || session !== this.session) return;
 			this.connectionStatus = this.reconnect === undefined ? "disconnected" : "reconnecting";
@@ -170,6 +176,30 @@ export class DirectorTui {
 				void this.reconnectPromise;
 			}
 		});
+	}
+	private startBridgeTicketReissue(): void {
+		if (this.bridgeTicketTimer !== undefined) return;
+		void this.issueBridgeTicket();
+		this.bridgeTicketTimer = setInterval(() => void this.issueBridgeTicket(), 5_000);
+		this.bridgeTicketTimer.unref();
+	}
+
+	private async issueBridgeTicket(): Promise<void> {
+		if (this.bridgeTicketPending || this.stopped) return;
+		this.bridgeTicketPending = true;
+		try {
+			const ticket = await this.session.issueBridgeTicket();
+			this.bridgeText.setText(
+				`Blender attach: runtime=${ticket.runtimeDirectory} ticket=${ticket.ticket} expires=${ticket.expiresInMs}ms`,
+			);
+			this.render();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "attach ticket unavailable";
+			this.state = appendTranscriptNotice(this.state, message);
+			this.render();
+		} finally {
+			this.bridgeTicketPending = false;
+		}
 	}
 
 	private async reconnectLoop(): Promise<void> {

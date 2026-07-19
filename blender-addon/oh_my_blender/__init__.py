@@ -1,4 +1,5 @@
 """Blender-side bridge for Oh My Blender."""
+import os
 
 from .identity import IdentityError, assign_entity_ids, new_project_id
 from . import project_store, ui_panel
@@ -213,12 +214,30 @@ if bpy is not None:
                     project_store.verify_connect_precondition(
                         project_directory, project_id, bpy.data.is_dirty
                     )
-                connection.connect(
-                    cwd=project_directory,
-                    project_id=project_id,
-                    addon_version=".".join(str(part) for part in bl_info["version"]),
-                    blender_version=bpy.app.version_string,
+                discovered = connection.consume_attach_handoff(project_id)
+                spawn_configured = bool(
+                    os.environ.get("OMB_NODE_EXECUTABLE")
+                    or os.environ.get("OMB_DAEMON_EXECUTABLE")
                 )
+                connect_options = {
+                    "cwd": project_directory,
+                    "project_id": project_id,
+                    "addon_version": ".".join(str(part) for part in bl_info["version"]),
+                    "blender_version": bpy.app.version_string,
+                }
+                if discovered is not None:
+                    runtime_directory, ticket = discovered
+                    connection.connect(
+                        **connect_options,
+                        attach_runtime_directory=runtime_directory,
+                        attach_ticket=ticket,
+                    )
+                elif spawn_configured:
+                    connection.connect(**connect_options)
+                else:
+                    raise connection.ConnectionError(
+                        "No attach handoff found for this project; run the omb TUI first"
+                    )
             except (
                 project_store.ProjectStoreError,
                 IdentityError,

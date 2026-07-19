@@ -10,10 +10,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
-from oh_my_blender.connection import Connection, ConnectionError
+from oh_my_blender.connection import (
+    Connection,
+    ConnectionError,
+    connect_from_handoff,
+    consume_attach_handoff,
+)
 from oh_my_blender.ws_client import ProtocolError, WebSocketClient
 
 ATTACH_TICKET = "A" * 43
@@ -74,6 +80,104 @@ class AttachConnectionTests(unittest.TestCase):
         }), encoding="utf-8")
         os.chmod(endpoint, 0o600)
         return runtime
+
+    def _handoff(self, runtime, *, project_id="33333333-3333-4333-8333-333333333333", expires_at_ms=9_999_999_999_999):
+        path = runtime / "attach-handoff.json"
+        path.write_text(json.dumps({
+            "schema_version": 1,
+            "project_id": project_id,
+            "ticket": ATTACH_TICKET,
+            "expires_at_ms": expires_at_ms,
+        }), encoding="utf-8")
+        os.chmod(path, 0o600)
+        return path
+
+    def test_discovery_consumes_matching_handoff(self):
+        with tempfile.TemporaryDirectory() as root:
+            runtime = self._runtime_directory(root)
+            handoff = self._handoff(runtime)
+            discovered = consume_attach_handoff(
+                "33333333-3333-4333-8333-333333333333",
+                runtime_user_directory=runtime.parent,
+                now_ms=1_000,
+            )
+            self.assertEqual(discovered, (runtime, ATTACH_TICKET))
+            self.assertFalse(handoff.exists())
+
+    def test_discovery_skips_wrong_project(self):
+        with tempfile.TemporaryDirectory() as root:
+            runtime = self._runtime_directory(root)
+            handoff = self._handoff(runtime, project_id="44444444-4444-4444-8444-444444444444")
+            self.assertIsNone(consume_attach_handoff(
+                "33333333-3333-4333-8333-333333333333",
+                runtime_user_directory=runtime.parent,
+                now_ms=1_000,
+            ))
+            self.assertTrue(handoff.exists())
+
+    def test_discovery_deletes_expired_handoff(self):
+        with tempfile.TemporaryDirectory() as root:
+            runtime = self._runtime_directory(root)
+            handoff = self._handoff(runtime, expires_at_ms=999)
+            self.assertIsNone(consume_attach_handoff(
+                "33333333-3333-4333-8333-333333333333",
+                runtime_user_directory=runtime.parent,
+                now_ms=1_000,
+            ))
+            self.assertFalse(handoff.exists())
+
+    def test_discovery_rejects_symlinked_and_world_readable_handoffs(self):
+        with tempfile.TemporaryDirectory() as root:
+            runtime = self._runtime_directory(root)
+            handoff = self._handoff(runtime)
+            os.chmod(handoff, 0o644)
+            self.assertIsNone(consume_attach_handoff(
+                "33333333-3333-4333-8333-333333333333",
+                runtime_user_directory=runtime.parent,
+                now_ms=1_000,
+            ))
+            self.assertTrue(handoff.exists())
+            handoff.unlink()
+            target = pathlib.Path(root) / "handoff-target.json"
+            target.write_text("{}", encoding="utf-8")
+            handoff.symlink_to(target)
+            self.assertIsNone(consume_attach_handoff(
+                "33333333-3333-4333-8333-333333333333",
+                runtime_user_directory=runtime.parent,
+                now_ms=1_000,
+            ))
+            self.assertTrue(handoff.is_symlink())
+
+    def test_handoff_is_consumed_even_when_attach_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            runtime = self._runtime_directory(root)
+            handoff = self._handoff(runtime)
+            with mock.patch(
+                "oh_my_blender.connection.connect",
+                side_effect=ConnectionError("attach failed"),
+            ):
+                with self.assertRaisesRegex(ConnectionError, "attach failed"):
+                    connect_from_handoff(
+                        cwd=root,
+                        project_id="33333333-3333-4333-8333-333333333333",
+                        addon_version="0.1.0",
+                        blender_version="4.3.0",
+                        runtime_user_directory=runtime.parent,
+                    )
+            self.assertFalse(handoff.exists())
+
+    def test_connect_from_handoff_reports_tui_instruction_when_none_found(self):
+        with tempfile.TemporaryDirectory() as root:
+            user_directory = pathlib.Path(root) / "omb-501"
+            user_directory.mkdir(mode=0o700)
+            with self.assertRaisesRegex(ConnectionError, "run the omb TUI first"):
+                connect_from_handoff(
+                    cwd=root,
+                    project_id="33333333-3333-4333-8333-333333333333",
+                    addon_version="0.1.0",
+                    blender_version="4.3.0",
+                    runtime_user_directory=user_directory,
+                )
 
     def test_attach_discovers_endpoint_and_authenticates_as_bridge(self):
         with tempfile.TemporaryDirectory() as root:
@@ -190,14 +294,23 @@ class AttachConnectionTests(unittest.TestCase):
                 issued = controller.recv_json()
                 self.assertEqual(issued["type"], "attach_ticket")
 
-                bridge = Connection.attach(
-                    issued["runtime_directory"],
-                    issued["ticket"],
+                runtime_directory = pathlib.Path(issued["runtime_directory"])
+                handoff = runtime_directory / "attach-handoff.json"
+                handoff.write_text(json.dumps({
+                    "schema_version": 1,
+                    "project_id": "33333333-3333-4333-8333-333333333333",
+                    "ticket": issued["ticket"],
+                    "expires_at_ms": 9_999_999_999_999,
+                }), encoding="utf-8")
+                os.chmod(handoff, 0o600)
+                bridge = connect_from_handoff(
                     cwd=project,
                     project_id="33333333-3333-4333-8333-333333333333",
                     addon_version="0.1.0",
                     blender_version="4.3.0",
+                    runtime_user_directory=runtime_directory.parent,
                 )
+                self.assertFalse(handoff.exists())
                 bridge.disconnect("test_detach", timeout=0.1)
                 bridge = None
                 with self.assertRaises(ProtocolError):

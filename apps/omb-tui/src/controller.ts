@@ -220,6 +220,7 @@ export class ControllerSession {
 	private readonly keepaliveTimer: ReturnType<typeof setInterval>;
 	private currentRevisionId = ZERO_REVISION;
 	private activeRequestId: string | undefined;
+	private bridgeAttached: boolean | undefined;
 
 	constructor(options: {
 		readonly connectionKind: "spawned" | "attached";
@@ -239,6 +240,14 @@ export class ControllerSession {
 		this.capabilities = options.identity.capabilities;
 		this.websocket.on("message", (message: unknown) => {
 			if (isDirectorServerMessage(message)) this.observe(message);
+			if (
+				isRecord(message) &&
+				Object.keys(message).length === 2 &&
+				message.type === "bridge_status" &&
+				typeof message.attached === "boolean"
+			) {
+				this.bridgeAttached = message.attached;
+			}
 		});
 		this.keepaliveTimer = setInterval(() => {
 			try {
@@ -249,6 +258,7 @@ export class ControllerSession {
 		}, options.keepaliveIntervalMs ?? CONTROLLER_KEEPALIVE_INTERVAL_MS);
 		this.keepaliveTimer.unref();
 		this.websocket.once("close", () => clearInterval(this.keepaliveTimer));
+		this.websocket.send({ type: "bridge_status_request" });
 		this.initialMessages = options.transcriptReplay.finish();
 		for (const message of this.initialMessages) this.observe(message);
 	}
@@ -264,6 +274,21 @@ export class ControllerSession {
 	onDisconnect(listener: () => void): () => void {
 		this.websocket.on("close", listener);
 		return () => this.websocket.off("close", listener);
+	}
+	onBridgeStatus(listener: (attached: boolean) => void): () => void {
+		if (this.bridgeAttached !== undefined) listener(this.bridgeAttached);
+		const wrapped = (message: unknown) => {
+			if (
+				isRecord(message) &&
+				Object.keys(message).length === 2 &&
+				message.type === "bridge_status" &&
+				typeof message.attached === "boolean"
+			) {
+				listener(message.attached);
+			}
+		};
+		this.websocket.on("message", wrapped);
+		return () => this.websocket.off("message", wrapped);
 	}
 
 	sendTurn(prompt: string, deadlineMs = 30_000): string {

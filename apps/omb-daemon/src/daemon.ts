@@ -588,6 +588,10 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	let persistenceUnhealthy = false;
 	let shutdownPromise: Promise<void> | undefined;
 	let runtimeAdvertisement: Awaited<ReturnType<typeof createRuntimeAdvertisement>> | undefined;
+	let controllerProjectId: string | undefined;
+	let handoffTicket: string | undefined;
+	let handoffExpiryTimer: ReturnType<typeof setTimeout> | undefined;
+	let bridgeStatusSubscribed = false;
 	let resolveStopped!: () => void;
 	let stoppedResolved = false;
 	const stopped = new Promise<void>((resolve) => {
@@ -620,6 +624,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		}
 		const control = activeControl();
 		if (control?.helloComplete && !control.websocket.socket.destroyed) control.websocket.sendText(value);
+	};
+	const sendBridgeStatus = () => {
+		if (bridgeStatusSubscribed) sendControl({ type: "bridge_status", attached: bridgeTransport() !== undefined }, false);
 	};
 	const queueDirectorEvent = (
 		requestId: string,
@@ -843,6 +850,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			connections.clear();
 			token.zero();
 			controllerCredential.zero();
+			clearTimeout(handoffExpiryTimer);
+			handoffTicket = undefined;
 			attachTickets.zero();
 			try {
 				await closeServer();
@@ -868,7 +877,15 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			addressPort(),
 			alreadyAccepted,
 			(candidate) => {
-				if (role === "bridge") return attachTickets.consume(candidate, role);
+				if (role === "bridge") {
+					const consumed = attachTickets.consume(candidate, role);
+					if (consumed && candidate === handoffTicket) {
+						handoffTicket = undefined;
+						clearTimeout(handoffExpiryTimer);
+						void runtimeAdvertisement?.removeAttachHandoff().catch(() => undefined);
+					}
+					return consumed;
+				}
 				if (role === "controller") {
 					return controllerCredential.matches(candidate) || token.consume(candidate);
 				}
@@ -950,6 +967,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			clearTimeout(helloTimer);
 			clearTimeout(connection.idle);
 			if (connections.get(role)?.websocket === websocket) connections.delete(role);
+			if (role === "bridge") sendBridgeStatus();
 			if (role === "legacy") {
 				void drain("DISCONNECT");
 			} else if (role === "bridge" && pendingBridge !== undefined) {
@@ -978,6 +996,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						return websocket.close(1008, "role protocol mismatch");
 					}
 					nonces.add(hello.client_nonce);
+					if (role === "controller") controllerProjectId = hello.project_id;
 					connection.helloComplete = true;
 					clearTimeout(helloTimer);
 					const ack =
@@ -1015,6 +1034,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						connection.mutationSession = negotiateMutationBridge(hello, ack);
 					}
 					websocket.sendText(ack);
+					if (role === "bridge") sendBridgeStatus();
 					if (role === "controller") {
 						websocket.sendText({
 							type: "controller_auth",
@@ -1034,6 +1054,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				return websocket.close(1008, "hello already completed");
 			}
 			const rawType = typeof raw === "object" && raw !== null ? (raw as { type?: unknown }).type : undefined;
+			if (
+				rawType === "bridge_status_request" &&
+				role === "controller" &&
+				isRecord(raw) &&
+				hasExactKeys(raw, ["type"])
+			) {
+				bridgeStatusSubscribed = true;
+				sendBridgeStatus();
+				return;
+			}
 			if (rawType === "issue_attach_ticket") {
 				if (persistenceUnhealthy) return;
 				if (
@@ -1043,13 +1073,29 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					raw.role === "bridge"
 				) {
 					const issued = attachTickets.issue("bridge");
+					if (controllerProjectId === undefined || runtimeAdvertisement === undefined) return;
+					const expiresAtMs = Date.now() + issued.expiresInMs;
+					await runtimeAdvertisement.writeAttachHandoff({
+						schema_version: 1,
+						project_id: controllerProjectId,
+						ticket: issued.ticket,
+						expires_at_ms: expiresAtMs,
+					});
+					handoffTicket = issued.ticket;
+					clearTimeout(handoffExpiryTimer);
+					handoffExpiryTimer = setTimeout(() => {
+						if (handoffTicket !== issued.ticket) return;
+						handoffTicket = undefined;
+						void runtimeAdvertisement?.removeAttachHandoff().catch(() => undefined);
+					}, issued.expiresInMs);
+					handoffExpiryTimer.unref();
 					websocket.sendText({
 						type: "attach_ticket",
 						role: issued.role,
 						ticket: issued.ticket,
 						expires_in_ms: issued.expiresInMs,
 						launch_id: launchId,
-						runtime_directory: runtimeAdvertisement?.directory,
+						runtime_directory: runtimeAdvertisement.directory,
 					});
 				}
 				return;

@@ -98,6 +98,27 @@ class UiPanelTests(unittest.TestCase):
         self.assertNotIn(panel, self.registry.registered)
         self.assertFalse(hasattr(self.bpy.types, "OMB_PT_pi_status"))
 
+    def test_connect_reports_tui_instruction_when_no_spawn_or_handoff_exists(self) -> None:
+        operator = self.addon.OMB_OT_connect()
+        reports = []
+        operator.report = lambda levels, message: reports.append((levels, message))
+        context = types.SimpleNamespace(
+            scene={"omb.project_id": "33333333-3333-4333-8333-333333333333"}
+        )
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                self.addon.project_store, "verify_connect_precondition"
+            ),
+            mock.patch.object(
+                self.connection_module, "consume_attach_handoff", return_value=None
+            ),
+        ):
+            result = operator.execute(context)
+
+        self.assertEqual(result, {"CANCELLED"})
+        self.assertIn("run the omb TUI first", reports[-1][1])
+
     def test_each_lifecycle_state_has_human_readable_rendering(self) -> None:
         expected = {
             self.connection_module.LifecycleState.ACTIVE: "Active",

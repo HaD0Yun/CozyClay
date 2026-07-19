@@ -7,6 +7,7 @@ import queue
 import subprocess
 import shlex
 import stat
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -155,6 +156,151 @@ def _verify_private_runtime_directory(directory: Path) -> None:
         raise ConnectionError("runtime directory must be owned by the current user")
     if stat.S_IMODE(metadata.st_mode) & 0o077:
         raise ConnectionError("runtime directory must be private (mode 0700)")
+
+
+_ATTACH_HANDOFF_FILENAME = "attach-handoff.json"
+_ATTACH_HANDOFF_FIELDS = {"schema_version", "project_id", "ticket", "expires_at_ms"}
+
+
+def _runtime_user_directory() -> Path:
+    configured = os.environ.get("XDG_RUNTIME_DIR")
+    base = (
+        Path(configured)
+        if configured and Path(configured).is_absolute()
+        else Path(tempfile.gettempdir())
+    )
+    getuid = getattr(os, "getuid", None)
+    uid = getuid() if callable(getuid) else "user"
+    return base / f"omb-{uid}"
+
+
+def _valid_attach_ticket(ticket: object) -> bool:
+    return (
+        isinstance(ticket, str)
+        and len(ticket) == 43
+        and all(
+            character.isascii() and (character.isalnum() or character in "_-")
+            for character in ticket
+        )
+    )
+
+
+def _read_attach_handoff(path: Path) -> tuple[dict[str, object], os.stat_result]:
+    try:
+        metadata = path.lstat()
+    except OSError as error:
+        raise ConnectionError(f"attach handoff is unavailable: {error}") from error
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ConnectionError("attach handoff must not be a symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ConnectionError("attach handoff must be a regular file")
+    if not _owned_by_current_user(metadata):
+        raise ConnectionError("attach handoff must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ConnectionError("attach handoff must be private (mode 0600)")
+    descriptor = -1
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+            raise ConnectionError("attach handoff changed during verification")
+        with os.fdopen(descriptor, encoding="utf-8") as stream:
+            descriptor = -1
+            value = json.load(stream)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ConnectionError(f"attach handoff is invalid: {error}") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if not isinstance(value, dict) or set(value) != _ATTACH_HANDOFF_FIELDS:
+        raise ConnectionError("attach handoff fields are invalid")
+    return value, metadata
+
+
+def consume_attach_handoff(
+    project_id: str,
+    *,
+    runtime_user_directory: str | PathLike[str] | None = None,
+    now_ms: int | None = None,
+) -> tuple[Path, str] | None:
+    """Find and atomically consume a trusted, unexpired handoff for a project."""
+    user_directory = (
+        Path(runtime_user_directory)
+        if runtime_user_directory is not None
+        else _runtime_user_directory()
+    )
+    try:
+        _verify_private_runtime_directory(user_directory)
+        launches = tuple(user_directory.iterdir())
+    except (ConnectionError, OSError):
+        return None
+
+    current_time = int(time.time() * 1000) if now_ms is None else now_ms
+    for runtime_directory in sorted(launches, key=lambda path: path.name):
+        try:
+            _verify_private_runtime_directory(runtime_directory)
+            handoff_path = runtime_directory / _ATTACH_HANDOFF_FILENAME
+            value, metadata = _read_attach_handoff(handoff_path)
+        except (ConnectionError, OSError):
+            continue
+
+        expires_at_ms = value.get("expires_at_ms")
+        if (
+            value.get("schema_version") != 1
+            or not isinstance(value.get("project_id"), str)
+            or not isinstance(expires_at_ms, int)
+            or isinstance(expires_at_ms, bool)
+            or not _valid_attach_ticket(value.get("ticket"))
+        ):
+            continue
+        if expires_at_ms <= current_time:
+            try:
+                current = handoff_path.lstat()
+                if (current.st_dev, current.st_ino) == (metadata.st_dev, metadata.st_ino):
+                    handoff_path.unlink()
+            except OSError:
+                pass
+            continue
+        if value["project_id"] != project_id:
+            continue
+
+        try:
+            current = handoff_path.lstat()
+            if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                continue
+            handoff_path.unlink()
+        except OSError:
+            continue
+        return runtime_directory, value["ticket"]
+    return None
+
+
+def connect_from_handoff(
+    *,
+    cwd: str | PathLike[str],
+    project_id: str,
+    addon_version: str,
+    blender_version: str,
+    runtime_user_directory: str | PathLike[str] | None = None,
+) -> "Connection":
+    """Consume a matching handoff before attempting its one-use daemon attach."""
+    discovered = consume_attach_handoff(
+        project_id, runtime_user_directory=runtime_user_directory
+    )
+    if discovered is None:
+        raise ConnectionError(
+            "No attach handoff found for this project; run the omb TUI first"
+        )
+    runtime_directory, ticket = discovered
+    return connect(
+        cwd=cwd,
+        project_id=project_id,
+        addon_version=addon_version,
+        blender_version=blender_version,
+        attach_runtime_directory=runtime_directory,
+        attach_ticket=ticket,
+    )
 
 
 def _read_runtime_endpoint(

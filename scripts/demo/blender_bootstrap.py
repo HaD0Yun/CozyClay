@@ -13,7 +13,6 @@ PROJECT_DIR_VALUE = os.environ.get("OMB_DEMO_PROJECT_DIR")
 if not PROJECT_DIR_VALUE:
     raise RuntimeError("OMB_DEMO_PROJECT_DIR is required")
 PROJECT_DIR = Path(PROJECT_DIR_VALUE).expanduser().resolve()
-ATTACH_FILE = Path(os.environ.get("OMB_ATTACH_FILE", "/tmp/omb-live-attach.json"))
 SKIP_ATTACH = os.environ.get("OMB_SKIP_ATTACH") == "1"
 sys.path.insert(0, str(REPO_ROOT / "blender-addon"))
 
@@ -79,30 +78,23 @@ def setup() -> None:
     if SKIP_ATTACH:
         log("project ready:", project_id, "- attach polling skipped")
     else:
-        log("project ready:", project_id, "- polling", ATTACH_FILE)
+        log("project ready:", project_id, "- attaching via runtime handoff discovery")
 
 
 def poll_attach() -> float | None:
+    # Product path: the connect operator discovers the TUI daemon's one-use
+    # attach handoff in the private runtime directory (no ticket scraping).
     if connection_module._active_connection is not None:
+        log("ATTACHED via handoff discovery")
         return None
-    if not ATTACH_FILE.exists():
-        return 0.3
     try:
-        payload = json.loads(ATTACH_FILE.read_text(encoding="utf-8"))
-        ATTACH_FILE.unlink(missing_ok=True)
-        connection_module.connect(
-            cwd=str(PROJECT_DIR),
-            project_id=bpy.context.scene.get("omb.project_id"),
-            addon_version="0.1.0",
-            blender_version=bpy.app.version_string,
-            attach_runtime_directory=payload["runtime_directory"],
-            attach_ticket=payload["ticket"],
-        )
-        log("ATTACHED to daemon at", payload["runtime_directory"])
+        bpy.ops.omb.connect()
+    except Exception:
+        pass  # no handoff yet (TUI not started); keep polling
+    if connection_module._active_connection is not None:
+        log("ATTACHED via handoff discovery")
         return None
-    except Exception as error:
-        log("attach failed:", error)
-        return 1.0
+    return 1.0
 
 
 setup()
