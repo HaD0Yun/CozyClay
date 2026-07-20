@@ -1,28 +1,26 @@
-# Oh My Blender — Bootstrap Architecture
+# Oh My Blender — Runtime Architecture
 
-Status: Phase 1 read-only vertical slice implemented
+Status: conversational controller, Blender bridge, transactional mutation, recovery, TUI, and panel surfaces implemented
 
 Pi baseline: `earendil-works/pi@f7e060374541be0097ee015aaddb097a4f760984`
 
 Reference: `can1357/oh-my-pi@c0d0ad7629ebc895237e9ccc1f45008bd23bdaa4`
 
-## Current executable slice
+## Current executable system
 
-The repository now proves one real boundary end to end:
+The repository now implements the authenticated local directing loop end to end:
 
 ```text
-Blender 5.1 scene → typed scene snapshot → stable revision → Pi AgentSession → inspect_project
+omb-tui owner / Blender peer controller
+  ⇅ closed controller protocol, ordered stream, watermark transcript
+OMB daemon + Pi AgentSession
+  ⇅ correlated transaction protocol
+Blender bridge
+  ⇅ main-thread scene inspection, transactional save, QA display
+DirectorProject journal + exact recovery marker + .blend evidence
 ```
 
-Run it with a temporary manifest:
-
-```bash
-blender --background --factory-startup \
-  --python scripts/export_blender_fixture.py -- --output /tmp/omb-scene.json
-npm --prefix packages/director-runtime run demo -- --manifest /tmp/omb-scene.json
-```
-
-This slice is intentionally read-only. It proves Blender extraction, boundary validation, deterministic revisioning, Pi embedding, and a deny-by-default tool surface before mutation, daemon, or UI work begins.
+The model-facing tool allowlist is `inspect_project`, `stage_scene`, `apply_camera_plan`, and `render_qa_frames`. Product state remains revision-bound and mutations commit only through the durable transaction protocol below.
 
 ## 1. Decision
 
@@ -87,38 +85,87 @@ Oh My Blender daemon (Node/TypeScript)
   ARDY body motion · ffmpeg · headless Blender QA/render
 ```
 
-### Process boundary
+### Process, principal, and credential boundary
 
-- The Blender add-on owns exactly one daemon child. It starts `omb daemon --port 0`, reads exactly one UTF-8 JSON line of at most 4 KiB from stdout within 10 seconds, and treats any preceding bytes, extra fields, duplicate record, malformed value, timeout, or early exit as startup failure. Stdout is reserved for this record; all diagnostics go to stderr.
-- The startup record is exactly `{type:"omb_daemon_ready", protocol:1, port, pid, launch_id, bearer_token, expires_in_ms:10000}`. `port` is the OS-assigned loopback port; `pid` must match the child; `launch_id` is a lowercase UUIDv4; `bearer_token` is unpadded base64url for 32 random bytes. Unknown fields are rejected so protocol additions require a version change.
-- The daemon binds IPv4 `127.0.0.1` only. It does not bind wildcard or IPv6 addresses in v1.
-- After a valid `hello`, the daemon creates Pi with `noTools: "all"`, an explicit Blender-domain tool list, an isolated `cwd`/`agentDir`/`SessionManager`, and a product-owned `BundledDirectorResourceLoader`.
-- `BundledDirectorResourceLoader` returns only audited Oh My Blender prompts and factories. It never constructs or delegates to `DefaultResourceLoader`, `SettingsManager`, or a package manager and never scans user/project extensions, skills, themes, prompt templates, context files, packages, or MCP configuration.
-- `BundledDirectorResourceLoader.extendResources()` accepts only an empty request and otherwise throws `RESOURCE_EXTENSION_DENIED`. `reload()` discards its current snapshot and rebuilds the same compiled-in bundle without filesystem discovery. Startup and every reload assert that the effective prompt digest and tool names exactly match the compiled allowlist.
-- V1 creates one `AgentSession` directly and does not instantiate `AgentSessionRuntime`. New-session, resume, fork, import, and switch operations are not registered as product commands. Any attempted protocol call returns `METHOD_NOT_ALLOWED`; a future replacement path must call the same product-owned session factory, create a fresh `BundledDirectorResourceLoader`, and re-run the allowlist assertion before publishing the replacement.
-- The 32-byte bearer token authenticates one daemon launch and one WebSocket only. It is transferred only in the startup record, retained in mutable memory, never written to project/session files or logs, expires 10 seconds after record emission, and is consumed and zeroed immediately after the first successful upgrade. Failed authentication does not extend the expiry. No second client or second socket is accepted.
-- The add-on executes `bpy` operations on Blender's main thread through registered operators/timers.
-- The daemon never injects arbitrary Python into Blender.
-- Headless render workers consume immutable revision artifacts; they do not edit the live scene.
-- Daemon states are `starting → awaiting_client → active → draining → stopped`. Failure to authenticate before token expiry exits. Normal add-on unload sends `shutdown`, enters `draining`, and waits up to 8 seconds before force-killing the child. Unexpected socket loss also enters `draining`; v1 never resumes a dropped connection in place.
+- Production boot creates `ProjectStore`, reads and validates `.omb/project.json`, and binds its lowercase UUIDv4 `project_id` into every credential and principal before opening the listener. Missing, corrupt, or invalid project state fails with `PROJECT_CONFIGURATION_ERROR: project is unavailable` and produces no startup record or listener. A `hello` confirms the pre-bound project; it never establishes identity or writes project state.
+- A terminal-first controller may spawn `omb daemon --port 0`. The daemon emits exactly one bounded `StartupRecordSchema` record: `{type:"omb_daemon_ready",protocol:1,port,pid,launch_id,bearer_token,expires_in_ms:10000}`. The boot bearer is a one-use 32-byte credential, is never persisted, and authenticates the owner upgrade with `Authorization: Bearer <token>` plus `X-OMB-Role: controller`.
+- The daemon binds only IPv4 `127.0.0.1`. Runtime discovery lives outside `.omb`, beneath an owned mode-`0700` `omb-<uid>/<launch_id>/` directory. `endpoint.json`, `bridge-slot.json`, and `controller-peer-slot.json` are atomic, owned, nonsymlink mode-`0600` files. `endpoint.json` is `{schema_version:1,launch_id,host:"127.0.0.1",port}`. A bridge slot is `{schema_version:1,project_id,ticket,expires_at_ms,generation}`; a peer slot adds `lineage_id`.
+- Every upgraded connection receives an immutable `AuthenticatedPrincipal`: `projectId`, `role`, `authority`, optional `lineageId`, and `generation`. Authorities are `owner`, `peer`, `bridge`, or the isolated legacy bridge path. A peer never upgrades to owner authority. Controller disconnect does not stop the daemon or cancel an active turn; bridge disconnect starts transaction recovery and republishes bridge discovery.
+- Owner resume uses the 43-character resume token as the bearer and requires exactly `X-OMB-Role: controller` and `X-OMB-Launch-ID: <launch UUID>`. Boot bearer omits the launch header. Duplicate/comma-joined headers, malformed or mismatched launch values, revoked credentials, and non-loopback upgrades fail with an empty HTTP `403`.
+- Peer resume additionally requires `X-OMB-Peer-Lineage-ID` and canonical base-10 `X-OMB-Peer-Generation`. Generation N is burned on success and `ControllerPeerAuthSchema` delivers N+1, with exact 300,000 ms expiry. Replay, expiry, or revocation fails `403`. `ControllerAuthSchema` is delivered only to the owner; neither credential frame is broadcast or persisted.
+- The Pi boundary remains deny-by-default: one product-owned `AgentSession`, `noTools:"all"`, the compiled Blender tool allowlist, isolated session storage, and `BundledDirectorResourceLoader`. User/project Pi extensions, skills, prompts, packages, themes, context, and MCP configuration are never discovered. Blender operations execute on Blender's main thread; the daemon never injects arbitrary Python.
 
-### Protocol v1
+### Closed controller protocol and capabilities
 
-- The HTTP WebSocket upgrade must carry `Authorization: Bearer <token>`, exact `Host: 127.0.0.1:<port>`, and either no `Origin` or `Origin: http://127.0.0.1:<port>`; otherwise the daemon returns HTTP `403` without upgrading and closes the TCP connection. An upgraded socket that violates application handshake policy closes with WebSocket code `1008`.
-- The first application message must be `hello` within 3 seconds: `{type:"hello", protocol:1, addon_version, blender_version, project_id, client_nonce}`. `client_nonce` is unpadded base64url for 16 random bytes, is scoped to `launch_id`, and is valid only for that launch's lifetime; reuse within that launch closes with `1008`.
-- The daemon replies once with `{type:"hello_ack", protocol:1, daemon_version, launch_id, session_id, server_nonce, capabilities}`. `session_id` is a fresh lowercase UUIDv4 for this Pi session and `server_nonce` is a fresh 16-byte base64url value valid only for the launch. A protocol, project, or supported-version mismatch closes before creating Pi or inspecting the scene.
-- Requests are `{type:"request", id, method, params, expected_revision_id, deadline_ms}`. `id` is a lowercase UUIDv4 unique for the launch. `deadline_ms` is a required relative work budget measured with a monotonic clock from validated receipt until success becomes eligible to commit; allowed values are integer `100..30000`, with larger or smaller values rejected as `INVALID_DEADLINE`. Expiry prevents commit and begins cancellation. Safety rollback and terminal error delivery may exceed the request budget but must finish inside the daemon's separate 8-second drain budget.
-- Progress is `{type:"progress", id, phase, completed, total}`. A terminal success is `{type:"response", id, result, resulting_revision_id}`. A terminal failure is `{type:"error", id, code, message, retryable}`.
-- Cancellation is `{type:"cancel", id}` and receives exactly one `{type:"cancel_ack", id, status}` where status is `accepted`, `already_terminal`, or `unknown`. The acknowledgement is emitted before awaiting Pi or Blender cleanup and within 100 ms of receipt. `accepted` means the request won the terminal-state compare-and-swap, its abort signal was raised, any Blender checkpoint is being restored, and no success response may follow; after rollback it ends with `error.code="CANCELLED"`.
-- Successful live-socket rollback reports `{type:"rollback_ack", id, status:"restored", state_hash}`; failure reports `status:"failed"` and no revision commits. Add-on unload sends `{type:"shutdown", reason:"addon_unload"}`; after request cancellation, rollback, and Pi disposal the daemon sends `{type:"shutdown_ack"}` and closes with `1000`. `{type:"ping", nonce}` receives `{type:"pong", nonce}` but does not affect deadlines.
-- Each request owns one atomic state `running | completing | cancelling | terminal`. Response completion, deadline expiry, explicit cancel, disconnect, and shutdown race through one compare-and-swap. The first transition out of `running` wins; losers observe `already_terminal` and cannot emit another terminal message. Timeout follows the same path as cancellation but ends with `TIMEOUT`.
-- The daemon permits one active request and no server-side request queue. A second request receives `BUSY`. A token-bucket rate limit allows a burst of 4 accepted requests and refills at 1 request per second; rejected, malformed, and `BUSY` requests still consume a token, while `cancel`, `ping`, and `shutdown` do not. Exhaustion returns `RATE_LIMITED`.
-- Maximum JSON message size is 1 MiB. Binary artifact frames are at most 16 MiB and are accepted only inside an already-authorized artifact upload. Idle sockets close after 60 seconds; ping/pong does not extend request deadlines.
-- The add-on, not the socket, owns the Blender checkpoint. For every mutation it retains the checkpoint handle and pre-state hash in local memory until terminal commit. On explicit cancel or normal shutdown, the daemon raises bridge/Pi abort signals and the add-on restores and verifies before sending `rollback_ack`. On unexpected socket loss, the add-on's registered main-thread timer independently restores and verifies without waiting for the daemon. A failed verification leaves the add-on disconnected, exposes no model tools, commits no revision, and requires user recovery from the saved `.blend` or Blender undo history.
-- Daemon cleanup order is: stop accepting messages, win cancellation for the active request, start bridge abort, `await session.abort()` for at most 5 seconds, await `rollback_ack` only while the socket remains usable, unsubscribe listeners, call `session.dispose()` exactly once even if abort failed, close the socket/server, delete temporary session/artifact directories, zero remaining nonce/token buffers, and exit. The add-on force-kills only after the daemon's 8-second drain budget expires; its own checkpoint restoration remains independent of child exit.
-- “Reconnect” in v1 means a full child restart after the add-on's local rollback completes: wait for the old child to exit, start a new daemon, read a new startup record/token, create a new socket and Pi session, then re-inspect and require the live scene hash to equal the canonical current revision. Pending IDs are terminal locally and are never replayed.
+`packages/blender-protocol/src/messages.ts` is normative. Every schema below is an exact-key TypeBox object with `additionalProperties:false`; UUIDs are lowercase v4 and hashes are 64-character lowercase SHA-256 unless stated otherwise.
 
-Pi's JSONL RPC remains a useful diagnostic/fallback interface, but the product daemon embeds `createAgentSession()` directly because the Blender bridge requires bidirectional tool calls and app-owned state. [Pi embedding guide](https://github.com/earendil-works/pi/blob/f7e060374541be0097ee015aaddb097a4f760984/packages/coding-agent/docs/sdk.md#L44-L178), [Pi RPC](https://github.com/earendil-works/pi/blob/f7e060374541be0097ee015aaddb097a4f760984/packages/coding-agent/docs/rpc.md#L1-L37)
+The delivered capability names are:
+
+- `director_turn_v1` (`DIRECTOR_TURN_CAPABILITY`);
+- `director_transcript_v1` (`DIRECTOR_TRANSCRIPT_CAPABILITY`);
+- `director_stream_v1` (`DIRECTOR_STREAM_CAPABILITY`);
+- `controller_peers_v1` (`CONTROLLER_PEERS_CAPABILITY`);
+- `mutation_bridge_v2` (`MUTATION_BRIDGE_CAPABILITY`);
+- `scene_manifest_v3` (`SCENE_MANIFEST_V3_CAPABILITY`);
+- `transaction_commit_v2` (`TRANSACTION_COMMIT_CAPABILITY`).
+
+Controller transcript v2 is a protocol feature, not a capability: `HelloAckControllerV1Schema` carries `protocol_features:["snapshot_cursor_v2"]` (`SNAPSHOT_CURSOR_V2_FEATURE`). Protocol-2 bridge capability tuples always begin with `mutation_bridge_v2` and may add `scene_manifest_v3`, `transaction_commit_v2`, or both. Controllers send stream/peer/v2 requests only after negotiation.
+
+`ClientMessageSchema` and `ServerMessageSchema` fix controller direction. `DaemonBridgeMessageSchema` and `AddonBridgeMessageSchema` separately fix transaction direction. A new daemon returns targeted `MALFORMED_MESSAGE` for one unknown client type and closes repeated unknown traffic with `1008`; unknown bridge transaction traffic closes `1008` immediately. A new controller closes `1008`, reconnects, and replays the transcript on any unknown server frame. A daemon must never send stream frames to a controller lacking `director_stream_v1`.
+
+### Turns, ordered streaming, and transcript replay
+
+- `DirectorTurnSchema` is `{type:"director_turn",id,prompt,expected_revision_id,deadline_ms}`. Prompt length is 1..8,192 characters; deadline is 100..300,000 ms. One turn is active globally. Owner and peer may submit/cancel; authority errors, rate errors, and request replay responses are requester-targeted, while durable semantic turn events are broadcast to negotiated controllers.
+- `DirectorTurnDeltaSchema` is the ephemeral frame `{type:"director_turn_delta",id,segment_id,content_index,delta_sequence,delta}`. `content_index` is 0..31, `delta_sequence` is 0..1,000,000, and `delta` is 1..4,096 UTF-8 bytes.
+- `DirectorAssistantUtteranceSchema` is the durable segment seal `{type:"director_assistant_utterance",id,sequence,at,segment_id,content_index,through_delta_sequence,content}`. `through_delta_sequence` is -1..1,000,000 and content is 1..16,384 UTF-8 bytes. The matching `segment_id`/`content_index` and watermark replace the ephemeral text with one persisted utterance.
+- `DirectorTurnEventSchema` is the durable union of `DirectorTurnStartedSchema`, `DirectorAssistantUtteranceSchema`, `DirectorToolCallStartedSchema`, `DirectorToolCallFinishedSchema`, `DirectorTurnCompletedSchema`, `DirectorTurnFailedSchema`, and `DirectorTurnCancelledSchema`. Tool events contain only the closed tool name, structural parameter summary, result SHA-256, and error bit.
+- The runtime copies only discriminated string fields from Pi `text_delta.delta` and `text_end.content/contentIndex`; it never copies the partial assistant object, thinking, usage, metadata, or raw provider response. One promise-chained publication queue orders deltas, utterance append+broadcast, tool events, and terminal state. Tool start is illegal until all text is sealed. The first transcript append failure stops every later delta/durable emission, aborts Pi, burns credentials, closes controller sockets `1011`, and drains the daemon.
+- `DirectorTranscriptRequestV1Schema`/`DirectorTranscriptV1Schema` preserve legacy cursor paging. When `snapshot_cursor_v2` is advertised, `DirectorTranscriptRequestV2Schema` sends `snapshot_cursor:null` at `cursor:0`; `DirectorTranscriptV2Schema` freezes and returns the global event watermark. Every subsequent page repeats that watermark. Cursors are 0..10,000, pages are 1..64 events, the session ID is stable, appends after the watermark wait for the next snapshot, and cursor/watermark regression is rejected.
+- `.omb/director-transcript.json` is mode `0600`, atomically replaced, closed, bounded to 10,000 durable events, and migrates valid v1 data atomically. Deltas are never persisted. The G013 sink amendment authorizes bounded `DirectorAssistantUtteranceSchema.content` as intermediate transcript content; raw provider/reasoning fields and arbitrary failures remain forbidden.
+
+### Controller discovery, fanout, and interaction surfaces
+
+- `PublishBridgeDiscoverySlotSchema`/`BridgeDiscoverySlotAckSchema` publish or supersede the bridge generation with exact 15,000 ms expiry. `IssueAttachTicketV2Schema`/`AttachTicketSchema` provide the equivalent owner-targeted bridge credential response. Legacy `IssueAttachTicketV1Schema` remains only for clients that did not negotiate peers.
+- `PublishControllerPeerDiscoverySlotSchema`/`ControllerPeerDiscoverySlotAckSchema` publish a specific lineage and generation. `RevokeControllerPeerSchema`/`RevokeControllerPeerAckSchema` burn the slot/resume chain and close only that lineage. Request replay uses a per-principal 300,000 ms/1,024-entry cache: same ID and canonical body repeats the response without side effects; different content returns `IDEMPOTENCY_CONFLICT`.
+- Detached bridge discovery refreshes at 10,000 ms. Reconnect backoff is 250/500/1,000/2,000/4,000 ms, then 5,000 ms through 60 seconds, with ±20% production jitter and none in tests.
+- Each controller socket has an isolated queue capped at 256 frames or 1 MiB and a 2,000 ms drain timeout. Only the slow socket closes `1013`; durable delivery to other controllers and persistence continue. Delta batching flushes at 50 ms or 2,048 bytes, never exceeds 4,096 bytes, and the first adapter-to-wire delta is due within 250 ms.
+- `apps/omb-tui` uses public Pi `Editor`, `Markdown`, `Container`, `Component`, `TUI`, and configurable keybindings. Its OMB-owned viewport retains at most 10,000 durable entries plus one active Markdown segment, reparses only that active Markdown on delta, preserves a scrolled-up entry/line anchor through output and resize, and shows `New output below`.
+- The Blender panel drains at most 32 controller events or 4 ms per timer tick. Real-Blender targets are p95 <=4 ms and max <=8 ms, with zero durable drops. QA frames are digest-addressed and displayed only after the matching closed result; transcript bytes never become image payloads.
+
+### Durable transaction and recovery protocol
+
+Mutation requires `transaction_commit_v2`. The UUID `transaction_id` is the idempotency key across Blender, daemon, runtime, and core; the separate `commit_hash` authenticates the canonical commit payload.
+
+Wire types and direction are exact:
+
+- `BridgeTransactionPreparedSchema`: add-on→daemon, 11 required keys binding operation, project, base/candidate revisions and scene hashes, base backup hash, and canonical blend hash;
+- `BridgeTransactionAckSchema`: daemon→bridge committed acknowledgement;
+- `BridgeTransactionAcknowledgedSchema`: bridge→daemon confirmation after its durable marker advances;
+- `BridgeTransactionReconcileSchema`: bridge→daemon with marker phase `prepared|candidate_saved|manifest_committed|acknowledged|rollback_saved`;
+- `BridgeTransactionStatusSchema`: daemon→requesting bridge with `base_authoritative|candidate_authoritative|unknown`;
+- `BridgeTransactionErrorSchema`: the closed errors `TRANSACTION_CONFLICT`, `TRANSACTION_NOT_FOUND`, `TRANSACTION_EVIDENCE_INVALID`, and `TRANSACTION_STATE_INVALID`, always non-retryable and never controller-broadcast.
+
+`ProjectStore.commitRevision()` accepts `DirectorProjectRecoveryV2` plus `RevisionOperationEntryV2`. The recovery project has exactly `project_id,schema_version,current_revision_id,manifest`; the manifest is the complete exact `SceneManifestV2` or `SceneManifestV3`, bound to the same project and revision. The operation entry has exactly `schema_version,operation,request_id,plan_sha256,base_scene_hash,candidate_scene_hash`. The canonical `revision_commit_v2` hash covers `kind,idempotency_key,expected_revision_id,target_revision_id`, the entire project/manifest, and that operation entry. Same key and byte-identical canonical payload is a no-op; any changed project, manifest, hash, pointer, or operation returns `TRANSACTION_CONFLICT` before journal or project mutation. A valid journal record can reconstruct the complete target project from only the base project and journal.
+
+Before mutation, Blender creates `.omb/transactions/<transaction_id>/base.blend` as owned mode `0600`, fsyncs file and directory, hashes it, and verifies its project ID. It then atomically writes `.omb/prepared-transaction.json` as the exact 17-field `PreparedTransactionMarker`: `schema_version`, `transaction_id`, `project_id`, `operation`, `request_id`, `base_revision_id`, `base_scene_hash`, `candidate_revision_id`, `candidate_scene_hash`, `canonical_blend_path`, `canonical_blend_sha256`, `base_backup_path`, `base_backup_sha256`, `base_backup_project_id`, `created_at`, `updated_at`, and `phase`. `canonical_blend_sha256` is null only in `prepared`; every later phase requires a hash, and `rollback_saved` requires it to equal `base_backup_sha256`. All paths are normalized, project-contained, owned, and checked without following symlinks.
+
+Reconciliation uses four evidence classes after phase consistency: C conflict, T manifest target plus matching commit, J valid matching journal while manifest remains base, and B manifest base without a matching commit. The controlling matrix is:
+
+| Marker | C | T | J | B |
+| --- | --- | --- | --- | --- |
+| `prepared` | unknown; no writes | candidate; verify and mark committed | journal-forward, then candidate | restore base |
+| `candidate_saved` | unknown; no writes | candidate; verify and mark committed | journal-forward, then candidate | restore base |
+| `manifest_committed` | unknown; no writes | candidate; request/resume ack | unknown; no journal-forward or Blender mutation | unknown; no writes |
+| `acknowledged` | unknown; no writes | candidate; confirm and clean | unknown; no journal-forward or Blender mutation | unknown; no writes |
+| `rollback_saved` | unknown; no writes | unknown; no writes | **unknown; no journal-forward and no Blender mutation** | verify base and clean |
+
+Every `unknown` enters `RECOVERY_REQUIRED`, retains all evidence, and performs zero store writes and zero Blender mutation. Only `prepared` or `candidate_saved` may journal-forward. Base restore is an atomic temp-copy/fsync/replace/directory-fsync operation followed by project/revision/hash verification and a durable `rollback_saved` marker. Candidate authority verifies the canonical candidate before advancing. Cleanup is idempotent and occurs only after acknowledged or verified rollback authority.
+
+### Control and shutdown invariants
+
+Cancel is requester-targeted and `CancelAckSchema.status` is `accepted|already_terminal|unknown`; accepted acknowledgement is due within 100 ms and exactly one `DirectorTurnCancelledSchema` follows cleanup. Request replay is checked before rate charging. The token bucket has capacity 4 and refills one token per second; new turns, discovery/revoke, transcript, malformed parseable IDs, and BUSY submissions are counted, while exact replays, cancel, ping, shutdown, and transaction control are not.
+
+Maximum JSON size is 1 MiB and bridge binary artifact frames are at most 16 MiB. Idle sockets close after 60 seconds. Owner shutdown burns every credential, drains the active turn and transaction, disposes Pi exactly once, removes runtime advertisements, closes cleanly, and exits; peers cannot shut down the daemon. Pi's JSONL RPC remains diagnostic only—the product daemon embeds `createAgentSession()` because bridge tools and durable state are app-owned.
 
 ## 5. Repository boundaries
 
@@ -126,6 +173,7 @@ New code should enter through these product-owned areas:
 
 ```text
 apps/omb-daemon/             process lifecycle and protocol host
+apps/omb-tui/                owner controller and terminal presentation
 packages/director-core/      canonical state and revision rules
 packages/director-runtime/   Pi adapter, prompts, tool middleware
 packages/blender-protocol/   versioned JSON schemas and messages
@@ -139,15 +187,16 @@ Ownership is behavioral, not merely directory naming:
 | Area | Owns | Must not own |
 | --- | --- | --- |
 | `apps/omb-daemon` | child lifecycle, startup record, WebSocket state machine, request arbitration | scene schemas, revision/hash rules, model-facing tool definitions |
+| `apps/omb-tui` | owner spawn/reattach, transcript replay, streaming viewport, prompt/cancel UX | daemon lifecycle internals, scene mutation, or protocol schema definitions |
 | `packages/director-core` | project/revision persistence, stable identity, canonical serialization, scene/artifact hashes, artifact store | Pi APIs or WebSocket transport |
 | `packages/director-runtime` | the sole `createAgentSession()` adapter, `BundledDirectorResourceLoader`, bundled prompt, Pi event/cancel/dispose wiring | Blender extraction or canonical state rules |
 | `packages/blender-protocol` | protocol/message schemas and generated TypeScript/Python fixtures | daemon lifecycle or tool execution |
 | `packages/blender-tools` | `inspect_project` and later model-facing tool definitions; typed calls into the bridge | WebSocket authentication or Pi session construction |
-| `blender-addon/oh_my_blender` | explicit project initialization, Blender main-thread extraction, undo/checkpoint/rollback, daemon child ownership | model/provider logic |
+| `blender-addon/oh_my_blender` | project initialization, Blender main-thread extraction/mutation, durable transaction evidence, recovery, peer controller, panel/QA display | model/provider logic or owner authority |
 
 Canonical serialization, hashing, and manifest construction live in `packages/director-core`; `packages/blender-protocol` is schema-only and must not implement those behaviors.
 
-The first implementation updates the root `workspaces` list, root build/check/test scripts, and TypeScript project references so every new TypeScript package is covered by the existing toolchain. `blender-addon/` is checked independently by Blender's bundled Python and a small host-side test environment.
+Product workspaces and the Blender add-on are covered by their scoped TypeScript and Python suites; upstream Pi packages remain dependency-only.
 
 Pinned bootstrap support matrix:
 
@@ -191,17 +240,20 @@ ArtifactRef
   kind · schema_version · uri · sha256 · producer
 ```
 
-Storage for v1:
+Durable product storage:
 
 - `.omb/project.json`: atomically replaced current index;
 - `.omb/journal.jsonl`: append-only operations and decisions;
 - `.omb/artifacts/<sha256>/`: previews, manifests, motion, and render outputs;
+- `.omb/director-transcript.json`: bounded semantic controller transcript, never raw provider traffic;
+- `.omb/prepared-transaction.json`: singleton exact recovery marker while a mutation is unresolved;
+- `.omb/transactions/<transaction_id>/base.blend`: verified private base evidence retained through acknowledgement or rollback cleanup;
 - the Pi session stores reasoning provenance plus project/revision IDs only.
 
 ### Stable identity and hashing
 
 - Before the first connection, the user runs the add-on's explicit `Initialize Project` operator. In one Blender undo transaction it creates a lowercase UUIDv4 `project_id`, stores it both as the scene custom property `omb.project_id` and in `.omb/project.json`, and assigns lowercase UUIDv4 `omb.entity_id` properties to every local object and every bone. The two persisted project IDs must match on every connection. Camera, light, and armature identities use their owning object ID; bones use their own bone property.
-- Initialization is the only write in Phase 1 and is never model-triggered. It marks the `.blend` dirty and connection is refused until the user saves it. Later inspection is read-only and refuses missing, malformed, or duplicate IDs rather than generating them lazily. Linked/library data without writable persistent IDs is `UNSUPPORTED_LINKED_DATABLOCK` in v1.
+- Initialization is the only identity-bootstrap write and is never model-triggered. It marks the `.blend` dirty and connection is refused until the user saves it. Later inspection refuses missing, malformed, or duplicate IDs rather than generating them lazily. Delivered model mutations use only the typed, revision-bound transaction protocol; linked/library data without writable persistent IDs remains `UNSUPPORTED_LINKED_DATABLOCK`.
 - Blender duplication can copy custom properties. The add-on observer records IDs known before the dependency-graph update; an existing entity keeps its ID and every newly observed duplicate receives a new UUIDv4 in one undoable metadata transaction. On file-open ambiguity, `Repair IDs` keeps the first entity in Blender's serialized data-block order and reassigns later duplicates, writes one journal entry, marks the file dirty, and requires an explicit save before reconnect.
 - `project_id` never derives from a path or filename. Entity IDs never derive from display names, Blender paths, array positions, or memory addresses. Once persisted they do not change on rename, reparent, reorder, save-as, or daemon restart.
 - `SceneManifestV1` is normalized before hashing. Object and bone arrays sort by stable ID; selected-ID sets sort by stable ID for validation and reporting; maps sort keys by Unicode code-point order; semantically ordered arrays such as keyframes sort by rational frame time then stable ID. Strings are Unicode NFC. Integers use base-10 without leading zeros. Booleans and null use JSON literals.
@@ -307,9 +359,9 @@ Hard gates:
 
 Visual critique may rank or explain candidates, but it never replaces deterministic geometry checks. The user remains the final aesthetic approver.
 
-## 10. MVP delivery sequence
+## 10. Delivery record and remaining roadmap
 
-### Phase 1 — Connection skeleton
+### Phase 1 — Connection skeleton (delivered)
 
 - add `packages/blender-protocol`, `packages/director-core`, `packages/director-runtime`, `packages/blender-tools`, `apps/omb-daemon`, and `blender-addon/oh_my_blender` plus root workspace/build/check/test references without editing Pi core;
 - initialize and save stable project/object/bone IDs, then persist the initial canonical revision/hash;
@@ -322,7 +374,7 @@ Exit: after explicit local identity initialization, Blender can ask the daemon t
 
 The read-only `SceneManifestV1` contains `project_id`, `revision_id`, Blender version, scene name, rational frame range/fps, active camera ID, render resolution/aspect, object IDs/names/types/parent IDs/transforms, armature and bone IDs/names/parents/transforms, cameras, lights, selected IDs, and the deterministic `scene_hash` defined above. It contains no arbitrary file contents or path-derived identities.
 
-### Phase 2 — Transactional scene tools
+### Phase 2 — Transactional scene tools (delivered)
 
 - implement typed inspection and camera/light/render patches;
 - implement undo checkpoint, stale revision rejection, and rollback;
@@ -330,7 +382,7 @@ The read-only `SceneManifestV1` contains `project_id`, `revision_id`, Blender ve
 
 Exit: a failed or cancelled operation leaves the scene byte-for-byte or state-hash equivalent to its checkpoint.
 
-### Phase 3 — Directing vertical slice
+### Phase 3 — Directing vertical slice (remaining roadmap)
 
 - compile one natural-language brief into beats and three camera shots;
 - import the existing ARDY boxing motion;
@@ -339,7 +391,7 @@ Exit: a failed or cancelled operation leaves the scene byte-for-byte or state-ha
 
 Exit: the user provides no bone names, coordinates, or `bpy` code.
 
-### Phase 4 — Inspect and revise
+### Phase 4 — Inspect and revise (remaining roadmap)
 
 - show final aspect mask in Blender during editing;
 - inspect coordinates plus RGB/depth/ID evidence;
@@ -348,7 +400,7 @@ Exit: the user provides no bone names, coordinates, or `bpy` code.
 
 Exit: "second punch only" and "camera only" revisions preserve all unrelated approved artifacts.
 
-### Phase 5 — Product shell
+### Phase 5 — Product shell (controller TUI/panel foundation delivered; workflow shell remains)
 
 - add one director panel, beat cards, review state, and render command;
 - add versioned onboarding and explicit local plugin loading;
@@ -390,9 +442,9 @@ Exit: the full brief → preview → inspect → revise → approve → render l
 - a complete replacement for Blender's timeline, graph editor, or compositor;
 - supporting arbitrary rigs before the validated Mixamo/Core27 path works.
 
-## 14. First implementation commit
+## 14. Bootstrap implementation record
 
-The next approved work unit should add only:
+The bootstrap work unit established:
 
 1. `packages/blender-protocol`: exact startup/handshake/request/cancel/manifest schemas and shared fixtures;
 2. `packages/director-core`: identity validation, canonical manifest serialization, `scene_hash`/initial `revision_id`, and atomic `.omb/project.json`/journal persistence;
