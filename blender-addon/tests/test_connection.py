@@ -349,6 +349,38 @@ class ConnectionTests(unittest.TestCase):
             "b" * 64,
         )
 
+    def test_bridge_timer_sends_ping_on_twenty_second_cadence(self):
+        socket = FakeSocket()
+        with mock.patch.object(connection_module.time, "monotonic", return_value=100.0):
+            connection = Connection(FakeChild(FakeProcess()), socket)
+
+        with mock.patch.object(connection_module.time, "monotonic", return_value=119.99):
+            self.assertEqual(connection.pump_bridge_messages(), 0.01)
+        self.assertEqual(socket.sent, [])
+
+        with mock.patch.object(connection_module.time, "monotonic", return_value=120.0):
+            self.assertEqual(connection.pump_bridge_messages(), 0.01)
+        self.assertEqual(socket.sent[0]["type"], "ping")
+        self.assertRegex(socket.sent[0]["nonce"], r"^[A-Za-z0-9_-]+$")
+
+    def test_bridge_dispatcher_ignores_pong(self):
+        received_pong = threading.Event()
+
+        class PongSocket(FakeSocket):
+            def recv_json(self):
+                if not received_pong.is_set():
+                    received_pong.set()
+                    return {"type": "pong", "nonce": "keepalive"}
+                raise TimeoutError()
+
+        connection = Connection(FakeChild(FakeProcess()), PongSocket())
+        connection.start_bridge_dispatcher()
+        self.assertTrue(received_pong.wait(timeout=1))
+        time.sleep(0.02)
+        self.assertTrue(connection._main_thread_messages.empty())
+        self.assertEqual(connection.state, "active")
+        connection.state = "disconnected"
+        connection._reader_thread.join(timeout=1)
     def test_bridge_dispatcher_receive_loop_routes_requests(self):
         request = {
             "type": "bridge_request",

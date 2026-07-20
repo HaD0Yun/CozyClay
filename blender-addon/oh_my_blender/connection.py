@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import queue
+import secrets
 import subprocess
 import shlex
 import stat
@@ -402,6 +403,7 @@ class Connection:
         self._main_thread_messages: queue.Queue = queue.Queue()
         self.last_bridge_response: dict | None = None
         self._send_lock = threading.Lock()
+        self._last_ping_at = time.monotonic()
         self._state_lock = threading.Lock()
         self.project_directory = (
             Path(project_directory) if project_directory is not None else None
@@ -628,6 +630,20 @@ class Connection:
 
     def pump_bridge_messages(self) -> float | None:
         """Run queued Blender work and recover socket loss on the main thread."""
+        now = time.monotonic()
+        if (
+            self.state == LifecycleState.ACTIVE
+            and now - self._last_ping_at >= 20.0
+        ):
+            try:
+                self._send_json({
+                    "type": "ping",
+                    "nonce": secrets.token_urlsafe(16),
+                })
+            except (OSError, WebSocketError):
+                self._mark_lost_if_active()
+            else:
+                self._last_ping_at = now
         for _index in range(8):
             try:
                 message = self._main_thread_messages.get_nowait()

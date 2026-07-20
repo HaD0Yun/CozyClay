@@ -725,7 +725,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 
 	function bridgeTransport() {
 		const transport = connections.get("bridge") ?? connections.get("legacy");
-		if (!transport?.helloComplete || transport.mutationSession === undefined) return undefined;
+		if (
+			!transport?.helloComplete ||
+			transport.mutationSession === undefined ||
+			transport.websocket.closing ||
+			transport.websocket.socket.destroyed ||
+			!transport.websocket.socket.writable ||
+			transport.websocket.socket.writableEnded
+		) {
+			return undefined;
+		}
 		return {
 			websocket: transport.websocket,
 			mutationSession: transport.mutationSession,
@@ -935,6 +944,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			helloComplete: boolean;
 			mutationSession?: MutationBridgeSession;
 			idle?: ReturnType<typeof setTimeout>;
+			idleCloseGrace?: ReturnType<typeof setTimeout>;
 		},
 	) {
 		const websocket = connection.websocket;
@@ -943,10 +953,13 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		}, options.helloTimeoutMs ?? 3_000);
 		const resetIdle = () => {
 			clearTimeout(connection.idle);
-			connection.idle = setTimeout(
-				() => websocket.close(1000, "idle"),
-				options.idleTimeoutMs ?? 60_000,
-			);
+			connection.idle = setTimeout(() => {
+				websocket.close(1000, "idle");
+				connection.idleCloseGrace = setTimeout(() => {
+					if (!websocket.socket.destroyed) websocket.socket.destroy();
+				}, 1_000);
+				connection.idleCloseGrace.unref();
+			}, options.idleTimeoutMs ?? 60_000);
 		};
 		resetIdle();
 		websocket.on("text", (text: string) => {
@@ -966,6 +979,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		websocket.on("disconnect", () => {
 			clearTimeout(helloTimer);
 			clearTimeout(connection.idle);
+			clearTimeout(connection.idleCloseGrace);
 			if (connections.get(role)?.websocket === websocket) connections.delete(role);
 			if (role === "bridge") sendBridgeStatus();
 			if (role === "legacy") {
@@ -1199,6 +1213,13 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);
 					await failPendingBridge(parsed?.[1] ?? "INVALID_BRIDGE_MESSAGE", parsed?.[2] ?? message);
 				}
+				return;
+			}
+			if (role === "bridge" && rawType === "ping") {
+				try {
+					const parsed = parseClientMessage(raw);
+					if (parsed.type === "ping") websocket.sendText({ type: "pong", nonce: parsed.nonce });
+				} catch {}
 				return;
 			}
 			if (role === "bridge") return;

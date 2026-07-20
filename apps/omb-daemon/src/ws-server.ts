@@ -13,6 +13,7 @@ export class WebSocketConnection extends EventEmitter {
 	private readonly maxMessageBytes: number;
 	readonly socket: Duplex;
 	constructor(socket: Duplex, maxMessageBytes = DEFAULT_MAX_MESSAGE_BYTES) { super();this.socket=socket;this.maxMessageBytes=maxMessageBytes; socket.on("data", b => this.read(b)); socket.on("close", () => this.emit("disconnect")); socket.on("end", () => { if (!socket.writableEnded) socket.end(); }); socket.on("error", () => { /* close event drives cleanup */ }); }
+	get closing(): boolean { return this.closed || this.socket.writableEnded || this.socket.destroyed; }
 	sendText(value: unknown): void { this.frame(1, Buffer.from(JSON.stringify(value))); }
 	pong(payload: Buffer): void { this.frame(10, payload); }
 	close(code = 1000, reason = ""): void { if (this.closed) return; this.closed = true; const p = Buffer.alloc(2 + Buffer.byteLength(reason)); p.writeUInt16BE(code); p.write(reason, 2); this.frame(8, p); this.socket.end(); }

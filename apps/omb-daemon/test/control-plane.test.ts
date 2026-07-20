@@ -278,6 +278,40 @@ test("controller and bridge run simultaneously; controller detach preserves brid
 	}
 });
 
+test("closing bridge is unavailable immediately while controller remains active", async () => {
+	const daemon = await start({
+		port: 0,
+		stdout: () => {},
+		idleTimeoutMs: 40,
+		handlers: {
+			mutate: async (_params, { applyCameraPlan, signal }) => ({
+				result: await applyCameraPlan(bridgePlan(), { signal, reportProgress: () => {} }),
+				resulting_revision_id: "1".repeat(64),
+			}),
+		},
+	});
+	const control = await controller(daemon);
+	const ticket = await issueBridgeTicket(control.client);
+	const bridge = await connect(daemon.port, ticket, "bridge");
+	bridge.send(bridgeHello());
+	await bridge.next((message) => message.type === "hello_ack");
+	bridge.socket.end();
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	control.client.send({ type: "ping", nonce: "controller-keepalive" });
+	await control.client.next((message) => message.type === "pong");
+	const activeRequest = request();
+	const startedAt = Date.now();
+	control.client.send(activeRequest);
+	const error = await control.client.next(
+		(message) => message.type === "error" && message.id === activeRequest.id,
+		200,
+	);
+	assert.equal(error.code, "MUTATION_BRIDGE_UNAVAILABLE");
+	assert.ok(Date.now() - startedAt < 200);
+	control.client.socket.destroy();
+	bridge.socket.destroy();
+	await daemon.close();
+});
 test("bridge attach tickets reject connected replay and expiry", async () => {
 	const daemon = await start({
 		port: 0,
