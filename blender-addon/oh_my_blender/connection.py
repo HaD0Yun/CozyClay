@@ -2588,6 +2588,7 @@ def connect(
         except Exception:
             replacement.disconnect("reattach_hash_mismatch")
             raise
+        _reconcile_connected_transaction(replacement, cwd)
     else:
         argv = _resolve_daemon_argv(daemon_args)
         if previous is not None and previous.state in RECONNECTABLE_STATES:

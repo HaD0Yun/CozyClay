@@ -202,6 +202,40 @@ class AttachConnectionTests(unittest.TestCase):
             self.assertFalse(any(message.get("type") == "shutdown" for message in connection.websocket.sent))
             self.assertTrue(connection.websocket.closed)
 
+    def test_connect_attach_mode_exposes_tools_without_pending_marker(self):
+        """The production attach path must reconcile and expose bridge tools."""
+        import oh_my_blender.connection as connection_module
+        from oh_my_blender.connection import connect
+
+        original_attach = Connection.attach.__func__
+
+        def fake_attach(cls, runtime_directory, attach_ticket, **kwargs):
+            kwargs["websocket_type"] = FakeWebSocket
+            return original_attach(cls, runtime_directory, attach_ticket, **kwargs)
+
+        with tempfile.TemporaryDirectory() as root:
+            runtime = self._runtime_directory(root)
+            previous_active = connection_module._active_connection
+            connection_module._active_connection = None
+            try:
+                with mock.patch.object(Connection, "attach", classmethod(fake_attach)):
+                    connection = connect(
+                        cwd=root,
+                        project_id="33333333-3333-4333-8333-333333333333",
+                        addon_version="0.1.0",
+                        blender_version="4.3.0",
+                        attach_runtime_directory=runtime,
+                        attach_ticket=ATTACH_TICKET,
+                    )
+                self.assertTrue(
+                    connection.tools_exposed,
+                    "attach-mode connect must expose tools when no prepared "
+                    "transaction marker exists",
+                )
+                connection.disconnect("addon_unload", timeout=0.01)
+            finally:
+                connection_module._active_connection = previous_active
+
     def test_attach_rejects_group_accessible_runtime_directory(self):
         with tempfile.TemporaryDirectory() as root:
             runtime = self._runtime_directory(root)
