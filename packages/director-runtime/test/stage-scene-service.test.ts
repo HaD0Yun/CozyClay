@@ -67,20 +67,21 @@ function fakeStore(events: string[]): StageSceneRevisionStore {
 		project_id: v2.projectId,
 		schema_version: 1,
 		current_revision_id: parent,
+		manifest: v2,
 	};
 	return {
 		readProject: async () => current,
-		commitRevision: async (expected, child, journal) => {
+		commitRevision: async (idempotencyKey, expected, child, journal) => {
 			const manifest = child.manifest as { revisionId: string; sceneHash: string } | undefined;
+			assert.match(idempotencyKey, /^[0-9a-f-]{36}$/);
 			assert.equal(expected, parent);
 			assert.equal(child.current_revision_id, manifest?.revisionId);
-			assert.deepEqual(journal, {
-				type: "stage_scene",
-				expected_revision_id: parent,
-				resulting_revision_id: manifest?.revisionId,
-				scene_hash: manifest?.sceneHash,
-				canonical_plan: (journal as { canonical_plan: unknown }).canonical_plan,
-			});
+			assert.equal(journal.schema_version, 2);
+			assert.equal(journal.operation, "stage_scene");
+			assert.match(journal.request_id, /^[0-9a-f-]{36}$/);
+			assert.match(journal.plan_sha256, /^[0-9a-f]{64}$/);
+			assert.equal(journal.base_scene_hash, v2.sceneHash);
+			assert.equal(journal.candidate_scene_hash, manifest?.sceneHash);
 			events.push("commit:durable");
 		},
 	};

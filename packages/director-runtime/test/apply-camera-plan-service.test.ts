@@ -42,22 +42,33 @@ function fakeStore(events: string[] = []): CameraPlanRevisionStore {
 		project_id: manifest.projectId,
 		schema_version: 1,
 		current_revision_id: plan.expected_revision_id,
+		manifest,
 	};
 	return {
 		readProject: async () => current,
-		commitRevision: async (expected, child, journal) => {
+		commitRevision: async (idempotencyKey, expected, child, journal) => {
+			assert.match(idempotencyKey, /^[0-9a-f-]{36}$/);
 			assert.equal(expected, plan.expected_revision_id);
+			assert.deepEqual(Object.keys(child).sort(), [
+				"current_revision_id",
+				"manifest",
+				"project_id",
+				"schema_version",
+			]);
 			assert.equal(child.current_revision_id, manifest.revisionId);
 			assert.equal(child.manifest, manifest);
-			assert.deepEqual(journal, {
-				type: "apply_camera_plan",
-				evidence_sha256: plan.evidence_sha256,
-				expected_revision_id: plan.expected_revision_id,
-				resulting_revision_id: manifest.revisionId,
-				scene_hash: manifest.sceneHash,
-			});
+			assert.equal(journal.schema_version, 2);
+			assert.equal(journal.operation, "apply_camera_plan");
+			assert.match(journal.request_id, /^[0-9a-f-]{36}$/);
+			assert.match(journal.plan_sha256, /^[0-9a-f]{64}$/);
+			assert.equal(journal.base_scene_hash, manifest.sceneHash);
+			assert.equal(journal.candidate_scene_hash, manifest.sceneHash);
 			events.push("commit:durable");
 		},
+		reconcileRevision: async () => ({
+			status: "base_authoritative",
+			revisionId: current.current_revision_id,
+		}),
 	};
 }
 
@@ -190,10 +201,14 @@ test("preserves a durable V3 substrate and derives the camera child through its 
 			current_revision_id: stagedManifest.revisionId,
 			manifest: stagedManifest,
 		}),
-		commitRevision: async (expectedRevisionId, child) => {
+		commitRevision: async (_idempotencyKey, expectedRevisionId, child) => {
 			assert.equal(expectedRevisionId, stagedManifest.revisionId);
 			committedManifest = child.manifest as typeof cameraManifest;
 		},
+		reconcileRevision: async () => ({
+			status: "base_authoritative",
+			revisionId: stagedManifest.revisionId,
+		}),
 	};
 
 	const result = await commitCameraPlanMutation(store, stagedPlan, {

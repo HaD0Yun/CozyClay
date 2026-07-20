@@ -1,17 +1,30 @@
 import { randomUUID } from "node:crypto";
 import type { StageSceneResult } from "@oh-my-blender/blender-tools";
-import { buildSceneManifestV3Revision, type DirectorProject, ProjectStore } from "@oh-my-blender/director-core";
+import {
+	buildSceneManifestV3Revision,
+	canonicalRevision,
+	type DirectorProject,
+	type DirectorProjectRecoveryV2,
+	ProjectStore,
+	type RevisionOperationEntryV2,
+} from "@oh-my-blender/director-core";
 import {
 	canonicalizeStageScenePlan,
 	parseStageSceneMutationCandidate,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
+import type { PreparedMutationCandidate } from "./apply-camera-plan-service.ts";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export interface StageSceneRevisionStore {
 	readProject(): Promise<DirectorProject>;
-	commitRevision(expectedRevisionId: string, project: DirectorProject, journalEntry: unknown): Promise<void>;
+	commitRevision(
+		idempotencyKey: string,
+		expectedRevisionId: string,
+		project: DirectorProjectRecoveryV2,
+		journalEntry: RevisionOperationEntryV2,
+	): Promise<void>;
 }
 
 export interface StageSceneHandlerOptions {
@@ -43,13 +56,24 @@ function validateEntityIdentities(plan: StageScenePlanV1, candidate: StageSceneM
 	}
 }
 
+function isPreparedCandidate(input: unknown): input is PreparedMutationCandidate<StageSceneMutationCandidate> {
+	return (
+		typeof input === "object" &&
+		input !== null &&
+		"candidate" in input &&
+		"transaction" in input &&
+		"requestId" in input
+	);
+}
+
 export async function commitStageSceneMutation(
 	store: StageSceneRevisionStore,
 	plan: StageScenePlanV1,
 	input: unknown,
 	beginDurableCommit: () => void = () => {},
 ): Promise<StageSceneResult> {
-	const candidate = parseStageSceneMutationCandidate(input);
+	const prepared = isPreparedCandidate(input) ? input : undefined;
+	const candidate = parseStageSceneMutationCandidate(prepared?.candidate ?? input);
 	if (candidate.expected_revision_id !== plan.expected_revision_id) {
 		throw new Error(
 			`STALE_BASE: add-on expected ${candidate.expected_revision_id}, plan expected ${plan.expected_revision_id}`,
@@ -72,19 +96,52 @@ export async function commitStageSceneMutation(
 	if (current.project_id !== candidate.manifest.projectId) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest projectId does not match the current project");
 	}
-	const child: DirectorProject = {
-		...current,
+	const durableManifest =
+		typeof current.manifest === "object" && current.manifest !== null
+			? (current.manifest as { sceneHash?: unknown })
+			: undefined;
+	const transaction = prepared?.transaction;
+	const baseSceneHash =
+		typeof durableManifest?.sceneHash === "string"
+			? durableManifest.sceneHash
+			: transaction === undefined
+				? plan.expected_revision_id
+				: undefined;
+	if (baseSceneHash === undefined) {
+		throw new Error("INVALID_MUTATION_RESULT: current project manifest has no scene hash");
+	}
+	if (
+		transaction !== undefined &&
+		(transaction.operation !== "stage_scene" ||
+			transaction.project_id !== current.project_id ||
+			transaction.base_revision_id !== plan.expected_revision_id ||
+			transaction.base_scene_hash !== baseSceneHash ||
+			transaction.candidate_revision_id !== candidate.manifest.revisionId ||
+			transaction.candidate_scene_hash !== candidate.scene_hash)
+	) {
+		throw new Error("INVALID_MUTATION_RESULT: prepared transaction does not match the stage mutation");
+	}
+	const target: DirectorProjectRecoveryV2 = {
+		project_id: current.project_id,
+		schema_version: 1,
 		current_revision_id: candidate.manifest.revisionId,
 		manifest: candidate.manifest,
 	};
+	const journalEntry: RevisionOperationEntryV2 = {
+		schema_version: 2,
+		operation: "stage_scene",
+		request_id: prepared?.requestId ?? randomUUID(),
+		plan_sha256: canonicalRevision(plan),
+		base_scene_hash: baseSceneHash,
+		candidate_scene_hash: candidate.scene_hash,
+	};
 	beginDurableCommit();
-	await store.commitRevision(plan.expected_revision_id, child, {
-		type: "stage_scene",
-		expected_revision_id: plan.expected_revision_id,
-		resulting_revision_id: candidate.manifest.revisionId,
-		scene_hash: candidate.scene_hash,
-		canonical_plan: plan,
-	});
+	await store.commitRevision(
+		transaction?.transaction_id ?? randomUUID(),
+		plan.expected_revision_id,
+		target,
+		journalEntry,
+	);
 	return {
 		resulting_revision_id: candidate.manifest.revisionId,
 		scene_hash: candidate.scene_hash,
@@ -110,7 +167,7 @@ export function createStageSceneHandler(options: StageSceneHandlerOptions = {}) 
 		if (context.stageScene === undefined) {
 			throw new Error("MUTATION_BRIDGE_UNAVAILABLE: protocol v2 mutation bridge is required");
 		}
-		const candidate: StageSceneMutationCandidate = await context.stageScene(plan, {
+		const candidate = await context.stageScene(plan, {
 			signal: context.signal,
 			reportProgress: (progress) => {
 				context.reportProgress?.(progress.phase, progress.completed, progress.total);

@@ -1,11 +1,18 @@
+import { randomUUID } from "node:crypto";
 import type { ApplyCameraPlanResult } from "@oh-my-blender/blender-tools";
 import {
 	buildSceneManifestV2Revision,
 	buildSceneManifestV3Revision,
+	canonicalRevision,
 	type DirectorProject,
+	type DirectorProjectRecoveryV2,
 	ProjectStore,
+	type RevisionOperationEntryV2,
+	type RevisionReconcileResult,
+	type TransactionMarkerPhase,
 } from "@oh-my-blender/director-core";
 import {
+	type BridgeTransactionPrepared,
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
 	parseCameraPlan,
@@ -13,9 +20,21 @@ import {
 } from "@oh-my-blender/protocol";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
+export type PreparedMutationCandidate<T> = {
+	candidate: T;
+	transaction: BridgeTransactionPrepared;
+	requestId: string;
+};
+
 export interface CameraPlanRevisionStore {
 	readProject(): Promise<DirectorProject>;
-	commitRevision(expectedRevisionId: string, project: DirectorProject, journalEntry: unknown): Promise<void>;
+	commitRevision(
+		idempotencyKey: string,
+		expectedRevisionId: string,
+		project: DirectorProjectRecoveryV2,
+		journalEntry: RevisionOperationEntryV2,
+	): Promise<void>;
+	reconcileRevision(idempotencyKey: string, markerPhase: TransactionMarkerPhase): Promise<RevisionReconcileResult>;
 }
 
 export interface ApplyCameraPlanHandlerOptions {
@@ -24,13 +43,24 @@ export interface ApplyCameraPlanHandlerOptions {
 
 export const createDirectorProjectStore = (rootDir: string): CameraPlanRevisionStore => new ProjectStore(rootDir);
 
+function isPreparedCandidate<T>(input: unknown): input is PreparedMutationCandidate<T> {
+	return (
+		typeof input === "object" &&
+		input !== null &&
+		"candidate" in input &&
+		"transaction" in input &&
+		"requestId" in input
+	);
+}
+
 export async function commitCameraPlanMutation(
 	store: CameraPlanRevisionStore,
 	plan: CameraPlanV1,
 	input: unknown,
 	beginDurableCommit: () => void = () => {},
 ): Promise<ApplyCameraPlanResult> {
-	const candidate = parseCameraPlanMutationCandidate(input);
+	const prepared = isPreparedCandidate<CameraPlanMutationCandidate>(input) ? input : undefined;
+	const candidate = parseCameraPlanMutationCandidate(prepared?.candidate ?? input);
 	if (candidate.expected_revision_id !== plan.expected_revision_id) {
 		throw new Error(
 			`STALE_BASE: add-on expected ${candidate.expected_revision_id}, plan expected ${plan.expected_revision_id}`,
@@ -42,7 +72,7 @@ export async function commitCameraPlanMutation(
 	const current = await store.readProject();
 	const durableManifest =
 		typeof current.manifest === "object" && current.manifest !== null
-			? (current.manifest as { schemaVersion?: unknown })
+			? (current.manifest as { schemaVersion?: unknown; sceneHash?: unknown })
 			: undefined;
 	if (
 		(durableManifest?.schemaVersion === 2 || durableManifest?.schemaVersion === 3) &&
@@ -68,19 +98,48 @@ export async function commitCameraPlanMutation(
 	if (current.project_id !== candidate.manifest.projectId) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest projectId does not match the current project");
 	}
-	const child: DirectorProject = {
-		...current,
+	const transaction = prepared?.transaction;
+	const baseSceneHash =
+		typeof durableManifest?.sceneHash === "string"
+			? durableManifest.sceneHash
+			: transaction === undefined
+				? plan.expected_revision_id
+				: undefined;
+	if (baseSceneHash === undefined) {
+		throw new Error("INVALID_MUTATION_RESULT: current project manifest has no scene hash");
+	}
+	if (
+		transaction !== undefined &&
+		(transaction.operation !== "apply_camera_plan" ||
+			transaction.project_id !== current.project_id ||
+			transaction.base_revision_id !== plan.expected_revision_id ||
+			transaction.base_scene_hash !== baseSceneHash ||
+			transaction.candidate_revision_id !== candidate.manifest.revisionId ||
+			transaction.candidate_scene_hash !== candidate.scene_hash)
+	) {
+		throw new Error("INVALID_MUTATION_RESULT: prepared transaction does not match the camera mutation");
+	}
+	const target: DirectorProjectRecoveryV2 = {
+		project_id: current.project_id,
+		schema_version: 1,
 		current_revision_id: candidate.manifest.revisionId,
 		manifest: candidate.manifest,
 	};
+	const journalEntry: RevisionOperationEntryV2 = {
+		schema_version: 2,
+		operation: "apply_camera_plan",
+		request_id: prepared?.requestId ?? randomUUID(),
+		plan_sha256: canonicalRevision(plan),
+		base_scene_hash: baseSceneHash,
+		candidate_scene_hash: candidate.scene_hash,
+	};
 	beginDurableCommit();
-	await store.commitRevision(plan.expected_revision_id, child, {
-		type: "apply_camera_plan",
-		evidence_sha256: plan.evidence_sha256,
-		expected_revision_id: plan.expected_revision_id,
-		resulting_revision_id: candidate.manifest.revisionId,
-		scene_hash: candidate.scene_hash,
-	});
+	await store.commitRevision(
+		transaction?.transaction_id ?? randomUUID(),
+		plan.expected_revision_id,
+		target,
+		journalEntry,
+	);
 	return { resulting_revision_id: candidate.manifest.revisionId, scene_hash: candidate.scene_hash };
 }
 
@@ -97,7 +156,7 @@ export function createApplyCameraPlanHandler(options: ApplyCameraPlanHandlerOpti
 		if (context.applyCameraPlan === undefined) {
 			throw new Error("MUTATION_BRIDGE_UNAVAILABLE: protocol v2 mutation bridge is required");
 		}
-		const candidate: CameraPlanMutationCandidate = await context.applyCameraPlan(plan, {
+		const candidate = await context.applyCameraPlan(plan, {
 			signal: context.signal,
 			reportProgress: (progress) => {
 				context.reportProgress?.(progress.phase, progress.completed, progress.total);

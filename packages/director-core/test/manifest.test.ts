@@ -116,7 +116,7 @@ describe("project manifest", () => {
 			render: { resolutionX: 1, resolutionY: 1, resolutionPercentage: 100 },
 			objects: [
 				{
-					entityId: "b".repeat(8) + "-0000-4000-8000-000000000000",
+					entityId: `${"b".repeat(8)}-0000-4000-8000-000000000000`,
 					name: "b",
 					type: "MESH",
 					parentId: null,
@@ -126,7 +126,7 @@ describe("project manifest", () => {
 					scale: [1, 1, 1],
 				},
 				{
-					entityId: "a".repeat(8) + "-0000-4000-8000-000000000000",
+					entityId: `${"a".repeat(8)}-0000-4000-8000-000000000000`,
 					name: "a",
 					type: "MESH",
 					parentId: null,

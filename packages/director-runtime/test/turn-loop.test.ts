@@ -10,6 +10,7 @@ import type { CameraPlanV1, StageSceneRequestV1 } from "@oh-my-blender/protocol"
 import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
 import { createDirectorTurnLoop } from "../src/turn-loop.ts";
 
+const TURN_ID = "11111111-1111-4111-8111-111111111111";
 const CHILD_REVISION = "b".repeat(64);
 const REPAIR_REVISION = "c".repeat(64);
 const IMAGE_DATA = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=";
@@ -129,10 +130,13 @@ describe("bounded director turn loop", () => {
 		});
 		try {
 			const result = await loop.run({
+				turnId: TURN_ID,
 				prompt: "Build a hero product shot and correct the camera if QA needs it.",
 				expectedRevisionId: initial.revision,
 				signal: new AbortController().signal,
-				onToolEvent: (event) => toolEvents.push(event),
+				onPublication: (event) => {
+					if (event.type === "started" || event.type === "finished") toolEvents.push(event);
+				},
 			});
 			assert.deepEqual(calls, [
 				"inspect_project",
@@ -204,6 +208,7 @@ describe("bounded director turn loop", () => {
 		try {
 			await assert.rejects(
 				loop.run({
+					turnId: TURN_ID,
 					prompt: "overwork it",
 					expectedRevisionId: initial.revision,
 					signal: new AbortController().signal,
@@ -254,6 +259,7 @@ describe("bounded director turn loop", () => {
 		try {
 			const controller = new AbortController();
 			const first = loop.run({
+				turnId: TURN_ID,
 				prompt: "start then block",
 				expectedRevisionId: initial.revision,
 				signal: controller.signal,
@@ -263,6 +269,7 @@ describe("bounded director turn loop", () => {
 			await assert.rejects(first);
 
 			const second = await loop.run({
+				turnId: TURN_ID,
 				prompt: "inspect and finish",
 				expectedRevisionId: initial.revision,
 				signal: new AbortController().signal,
@@ -296,12 +303,14 @@ describe("bounded director turn loop", () => {
 		});
 		try {
 			const first = loop.run({
+				turnId: TURN_ID,
 				prompt: "create the session",
 				expectedRevisionId: initial.revision,
 				signal: new AbortController().signal,
 			});
 			await assert.rejects(
 				loop.run({
+					turnId: TURN_ID,
 					prompt: "race session creation",
 					expectedRevisionId: initial.revision,
 					signal: new AbortController().signal,
@@ -382,6 +391,7 @@ describe("bounded director turn loop", () => {
 		});
 		try {
 			const first = await loop.run({
+				turnId: TURN_ID,
 				prompt: "stage and QA-check the hero scene",
 				expectedRevisionId: initial.revision,
 				signal: new AbortController().signal,
@@ -390,6 +400,7 @@ describe("bounded director turn loop", () => {
 			assert.equal(firstTurnImages, 1);
 
 			const second = await loop.run({
+				turnId: TURN_ID,
 				prompt: "inspect the result again",
 				expectedRevisionId: first.resultingRevisionId,
 				signal: new AbortController().signal,

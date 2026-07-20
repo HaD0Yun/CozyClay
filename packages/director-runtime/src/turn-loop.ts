@@ -11,6 +11,7 @@ import type {
 	StageSceneBridge,
 	StageSceneProgress,
 } from "@oh-my-blender/blender-tools";
+import type { TransactionMarkerPhase } from "@oh-my-blender/director-core";
 import {
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
@@ -27,6 +28,7 @@ import {
 	type CameraPlanRevisionStore,
 	commitCameraPlanMutation,
 	createDirectorProjectStore,
+	type PreparedMutationCandidate,
 } from "./apply-camera-plan-service.ts";
 import { createDirectorSession } from "./session.ts";
 import { commitStageSceneMutation } from "./stage-scene-service.ts";
@@ -45,6 +47,44 @@ export type DirectorTurnToolEvent =
 			readonly digest: string;
 			readonly isError: boolean;
 	  };
+export type DirectorTurnPublication =
+	| {
+			readonly type: "text_delta";
+			readonly turnId: string;
+			readonly segmentId: string;
+			readonly contentIndex: number;
+			readonly deltaSequence: number;
+			readonly delta: string;
+	  }
+	| {
+			readonly type: "assistant_utterance";
+			readonly turnId: string;
+			readonly segmentId: string;
+			readonly contentIndex: number;
+			readonly throughDeltaSequence: number;
+			readonly content: string;
+	  }
+	| DirectorTurnToolEvent;
+
+/**
+ * Per-turn publication boundary consumed by the daemon. A returned promise is
+ * the ordering barrier for persistence and broadcast; the loop never invokes a
+ * later callback or settles the turn before it resolves.
+ */
+export type DirectorTurnPublicationCallback = (publication: DirectorTurnPublication) => Promise<void> | void;
+
+/**
+ * Fixed failure raised when the daemon's publication callback rejects. The
+ * callback owns persistence-health state; this error deliberately omits the
+ * rejected value so provider or transcript bytes cannot cross the boundary.
+ */
+export class DirectorTurnPublicationError extends Error {
+	readonly code = "DIRECTOR_PUBLICATION_FAILED";
+
+	constructor() {
+		super("DIRECTOR_PUBLICATION_FAILED: director event publication failed");
+	}
+}
 
 export interface DirectorTurnLoopOptions {
 	readonly bridge: InspectProjectBridge & ApplyCameraPlanBridge & RenderQaFramesBridge & StageSceneBridge;
@@ -55,10 +95,11 @@ export interface DirectorTurnLoopOptions {
 }
 
 export interface DirectorTurnRunOptions {
+	readonly turnId: string;
 	readonly prompt: string;
 	readonly expectedRevisionId: string;
 	readonly signal: AbortSignal;
-	readonly onToolEvent?: (event: DirectorTurnToolEvent) => void;
+	readonly onPublication?: DirectorTurnPublicationCallback;
 }
 
 export interface DirectorTurnResult {
@@ -83,6 +124,25 @@ const DIRECTOR_TOOL_NAMES = new Set<DirectorToolName>([
 	"render_qa_frames",
 ]);
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
+const STREAM_DELTA_FLUSH_MS = 50;
+const STREAM_DELTA_FLUSH_BYTES = 2_048;
+const STREAM_DELTA_MAX_BYTES = 4_096;
+const STREAM_UTTERANCE_MAX_BYTES = 16_384;
+const STREAM_UTTERANCE_MAX_COUNT = 32;
+const STREAM_CONTENT_INDEX_MAX = 31;
+const STREAM_DELTA_SEQUENCE_MAX = 1_000_000;
+
+function takeUtf8Prefix(value: string, maxBytes: number): readonly [string, string] {
+	let bytes = 0;
+	let end = 0;
+	for (const character of value) {
+		const characterBytes = Buffer.byteLength(character);
+		if (bytes + characterBytes > maxBytes) break;
+		bytes += characterBytes;
+		end += character.length;
+	}
+	return [value.slice(0, end), value.slice(end)];
+}
 
 function isDirectorToolName(value: string): value is DirectorToolName {
 	return DIRECTOR_TOOL_NAMES.has(value as DirectorToolName);
@@ -279,16 +339,173 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				throw error;
 			}
 			pruneHistoricalQaFrameImages(session);
+			type TextPublicationState = {
+				readonly segmentId: string;
+				readonly contentIndex: number;
+				pending: string;
+				nextDeltaSequence: number;
+				throughDeltaSequence: number;
+				timer: ReturnType<typeof setTimeout> | undefined;
+			};
+			const textStates = new Map<number, TextPublicationState>();
+			let segmentId: string | undefined;
+			let utteranceCount = 0;
+			let publicationsStopped = false;
+			let publicationFailure: DirectorTurnPublicationError | undefined;
+			let streamContractFailure: Error | undefined;
+			let publicationTail = Promise.resolve();
+
+			const discardUnsealedText = () => {
+				for (const textState of textStates.values()) {
+					if (textState.timer !== undefined) clearTimeout(textState.timer);
+					textState.pending = "";
+				}
+				textStates.clear();
+			};
+			const stopPublications = () => {
+				if (publicationsStopped) return;
+				publicationsStopped = true;
+				discardUnsealedText();
+			};
+			const publish = (publication: DirectorTurnPublication) => {
+				if (runOptions.onPublication === undefined || publicationsStopped) return;
+				publicationTail = publicationTail.then(async () => {
+					if (publicationsStopped) return;
+					try {
+						await runOptions.onPublication?.(publication);
+					} catch {
+						if (publicationFailure === undefined) publicationFailure = new DirectorTurnPublicationError();
+						stopPublications();
+						void session.abort();
+					}
+				});
+			};
+			const failStreamContract = (message: string) => {
+				if (streamContractFailure === undefined) {
+					streamContractFailure = new Error(`DIRECTOR_STREAM_INVALID: ${message}`);
+				}
+				stopPublications();
+				void session.abort();
+			};
+			const getTextState = (contentIndex: number): TextPublicationState | undefined => {
+				if (!Number.isInteger(contentIndex) || contentIndex < 0 || contentIndex > STREAM_CONTENT_INDEX_MAX) {
+					failStreamContract("assistant text content index is out of range");
+					return undefined;
+				}
+				let textState = textStates.get(contentIndex);
+				if (textState !== undefined) return textState;
+				segmentId ??= randomUUID();
+				textState = {
+					segmentId,
+					contentIndex,
+					pending: "",
+					nextDeltaSequence: 0,
+					throughDeltaSequence: -1,
+					timer: undefined,
+				};
+				textStates.set(contentIndex, textState);
+				return textState;
+			};
+			const flushTextState = (textState: TextPublicationState) => {
+				if (textState.timer !== undefined) {
+					clearTimeout(textState.timer);
+					textState.timer = undefined;
+				}
+				while (!publicationsStopped && textState.pending.length > 0) {
+					if (textState.nextDeltaSequence > STREAM_DELTA_SEQUENCE_MAX) {
+						failStreamContract("assistant delta sequence exceeds the turn bound");
+						return;
+					}
+					const [delta, remaining] = takeUtf8Prefix(textState.pending, STREAM_DELTA_MAX_BYTES);
+					if (delta.length === 0) {
+						failStreamContract("assistant text delta cannot be encoded within the frame bound");
+						return;
+					}
+					textState.pending = remaining;
+					const deltaSequence = textState.nextDeltaSequence;
+					textState.nextDeltaSequence += 1;
+					textState.throughDeltaSequence = deltaSequence;
+					publish({
+						type: "text_delta",
+						turnId: runOptions.turnId,
+						segmentId: textState.segmentId,
+						contentIndex: textState.contentIndex,
+						deltaSequence,
+						delta,
+					});
+				}
+			};
+			const appendTextDelta = (contentIndex: number, delta: string) => {
+				if (publicationsStopped || delta.length === 0 || runOptions.onPublication === undefined) return;
+				const textState = getTextState(contentIndex);
+				if (textState === undefined) return;
+				textState.pending += delta;
+				if (textState.timer === undefined) {
+					textState.timer = setTimeout(() => {
+						if (!publicationsStopped) flushTextState(textState);
+					}, STREAM_DELTA_FLUSH_MS);
+				}
+				if (Buffer.byteLength(textState.pending) >= STREAM_DELTA_FLUSH_BYTES) flushTextState(textState);
+			};
+			const sealText = (contentIndex: number, content: string) => {
+				if (publicationsStopped || runOptions.onPublication === undefined) return;
+				const textState = getTextState(contentIndex);
+				if (textState === undefined) return;
+				flushTextState(textState);
+				textStates.delete(contentIndex);
+				if (content.length === 0) {
+					if (textState.throughDeltaSequence >= 0) {
+						failStreamContract("an emitted assistant delta ended without an utterance");
+					}
+					return;
+				}
+				if (Buffer.byteLength(content) > STREAM_UTTERANCE_MAX_BYTES) {
+					failStreamContract("assistant utterance exceeds the byte bound");
+					return;
+				}
+				utteranceCount += 1;
+				if (utteranceCount > STREAM_UTTERANCE_MAX_COUNT) {
+					failStreamContract("assistant utterance count exceeds the turn bound");
+					return;
+				}
+				publish({
+					type: "assistant_utterance",
+					turnId: runOptions.turnId,
+					segmentId: textState.segmentId,
+					contentIndex,
+					throughDeltaSequence: textState.throughDeltaSequence,
+					content,
+				});
+			};
+			const closeSegmentForTool = () => {
+				if (textStates.size > 0) {
+					failStreamContract("tool execution started before every assistant utterance was sealed");
+					return false;
+				}
+				segmentId = undefined;
+				return true;
+			};
 			const listener = (event: AgentSessionEvent) => {
+				if (publicationsStopped) return;
+				if (event.type === "message_update") {
+					const assistantEvent = event.assistantMessageEvent;
+					if (assistantEvent.type === "text_delta") {
+						appendTextDelta(assistantEvent.contentIndex, assistantEvent.delta);
+					} else if (assistantEvent.type === "text_end") {
+						sealText(assistantEvent.contentIndex, assistantEvent.content);
+					}
+					return;
+				}
 				if (event.type === "tool_execution_start" && isDirectorToolName(event.toolName)) {
-					runOptions.onToolEvent?.({
+					if (!closeSegmentForTool()) return;
+					publish({
 						type: "started",
 						toolName: event.toolName,
 						toolCallId: event.toolCallId,
 						paramsSummary: paramsSummary(event.toolName, event.args),
 					});
 				} else if (event.type === "tool_execution_end" && isDirectorToolName(event.toolName)) {
-					runOptions.onToolEvent?.({
+					publish({
 						type: "finished",
 						toolName: event.toolName,
 						toolCallId: event.toolCallId,
@@ -299,12 +516,14 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			};
 			const unsubscribe = session.subscribe(listener);
 			const abort = () => {
+				stopPublications();
 				void session.abort();
 			};
 			let cleanedUp = false;
 			const cleanup = () => {
 				if (cleanedUp) return;
 				cleanedUp = true;
+				stopPublications();
 				runOptions.signal.removeEventListener("abort", abort);
 				unsubscribe();
 				if (active === state) active = undefined;
@@ -314,7 +533,20 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			let idleReached = false;
 			try {
 				if (runOptions.signal.aborted) abort();
-				await session.prompt(runOptions.prompt);
+				let promptError: unknown;
+				try {
+					await session.prompt(runOptions.prompt);
+				} catch (error) {
+					promptError = error;
+					discardUnsealedText();
+				}
+				if (promptError === undefined && textStates.size > 0) {
+					failStreamContract("assistant response ended before every utterance was sealed");
+				}
+				await publicationTail;
+				if (publicationFailure !== undefined) throw publicationFailure;
+				if (streamContractFailure !== undefined) throw streamContractFailure;
+				if (promptError !== undefined) throw promptError;
 				if (state.violation !== undefined) throw state.violation;
 				if (state.phase !== "verification_inspected" && state.phase !== "rendered" && state.phase !== "repaired") {
 					throw new DirectorLoopContractError("DIRECTOR_LOOP_INCOMPLETE", `turn ended after ${state.phase}`);
@@ -325,6 +557,7 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				const summary = assistantSummary(last);
 				if (summary.length === 0)
 					throw new DirectorLoopContractError("DIRECTOR_SUMMARY_MISSING", "final assistant text is required");
+				stopPublications();
 				return {
 					summary: summary.slice(0, 8_192),
 					resultingRevisionId: state.currentRevisionId,
@@ -374,14 +607,14 @@ export interface DirectorTurnHandlerContext {
 			readonly signal: AbortSignal | undefined;
 			readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 		},
-	): Promise<CameraPlanMutationCandidate>;
+	): Promise<PreparedMutationCandidate<CameraPlanMutationCandidate>>;
 	stageScene(
 		plan: StageScenePlanV1,
 		context: {
 			readonly signal: AbortSignal | undefined;
 			readonly reportProgress: (progress: StageSceneProgress) => void;
 		},
-	): Promise<StageSceneMutationCandidate>;
+	): Promise<PreparedMutationCandidate<StageSceneMutationCandidate>>;
 	renderQaFrames(
 		request: RenderQaFramesRequestV1,
 		context: {
@@ -390,7 +623,7 @@ export interface DirectorTurnHandlerContext {
 		},
 	): Promise<RenderQaFramesResultV1>;
 	beginDurableCommit(): void;
-	finishDurableCommit(): void;
+	finishDurableCommit(): Promise<void> | void;
 }
 
 export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
@@ -406,14 +639,12 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 	const finishCommit = async <T>(commit: (begin: () => void) => Promise<T>): Promise<T> => {
 		const current = activeContext();
 		let began = false;
-		try {
-			return await commit(() => {
-				current.beginDurableCommit();
-				began = true;
-			});
-		} finally {
-			if (began) current.finishDurableCommit();
-		}
+		const result = await commit(() => {
+			current.beginDurableCommit();
+			began = true;
+		});
+		if (began) await current.finishDurableCommit();
+		return result;
 	};
 
 	const loop = createDirectorTurnLoop({
@@ -463,17 +694,18 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 		async run(
 			turn: DirectorTurn,
 			handlerContext: DirectorTurnHandlerContext,
-			onToolEvent?: (event: DirectorTurnToolEvent) => void,
+			onPublication?: DirectorTurnPublicationCallback,
 		): Promise<DirectorTurnResult> {
 			if (context !== undefined) throw new Error("DIRECTOR_LOOP_BUSY: one daemon bridge context is already active");
 			context = handlerContext;
 			expectedRevisionId = turn.expected_revision_id;
 			try {
 				return await loop.run({
+					turnId: turn.id,
 					prompt: turn.prompt,
 					expectedRevisionId: turn.expected_revision_id,
 					signal: handlerContext.signal,
-					onToolEvent,
+					onPublication,
 				});
 			} finally {
 				context = undefined;
@@ -486,6 +718,9 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 		forceDispose() {
 			loop.dispose();
 			return createDirectorTurnHandler(options);
+		},
+		async reconcileTransaction(transactionId: string, markerPhase: TransactionMarkerPhase) {
+			return store.reconcileRevision(transactionId, markerPhase);
 		},
 	};
 }
