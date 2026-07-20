@@ -5,6 +5,7 @@ import {
 	type DirectorTranscriptRequest,
 	type DirectorToolName,
 	type DirectorTurn,
+	type DirectorTurnDelta,
 	type DirectorTurnEvent,
 	type ServerMessage,
 } from "@oh-my-blender/protocol";
@@ -12,14 +13,11 @@ import {
 export type { DirectorTranscript, DirectorTranscriptRequest, DirectorToolName };
 export type DirectorEvent = DirectorTurnEvent;
 export type DirectorTurnRequest = DirectorTurn;
+export type DirectorStreamMessage =
+	| DirectorTurnDelta
+	| Extract<DirectorTurnEvent, { type: "director_assistant_utterance" }>;
 
-export interface ControllerAuth {
-	readonly type: "controller_auth";
-	readonly resume_token: string;
-	readonly launch_id: string;
-}
-
-export interface AttachTicket {
+export interface LegacyAttachTicket {
 	readonly type: "attach_ticket";
 	readonly role: "bridge";
 	readonly ticket: string;
@@ -28,13 +26,13 @@ export interface AttachTicket {
 	readonly runtime_directory?: string;
 }
 
-export interface IssueAttachTicket {
-	readonly type: "issue_attach_ticket";
-	readonly role: "bridge";
+export interface BridgeStatus {
+	readonly type: "bridge_status";
+	readonly attached: boolean;
 }
 
-export type DirectorServerMessage = ServerMessage | ControllerAuth | AttachTicket;
-export type DirectorClientMessage = ClientMessage | IssueAttachTicket;
+export type DirectorServerMessage = ServerMessage | LegacyAttachTicket | BridgeStatus;
+export type DirectorClientMessage = ClientMessage;
 
 const UUID_V4_LOWERCASE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const BASE64URL_32 = /^[A-Za-z0-9_-]{43}$/;
@@ -49,16 +47,13 @@ function hasExactKeys(value: Record<string, unknown>, required: readonly string[
 		keys.every((key) => required.includes(key) || optional.includes(key));
 }
 
-function isControllerAuth(value: Record<string, unknown>): value is Record<string, unknown> & ControllerAuth {
-	return hasExactKeys(value, ["type", "resume_token", "launch_id"]) &&
-		value.type === "controller_auth" &&
-		typeof value.resume_token === "string" &&
-		BASE64URL_32.test(value.resume_token) &&
-		typeof value.launch_id === "string" &&
-		UUID_V4_LOWERCASE.test(value.launch_id);
+function isBridgeStatus(value: Record<string, unknown>): value is Record<string, unknown> & BridgeStatus {
+	return hasExactKeys(value, ["type", "attached"]) &&
+		value.type === "bridge_status" &&
+		typeof value.attached === "boolean";
 }
 
-function isAttachTicket(value: Record<string, unknown>): value is Record<string, unknown> & AttachTicket {
+function isLegacyAttachTicket(value: Record<string, unknown>): value is Record<string, unknown> & LegacyAttachTicket {
 	return hasExactKeys(
 		value,
 		["type", "role", "ticket", "expires_in_ms", "launch_id"],
@@ -77,14 +72,16 @@ function isAttachTicket(value: Record<string, unknown>): value is Record<string,
 }
 
 export function isDirectorServerMessage(value: unknown): value is DirectorServerMessage {
-	if (isRecord(value)) {
-		if (value.type === "controller_auth") return isControllerAuth(value);
-		if (value.type === "attach_ticket") return isAttachTicket(value);
-	}
 	try {
 		parseServerMessage(value);
 		return true;
 	} catch {
-		return false;
+		return isRecord(value) && (isLegacyAttachTicket(value) || isBridgeStatus(value));
 	}
+}
+
+export function isDirectorStreamMessage(value: unknown): value is DirectorStreamMessage {
+	return isRecord(value) &&
+		(value.type === "director_turn_delta" || value.type === "director_assistant_utterance") &&
+		isDirectorServerMessage(value);
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,14 @@ import { connectController } from "../src/controller.ts";
 import { controllerCredentialPath, defaultRuntimeBaseDirectory, discoverControllers } from "../src/discovery.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+
+async function initializeProject(projectDirectory: string): Promise<void> {
+	await mkdir(path.join(projectDirectory, ".omb"));
+	await writeFile(
+		path.join(projectDirectory, ".omb", "project.json"),
+		JSON.stringify({ schema_version: 1, project_id: randomUUID(), current_revision_id: "0".repeat(64) }),
+	);
+}
 
 async function processIsAlive(pid: number): Promise<boolean> {
 	try {
@@ -33,6 +42,7 @@ test("real daemon spawn, detach, discovery reattach, and TUI exit preserve the d
 	const projectDirectory = path.join(root, "project");
 	const runtimeBaseDirectory = path.join(root, "runtime");
 	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await initializeProject(projectDirectory);
 	let spawnedPid: number | undefined;
 	try {
 		const first = await connectController({
@@ -99,6 +109,7 @@ test("XDG runtime resolution and daemon advertisement use the same directory", a
 	const xdgRuntimeDirectory = path.join(root, "xdg");
 	const tmpDirectory = path.join(root, "tmp");
 	await Promise.all([mkdir(projectDirectory), mkdir(xdgRuntimeDirectory), mkdir(tmpDirectory)]);
+	await initializeProject(projectDirectory);
 	const environment = {
 		...process.env,
 		OMB_NODE_EXECUTABLE: process.execPath,
@@ -135,6 +146,7 @@ test("SIGHUP exits the real TUI process without killing its detached daemon", as
 	const projectDirectory = path.join(root, "project");
 	const runtimeBaseDirectory = path.join(root, "runtime");
 	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await initializeProject(projectDirectory);
 	const tsxLoader = fileURLToPath(import.meta.resolve("tsx"));
 	const child = spawn(
 		process.execPath,

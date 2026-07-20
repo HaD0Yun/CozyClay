@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseServerMessage } from "@oh-my-blender/protocol";
-import { isDirectorServerMessage } from "../src/protocol.ts";
+import { isDirectorServerMessage, isDirectorStreamMessage } from "../src/protocol.ts";
 
 const requestId = "22222222-2222-4222-8222-222222222222";
 const launchId = "33333333-3333-4333-8333-333333333333";
@@ -107,4 +107,32 @@ test("TUI-only controller messages remain closed schemas", () => {
 		}),
 		false,
 	);
+});
+
+test("stream and bridge-status frames are exact and direction-safe", () => {
+	const delta = {
+		type: "director_turn_delta",
+		id: requestId,
+		segment_id: launchId,
+		content_index: 0,
+		delta_sequence: 0,
+		delta: "hello",
+	} as const;
+	const utterance = {
+		type: "director_assistant_utterance",
+		id: requestId,
+		sequence: 1,
+		at,
+		segment_id: launchId,
+		content_index: 0,
+		through_delta_sequence: 0,
+		content: "hello",
+	} as const;
+	assert.equal(isDirectorServerMessage(delta), true);
+	assert.equal(isDirectorStreamMessage(delta), true);
+	assert.equal(isDirectorServerMessage(utterance), true);
+	assert.equal(isDirectorStreamMessage(utterance), true);
+	assert.equal(isDirectorServerMessage({ type: "bridge_status", attached: true }), true);
+	assert.equal(isDirectorServerMessage({ type: "bridge_status", attached: true, extra: true }), false);
+	assert.equal(isDirectorStreamMessage({ type: "bridge_status", attached: true }), false);
 });

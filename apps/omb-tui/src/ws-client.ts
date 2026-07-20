@@ -4,6 +4,7 @@ import net, { type Socket } from "node:net";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_MESSAGE_BYTES = 1024 * 1024;
+const UUID_V4_LOWERCASE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export class ControllerWebSocket extends EventEmitter {
 	private readonly socket: Socket;
@@ -70,6 +71,21 @@ export class ControllerWebSocket extends EventEmitter {
 		this.closed = true;
 		this.socket.destroy();
 		this.emit("close");
+	}
+
+	close(code: number, reason: string): void {
+		if (this.closed) return;
+		const reasonBytes = Buffer.from(reason, "utf8").subarray(0, 123);
+		const payload = Buffer.alloc(2 + reasonBytes.length);
+		payload.writeUInt16BE(code, 0);
+		reasonBytes.copy(payload, 2);
+		try {
+			this.sendFrame(8, payload);
+			this.socket.end();
+		} finally {
+			this.closed = true;
+			this.emit("close");
+		}
 	}
 
 	private closeOnce(): void {
@@ -163,12 +179,17 @@ export async function connectWebSocket(options: {
 	readonly host: "127.0.0.1";
 	readonly port: number;
 	readonly credential: string;
+	readonly launchId?: string;
 	readonly timeoutMs?: number;
 	readonly signal?: AbortSignal;
 }): Promise<ControllerWebSocket> {
 	return new Promise((resolve, reject) => {
 		if (options.signal?.aborted) {
 			reject(new Error("CONTROLLER_RECONNECT_ABORTED"));
+			return;
+		}
+		if (options.launchId !== undefined && !UUID_V4_LOWERCASE.test(options.launchId)) {
+			reject(new Error("CONTROLLER_AUTH_FAILED: invalid launch id"));
 			return;
 		}
 		const socket = net.connect(options.port, options.host);
@@ -191,8 +212,9 @@ export async function connectWebSocket(options: {
 		};
 		const onAbort = () => finish(new Error("CONTROLLER_RECONNECT_ABORTED"));
 		const onConnect = () => {
+			const launchHeader = options.launchId === undefined ? "" : `X-OMB-Launch-ID: ${options.launchId}\r\n`;
 			socket.write(
-				`GET / HTTP/1.1\r\nHost: 127.0.0.1:${options.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nAuthorization: Bearer ${options.credential}\r\nX-OMB-Role: controller\r\n\r\n`,
+				`GET / HTTP/1.1\r\nHost: 127.0.0.1:${options.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nAuthorization: Bearer ${options.credential}\r\n${launchHeader}X-OMB-Role: controller\r\n\r\n`,
 			);
 		};
 		const onData = (chunk: Buffer) => {

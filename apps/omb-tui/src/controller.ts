@@ -3,6 +3,12 @@ import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
+	DIRECTOR_STREAM_CAPABILITY,
+	DIRECTOR_TRANSCRIPT_CAPABILITY,
+	DIRECTOR_TURN_CAPABILITY,
+	SNAPSHOT_CURSOR_V2_FEATURE,
+} from "@oh-my-blender/protocol";
+import {
 	defaultRuntimeBaseDirectory,
 	discoverControllers,
 	persistControllerCredential,
@@ -12,6 +18,7 @@ import {
 import { launchDaemon, terminateDaemon } from "./launcher.ts";
 import {
 	isDirectorServerMessage,
+	isDirectorStreamMessage,
 	type DirectorEvent,
 	type DirectorServerMessage,
 	type DirectorTranscriptRequest,
@@ -20,8 +27,6 @@ import {
 import { connectWebSocket, type ControllerWebSocket } from "./ws-client.ts";
 
 const ZERO_REVISION = "0".repeat(64);
-const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
-const DIRECTOR_TURN_CAPABILITY = "director_turn_v1";
 const DIRECTOR_TRANSCRIPT_PAGE_SIZE = 64;
 const CONTROLLER_KEEPALIVE_INTERVAL_MS = 20_000;
 
@@ -53,11 +58,28 @@ function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
 
 function isDirectorEvent(message: DirectorServerMessage): message is DirectorEvent {
 	return message.type === "director_turn_started" ||
+		message.type === "director_assistant_utterance" ||
 		message.type === "director_tool_call_started" ||
 		message.type === "director_tool_call_finished" ||
 		message.type === "director_turn_completed" ||
 		message.type === "director_turn_failed" ||
 		message.type === "director_turn_cancelled";
+}
+
+function acceptsServerMessage(
+	websocket: ControllerWebSocket,
+	capabilities: readonly string[],
+	message: unknown,
+): message is DirectorServerMessage {
+	if (!isDirectorServerMessage(message)) {
+		websocket.close(1008, "unknown server frame");
+		return false;
+	}
+	if (isDirectorStreamMessage(message) && !capabilities.includes(DIRECTOR_STREAM_CAPABILITY)) {
+		websocket.close(1008, "stream capability mismatch");
+		return false;
+	}
+	return true;
 }
 
 export interface ConnectControllerOptions {
@@ -80,6 +102,7 @@ interface ControllerIdentity {
 	readonly websocket: ControllerWebSocket;
 	readonly resumeToken: string;
 	readonly capabilities: readonly string[];
+	readonly protocolFeatures: readonly string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -126,12 +149,14 @@ async function authenticateController(options: {
 	readonly port: number;
 	readonly credential: string;
 	readonly projectDirectory: string;
+	readonly launchId?: string;
 	readonly signal?: AbortSignal;
 }): Promise<ControllerIdentity> {
 	const websocket = await connectWebSocket({
 		host: "127.0.0.1",
 		port: options.port,
 		credential: options.credential,
+		launchId: options.launchId,
 		signal: options.signal,
 	});
 	try {
@@ -165,6 +190,7 @@ async function authenticateController(options: {
 			websocket,
 			resumeToken: auth.resume_token,
 			capabilities: helloAck.capabilities,
+			protocolFeatures: "protocol_features" in helloAck ? helloAck.protocol_features : [],
 		};
 	} catch (error) {
 		websocket.disconnect();
@@ -194,6 +220,7 @@ async function attachExisting(
 				port: candidate.port,
 				credential: candidate.resumeToken,
 				projectDirectory,
+				launchId: candidate.launchId,
 				signal,
 			});
 		} catch (error) {
@@ -205,17 +232,18 @@ async function attachExisting(
 	throw lastError;
 }
 class TranscriptReplay {
-	private readonly websocket: ControllerWebSocket;
+	private readonly identity: ControllerIdentity;
 	private readonly liveEvents: DirectorEvent[] = [];
 	private replayedEvents: readonly DirectorEvent[] = [];
 	private readonly listener: (message: unknown) => void;
 
-	constructor(websocket: ControllerWebSocket) {
-		this.websocket = websocket;
+	constructor(identity: ControllerIdentity) {
+		this.identity = identity;
 		this.listener = (message: unknown) => {
-			if (isDirectorServerMessage(message) && isDirectorEvent(message)) this.liveEvents.push(message);
+			if (!acceptsServerMessage(identity.websocket, identity.capabilities, message)) return;
+			if (isDirectorEvent(message)) this.liveEvents.push(message);
 		};
-		this.websocket.on("message", this.listener);
+		identity.websocket.on("message", this.listener);
 	}
 
 	setReplayed(events: readonly DirectorEvent[]): void {
@@ -223,7 +251,7 @@ class TranscriptReplay {
 	}
 
 	finish(): readonly DirectorServerMessage[] {
-		this.websocket.off("message", this.listener);
+		this.identity.websocket.off("message", this.listener);
 		const merged: DirectorEvent[] = [];
 		const seen = new Set<string>();
 		for (const event of [...this.replayedEvents, ...this.liveEvents]) {
@@ -234,7 +262,6 @@ class TranscriptReplay {
 		}
 		return merged;
 	}
-
 }
 
 export class ControllerSession {
@@ -268,15 +295,9 @@ export class ControllerSession {
 		this.resumeToken = options.identity.resumeToken;
 		this.capabilities = options.identity.capabilities;
 		this.websocket.on("message", (message: unknown) => {
-			if (isDirectorServerMessage(message)) this.observe(message);
-			if (
-				isRecord(message) &&
-				Object.keys(message).length === 2 &&
-				message.type === "bridge_status" &&
-				typeof message.attached === "boolean"
-			) {
-				this.bridgeAttached = message.attached;
-			}
+			if (!acceptsServerMessage(this.websocket, this.capabilities, message)) return;
+			this.observe(message);
+			if (message.type === "bridge_status") this.bridgeAttached = message.attached;
 		});
 		this.keepaliveTimer = setInterval(() => {
 			try {
@@ -307,14 +328,7 @@ export class ControllerSession {
 	onBridgeStatus(listener: (attached: boolean) => void): () => void {
 		if (this.bridgeAttached !== undefined) listener(this.bridgeAttached);
 		const wrapped = (message: unknown) => {
-			if (
-				isRecord(message) &&
-				Object.keys(message).length === 2 &&
-				message.type === "bridge_status" &&
-				typeof message.attached === "boolean"
-			) {
-				listener(message.attached);
-			}
+			if (isDirectorServerMessage(message) && message.type === "bridge_status") listener(message.attached);
 		};
 		this.websocket.on("message", wrapped);
 		return () => this.websocket.off("message", wrapped);
@@ -358,8 +372,15 @@ export class ControllerSession {
 	}
 
 	async issueBridgeTicket(): Promise<BridgeAttachTicket> {
-		const response = this.websocket.next((message) => isRecord(message) && message.type === "attach_ticket");
-		this.websocket.send({ type: "issue_attach_ticket", role: "bridge" });
+		const id = randomUUID();
+		const response = this.websocket.next(
+			(message) =>
+				isDirectorServerMessage(message) &&
+				message.type === "attach_ticket" &&
+				"id" in message &&
+				message.id === id,
+		);
+		this.websocket.send({ type: "issue_attach_ticket", id, role: "bridge" });
 		const message = await response;
 		if (!isDirectorServerMessage(message) || message.type !== "attach_ticket") {
 			throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid attach ticket");
@@ -402,18 +423,28 @@ export class ControllerSession {
 
 async function fetchTranscript(identity: ControllerIdentity, signal?: AbortSignal): Promise<TranscriptReplay> {
 	throwIfAborted(signal);
-	const replay = new TranscriptReplay(identity.websocket);
+	const replay = new TranscriptReplay(identity);
 	if (!identity.capabilities.includes(DIRECTOR_TRANSCRIPT_CAPABILITY)) return replay;
 	const events: DirectorEvent[] = [];
+	const useSnapshotCursor = identity.protocolFeatures.includes(SNAPSHOT_CURSOR_V2_FEATURE);
 	let cursor = 0;
+	let snapshotCursor: number | null = null;
 	try {
 		while (true) {
-			const request: DirectorTranscriptRequest = {
-				type: "director_transcript_request",
-				id: randomUUID(),
-				cursor,
-				page_size: DIRECTOR_TRANSCRIPT_PAGE_SIZE,
-			};
+			const request: DirectorTranscriptRequest = useSnapshotCursor
+				? {
+						type: "director_transcript_request",
+						id: randomUUID(),
+						cursor,
+						page_size: DIRECTOR_TRANSCRIPT_PAGE_SIZE,
+						snapshot_cursor: snapshotCursor,
+					}
+				: {
+						type: "director_transcript_request",
+						id: randomUUID(),
+						cursor,
+						page_size: DIRECTOR_TRANSCRIPT_PAGE_SIZE,
+					};
 			const response = identity.websocket.next(
 				(message) => isRecord(message) && message.type === "director_transcript" && message.id === request.id,
 				2_000,
@@ -421,8 +452,19 @@ async function fetchTranscript(identity: ControllerIdentity, signal?: AbortSigna
 			);
 			identity.websocket.send(request);
 			const message = await response;
-			if (!isDirectorServerMessage(message) || message.type !== "director_transcript") {
+			if (!acceptsServerMessage(identity.websocket, identity.capabilities, message) || message.type !== "director_transcript") {
 				throw new Error("CONTROLLER_PROTOCOL_ERROR: invalid director transcript");
+			}
+			if (useSnapshotCursor) {
+				if (!("snapshot_cursor" in message)) {
+					throw new Error("CONTROLLER_PROTOCOL_ERROR: missing director transcript snapshot cursor");
+				}
+				if (snapshotCursor !== null && message.snapshot_cursor !== snapshotCursor) {
+					throw new Error("CONTROLLER_PROTOCOL_ERROR: director transcript snapshot cursor changed");
+				}
+				snapshotCursor = message.snapshot_cursor;
+			} else if ("snapshot_cursor" in message) {
+				throw new Error("CONTROLLER_PROTOCOL_ERROR: unexpected director transcript snapshot cursor");
 			}
 			events.push(...message.events);
 			if (message.next_cursor === null) break;

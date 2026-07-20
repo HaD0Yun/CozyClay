@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { randomBytes, randomUUID } from "node:crypto";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net, { type Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -9,13 +9,19 @@ import test from "node:test";
 import type { Terminal } from "@earendil-works/pi-tui";
 import { DirectorTui } from "../src/app.ts";
 import { connectController, type BridgeAttachTicket, type ControllerSession } from "../src/controller.ts";
+import type { DirectorServerMessage } from "../src/protocol.ts";
 
 class CapturingTerminal implements Terminal {
-	readonly columns = 100;
-	readonly rows = 30;
+	columns = 100;
+	rows = 30;
 	readonly kittyProtocolActive = false;
 	output = "";
-	start(): void {}
+	private input: (data: string) => void = () => {};
+	private resize: () => void = () => {};
+	start(onInput: (data: string) => void, onResize: () => void): void {
+		this.input = onInput;
+		this.resize = onResize;
+	}
 	stop(): void {}
 	async drainInput(): Promise<void> {}
 	write(data: string): void { this.output += data; }
@@ -27,20 +33,32 @@ class CapturingTerminal implements Terminal {
 	clearScreen(): void {}
 	setTitle(): void {}
 	setProgress(): void {}
+	sendInput(data: string): void { this.input(data); }
+	resizeTo(columns: number, rows: number): void {
+		this.columns = columns;
+		this.rows = rows;
+		this.resize();
+	}
 }
 
 class FakeControllerSession {
 	readonly initialMessages = [];
 	issueCount = 0;
 	private bridgeListener: (attached: boolean) => void = () => {};
+	private messageListener: (message: DirectorServerMessage) => void = () => {};
 	private ticketResolvers: Array<(ticket: BridgeAttachTicket) => void> = [];
-	onMessage(): () => void { return () => {}; }
+	readonly prompts: string[] = [];
+	onMessage(listener: (message: DirectorServerMessage) => void): () => void {
+		this.messageListener = listener;
+		return () => { this.messageListener = () => {}; };
+	}
 	onDisconnect(): () => void { return () => {}; }
 	onBridgeStatus(listener: (attached: boolean) => void): () => void {
 		this.bridgeListener = listener;
 		return () => { this.bridgeListener = () => {}; };
 	}
 	emitBridgeStatus(attached: boolean): void { this.bridgeListener(attached); }
+	emitMessage(message: DirectorServerMessage): void { this.messageListener(message); }
 	issueBridgeTicket(): Promise<BridgeAttachTicket> {
 		this.issueCount++;
 		return new Promise((resolve) => this.ticketResolvers.push(resolve));
@@ -48,7 +66,10 @@ class FakeControllerSession {
 	resolveTicket(expiresInMs = 12_345): void {
 		this.ticketResolvers.shift()?.({ runtimeDirectory: "/secret/runtime", ticket: "S".repeat(43), expiresInMs });
 	}
-	sendTurn(): string { return "22222222-2222-4222-8222-222222222222"; }
+	sendTurn(prompt: string): string {
+		this.prompts.push(prompt);
+		return "22222222-2222-4222-8222-222222222222";
+	}
 	cancel(): void {}
 	async disconnect(): Promise<void> {}
 }
@@ -86,6 +107,55 @@ test("bridge handoff reissues without overlap, tracks attachment, and stops on t
 	const countAfterExit = session.issueCount;
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	assert.equal(session.issueCount, countAfterExit, "teardown must stop ticket timers");
+});
+
+test("Editor submits multiline prompts and streamed Markdown renders before the durable seal", async () => {
+	const session = new FakeControllerSession();
+	const terminal = new CapturingTerminal();
+	const app = new DirectorTui(session as unknown as ControllerSession, terminal);
+	const running = app.run();
+
+	for (const character of "first line") terminal.sendInput(character);
+	terminal.sendInput("\u001b[13;2u");
+	for (const character of "second line") terminal.sendInput(character);
+	terminal.sendInput("\r");
+	await settle();
+	assert.deepEqual(session.prompts, ["first line\nsecond line"]);
+
+	session.emitMessage({
+		type: "director_turn_started",
+		id: "22222222-2222-4222-8222-222222222222",
+		sequence: 0,
+		at: "2026-07-20T00:00:00.000Z",
+		prompt: "first line\nsecond line",
+	});
+	session.emitMessage({
+		type: "director_turn_delta",
+		id: "22222222-2222-4222-8222-222222222222",
+		segment_id: "33333333-3333-4333-8333-333333333333",
+		content_index: 0,
+		delta_sequence: 0,
+		delta: "**streaming**",
+	});
+	await settle();
+	assert.match(terminal.output, /streaming/);
+
+	session.emitMessage({
+		type: "director_assistant_utterance",
+		id: "22222222-2222-4222-8222-222222222222",
+		sequence: 1,
+		at: "2026-07-20T00:00:00.000Z",
+		segment_id: "33333333-3333-4333-8333-333333333333",
+		content_index: 0,
+		through_delta_sequence: 0,
+		content: "**streaming complete**",
+	});
+	terminal.resizeTo(80, 24);
+	await settle();
+	assert.match(terminal.output, /streaming complete/);
+
+	await app.exit();
+	await running;
 });
 
 interface Handoff {
@@ -157,6 +227,11 @@ test("real daemon bridge loss reissues a distinct one-use handoff and TUI teardo
 	const projectDirectory = path.join(root, "project");
 	const runtimeBaseDirectory = path.join(root, "runtime");
 	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await mkdir(path.join(projectDirectory, ".omb"));
+	await writeFile(
+		path.join(projectDirectory, ".omb", "project.json"),
+		JSON.stringify({ schema_version: 1, project_id: randomUUID(), current_revision_id: "0".repeat(64) }),
+	);
 	let pid: number | undefined;
 	let app: DirectorTui | undefined;
 	let running: Promise<void> | undefined;
@@ -173,7 +248,7 @@ test("real daemon bridge loss reissues a distinct one-use handoff and TUI teardo
 		const terminal = new CapturingTerminal();
 		app = new DirectorTui(session, terminal);
 		running = app.run();
-		const handoffFile = path.join(session.runtimeDirectory, "attach-handoff.json");
+		const handoffFile = path.join(session.runtimeDirectory, "bridge-slot.json");
 		const first = await waitForHandoff(handoffFile);
 		assert.match(first.ticket, /^[A-Za-z0-9_-]{43}$/);
 

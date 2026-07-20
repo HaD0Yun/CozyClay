@@ -19,26 +19,36 @@ const digest = "a".repeat(64);
 type TranscriptRequest = {
 	readonly type: "director_transcript_request";
 	readonly id: string;
-	readonly cursor?: number;
-	readonly page_size?: number;
+	readonly cursor: number;
+	readonly page_size: number;
+	readonly snapshot_cursor?: number | null;
 };
 
 class FakePagedDaemon {
 	readonly receivedTurns: unknown[] = [];
 	readonly receivedPings: string[] = [];
+	readonly receivedTranscriptRequests: TranscriptRequest[] = [];
+	readonly receivedUpgradeHeaders: string[] = [];
 	maxSentMessageBytes = 0;
 	closedSockets = 0;
 	private readonly server: Server;
 	private readonly events: readonly DirectorEvent[];
 	private readonly raceEvents: readonly DirectorEvent[];
+	private readonly snapshotV2: boolean;
 	private socket: Socket | undefined;
 	private upgraded = false;
 	private input = Buffer.alloc(0);
 
-	private constructor(server: Server, events: readonly DirectorEvent[], raceEvents: readonly DirectorEvent[]) {
+	private constructor(
+		server: Server,
+		events: readonly DirectorEvent[],
+		raceEvents: readonly DirectorEvent[],
+		snapshotV2: boolean,
+	) {
 		this.server = server;
 		this.events = events;
 		this.raceEvents = raceEvents;
+		this.snapshotV2 = snapshotV2;
 		server.on("connection", (socket) => this.accept(socket));
 	}
 
@@ -46,9 +56,10 @@ class FakePagedDaemon {
 		readonly events: readonly DirectorEvent[];
 		readonly raceEvents?: readonly DirectorEvent[];
 		readonly port?: number;
+		readonly snapshotV2?: boolean;
 	}): Promise<FakePagedDaemon> {
 		const server = net.createServer();
-		const daemon = new FakePagedDaemon(server, options.events, options.raceEvents ?? []);
+		const daemon = new FakePagedDaemon(server, options.events, options.raceEvents ?? [], options.snapshotV2 ?? true);
 		await new Promise<void>((resolve, reject) => {
 			server.once("error", reject);
 			server.listen(options.port ?? 0, "127.0.0.1", () => {
@@ -92,6 +103,7 @@ class FakePagedDaemon {
 			const end = this.input.indexOf("\r\n\r\n");
 			if (end === -1) return;
 			const header = this.input.subarray(0, end).toString("latin1");
+			this.receivedUpgradeHeaders.push(header);
 			const key = /^Sec-WebSocket-Key: (.+)$/im.exec(header)?.[1]?.trim();
 			if (key === undefined) throw new Error("missing websocket key");
 			const accept = createHash("sha1").update(key + GUID).digest("base64");
@@ -103,6 +115,7 @@ class FakePagedDaemon {
 		}
 		while (this.input.length >= 2) {
 			const second = this.input[1]!;
+			const opcode = this.input[0]! & 0x0f;
 			let length = second & 0x7f;
 			let offset = 2;
 			if (length === 126) {
@@ -124,6 +137,11 @@ class FakePagedDaemon {
 			if (mask !== undefined) {
 				for (let index = 0; index < payload.length; index++) payload[index] ^= mask[index & 3]!;
 			}
+			if (opcode === 8) {
+				this.socket?.end();
+				continue;
+			}
+			if (opcode !== 1) continue;
 			this.handle(JSON.parse(payload.toString("utf8")) as unknown);
 		}
 	}
@@ -143,11 +161,13 @@ class FakePagedDaemon {
 					launch_id: launchId,
 					session_id: sessionId,
 					server_nonce: "N".repeat(22),
-					capabilities: ["director_turn_v1", "director_transcript_v1"],
+					capabilities: ["director_turn_v1", "director_transcript_v1", "director_stream_v1"],
+					...(this.snapshotV2 ? { protocol_features: ["snapshot_cursor_v2"] } : {}),
 				});
 				this.send({ type: "controller_auth", resume_token: resumeToken, launch_id: launchId });
 				break;
 			case "director_transcript_request":
+				this.receivedTranscriptRequests.push(message as TranscriptRequest);
 				this.sendTranscriptPage(message as TranscriptRequest);
 				break;
 			case "director_turn":
@@ -161,22 +181,33 @@ class FakePagedDaemon {
 	}
 
 	private sendTranscriptPage(request: TranscriptRequest): void {
-		const cursor = request.cursor ?? 0;
-		const pageSize = request.page_size ?? this.events.length;
-		const page = this.events.slice(cursor, cursor + pageSize);
-		const end = cursor + page.length;
+		const cursor = request.cursor;
+		const snapshotCursor = this.snapshotV2
+			? request.snapshot_cursor === null
+				? this.events.length
+				: request.snapshot_cursor
+			: this.events.length;
+		if (snapshotCursor === undefined) throw new Error("missing transcript snapshot cursor");
+		const end = Math.min(cursor + request.page_size, snapshotCursor);
+		const page = this.events.slice(cursor, end);
 		if (cursor === 0) {
 			for (const event of this.raceEvents) this.send(event);
 		}
 		setTimeout(() => {
 			this.send({
 				type: "director_transcript",
+				...(this.snapshotV2 ? { schema_version: 2 } : {}),
 				id: request.id,
 				session_id: sessionId,
 				events: page,
-				next_cursor: end < this.events.length ? end : null,
+				next_cursor: end < snapshotCursor ? end : null,
+				...(this.snapshotV2 ? { snapshot_cursor: snapshotCursor } : {}),
 			});
 		}, 10);
+	}
+
+	sendServerMessage(value: unknown): void {
+		this.send(value);
 	}
 
 	private send(value: unknown): void {
@@ -325,6 +356,7 @@ function transcriptEvents(messages: readonly DirectorServerMessage[]): DirectorE
 			events.push(...message.events);
 		} else if (
 			message.type === "director_turn_started" ||
+			message.type === "director_assistant_utterance" ||
 			message.type === "director_tool_call_started" ||
 			message.type === "director_tool_call_finished" ||
 			message.type === "director_turn_completed" ||
@@ -360,6 +392,7 @@ test("the controller hello carries the durable project identity when one exists"
 		await advertiseFakeDaemon(runtimeBaseDirectory, projectDirectory, daemon);
 		const session = await connectController({ projectDirectory, runtimeBaseDirectory, daemonArguments: [] });
 		assert.deepEqual(daemon.receivedHelloProjectIds, [durableId]);
+		assert.match(daemon.receivedUpgradeHeaders[0] ?? "", /\r\nX-OMB-Launch-ID: 33333333-3333-4333-8333-333333333333\r\n/i);
 		await session.disconnect();
 	} finally {
 		await daemon.close();
@@ -481,8 +514,48 @@ test("reattach fetches a transcript larger than 1 MiB through bounded pages", as
 		assert.equal(session.connectionKind, "attached");
 		assert.deepEqual(transcriptEvents(session.initialMessages).map((event) => event.sequence), events.map((event) => event.sequence));
 		assert.ok(daemon.maxSentMessageBytes < 1024 * 1024);
+		assert.deepEqual(daemon.receivedTranscriptRequests.map((request) => request.cursor), [0, 64, 128]);
+		assert.deepEqual(daemon.receivedTranscriptRequests.map((request) => request.snapshot_cursor), [null, 160, 160]);
 		assert.equal(await session.ping("still-connected"), "still-connected");
 		await session.disconnect();
+	} finally {
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("reattach retains transcript-v1 paging when snapshot_cursor_v2 is absent", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-paged-v1-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	const event: DirectorEvent = { type: "director_turn_started", id: requestId, sequence: 0, at, prompt: "legacy" };
+	const daemon = await FakePagedDaemon.start({ events: [event], snapshotV2: false });
+	try {
+		await advertiseFakeDaemon(runtimeBaseDirectory, projectDirectory, daemon);
+		const session = await connectController({ projectDirectory, runtimeBaseDirectory, daemonArguments: [] });
+		assert.deepEqual(transcriptEvents(session.initialMessages), [event]);
+		assert.equal("snapshot_cursor" in daemon.receivedTranscriptRequests[0]!, false);
+		await session.disconnect();
+	} finally {
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("unknown server frames fail closed and disconnect the controller", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-unknown-frame-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	const daemon = await FakePagedDaemon.start({ events: [] });
+	try {
+		await advertiseFakeDaemon(runtimeBaseDirectory, projectDirectory, daemon);
+		const session = await connectController({ projectDirectory, runtimeBaseDirectory, daemonArguments: [] });
+		const disconnected = new Promise<void>((resolve) => session.onDisconnect(resolve));
+		daemon.sendServerMessage({ type: "future_server_frame", secret: "must-not-render" });
+		await disconnected;
+		await waitFor(() => daemon.closedSockets >= 1);
 	} finally {
 		await daemon.close();
 		await rm(root, { recursive: true, force: true });

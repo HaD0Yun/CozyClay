@@ -79,6 +79,7 @@ export function reduceDirectorMessage(state: TranscriptState, message: DirectorS
 		case "director_transcript":
 			return replaceTranscript(state, message.events);
 		case "director_turn_started":
+		case "director_assistant_utterance":
 		case "director_tool_call_started":
 		case "director_tool_call_finished":
 		case "director_turn_completed":
@@ -131,6 +132,8 @@ function formatEvent(event: DirectorEvent): string {
 	switch (event.type) {
 		case "director_turn_started":
 			return `> ${event.prompt}`;
+		case "director_assistant_utterance":
+			return event.content;
 		case "director_tool_call_started":
 			return `[${event.tool_name}] started ${event.params_summary}`;
 		case "director_tool_call_finished":

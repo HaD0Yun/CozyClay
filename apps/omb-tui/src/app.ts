@@ -1,10 +1,13 @@
 import {
-	getKeybindings,
-	Input,
+	Container,
+	Editor,
 	ProcessTerminal,
 	Spacer,
 	Text,
 	TUI,
+	getKeybindings,
+	type Component,
+	type EditorTheme,
 	type Terminal,
 } from "@earendil-works/pi-tui";
 import { connectController, reconnectController, type ControllerSession } from "./controller.ts";
@@ -15,11 +18,24 @@ import {
 	createTranscriptState,
 	evaluatePromptSubmission,
 	formatStatus,
-	formatTranscript,
 	markTurnSubmitted,
 	reduceDirectorMessage,
 	type TranscriptState,
 } from "./transcript.ts";
+import { TranscriptViewport } from "./transcript-viewport.ts";
+
+const identity = (text: string) => text;
+
+const EDITOR_THEME: EditorTheme = {
+	borderColor: identity,
+	selectList: {
+		selectedPrefix: identity,
+		selectedText: identity,
+		description: identity,
+		scrollInfo: identity,
+		noMatch: identity,
+	},
+};
 
 export interface RunDirectorTuiOptions {
 	readonly projectDirectory: string;
@@ -37,14 +53,50 @@ function isTerminalMessage(message: DirectorServerMessage): boolean {
 		message.type === "error";
 }
 
+class DirectorLayout implements Component {
+	private readonly header: Container;
+	private readonly viewport: TranscriptViewport;
+	private readonly footer: Container;
+	private readonly terminal: Terminal;
+	private readonly setViewportHeight: (height: number) => void;
+
+	constructor(
+		header: Container,
+		viewport: TranscriptViewport,
+		footer: Container,
+		terminal: Terminal,
+		setViewportHeight: (height: number) => void,
+	) {
+		this.header = header;
+		this.viewport = viewport;
+		this.footer = footer;
+		this.terminal = terminal;
+		this.setViewportHeight = setViewportHeight;
+	}
+
+	invalidate(): void {
+		this.header.invalidate();
+		this.viewport.invalidate();
+		this.footer.invalidate();
+	}
+
+	render(width: number): string[] {
+		const header = this.header.render(width);
+		const footer = this.footer.render(width);
+		this.setViewportHeight(Math.max(1, this.terminal.rows - header.length - footer.length));
+		return [...header, ...this.viewport.render(width), ...footer];
+	}
+}
+
 export class DirectorTui {
 	private session: ControllerSession;
 	private readonly reconnect: ((signal: AbortSignal) => Promise<ControllerSession>) | undefined;
 	private readonly tui: TUI;
-	private readonly transcriptText = new Text("", 1, 0);
+	private readonly viewport: TranscriptViewport;
 	private readonly statusText = new Text("", 1, 0);
 	private readonly bridgeText = new Text("", 1, 0);
-	private readonly input = new Input();
+	private readonly input: Editor;
+	private viewportHeight = 1;
 	private readonly interruptController = new InterruptController();
 	private state: TranscriptState = createTranscriptState();
 	private connectionStatus: "connected" | "reconnecting" | "disconnected" = "connected";
@@ -69,17 +121,30 @@ export class DirectorTui {
 		this.session = session;
 		this.reconnect = reconnect;
 		this.tui = new TUI(terminal, true);
+		this.viewport = new TranscriptViewport({ getHeight: () => this.viewportHeight });
+		this.input = new Editor(this.tui, EDITOR_THEME, { paddingX: 1 });
 		this.stoppedPromise = new Promise((resolve) => {
 			this.resolveStopped = resolve;
 		});
 		for (const message of session.initialMessages) this.state = reduceDirectorMessage(this.state, message);
-		this.tui.addChild(new Text("oh-my-blender director", 1, 0));
-		this.tui.addChild(this.transcriptText);
-		this.tui.addChild(new Spacer(1));
-		this.tui.addChild(this.bridgeText);
-		this.tui.addChild(this.statusText);
-		this.tui.addChild(new Text("Prompt", 1, 0));
-		this.tui.addChild(this.input);
+		this.viewport.replace(this.state.events);
+		for (const notice of this.state.notices) this.viewport.appendNotice(notice);
+
+		const header = new Container();
+		header.addChild(new Text("oh-my-blender director", 1, 0));
+		const footer = new Container();
+		footer.addChild(new Spacer(1));
+		footer.addChild(this.bridgeText);
+		footer.addChild(this.statusText);
+		footer.addChild(new Text("Prompt", 1, 0));
+		footer.addChild(this.input);
+		this.tui.addChild(new DirectorLayout(
+			header,
+			this.viewport,
+			footer,
+			terminal,
+			(height) => { this.viewportHeight = height; },
+		));
 		this.tui.setFocus(this.input);
 		this.input.onSubmit = (prompt) => this.submit(prompt);
 		this.render();
@@ -88,7 +153,18 @@ export class DirectorTui {
 	async run(): Promise<void> {
 		this.attachSession(this.session);
 		this.removeInputListener = this.tui.addInputListener((data) => {
-			if (!getKeybindings().matches(data, "tui.input.copy")) return undefined;
+			const keybindings = getKeybindings();
+			if (keybindings.matches(data, "tui.editor.pageUp")) {
+				this.viewport.scrollPage(-1);
+				this.render();
+				return { consume: true };
+			}
+			if (keybindings.matches(data, "tui.editor.pageDown")) {
+				this.viewport.scrollPage(1);
+				this.render();
+				return { consume: true };
+			}
+			if (!keybindings.matches(data, "tui.input.copy")) return undefined;
 			const action = this.interruptController.interrupt(this.state.activeRequestId);
 			if (action.action === "cancel") {
 				this.session.cancel(action.requestId);
@@ -123,33 +199,58 @@ export class DirectorTui {
 	private submit(prompt: string): void {
 		const gate = evaluatePromptSubmission(this.state, prompt);
 		if (gate.prompt === undefined) {
-			if (prompt.trim().length === 0) this.input.setValue("");
-			if (gate.notice !== undefined) this.state = appendTranscriptNotice(this.state, gate.notice);
+			if (prompt.trim().length === 0) this.input.setText("");
+			if (gate.notice !== undefined) this.appendNotice(gate.notice);
 			this.render();
 			return;
 		}
 		try {
 			const requestId = this.session.sendTurn(gate.prompt);
-			this.input.setValue("");
+			this.input.addToHistory(gate.prompt);
+			this.input.setText("");
 			this.state = markTurnSubmitted(this.state, requestId);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "prompt submission failed";
-			this.state = appendTranscriptNotice(this.state, message);
+			this.appendNotice(error instanceof Error ? error.message : "prompt submission failed");
 		}
 		this.render();
 	}
 
+	private appendNotice(notice: string): void {
+		this.state = appendTranscriptNotice(this.state, notice);
+		this.viewport.appendNotice(notice);
+	}
+
 	private receive(message: DirectorServerMessage): void {
+		const noticeCount = this.state.notices.length;
 		this.state = reduceDirectorMessage(this.state, message);
+		switch (message.type) {
+			case "director_transcript":
+				this.viewport.replace(message.events);
+				break;
+			case "director_turn_delta":
+			case "director_turn_started":
+			case "director_assistant_utterance":
+			case "director_tool_call_started":
+			case "director_tool_call_finished":
+			case "director_turn_completed":
+			case "director_turn_failed":
+			case "director_turn_cancelled":
+				this.viewport.accept(message);
+				break;
+		}
+		for (const notice of this.state.notices.slice(noticeCount)) this.viewport.appendNotice(notice);
 		if (isTerminalMessage(message)) this.interruptController.turnTerminated();
 		this.render();
 	}
 
 	private render(): void {
-		this.transcriptText.setText(formatTranscript(this.state) || "No turns yet.");
 		this.statusText.setText(formatStatus(this.state, this.connectionStatus));
+		this.input.disableSubmit = this.connectionStatus !== "connected" ||
+			this.state.activeRequestId !== undefined ||
+			this.state.status === "cancelling";
 		this.tui.requestRender();
 	}
+
 	private attachSession(session: ControllerSession): void {
 		this.removeMessageListener();
 		this.removeDisconnectListener();
@@ -172,6 +273,7 @@ export class DirectorTui {
 			if (this.stopped || session !== this.session) return;
 			this.connectionStatus = this.reconnect === undefined ? "disconnected" : "reconnecting";
 			this.state = { ...this.state, activeRequestId: undefined, taskStatus: undefined };
+			this.viewport.discardEphemeral();
 			this.render();
 			if (this.reconnect !== undefined) {
 				this.reconnectPromise = this.reconnectLoop();
@@ -179,6 +281,7 @@ export class DirectorTui {
 			}
 		});
 	}
+
 	private startBridgeTicketReissue(): void {
 		if (this.bridgeTicketTimer !== undefined) return;
 		void this.issueBridgeTicket();
@@ -196,8 +299,7 @@ export class DirectorTui {
 			);
 			this.render();
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "attach ticket unavailable";
-			this.state = appendTranscriptNotice(this.state, message);
+			this.appendNotice(error instanceof Error ? error.message : "attach ticket unavailable");
 			this.render();
 		} finally {
 			this.bridgeTicketPending = false;
@@ -240,7 +342,6 @@ export class DirectorTui {
 			this.reconnecting = false;
 		}
 	}
-
 }
 
 export async function runDirectorTui(options: RunDirectorTuiOptions): Promise<void> {
