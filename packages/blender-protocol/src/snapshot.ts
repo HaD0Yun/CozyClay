@@ -3,6 +3,9 @@ import { Parse } from "typebox/value";
 
 const NameSchema = Type.String({ minLength: 1, maxLength: 256 });
 const NullableNameSchema = Type.Union([NameSchema, Type.Null()]);
+const UUID_V4_LOWERCASE = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+const UuidSchema = Type.String({ pattern: UUID_V4_LOWERCASE });
+const NullableUuidSchema = Type.Union([UuidSchema, Type.Null()]);
 const Vector2Schema = Type.Tuple([Type.Number(), Type.Number()]);
 const Vector3Schema = Type.Tuple([Type.Number(), Type.Number(), Type.Number()]);
 const QuaternionSchema = Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()]);
@@ -29,6 +32,7 @@ const RenderSchema = Type.Object(
 
 const SceneObjectSchema = Type.Object(
 	{
+		entityId: NullableUuidSchema,
 		name: NameSchema,
 		type: Type.String({ minLength: 1 }),
 		parent: NullableNameSchema,
@@ -93,12 +97,23 @@ const AnimationSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const AssemblySchema = Type.Object(
+	{
+		assemblyId: UuidSchema,
+		name: NameSchema,
+		rootEntityId: UuidSchema,
+		memberIds: Type.Array(UuidSchema),
+	},
+	{ additionalProperties: false },
+);
+
 export const SceneSnapshotSchema = Type.Object(
 	{
 		schemaVersion: Type.Literal(2),
 		scene: SceneSchema,
 		render: RenderSchema,
 		objects: Type.Array(SceneObjectSchema),
+		assemblies: Type.Optional(Type.Array(AssemblySchema)),
 		cameras: Type.Array(CameraSchema),
 		markers: Type.Array(MarkerSchema),
 		animations: Type.Array(AnimationSchema),
@@ -164,15 +179,58 @@ export function validateSnapshot(snapshot: SceneSnapshot): void {
 	}
 
 	const objects = new Map<string, (typeof snapshot.objects)[number]>();
+	const objectsByEntityId = new Map<string, (typeof snapshot.objects)[number]>();
 	for (const object of snapshot.objects) {
 		if (objects.has(object.name)) throw new Error(`duplicate object name: ${object.name}`);
 		objects.set(object.name, object);
+		if (object.entityId !== null) {
+			if (objectsByEntityId.has(object.entityId)) throw new Error(`duplicate object entityId: ${object.entityId}`);
+			objectsByEntityId.set(object.entityId, object);
+		}
 		validateQuaternion(object.rotationQuaternion, `objects[${JSON.stringify(object.name)}].rotationQuaternion`);
 	}
 	for (const object of snapshot.objects) {
 		if (object.parent !== null && !objects.has(object.parent)) {
 			throw new Error(`object ${object.name} has unknown parent: ${object.parent}`);
 		}
+	}
+
+	if (snapshot.assemblies !== undefined) {
+		const assemblyIds = new Set<string>();
+		const assemblyMemberIds = new Set<string>();
+		for (const assembly of snapshot.assemblies) {
+			if (assemblyIds.has(assembly.assemblyId)) throw new Error(`duplicate assemblyId: ${assembly.assemblyId}`);
+			assemblyIds.add(assembly.assemblyId);
+			if (!objectsByEntityId.has(assembly.rootEntityId)) {
+				throw new Error(`assembly ${assembly.assemblyId} has unknown rootEntityId: ${assembly.rootEntityId}`);
+			}
+			if (objectsByEntityId.get(assembly.rootEntityId)?.type !== "EMPTY") {
+				throw new Error(`assembly ${assembly.assemblyId} rootEntityId must reference an EMPTY object`);
+			}
+			assertSorted(assembly.memberIds, compareCodePoints, `assembly ${assembly.assemblyId} memberIds`);
+			if (!assembly.memberIds.includes(assembly.rootEntityId)) {
+				throw new Error(`assembly ${assembly.assemblyId} memberIds must include rootEntityId`);
+			}
+			const memberIds = new Set<string>();
+			for (const memberId of assembly.memberIds) {
+				if (memberIds.has(memberId)) {
+					throw new Error(`assembly ${assembly.assemblyId} memberIds must not contain duplicates`);
+				}
+				memberIds.add(memberId);
+				if (!objectsByEntityId.has(memberId)) {
+					throw new Error(`assembly ${assembly.assemblyId} has unknown member entityId: ${memberId}`);
+				}
+				if (assemblyMemberIds.has(memberId)) {
+					throw new Error(`assembly member entityId ${memberId} belongs to more than one assembly`);
+				}
+				assemblyMemberIds.add(memberId);
+			}
+		}
+		assertSorted(
+			snapshot.assemblies,
+			(left, right) => compareCodePoints(left.assemblyId, right.assemblyId),
+			"assemblies",
+		);
 	}
 
 	const cameraNames = new Set<string>();

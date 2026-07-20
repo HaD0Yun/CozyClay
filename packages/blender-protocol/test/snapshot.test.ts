@@ -8,6 +8,7 @@ const validSnapshot = {
 	render: { resolutionX: 1920, resolutionY: 1080, resolutionPercentage: 100 },
 	objects: [
 		{
+			entityId: "00000000-0000-4000-8000-000000000001",
 			name: "Camera",
 			type: "CAMERA",
 			parent: null,
@@ -18,14 +19,23 @@ const validSnapshot = {
 			scale: [1, 1, 1],
 		},
 		{
+			entityId: "00000000-0000-4000-8000-000000000002",
 			name: "Fighter",
-			type: "MESH",
+			type: "EMPTY",
 			parent: null,
 			visible: true,
 			location: [0, 0, 0],
 			rotationMode: "XYZ",
 			rotationQuaternion: [1, 0, 0, 0],
 			scale: [1, 1, 1],
+		},
+	],
+	assemblies: [
+		{
+			assemblyId: "00000000-0000-4000-8000-000000000003",
+			name: "Fighter assembly",
+			rootEntityId: "00000000-0000-4000-8000-000000000002",
+			memberIds: ["00000000-0000-4000-8000-000000000002"],
 		},
 	],
 	cameras: [
@@ -67,6 +77,35 @@ describe("SceneSnapshot v2 (docs/SCENE-SNAPSHOT-V2.md)", () => {
 	it("parses a valid document", () => {
 		const snapshot = parseSceneSnapshot(validSnapshot);
 		assert.equal(snapshot.scene.fps, 24);
+	});
+
+	it("accepts null entity IDs", () => {
+		const snapshot = copyValid();
+		snapshot.objects[1].entityId = null;
+		delete snapshot.assemblies;
+		assert.equal(parseSceneSnapshot(snapshot).objects[1].entityId, null);
+	});
+
+	it("rejects duplicate non-null entity IDs", () => {
+		const malformed = copyValid();
+		malformed.objects[1].entityId = malformed.objects[0].entityId;
+		assert.throws(() => parseSceneSnapshot(malformed), /duplicate object entityId/);
+	});
+
+	it("round-trips assemblies", () => {
+		assert.deepEqual(parseSceneSnapshot(validSnapshot).assemblies, validSnapshot.assemblies);
+	});
+
+	it("parses a legacy snapshot without assemblies", () => {
+		const legacy = copyValid();
+		delete legacy.assemblies;
+		assert.equal(parseSceneSnapshot(legacy).assemblies, undefined);
+	});
+
+	it("rejects assembly references to unknown entity IDs", () => {
+		const malformed = copyValid();
+		malformed.assemblies[0].memberIds.push("00000000-0000-4000-8000-000000000004");
+		assert.throws(() => parseSceneSnapshot(malformed), /unknown member entityId/);
 	});
 
 	it("rejects an unknown top-level field", () => {

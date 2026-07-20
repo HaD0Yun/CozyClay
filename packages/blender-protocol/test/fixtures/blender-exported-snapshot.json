@@ -14,6 +14,7 @@
   },
   "objects": [
     {
+      "entityId": null,
       "name": "ARDY_CinematicCamera",
       "type": "CAMERA",
       "parent": null,
@@ -37,6 +38,7 @@
       ]
     },
     {
+      "entityId": null,
       "name": "Fighter",
       "type": "MESH",
       "parent": null,

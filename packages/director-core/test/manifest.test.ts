@@ -16,7 +16,7 @@ describe("project manifest", () => {
 	it("builds the Blender-parity revision", async () => {
 		const snapshot = parseSceneSnapshot(JSON.parse(await readFile(fixtureUrl, "utf8")));
 		const manifest = buildProjectManifest(snapshot);
-		assert.equal(manifest.revision, "b55013088657c73043d7fd104ba41119ab4e4c3e8bec38b861be48de304f1a17");
+		assert.equal(manifest.revision, "be8b5bc1f52ad393d57e7b37242909fa5d30e161ca44741d604b8ac9777dee48");
 		assert.equal(manifest.revision, canonicalRevision(snapshot));
 		assert.equal(manifest.snapshot, snapshot);
 	});

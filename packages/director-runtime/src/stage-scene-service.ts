@@ -69,6 +69,19 @@ function isPreparedCandidate(input: unknown): input is PreparedMutationCandidate
 }
 
 export async function commitStageSceneMutation(
+	...debugArgs: Parameters<typeof commitStageSceneMutationInner>
+): ReturnType<typeof commitStageSceneMutationInner> {
+	try {
+		return await commitStageSceneMutationInner(...debugArgs);
+	} catch (error) {
+		(await import("node:fs")).appendFileSync(
+			"/tmp/omb-stage-debug.txt",
+			String((error as Error)?.stack ?? error) + "\n---\n",
+		);
+		throw error;
+	}
+}
+async function commitStageSceneMutationInner(
 	store: StageSceneRevisionStore,
 	plan: StageScenePlanV1,
 	input: unknown,

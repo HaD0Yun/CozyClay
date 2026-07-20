@@ -301,11 +301,11 @@ test("G013 faux daemon keeps credentials out of every real WebSocket frame", asy
 			id: requestId,
 			method: "inspect_project",
 			params: { snapshot },
-			expected_revision_id: "b55013088657c73043d7fd104ba41119ab4e4c3e8bec38b861be48de304f1a17",
+			expected_revision_id: "be8b5bc1f52ad393d57e7b37242909fa5d30e161ca44741d604b8ac9777dee48",
 			deadline_ms: 5_000,
 		});
 		const response = await nextMessage((message) => message.type === "response" && message.id === requestId);
-		assert.equal(response.resulting_revision_id, "b55013088657c73043d7fd104ba41119ab4e4c3e8bec38b861be48de304f1a17");
+		assert.equal(response.resulting_revision_id, "be8b5bc1f52ad393d57e7b37242909fa5d30e161ca44741d604b8ac9777dee48");
 
 		send({ type: "shutdown", reason: "test_complete" });
 		await nextMessage((message) => message.type === "shutdown_ack");

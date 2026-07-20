@@ -121,6 +121,7 @@ def assemble_snapshot(
     cameras: list[dict],
     markers: list[dict],
     animations: list[dict],
+    assemblies: list[dict] | None = None,
 ) -> dict:
     """Assemble plain extracted parts into a semantically ordered snapshot."""
     sorted_animations = copy.deepcopy(animations)
@@ -144,6 +145,10 @@ def assemble_snapshot(
             key=lambda item: (item["objectName"], item["target"]),
         ),
     }
+    if assemblies is not None:
+        snapshot["assemblies"] = sorted(
+            copy.deepcopy(assemblies), key=lambda item: item["assemblyId"]
+        )
     _validate_numbers(snapshot)
     if len(canonical_json(snapshot).encode("utf-8")) > MAX_SNAPSHOT_BYTES:
         raise SNAPSHOT_TOO_LARGE("canonical snapshot exceeds 1 MiB")

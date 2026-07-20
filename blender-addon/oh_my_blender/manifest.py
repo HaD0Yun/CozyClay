@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 import unicodedata
 from typing import Iterable
@@ -27,6 +28,9 @@ from .scene_manifest import (
 )
 
 
+_UUID_V4_LOWERCASE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 def _text(value: str) -> str:
     return unicodedata.normalize("NFC", value)
 
@@ -54,9 +58,17 @@ def _check_linked(scene_object: bpy.types.Object) -> None:
         )
 
 
+def _snapshot_entity_id(scene_object: bpy.types.Object) -> str | None:
+    entity_id = scene_object.get("omb.entity_id")
+    if isinstance(entity_id, str) and _UUID_V4_LOWERCASE.fullmatch(entity_id):
+        return entity_id
+    return None
+
+
 def _object_snapshot(scene_object: bpy.types.Object) -> dict:
     _check_linked(scene_object)
     return {
+        "entityId": _snapshot_entity_id(scene_object),
         "name": _text(scene_object.name),
         "type": _text(scene_object.type),
         "parent": _text(scene_object.parent.name) if scene_object.parent else None,
@@ -178,6 +190,30 @@ def _entity_id(entity: object, label: str) -> str:
     if not isinstance(entity_id, str):
         raise ValueError(f"{label} is missing omb.entity_id")
     return entity_id
+
+
+def _assembly_entries(
+    scene_objects: list[bpy.types.Object],
+    object_ids: dict[bpy.types.Object, str],
+    *,
+    skip_incomplete: bool = False,
+) -> list[dict]:
+    assemblies = []
+    for root in scene_objects:
+        assembly_id = root.get("omb.assembly_id")
+        if not isinstance(assembly_id, str):
+            continue
+        members = {root, *root.children_recursive}
+        if skip_incomplete and any(member not in object_ids for member in members):
+            continue
+        member_ids = sorted(object_ids[member] for member in members)
+        assemblies.append({
+            "assemblyId": assembly_id,
+            "name": _text(root.get("omb.assembly_name", root.name)),
+            "rootEntityId": object_ids[root],
+            "memberIds": member_ids,
+        })
+    return assemblies
 
 
 def _manifest_object(scene_object: bpy.types.Object) -> dict:
@@ -367,19 +403,7 @@ def _extract_scene_manifest(schema_version: int) -> dict:
             scene_objects, object_ids
         )
         if schema_version == 4:
-            assemblies = []
-            for root in scene_objects:
-                assembly_id = root.get("omb.assembly_id")
-                if not isinstance(assembly_id, str):
-                    continue
-                members = {root, *root.children_recursive}
-                member_ids = sorted(object_ids[member] for member in members)
-                assemblies.append({
-                    "assemblyId": assembly_id,
-                    "name": _text(root.get("omb.assembly_name", root.name)),
-                    "rootEntityId": object_ids[root],
-                    "memberIds": member_ids,
-                })
+            assemblies = _assembly_entries(scene_objects, object_ids)
             manifest = build_scene_manifest_v4(
                 **manifest_parts,
                 stage_primitives=stage_primitives,
@@ -437,6 +461,12 @@ def extract_scene_snapshot() -> dict:
     normalized_names = [item["name"] for item in objects]
     if len(normalized_names) != len(set(normalized_names)):
         raise ValueError("object names must be unique after NFC normalization")
+    object_ids = {
+        scene_object: entity_id
+        for scene_object in scene_objects
+        if (entity_id := _snapshot_entity_id(scene_object)) is not None
+    }
+    assemblies = _assembly_entries(scene_objects, object_ids, skip_incomplete=True)
     cameras = [
         _camera_snapshot(scene_object)
         for scene_object in scene_objects
@@ -470,6 +500,7 @@ def extract_scene_snapshot() -> dict:
             "resolutionPercentage": int(blender_scene.render.resolution_percentage),
         },
         objects=objects,
+        assemblies=assemblies,
         cameras=cameras,
         markers=[
             {

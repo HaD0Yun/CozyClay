@@ -22,7 +22,7 @@ Snapshot v2 fixes all of the above. It remains a **read-only extraction artifact
 Blender ground truth and nothing else. Directing interpretation (action axis, cut motivation,
 approval state) is product state and lives in `.omb/project.json`, never in the snapshot.
 
-Out of scope for v2, deferred to `SceneManifestV1` (§8): stable entity IDs, rational timebase,
+Out of scope for v2, deferred to `SceneManifestV1` (§8): rational timebase,
 bones/armature channels, lights, materials, artifact references.
 
 ## 2. Schema (normative)
@@ -35,6 +35,7 @@ Top level:
   "scene": Scene,
   "render": Render,
   "objects": [SceneObject, ...],   // sorted, §4
+  "assemblies"?: [Assembly, ...], // sorted, §4; omitted by legacy exporters
   "cameras": [Camera, ...],        // sorted, §4
   "markers": [Marker, ...],        // sorted, §4
   "animations": [Animation, ...]   // sorted, §4
@@ -42,7 +43,7 @@ Top level:
 ```
 
 Both parsers MUST reject unknown fields at every level (TypeBox: no additional properties;
-Python: explicit key check). All fields below are required unless marked nullable.
+Python: explicit key check). All fields below are required unless marked nullable or optional.
 
 ### 2.1 Scene
 
@@ -69,6 +70,7 @@ rates arrive with the rational timebase in `SceneManifestV1`, not as floats here
 
 | field | type | constraints |
 |---|---|---|
+| `entityId` | UUIDv4 string \| null | stable `omb.entity_id`; null when absent or invalid; non-null values unique |
 | `name` | string | 1..256 chars, NFC, unique within `objects` |
 | `type` | string | Blender `Object.type` enum value (`"MESH"`, `"CAMERA"`, `"EMPTY"`, ...) |
 | `parent` | string \| null | name of parent object; must exist in `objects` |
@@ -151,6 +153,15 @@ excluding them would make the revision hash blind to real edits. Easing/back/per
 non-Bezier interpolation modes are out of scope for v2; the exporter rejects f-curves using
 modifiers or non-default easing with `UNSUPPORTED_FCURVE_FEATURE` rather than silently dropping
 information.
+
+### 2.7 Assemblies
+
+The optional `assemblies` array exposes existing assembly hierarchy while preserving compatibility
+with snapshots emitted before assembly support. Each closed entry has `assemblyId` (UUIDv4),
+`name` (1..256 NFC characters), `rootEntityId` (UUIDv4), and sorted `memberIds` (UUIDv4 array).
+The root and every member MUST reference a non-null object `entityId`; the root MUST reference an
+`EMPTY`, member IDs MUST be unique and include the root, and an entity may belong to at most one
+assembly. Assembly IDs are unique and entries sort by `assemblyId`.
 
 ## 3. Export validation (Blender side)
 

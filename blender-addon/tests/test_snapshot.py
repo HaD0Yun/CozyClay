@@ -108,6 +108,20 @@ class AssemblyTest(unittest.TestCase):
         self.assertEqual([(item["dataPath"], item["arrayIndex"]) for item in fcurves], [("a", 1), ("a", 2), ("z", 0)])
         self.assertEqual([item["frame"] for item in fcurves[2]["keyframes"]], [1.0, 2.0])
 
+    def test_sorts_optional_assemblies(self) -> None:
+        snapshot = assemble(
+            assemblies=[
+                {"assemblyId": "00000000-0000-4000-8000-000000000002"},
+                {"assemblyId": "00000000-0000-4000-8000-000000000001"},
+            ]
+        )
+        self.assertEqual(
+            [item["assemblyId"] for item in snapshot["assemblies"]],
+            [
+                "00000000-0000-4000-8000-000000000001",
+                "00000000-0000-4000-8000-000000000002",
+            ],
+        )
     def test_rejects_nonfinite_leaf(self) -> None:
         with self.assertRaises(EXPORT_NONFINITE) as raised:
             assemble(render={"value": math.inf})
