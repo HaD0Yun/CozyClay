@@ -92,6 +92,64 @@ test("real daemon spawn, detach, discovery reattach, and TUI exit preserve the d
 	}
 });
 
+test("owner session publishes and republishes the controller peer discovery slot", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "omb-tui-peer-slot-test-"));
+	const projectDirectory = path.join(root, "project");
+	const runtimeBaseDirectory = path.join(root, "runtime");
+	await Promise.all([mkdir(projectDirectory), mkdir(runtimeBaseDirectory)]);
+	await initializeProject(projectDirectory);
+	let spawnedPid: number | undefined;
+	try {
+		const session = await connectController({
+			projectDirectory,
+			runtimeBaseDirectory,
+			daemonArguments: ["--faux"],
+			environment: {
+				...process.env,
+				OMB_NODE_EXECUTABLE: process.execPath,
+				TMPDIR: runtimeBaseDirectory,
+			},
+			repositoryRoot,
+			peerSlotRepublishIntervalMs: 250,
+		});
+		spawnedPid = session.pid;
+		const slotPath = path.join(session.runtimeDirectory, "controller-peer-slot.json");
+		const readSlot = async (): Promise<Record<string, unknown> | undefined> => {
+			try {
+				return JSON.parse(await readFile(slotPath, "utf8")) as Record<string, unknown>;
+			} catch {
+				return undefined;
+			}
+		};
+		const waitForSlot = async (
+			predicate: (slot: Record<string, unknown>) => boolean,
+		): Promise<Record<string, unknown>> => {
+			const deadline = Date.now() + 5_000;
+			while (Date.now() < deadline) {
+				const slot = await readSlot();
+				if (slot !== undefined && predicate(slot)) return slot;
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+			throw new Error("controller peer discovery slot was not published");
+		};
+		const first = await waitForSlot(() => true);
+		assert.equal(first.schema_version, 1);
+		assert.equal(first.lineage_id, session.peerLineageId);
+		assert.equal(typeof first.ticket, "string");
+		await rm(slotPath, { force: true });
+		const republished = await waitForSlot((slot) => slot.lineage_id === session.peerLineageId);
+		assert.equal(
+			republished.lineage_id,
+			session.peerLineageId,
+			"a consumed peer slot must be republished for panel reconnects",
+		);
+		await session.shutdown();
+	} finally {
+		if (spawnedPid !== undefined && await processIsAlive(spawnedPid)) process.kill(spawnedPid, "SIGTERM");
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("runtime base selection rejects relative candidates and always returns an absolute path", () => {
 	const absoluteTmp = path.join(path.parse(process.cwd()).root, "selected-tmp");
 	assert.equal(

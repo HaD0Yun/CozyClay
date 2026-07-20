@@ -3,6 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
+	CONTROLLER_PEERS_CAPABILITY,
 	DIRECTOR_STREAM_CAPABILITY,
 	DIRECTOR_TRANSCRIPT_CAPABILITY,
 	DIRECTOR_TURN_CAPABILITY,
@@ -29,6 +30,7 @@ import { connectWebSocket, type ControllerWebSocket } from "./ws-client.ts";
 const ZERO_REVISION = "0".repeat(64);
 const DIRECTOR_TRANSCRIPT_PAGE_SIZE = 64;
 const CONTROLLER_KEEPALIVE_INTERVAL_MS = 20_000;
+const CONTROLLER_PEER_SLOT_REPUBLISH_INTERVAL_MS = 10_000;
 
 function throwIfAborted(signal?: AbortSignal): void {
 	if (signal?.aborted) throw new Error("CONTROLLER_RECONNECT_ABORTED");
@@ -90,6 +92,7 @@ export interface ConnectControllerOptions {
 	readonly runtimeBaseDirectory?: string;
 	readonly startupTimeoutMs?: number;
 	readonly keepaliveIntervalMs?: number;
+	readonly peerSlotRepublishIntervalMs?: number;
 }
 
 export interface BridgeAttachTicket {
@@ -272,8 +275,10 @@ export class ControllerSession {
 	readonly resumeToken: string;
 	readonly capabilities: readonly string[];
 	readonly initialMessages: readonly DirectorServerMessage[];
+	readonly peerLineageId: string;
 	private readonly websocket: ControllerWebSocket;
 	private readonly keepaliveTimer: ReturnType<typeof setInterval>;
+	private readonly peerSlotTimer: ReturnType<typeof setInterval> | undefined;
 	private currentRevisionId = ZERO_REVISION;
 	private activeRequestId: string | undefined;
 	private bridgeAttached: boolean | undefined;
@@ -286,6 +291,7 @@ export class ControllerSession {
 		readonly identity: ControllerIdentity;
 		readonly transcriptReplay: TranscriptReplay;
 		readonly keepaliveIntervalMs?: number;
+		readonly peerSlotRepublishIntervalMs?: number;
 	}) {
 		this.connectionKind = options.connectionKind;
 		this.pid = options.pid;
@@ -308,6 +314,29 @@ export class ControllerSession {
 		}, options.keepaliveIntervalMs ?? CONTROLLER_KEEPALIVE_INTERVAL_MS);
 		this.keepaliveTimer.unref();
 		this.websocket.once("close", () => clearInterval(this.keepaliveTimer));
+		this.peerLineageId = randomUUID();
+		if (this.capabilities.includes(CONTROLLER_PEERS_CAPABILITY)) {
+			const publishPeerSlot = () => {
+				try {
+					this.websocket.send({
+						type: "publish_controller_peer_discovery_slot",
+						id: randomUUID(),
+						lineage_id: this.peerLineageId,
+					});
+				} catch {
+					// The close event owns connection recovery.
+				}
+			};
+			publishPeerSlot();
+			this.peerSlotTimer = setInterval(
+				publishPeerSlot,
+				options.peerSlotRepublishIntervalMs ?? CONTROLLER_PEER_SLOT_REPUBLISH_INTERVAL_MS,
+			);
+			this.peerSlotTimer.unref();
+			this.websocket.once("close", () => {
+				if (this.peerSlotTimer !== undefined) clearInterval(this.peerSlotTimer);
+			});
+		}
 		this.websocket.send({ type: "bridge_status_request" });
 		this.initialMessages = options.transcriptReplay.finish();
 		for (const message of this.initialMessages) this.observe(message);
@@ -529,6 +558,7 @@ async function spawnController(
 			identity,
 			transcriptReplay,
 			keepaliveIntervalMs: options.keepaliveIntervalMs,
+			peerSlotRepublishIntervalMs: options.peerSlotRepublishIntervalMs,
 		});
 	} catch (error) {
 		identity?.websocket.disconnect();
@@ -545,6 +575,7 @@ async function attachedSession(
 	candidate: DiscoveredController,
 	projectDirectory: string,
 	keepaliveIntervalMs?: number,
+	peerSlotRepublishIntervalMs?: number,
 	signal?: AbortSignal,
 ): Promise<ControllerSession | undefined> {
 	const identity = await attachExisting(candidate, projectDirectory, signal);
@@ -560,6 +591,7 @@ async function attachedSession(
 			identity,
 			transcriptReplay,
 			keepaliveIntervalMs,
+			peerSlotRepublishIntervalMs,
 		});
 	} catch (error) {
 		identity.websocket.disconnect();
@@ -573,7 +605,7 @@ export async function connectController(options: ConnectControllerOptions): Prom
 	const runtimeBaseDirectory = options.runtimeBaseDirectory ?? defaultRuntimeBaseDirectory(environment);
 	const candidates = await discoverControllers({ projectDirectory, runtimeBaseDirectory });
 	for (const candidate of candidates) {
-		const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs);
+		const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs, options.peerSlotRepublishIntervalMs);
 		if (session !== undefined) return session;
 	}
 	return spawnController(options, projectDirectory, runtimeBaseDirectory, environment);
@@ -593,7 +625,13 @@ export async function reconnectController(
 		for (const candidate of candidates) {
 			if (!processIsAlive(candidate.pid)) continue;
 			liveCandidate = true;
-			const session = await attachedSession(candidate, projectDirectory, options.keepaliveIntervalMs, signal);
+			const session = await attachedSession(
+				candidate,
+				projectDirectory,
+				options.keepaliveIntervalMs,
+				options.peerSlotRepublishIntervalMs,
+				signal,
+			);
 			if (session !== undefined) return session;
 		}
 		if (!liveCandidate) {
