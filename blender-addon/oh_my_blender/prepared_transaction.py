@@ -157,7 +157,14 @@ def _normalized_absolute_path(value: object, field: str) -> Path:
 
 
 def _normalize_project_root(project_root: str | os.PathLike[str]) -> Path:
-    root = _normalized_absolute_path(os.fspath(project_root), "project_root")
+    # The caller-supplied root is a trusted local API argument; Blender's
+    # bpy.path.abspath("//") hands it over with a trailing separator, so
+    # normalize before the strict marker-grade path validation (marker-embedded
+    # path strings keep the byte-exact requirement).
+    raw = os.fspath(project_root)
+    if isinstance(raw, str) and len(raw) > 1:
+        raw = os.path.normpath(raw)
+    root = _normalized_absolute_path(raw, "project_root")
     try:
         info = os.lstat(root)
     except OSError as exc:

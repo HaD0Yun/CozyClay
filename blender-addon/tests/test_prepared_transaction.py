@@ -83,6 +83,20 @@ class PreparedTransactionTests(unittest.TestCase):
             self.assertEqual(marker.to_dict(), payload)
             self.assertEqual(len(marker.to_dict()), 17)
 
+    def test_marker_parser_accepts_trailing_separator_project_root(self):
+        """Blender's bpy.path.abspath("//") hands roots with a trailing slash."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = self.marker_payload(root)
+
+            marker = parse_marker(
+                payload,
+                project_root=str(root) + "/",
+                canonical_blend_path=root / "scene.blend",
+            )
+
+            self.assertEqual(marker.to_dict(), payload)
+
     def test_marker_parser_rejects_missing_and_unknown_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
