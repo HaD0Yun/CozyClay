@@ -190,4 +190,12 @@ describe("SceneSnapshot v2 (docs/SCENE-SNAPSHOT-V2.md)", () => {
 		malformed.scene.activeCamera = "Missing";
 		assert.throws(() => parseSceneSnapshot(malformed), /unknown camera/);
 	});
+
+	it("parses legacy pre-assembly snapshots without entityId or assemblies", () => {
+		const legacy = copyValid();
+		delete (legacy as { assemblies?: unknown }).assemblies;
+		for (const object of legacy.objects as Array<Record<string, unknown>>) delete object.entityId;
+		const parsed = parseSceneSnapshot(legacy);
+		assert.ok(parsed.objects.every((object) => object.entityId === null));
+	});
 });

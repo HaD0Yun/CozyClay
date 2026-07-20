@@ -143,6 +143,46 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 		await commitRevision(store, "423e4567-e89b-42d3-a456-426614174000", TARGET_REVISION_ID, next, entry());
 	});
 
+	it("rejects a legacy record whose payload was tampered without updating commit_hash", async () => {
+		const { root, store } = await createStore();
+		const v3Target = {
+			project_id: PROJECT_ID,
+			schema_version: 1 as const,
+			current_revision_id: TARGET_REVISION_ID,
+			manifest: v3Manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
+		};
+		const { canonicalRevision } = await import("../src/canonical.ts");
+		const payload = {
+			kind: "revision_commit_v2",
+			idempotency_key: IDEMPOTENCY_KEY,
+			expected_revision_id: BASE_REVISION_ID,
+			target_revision_id: TARGET_REVISION_ID,
+			project: v3Target,
+			journal_entry: entry(),
+		};
+		const tampered = {
+			...payload,
+			journal_entry: { ...entry(), plan_sha256: "f".repeat(64) },
+			commit_hash: canonicalRevision(payload),
+		};
+		const { mkdir, writeFile } = await import("node:fs/promises");
+		await mkdir(join(root, ".omb"), { recursive: true });
+		await writeFile(join(root, ".omb", "journal.jsonl"), `${JSON.stringify(tampered)}\n`);
+		await store.writeProject({
+			project_id: PROJECT_ID,
+			schema_version: 1,
+			current_revision_id: TARGET_REVISION_ID,
+			manifest: v3Manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
+		} as unknown as RecoveryProject);
+
+		const next = project("f".repeat(64), "0".repeat(64));
+		next.current_revision_id = "f".repeat(64);
+		await assert.rejects(
+			commitRevision(store, "523e4567-e89b-42d3-a456-426614174000", TARGET_REVISION_ID, next, entry()),
+			(error: unknown) => error instanceof ProjectStoreError && String(error.code) === "PROJECT_CORRUPT",
+		);
+	});
+
 	it("deduplicates the same UUID and byte-identical canonical body", async () => {
 		const { root, store } = await createStore();
 		const base = project(BASE_REVISION_ID, BASE_SCENE_HASH);

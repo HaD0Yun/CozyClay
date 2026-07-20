@@ -32,7 +32,10 @@ const RenderSchema = Type.Object(
 
 const SceneObjectSchema = Type.Object(
 	{
-		entityId: NullableUuidSchema,
+		// Optional-and-null-equivalent: snapshots serialized before assembly
+		// support omit entityId entirely; parseSceneSnapshot normalizes absence
+		// to null so downstream code and hashing see one uniform shape.
+		entityId: Type.Optional(NullableUuidSchema),
 		name: NameSchema,
 		type: Type.String({ minLength: 1 }),
 		parent: NullableNameSchema,
@@ -303,6 +306,9 @@ export function validateSnapshot(snapshot: SceneSnapshot): void {
 
 export function parseSceneSnapshot(input: unknown): SceneSnapshot {
 	const snapshot = Parse(SceneSnapshotSchema, input);
+	for (const object of snapshot.objects) {
+		if (object.entityId === undefined) object.entityId = null;
+	}
 	validateSnapshot(snapshot);
 	return snapshot;
 }

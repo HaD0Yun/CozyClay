@@ -77,3 +77,26 @@ test("a failed turn resets the revision expectation to the bootstrap wildcard", 
 	const second = websocket.sent.filter((message) => message.type === "director_turn").at(-1);
 	assert.equal(second?.expected_revision_id, ZERO_REVISION);
 });
+
+test("a cancelled turn also resets the revision expectation", () => {
+	const websocket = new FakeControllerWebSocket();
+	const controller = session(websocket);
+
+	websocket.emit("message", {
+		type: "director_turn_completed",
+		id: TURN_ID,
+		sequence: 1,
+		at: "2026-07-20T00:00:00.000Z",
+		summary: "done",
+		resulting_revision_id: COMMITTED_REVISION,
+	});
+	websocket.emit("message", {
+		type: "director_turn_cancelled",
+		id: FAILED_TURN_ID,
+		sequence: 2,
+		at: "2026-07-20T00:00:01.000Z",
+	});
+	controller.sendTurn("after cancel");
+	const request = websocket.sent.filter((message) => message.type === "director_turn").at(-1);
+	assert.equal(request?.expected_revision_id, ZERO_REVISION);
+});
