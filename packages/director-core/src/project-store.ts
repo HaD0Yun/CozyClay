@@ -262,13 +262,17 @@ function parseCommitRecord(value: unknown): RevisionCommitRecord | undefined {
 	if (project.current_revision_id !== candidate.target_revision_id) {
 		throw new ProjectStoreError("PROJECT_CORRUPT", "revision commit project binding is invalid");
 	}
+	// The digest must be validated over the RAW stored payload: the writer
+	// hashed exactly what it wrote. Re-parsing may normalize an older
+	// schemaVersion 3 project manifest to v4, and hashing that upgraded form
+	// would reject every record minted by a pre-assembly build.
 	const payload = {
 		kind: V2_KIND,
 		idempotency_key: candidate.idempotency_key,
 		expected_revision_id: candidate.expected_revision_id,
 		target_revision_id: candidate.target_revision_id,
-		project,
-		journal_entry: journalEntry,
+		project: candidate.project,
+		journal_entry: candidate.journal_entry,
 	};
 	if (canonicalRevision(payload) !== candidate.commit_hash) {
 		throw new ProjectStoreError("PROJECT_CORRUPT", "revision commit journal digest is invalid");
