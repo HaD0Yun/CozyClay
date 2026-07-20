@@ -3,6 +3,7 @@ import type { ApplyCameraPlanResult } from "@oh-my-blender/blender-tools";
 import {
 	buildSceneManifestV2Revision,
 	buildSceneManifestV3Revision,
+	buildSceneManifestV4Revision,
 	canonicalRevision,
 	type DirectorProject,
 	type DirectorProjectRecoveryV2,
@@ -17,6 +18,7 @@ import {
 	type CameraPlanV1,
 	parseCameraPlan,
 	parseCameraPlanMutationCandidate,
+	parseSceneManifestV4,
 } from "@oh-my-blender/protocol";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
@@ -39,6 +41,33 @@ export interface CameraPlanRevisionStore {
 
 export interface ApplyCameraPlanHandlerOptions {
 	readonly store?: CameraPlanRevisionStore;
+}
+
+function hierarchyOf(manifest: unknown): {
+	hasHierarchy: boolean;
+	parentEdges: Array<{ entityId: unknown; parentId: unknown }>;
+	assemblies: unknown[];
+} {
+	if (typeof manifest !== "object" || manifest === null) {
+		return { hasHierarchy: false, parentEdges: [], assemblies: [] };
+	}
+	const value = manifest as { objects?: unknown; assemblies?: unknown };
+	const objects = Array.isArray(value.objects) ? value.objects : [];
+	const assemblies = Array.isArray(value.assemblies) ? value.assemblies : [];
+	// Only non-null edges constitute hierarchy: camera plans legitimately add
+	// new parentless objects (the staged camera), which must not trip the fence.
+	const parentEdges = objects
+		.map((object) => {
+			const entry =
+				typeof object === "object" && object !== null ? (object as { entityId?: unknown; parentId?: unknown }) : {};
+			return { entityId: entry.entityId, parentId: entry.parentId ?? null };
+		})
+		.filter((edge) => edge.parentId !== null);
+	return {
+		hasHierarchy: parentEdges.length > 0 || assemblies.length > 0,
+		parentEdges,
+		assemblies,
+	};
 }
 
 export const createDirectorProjectStore = (rootDir: string): CameraPlanRevisionStore => new ProjectStore(rootDir);
@@ -74,13 +103,36 @@ export async function commitCameraPlanMutation(
 		typeof current.manifest === "object" && current.manifest !== null
 			? (current.manifest as { schemaVersion?: unknown; sceneHash?: unknown })
 			: undefined;
+	const durableHierarchy = hierarchyOf(current.manifest);
+	const candidateHierarchy = hierarchyOf(candidate.manifest);
+	if (durableHierarchy.hasHierarchy) {
+		if (
+			candidate.manifest.schemaVersion !== 4 ||
+			JSON.stringify(candidateHierarchy.parentEdges) !== JSON.stringify(durableHierarchy.parentEdges) ||
+			JSON.stringify(candidateHierarchy.assemblies) !== JSON.stringify(durableHierarchy.assemblies)
+		) {
+			throw new Error("INVALID_MUTATION_RESULT: camera plan must preserve the durable hierarchy");
+		}
+	} else if (candidateHierarchy.hasHierarchy) {
+		throw new Error("INVALID_MUTATION_RESULT: camera plan must not introduce hierarchy");
+	}
 	if (
-		(durableManifest?.schemaVersion === 2 || durableManifest?.schemaVersion === 3) &&
-		durableManifest.schemaVersion !== candidate.manifest.schemaVersion
+		(durableManifest?.schemaVersion === 2 ||
+			durableManifest?.schemaVersion === 3 ||
+			durableManifest?.schemaVersion === 4) &&
+		// V3 and V4 share one hash-compatible substrate family (flat V4 hashes
+		// byte-identically to V3); only the V2 boundary is a real schema break.
+		// Lineage safety across V3/V4 remains enforced by the base-hash CAS and
+		// the candidate rebuild equality check below.
+		(durableManifest.schemaVersion === 2) !== (candidate.manifest.schemaVersion === 2)
 	) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest schema must match the durable substrate");
 	}
 	const rebuiltManifest = (() => {
+		if (candidate.manifest.schemaVersion === 4) {
+			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
+			return buildSceneManifestV4Revision(hashFreeManifest, plan.expected_revision_id, plan);
+		}
 		if (candidate.manifest.schemaVersion === 3) {
 			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
 			return buildSceneManifestV3Revision(hashFreeManifest, plan.expected_revision_id, plan);
@@ -123,7 +175,7 @@ export async function commitCameraPlanMutation(
 		project_id: current.project_id,
 		schema_version: 1,
 		current_revision_id: candidate.manifest.revisionId,
-		manifest: candidate.manifest,
+		manifest: candidate.manifest.schemaVersion === 2 ? candidate.manifest : parseSceneManifestV4(candidate.manifest),
 	};
 	const journalEntry: RevisionOperationEntryV2 = {
 		schema_version: 2,

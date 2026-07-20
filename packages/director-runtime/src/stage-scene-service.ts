@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { StageSceneResult } from "@oh-my-blender/blender-tools";
 import {
 	buildSceneManifestV3Revision,
+	buildSceneManifestV4Revision,
 	canonicalRevision,
 	type DirectorProject,
 	type DirectorProjectRecoveryV2,
@@ -10,6 +11,7 @@ import {
 } from "@oh-my-blender/director-core";
 import {
 	canonicalizeStageScenePlan,
+	parseSceneManifestV4,
 	parseStageSceneMutationCandidate,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
@@ -82,8 +84,14 @@ export async function commitStageSceneMutation(
 	if (candidate.scene_hash !== candidate.manifest.sceneHash) {
 		throw new Error("INVALID_MUTATION_RESULT: scene_hash must equal manifest.sceneHash");
 	}
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-	const rebuiltManifest = buildSceneManifestV3Revision(hashFreeManifest, plan.expected_revision_id, plan);
+	const rebuiltManifest = (() => {
+		if (candidate.manifest.schemaVersion === 4) {
+			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
+			return buildSceneManifestV4Revision(hashFreeManifest, plan.expected_revision_id, plan);
+		}
+		const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
+		return buildSceneManifestV3Revision(hashFreeManifest, plan.expected_revision_id, plan);
+	})();
 	if (
 		candidate.scene_hash !== rebuiltManifest.sceneHash ||
 		candidate.manifest.sceneHash !== rebuiltManifest.sceneHash ||
@@ -125,7 +133,7 @@ export async function commitStageSceneMutation(
 		project_id: current.project_id,
 		schema_version: 1,
 		current_revision_id: candidate.manifest.revisionId,
-		manifest: candidate.manifest,
+		manifest: parseSceneManifestV4(candidate.manifest),
 	};
 	const journalEntry: RevisionOperationEntryV2 = {
 		schema_version: 2,

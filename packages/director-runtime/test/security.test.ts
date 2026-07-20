@@ -38,6 +38,14 @@ function assertBundleOnly(loader: BundledDirectorResourceLoader) {
 	assert.deepEqual(loader.getExtensions().errors, []);
 }
 
+describe("director prompt", () => {
+	it("directs assembly composition and whole-object transforms without assembling flat objects", () => {
+		assert.match(DIRECTOR_PROMPT, /create_assembly first/);
+		assert.match(DIRECTOR_PROMPT, /parent_id or set_parent/);
+		assert.match(DIRECTOR_PROMPT, /one transform_assembly op/);
+		assert.match(DIRECTOR_PROMPT, /Keep flat objects flat/);
+	});
+});
 describe("hostile local resource isolation", () => {
 	const unregister: Array<() => void> = [];
 	const cleanup: string[] = [];

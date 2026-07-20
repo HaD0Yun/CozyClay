@@ -18,6 +18,33 @@ describe("inspect_project", () => {
 		assert.equal(result.details, replacement);
 	});
 
+	it("preserves assembly hierarchy in the model-visible payload", async () => {
+		const hierarchical = {
+			revision: "revision-hierarchy",
+			snapshot: {
+				schemaVersion: 4,
+				objects: [
+					{ entityId: "root", name: "Table", type: "EMPTY", parentId: null },
+					{ entityId: "top", name: "Top", type: "MESH", parentId: "root" },
+				],
+				assemblies: [
+					{
+						assemblyId: "assembly",
+						name: "Table",
+						rootEntityId: "root",
+						memberIds: ["root", "top"],
+					},
+				],
+			},
+		} as unknown as ProjectManifest;
+		const tool = createInspectProjectTool({ inspectProject: async () => hierarchical });
+
+		const result = await tool.execute("test", {}, undefined, undefined, undefined as never);
+		assert.equal(result.content[0]?.type, "text");
+		assert.deepEqual(JSON.parse(result.content[0]?.text ?? ""), hierarchical);
+		assert.equal(result.details, hierarchical);
+	});
+
 	it("surfaces bridge rejection as a tool error", async () => {
 		const failure = new Error("bridge unavailable");
 		const tool = createInspectProjectTool({
