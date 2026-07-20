@@ -9,12 +9,26 @@ import unittest
 
 import oh_my_blender
 
-sys.modules.setdefault("bpy", types.ModuleType("bpy"))
-mathutils = types.ModuleType("mathutils")
-mathutils.Quaternion = object
-sys.modules.setdefault("mathutils", mathutils)
-
-manifest = importlib.import_module("oh_my_blender.manifest")
+# oh_my_blender.manifest hard-imports bpy/mathutils. Install stubs only for
+# the duration of that import and remove any we inserted afterwards: leaving a
+# bare importable "bpy" module behind flips other modules' try-import-else-None
+# guards (e.g. qa_render) from None to a broken stub for the whole test run.
+_inserted = []
+for _name, _module in (
+    ("bpy", types.ModuleType("bpy")),
+    ("mathutils", None),
+):
+    if _name not in sys.modules:
+        if _module is None:
+            _module = types.ModuleType("mathutils")
+            _module.Quaternion = object
+        sys.modules[_name] = _module
+        _inserted.append(_name)
+try:
+    manifest = importlib.import_module("oh_my_blender.manifest")
+finally:
+    for _name in _inserted:
+        sys.modules.pop(_name, None)
 
 
 class FakeObject(dict):
