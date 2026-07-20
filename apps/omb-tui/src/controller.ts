@@ -445,6 +445,12 @@ export class ControllerSession {
 		}
 		if (message.type === "director_turn_failed" || message.type === "director_turn_cancelled") {
 			this.activeRequestId = undefined;
+			// A failed turn may still have committed durable revisions before its
+			// terminal (e.g. the verification inspect failed after a successful
+			// mutation commit). Keeping the stale expectation would deadlock every
+			// following turn with STALE_BASE; the zero revision is the daemon's
+			// bootstrap wildcard and lets the next turn resync from inspect.
+			this.currentRevisionId = ZERO_REVISION;
 		}
 		if (message.type === "error" && message.id === this.activeRequestId) this.activeRequestId = undefined;
 	}
