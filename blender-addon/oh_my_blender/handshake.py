@@ -8,6 +8,7 @@ from typing import Any
 PROTOCOL_VERSION = 2
 MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2"
 SCENE_MANIFEST_V3_CAPABILITY = "scene_manifest_v3"
+TRANSACTION_COMMIT_CAPABILITY = "transaction_commit_v2"
 EXPECTED_DAEMON_VERSION = "0.1.0"
 _SEMANTIC_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -30,6 +31,7 @@ def build_hello(project_id: str, addon_version: str, blender_version: str) -> di
         "capabilities": [
             MUTATION_BRIDGE_CAPABILITY,
             SCENE_MANIFEST_V3_CAPABILITY,
+            TRANSACTION_COMMIT_CAPABILITY,
         ],
     }
 
@@ -63,8 +65,14 @@ def validate_hello_ack(ack: Any) -> dict[str, Any]:
     if ack["capabilities"] not in (
         [MUTATION_BRIDGE_CAPABILITY],
         [MUTATION_BRIDGE_CAPABILITY, SCENE_MANIFEST_V3_CAPABILITY],
+        [MUTATION_BRIDGE_CAPABILITY, TRANSACTION_COMMIT_CAPABILITY],
+        [
+            MUTATION_BRIDGE_CAPABILITY,
+            SCENE_MANIFEST_V3_CAPABILITY,
+            TRANSACTION_COMMIT_CAPABILITY,
+        ],
     ):
         raise HandshakeError(
-            "capabilities must negotiate mutation_bridge_v2 with optional scene_manifest_v3"
+            "capabilities must negotiate mutation_bridge_v2 with optional scene_manifest_v3 and transaction_commit_v2"
         )
     return ack

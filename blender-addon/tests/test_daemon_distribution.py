@@ -8,6 +8,7 @@ import unittest
 import uuid
 
 from oh_my_blender.connection import Connection, LifecycleState, _resolve_daemon_argv
+from tests.daemon_project_support import provision_daemon_project
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +32,7 @@ DAEMON_MAIN = REPOSITORY_ROOT / "apps/omb-daemon/src/main.ts"
 class DaemonDistributionTests(unittest.TestCase):
     def test_installed_executable_boots_real_daemon_end_to_end(self):
         with tempfile.TemporaryDirectory(prefix="omb-installed-daemon-") as directory:
+            project_id = provision_daemon_project(directory)
             installed_executable = Path(directory).resolve() / "omb-daemon"
             installed_executable.write_text(
                 f"#!{sys.executable}\n"
@@ -51,7 +53,7 @@ class DaemonDistributionTests(unittest.TestCase):
                 connection = Connection.start(
                     argv,
                     cwd=directory,
-                    project_id=str(uuid.uuid4()),
+                    project_id=project_id,
                     addon_version="0.1.0",
                     blender_version="5.1.2",
                 )

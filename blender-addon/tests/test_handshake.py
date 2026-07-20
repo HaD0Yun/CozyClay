@@ -13,7 +13,7 @@ class HandshakeTests(unittest.TestCase):
         self.assertEqual(hello["protocol"], 2)
         self.assertEqual(
             hello["capabilities"],
-            ["mutation_bridge_v2", "scene_manifest_v3"],
+            ["mutation_bridge_v2", "scene_manifest_v3", "transaction_commit_v2"],
         )
         self.assertEqual(len(base64.urlsafe_b64decode(hello["client_nonce"] + "==")), 16)
         self.assertNotEqual(
@@ -29,11 +29,16 @@ class HandshakeTests(unittest.TestCase):
             "launch_id": str(uuid.uuid4()),
             "session_id": str(uuid.uuid4()),
             "server_nonce": base64.urlsafe_b64encode(b"x" * 16).decode().rstrip("="),
-            "capabilities": ["mutation_bridge_v2", "scene_manifest_v3"],
+            "capabilities": ["mutation_bridge_v2", "scene_manifest_v3", "transaction_commit_v2"],
         }
         self.assertIs(validate_hello_ack(valid), valid)
         v2_only = dict(valid, capabilities=["mutation_bridge_v2"])
         self.assertIs(validate_hello_ack(v2_only), v2_only)
+        transaction_v2 = dict(
+            valid,
+            capabilities=["mutation_bridge_v2", "transaction_commit_v2"],
+        )
+        self.assertIs(validate_hello_ack(transaction_v2), transaction_v2)
         invalid = [
             dict(valid, protocol=1),
             dict(valid, session_id=str(uuid.uuid4()).upper()),
@@ -44,6 +49,14 @@ class HandshakeTests(unittest.TestCase):
             dict(valid, capabilities=["scene_manifest_v3"]),
             dict(valid, capabilities=["scene_manifest_v3", "mutation_bridge_v2"]),
             dict(valid, capabilities=["mutation_bridge_v2", "extra"]),
+            dict(
+                valid,
+                capabilities=[
+                    "mutation_bridge_v2",
+                    "transaction_commit_v2",
+                    "scene_manifest_v3",
+                ],
+            ),
         ]
         for ack in invalid:
             with self.subTest(ack=ack), self.assertRaises(HandshakeError):
@@ -57,7 +70,7 @@ class HandshakeTests(unittest.TestCase):
             "launch_id": str(uuid.uuid4()),
             "session_id": str(uuid.uuid4()),
             "server_nonce": base64.urlsafe_b64encode(b"x" * 16).decode().rstrip("="),
-            "capabilities": ["mutation_bridge_v2", "scene_manifest_v3"],
+            "capabilities": ["mutation_bridge_v2", "scene_manifest_v3", "transaction_commit_v2"],
         }
         for daemon_version in ("0.2.0", "v0.1", "", "0.1.0-dev"):
             with self.subTest(daemon_version=daemon_version), self.assertRaisesRegex(

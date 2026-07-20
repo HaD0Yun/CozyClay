@@ -5,13 +5,17 @@ camera_plan.py
 canonical.py
 checkpoint.py
 connection.py
+controller_connection.py
 daemon_child.py
 fixture_registry.py
 fixtures/boxing-v4-directing-evidence.json
 handshake.py
 identity.py
 manifest.py
+panel_state.py
+prepared_transaction.py
 project_store.py
+qa_image_display.py
 qa_render.py
 revision.py
 scene_manifest.py

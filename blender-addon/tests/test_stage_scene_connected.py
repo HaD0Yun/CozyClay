@@ -34,7 +34,7 @@ class StageSceneConnectedTests(unittest.TestCase):
             self.fail(f"missing connected stage results\n{completed.stdout}\n{completed.stderr}")
         result = json.loads(lines[0].split("=", 1)[1])
         self.assertEqual(result["createResponse"], "response")
-        self.assertEqual(result["rollbackCode"], "HANDLER_ERROR")
+        self.assertEqual(result["rollbackCode"], "STAGE_SCENE_FAILED")
         self.assertTrue(result["rollbackExact"])
         self.assertEqual(result["deleteResponse"], "response")
         self.assertTrue(result["daemonIdsMatch"])

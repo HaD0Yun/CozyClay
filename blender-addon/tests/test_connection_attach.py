@@ -267,6 +267,13 @@ class AttachConnectionTests(unittest.TestCase):
         )
         daemon_main = repository_root / "apps/omb-daemon/src/main.ts"
         with tempfile.TemporaryDirectory() as project:
+            omb = pathlib.Path(project) / ".omb"
+            omb.mkdir()
+            (omb / "project.json").write_text(json.dumps({
+                "project_id": "33333333-3333-4333-8333-333333333333",
+                "schema_version": 1,
+                "current_revision_id": "0" * 64,
+            }), encoding="utf-8")
             process = subprocess.Popen(
                 [
                     "node",

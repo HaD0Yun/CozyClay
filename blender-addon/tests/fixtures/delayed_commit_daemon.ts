@@ -15,8 +15,10 @@ const store: CameraPlanRevisionStore = {
 		await persistentStore.commitRevision(expectedRevisionId, project, journalEntry);
 	},
 };
+const project = await persistentStore.readProject();
 
 const daemon = await start({
+	projectId: project.project_id,
 	port: 0,
 	handlers: { apply_camera_plan: createApplyCameraPlanHandler({ store }) },
 });

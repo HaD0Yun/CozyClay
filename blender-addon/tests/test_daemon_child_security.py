@@ -16,6 +16,7 @@ from oh_my_blender.daemon_child import (
     _StderrDrain,
     verify_executable,
 )
+from tests.daemon_project_support import provision_daemon_project
 
 
 PYTHON = str(Path(sys.executable).resolve(strict=True))
@@ -23,6 +24,17 @@ SENTINEL = "omb-sentinel-secret-DO-NOT-LOG"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OMB_DAEMON = REPO_ROOT / "apps" / "omb-daemon"
 NODE = str(Path(shutil.which("node") or "").resolve(strict=True))
+TSX_LOADER_PATH = next(
+    (
+        parent / "node_modules/tsx/dist/loader.mjs"
+        for parent in (REPO_ROOT, *REPO_ROOT.parents)
+        if (parent / "node_modules/tsx/dist/loader.mjs").is_file()
+    ),
+    None,
+)
+if TSX_LOADER_PATH is None:
+    raise unittest.SkipTest("tsx is unavailable")
+TSX_LOADER = str(TSX_LOADER_PATH)
 
 
 def script(body, *arguments):
@@ -72,51 +84,55 @@ class DaemonChildSecurityTests(unittest.TestCase):
         )
 
     def test_out_of_bounds_idle_timeout_is_forwarded_and_daemon_rejects_startup(self):
-        child = DaemonChild.spawn(
-            [
-                NODE,
-                "--import",
-                "tsx",
-                str(OMB_DAEMON / "src" / "main.ts"),
-                "--faux",
-            ],
-            cwd=OMB_DAEMON,
-            environment={
-                "OMB_IDLE_TIMEOUT_MS": "499",
-                "UNRELATED_SECRET": "must-not-cross",
-            },
-        )
-        with self.assertRaisesRegex(
-            StartupError,
-            r"OMB_IDLE_TIMEOUT_MS must be an integer from 500 through 60000",
-        ):
-            child.read_startup_record(timeout=3)
-
-    def test_azure_openai_provider_fails_closed_before_startup(self):
-        child = DaemonChild.spawn(
-            [
-                NODE,
-                "--import",
-                "tsx",
-                str(OMB_DAEMON / "src" / "main.ts"),
-                "--provider",
-                "azure-openai-responses",
-                "--model",
-                "gpt-4",
-            ],
-            cwd=OMB_DAEMON,
-            environment={"AZURE_OPENAI_API_KEY": SENTINEL},
-        )
-        try:
+        with tempfile.TemporaryDirectory() as directory:
+            provision_daemon_project(directory)
+            child = DaemonChild.spawn(
+                [
+                    NODE,
+                    "--import",
+                    TSX_LOADER,
+                    str(OMB_DAEMON / "src" / "main.ts"),
+                    "--faux",
+                ],
+                cwd=directory,
+                environment={
+                    "OMB_IDLE_TIMEOUT_MS": "499",
+                    "UNRELATED_SECRET": "must-not-cross",
+                },
+            )
             with self.assertRaisesRegex(
                 StartupError,
-                r"UNSUPPORTED_PROVIDER.*does not support isolated API-key boot",
+                r"OMB_IDLE_TIMEOUT_MS must be an integer from 500 through 60000",
             ):
                 child.read_startup_record(timeout=3)
-        finally:
-            if child.process.poll() is None:
-                child.kill()
-        self.assertNotIn(SENTINEL, child.stderr_diagnostics)
+
+    def test_azure_openai_provider_fails_closed_before_startup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            provision_daemon_project(directory)
+            child = DaemonChild.spawn(
+                [
+                    NODE,
+                    "--import",
+                    TSX_LOADER,
+                    str(OMB_DAEMON / "src" / "main.ts"),
+                    "--provider",
+                    "azure-openai-responses",
+                    "--model",
+                    "gpt-4",
+                ],
+                cwd=directory,
+                environment={"AZURE_OPENAI_API_KEY": SENTINEL},
+            )
+            try:
+                with self.assertRaisesRegex(
+                    StartupError,
+                    r"UNSUPPORTED_PROVIDER.*does not support isolated API-key boot",
+                ):
+                    child.read_startup_record(timeout=3)
+            finally:
+                if child.process.poll() is None:
+                    child.kill()
+            self.assertNotIn(SENTINEL, child.stderr_diagnostics)
 
     def test_faux_child_receives_no_parent_credentials_and_sentinel_reaches_no_sink(self):
         body = record_code(suffix="sys.stderr.write('diagnostic-only'); time.sleep(.05)")

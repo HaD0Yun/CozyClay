@@ -16,7 +16,7 @@ from enum import Enum
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from .checkpoint import Checkpoint, restore, verify
 from .daemon_child import DaemonChild, UnsafeExecutableError, verify_executable
@@ -24,6 +24,7 @@ from .handshake import (
     HandshakeError,
     MUTATION_BRIDGE_CAPABILITY,
     SCENE_MANIFEST_V3_CAPABILITY,
+    TRANSACTION_COMMIT_CAPABILITY,
     build_hello,
     validate_hello_ack,
 )
@@ -161,6 +162,62 @@ def _verify_private_runtime_directory(directory: Path) -> None:
 
 _ATTACH_HANDOFF_FILENAME = "attach-handoff.json"
 _ATTACH_HANDOFF_FIELDS = {"schema_version", "project_id", "ticket", "expires_at_ms"}
+_DISCOVERY_SLOT_FILENAMES = {
+    "bridge": "bridge-slot.json",
+    "controller_peer": "controller-peer-slot.json",
+}
+_DISCOVERY_SLOT_V1_FIELDS = {
+    "bridge": {
+        "schema_version",
+        "project_id",
+        "ticket",
+        "expires_at_ms",
+        "generation",
+    },
+    "controller_peer": {
+        "schema_version",
+        "project_id",
+        "ticket",
+        "expires_at_ms",
+        "generation",
+        "lineage_id",
+    },
+}
+_DISCOVERY_SLOT_V2_FIELDS = {
+    "bridge": {
+        "schema_version",
+        "slot",
+        "project_id",
+        "launch_id",
+        "ticket",
+        "expires_at_ms",
+        "generation",
+    },
+    "controller_peer": {
+        "schema_version",
+        "slot",
+        "project_id",
+        "launch_id",
+        "ticket",
+        "expires_at_ms",
+        "generation",
+        "lineage_id",
+    },
+}
+
+
+@dataclass(frozen=True)
+class DiscoverySlot:
+    """One atomically consumed bridge or controller-peer discovery credential."""
+
+    runtime_directory: Path
+    slot: str
+    project_id: str
+    launch_id: str
+    ticket: str
+    generation: int
+    expires_at_ms: int
+    lineage_id: str | None = None
 
 
 def _runtime_user_directory() -> Path:
@@ -274,6 +331,136 @@ def consume_attach_handoff(
         except OSError:
             continue
         return runtime_directory, value["ticket"]
+    return None
+
+def _read_discovery_slot_file(
+    path: Path, slot: str
+) -> tuple[dict[str, object], os.stat_result]:
+    try:
+        metadata = path.lstat()
+    except OSError as error:
+        raise ConnectionError(f"{slot} discovery slot is unavailable: {error}") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise ConnectionError(f"{slot} discovery slot must be a nonsymlink regular file")
+    if not _owned_by_current_user(metadata):
+        raise ConnectionError(f"{slot} discovery slot must be owned by the current user")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ConnectionError(f"{slot} discovery slot must be private (mode 0600)")
+    descriptor = -1
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
+            raise ConnectionError(f"{slot} discovery slot changed during verification")
+        with os.fdopen(descriptor, encoding="utf-8") as stream:
+            descriptor = -1
+            value = json.load(stream)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ConnectionError(f"{slot} discovery slot is invalid: {error}") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if not isinstance(value, dict):
+        raise ConnectionError(f"{slot} discovery slot must be an object")
+    return value, metadata
+
+
+def consume_discovery_slot(
+    project_id: str,
+    slot: str,
+    *,
+    runtime_user_directory: str | PathLike[str] | None = None,
+    lineage_id: str | None = None,
+    launch_id: str | None = None,
+    now_ms: int | None = None,
+) -> DiscoverySlot | None:
+    """Atomically consume one exact independent discovery slot.
+
+    Schema 1 is the currently deployed daemon file shape. Schema 2 is the
+    frozen project/launch-bound shape; every version remains exact-key closed.
+    """
+    if slot not in _DISCOVERY_SLOT_FILENAMES:
+        raise ConnectionError("discovery slot must be bridge or controller_peer")
+    if slot == "bridge" and lineage_id is not None:
+        raise ConnectionError("bridge discovery does not accept a lineage_id")
+    user_directory = (
+        Path(runtime_user_directory)
+        if runtime_user_directory is not None
+        else _runtime_user_directory()
+    )
+    try:
+        _verify_private_runtime_directory(user_directory)
+        launches = tuple(user_directory.iterdir())
+    except (ConnectionError, OSError):
+        return None
+
+    current_time = int(time.time() * 1000) if now_ms is None else now_ms
+    for runtime_directory in sorted(launches, key=lambda path: path.name):
+        path = runtime_directory / _DISCOVERY_SLOT_FILENAMES[slot]
+        try:
+            _verify_private_runtime_directory(runtime_directory)
+            endpoint = _read_runtime_endpoint(runtime_directory)
+            value, metadata = _read_discovery_slot_file(path, slot)
+        except (ConnectionError, OSError):
+            continue
+        schema_version = value.get("schema_version")
+        expected_fields = (
+            _DISCOVERY_SLOT_V1_FIELDS[slot]
+            if schema_version == 1
+            else _DISCOVERY_SLOT_V2_FIELDS[slot]
+            if schema_version == 2
+            else None
+        )
+        generation = value.get("generation")
+        expires_at_ms = value.get("expires_at_ms")
+        value_lineage = value.get("lineage_id")
+        if (
+            expected_fields is None
+            or set(value) != expected_fields
+            or value.get("project_id") != project_id
+            or (launch_id is not None and endpoint["launch_id"] != launch_id)
+            or not _valid_attach_ticket(value.get("ticket"))
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or not 1 <= generation <= 2_147_483_647
+            or isinstance(expires_at_ms, bool)
+            or not isinstance(expires_at_ms, int)
+            or (slot == "controller_peer" and not isinstance(value_lineage, str))
+            or (lineage_id is not None and value_lineage != lineage_id)
+            or (
+                schema_version == 2
+                and (
+                    value.get("slot") != slot
+                    or value.get("launch_id") != endpoint["launch_id"]
+                )
+            )
+        ):
+            continue
+        if expires_at_ms <= current_time:
+            try:
+                current = path.lstat()
+                if (current.st_dev, current.st_ino) == (metadata.st_dev, metadata.st_ino):
+                    path.unlink()
+            except OSError:
+                pass
+            continue
+        try:
+            current = path.lstat()
+            if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                continue
+            path.unlink()
+        except OSError:
+            continue
+        return DiscoverySlot(
+            runtime_directory=runtime_directory,
+            slot=slot,
+            project_id=project_id,
+            launch_id=str(endpoint["launch_id"]),
+            ticket=str(value["ticket"]),
+            generation=generation,
+            expires_at_ms=expires_at_ms,
+            lineage_id=value_lineage if isinstance(value_lineage, str) else None,
+        )
     return None
 
 
@@ -409,6 +596,7 @@ class Connection:
         self.project_directory = (
             Path(project_directory) if project_directory is not None else None
         )
+        self._auto_reconnect_options: dict[str, object] | None = None
 
     def begin_task(self, method: str, params: object) -> None:
         """Replace retained terminal evidence only when a real bridge task starts."""
@@ -695,6 +883,7 @@ class Connection:
                     pass
             if self._reader_thread is not None and self._reader_thread.is_alive():
                 self._reader_thread.join(timeout=0.2)
+            _begin_bridge_auto_reconnect(self)
             return None
         return 0.01
 
@@ -736,7 +925,13 @@ class Connection:
                     response_queue = None
                 elif message.get("type") == "cancel_ack":
                     response_queue = self._cancel_ack_queues.get(message.get("id"))
-                elif message.get("type") in ("response", "error"):
+                elif message.get("type") in (
+                    "response",
+                    "error",
+                    "bridge_transaction_ack",
+                    "bridge_transaction_error",
+                    "bridge_transaction_status",
+                ):
                     response_queue = self._response_queues.get(message.get("id"))
                 else:
                     response_queue = None
@@ -1120,6 +1315,329 @@ class Connection:
             "durable outcome remained in doubt"
         )
 
+    def reconcile_prepared_transaction(
+        self,
+        *,
+        canonical_blend_path: str | PathLike[str],
+        read_blend_project_id: Callable[[Path], str],
+        read_blend_scene_hash: Callable[[Path], str],
+        reload_blend: Callable[[Path], object],
+        expose_tools: bool = True,
+        deadline: float | None = None,
+    ) -> dict | None:
+        """Resolve durable startup evidence before exposing mutation tools."""
+
+        from .prepared_transaction import (
+            PreparedTransactionError,
+            advance_marker,
+            cleanup_transaction,
+            marker_path,
+            read_marker,
+            recover_candidate_authority,
+            restore_base_backup,
+        )
+
+        if self.project_directory is None:
+            raise ConnectionError("prepared transaction requires a project directory")
+        marker_file = marker_path(self.project_directory)
+        if not marker_file.exists():
+            if expose_tools:
+                self.expose_tools()
+            return None
+        self.tools_exposed = False
+        if TRANSACTION_COMMIT_CAPABILITY not in self.capabilities:
+            self.require_recovery()
+            raise DurableCommitReconciliationRequired(
+                "transaction recovery capability is unavailable"
+            )
+        try:
+            marker = read_marker(
+                self.project_directory,
+                canonical_blend_path=canonical_blend_path,
+            )
+        except PreparedTransactionError as error:
+            self.require_recovery()
+            raise DurableCommitReconciliationRequired(
+                "prepared transaction recovery marker is invalid"
+            ) from error
+        reconcile_id = str(uuid4())
+        response_queue = None
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            response_queue = queue.Queue(maxsize=1)
+            self._response_queues[reconcile_id] = response_queue
+        try:
+            self._send_json({
+                "type": "bridge_transaction_reconcile",
+                "id": reconcile_id,
+                "project_id": marker.project_id,
+                "transaction_id": marker.transaction_id,
+                "marker_phase": marker.phase,
+            })
+            while True:
+                remaining = None
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("transaction reconciliation timed out")
+                message = (
+                    response_queue.get(timeout=remaining)
+                    if response_queue is not None
+                    else self.websocket.recv_json()
+                )
+                if not isinstance(message, dict) or message.get("id") != reconcile_id:
+                    continue
+                if message.get("type") == "bridge_transaction_error":
+                    raise DurableCommitReconciliationRequired(
+                        f"{message.get('code', 'TRANSACTION_EVIDENCE_INVALID')}: "
+                        "transaction recovery requires operator intervention"
+                    )
+                if set(message) != {
+                    "type",
+                    "id",
+                    "transaction_id",
+                    "status",
+                    "revision_id",
+                } or message.get("type") != "bridge_transaction_status":
+                    raise PreparedTransactionError(
+                        "transaction reconciliation response is invalid"
+                    )
+                if message.get("transaction_id") != marker.transaction_id:
+                    raise PreparedTransactionError(
+                        "transaction reconciliation id does not match marker"
+                    )
+                status = message.get("status")
+                revision_id = message.get("revision_id")
+                if status == "unknown":
+                    raise DurableCommitReconciliationRequired(
+                        "transaction authority is unknown"
+                    )
+                if status == "base_authoritative":
+                    if revision_id != marker.base_revision_id:
+                        raise PreparedTransactionError(
+                            "base-authoritative revision does not match marker"
+                        )
+                    marker = restore_base_backup(
+                        self.project_directory,
+                        marker,
+                        read_blend_project_id=read_blend_project_id,
+                    )
+                    reload_blend(Path(marker.canonical_blend_path))
+                    if (
+                        read_blend_project_id(Path(marker.canonical_blend_path))
+                        != marker.project_id
+                        or read_blend_scene_hash(Path(marker.canonical_blend_path))
+                        != marker.base_scene_hash
+                    ):
+                        raise PreparedTransactionError(
+                            "restored base blend does not match marker authority"
+                        )
+                elif status == "candidate_authoritative":
+                    if revision_id != marker.candidate_revision_id:
+                        raise PreparedTransactionError(
+                            "candidate-authoritative revision does not match marker"
+                        )
+                    marker = recover_candidate_authority(
+                        self.project_directory,
+                        marker,
+                        read_blend_project_id=read_blend_project_id,
+                        read_blend_scene_hash=read_blend_scene_hash,
+                    )
+                    if marker.phase == "candidate_saved":
+                        marker = advance_marker(
+                            self.project_directory, marker, "manifest_committed"
+                        )
+                    if marker.phase == "manifest_committed":
+                        marker = advance_marker(
+                            self.project_directory, marker, "acknowledged"
+                        )
+                    self._send_json({
+                        "type": "bridge_transaction_acknowledged",
+                        "id": reconcile_id,
+                        "transaction_id": marker.transaction_id,
+                    })
+                else:
+                    raise PreparedTransactionError(
+                        "transaction reconciliation status is invalid"
+                    )
+                cleanup_transaction(
+                    self.project_directory,
+                    marker,
+                    read_blend_project_id=read_blend_project_id,
+                )
+                self.durable_commit_reconciliation = {
+                    "transaction_id": marker.transaction_id,
+                    "base_revision_id": marker.base_revision_id,
+                    "candidate_revision_id": marker.candidate_revision_id,
+                    "marker_phase": marker.phase,
+                    "outcome": "recovered",
+                }
+                if expose_tools:
+                    self.expose_tools()
+                return message
+        except DurableCommitReconciliationRequired:
+            self.require_recovery()
+            raise
+        except (OSError, PreparedTransactionError, queue.Empty, TimeoutError, WebSocketError) as error:
+            self.require_recovery()
+            raise DurableCommitReconciliationRequired(
+                "prepared transaction recovery evidence is invalid"
+            ) from error
+        finally:
+            self._response_queues.pop(reconcile_id, None)
+    def commit_prepared_transaction(
+        self,
+        *,
+        bridge_id: str,
+        request_id: str,
+        transaction_id: str,
+        operation: str,
+        project_id: str,
+        base_revision_id: str,
+        base_scene_hash: str,
+        candidate_revision_id: str,
+        candidate_scene_hash: str,
+        canonical_blend_path: str | PathLike[str],
+        result: dict,
+        save_blend: Callable[[Path], object],
+        read_blend_project_id: Callable[[Path], str],
+        deadline: float | None = None,
+    ) -> dict:
+        """Persist a candidate blend and complete the negotiated v2 commit handshake."""
+        from .prepared_transaction import (
+            PreparedTransactionError,
+            advance_marker,
+            cleanup_transaction,
+            prepare_transaction,
+            save_candidate,
+        )
+
+        if TRANSACTION_COMMIT_CAPABILITY not in self.capabilities:
+            raise ConnectionError(
+                "CAPABILITY_NOT_NEGOTIATED: transaction_commit_v2 is required"
+            )
+        if self.project_directory is None:
+            raise ConnectionError("prepared transaction requires a project directory")
+        marker = prepare_transaction(
+            project_root=self.project_directory,
+            transaction_id=transaction_id,
+            project_id=project_id,
+            operation=operation,
+            request_id=request_id,
+            base_revision_id=base_revision_id,
+            base_scene_hash=base_scene_hash,
+            candidate_revision_id=candidate_revision_id,
+            candidate_scene_hash=candidate_scene_hash,
+            canonical_blend_path=canonical_blend_path,
+            read_blend_project_id=read_blend_project_id,
+        )
+        marker = save_candidate(
+            self.project_directory,
+            marker,
+            save_blend=save_blend,
+            read_blend_project_id=read_blend_project_id,
+        )
+        assert marker.canonical_blend_sha256 is not None
+        prepared = {
+            "type": "bridge_transaction_prepared",
+            "id": bridge_id,
+            "transaction_id": transaction_id,
+            "operation": operation,
+            "project_id": project_id,
+            "base_revision_id": base_revision_id,
+            "base_scene_hash": base_scene_hash,
+            "candidate_revision_id": candidate_revision_id,
+            "candidate_scene_hash": candidate_scene_hash,
+            "base_backup_sha256": marker.base_backup_sha256,
+            "canonical_blend_sha256": marker.canonical_blend_sha256,
+        }
+        self.durable_commit_reconciliation = {
+            "bridge_id": bridge_id,
+            "request_id": request_id,
+            "transaction_id": transaction_id,
+            "base_revision_id": base_revision_id,
+            "candidate_revision_id": candidate_revision_id,
+            "marker_phase": marker.phase,
+            "outcome": "awaiting_ack",
+        }
+        response_queue = None
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            response_queue = queue.Queue(maxsize=1)
+            self._response_queues[bridge_id] = response_queue
+        try:
+            self._send_json(prepared)
+            self._send_json({
+                "type": "bridge_result",
+                "id": bridge_id,
+                "request_id": request_id,
+                "result": result,
+            })
+            while True:
+                remaining = None
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("transaction commit acknowledgement timed out")
+                message = (
+                    response_queue.get(timeout=remaining)
+                    if response_queue is not None
+                    else self.websocket.recv_json()
+                )
+                if not isinstance(message, dict) or message.get("id") != bridge_id:
+                    continue
+                if message.get("type") == "bridge_transaction_error":
+                    code = message.get("code", "TRANSACTION_EVIDENCE_INVALID")
+                    self.durable_commit_reconciliation["outcome"] = "recovery_required"
+                    self.require_recovery()
+                    raise DurableCommitReconciliationRequired(
+                        f"{code}: prepared transaction requires reconciliation"
+                    )
+                if message.get("type") != "bridge_transaction_ack":
+                    continue
+                if set(message) != {
+                    "type",
+                    "id",
+                    "transaction_id",
+                    "status",
+                    "resulting_revision_id",
+                }:
+                    raise ConnectionError("bridge transaction ack fields are invalid")
+                if (
+                    message.get("transaction_id") != transaction_id
+                    or message.get("status") != "committed"
+                    or message.get("resulting_revision_id") != candidate_revision_id
+                ):
+                    raise ConnectionError("bridge transaction ack values are invalid")
+                marker = advance_marker(
+                    self.project_directory, marker, "manifest_committed"
+                )
+                marker = advance_marker(
+                    self.project_directory, marker, "acknowledged"
+                )
+                self._send_json({
+                    "type": "bridge_transaction_acknowledged",
+                    "id": bridge_id,
+                    "transaction_id": transaction_id,
+                })
+                cleanup_transaction(
+                    self.project_directory,
+                    marker,
+                    read_blend_project_id=read_blend_project_id,
+                )
+                self.durable_commit_reconciliation["marker_phase"] = "acknowledged"
+                self.durable_commit_reconciliation["outcome"] = "committed"
+                return message
+        except DurableCommitReconciliationRequired:
+            raise
+        except (OSError, queue.Empty, StopIteration, TimeoutError, WebSocketError) as error:
+            self.durable_commit_reconciliation["outcome"] = "in_doubt"
+            raise DurableCommitReconciliationRequired(
+                "prepared transaction durable outcome requires reconciliation"
+            ) from error
+        except PreparedTransactionError:
+            self.require_recovery()
+            raise
+        finally:
+            self._response_queues.pop(bridge_id, None)
     def await_durable_bridge_commit(
         self,
         bridge_id: str,
@@ -1502,7 +2020,7 @@ def reconnect(
             live_scene_hash_fn(expected_scene_hash),
             expected_scene_hash,
         )
-        connection.expose_tools()
+        _reconcile_connected_transaction(connection, cwd)
         if (
             previous_connection is not None
             and isinstance(previous_connection.task_status, TaskStatus)
@@ -1536,6 +2054,166 @@ def _test_only_inject_disconnect_fault(
 
 
 _active_connection: Connection | None = None
+@dataclass
+class _BridgeReconnectPlan:
+    source: Connection
+    child: DaemonChild | None
+    options: dict[str, object]
+    started_at: float
+    next_attempt_at: float
+    attempt: int = 0
+    source_released: bool = False
+
+
+_bridge_reconnect_plan: _BridgeReconnectPlan | None = None
+_BRIDGE_RECONNECT_DELAYS = (0.25, 0.5, 1.0, 2.0, 4.0)
+_BRIDGE_RECONNECT_CEILING = 5.0
+_BRIDGE_RECONNECT_WINDOW = 60.0
+_BRIDGE_MANUAL_POLL_DELAY = 10.0
+
+
+def _bridge_production_jitter(delay: float) -> float:
+    return delay * ((secrets.randbelow(401) - 200) / 1000)
+
+
+def configure_bridge_auto_reconnect(
+    connection: Connection,
+    *,
+    cwd: str | PathLike[str],
+    project_id: str,
+    addon_version: str,
+    blender_version: str,
+    runtime_user_directory: str | PathLike[str] | None = None,
+    live_scene_hash_fn: Callable[[str], str] | None = None,
+    jitter: Callable[[float], float] = _bridge_production_jitter,
+    websocket_type: type[WebSocketClient] = WebSocketClient,
+) -> None:
+    """Retain only noncredential inputs needed to consume reissued bridge slots."""
+    connection._auto_reconnect_options = {
+        "cwd": Path(cwd),
+        "project_id": project_id,
+        "addon_version": addon_version,
+        "blender_version": blender_version,
+        "runtime_user_directory": Path(runtime_user_directory)
+        if runtime_user_directory is not None
+        else None,
+        "live_scene_hash_fn": live_scene_hash_fn or _live_scene_hash,
+        "jitter": jitter,
+        "websocket_type": websocket_type,
+    }
+
+
+def _begin_bridge_auto_reconnect(connection: Connection) -> None:
+    global _bridge_reconnect_plan
+    if connection._auto_reconnect_options is None:
+        return
+    if (
+        _bridge_reconnect_plan is not None
+        and _bridge_reconnect_plan.source is connection
+    ):
+        return
+    now = time.monotonic()
+    jitter = connection._auto_reconnect_options["jitter"]
+    assert callable(jitter)
+    delay = _BRIDGE_RECONNECT_DELAYS[0]
+    _bridge_reconnect_plan = _BridgeReconnectPlan(
+        source=connection,
+        child=connection.child,
+        options=connection._auto_reconnect_options,
+        started_at=now,
+        next_attempt_at=now + delay + jitter(delay),
+    )
+
+
+def _schedule_bridge_retry(plan: _BridgeReconnectPlan, now: float) -> None:
+    plan.attempt += 1
+    elapsed = now - plan.started_at
+    jitter = plan.options["jitter"]
+    assert callable(jitter)
+    if elapsed >= _BRIDGE_RECONNECT_WINDOW:
+        delay = _BRIDGE_MANUAL_POLL_DELAY
+    else:
+        delay = (
+            _BRIDGE_RECONNECT_DELAYS[plan.attempt]
+            if plan.attempt < len(_BRIDGE_RECONNECT_DELAYS)
+            else _BRIDGE_RECONNECT_CEILING
+        )
+        delay += jitter(delay)
+    plan.next_attempt_at = now + max(0.0, delay)
+
+
+def poll_active_bridge_reconnect(
+    *, force: bool = False, now: float | None = None
+) -> bool:
+    """Consume one reissued bridge generation when its reconnect attempt is due."""
+    global _active_connection, _bridge_reconnect_plan
+    plan = _bridge_reconnect_plan
+    if plan is None:
+        return False
+    current = time.monotonic() if now is None else now
+    if not force and current < plan.next_attempt_at:
+        return False
+    options = plan.options
+    identity = plan.source.identity if isinstance(plan.source.identity, dict) else {}
+    slot = consume_discovery_slot(
+        str(options["project_id"]),
+        "bridge",
+        runtime_user_directory=options["runtime_user_directory"],
+        launch_id=identity.get("launch_id"),
+    )
+    if slot is None:
+        _schedule_bridge_retry(plan, current)
+        return False
+
+    replacement: Connection | None = None
+    try:
+        expected_scene_hash = _read_reconnect_scene_hash(options["cwd"])
+        if not plan.source_released:
+            if plan.child is not None:
+                plan.source.child = None
+            plan.source.disconnect("reattach_after_unexpected_loss", timeout=0.2)
+            plan.source_released = True
+        websocket_type = options["websocket_type"]
+        assert isinstance(websocket_type, type)
+        replacement = Connection.attach(
+            slot.runtime_directory,
+            slot.ticket,
+            cwd=options["cwd"],
+            project_id=str(options["project_id"]),
+            addon_version=str(options["addon_version"]),
+            blender_version=str(options["blender_version"]),
+            websocket_type=websocket_type,
+            expose_tools=False,
+        )
+        live_scene_hash_fn = options["live_scene_hash_fn"]
+        assert callable(live_scene_hash_fn)
+        verify_reconnect_hash(
+            live_scene_hash_fn(expected_scene_hash), expected_scene_hash
+        )
+        _reconcile_connected_transaction(replacement, options["cwd"])
+        replacement.child = plan.child
+        if plan.source.task_status.task_kind is not None:
+            replacement.task_status = replace(
+                plan.source.task_status,
+                phase="recovered",
+                outcome="recovered",
+            )
+        replacement._auto_reconnect_options = options
+        _active_connection = replacement
+        _bridge_reconnect_plan = None
+        return True
+    except Exception:
+        if replacement is not None:
+            replacement.child = None
+            replacement.disconnect("reattach_failed", timeout=0.2)
+        _schedule_bridge_retry(plan, current)
+        return False
+
+
+def pump_connection_lifecycle() -> float:
+    """Blender timer callback for automatic bridge slot consumption."""
+    poll_active_bridge_reconnect()
+    return 0.1
 
 
 _DAEMON_ARGS_ENV = "OMB_DAEMON_ARGS"
@@ -1651,6 +2329,205 @@ def _live_scene_hash(current_scene_hash: str) -> str:
     if v2_hash == current_scene_hash:
         return v2_hash
     return extract_scene_manifest_v3()["sceneHash"]
+def _reconcile_connected_transaction(
+    bridge: Connection,
+    cwd: str | PathLike[str],
+) -> None:
+    """Keep tools hidden until any durable marker reaches one authority."""
+
+    marker_file = Path(cwd) / ".omb" / "prepared-transaction.json"
+    if not marker_file.exists():
+        if not bridge.tools_exposed:
+            bridge.expose_tools()
+        return
+    bridge.tools_exposed = False
+    if bpy is None:
+        bridge.require_recovery()
+        raise DurableCommitReconciliationRequired(
+            "Blender is required to reconcile a prepared transaction"
+        )
+    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+    from .prepared_transaction import PreparedTransactionError, read_marker
+
+    canonical = Path(bpy.data.filepath)
+    try:
+        marker = read_marker(cwd, canonical_blend_path=canonical)
+    except PreparedTransactionError as error:
+        bridge.require_recovery()
+        raise DurableCommitReconciliationRequired(
+            "prepared transaction recovery marker is invalid"
+        ) from error
+
+    def read_project_id(_path: Path) -> str:
+        project_id = bpy.context.scene.get("omb.project_id")
+        if not isinstance(project_id, str):
+            raise PreparedTransactionError("blend project id is unavailable")
+        return project_id
+
+    def read_scene_hash(_path: Path) -> str:
+        v2_hash = extract_scene_manifest_v2()["sceneHash"]
+        if v2_hash in (marker.base_scene_hash, marker.candidate_scene_hash):
+            return v2_hash
+        v3_hash = extract_scene_manifest_v3()["sceneHash"]
+        if v3_hash in (marker.base_scene_hash, marker.candidate_scene_hash):
+            return v3_hash
+        return v3_hash
+
+    bridge.reconcile_prepared_transaction(
+        canonical_blend_path=canonical,
+        read_blend_project_id=read_project_id,
+        read_blend_scene_hash=read_scene_hash,
+        reload_blend=lambda path: bpy.ops.wm.open_mainfile(filepath=str(path)),
+        expose_tools=True,
+        deadline=time.monotonic() + 3.0,
+    )
+
+
+
+def connect_addon_spawned(
+    *,
+    cwd: str | PathLike[str],
+    project_id: str,
+    addon_version: str,
+    blender_version: str,
+    daemon_args: Sequence[str] | None = None,
+    child_type: type[DaemonChild] = DaemonChild,
+    websocket_type: type[WebSocketClient] = WebSocketClient,
+) -> Connection:
+    """Spawn one daemon with an owner controller and independent bridge slot."""
+    global _active_connection
+    from . import controller_connection
+
+    if _active_connection is not None and _active_connection.state not in (
+        LifecycleState.STOPPED,
+        *RECONNECTABLE_STATES,
+    ):
+        raise ConnectionError("the add-on already owns an active daemon connection")
+    if _active_connection is not None:
+        disconnect_active("client_exit")
+
+    child = child_type.spawn(_resolve_daemon_argv(daemon_args), cwd=cwd)
+    owner = None
+    bridge = None
+    try:
+        record = child.read_startup_record()
+        runtime_directory = _runtime_user_directory() / record["launch_id"]
+        owner = controller_connection.ControllerConnection.connect_owner(
+            port=record["port"],
+            boot_token=record["bearer_token"],
+            launch_id=record["launch_id"],
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+            runtime_directory=runtime_directory,
+            websocket_type=websocket_type,
+            start_reader=False,
+        )
+        record["bearer_token"] = ""
+        owner.publish_bridge_slot()
+        slot = consume_discovery_slot(
+            project_id,
+            "bridge",
+            runtime_user_directory=runtime_directory.parent,
+            launch_id=record["launch_id"],
+        )
+        if slot is None:
+            raise ConnectionError("daemon did not publish the requested bridge slot")
+        bridge = Connection.attach(
+            slot.runtime_directory,
+            slot.ticket,
+            cwd=cwd,
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+            websocket_type=websocket_type,
+            expose_tools=False,
+        )
+        bridge.child = child
+        _reconcile_connected_transaction(bridge, cwd)
+        configure_bridge_auto_reconnect(
+            bridge,
+            cwd=cwd,
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+            runtime_user_directory=runtime_directory.parent,
+            websocket_type=websocket_type,
+        )
+        owner.start_reader()
+        controller_connection.set_active_controller(owner)
+        _active_connection = bridge
+        return bridge
+    except Exception:
+        if bridge is not None:
+            bridge.child = None
+            bridge.disconnect("addon_spawn_failed", timeout=0.2)
+        if owner is not None:
+            owner.close()
+        child.kill()
+        raise
+
+
+def connect_tui_spawned(
+    *,
+    cwd: str | PathLike[str],
+    project_id: str,
+    addon_version: str,
+    blender_version: str,
+    runtime_user_directory: str | PathLike[str] | None = None,
+    websocket_type: type[WebSocketClient] = WebSocketClient,
+) -> Connection:
+    """Consume TUI-published bridge and peer slots independently."""
+    from . import controller_connection
+
+    slot = consume_discovery_slot(
+        project_id,
+        "bridge",
+        runtime_user_directory=runtime_user_directory,
+    )
+    if slot is not None:
+        bridge = connect(
+            cwd=cwd,
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+            attach_runtime_directory=slot.runtime_directory,
+            attach_ticket=slot.ticket,
+        )
+    else:
+        discovered = consume_attach_handoff(
+            project_id, runtime_user_directory=runtime_user_directory
+        )
+        if discovered is None:
+            raise ConnectionError(
+                "No bridge discovery slot found for this project; run the omb TUI first"
+            )
+        runtime_directory, ticket = discovered
+        bridge = connect(
+            cwd=cwd,
+            project_id=project_id,
+            addon_version=addon_version,
+            blender_version=blender_version,
+            attach_runtime_directory=runtime_directory,
+            attach_ticket=ticket,
+        )
+    configure_bridge_auto_reconnect(
+        bridge,
+        cwd=cwd,
+        project_id=project_id,
+        addon_version=addon_version,
+        blender_version=blender_version,
+        runtime_user_directory=runtime_user_directory,
+        websocket_type=websocket_type,
+    )
+    controller_connection.configure_peer_discovery(
+        project_id=project_id,
+        addon_version=addon_version,
+        blender_version=blender_version,
+        runtime_user_directory=runtime_user_directory,
+    )
+    controller_connection.poll_controller_lifecycle(force=True)
+    return bridge
 
 
 def connect(
@@ -1694,7 +2571,7 @@ def connect(
             project_id=project_id,
             addon_version=addon_version,
             blender_version=blender_version,
-            expose_tools=not recovering,
+            expose_tools=False,
         )
         try:
             if expected_scene_hash is not None:
@@ -1702,7 +2579,6 @@ def connect(
                     _live_scene_hash(expected_scene_hash),
                     expected_scene_hash,
                 )
-                replacement.expose_tools()
                 if previous is not None and previous.task_status.task_kind is not None:
                     replacement.task_status = replace(
                         previous.task_status,
@@ -1731,20 +2607,34 @@ def connect(
                 project_id=project_id,
                 addon_version=addon_version,
                 blender_version=blender_version,
+                expose_tools=False,
             )
+        _reconcile_connected_transaction(replacement, cwd)
     _active_connection = replacement
     return replacement
+def reset_lifecycle_state() -> None:
+    """Clear reconnect coordinators after unload or an explicit disconnect."""
+    global _bridge_reconnect_plan
+    _bridge_reconnect_plan = None
 
 
 def disconnect_active(reason: str) -> bool:
-    """Disconnect and release the retained connection, if one exists."""
+    """Disconnect controllers and release the retained bridge, if one exists."""
     global _active_connection
-    if _active_connection is None or _active_connection.state == LifecycleState.STOPPED:
-        _active_connection = None
-        return False
+    from . import controller_connection
+
     active = _active_connection
+    controller_closed = controller_connection.disconnect_active_controller(
+        reason=reason if reason in ("client_exit", "addon_unload") else "client_exit",
+        shutdown_owner=active is not None and active.child is not None,
+    )
+    if active is None or active.state == LifecycleState.STOPPED:
+        _active_connection = None
+        reset_lifecycle_state()
+        return controller_closed
     try:
         active.disconnect(reason)
     finally:
         _active_connection = None
+        reset_lifecycle_state()
     return True

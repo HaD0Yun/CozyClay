@@ -18,8 +18,8 @@ _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _FIELDS = {"type", "protocol", "port", "pid", "launch_id", "bearer_token", "expires_in_ms"}
 _BASE_ENVIRONMENT_ALLOWLIST = (
-    "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT",
-    "OMB_IDLE_TIMEOUT_MS",
+    "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP",
+    "SYSTEMROOT", "XDG_RUNTIME_DIR", "OMB_IDLE_TIMEOUT_MS",
 )
 _PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES = {
     "ant-ling": "ANT_LING_API_KEY",

@@ -30,16 +30,34 @@ NODE_SEARCH_RESULT = shutil.which("node")
 if NODE_SEARCH_RESULT is None:
     raise unittest.SkipTest("node is unavailable")
 NODE_EXECUTABLE = str(Path(NODE_SEARCH_RESULT).resolve(strict=True))
-DAEMON_COMMAND = [NODE_EXECUTABLE, "--import", "tsx", "apps/omb-daemon/src/main.ts", "--port", "0", "--faux"]
+TSX_LOADER = next(
+    (
+        parent / "node_modules/tsx/dist/loader.mjs"
+        for parent in (REPOSITORY_ROOT, *REPOSITORY_ROOT.parents)
+        if (parent / "node_modules/tsx/dist/loader.mjs").is_file()
+    ),
+    None,
+)
+if TSX_LOADER is None:
+    raise unittest.SkipTest("tsx is unavailable")
+DAEMON_COMMAND = [
+    NODE_EXECUTABLE,
+    "--import",
+    str(TSX_LOADER),
+    str(REPOSITORY_ROOT / "apps/omb-daemon/src/main.ts"),
+    "--port",
+    "0",
+    "--faux",
+]
 DELAYED_DAEMON_COMMAND = [
     NODE_EXECUTABLE,
     "--import",
-    "tsx",
-    "blender-addon/tests/fixtures/delayed_faux_daemon.ts",
+    str(TSX_LOADER),
+    str(REPOSITORY_ROOT / "blender-addon/tests/fixtures/delayed_faux_daemon.ts"),
 ]
 try:
     subprocess.run(
-        [NODE_EXECUTABLE, "--import", "tsx", "-e", ""],
+        [NODE_EXECUTABLE, "--import", str(TSX_LOADER), "-e", ""],
         cwd=REPOSITORY_ROOT,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -120,8 +138,10 @@ class DaemonIntegrationTest(unittest.TestCase):
             "git status --porcelain changed during the integration test",
         )
 
-    def spawn(self, command: list[str] = DAEMON_COMMAND) -> tuple[DaemonChild, dict]:
-        child = DaemonChild.spawn(command, cwd=REPOSITORY_ROOT)
+    def spawn(
+        self, project_directory: Path, command: list[str] = DAEMON_COMMAND
+    ) -> tuple[DaemonChild, dict]:
+        child = DaemonChild.spawn(command, cwd=project_directory)
         self.children.append(child)
         record = child.read_startup_record(timeout=15)
         self.tokens.append(record["bearer_token"].encode("ascii"))
@@ -270,10 +290,16 @@ class DaemonIntegrationTest(unittest.TestCase):
         )
 
 
-    def inspect(self, record: dict, snapshot: dict, revision: str) -> tuple[WebSocketClient, dict]:
+    def inspect(
+        self,
+        record: dict,
+        project_id: str,
+        snapshot: dict,
+        revision: str,
+    ) -> tuple[WebSocketClient, dict]:
         client = WebSocketClient.connect(record["port"], record["bearer_token"])
         self.clients.append(client)
-        client.send_json(build_hello(str(uuid.uuid4()), "0.1.0", "4.3.0"))
+        client.send_json(build_hello(project_id, "0.1.0", "4.3.0"))
         ack = validate_hello_ack(client.recv_json())
         self.assertEqual(ack["launch_id"], record["launch_id"])
         # Protocol v1 has no server request message: Blender extracts the snapshot,
@@ -306,10 +332,10 @@ class DaemonIntegrationTest(unittest.TestCase):
         with self.assertRaises(OSError):
             socket.create_connection(("127.0.0.1", port), timeout=0.25)
         return elapsed
-    def connect(self, record: dict) -> tuple[WebSocketClient, dict]:
+    def connect(self, record: dict, project_id: str) -> tuple[WebSocketClient, dict]:
         client = WebSocketClient.connect(record["port"], record["bearer_token"])
         self.clients.append(client)
-        client.send_json(build_hello(str(uuid.uuid4()), "0.1.0", "5.1.2"))
+        client.send_json(build_hello(project_id, "0.1.0", "5.1.2"))
         ack = validate_hello_ack(client.recv_json())
         self.assertEqual(ack["launch_id"], record["launch_id"])
         return client, ack
@@ -317,18 +343,21 @@ class DaemonIntegrationTest(unittest.TestCase):
 
     def test_real_daemon_inspect_shutdown_and_restart(self) -> None:
         snapshot, revision, project_id, blender_run = self.initialize_fixture()
+        project_directory = Path(self.temporary_directory.name) / "project"
         # Recompute the revision from the freshly exported snapshot rather than
         # trusting either a copied hash constant or Blender's printed value.
 
-        first_child, first_record = self.spawn(DELAYED_DAEMON_COMMAND)
-        first_client, first_ack = self.connect(first_record)
+        first_child, first_record = self.spawn(project_directory, DELAYED_DAEMON_COMMAND)
+        first_client, first_ack = self.connect(first_record, project_id)
         self.exercise_request_lifecycle(first_client, snapshot, revision)
         with self.assertRaises(ProtocolError):
             WebSocketClient.connect(first_record["port"], first_record["bearer_token"])
         first_shutdown = self.shutdown(first_child, first_client, first_record["port"])
 
-        second_child, second_record = self.spawn()
-        second_client, second_ack = self.inspect(second_record, snapshot, revision)
+        second_child, second_record = self.spawn(project_directory)
+        second_client, second_ack = self.inspect(
+            second_record, project_id, snapshot, revision
+        )
         for field in ("launch_id", "bearer_token"):
             self.assertNotEqual(first_record[field], second_record[field])
         for field in ("session_id", "server_nonce"):

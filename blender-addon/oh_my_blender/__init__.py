@@ -2,7 +2,7 @@
 import os
 
 from .identity import IdentityError, assign_entity_ids, new_project_id
-from . import project_store, ui_panel
+from . import project_store, qa_image_display, ui_panel
 
 bl_info = {
     "name": "Oh My Blender",
@@ -190,7 +190,7 @@ if bpy is not None:
         bl_label = "Connect"
 
         def execute(self, context):
-            from . import connection
+            from . import connection, controller_connection
             from .daemon_child import StartupError
             from .ws_client import WebSocketError
 
@@ -214,7 +214,6 @@ if bpy is not None:
                     project_store.verify_connect_precondition(
                         project_directory, project_id, bpy.data.is_dirty
                     )
-                discovered = connection.consume_attach_handoff(project_id)
                 spawn_configured = bool(
                     os.environ.get("OMB_NODE_EXECUTABLE")
                     or os.environ.get("OMB_DAEMON_EXECUTABLE")
@@ -225,24 +224,21 @@ if bpy is not None:
                     "addon_version": ".".join(str(part) for part in bl_info["version"]),
                     "blender_version": bpy.app.version_string,
                 }
-                if discovered is not None:
-                    runtime_directory, ticket = discovered
-                    connection.connect(
-                        **connect_options,
-                        attach_runtime_directory=runtime_directory,
-                        attach_ticket=ticket,
-                    )
-                elif spawn_configured:
-                    connection.connect(**connect_options)
-                else:
-                    raise connection.ConnectionError(
-                        "No attach handoff found for this project; run the omb TUI first"
-                    )
+                try:
+                    connection.connect_tui_spawned(**connect_options)
+                except connection.ConnectionError as error:
+                    if (
+                        not spawn_configured
+                        or "No bridge discovery slot found" not in str(error)
+                    ):
+                        raise
+                    connection.connect_addon_spawned(**connect_options)
             except (
                 project_store.ProjectStoreError,
                 IdentityError,
                 connection.ConnectionError,
                 StartupError,
+                controller_connection.ControllerConnectionError,
                 WebSocketError,
             ) as exc:
                 self.report({"ERROR"}, str(exc))
@@ -265,6 +261,7 @@ if bpy is not None:
         def execute(self, _context):
             import json
             import time
+            import uuid
 
             from . import camera_plan, connection
 
@@ -303,11 +300,48 @@ if bpy is not None:
                     "completed": 1,
                     "total": 1,
                 })
-                return active.await_durable_bridge_commit(
-                    self.bridge_id,
-                    self.request_id,
-                    result,
-                    deadline,
+                if (
+                    connection.TRANSACTION_COMMIT_CAPABILITY
+                    not in active.capabilities
+                    or not bpy.data.filepath
+                ):
+                    return active.await_durable_bridge_commit(
+                        self.bridge_id,
+                        self.request_id,
+                        result,
+                        deadline,
+                    )
+                project_id = bpy.context.scene.get("omb.project_id")
+                if not isinstance(project_id, str):
+                    raise connection.ConnectionError(
+                        "prepared transaction requires a saved project-bound blend"
+                    )
+                transaction_id = str(uuid.uuid4())
+
+                def save_blend(path):
+                    outcome = bpy.ops.wm.save_as_mainfile(
+                        filepath=str(path), check_existing=False
+                    )
+                    if "FINISHED" not in outcome:
+                        raise connection.ConnectionError(
+                            "candidate blend save did not finish"
+                        )
+
+                return active.commit_prepared_transaction(
+                    bridge_id=self.bridge_id,
+                    request_id=self.request_id,
+                    transaction_id=transaction_id,
+                    operation="apply_camera_plan",
+                    project_id=project_id,
+                    base_revision_id=plan["expected_revision_id"],
+                    base_scene_hash=self.current_scene_hash,
+                    candidate_revision_id=result["manifest"]["revisionId"],
+                    candidate_scene_hash=result["scene_hash"],
+                    canonical_blend_path=bpy.data.filepath,
+                    result=result,
+                    save_blend=save_blend,
+                    read_blend_project_id=lambda _path: project_id,
+                    deadline=deadline,
                 )
 
             def complete(result, error):
@@ -375,6 +409,7 @@ if bpy is not None:
         def execute(self, _context):
             import json
             import time
+            import uuid
 
             from . import connection, stage_scene
 
@@ -414,11 +449,48 @@ if bpy is not None:
                     "completed": 1,
                     "total": 1,
                 })
-                return active.await_durable_bridge_commit(
-                    self.bridge_id,
-                    self.request_id,
-                    result,
-                    deadline,
+                if (
+                    connection.TRANSACTION_COMMIT_CAPABILITY
+                    not in active.capabilities
+                    or not bpy.data.filepath
+                ):
+                    return active.await_durable_bridge_commit(
+                        self.bridge_id,
+                        self.request_id,
+                        result,
+                        deadline,
+                    )
+                project_id = bpy.context.scene.get("omb.project_id")
+                if not isinstance(project_id, str):
+                    raise connection.ConnectionError(
+                        "prepared transaction requires a saved project-bound blend"
+                    )
+                transaction_id = str(uuid.uuid4())
+
+                def save_blend(path):
+                    outcome = bpy.ops.wm.save_as_mainfile(
+                        filepath=str(path), check_existing=False
+                    )
+                    if "FINISHED" not in outcome:
+                        raise connection.ConnectionError(
+                            "candidate blend save did not finish"
+                        )
+
+                return active.commit_prepared_transaction(
+                    bridge_id=self.bridge_id,
+                    request_id=self.request_id,
+                    transaction_id=transaction_id,
+                    operation="stage_scene",
+                    project_id=project_id,
+                    base_revision_id=plan["expected_revision_id"],
+                    base_scene_hash=self.current_scene_hash,
+                    candidate_revision_id=result["manifest"]["revisionId"],
+                    candidate_scene_hash=result["scene_hash"],
+                    canonical_blend_path=bpy.data.filepath,
+                    result=result,
+                    save_blend=save_blend,
+                    read_blend_project_id=lambda _path: project_id,
+                    deadline=deadline,
                 )
 
             def complete(result, error):
@@ -585,8 +657,59 @@ if bpy is not None:
                 active.finish_bridge(self.bridge_id)
             return {"FINISHED"}
 
+    class OMB_PG_panel_chat(bpy.types.PropertyGroup):
+        prompt: bpy.props.StringProperty(
+            name="Prompt",
+            description="Message for the connected Pi director",
+            default="",
+            maxlen=8192,
+        )
+
+    class OMB_OT_send_prompt(bpy.types.Operator):
+        bl_idname = "omb.send_prompt"
+        bl_label = "Send"
+        bl_description = "Send this prompt to the connected Pi director"
+
+        def execute(self, context):
+            properties = getattr(context.scene, "omb_panel_chat", None)
+            prompt = "" if properties is None else properties.prompt
+            try:
+                ui_panel.submit_prompt(prompt, bpy.path.abspath("//"))
+            except (
+                project_store.ProjectStoreError,
+                ui_panel.PanelActionError,
+            ) as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            properties.prompt = ""
+            return {"FINISHED"}
+
+    class OMB_OT_cancel_turn(bpy.types.Operator):
+        bl_idname = "omb.cancel_turn"
+        bl_label = "Cancel"
+        bl_description = "Request cancellation of the active panel turn"
+
+        def execute(self, _context):
+            try:
+                ui_panel.cancel_active_turn()
+            except ui_panel.PanelActionError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
+    class OMB_OT_reconnect_controller(bpy.types.Operator):
+        bl_idname = "omb.reconnect_controller"
+        bl_label = "Reconnect"
+        bl_description = "Retry the Blender controller connection now"
+
+        def execute(self, _context):
+            if not ui_panel.reconnect_controller():
+                self.report({"WARNING"}, "Controller reconnect is still pending")
+                return {"CANCELLED"}
+            return {"FINISHED"}
+
     class OMB_PT_pi_status(bpy.types.Panel):
-        """Read-only observability for the Pi-controlled bridge."""
+        """Bridge status and connected Pi conversation controls."""
 
         bl_idname = "OMB_PT_pi_status"
         bl_label = "Pi Status"
@@ -594,10 +717,15 @@ if bpy is not None:
         bl_region_type = "UI"
         bl_category = "Oh My Blender"
 
-        def draw(self, _context):
-            from . import connection
+        def draw(self, context):
+            from . import connection, controller_connection
 
-            ui_panel.draw_status(self.layout, connection._active_connection)
+            ui_panel.draw_panel(
+                self.layout,
+                context,
+                connection._active_connection,
+                controller_connection._active_controller,
+            )
 
     class OMB_OT_disconnect(bpy.types.Operator):
         bl_idname = "omb.disconnect"
@@ -612,33 +740,73 @@ if bpy is not None:
             return {"FINISHED"}
 
     _CLASSES = (
+        OMB_PG_panel_chat,
         OMB_OT_initialize_project,
         OMB_OT_repair_ids,
         OMB_OT_connect,
         OMB_OT_apply_camera_plan,
         OMB_OT_stage_scene,
         OMB_OT_render_qa_frames,
+        OMB_OT_send_prompt,
+        OMB_OT_cancel_turn,
+        OMB_OT_reconnect_controller,
         OMB_OT_disconnect,
         OMB_PT_pi_status,
     )
 else:
     _CLASSES = ()
 _registered_classes: list[type] = []
+_lifecycle_timer_registered = False
+
+
+def _pump_lifecycle() -> float:
+    from . import connection, controller_connection
+
+    connection.poll_active_bridge_reconnect()
+    lifecycle_interval = controller_connection.poll_controller_lifecycle()
+    panel_interval = ui_panel.pump_controller_panel()
+    return min(lifecycle_interval, panel_interval)
 
 
 def register() -> None:
-    """Register operators and the read-only Pi status panel."""
+    """Register operators and the add-on connection lifecycle timer."""
+    global _lifecycle_timer_registered
     if bpy is not None:
         for cls in _CLASSES:
             if cls not in _registered_classes:
                 bpy.utils.register_class(cls)
                 _registered_classes.append(cls)
+        if not hasattr(bpy.types.Scene, "omb_panel_chat"):
+            bpy.types.Scene.omb_panel_chat = bpy.props.PointerProperty(
+                type=OMB_PG_panel_chat
+            )
+        timers = getattr(bpy.app, "timers", None)
+        if (
+            timers is not None
+            and not _lifecycle_timer_registered
+            and not timers.is_registered(_pump_lifecycle)
+        ):
+            timers.register(_pump_lifecycle, first_interval=0.0)
+            _lifecycle_timer_registered = True
 
 
 def unregister() -> None:
+    global _lifecycle_timer_registered
     if bpy is not None:
         from . import connection
 
+        timers = getattr(bpy.app, "timers", None)
+        if (
+            timers is not None
+            and _lifecycle_timer_registered
+            and timers.is_registered(_pump_lifecycle)
+        ):
+            timers.unregister(_pump_lifecycle)
+        _lifecycle_timer_registered = False
+        ui_panel.reset_panel_state()
+        qa_image_display.cleanup_qa_images()
+        if hasattr(bpy.types.Scene, "omb_panel_chat"):
+            del bpy.types.Scene.omb_panel_chat
         connection.disconnect_active("addon_unload")
         while _registered_classes:
             bpy.utils.unregister_class(_registered_classes.pop())
