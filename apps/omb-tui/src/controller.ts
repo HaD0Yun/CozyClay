@@ -320,7 +320,7 @@ export class ControllerSession {
 		return () => this.websocket.off("message", wrapped);
 	}
 
-	sendTurn(prompt: string, deadlineMs = 30_000): string {
+	sendTurn(prompt: string, deadlineMs = 180_000): string {
 		const normalized = prompt.trim();
 		if (normalized.length === 0 || normalized.length > 8_192) {
 			throw new Error("INVALID_PROMPT: prompt must contain 1..8192 characters");

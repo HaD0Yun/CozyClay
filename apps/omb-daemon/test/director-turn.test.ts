@@ -1328,3 +1328,59 @@ test("director loop contract violations surface their trusted fixed message, not
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("turn deadline above the single-request ceiling is accepted and bridge sub-operations are clamped to 30s", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-director-deadline-clamp-"));
+	const snapshot = parseSceneSnapshot(
+		JSON.parse(
+			await readFile(
+				new URL("../../../packages/blender-protocol/test/fixtures/blender-exported-snapshot.json", import.meta.url),
+				"utf8",
+			),
+		),
+	);
+	const service: DirectorTurnService = {
+		run: async (_turn, context) => {
+			const inspected = await context.inspectProject("0".repeat(64));
+			return { summary: "Inspected once.", resultingRevisionId: inspected.revision, toolCallOrder: [] as const };
+		},
+		dispose: () => {},
+		forceDispose() {
+			return this;
+		},
+	};
+	const daemon = await start({ port: 0, handlers: {}, projectDirectory: root, stdout: () => {}, directorTurn: service });
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	let bridge: Client | undefined;
+	try {
+		control = await attachController(daemon);
+		bridge = await attachBridge(daemon, control.client);
+		const turnId = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id: turnId,
+			prompt: "Inspect only.",
+			expected_revision_id: "0".repeat(64),
+			deadline_ms: 300_000,
+		});
+		const request = await bridge.next(
+			(message) => message.type === "bridge_request" && message.request_id === turnId,
+		);
+		assert.equal(request.deadline_ms, 30_000);
+		bridge.send({
+			type: "bridge_result",
+			id: request.id,
+			request_id: turnId,
+			result: { revision: PARENT_REVISION, snapshot },
+		});
+		const completed = await control.client.next(
+			(message) => message.type === "director_turn_completed" && message.id === turnId,
+		);
+		assert.equal(completed.summary, "Inspected once.");
+	} finally {
+		bridge?.socket.destroy();
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});

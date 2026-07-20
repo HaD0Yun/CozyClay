@@ -313,4 +313,92 @@ describe("bounded director turn loop", () => {
 			loop.dispose();
 		}
 	});
+	it("prunes prior-turn QA frame images from the model context before the next turn", async () => {
+		const initial = await initialManifest();
+		const stage = stageRequest(initial.revision);
+		const render = { schema_version: 1 as const, revision_id: CHILD_REVISION, frames: [1] };
+		const imageBlockCount = (context: { messages: ReadonlyArray<{ content: unknown }> }) =>
+			context.messages
+				.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+				.filter((block) => (block as { type?: string }).type === "image").length;
+		const placeholderCount = (context: { messages: ReadonlyArray<{ content: unknown }> }) =>
+			context.messages
+				.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+				.filter(
+					(block) =>
+						(block as { type?: string; text?: string }).type === "text" &&
+						((block as { text?: string }).text ?? "").includes(
+							`[QA frame image pruned from context; sha256 ${ARTIFACT_DIGEST}]`,
+						),
+				).length;
+		let firstTurnImages = -1;
+		let secondTurnImages = -1;
+		let secondTurnPlaceholders = -1;
+		const configured = await runtime([
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("stage_scene", stage), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("render_qa_frames", render), { stopReason: "toolUse" }),
+			(context) => {
+				firstTurnImages = imageBlockCount(context);
+				return fauxAssistantMessage("Staged and QA-checked.");
+			},
+			(context) => {
+				secondTurnImages = imageBlockCount(context);
+				secondTurnPlaceholders = placeholderCount(context);
+				return fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" });
+			},
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("Second turn done."),
+		]);
+		let inspections = 0;
+		const loop = createDirectorTurnLoop({
+			...configured,
+			bridge: {
+				inspectProject: async () => {
+					inspections += 1;
+					return inspections === 1 ? initial : { ...initial, revision: CHILD_REVISION };
+				},
+				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
+				renderQaFrames: async () => ({
+					schema_version: 1,
+					revision_id: CHILD_REVISION,
+					profile_version: "omb-qa-png-v1",
+					frames: [
+						{
+							frame: 1,
+							width: 640,
+							height: 360,
+							profile_version: "omb-qa-png-v1",
+							byte_length: IMAGE_BYTES.byteLength,
+							sha256: ARTIFACT_DIGEST,
+							uri: `omb-artifact://sha256/${ARTIFACT_DIGEST}`,
+							image: { mime_type: "image/png", data_base64: IMAGE_DATA },
+						},
+					],
+				}),
+			},
+		});
+		try {
+			const first = await loop.run({
+				prompt: "stage and QA-check the hero scene",
+				expectedRevisionId: initial.revision,
+				signal: new AbortController().signal,
+			});
+			assert.equal(first.summary, "Staged and QA-checked.");
+			assert.equal(firstTurnImages, 1);
+
+			const second = await loop.run({
+				prompt: "inspect the result again",
+				expectedRevisionId: first.resultingRevisionId,
+				signal: new AbortController().signal,
+			});
+			assert.equal(second.summary, "Second turn done.");
+			assert.equal(secondTurnImages, 0);
+			assert.equal(secondTurnPlaceholders, 1);
+		} finally {
+			loop.dispose();
+		}
+	});
 });

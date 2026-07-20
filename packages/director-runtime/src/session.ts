@@ -63,7 +63,10 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		agentDir,
 		model: options.model,
 		modelRuntime: options.modelRuntime,
-		thinkingLevel: "off",
+		// "off" never reaches the codex wire (the request builder omits the
+		// reasoning field entirely, deferring to the backend default). Pin the
+		// effort explicitly so behavior does not drift with backend defaults.
+		thinkingLevel: "medium",
 		resourceLoader,
 		customTools: [
 			createInspectProjectTool(options.bridge),

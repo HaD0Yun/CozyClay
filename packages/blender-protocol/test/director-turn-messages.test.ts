@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	DIRECTOR_TRANSCRIPT_CAPABILITY,
 	DIRECTOR_TURN_CAPABILITY,
+	DIRECTOR_TURN_DEADLINE_MAX_MS,
 	parseClientMessage,
 	parseDirectorTurnEvent,
 	parseServerMessage,
@@ -73,7 +74,12 @@ describe("director controller turn protocol", () => {
 		assert.deepEqual(parseClientMessage(request), request);
 		assert.throws(() => parseClientMessage({ ...request, prompt: "" }));
 		assert.throws(() => parseClientMessage({ ...request, prompt: "x".repeat(8_193) }));
-		assert.throws(() => parseClientMessage({ ...request, deadline_ms: 30_001 }));
+		assert.deepEqual(parseClientMessage({ ...request, deadline_ms: DIRECTOR_TURN_DEADLINE_MAX_MS }), {
+			...request,
+			deadline_ms: DIRECTOR_TURN_DEADLINE_MAX_MS,
+		});
+		assert.throws(() => parseClientMessage({ ...request, deadline_ms: DIRECTOR_TURN_DEADLINE_MAX_MS + 1 }));
+		assert.throws(() => parseClientMessage({ ...request, deadline_ms: 99 }));
 		assert.throws(() => parseClientMessage({ ...request, extra: true }));
 	});
 

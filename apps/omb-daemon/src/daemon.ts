@@ -1308,6 +1308,11 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		}
 	}
 	type BridgeParentRequest = Pick<Request, "id" | "expected_revision_id" | "deadline_ms">;
+	// Director turns may carry deadlines above the single-request ceiling; every
+	// bridge sub-operation stays within the protocol-v2 bridge deadline bound.
+	const BRIDGE_OP_DEADLINE_MAX_MS = 30_000;
+	const bridgeOpDeadlineMs = (request: BridgeParentRequest): number =>
+		Math.min(request.deadline_ms, BRIDGE_OP_DEADLINE_MAX_MS);
 
 	async function inspectProject(
 		request: BridgeParentRequest,
@@ -1327,7 +1332,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "inspect_project",
 				params: {},
 				expected_revision_id: request.expected_revision_id,
-				deadline_ms: request.deadline_ms,
+				deadline_ms: bridgeOpDeadlineMs(request),
 			},
 			transport.mutationSession,
 			new Set([request.id]),
@@ -1412,7 +1417,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "apply_camera_plan",
 				params: plan,
 				expected_revision_id: request.expected_revision_id,
-				deadline_ms: request.deadline_ms,
+				deadline_ms: bridgeOpDeadlineMs(request),
 			},
 			transport.mutationSession,
 			new Set([request.id]),
@@ -1481,7 +1486,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "stage_scene",
 				params: plan,
 				expected_revision_id: request.expected_revision_id,
-				deadline_ms: request.deadline_ms,
+				deadline_ms: bridgeOpDeadlineMs(request),
 			},
 			transport.mutationSession,
 			new Set([request.id]),
@@ -1549,7 +1554,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				method: "render_qa_frames",
 				params: renderRequest,
 				expected_revision_id: request.expected_revision_id,
-				deadline_ms: request.deadline_ms,
+				deadline_ms: bridgeOpDeadlineMs(request),
 			},
 			transport.mutationSession,
 			new Set([request.id]),

@@ -102,12 +102,17 @@ export const CancelAckSchema = exact({
 	id: uuid(),
 	status: Type.Union([Type.Literal("accepted"), Type.Literal("already_terminal"), Type.Literal("unknown")]),
 });
+// Director turns wrap several sequential model roundtrips (inspect, mutation,
+// verification, QA, summary); a single-request 30s ceiling starves them, so
+// turns carry their own deadline ceiling. Bridge sub-operations spawned by a
+// turn remain capped at the 30s single-request ceiling.
+export const DIRECTOR_TURN_DEADLINE_MAX_MS = 300_000;
 export const DirectorTurnSchema = exact({
 	type: Type.Literal("director_turn"),
 	id: uuid(),
 	prompt: Type.String({ minLength: 1, maxLength: 8_192 }),
 	expected_revision_id: hash(),
-	deadline_ms: Type.Integer({ minimum: 100, maximum: 30_000 }),
+	deadline_ms: Type.Integer({ minimum: 100, maximum: DIRECTOR_TURN_DEADLINE_MAX_MS }),
 });
 export const DIRECTOR_TRANSCRIPT_MAX_EVENTS = 10_000;
 export const DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE = 64;

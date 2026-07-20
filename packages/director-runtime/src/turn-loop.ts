@@ -237,6 +237,28 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			if (value === session) value.dispose();
 		});
 	};
+	// Historical QA frame images are re-uploaded to the provider on every model
+	// step of every later turn while adding no directing signal (the durable
+	// artifact store keeps the originals). Replace them with digest placeholders
+	// before each new turn; images produced during the current turn stay intact
+	// for in-turn repair decisions.
+	const pruneHistoricalQaFrameImages = (session: Awaited<ReturnType<typeof createDirectorSession>>) => {
+		for (const message of session.messages) {
+			if (message.role !== "toolResult") continue;
+			if (!Array.isArray(message.content)) continue;
+			if (!message.content.some((block) => block.type === "image")) continue;
+			message.content = message.content.map((block) =>
+				block.type === "image"
+					? {
+							type: "text" as const,
+							text: `[QA frame image pruned from context; sha256 ${createHash("sha256")
+								.update(Buffer.from(block.data, "base64"))
+								.digest("hex")}]`,
+						}
+					: block,
+			);
+		}
+	};
 
 	let abandonActive: (() => void) | undefined;
 	return {
@@ -256,6 +278,7 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				active = undefined;
 				throw error;
 			}
+			pruneHistoricalQaFrameImages(session);
 			const listener = (event: AgentSessionEvent) => {
 				if (event.type === "tool_execution_start" && isDirectorToolName(event.toolName)) {
 					runOptions.onToolEvent?.({
