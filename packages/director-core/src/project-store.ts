@@ -4,9 +4,9 @@ import { mkdir, open, readFile, rename, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	parseSceneManifestV2,
-	parseSceneManifestV3,
+	parseSceneManifestV4,
 	type SceneManifestV2,
-	type SceneManifestV3,
+	type SceneManifestV4,
 } from "@oh-my-blender/protocol";
 import { canonicalRevision } from "./canonical.ts";
 
@@ -20,7 +20,7 @@ export interface DirectorProjectRecoveryV2 extends DirectorProject {
 	project_id: string;
 	schema_version: 1;
 	current_revision_id: string;
-	manifest: SceneManifestV2 | SceneManifestV3;
+	manifest: SceneManifestV2 | SceneManifestV4;
 }
 
 export interface RevisionOperationEntryV2 {
@@ -122,14 +122,14 @@ function parseRecoveryProject(value: unknown, code: "PROJECT_INVALID" | "PROJECT
 	) {
 		throw new ProjectStoreError(code, "project has invalid required fields");
 	}
-	let manifest: SceneManifestV2 | SceneManifestV3;
+	let manifest: SceneManifestV2 | SceneManifestV4;
 	try {
 		const discriminator =
 			project.manifest !== null && typeof project.manifest === "object" && !Array.isArray(project.manifest)
 				? (project.manifest as Record<string, unknown>).schemaVersion
 				: undefined;
 		if (discriminator === 2) manifest = parseSceneManifestV2(project.manifest);
-		else if (discriminator === 3) manifest = parseSceneManifestV3(project.manifest);
+		else if (discriminator === 3 || discriminator === 4) manifest = parseSceneManifestV4(project.manifest);
 		else throw new Error("unsupported manifest schema");
 	} catch (error) {
 		throw new ProjectStoreError(code, "project manifest is invalid", { cause: error });

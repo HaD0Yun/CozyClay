@@ -5,9 +5,16 @@ import type {
 	SceneManifestV2HashFree,
 	SceneManifestV3,
 	SceneManifestV3HashFree,
+	SceneManifestV4,
+	SceneManifestV4HashFree,
 	SceneSnapshot,
 } from "@oh-my-blender/protocol";
-import { parseSceneManifestV2, parseSceneManifestV3, validateManifest } from "@oh-my-blender/protocol";
+import {
+	parseSceneManifestV2,
+	parseSceneManifestV3,
+	parseSceneManifestV4,
+	validateManifest,
+} from "@oh-my-blender/protocol";
 import { canonicalJson, canonicalRevision } from "./canonical.ts";
 import { childRevisionId, initialRevisionId, sceneHash } from "./revision.ts";
 
@@ -77,6 +84,42 @@ export function buildSceneManifestV3Revision(
 	});
 	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
 	const { selectedEntityIds: _selectedEntityIds, ...hashPreimage } = clean;
+	const computedSceneHash = canonicalRevision(hashPreimage);
+	return {
+		...clean,
+		revisionId: childRevisionId(
+			clean.projectId,
+			parentRevisionId,
+			canonicalJson(canonicalOperation),
+			computedSceneHash,
+			canonicalJson(canonicalDependencyHashes),
+		),
+		sceneHash: computedSceneHash,
+	};
+}
+
+export function buildSceneManifestV4Revision(
+	manifestWithoutHashes: SceneManifestV4HashFree,
+	parentRevisionId: string,
+	canonicalOperation: unknown,
+	canonicalDependencyHashes: unknown = [],
+): SceneManifestV4 {
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...unparsed } = manifestWithoutHashes as SceneManifestV4;
+	const parsed = parseSceneManifestV4({
+		...unparsed,
+		revisionId: HASH_PLACEHOLDER,
+		sceneHash: HASH_PLACEHOLDER,
+	});
+	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
+	const { selectedEntityIds: _selectedEntityIds, assemblies, objects, ...hashFields } = clean;
+	// parentId has been part of the object shape (and therefore the hash
+	// preimage) since V1; never strip it. Hierarchy-free V4 manifests
+	// normalize to the V3 preimage (schemaVersion 3, no assemblies key) so
+	// existing flat scenes keep their recorded hashes across the upgrade.
+	const hasHierarchy = objects.some((object) => object.parentId !== null) || assemblies.length > 0;
+	const hashPreimage = hasHierarchy
+		? { ...hashFields, objects, assemblies }
+		: { ...hashFields, schemaVersion: 3, objects };
 	const computedSceneHash = canonicalRevision(hashPreimage);
 	return {
 		...clean,

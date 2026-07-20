@@ -1,0 +1,81 @@
+{
+ "schemaVersion": 3,
+ "projectId": "00000000-0000-4000-8000-00000000000a",
+ "revisionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ "sceneHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+ "blenderVersion": "5.1.2",
+ "scene": {
+  "name": "Hierarchy Compatibility",
+  "frameStart": 1,
+  "frameEnd": 24,
+  "fpsNumerator": 24,
+  "fpsDenominator": 1,
+  "activeCameraId": null
+ },
+ "render": {
+  "resolutionX": 1280,
+  "resolutionY": 720,
+  "resolutionPercentage": 100
+ },
+ "objects": [
+  {
+   "entityId": "00000000-0000-4000-8000-000000000001",
+   "name": "Subject",
+   "type": "MESH",
+   "visible": true,
+   "location": [
+    0,
+    0,
+    0
+   ],
+   "rotationQuaternion": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "parentId": null
+  },
+  {
+   "entityId": "00000000-0000-4000-8000-000000000002",
+   "name": "Assembly Root",
+   "type": "EMPTY",
+   "visible": true,
+   "location": [
+    0,
+    0,
+    0
+   ],
+   "rotationQuaternion": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "parentId": null
+  }
+ ],
+ "bones": [],
+ "cameras": [],
+ "lights": [],
+ "markers": [],
+ "selectedEntityIds": [],
+ "cameraAnimations": [],
+ "stagePrimitives": [
+  {
+   "objectId": "00000000-0000-4000-8000-000000000001",
+   "primitiveType": "CUBE"
+  }
+ ],
+ "stageMaterials": []
+}
