@@ -158,6 +158,10 @@ export type DaemonOptions = {
 	stderr?: (line: string) => void;
 	helloTimeoutMs?: number;
 	idleTimeoutMs?: number;
+	/** Test-only observability; omitted by production callers. */
+	testHooks?: {
+		onIdleForceDestroy?: () => void;
+	};
 	attachTicketTtlMs?: number;
 	directorTeardownTimeoutMs?: number;
 	runtimeBaseDirectory?: string;
@@ -956,7 +960,10 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			connection.idle = setTimeout(() => {
 				websocket.close(1000, "idle");
 				connection.idleCloseGrace = setTimeout(() => {
-					if (!websocket.socket.destroyed) websocket.socket.destroy();
+					if (!websocket.socket.destroyed) {
+						websocket.socket.destroy();
+						options.testHooks?.onIdleForceDestroy?.();
+					}
 				}, 1_000);
 				connection.idleCloseGrace.unref();
 			}, options.idleTimeoutMs ?? 60_000);

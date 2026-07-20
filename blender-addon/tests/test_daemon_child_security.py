@@ -49,7 +49,9 @@ class DaemonChildSecurityTests(unittest.TestCase):
         body = "import json,os; print(json.dumps(dict(os.environ),sort_keys=True),flush=True)"
         with mock.patch.dict(os.environ, {
             "ANTHROPIC_API_KEY": SENTINEL,
+            "OMB_IDLE_TIMEOUT_MS": "750",
             "UNRELATED_SECRET": "must-not-cross",
+            "NODE_OPTIONS": "--inspect=0.0.0.0:9229",
             "PATH": os.environ.get("PATH", ""),
         }, clear=True):
             child = DaemonChild.spawn(script(body, "--provider", "anthropic", "--model", "claude-haiku-4-5"))
@@ -57,14 +59,38 @@ class DaemonChildSecurityTests(unittest.TestCase):
         child.close_streams()
         received = json.loads(output)
         self.assertEqual(received["ANTHROPIC_API_KEY"], SENTINEL)
+        self.assertEqual(received["OMB_IDLE_TIMEOUT_MS"], "750")
+        self.assertNotIn("NODE_OPTIONS", received)
         self.assertNotIn("UNRELATED_SECRET", received)
         self.assertLessEqual(
             set(received),
             {
-                "ANTHROPIC_API_KEY", "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
-                "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "__CF_USER_TEXT_ENCODING",
+                "ANTHROPIC_API_KEY", "OMB_IDLE_TIMEOUT_MS", "PATH", "HOME", "LANG",
+                "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT",
+                "__CF_USER_TEXT_ENCODING",
             },
         )
+
+    def test_out_of_bounds_idle_timeout_is_forwarded_and_daemon_rejects_startup(self):
+        child = DaemonChild.spawn(
+            [
+                NODE,
+                "--import",
+                "tsx",
+                str(OMB_DAEMON / "src" / "main.ts"),
+                "--faux",
+            ],
+            cwd=OMB_DAEMON,
+            environment={
+                "OMB_IDLE_TIMEOUT_MS": "499",
+                "UNRELATED_SECRET": "must-not-cross",
+            },
+        )
+        with self.assertRaisesRegex(
+            StartupError,
+            r"OMB_IDLE_TIMEOUT_MS must be an integer from 500 through 60000",
+        ):
+            child.read_startup_record(timeout=3)
 
     def test_azure_openai_provider_fails_closed_before_startup(self):
         child = DaemonChild.spawn(
