@@ -128,6 +128,12 @@ const CameraAnimationSchema = exact({
 	target: Type.Union([Type.Literal("object"), Type.Literal("cameraData")]),
 	fcurves: Type.Array(CameraFCurveSchema),
 });
+const AssemblySchema = exact({
+	assemblyId: uuid(),
+	name: name(),
+	rootEntityId: uuid(),
+	memberIds: Type.Array(uuid()),
+});
 
 export const SceneManifestV1Schema = exact({
 	schemaVersion: Type.Literal(1),
@@ -184,6 +190,28 @@ export const SceneManifestV3Schema = exact({
 });
 export type SceneManifestV3 = Static<typeof SceneManifestV3Schema>;
 export type SceneManifestV3HashFree = Omit<SceneManifestV3, "revisionId" | "sceneHash">;
+export const SceneManifestV4Schema = exact({
+	schemaVersion: Type.Literal(4),
+	projectId: uuid(),
+	revisionId: Type.String({ pattern: HASH_64 }),
+	sceneHash: Type.String({ pattern: HASH_64 }),
+	blenderVersion: Type.String(),
+	scene: SceneSchema,
+	render: RenderSchema,
+	objects: Type.Array(ObjectSchema),
+	bones: Type.Array(BoneSchema),
+	cameras: Type.Array(CameraSchema),
+	lights: Type.Array(LightV3Schema),
+	markers: Type.Array(MarkerSchema),
+	selectedEntityIds: Type.Array(uuid()),
+	cameraAnimations: Type.Array(CameraAnimationSchema),
+	stagePrimitives: Type.Array(StagePrimitiveSchema),
+	stageMaterials: Type.Array(StageMaterialSchema),
+	assemblies: Type.Array(AssemblySchema),
+});
+export const SceneManifestV3OrV4Schema = Type.Union([SceneManifestV3Schema, SceneManifestV4Schema]);
+export type SceneManifestV4 = Static<typeof SceneManifestV4Schema>;
+export type SceneManifestV4HashFree = Omit<SceneManifestV4, "revisionId" | "sceneHash">;
 
 function compareCodePoints(left: string, right: string): number {
 	const leftPoints = Array.from(left, (value) => value.codePointAt(0)!);
@@ -218,7 +246,7 @@ function gcd(a: number, b: number): number {
 }
 
 export function validateManifest(
-	manifest: SceneManifestV1HashFree | SceneManifestV2HashFree | SceneManifestV3HashFree,
+	manifest: SceneManifestV1HashFree | SceneManifestV2HashFree | SceneManifestV3HashFree | SceneManifestV4HashFree,
 ): void {
 	validateNfc(manifest);
 	if (manifest.scene.frameStart > manifest.scene.frameEnd) {
@@ -359,7 +387,7 @@ export function validateManifest(
 			}
 		}
 	}
-	if (manifest.schemaVersion === 3) {
+	if (manifest.schemaVersion === 3 || manifest.schemaVersion === 4) {
 		for (const light of manifest.lights) {
 			const isArea = light.lightType === "AREA";
 			if ((isArea && light.areaSize === null) || (!isArea && light.areaSize !== null)) {
@@ -380,6 +408,34 @@ export function validateManifest(
 				throw new Error(`stageMaterials entry must reference a MESH object: ${material.objectId}`);
 			}
 		}
+		if (manifest.schemaVersion === 4) {
+			const byAssemblyId = (left: { assemblyId: string }, right: { assemblyId: string }) =>
+				compareCodePoints(left.assemblyId, right.assemblyId);
+			assertSorted(manifest.assemblies, byAssemblyId, "assemblies");
+			assertUniqueBy(manifest.assemblies, (assembly) => assembly.assemblyId, "assemblyId");
+			const assemblyMemberIds = new Set<string>();
+			for (const assembly of manifest.assemblies) {
+				if (!objects.has(assembly.rootEntityId))
+					throw new Error(`assembly ${assembly.assemblyId} has unknown rootEntityId: ${assembly.rootEntityId}`);
+				if (objects.get(assembly.rootEntityId)?.type !== "EMPTY")
+					throw new Error(`assembly ${assembly.assemblyId} rootEntityId must reference an EMPTY object`);
+				assertSorted(assembly.memberIds, compareCodePoints, `assembly ${assembly.assemblyId} memberIds`);
+				for (let index = 1; index < assembly.memberIds.length; index += 1) {
+					if (assembly.memberIds[index - 1] === assembly.memberIds[index])
+						throw new Error(`assembly ${assembly.assemblyId} memberIds must not contain duplicates`);
+				}
+				if (!assembly.memberIds.includes(assembly.rootEntityId))
+					throw new Error(`assembly ${assembly.assemblyId} memberIds must include rootEntityId`);
+				for (const memberId of assembly.memberIds)
+					if (!objects.has(memberId))
+						throw new Error(`assembly ${assembly.assemblyId} has unknown memberId: ${memberId}`);
+				for (const memberId of assembly.memberIds) {
+					if (assemblyMemberIds.has(memberId))
+						throw new Error(`assembly memberId ${memberId} belongs to more than one assembly`);
+					assemblyMemberIds.add(memberId);
+				}
+			}
+		}
 	}
 }
 
@@ -396,6 +452,25 @@ export function parseSceneManifestV2(input: unknown): SceneManifestV2 {
 }
 export function parseSceneManifestV3(input: unknown): SceneManifestV3 {
 	const manifest = Parse(SceneManifestV3Schema, input);
+	validateManifest(manifest);
+	return manifest;
+}
+export function parseSceneManifestV4(input: unknown): SceneManifestV4 {
+	if (
+		typeof input === "object" &&
+		input !== null &&
+		"schemaVersion" in input &&
+		(input as { schemaVersion?: unknown }).schemaVersion === 3
+	) {
+		const manifest = parseSceneManifestV3(input);
+		return Parse(SceneManifestV4Schema, {
+			...manifest,
+			schemaVersion: 4,
+			objects: manifest.objects.map((object) => ({ ...object, parentId: object.parentId ?? null })),
+			assemblies: [],
+		});
+	}
+	const manifest = Parse(SceneManifestV4Schema, input);
 	validateManifest(manifest);
 	return manifest;
 }

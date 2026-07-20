@@ -1,6 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
-import { SceneManifestV3Schema } from "./manifest.ts";
+import { SceneManifestV3OrV4Schema } from "./manifest.ts";
 
 const UUID_V4_LOWERCASE = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
 const HASH_64 = "^[0-9a-f]{64}$";
@@ -39,6 +39,7 @@ const AddPrimitiveSchema = exact({
 	location: vector3(),
 	rotation: vector3(),
 	scale: positiveVector3(),
+	parent_id: Type.Optional(uuid()),
 });
 const AddPrimitiveRequestSchema = exact({
 	op: Type.Literal("add_primitive"),
@@ -47,6 +48,7 @@ const AddPrimitiveRequestSchema = exact({
 	location: vector3(),
 	rotation: vector3(),
 	scale: positiveVector3(),
+	parent_id: Type.Optional(uuid()),
 });
 const SetMaterialColorSchema = exact({
 	op: Type.Literal("set_material_color"),
@@ -84,12 +86,34 @@ const DeleteEntitySchema = exact({
 	op: Type.Literal("delete_entity"),
 	entity_id: uuid(),
 });
+const CreateAssemblySchema = exact({
+	op: Type.Literal("create_assembly"),
+	name: stableName(),
+});
+const SetParentSchema = exact({
+	op: Type.Literal("set_parent"),
+	entity_id: uuid(),
+	parent_id: Type.Union([uuid(), Type.Null()]),
+});
+const TransformAssemblySchema = Type.Object(
+	{
+		op: Type.Literal("transform_assembly"),
+		assembly_id: uuid(),
+		translation: Type.Optional(vector3()),
+		rotation_euler: Type.Optional(vector3()),
+		scale: Type.Optional(positiveVector3()),
+	},
+	{ additionalProperties: false, minProperties: 3 },
+);
 
 export const StageSceneOperationV1Schema = Type.Union([
 	AddPrimitiveSchema,
 	SetMaterialColorSchema,
 	UpsertAreaLightSchema,
 	DeleteEntitySchema,
+	CreateAssemblySchema,
+	SetParentSchema,
+	TransformAssemblySchema,
 ]);
 export const StageScenePlanV1Schema = exact({
 	schema_version: Type.Literal(1),
@@ -106,6 +130,9 @@ export const StageSceneRequestV1Schema = exact({
 			SetMaterialColorByNameRequestSchema,
 			UpsertAreaLightRequestSchema,
 			DeleteEntitySchema,
+			CreateAssemblySchema,
+			SetParentSchema,
+			TransformAssemblySchema,
 		]),
 		{ minItems: 1, maxItems: 256 },
 	),
@@ -118,7 +145,7 @@ export const StageSceneEntityIdentitySchema = exact({
 export const StageSceneMutationCandidateSchema = exact({
 	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	scene_hash: Type.String({ pattern: HASH_64 }),
-	manifest: SceneManifestV3Schema,
+	manifest: SceneManifestV3OrV4Schema,
 	entity_identities: Type.Array(StageSceneEntityIdentitySchema, { maxItems: 256 }),
 });
 
@@ -156,6 +183,22 @@ function validatePlanSemantics(plan: StageScenePlanV1): StageScenePlanV1 {
 	const createdIds = new Set<string>();
 	const stableNames = new Set<string>();
 	for (const operation of plan.operations) {
+		if (operation.op === "set_parent" && operation.entity_id === operation.parent_id) {
+			fail(
+				"INVALID_STAGE_SCENE_PLAN_SCHEMA",
+				`set_parent entity_id ${operation.entity_id} must differ from parent_id`,
+			);
+		}
+		if (
+			operation.op === "add_primitive" &&
+			operation.parent_id !== undefined &&
+			operation.entity_id === operation.parent_id
+		) {
+			fail(
+				"INVALID_STAGE_SCENE_PLAN_SCHEMA",
+				`add_primitive entity_id ${operation.entity_id} must differ from parent_id`,
+			);
+		}
 		if (operation.op !== "add_primitive" && operation.op !== "upsert_area_light") continue;
 		if (createdIds.has(operation.entity_id)) {
 			fail("STAGE_SCENE_ENTITY_ID_DUPLICATE", `entity_id ${operation.entity_id} is created more than once`);

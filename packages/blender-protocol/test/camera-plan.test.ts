@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
 	type CameraPlanV1,
 	CameraPlanValidationError,
 	type DirectingAnalysisEvidenceV1,
+	parseCameraPlanMutationCandidate,
 	validateCameraPlan,
 } from "../src/camera-plan.ts";
 
 const HASH = "a".repeat(64);
 const FOV = 2 * Math.atan(12 / 48);
+const V2_MANIFEST = JSON.parse(
+	await readFile(new URL("../../director-core/test/fixtures/scene-manifest-v2-parity.json", import.meta.url), "utf8"),
+) as Record<string, unknown>;
 
 function validPlan(): CameraPlanV1 {
 	return {
@@ -64,6 +69,39 @@ function assertCode(
 		(error: unknown) => error instanceof CameraPlanValidationError && error.code === code,
 	);
 }
+test("camera mutation candidate accepts a closed SceneManifestV4 variant", () => {
+	const manifest = {
+		...structuredClone(V2_MANIFEST),
+		schemaVersion: 4,
+		stagePrimitives: [],
+		stageMaterials: [],
+		assemblies: [],
+	};
+	const candidate = parseCameraPlanMutationCandidate({
+		expected_revision_id: HASH,
+		scene_hash: String(V2_MANIFEST.sceneHash),
+		manifest,
+	});
+	assert.equal(candidate.manifest.schemaVersion, 4);
+});
+
+test("camera mutation candidate rejects a malformed SceneManifestV4 variant", () => {
+	const manifest = {
+		...structuredClone(V2_MANIFEST),
+		schemaVersion: 4,
+		stagePrimitives: [],
+		stageMaterials: [],
+	};
+	assert.throws(
+		() =>
+			parseCameraPlanMutationCandidate({
+				expected_revision_id: HASH,
+				scene_hash: String(V2_MANIFEST.sceneHash),
+				manifest,
+			}),
+		/INVALID_MUTATION_RESULT/,
+	);
+});
 
 test("row 1: closed plan schema parse — INVALID_CAMERA_PLAN_SCHEMA", () => {
 	assert.throws(
