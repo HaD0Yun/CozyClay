@@ -12,6 +12,7 @@ import {
 } from "@oh-my-blender/director-runtime";
 import {
 	buildSceneManifestV3Revision,
+	buildSceneManifestV4Revision,
 	type DirectorProject,
 } from "@oh-my-blender/director-core";
 import {
@@ -359,9 +360,16 @@ test("a faux AgentSession completes a deterministic director turn over real cont
 				});
 			} else {
 				const plan = request.params as CameraPlanV1;
-				const currentManifest = project.manifest as ReturnType<typeof buildSceneManifestV3Revision>;
+				const currentManifest = project.manifest as
+					| ReturnType<typeof buildSceneManifestV3Revision>
+					| ReturnType<typeof buildSceneManifestV4Revision>;
 				const { revisionId: _revisionId, sceneHash: _sceneHash, ...base } = currentManifest;
-				const manifest = buildSceneManifestV3Revision(base, plan.expected_revision_id, plan);
+				// The durable store persists manifests as schemaVersion 4 since the
+				// assembly-hierarchy slice; rebuild with the matching builder.
+				const manifest =
+					base.schemaVersion === 4
+						? buildSceneManifestV4Revision(base, plan.expected_revision_id, plan)
+						: buildSceneManifestV3Revision(base, plan.expected_revision_id, plan);
 				bridge.send({
 					type: "bridge_result",
 					id: request.id,
