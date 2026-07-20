@@ -50,8 +50,10 @@ def setup() -> None:
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_file))
     oh_my_blender.register()
     bpy.ops.omb.initialize_project()
-    if bpy.data.is_dirty:
-        bpy.ops.wm.save_mainfile()
+    # Unconditional save: scene id-property writes (project id, entity ids) do
+    # not reliably mark the file dirty, and losing them bricks every later
+    # relaunch ("Initialize and save the project before connecting").
+    bpy.ops.wm.save_mainfile()
 
     project_id = bpy.context.scene.get("omb.project_id")
     if not project_id:
