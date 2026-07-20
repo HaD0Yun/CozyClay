@@ -482,14 +482,22 @@ def build_scene_manifest_v3(
     _validate_manifest(manifest)
     return manifest
 
+def _scene_hash_preimage(manifest: dict) -> dict:
+    """Return durable, render-semantic state used to derive sceneHash."""
+    return {
+        key: value
+        for key, value in manifest.items()
+        if key not in ("revisionId", "sceneHash", "selectedEntityIds")
+    }
+
 
 def finalize_scene_manifest(manifest_without_hashes: dict) -> dict:
-    """Add canonical scene and initial revision hashes, excluding both from the preimage."""
+    """Add hashes derived from durable state while retaining reported selection."""
     manifest = copy.deepcopy(manifest_without_hashes)
     manifest.pop("sceneHash", None)
     manifest.pop("revisionId", None)
     _validate_manifest(manifest)
-    scene_hash = canonical_revision(manifest)
+    scene_hash = canonical_revision(_scene_hash_preimage(manifest))
     revision_id = initial_revision_id(manifest["projectId"], scene_hash)
     return {**manifest, "revisionId": revision_id, "sceneHash": scene_hash}
 
@@ -505,7 +513,7 @@ def finalize_scene_manifest_child(
     manifest.pop("sceneHash", None)
     manifest.pop("revisionId", None)
     _validate_manifest(manifest)
-    scene_hash = canonical_revision(manifest)
+    scene_hash = canonical_revision(_scene_hash_preimage(manifest))
     revision_id = child_revision_id(
         manifest["projectId"],
         parent_revision_id,

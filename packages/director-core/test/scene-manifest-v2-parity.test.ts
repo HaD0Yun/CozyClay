@@ -12,9 +12,9 @@ describe("Architecture §6 / Snapshot v2 §2.6 SceneManifestV2 cross-language pa
 		const parsed = parseSceneManifestV2(fixture);
 		const { revisionId: _revisionId, sceneHash: _sceneHash, ...preimage } = parsed;
 		const rebuilt = buildSceneManifestV2Revision(preimage);
-		assert.equal(rebuilt.sceneHash, "fc2615b638ee023e6648fa5761a251fd1d2f85e857442243eb74b53e37ddc739");
+		assert.equal(rebuilt.sceneHash, "559112581ea706ec04bffce0812c457d64236aaed05fdcf2fd8ac84a25540a35");
 		assert.equal(rebuilt.sceneHash, parsed.sceneHash);
-		assert.equal(rebuilt.revisionId, "232f91e79494865fa4f664cf164ae66b6602b57d8d7a82d1d47ff84c900d1ac2");
+		assert.equal(rebuilt.revisionId, "92d7e869a4e824244c1d86019f2d30cba4054142543a9de0414bd806b81abaa6");
 		assert.equal(rebuilt.revisionId, parsed.revisionId);
 	});
 });

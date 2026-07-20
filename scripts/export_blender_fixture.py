@@ -49,9 +49,8 @@ def _set_interpolation(
                     )
 
 
-def main() -> None:
-    arguments = _arguments()
-    plan = json.loads(arguments.plan.read_text(encoding="utf-8"))
+def build_fixture_scene(plan: dict, *, manifest_identity: bool = False) -> object:
+    """Build the canonical boxing fixture scene."""
     keyframes = plan["keyframes"]
     if keyframes[0]["transition"] != "smooth":
         raise FixtureCreationError("the first keyframe transition must be 'smooth'")
@@ -76,6 +75,8 @@ def main() -> None:
     if fighter is None:
         raise FixtureCreationError("Blender did not create the fixture object")
     fighter.name = "Fighter"
+    if manifest_identity:
+        fighter["omb.entity_id"] = "00000000-0000-4000-8000-000000000002"
 
     camera_data = bpy.data.cameras.new("ARDY_CinematicCamera")
     camera_data.sensor_fit = "VERTICAL"
@@ -83,6 +84,9 @@ def main() -> None:
     scene.collection.objects.link(camera)
     scene.camera = camera
     camera.rotation_mode = "QUATERNION"
+    if manifest_identity:
+        scene["omb.project_id"] = "00000000-0000-4000-8000-00000000000a"
+        camera["omb.entity_id"] = "00000000-0000-4000-8000-000000000003"
 
     for keyframe in keyframes:
         frame = keyframe["frame"]
@@ -121,6 +125,13 @@ def main() -> None:
         marker = scene.timeline_markers.new(f"CUT_{keyframe['frame']}", frame=keyframe["frame"])
         marker.camera = camera
 
+    return scene
+
+
+def main() -> None:
+    arguments = _arguments()
+    plan = json.loads(arguments.plan.read_text(encoding="utf-8"))
+    build_fixture_scene(plan)
     revision = manifest.write_scene_snapshot(arguments.output)
     print(f"OMB_REVISION={revision}")
 

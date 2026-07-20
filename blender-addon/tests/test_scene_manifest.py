@@ -129,6 +129,25 @@ class SceneManifestTests(unittest.TestCase):
         changed = finalize_scene_manifest(build_scene_manifest(**changed_parts))
         self.assertNotEqual(changed["sceneHash"], baseline["sceneHash"])
 
+    def test_selection_is_reported_but_excluded_from_scene_hash(self):
+        baseline_parts = parts()
+        baseline_parts["selected_entity_ids"] = []
+        selected_parts = parts()
+        selected_parts["selected_entity_ids"] = [OBJECT]
+        baseline = finalize_scene_manifest(build_scene_manifest(**baseline_parts))
+        selected = finalize_scene_manifest(build_scene_manifest(**selected_parts))
+        self.assertEqual(baseline["sceneHash"], selected["sceneHash"])
+        self.assertEqual(baseline["revisionId"], selected["revisionId"])
+        self.assertEqual(baseline["selectedEntityIds"], [])
+        self.assertEqual(selected["selectedEntityIds"], [OBJECT])
+
+    def test_object_transform_remains_in_scene_hash(self):
+        baseline = finalize_scene_manifest(build_scene_manifest(**parts()))
+        moved_parts = parts()
+        moved_parts["objects"][1]["location"][0] = 1
+        moved = finalize_scene_manifest(build_scene_manifest(**moved_parts))
+        self.assertNotEqual(baseline["sceneHash"], moved["sceneHash"])
+
     def test_snapshot_v2_section_2_6_camera_animations_are_closed_and_correlated(self):
         data = parts()
         data["camera_animations"][0]["unknown"] = True

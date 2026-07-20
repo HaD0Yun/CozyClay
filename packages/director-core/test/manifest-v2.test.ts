@@ -73,10 +73,15 @@ function input() {
 }
 
 describe("Architecture §6 / Snapshot v2 §2.6 canonical SceneManifestV2", () => {
-	it("Architecture §6 / Snapshot v2 §2.6: full V2 is the sole scene_hash preimage", () => {
-		const manifest = buildSceneManifestV2Revision(input());
-		const { revisionId: _revisionId, sceneHash: _sceneHash, ...preimage } = manifest;
-		assert.equal(manifest.sceneHash, canonicalRevision(preimage));
+	it("hashes durable V2 state while excluding reported selection", () => {
+		const baseline = buildSceneManifestV2Revision(input());
+		const selectedInput = { ...input(), selectedEntityIds: [CAMERA_ID] };
+		const selected = buildSceneManifestV2Revision(selectedInput);
+		const { revisionId: _revisionId, sceneHash: _sceneHash, selectedEntityIds: _selection, ...preimage } = selected;
+		assert.equal(selected.sceneHash, canonicalRevision(preimage));
+		assert.equal(selected.sceneHash, baseline.sceneHash);
+		assert.equal(selected.revisionId, baseline.revisionId);
+		assert.deepEqual(selected.selectedEntityIds, [CAMERA_ID]);
 	});
 	it("exact-parses a valid hash-free V2 manifest before hashing", () => {
 		const manifestInput = input();
@@ -108,5 +113,13 @@ describe("Architecture §6 / Snapshot v2 §2.6 canonical SceneManifestV2", () =>
 		const changed = buildSceneManifestV2Revision(changedInput);
 		assert.notEqual(changed.sceneHash, baseline.sceneHash);
 		assert.notEqual(changed.revisionId, baseline.revisionId);
+	});
+
+	it("changing an object transform changes scene_hash", () => {
+		const baseline = buildSceneManifestV2Revision(input());
+		const movedInput = input();
+		movedInput.objects[0]!.location[0] = 1;
+		const moved = buildSceneManifestV2Revision(movedInput);
+		assert.notEqual(moved.sceneHash, baseline.sceneHash);
 	});
 });

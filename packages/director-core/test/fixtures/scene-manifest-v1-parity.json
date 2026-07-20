@@ -157,7 +157,7 @@
     "resolutionX": 1920,
     "resolutionY": 1080
   },
-  "revisionId": "2e9e310ba74a45b0142b898f5a84182e412ba0deb17819f261d057532b8e2d13",
+  "revisionId": "12bd6760af0392e35161e12d5849b33a91b0c877f544d3085171215dbc698348",
   "scene": {
     "activeCameraId": "00000000-0000-4000-8000-000000000001",
     "fpsDenominator": 1,
@@ -166,7 +166,7 @@
     "frameStart": 1,
     "name": "Boxing"
   },
-  "sceneHash": "f583182111cf588e2f4699c544fd92ac1e98ff05eabb3911411ee0462582f986",
+  "sceneHash": "a83ca150e7fcf29d2f51d3525c734b90bdf5365bd77e20a1f8c7485cb1585922",
   "schemaVersion": 1,
   "selectedEntityIds": [
     "00000000-0000-4000-8000-000000000001",

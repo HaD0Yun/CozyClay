@@ -48,7 +48,8 @@ describe("project manifest", () => {
 			selectedEntityIds: [],
 		};
 		const manifest = buildSceneManifestRevision(input);
-		assert.equal(manifest.sceneHash, canonicalRevision(input));
+		const { selectedEntityIds: _selectedEntityIds, ...hashPreimage } = input;
+		assert.equal(manifest.sceneHash, canonicalRevision(hashPreimage));
 		assert.equal(
 			manifest.revisionId,
 			createHash("sha256")
@@ -64,7 +65,8 @@ describe("project manifest", () => {
 			revisionId: "different-placeholder",
 			sceneHash: "different-placeholder",
 		};
-		assert.equal(manifest.sceneHash, canonicalRevision(samePreimage));
+		const { selectedEntityIds: _selection, ...sameDurablePreimage } = samePreimage;
+		assert.equal(manifest.sceneHash, canonicalRevision(sameDurablePreimage));
 	});
 	it("strips a runtime-present revisionId/sceneHash before hashing, not just at the type level", () => {
 		const input = {

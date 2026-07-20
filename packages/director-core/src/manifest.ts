@@ -36,7 +36,8 @@ export function buildSceneManifestRevision(manifestWithoutHashes: SceneManifestV
 	// finalize_scene_manifest()'s explicit .pop() of both fields.
 	const { revisionId: _revisionId, sceneHash: _sceneHash, ...clean } = manifestWithoutHashes as SceneManifestV1;
 	validateManifest(clean);
-	const computedSceneHash = canonicalRevision(clean);
+	const { selectedEntityIds: _selectedEntityIds, ...hashPreimage } = clean;
+	const computedSceneHash = canonicalRevision(hashPreimage);
 	return {
 		...clean,
 		revisionId: initialRevisionId(clean.projectId, computedSceneHash),
@@ -54,7 +55,8 @@ export function buildSceneManifestV2Revision(manifestWithoutHashes: SceneManifes
 		sceneHash: HASH_PLACEHOLDER,
 	});
 	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
-	const computedSceneHash = canonicalRevision(clean);
+	const { selectedEntityIds: _selectedEntityIds, ...hashPreimage } = clean;
+	const computedSceneHash = canonicalRevision(hashPreimage);
 	return {
 		...clean,
 		revisionId: initialRevisionId(clean.projectId, computedSceneHash),
@@ -74,7 +76,8 @@ export function buildSceneManifestV3Revision(
 		sceneHash: HASH_PLACEHOLDER,
 	});
 	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
-	const computedSceneHash = canonicalRevision(clean);
+	const { selectedEntityIds: _selectedEntityIds, ...hashPreimage } = clean;
+	const computedSceneHash = canonicalRevision(hashPreimage);
 	return {
 		...clean,
 		revisionId: childRevisionId(

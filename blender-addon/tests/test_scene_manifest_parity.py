@@ -51,6 +51,7 @@ class SceneManifestParityTest(unittest.TestCase):
                 for keyframe in keyframes
             )
         )
+        self.assertTrue(fixture["selectedEntityIds"])
         without_hashes = {k: v for k, v in fixture.items() if k not in ("sceneHash", "revisionId")}
         rebuilt = finalize_scene_manifest(without_hashes)
         self.assertEqual(rebuilt["sceneHash"], fixture["sceneHash"])
