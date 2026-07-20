@@ -39,12 +39,22 @@ const helloAckProperties = {
 };
 export const MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2";
 export const SCENE_MANIFEST_V3_CAPABILITY = "scene_manifest_v3";
+export const TRANSACTION_COMMIT_CAPABILITY = "transaction_commit_v2";
 export const DIRECTOR_TURN_CAPABILITY = "director_turn_v1";
 export const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
+export const DIRECTOR_STREAM_CAPABILITY = "director_stream_v1";
+export const CONTROLLER_PEERS_CAPABILITY = "controller_peers_v1";
+export const SNAPSHOT_CURSOR_V2_FEATURE = "snapshot_cursor_v2";
 const mutationCapabilities = () =>
 	Type.Union([
 		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY)]),
 		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY), Type.Literal(SCENE_MANIFEST_V3_CAPABILITY)]),
+		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY), Type.Literal(TRANSACTION_COMMIT_CAPABILITY)]),
+		Type.Tuple([
+			Type.Literal(MUTATION_BRIDGE_CAPABILITY),
+			Type.Literal(SCENE_MANIFEST_V3_CAPABILITY),
+			Type.Literal(TRANSACTION_COMMIT_CAPABILITY),
+		]),
 	]);
 
 export const HelloV1Schema = exact({
@@ -62,12 +72,18 @@ export const HelloAckV1Schema = exact({
 	protocol: Type.Literal(PROTOCOL_VERSION),
 	capabilities: Type.Array(Type.String()),
 });
+export const HelloAckControllerV1Schema = exact({
+	...helloAckProperties,
+	protocol: Type.Literal(PROTOCOL_VERSION),
+	capabilities: Type.Array(Type.String()),
+	protocol_features: Type.Tuple([Type.Literal(SNAPSHOT_CURSOR_V2_FEATURE)]),
+});
 export const HelloAckV2Schema = exact({
 	...helloAckProperties,
 	protocol: Type.Literal(MUTATION_PROTOCOL_VERSION),
 	capabilities: mutationCapabilities(),
 });
-export const HelloAckSchema = Type.Union([HelloAckV1Schema, HelloAckV2Schema]);
+export const HelloAckSchema = Type.Union([HelloAckV1Schema, HelloAckControllerV1Schema, HelloAckV2Schema]);
 export const RequestSchema = exact({
 	type: Type.Literal("request"),
 	id: uuid(),
@@ -116,12 +132,23 @@ export const DirectorTurnSchema = exact({
 });
 export const DIRECTOR_TRANSCRIPT_MAX_EVENTS = 10_000;
 export const DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE = 64;
-export const DirectorTranscriptRequestSchema = exact({
+export const DirectorTranscriptRequestV1Schema = exact({
 	type: Type.Literal("director_transcript_request"),
 	id: uuid(),
 	cursor: Type.Integer({ minimum: 0, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }),
 	page_size: Type.Integer({ minimum: 1, maximum: DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE }),
 });
+export const DirectorTranscriptRequestV2Schema = exact({
+	type: Type.Literal("director_transcript_request"),
+	id: uuid(),
+	cursor: Type.Integer({ minimum: 0, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }),
+	page_size: Type.Integer({ minimum: 1, maximum: DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE }),
+	snapshot_cursor: Type.Union([Type.Integer({ minimum: 0, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }), Type.Null()]),
+});
+export const DirectorTranscriptRequestSchema = Type.Union([
+	DirectorTranscriptRequestV1Schema,
+	DirectorTranscriptRequestV2Schema,
+]);
 const directorToolName = () =>
 	Type.Union([
 		Type.Literal("inspect_project"),
@@ -134,6 +161,25 @@ const directorEventProperties = {
 	sequence: Type.Integer({ minimum: 0 }),
 	at: Type.String({ pattern: ISO_8601_UTC }),
 };
+export const DIRECTOR_DELTA_MAX_BYTES = 4_096;
+export const DIRECTOR_UTTERANCE_MAX_BYTES = 16_384;
+export const DIRECTOR_DELTA_SEQUENCE_MAX = 1_000_000;
+export const DirectorTurnDeltaSchema = exact({
+	type: Type.Literal("director_turn_delta"),
+	id: uuid(),
+	segment_id: uuid(),
+	content_index: Type.Integer({ minimum: 0, maximum: 31 }),
+	delta_sequence: Type.Integer({ minimum: 0, maximum: DIRECTOR_DELTA_SEQUENCE_MAX }),
+	delta: Type.String({ minLength: 1, maxLength: DIRECTOR_DELTA_MAX_BYTES }),
+});
+export const DirectorAssistantUtteranceSchema = exact({
+	type: Type.Literal("director_assistant_utterance"),
+	...directorEventProperties,
+	segment_id: uuid(),
+	content_index: Type.Integer({ minimum: 0, maximum: 31 }),
+	through_delta_sequence: Type.Integer({ minimum: -1, maximum: DIRECTOR_DELTA_SEQUENCE_MAX }),
+	content: Type.String({ minLength: 1, maxLength: DIRECTOR_UTTERANCE_MAX_BYTES }),
+});
 export const DirectorTurnStartedSchema = exact({
 	type: Type.Literal("director_turn_started"),
 	...directorEventProperties,
@@ -173,19 +219,30 @@ export const DirectorTurnCancelledSchema = exact({
 });
 export const DirectorTurnEventSchema = Type.Union([
 	DirectorTurnStartedSchema,
+	DirectorAssistantUtteranceSchema,
 	DirectorToolCallStartedSchema,
 	DirectorToolCallFinishedSchema,
 	DirectorTurnCompletedSchema,
 	DirectorTurnFailedSchema,
 	DirectorTurnCancelledSchema,
 ]);
-export const DirectorTranscriptSchema = exact({
+export const DirectorTranscriptV1Schema = exact({
 	type: Type.Literal("director_transcript"),
 	id: uuid(),
 	session_id: uuid(),
 	events: Type.Array(DirectorTurnEventSchema, { maxItems: DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE }),
 	next_cursor: Type.Union([Type.Integer({ minimum: 1, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }), Type.Null()]),
 });
+export const DirectorTranscriptV2Schema = exact({
+	type: Type.Literal("director_transcript"),
+	schema_version: Type.Literal(2),
+	id: uuid(),
+	session_id: uuid(),
+	events: Type.Array(DirectorTurnEventSchema, { maxItems: DIRECTOR_TRANSCRIPT_MAX_PAGE_SIZE }),
+	next_cursor: Type.Union([Type.Integer({ minimum: 1, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }), Type.Null()]),
+	snapshot_cursor: Type.Integer({ minimum: 0, maximum: DIRECTOR_TRANSCRIPT_MAX_EVENTS }),
+});
+export const DirectorTranscriptSchema = Type.Union([DirectorTranscriptV1Schema, DirectorTranscriptV2Schema]);
 export const RollbackAckSchema = exact({
 	type: Type.Literal("rollback_ack"),
 	id: uuid(),
@@ -196,6 +253,135 @@ export const ShutdownSchema = exact({ type: Type.Literal("shutdown"), reason: Ty
 export const ShutdownAckSchema = exact({ type: Type.Literal("shutdown_ack") });
 export const PingSchema = exact({ type: Type.Literal("ping"), nonce: Type.String() });
 export const PongSchema = exact({ type: Type.Literal("pong"), nonce: Type.String() });
+const generation = () => Type.Integer({ minimum: 1, maximum: 2_147_483_647 });
+export const ControllerAuthSchema = exact({
+	type: Type.Literal("controller_auth"),
+	resume_token: Type.String({ pattern: BASE64URL_32 }),
+	launch_id: uuid(),
+});
+export const ControllerPeerAuthSchema = exact({
+	type: Type.Literal("controller_peer_auth"),
+	resume_token: Type.String({ pattern: BASE64URL_32 }),
+	launch_id: uuid(),
+	lineage_id: uuid(),
+	generation: generation(),
+	expires_in_ms: Type.Literal(300_000),
+});
+export const PublishBridgeDiscoverySlotSchema = exact({
+	type: Type.Literal("publish_bridge_discovery_slot"),
+	id: uuid(),
+});
+export const BridgeDiscoverySlotAckSchema = exact({
+	type: Type.Literal("bridge_discovery_slot_ack"),
+	id: uuid(),
+	generation: generation(),
+	expires_in_ms: Type.Literal(15_000),
+});
+export const PublishControllerPeerDiscoverySlotSchema = exact({
+	type: Type.Literal("publish_controller_peer_discovery_slot"),
+	id: uuid(),
+	lineage_id: uuid(),
+});
+export const ControllerPeerDiscoverySlotAckSchema = exact({
+	type: Type.Literal("controller_peer_discovery_slot_ack"),
+	id: uuid(),
+	lineage_id: uuid(),
+	generation: generation(),
+	expires_in_ms: Type.Literal(15_000),
+});
+export const RevokeControllerPeerSchema = exact({
+	type: Type.Literal("revoke_controller_peer"),
+	id: uuid(),
+	lineage_id: uuid(),
+});
+export const RevokeControllerPeerAckSchema = exact({
+	type: Type.Literal("revoke_controller_peer_ack"),
+	id: uuid(),
+	lineage_id: uuid(),
+	status: Type.Literal("revoked"),
+});
+export const IssueAttachTicketV1Schema = exact({
+	type: Type.Literal("issue_attach_ticket"),
+	role: Type.Literal("bridge"),
+});
+export const IssueAttachTicketV2Schema = exact({
+	type: Type.Literal("issue_attach_ticket"),
+	id: uuid(),
+	role: Type.Literal("bridge"),
+});
+export const IssueAttachTicketSchema = Type.Union([IssueAttachTicketV1Schema, IssueAttachTicketV2Schema]);
+export const AttachTicketSchema = exact({
+	type: Type.Literal("attach_ticket"),
+	id: uuid(),
+	role: Type.Literal("bridge"),
+	ticket: Type.String({ pattern: BASE64URL_32 }),
+	expires_in_ms: Type.Literal(15_000),
+	generation: generation(),
+});
+export const BridgeTransactionPreparedSchema = exact({
+	type: Type.Literal("bridge_transaction_prepared"),
+	id: uuid(),
+	transaction_id: uuid(),
+	operation: Type.Union([Type.Literal("stage_scene"), Type.Literal("apply_camera_plan")]),
+	project_id: uuid(),
+	base_revision_id: hash(),
+	base_scene_hash: hash(),
+	candidate_revision_id: hash(),
+	candidate_scene_hash: hash(),
+	base_backup_sha256: hash(),
+	canonical_blend_sha256: hash(),
+});
+export const BridgeTransactionAckSchema = exact({
+	type: Type.Literal("bridge_transaction_ack"),
+	id: uuid(),
+	transaction_id: uuid(),
+	status: Type.Literal("committed"),
+	resulting_revision_id: hash(),
+});
+export const BridgeTransactionAcknowledgedSchema = exact({
+	type: Type.Literal("bridge_transaction_acknowledged"),
+	id: uuid(),
+	transaction_id: uuid(),
+});
+export const BridgeTransactionReconcileSchema = exact({
+	type: Type.Literal("bridge_transaction_reconcile"),
+	id: uuid(),
+	project_id: uuid(),
+	transaction_id: uuid(),
+	marker_phase: Type.Union([
+		Type.Literal("prepared"),
+		Type.Literal("candidate_saved"),
+		Type.Literal("manifest_committed"),
+		Type.Literal("acknowledged"),
+		Type.Literal("rollback_saved"),
+	]),
+});
+export const BridgeTransactionStatusSchema = exact({
+	type: Type.Literal("bridge_transaction_status"),
+	id: uuid(),
+	transaction_id: uuid(),
+	status: Type.Union([
+		Type.Literal("base_authoritative"),
+		Type.Literal("candidate_authoritative"),
+		Type.Literal("unknown"),
+	]),
+	revision_id: hash(),
+});
+const bridgeTransactionError = <Code extends string, Message extends string>(code: Code, message: Message) =>
+	exact({
+		type: Type.Literal("bridge_transaction_error"),
+		id: uuid(),
+		transaction_id: uuid(),
+		code: Type.Literal(code),
+		message: Type.Literal(message),
+		retryable: Type.Literal(false),
+	});
+export const BridgeTransactionErrorSchema = Type.Union([
+	bridgeTransactionError("TRANSACTION_CONFLICT", "transaction id was reused with different content"),
+	bridgeTransactionError("TRANSACTION_NOT_FOUND", "transaction is unavailable"),
+	bridgeTransactionError("TRANSACTION_EVIDENCE_INVALID", "transaction recovery evidence is invalid"),
+	bridgeTransactionError("TRANSACTION_STATE_INVALID", "transaction phase is invalid"),
+]);
 export const BridgeRequestSchema = exact({
 	type: Type.Literal("bridge_request"),
 	id: uuid(),
@@ -273,7 +459,13 @@ export const BridgeCancelAckSchema = exact({
 	status: Type.Union([Type.Literal("accepted"), Type.Literal("already_terminal"), Type.Literal("unknown")]),
 });
 
-export const DaemonBridgeMessageSchema = Type.Union([BridgeRequestSchema, BridgeCancelSchema]);
+export const DaemonBridgeMessageSchema = Type.Union([
+	BridgeRequestSchema,
+	BridgeCancelSchema,
+	BridgeTransactionAckSchema,
+	BridgeTransactionStatusSchema,
+	BridgeTransactionErrorSchema,
+]);
 export const AddonBridgeMessageSchema = Type.Union([
 	BridgeProgressSchema,
 	BridgeArtifactBeginSchema,
@@ -282,6 +474,9 @@ export const AddonBridgeMessageSchema = Type.Union([
 	BridgeResultSchema,
 	BridgeErrorSchema,
 	BridgeCancelAckSchema,
+	BridgeTransactionPreparedSchema,
+	BridgeTransactionAcknowledgedSchema,
+	BridgeTransactionReconcileSchema,
 ]);
 
 export const ClientMessageSchema = Type.Union([
@@ -289,6 +484,10 @@ export const ClientMessageSchema = Type.Union([
 	RequestSchema,
 	DirectorTurnSchema,
 	DirectorTranscriptRequestSchema,
+	PublishBridgeDiscoverySlotSchema,
+	PublishControllerPeerDiscoverySlotSchema,
+	RevokeControllerPeerSchema,
+	IssueAttachTicketSchema,
 	CancelSchema,
 	RollbackAckSchema,
 	ShutdownSchema,
@@ -302,6 +501,13 @@ export const ServerMessageSchema = Type.Union([
 	CancelAckSchema,
 	ShutdownAckSchema,
 	PongSchema,
+	DirectorTurnDeltaSchema,
+	ControllerAuthSchema,
+	ControllerPeerAuthSchema,
+	BridgeDiscoverySlotAckSchema,
+	ControllerPeerDiscoverySlotAckSchema,
+	RevokeControllerPeerAckSchema,
+	AttachTicketSchema,
 	DirectorTurnEventSchema,
 	DirectorTranscriptSchema,
 ]);
@@ -318,6 +524,22 @@ export type DirectorTranscriptRequest = Static<typeof DirectorTranscriptRequestS
 export type DirectorToolName = Static<ReturnType<typeof directorToolName>>;
 export type DirectorTurnEvent = Static<typeof DirectorTurnEventSchema>;
 export type DirectorTranscript = Static<typeof DirectorTranscriptSchema>;
+export type DirectorTurnDelta = Static<typeof DirectorTurnDeltaSchema>;
+export type DirectorAssistantUtterance = Static<typeof DirectorAssistantUtteranceSchema>;
+export type ControllerAuth = Static<typeof ControllerAuthSchema>;
+export type ControllerPeerAuth = Static<typeof ControllerPeerAuthSchema>;
+export type PublishBridgeDiscoverySlot = Static<typeof PublishBridgeDiscoverySlotSchema>;
+export type BridgeDiscoverySlotAck = Static<typeof BridgeDiscoverySlotAckSchema>;
+export type PublishControllerPeerDiscoverySlot = Static<typeof PublishControllerPeerDiscoverySlotSchema>;
+export type ControllerPeerDiscoverySlotAck = Static<typeof ControllerPeerDiscoverySlotAckSchema>;
+export type RevokeControllerPeer = Static<typeof RevokeControllerPeerSchema>;
+export type RevokeControllerPeerAck = Static<typeof RevokeControllerPeerAckSchema>;
+export type BridgeTransactionPrepared = Static<typeof BridgeTransactionPreparedSchema>;
+export type BridgeTransactionAck = Static<typeof BridgeTransactionAckSchema>;
+export type BridgeTransactionAcknowledged = Static<typeof BridgeTransactionAcknowledgedSchema>;
+export type BridgeTransactionReconcile = Static<typeof BridgeTransactionReconcileSchema>;
+export type BridgeTransactionStatus = Static<typeof BridgeTransactionStatusSchema>;
+export type BridgeTransactionError = Static<typeof BridgeTransactionErrorSchema>;
 export type BridgeRequest = Static<typeof BridgeRequestSchema>;
 export type BridgeProgress = Static<typeof BridgeProgressSchema>;
 export type BridgeArtifactBegin = Static<typeof BridgeArtifactBeginSchema>;
@@ -336,10 +558,51 @@ export const parseHelloAck = (input: unknown): HelloAck => Parse(HelloAckSchema,
 export const parseRequest = (input: unknown): Request => Parse(RequestSchema, input);
 export const parseCancel = (input: unknown): Cancel => Parse(CancelSchema, input);
 export const parseDirectorTurn = (input: unknown): DirectorTurn => Parse(DirectorTurnSchema, input);
-export const parseDirectorTranscriptRequest = (input: unknown): DirectorTranscriptRequest =>
-	Parse(DirectorTranscriptRequestSchema, input);
-export const parseDirectorTurnEvent = (input: unknown): DirectorTurnEvent => Parse(DirectorTurnEventSchema, input);
-export const parseDirectorTranscript = (input: unknown): DirectorTranscript => Parse(DirectorTranscriptSchema, input);
+export function parseDirectorTranscriptRequest(input: unknown): DirectorTranscriptRequest {
+	const request = Parse(DirectorTranscriptRequestSchema, input);
+	if ("snapshot_cursor" in request) {
+		if (request.snapshot_cursor === null && request.cursor !== 0) {
+			throw new Error("the first transcript snapshot request must start at cursor zero");
+		}
+		if (request.snapshot_cursor !== null && request.cursor > request.snapshot_cursor) {
+			throw new Error("transcript cursor must not exceed its snapshot cursor");
+		}
+	}
+	return request;
+}
+
+function utf8ByteLength(value: string): number {
+	return new TextEncoder().encode(value).byteLength;
+}
+
+export function parseDirectorTurnDelta(input: unknown): DirectorTurnDelta {
+	const event = Parse(DirectorTurnDeltaSchema, input);
+	if (utf8ByteLength(event.delta) > DIRECTOR_DELTA_MAX_BYTES) {
+		throw new Error(`director delta exceeds ${DIRECTOR_DELTA_MAX_BYTES} UTF-8 bytes`);
+	}
+	return event;
+}
+
+export function parseDirectorTurnEvent(input: unknown): DirectorTurnEvent {
+	const event = Parse(DirectorTurnEventSchema, input);
+	if (event.type === "director_assistant_utterance" && utf8ByteLength(event.content) > DIRECTOR_UTTERANCE_MAX_BYTES) {
+		throw new Error(`director utterance exceeds ${DIRECTOR_UTTERANCE_MAX_BYTES} UTF-8 bytes`);
+	}
+	return event;
+}
+
+export function parseDirectorTranscript(input: unknown): DirectorTranscript {
+	const transcript = Parse(DirectorTranscriptSchema, input);
+	for (const event of transcript.events) parseDirectorTurnEvent(event);
+	if (
+		"snapshot_cursor" in transcript &&
+		transcript.next_cursor !== null &&
+		transcript.next_cursor > transcript.snapshot_cursor
+	) {
+		throw new Error("next transcript cursor must not exceed its snapshot cursor");
+	}
+	return transcript;
+}
 export function parseClientMessage(input: unknown): ClientMessage {
 	const type = typeof input === "object" && input !== null ? (input as { type?: unknown }).type : undefined;
 	switch (type) {
@@ -350,7 +613,15 @@ export function parseClientMessage(input: unknown): ClientMessage {
 		case "director_turn":
 			return Parse(DirectorTurnSchema, input);
 		case "director_transcript_request":
-			return Parse(DirectorTranscriptRequestSchema, input);
+			return parseDirectorTranscriptRequest(input);
+		case "publish_bridge_discovery_slot":
+			return Parse(PublishBridgeDiscoverySlotSchema, input);
+		case "publish_controller_peer_discovery_slot":
+			return Parse(PublishControllerPeerDiscoverySlotSchema, input);
+		case "revoke_controller_peer":
+			return Parse(RevokeControllerPeerSchema, input);
+		case "issue_attach_ticket":
+			return Parse(IssueAttachTicketSchema, input);
 		case "cancel":
 			return Parse(CancelSchema, input);
 		case "rollback_ack":
@@ -381,15 +652,30 @@ export function parseServerMessage(input: unknown): ServerMessage {
 			return Parse(ShutdownAckSchema, input);
 		case "pong":
 			return Parse(PongSchema, input);
+		case "director_turn_delta":
+			return parseDirectorTurnDelta(input);
+		case "controller_auth":
+			return Parse(ControllerAuthSchema, input);
+		case "controller_peer_auth":
+			return Parse(ControllerPeerAuthSchema, input);
+		case "bridge_discovery_slot_ack":
+			return Parse(BridgeDiscoverySlotAckSchema, input);
+		case "controller_peer_discovery_slot_ack":
+			return Parse(ControllerPeerDiscoverySlotAckSchema, input);
+		case "revoke_controller_peer_ack":
+			return Parse(RevokeControllerPeerAckSchema, input);
+		case "attach_ticket":
+			return Parse(AttachTicketSchema, input);
 		case "director_turn_started":
+		case "director_assistant_utterance":
 		case "director_tool_call_started":
 		case "director_tool_call_finished":
 		case "director_turn_completed":
 		case "director_turn_failed":
 		case "director_turn_cancelled":
-			return Parse(DirectorTurnEventSchema, input);
+			return parseDirectorTurnEvent(input);
 		case "director_transcript":
-			return Parse(DirectorTranscriptSchema, input);
+			return parseDirectorTranscript(input);
 		default:
 			throw new Error(`unknown server message type: ${String(type)}`);
 	}
@@ -400,12 +686,14 @@ export class MutationBridgeSession {
 	readonly protocol = MUTATION_PROTOCOL_VERSION;
 	readonly capability = MUTATION_BRIDGE_CAPABILITY;
 	readonly supportsStageScene: boolean;
+	readonly supportsTransactionCommits: boolean;
 	private readonly openBridgeByRequest = new Map<string, string>();
 	private readonly openRequestByBridge = new Map<string, string>();
 	private readonly terminalBridgeIds = new Set<string>();
 
-	constructor(supportsStageScene = false) {
+	constructor(supportsStageScene = false, supportsTransactionCommits = false) {
 		this.supportsStageScene = supportsStageScene;
+		this.supportsTransactionCommits = supportsTransactionCommits;
 	}
 
 	registerRequest(message: BridgeRequest, activeRequestIds: ReadonlySet<string>): void {
@@ -455,9 +743,12 @@ export function negotiateMutationBridge(helloInput: unknown, helloAckInput: unkn
 	if (helloAck.capabilities.some((capability) => !helloCapabilities.has(capability))) {
 		throw new Error("hello_ack capability was not offered by hello");
 	}
+	const helloAckCapabilities = helloAck.capabilities as readonly string[];
 	const session = new MutationBridgeSession(
 		helloCapabilities.has(SCENE_MANIFEST_V3_CAPABILITY) &&
-			(helloAck.capabilities as readonly string[]).includes(SCENE_MANIFEST_V3_CAPABILITY),
+			helloAckCapabilities.includes(SCENE_MANIFEST_V3_CAPABILITY),
+		helloCapabilities.has(TRANSACTION_COMMIT_CAPABILITY) &&
+			helloAckCapabilities.includes(TRANSACTION_COMMIT_CAPABILITY),
 	);
 	negotiatedMutationSessions.add(session);
 	Object.freeze(session);
@@ -467,6 +758,11 @@ export function negotiateMutationBridge(helloInput: unknown, helloAckInput: unkn
 function assertMutationSession(session: MutationBridgeSession): void {
 	if (!(session instanceof MutationBridgeSession) || !negotiatedMutationSessions.has(session)) {
 		throw new Error("mutation bridge requires a negotiated protocol v2 session");
+	}
+}
+function assertTransactionCapability(session: MutationBridgeSession): void {
+	if (!session.supportsTransactionCommits) {
+		throw new Error(`bridge transaction requires negotiated ${TRANSACTION_COMMIT_CAPABILITY} capability`);
 	}
 }
 
@@ -488,6 +784,15 @@ export function parseDaemonBridgeMessage(
 			session.assertOpen(cancel.id, cancel.request_id);
 			return cancel;
 		}
+		case "bridge_transaction_ack":
+			assertTransactionCapability(session);
+			return Parse(BridgeTransactionAckSchema, input);
+		case "bridge_transaction_status":
+			assertTransactionCapability(session);
+			return Parse(BridgeTransactionStatusSchema, input);
+		case "bridge_transaction_error":
+			assertTransactionCapability(session);
+			return Parse(BridgeTransactionErrorSchema, input);
 		default:
 			throw new Error(`unknown daemon bridge message type: ${String(type)}`);
 	}
@@ -538,6 +843,15 @@ export function parseAddonBridgeMessage(input: unknown, session: MutationBridgeS
 			session.complete(cancelAck.id, cancelAck.request_id);
 			return cancelAck;
 		}
+		case "bridge_transaction_prepared":
+			assertTransactionCapability(session);
+			return Parse(BridgeTransactionPreparedSchema, input);
+		case "bridge_transaction_acknowledged":
+			assertTransactionCapability(session);
+			return Parse(BridgeTransactionAcknowledgedSchema, input);
+		case "bridge_transaction_reconcile":
+			assertTransactionCapability(session);
+			return Parse(BridgeTransactionReconcileSchema, input);
 		default:
 			throw new Error(`unknown add-on bridge message type: ${String(type)}`);
 	}
