@@ -186,7 +186,7 @@ export function validateSnapshot(snapshot: SceneSnapshot): void {
 	for (const object of snapshot.objects) {
 		if (objects.has(object.name)) throw new Error(`duplicate object name: ${object.name}`);
 		objects.set(object.name, object);
-		if (object.entityId !== null) {
+		if (object.entityId !== null && object.entityId !== undefined) {
 			if (objectsByEntityId.has(object.entityId)) throw new Error(`duplicate object entityId: ${object.entityId}`);
 			objectsByEntityId.set(object.entityId, object);
 		}
