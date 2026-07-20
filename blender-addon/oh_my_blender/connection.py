@@ -770,15 +770,12 @@ class Connection:
         current_scene_hash: str,
     ) -> dict:
         from .manifest import (
-            extract_scene_manifest_v2,
-            extract_scene_manifest_v3,
             extract_scene_snapshot,
+            resolve_manifest_for_expected_hash,
         )
 
-        live_manifest = extract_scene_manifest_v2()
-        if live_manifest["sceneHash"] != current_scene_hash:
-            live_manifest = extract_scene_manifest_v3()
-        if live_manifest["sceneHash"] != current_scene_hash:
+        live_manifest = resolve_manifest_for_expected_hash(current_scene_hash)
+        if live_manifest is None:
             raise StaleBridgeBase(
                 "live Blender scene does not match the durable project substrate"
             )
@@ -2323,12 +2320,12 @@ def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
 
 
 def _live_scene_hash(current_scene_hash: str) -> str:
-    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+    from .manifest import resolve_manifest_for_expected_hash
 
-    v2_hash = extract_scene_manifest_v2()["sceneHash"]
-    if v2_hash == current_scene_hash:
-        return v2_hash
-    return extract_scene_manifest_v3()["sceneHash"]
+    manifest = resolve_manifest_for_expected_hash(current_scene_hash)
+    return manifest["sceneHash"] if manifest is not None else ""
+
+
 def _reconcile_connected_transaction(
     bridge: Connection,
     cwd: str | PathLike[str],
@@ -2346,7 +2343,7 @@ def _reconcile_connected_transaction(
         raise DurableCommitReconciliationRequired(
             "Blender is required to reconcile a prepared transaction"
         )
-    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+    from .manifest import resolve_manifest_for_expected_hash
     from .prepared_transaction import PreparedTransactionError, read_marker
 
     canonical = Path(bpy.data.filepath)
@@ -2365,13 +2362,13 @@ def _reconcile_connected_transaction(
         return project_id
 
     def read_scene_hash(_path: Path) -> str:
-        v2_hash = extract_scene_manifest_v2()["sceneHash"]
-        if v2_hash in (marker.base_scene_hash, marker.candidate_scene_hash):
-            return v2_hash
-        v3_hash = extract_scene_manifest_v3()["sceneHash"]
-        if v3_hash in (marker.base_scene_hash, marker.candidate_scene_hash):
-            return v3_hash
-        return v3_hash
+        for expected_hash in (marker.base_scene_hash, marker.candidate_scene_hash):
+            manifest = resolve_manifest_for_expected_hash(expected_hash)
+            if manifest is not None:
+                return manifest["sceneHash"]
+        raise PreparedTransactionError(
+            "blend scene hash does not match the prepared transaction"
+        )
 
     bridge.reconcile_prepared_transaction(
         canonical_blend_path=canonical,

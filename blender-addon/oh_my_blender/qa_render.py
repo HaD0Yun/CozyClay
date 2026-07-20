@@ -280,12 +280,10 @@ def _render_batch(
 
 
 def _live_scene_hash(current_scene_hash: str) -> str:
-    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+    from .manifest import resolve_manifest_for_expected_hash
 
-    v2_hash = extract_scene_manifest_v2()["sceneHash"]
-    if v2_hash == current_scene_hash:
-        return v2_hash
-    return extract_scene_manifest_v3()["sceneHash"]
+    manifest = resolve_manifest_for_expected_hash(current_scene_hash)
+    return manifest["sceneHash"] if manifest is not None else ""
 
 
 def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:

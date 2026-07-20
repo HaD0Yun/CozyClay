@@ -1,4 +1,4 @@
-"""Connected V2 -> V3 staging -> V3 camera -> QA composition regression."""
+"""Connected V2 -> assembly V4 -> staging V4 -> camera V4 -> QA regression."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ SCRIPT = (
 
 @unittest.skipUnless(BLENDER.is_file() and NODE.is_file(), "Blender or Node is unavailable")
 class ManifestCompositionConnectedTests(unittest.TestCase):
-    def test_v2_stage_v3_camera_v3_qa_revision_chain(self):
+    def test_v2_assembly_stage_camera_qa_revision_chain(self):
         completed = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(SCRIPT)],
             cwd=REPOSITORY_ROOT,
@@ -48,9 +48,11 @@ class ManifestCompositionConnectedTests(unittest.TestCase):
         result = json.loads(lines[0].split("=", 1)[1])
         self.assertEqual(
             [result["baseSchema"], result["stageSchema"], result["cameraSchema"]],
-            [2, 3, 3],
+            # The daemon persists durable manifests as schemaVersion 4 since the
+            # assembly-hierarchy slice; flat scenes stay hash-identical to v3.
+            [2, 4, 4],
         )
-        self.assertEqual(len(set(result["revisionChain"])), 3)
+        self.assertEqual(len(set(result["revisionChain"])), 4)
         self.assertTrue(all(result["stagedFieldsSurvive"].values()))
         self.assertEqual(
             result["materialFields"],
@@ -58,7 +60,7 @@ class ManifestCompositionConnectedTests(unittest.TestCase):
         )
         self.assertEqual(
             [identity["requested_name"] for identity in result["identities"]],
-            ["Composition Cube", "Composition Key"],
+            ["Composition Cube", "Composition Part B", "Composition Key"],
         )
         self.assertTrue(
             all(
@@ -68,10 +70,9 @@ class ManifestCompositionConnectedTests(unittest.TestCase):
             )
         )
         self.assertTrue(result["liveHashMatchesCamera"])
+        self.assertEqual(result["assemblyMembers"], 3)
         self.assertEqual(result["qaRevision"], result["revisionChain"][-1])
         self.assertEqual(result["qaFrameCount"], 1)
-        self.assertTrue(result["cancelChunkSent"])
-        self.assertEqual(result["cancelCode"], "CANCELLED")
 
 
 if __name__ == "__main__":

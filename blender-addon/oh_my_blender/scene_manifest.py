@@ -1,4 +1,4 @@
-"""Blender-independent assembly and validation for SceneManifestV2/V3."""
+"""Blender-independent assembly and validation for SceneManifestV2/V3/V4."""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ _MANIFEST_V2_KEYS = {
     "selectedEntityIds", "cameraAnimations",
 }
 _MANIFEST_V3_KEYS = _MANIFEST_V2_KEYS | {"stagePrimitives", "stageMaterials"}
+_MANIFEST_V4_KEYS = _MANIFEST_V3_KEYS | {"assemblies"}
+_ASSEMBLY_KEYS = {"assemblyId", "name", "rootEntityId", "memberIds"}
 _SCENE_KEYS = {"name", "frameStart", "frameEnd", "fpsNumerator", "fpsDenominator", "activeCameraId"}
 _RENDER_KEYS = {"resolutionX", "resolutionY", "resolutionPercentage"}
 _OBJECT_KEYS = {"entityId", "name", "type", "parentId", "visible", "location", "rotationQuaternion", "scale"}
@@ -137,11 +139,15 @@ def _assert_sorted(values: list, key, label: str) -> None:
 
 def _validate_manifest(manifest: dict) -> None:
     schema_version = manifest.get("schemaVersion")
-    if schema_version not in (2, 3):
-        _fail("schemaVersion", "must equal 2 or 3")
+    if schema_version not in (2, 3, 4):
+        _fail("schemaVersion", "must equal 2, 3, or 4")
     _exact_keys(
         manifest,
-        _MANIFEST_V3_KEYS if schema_version == 3 else _MANIFEST_V2_KEYS,
+        (
+            _MANIFEST_V4_KEYS if schema_version == 4
+            else _MANIFEST_V3_KEYS if schema_version == 3
+            else _MANIFEST_V2_KEYS
+        ),
         "manifest",
     )
     _uuid(manifest.get("projectId"), "projectId")
@@ -170,8 +176,10 @@ def _validate_manifest(manifest: dict) -> None:
         "objects", "bones", "cameras", "lights", "markers",
         "selectedEntityIds", "cameraAnimations",
     ]
-    if schema_version == 3:
+    if schema_version >= 3:
         array_keys.extend(("stagePrimitives", "stageMaterials"))
+    if schema_version == 4:
+        array_keys.append("assemblies")
     for key in array_keys:
         value = manifest.get(key)
         if not isinstance(value, list):
@@ -256,7 +264,7 @@ def _validate_manifest(manifest: dict) -> None:
     light_object_ids: set[str] = set()
     for index, item in enumerate(arrays["lights"]):
         path = f"lights[{index}]"
-        _exact_keys(item, _LIGHT_V3_KEYS if schema_version == 3 else _LIGHT_KEYS, path)
+        _exact_keys(item, _LIGHT_V3_KEYS if schema_version >= 3 else _LIGHT_KEYS, path)
         _uuid(item.get("objectId"), f"{path}.objectId")
         if item["objectId"] in light_object_ids:
             _fail("lights", "must contain exactly one entry per light object")
@@ -276,7 +284,7 @@ def _validate_manifest(manifest: dict) -> None:
                 _number(value, f"{path}.{field}")
             elif value is not None:
                 _fail(f"{path}.{field}", "must be null for non-SPOT lights")
-        if schema_version == 3:
+        if schema_version >= 3:
             area_size = item.get("areaSize")
             if item["lightType"] == "AREA":
                 _number(area_size, f"{path}.areaSize")
@@ -314,7 +322,7 @@ def _validate_manifest(manifest: dict) -> None:
         _fail("selectedEntityIds", "must not contain duplicates")
     _assert_sorted(arrays["selectedEntityIds"], lambda value: value, "selectedEntityIds")
 
-    if schema_version == 3:
+    if schema_version >= 3:
         for key, item_keys in (
             ("stagePrimitives", _STAGE_PRIMITIVE_KEYS),
             ("stageMaterials", _STAGE_MATERIAL_KEYS),
@@ -357,6 +365,40 @@ def _validate_manifest(manifest: dict) -> None:
                                 "components must be between 0 and 1",
                             )
             _assert_sorted(arrays[key], lambda item: item["objectId"], key)
+    if schema_version == 4:
+        assembly_ids: set[str] = set()
+        member_ids: set[str] = set()
+        for index, item in enumerate(arrays["assemblies"]):
+            path = f"assemblies[{index}]"
+            _exact_keys(item, _ASSEMBLY_KEYS, path)
+            _uuid(item.get("assemblyId"), f"{path}.assemblyId")
+            _string(item.get("name"), f"{path}.name", 1, 256)
+            _uuid(item.get("rootEntityId"), f"{path}.rootEntityId")
+            if item["assemblyId"] in assembly_ids:
+                _fail("assemblies", "must not contain duplicate assemblyId values")
+            assembly_ids.add(item["assemblyId"])
+            root = objects_by_id.get(item["rootEntityId"])
+            if root is None or root["type"] != "EMPTY":
+                raise INVALID_MANIFEST_REFERENCE(
+                    f"{path}.rootEntityId must reference an EMPTY object"
+                )
+            if not isinstance(item.get("memberIds"), list):
+                _fail(f"{path}.memberIds", "must be an array")
+            if item["rootEntityId"] not in item["memberIds"]:
+                raise INVALID_MANIFEST_REFERENCE(
+                    f"{path}.rootEntityId must be included in memberIds"
+                )
+            for member_index, member_id in enumerate(item["memberIds"]):
+                _uuid(member_id, f"{path}.memberIds[{member_index}]")
+                if member_id not in objects_by_id:
+                    raise INVALID_MANIFEST_REFERENCE(
+                        f"{path}.memberIds[{member_index}] references no object"
+                    )
+                if member_id in member_ids:
+                    _fail("assemblies", "members must belong to at most one assembly")
+                member_ids.add(member_id)
+            _assert_sorted(item["memberIds"], lambda value: value, f"{path}.memberIds")
+        _assert_sorted(arrays["assemblies"], lambda item: item["assemblyId"], "assemblies")
 
     animation_targets: set[tuple[str, str]] = set()
     for animation_index, animation in enumerate(arrays["cameraAnimations"]):
@@ -482,13 +524,38 @@ def build_scene_manifest_v3(
     _validate_manifest(manifest)
     return manifest
 
+
+def build_scene_manifest_v4(*, assemblies: list[dict], **parts) -> dict:
+    """Build the assembly-aware additive scene manifest."""
+    manifest = build_scene_manifest_v3(**parts)
+    manifest["schemaVersion"] = 4
+    manifest["assemblies"] = sorted(
+        copy.deepcopy(assemblies), key=lambda item: item["assemblyId"]
+    )
+    _validate_manifest(manifest)
+    return manifest
+
 def _scene_hash_preimage(manifest: dict) -> dict:
     """Return durable, render-semantic state used to derive sceneHash."""
-    return {
+    preimage = {
         key: value
         for key, value in manifest.items()
         if key not in ("revisionId", "sceneHash", "selectedEntityIds")
     }
+    if manifest.get("schemaVersion") == 4:
+        preimage = copy.deepcopy(preimage)
+        # Mirror director-core exactly: parentId has been part of the hash
+        # preimage since V1 and is never stripped. Hierarchy-free V4
+        # normalizes to the V3 preimage; any parent edge or assembly keeps
+        # the V4 preimage with the assemblies key present.
+        has_hierarchy = bool(preimage["assemblies"]) or any(
+            scene_object.get("parentId") is not None
+            for scene_object in preimage["objects"]
+        )
+        if not has_hierarchy:
+            preimage.pop("assemblies")
+            preimage["schemaVersion"] = 3
+    return preimage
 
 
 def finalize_scene_manifest(manifest_without_hashes: dict) -> dict:

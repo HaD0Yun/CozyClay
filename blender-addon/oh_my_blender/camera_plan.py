@@ -694,14 +694,11 @@ def _remove_unused_actions(actions: tuple[object | None, object | None]) -> None
 
 
 def _extract_live_scene_manifest(current_scene_hash: str) -> dict:
-    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+    from .manifest import resolve_manifest_for_expected_hash
 
-    v2 = extract_scene_manifest_v2()
-    if v2["sceneHash"] == current_scene_hash:
-        return v2
-    v3 = extract_scene_manifest_v3()
-    if v3["sceneHash"] == current_scene_hash:
-        return v3
+    manifest = resolve_manifest_for_expected_hash(current_scene_hash)
+    if manifest is not None:
+        return manifest
     raise STALE_BASE(
         "live main-thread manifest hash differs from the durable expected base"
     )
@@ -772,18 +769,31 @@ def apply_camera_plan_transaction(
         bpy.context.view_layer.update()
         connection.ensure_mutation_connection("before_verify")
 
-        if live_manifest["schemaVersion"] == 3:
-            from .manifest import extract_scene_manifest_v3
-            from .scene_manifest import finalize_scene_manifest_child
+        from .manifest import (
+            extract_scene_manifest_v2,
+            extract_scene_manifest_v3,
+            extract_scene_manifest_v4,
+        )
+        from .scene_manifest import finalize_scene_manifest_child
 
+        extracted_v4 = extract_scene_manifest_v4()
+        uses_v4 = (
+            any(item["parentId"] is not None for item in extracted_v4["objects"])
+            or bool(extracted_v4["assemblies"])
+        )
+        if uses_v4:
+            manifest = finalize_scene_manifest_child(
+                extracted_v4,
+                plan["expected_revision_id"],
+                plan,
+            )
+        elif live_manifest["schemaVersion"] == 3:
             manifest = finalize_scene_manifest_child(
                 extract_scene_manifest_v3(),
                 plan["expected_revision_id"],
                 plan,
             )
         else:
-            from .manifest import extract_scene_manifest_v2
-
             manifest = extract_scene_manifest_v2()
         result = {
             "expected_revision_id": plan["expected_revision_id"],

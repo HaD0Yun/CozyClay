@@ -6,6 +6,7 @@ import math
 import re
 import time
 import unicodedata
+import uuid
 from collections.abc import Callable
 
 try:  # Blender is intentionally absent from host-side unit tests.
@@ -20,7 +21,13 @@ _HASH = re.compile(r"^[0-9a-f]{64}$")
 _PLAN_KEYS = {"schema_version", "expected_revision_id", "operations"}
 _OPERATION_KEYS = {
     "add_primitive": {
-        "op", "entity_id", "primitive_type", "name", "location", "rotation", "scale"
+        "op", "entity_id", "primitive_type", "name", "location", "rotation", "scale",
+        "parent_id",
+    },
+    "create_assembly": {"op", "name"},
+    "set_parent": {"op", "entity_id", "parent_id"},
+    "transform_assembly": {
+        "op", "assembly_id", "translation", "rotation_euler", "scale",
     },
     "set_material_color": {"op", "entity_id", "color"},
     "upsert_area_light": {
@@ -62,6 +69,14 @@ class STAGE_SCENE_TARGET_TYPE_INVALID(StageSceneError):
 
 class STAGE_SCENE_SHARED_DATABLOCK(StageSceneError):
     code = "STAGE_SCENE_SHARED_DATABLOCK"
+class STAGE_SCENE_PARENT_CYCLE(StageSceneError):
+    code = "STAGE_SCENE_PARENT_CYCLE"
+
+
+class STAGE_SCENE_ASSEMBLY_NOT_FOUND(StageSceneError):
+    code = "STAGE_SCENE_ASSEMBLY_NOT_FOUND"
+
+
 
 
 class STAGE_SCENE_CANCELLED(StageSceneError):
@@ -144,8 +159,51 @@ def parse_stage_scene_plan(value: object) -> dict:
         expected_keys = _OPERATION_KEYS.get(operation_kind)
         if expected_keys is None:
             _invalid(f"operations[{index}].op is unsupported")
+        raw_operation = dict(raw_operation)
+        if operation_kind == "add_primitive" and "parent_id" not in raw_operation:
+            expected_keys = expected_keys - {"parent_id"}
+        elif operation_kind == "transform_assembly":
+            required = {"op", "assembly_id"}
+            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
+                _invalid(
+                    f"operations[{index}] must contain {sorted(required)} "
+                    f"and only optional transform fields"
+                )
+            expected_keys = set(raw_operation)
+            transform_fields = [
+                field
+                for field in ("translation", "rotation_euler", "scale")
+                if field in raw_operation
+            ]
+            if not transform_fields:
+                _invalid(
+                    f"operations[{index}] transform_assembly must include at least "
+                    "one transform field"
+                )
+            for field in transform_fields:
+                if raw_operation[field] is None:
+                    _invalid(
+                        f"operations[{index}].{field} must be a vector, not null"
+                    )
         operation = _exact(raw_operation, expected_keys, f"operations[{index}]")
+        if operation_kind == "create_assembly":
+            _name(operation.get("name"), f"operations[{index}].name")
+            continue
+        if operation_kind == "transform_assembly":
+            _uuid(operation.get("assembly_id"), f"operations[{index}].assembly_id")
+            for field in ("translation", "rotation_euler", "scale"):
+                if field in operation:
+                    _vector(
+                        operation[field], 3, f"operations[{index}].{field}",
+                        positive=field == "scale",
+                    )
+            continue
         entity_id = _uuid(operation.get("entity_id"), f"operations[{index}].entity_id")
+        if operation_kind in ("add_primitive", "set_parent"):
+            if operation.get("parent_id") is not None:
+                _uuid(operation["parent_id"], f"operations[{index}].parent_id")
+            if operation.get("parent_id") == entity_id:
+                _invalid(f"operations[{index}] cannot parent an entity to itself")
         if operation_kind == "add_primitive":
             if operation.get("primitive_type") not in _PRIMITIVES:
                 _invalid(f"operations[{index}].primitive_type is unsupported")
@@ -272,6 +330,9 @@ class _StageTransaction:
             "rotation_mode": scene_object.rotation_mode,
             "rotation_euler": tuple(scene_object.rotation_euler),
             "scale": tuple(scene_object.scale),
+            "parent": scene_object.parent,
+            "matrix_parent_inverse": scene_object.matrix_parent_inverse.copy(),
+            "matrix_world": scene_object.matrix_world.copy(),
         }
         if scene_object.type == "LIGHT":
             state["light"] = {
@@ -328,6 +389,9 @@ class _StageTransaction:
             scene_object.rotation_mode = state["rotation_mode"]
             scene_object.rotation_euler = state["rotation_euler"]
             scene_object.scale = state["scale"]
+            scene_object.parent = state["parent"]
+            scene_object.matrix_parent_inverse = state["matrix_parent_inverse"]
+            scene_object.matrix_world = state["matrix_world"]
             if "light" in state:
                 light = state["light"]
                 scene_object.data.type = light["type"]
@@ -399,7 +463,75 @@ def _create_primitive(operation: dict, transaction: _StageTransaction, project_i
     scene_object.scale = operation["scale"]
     transaction.scene.collection.objects.link(scene_object)
     transaction.created_objects.append(scene_object)
+    if operation.get("parent_id") is not None:
+        parent = _require_owned_entity(operation["parent_id"], project_id)
+        scene_object.parent = parent
+        scene_object.matrix_parent_inverse = parent.matrix_world.inverted()
     return scene_object
+
+
+def _create_assembly(operation: dict, transaction: _StageTransaction, project_id: str):
+    if bpy.data.objects.get(operation["name"]) is not None:
+        raise STAGE_SCENE_STABLE_NAME_EXISTS(
+            f"stable name {operation['name']!r} already exists"
+        )
+    root = bpy.data.objects.new(operation["name"], None)
+    root["omb.entity_id"] = str(uuid.uuid4())
+    root["omb.owned_project_id"] = project_id
+    root["omb.assembly_id"] = str(uuid.uuid4())
+    root["omb.assembly_name"] = operation["name"]
+    transaction.scene.collection.objects.link(root)
+    transaction.created_objects.append(root)
+    return root
+
+
+def _set_parent(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    child = _require_owned_entity(operation["entity_id"], project_id)
+    parent = (
+        _require_owned_entity(operation["parent_id"], project_id)
+        if operation["parent_id"] is not None
+        else None
+    )
+    ancestor = parent
+    while ancestor is not None:
+        if ancestor == child:
+            raise STAGE_SCENE_PARENT_CYCLE(
+                f"parenting entity {operation['entity_id']} would create a cycle"
+            )
+        ancestor = ancestor.parent
+    transaction.capture_object(child)
+    world = child.matrix_world.copy()
+    child.parent = parent
+    if parent is not None:
+        child.matrix_parent_inverse = parent.matrix_world.inverted()
+    child.matrix_world = world
+
+
+def _transform_assembly(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    root = next(
+        (
+            scene_object
+            for scene_object in bpy.data.objects
+            if scene_object.get("omb.assembly_id") == operation["assembly_id"]
+        ),
+        None,
+    )
+    if root is None:
+        raise STAGE_SCENE_ASSEMBLY_NOT_FOUND(
+            f"assembly {operation['assembly_id']} does not exist"
+        )
+    if not _owned(root, project_id):
+        raise STAGE_SCENE_TARGET_NOT_OMB_OWNED(
+            f"assembly {operation['assembly_id']} was not created by OMB for this project"
+        )
+    transaction.capture_object(root)
+    if operation.get("translation") is not None:
+        root.location = operation["translation"]
+    if operation.get("rotation_euler") is not None:
+        root.rotation_mode = "XYZ"
+        root.rotation_euler = operation["rotation_euler"]
+    if operation.get("scale") is not None:
+        root.scale = operation["scale"]
 
 
 def _generated_material(scene_object: object, transaction: _StageTransaction):
@@ -478,7 +610,11 @@ def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_
 
 
 def _live_base_manifest(current_scene_hash: str) -> dict:
-    from .manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+    from .manifest import (
+        extract_scene_manifest_v2,
+        extract_scene_manifest_v3,
+        extract_scene_manifest_v4,
+    )
 
     v2 = extract_scene_manifest_v2()
     if v2["sceneHash"] == current_scene_hash:
@@ -486,6 +622,9 @@ def _live_base_manifest(current_scene_hash: str) -> dict:
     v3 = extract_scene_manifest_v3()
     if v3["sceneHash"] == current_scene_hash:
         return v3
+    v4 = extract_scene_manifest_v4()
+    if v4["sceneHash"] == current_scene_hash:
+        return v4
     raise StageSceneError(
         "STALE_BASE: live main-thread manifest hash differs from the durable expected base"
     )
@@ -512,10 +651,18 @@ def apply_stage_scene_transaction(
         raise StageSceneError("stage_scene requires Blender")
     from .checkpoint import create_checkpoint
     from .connection import DurableCommitReconciliationRequired
-    from .manifest import extract_scene_manifest_v3
+    from .manifest import extract_scene_manifest_v3, extract_scene_manifest_v4
     from .scene_manifest import finalize_scene_manifest_child
 
     plan = parse_stage_scene_plan(plan_value)
+    uses_v4 = any(
+        operation["op"] in ("create_assembly", "set_parent", "transform_assembly")
+        or (
+            operation["op"] == "add_primitive"
+            and operation.get("parent_id") is not None
+        )
+        for operation in plan["operations"]
+    )
     before_manifest = _live_base_manifest(current_scene_hash)
     _check_abort(deadline, cancelled)
     scene = bpy.context.scene
@@ -540,6 +687,12 @@ def apply_stage_scene_transaction(
             _check_abort(deadline, cancelled)
             if operation["op"] == "add_primitive":
                 _create_primitive(operation, transaction, project_id)
+            elif operation["op"] == "create_assembly":
+                _create_assembly(operation, transaction, project_id)
+            elif operation["op"] == "set_parent":
+                _set_parent(operation, transaction, project_id)
+            elif operation["op"] == "transform_assembly":
+                _transform_assembly(operation, transaction, project_id)
             elif operation["op"] == "set_material_color":
                 _set_material_color(operation, transaction, project_id)
             elif operation["op"] == "upsert_area_light":
@@ -554,7 +707,11 @@ def apply_stage_scene_transaction(
         bpy.context.view_layer.update()
         _check_abort(deadline, cancelled)
         connection.ensure_mutation_connection("before_verify")
-        extracted = extract_scene_manifest_v3()
+        extracted = (
+            extract_scene_manifest_v4()
+            if uses_v4
+            else extract_scene_manifest_v3()
+        )
         candidate_manifest = finalize_scene_manifest_child(
             extracted,
             plan["expected_revision_id"],

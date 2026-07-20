@@ -284,9 +284,11 @@ class ConnectionTests(unittest.TestCase):
                 "deadline_ms": 5000,
             }
 
+            resolved_manifest = {"schemaVersion": 2, "sceneHash": "0" * 64}
             manifest_module = types.SimpleNamespace(
-                extract_scene_manifest_v2=mock.Mock(return_value={"sceneHash": "c" * 64}),
-                extract_scene_manifest_v3=mock.Mock(return_value={"sceneHash": "b" * 64}),
+                resolve_manifest_for_expected_hash=mock.Mock(
+                    return_value=resolved_manifest
+                ),
                 extract_scene_snapshot=mock.Mock(return_value=snapshot),
             )
             with (
@@ -298,8 +300,7 @@ class ConnectionTests(unittest.TestCase):
             ):
                 connection.dispatch_bridge_message(message)
 
-        manifest_module.extract_scene_manifest_v2.assert_called_once_with()
-        manifest_module.extract_scene_manifest_v3.assert_called_once_with()
+        manifest_module.resolve_manifest_for_expected_hash.assert_called_once_with("b" * 64)
         manifest_module.extract_scene_snapshot.assert_called_once_with()
         self.assertEqual(socket.sent, [{
             "type": "bridge_result",

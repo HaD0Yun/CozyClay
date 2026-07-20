@@ -21,6 +21,7 @@ from .snapshot import (
 from .scene_manifest import (
     build_scene_manifest,
     build_scene_manifest_v3,
+    build_scene_manifest_v4,
     finalize_scene_manifest,
     rational_fps,
 )
@@ -317,7 +318,7 @@ def _extract_scene_manifest(schema_version: int) -> dict:
                 "spotSize": float(light.spot_size) if light.type == "SPOT" else None,
                 "spotBlend": float(light.spot_blend) if light.type == "SPOT" else None,
             }
-            if schema_version == 3:
+            if schema_version >= 3:
                 light_entry["areaSize"] = (
                     float(light.size) if light.type == "AREA" else None
                 )
@@ -361,15 +362,36 @@ def _extract_scene_manifest(schema_version: int) -> dict:
         ],
         camera_animations=animations,
     )
-    if schema_version == 3:
+    if schema_version >= 3:
         stage_primitives, stage_materials = _stage_manifest_entries(
             scene_objects, object_ids
         )
-        manifest = build_scene_manifest_v3(
-            **manifest_parts,
-            stage_primitives=stage_primitives,
-            stage_materials=stage_materials,
-        )
+        if schema_version == 4:
+            assemblies = []
+            for root in scene_objects:
+                assembly_id = root.get("omb.assembly_id")
+                if not isinstance(assembly_id, str):
+                    continue
+                members = {root, *root.children_recursive}
+                member_ids = sorted(object_ids[member] for member in members)
+                assemblies.append({
+                    "assemblyId": assembly_id,
+                    "name": _text(root.get("omb.assembly_name", root.name)),
+                    "rootEntityId": object_ids[root],
+                    "memberIds": member_ids,
+                })
+            manifest = build_scene_manifest_v4(
+                **manifest_parts,
+                stage_primitives=stage_primitives,
+                stage_materials=stage_materials,
+                assemblies=assemblies,
+            )
+        else:
+            manifest = build_scene_manifest_v3(
+                **manifest_parts,
+                stage_primitives=stage_primitives,
+                stage_materials=stage_materials,
+            )
     else:
         manifest = build_scene_manifest(**manifest_parts)
     return finalize_scene_manifest(manifest)
@@ -383,6 +405,24 @@ def extract_scene_manifest_v2() -> dict:
 def extract_scene_manifest_v3() -> dict:
     """Extract stage_scene state through the additive SceneManifestV3."""
     return _extract_scene_manifest(3)
+
+
+def extract_scene_manifest_v4() -> dict:
+    """Extract assembly hierarchy through SceneManifestV4."""
+    return _extract_scene_manifest(4)
+
+
+def resolve_manifest_for_expected_hash(expected_hash: str) -> dict | None:
+    """Return the first V2, V3, or V4 manifest matching the expected scene hash."""
+    for extract_manifest in (
+        extract_scene_manifest_v2,
+        extract_scene_manifest_v3,
+        extract_scene_manifest_v4,
+    ):
+        manifest = extract_manifest()
+        if manifest["sceneHash"] == expected_hash:
+            return manifest
+    return None
 
 def extract_scene_snapshot() -> dict:
     """Extract the active Blender scene into a Scene Snapshot v2 dictionary."""
