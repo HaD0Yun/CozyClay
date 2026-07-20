@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import test from "node:test";
-import { start } from "../src/daemon.ts";
+import { start as startDaemon, type DaemonOptions } from "../src/daemon.ts";
 import { BearerToken } from "../src/token.ts";
+const start = (options: Omit<DaemonOptions, "projectId">) =>
+	startDaemon({ projectId: "00000000-0000-4000-8000-000000000003", ...options });
 
 test("bearer token is 32-byte base64url, expires, and is single use",()=>{
 	let now=0;const token=new BearerToken({now:()=>now},Buffer.alloc(32,7));
 	assert.match(token.value,/^[A-Za-z0-9_-]{43}$/);token.startExpiry();
 	assert.equal(token.consume("x".repeat(43)),false);assert.equal(token.consume(token.value),true);assert.equal(token.consume(token.value),false);
 	const expired=new BearerToken({now:()=>now});expired.startExpiry();now=10_000;assert.equal(expired.consume(expired.value),false);
+});
+test("daemon rejects an invalid project UUID before listening",async()=>{
+	await assert.rejects(
+		startDaemon({projectId:"invalid",port:0,stdout:()=>{},handlers:{}}),
+		/PROJECT_CONFIGURATION_ERROR: project is unavailable/,
+	);
 });
 
 test("daemon binds loopback, emits a valid startup record, and rejects bad auth",async()=>{

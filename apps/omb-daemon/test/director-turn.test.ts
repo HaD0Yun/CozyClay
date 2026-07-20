@@ -21,8 +21,17 @@ import {
 	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
 import { createBootRuntime } from "../src/boot.ts";
-import { start, type Daemon, type DirectorTurnService, type DirectorTurnToolEvent } from "../src/daemon.ts";
+import {
+	start as startDaemon,
+	type Daemon,
+	type DaemonOptions,
+	type DirectorTurnService,
+	type DirectorTurnToolEvent,
+} from "../src/daemon.ts";
 import { DirectorTranscriptStore } from "../src/transcript-store.ts";
+const TEST_PROJECT_ID = "00000000-0000-4000-8000-000000000004";
+const start = (options: Omit<DaemonOptions, "projectId"> & { projectId?: string }) =>
+	startDaemon({ projectId: TEST_PROJECT_ID, ...options });
 
 const PARENT_REVISION = "a".repeat(64);
 const PNG_BYTES = Buffer.from(
@@ -30,6 +39,10 @@ const PNG_BYTES = Buffer.from(
 	"base64",
 );
 const PNG_DIGEST = createHash("sha256").update(PNG_BYTES).digest("hex");
+const reconcileTransaction: DirectorTurnService["reconcileTransaction"] = async () => ({
+	status: "unknown",
+	revisionId: PARENT_REVISION,
+});
 const websocketKey = "AAAAAAAAAAAAAAAAAAAAAA==";
 const nonce = () => Buffer.from(randomUUID()).subarray(0, 16).toString("base64url");
 
@@ -133,7 +146,7 @@ async function attachController(daemon: Daemon, credential = daemon.startup.bear
 		protocol: 1,
 		addon_version: "controller-test",
 		blender_version: "n/a",
-		project_id: randomUUID(),
+		project_id: daemon.projectId,
 		client_nonce: nonce(),
 	});
 	const hello = await client.next((message) => message.type === "hello_ack");
@@ -150,7 +163,7 @@ async function attachBridge(daemon: Daemon, controller: Client) {
 		protocol: 2,
 		addon_version: "bridge-test",
 		blender_version: "4.3",
-		project_id: randomUUID(),
+		project_id: daemon.projectId,
 		client_nonce: nonce(),
 		capabilities: ["mutation_bridge_v2", "scene_manifest_v3"],
 	});
@@ -185,10 +198,19 @@ test("a faux AgentSession completes a deterministic director turn over real cont
 	};
 	const store: CameraPlanRevisionStore = {
 		readProject: async () => project,
-		commitRevision: async (expectedRevisionId, child) => {
+		commitRevision: async (_idempotencyKey, expectedRevisionId, child) => {
 			assert.equal(project.current_revision_id, expectedRevisionId);
-			project = child;
+			project = {
+				project_id: child.project_id,
+				schema_version: child.schema_version,
+				current_revision_id: child.current_revision_id,
+				manifest: child.manifest,
+			};
 		},
+		reconcileRevision: async () => ({
+			status: "base_authoritative",
+			revisionId: project.current_revision_id,
+		}),
 	};
 	const reservations = (declarations: readonly { readonly sha256: string; readonly byteLength: number }[]) =>
 		Promise.resolve(
@@ -220,7 +242,14 @@ test("a faux AgentSession completes a deterministic director turn over real cont
 	let bridge: Client | undefined;
 	try {
 		control = await attachController(daemon);
-		assert.deepEqual(control.hello.capabilities, ["inspect_project", "director_turn_v1", "director_transcript_v1"]);
+		assert.deepEqual(control.hello.capabilities, [
+			"inspect_project",
+			"director_turn_v1",
+			"director_transcript_v1",
+			"director_stream_v1",
+			"controller_peers_v1",
+		]);
+		assert.deepEqual(control.hello.protocol_features, ["snapshot_cursor_v2"]);
 		bridge = await attachBridge(daemon, control.client);
 		const turnId = randomUUID();
 		control.client.send({
@@ -357,7 +386,13 @@ test("a faux AgentSession completes a deterministic director turn over real cont
 		const liveTranscript = await control.client.next(
 			(message) => message.type === "director_transcript" && message.id === fetchId,
 		);
-		assert.equal((liveTranscript.events as unknown[]).length, 12);
+		assert.equal((liveTranscript.events as unknown[]).length, 13);
+		assert.equal(
+			(liveTranscript.events as Record<string, unknown>[]).some(
+				(event) => event.type === "director_assistant_utterance",
+			),
+			true,
+		);
 		const firstSessionId = liveTranscript.session_id;
 
 		bridge.socket.destroy();
@@ -491,6 +526,7 @@ test("director turns reuse top-level cancel and persist one cancelled terminal e
 					running = false;
 				}
 			},
+			reconcileTransaction,
 			dispose: () => {},
 			forceDispose() {
 				return this;
@@ -563,6 +599,7 @@ test("a non-settling cancelled director turn is quarantined before the replaceme
 			resultingRevisionId: PARENT_REVISION,
 			toolCallOrder: [] as const,
 		}),
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose() {
 			return this;
@@ -578,6 +615,7 @@ test("a non-settling cancelled director turn is quarantined before the replaceme
 				settleWedged = resolve;
 				emitWedged = onToolEvent;
 			}),
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose: () => replacement,
 	};
@@ -660,6 +698,7 @@ test("wedged artifact setup quarantines retired bridge messages and permits repl
 				toolCallOrder: [] as const,
 			};
 		},
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose() {
 			return this;
@@ -832,6 +871,7 @@ test("cancelled terminal persistence timeout closes control with 1011 and shuts 
 				context.signal.addEventListener("abort", abort, { once: true });
 				if (context.signal.aborted) abort();
 			}),
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose() {
 			return this;
@@ -916,6 +956,7 @@ test("rejected cancelled-terminal append is contained and shuts the daemon down"
 					context.signal.addEventListener("abort", abort, { once: true });
 					if (context.signal.aborted) abort();
 				}),
+			reconcileTransaction,
 			dispose: () => {},
 			forceDispose() {
 				return this;
@@ -987,6 +1028,7 @@ test("a throwing stderr sink cannot abort the persistence fail-stop sequence", a
 					context.signal.addEventListener("abort", abort, { once: true });
 					if (context.signal.aborted) abort();
 				}),
+			reconcileTransaction,
 			dispose: () => {},
 			forceDispose() {
 				return this;
@@ -1046,6 +1088,7 @@ test("cancel and request deadline abort every pending artifact reservation acqui
 			);
 			throw new Error("unreachable");
 		},
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose() {
 			return this;
@@ -1124,6 +1167,7 @@ test("synchronous reservation abort failure does not escape as an unhandled reje
 			);
 			throw new Error("unreachable");
 		},
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose() {
 			return this;
@@ -1253,6 +1297,7 @@ test("G013 untrusted provider failures are fixed before WebSocket and persistenc
 			run: async () => {
 				throw new Error(`AUTH_ERROR: provider response Authorization: Bearer ${sentinel}`);
 			},
+			reconcileTransaction,
 			dispose: () => {},
 			forceDispose() {
 				return this;
@@ -1297,6 +1342,7 @@ test("director loop contract violations surface their trusted fixed message, not
 			run: async () => {
 				throw new DirectorLoopContractError("DIRECTOR_LOOP_INCOMPLETE", `turn ended after mutation ${sentinel}`);
 			},
+			reconcileTransaction,
 			dispose: () => {},
 			forceDispose() {
 				return this;
@@ -1344,6 +1390,7 @@ test("turn deadline above the single-request ceiling is accepted and bridge sub-
 			const inspected = await context.inspectProject("0".repeat(64));
 			return { summary: "Inspected once.", resultingRevisionId: inspected.revision, toolCallOrder: [] as const };
 		},
+		reconcileTransaction,
 		dispose: () => {},
 		forceDispose() {
 			return this;
@@ -1379,6 +1426,109 @@ test("turn deadline above the single-request ceiling is accepted and bridge sub-
 		assert.equal(completed.summary, "Inspected once.");
 	} finally {
 		bridge?.socket.destroy();
+		control?.client.socket.destroy();
+		await daemon.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+test("Lane B publication callback relays ordered deltas, seals, durable events, and terminal", async () => {
+	const root = await mkdtemp(join(tmpdir(), "omb-stream-relay-"));
+	const projectId = randomUUID();
+	const segmentId = randomUUID();
+	const resultingRevisionId = "b".repeat(64);
+	let service!: DirectorTurnService;
+	service = {
+		run: async (turn, _context, publish) => {
+			await publish({
+				type: "text_delta",
+				turnId: turn.id,
+				segmentId,
+				contentIndex: 0,
+				deltaSequence: 0,
+				delta: "Hello",
+			});
+			await publish({
+				type: "assistant_utterance",
+				turnId: turn.id,
+				segmentId,
+				contentIndex: 0,
+				throughDeltaSequence: 0,
+				content: "Hello",
+			});
+			await publish({
+				type: "started",
+				toolName: "inspect_project",
+				toolCallId: "inspect-1",
+				paramsSummary: "{}",
+			});
+			await publish({
+				type: "finished",
+				toolName: "inspect_project",
+				toolCallId: "inspect-1",
+				digest: "c".repeat(64),
+				isError: false,
+			});
+			return { summary: "done", resultingRevisionId, toolCallOrder: ["inspect_project"] };
+		},
+		reconcileTransaction,
+		dispose: () => {},
+		forceDispose: () => service,
+	};
+	const daemon = await start({
+		projectId,
+		port: 0,
+		handlers: {},
+		directorTurn: service,
+		projectDirectory: root,
+		stdout: () => {},
+	});
+	let control: Awaited<ReturnType<typeof attachController>> | undefined;
+	try {
+		control = await attachController(daemon);
+		const id = randomUUID();
+		control.client.send({
+			type: "director_turn",
+			id,
+			prompt: "stream",
+			expected_revision_id: "a".repeat(64),
+			deadline_ms: 1_000,
+		});
+		await control.client.next((message) => message.type === "director_turn_completed" && message.id === id);
+		const publications = control.client.messages.filter((message) => message.id === id);
+		assert.deepEqual(
+			publications.map((message) => message.type),
+			[
+				"director_turn_started",
+				"director_turn_delta",
+				"director_assistant_utterance",
+				"director_tool_call_started",
+				"director_tool_call_finished",
+				"director_turn_completed",
+			],
+		);
+		assert.deepEqual(publications[1], {
+			type: "director_turn_delta",
+			id,
+			segment_id: segmentId,
+			content_index: 0,
+			delta_sequence: 0,
+			delta: "Hello",
+		});
+		assert.equal(publications[2]?.through_delta_sequence, 0);
+		const transcript = JSON.parse(
+			await readFile(join(root, ".omb", "director-transcript.json"), "utf8"),
+		) as { events: Record<string, unknown>[] };
+		assert.equal(transcript.events.some((event) => event.type === "director_turn_delta"), false);
+		assert.equal(
+			transcript.events.some(
+				(event) =>
+					event.type === "director_assistant_utterance" &&
+					event.segment_id === segmentId &&
+					event.through_delta_sequence === 0,
+			),
+			true,
+		);
+	} finally {
 		control?.client.socket.destroy();
 		await daemon.close();
 		await rm(root, { recursive: true, force: true });

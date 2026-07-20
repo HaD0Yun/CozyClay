@@ -11,10 +11,13 @@ import {
 	type DirectorTurnEvent,
 } from "@oh-my-blender/protocol";
 
-const TRANSCRIPT_SCHEMA_VERSION = 1;
+const TRANSCRIPT_SCHEMA_VERSION = 2;
+const LEGACY_TRANSCRIPT_SCHEMA_VERSION = 1;
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const TRANSCRIPT_CURSOR_ERROR = "TRANSCRIPT_CURSOR_INVALID: invalid transcript cursor or snapshot cursor";
 
 interface PersistedTranscript {
-	readonly schema_version: typeof TRANSCRIPT_SCHEMA_VERSION;
+	readonly schema_version: typeof TRANSCRIPT_SCHEMA_VERSION | typeof LEGACY_TRANSCRIPT_SCHEMA_VERSION;
 	readonly session_id: string;
 	readonly events: readonly DirectorTurnEvent[];
 }
@@ -27,14 +30,18 @@ function parsePersistedTranscript(input: unknown): PersistedTranscript {
 	if (!isRecord(input) || Object.keys(input).sort().join(",") !== "events,schema_version,session_id") {
 		throw new Error("TRANSCRIPT_CORRUPT: transcript root must be a closed object");
 	}
-	if (input.schema_version !== TRANSCRIPT_SCHEMA_VERSION || typeof input.session_id !== "string") {
+	if (
+		(input.schema_version !== TRANSCRIPT_SCHEMA_VERSION && input.schema_version !== LEGACY_TRANSCRIPT_SCHEMA_VERSION) ||
+		typeof input.session_id !== "string" ||
+		!UUID_V4_PATTERN.test(input.session_id)
+	) {
 		throw new Error("TRANSCRIPT_CORRUPT: transcript header is invalid");
 	}
 	if (!Array.isArray(input.events) || input.events.length > DIRECTOR_TRANSCRIPT_MAX_EVENTS) {
 		throw new Error("TRANSCRIPT_CORRUPT: transcript event list is invalid");
 	}
 	const events = input.events.map((event) => parseDirectorTurnEvent(event));
-	return { schema_version: TRANSCRIPT_SCHEMA_VERSION, session_id: input.session_id, events };
+	return { schema_version: input.schema_version, session_id: input.session_id, events };
 }
 
 export class DirectorTranscriptStore {
@@ -55,7 +62,12 @@ export class DirectorTranscriptStore {
 		const path = join(rootDirectory, ".omb", "director-transcript.json");
 		try {
 			const source = await readFile(path, "utf8");
-			return new DirectorTranscriptStore(rootDirectory, parsePersistedTranscript(JSON.parse(source)));
+			const transcript = parsePersistedTranscript(JSON.parse(source));
+			const store = new DirectorTranscriptStore(rootDirectory, transcript);
+			if (transcript.schema_version === LEGACY_TRANSCRIPT_SCHEMA_VERSION) {
+				await store.write(store.persistedEvents);
+			}
+			return store;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
 				if (error instanceof SyntaxError) throw new Error("TRANSCRIPT_CORRUPT: transcript is not valid JSON", { cause: error });
@@ -74,13 +86,34 @@ export class DirectorTranscriptStore {
 	}
 
 	page(request: DirectorTranscriptRequest): DirectorTranscript {
-		const end = Math.min(request.cursor + request.page_size, this.persistedEvents.length);
+		if (!("snapshot_cursor" in request)) {
+			const end = Math.min(request.cursor + request.page_size, this.persistedEvents.length);
+			return parseDirectorTranscript({
+				type: "director_transcript",
+				id: request.id,
+				session_id: this.sessionId,
+				events: this.persistedEvents.slice(request.cursor, end),
+				next_cursor: end < this.persistedEvents.length ? end : null,
+			});
+		}
+
+		const snapshotCursor = request.snapshot_cursor ?? this.persistedEvents.length;
+		if (
+			(request.snapshot_cursor === null && request.cursor !== 0) ||
+			snapshotCursor > this.persistedEvents.length ||
+			request.cursor > snapshotCursor
+		) {
+			throw new Error(TRANSCRIPT_CURSOR_ERROR);
+		}
+		const end = Math.min(request.cursor + request.page_size, snapshotCursor);
 		return parseDirectorTranscript({
 			type: "director_transcript",
+			schema_version: TRANSCRIPT_SCHEMA_VERSION,
 			id: request.id,
 			session_id: this.sessionId,
 			events: this.persistedEvents.slice(request.cursor, end),
-			next_cursor: end < this.persistedEvents.length ? end : null,
+			next_cursor: end < snapshotCursor ? end : null,
+			snapshot_cursor: snapshotCursor,
 		});
 	}
 

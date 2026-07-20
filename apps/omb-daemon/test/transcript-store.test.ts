@@ -1,68 +1,149 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DirectorTranscriptStore } from "../src/transcript-store.ts";
+import { DirectorTranscriptStore, TRANSCRIPT_CURSOR_ERROR } from "../src/transcript-store.ts";
 
-const TURN_ID = "00000000-0000-4000-8000-000000000001";
-const REVISION = "a".repeat(64);
+const SESSION_ID = "00000000-0000-4000-8000-000000000000";
+const requestId = (value: number) => `00000000-0000-4000-8000-${value.toString().padStart(12, "0")}`;
+const event = (sequence: number) => ({
+	type: "director_turn_started" as const,
+	id: requestId(sequence + 100),
+	sequence,
+	at: "2026-07-19T18:00:00.000Z",
+	prompt: `Prompt ${sequence}`,
+});
 
-test("persists a closed transcript atomically and resumes its stable session id", async () => {
-	const root = await mkdtemp(join(tmpdir(), "omb-transcript-"));
+async function temporaryRoot(prefix: string): Promise<string> {
+	return mkdtemp(join(tmpdir(), prefix));
+}
+
+async function writeTranscript(root: string, transcript: unknown): Promise<string> {
+	const directory = join(root, ".omb");
+	await mkdir(directory, { recursive: true });
+	const path = join(directory, "director-transcript.json");
+	await writeFile(path, JSON.stringify(transcript));
+	return path;
+}
+
+test("atomically migrates a valid closed schema-v1 transcript to schema v2", async () => {
+	const root = await temporaryRoot("omb-transcript-migrate-");
 	try {
-		const first = await DirectorTranscriptStore.open(root);
-		await first.append({
-			type: "director_turn_started",
-			id: TURN_ID,
-			sequence: 0,
-			at: "2026-07-19T18:00:00.000Z",
-			prompt: "Build a product shot.",
-		});
-		await first.append({
-			type: "director_turn_completed",
-			id: TURN_ID,
-			sequence: 1,
-			at: "2026-07-19T18:00:01.000Z",
-			summary: "Product shot complete.",
-			resulting_revision_id: REVISION,
-		});
+		const events = [event(0), event(1)];
+		const path = await writeTranscript(root, { schema_version: 1, session_id: SESSION_ID, events });
+		const store = await DirectorTranscriptStore.open(root);
 
-		const second = await DirectorTranscriptStore.open(root);
-		assert.equal(second.sessionId, first.sessionId);
-		const firstPage = second.page({
-			type: "director_transcript_request",
-			id: "00000000-0000-4000-8000-000000000002",
-			cursor: 0,
-			page_size: 1,
-		});
-		assert.deepEqual(firstPage.events, first.events.slice(0, 1));
-		assert.equal(firstPage.next_cursor, 1);
-		const secondPage = second.page({
-			type: "director_transcript_request",
-			id: "00000000-0000-4000-8000-000000000003",
-			cursor: firstPage.next_cursor,
-			page_size: 1,
-		});
-		assert.deepEqual(secondPage.events, first.events.slice(1));
-		assert.equal(secondPage.next_cursor, null);
-		assert.equal((await stat(join(root, ".omb", "director-transcript.json"))).mode & 0o777, 0o600);
-		assert.deepEqual(JSON.parse(await readFile(join(root, ".omb", "director-transcript.json"), "utf8")), {
-			schema_version: 1,
-			session_id: first.sessionId,
-			events: first.events,
-		});
+		assert.equal(store.sessionId, SESSION_ID);
+		assert.deepEqual(store.events, events);
+		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), { schema_version: 2, session_id: SESSION_ID, events });
+		assert.equal((await stat(path)).mode & 0o777, 0o600);
+		assert.deepEqual(await readdir(join(root, ".omb")), ["director-transcript.json"]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
 
-test("rejects malformed events without mutating the transcript", async () => {
-	const root = await mkdtemp(join(tmpdir(), "omb-transcript-invalid-"));
+test("pages a fixed v2 snapshot with global cursors despite concurrent appends", async () => {
+	const root = await temporaryRoot("omb-transcript-snapshot-");
 	try {
 		const store = await DirectorTranscriptStore.open(root);
-		await assert.rejects(store.append({ type: "director_turn_started", id: TURN_ID, prompt: "missing fields" } as never));
-		assert.deepEqual(store.events, []);
+		const initialEvents = Array.from({ length: 70 }, (_, index) => event(index));
+		for (const item of initialEvents) await store.append(item);
+
+		const first = store.page({
+			type: "director_transcript_request",
+			id: requestId(1),
+			cursor: 0,
+			page_size: 64,
+			snapshot_cursor: null,
+		});
+		assert("schema_version" in first);
+		assert.equal(first.schema_version, 2);
+		assert.equal(first.snapshot_cursor, 70);
+		assert(first.next_cursor !== null);
+		assert.equal(first.next_cursor, 64);
+		assert.equal(first.events.length, 64);
+
+		await store.append(event(70));
+		await store.append(event(71));
+		const second = store.page({
+			type: "director_transcript_request",
+			id: requestId(2),
+			cursor: first.next_cursor,
+			page_size: 64,
+			snapshot_cursor: first.snapshot_cursor,
+		});
+		assert("schema_version" in second);
+		assert.equal(second.snapshot_cursor, 70);
+		assert.equal(second.next_cursor, null);
+		assert.deepEqual([...first.events, ...second.events], initialEvents);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("rejects invalid v2 cursor and watermark combinations with the fixed store error", async () => {
+	const root = await temporaryRoot("omb-transcript-cursor-");
+	try {
+		const store = await DirectorTranscriptStore.open(root);
+		await store.append(event(0));
+		const invalidRequests = [
+			{ cursor: 1, snapshot_cursor: null },
+			{ cursor: 0, snapshot_cursor: 2 },
+			{ cursor: 1, snapshot_cursor: 0 },
+		];
+		for (const [index, invalid] of invalidRequests.entries()) {
+			assert.throws(
+				() =>
+					store.page({
+						type: "director_transcript_request",
+						id: requestId(index + 10),
+						page_size: 1,
+						...invalid,
+					}),
+				(error: Error) => error.message === TRANSCRIPT_CURSOR_ERROR,
+			);
+		}
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("rejects unknown schemas, invalid sessions, and closed-root extras", async () => {
+	for (const transcript of [
+		{ schema_version: 3, session_id: SESSION_ID, events: [] },
+		{ schema_version: 2, session_id: SESSION_ID, events: [], extra: true },
+		{ schema_version: 2, session_id: "invalid", events: [] },
+	]) {
+		const root = await temporaryRoot("omb-transcript-corrupt-");
+		try {
+			await writeTranscript(root, transcript);
+			await assert.rejects(DirectorTranscriptStore.open(root), /TRANSCRIPT_CORRUPT/);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	}
+});
+
+test("keeps the legacy v1 page response shape without a snapshot watermark", async () => {
+	const root = await temporaryRoot("omb-transcript-v1-page-");
+	try {
+		const store = await DirectorTranscriptStore.open(root);
+		await store.append(event(0));
+		const page = store.page({
+			type: "director_transcript_request",
+			id: requestId(20),
+			cursor: 0,
+			page_size: 1,
+		});
+		assert.deepEqual(page, {
+			type: "director_transcript",
+			id: requestId(20),
+			session_id: store.sessionId,
+			events: [event(0)],
+			next_cursor: null,
+		});
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

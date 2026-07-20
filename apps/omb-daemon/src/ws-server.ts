@@ -1,35 +1,245 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
-import { EventEmitter } from "node:events";
 import type { ClientRole } from "./control-plane.ts";
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const DEFAULT_MAX_MESSAGE_BYTES = 1024 * 1024;
+const MAX_OUTBOUND_FRAMES = 256;
+const MAX_OUTBOUND_BYTES = 1024 * 1024;
+const MAX_FRAGMENT_FRAMES = 256;
+const OUTBOUND_DRAIN_TIMEOUT_MS = 2_000;
 
-export class WebSocketConnection extends EventEmitter {
-	private buffer = Buffer.alloc(0); private fragments: Buffer[] = []; private fragmentBytes = 0;
-	private fragmentOpcode = 0; private closed = false;
-	private readonly maxMessageBytes: number;
-	readonly socket: Duplex;
-	constructor(socket: Duplex, maxMessageBytes = DEFAULT_MAX_MESSAGE_BYTES) { super();this.socket=socket;this.maxMessageBytes=maxMessageBytes; socket.on("data", b => this.read(b)); socket.on("close", () => this.emit("disconnect")); socket.on("end", () => { if (!socket.writableEnded) socket.end(); }); socket.on("error", () => { /* close event drives cleanup */ }); }
-	get closing(): boolean { return this.closed || this.socket.writableEnded || this.socket.destroyed; }
-	sendText(value: unknown): void { this.frame(1, Buffer.from(JSON.stringify(value))); }
-	pong(payload: Buffer): void { this.frame(10, payload); }
-	close(code = 1000, reason = ""): void { if (this.closed) return; this.closed = true; const p = Buffer.alloc(2 + Buffer.byteLength(reason)); p.writeUInt16BE(code); p.write(reason, 2); this.frame(8, p); this.socket.end(); }
-	private frame(opcode: number, payload: Buffer): void { if (this.socket.destroyed || !this.socket.writable) return; let h: Buffer; if (payload.length < 126) h = Buffer.from([0x80 | opcode, payload.length]); else if (payload.length <= 65535) { h=Buffer.alloc(4); h[0]=0x80|opcode; h[1]=126; h.writeUInt16BE(payload.length,2); } else { h=Buffer.alloc(10); h[0]=0x80|opcode; h[1]=127; h.writeBigUInt64BE(BigInt(payload.length),2); } this.socket.write(Buffer.concat([h,payload]),()=>{}); }
-	private read(chunk: Buffer): void { this.buffer=Buffer.concat([this.buffer,chunk]); while (this.buffer.length >= 2) { const a=this.buffer[0]!, b=this.buffer[1]!; if(a&0x70)return this.close(1008,"reserved bits unsupported"); const fin=!!(a&128), opcode=a&15, masked=!!(b&128); if (!masked) return this.close(1008,"client frames must be masked"); let len=b&127, off=2; if(len===126){if(this.buffer.length<4)return;len=this.buffer.readUInt16BE(2);off=4;} else if(len===127){if(this.buffer.length<10)return;const n=this.buffer.readBigUInt64BE(2);if(n>BigInt(this.maxMessageBytes))return this.close(1009);len=Number(n);off=10;} if(this.buffer.length<off+4+len)return; const mask=this.buffer.subarray(off,off+4);off+=4;const data=Buffer.from(this.buffer.subarray(off,off+len));this.buffer=this.buffer.subarray(off+len);for(let i=0;i<data.length;i++)data[i]^=mask[i&3]!; if(opcode>=8 && (!fin || len>125)) return this.close(1008); if(opcode===8){const code=data.length>=2?data.readUInt16BE(0):1000;this.close(code);return;} if(opcode===9){this.pong(data);continue;} if(opcode===10){this.emit("pong",data);continue;} if(opcode===2)return this.close(1008,"binary unsupported"); if(opcode===1){if(this.fragmentOpcode)return this.close(1008); if(fin){if(len>this.maxMessageBytes)return this.close(1009);this.emit("text",data.toString("utf8"));}else{this.fragmentOpcode=1;this.fragments=[data];this.fragmentBytes=len;}} else if(opcode===0){if(!this.fragmentOpcode)return this.close(1008);this.fragmentBytes+=len;if(this.fragmentBytes>this.maxMessageBytes)return this.close(1009);this.fragments.push(data);if(fin){const msg=Buffer.concat(this.fragments).toString("utf8");this.fragments=[];this.fragmentOpcode=0;this.fragmentBytes=0;this.emit("text",msg);}} else return this.close(1008); } }
+function encodeFrame(opcode: number, payload: Buffer): Buffer {
+	let header: Buffer;
+	if (payload.length < 126) {
+		header = Buffer.from([0x80 | opcode, payload.length]);
+	} else if (payload.length <= 65_535) {
+		header = Buffer.alloc(4);
+		header[0] = 0x80 | opcode;
+		header[1] = 126;
+		header.writeUInt16BE(payload.length, 2);
+	} else {
+		header = Buffer.alloc(10);
+		header[0] = 0x80 | opcode;
+		header[1] = 127;
+		header.writeBigUInt64BE(BigInt(payload.length), 2);
+	}
+	return Buffer.concat([header, payload]);
 }
 
-export function readClientRole(req: IncomingMessage): ClientRole | undefined {
-	const value = req.headers["x-omb-role"];
-	if (value === undefined) return "legacy";
+export class WebSocketConnection extends EventEmitter {
+	private buffer = Buffer.alloc(0);
+	private fragments: Buffer[] = [];
+	private fragmentBytes = 0;
+	private fragmentOpcode = 0;
+	private closed = false;
+	private readonly maxMessageBytes: number;
+	private readonly outbound: Buffer[] = [];
+	private outboundBytes = 0;
+	private writing = false;
+	private waitingDrain = false;
+	private drainTimer: ReturnType<typeof setTimeout> | undefined;
+	readonly socket: Duplex;
+
+	constructor(socket: Duplex, maxMessageBytes = DEFAULT_MAX_MESSAGE_BYTES) {
+		super();
+		this.socket = socket;
+		this.maxMessageBytes = maxMessageBytes;
+		socket.on("data", (bytes) => this.read(bytes));
+		socket.on("close", () => {
+			this.clearOutbound();
+			this.emit("disconnect");
+		});
+		socket.on("end", () => {
+			if (!socket.writableEnded) socket.end();
+		});
+		socket.on("error", () => {
+			// The close event owns connection cleanup.
+		});
+	}
+
+	get closing(): boolean {
+		return this.closed || this.socket.writableEnded || this.socket.destroyed;
+	}
+
+	sendText(value: unknown): boolean {
+		return this.enqueueFrame(encodeFrame(1, Buffer.from(JSON.stringify(value))));
+	}
+
+	pong(payload: Buffer): void {
+		this.writeControl(10, payload);
+	}
+
+	close(code = 1000, reason = ""): void {
+		if (this.closed) return;
+		this.closed = true;
+		this.clearOutbound();
+		const boundedReason = Buffer.from(reason).subarray(0, 123);
+		const payload = Buffer.alloc(2 + boundedReason.byteLength);
+		payload.writeUInt16BE(code);
+		boundedReason.copy(payload, 2);
+		this.writeControl(8, payload);
+		this.socket.end();
+	}
+
+	private clearOutbound(): void {
+		if (this.drainTimer !== undefined) clearTimeout(this.drainTimer);
+		this.drainTimer = undefined;
+		this.waitingDrain = false;
+		this.outbound.length = 0;
+		this.outboundBytes = 0;
+	}
+	private enqueueFrame(frame: Buffer): boolean {
+		if (this.closing) return false;
+		if (this.outbound.length >= MAX_OUTBOUND_FRAMES || this.outboundBytes + frame.byteLength > MAX_OUTBOUND_BYTES) {
+			this.close(1013, "outbound queue overflow");
+			return false;
+		}
+		this.outbound.push(frame);
+		this.outboundBytes += frame.byteLength;
+		this.pumpOutbound();
+		return true;
+	}
+
+	private pumpOutbound(): void {
+		if (this.writing || this.waitingDrain || this.closing) return;
+		const frame = this.outbound[0];
+		if (frame === undefined) return;
+		this.writing = true;
+		const writable = this.socket.write(frame, (error) => {
+			this.writing = false;
+			if (error) {
+				this.close(1011, "socket write failure");
+				return;
+			}
+			if (this.outbound[0] === frame) {
+				this.outbound.shift();
+				this.outboundBytes -= frame.byteLength;
+			}
+			if (!this.waitingDrain) this.pumpOutbound();
+		});
+		if (!writable) {
+			this.waitingDrain = true;
+			this.socket.once("drain", () => {
+				if (this.closing) return;
+				this.waitingDrain = false;
+				if (this.drainTimer !== undefined) clearTimeout(this.drainTimer);
+				this.drainTimer = undefined;
+				this.pumpOutbound();
+			});
+			this.drainTimer = setTimeout(() => this.close(1013, "outbound drain timeout"), OUTBOUND_DRAIN_TIMEOUT_MS);
+			this.drainTimer.unref();
+		}
+	}
+
+	private writeControl(opcode: number, payload: Buffer): void {
+		if (this.socket.destroyed || !this.socket.writable) return;
+		if (opcode === 10) {
+			this.enqueueFrame(encodeFrame(opcode, payload));
+			return;
+		}
+		this.socket.write(encodeFrame(opcode, payload), () => {});
+	}
+
+	private read(chunk: Buffer): void {
+		this.buffer = Buffer.concat([this.buffer, chunk]);
+		while (this.buffer.length >= 2) {
+			const first = this.buffer[0]!;
+			const second = this.buffer[1]!;
+			if ((first & 0x70) !== 0) return this.close(1008, "reserved bits unsupported");
+			const final = (first & 0x80) !== 0;
+			const opcode = first & 0x0f;
+			if ((second & 0x80) === 0) return this.close(1008, "client frames must be masked");
+			let length = second & 0x7f;
+			let offset = 2;
+			if (length === 126) {
+				if (this.buffer.length < 4) return;
+				length = this.buffer.readUInt16BE(2);
+				offset = 4;
+			} else if (length === 127) {
+				if (this.buffer.length < 10) return;
+				const wideLength = this.buffer.readBigUInt64BE(2);
+				if (wideLength > BigInt(this.maxMessageBytes)) return this.close(1009);
+				length = Number(wideLength);
+				offset = 10;
+			}
+			if (this.buffer.length < offset + 4 + length) return;
+			const mask = this.buffer.subarray(offset, offset + 4);
+			offset += 4;
+			const data = Buffer.from(this.buffer.subarray(offset, offset + length));
+			this.buffer = this.buffer.subarray(offset + length);
+			for (let index = 0; index < data.length; index += 1) data[index] ^= mask[index & 3]!;
+			if (opcode >= 8 && (!final || length > 125)) return this.close(1008);
+			if (opcode === 8) {
+				const code = data.length >= 2 ? data.readUInt16BE(0) : 1000;
+				this.close(code);
+				return;
+			}
+			if (opcode === 9) {
+				this.pong(data);
+				continue;
+			}
+			if (opcode === 10) {
+				this.emit("pong", data);
+				continue;
+			}
+			if (opcode === 2) return this.close(1008, "binary unsupported");
+			if (opcode === 1) {
+				if (this.fragmentOpcode !== 0) return this.close(1008);
+				if (final) {
+					if (length > this.maxMessageBytes) return this.close(1009);
+					this.emit("text", data.toString("utf8"));
+				} else {
+					this.fragmentOpcode = 1;
+					this.fragments = [data];
+					this.fragmentBytes = length;
+				}
+			} else if (opcode === 0) {
+				if (this.fragmentOpcode === 0) return this.close(1008);
+				this.fragmentBytes += length;
+				if (this.fragmentBytes > this.maxMessageBytes) return this.close(1009);
+				if (this.fragments.length >= MAX_FRAGMENT_FRAMES) return this.close(1009);
+				this.fragments.push(data);
+				if (final) {
+					const message = Buffer.concat(this.fragments).toString("utf8");
+					this.fragments = [];
+					this.fragmentOpcode = 0;
+					this.fragmentBytes = 0;
+					this.emit("text", message);
+				}
+			} else {
+				return this.close(1008);
+			}
+		}
+	}
+}
+
+export function readClientRole(request: IncomingMessage): ClientRole | undefined {
+	const values: string[] = [];
+	for (let index = 0; index < request.rawHeaders.length; index += 2) {
+		if (request.rawHeaders[index]?.toLowerCase() === "x-omb-role") values.push(request.rawHeaders[index + 1] ?? "");
+	}
+	if (values.length === 0) return "legacy";
+	if (values.length !== 1 || values[0]!.includes(",")) return undefined;
+	const value = values[0];
 	if (value === "controller" || value === "bridge") return value;
 	return undefined;
 }
 
+export function readUniqueHeader(request: IncomingMessage, name: string): string | undefined {
+	const normalized = name.toLowerCase();
+	const values: string[] = [];
+	for (let index = 0; index < request.rawHeaders.length; index += 2) {
+		if (request.rawHeaders[index]?.toLowerCase() === normalized) values.push(request.rawHeaders[index + 1] ?? "");
+	}
+	if (values.length !== 1 || values[0]!.includes(",")) return undefined;
+	return values[0];
+}
+
 export function acceptUpgrade(
-	req: IncomingMessage,
+	request: IncomingMessage,
 	socket: Duplex,
 	port: number,
 	alreadyAccepted: boolean,
@@ -42,25 +252,21 @@ export function acceptUpgrade(
 	};
 	if (
 		alreadyAccepted ||
-		req.headers.host !== `127.0.0.1:${port}` ||
-		(req.headers.origin !== undefined && req.headers.origin !== `http://127.0.0.1:${port}`)
+		request.headers.host !== `127.0.0.1:${port}` ||
+		(request.headers.origin !== undefined && request.headers.origin !== `http://127.0.0.1:${port}`)
 	) {
 		return reject();
 	}
-	const key = req.headers["sec-websocket-key"];
-	const auth = req.headers.authorization;
+	const key = readUniqueHeader(request, "sec-websocket-key");
+	const authorization = readUniqueHeader(request, "authorization");
 	if (
-		req.headers.upgrade?.toLowerCase() !== "websocket" ||
-		req.headers["sec-websocket-version"] !== "13" ||
+		request.headers.upgrade?.toLowerCase() !== "websocket" ||
+		request.headers["sec-websocket-version"] !== "13" ||
 		typeof key !== "string" ||
-		Buffer.from(key, "base64").length !== 16
-	) {
-		return reject();
-	}
-	if (
-		typeof auth !== "string" ||
-		!auth.startsWith("Bearer ") ||
-		!authenticate(auth.slice(7))
+		Buffer.from(key, "base64").length !== 16 ||
+		typeof authorization !== "string" ||
+		!authorization.startsWith("Bearer ") ||
+		!authenticate(authorization.slice(7))
 	) {
 		return reject();
 	}

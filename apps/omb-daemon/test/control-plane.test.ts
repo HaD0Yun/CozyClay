@@ -6,8 +6,16 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { CameraPlanV1 } from "@oh-my-blender/protocol";
-import { start, type Daemon } from "../src/daemon.ts";
-import { AttachTicketBroker } from "../src/control-plane.ts";
+import { start as startDaemon, type Daemon, type DaemonOptions } from "../src/daemon.ts";
+import {
+	AttachTicketBroker,
+	OwnerCredential,
+	ProjectCredentialBroker,
+	createRuntimeAdvertisement,
+} from "../src/control-plane.ts";
+const TEST_PROJECT_ID = "00000000-0000-4000-8000-000000000002";
+const start = (options: Omit<DaemonOptions, "projectId"> & { projectId?: string }) =>
+	startDaemon({ projectId: TEST_PROJECT_ID, ...options });
 
 const websocketKey = "AAAAAAAAAAAAAAAAAAAAAA==";
 const nonce = () => Buffer.alloc(16, Math.floor(Math.random() * 255)).toString("base64url");
@@ -16,7 +24,7 @@ const controllerHello = () => ({
 	protocol: 1,
 	addon_version: "controller-test",
 	blender_version: "n/a",
-	project_id: randomUUID(),
+	project_id: TEST_PROJECT_ID,
 	client_nonce: nonce(),
 });
 const bridgeHello = () => ({
@@ -24,7 +32,7 @@ const bridgeHello = () => ({
 	protocol: 2,
 	addon_version: "bridge-test",
 	blender_version: "4.3",
-	project_id: randomUUID(),
+	project_id: TEST_PROJECT_ID,
 	client_nonce: nonce(),
 	capabilities: ["mutation_bridge_v2"],
 });
@@ -120,11 +128,19 @@ class Client {
 	}
 }
 
-async function connect(port: number, credential: string, role: "controller" | "bridge"): Promise<Client> {
+async function connect(
+	port: number,
+	credential: string,
+	role: "controller" | "bridge",
+	headers: Readonly<Record<string, string>> = {},
+): Promise<Client> {
 	return new Promise<Client>((resolve, reject) => {
 		const socket = net.connect(port, "127.0.0.1", () => {
+			const extraHeaders = Object.entries(headers)
+				.map(([name, value]) => `${name}: ${value}\r\n`)
+				.join("");
 			socket.write(
-				`GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${websocketKey}\r\nAuthorization: Bearer ${credential}\r\nX-OMB-Role: ${role}\r\n\r\n`,
+				`GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${websocketKey}\r\nAuthorization: Bearer ${credential}\r\nX-OMB-Role: ${role}\r\n${extraHeaders}\r\n`,
 			);
 		});
 		let response = "";
@@ -145,7 +161,11 @@ async function connect(port: number, credential: string, role: "controller" | "b
 }
 
 async function controller(daemon: Daemon, credential = daemon.startup.bearer_token) {
-	const client = await connect(daemon.port, credential, "controller");
+	const headers: Readonly<Record<string, string>> =
+		credential === daemon.startup.bearer_token
+			? {}
+			: { "X-OMB-Launch-ID": daemon.startup.launch_id };
+	const client = await connect(daemon.port, credential, "controller", headers);
 	const hello = controllerHello();
 	client.send(hello);
 	await client.next((message) => message.type === "hello_ack");
@@ -173,9 +193,119 @@ test("attach tickets are bridge-scoped, expiring, and burn on first validation",
 	assert.equal(broker.consume(issued.ticket, "controller"), false);
 	assert.equal(broker.consume(issued.ticket, "bridge"), true);
 	assert.equal(broker.consume(issued.ticket, "bridge"), false);
+	const superseded = broker.issue("bridge");
+	const replacement = broker.issue("bridge");
+	assert.equal(broker.consume(superseded.ticket, "bridge"), false);
+	assert.equal(broker.consume(replacement.ticket, "bridge"), true);
 	const expired = broker.issue("bridge");
 	now += 250;
 	assert.equal(broker.consume(expired.ticket, "bridge"), false);
+});
+
+test("ticket records are keyed by SHA-256 digest hex rather than raw credentials", () => {
+	const broker = new AttachTicketBroker({ now: () => 0 });
+	const issued = broker.issue("bridge");
+	const keys = [...(broker as unknown as { tickets: Map<string, unknown> }).tickets.keys()];
+	assert.equal(keys.length, 1);
+	assert.match(keys[0]!, /^[0-9a-f]{64}$/);
+	assert.notEqual(keys[0], issued.ticket);
+});
+
+test("project credentials enforce exact binding and independent discovery generations", () => {
+	let now = 1_000;
+	const broker = new ProjectCredentialBroker({ now: () => now });
+	const common = { projectId: randomUUID(), authority: "local-owner", lineageId: randomUUID() };
+	const bridge1 = broker.publishBridge(common);
+	const peer1 = broker.publishControllerPeer(common);
+	assert.equal(bridge1.expiresInMs, 15_000);
+	assert.equal(peer1.expiresInMs, 15_000);
+	assert.equal(bridge1.principal.generation, 1);
+	assert.equal(peer1.principal.generation, 1);
+	const bridge2 = broker.publishBridge(common);
+	assert.equal(bridge2.principal.generation, 2);
+	assert.equal(broker.consumeBridge(bridge1.ticket, common.projectId), undefined);
+	assert.equal(broker.consumeControllerPeer(peer1.ticket, common.projectId)?.principal.generation, 1);
+	assert.equal(broker.consumeBridge(bridge2.ticket, randomUUID()), undefined);
+	const expiring = broker.publishBridge({ ...common, lineageId: randomUUID() });
+	now += 15_000;
+	assert.equal(broker.consumeBridge(expiring.ticket, common.projectId), undefined);
+});
+
+test("controller peer resume ratchets, expires, rejects replay, and revokes lineage", () => {
+	let now = 0;
+	const broker = new ProjectCredentialBroker({ now: () => now });
+	const binding = { projectId: randomUUID(), authority: "local-owner", lineageId: randomUUID() };
+	const issued = broker.publishControllerPeer(binding);
+	const first = broker.consumeControllerPeer(issued.ticket, binding.projectId);
+	assert.ok(first);
+	assert.equal(first.expiresInMs, 300_000);
+	assert.equal(broker.consumeControllerPeer(issued.ticket, binding.projectId), undefined);
+	const second = broker.resumeControllerPeer(first.resumeToken, binding.projectId);
+	assert.ok(second);
+	assert.notEqual(second.resumeToken, first.resumeToken);
+	assert.equal(broker.resumeControllerPeer(first.resumeToken, binding.projectId), undefined);
+	now = 300_000;
+	assert.equal(broker.resumeControllerPeer(second.resumeToken, binding.projectId), undefined);
+	const revocable = broker.consumeControllerPeer(
+		broker.publishControllerPeer(binding).ticket,
+		binding.projectId,
+	);
+	assert.ok(revocable);
+	broker.revokeControllerPeer(binding.lineageId);
+	assert.equal(broker.resumeControllerPeer(revocable.resumeToken, binding.projectId), undefined);
+});
+
+test("owner credentials carry immutable exact project authority", () => {
+	const projectId = randomUUID();
+	const owner = new OwnerCredential({
+		projectId,
+		authority: "local-owner",
+		lineageId: randomUUID(),
+	});
+	assert.equal(owner.principal.role, "owner");
+	assert.equal(Object.isFrozen(owner.principal), true);
+	assert.equal(owner.matches(owner.value, randomUUID()), false);
+	assert.equal(owner.matches(owner.value, projectId), true);
+	owner.zero();
+	assert.equal(owner.matches(owner.value, projectId), false);
+});
+
+test("runtime discovery slots use independent exact private files", async () => {
+	const base = await mkdtemp(path.join(os.tmpdir(), "omb-slots-test-"));
+	const advertisement = await createRuntimeAdvertisement({
+		launchId: randomUUID(),
+		port: 8123,
+		baseDirectory: base,
+	});
+	const bridgeSlot = {
+		schema_version: 1 as const,
+		project_id: randomUUID(),
+		ticket: Buffer.alloc(32, 1).toString("base64url"),
+		expires_at_ms: 15_000,
+		generation: 1,
+	};
+	const peerSlot = {
+		...bridgeSlot,
+		lineage_id: randomUUID(),
+		ticket: Buffer.alloc(32, 2).toString("base64url"),
+	};
+	try {
+		await Promise.all([
+			advertisement.writeBridgeSlot(bridgeSlot),
+			advertisement.writeControllerPeerSlot(peerSlot),
+		]);
+		const bridgePath = path.join(advertisement.directory, "bridge-slot.json");
+		const peerPath = path.join(advertisement.directory, "controller-peer-slot.json");
+		assert.deepEqual(JSON.parse(await readFile(bridgePath, "utf8")), bridgeSlot);
+		assert.deepEqual(JSON.parse(await readFile(peerPath, "utf8")), peerSlot);
+		assert.equal((await stat(bridgePath)).mode & 0o777, 0o600);
+		assert.equal((await stat(peerPath)).mode & 0o777, 0o600);
+		await advertisement.removeBridgeSlot();
+		await assert.rejects(access(bridgePath));
+		assert.deepEqual(JSON.parse(await readFile(peerPath, "utf8")), peerSlot);
+	} finally {
+		await advertisement.cleanup();
+	}
 });
 
 test("daemon advertises its endpoint in a private runtime launch directory", async () => {
@@ -205,7 +335,7 @@ test("daemon atomically replaces the project-bound private attach handoff and re
 		assert.equal(Number.isSafeInteger(firstHandoff.expires_at_ms), true);
 		assert.deepEqual({ ...firstHandoff, expires_at_ms: 0 }, {
 			schema_version: 1,
-			project_id: control.projectId,
+			project_id: daemon.projectId,
 			ticket: first,
 			expires_at_ms: 0,
 		});
@@ -214,6 +344,7 @@ test("daemon atomically replaces the project-bound private attach handoff and re
 		const second = await issueBridgeTicket(control.client);
 		assert.notEqual(second, first);
 		assert.equal(JSON.parse(await readFile(handoffPath, "utf8")).ticket, second);
+		await assert.rejects(connect(daemon.port, first, "bridge"), /403/);
 
 		const bridge = await connect(daemon.port, second, "bridge");
 		bridge.send(bridgeHello());
@@ -404,4 +535,150 @@ test("only a controller may issue tickets or shut down the daemon", async () => 
 	control.client.send({ type: "shutdown", reason: "controller_request" });
 	await control.client.next((message) => message.type === "shutdown_ack");
 	await daemon.stopped;
+});
+test("project-bound owner and peer credentials enforce authority and ratchet generations", async () => {
+	const projectId = randomUUID();
+	const lineageId = randomUUID();
+	const base = await mkdtemp(path.join(os.tmpdir(), "omb-peer-auth-test-"));
+	let resolveSlow!: () => void;
+	const slow = new Promise<void>((resolve) => {
+		resolveSlow = resolve;
+	});
+	const daemon = await start({
+		projectId,
+		port: 0,
+		handlers: {
+			slow: async () => {
+				await slow;
+				return { result: { ok: true }, resulting_revision_id: "1".repeat(64) };
+			},
+		},
+		stdout: () => {},
+		runtimeBaseDirectory: base,
+	});
+	let owner: Client | undefined;
+	let peer: Client | undefined;
+	try {
+		owner = await connect(daemon.port, daemon.startup.bearer_token, "controller");
+		owner.send({ ...controllerHello(), project_id: projectId });
+		const helloAck = await owner.next((message) => message.type === "hello_ack");
+		assert.deepEqual(helloAck.protocol_features, ["snapshot_cursor_v2"]);
+		assert.deepEqual(helloAck.capabilities, ["inspect_project", "controller_peers_v1"]);
+		const ownerAuth = await owner.next((message) => message.type === "controller_auth");
+
+		const publishId = randomUUID();
+		owner.send({ type: "publish_controller_peer_discovery_slot", id: publishId, lineage_id: lineageId });
+		const publishAck = await owner.next(
+			(message) => message.type === "controller_peer_discovery_slot_ack" && message.id === publishId,
+		);
+		assert.equal(publishAck.generation, 1);
+		const firstPeerSlot = JSON.parse(
+			await readFile(path.join(daemon.runtimeDirectory, "controller-peer-slot.json"), "utf8"),
+		) as { ticket: string; generation: number };
+		const ackCount = owner.messages.filter(
+			(message) => message.type === "controller_peer_discovery_slot_ack" && message.id === publishId,
+		).length;
+		owner.send({ type: "publish_controller_peer_discovery_slot", id: publishId, lineage_id: lineageId });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(
+			owner.messages.filter(
+				(message) => message.type === "controller_peer_discovery_slot_ack" && message.id === publishId,
+			).length,
+			ackCount + 1,
+		);
+		assert.deepEqual(
+			JSON.parse(await readFile(path.join(daemon.runtimeDirectory, "controller-peer-slot.json"), "utf8")),
+			firstPeerSlot,
+		);
+		owner.send({ type: "publish_bridge_discovery_slot", id: publishId });
+		const conflict = await owner.next(
+			(message) => message.type === "error" && message.id === publishId,
+		);
+		assert.equal(conflict.code, "IDEMPOTENCY_CONFLICT");
+		const peerSlot = JSON.parse(
+			await readFile(path.join(daemon.runtimeDirectory, "controller-peer-slot.json"), "utf8"),
+		) as { ticket: string };
+		peer = await connect(daemon.port, peerSlot.ticket, "controller");
+		peer.send({ ...controllerHello(), project_id: projectId });
+		await peer.next((message) => message.type === "hello_ack");
+		const firstPeerAuth = await peer.next((message) => message.type === "controller_peer_auth");
+		assert.equal(firstPeerAuth.generation, 1);
+		assert.equal(peer.messages.some((message) => message.type === "controller_auth"), false);
+		assert.notEqual(firstPeerAuth.resume_token, ownerAuth.resume_token);
+
+		peer.socket.destroy();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		peer = await connect(daemon.port, firstPeerAuth.resume_token as string, "controller", {
+			"X-OMB-Launch-ID": daemon.startup.launch_id,
+			"X-OMB-Peer-Lineage-ID": lineageId,
+			"X-OMB-Peer-Generation": "1",
+		});
+		peer.send({ ...controllerHello(), project_id: projectId });
+		await peer.next((message) => message.type === "hello_ack");
+		const secondPeerAuth = await peer.next((message) => message.type === "controller_peer_auth");
+		assert.equal(secondPeerAuth.generation, 2);
+		assert.notEqual(secondPeerAuth.resume_token, firstPeerAuth.resume_token);
+		const ownerRequestId = randomUUID();
+		owner.send({
+			type: "request",
+			id: ownerRequestId,
+			method: "owner_only_response",
+			params: {},
+			expected_revision_id: "0".repeat(64),
+			deadline_ms: 1_000,
+		});
+		await owner.next((message) => message.type === "error" && message.id === ownerRequestId);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(peer.messages.some((message) => message.id === ownerRequestId), false);
+
+		const deniedId = randomUUID();
+		peer.send({ type: "publish_bridge_discovery_slot", id: deniedId });
+		const denied = await peer.next((message) => message.type === "error" && message.id === deniedId);
+		assert.equal(denied.code, "AUTHORITY_DENIED");
+		assert.equal(owner.messages.some((message) => message.id === deniedId), false);
+		const peerRequestId = randomUUID();
+		peer.send({
+			type: "request",
+			id: peerRequestId,
+			method: "slow",
+			params: {},
+			expected_revision_id: "0".repeat(64),
+			deadline_ms: 1_000,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		peer.socket.destroy();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		resolveSlow();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		peer = await connect(daemon.port, secondPeerAuth.resume_token as string, "controller", {
+			"X-OMB-Launch-ID": daemon.startup.launch_id,
+			"X-OMB-Peer-Lineage-ID": lineageId,
+			"X-OMB-Peer-Generation": "2",
+		});
+		peer.send({ ...controllerHello(), project_id: projectId });
+		await peer.next((message) => message.type === "hello_ack");
+		const thirdPeerAuth = await peer.next((message) => message.type === "controller_peer_auth");
+		assert.equal(thirdPeerAuth.generation, 3);
+		const replayed = await peer.next((message) => message.type === "response" && message.id === peerRequestId);
+		assert.equal((replayed.result as { ok: boolean }).ok, true);
+		assert.equal(owner.messages.some((message) => message.id === peerRequestId), false);
+
+		const revokeId = randomUUID();
+		owner.send({ type: "revoke_controller_peer", id: revokeId, lineage_id: lineageId });
+		await owner.next((message) => message.type === "revoke_controller_peer_ack" && message.id === revokeId);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(peer.socket.destroyed, true);
+		await assert.rejects(
+			connect(daemon.port, thirdPeerAuth.resume_token as string, "controller", {
+				"X-OMB-Launch-ID": daemon.startup.launch_id,
+				"X-OMB-Peer-Lineage-ID": lineageId,
+				"X-OMB-Peer-Generation": "3",
+			}),
+			/403/,
+		);
+	} finally {
+		peer?.socket.destroy();
+		owner?.socket.destroy();
+		await daemon.close();
+	}
 });

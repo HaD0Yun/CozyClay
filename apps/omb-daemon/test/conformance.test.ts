@@ -2,14 +2,20 @@ import assert from "node:assert/strict";
 import net, {type Socket} from "node:net";
 import {createHash,randomUUID} from "node:crypto";
 import {spawn} from "node:child_process";
+import {mkdir,mkdtemp,rm,writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import test from "node:test";
 import {parseStartupRecord,type CameraPlanV1} from "@oh-my-blender/protocol";
-import {start,type DaemonOptions} from "../src/daemon.ts";
+import {start as startDaemon,type DaemonOptions} from "../src/daemon.ts";
+const TEST_PROJECT_ID="00000000-0000-4000-8000-000000000001";
+const start=(options:Omit<DaemonOptions,"projectId">&{projectId?:string})=>
+	startDaemon({projectId:TEST_PROJECT_ID,...options});
 
 const key="AAAAAAAAAAAAAAAAAAAAAA==", nonce=()=>Buffer.alloc(16,Math.floor(Math.random()*255)).toString("base64url");
 const QA_PNG=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=","base64");
-const hello=(n=nonce())=>({type:"hello",protocol:1,addon_version:"1",blender_version:"4",project_id:randomUUID(),client_nonce:n});
-const helloV2=(n=nonce())=>({type:"hello",protocol:2,addon_version:"1",blender_version:"4",project_id:randomUUID(),client_nonce:n,capabilities:["mutation_bridge_v2"]});
+const hello=(n=nonce())=>({type:"hello",protocol:1,addon_version:"1",blender_version:"4",project_id:TEST_PROJECT_ID,client_nonce:n});
+const helloV2=(n=nonce())=>({type:"hello",protocol:2,addon_version:"1",blender_version:"4",project_id:TEST_PROJECT_ID,client_nonce:n,capabilities:["mutation_bridge_v2"]});
 const helloV3=(n=nonce())=>({...helloV2(n),capabilities:["mutation_bridge_v2","scene_manifest_v3"]});
 const request=(over:Record<string,unknown>={})=>({type:"request",id:randomUUID(),method:"ok",params:{},expected_revision_id:"0".repeat(64),deadline_ms:1000,...over});
 const bridgePlan=():CameraPlanV1=>({schema_version:1,expected_revision_id:"0".repeat(64),evidence_sha256:"a".repeat(64),output_format:{width:1,height:1},keyframes:[{frame:1,pose:{position:[0,0,1],look_at:[0,0,0],up:[0,1,0],vertical_fov_radians:0.5},transition:"smooth"}]});
@@ -26,13 +32,14 @@ for(const [name,headers] of [["wrong token",{Authorization:"Bearer bad"}],["wron
 test("§4 upgrade 403: expired token",async()=>{let now=0;const d=await start({port:0,clock:{now:()=>now},handlers:{},stdout:()=>{}});try{now=10000;await rejected(d);}finally{await d.close();}});
 test("§4 upgrade 403: token reuse and concurrent second socket",async()=>{const {d,c}=await upgrade();try{await rejected(d);assert.equal(c.socket.destroyed,false);}finally{c.socket.destroy();await d.close();}});
 
-test("§4 startup record: child emits exactly one stdout line with matching pid and port",async()=>{const child=spawn(process.execPath,["--import","tsx","src/main.ts","--port","0","--faux"],{cwd:new URL("..",import.meta.url),stdio:["ignore","pipe","pipe"]});let out="",err="";child.stdout.on("data",b=>out+=b);child.stderr.on("data",b=>err+=b);await new Promise<void>((r,j)=>{const t=setTimeout(()=>j(new Error("startup timeout")),2000);child.stdout.once("data",()=>{clearTimeout(t);setTimeout(r,30);});});const lines=out.trim().split("\n");assert.equal(lines.length,1);const rec=parseStartupRecord(JSON.parse(lines[0]!));assert.equal(rec.pid,child.pid);assert.ok(rec.port>0);assert.equal(err,"");child.kill();await new Promise(r=>child.once("exit",r));});
+test("§4 startup record: child emits exactly one stdout line with matching pid and port",async()=>{const root=await mkdtemp(join(tmpdir(),"omb-startup-"));await mkdir(join(root,".omb"));await writeFile(join(root,".omb","project.json"),JSON.stringify({schema_version:1,project_id:randomUUID(),current_revision_id:"0".repeat(64)}));const child=spawn(process.execPath,["--import",import.meta.resolve("tsx"),new URL("../src/main.ts",import.meta.url).pathname,"--port","0","--faux"],{cwd:root,stdio:["ignore","pipe","pipe"]});let out="",err="";child.stdout.on("data",b=>out+=b);child.stderr.on("data",b=>err+=b);try{await new Promise<void>((r,j)=>{const t=setTimeout(()=>j(new Error(`startup timeout: ${err}`)),2000);child.stdout.once("data",()=>{clearTimeout(t);setTimeout(r,30);});});const lines=out.trim().split("\n");assert.equal(lines.length,1);const rec=parseStartupRecord(JSON.parse(lines[0]!));assert.equal(rec.pid,child.pid);assert.ok(rec.port>0);assert.equal(err,"");}finally{child.kill();await new Promise(r=>child.once("exit",r));await rm(root,{recursive:true,force:true});}});
 
 for(const [name,value] of [["malformed hello",{type:"hello",protocol:2}],["non-hello first message",{type:"ping",nonce:"x"}]] as const)test(`§4 close 1008: ${name}`,async()=>{const {d,c}=await upgrade();try{c.send(value);await new Promise(r=>setTimeout(r,20));assert.deepEqual(c.closes,[1008]);}finally{c.socket.destroy();await d.close();}});
 test("§4 close 1008: unmasked client frame",async()=>{const {d,c}=await upgrade();try{c.send(hello(),{masked:false});await new Promise(r=>setTimeout(r,20));assert.deepEqual(c.closes,[1008]);}finally{c.socket.destroy();await d.close();}});
 test("§4 close 1008: reserved WebSocket bit",async()=>{const {d,c}=await upgrade();try{c.send(hello());await c.next(m=>m.type==="hello_ack");c.send({type:"ping",nonce:"x"},{rsv:0x40});await new Promise(r=>setTimeout(r,20));assert.deepEqual(c.closes,[1008]);await new Promise<void>(r=>c.socket.closed?r():c.socket.once("close",()=>r()));assert.equal(c.socket.closed,true);}finally{c.socket.destroy();await d.close();}});
 test("§4 close 1008: hello later than configured window",async()=>{const {d,c}=await upgrade({helloTimeoutMs:15});try{await new Promise(r=>setTimeout(r,30));assert.deepEqual(c.closes,[1008]);}finally{c.socket.destroy();await d.close();}});
-test("§4 hello_ack fields and capabilities",async()=>{const {d,c}=await upgrade();try{c.send(hello());const a=await c.next();assert.equal(a.protocol,1);assert.match(a.session_id,/^[0-9a-f-]{36}$/);assert.match(a.server_nonce,/^[A-Za-z0-9_-]{22}$/);assert.deepEqual(a.capabilities,["inspect_project"]);}finally{c.socket.destroy();await d.close();}});
+test("§4 hello_ack fields and capabilities",async()=>{const {d,c}=await upgrade();try{c.send(hello());const a=await c.next();assert.equal(a.protocol,1);assert.match(a.session_id,/^[0-9a-f-]{36}$/);assert.match(a.server_nonce,/^[A-Za-z0-9_-]{22}$/);assert.deepEqual(a.capabilities,["inspect_project","controller_peers_v1"]);assert.deepEqual(a.protocol_features,["snapshot_cursor_v2"]);}finally{c.socket.destroy();await d.close();}});
+test("first unknown control message is targeted and a repeated unknown closes 1008",async()=>{const {d,c}=await ready();try{const first=randomUUID();c.send({type:"future_control_message",id:first});assert.deepEqual(await c.next(m=>m.id===first),{type:"error",id:first,code:"MALFORMED_MESSAGE",message:"message type is not recognized",retryable:false});c.send({type:"another_future_message",id:randomUUID()});await new Promise(r=>setTimeout(r,20));assert.deepEqual(c.closes,[1008]);}finally{c.socket.destroy();await d.close();}});
 test("protocol-v2 staging capability is explicit and V2-only bridges are gated before dispatch",async()=>{
 	const v2=await readyV2({handlers:{stage_scene:async()=>{throw new Error("stage handler must stay hidden");}}});
 	try{
@@ -43,6 +50,23 @@ test("protocol-v2 staging capability is explicit and V2-only bridges are gated b
 	}finally{v2.c.socket.destroy();await v2.d.close();}
 	const v3=await readyV3();
 	v3.c.socket.destroy();await v3.d.close();
+});
+test("stage_scene plain and UNKNOWN failures are fixed while the bridge remains usable",async()=>{
+	for(const failure of [new Error("Blender RuntimeError sentinel"),new Error("UNKNOWN: raw bridge sentinel")]){
+		const session=await readyV3({handlers:{
+			stage_scene:async()=>{throw failure;},
+			inspect_project:async()=>({result:{ok:true},resulting_revision_id:"1".repeat(64)}),
+		}});
+		try{
+			const staged=request({method:"stage_scene",id:randomUUID()});session.c.send(staged);
+			const rejected=await session.c.next(m=>m.type==="error"&&m.id===staged.id);
+			assert.deepEqual(rejected,{type:"error",id:staged.id,code:"STAGE_SCENE_FAILED",message:"stage_scene operation failed",retryable:false});
+			assert.doesNotMatch(JSON.stringify(rejected),/sentinel|UNKNOWN|RuntimeError/);
+			const inspected=request({method:"inspect_project",id:randomUUID()});session.c.send(inspected);
+			assert.equal((await session.c.next(m=>m.type==="response"&&m.id===inspected.id)).type,"response");
+			assert.equal(session.c.socket.destroyed,false);
+		}finally{session.c.socket.destroy();await session.d.close();}
+	}
 });
 test("§4 protocol-v2 apply_camera_plan reuses one correlated MutationBridgeSession for progress and result",async()=>{
 	const plan={schema_version:1 as const,expected_revision_id:"0".repeat(64),evidence_sha256:"a".repeat(64),output_format:{width:640,height:360},keyframes:[{frame:1,pose:{position:[0,0,50] as [number,number,number],look_at:[0,0,0] as [number,number,number],up:[0,1,0] as [number,number,number],vertical_fov_radians:0.5},transition:"smooth" as const}]};

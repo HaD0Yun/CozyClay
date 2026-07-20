@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,15 @@ import { createBootRuntime, parseBootArguments } from "../src/boot.ts";
 
 const sentinel = "omb-sentinel-secret-DO-NOT-LOG";
 const tsconfigPath = new URL("../../../tsconfig.json", import.meta.url).pathname;
+async function seedProject(directory: string): Promise<string> {
+	const projectId = randomUUID();
+	await mkdir(join(directory, ".omb"), { recursive: true });
+	await writeFile(
+		join(directory, ".omb", "project.json"),
+		JSON.stringify({ schema_version: 1, project_id: projectId, current_revision_id: "0".repeat(64) }),
+	);
+	return projectId;
+}
 
 function clientTextFrame(value: unknown): Buffer {
 	const payload = Buffer.from(JSON.stringify(value));
@@ -108,6 +117,7 @@ test("openai-codex boots through the isolated env with an OAuth access token as 
 
 test("G013 real-provider startup keeps the sentinel out of argv, stdout, stderr, and project files", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "omb-g013-"));
+	await seedProject(directory);
 	const args = [
 		"--import", new URL(import.meta.resolve("tsx")).pathname, new URL("../src/main.ts", import.meta.url).pathname,
 		"--port", "0", "--provider", "anthropic", "--model", "claude-haiku-4-5",
@@ -156,6 +166,7 @@ test("G013 real-provider startup keeps the sentinel out of argv, stdout, stderr,
 
 test("G013 faux daemon keeps credentials out of every real WebSocket frame", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "omb-g013-websocket-"));
+	const projectId = await seedProject(directory);
 	const snapshot = JSON.parse(
 		await readFile(
 			new URL("../../../packages/blender-protocol/test/fixtures/blender-exported-snapshot.json", import.meta.url),
@@ -279,7 +290,7 @@ test("G013 faux daemon keeps credentials out of every real WebSocket frame", asy
 			protocol: 1,
 			addon_version: "test",
 			blender_version: "4.3",
-			project_id: randomUUID(),
+			project_id: projectId,
 			client_nonce: Buffer.alloc(16, 7).toString("base64url"),
 		});
 		await nextMessage((message) => message.type === "hello_ack");
@@ -322,5 +333,58 @@ test("G013 faux daemon keeps credentials out of every real WebSocket frame", asy
 		socket?.destroy();
 		if (child.exitCode === null) child.kill();
 		await rm(directory, { recursive: true, force: true });
+	}
+});
+test("main refuses missing, corrupt, and invalid project state before listening", async () => {
+	const cases = [
+		{ name: "missing", contents: undefined },
+		{ name: "corrupt", contents: "{" },
+		{
+			name: "invalid",
+			contents: JSON.stringify({
+				schema_version: 1,
+				project_id: "not-a-uuid",
+				current_revision_id: "0".repeat(64),
+			}),
+		},
+	] as const;
+	for (const failure of cases) {
+		const directory = await mkdtemp(join(tmpdir(), `omb-project-${failure.name}-`));
+		try {
+			if (failure.contents !== undefined) {
+				await mkdir(join(directory, ".omb"), { recursive: true });
+				await writeFile(join(directory, ".omb", "project.json"), failure.contents);
+			}
+			const child = spawn(
+				process.execPath,
+				[
+					"--import",
+					new URL(import.meta.resolve("tsx")).pathname,
+					new URL("../src/main.ts", import.meta.url).pathname,
+					"--port",
+					"0",
+					"--faux",
+				],
+				{
+					cwd: directory,
+					env: { PATH: process.env.PATH, TSX_TSCONFIG_PATH: tsconfigPath },
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
+			let stdout = "";
+			let stderr = "";
+			child.stdout.on("data", (bytes) => {
+				stdout += bytes;
+			});
+			child.stderr.on("data", (bytes) => {
+				stderr += bytes;
+			});
+			const exitCode = await new Promise<number | null>((resolve) => child.once("exit", resolve));
+			assert.equal(exitCode, 1);
+			assert.equal(stdout, "");
+			assert.equal(stderr, "PROJECT_CONFIGURATION_ERROR: project is unavailable\n");
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
 	}
 });

@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import http from "node:http";
 import {
 	DIRECTOR_TRANSCRIPT_CAPABILITY,
+	CONTROLLER_PEERS_CAPABILITY,
+	DIRECTOR_STREAM_CAPABILITY,
 	DIRECTOR_TURN_CAPABILITY,
 	MUTATION_PROTOCOL_VERSION,
 	MUTATION_BRIDGE_CAPABILITY,
@@ -10,6 +12,7 @@ import {
 	parseAddonBridgeMessage,
 	parseClientMessage,
 	parseDirectorTurnEvent,
+	parseDirectorTurnDelta,
 	parseDaemonBridgeMessage,
 	parseHello,
 	parseRenderQaFramesRequest,
@@ -17,9 +20,15 @@ import {
 	parseStartupRecord,
 	PROTOCOL_VERSION,
 	SCENE_MANIFEST_V3_CAPABILITY,
+	SNAPSHOT_CURSOR_V2_FEATURE,
+	TRANSACTION_COMMIT_CAPABILITY,
 	type BridgeArtifactBegin,
 	type BridgeArtifactBatchBegin,
 	type BridgeArtifactChunk,
+	type BridgeTransactionAcknowledged,
+	type BridgeTransactionPrepared,
+	type BridgeTransactionReconcile,
+	type BridgeTransactionStatus,
 	type DirectorToolName,
 	type DirectorTurn,
 	type CameraPlanV1,
@@ -31,17 +40,27 @@ import {
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
 } from "@oh-my-blender/protocol";
-import { DirectorLoopContractError } from "@oh-my-blender/director-runtime";
+import {
+	DirectorLoopContractError,
+	DirectorTurnPublicationError,
+	type DirectorTurnPublication,
+	type DirectorTurnToolEvent,
+	type PreparedMutationCandidate,
+} from "@oh-my-blender/director-runtime";
 import {
 	AttachTicketBroker,
 	ControllerCredential,
 	createRuntimeAdvertisement,
 	type ClientRole,
+	type CredentialPrincipal,
+	OwnerCredential,
+	type PeerAuthentication,
+	ProjectCredentialBroker,
 } from "./control-plane.ts";
 import { DirectorTranscriptStore } from "./transcript-store.ts";
 import { SessionState, type ActiveRequest } from "./session-state.ts";
 import { BearerToken, randomNonce, systemClock, type Clock } from "./token.ts";
-import { acceptUpgrade, readClientRole, type WebSocketConnection } from "./ws-server.ts";
+import { acceptUpgrade, readClientRole, readUniqueHeader, type WebSocketConnection } from "./ws-server.ts";
 
 export type HandlerResult = { result: unknown; resulting_revision_id: string };
 export interface ApplyCameraPlanProgress {
@@ -55,28 +74,15 @@ export type ApplyCameraPlan = (
 		readonly signal: AbortSignal | undefined;
 		readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	},
-) => Promise<CameraPlanMutationCandidate>;
+) => Promise<PreparedMutationCandidate<CameraPlanMutationCandidate>>;
 export type StageScene = (
 	plan: StageScenePlanV1,
 	context: {
 		readonly signal: AbortSignal | undefined;
 		readonly reportProgress: (progress: ApplyCameraPlanProgress) => void;
 	},
-) => Promise<StageSceneMutationCandidate>;
-export type DirectorTurnToolEvent =
-	| {
-			readonly type: "started";
-			readonly toolName: DirectorToolName;
-			readonly toolCallId: string;
-			readonly paramsSummary: string;
-	  }
-	| {
-			readonly type: "finished";
-			readonly toolName: DirectorToolName;
-			readonly toolCallId: string;
-			readonly digest: string;
-			readonly isError: boolean;
-	  };
+) => Promise<PreparedMutationCandidate<StageSceneMutationCandidate>>;
+export type { DirectorTurnToolEvent };
 export interface DirectorTurnContext {
 	readonly signal: AbortSignal;
 	inspectProject(expectedRevisionId: string): Promise<{ readonly revision: string; readonly snapshot: SceneSnapshot }>;
@@ -84,17 +90,31 @@ export interface DirectorTurnContext {
 	readonly stageScene: StageScene;
 	readonly renderQaFrames: RenderQaFrames;
 	beginDurableCommit(): void;
-	finishDurableCommit(): void;
+	finishDurableCommit(): Promise<void> | void;
 }
+export type ControllerAuthority = "owner" | "peer";
+export interface AuthenticatedPrincipal {
+	readonly connectionId: string;
+	readonly projectId: string;
+	readonly role: ClientRole;
+	readonly authority: ControllerAuthority | "bridge" | "legacy";
+	readonly lineageId?: string;
+	readonly generation: number;
+}
+
 export interface DirectorTurnService {
 	run(
 		turn: DirectorTurn,
 		context: DirectorTurnContext,
-		onToolEvent: (event: DirectorTurnToolEvent) => void,
+		onPublication: (event: DirectorTurnPublication) => Promise<void> | void,
 	): Promise<{
 		readonly summary: string;
 		readonly resultingRevisionId: string;
 		readonly toolCallOrder: readonly DirectorToolName[];
+	}>;
+	reconcileTransaction(transactionId: string, markerPhase: BridgeTransactionReconcile["marker_phase"]): Promise<{
+		readonly status: BridgeTransactionStatus["status"];
+		readonly revisionId: string;
 	}>;
 	dispose(): void;
 	forceDispose(): DirectorTurnService;
@@ -146,6 +166,7 @@ export interface TranscriptStore {
 }
 
 export type DaemonOptions = {
+	projectId: string;
 	port: number;
 	clock?: Clock;
 	handlers: Record<string, Handler>;
@@ -167,6 +188,7 @@ export type DaemonOptions = {
 	runtimeBaseDirectory?: string;
 };
 export type Daemon = {
+	projectId: string;
 	port: number;
 	startup: ReturnType<typeof parseStartupRecord>;
 	runtimeDirectory: string;
@@ -195,6 +217,7 @@ type PendingBridge = {
 	readonly artifactFrames: Map<number, PendingArtifactFrame>;
 	totalArtifactBytes: number;
 	readonly signal?: AbortSignal;
+	preparedTransaction?: BridgeTransactionPrepared;
 	quarantine?: Promise<void>;
 	resolveQuarantine?: () => void;
 	artifactCleanup?: Promise<void>;
@@ -207,6 +230,15 @@ type PendingBridge = {
 	readonly reject: (error: Error) => void;
 	removeAbortListener(): void;
 };
+type DirectorPreparedTransaction = {
+	readonly prepared: BridgeTransactionPrepared;
+	readonly bridge: WebSocketConnection;
+	readonly mutationSession: MutationBridgeSession;
+	readonly acknowledged: Promise<void>;
+	ackSent: boolean;
+	resolveAcknowledged(message: BridgeTransactionAcknowledged): void;
+};
+
 type RetiredBridge = {
 	readonly pending: PendingBridge;
 	readonly artifactCleanup: Promise<void>;
@@ -245,6 +277,7 @@ const TRUSTED_DIRECTOR_FAILURE_MESSAGES = {
 	RENDER_QA_FRAME_BYTES_EXCEEDED: "render QA frame exceeds its byte limit",
 	RENDER_QA_IMAGE_CONTENT_LIMIT: "render QA image content exceeds its byte limit",
 	STALE_BASE: "expected revision is stale",
+	STAGE_SCENE_FAILED: "stage_scene operation failed",
 } as const;
 
 class TrustedDirectorFailure extends Error {
@@ -273,10 +306,55 @@ async function runTrustedDirectorTool<T>(operation: () => Promise<T>): Promise<T
 		rethrowTrustedDirectorFailure(cause);
 	}
 }
+async function runTrustedStageScene<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await runTrustedDirectorTool(operation);
+	} catch (cause) {
+		const message = cause instanceof Error ? cause.message : "";
+		if (message.startsWith("UNKNOWN:") || !/^[A-Z][A-Z0-9_]+:/.test(message)) {
+			throw new TrustedDirectorFailure("STAGE_SCENE_FAILED");
+		}
+		throw cause;
+	}
+}
+
+const PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function requireProjectId(value: string): string {
+	if (!PROJECT_ID_PATTERN.test(value)) {
+		throw new Error("PROJECT_CONFIGURATION_ERROR: project is unavailable");
+	}
+	return value;
+}
+const KNOWN_CONTROL_MESSAGE_TYPES = new Set([
+	"ping",
+	"cancel",
+	"shutdown",
+	"request",
+	"director_turn",
+	"director_transcript_request",
+	"bridge_status_request",
+	"issue_attach_ticket",
+	"publish_bridge_discovery_slot",
+	"publish_controller_peer_discovery_slot",
+	"revoke_controller_peer",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function preparedMutationCandidate<T>(value: unknown): PreparedMutationCandidate<T> | undefined {
+	if (
+		!isRecord(value) ||
+		!isRecord(value.candidate) ||
+		!isRecord(value.transaction) ||
+		typeof value.requestId !== "string"
+	) {
+		return undefined;
+	}
+	return value as PreparedMutationCandidate<T>;
+}
+
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
 	const actual = Object.keys(value).sort();
@@ -560,29 +638,67 @@ async function finalizeRenderResult(pending: PendingBridge, raw: unknown): Promi
 	};
 }
 
+type DaemonConnection = {
+	readonly websocket: WebSocketConnection;
+	readonly principal: AuthenticatedPrincipal;
+	readonly peerAuthentication?: PeerAuthentication;
+	helloComplete: boolean;
+	mutationSession?: MutationBridgeSession;
+	idle?: ReturnType<typeof setTimeout>;
+	idleCloseGrace?: ReturnType<typeof setTimeout>;
+	unknownTypeAt?: number;
+};
+
+function authenticatedPrincipal(
+	principal: CredentialPrincipal,
+	connectionId = randomUUID(),
+): AuthenticatedPrincipal {
+	return Object.freeze({
+		connectionId,
+		projectId: principal.projectId,
+		role: principal.role === "bridge" ? "bridge" : "controller",
+		authority: principal.authority === "owner" || principal.role === "owner" ? "owner" : principal.role,
+		lineageId: principal.lineageId,
+		generation: principal.generation,
+	});
+}
+
 export async function start(options: DaemonOptions): Promise<Daemon> {
+	const projectId = requireProjectId(options.projectId);
 	const clock = options.clock ?? systemClock;
 	const transcript =
 		options.transcriptStore ?? (await DirectorTranscriptStore.open(options.projectDirectory ?? process.cwd()));
 	const token = new BearerToken(clock);
-	const controllerCredential = new ControllerCredential();
-	const attachTickets = new AttachTicketBroker(clock, options.attachTicketTtlMs);
 	const launchId = randomUUID();
+	const ownerCredential = new OwnerCredential({
+		projectId,
+		authority: "owner",
+		lineageId: launchId,
+	});
+	const projectCredentials = new ProjectCredentialBroker(clock);
+	const attachTickets = new AttachTicketBroker(clock, options.attachTicketTtlMs);
 	const nonces = new Set<string>();
 	const seenRequestIds = new Set<string>();
-	const connections = new Map<ClientRole, {
-		readonly websocket: WebSocketConnection;
-		helloComplete: boolean;
-		mutationSession?: MutationBridgeSession;
-		idle?: ReturnType<typeof setTimeout>;
-	}>();
-	const controlEvents: unknown[] = [];
+	const connections = new Map<ClientRole, DaemonConnection>();
+	const peerConnections = new Map<string, DaemonConnection>();
+	const pendingTerminals = new Map<string, unknown[]>();
+	let pendingTerminalCount = 0;
 	const activeHandlers = new Set<Promise<void>>();
 	const bridgeTerminalTargets = new Map<string, WebSocketConnection>();
+	const requesterTargets = new Map<
+		string,
+		{ readonly websocket: WebSocketConnection; readonly principalKey: string }
+	>();
 	const directorSequences = new Map<string, number>();
 	const directorEventTails = new Map<string, Promise<void>>();
 	const directorCommitRevisions = new Map<string, string>();
 	const directorCleanupBarriers = new Map<string, Promise<void>>();
+	const discoveryResponses = new Map<
+		string,
+		{ readonly canonical: string; readonly response: unknown; readonly expiresAt: number }
+	>();
+	const directorPreparedTransactions = new Map<string, DirectorPreparedTransaction>();
+	const directorPreparedTransactionsByBridgeId = new Map<string, DirectorPreparedTransaction>();
 	let directorTurn = options.directorTurn;
 	let directorGeneration = 0;
 	let pendingBridge: PendingBridge | undefined;
@@ -592,8 +708,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	let persistenceUnhealthy = false;
 	let shutdownPromise: Promise<void> | undefined;
 	let runtimeAdvertisement: Awaited<ReturnType<typeof createRuntimeAdvertisement>> | undefined;
-	let controllerProjectId: string | undefined;
 	let handoffTicket: string | undefined;
+	let controllerPeerSlotLineage: string | undefined;
 	let handoffExpiryTimer: ReturnType<typeof setTimeout> | undefined;
 	let bridgeStatusSubscribed = false;
 	let resolveStopped!: () => void;
@@ -621,21 +737,54 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		return address.port;
 	};
 	const activeControl = () => connections.get("controller") ?? connections.get("legacy");
-	const sendControl = (value: unknown, retain = true) => {
-		if (retain) {
-			controlEvents.push(value);
-			if (controlEvents.length > 1_000) controlEvents.shift();
+	const controllerTargets = (): DaemonConnection[] => {
+		const targets: DaemonConnection[] = [];
+		const owner = activeControl();
+		if (owner !== undefined) targets.push(owner);
+		targets.push(...peerConnections.values());
+		return targets;
+	};
+	const requesterPrincipalKey = (principal: AuthenticatedPrincipal): string =>
+		principal.authority === "peer"
+			? `peer:${principal.lineageId}`
+			: `${principal.authority}:${principal.lineageId ?? launchId}`;
+	const sendRequester = (websocket: WebSocketConnection, value: unknown): boolean =>
+		!websocket.socket.destroyed && websocket.sendText(value);
+	const broadcastControllers = (value: unknown, streamOnly = false) => {
+		for (const connection of controllerTargets()) {
+			if (!connection.helloComplete || connection.websocket.socket.destroyed) continue;
+			if (streamOnly && connection.principal.role === "legacy") continue;
+			connection.websocket.sendText(value);
 		}
-		const control = activeControl();
-		if (control?.helloComplete && !control.websocket.socket.destroyed) control.websocket.sendText(value);
 	};
 	const sendBridgeStatus = () => {
-		if (bridgeStatusSubscribed) sendControl({ type: "bridge_status", attached: bridgeTransport() !== undefined }, false);
+		if (bridgeStatusSubscribed) broadcastControllers({ type: "bridge_status", attached: bridgeTransport() !== undefined });
+	};
+	let persistenceFailureStarted = false;
+	const failPersistence = (cause: unknown) => {
+		if (persistenceFailureStarted) return;
+		persistenceFailureStarted = true;
+		persistenceUnhealthy = true;
+		attachTickets.zero();
+		projectCredentials.zero();
+		for (const connection of controllerTargets()) {
+			if (!connection.websocket.socket.destroyed) {
+				connection.websocket.close(1011, "transcript persistence failure");
+			}
+		}
+		const detail = cause instanceof Error ? cause.message : String(cause);
+		emitDiagnostic(`director transcript persistence failed: ${detail}`);
+		void drain("SHUTDOWN").catch((error) => {
+			emitDiagnostic(`daemon shutdown failed after transcript persistence failure: ${
+				error instanceof Error ? error.message : String(error)
+			}`);
+		});
 	};
 	const queueDirectorEvent = (
 		requestId: string,
 		value: Omit<Record<string, unknown>, "id" | "sequence" | "at">,
 	): Promise<void> => {
+		if (persistenceUnhealthy) return Promise.reject(new DirectorTurnPublicationError());
 		const sequence = directorSequences.get(requestId) ?? 0;
 		directorSequences.set(requestId, sequence + 1);
 		const event = parseDirectorTurnEvent({
@@ -644,22 +793,46 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			sequence,
 			at: new Date(clock.now()).toISOString(),
 		});
-		const previous = (directorEventTails.get(requestId) ?? Promise.resolve()).catch(() => undefined);
+		const previous = directorEventTails.get(requestId) ?? Promise.resolve();
 		const queued = previous.then(async () => {
+			if (persistenceUnhealthy) throw new DirectorTurnPublicationError();
 			await transcript.append(event);
-			sendControl(event, false);
+			broadcastControllers(event, event.type === "director_assistant_utterance");
 		});
 		directorEventTails.set(requestId, queued);
-		void queued.catch(() => undefined);
+		void queued.catch(failPersistence);
 		return queued;
 	};
+	const queueDirectorDelta = (publication: Extract<DirectorTurnPublication, { type: "text_delta" }>) => {
+		if (persistenceUnhealthy) return;
+		const delta = parseDirectorTurnDelta({
+			type: "director_turn_delta",
+			id: publication.turnId,
+			segment_id: publication.segmentId,
+			content_index: publication.contentIndex,
+			delta_sequence: publication.deltaSequence,
+			delta: publication.delta,
+		});
+		broadcastControllers(delta, true);
+	};
 	const sendTerminal = (requestId: string, value: unknown) => {
-		sendControl(value);
+		const requester = requesterTargets.get(requestId);
+		const delivered = requester !== undefined && sendRequester(requester.websocket, value);
+		if (requester !== undefined && !delivered) {
+			const pending = pendingTerminals.get(requester.principalKey) ?? [];
+			pending.push(value);
+			pendingTerminalCount += 1;
+			pendingTerminals.set(requester.principalKey, pending);
+			if (pendingTerminalCount > 1_000) {
+				emitDiagnostic(`pending terminal bound exceeded for ${requester.principalKey}`);
+				void drain("SHUTDOWN");
+			}
+		}
 		const bridge = bridgeTerminalTargets.get(requestId);
-		const control = activeControl()?.websocket;
-		if (bridge !== undefined && bridge !== control && !bridge.socket.destroyed) {
+		if (bridge !== undefined && bridge !== requester?.websocket && !bridge.socket.destroyed) {
 			bridge.sendText(value);
 		}
+		requesterTargets.delete(requestId);
 	};
 	const state = new SessionState(clock, (request) => {
 		// Total wake boundary: cancellation cleanup must never escape as an
@@ -744,6 +917,47 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			mutationSession: transport.mutationSession,
 		};
 	}
+	function registerPreparedTransaction(
+		requestId: string,
+		prepared: PreparedMutationCandidate<CameraPlanMutationCandidate | StageSceneMutationCandidate>,
+	): void {
+		const bridge = bridgeTerminalTargets.get(requestId);
+		const transport = bridgeTransport();
+		if (
+			bridge === undefined ||
+			bridge.socket.destroyed ||
+			transport === undefined ||
+			transport.websocket !== bridge
+		) {
+			throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
+		}
+		let resolved = false;
+		let resolveAcknowledged!: () => void;
+		const acknowledged = new Promise<void>((resolve) => {
+			resolveAcknowledged = resolve;
+		});
+		const transaction: DirectorPreparedTransaction = {
+			prepared: prepared.transaction,
+			bridge,
+			mutationSession: transport.mutationSession,
+			acknowledged,
+			ackSent: false,
+			resolveAcknowledged: (message) => {
+				if (
+					resolved ||
+					message.id !== prepared.transaction.id ||
+					message.transaction_id !== prepared.transaction.transaction_id
+				) {
+					return;
+				}
+				resolved = true;
+				resolveAcknowledged();
+			},
+		};
+		directorPreparedTransactions.set(requestId, transaction);
+		directorPreparedTransactionsByBridgeId.set(prepared.transaction.id, transaction);
+	}
+
 
 	const directorTeardownTimeoutMs = options.directorTeardownTimeoutMs ?? 10_000;
 	async function finishCancellation(request: ActiveRequest): Promise<void> {
@@ -856,13 +1070,15 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			if (acknowledge !== undefined && !acknowledge.socket.destroyed) {
 				acknowledge.sendText({ type: "shutdown_ack" });
 			}
-			for (const connection of connections.values()) {
+			for (const connection of [...connections.values(), ...peerConnections.values()]) {
 				clearTimeout(connection.idle);
 				if (!connection.websocket.socket.destroyed) connection.websocket.close(1000);
 			}
 			connections.clear();
+			peerConnections.clear();
 			token.zero();
-			controllerCredential.zero();
+			ownerCredential.zero();
+			projectCredentials.zero();
 			clearTimeout(handoffExpiryTimer);
 			handoffTicket = undefined;
 			attachTickets.zero();
@@ -883,32 +1099,102 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
 			return;
 		}
-		const alreadyAccepted = connections.has(role) || (role !== "legacy" && connections.has("legacy"));
+		let principal: AuthenticatedPrincipal | undefined;
+		let peerAuthentication: PeerAuthentication | undefined;
 		const websocket = acceptUpgrade(
 			request,
 			socket,
 			addressPort(),
-			alreadyAccepted,
+			false,
 			(candidate) => {
 				if (role === "bridge") {
-					const consumed = attachTickets.consume(candidate, role);
-					if (consumed && candidate === handoffTicket) {
+					const projectPrincipal = projectCredentials.consumeBridge(candidate, projectId);
+					const legacyAccepted = projectPrincipal === undefined && attachTickets.consume(candidate, role);
+					if (projectPrincipal === undefined && !legacyAccepted) return false;
+					if (candidate === handoffTicket) {
 						handoffTicket = undefined;
 						clearTimeout(handoffExpiryTimer);
 						void runtimeAdvertisement?.removeAttachHandoff().catch(() => undefined);
 					}
-					return consumed;
+					if (projectPrincipal !== undefined) {
+						void runtimeAdvertisement?.removeBridgeSlot().catch(() => undefined);
+					}
+					principal = projectPrincipal === undefined
+						? Object.freeze({
+								connectionId: randomUUID(),
+								projectId,
+								role: "bridge",
+								authority: "bridge",
+								lineageId: launchId,
+								generation: 1,
+							})
+						: authenticatedPrincipal(projectPrincipal);
+					return !connections.has("bridge") && !connections.has("legacy");
 				}
 				if (role === "controller") {
-					return controllerCredential.matches(candidate) || token.consume(candidate);
+					if (token.consume(candidate)) {
+						principal = authenticatedPrincipal(ownerCredential.principal);
+					} else if (ownerCredential.matches(candidate, projectId)) {
+						if (readUniqueHeader(request, "x-omb-launch-id") !== launchId) return false;
+						principal = authenticatedPrincipal(ownerCredential.principal);
+					} else {
+						let resumed = false;
+						peerAuthentication = projectCredentials.consumeControllerPeer(candidate, projectId);
+						if (peerAuthentication === undefined) {
+							resumed = true;
+							peerAuthentication = projectCredentials.resumeControllerPeer(candidate, projectId);
+						}
+						if (peerAuthentication === undefined) return false;
+						const peerPrincipal = peerAuthentication.principal;
+						if (resumed) {
+							const generation = readUniqueHeader(request, "x-omb-peer-generation");
+							if (
+								readUniqueHeader(request, "x-omb-launch-id") !== launchId ||
+								readUniqueHeader(request, "x-omb-peer-lineage-id") !== peerPrincipal.lineageId ||
+								generation === undefined ||
+								!Number.isSafeInteger(Number(generation)) ||
+								String(Number(generation)) !== generation ||
+								Number(generation) !== peerPrincipal.generation - 1
+							) {
+								projectCredentials.revokeControllerPeer(peerPrincipal.lineageId);
+								return false;
+							}
+						}
+						if (!resumed && controllerPeerSlotLineage === peerPrincipal.lineageId) {
+							controllerPeerSlotLineage = undefined;
+							void runtimeAdvertisement?.removeControllerPeerSlot().catch(() => undefined);
+						}
+						principal = authenticatedPrincipal(peerPrincipal);
+					}
+					if (principal.authority === "owner") {
+						return !connections.has("controller") && !connections.has("legacy");
+					}
+					return principal.lineageId !== undefined && !peerConnections.has(principal.lineageId);
 				}
-				return token.consume(candidate);
+				if (!token.consume(candidate)) return false;
+				principal = Object.freeze({
+					connectionId: randomUUID(),
+					projectId,
+					role: "legacy",
+					authority: "legacy",
+					generation: 1,
+				});
+				return connections.size === 0 && peerConnections.size === 0;
 			},
 			role === "bridge" ? MAX_BRIDGE_MESSAGE_BYTES : undefined,
 		);
-		if (!websocket) return;
-		const connection = { websocket, helloComplete: false };
-		connections.set(role, connection);
+		if (websocket === undefined || principal === undefined) return;
+		const connection: DaemonConnection = {
+			websocket,
+			principal,
+			peerAuthentication,
+			helloComplete: false,
+		};
+		if (principal.authority === "peer" && principal.lineageId !== undefined) {
+			peerConnections.set(principal.lineageId, connection);
+		} else {
+			connections.set(role, connection);
+		}
 		run(role, connection);
 	});
 
@@ -924,7 +1210,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		});
 	} catch (error) {
 		token.zero();
-		controllerCredential.zero();
+		ownerCredential.zero();
+		projectCredentials.zero();
 		attachTickets.zero();
 		await closeServer();
 		throw error;
@@ -941,16 +1228,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 	token.startExpiry();
 	(options.stdout ?? ((line) => process.stdout.write(`${line}\n`)))(JSON.stringify(startup));
 
-	function run(
-		role: ClientRole,
-		connection: {
-			readonly websocket: WebSocketConnection;
-			helloComplete: boolean;
-			mutationSession?: MutationBridgeSession;
-			idle?: ReturnType<typeof setTimeout>;
-			idleCloseGrace?: ReturnType<typeof setTimeout>;
-		},
-	) {
+	function run(role: ClientRole, connection: DaemonConnection) {
 		const websocket = connection.websocket;
 		const helloTimer = setTimeout(() => {
 			if (!connection.helloComplete) websocket.close(1008, "hello timeout");
@@ -978,7 +1256,9 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					typeof value.type === "string" && value.type.startsWith("bridge_");
 			} catch {}
 			if (serializedBridgeMessage) {
-				bridgeMessageTail = bridgeMessageTail.then(() => message(text));
+				bridgeMessageTail = bridgeMessageTail.then(async () => {
+					await message(text);
+				});
 			} else {
 				void message(text);
 			}
@@ -987,14 +1267,25 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			clearTimeout(helloTimer);
 			clearTimeout(connection.idle);
 			clearTimeout(connection.idleCloseGrace);
-			if (connections.get(role)?.websocket === websocket) connections.delete(role);
+			if (connection.principal.authority === "peer" && connection.principal.lineageId !== undefined) {
+				if (peerConnections.get(connection.principal.lineageId)?.websocket === websocket) {
+					peerConnections.delete(connection.principal.lineageId);
+				}
+			} else if (connections.get(role)?.websocket === websocket) {
+				connections.delete(role);
+			}
 			if (role === "bridge") sendBridgeStatus();
 			if (role === "legacy") {
 				void drain("DISCONNECT");
-			} else if (role === "bridge" && pendingBridge !== undefined) {
-				const requestId = pendingBridge.requestId;
-				state.cancel(requestId, "DISCONNECT");
-				void failPendingBridge("DISCONNECT", "add-on disconnected during mutation");
+			} else if (role === "bridge") {
+				if (pendingBridge !== undefined) {
+					const requestId = pendingBridge.requestId;
+					state.cancel(requestId, "DISCONNECT");
+					void failPendingBridge("DISCONNECT", "add-on disconnected during mutation");
+				}
+				for (const [turnId, transaction] of directorPreparedTransactions) {
+					if (transaction.bridge === websocket) state.cancel(turnId, "DISCONNECT");
+				}
 			}
 		});
 
@@ -1017,7 +1308,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						return websocket.close(1008, "role protocol mismatch");
 					}
 					nonces.add(hello.client_nonce);
-					if (role === "controller") controllerProjectId = hello.project_id;
+					if (hello.project_id !== projectId) return websocket.close(1008, "project mismatch");
 					connection.helloComplete = true;
 					clearTimeout(helloTimer);
 					const ack =
@@ -1032,8 +1323,20 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									capabilities: hello.capabilities.some(
 										(capability) => capability === SCENE_MANIFEST_V3_CAPABILITY,
 									)
-										? [MUTATION_BRIDGE_CAPABILITY, SCENE_MANIFEST_V3_CAPABILITY]
-										: [MUTATION_BRIDGE_CAPABILITY],
+										? hello.capabilities.some(
+												(capability) => capability === TRANSACTION_COMMIT_CAPABILITY,
+											)
+											? [
+													MUTATION_BRIDGE_CAPABILITY,
+													SCENE_MANIFEST_V3_CAPABILITY,
+													TRANSACTION_COMMIT_CAPABILITY,
+												]
+											: [MUTATION_BRIDGE_CAPABILITY, SCENE_MANIFEST_V3_CAPABILITY]
+										: hello.capabilities.some(
+												(capability) => capability === TRANSACTION_COMMIT_CAPABILITY,
+											)
+											? [MUTATION_BRIDGE_CAPABILITY, TRANSACTION_COMMIT_CAPABILITY]
+											: [MUTATION_BRIDGE_CAPABILITY],
 								}
 							: {
 									type: "hello_ack" as const,
@@ -1044,12 +1347,15 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 									server_nonce: randomNonce(),
 									capabilities:
 										directorTurn === undefined
-											? ["inspect_project"]
+											? ["inspect_project", CONTROLLER_PEERS_CAPABILITY]
 											: [
 													"inspect_project",
 													DIRECTOR_TURN_CAPABILITY,
 													DIRECTOR_TRANSCRIPT_CAPABILITY,
+													DIRECTOR_STREAM_CAPABILITY,
+													CONTROLLER_PEERS_CAPABILITY,
 												],
+									protocol_features: [SNAPSHOT_CURSOR_V2_FEATURE],
 								};
 					if (hello.protocol === MUTATION_PROTOCOL_VERSION) {
 						connection.mutationSession = negotiateMutationBridge(hello, ack);
@@ -1057,12 +1363,37 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					websocket.sendText(ack);
 					if (role === "bridge") sendBridgeStatus();
 					if (role === "controller") {
-						websocket.sendText({
-							type: "controller_auth",
-							resume_token: controllerCredential.value,
-							launch_id: launchId,
-						});
-						for (const event of controlEvents) websocket.sendText(event);
+						if (connection.principal.authority === "owner") {
+							websocket.sendText({
+								type: "controller_auth",
+								resume_token: ownerCredential.value,
+								launch_id: launchId,
+							});
+						} else if (connection.peerAuthentication !== undefined) {
+							websocket.sendText({
+								type: "controller_peer_auth",
+								resume_token: connection.peerAuthentication.resumeToken,
+								launch_id: launchId,
+								lineage_id: connection.peerAuthentication.principal.lineageId,
+								generation: connection.peerAuthentication.principal.generation,
+								expires_in_ms: connection.peerAuthentication.expiresInMs,
+							});
+						}
+						const principalKey = requesterPrincipalKey(connection.principal);
+						const pending = pendingTerminals.get(principalKey);
+						if (pending !== undefined) {
+							let delivered = 0;
+							while (delivered < pending.length && sendRequester(websocket, pending[delivered])) {
+								delivered += 1;
+							}
+							if (delivered === pending.length) {
+								pendingTerminalCount -= pending.length;
+								pendingTerminals.delete(principalKey);
+							} else if (delivered > 0) {
+								pendingTerminalCount -= delivered;
+								pending.splice(0, delivered);
+							}
+						}
 					}
 					return;
 				} catch {
@@ -1085,39 +1416,185 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				sendBridgeStatus();
 				return;
 			}
+			if (
+				rawType === "publish_bridge_discovery_slot" ||
+				rawType === "publish_controller_peer_discovery_slot" ||
+				rawType === "revoke_controller_peer"
+			) {
+				const id = isRecord(raw) && typeof raw.id === "string" ? raw.id : "";
+				if (role !== "controller" || connection.principal.authority !== "owner") {
+					sendRequester(
+						websocket,
+						protocolError(id, "AUTHORITY_DENIED", "controller authority is insufficient", false),
+					);
+					return;
+				}
+				try {
+					const request = parseClientMessage(raw);
+					if (
+						request.type !== "publish_bridge_discovery_slot" &&
+						request.type !== "publish_controller_peer_discovery_slot" &&
+						request.type !== "revoke_controller_peer"
+					) {
+						throw new Error("invalid discovery message");
+					}
+					if (runtimeAdvertisement === undefined) {
+						throw new Error("runtime advertisement unavailable");
+					}
+					const canonical =
+						request.type === "publish_bridge_discovery_slot"
+							? request.type
+							: `${request.type}:${request.lineage_id}`;
+					const cached = discoveryResponses.get(request.id);
+					if (cached !== undefined && clock.now() < cached.expiresAt) {
+						if (cached.canonical !== canonical) {
+							sendRequester(
+								websocket,
+								protocolError(request.id, "IDEMPOTENCY_CONFLICT", "request id conflicts with prior request", false),
+							);
+						} else {
+							sendRequester(websocket, cached.response);
+						}
+						return;
+					}
+					discoveryResponses.delete(request.id);
+					const remember = (response: unknown, expiresAt: number) => {
+						discoveryResponses.set(request.id, { canonical, response, expiresAt });
+						if (discoveryResponses.size > 1_000) {
+							const oldest = discoveryResponses.keys().next().value;
+							if (oldest !== undefined) discoveryResponses.delete(oldest);
+						}
+						sendRequester(websocket, response);
+					};
+					if (request.type === "publish_bridge_discovery_slot") {
+						attachTickets.zero();
+						const issued = projectCredentials.publishBridge({
+							projectId,
+							authority: "bridge",
+							lineageId: launchId,
+						});
+						await runtimeAdvertisement.writeBridgeSlot({
+							schema_version: 1,
+							project_id: projectId,
+							ticket: issued.ticket,
+							expires_at_ms: Date.now() + issued.expiresInMs,
+							generation: issued.principal.generation,
+						});
+						remember({
+							type: "bridge_discovery_slot_ack",
+							id: request.id,
+							generation: issued.principal.generation,
+							expires_in_ms: issued.expiresInMs,
+						}, clock.now() + issued.expiresInMs);
+					} else if (request.type === "publish_controller_peer_discovery_slot") {
+						const issued = projectCredentials.publishControllerPeer({
+							projectId,
+							authority: "peer",
+							lineageId: request.lineage_id,
+						});
+						await runtimeAdvertisement.writeControllerPeerSlot({
+							schema_version: 1,
+							project_id: projectId,
+							ticket: issued.ticket,
+							expires_at_ms: Date.now() + issued.expiresInMs,
+							generation: issued.principal.generation,
+							lineage_id: request.lineage_id,
+						});
+						controllerPeerSlotLineage = request.lineage_id;
+						remember({
+							type: "controller_peer_discovery_slot_ack",
+							id: request.id,
+							lineage_id: request.lineage_id,
+							generation: issued.principal.generation,
+							expires_in_ms: issued.expiresInMs,
+						}, clock.now() + issued.expiresInMs);
+					} else if (request.type === "revoke_controller_peer") {
+						projectCredentials.revokeControllerPeer(request.lineage_id);
+						if (controllerPeerSlotLineage === request.lineage_id) {
+							controllerPeerSlotLineage = undefined;
+							await runtimeAdvertisement.removeControllerPeerSlot();
+						}
+						const response = {
+							type: "revoke_controller_peer_ack",
+							id: request.id,
+							lineage_id: request.lineage_id,
+							status: "revoked",
+						};
+						remember(response, Number.POSITIVE_INFINITY);
+						const peer = peerConnections.get(request.lineage_id);
+						if (peer !== undefined && !peer.websocket.socket.destroyed) {
+							peer.websocket.close(1008, "controller peer revoked");
+						}
+					}
+				} catch {
+					sendRequester(websocket, protocolError(id, "MALFORMED_MESSAGE", "discovery message is malformed", false));
+				}
+				return;
+			}
 			if (rawType === "issue_attach_ticket") {
 				if (persistenceUnhealthy) return;
-				if (
-					role === "controller" &&
-					isRecord(raw) &&
-					hasExactKeys(raw, ["role", "type"]) &&
-					raw.role === "bridge"
-				) {
-					const issued = attachTickets.issue("bridge");
-					if (controllerProjectId === undefined || runtimeAdvertisement === undefined) return;
-					const expiresAtMs = Date.now() + issued.expiresInMs;
-					await runtimeAdvertisement.writeAttachHandoff({
-						schema_version: 1,
-						project_id: controllerProjectId,
-						ticket: issued.ticket,
-						expires_at_ms: expiresAtMs,
-					});
-					handoffTicket = issued.ticket;
-					clearTimeout(handoffExpiryTimer);
-					handoffExpiryTimer = setTimeout(() => {
-						if (handoffTicket !== issued.ticket) return;
-						handoffTicket = undefined;
-						void runtimeAdvertisement?.removeAttachHandoff().catch(() => undefined);
-					}, issued.expiresInMs);
-					handoffExpiryTimer.unref();
-					websocket.sendText({
-						type: "attach_ticket",
-						role: issued.role,
-						ticket: issued.ticket,
-						expires_in_ms: issued.expiresInMs,
-						launch_id: launchId,
-						runtime_directory: runtimeAdvertisement.directory,
-					});
+				const id = isRecord(raw) && typeof raw.id === "string" ? raw.id : "";
+				if (role !== "controller" || connection.principal.authority !== "owner") {
+					sendRequester(
+						websocket,
+						protocolError(id, "AUTHORITY_DENIED", "controller authority is insufficient", false),
+					);
+					return;
+				}
+				try {
+					const request = parseClientMessage(raw);
+					if (request.type !== "issue_attach_ticket" || runtimeAdvertisement === undefined) return;
+					if ("id" in request) {
+						attachTickets.zero();
+						const issued = projectCredentials.publishBridge({
+							projectId,
+							authority: "bridge",
+							lineageId: launchId,
+						});
+						await runtimeAdvertisement.writeBridgeSlot({
+							schema_version: 1,
+							project_id: projectId,
+							ticket: issued.ticket,
+							expires_at_ms: Date.now() + issued.expiresInMs,
+							generation: issued.principal.generation,
+						});
+						sendRequester(websocket, {
+							type: "attach_ticket",
+							id: request.id,
+							role: "bridge",
+							ticket: issued.ticket,
+							expires_in_ms: issued.expiresInMs,
+							generation: issued.principal.generation,
+						});
+					} else {
+						projectCredentials.revokeBridge(launchId);
+						const issued = attachTickets.issue("bridge");
+						const expiresAtMs = Date.now() + issued.expiresInMs;
+						await runtimeAdvertisement.writeAttachHandoff({
+							schema_version: 1,
+							project_id: projectId,
+							ticket: issued.ticket,
+							expires_at_ms: expiresAtMs,
+						});
+						handoffTicket = issued.ticket;
+						clearTimeout(handoffExpiryTimer);
+						handoffExpiryTimer = setTimeout(() => {
+							if (handoffTicket !== issued.ticket) return;
+							handoffTicket = undefined;
+							void runtimeAdvertisement?.removeAttachHandoff().catch(() => undefined);
+						}, issued.expiresInMs);
+						handoffExpiryTimer.unref();
+						websocket.sendText({
+							type: "attach_ticket",
+							role: issued.role,
+							ticket: issued.ticket,
+							expires_in_ms: issued.expiresInMs,
+							launch_id: launchId,
+							runtime_directory: runtimeAdvertisement.directory,
+						});
+					}
+				} catch {
+					sendRequester(websocket, protocolError(id, "INVALID_REQUEST", "invalid attach ticket request", false));
 				}
 				return;
 			}
@@ -1131,6 +1608,136 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				const rawId = isRecord(raw) && typeof raw.id === "string" ? raw.id : undefined;
 				const rawRequestId =
 					isRecord(raw) && typeof raw.request_id === "string" ? raw.request_id : undefined;
+				if (rawType === "bridge_transaction_reconcile") {
+					try {
+						const reconcile = parseAddonBridgeMessage(raw, connection.mutationSession);
+						if (reconcile.type !== "bridge_transaction_reconcile") return;
+						if (reconcile.project_id !== projectId) {
+							websocket.sendText(
+								parseDaemonBridgeMessage(
+									{
+										type: "bridge_transaction_error",
+										id: reconcile.id,
+										transaction_id: reconcile.transaction_id,
+										code: "TRANSACTION_EVIDENCE_INVALID",
+										message: "transaction recovery evidence is invalid",
+										retryable: false,
+									},
+									connection.mutationSession,
+									new Set(),
+								),
+							);
+							return;
+						}
+						if (directorTurn === undefined) {
+							websocket.sendText(
+								parseDaemonBridgeMessage(
+									{
+										type: "bridge_transaction_error",
+										id: reconcile.id,
+										transaction_id: reconcile.transaction_id,
+										code: "TRANSACTION_NOT_FOUND",
+										message: "transaction is unavailable",
+										retryable: false,
+									},
+									connection.mutationSession,
+									new Set(),
+								),
+							);
+							return;
+						}
+						try {
+							const result = await directorTurn.reconcileTransaction(
+								reconcile.transaction_id,
+								reconcile.marker_phase,
+							);
+							websocket.sendText(
+								parseDaemonBridgeMessage(
+									{
+										type: "bridge_transaction_status",
+										id: reconcile.id,
+										transaction_id: reconcile.transaction_id,
+										status: result.status,
+										revision_id: result.revisionId,
+									},
+									connection.mutationSession,
+									new Set(),
+								),
+							);
+						} catch (cause) {
+							const code =
+								cause instanceof Error &&
+								"code" in cause &&
+								cause.code === "PROJECT_INVALID"
+									? "TRANSACTION_STATE_INVALID"
+									: "TRANSACTION_EVIDENCE_INVALID";
+							websocket.sendText(
+								parseDaemonBridgeMessage(
+									{
+										type: "bridge_transaction_error",
+										id: reconcile.id,
+										transaction_id: reconcile.transaction_id,
+										code,
+										message:
+											code === "TRANSACTION_STATE_INVALID"
+												? "transaction phase is invalid"
+												: "transaction recovery evidence is invalid",
+										retryable: false,
+									},
+									connection.mutationSession,
+									new Set(),
+								),
+							);
+						}
+					} catch {
+						return;
+					}
+					return;
+				}
+				if (rawType === "bridge_transaction_acknowledged") {
+					try {
+						const acknowledged = parseAddonBridgeMessage(raw, connection.mutationSession);
+						if (acknowledged.type !== "bridge_transaction_acknowledged") return;
+						const transaction = directorPreparedTransactionsByBridgeId.get(acknowledged.id);
+						if (
+							transaction === undefined ||
+							transaction.prepared.transaction_id !== acknowledged.transaction_id
+						) {
+							return;
+						}
+						transaction.resolveAcknowledged(acknowledged);
+					} catch {
+						return;
+					}
+					return;
+				}
+				if (rawType === "bridge_transaction_prepared") {
+					if (pendingBridge === undefined || rawId !== pendingBridge.id) return;
+					try {
+						const prepared = parseAddonBridgeMessage(raw, connection.mutationSession);
+						if (
+							prepared.type !== "bridge_transaction_prepared" ||
+							(pendingBridge.method !== "apply_camera_plan" && pendingBridge.method !== "stage_scene") ||
+							prepared.operation !== pendingBridge.method ||
+							prepared.project_id !== projectId
+						) {
+							throw new Error("prepared transaction does not bind the pending mutation");
+						}
+						if (
+							pendingBridge.preparedTransaction !== undefined &&
+							JSON.stringify(pendingBridge.preparedTransaction) !== JSON.stringify(prepared)
+						) {
+							throw new Error("transaction id was reused with different content");
+						}
+						pendingBridge.preparedTransaction = prepared;
+					} catch {
+						await failPendingBridge(
+							"TRANSACTION_EVIDENCE_INVALID",
+							"prepared transaction recovery evidence is invalid",
+						);
+					}
+					return;
+				}
 				const retired = rawId === undefined ? undefined : retiredBridges.get(rawId);
 				if (rawId !== undefined && retired !== undefined) {
 					if (rawRequestId !== retired.pending.requestId) return;
@@ -1191,10 +1798,18 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					}
 					const pending = pendingBridge;
 					if (bridgeMessage.type === "bridge_result") {
-						const result =
+						const candidate =
 							pending.method === "render_qa_frames"
 								? await finalizeRenderResult(pending, bridgeMessage.result)
 								: bridgeMessage.result;
+						const result =
+							pending.preparedTransaction === undefined
+								? candidate
+								: {
+										candidate,
+										transaction: pending.preparedTransaction,
+										requestId: pending.requestId,
+									};
 						pendingBridge = undefined;
 						pending.removeAbortListener();
 						pending.resolve(result);
@@ -1232,20 +1847,29 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			if (role === "bridge") return;
 			if (rawType === "director_transcript_request") {
 				if (role !== "controller") return;
+				const id = isRecord(raw) && typeof raw.id === "string" ? raw.id : "";
 				try {
 					const request = parseClientMessage(raw);
 					if (request.type === "director_transcript_request") {
-						websocket.sendText(transcript.page(request));
+						sendRequester(websocket, transcript.page(request));
 					}
-				} catch {
-					state.consumeToken();
+				} catch (cause) {
+					const code =
+						cause instanceof Error && cause.message.startsWith("TRANSCRIPT_CURSOR_ERROR:")
+							? "INVALID_TRANSCRIPT_CURSOR"
+							: "INVALID_REQUEST";
+					const message = code === "INVALID_TRANSCRIPT_CURSOR"
+						? "transcript cursor is invalid"
+						: "invalid transcript request";
+					sendRequester(websocket, protocolError(id, code, message, false));
 				}
 				return;
 			}
 			if (rawType === "director_turn") {
 				if (role !== "controller") return;
 				if (!state.consumeToken()) {
-					return sendControl(
+					return sendRequester(
+						websocket,
 						protocolError((raw as { id?: string }).id ?? "", "RATE_LIMITED", "rate limit exceeded", true),
 					);
 				}
@@ -1255,21 +1879,24 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					if (parsed.type !== "director_turn") throw new Error("invalid director turn");
 					turn = parsed;
 				} catch {
-					return sendControl(
+					return sendRequester(
+						websocket,
 						protocolError((raw as { id?: string }).id ?? "", "INVALID_REQUEST", "invalid director turn", false),
 					);
 				}
-				return executeDirectorTurn(turn);
+				return executeDirectorTurn(turn, websocket, requesterPrincipalKey(connection.principal));
 			}
 			if (rawType === "request") {
 				if (!state.consumeToken()) {
-					return sendControl(
+					return sendRequester(
+						websocket,
 						protocolError((raw as { id?: string }).id ?? "", "RATE_LIMITED", "rate limit exceeded", true),
 					);
 				}
 				const deadline = (raw as { deadline_ms?: unknown }).deadline_ms;
 				if (!Number.isInteger(deadline) || (deadline as number) < 100 || (deadline as number) > 30_000) {
-					return sendControl(
+					return sendRequester(
+						websocket,
 						protocolError(
 							(raw as { id?: string }).id ?? "",
 							"INVALID_DEADLINE",
@@ -1282,17 +1909,32 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				try {
 					request = parseClientMessage(raw) as Request;
 				} catch {
-					return sendControl(
+					return sendRequester(
+						websocket,
 						protocolError((raw as { id?: string }).id ?? "", "INVALID_REQUEST", "invalid request", false),
 					);
 				}
-				return execute(request);
+				return execute(request, websocket, requesterPrincipalKey(connection.principal));
 			}
 			let parsed: ReturnType<typeof parseClientMessage>;
 			try {
 				parsed = parseClientMessage(raw);
 			} catch {
 				state.consumeToken();
+				if (
+					typeof rawType === "string" &&
+					!KNOWN_CONTROL_MESSAGE_TYPES.has(rawType) &&
+					!rawType.startsWith("bridge_")
+				) {
+					const now = clock.now();
+					if (connection.unknownTypeAt !== undefined && now - connection.unknownTypeAt <= 10_000) {
+						websocket.close(1008, "repeated unknown message type");
+					} else {
+						connection.unknownTypeAt = now;
+						const id = isRecord(raw) && typeof raw.id === "string" ? raw.id : "";
+						sendRequester(websocket, protocolError(id, "MALFORMED_MESSAGE", "message type is not recognized", false));
+					}
+				}
 				return;
 			}
 			if (parsed.type === "ping") {
@@ -1300,11 +1942,22 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				return;
 			}
 			if (parsed.type === "cancel") {
-				const status = state.cancel(parsed.id);
-				sendControl({ type: "cancel_ack", id: parsed.id, status });
+				const target = requesterTargets.get(parsed.id);
+				const status =
+					target === undefined || target.websocket === websocket ? state.cancel(parsed.id) : "not_found";
+				sendRequester(websocket, { type: "cancel_ack", id: parsed.id, status });
 				return;
 			}
-			if (parsed.type === "shutdown") await drain("SHUTDOWN", websocket);
+			if (parsed.type === "shutdown") {
+				if (connection.principal.authority !== "owner" && connection.principal.authority !== "legacy") {
+					sendRequester(
+						websocket,
+						protocolError("", "AUTHORITY_DENIED", "controller authority is insufficient", false),
+					);
+					return;
+				}
+				await drain("SHUTDOWN", websocket);
+			}
 		}
 	}
 	type BridgeParentRequest = Pick<Request, "id" | "expected_revision_id" | "deadline_ms">;
@@ -1397,7 +2050,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		request: BridgeParentRequest,
 		plan: CameraPlanV1,
 		context: Parameters<ApplyCameraPlan>[1],
-	): Promise<CameraPlanMutationCandidate> {
+	): Promise<PreparedMutationCandidate<CameraPlanMutationCandidate>> {
 		const transport = bridgeTransport();
 		if (transport === undefined) {
 			throw new Error("MUTATION_BRIDGE_UNAVAILABLE: apply_camera_plan requires an attached protocol-v2 bridge");
@@ -1423,7 +2076,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			new Set([request.id]),
 		);
 		bridgeTerminalTargets.set(request.id, transport.websocket);
-		return new Promise<CameraPlanMutationCandidate>((resolve, reject) => {
+		return new Promise<PreparedMutationCandidate<CameraPlanMutationCandidate>>((resolve, reject) => {
 			const abort = () => {
 				if (pendingBridge?.id !== id) return;
 				try {
@@ -1448,7 +2101,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				totalArtifactBytes: 0,
 				signal,
 				reportProgress: context.reportProgress,
-				resolve: (result) => resolve(result as CameraPlanMutationCandidate),
+				resolve: (result) => resolve(result as PreparedMutationCandidate<CameraPlanMutationCandidate>),
 				reject,
 				removeAbortListener: () => signal?.removeEventListener("abort", abort),
 			};
@@ -1461,7 +2114,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		request: BridgeParentRequest,
 		plan: StageScenePlanV1,
 		context: Parameters<StageScene>[1],
-	): Promise<StageSceneMutationCandidate> {
+	): Promise<PreparedMutationCandidate<StageSceneMutationCandidate>> {
 		const transport = bridgeTransport();
 		if (transport === undefined) {
 			throw new Error("MUTATION_BRIDGE_UNAVAILABLE: stage_scene requires an attached protocol-v2 bridge");
@@ -1492,7 +2145,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			new Set([request.id]),
 		);
 		bridgeTerminalTargets.set(request.id, transport.websocket);
-		return new Promise<StageSceneMutationCandidate>((resolve, reject) => {
+		return new Promise<PreparedMutationCandidate<StageSceneMutationCandidate>>((resolve, reject) => {
 			const abort = () => {
 				if (pendingBridge?.id !== id) return;
 				try {
@@ -1517,7 +2170,7 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				totalArtifactBytes: 0,
 				signal,
 				reportProgress: context.reportProgress,
-				resolve: (result) => resolve(result as StageSceneMutationCandidate),
+				resolve: (result) => resolve(result as PreparedMutationCandidate<StageSceneMutationCandidate>),
 				reject,
 				removeAbortListener: () => signal?.removeEventListener("abort", abort),
 			};
@@ -1600,9 +2253,14 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		});
 	}
 
-	async function executeDirectorTurn(turn: DirectorTurn) {
+	async function executeDirectorTurn(
+		turn: DirectorTurn,
+		requester: WebSocketConnection,
+		principalKey: string,
+	) {
 		if (persistenceUnhealthy) {
-			return sendControl(
+			return sendRequester(
+				requester,
 				protocolError(
 					turn.id,
 					"PERSISTENCE_UNHEALTHY",
@@ -1612,19 +2270,26 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			);
 		}
 		if (draining) {
-			return sendControl(protocolError(turn.id, "SHUTTING_DOWN", "daemon is shutting down", true));
+			return sendRequester(requester, protocolError(turn.id, "SHUTTING_DOWN", "daemon is shutting down", true));
 		}
 		if (seenRequestIds.has(turn.id)) {
-			return sendControl(protocolError(turn.id, "INVALID_REQUEST", "request id has already been used", false));
+			return sendRequester(
+				requester,
+				protocolError(turn.id, "INVALID_REQUEST", "request id has already been used", false),
+			);
 		}
 		seenRequestIds.add(turn.id);
 		if (directorTurn === undefined) {
-			return sendControl(protocolError(turn.id, "METHOD_NOT_ALLOWED", "director turns are not enabled", false));
+			return sendRequester(
+				requester,
+				protocolError(turn.id, "METHOD_NOT_ALLOWED", "director turns are not enabled", false),
+			);
 		}
 		const service = directorTurn;
 		if (state.begin(turn.id, turn.deadline_ms) === "busy") {
-			return sendControl(protocolError(turn.id, "BUSY", "one request is already active", true));
+			return sendRequester(requester, protocolError(turn.id, "BUSY", "one request is already active", true));
 		}
+		requesterTargets.set(turn.id, { websocket: requester, principalKey });
 		const active = state.current!;
 		const parent = (expectedRevisionId: string): BridgeParentRequest => ({
 			id: turn.id,
@@ -1666,16 +2331,22 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 								applyCameraPlan(parent(plan.expected_revision_id), plan, context),
 							);
 							requireCurrentTurn();
-							directorCommitRevisions.set(turn.id, candidate.manifest.revisionId);
+							const prepared = preparedMutationCandidate<CameraPlanMutationCandidate>(candidate);
+							const mutation = prepared?.candidate ?? (candidate as unknown as CameraPlanMutationCandidate);
+							directorCommitRevisions.set(turn.id, mutation.manifest.revisionId);
+							if (prepared !== undefined) registerPreparedTransaction(turn.id, prepared);
 							return candidate;
 						},
 						stageScene: async (plan, context) => {
 							requireCurrentTurn();
-							const candidate = await runTrustedDirectorTool(() =>
+							const candidate = await runTrustedStageScene(() =>
 								stageScene(parent(plan.expected_revision_id), plan, context),
 							);
 							requireCurrentTurn();
-							directorCommitRevisions.set(turn.id, candidate.manifest.revisionId);
+							const prepared = preparedMutationCandidate<StageSceneMutationCandidate>(candidate);
+							const mutation = prepared?.candidate ?? (candidate as unknown as StageSceneMutationCandidate);
+							directorCommitRevisions.set(turn.id, mutation.manifest.revisionId);
+							if (prepared !== undefined) registerPreparedTransaction(turn.id, prepared);
 							return candidate;
 						},
 						renderQaFrames: async (renderRequest, context) => {
@@ -1708,36 +2379,79 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
 							}
 						},
-						finishDurableCommit: () => {
+						finishDurableCommit: async () => {
 							requireCurrentTurn();
-							if (!state.finishDurableCommit(active)) {
-								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
-							}
 							const revision = directorCommitRevisions.get(turn.id);
-							const bridge = bridgeTerminalTargets.get(turn.id);
+							const transaction = directorPreparedTransactions.get(turn.id);
+							const bridge = transaction?.bridge ?? bridgeTerminalTargets.get(turn.id);
 							if (revision === undefined || bridge === undefined || bridge.socket.destroyed) {
 								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
 							}
+							if (transaction !== undefined) {
+								transaction.ackSent = true;
+								bridge.sendText(
+									parseDaemonBridgeMessage(
+										{
+											type: "bridge_transaction_ack",
+											id: transaction.prepared.id,
+											transaction_id: transaction.prepared.transaction_id,
+											status: "committed",
+											resulting_revision_id: revision,
+										},
+										transaction.mutationSession,
+										new Set(),
+									),
+								);
+								await new Promise<void>((resolve, reject) => {
+									const abort = () => {
+										active.controller.signal.removeEventListener("abort", abort);
+										reject(new TrustedDirectorFailure("DURABLE_COMMIT_STATE"));
+									};
+									active.controller.signal.addEventListener("abort", abort, { once: true });
+									transaction.acknowledged.then(() => {
+										active.controller.signal.removeEventListener("abort", abort);
+										resolve();
+									}, reject);
+									if (active.controller.signal.aborted) abort();
+								});
+								directorPreparedTransactions.delete(turn.id);
+								directorPreparedTransactionsByBridgeId.delete(transaction.prepared.id);
+							}
+							if (!state.finishDurableCommit(active)) {
+								throw new TrustedDirectorFailure("DURABLE_COMMIT_STATE");
+							}
 							directorCommitRevisions.delete(turn.id);
-							bridge.sendText({
-								type: "response",
-								id: turn.id,
-								result: {},
-								resulting_revision_id: revision,
-							});
+							if (transaction === undefined) {
+								bridge.sendText({
+									type: "response",
+									id: turn.id,
+									result: {},
+									resulting_revision_id: revision,
+								});
+							}
 						},
 					},
-					(event) => {
+					async (event) => {
 						if (!isCurrentTurn()) return;
-						if (event.type === "started") {
-							void queueDirectorEvent(turn.id, {
+						if (event.type === "text_delta") {
+							queueDirectorDelta(event);
+						} else if (event.type === "assistant_utterance") {
+							await queueDirectorEvent(turn.id, {
+								type: "director_assistant_utterance",
+								segment_id: event.segmentId,
+								content_index: event.contentIndex,
+								through_delta_sequence: event.throughDeltaSequence,
+								content: event.content,
+							});
+						} else if (event.type === "started") {
+							await queueDirectorEvent(turn.id, {
 								type: "director_tool_call_started",
 								tool_call_id: event.toolCallId,
 								tool_name: event.toolName,
 								params_summary: event.paramsSummary,
 							});
 						} else {
-							void queueDirectorEvent(turn.id, {
+							await queueDirectorEvent(turn.id, {
 								type: "director_tool_call_finished",
 								tool_call_id: event.toolCallId,
 								tool_name: event.toolName,
@@ -1759,7 +2473,48 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 				}
 			} catch (cause) {
 				if (!isCurrentTurn()) return;
+				const preparedTransaction = directorPreparedTransactions.get(turn.id);
+				if (preparedTransaction !== undefined) {
+					if (!preparedTransaction.ackSent && !preparedTransaction.bridge.socket.destroyed) {
+						const causeCode =
+							cause instanceof Error && "code" in cause && typeof cause.code === "string"
+								? cause.code
+								: undefined;
+						const code =
+							causeCode === "TRANSACTION_CONFLICT"
+								? "TRANSACTION_CONFLICT"
+								: causeCode === "STALE_BASE" || causeCode === "PROJECT_INVALID"
+									? "TRANSACTION_STATE_INVALID"
+									: "TRANSACTION_EVIDENCE_INVALID";
+						preparedTransaction.bridge.sendText(
+							parseDaemonBridgeMessage(
+								{
+									type: "bridge_transaction_error",
+									id: preparedTransaction.prepared.id,
+									transaction_id: preparedTransaction.prepared.transaction_id,
+									code,
+									message:
+										code === "TRANSACTION_CONFLICT"
+											? "transaction id was reused with different content"
+											: code === "TRANSACTION_STATE_INVALID"
+												? "transaction phase is invalid"
+												: "transaction recovery evidence is invalid",
+									retryable: false,
+								},
+								preparedTransaction.mutationSession,
+								new Set(),
+							),
+						);
+					}
+					directorPreparedTransactions.delete(turn.id);
+					directorPreparedTransactionsByBridgeId.delete(preparedTransaction.prepared.id);
+				}
 				await directorEventTails.get(turn.id)?.catch(() => undefined);
+				if (cause instanceof DirectorTurnPublicationError || persistenceUnhealthy) {
+					state.complete(active);
+					state.terminal(active);
+					return;
+				}
 				if (state.complete(active)) {
 					const failure =
 						cause instanceof TrustedDirectorFailure
@@ -1801,19 +2556,31 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 			activeHandlers.delete(task);
 			directorCommitRevisions.delete(turn.id);
 			bridgeTerminalTargets.delete(turn.id);
+			requesterTargets.delete(turn.id);
+			const transaction = directorPreparedTransactions.get(turn.id);
+			if (transaction !== undefined) {
+				directorPreparedTransactionsByBridgeId.delete(transaction.prepared.id);
+			}
+			directorPreparedTransactions.delete(turn.id);
 		}
 	}
 
-	async function execute(request: Request) {
+	async function execute(request: Request, requester: WebSocketConnection, principalKey: string) {
 		if (draining) {
-			return sendControl(protocolError(request.id, "SHUTTING_DOWN", "daemon is shutting down", true));
+			return sendRequester(
+				requester,
+				protocolError(request.id, "SHUTTING_DOWN", "daemon is shutting down", true),
+			);
 		}
 		if (seenRequestIds.has(request.id)) {
-			return sendControl(protocolError(request.id, "INVALID_REQUEST", "request id has already been used", false));
+			return sendRequester(
+				requester,
+				protocolError(request.id, "INVALID_REQUEST", "request id has already been used", false),
+			);
 		}
 		seenRequestIds.add(request.id);
 		if (state.begin(request.id, request.deadline_ms) === "busy") {
-			return sendControl(protocolError(request.id, "BUSY", "one request is already active", true));
+			return sendRequester(requester, protocolError(request.id, "BUSY", "one request is already active", true));
 		}
 		const active = state.current!;
 		if (
@@ -1822,7 +2589,8 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		) {
 			state.complete(active);
 			state.terminal(active);
-			return sendControl(
+			return sendRequester(
+				requester,
 				protocolError(
 					request.id,
 					"CAPABILITY_NOT_NEGOTIATED",
@@ -1835,8 +2603,12 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		if (!handler) {
 			state.complete(active);
 			state.terminal(active);
-			return sendControl(protocolError(request.id, "METHOD_NOT_ALLOWED", "method is not allowed", false));
+			return sendRequester(
+				requester,
+				protocolError(request.id, "METHOD_NOT_ALLOWED", "method is not allowed", false),
+			);
 		}
+		requesterTargets.set(request.id, { websocket: requester, principalKey });
 		const task = (async () => {
 			try {
 				const output = await handler(request.params, {
@@ -1844,11 +2616,21 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 					request,
 					reportProgress: (phase, completed, total) => {
 						if (active.phase === "running") {
-							sendControl({ type: "progress", id: active.id, phase, completed, total });
+							sendRequester(requester, { type: "progress", id: active.id, phase, completed, total });
 						}
 					},
-					applyCameraPlan: (plan, context) => applyCameraPlan(request, plan, context),
-					stageScene: (plan, context) => stageScene(request, plan, context),
+					applyCameraPlan: async (plan, context) => {
+						const candidate = await applyCameraPlan(request, plan, context);
+						const prepared = preparedMutationCandidate<CameraPlanMutationCandidate>(candidate);
+						if (prepared !== undefined) registerPreparedTransaction(request.id, prepared);
+						return candidate;
+					},
+					stageScene: async (plan, context) => {
+						const candidate = await stageScene(request, plan, context);
+						const prepared = preparedMutationCandidate<StageSceneMutationCandidate>(candidate);
+						if (prepared !== undefined) registerPreparedTransaction(request.id, prepared);
+						return candidate;
+					},
 					renderQaFrames: (renderRequest, context) =>
 						renderQaFrames(request, renderRequest, context, () => {
 							if (!state.beginDurableCommit(active)) {
@@ -1861,18 +2643,92 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 						}
 					},
 				});
+				const transaction = directorPreparedTransactions.get(request.id);
+				if (transaction !== undefined) {
+					transaction.ackSent = true;
+					transaction.bridge.sendText(
+						parseDaemonBridgeMessage(
+							{
+								type: "bridge_transaction_ack",
+								id: transaction.prepared.id,
+								transaction_id: transaction.prepared.transaction_id,
+								status: "committed",
+								resulting_revision_id: output.resulting_revision_id,
+							},
+							transaction.mutationSession,
+							new Set(),
+						),
+					);
+					await new Promise<void>((resolve, reject) => {
+						const abort = () => {
+							active.controller.signal.removeEventListener("abort", abort);
+							reject(new Error(`${active.cause ?? "CANCELLED"}: transaction acknowledgement was interrupted`));
+						};
+						active.controller.signal.addEventListener("abort", abort, { once: true });
+						transaction.acknowledged.then(() => {
+							active.controller.signal.removeEventListener("abort", abort);
+							resolve();
+						}, reject);
+						if (active.controller.signal.aborted) abort();
+					});
+					directorPreparedTransactions.delete(request.id);
+					directorPreparedTransactionsByBridgeId.delete(transaction.prepared.id);
+					if (!state.finishDurableCommit(active)) {
+						throw new Error("DURABLE_COMMIT_STATE: durable commit state is invalid");
+					}
+				}
 				if (state.complete(active)) {
 					state.terminal(active);
 					sendTerminal(active.id, { type: "response", id: active.id, ...output });
 				}
 			} catch (cause) {
+				const transaction = directorPreparedTransactions.get(request.id);
+				if (transaction !== undefined) {
+					if (!transaction.ackSent && !transaction.bridge.socket.destroyed) {
+						const causeCode =
+							cause instanceof Error && "code" in cause && typeof cause.code === "string"
+								? cause.code
+								: undefined;
+						const code =
+							causeCode === "TRANSACTION_CONFLICT"
+								? "TRANSACTION_CONFLICT"
+								: causeCode === "STALE_BASE" || causeCode === "PROJECT_INVALID"
+									? "TRANSACTION_STATE_INVALID"
+									: "TRANSACTION_EVIDENCE_INVALID";
+						transaction.bridge.sendText(
+							parseDaemonBridgeMessage(
+								{
+									type: "bridge_transaction_error",
+									id: transaction.prepared.id,
+									transaction_id: transaction.prepared.transaction_id,
+									code,
+									message:
+										code === "TRANSACTION_CONFLICT"
+											? "transaction id was reused with different content"
+											: code === "TRANSACTION_STATE_INVALID"
+												? "transaction phase is invalid"
+												: "transaction recovery evidence is invalid",
+									retryable: false,
+								},
+								transaction.mutationSession,
+								new Set(),
+							),
+						);
+					}
+					directorPreparedTransactions.delete(request.id);
+					directorPreparedTransactionsByBridgeId.delete(transaction.prepared.id);
+				}
 				if (state.complete(active)) {
 					state.terminal(active);
 					const message = cause instanceof Error ? cause.message : "handler failed";
 					const parsed = /^([A-Z][A-Z0-9_]+):\s*([\s\S]*)$/.exec(message);
+					const stageSceneUnknown =
+						request.method === "stage_scene" && (parsed === null || parsed[1] === "UNKNOWN");
 					sendTerminal(
 						active.id,
-						protocolError(active.id, parsed?.[1] ?? "HANDLER_ERROR", parsed?.[2] ?? message, false),
+						stageSceneUnknown
+							? protocolError(active.id, "STAGE_SCENE_FAILED", "stage_scene operation failed", false)
+							: protocolError(active.id, parsed?.[1] ?? "HANDLER_ERROR", parsed?.[2] ?? message, false),
 					);
 				}
 			}
@@ -1883,10 +2739,16 @@ export async function start(options: DaemonOptions): Promise<Daemon> {
 		} finally {
 			activeHandlers.delete(task);
 			bridgeTerminalTargets.delete(request.id);
+			const transaction = directorPreparedTransactions.get(request.id);
+			if (transaction !== undefined) {
+				directorPreparedTransactionsByBridgeId.delete(transaction.prepared.id);
+			}
+			directorPreparedTransactions.delete(request.id);
 		}
 	}
 
 	return {
+		projectId,
 		port: addressPort(),
 		startup,
 		runtimeDirectory: runtimeAdvertisement.directory,
