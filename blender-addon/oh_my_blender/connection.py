@@ -404,6 +404,7 @@ class Connection:
         self.last_bridge_response: dict | None = None
         self._send_lock = threading.Lock()
         self._last_ping_at = time.monotonic()
+        self.last_pong_nonce: str | None = None
         self._state_lock = threading.Lock()
         self.project_directory = (
             Path(project_directory) if project_directory is not None else None
@@ -728,7 +729,12 @@ class Connection:
                 if message.get("type") == "bridge_cancel":
                     self.dispatch_bridge_message(message)
                     continue
-                if message.get("type") == "cancel_ack":
+                if message.get("type") == "pong":
+                    nonce = message.get("nonce")
+                    if isinstance(nonce, str):
+                        self.last_pong_nonce = nonce
+                    response_queue = None
+                elif message.get("type") == "cancel_ack":
                     response_queue = self._cancel_ack_queues.get(message.get("id"))
                 elif message.get("type") in ("response", "error"):
                     response_queue = self._response_queues.get(message.get("id"))

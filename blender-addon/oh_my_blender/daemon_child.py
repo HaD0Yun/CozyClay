@@ -19,6 +19,7 @@ _TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _FIELDS = {"type", "protocol", "port", "pid", "launch_id", "bearer_token", "expires_in_ms"}
 _BASE_ENVIRONMENT_ALLOWLIST = (
     "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT",
+    "OMB_IDLE_TIMEOUT_MS",
 )
 _PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES = {
     "ant-ling": "ANT_LING_API_KEY",

@@ -11,6 +11,20 @@ import {
 import { createBootRuntime, parseBootArguments } from "./boot.ts";
 import { start } from "./daemon.ts";
 
+/**
+ * Test/operations override for the 60-second idle window. The narrow bounds
+ * prevent accidental zero-delay churn and unbounded stale connections.
+ */
+function idleTimeoutFromEnvironment(): number | undefined {
+	const raw = process.env.OMB_IDLE_TIMEOUT_MS;
+	if (raw === undefined) return undefined;
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < 500 || value > 60_000) {
+		throw new Error("OMB_IDLE_TIMEOUT_MS must be an integer from 500 through 60000");
+	}
+	return value;
+}
+
 async function main(): Promise<void> {
 	const boot = parseBootArguments(process.argv.slice(2));
 	const runtime = await createBootRuntime(boot);
@@ -29,6 +43,7 @@ async function main(): Promise<void> {
 		});
 		const daemon = await start({
 			port: boot.port,
+			idleTimeoutMs: idleTimeoutFromEnvironment(),
 			projectDirectory: process.cwd(),
 			directorTurn,
 			handlers: {
