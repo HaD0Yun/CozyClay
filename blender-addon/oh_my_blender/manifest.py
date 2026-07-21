@@ -536,3 +536,90 @@ def write_scene_manifest_v2(output_path: Path) -> str:
     revision = scene_manifest["revisionId"]
     print(revision)
     return revision
+
+
+def _entity_detail(entity_id: str, scope: str) -> dict | None:
+    """Return full detail for one entity, selected by scope.
+
+    scope 'bones': armature bone hierarchy with transforms (rigged characters).
+    scope 'animation': fcurves/keyframes for the entity and its data-block.
+    scope 'material': material slots and node inputs.
+    scope 'all': bones + animation + material.
+    """
+    target = next(
+        (obj for obj in bpy.data.objects if obj.get("omb.entity_id") == entity_id),
+        None,
+    )
+    if target is None:
+        return None
+    detail: dict = {
+        "name": _text(target.name),
+        "type": _text(target.type),
+        "location": _vector(target.location),
+        "rotationMode": _text(target.rotation_mode),
+        "rotationQuaternion": _object_quaternion(target),
+        "scale": _vector(target.scale),
+        "parent": _text(target.parent.name) if target.parent else None,
+    }
+    if scope in ("bones", "all") and target.type == "ARMATURE":
+        bones = []
+        for bone in target.data.bones:
+            bones.append({
+                "name": _text(bone.name),
+                "parent": _text(bone.parent.name) if bone.parent else None,
+                "head": _vector(bone.head_local),
+                "tail": _vector(bone.tail_local),
+                "length": float(bone.length),
+                "useConnect": bool(bone.use_connect),
+            })
+        detail["bones"] = bones
+    if scope in ("animation", "all"):
+        animations = []
+        for source_label, anim_data in (
+            ("object", target.animation_data),
+            ("data", target.data.animation_data if target.data is not None else None),
+        ):
+            if anim_data is None:
+                continue
+            fcurves = animation_fcurves(anim_data)
+            for fc in fcurves:
+                keyframes = [
+                    {
+                        "frame": int(kp.co[0]),
+                        "value": float(kp.co[1]),
+                        "interpolation": _text(kp.interpolation),
+                    }
+                    for kp in fc.keyframe_points
+                ]
+                animations.append({
+                    "source": source_label,
+                    "dataPath": _text(fc.data_path),
+                    "arrayIndex": int(fc.array_index),
+                    "keyframes": keyframes,
+                })
+        detail["animations"] = animations
+    if scope in ("material", "all") and target.type == "MESH":
+        materials = []
+        for slot in target.material_slots:
+            mat = slot.material
+            if mat is None:
+                materials.append({"slot": _text(slot.name), "material": None})
+                continue
+            principled = (
+                mat.node_tree.nodes.get("Principled BSDF")
+                if mat.use_nodes and mat.node_tree is not None
+                else None
+            )
+            base_color = (
+                tuple(principled.inputs["Base Color"].default_value)
+                if principled is not None
+                else None
+            )
+            materials.append({
+                "slot": _text(slot.name),
+                "material": _text(mat.name),
+                "useNodes": bool(mat.use_nodes),
+                "baseColor": list(base_color) if base_color else None,
+            })
+        detail["materials"] = materials
+    return detail

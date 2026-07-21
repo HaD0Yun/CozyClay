@@ -783,6 +783,24 @@ class Connection:
             "snapshot": extract_scene_snapshot(),
         }
 
+    def _inspect_entity_result(
+        self,
+        revision_id: str,
+        params: dict,
+    ) -> dict:
+        from .manifest import _entity_detail
+
+        entity_id = params.get("entity_id")
+        scope = params.get("scope", "all")
+        if not isinstance(entity_id, str) or not entity_id:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: entity_id is required")
+        if scope not in ("bones", "animation", "material", "all"):
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: scope must be bones|animation|material|all")
+        detail = _entity_detail(entity_id, scope)
+        if detail is None:
+            raise ConnectionError(f"ENTITY_NOT_FOUND: entity {entity_id} does not exist")
+        return {"revision": revision_id, "entity_id": entity_id, "scope": scope, "detail": detail}
+
     def hold_checkpoint(
         self,
         checkpoint: Checkpoint,
@@ -992,6 +1010,7 @@ class Connection:
             return
         if message.get("method") not in (
             "inspect_project",
+            "inspect_entity",
             "apply_camera_plan",
             "stage_scene",
             "render_qa_frames",
@@ -1041,6 +1060,13 @@ class Connection:
                 )
                 if current_scene_hash is None:
                     current_scene_hash = durable_scene_hash
+            elif message["method"] == "inspect_entity":
+                durable_revision_id, durable_scene_hash = self._durable_project_base(
+                    message["expected_revision_id"],
+                    allow_bootstrap=True,
+                )
+                if current_scene_hash is None:
+                    current_scene_hash = durable_scene_hash
             elif current_scene_hash is None:
                 current_scene_hash = self._durable_scene_hash(
                     message["expected_revision_id"]
@@ -1057,11 +1083,11 @@ class Connection:
             self._send_bridge_error(message, "BUSY", "a mutation bridge is already active")
             return
         self._bridge_cancellations[bridge_id] = threading.Event()
-        if message["method"] != "inspect_project":
+        if message["method"] != "inspect_project" and message["method"] != "inspect_entity":
             self.begin_task(message["method"], message["params"])
         if bpy is None:
             self.finish_bridge(bridge_id)
-            if message["method"] != "inspect_project":
+            if message["method"] != "inspect_project" and message["method"] != "inspect_entity":
                 self.finish_task("error", code="BLENDER_UNAVAILABLE")
             self._send_bridge_error(
                 message,
@@ -1074,6 +1100,27 @@ class Connection:
                 result = self._inspect_project_result(
                     durable_revision_id,
                     current_scene_hash,
+                )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "inspect_entity":
+            try:
+                result = self._inspect_entity_result(
+                    durable_revision_id,
+                    message["params"],
                 )
                 self._send_json({
                     "type": "bridge_result",

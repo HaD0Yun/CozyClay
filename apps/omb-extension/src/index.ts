@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createApplyCameraPlanTool,
+	createInspectEntityTool,
 	createInspectProjectTool,
 	createRenderQaFramesTool,
 	createStageSceneTool,
@@ -84,6 +85,7 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 	};
 
 	pi.registerTool(createInspectProjectTool(bridge));
+	pi.registerTool(createInspectEntityTool(bridge));
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
 	pi.registerTool(createRenderQaFramesTool(bridge));

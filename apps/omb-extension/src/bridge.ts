@@ -193,6 +193,21 @@ export class BlenderBridge {
 		return { revision: result.revision, snapshot };
 	}
 
+	async inspectEntity(
+		entityId: string,
+		scope: "bones" | "animation" | "material" | "all",
+	): Promise<Record<string, unknown>> {
+		const result = await this.runBridgeRequest(
+			"inspect_entity",
+			{ entity_id: entityId, scope },
+			this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
+			throw new Error("INVALID_INSPECT_ENTITY_RESULT: bridge did not return a bound revision");
+		}
+		return result;
+	}
+
 	async stageScene(
 		plan: StageScenePlanV1,
 		context: { readonly signal?: AbortSignal; readonly reportProgress: (progress: BridgeProgress) => void },
