@@ -11,9 +11,9 @@ Reference: `can1357/oh-my-pi@c0d0ad7629ebc895237e9ccc1f45008bd23bdaa4`
 The repository now implements the authenticated local directing loop end to end:
 
 ```text
-omb-tui owner / Blender peer controller
+Pi TUI owner (pi-test.sh + apps/omb-extension) / Blender peer controller
   ⇅ closed controller protocol, ordered stream, watermark transcript
-OMB daemon + Pi AgentSession
+omb-extension + Pi AgentSession (no standalone daemon)
   ⇅ correlated transaction protocol
 Blender bridge
   ⇅ main-thread scene inspection, transactional save, QA display
@@ -129,7 +129,7 @@ Controller transcript v2 is a protocol feature, not a capability: `HelloAckContr
 - `PublishControllerPeerDiscoverySlotSchema`/`ControllerPeerDiscoverySlotAckSchema` publish a specific lineage and generation. `RevokeControllerPeerSchema`/`RevokeControllerPeerAckSchema` burn the slot/resume chain and close only that lineage. Request replay uses a per-principal 300,000 ms/1,024-entry cache: same ID and canonical body repeats the response without side effects; different content returns `IDEMPOTENCY_CONFLICT`.
 - Detached bridge discovery refreshes at 10,000 ms. Reconnect backoff is 250/500/1,000/2,000/4,000 ms, then 5,000 ms through 60 seconds, with ±20% production jitter and none in tests.
 - Each controller socket has an isolated queue capped at 256 frames or 1 MiB and a 2,000 ms drain timeout. Only the slow socket closes `1013`; durable delivery to other controllers and persistence continue. Delta batching flushes at 50 ms or 2,048 bytes, never exceeds 4,096 bytes, and the first adapter-to-wire delta is due within 250 ms.
-- `apps/omb-tui` uses public Pi `Editor`, `Markdown`, `Container`, `Component`, `TUI`, and configurable keybindings. Its OMB-owned viewport retains at most 10,000 durable entries plus one active Markdown segment, reparses only that active Markdown on delta, preserves a scrolled-up entry/line anchor through output and resize, and shows `New output below`.
+- `apps/omb-tui` is gone; Pi's own TUI is the controller surface. `apps/omb-extension` is a Pi extension that hosts the Blender bridge WebSocket server, registers the model-facing tools, publishes `.omb/pi-bridge.json` for add-on discovery, and appends the director prompt. Its OMB-owned viewport retains at most 10,000 durable entries plus one active Markdown segment, reparses only that active Markdown on delta, preserves a scrolled-up entry/line anchor through output and resize, and shows `New output below`.
 - The Blender panel drains at most 32 controller events or 4 ms per timer tick. Real-Blender targets are p95 <=4 ms and max <=8 ms, with zero durable drops. QA frames are digest-addressed and displayed only after the matching closed result; transcript bytes never become image payloads.
 
 ### Durable transaction and recovery protocol
@@ -172,8 +172,7 @@ Maximum JSON size is 1 MiB and bridge binary artifact frames are at most 16 MiB.
 New code should enter through these product-owned areas:
 
 ```text
-apps/omb-daemon/             process lifecycle and protocol host
-apps/omb-tui/                owner controller and terminal presentation
+apps/omb-extension/          Pi extension: bridge WS host, tool registration, endpoint discovery
 packages/director-core/      canonical state and revision rules
 packages/director-runtime/   Pi adapter, prompts, tool middleware
 packages/blender-protocol/   versioned JSON schemas and messages
@@ -186,8 +185,8 @@ Ownership is behavioral, not merely directory naming:
 
 | Area | Owns | Must not own |
 | --- | --- | --- |
-| `apps/omb-daemon` | child lifecycle, startup record, WebSocket state machine, request arbitration | scene schemas, revision/hash rules, model-facing tool definitions |
-| `apps/omb-tui` | owner spawn/reattach, transcript replay, streaming viewport, prompt/cancel UX | daemon lifecycle internals, scene mutation, or protocol schema definitions |
+| `apps/omb-extension` | bridge WebSocket server lifecycle, endpoint discovery file, tool registration, director prompt injection | scene schemas, revision/hash rules, model-facing tool definitions |
+| Pi TUI (via `pi-test.sh`) | owner spawn/reattach, transcript replay, streaming viewport, prompt/cancel UX | daemon lifecycle internals, scene mutation, or protocol schema definitions |
 | `packages/director-core` | project/revision persistence, stable identity, canonical serialization, scene/artifact hashes, artifact store | Pi APIs or WebSocket transport |
 | `packages/director-runtime` | the sole `createAgentSession()` adapter, `BundledDirectorResourceLoader`, bundled prompt, Pi event/cancel/dispose wiring | Blender extraction or canonical state rules |
 | `packages/blender-protocol` | protocol/message schemas and generated TypeScript/Python fixtures | daemon lifecycle or tool execution |
@@ -363,9 +362,9 @@ Visual critique may rank or explain candidates, but it never replaces determinis
 
 ### Phase 1 — Connection skeleton (delivered)
 
-- add `packages/blender-protocol`, `packages/director-core`, `packages/director-runtime`, `packages/blender-tools`, `apps/omb-daemon`, and `blender-addon/oh_my_blender` plus root workspace/build/check/test references without editing Pi core;
+- add `packages/blender-protocol`, `packages/director-core`, `packages/director-runtime`, `packages/blender-tools`, `apps/omb-extension`, and `blender-addon/oh_my_blender` plus root workspace/build/check/test references without editing Pi core;
 - initialize and save stable project/object/bone IDs, then persist the initial canonical revision/hash;
-- run `omb daemon` and connect the Blender add-on;
+- run `omb` (Pi + `apps/omb-extension`) and connect the Blender add-on;
 - return a versioned scene manifest;
 - prove malformed/expired/consumed authentication, protocol mismatch, second-client rejection, add-on-owned disconnect rollback, both outcomes of the cancel-vs-response race, cancel acknowledgement, deadline expiry, rate/in-flight limits, teardown order, and restart-based reconnect;
 - prove hostile local Pi resources are ignored at startup, extension attempt, reload, and session-factory replacement.
@@ -450,7 +449,7 @@ The bootstrap work unit established:
 2. `packages/director-core`: identity validation, canonical manifest serialization, `scene_hash`/initial `revision_id`, and atomic `.omb/project.json`/journal persistence;
 3. `packages/blender-tools`: the only model-facing tool, `inspect_project`, as a session-bound factory that calls the typed Blender bridge;
 4. `packages/director-runtime`: `createDirectorSession()`, `BundledDirectorResourceLoader`, bundled prompt, Pi event/cancel/dispose wiring, and the exact `inspect_project` allowlist;
-5. `apps/omb-daemon`: child/startup/WebSocket lifecycle and routing only;
+5. `apps/omb-extension`: bridge WebSocket server lifecycle, tool registration, and endpoint discovery only;
 6. `blender-addon/oh_my_blender`: explicit identity initialization, child ownership, connect/disconnect, main-thread manifest extraction, and checkpoint verification;
 7. one integration scenario proving Blender → daemon → real Pi `AgentSession` → `inspect_project` → Blender → Pi → daemon round-trip;
 8. teardown proof showing no daemon, socket, Pi session, or Blender timer remains.
@@ -488,7 +487,7 @@ python3 -m unittest discover -s blender-addon/tests
 ```
 
 The `blender-addon` suite includes the real-daemon §14 integration scenario
-(`test_integration_daemon.py`), which launches `apps/omb-daemon` and drives the
+(`test_integration_daemon.py`), which launches `apps/omb-extension` and drives the
 authenticated inspect round trip against a live Pi session.
 
 Legacy note: an aggregated `npm run test:omb-roundtrip` script is not defined;

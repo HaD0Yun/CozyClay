@@ -172,7 +172,7 @@ class UiPanelTests(unittest.TestCase):
                 self.bpy.app.timers.is_registered(self.addon._pump_lifecycle)
             )
 
-    def test_connect_reports_tui_instruction_when_no_spawn_or_handoff_exists(self) -> None:
+    def test_connect_reports_pi_bridge_instruction_when_no_endpoint_exists(self) -> None:
         operator = self.addon.OMB_OT_connect()
         reports = []
         operator.report = lambda levels, message: reports.append((levels, message))
@@ -184,14 +184,11 @@ class UiPanelTests(unittest.TestCase):
             mock.patch.object(
                 self.addon.project_store, "verify_connect_precondition"
             ),
-            mock.patch.object(
-                self.connection_module, "consume_attach_handoff", return_value=None
-            ),
         ):
             result = operator.execute(context)
 
         self.assertEqual(result, {"CANCELLED"})
-        self.assertIn("run the omb TUI first", reports[-1][1])
+        self.assertIn("Pi bridge endpoint", reports[-1][1])
 
     def test_each_lifecycle_state_has_human_readable_rendering(self) -> None:
         expected = {

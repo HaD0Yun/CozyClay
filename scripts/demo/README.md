@@ -13,16 +13,14 @@
    ```sh
    OMB_DEMO_PROJECT_DIR=/path/to/demo blender --python scripts/demo/blender_bootstrap.py
    ```
-2. Start the TUI (any terminal):
+2. Start the director TUI (any terminal):
    ```sh
-   OMB_DEMO_PROJECT_DIR=/path/to/demo scripts/demo/launch-tui.sh
+   cd /path/to/demo && omb
    ```
 
-Attachment is automatic: the TUI-spawned daemon writes a one-use
-`attach-handoff.json` into its private runtime directory and the Blender
-add-on discovers and consumes it (`bpy.ops.omb.connect()` uses the same
-path from the UI). No ticket copying is involved; the TUI reissues a
-fresh handoff while no Blender bridge is attached.
+Attachment is automatic: `omb` launches Pi with the `apps/omb-extension` Pi
+extension, which writes `.omb/pi-bridge.json` and the Blender add-on consumes it
+on `bpy.ops.omb.connect()`. No ticket copying is involved.
 
-`OMB_NODE_EXECUTABLE` overrides Node resolution; `OMB_MODEL` overrides the default model.
+`OMB_MODEL` overrides the default model.
 Use `OMB_SKIP_ATTACH=1` for background bootstrap checks that must not attach.

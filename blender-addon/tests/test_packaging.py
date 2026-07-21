@@ -142,22 +142,16 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
             self.assertFalse(any(name.endswith(".pyc") for name in names))
             self.assertFalse(any("generate" in Path(name).name for name in names))
 
-    def test_archive_loads_panel_detached_and_installed_mode_avoids_repo_discovery(self):
+    def test_archive_loads_panel_detached_and_avoids_repo_discovery(self):
         with tempfile.TemporaryDirectory(prefix="omb-isolated-install-") as directory:
             isolated = Path(directory).resolve()
             archive_path = isolated / "oh-my-blender.zip"
             package_path = isolated / "site" / "oh_my_blender"
-            executable = isolated / "omb-daemon"
             package_path.mkdir(parents=True)
-            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            executable.chmod(0o700)
             build_archive(archive_path)
             with zipfile.ZipFile(archive_path) as archive:
                 archive.extractall(package_path)
 
-            environment = os.environ.copy()
-            environment["OMB_DAEMON_EXECUTABLE"] = str(executable)
-            environment.pop("OMB_NODE_EXECUTABLE", None)
             loaded = subprocess.run(
                 [
                     sys.executable,
@@ -169,12 +163,7 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                         import sys
                         sys.path.insert(0, sys.argv[1])
                         import oh_my_blender
-                        from oh_my_blender import connection, ui_panel
-                        connection._resolve_development_daemon_argv = lambda *_: (_ for _ in ()).throw(
-                            AssertionError("repository development discovery ran")
-                        )
-                        argv = connection._resolve_daemon_argv(("--faux",))
-                        assert argv == (str(pathlib.Path(sys.argv[2]).resolve()), "--port", "0", "--faux")
+                        from oh_my_blender import ui_panel
                         install_root = pathlib.Path(sys.argv[1]).resolve()
                         assert pathlib.Path(oh_my_blender.__file__).resolve().is_relative_to(install_root)
                         assert pathlib.Path(ui_panel.__file__).resolve().is_relative_to(install_root)
@@ -184,10 +173,8 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                         """
                     ),
                     str(package_path.parent),
-                    str(executable),
                 ],
                 cwd=isolated,
-                env=environment,
                 check=True,
                 capture_output=True,
                 text=True,

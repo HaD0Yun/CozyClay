@@ -48,19 +48,8 @@ if [[ "${ARGS[0]:-}" == "--model" ]]; then
   ARGS=(--provider openai-codex "${ARGS[@]}")
 fi
 
-# The TUI's daemon launcher requires OMB_NODE_EXECUTABLE explicitly and rejects symlinks;
-# resolve to the real binary (fnm shims are symlinks).
-if [[ -z "${OMB_NODE_EXECUTABLE:-}" ]]; then
-  OMB_NODE_EXECUTABLE="$(command -v node || true)"
-  if [[ -n "$OMB_NODE_EXECUTABLE" ]]; then
-    OMB_NODE_EXECUTABLE="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$OMB_NODE_EXECUTABLE")"
-  fi
-  [[ -n "$OMB_NODE_EXECUTABLE" && -x "$OMB_NODE_EXECUTABLE" ]] || OMB_NODE_EXECUTABLE="/Users/yun/.local/share/fnm/node-versions/v24.18.0/installation/bin/node"
-  export OMB_NODE_EXECUTABLE
-fi
-
 # Blender owns project provisioning (omb.initialize_project seeds .omb/project.json;
-# the daemon refuses to boot without it, and the addon refuses a bare skeleton).
+# the Pi extension refuses to load without it, and the addon refuses a bare skeleton).
 if [[ "$LAUNCH_BLENDER" == "1" ]]; then
   BLENDER="${OMB_BLENDER_EXECUTABLE:-}"
   if [[ -z "$BLENDER" ]]; then

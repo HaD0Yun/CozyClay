@@ -6,7 +6,6 @@ import os
 import queue
 import secrets
 import subprocess
-import shlex
 import stat
 import tempfile
 import threading
@@ -19,7 +18,7 @@ from typing import Any, Callable, Sequence
 from uuid import UUID, uuid4
 
 from .checkpoint import Checkpoint, restore, verify
-from .daemon_child import DaemonChild, UnsafeExecutableError, verify_executable
+from .daemon_child import DaemonChild
 from .handshake import (
     HandshakeError,
     MUTATION_BRIDGE_CAPABILITY,
@@ -2213,112 +2212,6 @@ def pump_connection_lifecycle() -> float:
     return 0.1
 
 
-_DAEMON_ARGS_ENV = "OMB_DAEMON_ARGS"
-_DAEMON_EXECUTABLE_ENV = "OMB_DAEMON_EXECUTABLE"
-_NODE_EXECUTABLE_ENV = "OMB_NODE_EXECUTABLE"
-
-
-def _verified_executable(configured: str) -> str:
-    try:
-        return verify_executable(configured)
-    except UnsafeExecutableError as error:
-        raise ConnectionError(str(error)) from error
-
-
-def _resolve_daemon_args(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
-    if daemon_args is None:
-        configured = os.environ.get(_DAEMON_ARGS_ENV)
-        if configured is None:
-            raise ConnectionError(
-                "NOT_CONFIGURED: no daemon launch mode is configured; set the "
-                f"{_DAEMON_ARGS_ENV} environment variable (or pass daemon_args "
-                "explicitly) to '--faux' or explicit '--provider <id> --model <id>'"
-            )
-        daemon_args = tuple(shlex.split(configured))
-    resolved = tuple(daemon_args)
-    if resolved == ("--faux",):
-        return resolved
-
-    parsed: dict[str, str] = {}
-    index = 0
-    while index < len(resolved):
-        flag = resolved[index]
-        if (
-            flag not in ("--provider", "--model")
-            or flag in parsed
-            or index + 1 >= len(resolved)
-            or not resolved[index + 1]
-            or resolved[index + 1].startswith("--")
-        ):
-            raise ConnectionError(
-                "INVALID_ARGUMENT: unsupported daemon arguments; credentials "
-                "must be supplied only through the provider environment variable"
-            )
-        parsed[flag] = resolved[index + 1]
-        index += 2
-    if set(parsed) != {"--provider", "--model"}:
-        raise ConnectionError(
-            "NOT_CONFIGURED: explicit --provider <id> and --model <id> are required"
-        )
-    return resolved
-
-
-def _resolve_installed_daemon_argv(
-    configured_executable: str, daemon_args: tuple[str, ...]
-) -> tuple[str, ...]:
-    executable = _verified_executable(configured_executable)
-    return (executable, "--port", "0", *daemon_args)
-
-
-def _resolve_development_daemon_argv(
-    configured_node: str, daemon_args: tuple[str, ...]
-) -> tuple[str, ...]:
-    repository_root = Path(__file__).resolve().parents[2]
-    daemon_main = str(repository_root / "apps/omb-daemon/src/main.ts")
-    tsx_loader = next(
-        (
-            parent / "node_modules/tsx/dist/loader.mjs"
-            for parent in (repository_root, *repository_root.parents)
-            if (parent / "node_modules/tsx/dist/loader.mjs").is_file()
-        ),
-        None,
-    )
-    if tsx_loader is None:
-        raise ConnectionError("NOT_CONFIGURED: tsx runtime is unavailable")
-    node_executable = _verified_executable(configured_node)
-    return (
-        node_executable,
-        "--import",
-        str(tsx_loader),
-        daemon_main,
-        "--port",
-        "0",
-        *daemon_args,
-    )
-
-
-def _resolve_daemon_argv(daemon_args: Sequence[str] | None) -> tuple[str, ...]:
-    """Resolve one explicit launch mode with a safety-verified executable."""
-    configured_daemon = os.environ.get(_DAEMON_EXECUTABLE_ENV)
-    configured_node = os.environ.get(_NODE_EXECUTABLE_ENV)
-    if configured_daemon is not None and configured_node is not None:
-        raise ConnectionError(
-            "INVALID_ARGUMENT: both OMB_DAEMON_EXECUTABLE and "
-            "OMB_NODE_EXECUTABLE are set; configure exactly one"
-        )
-    if configured_daemon is None and configured_node is None:
-        raise ConnectionError(
-            "NOT_CONFIGURED: set OMB_DAEMON_EXECUTABLE for an installed daemon "
-            "or OMB_NODE_EXECUTABLE for repository development"
-        )
-
-    resolved_args = _resolve_daemon_args(daemon_args)
-    if configured_daemon is not None:
-        return _resolve_installed_daemon_argv(configured_daemon, resolved_args)
-    assert configured_node is not None
-    return _resolve_development_daemon_argv(configured_node, resolved_args)
-
-
 def _live_scene_hash(current_scene_hash: str) -> str:
     from .manifest import resolve_manifest_for_expected_hash
 
@@ -2381,89 +2274,6 @@ def _reconcile_connected_transaction(
 
 
 
-def connect_addon_spawned(
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-    daemon_args: Sequence[str] | None = None,
-    child_type: type[DaemonChild] = DaemonChild,
-    websocket_type: type[WebSocketClient] = WebSocketClient,
-) -> Connection:
-    """Spawn one daemon with an owner controller and independent bridge slot."""
-    global _active_connection
-    from . import controller_connection
-
-    if _active_connection is not None and _active_connection.state not in (
-        LifecycleState.STOPPED,
-        *RECONNECTABLE_STATES,
-    ):
-        raise ConnectionError("the add-on already owns an active daemon connection")
-    if _active_connection is not None:
-        disconnect_active("client_exit")
-
-    child = child_type.spawn(_resolve_daemon_argv(daemon_args), cwd=cwd)
-    owner = None
-    bridge = None
-    try:
-        record = child.read_startup_record()
-        runtime_directory = _runtime_user_directory() / record["launch_id"]
-        owner = controller_connection.ControllerConnection.connect_owner(
-            port=record["port"],
-            boot_token=record["bearer_token"],
-            launch_id=record["launch_id"],
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-            runtime_directory=runtime_directory,
-            websocket_type=websocket_type,
-            start_reader=False,
-        )
-        record["bearer_token"] = ""
-        owner.publish_bridge_slot()
-        slot = consume_discovery_slot(
-            project_id,
-            "bridge",
-            runtime_user_directory=runtime_directory.parent,
-            launch_id=record["launch_id"],
-        )
-        if slot is None:
-            raise ConnectionError("daemon did not publish the requested bridge slot")
-        bridge = Connection.attach(
-            slot.runtime_directory,
-            slot.ticket,
-            cwd=cwd,
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-            websocket_type=websocket_type,
-            expose_tools=False,
-        )
-        bridge.child = child
-        _reconcile_connected_transaction(bridge, cwd)
-        configure_bridge_auto_reconnect(
-            bridge,
-            cwd=cwd,
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-            runtime_user_directory=runtime_directory.parent,
-            websocket_type=websocket_type,
-        )
-        owner.start_reader()
-        controller_connection.set_active_controller(owner)
-        _active_connection = bridge
-        return bridge
-    except Exception:
-        if bridge is not None:
-            bridge.child = None
-            bridge.disconnect("addon_spawn_failed", timeout=0.2)
-        if owner is not None:
-            owner.close()
-        child.kill()
-        raise
-
 
 def connect_pi_extension(
     *,
@@ -2519,67 +2329,6 @@ def connect_pi_extension(
         attach_ticket=credential,
     )
 
-def connect_tui_spawned(
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-    runtime_user_directory: str | PathLike[str] | None = None,
-    websocket_type: type[WebSocketClient] = WebSocketClient,
-) -> Connection:
-    """Consume TUI-published bridge and peer slots independently."""
-    from . import controller_connection
-
-    slot = consume_discovery_slot(
-        project_id,
-        "bridge",
-        runtime_user_directory=runtime_user_directory,
-    )
-    if slot is not None:
-        bridge = connect(
-            cwd=cwd,
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-            attach_runtime_directory=slot.runtime_directory,
-            attach_ticket=slot.ticket,
-        )
-    else:
-        discovered = consume_attach_handoff(
-            project_id, runtime_user_directory=runtime_user_directory
-        )
-        if discovered is None:
-            raise ConnectionError(
-                "No bridge discovery slot found for this project; run the omb TUI first"
-            )
-        runtime_directory, ticket = discovered
-        bridge = connect(
-            cwd=cwd,
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-            attach_runtime_directory=runtime_directory,
-            attach_ticket=ticket,
-        )
-    configure_bridge_auto_reconnect(
-        bridge,
-        cwd=cwd,
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-        runtime_user_directory=runtime_user_directory,
-        websocket_type=websocket_type,
-    )
-    controller_connection.configure_peer_discovery(
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-        runtime_user_directory=runtime_user_directory,
-    )
-    controller_connection.poll_controller_lifecycle(force=True)
-    return bridge
-
 
 def connect(
     *,
@@ -2587,11 +2336,15 @@ def connect(
     project_id: str,
     addon_version: str,
     blender_version: str,
-    daemon_args: Sequence[str] | None = None,
-    attach_runtime_directory: str | PathLike[str] | None = None,
-    attach_ticket: str | None = None,
+    attach_runtime_directory: str | PathLike[str],
+    attach_ticket: str,
 ) -> Connection:
-    """Create, attach, or hash-gate the add-on's sole daemon connection."""
+    """Attach to the add-on's sole daemon connection with a hash gate.
+
+    The Pi extension owns daemon lifecycle; the add-on only attaches through a
+    project-local bridge endpoint. Spawn-based ownership was removed with the
+    standalone omb-daemon app.
+    """
     global _active_connection
     previous = _active_connection
     if previous is not None and previous.state not in (
@@ -2599,69 +2352,35 @@ def connect(
         *RECONNECTABLE_STATES,
     ):
         raise ConnectionError("the add-on already owns an active daemon connection")
-    attach_mode = attach_runtime_directory is not None or attach_ticket is not None
-    if attach_mode and (
-        attach_runtime_directory is None
-        or attach_ticket is None
-        or daemon_args is not None
-    ):
-        raise ConnectionError(
-            "attach mode requires exactly a runtime directory and attach ticket"
-        )
-    if attach_mode:
-        recovering = previous is not None and previous.state in RECONNECTABLE_STATES
-        expected_scene_hash = _read_reconnect_scene_hash(cwd) if recovering else None
-        if recovering:
-            previous.disconnect("reattach_after_unexpected_loss")
-        assert attach_runtime_directory is not None
-        assert attach_ticket is not None
-        replacement = Connection.attach(
-            attach_runtime_directory,
-            attach_ticket,
-            cwd=cwd,
-            project_id=project_id,
-            addon_version=addon_version,
-            blender_version=blender_version,
-            expose_tools=False,
-        )
-        try:
-            if expected_scene_hash is not None:
-                verify_reconnect_hash(
-                    _live_scene_hash(expected_scene_hash),
-                    expected_scene_hash,
+    recovering = previous is not None and previous.state in RECONNECTABLE_STATES
+    expected_scene_hash = _read_reconnect_scene_hash(cwd) if recovering else None
+    if recovering:
+        previous.disconnect("reattach_after_unexpected_loss")
+    replacement = Connection.attach(
+        attach_runtime_directory,
+        attach_ticket,
+        cwd=cwd,
+        project_id=project_id,
+        addon_version=addon_version,
+        blender_version=blender_version,
+        expose_tools=False,
+    )
+    try:
+        if expected_scene_hash is not None:
+            verify_reconnect_hash(
+                _live_scene_hash(expected_scene_hash),
+                expected_scene_hash,
+            )
+            if previous is not None and previous.task_status.task_kind is not None:
+                replacement.task_status = replace(
+                    previous.task_status,
+                    phase="recovered",
+                    outcome="recovered",
                 )
-                if previous is not None and previous.task_status.task_kind is not None:
-                    replacement.task_status = replace(
-                        previous.task_status,
-                        phase="recovered",
-                        outcome="recovered",
-                    )
-        except Exception:
-            replacement.disconnect("reattach_hash_mismatch")
-            raise
-        _reconcile_connected_transaction(replacement, cwd)
-    else:
-        argv = _resolve_daemon_argv(daemon_args)
-        if previous is not None and previous.state in RECONNECTABLE_STATES:
-            replacement = reconnect(
-                argv,
-                cwd=cwd,
-                project_id=project_id,
-                addon_version=addon_version,
-                blender_version=blender_version,
-                live_scene_hash_fn=_live_scene_hash,
-                previous_connection=previous,
-            )
-        else:
-            replacement = Connection.start(
-                argv,
-                cwd=cwd,
-                project_id=project_id,
-                addon_version=addon_version,
-                blender_version=blender_version,
-                expose_tools=False,
-            )
-        _reconcile_connected_transaction(replacement, cwd)
+    except Exception:
+        replacement.disconnect("reattach_hash_mismatch")
+        raise
+    _reconcile_connected_transaction(replacement, cwd)
     _active_connection = replacement
     return replacement
 def reset_lifecycle_state() -> None:

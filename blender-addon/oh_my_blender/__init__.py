@@ -214,10 +214,6 @@ if bpy is not None:
                     project_store.verify_connect_precondition(
                         project_directory, project_id, bpy.data.is_dirty
                     )
-                spawn_configured = bool(
-                    os.environ.get("OMB_NODE_EXECUTABLE")
-                    or os.environ.get("OMB_DAEMON_EXECUTABLE")
-                )
                 connect_options = {
                     "cwd": project_directory,
                     "project_id": project_id,
@@ -230,15 +226,10 @@ if bpy is not None:
                 if os.path.isfile(pi_endpoint):
                     connection.connect_pi_extension(**connect_options)
                 else:
-                    try:
-                        connection.connect_tui_spawned(**connect_options)
-                    except connection.ConnectionError as error:
-                        if (
-                            not spawn_configured
-                            or "No bridge discovery slot found" not in str(error)
-                        ):
-                            raise
-                        connection.connect_addon_spawned(**connect_options)
+                    raise connection.ConnectionError(
+                        "No Pi bridge endpoint found at .omb/pi-bridge.json; "
+                        "run `omb` in this project so the Pi extension can host the bridge"
+                    )
             except (
                 project_store.ProjectStoreError,
                 IdentityError,
