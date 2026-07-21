@@ -24,9 +24,30 @@ from pathlib import Path
 import bpy
 
 REPO_ROOT = Path(os.environ.get("OMB_REPO") or Path(__file__).resolve().parents[1])
-PROJECT_DIR_VALUE = os.environ.get("OMB_PROJECT_DIR")
+
+
+def _argv_option(name: str) -> str | None:
+    """Read --name value from Blender's script args (after the `--` separator).
+
+    LaunchServices (`open -a Blender`) does not forward environment variables,
+    so launchers pass the project location as script arguments instead.
+    """
+    argv = sys.argv
+    if "--" not in argv:
+        return None
+    tail = argv[argv.index("--") + 1 :]
+    for index, token in enumerate(tail):
+        if token == name and index + 1 < len(tail):
+            return tail[index + 1]
+    return None
+
+
+_repo_override = _argv_option("--omb-repo")
+if _repo_override:
+    REPO_ROOT = Path(_repo_override)
+PROJECT_DIR_VALUE = _argv_option("--omb-project-dir") or os.environ.get("OMB_PROJECT_DIR")
 if not PROJECT_DIR_VALUE:
-    raise RuntimeError("OMB_PROJECT_DIR is required")
+    raise RuntimeError("OMB_PROJECT_DIR (env) or --omb-project-dir (script arg) is required")
 PROJECT_DIR = Path(PROJECT_DIR_VALUE).expanduser().resolve()
 # Interactive sessions get watch-mode pacing (scene builds visibly while a
 # plan applies); tests and headless runs stay unpaced unless they opt in.
@@ -39,6 +60,12 @@ import oh_my_blender.connection as connection_module
 
 def log(*parts: object) -> None:
     print("OMB_ATTACH:", *parts, flush=True)
+    # LaunchServices-launched Blender has no useful stdout; mirror to a file.
+    try:
+        with open(PROJECT_DIR / ".omb-blender-attach.log", "a", encoding="utf-8") as handle:
+            handle.write(" ".join(str(part) for part in ("OMB_ATTACH:", *parts)) + "\n")
+    except OSError:
+        pass
 
 
 def newest_blend() -> Path | None:

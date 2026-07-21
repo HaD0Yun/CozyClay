@@ -88,9 +88,18 @@ if [[ "$LAUNCH_BLENDER" == "1" ]]; then
   if [[ "$BLENDER_OPEN" == "1" ]]; then
     echo "omb: Blender already has this project open - reusing it"
   else
-    LOG="/tmp/omb-blender-$(basename "$OMB_DEMO_PROJECT_DIR").log"
-    OMB_PROJECT_DIR="$OMB_DEMO_PROJECT_DIR" OMB_REPO="$OMB_REPO" \
-      nohup "$BLENDER" --python "$OMB_REPO/scripts/blender_attach.py" > "$LOG" 2>&1 &
+    LOG="$OMB_DEMO_PROJECT_DIR/.omb-blender-attach.log"
+    if [[ "$(uname)" == "Darwin" ]]; then
+      # LaunchServices keeps GUI apps alive regardless of the launching
+      # session (nohup/tmux-spawned Blender gets reaped by macOS when the
+      # caller is not the Aqua login session). Env does not pass through
+      # `open`, so the attach script takes its options as script args.
+      open -n -a Blender --args --python "$OMB_REPO/scripts/blender_attach.py" \
+        -- --omb-project-dir "$OMB_DEMO_PROJECT_DIR" --omb-repo "$OMB_REPO"
+    else
+      OMB_PROJECT_DIR="$OMB_DEMO_PROJECT_DIR" OMB_REPO="$OMB_REPO" \
+        nohup "$BLENDER" --python "$OMB_REPO/scripts/blender_attach.py" > /tmp/omb-blender.log 2>&1 &
+    fi
     echo "omb: launching Blender (log: $LOG)"
   fi
   # Fresh project: wait for Blender's initialize_project to seed .omb/project.json
