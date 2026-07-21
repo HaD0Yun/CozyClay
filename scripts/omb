@@ -9,15 +9,29 @@ set -euo pipefail
 OMB_REPO="${OMB_REPO:-/Users/yun/blenderPi/oh-my-blender}"
 export OMB_DEMO_PROJECT_DIR="${OMB_PROJECT_DIR:-$PWD}"
 
-# A project is a dedicated folder. Refuse to initialize sensitive roots.
-case "$OMB_DEMO_PROJECT_DIR" in
-  "$HOME"|"/"|"/Users"|"/tmp")
-    echo "omb: refusing to use $OMB_DEMO_PROJECT_DIR as a project directory." >&2
-    echo "omb: cd into (or create) a project folder first, e.g.:" >&2
-    echo "omb:   mkdir -p ~/blenderPi/my-scene && cd ~/blenderPi/my-scene && omb" >&2
-    exit 1
-    ;;
-esac
+# Resolve the project directory gjc-style: any dir works.
+# 1. explicit OMB_PROJECT_DIR wins
+# 2. cwd (or an ancestor) that already holds .omb/project.json is the project
+# 3. sensitive roots (~, /, /tmp) redirect to a default scratch project
+# 4. any other dir becomes the project in place
+if [[ -z "${OMB_PROJECT_DIR:-}" ]]; then
+  probe="$PWD"
+  while [[ "$probe" != "/" && "$probe" != "$HOME" ]]; do
+    if [[ -f "$probe/.omb/project.json" ]]; then
+      export OMB_DEMO_PROJECT_DIR="$probe"
+      break
+    fi
+    probe="$(dirname "$probe")"
+  done
+  case "$OMB_DEMO_PROJECT_DIR" in
+    "$HOME"|"/"|"/Users"|"/tmp"|"/private/tmp")
+      OMB_DEMO_PROJECT_DIR="${OMB_DEFAULT_PROJECT_DIR:-$HOME/BlenderScenes/default}"
+      mkdir -p "$OMB_DEMO_PROJECT_DIR"
+      export OMB_DEMO_PROJECT_DIR
+      echo "omb: no project here - using $OMB_DEMO_PROJECT_DIR (cd into a folder to make that the project)"
+      ;;
+  esac
+fi
 
 LAUNCH_BLENDER=1
 ARGS=()
