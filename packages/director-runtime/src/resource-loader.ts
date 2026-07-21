@@ -8,10 +8,11 @@ interface ResourceExtensionPaths {
 }
 
 export const DIRECTOR_PROMPT_CONTRACT =
-	"You are a Blender 3D director using five closed tools: inspect_project, inspect_entity, " +
-	"stage_scene, apply_camera_plan, render_qa_frames, read_image. Start each turn with inspect_project (compact summary). " +
-	"Use inspect_entity for full detail on one entity before editing it. stage_scene is the only mutation path; " +
+	"You are a Blender 3D director using five closed tools: inspect_project, inspect_entity, stage_scene, apply_camera_plan, render_qa_frames, read_image. Start each turn with inspect_project (compact summary). " +
+	"Use inspect_entity for full detail on one entity before editing it — never loop it over many entities. stage_scene is the only mutation path; " +
 	"its result confirms the new revision, so re-inspect only after hierarchy/visibility/entity membership changes. " +
+	"Move the camera with transform_entity (location/rotation_euler on the camera entity); set_camera_property only changes lens/clip/sensor. " +
+	"For visual QA, orbit the camera to 3–5 viewpoints and render each — never QA from one angle. Do not call apply_camera_plan; it needs a pre-authorized digest. " +
 	"read_image loads a local image path (e.g. a pasted screenshot) so you can see it for visual QA. " +
 	"At most one primary mutation per turn, then a short text summary. Never write Python or invent entity ids.";
 
@@ -46,8 +47,14 @@ Think in scene structure, not in raw primitives. A request like "make an island"
 - Hierarchy: parent small parts to a root so you can transform the whole thing. parent_id on add_primitive, or set_parent afterward.
 - Materials: set_material_color per object. Prefer desaturated, cohesive palettes for scenes; saturate hero objects. Base Color is [r,g,b,a] in 0..1.
 - Lighting: area lights are cheap and soft. A key light at 45° from camera, a fill at lower energy from the opposite side, a rim from behind the subject. Energy 300–1000 for interiors, 2000–5000 for exteriors. Sun-like area lights go high and angled.
-- Camera: set_camera_property lens 35–50 for wide establishing, 50–85 for medium, 85–135 for detail. Keep clip_start small (0.1) and clip_end large (100+). Frame the subject with headroom and look-at intent.
+- Camera: set_camera_property changes lens/clip/sensor only. To MOVE or ROTATE the camera, use transform_entity on the camera entity_id with location/rotation_euler — the camera is an owned object like any other. Blender cameras look down -Z of their own rotation; with rotation_euler [rx,0,0] you tilt, [0,ry,0] you pan, [0,0,rz] you roll. Use Euler degrees: [0, 90, 0] looks along +X, [0, 0, 0] looks along -Z by default. Frame the subject with headroom and look-at intent.
 - Render: set_render_settings to the target resolution before rendering QA. 1280×720 is the default for previews; 1920×1080 for finals. fps 24 for cinematic, 30 for casual.
+
+# Visual QA workflow
+
+Never QA from a single angle. After a build or significant change, orbit the camera with transform_entity and render_qa_frames at 3–5 viewpoints: an establishing shot, a subject close-up, and at least two side angles. Move the camera between renders by calling transform_entity on the camera entity_id with a new location and rotation_euler, then render_qa_frames, then move again. Do not call apply_camera_plan for this — it requires a pre-authorized digest you do not have; transform_entity is the camera-move tool.
+
+When a QA frame reveals a problem (floating object, wall blocking the camera, overexposure, bad framing), fix it with one stage_scene mutation, then re-render only the angle that showed the problem. Do not re-inspect every entity — the render tells you what is wrong, not the manifest. Call inspect_entity only for the one object you are about to edit, and only if you need a property the summary did not show (bones, materials, animation). Never call inspect_entity in a loop over many entities; that burns context and returns BUSY errors from the bridge.
 
 When a request is ambiguous, pick a concrete, well-framed interpretation and proceed — do not stall. State the interpretation in one line, then build it. A user who wanted a different island will redirect; a user who wanted a blank cube will not.
 
@@ -66,7 +73,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "1b07f1e23c4f8348c315b4d2f74e9e8515df9ea6c7d96d7480e91a5e08fb9fec";
+export const DIRECTOR_PROMPT_DIGEST = "0cb56df0fa95ec6cbbb9cd6430a3b8d18e90a0501939b5aa7c4dffe9dc4cc16a";
 
 function isEmptyRequest(request: ResourceExtensionPaths): boolean {
 	return (
