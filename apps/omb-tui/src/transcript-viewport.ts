@@ -5,24 +5,23 @@ import {
 	type MarkdownTheme,
 } from "@earendil-works/pi-tui";
 import type { DirectorTurnDelta, DirectorTurnEvent } from "@oh-my-blender/protocol";
-
-const identity = (text: string) => text;
+import { theme } from "./theme.ts";
 
 export const OMB_MARKDOWN_THEME: MarkdownTheme = {
-	heading: identity,
-	link: identity,
-	linkUrl: identity,
-	code: identity,
-	codeBlock: identity,
-	codeBlockBorder: identity,
-	quote: identity,
-	quoteBorder: identity,
-	hr: identity,
-	listBullet: identity,
-	bold: identity,
-	italic: identity,
-	strikethrough: identity,
-	underline: identity,
+	heading: (text) => theme.bold(theme.accent(text)),
+	link: (text) => theme.underline(theme.code(text)),
+	linkUrl: theme.muted,
+	code: theme.code,
+	codeBlock: theme.code,
+	codeBlockBorder: theme.muted,
+	quote: theme.muted,
+	quoteBorder: theme.muted,
+	hr: theme.muted,
+	listBullet: theme.accent,
+	bold: theme.bold,
+	italic: theme.italic,
+	strikethrough: theme.muted,
+	underline: theme.underline,
 };
 
 export interface MutableTranscriptComponent extends Component {
@@ -70,20 +69,34 @@ function segmentKey(message: Pick<DirectorTurnDelta, "id" | "segment_id" | "cont
 	return `${message.id}:${message.segment_id}:${message.content_index}`;
 }
 
+/** pi-tui Text collapses whitespace-only content to zero lines; a separator must keep one. */
+class BlankLine implements Component {
+	invalidate(): void {}
+	render(width: number): string[] {
+		return [" ".repeat(Math.max(1, Math.floor(width)))];
+	}
+}
+
+function truncatedDigest(digest: string): string {
+	return digest.length > 12 ? `${digest.slice(0, 10)}…` : digest;
+}
+
 function eventText(event: Exclude<DirectorTurnEvent, { type: "director_assistant_utterance" }>): string {
 	switch (event.type) {
 		case "director_turn_started":
-			return `> ${event.prompt}`;
+			return `${theme.accent("❯")} ${theme.bold(event.prompt)}`;
 		case "director_tool_call_started":
-			return `[${event.tool_name}] started ${event.params_summary}`;
+			return theme.muted(`  ⚙ ${event.tool_name} ${event.params_summary}`);
 		case "director_tool_call_finished":
-			return `[${event.tool_name}] ${event.is_error ? "failed" : "finished"} ${event.result_digest}`;
+			return event.is_error
+				? `  ${theme.err(`✗ ${event.tool_name}`)} ${theme.muted(truncatedDigest(event.result_digest))}`
+				: `  ${theme.ok(`✓ ${event.tool_name}`)} ${theme.muted(truncatedDigest(event.result_digest))}`;
 		case "director_turn_completed":
-			return event.summary;
+			return `${theme.ok("✔")} ${theme.muted(event.summary)}`;
 		case "director_turn_failed":
-			return `${event.code}: ${event.message}`;
+			return theme.err(`✗ ${event.code}: ${event.message}`);
 		case "director_turn_cancelled":
-			return "Turn cancelled.";
+			return theme.warn("⊘ Turn cancelled.");
 	}
 }
 
@@ -241,6 +254,9 @@ export class TranscriptViewport implements Component {
 			this.active = undefined;
 		}
 		this.eventKeys.add(key);
+		if (event.type === "director_turn_started" && this.entries.length > 0) {
+			this.appendEntry({ key: `separator:${key}`, component: new BlankLine() });
+		}
 		this.appendEntry({ key, component: this.createText(eventText(event)) });
 	}
 

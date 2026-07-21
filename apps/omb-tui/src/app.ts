@@ -23,19 +23,26 @@ import {
 	type TranscriptState,
 } from "./transcript.ts";
 import { TranscriptViewport } from "./transcript-viewport.ts";
-
-const identity = (text: string) => text;
+import { theme } from "./theme.ts";
 
 const EDITOR_THEME: EditorTheme = {
-	borderColor: identity,
+	borderColor: theme.muted,
 	selectList: {
-		selectedPrefix: identity,
-		selectedText: identity,
-		description: identity,
-		scrollInfo: identity,
-		noMatch: identity,
+		selectedPrefix: theme.accent,
+		selectedText: theme.bold,
+		description: theme.muted,
+		scrollInfo: theme.muted,
+		noMatch: theme.muted,
 	},
 };
+
+/** Full-width dim horizontal rule. */
+class Rule implements Component {
+	invalidate(): void {}
+	render(width: number): string[] {
+		return [theme.muted("─".repeat(Math.max(1, Math.floor(width))))];
+	}
+}
 
 export interface RunDirectorTuiOptions {
 	readonly projectDirectory: string;
@@ -131,12 +138,22 @@ export class DirectorTui {
 		for (const notice of this.state.notices) this.viewport.appendNotice(notice);
 
 		const header = new Container();
-		header.addChild(new Text("oh-my-blender director", 1, 0));
+		header.addChild(new Text(
+			`${theme.accent("◆")} ${theme.bold("oh-my-blender")} ${theme.muted("director")}`,
+			1,
+			0,
+		));
+		header.addChild(new Rule());
 		const footer = new Container();
 		footer.addChild(new Spacer(1));
+		footer.addChild(new Rule());
 		footer.addChild(this.bridgeText);
 		footer.addChild(this.statusText);
-		footer.addChild(new Text("Prompt", 1, 0));
+		footer.addChild(new Text(
+			theme.muted("Enter send · Ctrl-C cancel/exit · PgUp/PgDn scroll"),
+			1,
+			0,
+		));
 		footer.addChild(this.input);
 		this.tui.addChild(new DirectorLayout(
 			header,
@@ -243,8 +260,25 @@ export class DirectorTui {
 		this.render();
 	}
 
+	private statusIndicator(): string {
+		if (this.connectionStatus !== "connected") return theme.warn("●");
+		switch (this.state.status) {
+			case "failed":
+			case "disconnected":
+				return theme.err("●");
+			case "running":
+			case "cancelling":
+			case "connecting":
+				return theme.warn("●");
+			default:
+				return theme.ok("●");
+		}
+	}
+
 	private render(): void {
-		this.statusText.setText(formatStatus(this.state, this.connectionStatus));
+		this.statusText.setText(
+			`${this.statusIndicator()} ${theme.muted(formatStatus(this.state, this.connectionStatus))}`,
+		);
 		this.input.disableSubmit = this.connectionStatus !== "connected" ||
 			this.state.activeRequestId !== undefined ||
 			this.state.status === "cancelling";
@@ -263,7 +297,7 @@ export class DirectorTui {
 			if (attached) {
 				clearInterval(this.bridgeTicketTimer);
 				this.bridgeTicketTimer = undefined;
-				this.bridgeText.setText("Blender attached");
+				this.bridgeText.setText(`${theme.ok("⚡")} Blender attached`);
 				this.render();
 				return;
 			}
@@ -295,7 +329,7 @@ export class DirectorTui {
 		try {
 			const ticket = await this.session.issueBridgeTicket();
 			this.bridgeText.setText(
-				`Blender attach: handoff ready (expires in ${Math.ceil(ticket.expiresInMs / 1_000)}s)`,
+				theme.muted(`Blender attach: handoff ready (expires in ${Math.ceil(ticket.expiresInMs / 1_000)}s)`),
 			);
 			this.render();
 		} catch (error) {
