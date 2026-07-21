@@ -208,6 +208,16 @@ export class BlenderBridge {
 		return result;
 	}
 
+	/** Whether a Blender add-on peer is currently attached over the bridge. */
+	isAttached(): boolean {
+		return this.transport !== undefined;
+	}
+
+	/** Project id advertised by the attached Blender peer, if any. */
+	get attachedProjectId(): string | undefined {
+		return this.projectId;
+	}
+
 	async stageScene(
 		plan: StageScenePlanV1,
 		context: { readonly signal?: AbortSignal; readonly reportProgress: (progress: BridgeProgress) => void },

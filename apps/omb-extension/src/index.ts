@@ -92,9 +92,42 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 	pi.on("before_agent_start", (event) => ({
 		systemPrompt: `${event.systemPrompt}\n\n${DIRECTOR_PROMPT}`,
 	}));
+
+	// Reflect Blender bridge connection state in the Pi footer so the user can
+	// see whether the director is attached to a live Blender peer. The add-on
+	// connects and disconnects as Blender opens/closes, so poll cheaply and only
+	// push a status update when the state text changes.
+	let lastStatusText: string | undefined = undefined;
+	const BLENDER_STATUS_KEY = "blender";
+	const refreshBlenderStatus = (setStatus: (key: string, text: string | undefined) => void) => {
+		const attached = bridge.isAttached();
+		const text = attached
+			? `Blender: attached${bridge.attachedProjectId ? ` (${bridge.attachedProjectId.slice(0, 8)})` : ""}`
+			: "Blender: waiting";
+		if (text !== lastStatusText) {
+			lastStatusText = text;
+			setStatus(BLENDER_STATUS_KEY, text);
+		}
+	};
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		const setStatus = ctx.ui.setStatus.bind(ctx.ui);
+		refreshBlenderStatus(setStatus);
+		setInterval(() => refreshBlenderStatus(setStatus), 2000);
+		ctx.ui.onTerminalInput(() => {
+			refreshBlenderStatus(setStatus);
+			return { consume: false };
+		});
+	});
+	pi.on("tool_result", (_event, ctx) => {
+		if (ctx.mode !== "tui") return {};
+		refreshBlenderStatus(ctx.ui.setStatus.bind(ctx.ui));
+		return {};
+	});
 	pi.on("session_shutdown", async () => {
 		await bridge.close();
 		await rm(endpointPath, { force: true });
 		await rm(runtimeDirectory, { recursive: true, force: true });
 	});
+
 }
