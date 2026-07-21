@@ -88,10 +88,25 @@ def setup() -> None:
     log("ready - attaching via runtime handoff discovery")
 
 
+_was_attached = False
+
+
 def poll_attach() -> float | None:
+    """Persistent attach watchdog: (re)connects whenever the bridge is down.
+
+    A daemon restart drops the bridge and a fresh one-use handoff appears once
+    a controller reissues one, so poll for the lifetime of the Blender session
+    (cheap no-op while attached) instead of stopping after the first attach.
+    """
+    global _was_attached
     if connection_module._active_connection is not None:
-        log("ATTACHED via handoff discovery")
-        return None
+        if not _was_attached:
+            _was_attached = True
+            log("ATTACHED via handoff discovery")
+        return 5.0
+    if _was_attached:
+        _was_attached = False
+        log("bridge lost - polling for a new attach handoff")
     # The connect operator refuses a dirty file; this scene is attach-managed
     # (save-at-commit persists every turn), so saving here is always safe.
     if bpy.data.is_dirty and bpy.data.filepath:
@@ -104,8 +119,9 @@ def poll_attach() -> float | None:
     except Exception:
         pass  # no handoff yet (TUI not started); keep polling
     if connection_module._active_connection is not None:
+        _was_attached = True
         log("ATTACHED via handoff discovery")
-        return None
+        return 5.0
     return 1.0
 
 
