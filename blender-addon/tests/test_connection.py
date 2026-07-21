@@ -289,6 +289,7 @@ class ConnectionTests(unittest.TestCase):
                     return_value=resolved_manifest
                 ),
                 extract_scene_snapshot=mock.Mock(return_value=snapshot),
+                extract_scene_manifest_v2=mock.Mock(return_value=resolved_manifest),
             )
             with (
                 mock.patch.object(connection_module, "bpy", blender),

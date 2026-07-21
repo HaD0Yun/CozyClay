@@ -770,14 +770,47 @@ class Connection:
     ) -> dict:
         from .manifest import (
             extract_scene_snapshot,
+            extract_scene_manifest_v2,
             resolve_manifest_for_expected_hash,
         )
+        from . import project_store
 
         live_manifest = resolve_manifest_for_expected_hash(current_scene_hash)
         if live_manifest is None:
-            raise StaleBridgeBase(
-                "live Blender scene does not match the durable project substrate"
-            )
+            # The durable substrate and the live Blender scene diverged. This
+            # happens whenever the user edits the scene directly in Blender
+            # (or the .blend was touched outside a stage_scene commit). Rather
+            # than bricking every turn with STALE_BASE, rebind the project to
+            # the live V2 manifest so the director can keep working. Mutation
+            # tools still enforce expected_revision_id against the new base.
+            live_manifest = extract_scene_manifest_v2()
+            if self.project_directory is None:
+                raise StaleBridgeBase(
+                    "live Blender scene does not match the durable project substrate"
+                )
+            try:
+                project_store.write_project_index(
+                    str(self.project_directory),
+                    live_manifest["projectId"],
+                    {
+                        "schema_version": 1,
+                        "current_revision_id": live_manifest["revisionId"],
+                        "manifest": live_manifest,
+                    },
+                )
+                project_store.append_journal(
+                    str(self.project_directory),
+                    {
+                        "type": "inspect_rebind",
+                        "project_id": live_manifest["projectId"],
+                        "scene_hash": live_manifest["sceneHash"],
+                    },
+                )
+            except project_store.ProjectStoreError as error:
+                raise StaleBridgeBase(
+                    f"live Blender scene does not match the durable project substrate: {error}"
+                ) from error
+            revision_id = live_manifest["revisionId"]
         return {
             "revision": revision_id,
             "snapshot": extract_scene_snapshot(),
