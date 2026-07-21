@@ -333,6 +333,7 @@ class _StageTransaction:
         self.object_states: dict[object, dict] = {}
         self.material_states: dict[object, dict] = {}
         self.quarantined: dict[object, tuple[object, ...]] = {}
+        self.render_state: dict | None = None
         self.selected = tuple(
             scene_object for scene_object in scene.objects if scene_object.select_get()
         )
@@ -357,6 +358,16 @@ class _StageTransaction:
                 "energy": float(scene_object.data.energy),
                 "color": tuple(scene_object.data.color),
                 "size": float(scene_object.data.size),
+            }
+        elif scene_object.type == "CAMERA":
+            cam = scene_object.data
+            state["camera"] = {
+                "lens": float(cam.lens),
+                "clip_start": float(cam.clip_start),
+                "clip_end": float(cam.clip_end),
+                "sensor_width": float(cam.sensor_width),
+                "sensor_height": float(cam.sensor_height),
+                "sensor_fit": cam.sensor_fit,
             }
         self.object_states[scene_object] = state
 
@@ -387,6 +398,21 @@ class _StageTransaction:
                 "base_color": base_color,
             }
 
+    def capture_render(self) -> None:
+        if self.render_state is not None:
+            return
+        scene = bpy.context.scene
+        render = scene.render
+        self.render_state = {
+            "resolution_x": render.resolution_x,
+            "resolution_y": render.resolution_y,
+            "resolution_percentage": render.resolution_percentage,
+            "fps": render.fps,
+            "fps_base": render.fps_base,
+            "frame_start": scene.frame_start,
+            "frame_end": scene.frame_end,
+        }
+
     def quarantine(self, scene_object: object) -> None:
         if scene_object in self.quarantined:
             return
@@ -415,6 +441,14 @@ class _StageTransaction:
                 scene_object.data.energy = light["energy"]
                 scene_object.data.color = light["color"]
                 scene_object.data.size = light["size"]
+            if "camera" in state:
+                cam = state["camera"]
+                scene_object.data.lens = cam["lens"]
+                scene_object.data.clip_start = cam["clip_start"]
+                scene_object.data.clip_end = cam["clip_end"]
+                scene_object.data.sensor_width = cam["sensor_width"]
+                scene_object.data.sensor_height = cam["sensor_height"]
+                scene_object.data.sensor_fit = cam["sensor_fit"]
             if "material_slots" in state:
                 scene_object.data.materials.clear()
                 for material in state["material_slots"]:
@@ -426,6 +460,16 @@ class _StageTransaction:
                 material.node_tree.nodes["Principled BSDF"].inputs[
                     "Base Color"
                 ].default_value = state["base_color"]
+        if self.render_state is not None:
+            scene = bpy.context.scene
+            render = scene.render
+            render.resolution_x = self.render_state["resolution_x"]
+            render.resolution_y = self.render_state["resolution_y"]
+            render.resolution_percentage = self.render_state["resolution_percentage"]
+            render.fps = self.render_state["fps"]
+            render.fps_base = self.render_state["fps_base"]
+            scene.frame_start = self.render_state["frame_start"]
+            scene.frame_end = self.render_state["frame_end"]
         for scene_object in reversed(self.created_objects):
             if scene_object.name in bpy.data.objects:
                 _destroy_object(scene_object)
@@ -719,6 +763,93 @@ def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_
     return scene_object
 
 
+def _transform_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    scene_object = _require_owned_entity(operation["entity_id"], project_id)
+    _require_exclusive_datablocks(scene_object)
+    transaction.capture_object(scene_object)
+    if "location" in operation:
+        scene_object.location = operation["location"]
+    if "rotation_euler" in operation:
+        scene_object.rotation_mode = "XYZ"
+        scene_object.rotation_euler = operation["rotation_euler"]
+    if "scale" in operation:
+        scene_object.scale = operation["scale"]
+
+
+def _set_light_property(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    scene_object = _require_owned_entity(operation["entity_id"], project_id)
+    if scene_object.type != "LIGHT":
+        raise STAGE_SCENE_TARGET_TYPE_INVALID(
+            f"entity {operation['entity_id']} must be a LIGHT"
+        )
+    _require_exclusive_datablocks(scene_object)
+    transaction.capture_object(scene_object)
+    light = scene_object.data
+    if "energy" in operation:
+        light.energy = operation["energy"]
+    if "color" in operation:
+        light.color = operation["color"]
+    if "size" in operation:
+        if light.type == "AREA":
+            light.size = operation["size"]
+        elif light.type == "SPOT":
+            light.spot_size = operation["size"]
+        else:
+            raise STAGE_SCENE_TARGET_TYPE_INVALID(
+                f"entity {operation['entity_id']} light type {light.type} has no size"
+            )
+
+
+def _set_camera_property(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    scene_object = _require_owned_entity(operation["entity_id"], project_id)
+    if scene_object.type != "CAMERA":
+        raise STAGE_SCENE_TARGET_TYPE_INVALID(
+            f"entity {operation['entity_id']} must be a CAMERA"
+        )
+    _require_exclusive_datablocks(scene_object)
+    transaction.capture_object(scene_object)
+    camera = scene_object.data
+    if "lens" in operation:
+        camera.lens = operation["lens"]
+    if "clip_start" in operation:
+        camera.clip_start = operation["clip_start"]
+    if "clip_end" in operation:
+        camera.clip_end = operation["clip_end"]
+    if "sensor_width" in operation:
+        camera.sensor_width = operation["sensor_width"]
+    if "sensor_height" in operation:
+        camera.sensor_height = operation["sensor_height"]
+    if "sensor_fit" in operation:
+        fit_map = {"AUTO": "AUTO", "HORIZONTAL": "HORIZONTAL", "VERTICAL": "VERTICAL", "SQUARE": "SQUARE"}
+        camera.sensor_fit = fit_map[operation["sensor_fit"]]
+
+
+def _set_render_settings(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    render = bpy.context.scene.render
+    scene = bpy.context.scene
+    transaction.capture_render()
+    if "resolution_x" in operation:
+        render.resolution_x = operation["resolution_x"]
+    if "resolution_y" in operation:
+        render.resolution_y = operation["resolution_y"]
+    if "resolution_percentage" in operation:
+        render.resolution_percentage = operation["resolution_percentage"]
+    if "fps" in operation:
+        render.fps = operation["fps"]
+        render.fps_base = 1.0
+    if "frame_start" in operation:
+        scene.frame_start = operation["frame_start"]
+    if "frame_end" in operation:
+        scene.frame_end = operation["frame_end"]
+
+
+def _rename_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    scene_object = _require_owned_entity(operation["entity_id"], project_id)
+    _require_exclusive_datablocks(scene_object)
+    transaction.capture_object(scene_object)
+    scene_object.name = operation["name"]
+
+
 def _live_base_manifest(current_scene_hash: str) -> dict:
     from .manifest import (
         extract_scene_manifest_v2,
@@ -839,6 +970,16 @@ def apply_stage_scene_transaction(
                 _set_material_color(operation, transaction, project_id)
             elif operation["op"] == "upsert_area_light":
                 _upsert_area_light(operation, transaction, project_id)
+            elif operation["op"] == "transform_entity":
+                _transform_entity(operation, transaction, project_id)
+            elif operation["op"] == "set_light_property":
+                _set_light_property(operation, transaction, project_id)
+            elif operation["op"] == "set_camera_property":
+                _set_camera_property(operation, transaction, project_id)
+            elif operation["op"] == "set_render_settings":
+                _set_render_settings(operation, transaction, project_id)
+            elif operation["op"] == "rename_entity":
+                _rename_entity(operation, transaction, project_id)
             else:
                 scene_object = _require_owned_entity(
                     operation["entity_id"], project_id

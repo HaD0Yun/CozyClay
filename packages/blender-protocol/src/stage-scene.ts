@@ -123,6 +123,60 @@ const TransformAssemblySchema = Type.Object(
 	},
 	{ additionalProperties: false, minProperties: 3 },
 );
+const TransformEntitySchema = Type.Object(
+	{
+		op: Type.Literal("transform_entity"),
+		entity_id: uuid(),
+		location: Type.Optional(vector3()),
+		rotation_euler: Type.Optional(vector3()),
+		scale: Type.Optional(positiveVector3()),
+	},
+	{ additionalProperties: false, minProperties: 3 },
+);
+const SetLightPropertySchema = Type.Object(
+	{
+		op: Type.Literal("set_light_property"),
+		entity_id: uuid(),
+		energy: Type.Optional(Type.Number({ minimum: 0, exclusiveMaximum: 1e15 })),
+		color: Type.Optional(rgb()),
+		size: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+	},
+	{ additionalProperties: false, minProperties: 3 },
+);
+const SetCameraPropertySchema = Type.Object(
+	{
+		op: Type.Literal("set_camera_property"),
+		entity_id: uuid(),
+		lens: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+		clip_start: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+		clip_end: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+		sensor_width: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+		sensor_height: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+		sensor_fit: Type.Optional(
+			Type.Union([
+				Type.Literal("AUTO"),
+				Type.Literal("HORIZONTAL"),
+				Type.Literal("VERTICAL"),
+				Type.Literal("SQUARE"),
+			]),
+		),
+	},
+	{ additionalProperties: false, minProperties: 3 },
+);
+const SetRenderSettingsSchema = exact({
+	op: Type.Literal("set_render_settings"),
+	resolution_x: Type.Optional(Type.Integer({ minimum: 1, maximum: 65535 })),
+	resolution_y: Type.Optional(Type.Integer({ minimum: 1, maximum: 65535 })),
+	resolution_percentage: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+	fps: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+	frame_start: Type.Optional(Type.Integer({ minimum: -100000, maximum: 100000 })),
+	frame_end: Type.Optional(Type.Integer({ minimum: -100000, maximum: 100000 })),
+});
+const RenameEntitySchema = exact({
+	op: Type.Literal("rename_entity"),
+	entity_id: uuid(),
+	name: stableName(),
+});
 
 export const StageSceneOperationV1Schema = Type.Union([
 	AddPrimitiveSchema,
@@ -133,6 +187,11 @@ export const StageSceneOperationV1Schema = Type.Union([
 	CreateAssemblySchema,
 	SetParentSchema,
 	TransformAssemblySchema,
+	TransformEntitySchema,
+	SetLightPropertySchema,
+	SetCameraPropertySchema,
+	SetRenderSettingsSchema,
+	RenameEntitySchema,
 ]);
 export const StageScenePlanV1Schema = exact({
 	schema_version: Type.Literal(1),
@@ -153,6 +212,11 @@ export const StageSceneRequestV1Schema = exact({
 			CreateAssemblySchema,
 			SetParentSchema,
 			TransformAssemblySchema,
+			TransformEntitySchema,
+			SetLightPropertySchema,
+			SetCameraPropertySchema,
+			SetRenderSettingsSchema,
+			RenameEntitySchema,
 		]),
 		{ minItems: 1, maxItems: 256 },
 	),

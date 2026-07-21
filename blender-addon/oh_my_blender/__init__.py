@@ -61,6 +61,15 @@ if bpy is not None:
 
             if project_created:
                 scene["omb.project_id"] = new_project_id()
+                # Adopt pre-existing scene objects (Blender's startup Cube/Camera/Light
+                # and anything the user added before initialization) as OMB-owned so the
+                # director can modify/delete them through stage_scene. entity_ids are
+                # assigned below; ownership is independent of id assignment order.
+                # Objects created by later stage_scene ops set omb.owned_project_id themselves.
+                project_id = scene["omb.project_id"]
+                for obj in scene.objects:
+                    if not obj.get("omb.owned_project_id"):
+                        obj["omb.owned_project_id"] = project_id
 
             entities = []
             ordered = []
