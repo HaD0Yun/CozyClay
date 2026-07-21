@@ -1,0 +1,16 @@
+{
+	"private": true,
+	"type": "module",
+	"bin": {
+		"omb-pi": "src/main.ts"
+	},
+	"scripts": {
+		"test": "node --import tsx --test test/*.test.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "0.80.9",
+		"@oh-my-blender/blender-tools": "0.1.0",
+		"@oh-my-blender/director-runtime": "0.1.0",
+		"@oh-my-blender/protocol": "0.1.0"
+	}
+}

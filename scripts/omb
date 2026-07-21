@@ -122,4 +122,8 @@ elif [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
   exit 1
 fi
 
-exec "$OMB_REPO/scripts/demo/launch-tui.sh" "${ARGS[@]+"${ARGS[@]}"}"
+exec "$OMB_REPO/pi-test.sh" \
+  --no-builtin-tools \
+  --extension "$OMB_REPO/apps/omb-extension/src/index.ts" \
+  --thinking medium \
+  "${ARGS[@]+"${ARGS[@]}"}"

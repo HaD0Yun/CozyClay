@@ -224,15 +224,21 @@ if bpy is not None:
                     "addon_version": ".".join(str(part) for part in bl_info["version"]),
                     "blender_version": bpy.app.version_string,
                 }
-                try:
-                    connection.connect_tui_spawned(**connect_options)
-                except connection.ConnectionError as error:
-                    if (
-                        not spawn_configured
-                        or "No bridge discovery slot found" not in str(error)
-                    ):
-                        raise
-                    connection.connect_addon_spawned(**connect_options)
+                pi_endpoint = os.path.join(
+                    project_directory, ".omb", "pi-bridge.json"
+                )
+                if os.path.isfile(pi_endpoint):
+                    connection.connect_pi_extension(**connect_options)
+                else:
+                    try:
+                        connection.connect_tui_spawned(**connect_options)
+                    except connection.ConnectionError as error:
+                        if (
+                            not spawn_configured
+                            or "No bridge discovery slot found" not in str(error)
+                        ):
+                            raise
+                        connection.connect_addon_spawned(**connect_options)
             except (
                 project_store.ProjectStoreError,
                 IdentityError,

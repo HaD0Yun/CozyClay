@@ -2465,6 +2465,60 @@ def connect_addon_spawned(
         raise
 
 
+def connect_pi_extension(
+    *,
+    cwd: str | PathLike[str],
+    project_id: str,
+    addon_version: str,
+    blender_version: str,
+) -> Connection:
+    """Attach to the local Pi extension's plain loopback endpoint.
+
+    This intentionally omits one-use discovery slots and controller-peer
+    credentials. The project-local file is private (0600), the socket is
+    loopback-only, and the durable revision/transaction gates remain unchanged.
+    """
+
+    endpoint_path = Path(cwd) / ".omb" / "pi-bridge.json"
+    try:
+        metadata = endpoint_path.lstat()
+    except OSError as error:
+        raise ConnectionError(f"Pi bridge endpoint is unavailable: {error}") from error
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISREG(metadata.st_mode)
+        or not _owned_by_current_user(metadata)
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise ConnectionError("Pi bridge endpoint must be a private owned regular file")
+    try:
+        endpoint = json.loads(endpoint_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ConnectionError(f"Pi bridge endpoint is invalid: {error}") from error
+    if not isinstance(endpoint, dict) or set(endpoint) != {
+        "schema_version",
+        "runtime_directory",
+        "credential",
+    }:
+        raise ConnectionError("Pi bridge endpoint fields are invalid")
+    runtime_directory = endpoint["runtime_directory"]
+    credential = endpoint["credential"]
+    if (
+        endpoint["schema_version"] != 1
+        or not isinstance(runtime_directory, str)
+        or not runtime_directory
+        or not _valid_attach_ticket(credential)
+    ):
+        raise ConnectionError("Pi bridge endpoint values are invalid")
+    return connect(
+        cwd=cwd,
+        project_id=project_id,
+        addon_version=addon_version,
+        blender_version=blender_version,
+        attach_runtime_directory=runtime_directory,
+        attach_ticket=credential,
+    )
+
 def connect_tui_spawned(
     *,
     cwd: str | PathLike[str],

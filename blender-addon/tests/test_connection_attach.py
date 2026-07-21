@@ -18,6 +18,7 @@ from oh_my_blender.connection import (
     Connection,
     ConnectionError,
     connect_from_handoff,
+    connect_pi_extension,
     consume_attach_handoff,
 )
 from oh_my_blender.ws_client import ProtocolError, WebSocketClient
@@ -430,6 +431,67 @@ class AttachConnectionTests(unittest.TestCase):
                     process.stdout.close()
                 if process.stderr is not None:
                     process.stderr.close()
+
+class PiExtensionConnectionTests(unittest.TestCase):
+    def test_reads_private_project_endpoint_and_uses_existing_attach_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = pathlib.Path(root)
+            omb = project / ".omb"
+            omb.mkdir()
+            endpoint = omb / "pi-bridge.json"
+            endpoint.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "runtime_directory": str(project / "runtime"),
+                    "credential": ATTACH_TICKET,
+                }),
+                encoding="utf-8",
+            )
+            os.chmod(endpoint, 0o600)
+            sentinel = object()
+            with mock.patch(
+                "oh_my_blender.connection.connect", return_value=sentinel
+            ) as connect_mock:
+                result = connect_pi_extension(
+                    cwd=project,
+                    project_id="33333333-3333-4333-8333-333333333333",
+                    addon_version="0.1.0",
+                    blender_version="5.2.0 LTS",
+                )
+            self.assertIs(result, sentinel)
+            connect_mock.assert_called_once_with(
+                cwd=project,
+                project_id="33333333-3333-4333-8333-333333333333",
+                addon_version="0.1.0",
+                blender_version="5.2.0 LTS",
+                attach_runtime_directory=str(project / "runtime"),
+                attach_ticket=ATTACH_TICKET,
+            )
+
+    def test_rejects_world_readable_project_endpoint(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = pathlib.Path(root)
+            omb = project / ".omb"
+            omb.mkdir()
+            endpoint = omb / "pi-bridge.json"
+            endpoint.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "runtime_directory": str(project / "runtime"),
+                    "credential": ATTACH_TICKET,
+                }),
+                encoding="utf-8",
+            )
+            os.chmod(endpoint, 0o644)
+            with self.assertRaisesRegex(
+                ConnectionError, "private owned regular file"
+            ):
+                connect_pi_extension(
+                    cwd=project,
+                    project_id="33333333-3333-4333-8333-333333333333",
+                    addon_version="0.1.0",
+                    blender_version="5.2.0 LTS",
+                )
 
 
 if __name__ == "__main__":
