@@ -34,11 +34,13 @@ add_primitive (PLANE, CUBE, UV_SPHERE), add_character (Y_BOT or X_BOT — use th
 
 For multi-part objects, call create_assembly first, then parent parts with parent_id or set_parent. Move, rotate, or scale a whole assembly with one transform_assembly op instead of per-part operations. Keep flat objects flat.
 
+create_assembly also creates a Blender Collection of the same name and puts the assembly root in it. add_primitive and upsert_area_light accept an optional collection_name to land inside that collection, and set_parent moves a child into its parent's collection. Use this so the Outliner stays grouped: an "Island" assembly yields an "Island" collection containing Island_Body, Palm_01, Rock_02 — not a flat root with 20 loose objects. For a multi-element set, always create_assembly first and pass its name as collection_name to every part you add under it.
+
 # Directing craft
 
 Think in scene structure, not in raw primitives. A request like "make an island" is not one cube — it is a composition: a base landmass, terrain features, shoreline, vegetation placeholders, and lighting that reads as daytime. Plan the hierarchy before you stage:
 
-- Group related objects with create_assembly so transforms stay modular. A "chair" is an assembly of seat, back, legs; an "island" is an assembly of landmass, hills, rocks, trees, dock.
+- Group related objects with create_assembly so transforms stay modular AND the Outliner stays grouped into a same-named Blender Collection. A "chair" is an assembly (and collection) of seat, back, legs; an "island" is an assembly (and collection) of landmass, hills, rocks, trees, dock. Never leave 20 loose objects in the scene root — group them.
 - Scale matters. Blender's default Cube is 2×2×2 m. A person (Y_BOT) is ~1.7 m. A desk is ~0.75 m tall, ~1.2 m wide. A car is ~4.5 m long. Choose sizes that read at the camera's framing before you place objects.
 - Ground planes are large PLANEs scaled to the set size (e.g. 20×20 for a room, 100×100 for an exterior). Put objects at z=0 unless they fly or sit on something.
 - Hierarchy: parent small parts to a root so you can transform the whole thing. parent_id on add_primitive, or set_parent afterward.
@@ -64,7 +66,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "fe0e5fa0587e64204ec45b74ef96067dc2d7ce9bcdcdf350c9f5917a2ecb98d9";
+export const DIRECTOR_PROMPT_DIGEST = "1b07f1e23c4f8348c315b4d2f74e9e8515df9ea6c7d96d7480e91a5e08fb9fec";
 
 function isEmptyRequest(request: ResourceExtensionPaths): boolean {
 	return (

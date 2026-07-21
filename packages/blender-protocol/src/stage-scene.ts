@@ -32,6 +32,7 @@ const stableName = () => Type.String({ minLength: 1, maxLength: 256 });
 const primitiveType = () => Type.Union([Type.Literal("PLANE"), Type.Literal("CUBE"), Type.Literal("UV_SPHERE")]);
 const characterType = () => Type.Union([Type.Literal("Y_BOT"), Type.Literal("X_BOT")]);
 
+const collectionNameField = () => Type.Optional(stableName());
 const AddPrimitiveSchema = exact({
 	op: Type.Literal("add_primitive"),
 	entity_id: uuid(),
@@ -41,6 +42,7 @@ const AddPrimitiveSchema = exact({
 	rotation: vector3(),
 	scale: positiveVector3(),
 	parent_id: Type.Optional(uuid()),
+	collection_name: collectionNameField(),
 });
 const AddPrimitiveRequestSchema = exact({
 	op: Type.Literal("add_primitive"),
@@ -50,6 +52,7 @@ const AddPrimitiveRequestSchema = exact({
 	rotation: vector3(),
 	scale: positiveVector3(),
 	parent_id: Type.Optional(uuid()),
+	collection_name: collectionNameField(),
 });
 const AddCharacterSchema = exact({
 	op: Type.Literal("add_character"),
@@ -88,6 +91,7 @@ const UpsertAreaLightSchema = exact({
 	energy: Type.Number({ minimum: 0, exclusiveMaximum: 1e15 }),
 	color: rgb(),
 	size: Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 }),
+	collection_name: collectionNameField(),
 });
 const UpsertAreaLightRequestSchema = exact({
 	op: Type.Literal("upsert_area_light"),
@@ -99,6 +103,7 @@ const UpsertAreaLightRequestSchema = exact({
 	energy: Type.Number({ minimum: 0, exclusiveMaximum: 1e15 }),
 	color: rgb(),
 	size: Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 }),
+	collection_name: collectionNameField(),
 });
 const DeleteEntitySchema = exact({
 	op: Type.Literal("delete_entity"),

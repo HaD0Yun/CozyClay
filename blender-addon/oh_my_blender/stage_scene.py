@@ -269,6 +269,33 @@ def _entity(entity_id: str):
     )
 
 
+def _ensure_collection(name: str, transaction: _StageTransaction):
+    """Get or create a Blender Collection named `name` and track it for rollback.
+
+    The collection is linked to the scene collection so it appears in the
+    Outliner. Reusing an existing collection is idempotent.
+    """
+    collection = bpy.data.collections.get(name)
+    if collection is None:
+        collection = bpy.data.collections.new(name)
+        transaction.scene.collection.children.link(collection)
+        transaction.created_collections.append(collection)
+    return collection
+
+
+def _link_to_collection(scene_object: object, collection_name: str | None, transaction: _StageTransaction):
+    """Link `scene_object` into `collection_name` if given, else the scene root.
+
+    Blender allows an object to live in multiple collections; we keep the
+    director simple by linking into the named collection only.
+    """
+    if collection_name is None:
+        transaction.scene.collection.objects.link(scene_object)
+        return
+    collection = _ensure_collection(collection_name, transaction)
+    collection.objects.link(scene_object)
+
+
 def _owned(scene_object: object, project_id: str) -> bool:
     return scene_object.get("omb.owned_project_id") == project_id
 
@@ -330,9 +357,13 @@ class _StageTransaction:
         self.scene = scene
         self.created_objects: list[object] = []
         self.created_materials: list[object] = []
+        self.created_collections: list[object] = []
         self.object_states: dict[object, dict] = {}
         self.material_states: dict[object, dict] = {}
         self.quarantined: dict[object, tuple[object, ...]] = {}
+        # entity_id -> collection name assigned at creation; used by set_parent
+        # to keep children in the same collection as their parent.
+        self.collection_by_entity: dict[str, str] = {}
         self.render_state: dict | None = None
         self.selected = tuple(
             scene_object for scene_object in scene.objects if scene_object.select_get()
@@ -473,6 +504,9 @@ class _StageTransaction:
         for scene_object in reversed(self.created_objects):
             if scene_object.name in bpy.data.objects:
                 _destroy_object(scene_object)
+        for collection in reversed(self.created_collections):
+            if collection.name in bpy.data.collections and len(collection.objects) == 0:
+                bpy.data.collections.remove(collection)
         for material in tuple(self.created_materials):
             if material.name in bpy.data.materials and material.users == 0:
                 bpy.data.materials.remove(material)
@@ -522,7 +556,10 @@ def _create_primitive(operation: dict, transaction: _StageTransaction, project_i
     scene_object.rotation_mode = "XYZ"
     scene_object.rotation_euler = operation["rotation"]
     scene_object.scale = operation["scale"]
-    transaction.scene.collection.objects.link(scene_object)
+    collection_name = operation.get("collection_name")
+    _link_to_collection(scene_object, collection_name, transaction)
+    if collection_name is not None:
+        transaction.collection_by_entity[operation["entity_id"]] = collection_name
     transaction.created_objects.append(scene_object)
     if operation.get("parent_id") is not None:
         parent = _require_owned_entity(operation["parent_id"], project_id)
@@ -634,7 +671,11 @@ def _create_assembly(operation: dict, transaction: _StageTransaction, project_id
     root["omb.owned_project_id"] = project_id
     root["omb.assembly_id"] = str(uuid.uuid4())
     root["omb.assembly_name"] = operation["name"]
-    transaction.scene.collection.objects.link(root)
+    # An assembly owns a Blender Collection of the same name so every part
+    # parented under it lives in one Outliner group the user can toggle/hide.
+    collection = _ensure_collection(operation["name"], transaction)
+    collection.objects.link(root)
+    transaction.collection_by_entity[root["omb.entity_id"]] = operation["name"]
     transaction.created_objects.append(root)
     return root
 
@@ -658,6 +699,16 @@ def _set_parent(operation: dict, transaction: _StageTransaction, project_id: str
     child.parent = parent
     if parent is not None:
         child.matrix_parent_inverse = parent.matrix_world.inverted()
+        # Keep the child in the same Blender Collection as its parent so the
+        # Outliner hierarchy and the parenting hierarchy stay aligned.
+        parent_collection_name = transaction.collection_by_entity.get(
+            parent.get("omb.entity_id")
+        )
+        if parent_collection_name is not None:
+            parent_collection = bpy.data.collections.get(parent_collection_name)
+            if parent_collection is not None and child.name not in parent_collection.objects:
+                parent_collection.objects.link(child)
+            transaction.collection_by_entity[child.get("omb.entity_id")] = parent_collection_name
     child.matrix_world = world
 
 
@@ -739,7 +790,9 @@ def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_
         scene_object = bpy.data.objects.new(operation["name"], light)
         scene_object["omb.entity_id"] = operation["entity_id"]
         scene_object["omb.owned_project_id"] = project_id
-        transaction.scene.collection.objects.link(scene_object)
+        _link_to_collection(scene_object, operation.get("collection_name"), transaction)
+        if operation.get("collection_name") is not None:
+            transaction.collection_by_entity[operation["entity_id"]] = operation["collection_name"]
         transaction.created_objects.append(scene_object)
     else:
         if not _owned(scene_object, project_id):
