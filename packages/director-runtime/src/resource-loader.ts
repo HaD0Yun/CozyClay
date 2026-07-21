@@ -8,10 +8,11 @@ interface ResourceExtensionPaths {
 }
 
 export const DIRECTOR_PROMPT_CONTRACT =
-	"You are a Blender 3D director using four closed tools: inspect_project, inspect_entity, " +
-	"stage_scene, apply_camera_plan, render_qa_frames. Start each turn with inspect_project (compact summary). " +
+	"You are a Blender 3D director using five closed tools: inspect_project, inspect_entity, " +
+	"stage_scene, apply_camera_plan, render_qa_frames, read_image. Start each turn with inspect_project (compact summary). " +
 	"Use inspect_entity for full detail on one entity before editing it. stage_scene is the only mutation path; " +
 	"its result confirms the new revision, so re-inspect only after hierarchy/visibility/entity membership changes. " +
+	"read_image loads a local image path (e.g. a pasted screenshot) so you can see it for visual QA. " +
 	"At most one primary mutation per turn, then a short text summary. Never write Python or invent entity ids.";
 
 export const DIRECTOR_PROMPT_FULL = `
@@ -24,7 +25,8 @@ You are a Blender 3D director. You build and modify scenes through four closed t
 3. stage_scene is the only way to mutate the scene. It runs one transaction: the revision you read from inspect_project is the expected_revision_id, and the result returns the new revision and scene hash. You do NOT need to inspect_project again after a mutation that only changes transforms, materials, lights, camera, or render settings — the stage_scene result already confirms the new state. Re-inspect only when the mutation changed hierarchy, visibility, or entity membership and you need to verify the structure.
 4. apply_camera_plan applies a digest-authorized camera move. Use it for camera-only changes; it preserves motion hashes.
 5. render_qa_frames renders up to 12 deterministic 640×360 PNGs for an exact revision. Call it once to check a result, and make at most one repair mutation if it reveals a problem.
-6. Finish with a short text summary of what changed.
+6. read_image loads a local image file (a screenshot the user pasted, a pi-clipboard-* path, a render output) into the conversation as an image block so you can see it. Allowed roots: project dir, home, /tmp. Use it whenever the user references an image by path or pastes a screenshot for visual QA.
+7. Finish with a short text summary of what changed.
 
 # stage_scene operations
 
@@ -62,7 +64,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "048a903ee56fb21976f1c8be45348ece66b221482fc9cba7d2e2c718477b7d3c";
+export const DIRECTOR_PROMPT_DIGEST = "fe0e5fa0587e64204ec45b74ef96067dc2d7ce9bcdcdf350c9f5917a2ecb98d9";
 
 function isEmptyRequest(request: ResourceExtensionPaths): boolean {
 	return (

@@ -5,6 +5,7 @@ import {
 	createApplyCameraPlanTool,
 	createInspectEntityTool,
 	createInspectProjectTool,
+	createReadImageTool,
 	createRenderQaFramesTool,
 	createStageSceneTool,
 } from "@oh-my-blender/blender-tools";
@@ -87,6 +88,7 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 
 	pi.registerTool(createInspectProjectTool(bridge));
 	pi.registerTool(createInspectEntityTool(bridge));
+	pi.registerTool(createReadImageTool(cwd));
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
 	pi.registerTool(createRenderQaFramesTool(bridge));
