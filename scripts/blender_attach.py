@@ -89,6 +89,13 @@ def poll_attach() -> float | None:
     if connection_module._active_connection is not None:
         log("ATTACHED via handoff discovery")
         return None
+    # The connect operator refuses a dirty file; this scene is attach-managed
+    # (save-at-commit persists every turn), so saving here is always safe.
+    if bpy.data.is_dirty and bpy.data.filepath:
+        try:
+            bpy.ops.wm.save_mainfile()
+        except Exception:
+            pass
     try:
         bpy.ops.omb.connect()
     except Exception:
