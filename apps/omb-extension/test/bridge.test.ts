@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { BlenderBridge } from "../src/bridge.ts";
 
@@ -240,5 +243,82 @@ test("a bridge_error rejects the pending inspect with the addon code", async () 
 	} finally {
 		client.close();
 		await bridge.close();
+	}
+});
+
+test("renderQaFrames validates streamed bytes, publishes them, and returns model-visible PNG content", async () => {
+	const project = await mkdtemp(path.join(tmpdir(), "omb-extension-render-"));
+	const bridge = new BlenderBridge(project);
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive();
+		await bridge.waitForAttach();
+
+		const inspect = bridge.inspectProject();
+		const inspectRequest = JSON.parse(await client.receive());
+		client.send({
+			type: "bridge_result",
+			id: inspectRequest.id,
+			request_id: inspectRequest.request_id,
+			result: { revision: REVISION, snapshot: SNAPSHOT },
+		});
+		await inspect;
+
+		const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
+		const sha256 = createHash("sha256").update(png).digest("hex");
+		const rendering = bridge.renderQaFrames(
+			{ schema_version: 1, revision_id: REVISION, frames: [1] },
+			{ reportProgress: () => {} },
+		);
+		const request = JSON.parse(await client.receive());
+		client.send({
+			type: "bridge_artifact_batch_begin",
+			id: request.id,
+			request_id: request.request_id,
+			frames: [{ frame: 1, total_chunks: 1, total_byte_length: png.length, sha256 }],
+		});
+		client.send({
+			type: "bridge_artifact_chunk",
+			id: request.id,
+			request_id: request.request_id,
+			frame: 1,
+			chunk_index: 0,
+			total_chunks: 1,
+			byte_offset: 0,
+			byte_length: png.length,
+			data_base64: png.toString("base64"),
+		});
+		client.send({
+			type: "bridge_result",
+			id: request.id,
+			request_id: request.request_id,
+			result: {
+				schema_version: 1,
+				revision_id: REVISION,
+				profile_version: "omb-qa-png-v1",
+				frames: [{
+					frame: 1,
+					width: 640,
+					height: 360,
+					profile_version: "omb-qa-png-v1",
+					byte_length: png.length,
+					sha256,
+					image: { mime_type: "image/png", data_base64: png.toString("base64") },
+				}],
+			},
+		});
+		const result = await rendering;
+		assert.equal(result.frames[0]?.uri, `omb-artifact://sha256/${sha256}`);
+		assert.deepEqual(
+			await readFile(path.join(project, ".omb", "artifacts", "sha256", `${sha256}.png`)),
+			png,
+		);
+	} finally {
+		client.close();
+		await bridge.close();
+		await rm(project, { recursive: true, force: true });
 	}
 });

@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createApplyCameraPlanTool,
 	createInspectProjectTool,
+	createRenderQaFramesTool,
 	createStageSceneTool,
 } from "@oh-my-blender/blender-tools";
 import {
@@ -85,6 +86,7 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 	pi.registerTool(createInspectProjectTool(bridge));
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
+	pi.registerTool(createRenderQaFramesTool(bridge));
 	pi.on("before_agent_start", (event) => ({
 		systemPrompt: `${event.systemPrompt}\n\n${DIRECTOR_PROMPT}`,
 	}));

@@ -117,6 +117,15 @@ def setup() -> None:
 
 _was_attached = False
 
+def bridge_is_attached() -> bool:
+    active = connection_module._active_connection
+    return (
+        active is not None
+        and active.state not in connection_module.RECONNECTABLE_STATES
+        and active.state != connection_module.LifecycleState.STOPPED
+    )
+
+
 
 def poll_attach() -> float | None:
     """Persistent attach watchdog: (re)connects whenever the bridge is down.
@@ -126,7 +135,7 @@ def poll_attach() -> float | None:
     (cheap no-op while attached) instead of stopping after the first attach.
     """
     global _was_attached
-    if connection_module._active_connection is not None:
+    if bridge_is_attached():
         if not _was_attached:
             _was_attached = True
             log("ATTACHED via handoff discovery")
@@ -145,7 +154,7 @@ def poll_attach() -> float | None:
         bpy.ops.omb.connect()
     except Exception:
         pass  # no handoff yet (TUI not started); keep polling
-    if connection_module._active_connection is not None:
+    if bridge_is_attached():
         _was_attached = True
         log("ATTACHED via handoff discovery")
         return 5.0

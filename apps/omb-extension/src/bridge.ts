@@ -4,8 +4,10 @@
 // credential ceremony and controller-peer auth are intentionally dropped; a
 // plain bearer token gates the loopback socket. Durable transaction commit and
 // auto-reconnect are retained.
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import path from "node:path";
 import {
 	type BridgeTransactionPrepared,
 	type CameraPlanMutationCandidate,
@@ -15,6 +17,9 @@ import {
 	parseAddonBridgeMessage,
 	parseDaemonBridgeMessage,
 	parseSceneSnapshot,
+	parseRenderQaFramesResult,
+	type RenderQaFramesRequestV1,
+	type RenderQaFramesResultV1,
 	type SceneSnapshot,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
@@ -53,6 +58,8 @@ interface PendingBridge {
 	readonly resolve: (result: unknown) => void;
 	readonly reject: (error: Error) => void;
 	preparedTransaction?: BridgeTransactionPrepared;
+	renderRequest?: RenderQaFramesRequestV1;
+	artifactFrames: Map<number, ArtifactFrame>;
 }
 
 interface AttachedTransport {
@@ -66,6 +73,14 @@ interface PendingTransaction {
 	readonly websocket: WebSocketConnection;
 	readonly acknowledged: Promise<void>;
 	readonly resolveAcknowledged: () => void;
+}
+
+interface ArtifactFrame {
+	readonly totalChunks: number;
+	readonly totalByteLength: number;
+	readonly sha256: string;
+	readonly chunks: Map<number, Buffer>;
+	receivedBytes: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,6 +102,11 @@ export class BlenderBridge {
 	private currentRevisionId = BOOTSTRAP_REVISION_ID;
 	private readonly activeRequestIds = new Set<string>();
 	private attachWaiters: Array<() => void> = [];
+	private readonly projectDirectory: string;
+
+	constructor(projectDirectory = process.cwd()) {
+		this.projectDirectory = projectDirectory;
+	}
 
 	async start(): Promise<BridgeEndpoint> {
 		if (this.server !== undefined) throw new Error("bridge already started");
@@ -189,6 +209,22 @@ export class BlenderBridge {
 		return this.requirePreparedCandidate<CameraPlanMutationCandidate>(result);
 	}
 
+	async renderQaFrames(
+		request: RenderQaFramesRequestV1,
+		context: { readonly signal?: AbortSignal; readonly reportProgress: (progress: BridgeProgress) => void },
+	): Promise<RenderQaFramesResultV1> {
+		if (request.revision_id !== this.currentRevisionId) {
+			throw new Error("STALE_BASE: render request is not based on the current revision");
+		}
+		const result = await this.runBridgeRequest(
+			"render_qa_frames",
+			request,
+			request.revision_id,
+			{ ...context, renderRequest: request },
+		);
+		return parseRenderQaFramesResult(result);
+	}
+
 	async finishDurableCommit(resultingRevisionId: string): Promise<void> {
 		const transaction = this.preparedTransaction;
 		if (transaction === undefined) {
@@ -240,7 +276,7 @@ export class BlenderBridge {
 				}
 				return;
 			}
-			this.handleBridgeMessage(session, raw);
+			void this.handleBridgeMessage(session, raw);
 		});
 		websocket.on("disconnect", () => {
 			if (this.transport?.websocket === websocket) {
@@ -281,7 +317,7 @@ export class BlenderBridge {
 		return session;
 	}
 
-	private handleBridgeMessage(session: MutationBridgeSession, raw: unknown): void {
+	private async handleBridgeMessage(session: MutationBridgeSession, raw: unknown): Promise<void> {
 		let message: ReturnType<typeof parseAddonBridgeMessage>;
 		try {
 			message = parseAddonBridgeMessage(raw, session);
@@ -319,6 +355,46 @@ export class BlenderBridge {
 			pending.preparedTransaction = message;
 			return;
 		}
+		if (message.type === "bridge_artifact_batch_begin") {
+			if (pending === undefined || message.id !== pending.id) return;
+			for (const frame of message.frames) {
+				pending.artifactFrames.set(frame.frame, {
+					totalChunks: frame.total_chunks,
+					totalByteLength: frame.total_byte_length,
+					sha256: frame.sha256,
+					chunks: new Map(),
+					receivedBytes: 0,
+				});
+			}
+			return;
+		}
+		if (message.type === "bridge_artifact_begin") {
+			if (pending === undefined || message.id !== pending.id) return;
+			pending.artifactFrames.set(message.frame, {
+				totalChunks: message.total_chunks,
+				totalByteLength: message.total_byte_length,
+				sha256: message.sha256,
+				chunks: new Map(),
+				receivedBytes: 0,
+			});
+			return;
+		}
+		if (message.type === "bridge_artifact_chunk") {
+			if (pending === undefined || message.id !== pending.id) return;
+			const artifact = pending.artifactFrames.get(message.frame);
+			if (artifact === undefined || artifact.chunks.has(message.chunk_index)) {
+				this.failPending("INVALID_RENDER_QA_RESULT", "artifact chunk has no declaration or is duplicated");
+				return;
+			}
+			const bytes = Buffer.from(message.data_base64, "base64");
+			if (bytes.byteLength !== message.byte_length || artifact.receivedBytes !== message.byte_offset) {
+				this.failPending("INVALID_RENDER_QA_RESULT", "artifact chunk offset or length is invalid");
+				return;
+			}
+			artifact.chunks.set(message.chunk_index, bytes);
+			artifact.receivedBytes += bytes.byteLength;
+			return;
+		}
 		if (pending === undefined) return;
 		if (message.type === "bridge_progress" && message.id === pending.id) {
 			pending.reportProgress?.({ phase: message.phase, completed: message.completed, total: message.total });
@@ -346,7 +422,9 @@ export class BlenderBridge {
 					resolveAcknowledged,
 				};
 			}
-			this.settle(pending, () => pending.resolve(result));
+			const resolved =
+				pending.renderRequest === undefined ? result : await this.finalizeRenderResult(pending, result);
+			this.settle(pending, () => pending.resolve(resolved));
 			return;
 		}
 		if (message.type === "bridge_error" && message.id === pending.id) {
@@ -355,6 +433,55 @@ export class BlenderBridge {
 		}
 	}
 
+	private async finalizeRenderResult(pending: PendingBridge, raw: unknown): Promise<RenderQaFramesResultV1> {
+		if (
+			pending.renderRequest === undefined ||
+			!isRecord(raw) ||
+			raw.schema_version !== 1 ||
+			raw.revision_id !== pending.renderRequest.revision_id ||
+			raw.profile_version !== "omb-qa-png-v1" ||
+			!Array.isArray(raw.frames)
+		) {
+			throw new Error("INVALID_RENDER_QA_RESULT: final bridge metadata is invalid");
+		}
+		const artifactDirectory = path.join(this.projectDirectory, ".omb", "artifacts", "sha256");
+		await mkdir(artifactDirectory, { recursive: true });
+		const frames: RenderQaFramesResultV1["frames"][number][] = [];
+		for (const metadata of raw.frames) {
+			if (!isRecord(metadata) || typeof metadata.frame !== "number" || !isRecord(metadata.image)) {
+				throw new Error("INVALID_RENDER_QA_RESULT: frame metadata is invalid");
+			}
+			const artifact = pending.artifactFrames.get(metadata.frame);
+			if (
+				artifact === undefined ||
+				artifact.chunks.size !== artifact.totalChunks ||
+				artifact.receivedBytes !== artifact.totalByteLength
+			) {
+				throw new Error("INVALID_RENDER_QA_RESULT: artifact chunks are incomplete");
+			}
+			const bytes = Buffer.concat(
+				[...artifact.chunks.entries()].sort(([left], [right]) => left - right).map(([, value]) => value),
+			);
+			const sha256 = createHash("sha256").update(bytes).digest("hex");
+			if (sha256 !== artifact.sha256 || metadata.sha256 !== sha256 || metadata.byte_length !== bytes.byteLength) {
+				throw new Error("INVALID_RENDER_QA_RESULT: artifact digest or length changed");
+			}
+			if (metadata.image.data_base64 !== bytes.toString("base64") || metadata.image.mime_type !== "image/png") {
+				throw new Error("INVALID_RENDER_QA_RESULT: model image does not match streamed artifact");
+			}
+			await writeFile(path.join(artifactDirectory, `${sha256}.png`), bytes, { mode: 0o600 });
+			frames.push({
+				...(metadata as unknown as Omit<RenderQaFramesResultV1["frames"][number], "uri">),
+				uri: `omb-artifact://sha256/${sha256}`,
+			});
+		}
+		return parseRenderQaFramesResult({
+			schema_version: 1,
+			revision_id: pending.renderRequest.revision_id,
+			profile_version: "omb-qa-png-v1",
+			frames,
+		});
+	}
 	private settle(pending: PendingBridge, run: () => void): void {
 		if (this.pending !== pending) return;
 		this.pending = undefined;
@@ -374,7 +501,11 @@ export class BlenderBridge {
 		method: string,
 		params: Record<string, unknown>,
 		expectedRevisionId: string,
-		options: { signal?: AbortSignal; reportProgress?: (progress: BridgeProgress) => void } = {},
+		options: {
+			signal?: AbortSignal;
+			reportProgress?: (progress: BridgeProgress) => void;
+			renderRequest?: RenderQaFramesRequestV1;
+		} = {},
 	): Promise<unknown> {
 		const transport = this.transport;
 		if (transport === undefined) {
@@ -413,6 +544,8 @@ export class BlenderBridge {
 				reportProgress: options.reportProgress,
 				resolve,
 				reject,
+				renderRequest: options.renderRequest,
+				artifactFrames: new Map(),
 			};
 			this.pending = pending;
 			const signal = options.signal;
