@@ -12,6 +12,12 @@ type RenderResultWithImage = RenderQaFramesResultV1 & {
 	readonly frames: ReadonlyArray<
 		RenderQaFramesResultV1["frames"][number] & {
 			readonly image: { readonly mime_type: "image/png"; readonly data_base64: string };
+			readonly thumbnail: {
+				readonly mime_type: "image/jpeg";
+				readonly data_base64: string;
+				readonly width: number;
+				readonly height: number;
+			};
 		}
 	>;
 };
@@ -30,6 +36,12 @@ const result: RenderResultWithImage = {
 			sha256,
 			uri: `omb-artifact://sha256/${sha256}`,
 			image: { mime_type: "image/png" as const, data_base64: imageData },
+			thumbnail: {
+				mime_type: "image/jpeg" as const,
+				data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
+				width: 256,
+				height: 144,
+			},
 		};
 	}),
 };
@@ -73,6 +85,12 @@ test("render QA image cap violations retain their distinct protocol code", async
 				image: {
 					mime_type: "image/png" as const,
 					data_base64: Buffer.alloc(2 * 1024 * 1024 + 1).toString("base64"),
+				},
+				thumbnail: {
+					mime_type: "image/jpeg" as const,
+					data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
+					width: 256,
+					height: 144,
 				},
 			},
 			result.frames[1],

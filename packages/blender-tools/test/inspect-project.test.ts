@@ -45,8 +45,28 @@ describe("inspect_project", () => {
 				...baseSnapshot,
 				schemaVersion: 4 as const,
 				objects: [
-					{ entityId: "root", name: "Table", type: "EMPTY", parent: null, visible: true, location: [0, 0, 0], rotationMode: "XYZ", rotationQuaternion: [1, 0, 0, 0], scale: [1, 1, 1] },
-					{ entityId: "top", name: "Top", type: "MESH", parent: "Table", visible: true, location: [0, 0, 1], rotationMode: "XYZ", rotationQuaternion: [1, 0, 0, 0], scale: [1, 1, 1] },
+					{
+						entityId: "root",
+						name: "Table",
+						type: "EMPTY",
+						parent: null,
+						visible: true,
+						location: [0, 0, 0],
+						rotationMode: "XYZ",
+						rotationQuaternion: [1, 0, 0, 0],
+						scale: [1, 1, 1],
+					},
+					{
+						entityId: "top",
+						name: "Top",
+						type: "MESH",
+						parent: "Table",
+						visible: true,
+						location: [0, 0, 1],
+						rotationMode: "XYZ",
+						rotationQuaternion: [1, 0, 0, 0],
+						scale: [1, 1, 1],
+					},
 				],
 				assemblies: [
 					{

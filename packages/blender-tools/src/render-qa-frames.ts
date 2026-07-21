@@ -50,7 +50,11 @@ export function createRenderQaFramesTool(bridge: RenderQaFramesBridge) {
 					byte_length: frame.byte_length,
 					sha256: frame.sha256,
 					uri: frame.uri,
-					image: { mime_type: frame.image.mime_type },
+					thumbnail: {
+						mime_type: frame.thumbnail.mime_type,
+						width: frame.thumbnail.width,
+						height: frame.thumbnail.height,
+					},
 				})),
 			};
 			return {
@@ -58,8 +62,8 @@ export function createRenderQaFramesTool(bridge: RenderQaFramesBridge) {
 					{ type: "text" as const, text: JSON.stringify(modelMetadata) },
 					...result.frames.map((frame) => ({
 						type: "image" as const,
-						mimeType: frame.image.mime_type,
-						data: frame.image.data_base64,
+						mimeType: frame.thumbnail.mime_type,
+						data: frame.thumbnail.data_base64,
 					})),
 				],
 				details: result,

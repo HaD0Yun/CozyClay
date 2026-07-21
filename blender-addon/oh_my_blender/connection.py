@@ -834,6 +834,12 @@ class Connection:
             raise ConnectionError(f"ENTITY_NOT_FOUND: entity {entity_id} does not exist")
         return {"revision": revision_id, "entity_id": entity_id, "scope": scope, "detail": detail}
 
+    def _capture_viewport_result(self, revision_id: str) -> dict:
+        from .viewport_capture import capture_viewport
+
+        viewport = capture_viewport()
+        return {"revision": revision_id, "viewport": viewport}
+
     def hold_checkpoint(
         self,
         checkpoint: Checkpoint,
@@ -1044,6 +1050,7 @@ class Connection:
         if message.get("method") not in (
             "inspect_project",
             "inspect_entity",
+            "capture_viewport",
             "apply_camera_plan",
             "stage_scene",
             "render_qa_frames",
@@ -1093,7 +1100,7 @@ class Connection:
                 )
                 if current_scene_hash is None:
                     current_scene_hash = durable_scene_hash
-            elif message["method"] == "inspect_entity":
+            elif message["method"] in ("inspect_entity", "capture_viewport"):
                 durable_revision_id, durable_scene_hash = self._durable_project_base(
                     message["expected_revision_id"],
                     allow_bootstrap=True,
@@ -1116,11 +1123,11 @@ class Connection:
             self._send_bridge_error(message, "BUSY", "a mutation bridge is already active")
             return
         self._bridge_cancellations[bridge_id] = threading.Event()
-        if message["method"] != "inspect_project" and message["method"] != "inspect_entity":
+        if message["method"] != "inspect_project" and message["method"] not in ("inspect_entity", "capture_viewport"):
             self.begin_task(message["method"], message["params"])
         if bpy is None:
             self.finish_bridge(bridge_id)
-            if message["method"] != "inspect_project" and message["method"] != "inspect_entity":
+            if message["method"] != "inspect_project" and message["method"] not in ("inspect_entity", "capture_viewport"):
                 self.finish_task("error", code="BLENDER_UNAVAILABLE")
             self._send_bridge_error(
                 message,
@@ -1155,6 +1162,24 @@ class Connection:
                     durable_revision_id,
                     message["params"],
                 )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "capture_viewport":
+            try:
+                result = self._capture_viewport_result(durable_revision_id)
                 self._send_json({
                     "type": "bridge_result",
                     "id": bridge_id,

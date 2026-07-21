@@ -53,6 +53,12 @@ test("G011/G016: result binds artifact metadata to a closed low-resolution PNG i
 					mime_type: "image/png",
 					data_base64: png.toString("base64"),
 				},
+				thumbnail: {
+					mime_type: "image/jpeg",
+					data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
+					width: 256,
+					height: 144,
+				},
 			},
 		],
 	});
@@ -118,6 +124,12 @@ test("G016: low-resolution image content has distinct per-frame and batch size e
 						sha256: "b".repeat(64),
 						uri: `omb-artifact://sha256/${"b".repeat(64)}`,
 						image: { mime_type: "image/png", data_base64: oversizedBase64 },
+						thumbnail: {
+							mime_type: "image/jpeg",
+							data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
+							width: 256,
+							height: 144,
+						},
 					},
 				],
 			}),
@@ -145,6 +157,12 @@ test("G016: low-resolution image content has distinct per-frame and batch size e
 						sha256,
 						uri: `omb-artifact://sha256/${sha256}`,
 						image: { mime_type: "image/png" as const, data_base64: payload.toString("base64") },
+						thumbnail: {
+							mime_type: "image/jpeg" as const,
+							data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
+							width: 256 as const,
+							height: 144 as const,
+						},
 					};
 				}),
 			}),

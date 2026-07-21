@@ -24,4 +24,5 @@ scene_manifest.py
 snapshot.py
 stage_scene.py
 ui_panel.py
+viewport_capture.py
 ws_client.py

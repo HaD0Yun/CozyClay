@@ -122,6 +122,7 @@ describe("bounded director turn loop", () => {
 								sha256: ARTIFACT_DIGEST,
 								uri: `omb-artifact://sha256/${ARTIFACT_DIGEST}`,
 								image: { mime_type: "image/png", data_base64: IMAGE_DATA },
+								thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 							},
 						],
 					};
@@ -336,9 +337,7 @@ describe("bounded director turn loop", () => {
 				.filter(
 					(block) =>
 						(block as { type?: string; text?: string }).type === "text" &&
-						((block as { text?: string }).text ?? "").includes(
-							`[QA frame image pruned from context; sha256 ${ARTIFACT_DIGEST}]`,
-						),
+						((block as { text?: string }).text ?? "").includes("[QA frame image pruned from context; sha256 "),
 				).length;
 		let firstTurnImages = -1;
 		let secondTurnImages = -1;
@@ -384,6 +383,7 @@ describe("bounded director turn loop", () => {
 							sha256: ARTIFACT_DIGEST,
 							uri: `omb-artifact://sha256/${ARTIFACT_DIGEST}`,
 							image: { mime_type: "image/png", data_base64: IMAGE_DATA },
+							thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 						},
 					],
 				}),

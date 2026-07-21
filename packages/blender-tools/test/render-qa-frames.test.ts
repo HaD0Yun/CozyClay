@@ -19,6 +19,7 @@ const result: RenderQaFramesResultV1 = {
 			sha256: "b".repeat(64),
 			uri: `omb-artifact://sha256/${"b".repeat(64)}`,
 			image: { mime_type: "image/png", data_base64: pngBase64 },
+			thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 		},
 	],
 };
@@ -55,13 +56,13 @@ test("G016: render_qa_frames returns metadata plus proper Pi image content block
 				byte_length: 8,
 				sha256: "b".repeat(64),
 				uri: `omb-artifact://sha256/${"b".repeat(64)}`,
-				image: { mime_type: "image/png" },
+				thumbnail: { mime_type: "image/jpeg", width: 256, height: 144 },
 			},
 		],
 	});
 	assert.equal(metadataText.includes(pngBase64), false);
 	assert.deepEqual(output.content, [
 		{ type: "text", text: metadataText },
-		{ type: "image", mimeType: "image/png", data: pngBase64 },
+		{ type: "image", mimeType: "image/jpeg", data: "thumb" },
 	]);
 });

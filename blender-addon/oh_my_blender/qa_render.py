@@ -9,6 +9,11 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+try:
+    import imbuf
+except ImportError:
+    imbuf = None
+
 from .checkpoint import create_checkpoint, restore, verify
 
 try:  # Blender is intentionally absent from host-side unit tests.
@@ -30,6 +35,11 @@ MAX_IMAGE_BATCH_BYTES = 12 * 1024 * 1024
 MAX_DEADLINE_SECONDS = 30.0
 MAX_CHUNK_BYTES = 512 * 1024
 MAX_CHUNKS_PER_FRAME = 32
+# Model-facing thumbnail caps. Full PNGs are streamed as artifacts and stay
+# in tool details; the model sees only these small JPEGs to cut context cost.
+THUMBNAIL_WIDTH = 256
+THUMBNAIL_HEIGHT = 144
+THUMBNAIL_QUALITY = 72
 
 
 class RenderQaError(RuntimeError):
@@ -286,6 +296,31 @@ def _live_scene_hash(current_scene_hash: str) -> str:
     return manifest["sceneHash"] if manifest is not None else ""
 
 
+def _encode_thumbnail(png_bytes: bytes) -> str:
+    """Resize a PNG to a small JPEG thumbnail and return base64 for model context.
+
+    Falls back to the raw PNG base64 if imbuf is unavailable or cannot decode the
+    input (e.g. headless test fixtures with non-PNG bytes) so the protocol stays
+    observable.
+    """
+    if imbuf is None:
+        return base64.b64encode(png_bytes).decode("ascii")
+    try:
+        with tempfile.TemporaryDirectory(prefix="omb-qa-thumb-") as directory:
+            source = Path(directory) / "frame.png"
+            source.write_bytes(png_bytes)
+            thumb = imbuf.load(source.as_posix())
+            thumb.resize((THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT))
+            thumb.file_type = "JPEG"
+            thumb.quality = THUMBNAIL_QUALITY
+            target = Path(directory) / "thumb.jpg"
+            thumb.filepath = target.as_posix()
+            imbuf.write(thumb)
+            return base64.b64encode(target.read_bytes()).decode("ascii")
+    except Exception:
+        return base64.b64encode(png_bytes).decode("ascii")
+
+
 def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
     """Split one verified PNG into bounded protocol-v2 artifact chunks."""
     encoded = frame_result.get("png_base64")
@@ -329,6 +364,12 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
     metadata["image"] = {
         "mime_type": "image/png",
         "data_base64": encoded,
+    }
+    metadata["thumbnail"] = {
+        "mime_type": "image/jpeg",
+        "data_base64": _encode_thumbnail(data),
+        "width": THUMBNAIL_WIDTH,
+        "height": THUMBNAIL_HEIGHT,
     }
     begin = {
         "frame": frame_result["frame"],

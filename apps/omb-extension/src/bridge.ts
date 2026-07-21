@@ -208,6 +208,20 @@ export class BlenderBridge {
 		return result;
 	}
 
+	async captureViewport(): Promise<{
+		readonly revision: string;
+		readonly viewport: { readonly mime_type: string; readonly data_base64: string; readonly width: number; readonly height: number; readonly method: string };
+	}> {
+		const result = await this.runBridgeRequest("capture_viewport", {}, this.currentRevisionId);
+		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
+			throw new Error("INVALID_CAPTURE_VIEWPORT_RESULT: bridge did not return a bound revision");
+		}
+		return result as {
+			readonly revision: string;
+			readonly viewport: { readonly mime_type: string; readonly data_base64: string; readonly width: number; readonly height: number; readonly method: string };
+		};
+	}
+
 	/** Whether a Blender add-on peer is currently attached over the bridge. */
 	isAttached(): boolean {
 		return this.transport !== undefined;

@@ -23,6 +23,12 @@ const RenderQaFrameImageV1Schema = exact({
 	mime_type: Type.Literal("image/png"),
 	data_base64: Type.String({ minLength: 12 }),
 });
+const RenderQaFrameThumbnailV1Schema = exact({
+	mime_type: Type.Literal("image/jpeg"),
+	data_base64: Type.String({ minLength: 12 }),
+	width: Type.Integer({ minimum: 1, maximum: 1024 }),
+	height: Type.Integer({ minimum: 1, maximum: 1024 }),
+});
 
 const RenderQaFrameArtifactV1Schema = exact({
 	frame: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
@@ -33,6 +39,7 @@ const RenderQaFrameArtifactV1Schema = exact({
 	sha256: Type.String({ pattern: HASH_64 }),
 	uri: Type.String({ pattern: ARTIFACT_URI }),
 	image: RenderQaFrameImageV1Schema,
+	thumbnail: RenderQaFrameThumbnailV1Schema,
 });
 
 export const RenderQaFramesResultV1Schema = exact({
