@@ -1,0 +1,76 @@
+#!/bin/bash
+# omb — launch the oh-my-blender director in the current directory, pi-style.
+#   omb                          # sol director in $PWD, Blender auto-attached
+#   omb --model gpt-5.6-sol      # override model (provider defaults to openai-codex)
+#   omb --no-blender             # TUI/daemon only, attach Blender yourself
+#   OMB_PROJECT_DIR=... omb      # direct at another project dir
+set -euo pipefail
+
+OMB_REPO="${OMB_REPO:-/Users/yun/blenderPi/oh-my-blender}"
+export OMB_DEMO_PROJECT_DIR="${OMB_PROJECT_DIR:-$PWD}"
+
+LAUNCH_BLENDER=1
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --no-blender) LAUNCH_BLENDER=0 ;;
+    --faux) LAUNCH_BLENDER=0; ARGS+=("$arg") ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+[[ "${OMB_NO_BLENDER:-0}" == "1" ]] && LAUNCH_BLENDER=0
+# `omb --model X` shorthand: provider defaults to openai-codex
+if [[ "${ARGS[0]:-}" == "--model" ]]; then
+  ARGS=(--provider openai-codex "${ARGS[@]}")
+fi
+
+# The TUI's daemon launcher requires OMB_NODE_EXECUTABLE explicitly and rejects symlinks;
+# resolve to the real binary (fnm shims are symlinks).
+if [[ -z "${OMB_NODE_EXECUTABLE:-}" ]]; then
+  OMB_NODE_EXECUTABLE="$(command -v node || true)"
+  if [[ -n "$OMB_NODE_EXECUTABLE" ]]; then
+    OMB_NODE_EXECUTABLE="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$OMB_NODE_EXECUTABLE")"
+  fi
+  [[ -n "$OMB_NODE_EXECUTABLE" && -x "$OMB_NODE_EXECUTABLE" ]] || OMB_NODE_EXECUTABLE="/Users/yun/.local/share/fnm/node-versions/v24.18.0/installation/bin/node"
+  export OMB_NODE_EXECUTABLE
+fi
+
+# Blender owns project provisioning (omb.initialize_project seeds .omb/project.json;
+# the daemon refuses to boot without it, and the addon refuses a bare skeleton).
+if [[ "$LAUNCH_BLENDER" == "1" ]]; then
+  BLENDER="${OMB_BLENDER_EXECUTABLE:-}"
+  if [[ -z "$BLENDER" ]]; then
+    for candidate in /opt/homebrew/bin/blender "/Applications/Blender.app/Contents/MacOS/Blender"; do
+      [[ -x "$candidate" ]] && BLENDER="$candidate" && break
+    done
+  fi
+  if [[ -z "$BLENDER" ]]; then
+    echo "omb: blender not found; set OMB_BLENDER_EXECUTABLE or pass --no-blender" >&2
+    exit 1
+  fi
+  # One Blender per project: skip if one is already open on this project dir.
+  if ! pgrep -f "Blender.*$OMB_DEMO_PROJECT_DIR" > /dev/null 2>&1 && \
+     ! { [[ -n "$(ls "$OMB_DEMO_PROJECT_DIR"/*.blend 2>/dev/null)" ]] && pgrep -lf Blender | grep -qF "$(basename "$OMB_DEMO_PROJECT_DIR")"; }; then
+    LOG="/tmp/omb-blender-$(basename "$OMB_DEMO_PROJECT_DIR").log"
+    OMB_PROJECT_DIR="$OMB_DEMO_PROJECT_DIR" OMB_REPO="$OMB_REPO" \
+      nohup "$BLENDER" --python "$OMB_REPO/scripts/blender_attach.py" > "$LOG" 2>&1 &
+    echo "omb: launching Blender (log: $LOG)"
+  fi
+  # Fresh project: wait for Blender's initialize_project to seed .omb/project.json
+  # before the TUI spawns the daemon (pre-listen project binding).
+  if [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
+    for _ in $(seq 1 60); do
+      [[ -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]] && break
+      sleep 1
+    done
+    if [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
+      echo "omb: Blender did not initialize the project in 60s; see $LOG" >&2
+      exit 1
+    fi
+  fi
+elif [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
+  echo "omb: no .omb/project.json here and --no-blender given; run omb without --no-blender so Blender can initialize the project" >&2
+  exit 1
+fi
+
+exec "$OMB_REPO/scripts/demo/launch-tui.sh" "${ARGS[@]+"${ARGS[@]}"}"

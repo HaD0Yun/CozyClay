@@ -1,3 +1,8 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { access, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	Container,
 	Editor,
@@ -18,11 +23,18 @@ import {
 	createTranscriptState,
 	evaluatePromptSubmission,
 	formatStatus,
+	formatTranscript,
 	markTurnSubmitted,
 	reduceDirectorMessage,
 	type TranscriptState,
 } from "./transcript.ts";
 import { TranscriptViewport } from "./transcript-viewport.ts";
+import {
+	findSlashCommand,
+	formatCommandHelp,
+	parseSlashInput,
+	SlashCommandAutocompleteProvider,
+} from "./commands.ts";
 import { theme } from "./theme.ts";
 
 const EDITOR_THEME: EditorTheme = {
@@ -119,12 +131,18 @@ export class DirectorTui {
 	private removeBridgeStatusListener: () => void = () => {};
 	private bridgeTicketTimer: ReturnType<typeof setInterval> | undefined;
 	private bridgeTicketPending = false;
+	private readonly projectDirectory: string;
+	private readonly daemonArguments: readonly string[];
+	private bridgeStatusPlain = "";
 
 	constructor(
 		session: ControllerSession,
 		terminal: Terminal = new ProcessTerminal(),
 		reconnect?: (signal: AbortSignal) => Promise<ControllerSession>,
+		context?: { readonly projectDirectory?: string; readonly daemonArguments?: readonly string[] },
 	) {
+		this.projectDirectory = context?.projectDirectory ?? process.cwd();
+		this.daemonArguments = context?.daemonArguments ?? [];
 		this.session = session;
 		this.reconnect = reconnect;
 		this.tui = new TUI(terminal, true);
@@ -163,6 +181,8 @@ export class DirectorTui {
 			(height) => { this.viewportHeight = height; },
 		));
 		this.tui.setFocus(this.input);
+		this.input.setAutocompleteProvider(new SlashCommandAutocompleteProvider());
+
 		this.input.onSubmit = (prompt) => this.submit(prompt);
 		this.render();
 	}
@@ -214,6 +234,21 @@ export class DirectorTui {
 	}
 
 	private submit(prompt: string): void {
+		const parsed = parseSlashInput(prompt);
+		if (parsed.kind === "unknown") {
+			this.input.addToHistory(prompt.trim());
+			this.input.setText("");
+			this.appendNotice(`Unknown command: /${parsed.name} — /help lists available commands`);
+			this.render();
+			return;
+		}
+		if (parsed.kind === "command") {
+			this.input.addToHistory(prompt.trim());
+			this.input.setText("");
+			this.executeCommand(parsed.name, parsed.args);
+			this.render();
+			return;
+		}
 		const gate = evaluatePromptSubmission(this.state, prompt);
 		if (gate.prompt === undefined) {
 			if (prompt.trim().length === 0) this.input.setText("");
@@ -228,6 +263,139 @@ export class DirectorTui {
 			this.state = markTurnSubmitted(this.state, requestId);
 		} catch (error) {
 			this.appendNotice(error instanceof Error ? error.message : "prompt submission failed");
+		}
+		this.render();
+	}
+
+	private executeCommand(name: string, args: string): void {
+		const command = findSlashCommand(name);
+		if (command?.notice !== undefined) {
+			this.appendNotice(command.notice);
+			return;
+		}
+		switch (name) {
+			case "help":
+				this.appendNotice(formatCommandHelp());
+				return;
+			case "quit":
+			case "exit":
+				void this.exit();
+				return;
+			case "clear":
+			case "new":
+				this.viewport.replace([]);
+				this.appendNotice("Transcript view cleared - durable history stays in .omb/ and returns on reattach.");
+				return;
+			case "hotkeys":
+				this.appendNotice(
+					"Hotkeys:\n  Enter — send prompt or run command\n  Ctrl-C — cancel active turn; twice to exit\n  PgUp/PgDn — scroll transcript\n  Tab — accept autocomplete\n  Up/Down — prompt history / autocomplete selection",
+				);
+				return;
+			case "model":
+				this.appendNotice(
+					this.daemonArguments.length === 0
+						? "Daemon launch arguments are unknown to this controller session."
+						: `Daemon model configuration: ${this.daemonArguments.join(" ")}\nTo switch models, exit and relaunch: omb --provider <id> --model <id>`,
+				);
+				return;
+			case "status":
+			case "session": {
+				const bridge = this.bridgeStatusPlain;
+				this.appendNotice(
+					[
+						"Session:",
+						`  project: ${this.projectDirectory}`,
+						`  connection: ${this.connectionStatus} | ${this.state.status}`,
+						`  bridge: ${bridge === "" ? "unknown" : bridge}`,
+						`  transcript events: ${this.state.events.length}`,
+						this.daemonArguments.length === 0 ? undefined : `  daemon: ${this.daemonArguments.join(" ")}`,
+					].filter((line): line is string => line !== undefined).join("\n"),
+				);
+				return;
+			}
+			case "attach":
+				this.startBridgeTicketReissue();
+				this.appendNotice("Blender attach handoff issued - open Blender's Oh My Blender panel and press Connect.");
+				return;
+			case "blender":
+				this.launchBlender();
+				return;
+			case "copy":
+				this.copyLastReply();
+				return;
+			case "export":
+				void this.exportTranscript(args);
+				return;
+			default:
+				this.appendNotice(`Unknown command: /${name} — /help lists available commands`);
+		}
+	}
+
+	private launchBlender(): void {
+		const candidates = [
+			process.env.OMB_BLENDER_EXECUTABLE,
+			"/opt/homebrew/bin/blender",
+			"/Applications/Blender.app/Contents/MacOS/Blender",
+		].filter((candidate): candidate is string => candidate !== undefined && candidate !== "");
+		const executable = candidates.find((candidate) => existsSync(candidate)) ?? "blender";
+		const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+		const attachScript = path.join(repositoryRoot, "scripts", "blender_attach.py");
+		try {
+			const child = spawn(executable, ["--python", attachScript], {
+				cwd: this.projectDirectory,
+				env: { ...process.env, OMB_PROJECT_DIR: this.projectDirectory, OMB_REPO: repositoryRoot },
+				detached: true,
+				stdio: "ignore",
+			});
+			child.on("error", (error) => {
+				this.appendNotice(`Blender launch failed: ${error.message} — set OMB_BLENDER_EXECUTABLE`);
+				this.render();
+			});
+			child.unref();
+			this.startBridgeTicketReissue();
+			this.appendNotice("Launching Blender for this project - it will attach via handoff discovery.");
+		} catch (error) {
+			this.appendNotice(error instanceof Error ? error.message : "Blender launch failed");
+		}
+	}
+
+	private copyLastReply(): void {
+		let content: string | undefined;
+		for (const event of this.state.events) {
+			if (event.type === "director_assistant_utterance") content = event.content;
+			else if (event.type === "director_turn_completed") content = event.summary;
+		}
+		if (content === undefined) {
+			this.appendNotice("Nothing to copy yet.");
+			return;
+		}
+		try {
+			const child = spawn("pbcopy", [], { stdio: ["pipe", "ignore", "ignore"] });
+			child.on("error", () => {
+				this.appendNotice("Clipboard unavailable (pbcopy not found).");
+				this.render();
+			});
+			child.stdin.end(content);
+			this.appendNotice(`Copied the last director reply (${content.length} chars).`);
+		} catch {
+			this.appendNotice("Clipboard unavailable.");
+		}
+	}
+
+	private async exportTranscript(argument: string): Promise<void> {
+		const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+		const target = argument === ""
+			? path.join(this.projectDirectory, `omb-transcript-${stamp}.md`)
+			: path.resolve(this.projectDirectory, argument);
+		try {
+			await access(target).then(
+				() => { throw new Error(`refusing to overwrite ${target}`); },
+				() => undefined,
+			);
+			await writeFile(target, `${formatTranscript(this.state)}\n`, { flag: "wx" });
+			this.appendNotice(`Transcript exported to ${target}`);
+		} catch (error) {
+			this.appendNotice(error instanceof Error ? error.message : "transcript export failed");
 		}
 		this.render();
 	}
@@ -297,6 +465,7 @@ export class DirectorTui {
 			if (attached) {
 				clearInterval(this.bridgeTicketTimer);
 				this.bridgeTicketTimer = undefined;
+				this.bridgeStatusPlain = "Blender attached";
 				this.bridgeText.setText(`${theme.ok("⚡")} Blender attached`);
 				this.render();
 				return;
@@ -328,9 +497,9 @@ export class DirectorTui {
 		this.bridgeTicketPending = true;
 		try {
 			const ticket = await this.session.issueBridgeTicket();
-			this.bridgeText.setText(
-				theme.muted(`Blender attach: handoff ready (expires in ${Math.ceil(ticket.expiresInMs / 1_000)}s)`),
-			);
+			const message = `Blender attach: handoff ready (expires in ${Math.ceil(ticket.expiresInMs / 1_000)}s)`;
+			this.bridgeStatusPlain = message;
+			this.bridgeText.setText(theme.muted(message));
 			this.render();
 		} catch (error) {
 			this.appendNotice(error instanceof Error ? error.message : "attach ticket unavailable");
@@ -380,7 +549,12 @@ export class DirectorTui {
 
 export async function runDirectorTui(options: RunDirectorTuiOptions): Promise<void> {
 	const session = await connectController(options);
-	const app = new DirectorTui(session, options.terminal, (signal) => reconnectController(options, signal));
+	const app = new DirectorTui(
+		session,
+		options.terminal,
+		(signal) => reconnectController(options, signal),
+		{ projectDirectory: options.projectDirectory, daemonArguments: options.daemonArguments },
+	);
 	const close = () => {
 		void app.exit();
 	};

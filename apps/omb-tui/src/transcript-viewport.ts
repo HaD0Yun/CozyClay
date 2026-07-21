@@ -86,7 +86,7 @@ function eventText(event: Exclude<DirectorTurnEvent, { type: "director_assistant
 		case "director_turn_started":
 			return `${theme.accent("❯")} ${theme.bold(event.prompt)}`;
 		case "director_tool_call_started":
-			return theme.muted(`  ⚙ ${event.tool_name} ${event.params_summary}`);
+			return theme.muted(`  ⚙ ${event.params_summary.startsWith(event.tool_name) ? event.params_summary : `${event.tool_name} ${event.params_summary}`}`);
 		case "director_tool_call_finished":
 			return event.is_error
 				? `  ${theme.err(`✗ ${event.tool_name}`)} ${theme.muted(truncatedDigest(event.result_digest))}`
