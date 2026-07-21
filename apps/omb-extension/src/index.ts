@@ -17,7 +17,8 @@ import {
 	commitCameraPlanMutation,
 	commitStageSceneMutation,
 	createDirectorProjectStore,
-	DIRECTOR_PROMPT,
+	DIRECTOR_PROMPT_CONTRACT,
+	DIRECTOR_PROMPT_FULL,
 } from "@oh-my-blender/director-runtime";
 import { randomUUID } from "node:crypto";
 import { BlenderBridge } from "./bridge.ts";
@@ -89,9 +90,20 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
 	pi.registerTool(createRenderQaFramesTool(bridge));
+	// Prime the director with the full directing craft on the first turn of the
+	// session, then drop to the short tool-contract reminder for later turns.
+	// The domain knowledge is expensive context; once the model has read it on
+	// turn one it carries forward in the conversation, so repeating it every
+	// turn would waste context window linearly.
+	let directorPrimed = false;
 	pi.on("before_agent_start", (event) => ({
-		systemPrompt: `${event.systemPrompt}\n\n${DIRECTOR_PROMPT}`,
+		systemPrompt: `${event.systemPrompt}\n\n${
+			directorPrimed ? DIRECTOR_PROMPT_CONTRACT : DIRECTOR_PROMPT_FULL
+		}`,
 	}));
+	pi.on("agent_start", () => {
+		directorPrimed = true;
+	});
 
 	// Reflect Blender bridge connection state in the Pi footer so the user can
 	// see whether the director is attached to a live Blender peer. The add-on
