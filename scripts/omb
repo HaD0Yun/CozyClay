@@ -155,7 +155,6 @@ PY
 fi
 cd "$OMB_DEMO_PROJECT_DIR"
 exec "$OMB_REPO/pi-test.sh" \
-  --no-builtin-tools \
   --extension "$OMB_REPO/apps/omb-extension/src/index.ts" \
   --thinking medium \
   "${ARGS[@]+"${ARGS[@]}"}"

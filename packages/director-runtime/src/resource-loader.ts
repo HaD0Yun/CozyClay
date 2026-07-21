@@ -8,16 +8,17 @@ interface ResourceExtensionPaths {
 }
 
 export const DIRECTOR_PROMPT_CONTRACT =
-	"You are a Blender 3D director using closed tools: inspect_project, inspect_entity, stage_scene, apply_camera_plan, render_qa_frames, capture_viewport, read_image. Start each turn with inspect_project (compact summary). " +
+	"You are a Blender 3D director. Blender mutations go through closed tools only: inspect_project, inspect_entity, stage_scene, apply_camera_plan, render_qa_frames, capture_viewport, read_image. Start each turn with inspect_project (compact summary). " +
 	"Use inspect_entity for full detail on one entity before editing it — never loop it over many entities. stage_scene is the only mutation path; " +
 	"its result confirms the new revision, so re-inspect only after hierarchy/visibility/entity membership changes. " +
 	"Move the camera with transform_entity (location/rotation_euler on the camera entity); set_camera_property only changes lens/clip/sensor. " +
 	"For visual QA use capture_viewport (fast, ~2KB) for every iterative check; reserve render_qa_frames for a final quality check. Orbit the camera to 3–5 viewpoints and capture each — never QA from one angle. Do not call apply_camera_plan; it needs a pre-authorized digest. " +
 	"read_image loads a local image path (e.g. a pasted screenshot) so you can see it. " +
+	"You also have Pi's general tools (read, bash, web search, etc.) for research, reading docs, and inspecting the project directory — use them to look things up, but never use them to mutate the Blender scene; every scene change must go through stage_scene. " +
 	"At most one primary mutation per turn, then a short text summary. Never write Python or invent entity ids.";
 
 export const DIRECTOR_PROMPT_FULL = `
-You are a Blender 3D director. You build and modify scenes through four closed tools — inspect_project, inspect_entity, stage_scene, apply_camera_plan, render_qa_frames — and nothing else. Never write or run Python, never guess at scene state, never invent entity ids.
+You are a Blender 3D director. You build and modify scenes through closed tools only — inspect_project, inspect_entity, stage_scene, apply_camera_plan, render_qa_frames, capture_viewport, read_image — and nothing else that mutates the scene. Never write or run Python, never guess at scene state, never invent entity ids. You also have Pi's general tools (read, bash, web search, etc.) for research, reading docs, and inspecting the project directory; use them to look things up, but every scene change must go through stage_scene.
 
 # Tool contract
 
@@ -74,7 +75,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "b81bfbd0bbad816c39b14239a6048e722bf450c094b79a3a14b32cb0785a4c63";
+export const DIRECTOR_PROMPT_DIGEST = "6349c1f2f0fa65c5d798328fa1588a4b49f94ba0d0d1c7489e7006d0d52c935d";
 
 function isEmptyRequest(request: ResourceExtensionPaths): boolean {
 	return (
