@@ -9,6 +9,16 @@ set -euo pipefail
 OMB_REPO="${OMB_REPO:-/Users/yun/blenderPi/oh-my-blender}"
 export OMB_DEMO_PROJECT_DIR="${OMB_PROJECT_DIR:-$PWD}"
 
+# A project is a dedicated folder. Refuse to initialize sensitive roots.
+case "$OMB_DEMO_PROJECT_DIR" in
+  "$HOME"|"/"|"/Users"|"/tmp")
+    echo "omb: refusing to use $OMB_DEMO_PROJECT_DIR as a project directory." >&2
+    echo "omb: cd into (or create) a project folder first, e.g.:" >&2
+    echo "omb:   mkdir -p ~/blenderPi/my-scene && cd ~/blenderPi/my-scene && omb" >&2
+    exit 1
+    ;;
+esac
+
 LAUNCH_BLENDER=1
 ARGS=()
 for arg in "$@"; do
@@ -48,9 +58,22 @@ if [[ "$LAUNCH_BLENDER" == "1" ]]; then
     echo "omb: blender not found; set OMB_BLENDER_EXECUTABLE or pass --no-blender" >&2
     exit 1
   fi
-  # One Blender per project: skip if one is already open on this project dir.
-  if ! pgrep -f "Blender.*$OMB_DEMO_PROJECT_DIR" > /dev/null 2>&1 && \
-     ! { [[ -n "$(ls "$OMB_DEMO_PROJECT_DIR"/*.blend 2>/dev/null)" ]] && pgrep -lf Blender | grep -qF "$(basename "$OMB_DEMO_PROJECT_DIR")"; }; then
+  # One Blender per project: the attach script writes .omb-blender.pid; reuse
+  # only when that pid is a live Blender. (Blender holds no file handle on its
+  # .blend, so lsof/pgrep-based detection misfires.)
+  BLENDER_OPEN=0
+  PIDFILE="$OMB_DEMO_PROJECT_DIR/.omb-blender.pid"
+  if [[ -f "$PIDFILE" ]]; then
+    BLENDER_PID="$(head -1 "$PIDFILE" 2>/dev/null || true)"
+    if [[ "$BLENDER_PID" =~ ^[0-9]+$ ]] && ps -p "$BLENDER_PID" -o comm= 2>/dev/null | grep -qi blender; then
+      BLENDER_OPEN=1
+    else
+      rm -f "$PIDFILE"
+    fi
+  fi
+  if [[ "$BLENDER_OPEN" == "1" ]]; then
+    echo "omb: Blender already has this project open - reusing it"
+  else
     LOG="/tmp/omb-blender-$(basename "$OMB_DEMO_PROJECT_DIR").log"
     OMB_PROJECT_DIR="$OMB_DEMO_PROJECT_DIR" OMB_REPO="$OMB_REPO" \
       nohup "$BLENDER" --python "$OMB_REPO/scripts/blender_attach.py" > "$LOG" 2>&1 &
@@ -59,14 +82,17 @@ if [[ "$LAUNCH_BLENDER" == "1" ]]; then
   # Fresh project: wait for Blender's initialize_project to seed .omb/project.json
   # before the TUI spawns the daemon (pre-listen project binding).
   if [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
-    for _ in $(seq 1 60); do
+    echo "omb: waiting for Blender to initialize the project in $OMB_DEMO_PROJECT_DIR ..."
+    for i in $(seq 1 60); do
       [[ -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]] && break
+      (( i % 10 == 0 )) && echo "omb: still waiting (${i}s)"
       sleep 1
     done
     if [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
-      echo "omb: Blender did not initialize the project in 60s; see $LOG" >&2
+      echo "omb: Blender did not initialize the project in 60s; see ${LOG:-the Blender log}" >&2
       exit 1
     fi
+    echo "omb: project initialized - starting the director"
   fi
 elif [[ ! -f "$OMB_DEMO_PROJECT_DIR/.omb/project.json" ]]; then
   echo "omb: no .omb/project.json here and --no-blender given; run omb without --no-blender so Blender can initialize the project" >&2

@@ -45,6 +45,9 @@ def newest_blend() -> Path | None:
 
 def setup() -> None:
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
+    # Exact per-project liveness marker for the omb launcher's reuse check
+    # (Blender holds no file handle on its .blend, so lsof/pgrep are unusable).
+    (PROJECT_DIR / ".omb-blender.pid").write_text(str(os.getpid()), encoding="utf-8")
     project_file = PROJECT_DIR / ".omb" / "project.json"
     blend = newest_blend()
     if blend is not None:
