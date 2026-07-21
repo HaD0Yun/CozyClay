@@ -30,6 +30,7 @@ const rgba = () =>
 	]);
 const stableName = () => Type.String({ minLength: 1, maxLength: 256 });
 const primitiveType = () => Type.Union([Type.Literal("PLANE"), Type.Literal("CUBE"), Type.Literal("UV_SPHERE")]);
+const characterType = () => Type.Union([Type.Literal("Y_BOT"), Type.Literal("X_BOT")]);
 
 const AddPrimitiveSchema = exact({
 	op: Type.Literal("add_primitive"),
@@ -49,6 +50,23 @@ const AddPrimitiveRequestSchema = exact({
 	rotation: vector3(),
 	scale: positiveVector3(),
 	parent_id: Type.Optional(uuid()),
+});
+const AddCharacterSchema = exact({
+	op: Type.Literal("add_character"),
+	entity_id: uuid(),
+	character_type: characterType(),
+	name: stableName(),
+	location: vector3(),
+	rotation: vector3(),
+	scale: positiveVector3(),
+});
+const AddCharacterRequestSchema = exact({
+	op: Type.Literal("add_character"),
+	character_type: characterType(),
+	name: stableName(),
+	location: vector3(),
+	rotation: vector3(),
+	scale: positiveVector3(),
 });
 const SetMaterialColorSchema = exact({
 	op: Type.Literal("set_material_color"),
@@ -108,6 +126,7 @@ const TransformAssemblySchema = Type.Object(
 
 export const StageSceneOperationV1Schema = Type.Union([
 	AddPrimitiveSchema,
+	AddCharacterSchema,
 	SetMaterialColorSchema,
 	UpsertAreaLightSchema,
 	DeleteEntitySchema,
@@ -126,6 +145,7 @@ export const StageSceneRequestV1Schema = exact({
 	operations: Type.Array(
 		Type.Union([
 			AddPrimitiveRequestSchema,
+			AddCharacterRequestSchema,
 			SetMaterialColorSchema,
 			SetMaterialColorByNameRequestSchema,
 			UpsertAreaLightRequestSchema,
@@ -199,7 +219,8 @@ function validatePlanSemantics(plan: StageScenePlanV1): StageScenePlanV1 {
 				`add_primitive entity_id ${operation.entity_id} must differ from parent_id`,
 			);
 		}
-		if (operation.op !== "add_primitive" && operation.op !== "upsert_area_light") continue;
+		if (operation.op !== "add_primitive" && operation.op !== "upsert_area_light" && operation.op !== "add_character")
+			continue;
 		if (createdIds.has(operation.entity_id)) {
 			fail("STAGE_SCENE_ENTITY_ID_DUPLICATE", `entity_id ${operation.entity_id} is created more than once`);
 		}
@@ -243,6 +264,11 @@ export function canonicalizeStageScenePlan(input: unknown, allocateEntityId: () 
 	const idsByStableName = new Map<string, string>();
 	const allocatedOperations = request.operations.map((operation) => {
 		if (operation.op === "add_primitive") {
+			const entityId = allocateEntityId();
+			idsByStableName.set(operation.name, entityId);
+			return { ...operation, entity_id: entityId };
+		}
+		if (operation.op === "add_character") {
 			const entityId = allocateEntityId();
 			idsByStableName.set(operation.name, entityId);
 			return { ...operation, entity_id: entityId };

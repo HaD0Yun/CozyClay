@@ -38,7 +38,8 @@ export const createStageSceneProjectStore = (rootDir: string): StageSceneRevisio
 
 function validateEntityIdentities(plan: StageScenePlanV1, candidate: StageSceneMutationCandidate): void {
 	const namedOperations = plan.operations.filter(
-		(operation) => operation.op === "add_primitive" || operation.op === "upsert_area_light",
+		(operation) =>
+			operation.op === "add_primitive" || operation.op === "upsert_area_light" || operation.op === "add_character",
 	);
 	if (candidate.entity_identities.length !== namedOperations.length) {
 		throw new Error("INVALID_MUTATION_RESULT: entity identity mapping must cover every named operation");
@@ -69,17 +70,9 @@ function isPreparedCandidate(input: unknown): input is PreparedMutationCandidate
 }
 
 export async function commitStageSceneMutation(
-	...debugArgs: Parameters<typeof commitStageSceneMutationInner>
+	...args: Parameters<typeof commitStageSceneMutationInner>
 ): ReturnType<typeof commitStageSceneMutationInner> {
-	try {
-		return await commitStageSceneMutationInner(...debugArgs);
-	} catch (error) {
-		(await import("node:fs")).appendFileSync(
-			"/tmp/omb-stage-debug.txt",
-			String((error as Error)?.stack ?? error) + "\n---\n",
-		);
-		throw error;
-	}
+	return await commitStageSceneMutationInner(...args);
 }
 async function commitStageSceneMutationInner(
 	store: StageSceneRevisionStore,

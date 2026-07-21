@@ -170,3 +170,79 @@ test("request-side callers cannot choose an add_primitive entity ID", () => {
 			error instanceof StageSceneValidationError && error.code === "INVALID_STAGE_SCENE_REQUEST_SCHEMA",
 	);
 });
+
+test("parses add_character plans and allocates request-side entity IDs", () => {
+	const plan = parseStageScenePlan({
+		schema_version: 1,
+		expected_revision_id: "a".repeat(64),
+		operations: [
+			{
+				op: "add_character",
+				entity_id: IDS[0],
+				character_type: "Y_BOT",
+				name: "Fighter One",
+				location: [1, 0, 0],
+				rotation: [0, 0, 0],
+				scale: [1, 1, 1],
+			},
+		],
+	});
+	assert.equal(plan.operations[0]?.op, "add_character");
+
+	let allocated = 0;
+	const canonical = canonicalizeStageScenePlan(
+		{
+			schema_version: 1,
+			expected_revision_id: "a".repeat(64),
+			operations: [
+				{
+					op: "add_character",
+					character_type: "X_BOT",
+					name: "Fighter Two",
+					location: [-1, 0, 0],
+					rotation: [0, 0, 0],
+					scale: [1, 1, 1],
+				},
+			],
+		},
+		() => {
+			allocated++;
+			return IDS[1];
+		},
+	);
+	assert.equal(allocated, 1);
+	const operation = canonical.operations[0];
+	assert.equal(operation?.op === "add_character" && operation.entity_id, IDS[1]);
+});
+
+test("rejects unknown character types and duplicate character identities", () => {
+	const character = (entityId: string) => ({
+		op: "add_character",
+		entity_id: entityId,
+		character_type: "Y_BOT",
+		name: "Fighter One",
+		location: [0, 0, 0],
+		rotation: [0, 0, 0],
+		scale: [1, 1, 1],
+	});
+	assert.throws(
+		() =>
+			parseStageScenePlan({
+				schema_version: 1,
+				expected_revision_id: "a".repeat(64),
+				operations: [{ ...character(IDS[0]), character_type: "Z_BOT" }],
+			}),
+		(error: unknown) =>
+			error instanceof StageSceneValidationError && error.code === "INVALID_STAGE_SCENE_PLAN_SCHEMA",
+	);
+	assert.throws(
+		() =>
+			parseStageScenePlan({
+				schema_version: 1,
+				expected_revision_id: "a".repeat(64),
+				operations: [character(IDS[0]), character(IDS[0])],
+			}),
+		(error: unknown) =>
+			error instanceof StageSceneValidationError && error.code === "STAGE_SCENE_ENTITY_ID_DUPLICATE",
+	);
+});

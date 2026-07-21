@@ -1,5 +1,7 @@
 # Exact archive-root paths shipped in the Blender Extension.
 __init__.py
+assets/characters/x-bot-tpose.fbx
+assets/characters/y-bot-tpose.fbx
 blender_manifest.toml
 camera_plan.py
 canonical.py

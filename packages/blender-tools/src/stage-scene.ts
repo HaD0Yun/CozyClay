@@ -33,7 +33,7 @@ export function createStageSceneTool(bridge: StageSceneBridge) {
 		name: "stage_scene",
 		label: "stage_scene",
 		description:
-			"Stage a closed scene-building transaction using primitives, one generated material per object, area lights, and deletion of OMB-owned entities only.",
+			"Stage a closed scene-building transaction using primitives, bundled rigged human characters (add_character with character_type Y_BOT or X_BOT - use these whenever a person, human, character, or actor is requested), one generated material per object, area lights, and deletion of OMB-owned entities only.",
 		parameters: StageSceneRequestV1Schema,
 		executionMode: "sequential",
 		execute: async (_toolCallId, request, signal, onUpdate) => {

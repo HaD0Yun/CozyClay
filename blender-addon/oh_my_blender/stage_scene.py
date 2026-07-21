@@ -25,6 +25,9 @@ _OPERATION_KEYS = {
         "op", "entity_id", "primitive_type", "name", "location", "rotation", "scale",
         "parent_id",
     },
+    "add_character": {
+        "op", "entity_id", "character_type", "name", "location", "rotation", "scale",
+    },
     "create_assembly": {"op", "name"},
     "set_parent": {"op", "entity_id", "parent_id"},
     "transform_assembly": {
@@ -38,6 +41,10 @@ _OPERATION_KEYS = {
     "delete_entity": {"op", "entity_id"},
 }
 _PRIMITIVES = {"PLANE", "CUBE", "UV_SPHERE"}
+_CHARACTERS = {
+    "Y_BOT": "y-bot-tpose.fbx",
+    "X_BOT": "x-bot-tpose.fbx",
+}
 
 
 class StageSceneError(RuntimeError):
@@ -212,6 +219,13 @@ def parse_stage_scene_plan(value: object) -> dict:
             _vector(operation.get("location"), 3, f"operations[{index}].location")
             _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
             _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
+        elif operation_kind == "add_character":
+            if operation.get("character_type") not in _CHARACTERS:
+                _invalid(f"operations[{index}].character_type is unsupported")
+            _name(operation.get("name"), f"operations[{index}].name")
+            _vector(operation.get("location"), 3, f"operations[{index}].location")
+            _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
+            _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
         elif operation_kind == "set_material_color":
             _vector(operation.get("color"), 4, f"operations[{index}].color", unit=True)
         elif operation_kind == "upsert_area_light":
@@ -223,7 +237,7 @@ def parse_stage_scene_plan(value: object) -> dict:
             _vector(operation.get("color"), 3, f"operations[{index}].color", unit=True)
             _number(operation.get("size"), f"operations[{index}].size", positive=True)
 
-        if operation_kind in ("add_primitive", "upsert_area_light"):
+        if operation_kind in ("add_primitive", "upsert_area_light", "add_character"):
             if entity_id in created_ids:
                 raise StageSceneValidationError(
                     "STAGE_SCENE_ENTITY_ID_DUPLICATE",
@@ -304,6 +318,8 @@ def _destroy_object(scene_object: object) -> None:
             bpy.data.meshes.remove(data)
         elif object_type == "LIGHT":
             bpy.data.lights.remove(data)
+        elif object_type == "ARMATURE":
+            bpy.data.armatures.remove(data)
     for material in materials:
         if material.users == 0:
             bpy.data.materials.remove(material)
@@ -469,6 +485,99 @@ def _create_primitive(operation: dict, transaction: _StageTransaction, project_i
         scene_object.parent = parent
         scene_object.matrix_parent_inverse = parent.matrix_world.inverted()
     return scene_object
+
+def _derived_child_entity_id(root_entity_id: str, child_name: str) -> str:
+    """Deterministic UUIDv4-shaped id for a datablock imported under a character root."""
+    import hashlib
+
+    digest = hashlib.sha256(
+        f"{root_entity_id}\0{child_name}".encode("utf-8")
+    ).hexdigest()
+    variant = "89ab"[int(digest[16], 16) % 4]
+    return (
+        f"{digest[:8]}-{digest[8:12]}-4{digest[13:16]}-"
+        f"{variant}{digest[17:20]}-{digest[20:32]}"
+    )
+
+
+def _create_character(operation: dict, transaction: _StageTransaction, project_id: str):
+    """Append one bundled rigged character (armature + skinned meshes) as OMB-owned."""
+    from pathlib import Path
+
+    from mathutils import Euler
+
+    if _entity(operation["entity_id"]) is not None:
+        raise STAGE_SCENE_ENTITY_ID_EXISTS(
+            f"entity_id {operation['entity_id']} already exists"
+        )
+    if bpy.data.objects.get(operation["name"]) is not None:
+        raise STAGE_SCENE_STABLE_NAME_EXISTS(
+            f"stable name {operation['name']!r} already exists"
+        )
+    asset = (
+        Path(__file__).resolve().parent
+        / "assets" / "characters" / _CHARACTERS[operation["character_type"]]
+    )
+    if not asset.is_file():
+        raise StageSceneError(
+            f"CHARACTER_ASSET_MISSING: {asset.name} is not bundled with the add-on"
+        )
+    objects_before = set(bpy.data.objects)
+    materials_before = set(bpy.data.materials)
+    bpy.ops.wm.fbx_import(filepath=str(asset))
+    imported = [
+        scene_object
+        for scene_object in bpy.data.objects
+        if scene_object not in objects_before
+    ]
+    roots = [
+        scene_object
+        for scene_object in imported
+        if scene_object.parent is None or scene_object.parent in objects_before
+    ]
+    if len(roots) != 1 or roots[0].type != "ARMATURE":
+        for scene_object in imported:
+            _destroy_object(scene_object)
+        raise StageSceneError(
+            "CHARACTER_IMPORT_INVALID: bundled character must import exactly one armature root"
+        )
+    for material in bpy.data.materials:
+        if material not in materials_before:
+            transaction.created_materials.append(material)
+    root = roots[0]
+    transaction.created_objects.extend(imported)
+    root["omb.entity_id"] = operation["entity_id"]
+    root["omb.owned_project_id"] = project_id
+    root["omb.character_type"] = operation["character_type"]
+    root.name = operation["name"]
+    for child in imported:
+        if child is root:
+            continue
+        child["omb.entity_id"] = _derived_child_entity_id(
+            operation["entity_id"], child.name
+        )
+        child["omb.owned_project_id"] = project_id
+        child.name = f"{operation['name']} {child.name}"
+    # The bones manifest track requires every bone to carry an entity id;
+    # derive them from the root id so re-applying the same plan (rollback,
+    # replay) yields identical identities.
+    for bone in root.data.bones:
+        bone["omb.entity_id"] = _derived_child_entity_id(
+            operation["entity_id"], f"bone:{bone.name}"
+        )
+    # The FBX importer bakes unit conversion into the armature object
+    # (X+90deg rotation, 0.01 scale), so the requested transform composes
+    # with - never replaces - the imported base transform.
+    root.location = operation["location"]
+    root.rotation_mode = "XYZ"
+    base_rotation = root.rotation_euler.to_matrix()
+    extra_rotation = Euler(operation["rotation"], "XYZ").to_matrix()
+    root.rotation_euler = (extra_rotation @ base_rotation).to_euler("XYZ")
+    root.scale = [
+        float(root.scale[axis]) * operation["scale"][axis] for axis in range(3)
+    ]
+    return root
+
 
 
 def _create_assembly(operation: dict, transaction: _StageTransaction, project_id: str):
@@ -718,6 +827,8 @@ def apply_stage_scene_transaction(
             _check_abort(deadline, cancelled)
             if operation["op"] == "add_primitive":
                 _create_primitive(operation, transaction, project_id)
+            elif operation["op"] == "add_character":
+                _create_character(operation, transaction, project_id)
             elif operation["op"] == "create_assembly":
                 _create_assembly(operation, transaction, project_id)
             elif operation["op"] == "set_parent":
@@ -760,7 +871,7 @@ def apply_stage_scene_transaction(
                 "actual_name": objects_by_id[operation["entity_id"]]["name"],
             }
             for operation in plan["operations"]
-            if operation["op"] in ("add_primitive", "upsert_area_light")
+            if operation["op"] in ("add_primitive", "upsert_area_light", "add_character")
         ]
         result = {
             "expected_revision_id": plan["expected_revision_id"],
