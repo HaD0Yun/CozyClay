@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover
 
 
 PROFILE_VERSION = "omb-qa-png-v1"
-PROFILE_BLENDER_VERSION = (5, 1, 2)
+PROFILE_BLENDER_VERSION = (5, 2, 0)
 WIDTH = 640
 HEIGHT = 360
 MAX_FRAMES = 12
@@ -193,7 +193,7 @@ def _restore_scope(scene: object, worlds: dict[str, object], key: str, values: d
 def _configure_profile(scene: object, output_path: Path) -> object:
     if tuple(bpy.app.version) != PROFILE_BLENDER_VERSION:
         raise RenderQaError(
-            "omb-qa-png-v1 requires Blender 5.1.2; "
+            "omb-qa-png-v1 requires Blender 5.2.0; "
             f"running {bpy.app.version_string}"
         )
     render = scene.render

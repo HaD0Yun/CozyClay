@@ -540,7 +540,7 @@ def _scene_hash_preimage(manifest: dict) -> dict:
     preimage = {
         key: value
         for key, value in manifest.items()
-        if key not in ("revisionId", "sceneHash", "selectedEntityIds")
+        if key not in ("revisionId", "sceneHash", "selectedEntityIds", "blenderVersion")
     }
     if manifest.get("schemaVersion") == 4:
         preimage = copy.deepcopy(preimage)

@@ -48,7 +48,7 @@ describe("project manifest", () => {
 			selectedEntityIds: [],
 		};
 		const manifest = buildSceneManifestRevision(input);
-		const { selectedEntityIds: _selectedEntityIds, ...hashPreimage } = input;
+		const { selectedEntityIds: _selectedEntityIds, blenderVersion: _blenderVersion, ...hashPreimage } = input;
 		assert.equal(manifest.sceneHash, canonicalRevision(hashPreimage));
 		assert.equal(
 			manifest.revisionId,
@@ -65,8 +65,34 @@ describe("project manifest", () => {
 			revisionId: "different-placeholder",
 			sceneHash: "different-placeholder",
 		};
-		const { selectedEntityIds: _selection, ...sameDurablePreimage } = samePreimage;
+		const { selectedEntityIds: _selection, blenderVersion: _runtimeVersion, ...sameDurablePreimage } = samePreimage;
 		assert.equal(manifest.sceneHash, canonicalRevision(sameDurablePreimage));
+	});
+	it("keeps scene content addresses stable across Blender upgrades", () => {
+		const input = {
+			schemaVersion: 1 as const,
+			projectId: "00000000-0000-4000-8000-000000000000",
+			blenderVersion: "5.1.2",
+			scene: {
+				name: "Scene",
+				frameStart: 1,
+				frameEnd: 1,
+				fpsNumerator: 24,
+				fpsDenominator: 1,
+				activeCameraId: null,
+			},
+			render: { resolutionX: 1, resolutionY: 1, resolutionPercentage: 100 },
+			objects: [],
+			bones: [],
+			cameras: [],
+			lights: [],
+			markers: [],
+			selectedEntityIds: [],
+		};
+		assert.equal(
+			buildSceneManifestRevision(input).sceneHash,
+			buildSceneManifestRevision({ ...input, blenderVersion: "5.2.0 LTS" }).sceneHash,
+		);
 	});
 	it("strips a runtime-present revisionId/sceneHash before hashing, not just at the type level", () => {
 		const input = {

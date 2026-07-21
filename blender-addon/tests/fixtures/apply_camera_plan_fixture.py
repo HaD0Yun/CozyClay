@@ -27,8 +27,8 @@ from oh_my_blender.canonical import canonical_revision
 from oh_my_blender.fixture_registry import convert_ardy_plan_pose_to_blender
 from oh_my_blender.manifest import animation_fcurves, extract_scene_manifest_v2
 
-REVISION = "590ffc757e027eb7ffcfab9e53951314b75dfa1d3cfffa0e340f6f0b24b7d250"
-SCENE_HASH = "9a8c73b83e27e23b6a45be26a2768eb679ba4ca5b2731b6067b072878a98a0d7"
+REVISION = "100c68ea7353a0cd52506edc147decf8ec89b819ea60d528215383770e0d01a3"
+SCENE_HASH = "e724379134ccca985df4b3b4e129fc9a30653bf62e8d09279dd2a2780c51cccf"
 PROJECT_ID = "00000000-0000-4000-8000-00000000000a"
 SUBJECT_ID = "00000000-0000-4000-8000-000000000002"
 

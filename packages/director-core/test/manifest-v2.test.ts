@@ -77,7 +77,13 @@ describe("Architecture §6 / Snapshot v2 §2.6 canonical SceneManifestV2", () =>
 		const baseline = buildSceneManifestV2Revision(input());
 		const selectedInput = { ...input(), selectedEntityIds: [CAMERA_ID] };
 		const selected = buildSceneManifestV2Revision(selectedInput);
-		const { revisionId: _revisionId, sceneHash: _sceneHash, selectedEntityIds: _selection, ...preimage } = selected;
+		const {
+			revisionId: _revisionId,
+			sceneHash: _sceneHash,
+			selectedEntityIds: _selection,
+			blenderVersion: _blenderVersion,
+			...preimage
+		} = selected;
 		assert.equal(selected.sceneHash, canonicalRevision(preimage));
 		assert.equal(selected.sceneHash, baseline.sceneHash);
 		assert.equal(selected.revisionId, baseline.revisionId);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "projectId": "00000000-0000-4000-8000-00000000000a",
-  "blenderVersion": "5.1.2",
+  "blenderVersion": "5.2.0 LTS",
   "scene": {
     "name": "Blender Generated V2 Parity",
     "frameStart": 1,
@@ -245,6 +245,6 @@
       ]
     }
   ],
-  "revisionId": "92d7e869a4e824244c1d86019f2d30cba4054142543a9de0414bd806b81abaa6",
-  "sceneHash": "559112581ea706ec04bffce0812c457d64236aaed05fdcf2fd8ac84a25540a35"
+  "revisionId": "4980333b4c20af4822ac222977ae82108fd637c719110f8a439501e37c26c7ab",
+  "sceneHash": "6639e6f51d566f8ef2cf2c7384d2e71bd66e3d5d17bb849a398cf8d38c2d4428"
 }
