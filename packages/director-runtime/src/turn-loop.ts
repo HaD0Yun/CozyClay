@@ -547,8 +547,25 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 				if (publicationFailure !== undefined) throw publicationFailure;
 				if (streamContractFailure !== undefined) throw streamContractFailure;
 				if (promptError !== undefined) throw promptError;
+				// A cancelled turn must reject even when the provider stream
+				// settled cleanly before the abort was observed; previously the
+				// strict phase contract rejected these runs by accident.
+				if (runOptions.signal.aborted) {
+					throw new DOMException("The operation was aborted.", "AbortError");
+				}
 				if (state.violation !== undefined) throw state.violation;
-				if (state.phase !== "verification_inspected" && state.phase !== "rendered" && state.phase !== "repaired") {
+				// The safety invariant is "every mutation is verified", not "every
+				// turn inspects twice": chat-only ("initial") and read-only
+				// ("initial_inspected") turns may end without a verification
+				// inspect because nothing changed. A turn that mutated
+				// ("primary_mutated") still fails closed here.
+				if (
+					state.phase !== "initial" &&
+					state.phase !== "initial_inspected" &&
+					state.phase !== "verification_inspected" &&
+					state.phase !== "rendered" &&
+					state.phase !== "repaired"
+				) {
 					throw new DirectorLoopContractError("DIRECTOR_LOOP_INCOMPLETE", `turn ended after ${state.phase}`);
 				}
 				const last = session.messages.at(-1);

@@ -412,4 +412,82 @@ describe("bounded director turn loop", () => {
 			loop.dispose();
 		}
 	});
+	it("completes a chat-only turn and a single-inspect read-only turn without verification", async () => {
+		const initial = await initialManifest();
+		const configured = await runtime([
+			fauxAssistantMessage("Hi! Ask me to stage, light, or shoot something."),
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("The scene holds the exported fixture objects; nothing was changed."),
+		]);
+		const loop = createDirectorTurnLoop({
+			...configured,
+			bridge: {
+				inspectProject: async () => initial,
+				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
+				renderQaFrames: async () => ({
+					schema_version: 1,
+					revision_id: initial.revision,
+					profile_version: "omb-qa-png-v1",
+					frames: [],
+				}),
+			},
+		});
+		try {
+			const chat = await loop.run({
+				turnId: TURN_ID,
+				prompt: "hi",
+				expectedRevisionId: initial.revision,
+				signal: new AbortController().signal,
+			});
+			assert.match(chat.summary, /stage, light, or shoot/);
+			assert.equal(chat.resultingRevisionId, initial.revision);
+
+			const readOnly = await loop.run({
+				turnId: TURN_ID,
+				prompt: "what is in the scene?",
+				expectedRevisionId: initial.revision,
+				signal: new AbortController().signal,
+			});
+			assert.match(readOnly.summary, /nothing was changed/);
+			assert.equal(readOnly.resultingRevisionId, initial.revision);
+		} finally {
+			loop.dispose();
+		}
+	});
+	it("still fails closed when a mutation ends without its verification inspect", async () => {
+		const initial = await initialManifest();
+		const configured = await runtime([
+			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("stage_scene", stageRequest(initial.revision)), { stopReason: "toolUse" }),
+			fauxAssistantMessage("mutated but never verified"),
+		]);
+		const loop = createDirectorTurnLoop({
+			...configured,
+			bridge: {
+				inspectProject: async () => initial,
+				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
+				renderQaFrames: async () => ({
+					schema_version: 1,
+					revision_id: initial.revision,
+					profile_version: "omb-qa-png-v1",
+					frames: [],
+				}),
+			},
+		});
+		try {
+			await assert.rejects(
+				loop.run({
+					turnId: TURN_ID,
+					prompt: "mutate and bail",
+					expectedRevisionId: initial.revision,
+					signal: new AbortController().signal,
+				}),
+				/DIRECTOR_LOOP_INCOMPLETE/,
+			);
+		} finally {
+			loop.dispose();
+		}
+	});
 });
