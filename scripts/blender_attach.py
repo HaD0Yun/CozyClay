@@ -28,6 +28,9 @@ PROJECT_DIR_VALUE = os.environ.get("OMB_PROJECT_DIR")
 if not PROJECT_DIR_VALUE:
     raise RuntimeError("OMB_PROJECT_DIR is required")
 PROJECT_DIR = Path(PROJECT_DIR_VALUE).expanduser().resolve()
+# Interactive sessions get watch-mode pacing (scene builds visibly while a
+# plan applies); tests and headless runs stay unpaced unless they opt in.
+os.environ.setdefault("OMB_WATCH_MS", "150")
 sys.path.insert(0, str(REPO_ROOT / "blender-addon"))
 
 import oh_my_blender

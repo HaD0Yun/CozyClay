@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import time
 import unicodedata
@@ -636,6 +637,36 @@ def _check_abort(deadline: float | None, cancelled: Callable[[], bool]) -> None:
     if deadline is not None and time.monotonic() >= deadline:
         raise STAGE_SCENE_DEADLINE_EXCEEDED("stage_scene deadline elapsed")
 
+def _watch_pace_ms() -> int:
+    """Visual watch-mode pacing per applied operation, in milliseconds.
+
+    Purely presentational: paces viewport redraws while a plan is applied so
+    the scene builds up visibly. The durable commit stays atomic - a crash
+    mid-application rolls back to the base revision exactly as before.
+    Disabled headless, host-side, and unless OMB_WATCH_MS is set (the omb
+    launcher sets it for interactive sessions; tests run unpaced).
+    """
+    if bpy is None or bpy.app.background:
+        return 0
+    try:
+        value = int(os.environ.get("OMB_WATCH_MS", "0"))
+    except ValueError:
+        return 0
+    return min(max(value, 0), 1000)
+
+
+def _watch_step() -> None:
+    pace = _watch_pace_ms()
+    if pace == 0:
+        return
+    try:
+        bpy.context.view_layer.update()
+        bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+    except Exception:
+        return
+    time.sleep(pace / 1000.0)
+
+
 
 def apply_stage_scene_transaction(
     plan_value: object,
@@ -704,6 +735,7 @@ def apply_stage_scene_transaction(
                 _require_exclusive_datablocks(scene_object)
                 transaction.quarantine(scene_object)
             connection.ensure_mutation_connection(operation["op"])
+            _watch_step()
         bpy.context.view_layer.update()
         _check_abort(deadline, cancelled)
         connection.ensure_mutation_connection("before_verify")
