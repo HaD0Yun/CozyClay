@@ -78,7 +78,10 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		sessionManager: SessionManager.inMemory(cwd),
 		settingsManager: SettingsManager.inMemory({
 			compaction: { enabled: false },
-			retry: { enabled: false },
+			// Transient provider failures (observed with sol on complex builds)
+			// must not kill a director turn outright: two bounded retries cost
+			// at most ~3s of backoff against the 300s turn deadline.
+			retry: { enabled: true, maxRetries: 2, baseDelayMs: 1_000 },
 		}),
 	});
 
