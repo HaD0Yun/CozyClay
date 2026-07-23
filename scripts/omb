@@ -74,15 +74,47 @@ if [[ "$LAUNCH_BLENDER" == "1" ]]; then
       rm -f "$PIDFILE"
     fi
   fi
+  # Reuse guard: a live Blender may still hold a stale in-memory add-on (line 2
+  # of the pidfile records the version the attach script loaded). No external
+  # bridge exists to make a running Blender re-run the attach script, so refuse
+  # reuse: terminate our own launched Blender and fall through to a relaunch,
+  # which reinstalls the current add-on.
+  if [[ "$BLENDER_OPEN" == "1" ]]; then
+    REPO_ADDON_VERSION="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$OMB_REPO/blender-addon/oh_my_blender/blender_manifest.toml" 2>/dev/null | head -1 || true)"
+    if [[ -z "$REPO_ADDON_VERSION" ]]; then
+      echo "omb: cannot read add-on version from blender_manifest.toml (repo checkout broken?)" >&2
+      exit 1
+    fi
+    RECORDED_ADDON_VERSION="$(sed -n '2p' "$PIDFILE" 2>/dev/null || true)"
+    if [[ "$RECORDED_ADDON_VERSION" != "$REPO_ADDON_VERSION" ]]; then
+      echo "omb: Blender is running an outdated add-on (v${RECORDED_ADDON_VERSION:-unknown} != v$REPO_ADDON_VERSION) - relaunching Blender with the current add-on"
+      kill "$BLENDER_PID" 2>/dev/null || true
+      # A zombie (state Z) is already dead; only a live state counts as running.
+      for i in $(seq 1 10); do
+        STATE="$(ps -p "$BLENDER_PID" -o state= 2>/dev/null | tr -d ' ')"
+        if [[ -z "$STATE" || "$STATE" == Z* ]]; then break; fi
+        sleep 1
+      done
+      STATE="$(ps -p "$BLENDER_PID" -o state= 2>/dev/null | tr -d ' ')"
+      if [[ -n "$STATE" && "$STATE" != Z* ]]; then
+        kill -9 "$BLENDER_PID" 2>/dev/null || true
+        sleep 1
+      fi
+      rm -f "$PIDFILE"
+      BLENDER_OPEN=0
+    fi
+  fi
   if [[ "$BLENDER_OPEN" == "1" ]]; then
     echo "omb: Blender already has this project open - reusing it"
   else
     LOG="$OMB_DEMO_PROJECT_DIR/.omb-blender-attach.log"
-    if [[ "$(uname)" == "Darwin" ]]; then
+    if [[ "$(uname)" == "Darwin" && -z "${OMB_BLENDER_EXECUTABLE:-}" ]]; then
       # LaunchServices keeps GUI apps alive regardless of the launching
       # session (nohup/tmux-spawned Blender gets reaped by macOS when the
       # caller is not the Aqua login session). Env does not pass through
       # `open`, so the attach script takes its options as script args.
+      # An explicit OMB_BLENDER_EXECUTABLE opts out of `open -a Blender`
+      # below so the chosen binary is the one that actually launches.
       open -n -a Blender --args --python "$OMB_REPO/scripts/blender_attach.py" \
         -- --omb-project-dir "$OMB_DEMO_PROJECT_DIR" --omb-repo "$OMB_REPO"
     else

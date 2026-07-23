@@ -7,10 +7,28 @@ from . import project_store, qa_image_display, ui_panel
 bl_info = {
     "name": "Oh My Blender",
     "author": "Oh My Blender",
-    "version": (0, 1, 0),
+    "version": (0, 4, 0),
     "blender": (5, 0, 0),
     "category": "Animation",
 }
+
+
+def _manifest_addon_version() -> str:
+    """Single version source of truth: blender_manifest.toml `version`."""
+    try:
+        import tomllib
+
+        path = os.path.join(os.path.dirname(__file__), "blender_manifest.toml")
+        with open(path, "rb") as handle:
+            version = tomllib.load(handle).get("version")
+        if isinstance(version, str) and version:
+            return version
+    except (OSError, ValueError):
+        pass
+    return ".".join(str(part) for part in bl_info["version"])
+
+
+ADDON_VERSION = _manifest_addon_version()
 
 try:  # Blender is intentionally absent from host-side unit tests.
     import bpy  # type: ignore
@@ -226,7 +244,7 @@ if bpy is not None:
                 connect_options = {
                     "cwd": project_directory,
                     "project_id": project_id,
-                    "addon_version": ".".join(str(part) for part in bl_info["version"]),
+                    "addon_version": ADDON_VERSION,
                     "blender_version": bpy.app.version_string,
                 }
                 pi_endpoint = os.path.join(

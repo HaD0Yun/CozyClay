@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { connect, type Socket } from "node:net";
 import test from "node:test";
 import { BlenderBridge } from "../src/bridge.ts";
+import { surfaceCapabilities } from "./addon-surface.ts";
 
 class BlenderClient {
 	private socket!: Socket;
@@ -41,7 +42,7 @@ class BlenderClient {
 			blender_version: "5.2.0 LTS",
 			project_id: projectId,
 			client_nonce: randomBytes(16).toString("base64url"),
-			capabilities: ["mutation_bridge_v2", "scene_manifest_v3", "transaction_commit_v2"],
+			capabilities: surfaceCapabilities(),
 		});
 	}
 

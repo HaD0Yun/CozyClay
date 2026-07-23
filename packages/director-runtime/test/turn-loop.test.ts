@@ -100,7 +100,11 @@ describe("bounded director turn loop", () => {
 				},
 				stageScene: async () => {
 					calls.push("stage_scene");
-					return { resulting_revision_id: CHILD_REVISION, entity_identities: [] };
+					return {
+						resulting_revision_id: CHILD_REVISION,
+						entity_identities: [],
+						applied_hand_shapes: [],
+					};
 				},
 				applyCameraPlan: async () => {
 					calls.push("apply_camera_plan");
@@ -196,7 +200,11 @@ describe("bounded director turn loop", () => {
 					inspections += 1;
 					return inspections === 1 ? initial : { ...initial, revision: CHILD_REVISION };
 				},
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
@@ -292,7 +300,11 @@ describe("bounded director turn loop", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
@@ -367,7 +379,11 @@ describe("bounded director turn loop", () => {
 					inspections += 1;
 					return inspections === 1 ? initial : { ...initial, revision: CHILD_REVISION };
 				},
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
@@ -423,7 +439,11 @@ describe("bounded director turn loop", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
@@ -466,7 +486,11 @@ describe("bounded director turn loop", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,

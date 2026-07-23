@@ -1,14 +1,27 @@
 """Closed StageScenePlanV1 validation and transactional Blender mutation."""
 
 from __future__ import annotations
+import ast
 
+import ctypes
+import gc
+import json
+import logging
+import platform
+import resource
 import math
 import os
 import re
 import time
+import struct
+import sys
+import zipfile
 import unicodedata
 import uuid
 from collections.abc import Callable
+from pathlib import Path
+
+from . import hand_shapes, motion_retarget
 
 try:  # Blender is intentionally absent from host-side unit tests.
     import bpy  # type: ignore
@@ -19,14 +32,18 @@ _UUID4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _HASH = re.compile(r"^[0-9a-f]{64}$")
+_MOTION_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _PLAN_KEYS = {"schema_version", "expected_revision_id", "operations"}
 _OPERATION_KEYS = {
     "add_primitive": {
         "op", "entity_id", "primitive_type", "name", "location", "rotation", "scale",
-        "parent_id",
+        "parent_id", "collection_name",
     },
     "add_character": {
         "op", "entity_id", "character_type", "name", "location", "rotation", "scale",
+    },
+    "add_camera": {
+        "op", "entity_id", "name", "location", "rotation", "lens",
     },
     "create_assembly": {"op", "name"},
     "set_parent": {"op", "entity_id", "parent_id"},
@@ -36,15 +53,42 @@ _OPERATION_KEYS = {
     "set_material_color": {"op", "entity_id", "color"},
     "upsert_area_light": {
         "op", "entity_id", "name", "location", "rotation", "scale",
-        "energy", "color", "size"
+        "energy", "color", "size", "collection_name",
     },
     "delete_entity": {"op", "entity_id"},
+    "adopt_entity": {"op", "entity_id"},
+    "transform_entity": {
+        "op", "entity_id", "location", "rotation_euler", "scale",
+    },
+    "set_light_property": {"op", "entity_id", "energy", "color", "size"},
+    "set_camera_property": {
+        "op", "entity_id", "lens", "clip_start", "clip_end",
+        "sensor_width", "sensor_height", "sensor_fit",
+    },
+    "set_render_settings": {
+        "op", "resolution_x", "resolution_y", "resolution_percentage",
+        "fps", "frame_start", "frame_end",
+    },
+    "rename_entity": {"op", "entity_id", "name"},
+    "apply_motion": {
+        "op", "entity_id", "motion_id", "hand_pose", "hand_shapes", "start_frame",
+    },
 }
 _PRIMITIVES = {"PLANE", "CUBE", "UV_SPHERE"}
+_SENSOR_FITS = {"AUTO", "HORIZONTAL", "VERTICAL", "SQUARE"}
+_RENDER_SETTING_BOUNDS = {
+    "resolution_x": (1, 65535),
+    "resolution_y": (1, 65535),
+    "resolution_percentage": (1, 100),
+    "fps": (1, 1000),
+    "frame_start": (-100000, 100000),
+    "frame_end": (-100000, 100000),
+}
 _CHARACTERS = {
     "Y_BOT": "y-bot-tpose.fbx",
     "X_BOT": "x-bot-tpose.fbx",
 }
+_HAND_POSES = {"relaxed", "open"}
 
 
 class StageSceneError(RuntimeError):
@@ -123,6 +167,14 @@ def _number(value: object, label: str, *, minimum: float | None = None, positive
     return float(value)
 
 
+def _integer(value: object, label: str, *, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        _invalid(f"{label} must be an integer")
+    if not minimum <= value <= maximum:
+        _invalid(f"{label} must be in {minimum}..{maximum}")
+    return value
+
+
 def _vector(value: object, size: int, label: str, *, unit: bool = False, positive: bool = False) -> list[float]:
     if not isinstance(value, list) or len(value) != size:
         _invalid(f"{label} must contain exactly {size} numbers")
@@ -168,8 +220,38 @@ def parse_stage_scene_plan(value: object) -> dict:
         if expected_keys is None:
             _invalid(f"operations[{index}].op is unsupported")
         raw_operation = dict(raw_operation)
-        if operation_kind == "add_primitive" and "parent_id" not in raw_operation:
-            expected_keys = expected_keys - {"parent_id"}
+        if operation_kind in ("add_primitive", "upsert_area_light"):
+            for optional_field in ("parent_id", "collection_name"):
+                if optional_field not in raw_operation:
+                    expected_keys = expected_keys - {optional_field}
+        elif operation_kind == "add_camera":
+            if "lens" not in raw_operation:
+                expected_keys = expected_keys - {"lens"}
+        elif operation_kind == "apply_motion":
+            if "hand_pose" in raw_operation and "hand_shapes" in raw_operation:
+                _invalid(
+                    f"operations[{index}].hand_pose and hand_shapes are mutually exclusive"
+                )
+            if "hand_shapes" in raw_operation:
+                requested = raw_operation["hand_shapes"]
+                if not isinstance(requested, dict):
+                    _invalid(
+                        f"operations[{index}].hand_shapes must contain exactly left, right, or both"
+                    )
+                if not set(requested) <= {"left", "right"}:
+                    _invalid(f"operations[{index}].hand_shapes contains unknown fields")
+                if not requested:
+                    _invalid(
+                        f"operations[{index}].hand_shapes must contain exactly left, right, or both"
+                    )
+                for side in ("left", "right"):
+                    if side in requested and requested[side] not in hand_shapes.PRESET_NAMES:
+                        _invalid(
+                            f"operations[{index}].hand_shapes.{side} is unsupported"
+                        )
+            for optional_field in ("hand_pose", "hand_shapes", "start_frame"):
+                if optional_field not in raw_operation:
+                    expected_keys = expected_keys - {optional_field}
         elif operation_kind == "transform_assembly":
             required = {"op", "assembly_id"}
             if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
@@ -193,6 +275,62 @@ def parse_stage_scene_plan(value: object) -> dict:
                     _invalid(
                         f"operations[{index}].{field} must be a vector, not null"
                     )
+        elif operation_kind == "transform_entity":
+            required = {"op", "entity_id"}
+            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
+                _invalid(
+                    f"operations[{index}] must contain {sorted(required)} "
+                    f"and only optional transform fields"
+                )
+            expected_keys = set(raw_operation)
+            transform_fields = [
+                field
+                for field in ("location", "rotation_euler", "scale")
+                if field in raw_operation
+            ]
+            if not transform_fields:
+                _invalid(
+                    f"operations[{index}] transform_entity must include at least "
+                    "one transform field"
+                )
+            for field in transform_fields:
+                if raw_operation[field] is None:
+                    _invalid(
+                        f"operations[{index}].{field} must be a vector, not null"
+                    )
+        elif operation_kind == "set_light_property":
+            required = {"op", "entity_id"}
+            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
+                _invalid(
+                    f"operations[{index}] must contain {sorted(required)} "
+                    f"and only optional light property fields"
+                )
+            expected_keys = set(raw_operation)
+            if not expected_keys - required:
+                _invalid(
+                    f"operations[{index}] set_light_property must include at least "
+                    "one property field"
+                )
+        elif operation_kind == "set_camera_property":
+            required = {"op", "entity_id"}
+            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
+                _invalid(
+                    f"operations[{index}] must contain {sorted(required)} "
+                    f"and only optional camera property fields"
+                )
+            expected_keys = set(raw_operation)
+            if not expected_keys - required:
+                _invalid(
+                    f"operations[{index}] set_camera_property must include at least "
+                    "one property field"
+                )
+        elif operation_kind == "set_render_settings":
+            if not set(raw_operation) <= expected_keys:
+                _invalid(
+                    f"operations[{index}] must contain 'op' "
+                    f"and only optional render setting fields"
+                )
+            expected_keys = set(raw_operation)
         operation = _exact(raw_operation, expected_keys, f"operations[{index}]")
         if operation_kind == "create_assembly":
             _name(operation.get("name"), f"operations[{index}].name")
@@ -204,6 +342,14 @@ def parse_stage_scene_plan(value: object) -> dict:
                     _vector(
                         operation[field], 3, f"operations[{index}].{field}",
                         positive=field == "scale",
+                    )
+            continue
+        if operation_kind == "set_render_settings":
+            for field, (minimum, maximum) in _RENDER_SETTING_BOUNDS.items():
+                if field in operation:
+                    _integer(
+                        operation[field], f"operations[{index}].{field}",
+                        minimum=minimum, maximum=maximum,
                     )
             continue
         entity_id = _uuid(operation.get("entity_id"), f"operations[{index}].entity_id")
@@ -219,6 +365,11 @@ def parse_stage_scene_plan(value: object) -> dict:
             _vector(operation.get("location"), 3, f"operations[{index}].location")
             _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
             _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
+            if "collection_name" in operation:
+                _name(
+                    operation["collection_name"],
+                    f"operations[{index}].collection_name",
+                )
         elif operation_kind == "add_character":
             if operation.get("character_type") not in _CHARACTERS:
                 _invalid(f"operations[{index}].character_type is unsupported")
@@ -226,6 +377,12 @@ def parse_stage_scene_plan(value: object) -> dict:
             _vector(operation.get("location"), 3, f"operations[{index}].location")
             _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
             _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
+        elif operation_kind == "add_camera":
+            _name(operation.get("name"), f"operations[{index}].name")
+            _vector(operation.get("location"), 3, f"operations[{index}].location")
+            _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
+            if "lens" in operation:
+                _number(operation["lens"], f"operations[{index}].lens", positive=True)
         elif operation_kind == "set_material_color":
             _vector(operation.get("color"), 4, f"operations[{index}].color", unit=True)
         elif operation_kind == "upsert_area_light":
@@ -236,8 +393,54 @@ def parse_stage_scene_plan(value: object) -> dict:
             _number(operation.get("energy"), f"operations[{index}].energy", minimum=0)
             _vector(operation.get("color"), 3, f"operations[{index}].color", unit=True)
             _number(operation.get("size"), f"operations[{index}].size", positive=True)
+            if "collection_name" in operation:
+                _name(
+                    operation["collection_name"],
+                    f"operations[{index}].collection_name",
+                )
+        elif operation_kind == "transform_entity":
+            for field in ("location", "rotation_euler", "scale"):
+                if field in operation:
+                    _vector(
+                        operation[field], 3, f"operations[{index}].{field}",
+                        positive=field == "scale",
+                    )
+        elif operation_kind == "set_light_property":
+            if "energy" in operation:
+                _number(operation["energy"], f"operations[{index}].energy", minimum=0)
+            if "color" in operation:
+                _vector(operation["color"], 3, f"operations[{index}].color", unit=True)
+            if "size" in operation:
+                _number(operation["size"], f"operations[{index}].size", positive=True)
+        elif operation_kind == "set_camera_property":
+            for field in (
+                "lens", "clip_start", "clip_end", "sensor_width", "sensor_height",
+            ):
+                if field in operation:
+                    _number(
+                        operation[field], f"operations[{index}].{field}",
+                        positive=True,
+                    )
+            if "sensor_fit" in operation and operation["sensor_fit"] not in _SENSOR_FITS:
+                _invalid(f"operations[{index}].sensor_fit is unsupported")
+        elif operation_kind == "rename_entity":
+            _name(operation.get("name"), f"operations[{index}].name")
+        elif operation_kind == "apply_motion":
+            motion_id = operation.get("motion_id")
+            if not isinstance(motion_id, str) or _MOTION_ID.fullmatch(motion_id) is None:
+                _invalid(
+                    f"operations[{index}].motion_id must be a lowercase "
+                    "[a-z0-9-] slug of at most 64 characters"
+                )
+            if "hand_pose" in operation and operation["hand_pose"] not in _HAND_POSES:
+                _invalid(f"operations[{index}].hand_pose is unsupported")
+            if "start_frame" in operation:
+                _integer(
+                    operation["start_frame"], f"operations[{index}].start_frame",
+                    minimum=-100000, maximum=100000,
+                )
 
-        if operation_kind in ("add_primitive", "upsert_area_light", "add_character"):
+        if operation_kind in ("add_primitive", "upsert_area_light", "add_character", "add_camera"):
             if entity_id in created_ids:
                 raise StageSceneValidationError(
                     "STAGE_SCENE_ENTITY_ID_DUPLICATE",
@@ -345,6 +548,8 @@ def _destroy_object(scene_object: object) -> None:
             bpy.data.meshes.remove(data)
         elif object_type == "LIGHT":
             bpy.data.lights.remove(data)
+        elif object_type == "CAMERA":
+            bpy.data.cameras.remove(data)
         elif object_type == "ARMATURE":
             bpy.data.armatures.remove(data)
     for material in materials:
@@ -361,14 +566,50 @@ class _StageTransaction:
         self.object_states: dict[object, dict] = {}
         self.material_states: dict[object, dict] = {}
         self.quarantined: dict[object, tuple[object, ...]] = {}
+        # Pre-existing foreign objects stamped with omb.owned_project_id by
+        # adopt_entity during this transaction; rollback removes the stamp.
+        self.adopted_objects: list[object] = []
         # entity_id -> collection name assigned at creation; used by set_parent
         # to keep children in the same collection as their parent.
         self.collection_by_entity: dict[str, str] = {}
         self.render_state: dict | None = None
+        # Object -> previously assigned action (or None); actions created by
+        # apply_motion during this transaction. Rollback restores the old
+        # action reference and removes now-orphaned created actions.
+        self.animation_states: dict[object, dict] = {}
+        self.created_actions: list[object] = []
+        self.active_camera = scene.camera
         self.selected = tuple(
             scene_object for scene_object in scene.objects if scene_object.select_get()
         )
         self.active = bpy.context.view_layer.objects.active
+
+    def capture_animation(
+        self, scene_object: object, pose_bone_names: tuple[str, ...] = ()
+    ) -> None:
+        if scene_object in self.animation_states:
+            return
+        animation_data = scene_object.animation_data
+        action_slot = (
+            animation_data.action_slot
+            if animation_data is not None and hasattr(animation_data, "action_slot")
+            else None
+        )
+        self.animation_states[scene_object] = {
+            "animation_data_existed": animation_data is not None,
+            "action": animation_data.action if animation_data is not None else None,
+            "action_slot": action_slot,
+            "pose": {
+                name: {
+                    "rotation_mode": scene_object.pose.bones[name].rotation_mode,
+                    "rotation_quaternion": tuple(
+                        scene_object.pose.bones[name].rotation_quaternion
+                    ),
+                    "location": tuple(scene_object.pose.bones[name].location),
+                }
+                for name in pose_bone_names
+            },
+        }
 
     def capture_object(self, scene_object: object) -> None:
         if scene_object in self.created_objects or scene_object in self.object_states:
@@ -442,6 +683,7 @@ class _StageTransaction:
             "fps_base": render.fps_base,
             "frame_start": scene.frame_start,
             "frame_end": scene.frame_end,
+            "frame_current": scene.frame_current,
         }
 
     def quarantine(self, scene_object: object) -> None:
@@ -491,6 +733,24 @@ class _StageTransaction:
                 material.node_tree.nodes["Principled BSDF"].inputs[
                     "Base Color"
                 ].default_value = state["base_color"]
+        if self.active_camera is None or self.active_camera.name in bpy.data.objects:
+            self.scene.camera = self.active_camera
+        for scene_object in self.adopted_objects:
+            if scene_object.get("omb.owned_project_id") is not None:
+                del scene_object["omb.owned_project_id"]
+        for scene_object, state in self.animation_states.items():
+            if scene_object.name not in bpy.data.objects:
+                continue
+            animation_data = scene_object.animation_data
+            if not state["animation_data_existed"]:
+                if animation_data is not None:
+                    scene_object.animation_data_clear()
+                continue
+            if animation_data is None:
+                animation_data = scene_object.animation_data_create()
+            animation_data.action = state["action"]
+            if hasattr(animation_data, "action_slot"):
+                animation_data.action_slot = state["action_slot"]
         if self.render_state is not None:
             scene = bpy.context.scene
             render = scene.render
@@ -501,6 +761,23 @@ class _StageTransaction:
             render.fps_base = self.render_state["fps_base"]
             scene.frame_start = self.render_state["frame_start"]
             scene.frame_end = self.render_state["frame_end"]
+            scene.frame_set(self.render_state["frame_current"])
+        for action in tuple(self.created_actions):
+            if action.name in bpy.data.actions and action.users == 0:
+                bpy.data.actions.remove(action)
+        bpy.context.view_layer.update()
+        # Restoring the action and current frame evaluates animation and can
+        # overwrite pose channels. Reapply the captured values only after that
+        # final dependency-graph evaluation so rollback is byte-for-byte exact.
+        for scene_object, state in self.animation_states.items():
+            if scene_object.name not in bpy.data.objects:
+                continue
+            for name, pose_state in state["pose"].items():
+                pose_bone = scene_object.pose.bones.get(name)
+                if pose_bone is not None:
+                    pose_bone.rotation_mode = pose_state["rotation_mode"]
+                    pose_bone.rotation_quaternion = pose_state["rotation_quaternion"]
+                    pose_bone.location = pose_state["location"]
         for scene_object in reversed(self.created_objects):
             if scene_object.name in bpy.data.objects:
                 _destroy_object(scene_object)
@@ -512,13 +789,40 @@ class _StageTransaction:
                 bpy.data.materials.remove(material)
         for scene_object in self.scene.objects:
             scene_object.select_set(scene_object in self.selected)
-        if self.active is not None and self.active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = self.active
+        bpy.context.view_layer.objects.active = (
+            self.active
+            if self.active is not None and self.active.name in bpy.data.objects
+            else None
+        )
 
     def finalize_deletions(self) -> None:
         for scene_object in tuple(self.quarantined):
-            if scene_object.name in bpy.data.objects:
+            try:
+                object_name = scene_object.name
+            except ReferenceError:
+                self.quarantined.pop(scene_object, None)
+                continue
+            if object_name in bpy.data.objects:
                 _destroy_object(scene_object)
+            self.quarantined.pop(scene_object, None)
+
+    def finalize_orphan_actions(self) -> None:
+        """Remove superseded actions created by repeated apply_motion operations."""
+        bound = {
+            scene_object.animation_data.action
+            for scene_object in self.animation_states
+            if scene_object.name in bpy.data.objects
+            and scene_object.animation_data is not None
+            and scene_object.animation_data.action is not None
+        }
+        for action in tuple(self.created_actions):
+            try:
+                is_registered = action.name in bpy.data.actions
+                users = action.users
+            except ReferenceError:
+                continue
+            if action not in bound and is_registered and users == 0:
+                bpy.data.actions.remove(action)
 
 
 def _create_primitive(operation: dict, transaction: _StageTransaction, project_id: str):
@@ -567,6 +871,30 @@ def _create_primitive(operation: dict, transaction: _StageTransaction, project_i
         scene_object.matrix_parent_inverse = parent.matrix_world.inverted()
     return scene_object
 
+
+def _create_camera(operation: dict, transaction: _StageTransaction, project_id: str):
+    if _entity(operation["entity_id"]) is not None:
+        raise STAGE_SCENE_ENTITY_ID_EXISTS(
+            f"entity_id {operation['entity_id']} already exists"
+        )
+    if bpy.data.objects.get(operation["name"]) is not None:
+        raise STAGE_SCENE_STABLE_NAME_EXISTS(
+            f"stable name {operation['name']!r} already exists"
+        )
+    camera = bpy.data.cameras.new(f"{operation['name']} Data")
+    scene_object = bpy.data.objects.new(operation["name"], camera)
+    scene_object["omb.entity_id"] = operation["entity_id"]
+    scene_object["omb.owned_project_id"] = project_id
+    scene_object.location = operation["location"]
+    scene_object.rotation_mode = "XYZ"
+    scene_object.rotation_euler = operation["rotation"]
+    if "lens" in operation:
+        camera.lens = operation["lens"]
+    transaction.scene.collection.objects.link(scene_object)
+    transaction.created_objects.append(scene_object)
+    transaction.scene.camera = scene_object
+    return scene_object
+
 def _derived_child_entity_id(root_entity_id: str, child_name: str) -> str:
     """Deterministic UUIDv4-shaped id for a datablock imported under a character root."""
     import hashlib
@@ -581,10 +909,37 @@ def _derived_child_entity_id(root_entity_id: str, child_name: str) -> str:
     )
 
 
+def _import_character_fbx(operators: object, filepath: str) -> None:
+    """Invoke the supported FBX importer, preferring Blender 5.x."""
+    missing_error = None
+    wm = getattr(operators, "wm", None)
+    modern = getattr(wm, "fbx_import", None) if wm is not None else None
+    if callable(modern):
+        try:
+            modern(filepath=filepath)
+        except AttributeError as error:
+            missing_error = error
+        else:
+            return
+    import_scene = getattr(operators, "import_scene", None)
+    legacy = (
+        getattr(import_scene, "fbx", None)
+        if import_scene is not None else None
+    )
+    if callable(legacy):
+        try:
+            legacy(filepath=filepath)
+        except AttributeError as error:
+            missing_error = error
+        else:
+            return
+    raise StageSceneError(
+        "CHARACTER_IMPORT_UNSUPPORTED: Blender FBX import operator is unavailable"
+    ) from missing_error
+
+
 def _create_character(operation: dict, transaction: _StageTransaction, project_id: str):
     """Append one bundled rigged character (armature + skinned meshes) as OMB-owned."""
-    from pathlib import Path
-
     from mathutils import Euler
 
     if _entity(operation["entity_id"]) is not None:
@@ -605,7 +960,7 @@ def _create_character(operation: dict, transaction: _StageTransaction, project_i
         )
     objects_before = set(bpy.data.objects)
     materials_before = set(bpy.data.materials)
-    bpy.ops.wm.fbx_import(filepath=str(asset))
+    _import_character_fbx(bpy.ops, str(asset))
     imported = [
         scene_object
         for scene_object in bpy.data.objects
@@ -816,6 +1171,39 @@ def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_
     return scene_object
 
 
+def _adopt_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    """Stamp a pre-existing non-OMB object as owned by this project.
+
+    The object must already carry the omb.entity_id issued by project
+    initialization or entity-ID repair; adopting only adds the ownership
+    stamp so every owned-entity operation (delete, transform, parent,
+    material) works on it afterwards. Re-adopting an object this project
+    already owns is an idempotent no-op.
+    """
+    scene_object = _entity(operation["entity_id"])
+    if scene_object is None:
+        raise STAGE_SCENE_TARGET_NOT_FOUND(
+            f"entity {operation['entity_id']} does not exist"
+        )
+    owner = scene_object.get("omb.owned_project_id")
+    if owner == project_id:
+        return
+    if owner is not None:
+        raise STAGE_SCENE_TARGET_NOT_OMB_OWNED(
+            f"entity {operation['entity_id']} is already owned by another project"
+        )
+    data = scene_object.data
+    if scene_object.library is not None or (
+        data is not None and data.library is not None
+    ):
+        raise STAGE_SCENE_SHARED_DATABLOCK(
+            f"entity {operation['entity_id']} uses a library-linked datablock"
+        )
+    _require_exclusive_datablocks(scene_object)
+    transaction.adopted_objects.append(scene_object)
+    scene_object["omb.owned_project_id"] = project_id
+
+
 def _transform_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
     scene_object = _require_owned_entity(operation["entity_id"], project_id)
     _require_exclusive_datablocks(scene_object)
@@ -903,6 +1291,917 @@ def _rename_entity(operation: dict, transaction: _StageTransaction, project_id: 
     scene_object.name = operation["name"]
 
 
+_MAX_MOTION_FILE_BYTES = 64 * 1024 * 1024
+_MAX_MOTION_PAYLOAD_BYTES = 96 * 1024 * 1024
+_MAX_NPY_HEADER_BYTES = 16 * 1024
+_MOTION_MEMBER_NAMES = {
+    "local_rot_mats.npy",
+    "posed_joints.npy",
+    "fps.npy",
+}
+
+
+def _motion_malformed(motion_id: str, message: str) -> None:
+    raise StageSceneError(f"APPLY_MOTION_MALFORMED: motion {motion_id} {message}")
+
+
+def _inspect_motion_member(archive, info, motion_id: str):
+    try:
+        with archive.open(info, "r") as member:
+            if member.read(6) != b"\x93NUMPY":
+                _motion_malformed(motion_id, f"{info.filename} has an invalid npy magic")
+            version = tuple(member.read(2))
+            if version == (1, 0):
+                header_length_bytes = member.read(2)
+                if len(header_length_bytes) != 2:
+                    raise EOFError("truncated npy header length")
+                header_length = struct.unpack("<H", header_length_bytes)[0]
+                encoding = "latin1"
+            elif version in ((2, 0), (3, 0)):
+                header_length_bytes = member.read(4)
+                if len(header_length_bytes) != 4:
+                    raise EOFError("truncated npy header length")
+                header_length = struct.unpack("<I", header_length_bytes)[0]
+                encoding = "utf-8" if version == (3, 0) else "latin1"
+            else:
+                _motion_malformed(
+                    motion_id,
+                    f"{info.filename} uses unsupported npy version {version}",
+                )
+            if header_length > _MAX_NPY_HEADER_BYTES:
+                _motion_malformed(
+                    motion_id,
+                    f"{info.filename} header exceeds {_MAX_NPY_HEADER_BYTES} bytes",
+                )
+            header_bytes = member.read(header_length)
+            if len(header_bytes) != header_length:
+                raise EOFError("truncated npy header")
+            header = ast.literal_eval(header_bytes.decode(encoding))
+            payload_offset = member.tell()
+    except (EOFError, OSError, UnicodeError, ValueError, SyntaxError) as error:
+        _motion_malformed(motion_id, f"has an invalid {info.filename} header: {error}")
+    if not isinstance(header, dict) or set(header) != {
+        "descr", "fortran_order", "shape"
+    }:
+        _motion_malformed(motion_id, f"{info.filename} has invalid header fields")
+    shape = header["shape"]
+    fortran_order = header["fortran_order"]
+    descr = header["descr"]
+    if (
+        not isinstance(shape, tuple)
+        or any(
+            isinstance(size, bool) or not isinstance(size, int) or size < 0
+            for size in shape
+        )
+    ):
+        _motion_malformed(motion_id, f"{info.filename} has an invalid shape")
+    if not isinstance(fortran_order, bool):
+        _motion_malformed(motion_id, f"{info.filename} has invalid order metadata")
+    if fortran_order:
+        _motion_malformed(motion_id, f"{info.filename} must use C order")
+    if not isinstance(descr, str):
+        _motion_malformed(motion_id, f"{info.filename} must have a scalar dtype")
+    dtype_match = re.fullmatch(r"([<>=|])([A-Za-z?])([1248])", descr)
+    if dtype_match is None:
+        _motion_malformed(motion_id, f"{info.filename} has an invalid dtype")
+    byte_order, dtype_kind, itemsize_text = dtype_match.groups()
+    itemsize = int(itemsize_text)
+    return shape, dtype_kind, itemsize, byte_order, payload_offset
+
+
+def _is_supported_motion_dtype(kind: str, itemsize: int, byte_order: str) -> bool:
+    return (
+        (
+            (kind in ("i", "u") and itemsize in (1, 2, 4, 8))
+            or (kind == "f" and itemsize in (2, 4, 8))
+        )
+        and (byte_order != "|" or itemsize == 1)
+    )
+
+
+def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
+    motion_id = path.stem if motion_id is None else motion_id
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            infos = archive.infolist()
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                _motion_malformed(motion_id, "contains duplicate members")
+            if set(names) != _MOTION_MEMBER_NAMES:
+                _motion_malformed(
+                    motion_id,
+                    f"must contain exactly {sorted(_MOTION_MEMBER_NAMES)}",
+                )
+            if any(
+                info.is_dir()
+                or info.filename != Path(info.filename).name
+                or "\\" in info.filename
+                for info in infos
+            ):
+                _motion_malformed(motion_id, "contains an unsafe member name")
+            declared_size = sum(info.file_size for info in infos)
+            if declared_size > _MAX_MOTION_PAYLOAD_BYTES:
+                _motion_malformed(
+                    motion_id,
+                    f"declares more than {_MAX_MOTION_PAYLOAD_BYTES} uncompressed bytes",
+                )
+
+            by_name = {info.filename: info for info in infos}
+            (
+                rotations_shape,
+                rotations_kind,
+                rotations_itemsize,
+                rotations_byte_order,
+                rotations_offset,
+            ) = _inspect_motion_member(
+                archive, by_name["local_rot_mats.npy"], motion_id
+            )
+            (
+                joints_shape,
+                joints_kind,
+                joints_itemsize,
+                joints_byte_order,
+                joints_offset,
+            ) = _inspect_motion_member(
+                archive, by_name["posed_joints.npy"], motion_id
+            )
+            fps_shape, fps_kind, fps_itemsize, fps_byte_order, fps_offset = (
+                _inspect_motion_member(archive, by_name["fps.npy"], motion_id)
+            )
+            if (
+                len(rotations_shape) != 4
+                or rotations_shape[1:] != (27, 3, 3)
+                or not 1 <= rotations_shape[0] <= motion_retarget.MAX_FRAMES
+            ):
+                _motion_malformed(
+                    motion_id, "local_rot_mats.npy must have shape (F, 27, 3, 3)"
+                )
+            if joints_shape != (rotations_shape[0], 27, 3):
+                _motion_malformed(
+                    motion_id, "posed_joints.npy must have shape (F, 27, 3)"
+                )
+            if not _is_supported_motion_dtype(
+                rotations_kind, rotations_itemsize, rotations_byte_order
+            ):
+                _motion_malformed(
+                    motion_id, "local_rot_mats.npy must have a real numeric dtype"
+                )
+            if not _is_supported_motion_dtype(
+                joints_kind, joints_itemsize, joints_byte_order
+            ):
+                _motion_malformed(
+                    motion_id, "posed_joints.npy must have a real numeric dtype"
+                )
+            if (
+                fps_shape != ()
+                or fps_kind not in ("i", "u")
+                or not _is_supported_motion_dtype(
+                    fps_kind, fps_itemsize, fps_byte_order
+                )
+            ):
+                _motion_malformed(
+                    motion_id, "fps.npy must be a non-boolean integral scalar"
+                )
+            for info, shape, itemsize, payload_offset in (
+                (
+                    by_name["local_rot_mats.npy"],
+                    rotations_shape,
+                    rotations_itemsize,
+                    rotations_offset,
+                ),
+                (
+                    by_name["posed_joints.npy"],
+                    joints_shape,
+                    joints_itemsize,
+                    joints_offset,
+                ),
+                (by_name["fps.npy"], fps_shape, fps_itemsize, fps_offset),
+            ):
+                if payload_offset + math.prod(shape) * itemsize != info.file_size:
+                    _motion_malformed(
+                        motion_id,
+                        f"{info.filename} size does not match its header",
+                    )
+            with archive.open(by_name["fps.npy"], "r") as fps_member:
+                fps_member.read(fps_offset)
+                fps_bytes = fps_member.read(fps_itemsize)
+            byte_order = (
+                "little"
+                if fps_byte_order == "<"
+                or fps_byte_order == "|"
+                or (fps_byte_order == "=" and sys.byteorder == "little")
+                else "big"
+            )
+            fps = int.from_bytes(
+                fps_bytes,
+                byteorder=byte_order,
+                signed=fps_kind == "i",
+            )
+            if not motion_retarget.FPS_BOUNDS[0] <= fps <= motion_retarget.FPS_BOUNDS[1]:
+                _motion_malformed(
+                    motion_id,
+                    f"fps must be in {motion_retarget.FPS_BOUNDS[0]}.."
+                    f"{motion_retarget.FPS_BOUNDS[1]}",
+                )
+            return fps
+    except StageSceneError:
+        raise
+    except (NotImplementedError, RuntimeError, zipfile.BadZipFile) as error:
+        _motion_malformed(motion_id, f"is not a readable npz: {error}")
+
+
+def _load_motion_payload(
+    project_directory: object, motion_id: str, *, validate: bool = True
+) -> tuple[object, object, int]:
+    """Load and validate .omb/motions/<motion_id>.npz from the project dir.
+
+    The motion id grammar (validated at parse time) cannot traverse, but the
+    resolved path is still fenced to the motions directory and symlinks are
+    refused, mirroring the runtime-evidence trust rules.
+    """
+    if project_directory is None:
+        raise StageSceneError(
+            "APPLY_MOTION_PROJECT_DIR_UNKNOWN: the mutation connection has no "
+            "project directory bound"
+        )
+    motions_dir = (Path(project_directory) / ".omb" / "motions").resolve()
+    path = motions_dir / f"{motion_id}.npz"
+    if path.is_symlink() or not path.is_file():
+        raise StageSceneError(
+            f"APPLY_MOTION_NOT_FOUND: .omb/motions/{motion_id}.npz is not a regular file"
+        )
+    if path.resolve().parent != motions_dir:
+        raise StageSceneError(
+            f"APPLY_MOTION_NOT_FOUND: motion {motion_id} escapes the motions directory"
+        )
+    if path.stat().st_size > _MAX_MOTION_FILE_BYTES:
+        raise StageSceneError(
+            f"APPLY_MOTION_TOO_LARGE: motion {motion_id} exceeds "
+            f"{_MAX_MOTION_FILE_BYTES} bytes"
+        )
+    fps = _inspect_motion_archive(path, motion_id)
+
+    import numpy
+
+    try:
+        with numpy.load(path, allow_pickle=False) as data:
+            local_rot_mats = data["local_rot_mats"]
+            posed_joints = data["posed_joints"]
+    except StageSceneError:
+        raise
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        raise StageSceneError(
+            f"APPLY_MOTION_MALFORMED: motion {motion_id} is not a readable npz: {error}"
+        )
+    if validate:
+        try:
+            motion_retarget.validate_motion(local_rot_mats, posed_joints, fps)
+        except motion_retarget.MotionRetargetError as error:
+            raise StageSceneError(f"APPLY_MOTION_MALFORMED: {error}")
+    return local_rot_mats, posed_joints, fps
+
+
+def _rig_scale_inputs(bones) -> tuple[str, object]:
+    """Pure read-only (bone prefix, rig thigh length) scale inputs.
+
+    Shared by ``_apply_motion`` and ``motion_preflight._derive_entity_scale``
+    so the two thigh measurements cannot drift. Returns ``(prefix, None)``
+    when the RightUpLeg/RightLeg pair is missing so each caller raises its
+    own contract error.
+    """
+    prefix = "mixamorig:" if any(b.name.startswith("mixamorig:") for b in bones) else ""
+    upper = bones.get(f"{prefix}RightUpLeg")
+    lower = bones.get(f"{prefix}RightLeg")
+    if upper is None or lower is None:
+        return prefix, None
+    return prefix, (lower.head_local - upper.head_local).length
+
+
+_KEYFRAME_BULK_VALUES: dict[str, int | float] | None = None
+
+
+def _keyframe_bulk_values() -> dict[str, int | float]:
+    global _KEYFRAME_BULK_VALUES
+    if _KEYFRAME_BULK_VALUES is None:
+        properties = bpy.types.Keyframe.bl_rna.properties
+        enum_identifiers = {
+            "interpolation": "BEZIER",
+            "easing": "AUTO",
+            "handle_left_type": "AUTO_CLAMPED",
+            "handle_right_type": "AUTO_CLAMPED",
+        }
+        values = {
+            name: properties[name].enum_items[identifier].value
+            for name, identifier in enum_identifiers.items()
+        }
+        values.update({
+            name: properties[name].default
+            for name in ("back", "amplitude", "period")
+        })
+        _KEYFRAME_BULK_VALUES = values
+    return _KEYFRAME_BULK_VALUES
+
+
+def _create_detached_action_topology(action: object, object_name: str) -> tuple[object, object]:
+    """Create and feature-probe one layered OBJECT-slot keyframe channel bag."""
+    try:
+        slots = action.slots
+        layers = action.layers
+        slot = slots.new(id_type="OBJECT", name=object_name)
+        layer = layers.new(name="OMB Motion")
+        strip = layer.strips.new(type="KEYFRAME")
+        channelbag_fn = strip.channelbag
+        channelbag = channelbag_fn(slot, ensure=True)
+    except (AttributeError, RuntimeError, TypeError) as error:
+        raise StageSceneError(
+            "APPLY_MOTION_ACTION_TOPOLOGY_UNSUPPORTED: Blender must provide "
+            "OBJECT slots, layers, KEYFRAME strips, and slot channel bags"
+        ) from error
+    if (
+        channelbag is None
+        or not hasattr(channelbag, "fcurves")
+        or not hasattr(channelbag.fcurves, "new")
+        or not hasattr(slot, "handle")
+        or not hasattr(channelbag, "slot_handle")
+        or channelbag.slot_handle != slot.handle
+    ):
+        raise StageSceneError(
+            "APPLY_MOTION_ACTION_TOPOLOGY_UNSUPPORTED: layered action probe was partial"
+        )
+    return slot, channelbag
+
+
+def _unsupported_group_name_signature(error: TypeError) -> bool:
+    message = str(error)
+    return (
+        (
+            "group_name" in message
+            and (
+                "keyword" in message
+                or "argument" in message
+                or "parameter" in message
+            )
+        )
+        or (
+            "ActionChannelbagFCurves.new()" in message
+            and "takes at most 2 arguments" in message
+        )
+    )
+
+
+def _new_grouped_fcurve(
+    channelbag: object,
+    data_path: str,
+    array_index: int,
+    group_name: str,
+) -> object:
+    """Create a grouped channel-bag F-Curve on Blender 5.x or 4.4."""
+    try:
+        return channelbag.fcurves.new(
+            data_path, index=array_index, group_name=group_name
+        )
+    except TypeError as error:
+        if not _unsupported_group_name_signature(error):
+            raise
+    fcurve = channelbag.fcurves.new(data_path, index=array_index)
+    try:
+        groups = channelbag.groups
+        group = groups.get(group_name)
+        if group is None:
+            group = groups.new(group_name)
+        fcurve.group = group
+        return fcurve
+    except BaseException:
+        try:
+            channelbag.fcurves.remove(fcurve)
+        except (AttributeError, ReferenceError, RuntimeError, TypeError):
+            pass
+        raise
+
+
+def _bulk_fcurve(
+    channelbag: object,
+    data_path: str,
+    array_index: int,
+    group_name: str,
+    frames: list[float],
+    values: list[float],
+) -> object:
+    if len(frames) != len(values) or not frames:
+        raise StageSceneError("APPLY_MOTION_CURVE_INVALID: curve samples are incomplete")
+    try:
+        fcurve = _new_grouped_fcurve(
+            channelbag, data_path, array_index, group_name
+        )
+        points = fcurve.keyframe_points
+        points.add(len(frames))
+        coordinates = [0.0] * (2 * len(frames))
+        coordinates[0::2] = frames
+        coordinates[1::2] = values
+        points.foreach_set("co", coordinates)
+        bulk_values = _keyframe_bulk_values()
+        point_count = len(frames)
+        for name, value in bulk_values.items():
+            points.foreach_set(name, [value] * point_count)
+        fcurve.update()
+    except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as error:
+        raise StageSceneError(
+            "APPLY_MOTION_CURVE_WRITE_FAILED: bulk F-Curve authoring failed"
+        ) from error
+    return fcurve
+
+
+_CURVE_VALUE_REL_TOLERANCE = 1e-6
+_CURVE_VALUE_ABS_TOLERANCE = 1e-6
+
+
+def _curve_inventory_matches(
+    actual: dict[tuple[str, int], tuple[str, list[float], list[float]]],
+    expected: dict[tuple[str, int], tuple[str, list[float], list[float]]],
+) -> bool:
+    """Compare exact curve topology/frames with bounded RNA float value drift."""
+    if actual.keys() != expected.keys():
+        return False
+    for key, (expected_group, expected_frames, expected_values) in expected.items():
+        actual_group, actual_frames, actual_values = actual[key]
+        if (
+            actual_group != expected_group
+            or actual_frames != expected_frames
+            or len(actual_values) != len(expected_values)
+            or any(
+                not math.isclose(
+                    actual_value,
+                    expected_value,
+                    rel_tol=_CURVE_VALUE_REL_TOLERANCE,
+                    abs_tol=_CURVE_VALUE_ABS_TOLERANCE,
+                )
+                for actual_value, expected_value in zip(
+                    actual_values, expected_values
+                )
+            )
+        ):
+            return False
+    return True
+
+
+def _rna_identity(value: object) -> tuple[str, int]:
+    """Return stable Blender RNA identity, falling back only for test doubles."""
+    as_pointer = getattr(value, "as_pointer", None)
+    if callable(as_pointer):
+        try:
+            pointer = int(as_pointer())
+        except (ReferenceError, RuntimeError, TypeError, ValueError):
+            pointer = 0
+        if pointer:
+            return ("RNA", pointer)
+    return ("PYTHON", id(value))
+
+
+def _channelbag_has_unique_owner(
+    channelbag: object,
+    slot_handle: object,
+    ownership_locations: list[list[object]],
+) -> bool:
+    """Require one strip/layer owner, deduplicating alternate RNA enumeration paths."""
+    target_identity = _rna_identity(channelbag)
+    owning_locations = 0
+    for enumerated in ownership_locations:
+        unique_for_slot: dict[tuple[str, int], object] = {}
+        for bag in enumerated:
+            if getattr(bag, "slot_handle", None) != slot_handle:
+                continue
+            unique_for_slot.setdefault(_rna_identity(bag), bag)
+        if target_identity in unique_for_slot:
+            if len(unique_for_slot) != 1:
+                return False
+            owning_locations += 1
+    return owning_locations == 1
+
+
+_POINT_VECTOR_FIELDS = ("co", "handle_left", "handle_right")
+_POINT_ENUM_FIELDS = (
+    "interpolation", "easing", "handle_left_type", "handle_right_type",
+)
+_POINT_INERT_FIELDS = ("back", "amplitude", "period")
+
+
+def _keyframe_points_snapshot(
+    points: object,
+    bulk_values: dict,
+    buffer_cache: dict[int, tuple[dict, dict, dict]] | None = None,
+) -> tuple[list[float], list[float], bool, bool]:
+    """Read and validate point RNA in bulk, with a test-double fallback."""
+    point_count = len(points)
+    foreach_get = getattr(points, "foreach_get", None)
+    if callable(foreach_get):
+        try:
+            cached = (
+                buffer_cache.get(point_count)
+                if buffer_cache is not None else None
+            )
+            if cached is None:
+                vectors = {
+                    name: [0.0] * (2 * point_count)
+                    for name in _POINT_VECTOR_FIELDS
+                }
+                enums = {
+                    name: [0] * point_count for name in _POINT_ENUM_FIELDS
+                }
+                inert = {
+                    name: [0.0] * point_count for name in _POINT_INERT_FIELDS
+                }
+                if buffer_cache is not None:
+                    buffer_cache[point_count] = (vectors, enums, inert)
+            else:
+                vectors, enums, inert = cached
+            for name, values in vectors.items():
+                foreach_get(name, values)
+            for name, values in enums.items():
+                foreach_get(name, values)
+            for name, values in inert.items():
+                foreach_get(name, values)
+            coordinates = vectors["co"]
+            frames = coordinates[0::2]
+            values = coordinates[1::2]
+            valid = (
+                all(
+                    math.isfinite(value)
+                    for vector in vectors.values()
+                    for value in vector
+                )
+                and all(
+                    value == bulk_values[name]
+                    for name, field_values in enums.items()
+                    for value in field_values
+                )
+                and all(
+                    value == bulk_values[name]
+                    for name, field_values in inert.items()
+                    for value in field_values
+                )
+                and all(
+                    frames[index] < frames[index + 1]
+                    for index in range(point_count - 1)
+                )
+            )
+            return frames, values, valid, True
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+            pass
+
+    point_values = list(points)
+    frames = [float(point.co.x) for point in point_values]
+    values = [float(point.co.y) for point in point_values]
+    valid = (
+        all(point.interpolation == "BEZIER" for point in point_values)
+        and all(point.easing == "AUTO" for point in point_values)
+        and all(
+            point.handle_left_type == "AUTO_CLAMPED" for point in point_values
+        )
+        and all(
+            point.handle_right_type == "AUTO_CLAMPED" for point in point_values
+        )
+        and all(
+            math.isfinite(value)
+            for point in point_values
+            for value in (
+                point.co.x, point.co.y,
+                point.handle_left.x, point.handle_left.y,
+                point.handle_right.x, point.handle_right.y,
+            )
+        )
+        and all(
+            getattr(point, name) == bulk_values[name]
+            for point in point_values
+            for name in _POINT_INERT_FIELDS
+        )
+        and all(
+            frames[index] < frames[index + 1]
+            for index in range(point_count - 1)
+        )
+    )
+    return frames, values, valid, False
+
+
+def _validate_detached_curves(
+    action: object,
+    slot: object,
+    channelbag: object,
+    expected: dict[tuple[str, int], tuple[str, list[float], list[float]]],
+) -> None:
+    if channelbag.slot_handle != slot.handle:
+        raise StageSceneError("APPLY_MOTION_CURVE_INVALID: channel bag owns wrong slot")
+    curves = list(channelbag.fcurves)
+    actual: dict[tuple[str, int], tuple[str, list[float], list[float]]] = {}
+    grouped_indices: dict[tuple[str, str], set[int]] = {}
+    inert = _keyframe_bulk_values()
+    point_buffer_cache: dict[int, tuple[dict, dict, dict]] = {}
+    for fcurve in curves:
+        key = (fcurve.data_path, fcurve.array_index)
+        if key in actual:
+            raise StageSceneError("APPLY_MOTION_CURVE_INVALID: duplicate F-Curve")
+        points = fcurve.keyframe_points
+        group_name = fcurve.group.name if fcurve.group is not None else ""
+        frames, values, points_valid, _ = _keyframe_points_snapshot(
+            points, inert, point_buffer_cache
+        )
+        actual[key] = (group_name, frames, values)
+        indices = grouped_indices.setdefault((fcurve.data_path, group_name), set())
+        if fcurve.array_index in indices:
+            raise StageSceneError("APPLY_MOTION_CURVE_INVALID: duplicate grouped component")
+        indices.add(fcurve.array_index)
+        if (
+            fcurve.extrapolation != "CONSTANT"
+            or len(fcurve.modifiers) != 0
+            or not points_valid
+        ):
+            raise StageSceneError(
+                "APPLY_MOTION_CURVE_INVALID: detached curve validation failed"
+            )
+    if not _curve_inventory_matches(actual, expected):
+        raise StageSceneError(
+            "APPLY_MOTION_CURVE_INVALID: detached curve inventory does not match tracks"
+        )
+    ownership_locations = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            enumerated = []
+            if hasattr(strip, "channelbag"):
+                try:
+                    enumerated.append(strip.channelbag(slot))
+                except (RuntimeError, TypeError):
+                    pass
+            enumerated.extend(getattr(strip, "channelbags", ()))
+            ownership_locations.append(enumerated)
+    if not _channelbag_has_unique_owner(
+        channelbag, slot.handle, ownership_locations
+    ):
+        raise StageSceneError(
+            "APPLY_MOTION_CURVE_INVALID: action/slot/channel bag ownership mismatch"
+        )
+
+
+def _resolve_operation_hand_shapes(operation: dict) -> dict[str, str]:
+    if "hand_shapes" in operation:
+        requested = operation["hand_shapes"]
+        return hand_shapes.resolve_hand_shapes(
+            requested.get("left"), requested.get("right")
+        )
+    legacy = operation.get("hand_pose", "relaxed")
+    return hand_shapes.resolve_hand_shapes(legacy, legacy)
+
+
+def _apply_motion(
+    operation: dict,
+    transaction: _StageTransaction,
+    project_id: str,
+    project_directory: object,
+):
+    scene_object = _require_owned_entity(operation["entity_id"], project_id)
+    if scene_object.type != "ARMATURE":
+        raise STAGE_SCENE_TARGET_TYPE_INVALID(
+            f"entity {operation['entity_id']} must be an OMB character armature"
+        )
+    _require_exclusive_datablocks(scene_object)
+    resolved = _resolve_operation_hand_shapes(operation)
+    try:
+        inventory = hand_shapes.validate_rig_bones(
+            scene_object.get("omb.character_type"),
+            (bone.name for bone in scene_object.data.bones),
+        )
+    except hand_shapes.HandShapeError as error:
+        raise StageSceneError(f"APPLY_MOTION_HAND_SHAPE_RIG_UNSUPPORTED: {error}")
+    local_rot_mats, posed_joints, fps = _load_motion_payload(
+        project_directory, operation["motion_id"], validate=False
+    )
+    try:
+        validation_cursor = motion_retarget.MotionValidationCursor(
+            local_rot_mats, posed_joints, fps
+        )
+        while not validation_cursor.step(max_frames=64):
+            yield "MOTION_PREPARE"
+        yield "MOTION_PREPARE"
+    except motion_retarget.MotionRetargetError as error:
+        raise StageSceneError(f"APPLY_MOTION_MALFORMED: {error}")
+    frame_count = len(local_rot_mats)
+
+    bones = scene_object.data.bones
+    prefix, rig_thigh = _rig_scale_inputs(bones)
+    rest_rotations = {}
+    for cskel, target in motion_retarget.MIXAMO_TARGETS.items():
+        if target is None:
+            continue
+        bone = bones.get(f"{prefix}{target}")
+        if bone is not None:
+            rest_rotations[cskel] = [list(row) for row in bone.matrix_local.to_3x3()]
+    for required_bone in ("Hips", "RightUpLeg", "RightLeg"):
+        if required_bone not in rest_rotations:
+            raise STAGE_SCENE_TARGET_TYPE_INVALID(
+                f"character rig is missing the {required_bone} bone"
+            )
+    try:
+        scale = motion_retarget.derive_scale(posed_joints[0], rig_thigh)
+        track_builder = motion_retarget.PoseTrackBuilder(
+            local_rot_mats,
+            posed_joints,
+            rest_rotations,
+            list(bones[f"{prefix}Hips"].head_local),
+            scale,
+        )
+        while not track_builder.step(max_frames=64):
+            yield "MOTION_PREPARE"
+        tracks = track_builder.tracks
+        yield "MOTION_PREPARE"
+        yield "OPTIMIZE_OR_DENSE"
+    except motion_retarget.MotionRetargetError as error:
+        raise StageSceneError(f"APPLY_MOTION_MALFORMED: {error}")
+
+    pose_bones = scene_object.pose.bones
+    digit_names = tuple(
+        inventory[side][role]
+        for side in ("left", "right")
+        for role in hand_shapes.CANONICAL_ROLE_ORDER
+    )
+    authored_bone_names = tuple(
+        f"{prefix}{motion_retarget.MIXAMO_TARGETS[cskel]}"
+        for cskel in tracks["rotations"]
+        if motion_retarget.MIXAMO_TARGETS[cskel] is not None
+        and pose_bones.get(f"{prefix}{motion_retarget.MIXAMO_TARGETS[cskel]}") is not None
+    )
+    captured_names = tuple(dict.fromkeys(
+        (*authored_bone_names, f"{prefix}Hips", *digit_names)
+    ))
+    transaction.capture_animation(scene_object, captured_names)
+    transaction.capture_render()
+
+    animation_data = scene_object.animation_data
+    if animation_data is None:
+        animation_data = scene_object.animation_data_create()
+    action = bpy.data.actions.new(name=f"OMB Motion {operation['motion_id']}")
+    transaction.created_actions.append(action)
+    action["omb.motion_id"] = operation["motion_id"]
+    action["omb.motion_fps"] = fps
+    action["omb.motion_frames"] = frame_count
+    action["omb.hand_shape_left"] = resolved["left"]
+    action["omb.hand_shape_right"] = resolved["right"]
+    action["omb.hand_shape_library"] = 1
+    if "hand_shapes" not in operation:
+        action["omb.hand_pose"] = operation.get("hand_pose", "relaxed")
+
+    slot, channelbag = _create_detached_action_topology(action, scene_object.name)
+    yield "ACTION_CREATE"
+    start_frame = operation.get("start_frame", 1)
+    end_frame = start_frame + frame_count - 1
+    dense_frames = [float(start_frame + offset) for offset in range(frame_count)]
+    deltas = hand_shapes.preset_deltas(resolved["left"], resolved["right"])
+    bone_to_role = {
+        name: (side, role)
+        for side in ("left", "right")
+        for role, name in inventory[side].items()
+    }
+    authored_roles: set[tuple[str, str]] = set()
+    expected: dict[
+        tuple[str, int], tuple[str, list[float], list[float]]
+    ] = {}
+    final_rotations: dict[str, tuple[float, float, float, float]] = {}
+
+    for cskel, quaternions in tracks["rotations"].items():
+        target = motion_retarget.MIXAMO_TARGETS[cskel]
+        if target is None:
+            continue
+        bone_name = f"{prefix}{target}"
+        pose_bone = pose_bones.get(bone_name)
+        if pose_bone is None:
+            continue
+        role_key = bone_to_role.get(bone_name)
+        if role_key is not None:
+            authored_roles.add(role_key)
+        values = []
+        for quaternion in quaternions:
+            if role_key is not None:
+                quaternion = hand_shapes.compose_quaternions(
+                    quaternion, deltas[role_key[0]][role_key[1]]
+                )
+            values.append(tuple(float(value) for value in quaternion))
+        data_path = pose_bone.path_from_id("rotation_quaternion")
+        for array_index in range(4):
+            component_values = [
+                quaternion[array_index] for quaternion in values
+            ]
+            yield "CURVE_BUILD_READY"
+            _bulk_fcurve(
+                channelbag,
+                data_path,
+                array_index,
+                bone_name,
+                dense_frames,
+                component_values,
+            )
+            expected[(data_path, array_index)] = (
+                bone_name, dense_frames, component_values
+            )
+            yield "CURVE_BUILD"
+        final_rotations[bone_name] = values[-1]
+
+    hips_name = f"{prefix}Hips"
+    hips = pose_bones[hips_name]
+    hips_path = hips.path_from_id("location")
+    for array_index in range(3):
+        component_values = [
+            float(location[array_index]) for location in tracks["hips_locations"]
+        ]
+        yield "CURVE_BUILD_READY"
+        _bulk_fcurve(
+            channelbag,
+            hips_path,
+            array_index,
+            hips_name,
+            dense_frames,
+            component_values,
+        )
+        expected[(hips_path, array_index)] = (
+            hips_name, dense_frames, component_values
+        )
+        yield "CURVE_BUILD"
+    final_hips_location = tuple(float(value) for value in tracks["hips_locations"][-1])
+
+    sparse_frames = [float(start_frame)]
+    if end_frame != start_frame:
+        sparse_frames.append(float(end_frame))
+    for side in ("left", "right"):
+        for role in hand_shapes.CANONICAL_ROLE_ORDER:
+            if (side, role) in authored_roles:
+                continue
+            bone_name = inventory[side][role]
+            pose_bone = pose_bones[bone_name]
+            delta = tuple(float(value) for value in deltas[side][role])
+            final_rotations[bone_name] = delta
+            if all(
+                abs(value - identity) <= 1e-12
+                for value, identity in zip(delta, (1.0, 0.0, 0.0, 0.0))
+            ):
+                continue
+            data_path = pose_bone.path_from_id("rotation_quaternion")
+            for array_index in range(4):
+                component_values = [delta[array_index]] * len(sparse_frames)
+                yield "CURVE_BUILD_READY"
+                _bulk_fcurve(
+                    channelbag,
+                    data_path,
+                    array_index,
+                    bone_name,
+                    sparse_frames,
+                    component_values,
+                )
+                expected[(data_path, array_index)] = (
+                    bone_name, sparse_frames, component_values
+                )
+                yield "CURVE_BUILD"
+
+    _validate_detached_curves(action, slot, channelbag, expected)
+    yield "DETACHED_VALIDATE"
+
+    # The detached action is complete and validated before either binding write.
+    animation_data.action = action
+    try:
+        animation_data.action_slot = slot
+    except (AttributeError, RuntimeError, TypeError) as error:
+        raise StageSceneError(
+            "APPLY_MOTION_ACTION_TOPOLOGY_UNSUPPORTED: action slot cannot be bound"
+        ) from error
+    from .manifest import animation_fcurves
+
+    bound_curves = animation_fcurves(animation_data)
+    if {
+        (fcurve.data_path, fcurve.array_index): len(fcurve.keyframe_points)
+        for fcurve in bound_curves
+    } != {key: len(value[1]) for key, value in expected.items()}:
+        raise StageSceneError(
+            "APPLY_MOTION_CURVE_INVALID: bound slot does not enumerate detached curves"
+        )
+
+    for bone_name, quaternion in final_rotations.items():
+        pose_bone = pose_bones[bone_name]
+        pose_bone.rotation_mode = "QUATERNION"
+        pose_bone.rotation_quaternion = quaternion
+    hips.location = final_hips_location
+
+    # Timing contract: the baked keys are at the motion's native fps, so the
+    # scene rate follows the motion (rollback restores it via render_state).
+    scene = bpy.context.scene
+    scene.render.fps = fps
+    scene.render.fps_base = 1.0
+    if scene.frame_end < end_frame:
+        scene.frame_end = end_frame
+    bpy.context.view_layer.update()
+    return {
+        "entity_id": operation["entity_id"],
+        "motion_id": operation["motion_id"],
+        "left": resolved["left"],
+        "right": resolved["right"],
+        "library_version": 1,
+    }
+
+
 def _live_base_manifest(current_scene_hash: str) -> dict:
     from .manifest import (
         extract_scene_manifest_v2,
@@ -923,6 +2222,62 @@ def _live_base_manifest(current_scene_hash: str) -> dict:
         "STALE_BASE: live main-thread manifest hash differs from the durable expected base"
     )
 
+
+_ADAPTIVE_QUALIFIED = False
+_SLICE_SECONDS = 0.025
+_MAX_PRIMITIVE_SECONDS = 0.250
+_REASON_KEYS = (
+    "ENDPOINT", "DISCONTINUITY", "CONTACT_ENTER", "CONTACT_EXIT", "IMPACT",
+    "FALL_ENTER", "FALL_MINIMUM", "EXTREMUM_SPEED",
+    "EXTREMUM_VERTICAL_VELOCITY", "EXTREMUM_VERTICAL_ACCELERATION",
+    "STILL_BOUNDARY", "GUARD",
+)
+
+
+def _current_rss_bytes(*, required: bool = False) -> int:
+    """Return current resident bytes, using Mach task_info on Darwin."""
+    if platform.system() == "Darwin":
+        class MachTaskBasicInfo(ctypes.Structure):
+            _fields_ = [
+                ("virtual_size", ctypes.c_uint64),
+                ("resident_size", ctypes.c_uint64),
+                ("resident_size_max", ctypes.c_uint64),
+                ("user_time_seconds", ctypes.c_int32),
+                ("user_time_microseconds", ctypes.c_int32),
+                ("system_time_seconds", ctypes.c_int32),
+                ("system_time_microseconds", ctypes.c_int32),
+                ("policy", ctypes.c_int32),
+                ("suspend_count", ctypes.c_int32),
+            ]
+        try:
+            libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+            info = MachTaskBasicInfo()
+            count = ctypes.c_uint32(
+                ctypes.sizeof(MachTaskBasicInfo) // ctypes.sizeof(ctypes.c_uint32)
+            )
+            result = libc.task_info(
+                libc.mach_task_self(),
+                20,
+                ctypes.byref(info),
+                ctypes.byref(count),
+            )
+            if result != 0 or info.resident_size <= 0:
+                raise OSError(f"task_info returned {result}")
+            return int(info.resident_size)
+        except (AttributeError, OSError, TypeError, ValueError) as error:
+            if required:
+                raise StageSceneError("STAGE_SCENE_RSS_UNAVAILABLE") from error
+    usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(usage * (1 if sys.platform == "darwin" else 1024))
+
+
+def _motion_keyframe_mode() -> str:
+    mode = os.environ.get("OMB_MOTION_KEYFRAME_MODE", "bulk_dense")
+    if mode != "bulk_dense":
+        if mode == "qualified_adaptive" and _ADAPTIVE_QUALIFIED:
+            return mode
+        raise StageSceneError("MOTION_KEYFRAME_MODE_DISABLED")
+    return mode
 
 def _check_abort(deadline: float | None, cancelled: Callable[[], bool]) -> None:
     if cancelled():
@@ -961,6 +2316,593 @@ def _watch_step() -> None:
 
 
 
+class _StageSceneRun:
+    """Single retained owner and execution path for staged scene transactions."""
+
+    def __init__(
+        self,
+        plan_value: object,
+        current_scene_hash: str,
+        connection: object,
+        commit_fn: Callable[[dict], object],
+        *,
+        result_fn: Callable[[dict | None, BaseException | None], None] | None = None,
+        cancelled: Callable[[], bool] = lambda: False,
+        deadline: float | None = None,
+        scheduled: bool = False,
+    ):
+        self.plan_value = plan_value
+        self.current_scene_hash = current_scene_hash
+        self.connection = connection
+        self.commit_fn = commit_fn
+        self.result_fn = result_fn
+        self.cancelled = cancelled
+        self.deadline = deadline
+        self.scheduled = scheduled
+        self.phase = "NEW"
+        self.operation_index = 0
+        self.motion_cursor = None
+        self.candidate_manifest = None
+        self.result = None
+        self.error = None
+        self.plan = None
+        self.before_manifest = None
+        self.scene = None
+        self.project_id = None
+        self.transaction = None
+        self.checkpoint = None
+        self.mode = None
+        self.uses_v4 = False
+        self.applied_hand_shapes = []
+        self.recovery_direction = "ROLLBACK"
+        self.callback_done = False
+        self.log_done = False
+        self.done = False
+        self.started_at = time.monotonic()
+        self.slice_started_at = self.started_at
+        self.last_step_at = self.started_at
+        self.max_scheduled_step_ms = 0.0
+        self.max_heartbeat_gap_ms = 0.0
+        self.longest_rna_call_ms = 0.0
+        self.commit_call_ms = 0.0
+        self.rss_baseline = 0
+        self.rss_high_water = 0
+        self.motion_count = 0
+        self.completed_motion_count = 0
+        self.source_frames = 0
+        self.source_points = 0
+        self.curves = 0
+        self.timings = {
+            "prepare": 0.0, "optimize": 0.0, "write": 0.0, "bind": 0.0,
+        }
+
+    def _check_before_primitive(self) -> bool:
+        _check_abort(self.deadline, self.cancelled)
+        return not (
+            self.scheduled
+            and time.monotonic() - self.slice_started_at >= _SLICE_SECONDS
+        )
+
+    def _measure(self, function: Callable[[], object], *, commit: bool = False):
+        if not self._check_before_primitive():
+            return False, None
+        started = time.monotonic()
+        caught = None
+        value = None
+        try:
+            value = function()
+        except BaseException as error:
+            caught = error
+        elapsed_ms = (time.monotonic() - started) * 1000.0
+        self.longest_rna_call_ms = max(self.longest_rna_call_ms, elapsed_ms)
+        if commit:
+            self.commit_call_ms = elapsed_ms
+        self._sample_rss()
+        if elapsed_ms >= _MAX_PRIMITIVE_SECONDS * 1000.0:
+            raise StageSceneError(
+                "STAGE_SCENE_UNINTERRUPTIBLE_CALL_LIMIT"
+            ) from caught
+        if caught is not None:
+            raise caught
+        return True, value
+
+    def _measure_recovery(self, function: Callable[[], object]):
+        """Measure mandatory recovery without allowing cancellation to suppress it."""
+        started = time.monotonic()
+        try:
+            return function()
+        finally:
+            elapsed_ms = (time.monotonic() - started) * 1000.0
+            self.longest_rna_call_ms = max(self.longest_rna_call_ms, elapsed_ms)
+            self._sample_terminal_rss()
+
+    def _sample_rss(self, *, enforce_limit: bool = True) -> None:
+        rss = _current_rss_bytes()
+        if self.rss_baseline == 0:
+            self.rss_baseline = rss
+        self.rss_high_water = max(self.rss_high_water, rss)
+        if (
+            enforce_limit
+            and self.rss_high_water - self.rss_baseline > 512 * 1024 * 1024
+        ):
+            raise StageSceneError("STAGE_SCENE_RSS_LIMIT_EXCEEDED")
+
+    def _sample_terminal_rss(self) -> None:
+        """Best-effort terminal sample that cannot suppress disposition reporting."""
+        try:
+            self._sample_rss(enforce_limit=False)
+        except BaseException:
+            pass
+
+    def _account_terminal_step(self) -> None:
+        started = getattr(self, "_active_step_started", None)
+        if started is not None:
+            self.max_scheduled_step_ms = max(
+                self.max_scheduled_step_ms,
+                (time.monotonic() - started) * 1000.0,
+            )
+
+    def _recover(self) -> bool:
+        if self.recovery_direction == "FORWARD":
+            self.transaction.finalize_deletions()
+            self.transaction.finalize_orphan_actions()
+            if self.candidate_manifest is None:
+                return False
+            return (
+                _live_base_manifest(self.candidate_manifest["sceneHash"])["sceneHash"]
+                == self.candidate_manifest["sceneHash"]
+            )
+        self.transaction.rollback()
+        return (
+            _live_base_manifest(self.before_manifest["sceneHash"])["sceneHash"]
+            == self.before_manifest["sceneHash"]
+        )
+
+    def _apply_operation(self, operation: dict):
+        op = operation["op"]
+        arguments = (operation, self.transaction, self.project_id)
+        if op == "add_primitive":
+            return _create_primitive(*arguments)
+        if op == "add_character":
+            return _create_character(*arguments)
+        if op == "add_camera":
+            return _create_camera(*arguments)
+        if op == "create_assembly":
+            return _create_assembly(*arguments)
+        if op == "set_parent":
+            return _set_parent(*arguments)
+        if op == "transform_assembly":
+            return _transform_assembly(*arguments)
+        if op == "set_material_color":
+            return _set_material_color(*arguments)
+        if op == "upsert_area_light":
+            return _upsert_area_light(*arguments)
+        if op == "adopt_entity":
+            return _adopt_entity(*arguments)
+        if op == "transform_entity":
+            return _transform_entity(*arguments)
+        if op == "set_light_property":
+            return _set_light_property(*arguments)
+        if op == "set_camera_property":
+            return _set_camera_property(*arguments)
+        if op == "set_render_settings":
+            return _set_render_settings(*arguments)
+        if op == "rename_entity":
+            return _rename_entity(*arguments)
+        if op == "apply_motion":
+            return _apply_motion(
+                operation,
+                self.transaction,
+                self.project_id,
+                getattr(self.connection, "project_directory", None),
+            )
+        scene_object = _require_owned_entity(operation["entity_id"], self.project_id)
+        _require_exclusive_datablocks(scene_object)
+        return self.transaction.quarantine(scene_object)
+
+    def _record_completed_motion(self) -> None:
+        action = self.transaction.created_actions[-1]
+        frames = int(action["omb.motion_frames"])
+        from .manifest import animation_fcurves
+        bound_object = next(
+            scene_object
+            for scene_object in self.transaction.animation_states
+            if scene_object.animation_data is not None
+            and scene_object.animation_data.action is action
+        )
+        curves = list(animation_fcurves(bound_object.animation_data))
+        self.completed_motion_count += 1
+        self.source_frames += frames
+        self.source_points += sum(len(curve.keyframe_points) for curve in curves)
+        self.curves += len(curves)
+
+    def _build_result(self) -> None:
+        objects_by_id = {
+            scene_object["entityId"]: scene_object
+            for scene_object in self.candidate_manifest["objects"]
+        }
+        entity_identities = [
+            {
+                "entity_id": operation["entity_id"],
+                "requested_name": operation["name"],
+                "actual_name": objects_by_id[operation["entity_id"]]["name"],
+            }
+            for operation in self.plan["operations"]
+            if operation["op"] in (
+                "add_primitive", "upsert_area_light", "add_character", "add_camera",
+            )
+        ]
+        self.result = {
+            "expected_revision_id": self.plan["expected_revision_id"],
+            "scene_hash": self.candidate_manifest["sceneHash"],
+            "manifest": self.candidate_manifest,
+            "entity_identities": entity_identities,
+            "applied_hand_shapes": self.applied_hand_shapes,
+        }
+
+    def _error_code(self) -> str | None:
+        if self.error is None:
+            return None
+        if isinstance(self.error, STAGE_SCENE_CANCELLED):
+            return "CANCELLED"
+        if isinstance(self.error, STAGE_SCENE_DEADLINE_EXCEEDED):
+            return "DEADLINE_EXCEEDED"
+        text = str(self.error)
+        for code in (
+            "MOTION_KEYFRAME_MODE_DISABLED", "STAGE_SCENE_RSS_UNAVAILABLE",
+            "STAGE_SCENE_RSS_LIMIT_EXCEEDED",
+            "STAGE_SCENE_UNINTERRUPTIBLE_CALL_LIMIT",
+        ):
+            if text.startswith(code):
+                return code
+        return "STAGE_SCENE_FAILED"
+
+    def _emit_log(self, outcome: str) -> None:
+        if self.log_done:
+            return
+        self.log_done = True
+        total_ms = (time.monotonic() - self.started_at) * 1000.0
+        record = {
+            "schema": "omb.stage_scene_motion.v2",
+            "report_version": 2,
+            "qualification_version": "ardy-adaptive-v1",
+            "outcome": outcome,
+            "terminal_phase": self.phase,
+            "error_code": self._error_code(),
+            "mode": self.mode or "bulk_dense",
+            "effective_mode": "bulk_dense",
+            "action_api": "LAYERED_SLOT",
+            "motion_count": self.motion_count,
+            "completed_motion_count": self.completed_motion_count,
+            "dense_motion_count": self.completed_motion_count,
+            "optimized_motion_count": 0,
+            "fallback_motion_count": 0,
+            "source_frames": min(self.source_frames, 6_144_000),
+            "source_points": min(self.source_points, 608_256_000),
+            "kept_points": min(self.source_points, 608_256_000),
+            "curve_count": min(self.curves, 66_304),
+            "protected_reason_counts": {key: 0 for key in _REASON_KEYS},
+            "max_rotation_error_microdegrees": None,
+            "max_hips_error_micrometers": None,
+            "timings_ms": {
+                **self.timings,
+                "commit": self.commit_call_ms if self.commit_call_ms else None,
+                "total": total_ms,
+            },
+            "rss_delta_bytes": max(0, self.rss_high_water - self.rss_baseline),
+            "longest_uninterruptible_call_ms": max(
+                self.longest_rna_call_ms, self.commit_call_ms
+            ),
+            "max_scheduled_step_ms": self.max_scheduled_step_ms,
+            "max_heartbeat_gap_ms": self.max_heartbeat_gap_ms,
+            "cancellation_latency_ms": (
+                max(25.0, self.longest_rna_call_ms)
+                if self._error_code() == "CANCELLED" else None
+            ),
+        }
+        payload = json.dumps(record, sort_keys=True, separators=(",", ":"))
+        if len(payload.encode("utf-8")) > 4096:
+            return
+        try:
+            logging.getLogger("oh_my_blender.motion_keyframes").info(payload)
+        except BaseException:
+            pass
+
+    def _callback(self) -> None:
+        if self.result_fn is None or self.callback_done:
+            return
+        self.callback_done = True
+        try:
+            self.result_fn(
+                self.result if self.error is None else None,
+                self.error,
+            )
+        except BaseException:
+            pass
+
+    def _finish_success(self) -> None:
+        self.phase = "SUCCEEDED"
+        self.done = True
+        self._sample_terminal_rss()
+        self._account_terminal_step()
+        self._emit_log("SUCCESS")
+        self._callback()
+
+    def _finish_error(self, error: BaseException) -> None:
+        from .connection import DurableCommitReconciliationRequired
+        self.error = error
+        if self.checkpoint is None:
+            self.phase = "PRE_CHECKPOINT"
+            outcome = "ERROR_NO_MUTATION"
+        elif self.recovery_direction == "FORWARD":
+            self.phase = "RECONCILIATION_REQUIRED"
+            self.connection.require_recovery()
+            if not isinstance(error, DurableCommitReconciliationRequired):
+                self.error = DurableCommitReconciliationRequired(
+                    "stage_scene durable commit requires forward reconciliation"
+                )
+            outcome = "ERROR_RECONCILIATION_REQUIRED"
+        else:
+            try:
+                self._measure_recovery(self.transaction.rollback)
+                recovered = (
+                    _live_base_manifest(self.before_manifest["sceneHash"])["sceneHash"]
+                    == self.before_manifest["sceneHash"]
+                )
+                if not recovered:
+                    raise StageSceneError("stage_scene rollback verification failed")
+                try:
+                    self._measure_recovery(self.connection.release_checkpoint)
+                except BaseException:
+                    active = getattr(self.connection, "active_checkpoint", self.checkpoint)
+                    if active is not None:
+                        raise
+                self.phase = "ERROR"
+                outcome = "ERROR_ROLLED_BACK"
+            except BaseException as recovery_error:
+                self.connection.require_recovery()
+                self.phase = "RECONCILIATION_REQUIRED"
+                self.error = DurableCommitReconciliationRequired(
+                    "stage_scene rollback failed and requires recovery"
+                )
+                self.error.__cause__ = recovery_error
+                outcome = "ERROR_RECONCILIATION_REQUIRED"
+        self.done = True
+        self._sample_terminal_rss()
+        self._account_terminal_step()
+        self._emit_log(outcome)
+        self._callback()
+
+    def step(self):
+        """Run at most one measured primitive and retain all continuation state."""
+        if self.done:
+            return None
+        step_started = time.monotonic()
+        self._active_step_started = step_started
+        self.max_heartbeat_gap_ms = max(
+            self.max_heartbeat_gap_ms,
+            (step_started - self.last_step_at) * 1000.0,
+        )
+        self.slice_started_at = step_started
+        try:
+            from .checkpoint import create_checkpoint
+            from .connection import DurableCommitReconciliationRequired
+            from .manifest import extract_scene_manifest_v3, extract_scene_manifest_v4
+            from .scene_manifest import finalize_scene_manifest_child
+
+            if self.phase == "NEW":
+                if bpy is None:
+                    raise StageSceneError("stage_scene requires Blender")
+                self.plan = parse_stage_scene_plan(self.plan_value)
+                self.motion_count = sum(
+                    operation["op"] == "apply_motion"
+                    for operation in self.plan["operations"]
+                )
+                try:
+                    self.mode = _motion_keyframe_mode()
+                except StageSceneError:
+                    self.mode = "invalid"
+                    raise
+                self.uses_v4 = any(
+                    operation["op"] in (
+                        "create_assembly", "set_parent", "transform_assembly"
+                    )
+                    or (
+                        operation["op"] == "add_primitive"
+                        and operation.get("parent_id") is not None
+                    )
+                    for operation in self.plan["operations"]
+                )
+                self.before_manifest = _live_base_manifest(self.current_scene_hash)
+                _check_abort(self.deadline, self.cancelled)
+                self.scene = bpy.context.scene
+                self.project_id = self.scene.get("omb.project_id")
+                if not isinstance(self.project_id, str):
+                    raise StageSceneError("scene is missing omb.project_id")
+                gc.collect()
+                self.rss_baseline = _current_rss_bytes(required=True)
+                self.rss_high_water = self.rss_baseline
+                self.transaction = _StageTransaction(self.scene)
+                self.phase = "CHECKPOINT_CREATE"
+            elif self.phase == "CHECKPOINT_CREATE":
+                executed, checkpoint = self._measure(lambda: create_checkpoint({
+                    "stage_scene_scope": {
+                        "scene_hash": self.before_manifest["sceneHash"]
+                    }
+                }))
+                if executed:
+                    self.checkpoint = checkpoint
+                    self.phase = "CHECKPOINTED"
+            elif self.phase == "CHECKPOINTED":
+                executed, _ = self._measure(
+                    lambda: self.connection.hold_checkpoint(
+                        self.checkpoint, self._recover
+                    )
+                )
+                if executed:
+                    self.phase = "AFTER_CHECKPOINT_CONNECTION"
+            elif self.phase == "AFTER_CHECKPOINT_CONNECTION":
+                executed, _ = self._measure(
+                    lambda: self.connection.ensure_mutation_connection(
+                        "after_checkpoint"
+                    )
+                )
+                if executed:
+                    self.phase = "OP_DISPATCH"
+            elif self.phase == "OP_DISPATCH":
+                if self.operation_index >= len(self.plan["operations"]):
+                    self.phase = "FINAL_MANIFEST"
+                else:
+                    operation = self.plan["operations"][self.operation_index]
+                    self.phase = (
+                        "MOTION_PREPARE"
+                        if operation["op"] == "apply_motion"
+                        else "OTHER_OPERATION"
+                    )
+            elif self.phase == "OTHER_OPERATION":
+                operation = self.plan["operations"][self.operation_index]
+                executed, _ = self._measure(
+                    lambda: self._apply_operation(operation)
+                )
+                if executed:
+                    self.phase = "NEXT_OPERATION"
+            elif self.phase in (
+                "MOTION_PREPARE", "OPTIMIZE_OR_DENSE", "ACTION_CREATE",
+                "CURVE_BUILD_READY", "CURVE_BUILD", "DETACHED_VALIDATE",
+            ):
+                operation = self.plan["operations"][self.operation_index]
+                if self.motion_cursor is None:
+                    self.motion_cursor = _apply_motion(
+                        operation,
+                        self.transaction,
+                        self.project_id,
+                        getattr(self.connection, "project_directory", None),
+                    )
+                started = time.monotonic()
+                try:
+                    executed, motion_phase = self._measure(
+                        lambda: next(self.motion_cursor)
+                    )
+                except StopIteration as completed:
+                    elapsed_ms = (time.monotonic() - started) * 1000.0
+                    self.timings["bind"] += elapsed_ms
+                    applied = completed.value
+                    self.applied_hand_shapes.append({
+                        "operation_index": self.operation_index,
+                        **applied,
+                    })
+                    self._record_completed_motion()
+                    self.motion_cursor = None
+                    self.phase = "ATOMIC_BIND"
+                else:
+                    if executed:
+                        elapsed_ms = (time.monotonic() - started) * 1000.0
+                        if motion_phase == "MOTION_PREPARE":
+                            self.timings["prepare"] += elapsed_ms
+                        elif motion_phase == "OPTIMIZE_OR_DENSE":
+                            self.timings["optimize"] += elapsed_ms
+                        elif motion_phase in ("CURVE_BUILD_READY", "CURVE_BUILD"):
+                            self.timings["write"] += elapsed_ms
+                        elif motion_phase == "DETACHED_VALIDATE":
+                            self.timings["write"] += elapsed_ms
+                        self.phase = motion_phase
+            elif self.phase == "ATOMIC_BIND":
+                self.completed_motion_count = len(self.applied_hand_shapes)
+                self.phase = "NEXT_OPERATION"
+            elif self.phase == "NEXT_OPERATION":
+                operation = self.plan["operations"][self.operation_index]
+                executed, _ = self._measure(
+                    lambda: self.connection.ensure_mutation_connection(
+                        operation["op"]
+                    )
+                )
+                if executed:
+                    self.phase = "WATCH_STEP"
+            elif self.phase == "WATCH_STEP":
+                executed, _ = self._measure(_watch_step)
+                if executed:
+                    self.operation_index += 1
+                    self.phase = "OP_DISPATCH"
+            elif self.phase == "FINAL_MANIFEST":
+                executed, extracted = self._measure(
+                    extract_scene_manifest_v4
+                    if self.uses_v4 else extract_scene_manifest_v3
+                )
+                if executed:
+                    self.candidate_manifest = finalize_scene_manifest_child(
+                        extracted,
+                        self.plan["expected_revision_id"],
+                        self.plan,
+                    )
+                    self._build_result()
+                    self.phase = "DURABLE_COMMIT"
+            elif self.phase == "DURABLE_COMMIT":
+                try:
+                    executed, _ = self._measure(
+                        lambda: self.commit_fn(self.result), commit=True
+                    )
+                except DurableCommitReconciliationRequired:
+                    self.recovery_direction = "FORWARD"
+                    self.connection.require_recovery()
+                    raise
+                if executed:
+                    self.recovery_direction = "FORWARD"
+                    self.phase = "POST_COMMIT_FINALIZE"
+            elif self.phase == "POST_COMMIT_FINALIZE":
+                executed, _ = self._measure(self.transaction.finalize_deletions)
+                if executed:
+                    self.phase = "POST_COMMIT_ACTION_FINALIZE"
+            elif self.phase == "POST_COMMIT_ACTION_FINALIZE":
+                executed, _ = self._measure(self.transaction.finalize_orphan_actions)
+                if executed:
+                    self.phase = "POST_COMMIT_VERIFY"
+            elif self.phase == "POST_COMMIT_VERIFY":
+                executed, live_manifest = self._measure(
+                    lambda: _live_base_manifest(
+                        self.candidate_manifest["sceneHash"]
+                    )
+                )
+                if executed:
+                    if live_manifest["sceneHash"] != self.candidate_manifest["sceneHash"]:
+                        raise StageSceneError(
+                            "STAGE_SCENE_COMMITTED_HASH_MISMATCH"
+                        )
+                    self.phase = "CHECKPOINT_RELEASE"
+            elif self.phase == "CHECKPOINT_RELEASE":
+                try:
+                    executed, _ = self._measure(self.connection.release_checkpoint)
+                except BaseException:
+                    active = getattr(
+                        self.connection, "active_checkpoint", self.checkpoint
+                    )
+                    released_hash_verified = False
+                    if active is None:
+                        released_manifest = self._measure_recovery(
+                            lambda: _live_base_manifest(
+                                self.candidate_manifest["sceneHash"]
+                            )
+                        )
+                        released_hash_verified = (
+                            released_manifest["sceneHash"]
+                            == self.candidate_manifest["sceneHash"]
+                        )
+                    if active is None and released_hash_verified:
+                        self._finish_success()
+                    else:
+                        raise
+                else:
+                    if executed:
+                        self._finish_success()
+            else:
+                raise StageSceneError("STAGE_SCENE_INVALID_RUN_PHASE")
+        except BaseException as error:
+            self._finish_error(error)
+        elapsed_ms = (time.monotonic() - step_started) * 1000.0
+        self.max_scheduled_step_ms = max(self.max_scheduled_step_ms, elapsed_ms)
+        self.last_step_at = time.monotonic()
+        return None if self.done else 0.0
+
+
 def apply_stage_scene_transaction(
     plan_value: object,
     current_scene_hash: str,
@@ -970,128 +2912,20 @@ def apply_stage_scene_transaction(
     cancelled: Callable[[], bool] = lambda: False,
     deadline: float | None = None,
 ) -> dict:
-    """Apply one staged mutation and defer destruction until durable commit ack."""
-    if bpy is None:
-        raise StageSceneError("stage_scene requires Blender")
-    from .checkpoint import create_checkpoint
-    from .connection import DurableCommitReconciliationRequired
-    from .manifest import extract_scene_manifest_v3, extract_scene_manifest_v4
-    from .scene_manifest import finalize_scene_manifest_child
-
-    plan = parse_stage_scene_plan(plan_value)
-    uses_v4 = any(
-        operation["op"] in ("create_assembly", "set_parent", "transform_assembly")
-        or (
-            operation["op"] == "add_primitive"
-            and operation.get("parent_id") is not None
-        )
-        for operation in plan["operations"]
+    """Drive the retained transaction run synchronously to its terminal state."""
+    run = _StageSceneRun(
+        plan_value,
+        current_scene_hash,
+        connection,
+        commit_fn,
+        cancelled=cancelled,
+        deadline=deadline,
     )
-    before_manifest = _live_base_manifest(current_scene_hash)
-    _check_abort(deadline, cancelled)
-    scene = bpy.context.scene
-    project_id = scene.get("omb.project_id")
-    if not isinstance(project_id, str):
-        raise StageSceneError("scene is missing omb.project_id")
-    transaction = _StageTransaction(scene)
-    checkpoint = create_checkpoint({
-        "stage_scene_scope": {"scene_hash": before_manifest["sceneHash"]}
-    })
-
-    def recover() -> bool:
-        transaction.rollback()
-        return _live_base_manifest(before_manifest["sceneHash"])[
-            "sceneHash"
-        ] == before_manifest["sceneHash"]
-
-    connection.hold_checkpoint(checkpoint, recover)
-    try:
-        connection.ensure_mutation_connection("after_checkpoint")
-        for operation in plan["operations"]:
-            _check_abort(deadline, cancelled)
-            if operation["op"] == "add_primitive":
-                _create_primitive(operation, transaction, project_id)
-            elif operation["op"] == "add_character":
-                _create_character(operation, transaction, project_id)
-            elif operation["op"] == "create_assembly":
-                _create_assembly(operation, transaction, project_id)
-            elif operation["op"] == "set_parent":
-                _set_parent(operation, transaction, project_id)
-            elif operation["op"] == "transform_assembly":
-                _transform_assembly(operation, transaction, project_id)
-            elif operation["op"] == "set_material_color":
-                _set_material_color(operation, transaction, project_id)
-            elif operation["op"] == "upsert_area_light":
-                _upsert_area_light(operation, transaction, project_id)
-            elif operation["op"] == "transform_entity":
-                _transform_entity(operation, transaction, project_id)
-            elif operation["op"] == "set_light_property":
-                _set_light_property(operation, transaction, project_id)
-            elif operation["op"] == "set_camera_property":
-                _set_camera_property(operation, transaction, project_id)
-            elif operation["op"] == "set_render_settings":
-                _set_render_settings(operation, transaction, project_id)
-            elif operation["op"] == "rename_entity":
-                _rename_entity(operation, transaction, project_id)
-            else:
-                scene_object = _require_owned_entity(
-                    operation["entity_id"], project_id
-                )
-                _require_exclusive_datablocks(scene_object)
-                transaction.quarantine(scene_object)
-            connection.ensure_mutation_connection(operation["op"])
-            _watch_step()
-        bpy.context.view_layer.update()
-        _check_abort(deadline, cancelled)
-        connection.ensure_mutation_connection("before_verify")
-        extracted = (
-            extract_scene_manifest_v4()
-            if uses_v4
-            else extract_scene_manifest_v3()
-        )
-        candidate_manifest = finalize_scene_manifest_child(
-            extracted,
-            plan["expected_revision_id"],
-            plan,
-        )
-        objects_by_id = {
-            scene_object["entityId"]: scene_object
-            for scene_object in candidate_manifest["objects"]
-        }
-        entity_identities = [
-            {
-                "entity_id": operation["entity_id"],
-                "requested_name": operation["name"],
-                "actual_name": objects_by_id[operation["entity_id"]]["name"],
-            }
-            for operation in plan["operations"]
-            if operation["op"] in ("add_primitive", "upsert_area_light", "add_character")
-        ]
-        result = {
-            "expected_revision_id": plan["expected_revision_id"],
-            "scene_hash": candidate_manifest["sceneHash"],
-            "manifest": candidate_manifest,
-            "entity_identities": entity_identities,
-        }
-        commit_fn(result)
-        transaction.finalize_deletions()
-        connection.release_checkpoint()
-        return result
-    except DurableCommitReconciliationRequired:
-        raise
-    except BaseException:
-        recovered = False
-        try:
-            transaction.rollback()
-            recovered = (
-                _live_base_manifest(before_manifest["sceneHash"])["sceneHash"]
-                == before_manifest["sceneHash"]
-            )
-        finally:
-            if not recovered:
-                connection.require_recovery()
-            connection.release_checkpoint()
-        raise
+    while not run.done:
+        run.step()
+    if run.error is not None:
+        raise run.error
+    return run.result
 
 
 def schedule_stage_scene_transaction(
@@ -1104,25 +2938,18 @@ def schedule_stage_scene_transaction(
     cancelled: Callable[[], bool] = lambda: False,
     deadline: float | None = None,
 ) -> None:
-    """Register stage_scene as a one-shot Blender main-thread timer."""
-    if bpy is None:
-        raise StageSceneError("stage_scene scheduling requires Blender")
-
-    def run() -> None:
-        try:
-            result_fn(
-                apply_stage_scene_transaction(
-                    plan_value,
-                    current_scene_hash,
-                    connection,
-                    commit_fn,
-                    cancelled=cancelled,
-                    deadline=deadline,
-                ),
-                None,
-            )
-        except BaseException as error:
-            result_fn(None, error)
-        return None
-
-    bpy.app.timers.register(run, first_interval=0.0)
+    """Register and resume one retained main-thread transaction run."""
+    run = _StageSceneRun(
+        plan_value,
+        current_scene_hash,
+        connection,
+        commit_fn,
+        result_fn=result_fn,
+        cancelled=cancelled,
+        deadline=deadline,
+        scheduled=True,
+    )
+    try:
+        bpy.app.timers.register(run.step, first_interval=0.0)
+    except BaseException as error:
+        run._finish_error(error)

@@ -772,6 +772,28 @@ def restore_base_backup(
     _assert_no_symlink_beneath(canonical, root, "canonical_blend_path")
     if canonical.exists():
         _owned_regular_file(canonical, "canonical blend")
+        # The canonical blend may have been rewritten (by a later legitimate
+        # commit, or by a raw script/manual save entirely outside this
+        # transaction) since this marker last recorded what it expected to
+        # find there. Restoring the base backup on top of that unrecognized
+        # content would silently discard real work - refuse and require an
+        # operator to triage instead of overwriting blind.
+        expected_pre_restore_sha256 = (
+            marker.canonical_blend_sha256
+            if marker.canonical_blend_sha256 is not None
+            else marker.base_backup_sha256
+        )
+        observed_pre_restore_sha256 = _sha256_file(canonical, "canonical blend")
+        if observed_pre_restore_sha256 != expected_pre_restore_sha256:
+            raise PreparedTransactionError(
+                "canonical blend does not match this transaction's last known "
+                "state - it was rewritten after the marker was written, so "
+                "restoring the base backup would silently discard that newer "
+                "work. This requires operator intervention: back up the "
+                "current canonical blend if it holds real work, then clear "
+                f"{marker_path(root)} and its transaction directory before "
+                "retrying."
+            )
     try:
         digest = _atomic_copy(backup.path, canonical, "base backup restore")
     except PreparedTransactionError as exc:

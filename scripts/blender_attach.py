@@ -58,6 +58,62 @@ import oh_my_blender
 import oh_my_blender.connection as connection_module
 
 
+def _repo_addon_version() -> str:
+    """Repo-truth add-on version from blender_manifest.toml (single source)."""
+    manifest = REPO_ROOT / "blender-addon" / "oh_my_blender" / "blender_manifest.toml"
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        if line.startswith("version = "):
+            return line.split('"')[1]
+    raise RuntimeError(f"no version field in {manifest}")
+
+
+def _loaded_addon_version(module) -> str:
+    """Version of the in-memory add-on module (legacy modules lack ADDON_VERSION)."""
+    version = getattr(module, "ADDON_VERSION", None)
+    if isinstance(version, str) and version:
+        return version
+    return ".".join(str(part) for part in module.bl_info["version"])
+
+
+def _ensure_current_addon():
+    """Idempotent (re)load of the repo add-on inside a possibly reused Blender.
+
+    A re-run of this script in a live Blender whose in-memory oh_my_blender
+    predates the repo (stale METHOD_NOT_SUPPORTED / unsupported-op surface)
+    unregisters the old add-on, purges its modules, and re-imports from the
+    repo path so the current code serves the bridge. Fresh launches and
+    re-runs at the current version are no-ops beyond the import.
+    """
+    global oh_my_blender, connection_module
+    repo_version = _repo_addon_version()
+    loaded = sys.modules.get("oh_my_blender")
+    if loaded is not None:
+        loaded_version = _loaded_addon_version(loaded)
+        if loaded_version != repo_version:
+            log(f"stale add-on v{loaded_version} loaded; reloading repo v{repo_version}")
+            try:
+                loaded.unregister()
+            except Exception as exc:  # Blender may hold partial state; purge anyway.
+                log("unregister of stale add-on failed (continuing):", exc)
+            for name in sorted(
+                name
+                for name in sys.modules
+                if name == "oh_my_blender" or name.startswith("oh_my_blender.")
+            ):
+                sys.modules.pop(name, None)
+    import oh_my_blender as addon_module
+    import oh_my_blender.connection as reloaded_connection_module
+
+    oh_my_blender = addon_module
+    connection_module = reloaded_connection_module
+    effective = _loaded_addon_version(addon_module)
+    if effective != repo_version:
+        raise RuntimeError(
+            f"add-on reload failed: loaded v{effective}, repo expects v{repo_version}"
+        )
+    return addon_module
+
+
 def log(*parts: object) -> None:
     print("OMB_ATTACH:", *parts, flush=True)
     # LaunchServices-launched Blender has no useful stdout; mirror to a file.
@@ -73,11 +129,22 @@ def newest_blend() -> Path | None:
     return blends[-1] if blends else None
 
 
+def write_pidfile() -> None:
+    """Liveness + staleness marker for the omb launcher's reuse check.
+
+    Line 1: this Blender's pid. Line 2: the loaded add-on version, so the
+    launcher can refuse to reuse a Blender running an outdated add-on.
+    (Blender holds no file handle on its .blend, so lsof/pgrep are unusable.)
+    """
+    (PROJECT_DIR / ".omb-blender.pid").write_text(
+        f"{os.getpid()}\n{_loaded_addon_version(oh_my_blender)}\n", encoding="utf-8"
+    )
+
+
 def setup() -> None:
+    _ensure_current_addon()
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
-    # Exact per-project liveness marker for the omb launcher's reuse check
-    # (Blender holds no file handle on its .blend, so lsof/pgrep are unusable).
-    (PROJECT_DIR / ".omb-blender.pid").write_text(str(os.getpid()), encoding="utf-8")
+    write_pidfile()
     project_file = PROJECT_DIR / ".omb" / "project.json"
     blend = newest_blend()
     if blend is not None:
@@ -161,5 +228,6 @@ def poll_attach() -> float | None:
     return 1.0
 
 
-setup()
-bpy.app.timers.register(poll_attach, first_interval=1.0)
+if __name__ == "__main__":
+    setup()
+    bpy.app.timers.register(poll_attach, first_interval=1.0)

@@ -43,6 +43,15 @@ _FIXTURE_REGISTRY = MappingProxyType({
     ),
 })
 
+# Runtime-produced evidence trusted for this Blender session only. Maps a
+# sha256 digest to (resource path, resolved trusted directory, expected
+# producer triple, revision_id, scene_hash) exactly as recorded at production
+# time by directing_evidence. The trusted directory is recorded independently
+# of the resource path so the containment row cannot degrade to a tautology.
+_RUNTIME_EVIDENCE_REGISTRY: dict[
+    str, tuple[Path, Path, tuple[str, str, str], str, str]
+] = {}
+
 
 class INVALID_CAMERA_PLAN_SCHEMA(ValueError):
     code = "INVALID_CAMERA_PLAN_SCHEMA"
@@ -255,22 +264,121 @@ def parse_directing_analysis_evidence(value: object) -> dict:
     return copy.deepcopy(evidence)
 
 
+def register_runtime_evidence(
+    evidence_sha256: str,
+    resource_path: "Path | str",
+    trusted_directory: "Path | str",
+    expected_producer: tuple[str, str, str],
+    revision_id: str,
+    scene_hash: str,
+) -> None:
+    """Trust one runtime-produced evidence digest for the current session.
+
+    The evidence file MUST be an owned, non-symlink regular file that resolves
+    directly inside ``trusted_directory``, and ``trusted_directory`` MUST itself
+    be an owned, non-symlink, 0700 directory. Binding trust to a separately
+    recorded private directory (rather than deriving it from ``resource_path``)
+    keeps the containment row in ``_verify_evidence_resource`` meaningful: a
+    file registered from a world-writable or attacker-chosen location can never
+    be authorized.
+    """
+    for name, value in (
+        ("evidence_sha256", evidence_sha256),
+        ("revision_id", revision_id),
+        ("scene_hash", scene_hash),
+    ):
+        _hash(value, f"runtime evidence {name}", ValueError)
+    if (
+        not isinstance(expected_producer, tuple)
+        or len(expected_producer) != 3
+        or not all(isinstance(part, str) and part for part in expected_producer)
+    ):
+        raise ValueError("runtime evidence producer identity is invalid")
+    resource = Path(resource_path)
+    directory = Path(trusted_directory)
+    try:
+        directory_stat = directory.lstat()
+        resolved_directory = directory.resolve(strict=True)
+        resolved_resource = resource.resolve(strict=True)
+    except OSError as error:
+        raise TRUSTED_FIXTURE_PATH_UNSAFE(
+            "runtime evidence directory could not be safely resolved"
+        ) from error
+    current_uid = getattr(os, "getuid", lambda: directory_stat.st_uid)()
+    if (
+        stat.S_ISLNK(directory_stat.st_mode)
+        or not stat.S_ISDIR(directory_stat.st_mode)
+        or directory_stat.st_uid != current_uid
+        or (directory_stat.st_mode & 0o077) != 0
+    ):
+        raise TRUSTED_FIXTURE_PATH_UNSAFE(
+            "runtime evidence directory must be an owned nonsymlink 0700 directory"
+        )
+    if resolved_resource.parent != resolved_directory:
+        raise TRUSTED_FIXTURE_PATH_UNSAFE(
+            "runtime evidence file must live inside its private evidence directory"
+        )
+    _RUNTIME_EVIDENCE_REGISTRY[evidence_sha256] = (
+        resource,
+        resolved_directory,
+        expected_producer,
+        revision_id,
+        scene_hash,
+    )
+
+
 def load_authorized_fixture(plan_value: object, current_scene_hash: str) -> dict:
     """Apply evidence trust rows 1-10 in their exact atomic precedence."""
     plan = parse_camera_plan(plan_value)
-    registered = _FIXTURE_REGISTRY.get(plan["evidence_sha256"])
-    if registered is None:
-        raise UNTRUSTED_EVIDENCE_DIGEST("evidence digest is not authorized")
+    digest = plan["evidence_sha256"]
+    registered = _FIXTURE_REGISTRY.get(digest)
+    if registered is not None:
+        _fixture_identity, resource_name, expected_producer = registered
+        fixture_directory = Path(__file__).resolve().parent / "fixtures"
+        return _verify_evidence_resource(
+            fixture_directory / resource_name,
+            fixture_directory,
+            plan,
+            current_scene_hash,
+            expected_producer,
+        )
 
-    _fixture_identity, resource_name, expected_producer = registered
-    fixture_directory = Path(__file__).resolve().parent / "fixtures"
-    resource = fixture_directory / resource_name
+    runtime_entry = _RUNTIME_EVIDENCE_REGISTRY.get(digest)
+    if runtime_entry is None:
+        raise UNTRUSTED_EVIDENCE_DIGEST("evidence digest is not authorized")
+    resource, trusted_directory, expected_producer, revision_id, scene_hash = runtime_entry
+    evidence = _verify_evidence_resource(
+        resource,
+        trusted_directory,
+        plan,
+        current_scene_hash,
+        expected_producer,
+    )
+    if evidence["revision_id"] != revision_id:
+        raise EVIDENCE_REVISION_MISMATCH(
+            "runtime evidence revision does not match its registration"
+        )
+    if evidence["scene_hash"] != scene_hash:
+        raise EVIDENCE_SCENE_HASH_MISMATCH(
+            "runtime evidence scene hash does not match its registration"
+        )
+    return evidence
+
+
+def _verify_evidence_resource(
+    resource: Path,
+    trusted_directory: Path,
+    plan: dict,
+    current_scene_hash: str,
+    expected_producer: tuple[str, str, str],
+) -> dict:
+    """Shared trust rows 3-10 for packaged fixtures and runtime evidence."""
     if not resource.exists():
         raise TRUSTED_FIXTURE_NOT_FOUND("configured fixture resource does not exist")
 
     try:
         resource_stat = resource.lstat()
-        resolved_directory = fixture_directory.resolve(strict=True)
+        resolved_directory = trusted_directory.resolve(strict=True)
         resolved_resource = resource.resolve(strict=True)
     except OSError as error:
         raise TRUSTED_FIXTURE_PATH_UNSAFE("fixture resource could not be safely resolved") from error

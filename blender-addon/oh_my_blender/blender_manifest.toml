@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "oh_my_blender"
-version = "0.1.0"
+version = "0.4.0"
 name = "Oh My Blender"
 tagline = "Pi-driven directing tools for Blender"
 maintainer = "Oh My Blender"

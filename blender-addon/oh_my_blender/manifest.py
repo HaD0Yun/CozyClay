@@ -123,6 +123,14 @@ def animation_fcurves(animation_data: object) -> list[object]:
     return result
 
 
+def _is_generated_motion(animation_data: object) -> bool:
+    action = animation_data.action if animation_data is not None else None
+    return action is not None and (
+        isinstance(action.get("omb.motion_id"), str)
+        or action.name.startswith("OMB Motion ")
+    )
+
+
 def _animation_snapshot(
     object_identity: str,
     target: str,
@@ -155,10 +163,17 @@ def _animation_snapshot(
             )
         keyframes = []
         for point in fcurve.keyframe_points:
+            easing_parameter_names = {
+                "BACK": ("back",),
+                "ELASTIC": ("amplitude", "period"),
+            }.get(point.interpolation, ())
             if (
                 point.easing != "AUTO"
                 or point.interpolation not in interpolation_values
-                or any(getattr(point, name) != default for name, default in easing_defaults.items())
+                or any(
+                    getattr(point, name) != easing_defaults[name]
+                    for name in easing_parameter_names
+                )
             ):
                 raise UNSUPPORTED_FCURVE_FEATURE(
                     f"{object_identity!r} {target} f-curve uses unsupported easing, "
@@ -185,11 +200,16 @@ def _animation_snapshot(
     return {identity_key: _text(object_identity), "target": _text(target), "fcurves": fcurves}
 
 
-def _entity_id(entity: object, label: str) -> str:
+def _tracked_entity_id(entity: object) -> str | None:
+    """Return the OMB entity id for a Blender ID-block, or None if untracked.
+
+    Untracked entities (created by raw scripts or another add-on, never
+    stamped through stage_scene/add_character) are foreign to OMB and must
+    not brick manifest extraction for the whole scene - they are simply
+    omitted, mirroring the scene_relations.py survey pattern.
+    """
     entity_id = entity.get("omb.entity_id")
-    if not isinstance(entity_id, str):
-        raise ValueError(f"{label} is missing omb.entity_id")
-    return entity_id
+    return entity_id if isinstance(entity_id, str) else None
 
 
 def _assembly_entries(
@@ -218,12 +238,14 @@ def _assembly_entries(
 
 def _manifest_object(scene_object: bpy.types.Object) -> dict:
     snapshot = _object_snapshot(scene_object)
+    entity_id = _tracked_entity_id(scene_object)
+    assert entity_id is not None, "caller must filter to tracked scene_objects"
     return {
-        "entityId": _entity_id(scene_object, f"object {scene_object.name!r}"),
+        "entityId": entity_id,
         "name": snapshot["name"],
         "type": snapshot["type"],
         "parentId": (
-            _entity_id(scene_object.parent, f"parent of object {scene_object.name!r}")
+            _tracked_entity_id(scene_object.parent)
             if scene_object.parent
             else None
         ),
@@ -239,16 +261,21 @@ def _manifest_bones(scene_objects: list[bpy.types.Object]) -> list[dict]:
     for scene_object in scene_objects:
         if scene_object.type != "ARMATURE":
             continue
-        armature_id = _entity_id(scene_object, f"armature {scene_object.name!r}")
+        armature_id = _tracked_entity_id(scene_object)
+        if armature_id is None:
+            continue
         for bone in scene_object.data.bones:
+            bone_id = _tracked_entity_id(bone)
+            if bone_id is None:
+                continue
             location, rotation, scale = bone.matrix_local.decompose()
             bones.append(
                 {
-                    "entityId": _entity_id(bone, f"bone {bone.name!r}"),
+                    "entityId": bone_id,
                     "name": _text(bone.name),
                     "armatureObjectId": armature_id,
                     "parentBoneId": (
-                        _entity_id(bone.parent, f"parent of bone {bone.name!r}")
+                        _tracked_entity_id(bone.parent)
                         if bone.parent
                         else None
                     ),
@@ -307,9 +334,17 @@ def _extract_scene_manifest(schema_version: int) -> dict:
     if not isinstance(project_id, str):
         raise ValueError("scene is missing omb.project_id")
 
-    scene_objects = list(blender_scene.objects)
+    # Untracked objects (created by raw scripts, other add-ons, or manual
+    # Blender edits outside stage_scene) are foreign to OMB. They are simply
+    # excluded from the manifest rather than aborting extraction for the
+    # entire scene - one stray Empty must never brick inspect_project.
+    scene_objects = [
+        scene_object
+        for scene_object in blender_scene.objects
+        if _tracked_entity_id(scene_object) is not None
+    ]
     object_ids = {
-        scene_object: _entity_id(scene_object, f"object {scene_object.name!r}")
+        scene_object: _tracked_entity_id(scene_object)
         for scene_object in scene_objects
     }
     cameras = []
@@ -474,8 +509,12 @@ def extract_scene_snapshot() -> dict:
     ]
     animations = []
     for scene_object in scene_objects:
-        object_animation = _animation_snapshot(
-            _text(scene_object.name), "object", scene_object.animation_data
+        object_animation = (
+            None
+            if _is_generated_motion(scene_object.animation_data)
+            else _animation_snapshot(
+                _text(scene_object.name), "object", scene_object.animation_data
+            )
         )
         if object_animation is not None:
             animations.append(object_animation)

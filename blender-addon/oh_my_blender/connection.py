@@ -23,6 +23,7 @@ from .handshake import (
     HandshakeError,
     MUTATION_BRIDGE_CAPABILITY,
     SCENE_MANIFEST_V3_CAPABILITY,
+    SUPPORTED_BRIDGE_METHODS,
     TRANSACTION_COMMIT_CAPABILITY,
     build_hello,
     validate_hello_ack,
@@ -47,6 +48,12 @@ class StaleBridgeBase(ConnectionError):
     """The durable project revision differs from the bridge request."""
 
     code = "STALE_BASE"
+
+class DurableStoreFailed(ConnectionError):
+    """A durable project store write (journal or index) failed."""
+
+    code = "DURABLE_STORE_FAILED"
+
 
 class LifecycleState(str, Enum):
     """Closed lifecycle contract shared by the detector, UI, and restart path."""
@@ -84,6 +91,14 @@ _TASK_KINDS = {
     "render_qa_frames": "qa_render",
     "stage_scene": "stage_scene",
 }
+# Read-only bridge methods: no task tracking, durable base allows bootstrap.
+_READ_ONLY_BRIDGE_METHODS = (
+    "inspect_entity",
+    "capture_viewport",
+    "produce_directing_evidence",
+    "inspect_relations",
+    "preflight_motion",
+)
 _BOOTSTRAP_REVISION_ID = "0" * 64
 _TASK_PHASES = frozenset({
     "dispatching",
@@ -720,11 +735,36 @@ class Connection:
             if self.state == LifecycleState.ACTIVE:
                 self.state = LifecycleState.LOST
 
+    def _append_rebind_journal(
+        self,
+        source: str,
+        project_id: object,
+        scene_hash: object,
+        *,
+        old_revision_id: str | None = None,
+        new_revision_id: str | None = None,
+    ) -> None:
+        """Audit one inspect rebind; propagates project_store.ProjectStoreError."""
+        from . import project_store
+
+        entry: dict = {
+            "type": "inspect_rebind",
+            "source": source,
+            "project_id": project_id,
+            "scene_hash": scene_hash,
+        }
+        if old_revision_id is not None:
+            entry["old_revision_id"] = old_revision_id
+        if new_revision_id is not None:
+            entry["new_revision_id"] = new_revision_id
+        project_store.append_journal(str(self.project_directory), entry)
+
     def _durable_project_base(
         self,
         expected_revision_id: str,
         *,
         allow_bootstrap: bool = False,
+        allow_rebind: bool = False,
     ) -> tuple[str, str]:
         if self.project_directory is None:
             raise ConnectionError("durable project directory is unavailable")
@@ -738,13 +778,11 @@ class Connection:
             scene_hash = project["manifest"]["sceneHash"]
         except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
             raise ConnectionError(f"durable project manifest is unavailable: {error}") from error
-        if (
-            revision_id != expected_revision_id
-            and not (
-                allow_bootstrap
-                and expected_revision_id == _BOOTSTRAP_REVISION_ID
-            )
-        ):
+        rebind_required = revision_id != expected_revision_id and not (
+            allow_bootstrap
+            and expected_revision_id == _BOOTSTRAP_REVISION_ID
+        )
+        if rebind_required and not allow_rebind:
             raise StaleBridgeBase(
                 "durable project revision does not match the bridge request"
             )
@@ -758,6 +796,25 @@ class Connection:
                 or any(character not in "0123456789abcdef" for character in value)
             ):
                 raise ConnectionError(f"durable project {name} is invalid")
+        if rebind_required:
+            # Inspect is the universal STALE_BASE recovery path: serve the
+            # durable truth instead of wedging the director, and leave an
+            # audit record of the rebind. Mutation paths never take this
+            # branch; they keep failing closed on stale bases.
+            from . import project_store
+
+            try:
+                self._append_rebind_journal(
+                    "durable_serve",
+                    project.get("project_id"),
+                    scene_hash,
+                    old_revision_id=expected_revision_id,
+                    new_revision_id=revision_id,
+                )
+            except project_store.ProjectStoreError as error:
+                raise DurableStoreFailed(
+                    f"durable project rebind journal append failed: {error}"
+                ) from error
         return revision_id, scene_hash
 
     def _durable_scene_hash(self, expected_revision_id: str) -> str:
@@ -788,6 +845,22 @@ class Connection:
                 raise StaleBridgeBase(
                     "live Blender scene does not match the durable project substrate"
                 )
+            # The audit record is appended BEFORE the substrate rewrite so a
+            # crash or store failure between the two writes can never leave a
+            # persisted rebind with no journal entry.
+            try:
+                self._append_rebind_journal(
+                    "live_rewrite",
+                    live_manifest["projectId"],
+                    live_manifest["sceneHash"],
+                    old_revision_id=revision_id,
+                    new_revision_id=live_manifest["revisionId"],
+                )
+            except project_store.ProjectStoreError as error:
+                raise DurableStoreFailed(
+                    "durable rebind journal append failed before the substrate "
+                    f"rewrite: {error}"
+                ) from error
             try:
                 project_store.write_project_index(
                     str(self.project_directory),
@@ -798,17 +871,9 @@ class Connection:
                         "manifest": live_manifest,
                     },
                 )
-                project_store.append_journal(
-                    str(self.project_directory),
-                    {
-                        "type": "inspect_rebind",
-                        "project_id": live_manifest["projectId"],
-                        "scene_hash": live_manifest["sceneHash"],
-                    },
-                )
             except project_store.ProjectStoreError as error:
-                raise StaleBridgeBase(
-                    f"live Blender scene does not match the durable project substrate: {error}"
+                raise DurableStoreFailed(
+                    f"durable project substrate rewrite failed after the rebind audit: {error}"
                 ) from error
             revision_id = live_manifest["revisionId"]
         return {
@@ -834,11 +899,32 @@ class Connection:
             raise ConnectionError(f"ENTITY_NOT_FOUND: entity {entity_id} does not exist")
         return {"revision": revision_id, "entity_id": entity_id, "scope": scope, "detail": detail}
 
+    def _inspect_relations_result(self, revision_id: str, params: dict) -> dict:
+        from .scene_relations import collect_relations
+
+        return collect_relations(revision_id, params)
+
+    def _preflight_motion_result(self, revision_id: str, params: dict) -> dict:
+        from .motion_preflight import collect_preflight
+
+        return collect_preflight(revision_id, params, self.project_directory)
+
     def _capture_viewport_result(self, revision_id: str) -> dict:
         from .viewport_capture import capture_viewport
 
         viewport = capture_viewport()
         return {"revision": revision_id, "viewport": viewport}
+
+    def _produce_directing_evidence_result(self, params: object) -> dict:
+        from .directing_evidence import produce_directing_evidence
+
+        value = params if isinstance(params, dict) else {}
+        return produce_directing_evidence(
+            value.get("project_id"),
+            value.get("frame_start"),
+            value.get("frame_end"),
+            project_directory=self.project_directory,
+        )
 
     def hold_checkpoint(
         self,
@@ -1047,14 +1133,7 @@ class Connection:
                 "tool capabilities remain hidden until reconnect verification succeeds",
             )
             return
-        if message.get("method") not in (
-            "inspect_project",
-            "inspect_entity",
-            "capture_viewport",
-            "apply_camera_plan",
-            "stage_scene",
-            "render_qa_frames",
-        ):
+        if message.get("method") not in SUPPORTED_BRIDGE_METHODS:
             self._send_bridge_error(
                 message,
                 "METHOD_NOT_SUPPORTED",
@@ -1097,10 +1176,11 @@ class Connection:
                 durable_revision_id, durable_scene_hash = self._durable_project_base(
                     message["expected_revision_id"],
                     allow_bootstrap=True,
+                    allow_rebind=True,
                 )
                 if current_scene_hash is None:
                     current_scene_hash = durable_scene_hash
-            elif message["method"] in ("inspect_entity", "capture_viewport"):
+            elif message["method"] in _READ_ONLY_BRIDGE_METHODS:
                 durable_revision_id, durable_scene_hash = self._durable_project_base(
                     message["expected_revision_id"],
                     allow_bootstrap=True,
@@ -1123,11 +1203,11 @@ class Connection:
             self._send_bridge_error(message, "BUSY", "a mutation bridge is already active")
             return
         self._bridge_cancellations[bridge_id] = threading.Event()
-        if message["method"] != "inspect_project" and message["method"] not in ("inspect_entity", "capture_viewport"):
+        if message["method"] != "inspect_project" and message["method"] not in _READ_ONLY_BRIDGE_METHODS:
             self.begin_task(message["method"], message["params"])
         if bpy is None:
             self.finish_bridge(bridge_id)
-            if message["method"] != "inspect_project" and message["method"] not in ("inspect_entity", "capture_viewport"):
+            if message["method"] != "inspect_project" and message["method"] not in _READ_ONLY_BRIDGE_METHODS:
                 self.finish_task("error", code="BLENDER_UNAVAILABLE")
             self._send_bridge_error(
                 message,
@@ -1177,9 +1257,69 @@ class Connection:
             finally:
                 self.finish_bridge(bridge_id)
             return
+        if message["method"] == "inspect_relations":
+            try:
+                result = self._inspect_relations_result(
+                    durable_revision_id,
+                    message["params"],
+                )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "preflight_motion":
+            try:
+                result = self._preflight_motion_result(
+                    durable_revision_id,
+                    message["params"],
+                )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
         if message["method"] == "capture_viewport":
             try:
                 result = self._capture_viewport_result(durable_revision_id)
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "produce_directing_evidence":
+            try:
+                result = self._produce_directing_evidence_result(message["params"])
                 self._send_json({
                     "type": "bridge_result",
                     "id": bridge_id,

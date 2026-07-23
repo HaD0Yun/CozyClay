@@ -6,6 +6,9 @@ import {
 	createCaptureViewportTool,
 	createInspectEntityTool,
 	createInspectProjectTool,
+	createInspectRelationsTool,
+	createPreflightMotionTool,
+	createProduceDirectingEvidenceTool,
 	createReadImageTool,
 	createRenderQaFramesTool,
 	createStageSceneTool,
@@ -16,6 +19,7 @@ import {
 	type StageSceneRequestV1,
 } from "@oh-my-blender/protocol";
 import {
+	bundledSkillsPromptBlock,
 	commitCameraPlanMutation,
 	commitStageSceneMutation,
 	createDirectorProjectStore,
@@ -89,8 +93,11 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 
 	pi.registerTool(createInspectProjectTool(bridge));
 	pi.registerTool(createInspectEntityTool(bridge));
+	pi.registerTool(createInspectRelationsTool(bridge));
+	pi.registerTool(createPreflightMotionTool(bridge));
 	pi.registerTool(createCaptureViewportTool(bridge));
 	pi.registerTool(createReadImageTool(cwd));
+	pi.registerTool(createProduceDirectingEvidenceTool(bridge));
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
 	pi.registerTool(createRenderQaFramesTool(bridge));
@@ -100,10 +107,13 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 	// turn one it carries forward in the conversation, so repeating it every
 	// turn would waste context window linearly.
 	let directorPrimed = false;
+	// Digest-verified at activation: a tampered bundled skill fails the session
+	// before any turn runs, matching the DIRECTOR_PROMPT_DIGEST posture.
+	const skillsBlock = bundledSkillsPromptBlock();
 	pi.on("before_agent_start", (event) => ({
 		systemPrompt: `${event.systemPrompt}\n\n${
 			directorPrimed ? DIRECTOR_PROMPT_CONTRACT : DIRECTOR_PROMPT_FULL
-		}`,
+		}\n\n${skillsBlock}`,
 	}));
 	pi.on("agent_start", () => {
 		directorPrimed = true;
@@ -115,11 +125,12 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 	// push a status update when the state text changes.
 	let lastStatusText: string | undefined = undefined;
 	const BLENDER_STATUS_KEY = "blender";
+	let statusInterval: ReturnType<typeof setInterval> | undefined;
 	const refreshBlenderStatus = (setStatus: (key: string, text: string | undefined) => void) => {
 		const attached = bridge.isAttached();
 		const text = attached
 			? `Blender: attached${bridge.attachedProjectId ? ` (${bridge.attachedProjectId.slice(0, 8)})` : ""}`
-			: "Blender: waiting";
+			: (bridge.attachFailure ?? "Blender: waiting");
 		if (text !== lastStatusText) {
 			lastStatusText = text;
 			setStatus(BLENDER_STATUS_KEY, text);
@@ -129,7 +140,7 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 		if (ctx.mode !== "tui") return;
 		const setStatus = ctx.ui.setStatus.bind(ctx.ui);
 		refreshBlenderStatus(setStatus);
-		setInterval(() => refreshBlenderStatus(setStatus), 2000);
+		statusInterval = setInterval(() => refreshBlenderStatus(setStatus), 2000);
 		ctx.ui.onTerminalInput(() => {
 			refreshBlenderStatus(setStatus);
 			return { consume: false };
@@ -141,6 +152,10 @@ export default async function ombExtension(pi: ExtensionAPI): Promise<void> {
 		return {};
 	});
 	pi.on("session_shutdown", async () => {
+		if (statusInterval !== undefined) {
+			clearInterval(statusInterval);
+			statusInterval = undefined;
+		}
 		await bridge.close();
 		await rm(endpointPath, { force: true });
 		await rm(runtimeDirectory, { recursive: true, force: true });

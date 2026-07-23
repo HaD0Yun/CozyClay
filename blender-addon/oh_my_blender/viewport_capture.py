@@ -36,15 +36,31 @@ def capture_viewport() -> dict:
     """
     import bpy
 
+    if bpy.app.background:
+        raise ViewportCaptureError(
+            "no 3D viewport is available to capture: this Blender process "
+            "is running in --background (headless) mode, which has no "
+            "window or viewport at all. Reattach through the normal "
+            "windowed flow (scripts/blender_attach.py without --background) "
+            "to use capture_viewport; render_qa_frames works headless too "
+            "and is the correct fallback here."
+        )
+
+    screen = bpy.context.screen
     area = region = space = None
-    for candidate in bpy.context.screen.areas:
+    for candidate in (screen.areas if screen is not None else ()):
         if candidate.type == "VIEW_3D":
             area = candidate
             space = candidate.spaces.active
             region = next((r for r in candidate.regions if r.type == "WINDOW"), None)
             break
     if area is None or region is None or space is None:
-        raise ViewportCaptureError("no 3D viewport is available to capture")
+        raise ViewportCaptureError(
+            "no 3D viewport is available to capture: the active screen "
+            "layout has no VIEW_3D area open. Switch the Blender window to "
+            "a layout with a 3D Viewport (e.g. the default Layout tab) and "
+            "retry, or use render_qa_frames as a layout-independent fallback."
+        )
 
     width = CAPTURE_WIDTH
     height = CAPTURE_HEIGHT

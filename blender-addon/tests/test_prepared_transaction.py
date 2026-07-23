@@ -376,6 +376,43 @@ class PreparedTransactionTests(unittest.TestCase):
             self.assertEqual(canonical.read_bytes(), CANDIDATE_BYTES)
             self.assertEqual(read_marker(root), marker)
 
+    def test_atomic_restore_refuses_when_canonical_diverged_since_the_marker(self):
+        # Regression: a raw script (or a later legitimate commit) can rewrite
+        # the canonical blend after this marker last recorded what it expected
+        # to find there. Restoring the base backup on top of unrecognized
+        # content would silently discard that newer work - refuse instead.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / "scene.blend"
+            canonical.write_bytes(BASE_BYTES)
+            backup = create_base_backup(
+                project_root=root,
+                transaction_id=TRANSACTION_ID,
+                canonical_blend_path=canonical,
+                project_id=PROJECT_ID,
+                read_blend_project_id=lambda _path: PROJECT_ID,
+            )
+            payload = self.marker_payload(root, "candidate_saved")
+            payload["base_backup_sha256"] = backup.sha256
+            marker = parse_marker(payload, project_root=root)
+            write_marker(root, marker)
+            # Someone rewrites the canonical blend to bytes this marker never
+            # recorded (neither the candidate it saved nor the base it backed
+            # up) - e.g. a manual bpy script save outside the bridge.
+            canonical.write_bytes(b"unrelated manual edit bytes")
+
+            with self.assertRaisesRegex(
+                PreparedTransactionError, "does not match this transaction"
+            ):
+                restore_base_backup(
+                    root,
+                    marker,
+                    read_blend_project_id=lambda _path: PROJECT_ID,
+                )
+
+            self.assertEqual(canonical.read_bytes(), b"unrelated manual edit bytes")
+            self.assertEqual(read_marker(root), marker)
+
     def test_reconcile_decision_matrix_matches_all_twenty_controlling_rows(self):
         candidate = "candidate_authoritative"
         base = "base_authoritative"

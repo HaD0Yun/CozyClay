@@ -74,7 +74,11 @@ describe("director runtime streaming adapter", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,

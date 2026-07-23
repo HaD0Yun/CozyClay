@@ -9,6 +9,24 @@ PROTOCOL_VERSION = 2
 MUTATION_BRIDGE_CAPABILITY = "mutation_bridge_v2"
 SCENE_MANIFEST_V3_CAPABILITY = "scene_manifest_v3"
 TRANSACTION_COMMIT_CAPABILITY = "transaction_commit_v2"
+# Bridge methods this add-on serves; connection.py dispatch and the hello
+# capability report both consume this single list.
+SUPPORTED_BRIDGE_METHODS = (
+    "inspect_project",
+    "inspect_entity",
+    "capture_viewport",
+    "produce_directing_evidence",
+    "inspect_relations",
+    "preflight_motion",
+    "apply_camera_plan",
+    "stage_scene",
+    "render_qa_frames",
+)
+# Namespaced (non-negotiated) capability strings reporting the concrete addon
+# surface, so the extension can fail fast on a stale in-memory add-on.
+ADDON_VERSION_CAPABILITY_PREFIX = "omb.addon_version="
+METHOD_CAPABILITY_PREFIX = "omb.method."
+OP_CAPABILITY_PREFIX = "omb.op."
 EXPECTED_DAEMON_VERSION = "0.1.0"
 _SEMANTIC_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -17,6 +35,23 @@ _NONCE = re.compile(r"^[A-Za-z0-9_-]{22}$")
 
 class HandshakeError(ValueError):
     """A protocol handshake message is malformed."""
+
+
+def addon_surface_capabilities(addon_version: str) -> list[str]:
+    """Namespaced staleness-detection capabilities: version, methods, ops.
+
+    The negotiated core triple is intentionally excluded; callers append these
+    after the core capabilities. The extension compares this reported surface
+    against the repo's expected surface and fails attach with ADDON_STALE on
+    any mismatch.
+    """
+    from .stage_scene import _OPERATION_KEYS
+
+    return [
+        f"{ADDON_VERSION_CAPABILITY_PREFIX}{addon_version}",
+        *(f"{METHOD_CAPABILITY_PREFIX}{method}" for method in SUPPORTED_BRIDGE_METHODS),
+        *sorted(f"{OP_CAPABILITY_PREFIX}{op}" for op in _OPERATION_KEYS),
+    ]
 
 
 def build_hello(project_id: str, addon_version: str, blender_version: str) -> dict[str, Any]:
@@ -32,6 +67,7 @@ def build_hello(project_id: str, addon_version: str, blender_version: str) -> di
             MUTATION_BRIDGE_CAPABILITY,
             SCENE_MANIFEST_V3_CAPABILITY,
             TRANSACTION_COMMIT_CAPABILITY,
+            *addon_surface_capabilities(addon_version),
         ],
     }
 
