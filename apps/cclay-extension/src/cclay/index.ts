@@ -27,7 +27,11 @@ import {
 	DIRECTOR_PROMPT_FULL,
 } from "@cclay/director-runtime";
 import { randomUUID } from "node:crypto";
-import { BlenderBridge } from "./bridge.ts";
+// This entry point lives in `src/cclay/` on purpose: Pi labels a loaded
+// extension with the shortest unique suffix of its path, stripping a trailing
+// `index.ts`. A `src/index.ts` entry therefore shows up as "src" in the startup
+// Extensions list, so the directory name is the display name.
+import { BlenderBridge } from "../bridge.ts";
 
 const ENDPOINT_FILENAME = "pi-bridge.json";
 
