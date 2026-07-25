@@ -10,7 +10,7 @@
 		"test": "node --import tsx --test test/*.test.ts"
 	},
 	"dependencies": {
-		"@earendil-works/pi-coding-agent": "^0.80.9",
+		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@cclay/protocol": "0.1.0",
 		"typebox": "1.1.38"
 	}

@@ -11,8 +11,8 @@
 		"demo": "node --import tsx src/demo.ts"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "^0.80.9",
-		"@earendil-works/pi-coding-agent": "^0.80.9",
+		"@earendil-works/pi-ai": "^0.82.0",
+		"@earendil-works/pi-coding-agent": "^0.82.0",
 		"@cclay/blender-tools": "0.1.0",
 		"@cclay/director-core": "0.1.0",
 		"@cclay/protocol": "0.1.0",
