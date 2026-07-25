@@ -746,10 +746,27 @@ class _StageTransaction:
                 if principled is not None
                 else None
             )
+            # Surface finish is captured alongside base_color so a transaction
+            # that mutated Roughness/Metallic and then failed can restore both
+            # sockets. Like base_color, both are None when there is no
+            # Principled node, and the exact float is captured so the round trip
+            # is lossless (Blender stores these as binary32).
+            roughness = (
+                float(principled.inputs["Roughness"].default_value)
+                if principled is not None
+                else None
+            )
+            metallic = (
+                float(principled.inputs["Metallic"].default_value)
+                if principled is not None
+                else None
+            )
             self.material_states[material] = {
                 "diffuse_color": tuple(material.diffuse_color),
                 "use_nodes": bool(material.use_nodes),
                 "base_color": base_color,
+                "roughness": roughness,
+                "metallic": metallic,
             }
 
     def capture_render(self) -> None:
@@ -812,9 +829,15 @@ class _StageTransaction:
             material.diffuse_color = state["diffuse_color"]
             material.use_nodes = state["use_nodes"]
             if state["base_color"] is not None:
-                material.node_tree.nodes["Principled BSDF"].inputs[
-                    "Base Color"
-                ].default_value = state["base_color"]
+                principled = material.node_tree.nodes["Principled BSDF"]
+                principled.inputs["Base Color"].default_value = state["base_color"]
+                # Restore the surface finish sockets captured above. Guarded on
+                # the same Principled node as base_color, and written as the
+                # exact captured float so the round trip is lossless.
+                if state["roughness"] is not None:
+                    principled.inputs["Roughness"].default_value = state["roughness"]
+                if state["metallic"] is not None:
+                    principled.inputs["Metallic"].default_value = state["metallic"]
         if self.active_camera is None or self.active_camera.name in bpy.data.objects:
             self.scene.camera = self.active_camera
         for scene_object in self.adopted_objects:
@@ -909,6 +932,10 @@ class _StageTransaction:
 
 # Authored so the ring's outer edge lands exactly on the -1..1 unit box like every
 # other shape, keeping `scale` uniform: 0.75 + 0.25 = 1.0.
+# TORUS is the one shape where `scale` is NOT the half-extent on every axis: the
+# swept tube's Z extent is 0.5, so scale.z multiplies a 0.25 canonical half-height
+# rather than a 1.0 half-extent. A circular tube cannot reach +/-1 on all three
+# axes without becoming elliptical, so the XY/XZ asymmetry is intrinsic.
 _TORUS_MAJOR_RADIUS = 0.75
 _TORUS_MINOR_RADIUS = 0.25
 
@@ -970,6 +997,15 @@ def _build_primitive_mesh(editable, primitive_type: str) -> None:
     elif primitive_type in ("CYLINDER", "CONE"):
         # Smooth the swept side but keep the caps flat. Shading a cap as though it
         # were curved is exactly what makes a "smooth" cylinder look wrong.
+        # The 0.9 threshold is safe ONLY for the fixed unit-box proportions every
+        # builder authors: the unit CONE's side face |normal.z| is 0.445488364
+        # (margin 0.454511636 below 0.9) and its cap is 1.0 (margin 0.1 above).
+        # A radius-1 depth-0.4 cone would be 0.928477 and be misclassified as a
+        # cap. It stays safe because the director's `scale` is an OBJECT transform
+        # that never touches mesh-space normals -- so if anyone ever parameterises
+        # the builder's aspect ratio, replace this with structural cap
+        # identification (e.g. cap faces all share one vertex ring) rather than a
+        # normal-z heuristic.
         for face in editable.faces:
             face.smooth = abs(face.normal.z) < 0.9
 

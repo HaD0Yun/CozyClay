@@ -192,6 +192,91 @@ test("daemon canonicalization allocates UUIDs only for newly created entities", 
 	assert.equal(plan.operations[1]?.op === "set_material_color" ? plan.operations[1].entity_id : undefined, IDS[0]);
 });
 
+const canonicalizeMaterialColorByName = (operation: Record<string, unknown>): StageScenePlanV1 =>
+	canonicalizeStageScenePlan(
+		{
+			schema_version: 1,
+			expected_revision_id: "a".repeat(64),
+			operations: [
+				{
+					op: "add_primitive",
+					primitive_type: "CUBE",
+					name: "Hero Cube",
+					location: [0, 0, 1],
+					rotation: [0, 0, 0],
+					scale: [1, 1, 1],
+				},
+				operation,
+			],
+		},
+		() => IDS[0],
+	);
+
+test("set_material_color by name preserves roughness through canonicalization", () => {
+	const plan = canonicalizeMaterialColorByName({
+		op: "set_material_color",
+		object_name: "Hero Cube",
+		color: [0.8, 0.2, 0.1, 1],
+		roughness: 0.28,
+	});
+	const resolved = plan.operations[1];
+	assert.equal(resolved?.op, "set_material_color");
+	if (resolved?.op !== "set_material_color") return;
+	assert.equal(resolved.entity_id, IDS[0]);
+	assert.deepEqual(resolved.color, [0.8, 0.2, 0.1, 1]);
+	assert.equal(resolved.roughness, 0.28);
+	assert.equal("metallic" in resolved, false);
+});
+
+test("set_material_color by name preserves metallic through canonicalization", () => {
+	const plan = canonicalizeMaterialColorByName({
+		op: "set_material_color",
+		object_name: "Hero Cube",
+		color: [0.8, 0.2, 0.1, 1],
+		metallic: 0.9,
+	});
+	const resolved = plan.operations[1];
+	assert.equal(resolved?.op, "set_material_color");
+	if (resolved?.op !== "set_material_color") return;
+	assert.equal(resolved.entity_id, IDS[0]);
+	assert.deepEqual(resolved.color, [0.8, 0.2, 0.1, 1]);
+	assert.equal("roughness" in resolved, false);
+	assert.equal(resolved.metallic, 0.9);
+});
+
+test("set_material_color by name preserves both roughness and metallic through canonicalization", () => {
+	const plan = canonicalizeMaterialColorByName({
+		op: "set_material_color",
+		object_name: "Hero Cube",
+		color: [0.8, 0.2, 0.1, 1],
+		roughness: 0.28,
+		metallic: 0.9,
+	});
+	const resolved = plan.operations[1];
+	assert.equal(resolved?.op, "set_material_color");
+	if (resolved?.op !== "set_material_color") return;
+	assert.equal(resolved.entity_id, IDS[0]);
+	assert.deepEqual(resolved.color, [0.8, 0.2, 0.1, 1]);
+	assert.equal(resolved.roughness, 0.28);
+	assert.equal(resolved.metallic, 0.9);
+});
+
+test("set_material_color by name without finish fields resolves to op/entity_id/color only", () => {
+	const plan = canonicalizeMaterialColorByName({
+		op: "set_material_color",
+		object_name: "Hero Cube",
+		color: [0.8, 0.2, 0.1, 1],
+	});
+	const resolved = plan.operations[1];
+	assert.equal(resolved?.op, "set_material_color");
+	if (resolved?.op !== "set_material_color") return;
+	assert.equal(resolved.entity_id, IDS[0]);
+	assert.deepEqual(resolved.color, [0.8, 0.2, 0.1, 1]);
+	assert.equal("roughness" in resolved, false);
+	assert.equal("metallic" in resolved, false);
+	assert.deepEqual(Object.keys(resolved).sort(), ["color", "entity_id", "op"]);
+});
+
 test("add_camera allocates an identity and keeps lens optional", () => {
 	const allocated = [...IDS];
 	const plan = canonicalizeStageScenePlan(

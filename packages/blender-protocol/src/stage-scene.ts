@@ -500,7 +500,8 @@ export function canonicalizeStageScenePlan(input: unknown, allocateEntityId: () 
 					`set_material_color references unknown staged object ${JSON.stringify(operation.object_name)}`,
 				);
 			}
-			return { op: operation.op, entity_id: entityId, color: operation.color };
+			const { object_name: _objectName, ...rest } = operation;
+			return { ...rest, entity_id: entityId };
 		}
 		return operation as StageSceneOperationV1;
 	});
