@@ -104,7 +104,7 @@ export const DIRECTOR_PROMPT_DIGEST = "14bd2ba81f4ecc2925907086d9d875da37f849658
  * filesystem-discovered resources.
  */
 export const ARDY_MOTION_SKILL_PATH = fileURLToPath(new URL("../skills/ardy-motion/SKILL.md", import.meta.url));
-export const ARDY_MOTION_SKILL_DIGEST = "69539ed5087ad819517a514827ae4bc5fbfb041bb75e2bde1e6c666f0942cc19";
+export const ARDY_MOTION_SKILL_DIGEST = "81e604fb3ea006fa03252a48c1cafe44a121bd7a6cc7ecce042720a3e4dde2fd";
 export const VISUAL_QA_SKILL_PATH = fileURLToPath(new URL("../skills/visual-qa/SKILL.md", import.meta.url));
 export const VISUAL_QA_SKILL_DIGEST = "7cd642272e76bf039a5ccb688a2c180b26a0fafad771ca1903925299398fc4ef";
 
