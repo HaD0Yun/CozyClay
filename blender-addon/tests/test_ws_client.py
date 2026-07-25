@@ -74,6 +74,30 @@ class WebSocketTests(unittest.TestCase):
         with self.assertRaises(MessageTooLarge): client.send_text("x" * (1024 * 1024 + 1))
         client.close(); server.thread.join(1)
 
+    def test_outbound_oversize_keeps_the_link_open_for_the_error_report(self):
+        """An oversized send is our own bug; severing the link loses the only
+        channel able to report it, which is how a QA render batch turned into a
+        bare BRIDGE_DISCONNECTED."""
+        server = Server(); client = WebSocketClient.connect(server.port, "secret", timeout=1)
+        with self.assertRaises(MessageTooLarge): client.send_text("x" * (1024 * 1024 + 1))
+
+        self.assertFalse(client.closed)
+        client.send_json({"reported": "over the live link"})
+        self.assertEqual(client.recv_json(), {"reported": "over the live link"})
+        client.close(); server.thread.join(1)
+
+    def test_inbound_oversize_still_drops_the_untrusted_transport(self):
+        header = b"\x81\x7f" + struct.pack("!Q", 1024 * 1024 + 1)
+        sock = mock.Mock()
+        sock.recv.side_effect = [header[:2], header[2:]]
+        client = WebSocketClient(sock)
+
+        with self.assertRaises(MessageTooLarge):
+            client.recv_json()
+
+        self.assertTrue(client.closed)
+        sock.close.assert_called_once_with()
+
     def test_close_marks_transport_closed_when_close_frame_send_fails(self):
         sock = mock.Mock()
         sock.sendall.side_effect = OSError("severed")

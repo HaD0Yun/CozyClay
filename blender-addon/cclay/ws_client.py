@@ -77,14 +77,23 @@ class WebSocketClient:
             sock.close()
             raise
 
-    def _too_large(self) -> "None":
+    def _reject_oversize_inbound(self) -> "None":
+        """Drop the transport: an oversized inbound frame is untrusted framing."""
         self.closed = True
         self.socket.close()
-        raise MessageTooLarge("message exceeds 1 MiB")
+        raise MessageTooLarge("inbound message exceeds 1 MiB")
+
+    def _reject_oversize_outbound(self) -> "None":
+        """Keep the transport: an oversized outbound payload is our own bug.
+
+        Killing the socket here loses the only channel able to report the fault,
+        so the caller sees a coded error and can still answer over the live link.
+        """
+        raise MessageTooLarge("outbound message exceeds 1 MiB")
 
     def _send_frame(self, opcode: int, payload: bytes) -> None:
         if len(payload) > MAX_MESSAGE_SIZE and opcode in (0, 1, 2):
-            self._too_large()
+            self._reject_oversize_outbound()
         mask = os.urandom(4)
         length = len(payload)
         if length < 126: header = bytes((0x80 | opcode, 0x80 | length))
@@ -96,7 +105,7 @@ class WebSocketClient:
     def send_text(self, text: str) -> None:
         payload = text.encode("utf-8")
         if len(payload) > MAX_MESSAGE_SIZE:
-            self._too_large()
+            self._reject_oversize_outbound()
         self._send_frame(1, payload)
 
     def send_json(self, value: Any) -> None:
@@ -120,7 +129,7 @@ class WebSocketClient:
         opcode = first & 15
         if opcode >= 8 and (not first & 0x80 or length > 125): raise ProtocolError("invalid control frame")
         if length > MAX_MESSAGE_SIZE:
-            self._too_large()
+            self._reject_oversize_inbound()
         return bool(first & 0x80), opcode, self._exact(length)
 
     def recv_text(self) -> str:
@@ -137,7 +146,7 @@ class WebSocketClient:
             elif opcode == 0 and started: pass
             else: raise ProtocolError("invalid text fragmentation")
             if len(parts) + len(payload) > MAX_MESSAGE_SIZE:
-                self._too_large()
+                self._reject_oversize_inbound()
             parts.extend(payload)
             if fin:
                 try: return parts.decode("utf-8")

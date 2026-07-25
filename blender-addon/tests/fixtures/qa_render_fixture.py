@@ -57,8 +57,12 @@ def main() -> None:
     )
     frame = result["frames"][0]
     png = base64.b64decode(frame["png_base64"], validate=True)
-    metadata, _begin, _chunks = split_frame_for_bridge(frame)
-    model_png = base64.b64decode(metadata["image"]["data_base64"], validate=True)
+    metadata, begin, chunks = split_frame_for_bridge(frame)
+    # The PNG now crosses the bridge only as artifact chunks, so verify the
+    # reassembled stream rather than a restated copy inside the metadata.
+    streamed_png = b"".join(
+        base64.b64decode(chunk["data_base64"], validate=True) for chunk in chunks
+    )
     with tempfile.TemporaryDirectory(prefix="cclay-qa-verify-") as directory:
         path = Path(directory) / "frame.png"
         path.write_bytes(png)
@@ -73,10 +77,13 @@ def main() -> None:
     output = {
         "dimensions": dimensions,
         "profile": result["profile_version"],
-        "imageMimeType": metadata["image"]["mime_type"],
-        "decodedByteLength": len(model_png),
+        "thumbnailMimeType": metadata["thumbnail"]["mime_type"],
+        "restatesPng": "image" in metadata,
+        "streamedChunks": len(chunks),
+        "declaredChunks": begin["total_chunks"],
+        "decodedByteLength": len(streamed_png),
         "declaredByteLength": metadata["byte_length"],
-        "payloadDigest": hashlib.sha256(model_png).hexdigest(),
+        "payloadDigest": hashlib.sha256(streamed_png).hexdigest(),
         "declaredDigest": metadata["sha256"],
         "opaqueBackground": opaque_background,
         "scopeRestored": _scope_state(bpy.context.scene) == before_scope,

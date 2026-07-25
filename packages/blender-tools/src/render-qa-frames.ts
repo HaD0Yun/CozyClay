@@ -26,7 +26,7 @@ export function createRenderQaFramesTool(bridge: RenderQaFramesBridge) {
 		name: "render_qa_frames",
 		label: "render_qa_frames",
 		description:
-			"Render up to 12 deterministic 640x360 QA PNG frames for an exact Blender revision. Returns canonical artifact URIs plus model-visible image/png content capped at 2 MiB per frame and 12 MiB per batch.",
+			"Render up to 12 deterministic 640x360 QA PNG frames for an exact Blender revision. The full PNGs are streamed into the artifact store and referenced by canonical URI; the model receives one small JPEG thumbnail per frame, capped at 2 MiB per frame and 12 MiB per batch.",
 		parameters: RenderQaFramesRequestV1Schema,
 		executionMode: "sequential",
 		execute: async (_toolCallId, request, signal, onUpdate) => {

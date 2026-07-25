@@ -248,7 +248,7 @@ test("a bridge_error rejects the pending inspect with the addon code", async () 
 	}
 });
 
-test("renderQaFrames validates streamed bytes, publishes them, and returns model-visible PNG content", async () => {
+test("renderQaFrames validates streamed bytes, publishes them, and returns thumbnail-only metadata", async () => {
 	const project = await mkdtemp(path.join(tmpdir(), "cclay-extension-render-"));
 	const bridge = new BlenderBridge(project);
 	const endpoint = await bridge.start();
@@ -308,7 +308,6 @@ test("renderQaFrames validates streamed bytes, publishes them, and returns model
 					profile_version: "cclay-qa-png-v1",
 					byte_length: png.length,
 					sha256,
-					image: { mime_type: "image/png", data_base64: png.toString("base64") },
 					thumbnail: {
 						mime_type: "image/jpeg",
 						data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
@@ -320,6 +319,9 @@ test("renderQaFrames validates streamed bytes, publishes them, and returns model
 		});
 		const result = await rendering;
 		assert.equal(result.frames[0]?.uri, `cclay-artifact://sha256/${sha256}`);
+		// The result metadata carries no PNG copy: the streamed chunks are the
+		// only source, so the artifact on disk proves the reassembly path.
+		assert.equal("image" in (result.frames[0] as Record<string, unknown>), false);
 		assert.deepEqual(
 			await readFile(path.join(project, ".cclay", "artifacts", "sha256", `${sha256}.png`)),
 			png,
@@ -328,6 +330,157 @@ test("renderQaFrames validates streamed bytes, publishes them, and returns model
 		client.close();
 		await bridge.close();
 		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("a render result whose streamed artifact is not a PNG is refused", async () => {
+	const project = await mkdtemp(path.join(tmpdir(), "cclay-extension-notpng-"));
+	const bridge = new BlenderBridge(project);
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive();
+		await bridge.waitForAttach();
+
+		const inspect = bridge.inspectProject();
+		const inspectRequest = JSON.parse(await client.receive());
+		client.send({
+			type: "bridge_result",
+			id: inspectRequest.id,
+			request_id: inspectRequest.request_id,
+			result: { revision: REVISION, snapshot: SNAPSHOT },
+		});
+		await inspect;
+
+		// Content validation moved here when the metadata stopped restating the
+		// PNG, so a non-PNG stream must still fail instead of reaching disk.
+		const notPng = Buffer.from("definitely-not-a-png");
+		const sha256 = createHash("sha256").update(notPng).digest("hex");
+		const rendering = bridge.renderQaFrames(
+			{ schema_version: 1, revision_id: REVISION, frames: [1] },
+			{ reportProgress: () => {} },
+		);
+		const request = JSON.parse(await client.receive());
+		client.send({
+			type: "bridge_artifact_batch_begin",
+			id: request.id,
+			request_id: request.request_id,
+			frames: [{ frame: 1, total_chunks: 1, total_byte_length: notPng.length, sha256 }],
+		});
+		client.send({
+			type: "bridge_artifact_chunk",
+			id: request.id,
+			request_id: request.request_id,
+			frame: 1,
+			chunk_index: 0,
+			total_chunks: 1,
+			byte_offset: 0,
+			byte_length: notPng.length,
+			data_base64: notPng.toString("base64"),
+		});
+		client.send({
+			type: "bridge_result",
+			id: request.id,
+			request_id: request.request_id,
+			result: {
+				schema_version: 1,
+				revision_id: REVISION,
+				profile_version: "cclay-qa-png-v1",
+				frames: [{
+					frame: 1,
+					width: 640,
+					height: 360,
+					profile_version: "cclay-qa-png-v1",
+					byte_length: notPng.length,
+					sha256,
+					thumbnail: {
+						mime_type: "image/jpeg",
+						data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),
+						width: 256,
+						height: 144,
+					},
+				}],
+			},
+		});
+		await assert.rejects(rendering, /INVALID_RENDER_QA_RESULT: streamed artifact is not a PNG/);
+	} finally {
+		client.close();
+		await bridge.close();
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("a mid-render disconnect names the operation, phase, and streamed artifact bytes", async () => {
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive();
+		await bridge.waitForAttach();
+
+		const inspect = bridge.inspectProject();
+		const inspectRequest = JSON.parse(await client.receive());
+		client.send({
+			type: "bridge_result",
+			id: inspectRequest.id,
+			request_id: inspectRequest.request_id,
+			result: { revision: REVISION, snapshot: SNAPSHOT },
+		});
+		await inspect;
+
+		const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
+		const sha256 = createHash("sha256").update(png).digest("hex");
+		const rendering = bridge.renderQaFrames(
+			{ schema_version: 1, revision_id: REVISION, frames: [1] },
+			{ reportProgress: () => {} },
+		);
+		const request = JSON.parse(await client.receive());
+		client.send({
+			type: "bridge_artifact_batch_begin",
+			id: request.id,
+			request_id: request.request_id,
+			frames: [{ frame: 1, total_chunks: 2, total_byte_length: png.length * 2, sha256 }],
+		});
+		client.send({
+			type: "bridge_progress",
+			id: request.id,
+			request_id: request.request_id,
+			phase: "publishing",
+			completed: 1,
+			total: 2,
+		});
+		client.send({
+			type: "bridge_artifact_chunk",
+			id: request.id,
+			request_id: request.request_id,
+			frame: 1,
+			chunk_index: 0,
+			total_chunks: 2,
+			byte_offset: 0,
+			byte_length: png.length,
+			data_base64: png.toString("base64"),
+		});
+		// Let the streamed chunk land before the transport dies.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		client.close();
+
+		// A bare BRIDGE_DISCONNECTED left no way to tell which call died or how
+		// far it got; the diagnostics clause is the regression under test.
+		await assert.rejects(rendering, (error: unknown) => {
+			assert.ok(error instanceof Error);
+			assert.match(error.message, /^BRIDGE_DISCONNECTED: Blender bridge disconnected \(/);
+			assert.match(error.message, /during render_qa_frames/);
+			assert.match(error.message, /phase publishing/);
+			assert.match(error.message, new RegExp(`artifacts ${png.length}/${png.length * 2} bytes over 1 frame\\(s\\)`));
+			return true;
+		});
+	} finally {
+		client.close();
+		await bridge.close();
 	}
 });
 
@@ -882,7 +1035,6 @@ test("a finalize failure settles the render as a coded error and the queue advan
 					profile_version: "cclay-qa-png-v1",
 					byte_length: png.length,
 					sha256,
-					image: { mime_type: "image/png", data_base64: png.toString("base64") },
 					thumbnail: {
 						mime_type: "image/jpeg",
 						data_base64: Buffer.from("jpeg-thumbnail-payload").toString("base64"),

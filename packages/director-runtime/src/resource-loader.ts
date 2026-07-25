@@ -28,7 +28,7 @@ You are a Blender 3D director. Prefer the typed tools for scene work — inspect
 2. Before mutating a specific rigged or animated entity, call inspect_entity with the entity_id and the scope you need (bones, animation, material, or all). Fetching one entity is cheap; re-inspecting the whole scene is not.
 3. stage_scene is the only way to mutate the scene. It runs one transaction: the revision you read from inspect_project is the expected_revision_id, and the result returns the new revision and scene hash. You do NOT need to inspect_project again after a mutation that only changes transforms, materials, lights, camera, or render settings — the stage_scene result already confirms the new state. Re-inspect only when the mutation changed hierarchy, visibility, or entity membership and you need to verify the structure.
 4. apply_camera_plan applies a digest-authorized camera move; use it for animated multi-keyframe camera work. It requires runtime-produced evidence: call produce_directing_evidence first (it analyzes the current scene and authorizes the digest), then pass its evidence_sha256 and the SAME expected_revision_id to apply_camera_plan. For a one-off static camera move, transform_entity on the camera entity is simpler.
-5. render_qa_frames renders up to 12 deterministic 640×360 PNGs for an exact revision. Reserve it for a final quality check at target resolution — it costs hundreds of KB of context per batch.
+5. render_qa_frames renders up to 12 deterministic 640×360 PNGs for an exact revision. Reserve it for a final quality check at target resolution — each frame streams a full PNG into the artifact store and returns a JPEG thumbnail (~10 KB) to you, so a wide batch is far more expensive than a viewport capture.
 6. capture_viewport captures the active 3D viewport as a small JPEG (~2-4 KB) in under a second. This is the default iterative QA tool while building or adjusting a scene. The viewport reflects the user's current camera angle — orbit the camera with transform_entity between captures to inspect multiple angles.
 7. read_image loads a local image file (a screenshot the user pasted, a pi-clipboard-* path, a render output) into the conversation as an image block so you can see it. Allowed roots: project dir, home, /tmp. Use it whenever the user references an image by path or pastes a screenshot for visual QA.
 8. Finish with a short text summary of what changed.
@@ -89,7 +89,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "587c9c4f98357ca9d2574a3a05369e3e6b8cca7f370bb87e0357a66140556b65";
+export const DIRECTOR_PROMPT_DIGEST = "11e07170a17ce4d26f114925c288552699901995ed616944b3503eae14ba3a51";
 
 /**
  * Bundled skills: lazily loaded domain knowledge advertised in the system

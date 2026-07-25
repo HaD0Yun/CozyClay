@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import tempfile
 import time
 from collections.abc import Callable
@@ -15,6 +16,7 @@ except ImportError:
     imbuf = None
 
 from .checkpoint import create_checkpoint, restore, verify
+from .ws_client import MAX_MESSAGE_SIZE
 
 try:  # Blender is intentionally absent from host-side unit tests.
     import bpy  # type: ignore
@@ -29,9 +31,14 @@ HEIGHT = 360
 MAX_FRAMES = 12
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 MAX_BATCH_BYTES = 128 * 1024 * 1024
-# Model-visible viewport evidence caps; G011 artifact streaming caps above stay unchanged.
+# Model-visible evidence caps. Only the JPEG thumbnail reaches the model, so
+# these bound the thumbnail lane; G011 artifact streaming caps above stay
+# unchanged.
 MAX_IMAGE_FRAME_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_BATCH_BYTES = 12 * 1024 * 1024
+# The final bridge_result must cross the bounded WebSocket link in one message.
+# Headroom covers the envelope the connection layer wraps around `result`.
+MAX_RESULT_MESSAGE_BYTES = MAX_MESSAGE_SIZE - 64 * 1024
 MAX_DEADLINE_SECONDS = 30.0
 MAX_CHUNK_BYTES = 512 * 1024
 MAX_CHUNKS_PER_FRAME = 32
@@ -296,15 +303,26 @@ def _live_scene_hash(current_scene_hash: str) -> str:
     return manifest["sceneHash"] if manifest is not None else ""
 
 
-def _encode_thumbnail(png_bytes: bytes) -> str:
-    """Resize a PNG to a small JPEG thumbnail and return base64 for model context.
+def _passthrough_thumbnail(png_bytes: bytes) -> str:
+    """Fall back to the source bytes, but only while they stay thumbnail-sized.
 
-    Falls back to the raw PNG base64 if imbuf is unavailable or cannot decode the
-    input (e.g. headless test fixtures with non-PNG bytes) so the protocol stays
-    observable.
+    Headless fixtures feed tiny non-PNG payloads that imbuf cannot decode, and
+    keeping them observable is worth a fallback. Passing a full-resolution render
+    through unchanged is not: it is the model-visible slot, and a whole batch of
+    them is what used to overflow the bridge message budget.
     """
+    if len(png_bytes) > MAX_IMAGE_FRAME_BYTES:
+        raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+            "thumbnail encoding is unavailable and the source frame is too large "
+            f"to stand in for one ({len(png_bytes)} bytes)"
+        )
+    return base64.b64encode(png_bytes).decode("ascii")
+
+
+def _encode_thumbnail(png_bytes: bytes) -> str:
+    """Resize a PNG to a small JPEG thumbnail and return base64 for model context."""
     if imbuf is None:
-        return base64.b64encode(png_bytes).decode("ascii")
+        return _passthrough_thumbnail(png_bytes)
     try:
         with tempfile.TemporaryDirectory(prefix="cclay-qa-thumb-") as directory:
             source = Path(directory) / "frame.png"
@@ -317,8 +335,10 @@ def _encode_thumbnail(png_bytes: bytes) -> str:
             thumb.filepath = target.as_posix()
             imbuf.write(thumb)
             return base64.b64encode(target.read_bytes()).decode("ascii")
+    except RenderQaError:
+        raise
     except Exception:
-        return base64.b64encode(png_bytes).decode("ascii")
+        return _passthrough_thumbnail(png_bytes)
 
 
 def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
@@ -332,10 +352,6 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
         raise RenderQaError("renderer byte length changed before bridge streaming")
     if hashlib.sha256(data).hexdigest() != frame_result.get("sha256"):
         raise RenderQaError("renderer digest changed before bridge streaming")
-    if len(data) > MAX_IMAGE_FRAME_BYTES:
-        raise RENDER_QA_IMAGE_CONTENT_LIMIT(
-            f"model-visible frame exceeds the {MAX_IMAGE_FRAME_BYTES}-byte limit"
-        )
     chunks_data = [
         data[offset : offset + MAX_CHUNK_BYTES]
         for offset in range(0, len(data), MAX_CHUNK_BYTES)
@@ -361,13 +377,15 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
         for key, value in frame_result.items()
         if key != "png_base64"
     }
-    metadata["image"] = {
-        "mime_type": "image/png",
-        "data_base64": encoded,
-    }
+    thumbnail_base64 = _encode_thumbnail(data)
+    thumbnail_bytes = len(base64.b64decode(thumbnail_base64, validate=True))
+    if thumbnail_bytes > MAX_IMAGE_FRAME_BYTES:
+        raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+            f"model-visible frame exceeds the {MAX_IMAGE_FRAME_BYTES}-byte limit"
+        )
     metadata["thumbnail"] = {
         "mime_type": "image/jpeg",
-        "data_base64": _encode_thumbnail(data),
+        "data_base64": thumbnail_base64,
         "width": THUMBNAIL_WIDTH,
         "height": THUMBNAIL_HEIGHT,
     }
@@ -378,6 +396,36 @@ def split_frame_for_bridge(frame_result: dict) -> tuple[dict, dict, list[dict]]:
         "sha256": frame_result["sha256"],
     }
     return metadata, begin, chunks
+
+
+def ensure_bridge_result_fits(result_message: dict) -> None:
+    """Reject a result payload that cannot cross the bounded WebSocket link.
+
+    The full PNGs travel as bounded artifact chunks, so the result carries only
+    metadata plus the model-visible thumbnails. Restating every PNG here used to
+    push multi-frame batches past the addon's 1 MiB frame limit, which severed
+    the transport instead of failing the call, so the wire budget is now an
+    explicit precondition checked before any streaming starts.
+    """
+    total_thumbnail_bytes = 0
+    for frame in result_message.get("frames", ()):
+        thumbnail = frame.get("thumbnail") if isinstance(frame, dict) else None
+        if not isinstance(thumbnail, dict):
+            continue
+        total_thumbnail_bytes += len(
+            base64.b64decode(thumbnail.get("data_base64", ""), validate=True)
+        )
+    if total_thumbnail_bytes > MAX_IMAGE_BATCH_BYTES:
+        raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+            f"model-visible render batch exceeds the {MAX_IMAGE_BATCH_BYTES}-byte limit"
+        )
+    encoded = json.dumps(result_message, separators=(",", ":"), ensure_ascii=False)
+    size = len(encoded.encode("utf-8"))
+    if size > MAX_RESULT_MESSAGE_BYTES:
+        raise RENDER_QA_IMAGE_CONTENT_LIMIT(
+            f"render result message is {size} bytes and exceeds the "
+            f"{MAX_RESULT_MESSAGE_BYTES}-byte bridge message budget"
+        )
 
 
 def render_qa_frames_transaction(
@@ -426,7 +474,6 @@ def render_qa_frames_transaction(
         raise RenderQaError("renderer returned frames out of contract order")
 
     total_bytes = 0
-    total_image_bytes = 0
     results = []
     for frame, data in rendered:
         if len(data) > MAX_FRAME_BYTES:
@@ -437,17 +484,6 @@ def render_qa_frames_transaction(
         if total_bytes > MAX_BATCH_BYTES:
             raise RENDER_QA_BATCH_BYTES_EXCEEDED(
                 f"render batch exceeds the {MAX_BATCH_BYTES}-byte limit"
-            )
-        if len(data) > MAX_IMAGE_FRAME_BYTES:
-            raise RENDER_QA_IMAGE_CONTENT_LIMIT(
-                f"model-visible frame {frame} exceeds the "
-                f"{MAX_IMAGE_FRAME_BYTES}-byte limit"
-            )
-        total_image_bytes += len(data)
-        if total_image_bytes > MAX_IMAGE_BATCH_BYTES:
-            raise RENDER_QA_IMAGE_CONTENT_LIMIT(
-                f"model-visible render batch exceeds the "
-                f"{MAX_IMAGE_BATCH_BYTES}-byte limit"
             )
         results.append({
             "frame": frame,

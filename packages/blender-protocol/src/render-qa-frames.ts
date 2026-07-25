@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
 
@@ -7,21 +6,16 @@ const ARTIFACT_URI = "^cclay-artifact://sha256/[0-9a-f]{64}$";
 const exact = <T extends Record<string, TSchema>>(properties: T) =>
 	Type.Object(properties, { additionalProperties: false });
 export const RENDER_QA_PROFILE_VERSION = "cclay-qa-png-v1" as const;
-/** Model-visible low-resolution PNG cap; G011 artifact storage limits remain unchanged. */
+/** Model-visible thumbnail cap per frame; G011 artifact storage limits remain unchanged. */
 export const RENDER_QA_MAX_IMAGE_FRAME_BYTES = 2 * 1024 * 1024;
-/** Aggregate decoded bytes exposed to the model for one render_qa_frames result. */
+/** Aggregate decoded thumbnail bytes exposed to the model for one render_qa_frames result. */
 export const RENDER_QA_MAX_IMAGE_BATCH_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(RENDER_QA_MAX_IMAGE_FRAME_BYTES / 3);
-const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 export const RenderQaFramesRequestV1Schema = exact({
 	schema_version: Type.Literal(1),
 	revision_id: Type.String({ pattern: HASH_64 }),
 	frames: Type.Array(Type.Integer({ minimum: 0, maximum: 1_000_000 }), { minItems: 1 }),
-});
-const RenderQaFrameImageV1Schema = exact({
-	mime_type: Type.Literal("image/png"),
-	data_base64: Type.String({ minLength: 12 }),
 });
 const RenderQaFrameThumbnailV1Schema = exact({
 	mime_type: Type.Literal("image/jpeg"),
@@ -30,6 +24,12 @@ const RenderQaFrameThumbnailV1Schema = exact({
 	height: Type.Integer({ minimum: 1, maximum: 1024 }),
 });
 
+// The full PNG never crosses the wire inside this metadata: it is streamed as
+// bounded artifact chunks and reassembled by the bridge, which verifies
+// `byte_length`/`sha256` against the bytes it actually received. Restating the
+// PNG here once overflowed the addon's 1 MiB WebSocket frame limit on
+// multi-frame batches and killed the transport, so only the small model-visible
+// thumbnail travels with the result.
 const RenderQaFrameArtifactV1Schema = exact({
 	frame: Type.Integer({ minimum: 0, maximum: 1_000_000 }),
 	width: Type.Literal(640),
@@ -38,7 +38,6 @@ const RenderQaFrameArtifactV1Schema = exact({
 	byte_length: Type.Integer({ minimum: 1, maximum: 16 * 1024 * 1024 }),
 	sha256: Type.String({ pattern: HASH_64 }),
 	uri: Type.String({ pattern: ARTIFACT_URI }),
-	image: RenderQaFrameImageV1Schema,
 	thumbnail: RenderQaFrameThumbnailV1Schema,
 });
 
@@ -60,17 +59,18 @@ export function parseRenderQaFramesRequest(input: unknown): RenderQaFramesReques
 	return { ...parsed, frames };
 }
 
-function rejectOversizedEncodedImages(input: unknown): void {
+/** Fail an oversized thumbnail with its coded error before schema parsing walks it. */
+function rejectOversizedEncodedThumbnails(input: unknown): void {
 	if (typeof input !== "object" || input === null || !("frames" in input) || !Array.isArray(input.frames)) return;
 	for (const frame of input.frames) {
-		if (typeof frame !== "object" || frame === null || !("image" in frame)) continue;
-		const image = frame.image;
+		if (typeof frame !== "object" || frame === null || !("thumbnail" in frame)) continue;
+		const thumbnail = frame.thumbnail;
 		if (
-			typeof image === "object" &&
-			image !== null &&
-			"data_base64" in image &&
-			typeof image.data_base64 === "string" &&
-			image.data_base64.length > MAX_IMAGE_BASE64_LENGTH
+			typeof thumbnail === "object" &&
+			thumbnail !== null &&
+			"data_base64" in thumbnail &&
+			typeof thumbnail.data_base64 === "string" &&
+			thumbnail.data_base64.length > MAX_IMAGE_BASE64_LENGTH
 		) {
 			throw new Error("RENDER_QA_IMAGE_CONTENT_LIMIT: frame image exceeds 2 MiB");
 		}
@@ -78,7 +78,7 @@ function rejectOversizedEncodedImages(input: unknown): void {
 }
 
 export function parseRenderQaFramesResult(input: unknown): RenderQaFramesResultV1 {
-	rejectOversizedEncodedImages(input);
+	rejectOversizedEncodedThumbnails(input);
 	const parsed = Parse(RenderQaFramesResultV1Schema, input);
 	let previous = -1;
 	let totalImageBytes = 0;
@@ -89,25 +89,16 @@ export function parseRenderQaFramesResult(input: unknown): RenderQaFramesResultV
 		if (frame.frame <= previous) throw new Error("INVALID_RENDER_QA_RESULT: frames must be unique and sorted");
 		previous = frame.frame;
 
-		const imageBytes = Buffer.from(frame.image.data_base64, "base64");
-		if (imageBytes.byteLength > RENDER_QA_MAX_IMAGE_FRAME_BYTES) {
+		const thumbnailBytes = Buffer.from(frame.thumbnail.data_base64, "base64");
+		if (thumbnailBytes.byteLength > RENDER_QA_MAX_IMAGE_FRAME_BYTES) {
 			throw new Error("RENDER_QA_IMAGE_CONTENT_LIMIT: frame image exceeds 2 MiB");
 		}
-		totalImageBytes += imageBytes.byteLength;
+		totalImageBytes += thumbnailBytes.byteLength;
 		if (totalImageBytes > RENDER_QA_MAX_IMAGE_BATCH_BYTES) {
 			throw new Error("RENDER_QA_IMAGE_CONTENT_LIMIT: batch images exceed 12 MiB");
 		}
-		if (imageBytes.toString("base64") !== frame.image.data_base64) {
-			throw new Error("INVALID_RENDER_QA_RESULT: image data must be canonical base64");
-		}
-		if (imageBytes.byteLength !== frame.byte_length) {
-			throw new Error("INVALID_RENDER_QA_RESULT: image byte length must match artifact metadata");
-		}
-		if (!imageBytes.subarray(0, PNG_SIGNATURE.byteLength).equals(PNG_SIGNATURE)) {
-			throw new Error("INVALID_RENDER_QA_RESULT: image content must be a PNG");
-		}
-		if (createHash("sha256").update(imageBytes).digest("hex") !== frame.sha256) {
-			throw new Error("INVALID_RENDER_QA_RESULT: image digest must match artifact metadata");
+		if (thumbnailBytes.toString("base64") !== frame.thumbnail.data_base64) {
+			throw new Error("INVALID_RENDER_QA_RESULT: thumbnail data must be canonical base64");
 		}
 	}
 	if (parsed.frames.reduce((total, frame) => total + frame.byte_length, 0) > 128 * 1024 * 1024) {

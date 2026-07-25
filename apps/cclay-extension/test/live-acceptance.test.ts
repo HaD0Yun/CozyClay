@@ -771,6 +771,89 @@ test(
 					rmSync(imagePath, { force: true });
 				}
 			});
+
+			// ---------------- S9 multi-frame batch survives the wire ----------------
+			await scenario("S9", "render_qa_frames: a 5-frame batch does not sever the bridge", async () => {
+				// Regression: the result message restated every full PNG, so this exact
+				// 5-frame batch exceeded the addon's 1 MiB WebSocket frame limit and
+				// the transport was dropped mid-call with a bare BRIDGE_DISCONNECTED.
+				const frames = [1, 80, 120, 150, 160];
+				await inspect("S9 sync");
+				await stageScene("S9 frame range", {
+					schema_version: 1,
+					expected_revision_id: bridge.revisionId,
+					operations: [{ op: "set_render_settings", frame_start: 1, frame_end: 160 }],
+				});
+				const tool = createRenderQaFramesTool(bridge);
+				const outcome = (await call(`render_qa_frames ${frames.length} frames`, () =>
+					Promise.resolve(
+						tool.execute(
+							"live-acceptance-s9",
+							{ schema_version: 1 as const, revision_id: bridge.revisionId, frames },
+							undefined,
+							undefined,
+							undefined as never,
+						),
+					),
+				)) as {
+					content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+					details: {
+						frames: Array<{ frame: number; byte_length: number; sha256: string; uri: string }>;
+					};
+				};
+
+				// The bridge is still attached: the batch crossed the wire intact.
+				assert.equal(bridge.attached, true, "bridge survived the multi-frame batch");
+				assert.equal(bridge.attachFailure, undefined);
+
+				assert.deepEqual(
+					outcome.details.frames.map((frame) => frame.frame),
+					frames,
+					"every requested frame came back",
+				);
+				const imageBlocks = outcome.content.filter((block) => block.type === "image");
+				assert.equal(imageBlocks.length, frames.length, "one thumbnail per frame");
+				let modelBytes = 0;
+				for (const block of imageBlocks) {
+					assert.equal(block.mimeType, "image/jpeg");
+					modelBytes += Buffer.from(block.data!, "base64").byteLength;
+				}
+
+				// Full PNGs live only in the artifact store. The invariant under test is
+				// scene-independent: the result payload must not scale with PNG size, so
+				// no batch can push it past the bridge message budget.
+				let artifactBytes = 0;
+				for (const frame of outcome.details.frames) {
+					const artifact = readFileSync(path.join(ombDir, "artifacts", "sha256", `${frame.sha256}.png`));
+					assert.equal(artifact.length, frame.byte_length, `frame ${frame.frame} artifact is complete`);
+					assert.equal(createHash("sha256").update(artifact).digest("hex"), frame.sha256);
+					assert.deepEqual([...artifact.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+					assert.equal("image" in (frame as Record<string, unknown>), false, "no restated PNG");
+					artifactBytes += artifact.length;
+				}
+				const resultPayloadBytes = Buffer.byteLength(JSON.stringify(outcome.details), "utf8");
+				const restatedPayloadBytes = resultPayloadBytes + Math.ceil((artifactBytes * 4) / 3);
+				assert.ok(
+					resultPayloadBytes < artifactBytes,
+					`result payload (${resultPayloadBytes}) does not carry the PNGs (${artifactBytes})`,
+				);
+				assert.ok(
+					resultPayloadBytes < 983_040,
+					`result payload stays inside the bridge message budget (${resultPayloadBytes} bytes)`,
+				);
+				assert.ok(modelBytes < 64 * 1024, `model-visible batch stays small (${modelBytes} bytes)`);
+
+				// A follow-up op proves the link is usable, not merely still open.
+				const after = await inspect("S9 after batch");
+				return {
+					frames,
+					artifact_bytes: artifactBytes,
+					model_visible_bytes: modelBytes,
+					result_payload_bytes: resultPayloadBytes,
+					old_shape_payload_bytes: restatedPayloadBytes,
+					revision_after: after.revision,
+				};
+			});
 		} finally {
 			// Trap: always kill the spawned Blender and close the bridge/server.
 			killBlender();

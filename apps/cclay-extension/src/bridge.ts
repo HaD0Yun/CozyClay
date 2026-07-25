@@ -38,6 +38,7 @@ import {
 import { acceptUpgrade, readClientRole, type WebSocketConnection } from "./ws-server.ts";
 
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const HASH_64 = /^[0-9a-f]{64}$/;
 const BRIDGE_OP_DEADLINE_MAX_MS = 30_000;
 // Local reaper margin on top of the wire deadline: a wedged-but-connected
@@ -124,6 +125,7 @@ interface PendingBridge {
 	readonly method: string;
 	readonly reportProgress?: (progress: BridgeProgress) => void;
 	readonly resolve: (result: unknown) => void;
+	lastPhase?: string;
 	readonly reject: (error: Error) => void;
 	preparedTransaction?: BridgeTransactionPrepared;
 	renderRequest?: RenderQaFramesRequestV1;
@@ -485,8 +487,9 @@ export class BlenderBridge {
 		});
 		websocket.on("disconnect", () => {
 			if (this.transport?.websocket === websocket) {
+				const diagnostics = this.pendingDiagnostics();
 				this.transport = undefined;
-				this.failPending("BRIDGE_DISCONNECTED", "Blender bridge disconnected");
+				this.failPending("BRIDGE_DISCONNECTED", `Blender bridge disconnected${diagnostics}`);
 			}
 		});
 	}
@@ -651,6 +654,7 @@ export class BlenderBridge {
 		}
 		if (pending === undefined) return;
 		if (message.type === "bridge_progress" && message.id === pending.id) {
+			pending.lastPhase = message.phase;
 			pending.reportProgress?.({ phase: message.phase, completed: message.completed, total: message.total });
 			return;
 		}
@@ -714,7 +718,7 @@ export class BlenderBridge {
 		await mkdir(artifactDirectory, { recursive: true });
 		const frames: RenderQaFramesResultV1["frames"][number][] = [];
 		for (const metadata of raw.frames) {
-			if (!isRecord(metadata) || typeof metadata.frame !== "number" || !isRecord(metadata.image)) {
+			if (!isRecord(metadata) || typeof metadata.frame !== "number") {
 				throw new Error("INVALID_RENDER_QA_RESULT: frame metadata is invalid");
 			}
 			const artifact = pending.artifactFrames.get(metadata.frame);
@@ -732,8 +736,11 @@ export class BlenderBridge {
 			if (sha256 !== artifact.sha256 || metadata.sha256 !== sha256 || metadata.byte_length !== bytes.byteLength) {
 				throw new Error("INVALID_RENDER_QA_RESULT: artifact digest or length changed");
 			}
-			if (metadata.image.data_base64 !== bytes.toString("base64") || metadata.image.mime_type !== "image/png") {
-				throw new Error("INVALID_RENDER_QA_RESULT: model image does not match streamed artifact");
+			// The result metadata no longer restates the PNG (that duplication
+			// overflowed the addon's 1 MiB frame limit), so the streamed bytes are
+			// the only copy and carry the full content check here.
+			if (!bytes.subarray(0, PNG_SIGNATURE.byteLength).equals(PNG_SIGNATURE)) {
+				throw new Error("INVALID_RENDER_QA_RESULT: streamed artifact is not a PNG");
 			}
 			await writeFile(path.join(artifactDirectory, `${sha256}.png`), bytes, { mode: 0o600 });
 			frames.push({
@@ -754,6 +761,28 @@ export class BlenderBridge {
 		if (pending.deadlineTimer !== undefined) clearTimeout(pending.deadlineTimer);
 		this.activeRequestIds.delete(pending.requestId);
 		run();
+	}
+
+	/**
+	 * One actionable clause naming the operation a transport-level failure hit.
+	 * Without it a mid-render disconnect or timeout surfaces as a bare code with
+	 * no way to tell which tool call died or how far its artifact stream got.
+	 */
+	private pendingDiagnostics(): string {
+		const pending = this.pending;
+		if (pending === undefined) return "";
+		const clauses = [`during ${pending.method}`];
+		if (pending.lastPhase !== undefined) clauses.push(`phase ${pending.lastPhase}`);
+		if (pending.artifactFrames.size > 0) {
+			let streamed = 0;
+			let declared = 0;
+			for (const frame of pending.artifactFrames.values()) {
+				streamed += frame.receivedBytes;
+				declared += frame.totalByteLength;
+			}
+			clauses.push(`artifacts ${streamed}/${declared} bytes over ${pending.artifactFrames.size} frame(s)`);
+		}
+		return ` (${clauses.join(", ")})`;
 	}
 
 	private failPending(code: string, message: string): void {
@@ -874,7 +903,10 @@ export class BlenderBridge {
 			// holding the node process alive; it is cleared on every settle
 			// path (result, error, cancel, disconnect, close).
 			pending.deadlineTimer = setTimeout(() => {
-				this.failPending("DEADLINE_EXCEEDED", "bridge operation exceeded its deadline");
+				this.failPending(
+					"DEADLINE_EXCEEDED",
+					`bridge operation exceeded its deadline${this.pendingDiagnostics()}`,
+				);
 			}, this.operationTimeoutMs);
 			pending.deadlineTimer.unref?.();
 			const signal = options.signal;

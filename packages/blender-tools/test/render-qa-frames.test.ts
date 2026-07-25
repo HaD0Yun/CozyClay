@@ -4,7 +4,6 @@ import type { RenderQaFramesRequestV1, RenderQaFramesResultV1 } from "@cclay/pro
 import { createRenderQaFramesTool } from "../src/render-qa-frames.ts";
 
 const request: RenderQaFramesRequestV1 = { schema_version: 1, revision_id: "a".repeat(64), frames: [80] };
-const pngBase64 = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64");
 const result: RenderQaFramesResultV1 = {
 	schema_version: 1,
 	revision_id: request.revision_id,
@@ -18,7 +17,6 @@ const result: RenderQaFramesResultV1 = {
 			byte_length: 8,
 			sha256: "b".repeat(64),
 			uri: `cclay-artifact://sha256/${"b".repeat(64)}`,
-			image: { mime_type: "image/png", data_base64: pngBase64 },
 			thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 		},
 	],
@@ -60,7 +58,10 @@ test("G016: render_qa_frames returns metadata plus proper Pi image content block
 			},
 		],
 	});
-	assert.equal(metadataText.includes(pngBase64), false);
+	// The model text carries thumbnail dimensions only: no base64 payload of any
+	// kind, and no restated PNG (the result type no longer has a slot for one).
+	assert.equal(metadataText.includes("data_base64"), false);
+	assert.equal("image" in result.frames[0]!, false);
 	assert.deepEqual(output.content, [
 		{ type: "text", text: metadataText },
 		{ type: "image", mimeType: "image/jpeg", data: "thumb" },

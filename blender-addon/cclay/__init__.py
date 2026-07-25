@@ -623,6 +623,12 @@ if bpy is not None:
                     qa_render.split_frame_for_bridge(frame_result)
                     for frame_result in result["frames"]
                 ]
+                # Fail before streaming a single chunk when the result message
+                # cannot cross the bounded WebSocket link.
+                qa_render.ensure_bridge_result_fits({
+                    **result,
+                    "frames": [metadata for metadata, _begin, _chunks in prepared_frames],
+                })
                 metadata_frames = []
                 total = len(prepared_frames)
                 active._send_json({

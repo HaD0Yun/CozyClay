@@ -21,6 +21,18 @@ def request(frames: list[int]) -> dict:
     return {"schema_version": 1, "revision_id": REVISION, "frames": frames}
 
 
+def _frame_result(png: bytes, *, frame: int = 8) -> dict:
+    return {
+        "frame": frame,
+        "width": 640,
+        "height": 360,
+        "profile_version": "cclay-qa-png-v1",
+        "byte_length": len(png),
+        "sha256": hashlib.sha256(png).hexdigest(),
+        "png_base64": base64.b64encode(png).decode("ascii"),
+    }
+
+
 class RenderQaFramesValidationTests(unittest.TestCase):
     def test_clause_frame_count_is_bounded_to_twelve(self):
         """Plan clause: "≤12 frames"."""
@@ -118,8 +130,8 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             ("rendered", 2, 2),
         ])
 
-    def test_clause_frame_bytes_stream_as_artifacts_and_bounded_model_image_content(self):
-        """QA bytes retain G011 artifact streaming and add bounded model-visible PNG content."""
+    def test_clause_frame_bytes_stream_as_artifacts_without_restating_the_png(self):
+        """QA bytes stream as G011 artifacts; the result carries no second PNG copy."""
         png = b"0123456789"
         encoded = base64.b64encode(png).decode("ascii")
         frame = {
@@ -134,10 +146,8 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
         with mock.patch.object(qa_render, "MAX_CHUNK_BYTES", 4):
             metadata, begin, chunks = qa_render.split_frame_for_bridge(frame)
         self.assertNotIn("png_base64", metadata)
-        self.assertEqual(
-            metadata["image"],
-            {"mime_type": "image/png", "data_base64": encoded},
-        )
+        self.assertNotIn("image", metadata)
+        self.assertEqual(metadata["thumbnail"]["mime_type"], "image/jpeg")
         self.assertEqual(
             begin,
             {
@@ -212,26 +222,58 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
                 )
 
     def test_clause_model_image_content_has_a_distinct_size_error(self):
-        """Viewport evidence is capped independently from the G011 artifact lane."""
+        """Thumbnail evidence is capped independently from the G011 artifact lane."""
         with mock.patch.object(qa_render, "MAX_IMAGE_FRAME_BYTES", 4):
             with self.assertRaises(qa_render.RENDER_QA_IMAGE_CONTENT_LIMIT):
-                qa_render.render_qa_frames_transaction(
-                    request([1]),
-                    SCENE_HASH,
-                    live_scene_hash=lambda _expected: SCENE_HASH,
-                    render_batch=lambda *_args, **_kwargs: [(1, b"12345")],
-                )
-        with (
-            mock.patch.object(qa_render, "MAX_IMAGE_FRAME_BYTES", 4),
-            mock.patch.object(qa_render, "MAX_IMAGE_BATCH_BYTES", 6),
-        ):
+                qa_render.split_frame_for_bridge(_frame_result(b"12345"))
+
+    def test_clause_result_message_must_fit_the_bridge_wire_budget(self):
+        """Regression: restating every PNG severed the bounded 1 MiB link."""
+        metadata, _begin, _chunks = qa_render.split_frame_for_bridge(_frame_result(b"12345"))
+        message = {
+            "schema_version": 1,
+            "revision_id": REVISION,
+            "profile_version": "cclay-qa-png-v1",
+            "frames": [metadata],
+        }
+        qa_render.ensure_bridge_result_fits(message)
+
+        with mock.patch.object(qa_render, "MAX_RESULT_MESSAGE_BYTES", 16):
             with self.assertRaises(qa_render.RENDER_QA_IMAGE_CONTENT_LIMIT):
-                qa_render.render_qa_frames_transaction(
-                    request([1, 2]),
-                    SCENE_HASH,
-                    live_scene_hash=lambda _expected: SCENE_HASH,
-                    render_batch=lambda *_args, **_kwargs: [(1, b"1234"), (2, b"5678")],
-                )
+                qa_render.ensure_bridge_result_fits(message)
+
+        with mock.patch.object(qa_render, "MAX_IMAGE_BATCH_BYTES", 1):
+            with self.assertRaises(qa_render.RENDER_QA_IMAGE_CONTENT_LIMIT):
+                qa_render.ensure_bridge_result_fits(message)
+
+    def test_clause_thumbnail_fallback_never_passes_a_full_render_through(self):
+        """Regression: the imbuf fallback must not restore the oversize payload."""
+        with mock.patch.object(qa_render, "imbuf", None):
+            self.assertEqual(
+                base64.b64decode(qa_render._encode_thumbnail(b"tiny"), validate=True),
+                b"tiny",
+            )
+            with mock.patch.object(qa_render, "MAX_IMAGE_FRAME_BYTES", 4):
+                with self.assertRaises(qa_render.RENDER_QA_IMAGE_CONTENT_LIMIT):
+                    qa_render._encode_thumbnail(b"far-too-large")
+
+    def test_clause_full_batch_of_max_frames_fits_one_websocket_message(self):
+        """A 12-frame batch must never be able to overflow one bridge message."""
+        png = bytes(range(256)) * 1024
+        # A real 640x360 JPEG thumbnail is a few KB; imbuf is absent off-Blender,
+        # so stand in a generous one rather than the untouched render.
+        thumbnail = base64.b64encode(b"j" * 32 * 1024).decode("ascii")
+        with mock.patch.object(qa_render, "_encode_thumbnail", lambda _png: thumbnail):
+            prepared = [
+                qa_render.split_frame_for_bridge(_frame_result(png, frame=frame))
+                for frame in range(1, qa_render.MAX_FRAMES + 1)
+            ]
+        qa_render.ensure_bridge_result_fits({
+            "schema_version": 1,
+            "revision_id": REVISION,
+            "profile_version": "cclay-qa-png-v1",
+            "frames": [metadata for metadata, _begin, _chunks in prepared],
+        })
 
 
 if __name__ == "__main__":
