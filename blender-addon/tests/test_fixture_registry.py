@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from oh_my_blender.fixture_registry import (
+from cclay.fixture_registry import (
     BOXING_V4_EVIDENCE_SHA256,
     INVALID_CAMERA_PLAN,
     UNTRUSTED_DIRECTING_EVIDENCE,
@@ -87,7 +87,7 @@ class FixtureRegistryTests(unittest.TestCase):
     def test_architecture_section_6_package_resource_must_be_a_regular_nonsymlink_file(self):
         real_stat = (
             Path(__file__).resolve().parents[1]
-            / "oh_my_blender"
+            / "cclay"
             / "fixtures"
             / "boxing-v4-directing-evidence.json"
         ).lstat()

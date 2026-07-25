@@ -1,0 +1,16 @@
+{
+	"private": true,
+	"type": "module",
+	"bin": {
+		"cclay-pi": "src/main.ts"
+	},
+	"scripts": {
+		"test": "node --import tsx --test test/*.test.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "0.80.9",
+		"@cclay/blender-tools": "0.1.0",
+		"@cclay/director-runtime": "0.1.0",
+		"@cclay/protocol": "0.1.0"
+	}
+}

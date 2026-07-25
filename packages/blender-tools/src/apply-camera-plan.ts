@@ -1,5 +1,5 @@
+import { type CameraPlanV1, CameraPlanV1Schema } from "@cclay/protocol";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { type CameraPlanV1, CameraPlanV1Schema } from "@oh-my-blender/protocol";
 
 export interface ApplyCameraPlanProgress {
 	readonly phase: string;

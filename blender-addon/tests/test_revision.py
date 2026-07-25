@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from oh_my_blender.revision import initial_revision_id
+from cclay.revision import initial_revision_id
 
 
 class RevisionTests(unittest.TestCase):

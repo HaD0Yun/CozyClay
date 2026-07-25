@@ -5,7 +5,7 @@ import sys
 import unittest
 import uuid
 
-from oh_my_blender.daemon_child import DaemonChild, StartupError
+from cclay.daemon_child import DaemonChild, StartupError
 
 
 def script(body):
@@ -15,7 +15,7 @@ def script(body):
 class DaemonChildTests(unittest.TestCase):
     def record_code(self, prefix="", suffix=""):
         token = base64.urlsafe_b64encode(b"x" * 32).decode().rstrip("=")
-        record = {"type": "omb_daemon_ready", "protocol": 1, "port": 12345, "pid": "PID", "launch_id": str(uuid.uuid4()), "bearer_token": token, "expires_in_ms": 10000}
+        record = {"type": "cclay_daemon_ready", "protocol": 1, "port": 12345, "pid": "PID", "launch_id": str(uuid.uuid4()), "bearer_token": token, "expires_in_ms": 10000}
         encoded = json.dumps(record).replace('"PID"', '__import__("os").getpid()')
         return f"import json,os; r={encoded}; {prefix}print(json.dumps(r), flush=True); {suffix}"
 

@@ -12,8 +12,8 @@ import bpy
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "blender-addon"))
 
-from oh_my_blender.manifest import extract_scene_manifest_v4
-from oh_my_blender.stage_scene import (
+from cclay.manifest import extract_scene_manifest_v4
+from cclay.stage_scene import (
     STAGE_SCENE_PARENT_CYCLE,
     _StageTransaction,
     _create_assembly,
@@ -39,11 +39,11 @@ def main() -> None:
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     scene = bpy.context.scene
-    scene["omb.project_id"] = PROJECT_ID
+    scene["cclay.project_id"] = PROJECT_ID
     transaction = _StageTransaction(scene)
     root = _create_assembly({"op": "create_assembly", "name": "Two Part"}, transaction, PROJECT_ID)
-    root_entity_id = root["omb.entity_id"]
-    assembly_id = root["omb.assembly_id"]
+    root_entity_id = root["cclay.entity_id"]
+    assembly_id = root["cclay.assembly_id"]
     part_a = _create_primitive(primitive(PART_A, "Part A", [2, 0, 0]), transaction, PROJECT_ID)
     part_b = _create_primitive(primitive(PART_B, "Part B", [4, 0, 0]), transaction, PROJECT_ID)
 
@@ -75,7 +75,7 @@ def main() -> None:
         bpy.ops.wm.open_mainfile(filepath=blend_path)
         reloaded = extract_scene_manifest_v4()
 
-    print("OMB_STAGE_SCENE_ASSEMBLY_RESULTS=" + json.dumps({
+    print("CCLAY_STAGE_SCENE_ASSEMBLY_RESULTS=" + json.dumps({
         "keepTransform": keep_transform,
         "cycleCode": cycle_code,
         "movedTogether": delta_a == delta_b == (3.0, 2.0, 1.0),

@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from oh_my_blender import qa_render
+from cclay import qa_render
 
 
 REVISION = "1" * 64
@@ -77,7 +77,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
         self.assertEqual(rendered, [])
 
     def test_clause_payload_metadata_binds_sha_length_profile_and_dimensions(self):
-        """Task clause: "return the bound metadata" for 640x360 `omb-qa-png-v1`."""
+        """Task clause: "return the bound metadata" for 640x360 `cclay-qa-png-v1`."""
         png = b"bounded-png"
         result = qa_render.render_qa_frames_transaction(
             request([8]),
@@ -87,12 +87,12 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
         )
         self.assertEqual(result["revision_id"], REVISION)
         self.assertEqual(result["schema_version"], 1)
-        self.assertEqual(result["profile_version"], "omb-qa-png-v1")
+        self.assertEqual(result["profile_version"], "cclay-qa-png-v1")
         self.assertEqual(result["frames"], [{
             "frame": 8,
             "width": 640,
             "height": 360,
-            "profile_version": "omb-qa-png-v1",
+            "profile_version": "cclay-qa-png-v1",
             "byte_length": len(png),
             "sha256": hashlib.sha256(png).hexdigest(),
             "png_base64": base64.b64encode(png).decode("ascii"),
@@ -126,7 +126,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             "frame": 8,
             "width": 640,
             "height": 360,
-            "profile_version": "omb-qa-png-v1",
+            "profile_version": "cclay-qa-png-v1",
             "byte_length": len(png),
             "sha256": hashlib.sha256(png).hexdigest(),
             "png_base64": encoded,

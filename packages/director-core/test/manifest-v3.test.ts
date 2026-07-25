@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { parseSceneManifestV2 } from "@oh-my-blender/protocol";
+import { parseSceneManifestV2 } from "@cclay/protocol";
 import { buildSceneManifestV3Revision, canonicalJson, childRevisionId } from "../src/index.ts";
 
 const v2 = parseSceneManifestV2(
@@ -54,7 +54,7 @@ test("each authoritative staged material field advances scene and child revision
 	};
 	const material = {
 		objectId: "00000000-0000-4000-8000-000000000002",
-		materialName: "OMB Material",
+		materialName: "CCLAY Material",
 		baseColor: [0.1, 0.2, 0.3, 1] as [number, number, number, number],
 		useNodes: true,
 		principledBaseColor: [0.1, 0.2, 0.3, 1] as [number, number, number, number],

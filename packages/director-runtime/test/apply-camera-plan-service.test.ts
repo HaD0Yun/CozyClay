@@ -1,17 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-	buildSceneManifestV3Revision,
-	buildSceneManifestV4Revision,
-	type DirectorProject,
-} from "@oh-my-blender/director-core";
-import {
-	type CameraPlanV1,
-	parseSceneManifestV2,
-	parseSceneManifestV4,
-	type SceneManifestV4,
-} from "@oh-my-blender/protocol";
+import { buildSceneManifestV3Revision, buildSceneManifestV4Revision, type DirectorProject } from "@cclay/director-core";
+import { type CameraPlanV1, parseSceneManifestV2, parseSceneManifestV4, type SceneManifestV4 } from "@cclay/protocol";
 import {
 	type CameraPlanRevisionStore,
 	commitCameraPlanMutation,

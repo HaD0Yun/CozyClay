@@ -1,7 +1,7 @@
 import unittest
 import uuid
 
-from oh_my_blender.identity import IdentityError, assign_entity_ids, new_project_id, validate_project_ids
+from cclay.identity import IdentityError, assign_entity_ids, new_project_id, validate_project_ids
 
 
 class IdentityTests(unittest.TestCase):

@@ -10,8 +10,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from oh_my_blender.identity import IdentityError
-from oh_my_blender.project_store import (
+from cclay.identity import IdentityError
+from cclay.project_store import (
     ProjectStoreError,
     append_journal,
     apply_property_assignments,
@@ -45,9 +45,9 @@ class ProjectStoreTests(unittest.TestCase):
 
     def test_line_203_malformed_json_and_uuid_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            omb = Path(directory, ".omb")
-            omb.mkdir()
-            index = omb / "project.json"
+            cclay = Path(directory, ".cclay")
+            cclay.mkdir()
+            index = cclay / "project.json"
             index.write_text("{broken", encoding="utf-8")
             with self.assertRaises(ProjectStoreError):
                 read_project_index(directory)
@@ -59,7 +59,7 @@ class ProjectStoreTests(unittest.TestCase):
         """§5 line 196-198: an interrupted temp write leaves the current index intact."""
         with tempfile.TemporaryDirectory() as directory:
             write_project_index(directory, PROJECT_ID)
-            final = Path(directory, ".omb", "project.json")
+            final = Path(directory, ".cclay", "project.json")
             prior = final.read_bytes()
             interrupted_temp = final.with_name(".project.json.interrupted")
             interrupted_temp.write_bytes(b'{"project_id":')
@@ -69,7 +69,7 @@ class ProjectStoreTests(unittest.TestCase):
     def test_line_210_write_failure_before_replace_preserves_prior_index(self):
         with tempfile.TemporaryDirectory() as directory:
             write_project_index(directory, PROJECT_ID)
-            with mock.patch("oh_my_blender.project_store.os.replace", side_effect=OSError("crash")):
+            with mock.patch("cclay.project_store.os.replace", side_effect=OSError("crash")):
                 with self.assertRaises(ProjectStoreError):
                     write_project_index(directory, OTHER_ID)
             self.assertEqual(read_project_index(directory), {"project_id": PROJECT_ID})
@@ -78,16 +78,16 @@ class ProjectStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with (
                 mock.patch(
-                    "oh_my_blender.project_store.os.open", wraps=os.open
+                    "cclay.project_store.os.open", wraps=os.open
                 ) as open_mock,
                 mock.patch(
-                    "oh_my_blender.project_store.os.fsync", wraps=os.fsync
+                    "cclay.project_store.os.fsync", wraps=os.fsync
                 ) as fsync_mock,
             ):
                 write_project_index(directory, PROJECT_ID)
             self.assertEqual(
                 open_mock.call_args_list[-1],
-                mock.call(Path(directory, ".omb"), os.O_RDONLY),
+                mock.call(Path(directory, ".cclay"), os.O_RDONLY),
             )
             self.assertEqual(fsync_mock.call_count, 2)
 
@@ -97,11 +97,11 @@ class ProjectStoreTests(unittest.TestCase):
                 {"type": "initialize_project", "project_id": PROJECT_ID},
                 {"type": "repair_ids", "reassigned": ["object:1"]},
             ]
-            with mock.patch("oh_my_blender.project_store.os.fsync", wraps=os.fsync) as fsync:
+            with mock.patch("cclay.project_store.os.fsync", wraps=os.fsync) as fsync:
                 append_journal(directory, entries[0])
-                first_size = Path(directory, ".omb", "journal.jsonl").stat().st_size
+                first_size = Path(directory, ".cclay", "journal.jsonl").stat().st_size
                 append_journal(directory, entries[1])
-                journal = Path(directory, ".omb", "journal.jsonl")
+                journal = Path(directory, ".cclay", "journal.jsonl")
                 lines = journal.read_text(encoding="utf-8").splitlines()
                 self.assertEqual(journal.stat().st_size - first_size, len((json.dumps(entries[1], separators=(",", ":")) + "\n").encode()))
                 self.assertEqual([json.loads(line) for line in lines], entries)
@@ -138,7 +138,7 @@ class ProjectStoreTests(unittest.TestCase):
                     "future": "preserved",
                 },
             )
-            with mock.patch("oh_my_blender.project_store.write_project_index") as write:
+            with mock.patch("cclay.project_store.write_project_index") as write:
                 self.assertFalse(prepare_project_index(directory, PROJECT_ID, False))
                 write.assert_not_called()
             with self.assertRaises(IdentityError):
@@ -191,7 +191,7 @@ class ProjectStoreTests(unittest.TestCase):
             )
 
     def test_line_210_failed_journal_rollback_restores_values_and_absence(self):
-        existing = {"omb.entity_id": PROJECT_ID}
+        existing = {"cclay.entity_id": PROJECT_ID}
         brand_new = {}
         originals = apply_property_assignments(
             {"existing": existing, "new": brand_new},
@@ -203,8 +203,8 @@ class ProjectStoreTests(unittest.TestCase):
             except ProjectStoreError:
                 restore_property_assignments(originals)
                 raise
-        self.assertEqual(existing, {"omb.entity_id": PROJECT_ID})
-        self.assertNotIn("omb.entity_id", brand_new)
+        self.assertEqual(existing, {"cclay.entity_id": PROJECT_ID})
+        self.assertNotIn("cclay.entity_id", brand_new)
     def test_line_205_repair_keeps_first_valid_id_and_reassigns_later_duplicates(self):
         """§5 line 205: first serialized owner keeps a valid ID; later duplicates change."""
         entries = [

@@ -1,5 +1,5 @@
-import { ArtifactStore } from "@oh-my-blender/director-core";
-import { parseRenderQaFramesRequest, parseRenderQaFramesResult } from "@oh-my-blender/protocol";
+import { ArtifactStore } from "@cclay/director-core";
+import { parseRenderQaFramesRequest, parseRenderQaFramesResult } from "@cclay/protocol";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export interface RenderArtifactDeclaration {

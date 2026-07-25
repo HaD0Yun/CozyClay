@@ -8,13 +8,8 @@ import type {
 	SceneManifestV4,
 	SceneManifestV4HashFree,
 	SceneSnapshot,
-} from "@oh-my-blender/protocol";
-import {
-	parseSceneManifestV2,
-	parseSceneManifestV3,
-	parseSceneManifestV4,
-	validateManifest,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
+import { parseSceneManifestV2, parseSceneManifestV3, parseSceneManifestV4, validateManifest } from "@cclay/protocol";
 import { canonicalJson, canonicalRevision } from "./canonical.ts";
 import { childRevisionId, initialRevisionId, sceneHash } from "./revision.ts";
 

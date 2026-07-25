@@ -16,9 +16,9 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from apply_camera_plan_fixture import SCENE_HASH, bound_plan, setup_scene
-from oh_my_blender.camera_plan import apply_camera_plan_transaction
-from oh_my_blender.manifest import extract_scene_manifest_v2
-from oh_my_blender.qa_render import _scope_state, render_qa_frames_transaction, split_frame_for_bridge
+from cclay.camera_plan import apply_camera_plan_transaction
+from cclay.manifest import extract_scene_manifest_v2
+from cclay.qa_render import _scope_state, render_qa_frames_transaction, split_frame_for_bridge
 
 
 class Connection:
@@ -59,7 +59,7 @@ def main() -> None:
     png = base64.b64decode(frame["png_base64"], validate=True)
     metadata, _begin, _chunks = split_frame_for_bridge(frame)
     model_png = base64.b64decode(metadata["image"]["data_base64"], validate=True)
-    with tempfile.TemporaryDirectory(prefix="omb-qa-verify-") as directory:
+    with tempfile.TemporaryDirectory(prefix="cclay-qa-verify-") as directory:
         path = Path(directory) / "frame.png"
         path.write_bytes(png)
         image = bpy.data.images.load(str(path), check_existing=False)
@@ -82,10 +82,10 @@ def main() -> None:
         "scopeRestored": _scope_state(bpy.context.scene) == before_scope,
         "sceneHashRestored": after_manifest["sceneHash"] == before_manifest["sceneHash"],
         "revisionRestored": after_manifest["revisionId"] == before_manifest["revisionId"],
-        "temporaryWorlds": [world.name for world in bpy.data.worlds if world.name.startswith("OMB QA World")],
+        "temporaryWorlds": [world.name for world in bpy.data.worlds if world.name.startswith("CCLAY QA World")],
         "pngSignature": list(png[:8]),
     }
-    print("OMB_QA_RENDER_RESULTS=" + json.dumps(output, separators=(",", ":")))
+    print("CCLAY_QA_RENDER_RESULTS=" + json.dumps(output, separators=(",", ":")))
 
 
 if __name__ == "__main__":

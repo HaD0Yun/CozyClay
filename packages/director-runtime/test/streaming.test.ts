@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, it } from "node:test";
+import { buildProjectManifest } from "@cclay/director-core";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
 	fauxAssistantMessage,
@@ -11,7 +12,6 @@ import {
 	registerFauxProvider,
 } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { buildProjectManifest } from "@oh-my-blender/director-core";
 import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
 import {
 	createDirectorTurnLoop,
@@ -74,12 +74,16 @@ describe("director runtime streaming adapter", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: initial.revision,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
 			},

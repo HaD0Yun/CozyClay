@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from oh_my_blender.scene_manifest import finalize_scene_manifest
+from cclay.scene_manifest import finalize_scene_manifest
 
 FIXTURE_PATH = os.path.join(
     os.path.dirname(__file__),

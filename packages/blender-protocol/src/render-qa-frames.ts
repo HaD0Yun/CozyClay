@@ -3,10 +3,10 @@ import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
 
 const HASH_64 = "^[0-9a-f]{64}$";
-const ARTIFACT_URI = "^omb-artifact://sha256/[0-9a-f]{64}$";
+const ARTIFACT_URI = "^cclay-artifact://sha256/[0-9a-f]{64}$";
 const exact = <T extends Record<string, TSchema>>(properties: T) =>
 	Type.Object(properties, { additionalProperties: false });
-export const RENDER_QA_PROFILE_VERSION = "omb-qa-png-v1" as const;
+export const RENDER_QA_PROFILE_VERSION = "cclay-qa-png-v1" as const;
 /** Model-visible low-resolution PNG cap; G011 artifact storage limits remain unchanged. */
 export const RENDER_QA_MAX_IMAGE_FRAME_BYTES = 2 * 1024 * 1024;
 /** Aggregate decoded bytes exposed to the model for one render_qa_frames result. */
@@ -83,7 +83,7 @@ export function parseRenderQaFramesResult(input: unknown): RenderQaFramesResultV
 	let previous = -1;
 	let totalImageBytes = 0;
 	for (const frame of parsed.frames) {
-		if (frame.uri !== `omb-artifact://sha256/${frame.sha256}`) {
+		if (frame.uri !== `cclay-artifact://sha256/${frame.sha256}`) {
 			throw new Error("INVALID_RENDER_QA_RESULT: artifact URI must bind its SHA-256");
 		}
 		if (frame.frame <= previous) throw new Error("INVALID_RENDER_QA_RESULT: frames must be unique and sorted");

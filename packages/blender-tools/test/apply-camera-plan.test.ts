@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { CameraPlanV1 } from "@oh-my-blender/protocol";
+import type { CameraPlanV1 } from "@cclay/protocol";
 import { createApplyCameraPlanTool } from "../src/apply-camera-plan.ts";
 
 const plan: CameraPlanV1 = {

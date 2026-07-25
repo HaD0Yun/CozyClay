@@ -6,7 +6,7 @@ import unittest
 import uuid
 from unittest import mock
 
-from oh_my_blender.panel_state import MAX_DURABLE_EVENTS, PanelState
+from cclay.panel_state import MAX_DURABLE_EVENTS, PanelState
 
 
 AT = "2026-07-20T00:00:00.000Z"
@@ -213,7 +213,7 @@ class PanelStateTests(unittest.TestCase):
     def test_replay_overflow_drains_every_retained_event_before_finishing(self) -> None:
         state = PanelState()
         state.begin_replay(REQUEST, SESSION)
-        with mock.patch("oh_my_blender.panel_state.MAX_DURABLE_EVENTS", 1):
+        with mock.patch("cclay.panel_state.MAX_DURABLE_EVENTS", 1):
             state.apply_update(event("director_turn_started", 0, prompt="Build"))
             state.apply_update(event(
                 "director_assistant_utterance",

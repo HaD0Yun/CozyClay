@@ -119,65 +119,65 @@ class UiPanelTests(unittest.TestCase):
         self.saved_modules = {
             name: module
             for name, module in sys.modules.items()
-            if name == "bpy" or name == "oh_my_blender" or name.startswith("oh_my_blender.")
+            if name == "bpy" or name == "cclay" or name.startswith("cclay.")
         }
         for name in tuple(self.saved_modules):
             sys.modules.pop(name, None)
         self.bpy, self.registry = _fake_bpy()
         sys.modules["bpy"] = self.bpy
-        self.addon = importlib.import_module("oh_my_blender")
-        self.connection_module = importlib.import_module("oh_my_blender.connection")
+        self.addon = importlib.import_module("cclay")
+        self.connection_module = importlib.import_module("cclay.connection")
         self.controller_module = importlib.import_module(
-            "oh_my_blender.controller_connection"
+            "cclay.controller_connection"
         )
-        self.ui_panel = importlib.import_module("oh_my_blender.ui_panel")
+        self.ui_panel = importlib.import_module("cclay.ui_panel")
 
     def tearDown(self) -> None:
         self.controller_module._active_controller = None
         for name in tuple(sys.modules):
-            if name == "bpy" or name == "oh_my_blender" or name.startswith("oh_my_blender."):
+            if name == "bpy" or name == "cclay" or name.startswith("cclay."):
                 sys.modules.pop(name, None)
         sys.modules.update(self.saved_modules)
 
     def _draw(self, active=None) -> _Layout:
         self.connection_module._active_connection = active
-        panel = self.addon.OMB_PT_pi_status()
+        panel = self.addon.CCLAY_PT_pi_status()
         panel.layout = _Layout()
         panel.draw(types.SimpleNamespace(
             scene=types.SimpleNamespace(
-                omb_panel_chat=types.SimpleNamespace(prompt="")
+                cclay_panel_chat=types.SimpleNamespace(prompt="")
             )
         ))
         return panel.layout
 
     def test_panel_is_discoverable_and_cleanly_unloads(self) -> None:
-        panel = self.addon.OMB_PT_pi_status
+        panel = self.addon.CCLAY_PT_pi_status
         self.assertEqual(panel.bl_space_type, "VIEW_3D")
         self.assertEqual(panel.bl_region_type, "UI")
-        self.assertEqual(panel.bl_category, "Oh My Blender")
+        self.assertEqual(panel.bl_category, "CozyClay")
 
         for _cycle in range(10):
             self.addon.register()
             self.assertIn(panel, self.registry.registered)
-            self.assertIs(self.bpy.types.OMB_PT_pi_status, panel)
-            self.assertTrue(hasattr(self.bpy.types.Scene, "omb_panel_chat"))
+            self.assertIs(self.bpy.types.CCLAY_PT_pi_status, panel)
+            self.assertTrue(hasattr(self.bpy.types.Scene, "cclay_panel_chat"))
             self.assertTrue(
                 self.bpy.app.timers.is_registered(self.addon._pump_lifecycle)
             )
             self.addon.unregister()
             self.assertNotIn(panel, self.registry.registered)
-            self.assertFalse(hasattr(self.bpy.types, "OMB_PT_pi_status"))
-            self.assertFalse(hasattr(self.bpy.types.Scene, "omb_panel_chat"))
+            self.assertFalse(hasattr(self.bpy.types, "CCLAY_PT_pi_status"))
+            self.assertFalse(hasattr(self.bpy.types.Scene, "cclay_panel_chat"))
             self.assertFalse(
                 self.bpy.app.timers.is_registered(self.addon._pump_lifecycle)
             )
 
     def test_connect_reports_pi_bridge_instruction_when_no_endpoint_exists(self) -> None:
-        operator = self.addon.OMB_OT_connect()
+        operator = self.addon.CCLAY_OT_connect()
         reports = []
         operator.report = lambda levels, message: reports.append((levels, message))
         context = types.SimpleNamespace(
-            scene={"omb.project_id": "33333333-3333-4333-8333-333333333333"}
+            scene={"cclay.project_id": "33333333-3333-4333-8333-333333333333"}
         )
         with (
             mock.patch.dict(os.environ, {}, clear=True),
@@ -252,8 +252,8 @@ class UiPanelTests(unittest.TestCase):
             child=types.SimpleNamespace(process=types.SimpleNamespace(args=["node", "main.ts", "--faux"])),
         )
         layout = self._draw(active)
-        self.assertIn("omb.send_prompt", layout.operators)
-        self.assertIn("omb.reconnect_controller", layout.operators)
+        self.assertIn("cclay.send_prompt", layout.operators)
+        self.assertIn("cclay.reconnect_controller", layout.operators)
         self.assertIn("prompt", layout.props)
         self.assertIn("Task: QA render", layout.labels)
         self.assertIn("Descriptor: QA render revision aaaaaaaa, frames 80, 161", layout.labels)
@@ -265,7 +265,7 @@ class UiPanelTests(unittest.TestCase):
         controller = _FakeController(self.controller_module.ControllerState.ACTIVE)
         self.controller_module._active_controller = controller
         properties = types.SimpleNamespace(prompt="  Build a hero shot  ")
-        operator = self.addon.OMB_OT_send_prompt()
+        operator = self.addon.CCLAY_OT_send_prompt()
         operator.report = mock.Mock()
         with mock.patch.object(
             self.addon.project_store,
@@ -273,7 +273,7 @@ class UiPanelTests(unittest.TestCase):
             return_value={"current_revision_id": "a" * 64},
         ):
             result = operator.execute(types.SimpleNamespace(
-                scene=types.SimpleNamespace(omb_panel_chat=properties)
+                scene=types.SimpleNamespace(cclay_panel_chat=properties)
             ))
 
         self.assertEqual(result, {"FINISHED"})

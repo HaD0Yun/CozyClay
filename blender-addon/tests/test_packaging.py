@@ -11,7 +11,7 @@ import zipfile
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-ADDON_ROOT = REPOSITORY_ROOT / "blender-addon" / "oh_my_blender"
+ADDON_ROOT = REPOSITORY_ROOT / "blender-addon" / "cclay"
 PACKAGE_MANIFEST = REPOSITORY_ROOT / "blender-addon" / "package-files.txt"
 BUILD_SCRIPT = REPOSITORY_ROOT / "scripts" / "build_blender_extension.py"
 
@@ -42,7 +42,7 @@ listener.listen(1)
 launch_id = str(uuid.uuid4())
 token = base64.urlsafe_b64encode(os.urandom(32)).decode("ascii").rstrip("=")
 print(json.dumps({{
-    "type": "omb_daemon_ready",
+    "type": "cclay_daemon_ready",
     "protocol": 1,
     "port": listener.getsockname()[1],
     "pid": os.getpid(),
@@ -105,7 +105,7 @@ connection.recv(1024)
 
 class BlenderExtensionPackagingTests(unittest.TestCase):
     def test_archive_is_deterministic_and_exactly_allowlisted(self):
-        with tempfile.TemporaryDirectory(prefix="omb-package-test-") as directory:
+        with tempfile.TemporaryDirectory(prefix="cclay-package-test-") as directory:
             first = Path(directory) / "first.zip"
             second = Path(directory) / "second.zip"
             build_archive(first)
@@ -143,10 +143,10 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
             self.assertFalse(any("generate" in Path(name).name for name in names))
 
     def test_archive_loads_panel_detached_and_avoids_repo_discovery(self):
-        with tempfile.TemporaryDirectory(prefix="omb-isolated-install-") as directory:
+        with tempfile.TemporaryDirectory(prefix="cclay-isolated-install-") as directory:
             isolated = Path(directory).resolve()
-            archive_path = isolated / "oh-my-blender.zip"
-            package_path = isolated / "site" / "oh_my_blender"
+            archive_path = isolated / "cclay.zip"
+            package_path = isolated / "site" / "cclay"
             package_path.mkdir(parents=True)
             build_archive(archive_path)
             with zipfile.ZipFile(archive_path) as archive:
@@ -162,13 +162,13 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                         import pathlib
                         import sys
                         sys.path.insert(0, sys.argv[1])
-                        import oh_my_blender
-                        from oh_my_blender import ui_panel
+                        import cclay
+                        from cclay import ui_panel
                         install_root = pathlib.Path(sys.argv[1]).resolve()
-                        assert pathlib.Path(oh_my_blender.__file__).resolve().is_relative_to(install_root)
+                        assert pathlib.Path(cclay.__file__).resolve().is_relative_to(install_root)
                         assert pathlib.Path(ui_panel.__file__).resolve().is_relative_to(install_root)
                         assert callable(ui_panel.draw_status)
-                        print(oh_my_blender.__file__)
+                        print(cclay.__file__)
                         print(ui_panel.__file__)
                         """
                     ),
@@ -188,9 +188,9 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("blender"), "Blender is required for extension install coverage")
     def test_real_blender_install_register_version_refusal_and_remove(self):
-        with tempfile.TemporaryDirectory(prefix="omb-blender-install-") as directory:
+        with tempfile.TemporaryDirectory(prefix="cclay-blender-install-") as directory:
             isolated = Path(directory)
-            archive_path = isolated / "oh-my-blender.zip"
+            archive_path = isolated / "cclay.zip"
             resources = isolated / "resources"
             extensions = isolated / "extensions"
             build_archive(archive_path)
@@ -198,10 +198,10 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
             environment.update({
                 "BLENDER_USER_RESOURCES": str(resources),
                 "BLENDER_USER_EXTENSIONS": str(extensions),
-                "OMB_DAEMON_ARGS": "--faux",
+                "CCLAY_DAEMON_ARGS": "--faux",
             })
             environment.pop("PYTHONPATH", None)
-            environment.pop("OMB_NODE_EXECUTABLE", None)
+            environment.pop("CCLAY_NODE_EXECUTABLE", None)
 
             subprocess.run(
                 ["blender", "--command", "extension", "install-file", "-r", "user_default", "-e", str(archive_path)],
@@ -217,7 +217,7 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                     "blender",
                     "--background",
                     "--python-expr",
-                    "import bpy, importlib, pathlib; module_name='bl_ext.user_default.oh_my_blender'; m=importlib.import_module(module_name); panel=importlib.import_module(module_name+'.ui_panel'); assert m.bl_info['name'] == 'Oh My Blender'; assert module_name in bpy.context.preferences.addons; assert hasattr(bpy.types, 'OMB_OT_connect'); assert hasattr(bpy.types, 'OMB_PT_pi_status'); assert pathlib.Path(m.__file__).is_relative_to(pathlib.Path(bpy.utils.user_resource('EXTENSIONS'))); assert callable(panel.draw_status)",
+                    "import bpy, importlib, pathlib; module_name='bl_ext.user_default.cclay'; m=importlib.import_module(module_name); panel=importlib.import_module(module_name+'.ui_panel'); assert m.bl_info['name'] == 'CozyClay'; assert module_name in bpy.context.preferences.addons; assert hasattr(bpy.types, 'CCLAY_OT_connect'); assert hasattr(bpy.types, 'CCLAY_PT_pi_status'); assert pathlib.Path(m.__file__).is_relative_to(pathlib.Path(bpy.utils.user_resource('EXTENSIONS'))); assert callable(panel.draw_status)",
                 ],
                 cwd=isolated,
                 env=environment,
@@ -227,19 +227,19 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                 timeout=60,
             )
             self.assertEqual(probe.returncode, 0)
-            self.assertTrue(any(path.name == "oh_my_blender" for path in extensions.rglob("oh_my_blender")))
+            self.assertTrue(any(path.name == "cclay" for path in extensions.rglob("cclay")))
 
             for daemon_version in ("9.9.9", "not-semver"):
                 with self.subTest(daemon_version=daemon_version):
                     daemon = isolated / f"incompatible-{daemon_version}"
                     write_incompatible_daemon(daemon, daemon_version)
-                    mismatch_environment = environment | {"OMB_DAEMON_EXECUTABLE": str(daemon)}
+                    mismatch_environment = environment | {"CCLAY_DAEMON_EXECUTABLE": str(daemon)}
                     mismatch = subprocess.run(
                         [
                             "blender",
                             "--background",
                             "--python-expr",
-                            "import importlib, tempfile, uuid; m=importlib.import_module('bl_ext.user_default.oh_my_blender.connection'); caught=None;\ntry: m.connect(cwd=tempfile.mkdtemp(), project_id=str(uuid.uuid4()), addon_version='0.1.0', blender_version='5.1.2')\nexcept m.ConnectionError as error: caught=str(error)\nassert caught and 'incompatible daemon version' in caught, caught; assert m._active_connection is None",
+                            "import importlib, tempfile, uuid; m=importlib.import_module('bl_ext.user_default.cclay.connection'); caught=None;\ntry: m.connect(cwd=tempfile.mkdtemp(), project_id=str(uuid.uuid4()), addon_version='0.1.0', blender_version='5.1.2')\nexcept m.ConnectionError as error: caught=str(error)\nassert caught and 'incompatible daemon version' in caught, caught; assert m._active_connection is None",
                         ],
                         cwd=isolated,
                         env=mismatch_environment,
@@ -251,7 +251,7 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                     self.assertEqual(mismatch.returncode, 0)
 
             subprocess.run(
-                ["blender", "--command", "extension", "remove", "oh_my_blender"],
+                ["blender", "--command", "extension", "remove", "cclay"],
                 cwd=isolated,
                 env=environment,
                 check=True,
@@ -259,13 +259,13 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
                 text=True,
                 timeout=60,
             )
-            self.assertFalse(any(path.name == "oh_my_blender" for path in extensions.rglob("oh_my_blender")))
+            self.assertFalse(any(path.name == "cclay" for path in extensions.rglob("cclay")))
             disabled_probe = subprocess.run(
                 [
                     "blender",
                     "--background",
                     "--python-expr",
-                    "import bpy, importlib.util; assert not hasattr(bpy.types, 'OMB_OT_connect'); assert not hasattr(bpy.types, 'OMB_PT_pi_status'); assert importlib.util.find_spec('bl_ext.user_default.oh_my_blender') is None",
+                    "import bpy, importlib.util; assert not hasattr(bpy.types, 'CCLAY_OT_connect'); assert not hasattr(bpy.types, 'CCLAY_PT_pi_status'); assert importlib.util.find_spec('bl_ext.user_default.cclay') is None",
                 ],
                 cwd=isolated,
                 env=environment,

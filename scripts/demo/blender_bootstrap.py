@@ -1,4 +1,4 @@
-"""Prepare a Blender project for the live oh-my-blender demo."""
+"""Prepare a Blender project for the live CozyClay demo."""
 
 import json
 import os
@@ -9,30 +9,30 @@ import bpy
 from mathutils import Vector
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PROJECT_DIR_VALUE = os.environ.get("OMB_DEMO_PROJECT_DIR")
+PROJECT_DIR_VALUE = os.environ.get("CCLAY_DEMO_PROJECT_DIR")
 if not PROJECT_DIR_VALUE:
-    raise RuntimeError("OMB_DEMO_PROJECT_DIR is required")
+    raise RuntimeError("CCLAY_DEMO_PROJECT_DIR is required")
 PROJECT_DIR = Path(PROJECT_DIR_VALUE).expanduser().resolve()
-SKIP_ATTACH = os.environ.get("OMB_SKIP_ATTACH") == "1"
+SKIP_ATTACH = os.environ.get("CCLAY_SKIP_ATTACH") == "1"
 sys.path.insert(0, str(REPO_ROOT / "blender-addon"))
 
-import oh_my_blender
-import oh_my_blender.connection as connection_module
+import cclay
+import cclay.connection as connection_module
 
 
 def log(*parts: object) -> None:
-    print("OMB_DEMO:", *parts, flush=True)
+    print("CCLAY_DEMO:", *parts, flush=True)
 
 
 def setup() -> None:
     # Eligibility gate BEFORE any destructive work: this bootstrap builds a
     # brand-new demo project. An existing durable project (or blend) must be
     # reused or removed explicitly; the scene wipe/save below must not run.
-    blend_file = PROJECT_DIR / "omb-live-demo.blend"
-    project_file = PROJECT_DIR / ".omb" / "project.json"
+    blend_file = PROJECT_DIR / "cclay-live-demo.blend"
+    project_file = PROJECT_DIR / ".cclay" / "project.json"
     if project_file.exists() or blend_file.exists():
         raise RuntimeError(
-            f"OMB_DEMO_PROJECT_DIR already contains a project ({PROJECT_DIR}); "
+            f"CCLAY_DEMO_PROJECT_DIR already contains a project ({PROJECT_DIR}); "
             "reuse it with the normal launch path or point at a fresh directory"
         )
 
@@ -48,14 +48,14 @@ def setup() -> None:
 
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(blend_file))
-    oh_my_blender.register()
-    bpy.ops.omb.initialize_project()
+    cclay.register()
+    bpy.ops.cclay.initialize_project()
     # Unconditional save: scene id-property writes (project id, entity ids) do
     # not reliably mark the file dirty, and losing them bricks every later
     # relaunch ("Initialize and save the project before connecting").
     bpy.ops.wm.save_mainfile()
 
-    project_id = bpy.context.scene.get("omb.project_id")
+    project_id = bpy.context.scene.get("cclay.project_id")
     if not project_id:
         raise RuntimeError("initialize_project did not assign a scene project id")
     # initialize_project owns durable-document seeding; verify instead of writing.
@@ -65,7 +65,7 @@ def setup() -> None:
     if "current_revision_id" not in project_document:
         raise RuntimeError(
             "initialize_project did not produce a durable revision document; "
-            "update the oh_my_blender add-on instead of reseeding here"
+            "update the cclay add-on instead of reseeding here"
         )
 
     try:
@@ -90,7 +90,7 @@ def poll_attach() -> float | None:
         log("ATTACHED via handoff discovery")
         return None
     try:
-        bpy.ops.omb.connect()
+        bpy.ops.cclay.connect()
     except Exception:
         pass  # no handoff yet (TUI not started); keep polling
     if connection_module._active_connection is not None:

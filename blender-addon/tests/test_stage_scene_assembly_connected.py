@@ -22,7 +22,7 @@ class StageSceneAssemblyConnectedTests(unittest.TestCase):
         )
         if completed.returncode != 0:
             self.fail(f"assembly fixture failed\n{completed.stdout}\n{completed.stderr}")
-        lines = [line for line in completed.stdout.splitlines() if line.startswith("OMB_STAGE_SCENE_ASSEMBLY_RESULTS=")]
+        lines = [line for line in completed.stdout.splitlines() if line.startswith("CCLAY_STAGE_SCENE_ASSEMBLY_RESULTS=")]
         self.assertEqual(len(lines), 1, completed.stdout)
         result = json.loads(lines[0].split("=", 1)[1])
         self.assertTrue(result["keepTransform"])

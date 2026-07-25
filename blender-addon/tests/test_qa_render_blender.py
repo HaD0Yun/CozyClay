@@ -32,12 +32,12 @@ class RenderQaFramesBlenderTests(unittest.TestCase):
         )
         lines = [
             line for line in completed.stdout.splitlines()
-            if line.startswith("OMB_QA_RENDER_RESULTS=")
+            if line.startswith("CCLAY_QA_RENDER_RESULTS=")
         ]
         self.assertEqual(len(lines), 1, completed.stdout)
         result = json.loads(lines[0].split("=", 1)[1])
         self.assertEqual(result["dimensions"], [640, 360])
-        self.assertEqual(result["profile"], "omb-qa-png-v1")
+        self.assertEqual(result["profile"], "cclay-qa-png-v1")
         self.assertEqual(result["imageMimeType"], "image/png")
         self.assertEqual(result["decodedByteLength"], result["declaredByteLength"])
         self.assertEqual(result["payloadDigest"], result["declaredDigest"])

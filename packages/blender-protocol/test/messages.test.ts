@@ -12,7 +12,7 @@ import {
 } from "../src/messages.ts";
 
 const messageTypes = [
-	"omb_daemon_ready",
+	"cclay_daemon_ready",
 	"hello",
 	"hello_ack",
 	"request",
@@ -29,7 +29,7 @@ const messageTypes = [
 ] as const;
 const clientTypes = new Set(["hello", "request", "cancel", "rollback_ack", "shutdown", "ping"]);
 const directParsers: Record<string, (input: unknown) => unknown> = {
-	omb_daemon_ready: parseStartupRecord,
+	cclay_daemon_ready: parseStartupRecord,
 	hello: parseHello,
 	hello_ack: parseHelloAck,
 	request: parseRequest,

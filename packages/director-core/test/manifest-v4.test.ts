@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { parseSceneManifestV3, parseSceneManifestV4 } from "@oh-my-blender/protocol";
+import { parseSceneManifestV3, parseSceneManifestV4 } from "@cclay/protocol";
 import { buildSceneManifestV3Revision, buildSceneManifestV4Revision } from "../src/index.ts";
 
 const recordedV3 = JSON.parse(

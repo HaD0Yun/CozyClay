@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from oh_my_blender.stage_scene import StageSceneValidationError, parse_stage_scene_plan
+from cclay.stage_scene import StageSceneValidationError, parse_stage_scene_plan
 
 
 class StageSceneAssemblyValidationTests(unittest.TestCase):

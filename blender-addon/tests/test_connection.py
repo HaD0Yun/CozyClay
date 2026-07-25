@@ -1,5 +1,6 @@
 """Tests for add-on connection lifecycle orchestration."""
 
+import contextlib
 import json
 import pathlib
 import subprocess
@@ -14,8 +15,8 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 TEST_EXECUTABLE = str(pathlib.Path(sys.executable).resolve(strict=True))
 
-from oh_my_blender.checkpoint import create_checkpoint
-from oh_my_blender.connection import (
+from cclay.checkpoint import create_checkpoint
+from cclay.connection import (
     Connection,
     ConnectionError,
     DurableCommitReconciliationRequired,
@@ -25,7 +26,7 @@ from oh_my_blender.connection import (
     verify_reconnect_hash,
     reconnect,
 )
-from oh_my_blender import connection as connection_module
+from cclay import connection as connection_module
 
 
 class FakeProcess:
@@ -150,7 +151,7 @@ class ConnectionTests(unittest.TestCase):
             connection.dispatch_bridge_message(message)
 
         blender.app.timers.register.assert_not_called()
-        blender.ops.omb.apply_camera_plan.assert_called_once_with(
+        blender.ops.cclay.apply_camera_plan.assert_called_once_with(
             plan_json=json.dumps(message["params"], separators=(",", ":")),
             current_scene_hash="b" * 64,
             bridge_id="bridge",
@@ -182,7 +183,7 @@ class ConnectionTests(unittest.TestCase):
         with mock.patch.object(connection_module, "bpy", blender):
             connection.dispatch_bridge_message(message)
 
-        blender.ops.omb.apply_camera_plan.assert_not_called()
+        blender.ops.cclay.apply_camera_plan.assert_not_called()
         self.assertEqual(socket.sent[0]["type"], "bridge_error")
         self.assertEqual(socket.sent[0]["code"], "RECOVERY_REQUIRED")
 
@@ -209,7 +210,7 @@ class ConnectionTests(unittest.TestCase):
         with mock.patch.object(connection_module, "bpy", blender):
             connection.dispatch_bridge_message(message)
 
-        blender.ops.omb.render_qa_frames.assert_called_once_with(
+        blender.ops.cclay.render_qa_frames.assert_called_once_with(
             request_json=json.dumps(message["params"], separators=(",", ":")),
             current_scene_hash="b" * 64,
             bridge_id="qa-bridge",
@@ -245,7 +246,7 @@ class ConnectionTests(unittest.TestCase):
         with mock.patch.object(connection_module, "bpy", blender):
             connection.dispatch_bridge_message(message)
 
-        blender.ops.omb.stage_scene.assert_called_once_with(
+        blender.ops.cclay.stage_scene.assert_called_once_with(
             plan_json=json.dumps(message["params"], separators=(",", ":")),
             current_scene_hash="b" * 64,
             bridge_id="stage-bridge",
@@ -259,9 +260,9 @@ class ConnectionTests(unittest.TestCase):
     def test_inspect_project_uses_substrate_aware_main_thread_snapshot_path(self):
         socket = FakeSocket()
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "project_id": "project",
                 "current_revision_id": BASE_REVISION,
                 "manifest": {"sceneHash": "b" * 64},
@@ -295,7 +296,7 @@ class ConnectionTests(unittest.TestCase):
                 mock.patch.object(connection_module, "bpy", blender),
                 mock.patch.dict(
                     sys.modules,
-                    {"oh_my_blender.manifest": manifest_module},
+                    {"cclay.manifest": manifest_module},
                 ),
             ):
                 connection.dispatch_bridge_message(message)
@@ -312,18 +313,474 @@ class ConnectionTests(unittest.TestCase):
             },
         }])
         self.assertFalse(connection._bridge_cancellations)
-        blender.ops.omb.apply_camera_plan.assert_not_called()
-        blender.ops.omb.stage_scene.assert_not_called()
-        blender.ops.omb.render_qa_frames.assert_not_called()
+        blender.ops.cclay.apply_camera_plan.assert_not_called()
+        blender.ops.cclay.stage_scene.assert_not_called()
+        blender.ops.cclay.render_qa_frames.assert_not_called()
+
+    def test_inspect_project_with_stale_expected_revision_serves_durable_truth(self):
+        """Inspect never fails STALE_BASE: it rebinds to the durable revision."""
+        socket = FakeSocket()
+        with tempfile.TemporaryDirectory() as directory:
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
+                "project_id": "project",
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            blender = mock.Mock()
+            snapshot = {"schemaVersion": 2, "scene": {"name": "Scene"}}
+            message = {
+                "type": "bridge_request",
+                "id": "inspect-bridge",
+                "request_id": "inspect-request",
+                "method": "inspect_project",
+                "params": {},
+                "expected_revision_id": "e" * 64,
+                "deadline_ms": 5000,
+            }
+
+            resolved_manifest = {"schemaVersion": 2, "sceneHash": "b" * 64}
+            manifest_module = types.SimpleNamespace(
+                resolve_manifest_for_expected_hash=mock.Mock(
+                    return_value=resolved_manifest
+                ),
+                extract_scene_snapshot=mock.Mock(return_value=snapshot),
+                extract_scene_manifest_v2=mock.Mock(return_value=resolved_manifest),
+            )
+            with (
+                mock.patch.object(connection_module, "bpy", blender),
+                mock.patch.dict(
+                    sys.modules,
+                    {"cclay.manifest": manifest_module},
+                ),
+            ):
+                connection.dispatch_bridge_message(message)
+            journal_entries = [
+                json.loads(line)
+                for line in (cclay / "journal.jsonl").read_text().splitlines()
+            ]
+
+        self.assertEqual(socket.sent, [{
+            "type": "bridge_result",
+            "id": "inspect-bridge",
+            "request_id": "inspect-request",
+            "result": {
+                "revision": BASE_REVISION,
+                "snapshot": snapshot,
+            },
+        }])
+        self.assertEqual(journal_entries, [{
+            "type": "inspect_rebind",
+            "source": "durable_serve",
+            "project_id": "project",
+            "scene_hash": "b" * 64,
+            "old_revision_id": "e" * 64,
+            "new_revision_id": BASE_REVISION,
+        }])
+        self.assertFalse(connection._bridge_cancellations)
+
+    def test_inspect_project_rebinds_wedged_durable_substrate_to_live_truth(self):
+        """A durable revision left behind live (aborted stage_scene) recovers on inspect."""
+        project_id = "356ae9c2-9cc1-4541-8e8e-a6d759b4df64"
+        socket = FakeSocket()
+        blender = mock.Mock()
+        blender.app.timers.register.side_effect = lambda callback, **_kwargs: callback()
+        with tempfile.TemporaryDirectory() as directory:
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
+                "project_id": project_id,
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            snapshot = {"schemaVersion": 2, "scene": {"name": "Scene"}}
+            live_manifest = {
+                "schemaVersion": 2,
+                "projectId": project_id,
+                "revisionId": CANDIDATE_REVISION,
+                "sceneHash": "d" * 64,
+            }
+            manifest_module = types.SimpleNamespace(
+                resolve_manifest_for_expected_hash=mock.Mock(return_value=None),
+                extract_scene_snapshot=mock.Mock(return_value=snapshot),
+                extract_scene_manifest_v2=mock.Mock(return_value=live_manifest),
+            )
+            with (
+                mock.patch.object(connection_module, "bpy", blender),
+                mock.patch.dict(
+                    sys.modules,
+                    {"cclay.manifest": manifest_module},
+                ),
+            ):
+                connection.dispatch_bridge_message({
+                    "type": "bridge_request",
+                    "id": "inspect-bridge",
+                    "request_id": "inspect-request",
+                    "method": "inspect_project",
+                    "params": {},
+                    "expected_revision_id": BASE_REVISION,
+                    "deadline_ms": 5000,
+                })
+                # The next mutation based on the NEW revision succeeds.
+                connection.dispatch_bridge_message({
+                    "type": "bridge_request",
+                    "id": "stage-bridge",
+                    "request_id": "stage-request",
+                    "method": "stage_scene",
+                    "params": {
+                        "schema_version": 1,
+                        "expected_revision_id": CANDIDATE_REVISION,
+                        "operations": [{"op": "add_primitive"}],
+                    },
+                    "expected_revision_id": CANDIDATE_REVISION,
+                    "deadline_ms": 30000,
+                })
+            durable = json.loads((cclay / "project.json").read_text())
+            journal_entries = [
+                json.loads(line)
+                for line in (cclay / "journal.jsonl").read_text().splitlines()
+            ]
+
+        self.assertEqual(socket.sent[0], {
+            "type": "bridge_result",
+            "id": "inspect-bridge",
+            "request_id": "inspect-request",
+            "result": {
+                "revision": CANDIDATE_REVISION,
+                "snapshot": snapshot,
+            },
+        })
+        self.assertEqual(durable["current_revision_id"], CANDIDATE_REVISION)
+        self.assertEqual(journal_entries, [{
+            "type": "inspect_rebind",
+            "source": "live_rewrite",
+            "project_id": project_id,
+            "scene_hash": "d" * 64,
+            "old_revision_id": BASE_REVISION,
+            "new_revision_id": CANDIDATE_REVISION,
+        }])
+        blender.ops.cclay.stage_scene.assert_called_once()
+        self.assertEqual(
+            blender.ops.cclay.stage_scene.call_args.kwargs["current_scene_hash"],
+            "d" * 64,
+        )
+
+    def _dispatch_preflight_motion(self, params, collect=None, begin_task=None):
+        """Dispatch one preflight_motion bridge request against a durable base."""
+        socket = FakeSocket()
+        with tempfile.TemporaryDirectory() as directory:
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
+                "project_id": "project",
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            blender = mock.Mock()
+            message = {
+                "type": "bridge_request",
+                "id": "preflight-bridge",
+                "request_id": "preflight-request",
+                "method": "preflight_motion",
+                "params": params,
+                "expected_revision_id": BASE_REVISION,
+                "deadline_ms": 5000,
+            }
+            from cclay import motion_preflight
+
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(
+                    mock.patch.object(connection_module, "bpy", blender)
+                )
+                if collect is not None:
+                    stack.enter_context(mock.patch.object(
+                        motion_preflight, "collect_preflight", collect
+                    ))
+                if begin_task is not None:
+                    stack.enter_context(
+                        mock.patch.object(connection, "begin_task", begin_task)
+                    )
+                connection.dispatch_bridge_message(message)
+        # finish_bridge always ran: no live cancellation, bridge is terminal.
+        self.assertFalse(connection._bridge_cancellations)
+        self.assertIn("preflight-bridge", connection._terminal_bridge_ids)
+        return socket, connection, blender
+
+    def test_preflight_motion_success_sends_bridge_result_read_only(self):
+        payload = {"revision": BASE_REVISION, "motion_id": "walk-01"}
+        collect = mock.Mock(return_value=payload)
+        begin_task = mock.Mock()
+        socket, _connection, blender = self._dispatch_preflight_motion(
+            {"motion_id": "walk-01"}, collect=collect, begin_task=begin_task
+        )
+        collect.assert_called_once()
+        self.assertEqual(collect.call_args.args[0], BASE_REVISION)
+        self.assertEqual(collect.call_args.args[1], {"motion_id": "walk-01"})
+        self.assertEqual(socket.sent, [{
+            "type": "bridge_result",
+            "id": "preflight-bridge",
+            "request_id": "preflight-request",
+            "result": payload,
+        }])
+        # Read-only classification: never a mutation task, never an operator.
+        begin_task.assert_not_called()
+        blender.ops.cclay.stage_scene.assert_not_called()
+        blender.ops.cclay.apply_camera_plan.assert_not_called()
+
+    def test_preflight_motion_error_surfaces_contract_code(self):
+        from cclay.motion_preflight import PreflightMotionError
+
+        collect = mock.Mock(side_effect=PreflightMotionError(
+            "ENTITY_NOT_FOUND", "entity does not exist"
+        ))
+        socket, _connection, _blender = self._dispatch_preflight_motion(
+            {"motion_id": "walk-01"}, collect=collect
+        )
+        self.assertEqual(socket.sent, [{
+            "type": "bridge_error",
+            "id": "preflight-bridge",
+            "request_id": "preflight-request",
+            "code": "ENTITY_NOT_FOUND",
+            "message": "ENTITY_NOT_FOUND: entity does not exist",
+            "retryable": False,
+        }])
+
+    def test_preflight_motion_maps_stage_scene_error_to_apply_motion_code(self):
+        """Real collect_preflight: the loader's StageSceneError surfaces its code."""
+        begin_task = mock.Mock()
+        socket, _connection, _blender = self._dispatch_preflight_motion(
+            {"motion_id": "missing-motion"}, begin_task=begin_task
+        )
+        self.assertEqual(len(socket.sent), 1)
+        error = socket.sent[0]
+        self.assertEqual(error["type"], "bridge_error")
+        self.assertEqual(error["code"], "APPLY_MOTION_NOT_FOUND")
+        self.assertIn(".cclay/motions/missing-motion.npz", error["message"])
+        begin_task.assert_not_called()
+
+    def test_live_rewrite_journal_failure_fails_closed_without_substrate_rewrite(self):
+        """Audit-before-rewrite: a failed journal append must not persist a rebind."""
+        from cclay import project_store
+
+        project_id = "356ae9c2-9cc1-4541-8e8e-a6d759b4df64"
+        socket = FakeSocket()
+        blender = mock.Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
+                "project_id": project_id,
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            durable_before = (cclay / "project.json").read_text()
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            live_manifest = {
+                "schemaVersion": 2,
+                "projectId": project_id,
+                "revisionId": CANDIDATE_REVISION,
+                "sceneHash": "d" * 64,
+            }
+            manifest_module = types.SimpleNamespace(
+                resolve_manifest_for_expected_hash=mock.Mock(return_value=None),
+                extract_scene_snapshot=mock.Mock(),
+                extract_scene_manifest_v2=mock.Mock(return_value=live_manifest),
+            )
+            with (
+                mock.patch.object(connection_module, "bpy", blender),
+                mock.patch.dict(
+                    sys.modules,
+                    {"cclay.manifest": manifest_module},
+                ),
+                mock.patch.object(
+                    project_store,
+                    "append_journal",
+                    side_effect=project_store.ProjectStoreError(
+                        "injected journal failure"
+                    ),
+                ) as append_journal,
+                mock.patch.object(
+                    project_store, "write_project_index"
+                ) as write_project_index,
+            ):
+                connection.dispatch_bridge_message({
+                    "type": "bridge_request",
+                    "id": "inspect-bridge",
+                    "request_id": "inspect-request",
+                    "method": "inspect_project",
+                    "params": {},
+                    "expected_revision_id": BASE_REVISION,
+                    "deadline_ms": 5000,
+                })
+            durable_after = (cclay / "project.json").read_text()
+            journal_exists = (cclay / "journal.jsonl").exists()
+
+        append_journal.assert_called_once()
+        write_project_index.assert_not_called()
+        self.assertEqual(durable_after, durable_before)
+        self.assertFalse(journal_exists)
+        self.assertEqual(socket.sent[-1]["type"], "bridge_error")
+        self.assertEqual(socket.sent[-1]["code"], "DURABLE_STORE_FAILED")
+        self.assertIn("journal append failed", socket.sent[-1]["message"])
+        manifest_module.extract_scene_snapshot.assert_not_called()
+
+    def test_mutation_with_stale_expected_revision_still_fails_closed(self):
+        """Recovery leniency is inspect-only; mutations keep STALE_BASE."""
+        socket = FakeSocket()
+        blender = mock.Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
+                "project_id": "project",
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            with mock.patch.object(connection_module, "bpy", blender):
+                connection.dispatch_bridge_message({
+                    "type": "bridge_request",
+                    "id": "stage-bridge",
+                    "request_id": "stage-request",
+                    "method": "stage_scene",
+                    "params": {
+                        "schema_version": 1,
+                        "expected_revision_id": "e" * 64,
+                        "operations": [{"op": "add_primitive"}],
+                    },
+                    "expected_revision_id": "e" * 64,
+                    "deadline_ms": 30000,
+                })
+            journal_exists = (cclay / "journal.jsonl").exists()
+
+        blender.ops.cclay.stage_scene.assert_not_called()
+        self.assertEqual(socket.sent[-1]["type"], "bridge_error")
+        self.assertEqual(socket.sent[-1]["code"], "STALE_BASE")
+        self.assertEqual(
+            socket.sent[-1]["message"],
+            "durable project revision does not match the bridge request",
+        )
+        self.assertFalse(journal_exists)
+
+    def test_stale_base_death_spiral_recovers_via_inspect_project(self):
+        """Regression: failed stage_scene -> inspect recovers -> stage_scene succeeds."""
+        socket = FakeSocket()
+        blender = mock.Mock()
+        stale_revision = "e" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
+                "project_id": "project",
+                "current_revision_id": BASE_REVISION,
+                "manifest": {"sceneHash": "b" * 64},
+            }))
+            connection = Connection(
+                FakeChild(FakeProcess()),
+                socket,
+                project_directory=directory,
+            )
+            snapshot = {"schemaVersion": 2, "scene": {"name": "Scene"}}
+            resolved_manifest = {"schemaVersion": 2, "sceneHash": "b" * 64}
+            manifest_module = types.SimpleNamespace(
+                resolve_manifest_for_expected_hash=mock.Mock(
+                    return_value=resolved_manifest
+                ),
+                extract_scene_snapshot=mock.Mock(return_value=snapshot),
+                extract_scene_manifest_v2=mock.Mock(return_value=resolved_manifest),
+            )
+            stage_message = {
+                "type": "bridge_request",
+                "id": "stage-bridge",
+                "request_id": "stage-request",
+                "method": "stage_scene",
+                "params": {
+                    "schema_version": 1,
+                    "expected_revision_id": stale_revision,
+                    "operations": [{"op": "add_primitive"}],
+                },
+                "expected_revision_id": stale_revision,
+                "deadline_ms": 30000,
+            }
+            with (
+                mock.patch.object(connection_module, "bpy", blender),
+                mock.patch.dict(
+                    sys.modules,
+                    {"cclay.manifest": manifest_module},
+                ),
+            ):
+                # 1) The stale mutation fails closed.
+                connection.dispatch_bridge_message(stage_message)
+                self.assertEqual(socket.sent[-1]["type"], "bridge_error")
+                self.assertEqual(socket.sent[-1]["code"], "STALE_BASE")
+                # 2) inspect_project with the same stale expectation recovers.
+                connection.dispatch_bridge_message({
+                    "type": "bridge_request",
+                    "id": "inspect-bridge",
+                    "request_id": "inspect-request",
+                    "method": "inspect_project",
+                    "params": {},
+                    "expected_revision_id": stale_revision,
+                    "deadline_ms": 5000,
+                })
+                self.assertEqual(socket.sent[-1]["type"], "bridge_result")
+                rebound_revision = socket.sent[-1]["result"]["revision"]
+                self.assertEqual(rebound_revision, BASE_REVISION)
+                # 3) The retried mutation on the rebound revision dispatches.
+                connection.dispatch_bridge_message({
+                    **stage_message,
+                    "id": "stage-bridge-retry",
+                    "request_id": "stage-request-retry",
+                    "params": {
+                        "schema_version": 1,
+                        "expected_revision_id": rebound_revision,
+                        "operations": [{"op": "add_primitive"}],
+                    },
+                    "expected_revision_id": rebound_revision,
+                })
+
+        blender.ops.cclay.stage_scene.assert_called_once()
+        self.assertEqual(
+            blender.ops.cclay.stage_scene.call_args.kwargs["bridge_id"],
+            "stage-bridge-retry",
+        )
+        self.assertEqual(
+            blender.ops.cclay.stage_scene.call_args.kwargs["current_scene_hash"],
+            "b" * 64,
+        )
 
     def test_bridge_request_reads_durable_base_hash_from_project_store(self):
         socket = FakeSocket()
         blender = mock.Mock()
         blender.app.timers.register.side_effect = lambda callback, **_kwargs: callback()
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "project_id": "project",
                 "current_revision_id": "a" * 64,
                 "manifest": {"sceneHash": "b" * 64},
@@ -344,9 +801,9 @@ class ConnectionTests(unittest.TestCase):
                     "deadline_ms": 5000,
                 })
 
-        blender.ops.omb.apply_camera_plan.assert_called_once()
+        blender.ops.cclay.apply_camera_plan.assert_called_once()
         self.assertEqual(
-            blender.ops.omb.apply_camera_plan.call_args.kwargs["current_scene_hash"],
+            blender.ops.cclay.apply_camera_plan.call_args.kwargs["current_scene_hash"],
             "b" * 64,
         )
 
@@ -406,7 +863,7 @@ class ConnectionTests(unittest.TestCase):
             connection.pump_bridge_messages()
 
         blender.app.timers.register.assert_called_once()
-        blender.ops.omb.apply_camera_plan.assert_called_once()
+        blender.ops.cclay.apply_camera_plan.assert_called_once()
 
     def test_reader_failure_does_not_overwrite_recovery_required(self):
         """A late socket error must not replace the transaction's terminal state."""
@@ -542,9 +999,9 @@ class ConnectionTests(unittest.TestCase):
 
     def test_timeout_reconciles_committed_candidate_and_releases_once(self):
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "current_revision_id": CANDIDATE_REVISION,
             }))
             connection = Connection(
@@ -569,9 +1026,9 @@ class ConnectionTests(unittest.TestCase):
 
     def test_timeout_with_definitive_base_preserves_checkpoint_for_rollback_once(self):
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "current_revision_id": BASE_REVISION,
             }))
             socket = FakeSocket()
@@ -661,8 +1118,8 @@ class ConnectionTests(unittest.TestCase):
         main_thread_id = threading.get_ident()
         with (
             mock.patch.object(connection_module, "bpy", blender),
-            mock.patch("oh_my_blender.camera_plan._restore_scope", restore_scope),
-            mock.patch("oh_my_blender.camera_plan._read_scope", read_scope),
+            mock.patch("cclay.camera_plan._restore_scope", restore_scope),
+            mock.patch("cclay.camera_plan._read_scope", read_scope),
         ):
             connection.start_bridge_dispatcher()
             connection._reader_thread.join(timeout=1)
@@ -691,9 +1148,9 @@ class ConnectionTests(unittest.TestCase):
         connection.state = "lost"
 
         with (
-            mock.patch("oh_my_blender.camera_plan._restore_scope"),
+            mock.patch("cclay.camera_plan._restore_scope"),
             mock.patch(
-                "oh_my_blender.camera_plan._read_scope",
+                "cclay.camera_plan._read_scope",
                 return_value={"visible": False},
             ),
         ):
@@ -754,9 +1211,9 @@ class ConnectionTests(unittest.TestCase):
         previous.state = "lost"
         previous.child.process.poll.return_value = 0
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "current_revision_id": BASE_REVISION,
                 "manifest": {
                     "revisionId": BASE_REVISION,
@@ -802,9 +1259,9 @@ class ConnectionTests(unittest.TestCase):
         replacement = mock.Mock()
         replacement.tools_exposed = False
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "current_revision_id": BASE_REVISION,
                 "manifest": {
                     "revisionId": BASE_REVISION,
@@ -836,9 +1293,9 @@ class ConnectionTests(unittest.TestCase):
         previous.state = "stopped"
         previous.child.process.poll.return_value = 0
         with tempfile.TemporaryDirectory() as directory:
-            omb = pathlib.Path(directory, ".omb")
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = pathlib.Path(directory, ".cclay")
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "current_revision_id": BASE_REVISION,
                 "manifest": {
                     "revisionId": BASE_REVISION,

@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, normalize, resolve, sep } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -14,26 +14,46 @@ const IMAGE_MIME: Record<string, string> = {
 };
 
 /**
+ * Canonicalize `target` by resolving symlinks. When the path does not exist,
+ * canonicalize its deepest existing ancestor and re-append the missing tail so
+ * lexical `..`/symlink tricks cannot bypass containment (e.g. macOS
+ * /tmp -> /private/tmp).
+ */
+function canonicalize(target: string): string {
+	try {
+		return realpathSync(target);
+	} catch {
+		const parent = dirname(target);
+		if (parent === target) return target;
+		return join(canonicalize(parent), basename(target));
+	}
+}
+
+/**
  * Resolve a user-supplied image path and verify it is inside one of the
  * allowed roots: the project working directory, the OS temp directory, or the
  * user home directory. This keeps the director from reading arbitrary files.
+ * Roots and candidate are compared by realpath, so symlinked roots (macOS
+ * /tmp -> /private/tmp, $TMPDIR under /var/folders) admit their canonical
+ * children while symlinks escaping every root are rejected.
  */
 function resolveAllowedImage(path: string, projectDir: string): string {
 	const target = isAbsolute(path) ? normalize(path) : resolve(projectDir, path);
-	const normalized = resolve(target);
+	const candidate = canonicalize(resolve(target));
 	const allowedRoots = [
 		resolve(projectDir),
 		resolve(homedir()),
+		resolve(tmpdir()),
 		resolve(normalize(sep === "\\" ? (process.env.TEMP ?? "/tmp") : "/tmp")),
-	];
-	const within = (candidate: string, root: string): boolean => {
+	].map((root) => canonicalize(root));
+	const within = (candidatePath: string, root: string): boolean => {
 		const r = root.endsWith(sep) ? root : root + sep;
-		return candidate === root || candidate.startsWith(r);
+		return candidatePath === root || candidatePath.startsWith(r);
 	};
-	if (!allowedRoots.some((root) => within(normalized, resolve(root)))) {
+	if (!allowedRoots.some((root) => within(candidate, root))) {
 		throw new Error(`IMAGE_PATH_NOT_ALLOWED: ${path} is outside the project, home, or temp directory`);
 	}
-	return normalized;
+	return candidate;
 }
 
 export function createReadImageTool(projectDir: string) {

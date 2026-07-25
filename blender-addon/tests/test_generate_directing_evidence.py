@@ -9,14 +9,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oh_my_blender.fixture_registry import BOXING_V4_EVIDENCE_SHA256
+from cclay.fixture_registry import BOXING_V4_EVIDENCE_SHA256
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLENDER = Path(shutil.which("blender") or "/opt/homebrew/bin/blender")
 SCRIPT = REPOSITORY_ROOT / "scripts/generate_directing_evidence.py"
 EVIDENCE = (
     REPOSITORY_ROOT
-    / "blender-addon/oh_my_blender/fixtures/boxing-v4-directing-evidence.json"
+    / "blender-addon/cclay/fixtures/boxing-v4-directing-evidence.json"
 )
 
 
@@ -55,7 +55,7 @@ class DirectingEvidenceGeneratorTests(unittest.TestCase):
             )
             self.assertEqual(generated.read_bytes(), first_bytes)
             digest = hashlib.sha256(first_bytes).hexdigest()
-            self.assertIn(f"OMB_EVIDENCE_SHA256={digest}", first.stdout)
+            self.assertIn(f"CCLAY_EVIDENCE_SHA256={digest}", first.stdout)
             self.assertEqual(digest, BOXING_V4_EVIDENCE_SHA256)
 
 

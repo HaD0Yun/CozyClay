@@ -16,16 +16,16 @@ from mathutils import Matrix, Vector
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender.camera_plan import (
+from cclay.camera_plan import (
     PLAN_MINIMUM_TWO_KEYFRAMES,
     apply_camera_plan_transaction,
     capture_smooth_handles,
     validate_smooth_fcurves,
 )
-from oh_my_blender.fixture_registry import BOXING_V4_EVIDENCE_SHA256
-from oh_my_blender.canonical import canonical_revision
-from oh_my_blender.fixture_registry import convert_ardy_plan_pose_to_blender
-from oh_my_blender.manifest import animation_fcurves, extract_scene_manifest_v2
+from cclay.fixture_registry import BOXING_V4_EVIDENCE_SHA256
+from cclay.canonical import canonical_revision
+from cclay.fixture_registry import convert_ardy_plan_pose_to_blender
+from cclay.manifest import animation_fcurves, extract_scene_manifest_v2
 
 REVISION = "100c68ea7353a0cd52506edc147decf8ec89b819ea60d528215383770e0d01a3"
 SCENE_HASH = "e724379134ccca985df4b3b4e129fc9a30653bf62e8d09279dd2a2780c51cccf"
@@ -69,7 +69,7 @@ def setup_scene() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.name = "G010 Boxing Round Trip"
-    scene["omb.project_id"] = PROJECT_ID
+    scene["cclay.project_id"] = PROJECT_ID
     scene.frame_start = 0
     scene.frame_end = 319
     scene.render.fps = 24
@@ -77,7 +77,7 @@ def setup_scene() -> None:
     bpy.ops.mesh.primitive_cube_add(location=(3.0, 4.0, 5.0))
     subject = bpy.data.objects["Cube"]
     subject.name = "Untouched Subject"
-    subject["omb.entity_id"] = SUBJECT_ID
+    subject["cclay.entity_id"] = SUBJECT_ID
 
 
 def code(error: BaseException) -> str:
@@ -85,7 +85,7 @@ def code(error: BaseException) -> str:
 
 
 def camera_animation():
-    camera = bpy.data.objects["OMB Camera"]
+    camera = bpy.data.objects["CCLAY Camera"]
     return camera, [camera.animation_data, camera.data.animation_data]
 
 
@@ -191,7 +191,7 @@ def main() -> None:
     except RuntimeError:
         pass
     after = extract_scene_manifest_v2()
-    results["rollback"] = before["sceneHash"] == after["sceneHash"] and "OMB Camera" not in bpy.data.objects
+    results["rollback"] = before["sceneHash"] == after["sceneHash"] and "CCLAY Camera" not in bpy.data.objects
     results["checkpointReleased"] = connection.active_checkpoint is None
 
     selected_before = [obj.name for obj in scene.objects if obj.select_get()]
@@ -225,7 +225,7 @@ def main() -> None:
     evidence = json.loads(
         (
             REPOSITORY_ROOT
-            / "blender-addon/oh_my_blender/fixtures/boxing-v4-directing-evidence.json"
+            / "blender-addon/cclay/fixtures/boxing-v4-directing-evidence.json"
         ).read_text(encoding="utf-8")
     )
     valleys = evidence["analysis"]["motion_valley_frames"]
@@ -422,7 +422,7 @@ def main() -> None:
     except PLAN_MINIMUM_TWO_KEYFRAMES as error:
         results["singleton"] = code(error)
 
-    print("OMB_CAMERA_PLAN_RESULTS=" + json.dumps(results, separators=(",", ":"), sort_keys=True))
+    print("CCLAY_CAMERA_PLAN_RESULTS=" + json.dumps(results, separators=(",", ":"), sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
-import { parseSceneManifestV2 } from "@oh-my-blender/protocol";
+import { parseSceneManifestV2 } from "@cclay/protocol";
 import { buildSceneManifestV2Revision } from "../src/manifest.ts";
 
 const fixtureUrl = new URL("fixtures/scene-manifest-v2-parity.json", import.meta.url);

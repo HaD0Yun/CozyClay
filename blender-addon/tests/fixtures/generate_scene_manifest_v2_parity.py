@@ -19,7 +19,7 @@ import bpy
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender import manifest
+from cclay import manifest
 
 PROJECT_ID = "00000000-0000-4000-8000-00000000000a"
 CAMERA_ID = "00000000-0000-4000-8000-000000000001"
@@ -48,7 +48,7 @@ def main() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.name = "Blender Generated V2 Parity"
-    scene["omb.project_id"] = PROJECT_ID
+    scene["cclay.project_id"] = PROJECT_ID
     scene.frame_start = 1
     scene.frame_end = 24
     scene.render.fps = 24
@@ -62,12 +62,12 @@ def main() -> None:
     if subject is None:
         raise RuntimeError("Blender did not create the subject")
     subject.name = "Parity Subject"
-    subject["omb.entity_id"] = SUBJECT_ID
+    subject["cclay.entity_id"] = SUBJECT_ID
 
     camera_data = bpy.data.cameras.new("Parity Camera Data")
     camera_data.sensor_fit = "VERTICAL"
     camera = bpy.data.objects.new("Parity Camera", camera_data)
-    camera["omb.entity_id"] = CAMERA_ID
+    camera["cclay.entity_id"] = CAMERA_ID
     scene.collection.objects.link(camera)
     scene.camera = camera
     camera.select_set(True)
@@ -89,7 +89,7 @@ def main() -> None:
 
     options.output.parent.mkdir(parents=True, exist_ok=True)
     revision = manifest.write_scene_manifest_v2(options.output)
-    print(f"OMB_SCENE_MANIFEST_V2_REVISION={revision}")
+    print(f"CCLAY_SCENE_MANIFEST_V2_REVISION={revision}")
 
 
 if __name__ == "__main__":

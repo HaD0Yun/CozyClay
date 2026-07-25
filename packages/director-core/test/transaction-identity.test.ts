@@ -22,7 +22,7 @@ const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 async function createStore(): Promise<{ root: string; store: ProjectStore }> {
-	const root = await mkdtemp(join(tmpdir(), "omb-transaction-identity-"));
+	const root = await mkdtemp(join(tmpdir(), "cclay-transaction-identity-"));
 	roots.push(root);
 	return { root, store: new ProjectStore(root) };
 }
@@ -128,8 +128,8 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 		};
 		const legacyRecord = { ...payload, commit_hash: canonicalRevision(payload) };
 		const { mkdir, writeFile } = await import("node:fs/promises");
-		await mkdir(join(root, ".omb"), { recursive: true });
-		await writeFile(join(root, ".omb", "journal.jsonl"), `${JSON.stringify(legacyRecord)}\n`);
+		await mkdir(join(root, ".cclay"), { recursive: true });
+		await writeFile(join(root, ".cclay", "journal.jsonl"), `${JSON.stringify(legacyRecord)}\n`);
 		await store.writeProject({
 			project_id: PROJECT_ID,
 			schema_version: 1,
@@ -166,8 +166,8 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 			commit_hash: canonicalRevision(payload),
 		};
 		const { mkdir, writeFile } = await import("node:fs/promises");
-		await mkdir(join(root, ".omb"), { recursive: true });
-		await writeFile(join(root, ".omb", "journal.jsonl"), `${JSON.stringify(tampered)}\n`);
+		await mkdir(join(root, ".cclay"), { recursive: true });
+		await writeFile(join(root, ".cclay", "journal.jsonl"), `${JSON.stringify(tampered)}\n`);
 		await store.writeProject({
 			project_id: PROJECT_ID,
 			schema_version: 1,
@@ -192,7 +192,7 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 		await commitRevision(store, IDEMPOTENCY_KEY, BASE_REVISION_ID, target, entry());
 		await commitRevision(store, IDEMPOTENCY_KEY, BASE_REVISION_ID, target, entry());
 
-		const lines = (await readFile(join(root, ".omb", "journal.jsonl"), "utf8")).trimEnd().split("\n");
+		const lines = (await readFile(join(root, ".cclay", "journal.jsonl"), "utf8")).trimEnd().split("\n");
 		assert.equal(lines.length, 1);
 		const record = JSON.parse(lines[0]) as Record<string, unknown>;
 		assert.equal(record.kind, "revision_commit_v2");
@@ -224,16 +224,16 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 		const target = project(TARGET_REVISION_ID, TARGET_SCENE_HASH);
 		await store.writeProject(base);
 		await commitRevision(store, IDEMPOTENCY_KEY, BASE_REVISION_ID, target, entry());
-		const projectBefore = await readFile(join(root, ".omb", "project.json"), "utf8");
-		const journalBefore = await readFile(join(root, ".omb", "journal.jsonl"), "utf8");
+		const projectBefore = await readFile(join(root, ".cclay", "project.json"), "utf8");
+		const journalBefore = await readFile(join(root, ".cclay", "journal.jsonl"), "utf8");
 
 		await assert.rejects(
 			commitRevision(store, IDEMPOTENCY_KEY, BASE_REVISION_ID, target, entry("apply_camera_plan")),
 			isTransactionConflict,
 		);
 
-		assert.equal(await readFile(join(root, ".omb", "project.json"), "utf8"), projectBefore);
-		assert.equal(await readFile(join(root, ".omb", "journal.jsonl"), "utf8"), journalBefore);
+		assert.equal(await readFile(join(root, ".cclay", "project.json"), "utf8"), projectBefore);
+		assert.equal(await readFile(join(root, ".cclay", "journal.jsonl"), "utf8"), journalBefore);
 	});
 
 	it("rejects the same UUID when only full target manifest content differs", async () => {
@@ -242,8 +242,8 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 		const target = project(TARGET_REVISION_ID, TARGET_SCENE_HASH);
 		await store.writeProject(base);
 		await commitRevision(store, IDEMPOTENCY_KEY, BASE_REVISION_ID, target, entry());
-		const projectBefore = await readFile(join(root, ".omb", "project.json"), "utf8");
-		const journalBefore = await readFile(join(root, ".omb", "journal.jsonl"), "utf8");
+		const projectBefore = await readFile(join(root, ".cclay", "project.json"), "utf8");
+		const journalBefore = await readFile(join(root, ".cclay", "journal.jsonl"), "utf8");
 		const differentManifest = project(TARGET_REVISION_ID, TARGET_SCENE_HASH, "4.3.1");
 
 		await assert.rejects(
@@ -251,8 +251,8 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 			isTransactionConflict,
 		);
 
-		assert.equal(await readFile(join(root, ".omb", "project.json"), "utf8"), projectBefore);
-		assert.equal(await readFile(join(root, ".omb", "journal.jsonl"), "utf8"), journalBefore);
+		assert.equal(await readFile(join(root, ".cclay", "project.json"), "utf8"), projectBefore);
+		assert.equal(await readFile(join(root, ".cclay", "journal.jsonl"), "utf8"), journalBefore);
 	});
 	it("forwards a durable journal only from a candidate-compatible marker phase", async () => {
 		const { store } = await createStore();
@@ -278,8 +278,8 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 		await store.writeProject(base);
 		await commitRevision(store, IDEMPOTENCY_KEY, BASE_REVISION_ID, target, entry());
 		await store.writeProject(base);
-		const projectBefore = await readFile(join(root, ".omb", "project.json"), "utf8");
-		const journalBefore = await readFile(join(root, ".omb", "journal.jsonl"), "utf8");
+		const projectBefore = await readFile(join(root, ".cclay", "project.json"), "utf8");
+		const journalBefore = await readFile(join(root, ".cclay", "journal.jsonl"), "utf8");
 
 		const result = await store.reconcileRevision(IDEMPOTENCY_KEY, "rollback_saved");
 
@@ -287,7 +287,7 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 			status: "unknown",
 			revisionId: BASE_REVISION_ID,
 		});
-		assert.equal(await readFile(join(root, ".omb", "project.json"), "utf8"), projectBefore);
-		assert.equal(await readFile(join(root, ".omb", "journal.jsonl"), "utf8"), journalBefore);
+		assert.equal(await readFile(join(root, ".cclay", "project.json"), "utf8"), projectBefore);
+		assert.equal(await readFile(join(root, ".cclay", "journal.jsonl"), "utf8"), journalBefore);
 	});
 });

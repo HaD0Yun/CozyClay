@@ -42,7 +42,7 @@ function validEvidence(): DirectingAnalysisEvidenceV1 {
 		revision_id: HASH,
 		scene_hash: "c".repeat(64),
 		frame_range: { start: 0, end: 200 },
-		producer: { id: "omb.approved_fixture", version: "boxing-v4", digest: "d".repeat(64) },
+		producer: { id: "cclay.approved_fixture", version: "boxing-v4", digest: "d".repeat(64) },
 		analysis: {
 			motion_valley_frames: [100],
 			action_peak_ranges: [],

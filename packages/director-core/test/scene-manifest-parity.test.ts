@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { parseSceneManifest } from "@oh-my-blender/protocol";
+import { parseSceneManifest } from "@cclay/protocol";
 import { buildSceneManifestRevision } from "../src/manifest.ts";
 
 const fixturesDirectory = join(import.meta.dirname, "fixtures");
 
-// Committed by blender-addon/oh_my_blender/scene_manifest.py's
+// Committed by blender-addon/cclay/scene_manifest.py's
 // build_scene_manifest()/finalize_scene_manifest() (Python, no Blender
 // required to regenerate: see the Python-side parity test for the exact
 // producer inputs). Proves architecture doc section 6's cross-language

@@ -11,7 +11,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender.canonical import (  # noqa: E402
+from cclay.canonical import (  # noqa: E402
     canonical_json,
     canonical_number,
     canonical_revision,

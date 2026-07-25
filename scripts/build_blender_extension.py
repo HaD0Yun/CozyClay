@@ -1,4 +1,4 @@
-"""Build the allowlisted Oh My Blender Extension archive reproducibly."""
+"""Build the allowlisted CozyClay Extension archive reproducibly."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import zipfile
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-ADDON_ROOT = REPOSITORY_ROOT / "blender-addon" / "oh_my_blender"
+ADDON_ROOT = REPOSITORY_ROOT / "blender-addon" / "cclay"
 PACKAGE_MANIFEST = REPOSITORY_ROOT / "blender-addon" / "package-files.txt"
 _ARCHIVE_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 _ARCHIVE_MODE = stat.S_IFREG | 0o644

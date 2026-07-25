@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, it } from "node:test";
+import { buildProjectManifest } from "@cclay/director-core";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { buildProjectManifest } from "@oh-my-blender/director-core";
 import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
 import { createDirectorSession, DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
 

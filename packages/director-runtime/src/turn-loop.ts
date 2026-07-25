@@ -1,6 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type {
 	ApplyCameraPlanBridge,
 	ApplyCameraPlanProgress,
@@ -10,8 +8,8 @@ import type {
 	RenderQaFramesProgress,
 	StageSceneBridge,
 	StageSceneProgress,
-} from "@oh-my-blender/blender-tools";
-import type { TransactionMarkerPhase } from "@oh-my-blender/director-core";
+} from "@cclay/blender-tools";
+import type { TransactionMarkerPhase } from "@cclay/director-core";
 import {
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
@@ -23,7 +21,9 @@ import {
 	type RenderQaFramesResultV1,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import type { AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
 	type CameraPlanRevisionStore,
 	commitCameraPlanMutation,

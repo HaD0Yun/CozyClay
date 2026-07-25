@@ -8,7 +8,7 @@ import { ProjectStore, ProjectStoreError } from "../src/project-store.ts";
 
 const roots: string[] = [];
 async function createStore(): Promise<{ root: string; store: ProjectStore }> {
-	const root = await mkdtemp(join(tmpdir(), "omb-store-"));
+	const root = await mkdtemp(join(tmpdir(), "cclay-store-"));
 	roots.push(root);
 	return { root, store: new ProjectStore(root) };
 }
@@ -68,7 +68,7 @@ describe("project persistence (architecture §6)", () => {
 		await Promise.all(
 			Array.from({ length: 100 }, (_, index) => store.appendJournal({ index, text: `entry-${index}` })),
 		);
-		const lines = (await readFile(join(root, ".omb", "journal.jsonl"), "utf8")).trimEnd().split("\n");
+		const lines = (await readFile(join(root, ".cclay", "journal.jsonl"), "utf8")).trimEnd().split("\n");
 		assert.equal(lines.length, 100);
 		assert.deepEqual(
 			new Set(lines.map((line) => JSON.parse(line).index)),
@@ -82,13 +82,13 @@ describe("project persistence (architecture §6)", () => {
 			store.readProject(),
 			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_NOT_FOUND",
 		);
-		await mkdir(join(root, ".omb"));
-		await writeFile(join(root, ".omb", "project.json"), "{");
+		await mkdir(join(root, ".cclay"));
+		await writeFile(join(root, ".cclay", "project.json"), "{");
 		await assert.rejects(
 			store.readProject(),
 			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_CORRUPT",
 		);
-		await writeFile(join(root, ".omb", "project.json"), JSON.stringify({ project_id: "x" }));
+		await writeFile(join(root, ".cclay", "project.json"), JSON.stringify({ project_id: "x" }));
 		await assert.rejects(
 			store.readProject(),
 			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
@@ -111,7 +111,7 @@ describe("project persistence (architecture §6)", () => {
 		);
 
 		assert.deepEqual(await store.readProject(), base);
-		const journalPath = join(root, ".omb", "journal.jsonl");
+		const journalPath = join(root, ".cclay", "journal.jsonl");
 		assert.equal((await readFile(journalPath, "utf8")).trimEnd().split("\n").length, 1);
 
 		const restartedStore = new ProjectStore(root);
@@ -141,7 +141,7 @@ describe("project persistence (architecture §6)", () => {
 		await restartedStore.commitRevision(KEY, base.current_revision_id, child, ENTRY);
 
 		assert.deepEqual(await restartedStore.readProject(), child);
-		const lines = (await readFile(join(root, ".omb", "journal.jsonl"), "utf8")).trimEnd().split("\n");
+		const lines = (await readFile(join(root, ".cclay", "journal.jsonl"), "utf8")).trimEnd().split("\n");
 		assert.equal(lines.length, 1);
 		const record = JSON.parse(lines[0]) as Record<string, unknown>;
 		assert.match(record.commit_hash as string, /^[0-9a-f]{64}$/);

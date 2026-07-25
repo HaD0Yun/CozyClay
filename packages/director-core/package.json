@@ -1,5 +1,5 @@
 {
-	"name": "@oh-my-blender/director-core",
+	"name": "@cclay/director-core",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -10,6 +10,6 @@
 		"test": "node --import tsx --test test/*.test.ts"
 	},
 	"dependencies": {
-		"@oh-my-blender/protocol": "0.1.0"
+		"@cclay/protocol": "0.1.0"
 	}
 }

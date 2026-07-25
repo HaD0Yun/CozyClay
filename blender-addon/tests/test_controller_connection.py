@@ -10,15 +10,15 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
-from oh_my_blender import connection as connection_module
-from oh_my_blender.connection import (
+from cclay import connection as connection_module
+from cclay.connection import (
     Connection,
     LifecycleState,
     configure_bridge_auto_reconnect,
     consume_discovery_slot,
     poll_active_bridge_reconnect,
 )
-from oh_my_blender.controller_connection import (
+from cclay.controller_connection import (
     ControllerConnection,
     ControllerConnectionError,
     ControllerState,
@@ -106,7 +106,7 @@ class ControllerConnectionTests(unittest.TestCase):
         FakeWebSocket.replies_by_call = []
 
     def runtime_directory(self, root):
-        runtime = pathlib.Path(root) / "omb-501" / LAUNCH_ID
+        runtime = pathlib.Path(root) / "cclay-501" / LAUNCH_ID
         runtime.mkdir(parents=True, mode=0o700)
         os.chmod(runtime.parent, 0o700)
         os.chmod(runtime, 0o700)
@@ -277,9 +277,9 @@ class ControllerConnectionTests(unittest.TestCase):
                 43123,
                 RESUME_1,
                 {
-                    "X-OMB-Launch-ID": LAUNCH_ID,
-                    "X-OMB-Peer-Lineage-ID": LINEAGE_ID,
-                    "X-OMB-Peer-Generation": "1",
+                    "X-CCLAY-Launch-ID": LAUNCH_ID,
+                    "X-CCLAY-Peer-Lineage-ID": LINEAGE_ID,
+                    "X-CCLAY-Peer-Generation": "1",
                 },
                 3.0,
             )])
@@ -309,7 +309,7 @@ class ControllerConnectionTests(unittest.TestCase):
         controller.mark_lost()
 
         self.assertTrue(controller.poll_reconnect(force=True))
-        self.assertEqual(resume_calls[0][2], {"X-OMB-Launch-ID": LAUNCH_ID})
+        self.assertEqual(resume_calls[0][2], {"X-CCLAY-Launch-ID": LAUNCH_ID})
         self.assertEqual(controller.authority, "owner")
 
     def test_unknown_server_frame_closes_and_enters_reconnect_without_queueing(self):
@@ -364,9 +364,9 @@ class ControllerConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             project = pathlib.Path(root) / "project"
             project.mkdir()
-            omb = project / ".omb"
-            omb.mkdir()
-            (omb / "project.json").write_text(json.dumps({
+            cclay = project / ".cclay"
+            cclay.mkdir()
+            (cclay / "project.json").write_text(json.dumps({
                 "project_id": PROJECT_ID,
                 "schema_version": 1,
                 "current_revision_id": "a" * 64,

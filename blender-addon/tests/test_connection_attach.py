@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
-from oh_my_blender.connection import (
+from cclay.connection import (
     Connection,
     ConnectionError,
     connect_from_handoff,
@@ -65,7 +65,7 @@ class AttachConnectionTests(unittest.TestCase):
         FakeWebSocket.calls = []
 
     def _runtime_directory(self, root):
-        runtime = pathlib.Path(root) / "omb-501" / "11111111-1111-4111-8111-111111111111"
+        runtime = pathlib.Path(root) / "cclay-501" / "11111111-1111-4111-8111-111111111111"
         runtime.mkdir(parents=True, mode=0o700)
         os.chmod(runtime.parent, 0o700)
         os.chmod(runtime, 0o700)
@@ -151,7 +151,7 @@ class AttachConnectionTests(unittest.TestCase):
             runtime = self._runtime_directory(root)
             handoff = self._handoff(runtime)
             with mock.patch(
-                "oh_my_blender.connection.connect",
+                "cclay.connection.connect",
                 side_effect=ConnectionError("attach failed"),
             ):
                 with self.assertRaisesRegex(ConnectionError, "attach failed"):
@@ -166,9 +166,9 @@ class AttachConnectionTests(unittest.TestCase):
 
     def test_connect_from_handoff_reports_tui_instruction_when_none_found(self):
         with tempfile.TemporaryDirectory() as root:
-            user_directory = pathlib.Path(root) / "omb-501"
+            user_directory = pathlib.Path(root) / "cclay-501"
             user_directory.mkdir(mode=0o700)
-            with self.assertRaisesRegex(ConnectionError, "run the omb TUI first"):
+            with self.assertRaisesRegex(ConnectionError, "run the cclay TUI first"):
                 connect_from_handoff(
                     cwd=root,
                     project_id="33333333-3333-4333-8333-333333333333",
@@ -202,8 +202,8 @@ class AttachConnectionTests(unittest.TestCase):
 
     def test_connect_attach_mode_exposes_tools_without_pending_marker(self):
         """The production attach path must reconcile and expose bridge tools."""
-        import oh_my_blender.connection as connection_module
-        from oh_my_blender.connection import connect
+        import cclay.connection as connection_module
+        from cclay.connection import connect
 
         original_attach = Connection.attach.__func__
 
@@ -272,9 +272,9 @@ class PiExtensionConnectionTests(unittest.TestCase):
     def test_reads_private_project_endpoint_and_uses_existing_attach_path(self):
         with tempfile.TemporaryDirectory() as root:
             project = pathlib.Path(root)
-            omb = project / ".omb"
-            omb.mkdir()
-            endpoint = omb / "pi-bridge.json"
+            cclay = project / ".cclay"
+            cclay.mkdir()
+            endpoint = cclay / "pi-bridge.json"
             endpoint.write_text(
                 json.dumps({
                     "schema_version": 1,
@@ -286,7 +286,7 @@ class PiExtensionConnectionTests(unittest.TestCase):
             os.chmod(endpoint, 0o600)
             sentinel = object()
             with mock.patch(
-                "oh_my_blender.connection.connect", return_value=sentinel
+                "cclay.connection.connect", return_value=sentinel
             ) as connect_mock:
                 result = connect_pi_extension(
                     cwd=project,
@@ -307,9 +307,9 @@ class PiExtensionConnectionTests(unittest.TestCase):
     def test_rejects_world_readable_project_endpoint(self):
         with tempfile.TemporaryDirectory() as root:
             project = pathlib.Path(root)
-            omb = project / ".omb"
-            omb.mkdir()
-            endpoint = omb / "pi-bridge.json"
+            cclay = project / ".cclay"
+            cclay.mkdir()
+            endpoint = cclay / "pi-bridge.json"
             endpoint.write_text(
                 json.dumps({
                     "schema_version": 1,

@@ -45,6 +45,11 @@ describe("director prompt", () => {
 		assert.match(DIRECTOR_PROMPT, /one transform_assembly op/);
 		assert.match(DIRECTOR_PROMPT, /Keep flat objects flat/);
 	});
+	it("documents the two-step evidence flow instead of banning apply_camera_plan", () => {
+		assert.match(DIRECTOR_PROMPT, /call produce_directing_evidence first/);
+		assert.match(DIRECTOR_PROMPT, /evidence_sha256 and the SAME expected_revision_id to apply_camera_plan/);
+		assert.doesNotMatch(DIRECTOR_PROMPT, /Do not call apply_camera_plan/);
+	});
 });
 describe("hostile local resource isolation", () => {
 	const unregister: Array<() => void> = [];
@@ -55,7 +60,7 @@ describe("hostile local resource isolation", () => {
 	});
 
 	it("keeps startup, reload, extension, replacement, and disposal bundle-only", async () => {
-		const root = await mkdtemp(join(tmpdir(), "omb-hostile-"));
+		const root = await mkdtemp(join(tmpdir(), "cclay-hostile-"));
 		cleanup.push(root);
 		const agentDir = join(root, "agent");
 		const projectDir = join(root, "project");

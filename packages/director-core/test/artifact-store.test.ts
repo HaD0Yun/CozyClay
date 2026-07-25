@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 async function root() {
-	const value = await mkdtemp(join(tmpdir(), "omb-artifacts-"));
+	const value = await mkdtemp(join(tmpdir(), "cclay-artifacts-"));
 	roots.push(value);
 	return value;
 }
@@ -34,11 +34,11 @@ async function publish(store: ArtifactStore, bytes: Uint8Array) {
 	return store.publish({ expectedSha256: digest(bytes), byteLength: bytes.byteLength }, [bytes]);
 }
 
-test("Architecture §6: SHA-256-keyed storage returns only omb-artifact://sha256/<digest>", async () => {
+test("Architecture §6: SHA-256-keyed storage returns only cclay-artifact://sha256/<digest>", async () => {
 	const store = await openStore(await root(), { limits });
 	const bytes = Buffer.from("artifact");
 	const result = await publish(store, bytes);
-	assert.equal(result.uri, `omb-artifact://sha256/${digest(bytes)}`);
+	assert.equal(result.uri, `cclay-artifact://sha256/${digest(bytes)}`);
 	assert.deepEqual(await store.read(result.uri), bytes);
 });
 
@@ -93,8 +93,8 @@ test("Architecture §6: one transactional batch reserves multiple artifacts unde
 
 test("Architecture §6: no-follow anchoring rejects symlink, hardlink, wrong-owner, wrong-type, and unsafe-mode targets", async () => {
 	const project = await root();
-	await mkdir(join(project, ".omb"));
-	await symlink(await root(), join(project, ".omb", "artifacts"));
+	await mkdir(join(project, ".cclay"));
+	await symlink(await root(), join(project, ".cclay", "artifacts"));
 	await assert.rejects(
 		ArtifactStore.open(project, { limits }),
 		(error: unknown) => (error as ArtifactStoreError).code === "ARTIFACT_PATH_UNSAFE",
@@ -104,26 +104,26 @@ test("Architecture §6: no-follow anchoring rejects symlink, hardlink, wrong-own
 	const store = await openStore(project2, { limits });
 	const bytes = Buffer.from("artifact");
 	const hash = digest(bytes);
-	const digestDir = join(project2, ".omb", "artifacts", hash);
+	const digestDir = join(project2, ".cclay", "artifacts", hash);
 	await mkdir(digestDir);
 	const external = join(project2, "external");
 	await writeFile(external, bytes);
 	await link(external, join(digestDir, "payload"));
 	await assert.rejects(
-		store.read(`omb-artifact://sha256/${hash}`),
+		store.read(`cclay-artifact://sha256/${hash}`),
 		(error: unknown) => (error as ArtifactStoreError).code === "ARTIFACT_PATH_UNSAFE",
 	);
 	await rm(join(digestDir, "payload"));
 	await mkdir(join(digestDir, "payload"));
 	await assert.rejects(
-		store.read(`omb-artifact://sha256/${hash}`),
+		store.read(`cclay-artifact://sha256/${hash}`),
 		(error: unknown) => (error as ArtifactStoreError).code === "ARTIFACT_PATH_UNSAFE",
 	);
 	await rm(join(digestDir, "payload"), { recursive: true });
 	await writeFile(join(digestDir, "payload"), bytes);
 	await chmod(join(digestDir, "payload"), 0o644);
 	await assert.rejects(
-		store.read(`omb-artifact://sha256/${hash}`),
+		store.read(`cclay-artifact://sha256/${hash}`),
 		(error: unknown) => (error as ArtifactStoreError).code === "ARTIFACT_PATH_UNSAFE",
 	);
 
@@ -148,7 +148,7 @@ test("Architecture §6: no-replace publish is idempotent for identical bytes and
 	const first = await publish(store, bytes);
 	const second = await publish(store, bytes);
 	assert.deepEqual(second, first);
-	await writeFile(join(project, ".omb", "artifacts", first.sha256, "payload"), Buffer.from("corrupt"), {
+	await writeFile(join(project, ".cclay", "artifacts", first.sha256, "payload"), Buffer.from("corrupt"), {
 		mode: 0o600,
 	});
 	await assert.rejects(
@@ -160,26 +160,26 @@ test("Architecture §6: no-replace publish is idempotent for identical bytes and
 test("Architecture §6: startup recovery removes only safely anchored crash temporary files", async () => {
 	const project = await root();
 	const store = await openStore(project, { limits });
-	const temporary = join(project, ".omb", "artifacts", ".tmp", "upload-00000000000000000000000000000000");
+	const temporary = join(project, ".cclay", "artifacts", ".tmp", "upload-00000000000000000000000000000000");
 	await writeFile(temporary, "partial", { mode: 0o600 });
 	await store.recoverTemps();
 	await assert.rejects(readFile(temporary), { code: "ENOENT" });
 
 	const crashBytes = Buffer.from("linked-crash");
 	const crashDigest = digest(crashBytes);
-	const digestDir = join(project, ".omb", "artifacts", crashDigest);
+	const digestDir = join(project, ".cclay", "artifacts", crashDigest);
 	await mkdir(digestDir);
-	const linkedTemporary = join(project, ".omb", "artifacts", ".tmp", "upload-11111111111111111111111111111111");
+	const linkedTemporary = join(project, ".cclay", "artifacts", ".tmp", "upload-11111111111111111111111111111111");
 	await writeFile(linkedTemporary, crashBytes, { mode: 0o600 });
 	await link(linkedTemporary, join(digestDir, "payload"));
 	await store.recoverTemps();
-	assert.deepEqual(await store.read(`omb-artifact://sha256/${crashDigest}`), crashBytes);
+	assert.deepEqual(await store.read(`cclay-artifact://sha256/${crashDigest}`), crashBytes);
 });
 
 test("Architecture §6: retained directory descriptors reject hierarchy replacement", async () => {
 	const project = await root();
 	const store = await openStore(project, { limits });
-	const artifacts = join(project, ".omb", "artifacts");
+	const artifacts = join(project, ".cclay", "artifacts");
 	await rename(artifacts, `${artifacts}-original`);
 	await mkdir(artifacts);
 	await mkdir(join(artifacts, ".tmp"));
@@ -213,7 +213,7 @@ test("Architecture §6: project-scoped accounting coordinates distinct store ins
 test("Architecture §6: opening the store recovers crash-orphaned temporary files", async () => {
 	const project = await root();
 	await openStore(project, { limits });
-	const temporary = join(project, ".omb", "artifacts", ".tmp", "upload-22222222222222222222222222222222");
+	const temporary = join(project, ".cclay", "artifacts", ".tmp", "upload-22222222222222222222222222222222");
 	await writeFile(temporary, "partial", { mode: 0o600 });
 
 	await openStore(project, { limits });
@@ -225,7 +225,7 @@ test("Architecture §6: project quota counts every committed regular file", asyn
 	const project = await root();
 	const store = await openStore(project, { limits });
 	const artifact = await publish(store, Buffer.from("12345678"));
-	await writeFile(join(project, ".omb", "artifacts", artifact.sha256, "metadata"), "1234", { mode: 0o600 });
+	await writeFile(join(project, ".cclay", "artifacts", artifact.sha256, "metadata"), "1234", { mode: 0o600 });
 
 	await assert.rejects(
 		store.reserve({ expectedSha256: "a".repeat(64), byteLength: 1 }),

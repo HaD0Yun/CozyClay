@@ -91,10 +91,10 @@ jobs:
           "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-a.json | tee /tmp/export-a.log
           "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-b.json | tee /tmp/export-b.log
           cmp /tmp/export-a.json /tmp/export-b.json
-          REV_A=$(grep -o 'OMB_REVISION=[0-9a-f]*' /tmp/export-a.log | cut -d= -f2)
-          REV_B=$(grep -o 'OMB_REVISION=[0-9a-f]*' /tmp/export-b.log | cut -d= -f2)
+          REV_A=$(grep -o 'CCLAY_REVISION=[0-9a-f]*' /tmp/export-a.log | cut -d= -f2)
+          REV_B=$(grep -o 'CCLAY_REVISION=[0-9a-f]*' /tmp/export-b.log | cut -d= -f2)
           test -n "$REV_A" && test "$REV_A" = "$REV_B"
-          echo "OMB_REVISION=$REV_A" >> "$GITHUB_ENV"
+          echo "CCLAY_REVISION=$REV_A" >> "$GITHUB_ENV"
 
       - name: Cross-language parity on the fresh export
         run: |
@@ -103,7 +103,7 @@ jobs:
             import { parseSceneSnapshot, createProjectManifest } from "./packages/blender-protocol/src/snapshot.ts";
             const snapshot = parseSceneSnapshot(JSON.parse(readFileSync("/tmp/export-a.json", "utf8")));
             const revision = createProjectManifest(snapshot).revision;
-            const expected = process.env.OMB_REVISION;
+            const expected = process.env.CCLAY_REVISION;
             if (revision !== expected) throw new Error(`parity mismatch: ts=${revision} python=${expected}`);
             console.log(`cross-language parity ok: ${revision}`);
           '

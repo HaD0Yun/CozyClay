@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { Model } from "@earendil-works/pi-ai";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ApplyCameraPlanProgress, RenderQaFramesProgress, StageSceneProgress } from "@oh-my-blender/blender-tools";
-import { assertCanonicalSize, buildProjectManifest } from "@oh-my-blender/director-core";
+import type { ApplyCameraPlanProgress, RenderQaFramesProgress, StageSceneProgress } from "@cclay/blender-tools";
+import { assertCanonicalSize, buildProjectManifest } from "@cclay/director-core";
 import {
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
@@ -13,7 +11,9 @@ import {
 	type RenderQaFramesResultV1,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
+import type { Model } from "@earendil-works/pi-ai";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
 	type CameraPlanRevisionStore,
 	commitCameraPlanMutation,

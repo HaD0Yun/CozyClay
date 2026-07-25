@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import oh_my_blender.fixture_registry as registry
-from oh_my_blender.canonical import canonical_json
-from oh_my_blender.fixture_registry import (
+import cclay.fixture_registry as registry
+from cclay.canonical import canonical_json
+from cclay.fixture_registry import (
     EVIDENCE_DIGEST_MISMATCH,
     EVIDENCE_DOCUMENT_MALFORMED,
     EVIDENCE_DOCUMENT_SCHEMA_INVALID,
@@ -34,7 +34,7 @@ from oh_my_blender.fixture_registry import (
 
 REVISION = "590ffc757e027eb7ffcfab9e53951314b75dfa1d3cfffa0e340f6f0b24b7d250"
 SCENE_HASH = "9a8c73b83e27e23b6a45be26a2768eb679ba4ca5b2731b6067b072878a98a0d7"
-PRODUCER = ("omb.approved_fixture", "test", "f31de2b9d7232e5fdf56c8de4a1ecc80f7cbc4fb6c5743d6eef644d4caeacb59")
+PRODUCER = ("cclay.approved_fixture", "test", "f31de2b9d7232e5fdf56c8de4a1ecc80f7cbc4fb6c5743d6eef644d4caeacb59")
 
 
 def plan(digest: str) -> dict:

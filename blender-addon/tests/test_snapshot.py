@@ -10,7 +10,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender.snapshot import (  # noqa: E402
+from cclay.snapshot import (  # noqa: E402
     EXPORT_MAGNITUDE,
     EXPORT_NONFINITE,
     SNAPSHOT_TOO_LARGE,

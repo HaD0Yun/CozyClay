@@ -4,7 +4,7 @@ import { type FileHandle, link, lstat, mkdir, open, readdir, readFile, unlink, w
 import { join } from "node:path";
 
 const HASH_64 = /^[0-9a-f]{64}$/;
-const URI = /^omb-artifact:\/\/sha256\/([0-9a-f]{64})$/;
+const URI = /^cclay-artifact:\/\/sha256\/([0-9a-f]{64})$/;
 const UPLOAD = /^upload-([0-9a-f]{32})$/;
 const RESERVATION = /^upload-([0-9a-f]{32})\.reservation$/;
 const LOCK_RETRY_MS = 10;
@@ -193,7 +193,7 @@ export class ArtifactStore {
 	readonly tempDir: string;
 	readonly limits: ArtifactStoreLimits;
 	private readonly project: AnchoredDirectory;
-	private readonly omb: AnchoredDirectory;
+	private readonly cclay: AnchoredDirectory;
 	private readonly artifacts: AnchoredDirectory;
 	private readonly temp: AnchoredDirectory;
 	private closed = false;
@@ -202,16 +202,16 @@ export class ArtifactStore {
 		rootDir: string,
 		limits: ArtifactStoreLimits,
 		project: AnchoredDirectory,
-		omb: AnchoredDirectory,
+		cclay: AnchoredDirectory,
 		artifacts: AnchoredDirectory,
 		temp: AnchoredDirectory,
 	) {
 		this.rootDir = rootDir;
-		this.artifactsDir = join(rootDir, ".omb", "artifacts");
+		this.artifactsDir = join(rootDir, ".cclay", "artifacts");
 		this.tempDir = join(this.artifactsDir, ".tmp");
 		this.limits = limits;
 		this.project = project;
-		this.omb = omb;
+		this.cclay = cclay;
 		this.artifacts = artifacts;
 		this.temp = temp;
 	}
@@ -221,17 +221,17 @@ export class ArtifactStore {
 		try {
 			const project = await openRoot(rootDir);
 			opened.push(project);
-			const omb = await openChild(project, ".omb", ".omb", true);
-			opened.push(omb);
-			const artifacts = await openChild(omb, "artifacts", ".omb/artifacts", true);
+			const cclay = await openChild(project, ".cclay", ".cclay", true);
+			opened.push(cclay);
+			const artifacts = await openChild(cclay, "artifacts", ".cclay/artifacts", true);
 			opened.push(artifacts);
-			const temp = await openChild(artifacts, ".tmp", ".omb/artifacts/.tmp", true);
+			const temp = await openChild(artifacts, ".tmp", ".cclay/artifacts/.tmp", true);
 			opened.push(temp);
 			const store = new ArtifactStore(
 				rootDir,
 				options.limits ?? DEFAULT_ARTIFACT_STORE_LIMITS,
 				project,
-				omb,
+				cclay,
 				artifacts,
 				temp,
 			);
@@ -248,14 +248,14 @@ export class ArtifactStore {
 
 	private async verifyHierarchy(): Promise<void> {
 		await verifyDirectory(this.project);
-		await verifyDirectory(this.omb);
+		await verifyDirectory(this.cclay);
 		await verifyDirectory(this.artifacts);
 		await verifyDirectory(this.temp);
 	}
 
 	private async withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
 		await this.verifyHierarchy();
-		const lockPath = descriptorPath(this.omb.handle, "artifact-store.lock");
+		const lockPath = descriptorPath(this.cclay.handle, "artifact-store.lock");
 		const deadline = Date.now() + LOCK_TIMEOUT_MS;
 		let lock: FileHandle | undefined;
 		while (lock === undefined) {
@@ -267,7 +267,7 @@ export class ArtifactStore {
 				);
 				await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
 				await lock.sync();
-				await this.omb.handle.sync();
+				await this.cclay.handle.sync();
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "EEXIST")
 					fail("ARTIFACT_PATH_UNSAFE", "project artifact lock cannot be acquired", error);
@@ -284,7 +284,7 @@ export class ArtifactStore {
 				if (entry.dev !== held.dev || entry.ino !== held.ino)
 					fail("ARTIFACT_PATH_UNSAFE", "project artifact lock was replaced");
 				await unlink(lockPath);
-				await this.omb.handle.sync();
+				await this.cclay.handle.sync();
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			}
@@ -431,7 +431,7 @@ export class ArtifactStore {
 			for (const request of requests) {
 				let reservationBytes = request.byteLength;
 				try {
-					const existing = await this.read(`omb-artifact://sha256/${request.expectedSha256}`);
+					const existing = await this.read(`cclay-artifact://sha256/${request.expectedSha256}`);
 					if (existing.byteLength !== request.byteLength)
 						fail("ARTIFACT_COLLISION", "existing payload length differs from the declaration");
 					reservationBytes = 0;
@@ -654,7 +654,7 @@ export class ArtifactStore {
 					await link(tempPath, payloadPath);
 				} catch (error) {
 					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-					const existing = await this.read(`omb-artifact://sha256/${actualDigest}`);
+					const existing = await this.read(`cclay-artifact://sha256/${actualDigest}`);
 					if (existing.byteLength !== reservation.request.byteLength)
 						fail("ARTIFACT_COLLISION", "existing payload length differs");
 					await this.unlinkSafe(reservation.leaf, false);
@@ -690,7 +690,7 @@ export class ArtifactStore {
 	async close(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
-		for (const directory of [this.temp, this.artifacts, this.omb, this.project]) {
+		for (const directory of [this.temp, this.artifacts, this.cclay, this.project]) {
 			descriptorFallbacks.delete(directory.handle.fd);
 			await directory.handle.close();
 		}
@@ -783,7 +783,7 @@ export class ArtifactReservation {
 	descriptor(actualDigest: string): ArtifactDescriptor {
 		return {
 			sha256: actualDigest,
-			uri: `omb-artifact://sha256/${actualDigest}`,
+			uri: `cclay-artifact://sha256/${actualDigest}`,
 			byteLength: this.request.byteLength,
 		};
 	}

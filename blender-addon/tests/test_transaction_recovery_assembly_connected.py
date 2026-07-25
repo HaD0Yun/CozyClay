@@ -32,7 +32,7 @@ class TransactionRecoveryAssemblyConnectedTests(unittest.TestCase):
             )
         lines = [
             line for line in completed.stdout.splitlines()
-            if line.startswith("OMB_ASSEMBLY_RECOVERY_RESULTS=")
+            if line.startswith("CCLAY_ASSEMBLY_RECOVERY_RESULTS=")
         ]
         if len(lines) != 1:
             raise AssertionError(f"{completed.stdout}\n{completed.stderr}")

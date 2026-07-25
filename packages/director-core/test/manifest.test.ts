@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
-import { parseSceneSnapshot } from "@oh-my-blender/protocol";
+import { parseSceneSnapshot } from "@cclay/protocol";
 import {
 	assertCanonicalSize,
 	buildProjectManifest,

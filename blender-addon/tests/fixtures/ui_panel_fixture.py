@@ -3,7 +3,7 @@
 Blender background mode has no VIEW_3D window/area/region, so panel formatting is
 invoked directly with a recorder rather than presented as interactive UI rendering.
 The in-flight snapshots are captured from inside transactions reached through real
-``dispatch_bridge_message`` and registered ``bpy.ops.omb`` operator execution.
+``dispatch_bridge_message`` and registered ``bpy.ops.cclay`` operator execution.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ import bpy
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-import oh_my_blender
-from oh_my_blender import camera_plan, connection, qa_render, ui_panel
+import cclay
+from cclay import camera_plan, connection, qa_render, ui_panel
 
 
 CREDENTIAL_SENTINEL = "sk-real-host-ui-sentinel"
@@ -81,8 +81,8 @@ class LayoutRecorder:
 def main() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
     os.environ["ANTHROPIC_API_KEY"] = CREDENTIAL_SENTINEL
-    oh_my_blender.register()
-    panel_type = bpy.types.OMB_PT_pi_status
+    cclay.register()
+    panel_type = bpy.types.CCLAY_PT_pi_status
     captures = []
     original_draw_status = ui_panel.draw_status
     original_camera_transaction = camera_plan.apply_camera_plan_transaction
@@ -199,7 +199,7 @@ def main() -> None:
         camera_plan.apply_camera_plan_transaction = original_camera_transaction
         qa_render.render_qa_frames_transaction = original_qa_transaction
         connection._active_connection = None
-        oh_my_blender.unregister()
+        cclay.unregister()
 
     for stage in stages:
         stage()
@@ -212,7 +212,7 @@ def main() -> None:
         for label in capture["labels"]
     )
     result = {
-        "registered": panel_type.bl_rna.identifier == "OMB_PT_pi_status",
+        "registered": panel_type.bl_rna.identifier == "CCLAY_PT_pi_status",
         "spaceType": panel_type.bl_space_type,
         "regionType": panel_type.bl_region_type,
         "category": panel_type.bl_category,
@@ -225,8 +225,8 @@ def main() -> None:
         ],
     }
     cleanup()
-    result["unregistered"] = not hasattr(bpy.types, "OMB_PT_pi_status")
-    print("OMB_UI_PANEL_RESULTS=" + json.dumps(result, separators=(",", ":")))
+    result["unregistered"] = not hasattr(bpy.types, "CCLAY_PT_pi_status")
+    print("CCLAY_UI_PANEL_RESULTS=" + json.dumps(result, separators=(",", ":")))
 
 
 main()

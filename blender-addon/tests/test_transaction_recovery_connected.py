@@ -37,7 +37,7 @@ class TransactionRecoveryConnectedTests(unittest.TestCase):
                 str(SCRIPT),
             ],
             cwd=REPOSITORY_ROOT,
-            env={**os.environ, "OMB_NODE_EXECUTABLE": str(NODE_EXECUTABLE)},
+            env={**os.environ, "CCLAY_NODE_EXECUTABLE": str(NODE_EXECUTABLE)},
             check=False,
             capture_output=True,
             text=True,
@@ -51,7 +51,7 @@ class TransactionRecoveryConnectedTests(unittest.TestCase):
         lines = [
             line
             for line in completed.stdout.splitlines()
-            if line.startswith("OMB_TRANSACTION_RECOVERY_RESULTS=")
+            if line.startswith("CCLAY_TRANSACTION_RECOVERY_RESULTS=")
         ]
         if len(lines) != 1:
             raise AssertionError(f"{completed.stdout}\n{completed.stderr}")

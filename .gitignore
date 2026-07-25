@@ -15,6 +15,9 @@ packages/*/dist-firefox/
 # Environment
 .env
 
+# Agent runtime state (contains ephemeral local broker tokens)
+.gjc/
+
 # Editor files
 .vscode/
 .zed/

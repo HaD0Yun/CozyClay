@@ -9,7 +9,7 @@ import tempfile
 import types
 import unittest
 
-from oh_my_blender.qa_image_display import (
+from cclay.qa_image_display import (
     QaImageDisplayError,
     cleanup_qa_images,
     display_latest_qa_artifact,
@@ -74,7 +74,7 @@ def _fake_bpy(images: _Images):
 
 def _write_artifact(directory: str, contents: bytes) -> tuple[str, Path]:
     digest = hashlib.sha256(contents).hexdigest()
-    payload = Path(directory) / ".omb" / "artifacts" / digest / "payload"
+    payload = Path(directory) / ".cclay" / "artifacts" / digest / "payload"
     payload.parent.mkdir(parents=True)
     payload.write_bytes(contents)
     payload.chmod(0o600)
@@ -99,7 +99,7 @@ class QaImageDisplayTests(unittest.TestCase):
             self.assertTrue(loaded_path.endswith(".png"))
             self.assertFalse(check_existing)
             self.assertFalse(os.path.exists(loaded_path))
-            self.assertEqual(image_space.image.name, f"OMB QA {digest[:12]}")
+            self.assertEqual(image_space.image.name, f"CCLAY QA {digest[:12]}")
 
     def test_tool_result_digest_falls_back_to_newest_verified_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -115,7 +115,7 @@ class QaImageDisplayTests(unittest.TestCase):
             )
 
             self.assertEqual(displayed, digest)
-            self.assertEqual(image_space.image.name, f"OMB QA {digest[:12]}")
+            self.assertEqual(image_space.image.name, f"CCLAY QA {digest[:12]}")
 
     def test_replacement_and_cleanup_remove_owned_image_datablocks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -175,7 +175,7 @@ class QaImageDisplayTests(unittest.TestCase):
     def test_hash_mismatch_and_non_png_payload_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             digest = "a" * 64
-            payload = Path(directory) / ".omb" / "artifacts" / digest / "payload"
+            payload = Path(directory) / ".cclay" / "artifacts" / digest / "payload"
             payload.parent.mkdir(parents=True)
             payload.write_bytes(b"not a png")
             payload.chmod(0o600)

@@ -1,0 +1,189 @@
+#!/bin/bash
+# cclay-ardy-generate — text-to-motion via the remote ARDY box, staged for apply_motion.
+#
+#   cclay-ardy-generate "a person waves both hands" [--duration 5] [--seed 7] [--project DIR]
+#   cclay-ardy-generate --segment "a person runs forward" 3 --segment "a person bows" 4 \
+#     [--seed 7] [--project DIR]
+#
+# Runs ARDY generation on the Tailscale host (GPU diffusion, cached text
+# encoder), fetches the npz into <project>/.cclay/motions/<motion_id>.npz, and
+# prints a JSON line with the motion_id to pass to stage_scene apply_motion.
+#
+# Segment mode (repeatable --segment "<prompt>" <seconds>) generates ONE
+# continuous autoregressive rollout across the segments via
+# scripts/ardy/cclay_sequence_generate.py (synced to the box before each run)
+# and passes through the per-segment frame ranges + continuity metrics.
+#
+# Config (env):
+#   CCLAY_ARDY_HOST  ssh host of the ARDY machine   (default: 100.90.2.101)
+#   CCLAY_ARDY_REPO  ARDY checkout on that machine, relative to the remote
+#                    home or absolute               (default: ardy)
+set -euo pipefail
+
+HOST="${CCLAY_ARDY_HOST:-100.90.2.101}"
+REMOTE_REPO="${CCLAY_ARDY_REPO:-ardy}"
+
+usage() {
+  {
+    echo 'usage: cclay-ardy-generate "<prompt>" [--duration N] [--seed S] [--project DIR]'
+    echo '       cclay-ardy-generate --segment "<prompt>" <seconds> [--segment "<prompt>" <seconds> ...] [--seed S] [--project DIR]'
+  } >&2
+  exit 2
+}
+
+# json_int KEY JSON — extract an integer field from a one-line JSON object.
+json_int() {
+  printf '%s' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p"
+}
+
+PROMPT=""
+DURATION="5.0"
+SEED=""
+PROJECT="${CCLAY_PROJECT_DIR:-$PWD}"
+SEG_PROMPTS=()
+SEG_SECONDS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --segment)
+      [[ $# -ge 3 ]] || { echo "cclay-ardy-generate: --segment needs \"<prompt>\" <seconds>" >&2; usage; }
+      [[ "$3" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --segment seconds must be a number, got '$3'" >&2; usage; }
+      SEG_PROMPTS+=("$2"); SEG_SECONDS+=("$3"); shift 3 ;;
+    --duration)
+      [[ "${2:-}" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --duration must be a number, got '${2:-}'" >&2; usage; }
+      DURATION="$2"; shift 2 ;;
+    --seed)
+      [[ "${2:-}" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --seed must be a non-negative integer, got '${2:-}'" >&2; usage; }
+      SEED="$2"; shift 2 ;;
+    --project)
+      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --project needs a directory" >&2; usage; }
+      PROJECT="$2"; shift 2 ;;
+    -*) echo "cclay-ardy-generate: unknown option $1" >&2; exit 2 ;;
+    *)
+      if [[ -n "$PROMPT" ]]; then echo "cclay-ardy-generate: one prompt only" >&2; exit 2; fi
+      PROMPT="$1"; shift ;;
+  esac
+done
+if [[ ${#SEG_PROMPTS[@]} -gt 0 && -n "$PROMPT" ]]; then
+  echo "cclay-ardy-generate: --segment and a positional prompt are mutually exclusive" >&2
+  usage
+fi
+if [[ ${#SEG_PROMPTS[@]} -eq 0 && -z "$PROMPT" ]]; then usage; fi
+[[ -f "$PROJECT/.cclay/project.json" ]] || { echo "cclay-ardy-generate: $PROJECT is not a CozyClay project (.cclay/project.json missing); pass --project" >&2; exit 1; }
+
+# motion_id: addon grammar ^[a-z0-9][a-z0-9-]{0,63}$
+SLUG_SOURCE="$PROMPT"
+[[ ${#SEG_PROMPTS[@]} -gt 0 ]] && SLUG_SOURCE="${SEG_PROMPTS[0]}"
+SLUG="$(printf '%s' "$SLUG_SOURCE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed -e 's/^-*//' -e 's/-*$//' | cut -c1-40)"
+STAMP="$(date +%m%d%H%M%S)"
+MOTION_ID="${SLUG:-motion}-${STAMP}"
+
+REMOTE_OUT="outputs/cclay/${MOTION_ID}"
+
+MOTIONS_DIR="$PROJECT/.cclay/motions"
+
+if [[ ${#SEG_PROMPTS[@]} -gt 0 ]]; then
+  # ---- segment mode: one continuous rollout with per-segment prompts ----
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  LOCAL_SEQ_SCRIPT="$SCRIPT_DIR/ardy/cclay_sequence_generate.py"
+  [[ -f "$LOCAL_SEQ_SCRIPT" ]] || { echo "cclay-ardy-generate: $LOCAL_SEQ_SCRIPT missing (repo checkout incomplete?)" >&2; exit 1; }
+
+  echo "cclay-ardy-generate: syncing sequence script to ${HOST} ..." >&2
+  # shellcheck disable=SC2029  # REMOTE_REPO expands remotely by design
+  scp -q -o BatchMode=yes "$LOCAL_SEQ_SCRIPT" "$HOST:${REMOTE_REPO}/scripts/cclay_sequence_generate.py"
+
+  # Build the remote command with locally shell-quoted segment prompts
+  # (printf %q — prompts may contain spaces/quotes; no injection).
+  REMOTE_CMD="cd \"${REMOTE_REPO}\" && mkdir -p outputs/cclay && .venv/bin/python scripts/cclay_sequence_generate.py"
+  for i in "${!SEG_PROMPTS[@]}"; do
+    REMOTE_CMD+=" --segment $(printf '%q' "${SEG_PROMPTS[$i]}") $(printf '%q' "${SEG_SECONDS[$i]}")"
+  done
+  REMOTE_CMD+=" --output $(printf '%q' "$REMOTE_OUT")"
+  [[ -n "$SEED" ]] && REMOTE_CMD+=" --seed $(printf '%q' "$SEED")"
+
+  echo "cclay-ardy-generate: generating ${#SEG_PROMPTS[@]} segment(s) on ${HOST} ..." >&2
+  SEQ_STDOUT="$(ssh -o BatchMode=yes "$HOST" "$REMOTE_CMD" </dev/null)"
+  # Progress lines (everything before the last line) go to stderr; the last
+  # stdout line is the contract JSON.
+  if [[ "$SEQ_STDOUT" == *$'\n'* ]]; then
+    printf '%s\n' "${SEQ_STDOUT%$'\n'*}" >&2
+  fi
+  SEQ_JSON="${SEQ_STDOUT##*$'\n'}"
+  [[ "$SEQ_JSON" == \{*\} ]] || { echo "cclay-ardy-generate: remote sequence script did not end with a JSON line: ${SEQ_JSON}" >&2; exit 1; }
+
+  FRAME_COUNT="$(json_int frames "$SEQ_JSON")"
+  FPS="$(json_int fps "$SEQ_JSON")"
+  [[ -n "$FRAME_COUNT" && -n "$FPS" && "$FPS" -gt 0 && "$FRAME_COUNT" -gt 0 ]] || { echo "cclay-ardy-generate: malformed sequence JSON: ${SEQ_JSON}" >&2; exit 1; }
+  DURATION_S="$(awk -v f="$FRAME_COUNT" -v r="$FPS" 'BEGIN { printf "%.3f", f / r }')"
+
+  mkdir -p "$MOTIONS_DIR"
+  chmod 700 "$MOTIONS_DIR"
+  # shellcheck disable=SC2029
+  scp -q -o BatchMode=yes "$HOST:${REMOTE_REPO}/${REMOTE_OUT}.npz" "$MOTIONS_DIR/${MOTION_ID}.npz"
+  chmod 600 "$MOTIONS_DIR/${MOTION_ID}.npz"
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "rm -f \"${REMOTE_REPO}/${REMOTE_OUT}.npz\"" </dev/null
+
+  # Merge {motion_id, duration_s, path} with the remote contract JSON
+  # ({frames, fps, segments, continuity}) by splicing its body.
+  SEQ_BODY="${SEQ_JSON#\{}"
+  SEQ_BODY="${SEQ_BODY%\}}"
+  printf '{"motion_id":"%s","duration_s":%s,"path":".cclay/motions/%s.npz",%s}\n' \
+    "$MOTION_ID" "$DURATION_S" "$MOTION_ID" "$SEQ_BODY"
+  exit 0
+fi
+
+SEED_ARGS=()
+[[ -n "$SEED" ]] && SEED_ARGS=(--seed "$SEED")
+
+echo "cclay-ardy-generate: generating on ${HOST} ..." >&2
+# shellcheck disable=SC2029  # REMOTE_REPO expands remotely by design
+ssh -o BatchMode=yes "$HOST" \
+  "cd \"${REMOTE_REPO}\" && mkdir -p outputs/cclay && .venv/bin/python scripts/generate.py \
+     \"\$(cat)\" --duration \"${DURATION}\" --output \"${REMOTE_OUT}\" ${SEED_ARGS[*]:-}" \
+  <<<"$PROMPT" >&2
+
+mkdir -p "$MOTIONS_DIR"
+chmod 700 "$MOTIONS_DIR"
+# shellcheck disable=SC2029
+scp -q -o BatchMode=yes "$HOST:${REMOTE_REPO}/${REMOTE_OUT}.npz" "$MOTIONS_DIR/${MOTION_ID}.npz"
+chmod 600 "$MOTIONS_DIR/${MOTION_ID}.npz"
+
+# Probe frames/fps and inter-frame continuity (same jump definition as the
+# sequence script: max per-frame L2 displacement across all posed joints,
+# reported at the landing frame).
+# shellcheck disable=SC2029
+PROBE_JSON="$(ssh -o BatchMode=yes "$HOST" \
+  "cd \"${REMOTE_REPO}\" && .venv/bin/python - \"${REMOTE_OUT}.npz\"" <<'PY'
+import json
+import sys
+
+import numpy
+
+d = numpy.load(sys.argv[1])
+pj = d["posed_joints"]
+if pj.shape[0] > 1:
+    jumps = numpy.linalg.norm(pj[1:] - pj[:-1], axis=-1).max(axis=-1)
+    cont = {
+        "mean_jump_m": float(jumps.mean()),
+        "max_jump_m": float(jumps.max()),
+        "max_jump_frame": int(jumps.argmax()) + 1,
+    }
+else:
+    cont = {"mean_jump_m": 0.0, "max_jump_m": 0.0, "max_jump_frame": 0}
+print(json.dumps({
+    "frames": int(d["local_rot_mats"].shape[0]),
+    "fps": int(d["fps"]),
+    "continuity": cont,
+}))
+PY
+)"
+# The npz is staged locally; drop the remote copy so outputs/cclay never grows unbounded.
+# shellcheck disable=SC2029
+ssh -o BatchMode=yes "$HOST" "rm -f \"${REMOTE_REPO}/${REMOTE_OUT}.npz\"" </dev/null
+FRAME_COUNT="$(json_int frames "$PROBE_JSON")"
+FPS="$(json_int fps "$PROBE_JSON")"
+CONTINUITY="$(printf '%s' "$PROBE_JSON" | sed -n 's/.*"continuity"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p')"
+[[ -n "$FRAME_COUNT" && -n "$FPS" && "$FPS" -gt 0 && "$FRAME_COUNT" -gt 0 && -n "$CONTINUITY" ]] || { echo "cclay-ardy-generate: malformed probe JSON: ${PROBE_JSON}" >&2; exit 1; }
+
+printf '{"motion_id":"%s","frames":%s,"fps":%s,"duration_s":%s,"path":".cclay/motions/%s.npz","continuity":%s}\n' \
+  "$MOTION_ID" "$FRAME_COUNT" "$FPS" "$DURATION" "$MOTION_ID" "$CONTINUITY"

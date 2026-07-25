@@ -39,16 +39,16 @@ test("G011/G016: result binds artifact metadata to a closed low-resolution PNG i
 	const result = parseRenderQaFramesResult({
 		schema_version: 1,
 		revision_id: revision,
-		profile_version: "omb-qa-png-v1",
+		profile_version: "cclay-qa-png-v1",
 		frames: [
 			{
 				frame: 3,
 				width: 640,
 				height: 360,
-				profile_version: "omb-qa-png-v1",
+				profile_version: "cclay-qa-png-v1",
 				byte_length: png.byteLength,
 				sha256,
-				uri: `omb-artifact://sha256/${sha256}`,
+				uri: `cclay-artifact://sha256/${sha256}`,
 				image: {
 					mime_type: "image/png",
 					data_base64: png.toString("base64"),
@@ -113,16 +113,16 @@ test("G016: low-resolution image content has distinct per-frame and batch size e
 			parseRenderQaFramesResult({
 				schema_version: 1,
 				revision_id: revision,
-				profile_version: "omb-qa-png-v1",
+				profile_version: "cclay-qa-png-v1",
 				frames: [
 					{
 						frame: 1,
 						width: 640,
 						height: 360,
-						profile_version: "omb-qa-png-v1",
+						profile_version: "cclay-qa-png-v1",
 						byte_length: RENDER_QA_MAX_IMAGE_FRAME_BYTES + 1,
 						sha256: "b".repeat(64),
-						uri: `omb-artifact://sha256/${"b".repeat(64)}`,
+						uri: `cclay-artifact://sha256/${"b".repeat(64)}`,
 						image: { mime_type: "image/png", data_base64: oversizedBase64 },
 						thumbnail: {
 							mime_type: "image/jpeg",
@@ -145,17 +145,17 @@ test("G016: low-resolution image content has distinct per-frame and batch size e
 			parseRenderQaFramesResult({
 				schema_version: 1,
 				revision_id: revision,
-				profile_version: "omb-qa-png-v1",
+				profile_version: "cclay-qa-png-v1",
 				frames: batchPayloads.map((payload, frame) => {
 					const sha256 = createHash("sha256").update(payload).digest("hex");
 					return {
 						frame,
 						width: 640 as const,
 						height: 360 as const,
-						profile_version: "omb-qa-png-v1" as const,
+						profile_version: "cclay-qa-png-v1" as const,
 						byte_length: payload.byteLength,
 						sha256,
-						uri: `omb-artifact://sha256/${sha256}`,
+						uri: `cclay-artifact://sha256/${sha256}`,
 						image: { mime_type: "image/png" as const, data_base64: payload.toString("base64") },
 						thumbnail: {
 							mime_type: "image/jpeg" as const,

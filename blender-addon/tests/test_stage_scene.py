@@ -29,7 +29,7 @@ class StageSceneRealBlenderTests(unittest.TestCase):
             raise AssertionError(
                 f"headless Blender failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
             )
-        lines = [line for line in completed.stdout.splitlines() if line.startswith("OMB_STAGE_SCENE_RESULTS=")]
+        lines = [line for line in completed.stdout.splitlines() if line.startswith("CCLAY_STAGE_SCENE_RESULTS=")]
         if len(lines) != 1:
             raise AssertionError(f"missing stage-scene results\n{completed.stdout}")
         cls.results = json.loads(lines[0].split("=", 1)[1])
@@ -63,7 +63,7 @@ class StageSceneRealBlenderTests(unittest.TestCase):
     def test_deletion_destroys_only_after_ack_and_rejects_user_owned(self):
         self.assertTrue(self.results["deleteRetainedUntilAck"])
         self.assertTrue(self.results["deleteDestroyedAfterAck"])
-        self.assertEqual(self.results["userDeleteCode"], "STAGE_SCENE_TARGET_NOT_OMB_OWNED")
+        self.assertEqual(self.results["userDeleteCode"], "STAGE_SCENE_TARGET_NOT_CCLAY_OWNED")
 
     def test_rejects_shared_mesh_light_and_generated_material_datablocks(self):
         for kind in ("Mesh", "Light", "Material"):

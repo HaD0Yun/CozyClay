@@ -9,8 +9,8 @@ import bpy
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender.manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
-from oh_my_blender.stage_scene import apply_stage_scene_transaction
+from cclay.manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+from cclay.stage_scene import apply_stage_scene_transaction
 
 PROJECT_ID = "00000000-0000-4000-8000-00000000000a"
 FLOOR_ID = "11111111-1111-4111-8111-111111111111"
@@ -82,7 +82,7 @@ def add_primitive(entity_id, primitive_type, name, **values):
 def main():
     for scene_object in list(bpy.data.objects):
         bpy.data.objects.remove(scene_object, do_unlink=True)
-    bpy.context.scene["omb.project_id"] = PROJECT_ID
+    bpy.context.scene["cclay.project_id"] = PROJECT_ID
     connection = FakeConnection()
     base = extract_scene_manifest_v2()
     first_plan = plan(
@@ -112,12 +112,12 @@ def main():
         lambda _candidate: {"type": "response"},
     )
     staged = extract_scene_manifest_v3()
-    ids = {scene_object.get("omb.entity_id") for scene_object in bpy.context.scene.objects}
+    ids = {scene_object.get("cclay.entity_id") for scene_object in bpy.context.scene.objects}
 
     floor_object = next(
         scene_object
         for scene_object in bpy.context.scene.objects
-        if scene_object.get("omb.entity_id") == FLOOR_ID
+        if scene_object.get("cclay.entity_id") == FLOOR_ID
     )
     floor_material = floor_object.material_slots[0].material
     principled = floor_material.node_tree.nodes["Principled BSDF"]
@@ -193,7 +193,7 @@ def main():
 
     mesh = bpy.data.meshes.new("User Mesh")
     user = bpy.data.objects.new("User Object", mesh)
-    user["omb.entity_id"] = USER_ID
+    user["cclay.entity_id"] = USER_ID
     bpy.context.scene.collection.objects.link(user)
     user_code = None
     try:
@@ -229,10 +229,10 @@ def main():
 
     shared_mesh = bpy.data.meshes.new("Shared Mesh")
     shared_mesh_target = bpy.data.objects.new("Shared Mesh Target", shared_mesh)
-    shared_mesh_target["omb.entity_id"] = SHARED_MESH_ID
-    shared_mesh_target["omb.owned_project_id"] = PROJECT_ID
+    shared_mesh_target["cclay.entity_id"] = SHARED_MESH_ID
+    shared_mesh_target["cclay.owned_project_id"] = PROJECT_ID
     shared_mesh_other = bpy.data.objects.new("Shared Mesh Other", shared_mesh)
-    shared_mesh_other["omb.entity_id"] = OTHER_MESH_ID
+    shared_mesh_other["cclay.entity_id"] = OTHER_MESH_ID
     bpy.context.scene.collection.objects.link(shared_mesh_target)
     bpy.context.scene.collection.objects.link(shared_mesh_other)
     shared_mesh_code, shared_mesh_rollback, shared_mesh_commit_entered = attempt_delete(SHARED_MESH_ID)
@@ -245,10 +245,10 @@ def main():
 
     shared_light = bpy.data.lights.new("Shared Light Data", "AREA")
     shared_light_target = bpy.data.objects.new("Shared Light Target", shared_light)
-    shared_light_target["omb.entity_id"] = SHARED_LIGHT_ID
-    shared_light_target["omb.owned_project_id"] = PROJECT_ID
+    shared_light_target["cclay.entity_id"] = SHARED_LIGHT_ID
+    shared_light_target["cclay.owned_project_id"] = PROJECT_ID
     shared_light_other = bpy.data.objects.new("Shared Light Other", shared_light)
-    shared_light_other["omb.entity_id"] = OTHER_LIGHT_ID
+    shared_light_other["cclay.entity_id"] = OTHER_LIGHT_ID
     bpy.context.scene.collection.objects.link(shared_light_target)
     bpy.context.scene.collection.objects.link(shared_light_other)
     shared_light_code, shared_light_rollback, shared_light_commit_entered = attempt_delete(SHARED_LIGHT_ID)
@@ -262,12 +262,12 @@ def main():
     target_mesh = bpy.data.meshes.new("Shared Material Target Mesh")
     other_mesh = bpy.data.meshes.new("Shared Material Other Mesh")
     shared_material = bpy.data.materials.new("Shared Generated Material")
-    shared_material["omb.generated_for_entity_id"] = SHARED_MATERIAL_ID
+    shared_material["cclay.generated_for_entity_id"] = SHARED_MATERIAL_ID
     material_target = bpy.data.objects.new("Shared Material Target", target_mesh)
-    material_target["omb.entity_id"] = SHARED_MATERIAL_ID
-    material_target["omb.owned_project_id"] = PROJECT_ID
+    material_target["cclay.entity_id"] = SHARED_MATERIAL_ID
+    material_target["cclay.owned_project_id"] = PROJECT_ID
     material_other = bpy.data.objects.new("Shared Material Other", other_mesh)
-    material_other["omb.entity_id"] = OTHER_MATERIAL_ID
+    material_other["cclay.entity_id"] = OTHER_MATERIAL_ID
     target_mesh.materials.append(shared_material)
     other_mesh.materials.append(shared_material)
     bpy.context.scene.collection.objects.link(material_target)
@@ -286,11 +286,11 @@ def main():
 
     exclusive_mesh = bpy.data.meshes.new("Exclusive Mesh")
     exclusive_material = bpy.data.materials.new("Exclusive Generated Material")
-    exclusive_material["omb.generated_for_entity_id"] = EXCLUSIVE_ID
+    exclusive_material["cclay.generated_for_entity_id"] = EXCLUSIVE_ID
     exclusive_mesh.materials.append(exclusive_material)
     exclusive_target = bpy.data.objects.new("Exclusive Target", exclusive_mesh)
-    exclusive_target["omb.entity_id"] = EXCLUSIVE_ID
-    exclusive_target["omb.owned_project_id"] = PROJECT_ID
+    exclusive_target["cclay.entity_id"] = EXCLUSIVE_ID
+    exclusive_target["cclay.owned_project_id"] = PROJECT_ID
     bpy.context.scene.collection.objects.link(exclusive_target)
     exclusive_code, _exclusive_rollback, exclusive_commit_entered = attempt_delete(EXCLUSIVE_ID)
     exclusive_destroyed = (
@@ -302,7 +302,7 @@ def main():
 
     collision_mesh = bpy.data.meshes.new("Collision Mesh")
     collision_object = bpy.data.objects.new("Collision Light", collision_mesh)
-    collision_object["omb.entity_id"] = COLLISION_ID
+    collision_object["cclay.entity_id"] = COLLISION_ID
     bpy.context.scene.collection.objects.link(collision_object)
     collision_result = apply_stage_scene_transaction(
         plan(first["manifest"]["revisionId"], [{
@@ -364,7 +364,7 @@ def main():
         "collisionIdentity": collision_identity,
         "collisionManifestName": collision_manifest_name,
     }
-    print("OMB_STAGE_SCENE_RESULTS=" + json.dumps(results, sort_keys=True))
+    print("CCLAY_STAGE_SCENE_RESULTS=" + json.dumps(results, sort_keys=True))
 
 
 main()

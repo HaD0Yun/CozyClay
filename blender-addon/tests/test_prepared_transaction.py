@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from oh_my_blender.prepared_transaction import (
+from cclay.prepared_transaction import (
     PreparedTransactionError,
     StoreEvidence,
     advance_marker,
@@ -60,7 +60,7 @@ class PreparedTransactionTests(unittest.TestCase):
             "canonical_blend_path": str(root / "scene.blend"),
             "canonical_blend_sha256": canonical_hash,
             "base_backup_path": str(
-                root / ".omb" / "transactions" / TRANSACTION_ID / "base.blend"
+                root / ".cclay" / "transactions" / TRANSACTION_ID / "base.blend"
             ),
             "base_backup_sha256": BASE_SHA256,
             "base_backup_project_id": PROJECT_ID,
@@ -164,7 +164,7 @@ class PreparedTransactionTests(unittest.TestCase):
             cases.append(outside)
             wrong_name = self.marker_payload(root)
             wrong_name["base_backup_path"] = str(
-                root / ".omb" / "transactions" / TRANSACTION_ID / "other.blend"
+                root / ".cclay" / "transactions" / TRANSACTION_ID / "other.blend"
             )
             cases.append(wrong_name)
             relative = self.marker_payload(root)
@@ -196,7 +196,7 @@ class PreparedTransactionTests(unittest.TestCase):
             payload = self.marker_payload(real)
             payload["canonical_blend_path"] = str(linked / "scene.blend")
             payload["base_backup_path"] = str(
-                real / ".omb" / "transactions" / TRANSACTION_ID / "base.blend"
+                real / ".cclay" / "transactions" / TRANSACTION_ID / "base.blend"
             )
             with self.assertRaises(PreparedTransactionError):
                 parse_marker(payload, project_root=real)
@@ -213,7 +213,7 @@ class PreparedTransactionTests(unittest.TestCase):
                 return PROJECT_ID
 
             with mock.patch(
-                "oh_my_blender.prepared_transaction.os.fsync", wraps=os.fsync
+                "cclay.prepared_transaction.os.fsync", wraps=os.fsync
             ) as fsync:
                 backup = create_base_backup(
                     project_root=root,
@@ -236,7 +236,7 @@ class PreparedTransactionTests(unittest.TestCase):
             canonical = root / "scene.blend"
             canonical.write_bytes(BASE_BYTES)
             backup_path = (
-                root / ".omb" / "transactions" / TRANSACTION_ID / "base.blend"
+                root / ".cclay" / "transactions" / TRANSACTION_ID / "base.blend"
             )
 
             with self.assertRaisesRegex(PreparedTransactionError, "project_id"):
@@ -280,7 +280,7 @@ class PreparedTransactionTests(unittest.TestCase):
             root = Path(directory)
             canonical = root / "scene.blend"
             canonical.write_bytes(BASE_BYTES)
-            marker_path = root / ".omb" / "prepared-transaction.json"
+            marker_path = root / ".cclay" / "prepared-transaction.json"
 
             def read_project_id(path: Path) -> str:
                 self.assertEqual(path.read_bytes(), BASE_BYTES)
@@ -363,7 +363,7 @@ class PreparedTransactionTests(unittest.TestCase):
                 return original_replace(source, destination)
 
             with mock.patch(
-                "oh_my_blender.prepared_transaction.os.replace",
+                "cclay.prepared_transaction.os.replace",
                 side_effect=fail_canonical_replace,
             ):
                 with self.assertRaisesRegex(PreparedTransactionError, "restore"):
@@ -374,6 +374,43 @@ class PreparedTransactionTests(unittest.TestCase):
                     )
 
             self.assertEqual(canonical.read_bytes(), CANDIDATE_BYTES)
+            self.assertEqual(read_marker(root), marker)
+
+    def test_atomic_restore_refuses_when_canonical_diverged_since_the_marker(self):
+        # Regression: a raw script (or a later legitimate commit) can rewrite
+        # the canonical blend after this marker last recorded what it expected
+        # to find there. Restoring the base backup on top of unrecognized
+        # content would silently discard that newer work - refuse instead.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / "scene.blend"
+            canonical.write_bytes(BASE_BYTES)
+            backup = create_base_backup(
+                project_root=root,
+                transaction_id=TRANSACTION_ID,
+                canonical_blend_path=canonical,
+                project_id=PROJECT_ID,
+                read_blend_project_id=lambda _path: PROJECT_ID,
+            )
+            payload = self.marker_payload(root, "candidate_saved")
+            payload["base_backup_sha256"] = backup.sha256
+            marker = parse_marker(payload, project_root=root)
+            write_marker(root, marker)
+            # Someone rewrites the canonical blend to bytes this marker never
+            # recorded (neither the candidate it saved nor the base it backed
+            # up) - e.g. a manual bpy script save outside the bridge.
+            canonical.write_bytes(b"unrelated manual edit bytes")
+
+            with self.assertRaisesRegex(
+                PreparedTransactionError, "does not match this transaction"
+            ):
+                restore_base_backup(
+                    root,
+                    marker,
+                    read_blend_project_id=lambda _path: PROJECT_ID,
+                )
+
+            self.assertEqual(canonical.read_bytes(), b"unrelated manual edit bytes")
             self.assertEqual(read_marker(root), marker)
 
     def test_reconcile_decision_matrix_matches_all_twenty_controlling_rows(self):
@@ -482,9 +519,9 @@ class PreparedTransactionTests(unittest.TestCase):
     def test_read_marker_rejects_non_json_and_write_revalidates(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            omb = root / ".omb"
-            omb.mkdir()
-            marker_path = omb / "prepared-transaction.json"
+            cclay = root / ".cclay"
+            cclay.mkdir()
+            marker_path = cclay / "prepared-transaction.json"
             marker_path.write_text("{broken", encoding="utf-8")
             marker_path.chmod(0o600)
             with self.assertRaisesRegex(PreparedTransactionError, "read marker"):
@@ -516,7 +553,7 @@ class PreparedTransactionTests(unittest.TestCase):
             )
 
             with mock.patch(
-                "oh_my_blender.prepared_transaction.os.fsync", wraps=os.fsync
+                "cclay.prepared_transaction.os.fsync", wraps=os.fsync
             ) as fsync:
                 candidate = save_candidate(
                     root,
@@ -578,7 +615,7 @@ class PreparedTransactionTests(unittest.TestCase):
                 read_blend_project_id=lambda _path: PROJECT_ID,
             )
 
-            self.assertFalse((root / ".omb" / "prepared-transaction.json").exists())
+            self.assertFalse((root / ".cclay" / "prepared-transaction.json").exists())
             self.assertFalse(transaction_directory.exists())
             self.assertEqual(canonical.read_bytes(), CANDIDATE_BYTES)
 

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, it } from "node:test";
+import { buildProjectManifest } from "@cclay/director-core";
+import type { CameraPlanV1, StageSceneRequestV1 } from "@cclay/protocol";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { buildProjectManifest } from "@oh-my-blender/director-core";
-import type { CameraPlanV1, StageSceneRequestV1 } from "@oh-my-blender/protocol";
 import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
 import { createDirectorTurnLoop } from "../src/turn-loop.ts";
 
@@ -100,7 +100,11 @@ describe("bounded director turn loop", () => {
 				},
 				stageScene: async () => {
 					calls.push("stage_scene");
-					return { resulting_revision_id: CHILD_REVISION, entity_identities: [] };
+					return {
+						resulting_revision_id: CHILD_REVISION,
+						entity_identities: [],
+						applied_hand_shapes: [],
+					};
 				},
 				applyCameraPlan: async () => {
 					calls.push("apply_camera_plan");
@@ -111,16 +115,16 @@ describe("bounded director turn loop", () => {
 					return {
 						schema_version: 1,
 						revision_id: CHILD_REVISION,
-						profile_version: "omb-qa-png-v1",
+						profile_version: "cclay-qa-png-v1",
 						frames: [
 							{
 								frame: 1,
 								width: 640,
 								height: 360,
-								profile_version: "omb-qa-png-v1",
+								profile_version: "cclay-qa-png-v1",
 								byte_length: IMAGE_BYTES.byteLength,
 								sha256: ARTIFACT_DIGEST,
-								uri: `omb-artifact://sha256/${ARTIFACT_DIGEST}`,
+								uri: `cclay-artifact://sha256/${ARTIFACT_DIGEST}`,
 								image: { mime_type: "image/png", data_base64: IMAGE_DATA },
 								thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 							},
@@ -196,12 +200,16 @@ describe("bounded director turn loop", () => {
 					inspections += 1;
 					return inspections === 1 ? initial : { ...initial, revision: CHILD_REVISION };
 				},
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: CHILD_REVISION,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
 			},
@@ -252,7 +260,7 @@ describe("bounded director turn loop", () => {
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: initial.revision,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
 			},
@@ -292,12 +300,16 @@ describe("bounded director turn loop", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: initial.revision,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
 			},
@@ -367,21 +379,25 @@ describe("bounded director turn loop", () => {
 					inspections += 1;
 					return inspections === 1 ? initial : { ...initial, revision: CHILD_REVISION };
 				},
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: CHILD_REVISION,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [
 						{
 							frame: 1,
 							width: 640,
 							height: 360,
-							profile_version: "omb-qa-png-v1",
+							profile_version: "cclay-qa-png-v1",
 							byte_length: IMAGE_BYTES.byteLength,
 							sha256: ARTIFACT_DIGEST,
-							uri: `omb-artifact://sha256/${ARTIFACT_DIGEST}`,
+							uri: `cclay-artifact://sha256/${ARTIFACT_DIGEST}`,
 							image: { mime_type: "image/png", data_base64: IMAGE_DATA },
 							thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 						},
@@ -423,12 +439,16 @@ describe("bounded director turn loop", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: initial.revision,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
 			},
@@ -466,12 +486,16 @@ describe("bounded director turn loop", () => {
 			...configured,
 			bridge: {
 				inspectProject: async () => initial,
-				stageScene: async () => ({ resulting_revision_id: CHILD_REVISION, entity_identities: [] }),
+				stageScene: async () => ({
+					resulting_revision_id: CHILD_REVISION,
+					entity_identities: [],
+					applied_hand_shapes: [],
+				}),
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
 					revision_id: initial.revision,
-					profile_version: "omb-qa-png-v1",
+					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
 			},

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApplyCameraPlanResult } from "@oh-my-blender/blender-tools";
+import type { ApplyCameraPlanResult } from "@cclay/blender-tools";
 import {
 	buildSceneManifestV2Revision,
 	buildSceneManifestV3Revision,
@@ -11,7 +11,7 @@ import {
 	type RevisionOperationEntryV2,
 	type RevisionReconcileResult,
 	type TransactionMarkerPhase,
-} from "@oh-my-blender/director-core";
+} from "@cclay/director-core";
 import {
 	type BridgeTransactionPrepared,
 	type CameraPlanMutationCandidate,
@@ -19,7 +19,7 @@ import {
 	parseCameraPlan,
 	parseCameraPlanMutationCandidate,
 	parseSceneManifestV4,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export type PreparedMutationCandidate<T> = {

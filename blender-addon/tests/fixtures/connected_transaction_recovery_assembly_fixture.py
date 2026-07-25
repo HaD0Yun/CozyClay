@@ -12,10 +12,10 @@ import bpy
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "blender-addon"))
 
-from oh_my_blender.connection import Connection, _reconcile_connected_transaction
-from oh_my_blender.manifest import extract_scene_manifest_v4, resolve_manifest_for_expected_hash
-from oh_my_blender.prepared_transaction import prepare_transaction, save_candidate
-from oh_my_blender.stage_scene import _StageTransaction, _create_assembly, _create_primitive, _set_parent
+from cclay.connection import Connection, _reconcile_connected_transaction
+from cclay.manifest import extract_scene_manifest_v4, resolve_manifest_for_expected_hash
+from cclay.prepared_transaction import prepare_transaction, save_candidate
+from cclay.stage_scene import _StageTransaction, _create_assembly, _create_primitive, _set_parent
 
 PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 TRANSACTION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -53,7 +53,7 @@ def build_base() -> None:
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     scene = bpy.context.scene
-    scene["omb.project_id"] = PROJECT_ID
+    scene["cclay.project_id"] = PROJECT_ID
     transaction = _StageTransaction(scene)
     root = _create_assembly(
         {"op": "create_assembly", "name": "Recovery Assembly"}, transaction, PROJECT_ID
@@ -65,19 +65,19 @@ def build_base() -> None:
     }, transaction, PROJECT_ID)
     _set_parent({
         "op": "set_parent", "entity_id": MEMBER_ID,
-        "parent_id": root["omb.entity_id"],
+        "parent_id": root["cclay.entity_id"],
     }, transaction, PROJECT_ID)
     bpy.context.view_layer.update()
 
 
 def move_member() -> None:
-    member = next(obj for obj in bpy.context.scene.objects if obj.get("omb.entity_id") == MEMBER_ID)
+    member = next(obj for obj in bpy.context.scene.objects if obj.get("cclay.entity_id") == MEMBER_ID)
     member.location.x += 2
     bpy.context.view_layer.update()
 
 
 def project_id(_path: Path) -> str:
-    return bpy.context.scene["omb.project_id"]
+    return bpy.context.scene["cclay.project_id"]
 
 
 def run_case(root: Path, authority: str) -> dict:
@@ -129,7 +129,7 @@ def run_case(root: Path, authority: str) -> dict:
         "candidateSceneHash": candidate_manifest["sceneHash"],
         "schemaVersion": resolved["schemaVersion"],
         "toolsExposed": connection.tools_exposed,
-        "markerExists": (root / ".omb" / "prepared-transaction.json").exists(),
+        "markerExists": (root / ".cclay" / "prepared-transaction.json").exists(),
         "messages": [message["type"] for message in socket.sent],
     }
 
@@ -142,4 +142,4 @@ with tempfile.TemporaryDirectory() as directory:
     candidate_root.mkdir()
     result = {"base": run_case(base_root, "base"), "candidate": run_case(candidate_root, "candidate")}
 
-print("OMB_ASSEMBLY_RECOVERY_RESULTS=" + json.dumps(result, sort_keys=True))
+print("CCLAY_ASSEMBLY_RECOVERY_RESULTS=" + json.dumps(result, sort_keys=True))

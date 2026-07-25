@@ -1,13 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "@earendil-works/pi-ai";
-import {
-	createAgentSession,
-	type ModelRuntime,
-	SessionManager,
-	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
 import {
 	type ApplyCameraPlanBridge,
 	createApplyCameraPlanTool,
@@ -17,7 +10,14 @@ import {
 	type InspectProjectBridge,
 	type RenderQaFramesBridge,
 	type StageSceneBridge,
-} from "@oh-my-blender/blender-tools";
+} from "@cclay/blender-tools";
+import type { Model } from "@earendil-works/pi-ai";
+import {
+	createAgentSession,
+	type ModelRuntime,
+	SessionManager,
+	SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { BundledDirectorResourceLoader, DIRECTOR_PROMPT_DIGEST } from "./resource-loader.ts";
 
 export const DIRECTOR_TOOL_ALLOWLIST = [
@@ -38,7 +38,7 @@ export interface DirectorSessionOptions {
 export async function createDirectorSession(options: DirectorSessionOptions) {
 	const cwd = options.cwd ?? process.cwd();
 	const ownsAgentDir = options.agentDir === undefined;
-	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "omb-director-agent-"));
+	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "cclay-director-agent-"));
 	const resourceLoader = new BundledDirectorResourceLoader();
 	const mutationBridge =
 		options.bridge.applyCameraPlan === undefined

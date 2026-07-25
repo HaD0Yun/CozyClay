@@ -10,8 +10,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import oh_my_blender.camera_plan as camera_plan
-from oh_my_blender.camera_plan import validate_camera_plan
+import cclay.camera_plan as camera_plan
+from cclay.camera_plan import validate_camera_plan
 
 HASH = "a" * 64
 FOV = 2 * math.atan(12 / 48)
@@ -54,7 +54,7 @@ def valid_evidence() -> dict:
         "revision_id": HASH,
         "scene_hash": "c" * 64,
         "frame_range": {"start": 0, "end": 200},
-        "producer": {"id": "omb.approved_fixture", "version": "boxing-v4", "digest": "d" * 64},
+        "producer": {"id": "cclay.approved_fixture", "version": "boxing-v4", "digest": "d" * 64},
         "analysis": {
             "motion_valley_frames": [100],
             "action_peak_ranges": [],

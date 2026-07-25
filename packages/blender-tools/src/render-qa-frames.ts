@@ -1,9 +1,9 @@
-import { defineTool } from "@earendil-works/pi-coding-agent";
 import {
 	type RenderQaFramesRequestV1,
 	RenderQaFramesRequestV1Schema,
 	type RenderQaFramesResultV1,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 
 export interface RenderQaFramesProgress {
 	readonly phase: string;

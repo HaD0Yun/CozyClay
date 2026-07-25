@@ -25,7 +25,7 @@ function stagedManifest(): Record<string, unknown> {
 		stageMaterials: [
 			{
 				objectId: "00000000-0000-4000-8000-000000000002",
-				materialName: "OMB Material 00000000",
+				materialName: "CCLAY Material 00000000",
 				baseColor: [0.12, 0.18, 0.3, 1],
 				useNodes: true,
 				principledBaseColor: [0.12, 0.18, 0.3, 1],

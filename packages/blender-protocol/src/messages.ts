@@ -15,7 +15,7 @@ const hash = () => Type.String({ pattern: HASH_64 });
 const ISO_8601_UTC = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$";
 
 export const StartupRecordSchema = exact({
-	type: Type.Literal("omb_daemon_ready"),
+	type: Type.Literal("cclay_daemon_ready"),
 	protocol: Type.Literal(PROTOCOL_VERSION),
 	port: Type.Integer({ minimum: 1, maximum: 65_535 }),
 	pid: Type.Integer({ minimum: 1 }),
@@ -45,6 +45,10 @@ export const DIRECTOR_TRANSCRIPT_CAPABILITY = "director_transcript_v1";
 export const DIRECTOR_STREAM_CAPABILITY = "director_stream_v1";
 export const CONTROLLER_PEERS_CAPABILITY = "controller_peers_v1";
 export const SNAPSHOT_CURSOR_V2_FEATURE = "snapshot_cursor_v2";
+// Addon-reported staleness surface: `cclay.addon_version=<semver>`,
+// `cclay.method.<bridge_method>`, `cclay.op.<stage_scene_op>`. These ride the
+// hello capabilities array without widening the negotiated core set.
+const NAMESPACED_CAPABILITY_PATTERN = "^cclay\\.[A-Za-z0-9_.=-]+$";
 const mutationCapabilities = () =>
 	Type.Union([
 		Type.Tuple([Type.Literal(MUTATION_BRIDGE_CAPABILITY)]),
@@ -56,6 +60,18 @@ const mutationCapabilities = () =>
 			Type.Literal(TRANSACTION_COMMIT_CAPABILITY),
 		]),
 	]);
+// The addon->daemon hello additionally carries namespaced cclay.* surface
+// entries; every non-namespaced entry must still be one of the closed core
+// capabilities, and negotiateMutationBridge requires mutation_bridge_v2.
+const helloMutationCapabilities = () =>
+	Type.Array(
+		Type.Union([
+			Type.Literal(MUTATION_BRIDGE_CAPABILITY),
+			Type.Literal(SCENE_MANIFEST_V3_CAPABILITY),
+			Type.Literal(TRANSACTION_COMMIT_CAPABILITY),
+			Type.String({ pattern: NAMESPACED_CAPABILITY_PATTERN }),
+		]),
+	);
 
 export const HelloV1Schema = exact({
 	...helloProperties,
@@ -64,7 +80,7 @@ export const HelloV1Schema = exact({
 export const HelloV2Schema = exact({
 	...helloProperties,
 	protocol: Type.Literal(MUTATION_PROTOCOL_VERSION),
-	capabilities: mutationCapabilities(),
+	capabilities: helloMutationCapabilities(),
 });
 export const HelloSchema = Type.Union([HelloV1Schema, HelloV2Schema]);
 export const HelloAckV1Schema = exact({
@@ -740,6 +756,11 @@ export function negotiateMutationBridge(helloInput: unknown, helloAckInput: unkn
 		throw new Error("mutation bridge requires a protocol v2 hello/hello_ack negotiation");
 	}
 	const helloCapabilities = new Set(hello.capabilities);
+	// The hello capability shape tolerates namespaced cclay.* surface entries, so
+	// the mutation core must be asserted explicitly (the tuple shape used to).
+	if (!helloCapabilities.has(MUTATION_BRIDGE_CAPABILITY)) {
+		throw new Error(`hello must offer the ${MUTATION_BRIDGE_CAPABILITY} capability`);
+	}
 	if (helloAck.capabilities.some((capability) => !helloCapabilities.has(capability))) {
 		throw new Error("hello_ack capability was not offered by hello");
 	}

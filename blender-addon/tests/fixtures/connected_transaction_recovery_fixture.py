@@ -9,7 +9,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender.prepared_transaction import StoreEvidence, reconcile_decision
+from cclay.prepared_transaction import StoreEvidence, reconcile_decision
 
 
 BOUNDARIES = (
@@ -70,4 +70,4 @@ result = {
         reconcile_decision("candidate_saved", StoreEvidence.CONFLICT).recovery_required
     ),
 }
-print("OMB_TRANSACTION_RECOVERY_RESULTS=" + json.dumps(result, separators=(",", ":")))
+print("CCLAY_TRANSACTION_RECOVERY_RESULTS=" + json.dumps(result, separators=(",", ":")))

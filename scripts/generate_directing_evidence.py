@@ -16,12 +16,12 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon/tests/fixtures"))
 
 # The camera-free G010 substrate is the canonical directing-evidence binding scene.
 from apply_camera_plan_fixture import setup_scene
-from oh_my_blender.canonical import canonical_json
-from oh_my_blender.manifest import extract_scene_manifest_v2
+from cclay.canonical import canonical_json
+from cclay.manifest import extract_scene_manifest_v2
 
 DEFAULT_EVIDENCE = (
     REPOSITORY_ROOT
-    / "blender-addon/oh_my_blender/fixtures/boxing-v4-directing-evidence.json"
+    / "blender-addon/cclay/fixtures/boxing-v4-directing-evidence.json"
 )
 
 
@@ -41,7 +41,7 @@ def main() -> None:
     evidence["scene_hash"] = scene_manifest["sceneHash"]
     evidence_bytes = canonical_json(evidence).encode("utf-8")
     arguments.evidence.write_bytes(evidence_bytes)
-    print(f"OMB_EVIDENCE_SHA256={hashlib.sha256(evidence_bytes).hexdigest()}")
+    print(f"CCLAY_EVIDENCE_SHA256={hashlib.sha256(evidence_bytes).hexdigest()}")
 
 
 if __name__ == "__main__":

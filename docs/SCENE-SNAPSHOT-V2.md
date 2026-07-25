@@ -1,7 +1,7 @@
 # Scene Snapshot v2 Specification
 
 Status: approved for implementation
-Supersedes: `SceneSnapshot` schemaVersion 1 (`packages/blender-director/src/manifest.ts`, `blender-addon/oh_my_blender/manifest.py`)
+Supersedes: `SceneSnapshot` schemaVersion 1 (`packages/blender-director/src/manifest.ts`, `blender-addon/cclay/manifest.py`)
 Converges toward: `SceneManifestV1` (BLENDER-HARNESS-ARCHITECTURE.md §6)
 
 ## 1. Purpose and scope
@@ -20,7 +20,7 @@ Snapshot v1 proves the round trip but cannot serve the directing loop:
 
 Snapshot v2 fixes all of the above. It remains a **read-only extraction artifact**: it records
 Blender ground truth and nothing else. Directing interpretation (action axis, cut motivation,
-approval state) is product state and lives in `.omb/project.json`, never in the snapshot.
+approval state) is product state and lives in `.cclay/project.json`, never in the snapshot.
 
 Out of scope for v2, deferred to `SceneManifestV1` (§8): rational timebase,
 bones/armature channels, lights, materials, artifact references.
@@ -70,7 +70,7 @@ rates arrive with the rational timebase in `SceneManifestV1`, not as floats here
 
 | field | type | constraints |
 |---|---|---|
-| `entityId` | UUIDv4 string \| null | stable `omb.entity_id`; null when absent or invalid; non-null values unique |
+| `entityId` | UUIDv4 string \| null | stable `cclay.entity_id`; null when absent or invalid; non-null values unique |
 | `name` | string | 1..256 chars, NFC, unique within `objects` |
 | `type` | string | Blender `Object.type` enum value (`"MESH"`, `"CAMERA"`, `"EMPTY"`, ...) |
 | `parent` | string \| null | name of parent object; must exist in `objects` |
@@ -272,11 +272,11 @@ silent upgrade.
 
 | concern | v2 | SceneManifestV1 |
 |---|---|---|
-| identity | object names (unique per file, not rename-stable) | `omb.entity_id` UUIDs via `Initialize Project` |
+| identity | object names (unique per file, not rename-stable) | `cclay.entity_id` UUIDs via `Initialize Project` |
 | sort keys | names | stable IDs |
 | timebase | integer fps, `fps_base == 1.0` enforced | reduced integer rationals |
 | coverage | objects, cameras, markers, object/camera-data f-curves | + bones, lights, selected-ID sets |
-| transport | file / inline JSON ≤ 1 MiB | `omb-artifact://sha256/<digest>` |
+| transport | file / inline JSON ≤ 1 MiB | `cclay-artifact://sha256/<digest>` |
 | numeric + key canonicalization | §4 (already final) | unchanged |
 
 The §4 rules are written to be identical to §6 of the architecture document so that the migration

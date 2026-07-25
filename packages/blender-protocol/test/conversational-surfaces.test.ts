@@ -140,7 +140,7 @@ function transactionSession() {
 	);
 }
 
-describe("OMB conversational surface protocol", () => {
+describe("CCLAY conversational surface protocol", () => {
 	it("freezes controller and transaction capability names", () => {
 		assert.equal(DIRECTOR_STREAM_CAPABILITY, "director_stream_v1");
 		assert.equal(CONTROLLER_PEERS_CAPABILITY, "controller_peers_v1");

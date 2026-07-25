@@ -15,8 +15,8 @@ from mathutils import Matrix, Vector
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from oh_my_blender import manifest
-from oh_my_blender.snapshot import UNSUPPORTED_PLAN_UP, validate_plan_pose
+from cclay import manifest
+from cclay.snapshot import UNSUPPORTED_PLAN_UP, validate_plan_pose
 
 
 class FixtureCreationError(RuntimeError):
@@ -76,7 +76,7 @@ def build_fixture_scene(plan: dict, *, manifest_identity: bool = False) -> objec
         raise FixtureCreationError("Blender did not create the fixture object")
     fighter.name = "Fighter"
     if manifest_identity:
-        fighter["omb.entity_id"] = "00000000-0000-4000-8000-000000000002"
+        fighter["cclay.entity_id"] = "00000000-0000-4000-8000-000000000002"
 
     camera_data = bpy.data.cameras.new("ARDY_CinematicCamera")
     camera_data.sensor_fit = "VERTICAL"
@@ -85,8 +85,8 @@ def build_fixture_scene(plan: dict, *, manifest_identity: bool = False) -> objec
     scene.camera = camera
     camera.rotation_mode = "QUATERNION"
     if manifest_identity:
-        scene["omb.project_id"] = "00000000-0000-4000-8000-00000000000a"
-        camera["omb.entity_id"] = "00000000-0000-4000-8000-000000000003"
+        scene["cclay.project_id"] = "00000000-0000-4000-8000-00000000000a"
+        camera["cclay.entity_id"] = "00000000-0000-4000-8000-000000000003"
 
     for keyframe in keyframes:
         frame = keyframe["frame"]
@@ -133,7 +133,7 @@ def main() -> None:
     plan = json.loads(arguments.plan.read_text(encoding="utf-8"))
     build_fixture_scene(plan)
     revision = manifest.write_scene_snapshot(arguments.output)
-    print(f"OMB_REVISION={revision}")
+    print(f"CCLAY_REVISION={revision}")
 
 
 if __name__ == "__main__":

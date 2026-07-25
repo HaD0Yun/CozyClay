@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { RenderQaFramesRequestV1, RenderQaFramesResultV1 } from "@oh-my-blender/protocol";
+import type { RenderQaFramesRequestV1, RenderQaFramesResultV1 } from "@cclay/protocol";
 import { createRenderQaFramesTool } from "../src/render-qa-frames.ts";
 
 const request: RenderQaFramesRequestV1 = { schema_version: 1, revision_id: "a".repeat(64), frames: [80] };
@@ -8,16 +8,16 @@ const pngBase64 = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base6
 const result: RenderQaFramesResultV1 = {
 	schema_version: 1,
 	revision_id: request.revision_id,
-	profile_version: "omb-qa-png-v1",
+	profile_version: "cclay-qa-png-v1",
 	frames: [
 		{
 			frame: 80,
 			width: 640,
 			height: 360,
-			profile_version: "omb-qa-png-v1",
+			profile_version: "cclay-qa-png-v1",
 			byte_length: 8,
 			sha256: "b".repeat(64),
-			uri: `omb-artifact://sha256/${"b".repeat(64)}`,
+			uri: `cclay-artifact://sha256/${"b".repeat(64)}`,
 			image: { mime_type: "image/png", data_base64: pngBase64 },
 			thumbnail: { mime_type: "image/jpeg" as const, data_base64: "thumb", width: 256, height: 144 },
 		},
@@ -52,10 +52,10 @@ test("G016: render_qa_frames returns metadata plus proper Pi image content block
 				frame: 80,
 				width: 640,
 				height: 360,
-				profile_version: "omb-qa-png-v1",
+				profile_version: "cclay-qa-png-v1",
 				byte_length: 8,
 				sha256: "b".repeat(64),
-				uri: `omb-artifact://sha256/${"b".repeat(64)}`,
+				uri: `cclay-artifact://sha256/${"b".repeat(64)}`,
 				thumbnail: { mime_type: "image/jpeg", width: 256, height: 144 },
 			},
 		],

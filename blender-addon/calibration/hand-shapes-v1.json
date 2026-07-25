@@ -1,0 +1,1204 @@
+{
+  "schema_version": 1,
+  "library_version": "1.1.0",
+  "rotation_model": {
+    "channel": "local_flexion_degrees",
+    "adapter": "per-character/side/role unit axis",
+    "quaternion_order": "wxyz",
+    "composition": "authored_base @ delta"
+  },
+  "canonical_fingers": [
+    "Thumb",
+    "Index",
+    "Middle",
+    "Ring",
+    "Pinky"
+  ],
+  "canonical_roles": [
+    "Thumb1",
+    "Thumb2",
+    "Thumb3",
+    "Thumb4",
+    "Index1",
+    "Index2",
+    "Index3",
+    "Index4",
+    "Middle1",
+    "Middle2",
+    "Middle3",
+    "Middle4",
+    "Ring1",
+    "Ring2",
+    "Ring3",
+    "Ring4",
+    "Pinky1",
+    "Pinky2",
+    "Pinky3",
+    "Pinky4"
+  ],
+  "characters": {
+    "Y_BOT": {
+      "bone_prefix": "mixamorig:",
+      "role_adapters": {
+        "left": {
+          "Thumb1": [
+            1,
+            0,
+            0
+          ],
+          "Thumb2": [
+            1,
+            0,
+            0
+          ],
+          "Thumb3": [
+            1,
+            0,
+            0
+          ],
+          "Thumb4": [
+            1,
+            0,
+            0
+          ],
+          "Index1": [
+            1,
+            0,
+            0
+          ],
+          "Index2": [
+            1,
+            0,
+            0
+          ],
+          "Index3": [
+            1,
+            0,
+            0
+          ],
+          "Index4": [
+            1,
+            0,
+            0
+          ],
+          "Middle1": [
+            1,
+            0,
+            0
+          ],
+          "Middle2": [
+            1,
+            0,
+            0
+          ],
+          "Middle3": [
+            1,
+            0,
+            0
+          ],
+          "Middle4": [
+            1,
+            0,
+            0
+          ],
+          "Ring1": [
+            1,
+            0,
+            0
+          ],
+          "Ring2": [
+            1,
+            0,
+            0
+          ],
+          "Ring3": [
+            1,
+            0,
+            0
+          ],
+          "Ring4": [
+            1,
+            0,
+            0
+          ],
+          "Pinky1": [
+            1,
+            0,
+            0
+          ],
+          "Pinky2": [
+            1,
+            0,
+            0
+          ],
+          "Pinky3": [
+            1,
+            0,
+            0
+          ],
+          "Pinky4": [
+            1,
+            0,
+            0
+          ]
+        },
+        "right": {
+          "Thumb1": [
+            -1,
+            0,
+            0
+          ],
+          "Thumb2": [
+            -1,
+            0,
+            0
+          ],
+          "Thumb3": [
+            -1,
+            0,
+            0
+          ],
+          "Thumb4": [
+            -1,
+            0,
+            0
+          ],
+          "Index1": [
+            -1,
+            0,
+            0
+          ],
+          "Index2": [
+            -1,
+            0,
+            0
+          ],
+          "Index3": [
+            -1,
+            0,
+            0
+          ],
+          "Index4": [
+            -1,
+            0,
+            0
+          ],
+          "Middle1": [
+            -1,
+            0,
+            0
+          ],
+          "Middle2": [
+            -1,
+            0,
+            0
+          ],
+          "Middle3": [
+            -1,
+            0,
+            0
+          ],
+          "Middle4": [
+            -1,
+            0,
+            0
+          ],
+          "Ring1": [
+            -1,
+            0,
+            0
+          ],
+          "Ring2": [
+            -1,
+            0,
+            0
+          ],
+          "Ring3": [
+            -1,
+            0,
+            0
+          ],
+          "Ring4": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky1": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky2": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky3": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky4": [
+            -1,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "X_BOT": {
+      "bone_prefix": "mixamorig:",
+      "role_adapters": {
+        "left": {
+          "Thumb1": [
+            1,
+            0,
+            0
+          ],
+          "Thumb2": [
+            1,
+            0,
+            0
+          ],
+          "Thumb3": [
+            1,
+            0,
+            0
+          ],
+          "Thumb4": [
+            1,
+            0,
+            0
+          ],
+          "Index1": [
+            1,
+            0,
+            0
+          ],
+          "Index2": [
+            1,
+            0,
+            0
+          ],
+          "Index3": [
+            1,
+            0,
+            0
+          ],
+          "Index4": [
+            1,
+            0,
+            0
+          ],
+          "Middle1": [
+            1,
+            0,
+            0
+          ],
+          "Middle2": [
+            1,
+            0,
+            0
+          ],
+          "Middle3": [
+            1,
+            0,
+            0
+          ],
+          "Middle4": [
+            1,
+            0,
+            0
+          ],
+          "Ring1": [
+            1,
+            0,
+            0
+          ],
+          "Ring2": [
+            1,
+            0,
+            0
+          ],
+          "Ring3": [
+            1,
+            0,
+            0
+          ],
+          "Ring4": [
+            1,
+            0,
+            0
+          ],
+          "Pinky1": [
+            1,
+            0,
+            0
+          ],
+          "Pinky2": [
+            1,
+            0,
+            0
+          ],
+          "Pinky3": [
+            1,
+            0,
+            0
+          ],
+          "Pinky4": [
+            1,
+            0,
+            0
+          ]
+        },
+        "right": {
+          "Thumb1": [
+            -1,
+            0,
+            0
+          ],
+          "Thumb2": [
+            -1,
+            0,
+            0
+          ],
+          "Thumb3": [
+            -1,
+            0,
+            0
+          ],
+          "Thumb4": [
+            -1,
+            0,
+            0
+          ],
+          "Index1": [
+            -1,
+            0,
+            0
+          ],
+          "Index2": [
+            -1,
+            0,
+            0
+          ],
+          "Index3": [
+            -1,
+            0,
+            0
+          ],
+          "Index4": [
+            -1,
+            0,
+            0
+          ],
+          "Middle1": [
+            -1,
+            0,
+            0
+          ],
+          "Middle2": [
+            -1,
+            0,
+            0
+          ],
+          "Middle3": [
+            -1,
+            0,
+            0
+          ],
+          "Middle4": [
+            -1,
+            0,
+            0
+          ],
+          "Ring1": [
+            -1,
+            0,
+            0
+          ],
+          "Ring2": [
+            -1,
+            0,
+            0
+          ],
+          "Ring3": [
+            -1,
+            0,
+            0
+          ],
+          "Ring4": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky1": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky2": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky3": [
+            -1,
+            0,
+            0
+          ],
+          "Pinky4": [
+            -1,
+            0,
+            0
+          ]
+        }
+      }
+    }
+  },
+  "approval": {
+    "status": "approved",
+    "closed": true,
+    "approved_library_version": "1.1.0",
+    "provenance": [
+      {
+        "character_type": "Y_BOT",
+        "source": "cclay/assets/characters/y-bot-tpose.fbx",
+        "method": "Blender 5.2 rest-bone local-axis analysis, controlled articulation probes, and bilateral render review; all canonical roles use local +X left / -X right"
+      },
+      {
+        "character_type": "X_BOT",
+        "source": "cclay/assets/characters/x-bot-tpose.fbx",
+        "method": "Blender 5.2 rest-bone local-axis analysis, controlled articulation probes, and bilateral render review; all canonical roles use local +X left / -X right"
+      }
+    ]
+  },
+  "presets": {
+    "relaxed": {
+      "left": {
+        "Thumb": [
+          8,
+          12,
+          8,
+          0
+        ],
+        "Index": [
+          4,
+          10,
+          16,
+          17
+        ],
+        "Middle": [
+          3,
+          18,
+          15,
+          22
+        ],
+        "Ring": [
+          2,
+          18,
+          26,
+          16
+        ],
+        "Pinky": [
+          4,
+          20,
+          8,
+          19
+        ]
+      },
+      "right": {
+        "Thumb": [
+          8,
+          12,
+          8,
+          0
+        ],
+        "Index": [
+          4,
+          10,
+          16,
+          17
+        ],
+        "Middle": [
+          3,
+          18,
+          15,
+          22
+        ],
+        "Ring": [
+          2,
+          18,
+          26,
+          16
+        ],
+        "Pinky": [
+          4,
+          20,
+          8,
+          19
+        ]
+      }
+    },
+    "open": {
+      "left": {
+        "Thumb": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Ring": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Pinky": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Ring": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Pinky": [
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "fist": {
+      "left": {
+        "Thumb": [
+          24,
+          42,
+          32,
+          0
+        ],
+        "Index": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Middle": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Ring": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          24,
+          42,
+          32,
+          0
+        ],
+        "Index": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Middle": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Ring": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      }
+    },
+    "soft_fist": {
+      "left": {
+        "Thumb": [
+          16,
+          28,
+          22,
+          0
+        ],
+        "Index": [
+          40,
+          40,
+          25,
+          0
+        ],
+        "Middle": [
+          40,
+          40,
+          25,
+          0
+        ],
+        "Ring": [
+          40,
+          40,
+          25,
+          0
+        ],
+        "Pinky": [
+          40,
+          40,
+          25,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          16,
+          28,
+          22,
+          0
+        ],
+        "Index": [
+          40,
+          40,
+          25,
+          0
+        ],
+        "Middle": [
+          40,
+          40,
+          25,
+          0
+        ],
+        "Ring": [
+          40,
+          40,
+          25,
+          0
+        ],
+        "Pinky": [
+          40,
+          40,
+          25,
+          0
+        ]
+      }
+    },
+    "point": {
+      "left": {
+        "Thumb": [
+          12,
+          20,
+          14,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Ring": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          12,
+          20,
+          14,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Ring": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      }
+    },
+    "two_finger": {
+      "left": {
+        "Thumb": [
+          10,
+          16,
+          10,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Ring": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          10,
+          16,
+          10,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Ring": [
+          60,
+          55,
+          35,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      }
+    },
+    "cup": {
+      "left": {
+        "Thumb": [
+          18,
+          24,
+          16,
+          0
+        ],
+        "Index": [
+          20,
+          25,
+          15,
+          0
+        ],
+        "Middle": [
+          24,
+          28,
+          18,
+          0
+        ],
+        "Ring": [
+          28,
+          32,
+          20,
+          0
+        ],
+        "Pinky": [
+          34,
+          36,
+          22,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          18,
+          24,
+          16,
+          0
+        ],
+        "Index": [
+          20,
+          25,
+          15,
+          0
+        ],
+        "Middle": [
+          24,
+          28,
+          18,
+          0
+        ],
+        "Ring": [
+          28,
+          32,
+          20,
+          0
+        ],
+        "Pinky": [
+          34,
+          36,
+          22,
+          0
+        ]
+      }
+    },
+    "grasp": {
+      "left": {
+        "Thumb": [
+          26,
+          34,
+          24,
+          0
+        ],
+        "Index": [
+          45,
+          45,
+          30,
+          0
+        ],
+        "Middle": [
+          45,
+          45,
+          30,
+          0
+        ],
+        "Ring": [
+          45,
+          45,
+          30,
+          0
+        ],
+        "Pinky": [
+          45,
+          45,
+          30,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          26,
+          34,
+          24,
+          0
+        ],
+        "Index": [
+          45,
+          45,
+          30,
+          0
+        ],
+        "Middle": [
+          45,
+          45,
+          30,
+          0
+        ],
+        "Ring": [
+          45,
+          45,
+          30,
+          0
+        ],
+        "Pinky": [
+          45,
+          45,
+          30,
+          0
+        ]
+      }
+    },
+    "thumb_extended": {
+      "left": {
+        "Thumb": [
+          -28,
+          -12,
+          -8,
+          0
+        ],
+        "Index": [
+          55,
+          50,
+          30,
+          0
+        ],
+        "Middle": [
+          55,
+          50,
+          30,
+          0
+        ],
+        "Ring": [
+          55,
+          50,
+          30,
+          0
+        ],
+        "Pinky": [
+          55,
+          50,
+          30,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          -28,
+          -12,
+          -8,
+          0
+        ],
+        "Index": [
+          55,
+          50,
+          30,
+          0
+        ],
+        "Middle": [
+          55,
+          50,
+          30,
+          0
+        ],
+        "Ring": [
+          55,
+          50,
+          30,
+          0
+        ],
+        "Pinky": [
+          55,
+          50,
+          30,
+          0
+        ]
+      }
+    },
+    "three_finger": {
+      "left": {
+        "Thumb": [
+          10,
+          14,
+          8,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Ring": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          10,
+          14,
+          8,
+          0
+        ],
+        "Index": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Middle": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Ring": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "Pinky": [
+          60,
+          55,
+          35,
+          0
+        ]
+      }
+    },
+    "hook": {
+      "left": {
+        "Thumb": [
+          8,
+          12,
+          8,
+          0
+        ],
+        "Index": [
+          15,
+          70,
+          45,
+          0
+        ],
+        "Middle": [
+          15,
+          70,
+          45,
+          0
+        ],
+        "Ring": [
+          15,
+          70,
+          45,
+          0
+        ],
+        "Pinky": [
+          15,
+          70,
+          45,
+          0
+        ]
+      },
+      "right": {
+        "Thumb": [
+          8,
+          12,
+          8,
+          0
+        ],
+        "Index": [
+          15,
+          70,
+          45,
+          0
+        ],
+        "Middle": [
+          15,
+          70,
+          45,
+          0
+        ],
+        "Ring": [
+          15,
+          70,
+          45,
+          0
+        ],
+        "Pinky": [
+          15,
+          70,
+          45,
+          0
+        ]
+      }
+    }
+  }
+}

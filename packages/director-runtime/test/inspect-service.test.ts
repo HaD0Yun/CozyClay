@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { afterEach, it } from "node:test";
+import { canonicalRevision } from "@cclay/director-core";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { canonicalRevision } from "@oh-my-blender/director-core";
 import { createInspectHandler } from "../src/inspect-service.ts";
 
 const unregister: Array<() => void> = [];

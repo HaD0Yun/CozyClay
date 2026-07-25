@@ -13,9 +13,9 @@ def provision_daemon_project(
 ) -> str:
     """Write the minimum durable project accepted before daemon listen."""
     resolved_project_id = project_id or str(uuid.uuid4())
-    omb = Path(directory) / ".omb"
-    omb.mkdir(parents=True, exist_ok=True)
-    (omb / "project.json").write_text(
+    cclay = Path(directory) / ".cclay"
+    cclay.mkdir(parents=True, exist_ok=True)
+    (cclay / "project.json").write_text(
         json.dumps(
             {
                 "schema_version": 1,

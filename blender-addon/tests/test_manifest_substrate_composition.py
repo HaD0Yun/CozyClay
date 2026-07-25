@@ -7,7 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from oh_my_blender import camera_plan, connection, qa_render
+from cclay import camera_plan, connection, qa_render
 
 
 V2_HASH = "2" * 64
@@ -52,13 +52,13 @@ class ManifestSubstrateCompositionTests(unittest.TestCase):
             ],
         }
         manifest = self.manifest_module(v2, v3)
-        with mock.patch.dict(sys.modules, {"oh_my_blender.manifest": manifest}):
+        with mock.patch.dict(sys.modules, {"cclay.manifest": manifest}):
             self.assertIs(camera_plan._extract_live_scene_manifest(V3_HASH), v3)
 
     def test_camera_keeps_pure_v2_projects_on_v2(self):
         v2 = {"schemaVersion": 2, "sceneHash": V2_HASH}
         manifest = self.manifest_module(v2, {"schemaVersion": 3, "sceneHash": V3_HASH})
-        with mock.patch.dict(sys.modules, {"oh_my_blender.manifest": manifest}):
+        with mock.patch.dict(sys.modules, {"cclay.manifest": manifest}):
             self.assertIs(camera_plan._extract_live_scene_manifest(V2_HASH), v2)
         manifest.resolve_manifest_for_expected_hash.assert_called_once_with(V2_HASH)
 
@@ -67,7 +67,7 @@ class ManifestSubstrateCompositionTests(unittest.TestCase):
             {"schemaVersion": 2, "sceneHash": V2_HASH},
             {"schemaVersion": 3, "sceneHash": V3_HASH},
         )
-        with mock.patch.dict(sys.modules, {"oh_my_blender.manifest": manifest}):
+        with mock.patch.dict(sys.modules, {"cclay.manifest": manifest}):
             self.assertEqual(qa_render._live_scene_hash(V3_HASH), V3_HASH)
 
     def test_reconnect_compares_the_live_hash_on_the_durable_v3_substrate(self):
@@ -75,7 +75,7 @@ class ManifestSubstrateCompositionTests(unittest.TestCase):
             {"schemaVersion": 2, "sceneHash": V2_HASH},
             {"schemaVersion": 3, "sceneHash": V3_HASH},
         )
-        with mock.patch.dict(sys.modules, {"oh_my_blender.manifest": manifest}):
+        with mock.patch.dict(sys.modules, {"cclay.manifest": manifest}):
             self.assertEqual(connection._live_scene_hash(V3_HASH), V3_HASH)
 
     def test_all_consumers_select_v4_when_the_durable_base_has_assemblies(self):
@@ -89,7 +89,7 @@ class ManifestSubstrateCompositionTests(unittest.TestCase):
             {"schemaVersion": 3, "sceneHash": V3_HASH},
             v4,
         )
-        with mock.patch.dict(sys.modules, {"oh_my_blender.manifest": manifest}):
+        with mock.patch.dict(sys.modules, {"cclay.manifest": manifest}):
             self.assertIs(camera_plan._extract_live_scene_manifest(V4_HASH), v4)
             self.assertEqual(qa_render._live_scene_hash(V4_HASH), V4_HASH)
             self.assertEqual(connection._live_scene_hash(V4_HASH), V4_HASH)

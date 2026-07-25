@@ -143,6 +143,37 @@ describe("Architecture §4 protocol v2 mutation bridge", () => {
 			negotiateMutationBridge({ ...v2Hello, capabilities: [MUTATION_CAPABILITY, "unknown"] }, v2HelloAck),
 		);
 	});
+
+	it("tolerates namespaced cclay.* surface capabilities in hello but not in hello_ack", () => {
+		const surfaced = {
+			...v2Hello,
+			capabilities: [
+				MUTATION_CAPABILITY,
+				STAGE_CAPABILITY,
+				"cclay.addon_version=0.2.0",
+				"cclay.method.inspect_project",
+				"cclay.op.transform_entity",
+			],
+		};
+		const session = negotiateMutationBridge(surfaced, v2HelloAck);
+		assert.equal(session.supportsStageScene, true);
+		// hello must still offer the mutation core explicitly.
+		assert.throws(
+			() =>
+				negotiateMutationBridge(
+					{ ...v2Hello, capabilities: [STAGE_CAPABILITY, "cclay.addon_version=0.2.0"] },
+					v2HelloAck,
+				),
+			/mutation_bridge_v2/,
+		);
+		// The hello_ack negotiated set stays a closed tuple: no cclay.* riders.
+		assert.throws(() =>
+			negotiateMutationBridge(surfaced, {
+				...v2HelloAck,
+				capabilities: [MUTATION_CAPABILITY, STAGE_CAPABILITY, "cclay.addon_version=0.2.0"],
+			}),
+		);
+	});
 	it("negotiates staging separately while preserving V2-only camera and render bridges", () => {
 		const stagingSession = createSession();
 		assert.equal(stagingSession.supportsStageScene, true);

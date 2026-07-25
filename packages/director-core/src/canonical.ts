@@ -1,6 +1,6 @@
 // Canonical JSON serialization and revision hashing for Scene Snapshot v2.
 // Contract: docs/SCENE-SNAPSHOT-V2.md §4. Must stay byte-identical to
-// blender-addon/oh_my_blender/canonical.py; the shared fixture
+// blender-addon/cclay/canonical.py; the shared fixture
 // test/fixtures/canonical-numbers.json guards parity in both test suites.
 
 import { createHash } from "node:crypto";

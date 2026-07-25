@@ -71,6 +71,21 @@ const AddCharacterRequestSchema = exact({
 	rotation: vector3(),
 	scale: positiveVector3(),
 });
+const AddCameraSchema = exact({
+	op: Type.Literal("add_camera"),
+	entity_id: uuid(),
+	name: stableName(),
+	location: vector3(),
+	rotation: vector3(),
+	lens: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+});
+const AddCameraRequestSchema = exact({
+	op: Type.Literal("add_camera"),
+	name: stableName(),
+	location: vector3(),
+	rotation: vector3(),
+	lens: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
+});
 const SetMaterialColorSchema = exact({
 	op: Type.Literal("set_material_color"),
 	entity_id: uuid(),
@@ -107,6 +122,10 @@ const UpsertAreaLightRequestSchema = exact({
 });
 const DeleteEntitySchema = exact({
 	op: Type.Literal("delete_entity"),
+	entity_id: uuid(),
+});
+const AdoptEntitySchema = exact({
+	op: Type.Literal("adopt_entity"),
 	entity_id: uuid(),
 });
 const CreateAssemblySchema = exact({
@@ -182,13 +201,67 @@ const RenameEntitySchema = exact({
 	entity_id: uuid(),
 	name: stableName(),
 });
+export const HAND_SHAPE_NAMES = [
+	"relaxed",
+	"open",
+	"fist",
+	"soft_fist",
+	"point",
+	"two_finger",
+	"cup",
+	"grasp",
+	"thumb_extended",
+	"three_finger",
+	"hook",
+] as const;
+const handShape = () =>
+	Type.Union([
+		Type.Literal("relaxed"),
+		Type.Literal("open"),
+		Type.Literal("fist"),
+		Type.Literal("soft_fist"),
+		Type.Literal("point"),
+		Type.Literal("two_finger"),
+		Type.Literal("cup"),
+		Type.Literal("grasp"),
+		Type.Literal("thumb_extended"),
+		Type.Literal("three_finger"),
+		Type.Literal("hook"),
+	]);
+const applyMotionFields = {
+	op: Type.Literal("apply_motion"),
+	entity_id: uuid(),
+	motion_id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }),
+	start_frame: Type.Optional(Type.Integer({ minimum: -100000, maximum: 100000 })),
+};
+const ApplyMotionSchema = Type.Union([
+	exact(applyMotionFields),
+	exact({
+		...applyMotionFields,
+		hand_pose: Type.Union([Type.Literal("relaxed"), Type.Literal("open")]),
+	}),
+	exact({
+		...applyMotionFields,
+		hand_shapes: exact({ left: handShape() }),
+	}),
+	exact({
+		...applyMotionFields,
+		hand_shapes: exact({ right: handShape() }),
+	}),
+	exact({
+		...applyMotionFields,
+		hand_shapes: exact({ left: handShape(), right: handShape() }),
+	}),
+]);
 
 export const StageSceneOperationV1Schema = Type.Union([
 	AddPrimitiveSchema,
 	AddCharacterSchema,
+	AddCameraSchema,
 	SetMaterialColorSchema,
 	UpsertAreaLightSchema,
 	DeleteEntitySchema,
+	AdoptEntitySchema,
 	CreateAssemblySchema,
 	SetParentSchema,
 	TransformAssemblySchema,
@@ -197,6 +270,7 @@ export const StageSceneOperationV1Schema = Type.Union([
 	SetCameraPropertySchema,
 	SetRenderSettingsSchema,
 	RenameEntitySchema,
+	ApplyMotionSchema,
 ]);
 export const StageScenePlanV1Schema = exact({
 	schema_version: Type.Literal(1),
@@ -210,10 +284,12 @@ export const StageSceneRequestV1Schema = exact({
 		Type.Union([
 			AddPrimitiveRequestSchema,
 			AddCharacterRequestSchema,
+			AddCameraRequestSchema,
 			SetMaterialColorSchema,
 			SetMaterialColorByNameRequestSchema,
 			UpsertAreaLightRequestSchema,
 			DeleteEntitySchema,
+			AdoptEntitySchema,
 			CreateAssemblySchema,
 			SetParentSchema,
 			TransformAssemblySchema,
@@ -222,6 +298,7 @@ export const StageSceneRequestV1Schema = exact({
 			SetCameraPropertySchema,
 			SetRenderSettingsSchema,
 			RenameEntitySchema,
+			ApplyMotionSchema,
 		]),
 		{ minItems: 1, maxItems: 256 },
 	),
@@ -231,17 +308,27 @@ export const StageSceneEntityIdentitySchema = exact({
 	requested_name: stableName(),
 	actual_name: stableName(),
 });
+export const StageSceneAppliedHandShapeSchema = exact({
+	operation_index: Type.Integer({ minimum: 0, maximum: 255 }),
+	entity_id: uuid(),
+	motion_id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }),
+	left: handShape(),
+	right: handShape(),
+	library_version: Type.Literal("1.1.0"),
+});
 export const StageSceneMutationCandidateSchema = exact({
 	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	scene_hash: Type.String({ pattern: HASH_64 }),
 	manifest: SceneManifestV3OrV4Schema,
 	entity_identities: Type.Array(StageSceneEntityIdentitySchema, { maxItems: 256 }),
+	applied_hand_shapes: Type.Array(StageSceneAppliedHandShapeSchema, { maxItems: 256 }),
 });
 
 export type StageSceneOperationV1 = Static<typeof StageSceneOperationV1Schema>;
 export type StageScenePlanV1 = Static<typeof StageScenePlanV1Schema>;
 export type StageSceneRequestV1 = Static<typeof StageSceneRequestV1Schema>;
 export type StageSceneEntityIdentity = Static<typeof StageSceneEntityIdentitySchema>;
+export type StageSceneAppliedHandShape = Static<typeof StageSceneAppliedHandShapeSchema>;
 export type StageSceneMutationCandidate = Static<typeof StageSceneMutationCandidateSchema>;
 
 export const STAGE_SCENE_ERROR_CODES = [
@@ -288,7 +375,12 @@ function validatePlanSemantics(plan: StageScenePlanV1): StageScenePlanV1 {
 				`add_primitive entity_id ${operation.entity_id} must differ from parent_id`,
 			);
 		}
-		if (operation.op !== "add_primitive" && operation.op !== "upsert_area_light" && operation.op !== "add_character")
+		if (
+			operation.op !== "add_primitive" &&
+			operation.op !== "upsert_area_light" &&
+			operation.op !== "add_character" &&
+			operation.op !== "add_camera"
+		)
 			continue;
 		if (createdIds.has(operation.entity_id)) {
 			fail("STAGE_SCENE_ENTITY_ID_DUPLICATE", `entity_id ${operation.entity_id} is created more than once`);
@@ -338,6 +430,11 @@ export function canonicalizeStageScenePlan(input: unknown, allocateEntityId: () 
 			return { ...operation, entity_id: entityId };
 		}
 		if (operation.op === "add_character") {
+			const entityId = allocateEntityId();
+			idsByStableName.set(operation.name, entityId);
+			return { ...operation, entity_id: entityId };
+		}
+		if (operation.op === "add_camera") {
 			const entityId = allocateEntityId();
 			idsByStableName.set(operation.name, entityId);
 			return { ...operation, entity_id: entityId };

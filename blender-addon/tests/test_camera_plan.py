@@ -29,7 +29,7 @@ class CameraPlanRealBlenderTests(unittest.TestCase):
             raise AssertionError(
                 f"headless Blender failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
             )
-        result_lines = [line for line in completed.stdout.splitlines() if line.startswith("OMB_CAMERA_PLAN_RESULTS=")]
+        result_lines = [line for line in completed.stdout.splitlines() if line.startswith("CCLAY_CAMERA_PLAN_RESULTS=")]
         if len(result_lines) != 1:
             raise AssertionError(f"missing camera-plan results\n{completed.stdout}")
         cls.results = json.loads(result_lines[0].split("=", 1)[1])

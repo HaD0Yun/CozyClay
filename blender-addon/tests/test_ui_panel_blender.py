@@ -32,7 +32,7 @@ class UiPanelBlenderTests(unittest.TestCase):
         lines = [
             line
             for line in completed.stdout.splitlines()
-            if line.startswith("OMB_UI_PANEL_RESULTS=")
+            if line.startswith("CCLAY_UI_PANEL_RESULTS=")
         ]
         self.assertEqual(len(lines), 1, completed.stdout)
         result = json.loads(lines[0].split("=", 1)[1])
@@ -40,7 +40,7 @@ class UiPanelBlenderTests(unittest.TestCase):
         self.assertTrue(result["unregistered"], result)
         self.assertEqual(result["spaceType"], "VIEW_3D")
         self.assertEqual(result["regionType"], "UI")
-        self.assertEqual(result["category"], "Oh My Blender")
+        self.assertEqual(result["category"], "CozyClay")
         self.assertTrue(result["credentialSuppressed"], result)
         self.assertGreater(len(result["captures"]), 4, result)
         self.assertTrue(

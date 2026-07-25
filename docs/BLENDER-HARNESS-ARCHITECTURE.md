@@ -1,4 +1,4 @@
-# Oh My Blender — Runtime Architecture
+# CozyClay — Runtime Architecture
 
 Status: conversational controller, Blender bridge, transactional mutation, recovery, TUI, and panel surfaces implemented
 
@@ -11,9 +11,9 @@ Reference: `can1357/oh-my-pi@c0d0ad7629ebc895237e9ccc1f45008bd23bdaa4`
 The repository now implements the authenticated local directing loop end to end:
 
 ```text
-Pi TUI owner (pi-test.sh + apps/omb-extension) / Blender peer controller
+Pi TUI owner (pi-test.sh + apps/cclay-extension) / Blender peer controller
   ⇅ closed controller protocol, ordered stream, watermark transcript
-omb-extension + Pi AgentSession (no standalone daemon)
+cclay-extension + Pi AgentSession (no standalone daemon)
   ⇅ correlated transaction protocol
 Blender bridge
   ⇅ main-thread scene inspection, transactional save, QA display
@@ -24,13 +24,13 @@ The model-facing tool allowlist is `inspect_project`, `stage_scene`, `apply_came
 
 ## 1. Decision
 
-Oh My Blender is a private Pi fork that becomes a Blender-specific directing harness.
+CozyClay is a private Pi fork that becomes a Blender-specific directing harness.
 
 We will preserve Pi's model, agent, session, extension, and cancellation machinery. We will add a product-owned Director state machine, a small Blender tool surface, a local Blender add-on, and an observation/revision loop.
 
 We will not fork Blender. We will not begin by rewriting Pi core. The first implementation stays in new packages and uses Pi's stable `createAgentSession()` embedding API. A Pi-core patch is allowed only after a failing vertical-slice test proves that the public SDK cannot support a required lifecycle.
 
-Real-world analogy: Pi is the engine and transmission, Blender is the film set, and Oh My Blender is the director's control room. `oh-my-pi` is useful as a reference for turning an engine into a product, but copying its entire workshop would bring in tools we do not need.
+Real-world analogy: Pi is the engine and transmission, Blender is the film set, and CozyClay is the director's control room. `oh-my-pi` is useful as a reference for turning an engine into a product, but copying its entire workshop would bring in tools we do not need.
 
 ## 2. Why fork Pi but keep the product thin
 
@@ -65,16 +65,16 @@ Do not copy these in v1:
 - multiple overlapping extension, hook, and custom-tool systems;
 - third-party code running with unrestricted Blender scene mutation.
 
-Oh My Blender begins with one bundled domain plugin and one local Blender add-on.
+CozyClay begins with one bundled domain plugin and one local Blender add-on.
 
 ## 4. Runtime architecture
 
 ```text
 Blender UI
-  Oh My Blender Python Add-on
+  CozyClay Python Add-on
     viewport/timeline context · user selection · undo checkpoint
                          ⇅ local authenticated WebSocket
-Oh My Blender daemon (Node/TypeScript)
+CozyClay daemon (Node/TypeScript)
   Director Runtime
     Pi AgentSession · domain prompt · Blender tools only
   Director Core
@@ -87,12 +87,12 @@ Oh My Blender daemon (Node/TypeScript)
 
 ### Process, principal, and credential boundary
 
-- Production boot creates `ProjectStore`, reads and validates `.omb/project.json`, and binds its lowercase UUIDv4 `project_id` into every credential and principal before opening the listener. Missing, corrupt, or invalid project state fails with `PROJECT_CONFIGURATION_ERROR: project is unavailable` and produces no startup record or listener. A `hello` confirms the pre-bound project; it never establishes identity or writes project state.
-- A terminal-first controller may spawn `omb daemon --port 0`. The daemon emits exactly one bounded `StartupRecordSchema` record: `{type:"omb_daemon_ready",protocol:1,port,pid,launch_id,bearer_token,expires_in_ms:10000}`. The boot bearer is a one-use 32-byte credential, is never persisted, and authenticates the owner upgrade with `Authorization: Bearer <token>` plus `X-OMB-Role: controller`.
-- The daemon binds only IPv4 `127.0.0.1`. Runtime discovery lives outside `.omb`, beneath an owned mode-`0700` `omb-<uid>/<launch_id>/` directory. `endpoint.json`, `bridge-slot.json`, and `controller-peer-slot.json` are atomic, owned, nonsymlink mode-`0600` files. `endpoint.json` is `{schema_version:1,launch_id,host:"127.0.0.1",port}`. A bridge slot is `{schema_version:1,project_id,ticket,expires_at_ms,generation}`; a peer slot adds `lineage_id`.
+- Production boot creates `ProjectStore`, reads and validates `.cclay/project.json`, and binds its lowercase UUIDv4 `project_id` into every credential and principal before opening the listener. Missing, corrupt, or invalid project state fails with `PROJECT_CONFIGURATION_ERROR: project is unavailable` and produces no startup record or listener. A `hello` confirms the pre-bound project; it never establishes identity or writes project state.
+- A terminal-first controller may spawn `cclay daemon --port 0`. The daemon emits exactly one bounded `StartupRecordSchema` record: `{type:"cclay_daemon_ready",protocol:1,port,pid,launch_id,bearer_token,expires_in_ms:10000}`. The boot bearer is a one-use 32-byte credential, is never persisted, and authenticates the owner upgrade with `Authorization: Bearer <token>` plus `X-CCLAY-Role: controller`.
+- The daemon binds only IPv4 `127.0.0.1`. Runtime discovery lives outside `.cclay`, beneath an owned mode-`0700` `cclay-<uid>/<launch_id>/` directory. `endpoint.json`, `bridge-slot.json`, and `controller-peer-slot.json` are atomic, owned, nonsymlink mode-`0600` files. `endpoint.json` is `{schema_version:1,launch_id,host:"127.0.0.1",port}`. A bridge slot is `{schema_version:1,project_id,ticket,expires_at_ms,generation}`; a peer slot adds `lineage_id`.
 - Every upgraded connection receives an immutable `AuthenticatedPrincipal`: `projectId`, `role`, `authority`, optional `lineageId`, and `generation`. Authorities are `owner`, `peer`, `bridge`, or the isolated legacy bridge path. A peer never upgrades to owner authority. Controller disconnect does not stop the daemon or cancel an active turn; bridge disconnect starts transaction recovery and republishes bridge discovery.
-- Owner resume uses the 43-character resume token as the bearer and requires exactly `X-OMB-Role: controller` and `X-OMB-Launch-ID: <launch UUID>`. Boot bearer omits the launch header. Duplicate/comma-joined headers, malformed or mismatched launch values, revoked credentials, and non-loopback upgrades fail with an empty HTTP `403`.
-- Peer resume additionally requires `X-OMB-Peer-Lineage-ID` and canonical base-10 `X-OMB-Peer-Generation`. Generation N is burned on success and `ControllerPeerAuthSchema` delivers N+1, with exact 300,000 ms expiry. Replay, expiry, or revocation fails `403`. `ControllerAuthSchema` is delivered only to the owner; neither credential frame is broadcast or persisted.
+- Owner resume uses the 43-character resume token as the bearer and requires exactly `X-CCLAY-Role: controller` and `X-CCLAY-Launch-ID: <launch UUID>`. Boot bearer omits the launch header. Duplicate/comma-joined headers, malformed or mismatched launch values, revoked credentials, and non-loopback upgrades fail with an empty HTTP `403`.
+- Peer resume additionally requires `X-CCLAY-Peer-Lineage-ID` and canonical base-10 `X-CCLAY-Peer-Generation`. Generation N is burned on success and `ControllerPeerAuthSchema` delivers N+1, with exact 300,000 ms expiry. Replay, expiry, or revocation fails `403`. `ControllerAuthSchema` is delivered only to the owner; neither credential frame is broadcast or persisted.
 - The Pi boundary remains deny-by-default: one product-owned `AgentSession`, `noTools:"all"`, the compiled Blender tool allowlist, isolated session storage, and `BundledDirectorResourceLoader`. User/project Pi extensions, skills, prompts, packages, themes, context, and MCP configuration are never discovered. Blender operations execute on Blender's main thread; the daemon never injects arbitrary Python.
 
 ### Closed controller protocol and capabilities
@@ -121,7 +121,7 @@ Controller transcript v2 is a protocol feature, not a capability: `HelloAckContr
 - `DirectorTurnEventSchema` is the durable union of `DirectorTurnStartedSchema`, `DirectorAssistantUtteranceSchema`, `DirectorToolCallStartedSchema`, `DirectorToolCallFinishedSchema`, `DirectorTurnCompletedSchema`, `DirectorTurnFailedSchema`, and `DirectorTurnCancelledSchema`. Tool events contain only the closed tool name, structural parameter summary, result SHA-256, and error bit.
 - The runtime copies only discriminated string fields from Pi `text_delta.delta` and `text_end.content/contentIndex`; it never copies the partial assistant object, thinking, usage, metadata, or raw provider response. One promise-chained publication queue orders deltas, utterance append+broadcast, tool events, and terminal state. Tool start is illegal until all text is sealed. The first transcript append failure stops every later delta/durable emission, aborts Pi, burns credentials, closes controller sockets `1011`, and drains the daemon.
 - `DirectorTranscriptRequestV1Schema`/`DirectorTranscriptV1Schema` preserve legacy cursor paging. When `snapshot_cursor_v2` is advertised, `DirectorTranscriptRequestV2Schema` sends `snapshot_cursor:null` at `cursor:0`; `DirectorTranscriptV2Schema` freezes and returns the global event watermark. Every subsequent page repeats that watermark. Cursors are 0..10,000, pages are 1..64 events, the session ID is stable, appends after the watermark wait for the next snapshot, and cursor/watermark regression is rejected.
-- `.omb/director-transcript.json` is mode `0600`, atomically replaced, closed, bounded to 10,000 durable events, and migrates valid v1 data atomically. Deltas are never persisted. The G013 sink amendment authorizes bounded `DirectorAssistantUtteranceSchema.content` as intermediate transcript content; raw provider/reasoning fields and arbitrary failures remain forbidden.
+- `.cclay/director-transcript.json` is mode `0600`, atomically replaced, closed, bounded to 10,000 durable events, and migrates valid v1 data atomically. Deltas are never persisted. The G013 sink amendment authorizes bounded `DirectorAssistantUtteranceSchema.content` as intermediate transcript content; raw provider/reasoning fields and arbitrary failures remain forbidden.
 
 ### Controller discovery, fanout, and interaction surfaces
 
@@ -129,7 +129,7 @@ Controller transcript v2 is a protocol feature, not a capability: `HelloAckContr
 - `PublishControllerPeerDiscoverySlotSchema`/`ControllerPeerDiscoverySlotAckSchema` publish a specific lineage and generation. `RevokeControllerPeerSchema`/`RevokeControllerPeerAckSchema` burn the slot/resume chain and close only that lineage. Request replay uses a per-principal 300,000 ms/1,024-entry cache: same ID and canonical body repeats the response without side effects; different content returns `IDEMPOTENCY_CONFLICT`.
 - Detached bridge discovery refreshes at 10,000 ms. Reconnect backoff is 250/500/1,000/2,000/4,000 ms, then 5,000 ms through 60 seconds, with ±20% production jitter and none in tests.
 - Each controller socket has an isolated queue capped at 256 frames or 1 MiB and a 2,000 ms drain timeout. Only the slow socket closes `1013`; durable delivery to other controllers and persistence continue. Delta batching flushes at 50 ms or 2,048 bytes, never exceeds 4,096 bytes, and the first adapter-to-wire delta is due within 250 ms.
-- `apps/omb-tui` is gone; Pi's own TUI is the controller surface. `apps/omb-extension` is a Pi extension that hosts the Blender bridge WebSocket server, registers the model-facing tools, publishes `.omb/pi-bridge.json` for add-on discovery, and appends the director prompt. Its OMB-owned viewport retains at most 10,000 durable entries plus one active Markdown segment, reparses only that active Markdown on delta, preserves a scrolled-up entry/line anchor through output and resize, and shows `New output below`.
+- `apps/cclay-tui` is gone; Pi's own TUI is the controller surface. `apps/cclay-extension` is a Pi extension that hosts the Blender bridge WebSocket server, registers the model-facing tools, publishes `.cclay/pi-bridge.json` for add-on discovery, and appends the director prompt. Its CCLAY-owned viewport retains at most 10,000 durable entries plus one active Markdown segment, reparses only that active Markdown on delta, preserves a scrolled-up entry/line anchor through output and resize, and shows `New output below`.
 - The Blender panel drains at most 32 controller events or 4 ms per timer tick. Real-Blender targets are p95 <=4 ms and max <=8 ms, with zero durable drops. QA frames are digest-addressed and displayed only after the matching closed result; transcript bytes never become image payloads.
 
 ### Durable transaction and recovery protocol
@@ -147,7 +147,7 @@ Wire types and direction are exact:
 
 `ProjectStore.commitRevision()` accepts `DirectorProjectRecoveryV2` plus `RevisionOperationEntryV2`. The recovery project has exactly `project_id,schema_version,current_revision_id,manifest`; the manifest is the complete exact `SceneManifestV2` or `SceneManifestV3`, bound to the same project and revision. The operation entry has exactly `schema_version,operation,request_id,plan_sha256,base_scene_hash,candidate_scene_hash`. The canonical `revision_commit_v2` hash covers `kind,idempotency_key,expected_revision_id,target_revision_id`, the entire project/manifest, and that operation entry. Same key and byte-identical canonical payload is a no-op; any changed project, manifest, hash, pointer, or operation returns `TRANSACTION_CONFLICT` before journal or project mutation. A valid journal record can reconstruct the complete target project from only the base project and journal.
 
-Before mutation, Blender creates `.omb/transactions/<transaction_id>/base.blend` as owned mode `0600`, fsyncs file and directory, hashes it, and verifies its project ID. It then atomically writes `.omb/prepared-transaction.json` as the exact 17-field `PreparedTransactionMarker`: `schema_version`, `transaction_id`, `project_id`, `operation`, `request_id`, `base_revision_id`, `base_scene_hash`, `candidate_revision_id`, `candidate_scene_hash`, `canonical_blend_path`, `canonical_blend_sha256`, `base_backup_path`, `base_backup_sha256`, `base_backup_project_id`, `created_at`, `updated_at`, and `phase`. `canonical_blend_sha256` is null only in `prepared`; every later phase requires a hash, and `rollback_saved` requires it to equal `base_backup_sha256`. All paths are normalized, project-contained, owned, and checked without following symlinks.
+Before mutation, Blender creates `.cclay/transactions/<transaction_id>/base.blend` as owned mode `0600`, fsyncs file and directory, hashes it, and verifies its project ID. It then atomically writes `.cclay/prepared-transaction.json` as the exact 17-field `PreparedTransactionMarker`: `schema_version`, `transaction_id`, `project_id`, `operation`, `request_id`, `base_revision_id`, `base_scene_hash`, `candidate_revision_id`, `candidate_scene_hash`, `canonical_blend_path`, `canonical_blend_sha256`, `base_backup_path`, `base_backup_sha256`, `base_backup_project_id`, `created_at`, `updated_at`, and `phase`. `canonical_blend_sha256` is null only in `prepared`; every later phase requires a hash, and `rollback_saved` requires it to equal `base_backup_sha256`. All paths are normalized, project-contained, owned, and checked without following symlinks.
 
 Reconciliation uses four evidence classes after phase consistency: C conflict, T manifest target plus matching commit, J valid matching journal while manifest remains base, and B manifest base without a matching commit. The controlling matrix is:
 
@@ -172,12 +172,12 @@ Maximum JSON size is 1 MiB and bridge binary artifact frames are at most 16 MiB.
 New code should enter through these product-owned areas:
 
 ```text
-apps/omb-extension/          Pi extension: bridge WS host, tool registration, endpoint discovery
+apps/cclay-extension/          Pi extension: bridge WS host, tool registration, endpoint discovery
 packages/director-core/      canonical state and revision rules
 packages/director-runtime/   Pi adapter, prompts, tool middleware
 packages/blender-protocol/   versioned JSON schemas and messages
 packages/blender-tools/      model-facing domain operations
-blender-addon/oh_my_blender/ Blender panels, operators, observers
+blender-addon/cclay/ Blender panels, operators, observers
 docs/                        architecture and upstream-sync notes
 ```
 
@@ -185,13 +185,13 @@ Ownership is behavioral, not merely directory naming:
 
 | Area | Owns | Must not own |
 | --- | --- | --- |
-| `apps/omb-extension` | bridge WebSocket server lifecycle, endpoint discovery file, tool registration, director prompt injection | scene schemas, revision/hash rules, model-facing tool definitions |
+| `apps/cclay-extension` | bridge WebSocket server lifecycle, endpoint discovery file, tool registration, director prompt injection | scene schemas, revision/hash rules, model-facing tool definitions |
 | Pi TUI (via `pi-test.sh`) | owner spawn/reattach, transcript replay, streaming viewport, prompt/cancel UX | daemon lifecycle internals, scene mutation, or protocol schema definitions |
 | `packages/director-core` | project/revision persistence, stable identity, canonical serialization, scene/artifact hashes, artifact store | Pi APIs or WebSocket transport |
 | `packages/director-runtime` | the sole `createAgentSession()` adapter, `BundledDirectorResourceLoader`, bundled prompt, Pi event/cancel/dispose wiring | Blender extraction or canonical state rules |
 | `packages/blender-protocol` | protocol/message schemas and generated TypeScript/Python fixtures | daemon lifecycle or tool execution |
 | `packages/blender-tools` | `inspect_project` and later model-facing tool definitions; typed calls into the bridge | WebSocket authentication or Pi session construction |
-| `blender-addon/oh_my_blender` | project initialization, Blender main-thread extraction/mutation, durable transaction evidence, recovery, peer controller, panel/QA display | model/provider logic or owner authority |
+| `blender-addon/cclay` | project initialization, Blender main-thread extraction/mutation, durable transaction evidence, recovery, peer controller, panel/QA display | model/provider logic or owner authority |
 
 Canonical serialization, hashing, and manifest construction live in `packages/director-core`; `packages/blender-protocol` is schema-only and must not implement those behaviors.
 
@@ -241,34 +241,34 @@ ArtifactRef
 
 Durable product storage:
 
-- `.omb/project.json`: atomically replaced current index;
-- `.omb/journal.jsonl`: append-only operations and decisions;
-- `.omb/artifacts/<sha256>/`: previews, manifests, motion, and render outputs;
-- `.omb/director-transcript.json`: bounded semantic controller transcript, never raw provider traffic;
-- `.omb/prepared-transaction.json`: singleton exact recovery marker while a mutation is unresolved;
-- `.omb/transactions/<transaction_id>/base.blend`: verified private base evidence retained through acknowledgement or rollback cleanup;
+- `.cclay/project.json`: atomically replaced current index;
+- `.cclay/journal.jsonl`: append-only operations and decisions;
+- `.cclay/artifacts/<sha256>/`: previews, manifests, motion, and render outputs;
+- `.cclay/director-transcript.json`: bounded semantic controller transcript, never raw provider traffic;
+- `.cclay/prepared-transaction.json`: singleton exact recovery marker while a mutation is unresolved;
+- `.cclay/transactions/<transaction_id>/base.blend`: verified private base evidence retained through acknowledgement or rollback cleanup;
 - the Pi session stores reasoning provenance plus project/revision IDs only.
 
 ### Stable identity and hashing
 
-- Before the first connection, the user runs the add-on's explicit `Initialize Project` operator. In one Blender undo transaction it creates a lowercase UUIDv4 `project_id`, stores it both as the scene custom property `omb.project_id` and in `.omb/project.json`, and assigns lowercase UUIDv4 `omb.entity_id` properties to every local object and every bone. The two persisted project IDs must match on every connection. Camera, light, and armature identities use their owning object ID; bones use their own bone property.
+- Before the first connection, the user runs the add-on's explicit `Initialize Project` operator. In one Blender undo transaction it creates a lowercase UUIDv4 `project_id`, stores it both as the scene custom property `cclay.project_id` and in `.cclay/project.json`, and assigns lowercase UUIDv4 `cclay.entity_id` properties to every local object and every bone. The two persisted project IDs must match on every connection. Camera, light, and armature identities use their owning object ID; bones use their own bone property.
 - Initialization is the only identity-bootstrap write and is never model-triggered. It marks the `.blend` dirty and connection is refused until the user saves it. Later inspection refuses missing, malformed, or duplicate IDs rather than generating them lazily. Delivered model mutations use only the typed, revision-bound transaction protocol; linked/library data without writable persistent IDs remains `UNSUPPORTED_LINKED_DATABLOCK`.
 - Blender duplication can copy custom properties. The add-on observer records IDs known before the dependency-graph update; an existing entity keeps its ID and every newly observed duplicate receives a new UUIDv4 in one undoable metadata transaction. On file-open ambiguity, `Repair IDs` keeps the first entity in Blender's serialized data-block order and reassigns later duplicates, writes one journal entry, marks the file dirty, and requires an explicit save before reconnect.
 - `project_id` never derives from a path or filename. Entity IDs never derive from display names, Blender paths, array positions, or memory addresses. Once persisted they do not change on rename, reparent, reorder, save-as, or daemon restart.
 - `SceneManifestV1` is normalized before hashing. Object and bone arrays sort by stable ID; selected-ID sets sort by stable ID for validation and reporting; maps sort keys by Unicode code-point order; semantically ordered arrays such as keyframes sort by rational frame time then stable ID. Strings are Unicode NFC. Integers use base-10 without leading zeros. Booleans and null use JSON literals.
-- Selection is viewport interaction state, not durable scene substrate: `selectedEntityIds` is validated (sorted, unique, entity-bound) and reported in every manifest payload, but it is **excluded from the V1/V2/V3 `scene_hash` preimages** in both canonicalizers (`blender-addon/oh_my_blender/scene_manifest.py` `_scene_hash_preimage` and `packages/director-core/src/manifest.ts`). A user clicking objects in the viewport must never drift the substrate hash or produce `STALE_BASE`. This is a hash-scheme change relative to earlier revisions: any artifact that embeds `scene_hash`/`revision_id` values (parity fixtures, authorized directing evidence, the fixture registry digest) must be regenerated through its production builder (`scripts/generate_directing_evidence.py` for directing evidence), never hand-edited.
+- Selection is viewport interaction state, not durable scene substrate: `selectedEntityIds` is validated (sorted, unique, entity-bound) and reported in every manifest payload, but it is **excluded from the V1/V2/V3 `scene_hash` preimages** in both canonicalizers (`blender-addon/cclay/scene_manifest.py` `_scene_hash_preimage` and `packages/director-core/src/manifest.ts`). A user clicking objects in the viewport must never drift the substrate hash or produce `STALE_BASE`. This is a hash-scheme change relative to earlier revisions: any artifact that embeds `scene_hash`/`revision_id` values (parity fixtures, authorized directing evidence, the fixture registry digest) must be regenerated through its production builder (`scripts/generate_directing_evidence.py` for directing evidence), never hand-edited.
 - Every finite binary64 scene number is interpreted from its exact IEEE-754 bits, then converted for the hash preimage to a decimal string rounded half-even to `1e-9`; trailing fractional zeros are removed and `-0` becomes `"0"`. Language-native `round()` is not the contract. NaN and infinities are schema errors. Frame rate and time remain reduced integer rationals and are never converted to floats.
 - Canonical JSON uses UTF-8, no insignificant whitespace, and the normalization rules above. `scene_hash` is lowercase hex SHA-256 of those bytes, excluding volatile transport fields (`request id`, nonces, progress, wall-clock timestamps) and volatile viewport state (`selectedEntityIds`), but including stable IDs, hierarchy, transforms, frame/timebase, camera/light/render state, and display names.
-- The initial `revision_id` is lowercase hex SHA-256 of `omb-revision-v1\0 + project_id + "\0" + scene_hash`. A child revision hashes `omb-revision-v1\0 + project_id + "\0" + parent_revision_id + "\0" + canonical_operation_json + "\0" + resulting_scene_hash + "\0" + canonical_dependency_hashes`. Creation timestamps are persisted but excluded from IDs. `.omb/project.json` and `.omb/journal.jsonl` persist every accepted revision before it is exposed as current.
+- The initial `revision_id` is lowercase hex SHA-256 of `cclay-revision-v1\0 + project_id + "\0" + scene_hash`. A child revision hashes `cclay-revision-v1\0 + project_id + "\0" + parent_revision_id + "\0" + canonical_operation_json + "\0" + resulting_scene_hash + "\0" + canonical_dependency_hashes`. Creation timestamps are persisted but excluded from IDs. `.cclay/project.json` and `.cclay/journal.jsonl` persist every accepted revision before it is exposed as current.
 
 ### Artifact boundary
 
-- The only allowed `ArtifactRef.uri` form is `omb-artifact://sha256/<digest>`, where `<digest>` is exactly 64 lowercase hexadecimal characters and must equal `ArtifactRef.sha256`. `file:`, `http:`, `https:`, `data:`, `blob:`, UNC paths, absolute/relative paths, percent encoding, query strings, fragments, extra path segments, and dot segments are rejected.
-- Each upload declares byte length and expected digest before its first chunk. One artifact payload may be at most 512 MiB; committed artifact storage plus active reservations may be at most 20 GiB per project; at most two uploads and 1 GiB of reservations may be active. Accounting counts every committed regular-file byte below `.omb/artifacts` plus declared bytes reserved by active uploads under one project lock. A digest already verified in the store consumes no new reservation.
+- The only allowed `ArtifactRef.uri` form is `cclay-artifact://sha256/<digest>`, where `<digest>` is exactly 64 lowercase hexadecimal characters and must equal `ArtifactRef.sha256`. `file:`, `http:`, `https:`, `data:`, `blob:`, UNC paths, absolute/relative paths, percent encoding, query strings, fragments, extra path segments, and dot segments are rejected.
+- Each upload declares byte length and expected digest before its first chunk. One artifact payload may be at most 512 MiB; committed artifact storage plus active reservations may be at most 20 GiB per project; at most two uploads and 1 GiB of reservations may be active. Accounting counts every committed regular-file byte below `.cclay/artifacts` plus declared bytes reserved by active uploads under one project lock. A digest already verified in the store consumes no new reservation.
 - Binary frames are at most 16 MiB. The daemon streams them directly to an exclusive temporary file while incrementally counting bytes and computing SHA-256; it never buffers the payload as one allocation. Exceeding the declared length, any quota, or the exact declared byte count aborts the upload and removes the temporary file. Commit requires the streamed digest to equal the URI digest.
-- The artifact store is directory-descriptor anchored. It opens the project directory, `.omb`, `.omb/artifacts`, and `.tmp` using `openat` with `O_DIRECTORY|O_NOFOLLOW`; each component must be a non-symlink directory on the same filesystem and owned by the current user. It creates a `0600` temporary file with 128 random bits, `openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, then verifies with `fstat` that it is regular and has link count 1.
+- The artifact store is directory-descriptor anchored. It opens the project directory, `.cclay`, `.cclay/artifacts`, and `.tmp` using `openat` with `O_DIRECTORY|O_NOFOLLOW`; each component must be a non-symlink directory on the same filesystem and owned by the current user. It creates a `0600` temporary file with 128 random bits, `openat(O_CREAT|O_EXCL|O_NOFOLLOW)`, then verifies with `fstat` that it is regular and has link count 1.
 - After streaming, the store `fsync`s the temporary file, creates/opens the digest directory with `mkdirat`/`openat(O_DIRECTORY|O_NOFOLLOW)`, and publishes the fixed leaf name `payload` with no-replace semantics (`renameatx_np(RENAME_EXCL)` on macOS or `renameat2(RENAME_NOREPLACE)` on Linux). A platform without equivalent directory-relative no-replace operations fails closed; path-string canonicalize-then-write is not an accepted fallback.
-- Before updating `.omb/project.json`, the store reopens `payload` with `openat(O_NOFOLLOW)`, compares its device/inode to the temporary file's final `fstat`, and verifies that each directory descriptor still matches its parent entry using `fstatat(AT_SYMLINK_NOFOLLOW)`. Any symlink, non-regular file, owner/device/inode change, extra hard link, or replaced directory aborts the commit and leaves the revision unchanged.
+- Before updating `.cclay/project.json`, the store reopens `payload` with `openat(O_NOFOLLOW)`, compares its device/inode to the temporary file's final `fstat`, and verifies that each directory descriptor still matches its parent entry using `fstatat(AT_SYMLINK_NOFOLLOW)`. Any symlink, non-regular file, owner/device/inode change, extra hard link, or replaced directory aborts the commit and leaves the revision unchanged.
 - If `payload` already exists, the store never overwrites it. It opens no-follow, verifies regular-file metadata, length, and streamed SHA-256; an exact match is idempotent success and releases the reservation, while any mismatch is `ARTIFACT_COLLISION`. Temporary names are never addressable by URI and are removed during startup recovery after the same no-follow checks.
 - Imported `.blend` files are first stored and verified as artifacts, then opened with automatic Python execution disabled.
 
@@ -362,9 +362,9 @@ Visual critique may rank or explain candidates, but it never replaces determinis
 
 ### Phase 1 — Connection skeleton (delivered)
 
-- add `packages/blender-protocol`, `packages/director-core`, `packages/director-runtime`, `packages/blender-tools`, `apps/omb-extension`, and `blender-addon/oh_my_blender` plus root workspace/build/check/test references without editing Pi core;
+- add `packages/blender-protocol`, `packages/director-core`, `packages/director-runtime`, `packages/blender-tools`, `apps/cclay-extension`, and `blender-addon/cclay` plus root workspace/build/check/test references without editing Pi core;
 - initialize and save stable project/object/bone IDs, then persist the initial canonical revision/hash;
-- run `omb` (Pi + `apps/omb-extension`) and connect the Blender add-on;
+- run `cclay` (Pi + `apps/cclay-extension`) and connect the Blender add-on;
 - return a versioned scene manifest;
 - prove malformed/expired/consumed authentication, protocol mismatch, second-client rejection, add-on-owned disconnect rollback, both outcomes of the cancel-vs-response race, cancel acknowledgement, deadline expiry, rate/in-flight limits, teardown order, and restart-based reconnect;
 - prove hostile local Pi resources are ignored at startup, extension attempt, reload, and session-factory replacement.
@@ -422,7 +422,7 @@ Exit: the full brief → preview → inspect → revise → approve → render l
 
 ## 12. Upstream strategy
 
-- `origin`: private `HaD0Yun/oh-my-blender`;
+- `origin`: `HaD0Yun/CozyClay`;
 - `upstream`: public `earendil-works/pi`, with push disabled locally;
 - every fresh clone runs `./scripts/setup-upstream.sh`; remote configuration is never assumed to travel through Git;
 - product work: `codex/*` branches, later normal feature branches;
@@ -446,11 +446,11 @@ Exit: the full brief → preview → inspect → revise → approve → render l
 The bootstrap work unit established:
 
 1. `packages/blender-protocol`: exact startup/handshake/request/cancel/manifest schemas and shared fixtures;
-2. `packages/director-core`: identity validation, canonical manifest serialization, `scene_hash`/initial `revision_id`, and atomic `.omb/project.json`/journal persistence;
+2. `packages/director-core`: identity validation, canonical manifest serialization, `scene_hash`/initial `revision_id`, and atomic `.cclay/project.json`/journal persistence;
 3. `packages/blender-tools`: the only model-facing tool, `inspect_project`, as a session-bound factory that calls the typed Blender bridge;
 4. `packages/director-runtime`: `createDirectorSession()`, `BundledDirectorResourceLoader`, bundled prompt, Pi event/cancel/dispose wiring, and the exact `inspect_project` allowlist;
-5. `apps/omb-extension`: bridge WebSocket server lifecycle, tool registration, and endpoint discovery only;
-6. `blender-addon/oh_my_blender`: explicit identity initialization, child ownership, connect/disconnect, main-thread manifest extraction, and checkpoint verification;
+5. `apps/cclay-extension`: bridge WebSocket server lifecycle, tool registration, and endpoint discovery only;
+6. `blender-addon/cclay`: explicit identity initialization, child ownership, connect/disconnect, main-thread manifest extraction, and checkpoint verification;
 7. one integration scenario proving Blender → daemon → real Pi `AgentSession` → `inspect_project` → Blender → Pi → daemon round-trip;
 8. teardown proof showing no daemon, socket, Pi session, or Blender timer remains.
 
@@ -487,10 +487,10 @@ python3 -m unittest discover -s blender-addon/tests
 ```
 
 The `blender-addon` suite includes the real-daemon §14 integration scenario
-(`test_integration_daemon.py`), which launches `apps/omb-extension` and drives the
+(`test_integration_daemon.py`), which launches `apps/cclay-extension` and drives the
 authenticated inspect round trip against a live Pi session.
 
-Legacy note: an aggregated `npm run test:omb-roundtrip` script is not defined;
+Legacy note: an aggregated `npm run test:cclay-roundtrip` script is not defined;
 run the workspace `npm test` plus the add-on integration suite above.
 
 
@@ -521,7 +521,7 @@ decisions are normative; mutation work must not start while any of them is unimp
 - `inspect_project(scope, frame_range)` resolves this with tiers, not a bigger cap:
   `structure` (objects/cameras/markers, no f-curves), `camera` (current v2 content), and
   `animation(target, frame_range)` (windowed channels). Heavy channel data is persisted as
-  `omb-artifact://sha256/<digest>` motion artifacts per §6; the manifest stores per-entity
+  `cclay-artifact://sha256/<digest>` motion artifacts per §6; the manifest stores per-entity
   channel hashes so revisions stay cheap while motion bytes stay out of line.
 - The v2 whole-document hash remains the revision identity; per-entity hashes are a Merkle
   refinement inside `SceneManifestV1`, not a second identity scheme.

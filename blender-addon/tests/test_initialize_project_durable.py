@@ -31,7 +31,7 @@ class InitializeProjectDurableTests(unittest.TestCase):
             )
         lines = [
             line for line in completed.stdout.splitlines()
-            if line.startswith("OMB_INITIALIZE_DURABLE_RESULTS=")
+            if line.startswith("CCLAY_INITIALIZE_DURABLE_RESULTS=")
         ]
         if len(lines) != 1:
             raise AssertionError(f"missing initialize results\n{completed.stdout}")

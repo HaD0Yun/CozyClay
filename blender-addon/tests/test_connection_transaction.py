@@ -4,12 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oh_my_blender.connection import (
+from cclay.connection import (
     Connection,
     ConnectionError,
     DurableCommitReconciliationRequired,
 )
-from oh_my_blender.prepared_transaction import read_marker
+from cclay.prepared_transaction import read_marker
 
 PROJECT_ID = "123e4567-e89b-42d3-a456-426614174000"
 BRIDGE_ID = "223e4567-e89b-42d3-a456-426614174000"
@@ -112,7 +112,7 @@ class ConnectionTransactionTests(unittest.TestCase):
                 "base_revision_id", "base_scene_hash", "candidate_revision_id",
                 "candidate_scene_hash", "base_backup_sha256", "canonical_blend_sha256",
             })
-            self.assertFalse((root / ".omb" / "prepared-transaction.json").exists())
+            self.assertFalse((root / ".cclay" / "prepared-transaction.json").exists())
             self.assertEqual((root / "scene.blend").read_bytes(), CANDIDATE_BYTES)
 
     def test_connection_loss_retains_candidate_saved_evidence(self):
@@ -198,7 +198,7 @@ class ConnectionTransactionTests(unittest.TestCase):
             self.assertEqual(canonical.read_bytes(), BASE_BYTES)
             self.assertEqual(reloaded, [canonical])
             self.assertTrue(connection.tools_exposed)
-            self.assertFalse((root / ".omb" / "prepared-transaction.json").exists())
+            self.assertFalse((root / ".cclay" / "prepared-transaction.json").exists())
             self.assertEqual(
                 [message["type"] for message in websocket.sent],
                 ["bridge_transaction_reconcile"],
@@ -228,7 +228,7 @@ class ConnectionTransactionTests(unittest.TestCase):
             self.assertEqual(response["status"], "candidate_authoritative")
             self.assertEqual(canonical.read_bytes(), CANDIDATE_BYTES)
             self.assertTrue(connection.tools_exposed)
-            self.assertFalse((root / ".omb" / "prepared-transaction.json").exists())
+            self.assertFalse((root / ".cclay" / "prepared-transaction.json").exists())
             self.assertEqual(
                 [message["type"] for message in websocket.sent],
                 [
@@ -260,7 +260,7 @@ class ConnectionTransactionTests(unittest.TestCase):
                 )
 
             self.assertFalse(connection.tools_exposed)
-            self.assertTrue((root / ".omb" / "prepared-transaction.json").exists())
+            self.assertTrue((root / ".cclay" / "prepared-transaction.json").exists())
 
 if __name__ == "__main__":
     unittest.main()

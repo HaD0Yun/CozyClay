@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { StageSceneResult } from "@oh-my-blender/blender-tools";
+import type { StageSceneResult } from "@cclay/blender-tools";
 import {
 	buildSceneManifestV3Revision,
 	buildSceneManifestV4Revision,
@@ -8,14 +8,15 @@ import {
 	type DirectorProjectRecoveryV2,
 	ProjectStore,
 	type RevisionOperationEntryV2,
-} from "@oh-my-blender/director-core";
+} from "@cclay/director-core";
 import {
 	canonicalizeStageScenePlan,
 	parseSceneManifestV4,
 	parseStageSceneMutationCandidate,
+	type StageSceneAppliedHandShape,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
 import type { PreparedMutationCandidate } from "./apply-camera-plan-service.ts";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
@@ -39,7 +40,10 @@ export const createStageSceneProjectStore = (rootDir: string): StageSceneRevisio
 function validateEntityIdentities(plan: StageScenePlanV1, candidate: StageSceneMutationCandidate): void {
 	const namedOperations = plan.operations.filter(
 		(operation) =>
-			operation.op === "add_primitive" || operation.op === "upsert_area_light" || operation.op === "add_character",
+			operation.op === "add_primitive" ||
+			operation.op === "upsert_area_light" ||
+			operation.op === "add_character" ||
+			operation.op === "add_camera",
 	);
 	if (candidate.entity_identities.length !== namedOperations.length) {
 		throw new Error("INVALID_MUTATION_RESULT: entity identity mapping must cover every named operation");
@@ -56,6 +60,47 @@ function validateEntityIdentities(plan: StageScenePlanV1, candidate: StageSceneM
 		) {
 			throw new Error("INVALID_MUTATION_RESULT: entity identity mapping disagrees with the plan or manifest");
 		}
+	}
+}
+
+function expectedAppliedHandShapes(plan: StageScenePlanV1): StageSceneAppliedHandShape[] {
+	const rows: StageSceneAppliedHandShape[] = [];
+	for (const [operationIndex, operation] of plan.operations.entries()) {
+		if (operation.op !== "apply_motion") continue;
+		const legacy = "hand_pose" in operation ? operation.hand_pose : undefined;
+		const handShapes = "hand_shapes" in operation ? operation.hand_shapes : undefined;
+		const left = handShapes !== undefined && "left" in handShapes ? handShapes.left : undefined;
+		const right = handShapes !== undefined && "right" in handShapes ? handShapes.right : undefined;
+		rows.push({
+			operation_index: operationIndex,
+			entity_id: operation.entity_id,
+			motion_id: operation.motion_id,
+			left: left ?? legacy ?? "relaxed",
+			right: right ?? legacy ?? "relaxed",
+			library_version: "1.1.0",
+		});
+	}
+	return rows;
+}
+
+function validateAppliedHandShapes(plan: StageScenePlanV1, candidate: StageSceneMutationCandidate): void {
+	const expected = expectedAppliedHandShapes(plan);
+	if (
+		candidate.applied_hand_shapes.length !== expected.length ||
+		expected.some((row, index) => {
+			const actual = candidate.applied_hand_shapes[index];
+			return (
+				actual === undefined ||
+				actual.operation_index !== row.operation_index ||
+				actual.entity_id !== row.entity_id ||
+				actual.motion_id !== row.motion_id ||
+				actual.left !== row.left ||
+				actual.right !== row.right ||
+				actual.library_version !== row.library_version
+			);
+		})
+	) {
+		throw new Error("INVALID_MUTATION_RESULT: applied hand shapes disagree with the canonical motion operations");
 	}
 }
 
@@ -106,6 +151,7 @@ async function commitStageSceneMutationInner(
 		throw new Error("INVALID_MUTATION_RESULT: manifest hashes do not match the child revision chain");
 	}
 	validateEntityIdentities(plan, candidate);
+	validateAppliedHandShapes(plan, candidate);
 	const current = await store.readProject();
 	if (current.project_id !== candidate.manifest.projectId) {
 		throw new Error("INVALID_MUTATION_RESULT: manifest projectId does not match the current project");
@@ -160,6 +206,7 @@ async function commitStageSceneMutationInner(
 		resulting_revision_id: candidate.manifest.revisionId,
 		scene_hash: candidate.scene_hash,
 		entity_identities: candidate.entity_identities,
+		applied_hand_shapes: candidate.applied_hand_shapes,
 	};
 }
 

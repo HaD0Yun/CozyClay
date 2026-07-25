@@ -7,7 +7,7 @@ import {
 	parseSceneManifestV4,
 	type SceneManifestV2,
 	type SceneManifestV4,
-} from "@oh-my-blender/protocol";
+} from "@cclay/protocol";
 import { canonicalRevision } from "./canonical.ts";
 
 export interface DirectorProject extends Record<string, unknown> {
@@ -297,7 +297,7 @@ export class ProjectStore {
 
 	constructor(rootDir: string) {
 		this.rootDir = rootDir;
-		this.ombDirectory = join(rootDir, ".omb");
+		this.ombDirectory = join(rootDir, ".cclay");
 		this.projectPath = join(this.ombDirectory, "project.json");
 		this.journalPath = join(this.ombDirectory, "journal.jsonl");
 	}

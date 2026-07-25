@@ -4,13 +4,13 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
-from oh_my_blender.scene_manifest import (
+from cclay.scene_manifest import (
     INVALID_MANIFEST_REFERENCE,
     build_scene_manifest_v3,
     finalize_scene_manifest_child,
 )
-from oh_my_blender.canonical import canonical_json
-from oh_my_blender.revision import child_revision_id
+from cclay.canonical import canonical_json
+from cclay.revision import child_revision_id
 from tests.test_scene_manifest import LIGHT_OBJECT, OBJECT, parts
 
 PARENT = "a" * 64
@@ -35,7 +35,7 @@ class SceneManifestV3Tests(unittest.TestCase):
             stage_primitives=[{"objectId": OBJECT, "primitiveType": "CUBE"}],
             stage_materials=[{
                 "objectId": OBJECT,
-                "materialName": "OMB Material",
+                "materialName": "CCLAY Material",
                 "baseColor": [0.1, 0.2, 0.3, 1],
                 "useNodes": True,
                 "principledBaseColor": [0.1, 0.2, 0.3, 1],

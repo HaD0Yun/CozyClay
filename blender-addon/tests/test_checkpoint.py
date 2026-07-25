@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
-from oh_my_blender.checkpoint import create_checkpoint, restore, verify
+from cclay.checkpoint import create_checkpoint, restore, verify
 
 
 class CheckpointTests(unittest.TestCase):

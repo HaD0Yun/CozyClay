@@ -4,14 +4,14 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from oh_my_blender.scene_manifest import (
+from cclay.scene_manifest import (
     INVALID_MANIFEST_REFERENCE,
     INVALID_SCENE_MANIFEST,
     build_scene_manifest,
     finalize_scene_manifest,
     rational_fps,
 )
-from oh_my_blender.snapshot import UNSUPPORTED_FPS_BASE
+from cclay.snapshot import UNSUPPORTED_FPS_BASE
 
 PROJECT = "00000000-0000-4000-8000-000000000001"
 OBJECT = "00000000-0000-4000-8000-000000000002"

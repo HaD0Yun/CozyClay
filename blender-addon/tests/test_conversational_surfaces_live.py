@@ -13,20 +13,20 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLENDER = Path(shutil.which("blender") or "/opt/homebrew/bin/blender")
 NODE_EXECUTABLE = Path(shutil.which("node") or "/nonexistent").resolve()
-LIVE_BLEND = Path(os.environ.get("OMB_LIVE_BLEND", "/nonexistent")).expanduser().resolve()
+LIVE_BLEND = Path(os.environ.get("CCLAY_LIVE_BLEND", "/nonexistent")).expanduser().resolve()
 SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/conversational_surfaces_live_fixture.py"
-RESULT_PREFIX = "OMB_CONVERSATIONAL_SURFACES_LIVE_RESULTS="
+RESULT_PREFIX = "CCLAY_CONVERSATIONAL_SURFACES_LIVE_RESULTS="
 
 
 @unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
 @unittest.skipUnless(NODE_EXECUTABLE.is_file(), "Node is unavailable")
 @unittest.skipUnless(
-    os.environ.get("OMB_LIVE_BLEND") and LIVE_BLEND.is_file(),
-    "OMB_LIVE_BLEND is unavailable",
+    os.environ.get("CCLAY_LIVE_BLEND") and LIVE_BLEND.is_file(),
+    "CCLAY_LIVE_BLEND is unavailable",
 )
 class ConversationalSurfacesLiveTests(unittest.TestCase):
     def test_conversational_surfaces_live_contract(self):
-        with tempfile.TemporaryDirectory(prefix="omb-conversational-surfaces-") as directory:
+        with tempfile.TemporaryDirectory(prefix="cclay-conversational-surfaces-") as directory:
             project_path = Path(directory).resolve()
             project_blend = project_path / LIVE_BLEND.name
             shutil.copy2(LIVE_BLEND, project_blend)
@@ -41,8 +41,8 @@ class ConversationalSurfacesLiveTests(unittest.TestCase):
                 cwd=REPOSITORY_ROOT,
                 env={
                     **os.environ,
-                    "OMB_NODE_EXECUTABLE": str(NODE_EXECUTABLE),
-                    "OMB_LIVE_PROJECT": str(project_path),
+                    "CCLAY_NODE_EXECUTABLE": str(NODE_EXECUTABLE),
+                    "CCLAY_LIVE_PROJECT": str(project_path),
                 },
                 check=False,
                 capture_output=True,

@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { buildProjectManifest } from "@cclay/director-core";
+import { parseSceneSnapshot } from "@cclay/protocol";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { buildProjectManifest } from "@oh-my-blender/director-core";
-import { parseSceneSnapshot } from "@oh-my-blender/protocol";
 import { createDirectorSession } from "./session.ts";
 
 const flagIndex = process.argv.indexOf("--manifest");
