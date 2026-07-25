@@ -4,10 +4,12 @@ import os
 from .identity import IdentityError, assign_entity_ids, new_project_id
 from . import project_store, qa_image_display, ui_panel
 
+# Legacy Blender add-on metadata. The extension manifest
+# (blender_manifest.toml) is the single version source of truth; the tuple here
+# is not a second add-on version and must not be read as one.
 bl_info = {
     "name": "CozyClay",
     "author": "CozyClay",
-    "version": (0, 4, 0),
     "blender": (5, 0, 0),
     "category": "Animation",
 }
@@ -23,9 +25,15 @@ def _manifest_addon_version() -> str:
             version = tomllib.load(handle).get("version")
         if isinstance(version, str) and version:
             return version
-    except (OSError, ValueError):
-        pass
-    return ".".join(str(part) for part in bl_info["version"])
+    except (OSError, ValueError) as error:
+        raise RuntimeError(
+            "cclay add-on is missing or cannot read blender_manifest.toml; "
+            "the installed extension is broken"
+        ) from error
+    raise RuntimeError(
+        "cclay blender_manifest.toml carries no version; the installed "
+        "extension is broken"
+    )
 
 
 ADDON_VERSION = _manifest_addon_version()

@@ -73,11 +73,17 @@ def _repo_addon_version() -> str:
 
 
 def _loaded_addon_version(module) -> str:
-    """Version of the in-memory add-on module (legacy modules lack ADDON_VERSION)."""
+    """Version of the in-memory add-on module.
+
+    A module predating ADDON_VERSION reports "unknown", which never equals the
+    repo manifest version, so the caller reloads it -- the correct outcome for
+    an add-on old enough to lack the attribute. The legacy bl_info tuple is no
+    longer a version source.
+    """
     version = getattr(module, "ADDON_VERSION", None)
     if isinstance(version, str) and version:
         return version
-    return ".".join(str(part) for part in module.bl_info["version"])
+    return "unknown"
 
 
 def _ensure_current_addon():

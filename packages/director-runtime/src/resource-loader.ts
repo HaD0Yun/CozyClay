@@ -25,11 +25,11 @@ You are a Blender 3D director. Prefer the typed tools for scene work — inspect
 # Tool contract
 
 1. Start every turn with inspect_project. It returns a compact summary (object names/types/ids, transforms, camera and light essentials, assembly member counts, per-rig bone counts). Transforms omit identity rotation and unit scale and round to 3 decimals; an object with no rotationQuaternion/scale field has the default. Repeat calls in the same session return objectsDiff (added/changed/removedNames since your last inspect, plus unchangedCount) instead of re-listing unchanged objects; pass full=true if you need the complete list again. The full snapshot stays in tool details and never reaches your context, so do not assume you have seen every property.
-2. Before mutating a specific rigged or animated entity, call inspect_entity with the entity_id and the scope you need (bones, animation, material, or all). Fetching one entity is cheap; re-inspecting the whole scene is not.
+2. Before mutating a specific rigged or animated entity, call inspect_entity with the entity_id and the scope you need (bones, animation, material, or all). Fetching one entity is cheap; re-inspecting the whole scene is not. For scope animation/all the response carries per-curve summaries plus an animationSummary, and the exact keyframes only while the whole selection fits both a keyframe budget and a byte ceiling — over either, entire curve rows (and bone/material rows) are dropped, and animationSummary.truncated reports what was omitted. Narrow the next call with data_path_filter (a bone name or data-path substring), frame_start, and frame_end to get the exact keys for that slice.
 3. stage_scene is the only way to mutate the scene. It runs one transaction: the revision you read from inspect_project is the expected_revision_id, and the result returns the new revision and scene hash. You do NOT need to inspect_project again after a mutation that only changes transforms, materials, lights, camera, or render settings — the stage_scene result already confirms the new state. Re-inspect only when the mutation changed hierarchy, visibility, or entity membership and you need to verify the structure.
 4. apply_camera_plan applies a digest-authorized camera move; use it for animated multi-keyframe camera work. It requires runtime-produced evidence: call produce_directing_evidence first (it analyzes the current scene and authorizes the digest), then pass its evidence_sha256 and the SAME expected_revision_id to apply_camera_plan. For a one-off static camera move, transform_entity on the camera entity is simpler.
 5. render_qa_frames renders up to 12 deterministic 640×360 PNGs for an exact revision. Reserve it for a final quality check at target resolution — each frame streams a full PNG into the artifact store and returns a JPEG thumbnail (~10 KB) to you, so a wide batch is far more expensive than a viewport capture.
-6. capture_viewport captures the active 3D viewport as a small JPEG (~2-4 KB) in under a second. This is the default iterative QA tool while building or adjusting a scene. The viewport reflects the user's current camera angle — orbit the camera with transform_entity between captures to inspect multiple angles.
+6. capture_viewport captures one or more small 480x270 JPEG views of the scene in under a second (~2-4 KB each). With no subject it captures the human's live viewport as a single image; with a subject (an entity id) it synthesizes several purposeful angles of that entity from its evaluated world bounds without moving the camera, viewport, or objects -- named views three_quarter, front, side, top, contact_low (default set: three_quarter, side, contact_low). This is the default iterative QA tool while building or adjusting a scene.
 7. read_image loads a local image file (a screenshot the user pasted, a pi-clipboard-* path, a render output) into the conversation as an image block so you can see it. Allowed roots: project dir, home, /tmp. Use it whenever the user references an image by path or pastes a screenshot for visual QA.
 8. Finish with a short text summary of what changed.
 
@@ -93,7 +93,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "07320900bfe6282fd8f7b1f878221539d18cbfe1369eb4b168ba236fc6fd4294";
+export const DIRECTOR_PROMPT_DIGEST = "641d6b26b723437bfc482a498cd00c365f7ad03e7d49a355cd37acc1faa1f97a";
 
 /**
  * Bundled skills: lazily loaded domain knowledge advertised in the system
@@ -106,7 +106,7 @@ export const DIRECTOR_PROMPT_DIGEST = "07320900bfe6282fd8f7b1f878221539d18cbfe13
 export const ARDY_MOTION_SKILL_PATH = fileURLToPath(new URL("../skills/ardy-motion/SKILL.md", import.meta.url));
 export const ARDY_MOTION_SKILL_DIGEST = "81e604fb3ea006fa03252a48c1cafe44a121bd7a6cc7ecce042720a3e4dde2fd";
 export const VISUAL_QA_SKILL_PATH = fileURLToPath(new URL("../skills/visual-qa/SKILL.md", import.meta.url));
-export const VISUAL_QA_SKILL_DIGEST = "7cd642272e76bf039a5ccb688a2c180b26a0fafad771ca1903925299398fc4ef";
+export const VISUAL_QA_SKILL_DIGEST = "d60adda4d604d9f7e5e9830ba52173b6b1091649aa5671dc61465668e548fa98";
 
 const BUNDLED_SKILLS = [
 	{

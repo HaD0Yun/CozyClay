@@ -690,7 +690,7 @@ test("concurrent bridge operations serialize FIFO: the second request is only se
 		await bridge.waitForAttach();
 
 		const first = bridge.inspectProject();
-		const second = bridge.inspectEntity(PROJECT_ID, "all");
+		const second = bridge.inspectEntity(PROJECT_ID, { scope: "all" });
 		const firstRequest = JSON.parse(await client.receive());
 		assert.equal(firstRequest.type, "bridge_request");
 		assert.equal(firstRequest.method, "inspect_project");
@@ -725,11 +725,11 @@ test("concurrent bridge operations serialize FIFO: the second request is only se
 			type: "bridge_result",
 			id: secondRequest.id,
 			request_id: secondRequest.request_id,
-			result: { revision: REVISION, entity: { name: "Cube" } },
+			result: { revision: REVISION, entity_id: PROJECT_ID, scope: "all", detail: { name: "Cube" } },
 		});
 		const secondResult = await second;
 		assert.equal(secondResult.revision, REVISION);
-		assert.deepEqual(secondResult.entity, { name: "Cube" });
+		assert.deepEqual(secondResult.detail, { name: "Cube" });
 	} finally {
 		client.close();
 		await bridge.close();
@@ -833,7 +833,7 @@ test("a queued read dispatched after a rebind carries the rebound expected_revis
 		// still bound to REVISION.
 		const reboundRevision = "c".repeat(64);
 		const first = bridge.inspectProject();
-		const second = bridge.inspectEntity(PROJECT_ID, "all");
+		const second = bridge.inspectEntity(PROJECT_ID, { scope: "all" });
 
 		const firstRequest = JSON.parse(await client.receive());
 		assert.equal(firstRequest.method, "inspect_project");
@@ -857,7 +857,7 @@ test("a queued read dispatched after a rebind carries the rebound expected_revis
 			type: "bridge_result",
 			id: secondRequest.id,
 			request_id: secondRequest.request_id,
-			result: { revision: reboundRevision, entity: { name: "Cube" } },
+			result: { revision: reboundRevision, entity_id: PROJECT_ID, scope: "all", detail: { name: "Cube" } },
 		});
 		assert.equal((await second).revision, reboundRevision);
 	} finally {
@@ -955,6 +955,41 @@ test("a matching surface attaches after a refused stale attach and clears attach
 		assert.equal(bridge.attachFailure, undefined);
 	} finally {
 		fresh.close();
+		await bridge.close();
+	}
+});
+
+test("an attached bridge exposes the add-on version the peer reported", async () => {
+	// The TUI footer shows this next to the project id, so a stale add-on is
+	// visible without reading the manifest or trusting the repo constant.
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		assert.equal(bridge.attachedAddonVersion, undefined);
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await bridge.waitForAttach();
+		assert.equal(bridge.attached, true);
+		assert.equal(bridge.attachedAddonVersion, REPO_ADDON_VERSION);
+	} finally {
+		client.close();
+		await bridge.close();
+	}
+});
+
+test("a refused stale attach never records the rejected add-on version", async () => {
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		const attach = bridge.waitForAttach();
+		client.hello(PROJECT_ID, surfaceCapabilities("0.0.1"));
+		await assert.rejects(attach, /ADDON_STALE/);
+		assert.equal(bridge.attachedAddonVersion, undefined);
+	} finally {
+		client.close();
 		await bridge.close();
 	}
 });
@@ -1090,18 +1125,251 @@ test("a silent addon is reaped by the extension-side deadline and the next op di
 		await assert.rejects(wedged, /DEADLINE_EXCEEDED: bridge operation exceeded its deadline/);
 
 		// The queue advanced: the next queued op reaches the wire and resolves.
-		const next = bridge.inspectEntity(PROJECT_ID, "all");
+		const next = bridge.inspectEntity(PROJECT_ID, { scope: "all" });
 		const nextRequest = JSON.parse(await client.receive());
 		assert.equal(nextRequest.method, "inspect_entity");
 		client.send({
 			type: "bridge_result",
 			id: nextRequest.id,
 			request_id: nextRequest.request_id,
-			result: { revision: REVISION, entity: { name: "Cube" } },
+			result: { revision: REVISION, entity_id: PROJECT_ID, scope: "all", detail: { name: "Cube" } },
 		});
 		assert.equal((await next).revision, REVISION);
 	} finally {
 		client.close();
 		await bridge.close();
+	}
+});
+
+// inspect_entity param projection + result guards (story G002: bound the
+// inspect_entity animation payload). The mock add-on here is the same
+// MockBlenderClient used by the rest of this file; only the inspect_entity
+// params/result shape are exercised.
+const INSPECT_ENTITY_ID = "356ae9c2-9cc1-4541-8e8e-a6d759b4df64";
+
+test("inspect_entity: projects only entity_id, scope, and defined narrowing params onto the wire (a rogue entity_id and extra options key never reach the add-on)", async () => {
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive(); // hello_ack
+		await bridge.waitForAttach();
+
+		// The caller's options object carries an extra `bogus` key and a rogue
+		// `entity_id` that must NOT shadow the argument. The closed projection
+		// drops both before the wire.
+		const inspecting = bridge.inspectEntity(INSPECT_ENTITY_ID, {
+			scope: "animation",
+			data_path_filter: "LeftFoot",
+			frame_start: 12,
+			frame_end: 48,
+			// Deliberate caller-side skew: an extra key and a rogue entity_id that
+			// must not reach the wire or override the argument. One excess-property
+			// error covers the whole literal.
+			// @ts-expect-error -- InspectEntityOptions has neither key
+			bogus: "should-not-leak",
+			entity_id: "00000000-0000-4000-8000-000000000000",
+		});
+		const request = JSON.parse(await client.receive());
+		assert.equal(request.type, "bridge_request");
+		assert.equal(request.method, "inspect_entity");
+		assert.deepEqual(request.params, {
+			entity_id: INSPECT_ENTITY_ID,
+			scope: "animation",
+			data_path_filter: "LeftFoot",
+			frame_start: 12,
+			frame_end: 48,
+		});
+		// No undefined narrowing keys and no leaked fields on the wire.
+		assert.equal("bogus" in request.params, false);
+
+		client.send({
+			type: "bridge_result",
+			id: request.id,
+			request_id: request.request_id,
+			result: { revision: REVISION, entity_id: INSPECT_ENTITY_ID, scope: "animation", detail: { bones: [] } },
+		});
+		const result = await inspecting;
+		assert.equal(result.revision, REVISION);
+		assert.equal(result.entity_id, INSPECT_ENTITY_ID);
+	} finally {
+		client.close();
+		await bridge.close();
+	}
+});
+
+test("inspect_entity: refuses frame_start > frame_end locally with INVALID_INSPECT_ENTITY_REQUEST and never hits the wire", async () => {
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive(); // hello_ack
+		await bridge.waitForAttach();
+
+		const inspecting = bridge.inspectEntity(INSPECT_ENTITY_ID, {
+			scope: "animation",
+			frame_start: 48,
+			frame_end: 12,
+		});
+		await assert.rejects(inspecting, /INVALID_INSPECT_ENTITY_REQUEST: frame_start \(48\) must be <= frame_end \(12\)/);
+
+		// The refusal is local: no bridge_request frame is sent for the
+		// inverted range (the queue must not have dispatched it).
+		const wire = client.receive();
+		const beforeTimeout = await Promise.race([
+			wire,
+			new Promise((resolve) => setTimeout(() => resolve("NOT_SENT"), 50)),
+		]);
+		assert.equal(beforeTimeout, "NOT_SENT");
+	} finally {
+		client.close();
+		await bridge.close();
+	}
+});
+
+test("inspect_entity: refuses a result whose detail payload exceeds the 64 KiB ceiling", async () => {
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive(); // hello_ack
+		await bridge.waitForAttach();
+
+		const inspecting = bridge.inspectEntity(INSPECT_ENTITY_ID, { scope: "animation" });
+		const request = JSON.parse(await client.receive());
+		assert.equal(request.method, "inspect_entity");
+
+		// Build an oversized detail payload: a 70 KiB blob serializes well past
+		// the 65536-byte ceiling, so the bridge must refuse it before it can
+		// reach the model context window.
+		const oversized = "x".repeat(70 * 1024);
+		client.send({
+			type: "bridge_result",
+			id: request.id,
+			request_id: request.request_id,
+			result: {
+				revision: REVISION,
+				entity_id: INSPECT_ENTITY_ID,
+				scope: "animation",
+				detail: { animationSummary: { blob: oversized } },
+			},
+		});
+		await assert.rejects(inspecting, /INVALID_INSPECT_ENTITY_RESULT: detail payload exceeds the 64 KiB ceiling \(\d+ bytes\)/);
+	} finally {
+		client.close();
+		await bridge.close();
+	}
+});
+
+test("inspect_entity: refuses a result missing entity_id, scope, or object detail", async () => {
+	const bridge = new BlenderBridge();
+	const endpoint = await bridge.start();
+	const client = new MockBlenderClient();
+	try {
+		await client.connect(endpoint.port, endpoint.token);
+		client.hello(PROJECT_ID);
+		await client.receive(); // hello_ack
+		await bridge.waitForAttach();
+
+		const inspecting = bridge.inspectEntity(INSPECT_ENTITY_ID, { scope: "all" });
+		const request = JSON.parse(await client.receive());
+		// Valid revision but the envelope is wrong: detail is not an object.
+		client.send({
+			type: "bridge_result",
+			id: request.id,
+			request_id: request.request_id,
+			result: { revision: REVISION, entity_id: INSPECT_ENTITY_ID, scope: "all", detail: "not-an-object" },
+		});
+		await assert.rejects(inspecting, /INVALID_INSPECT_ENTITY_RESULT: bridge did not return entity_id, scope, and object detail/);
+	} finally {
+		client.close();
+		await bridge.close();
+	}
+});
+test("inspect_entity: accepts a result at exactly the ceiling and refuses one byte more", async () => {
+	// The add-on reduces to at most 65536 bytes over this same envelope, so the
+	// boundary has to be inclusive on the add-on's side or a legitimately
+	// reduced result would be thrown away after the work was done.
+	for (const [label, delta, expectAccepted] of [
+		["at the ceiling", 0, true],
+		["one byte over", 1, false],
+	] as const) {
+		const bridge = new BlenderBridge();
+		const endpoint = await bridge.start();
+		const client = new MockBlenderClient();
+		try {
+			await client.connect(endpoint.port, endpoint.token);
+			client.hello(PROJECT_ID);
+			await client.receive(); // hello_ack
+			await bridge.waitForAttach();
+
+			const inspecting = bridge.inspectEntity(INSPECT_ENTITY_ID, { scope: "animation" });
+			const request = JSON.parse(await client.receive());
+			const envelope = {
+				revision: REVISION,
+				entity_id: INSPECT_ENTITY_ID,
+				scope: "animation",
+				detail: { blob: "" },
+			};
+			const overhead = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+			envelope.detail.blob = "x".repeat(65536 - overhead + delta);
+			assert.equal(Buffer.byteLength(JSON.stringify(envelope), "utf8"), 65536 + delta, label);
+			client.send({
+				type: "bridge_result",
+				id: request.id,
+				request_id: request.request_id,
+				result: envelope,
+			});
+			if (expectAccepted) {
+				const result = await inspecting;
+				assert.equal(result.entity_id, INSPECT_ENTITY_ID);
+			} else {
+				await assert.rejects(inspecting, /exceeds the 64 KiB ceiling/);
+			}
+		} finally {
+			client.close();
+			await bridge.close();
+		}
+	}
+});
+
+test("inspect_entity: refuses a result bound to another entity or scope", async () => {
+	for (const [label, entityId, scope] of [
+		["another entity", "11111111-1111-4111-8111-111111111111", "animation"],
+		["another scope", INSPECT_ENTITY_ID, "material"],
+	] as const) {
+		const bridge = new BlenderBridge();
+		const endpoint = await bridge.start();
+		const client = new MockBlenderClient();
+		try {
+			await client.connect(endpoint.port, endpoint.token);
+			client.hello(PROJECT_ID);
+			await client.receive(); // hello_ack
+			await bridge.waitForAttach();
+
+			const inspecting = bridge.inspectEntity(INSPECT_ENTITY_ID, { scope: "animation" });
+			const request = JSON.parse(await client.receive());
+			client.send({
+				type: "bridge_result",
+				id: request.id,
+				request_id: request.request_id,
+				result: {
+					revision: REVISION,
+					entity_id: entityId,
+					scope,
+					detail: { name: "Rig" },
+				},
+			});
+			await assert.rejects(inspecting, /result binds .*, not the requested/, label);
+		} finally {
+			client.close();
+			await bridge.close();
+		}
 	}
 });

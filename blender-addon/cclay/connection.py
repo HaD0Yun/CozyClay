@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import secrets
 import subprocess
 import stat
@@ -100,6 +101,24 @@ _READ_ONLY_BRIDGE_METHODS = (
     "inspect_pose_contacts",
     "preflight_motion",
 )
+# Exact capture_viewport params the bridge sends; every key is always present
+# and null when unset, so an unknown key is protocol skew, not an option.
+CAPTURE_VIEWPORT_PARAM_KEYS = frozenset({"subject", "views", "project_id"})
+# Exact inspect_entity params the bridge sends; unknown keys are protocol skew.
+INSPECT_ENTITY_PARAM_KEYS = frozenset({
+    "entity_id",
+    "scope",
+    "data_path_filter",
+    "frame_start",
+    "frame_end",
+})
+# Lowercase UUID v4, the only entity_id form the bridge emits. Compiled here
+# (not imported from manifest.py, which imports bpy) so host-side pure tests can
+# exercise the validation without a Blender process.
+_UUID_V4_LOWERCASE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+_INSPECT_ENTITY_SCOPES = frozenset({"bones", "animation", "material", "all"})
 _BOOTSTRAP_REVISION_ID = "0" * 64
 _TASK_PHASES = frozenset({
     "dispatching",
@@ -887,18 +906,77 @@ class Connection:
         revision_id: str,
         params: dict,
     ) -> dict:
+        from .entity_animation import fit_result_to_budget
         from .manifest import _entity_detail
 
-        entity_id = params.get("entity_id")
-        scope = params.get("scope", "all")
+        request = params if isinstance(params, dict) else {}
+        # Closed param set: an unknown key is protocol skew, not an option.
+        unknown = sorted(set(request) - INSPECT_ENTITY_PARAM_KEYS)
+        if unknown:
+            raise ConnectionError(
+                f"INVALID_INSPECT_ENTITY_PARAMS: unknown params {unknown}"
+            )
+        entity_id = request.get("entity_id")
+        scope = request.get("scope")
+        # scope is required on both sides: no "all" defaulting here. The bridge
+        # always sends an explicit scope, so a missing one is protocol skew.
+        if scope not in _INSPECT_ENTITY_SCOPES:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: scope is required and must be bones|animation|material|all")
+        # entity_id is required and must be a lowercase UUID v4 -- the only form
+        # the bridge emits -- so a non-UUID value is protocol skew, not a
+        # best-effort lookup.
         if not isinstance(entity_id, str) or not entity_id:
             raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: entity_id is required")
-        if scope not in ("bones", "animation", "material", "all"):
-            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: scope must be bones|animation|material|all")
-        detail = _entity_detail(entity_id, scope)
+        if not _UUID_V4_LOWERCASE.fullmatch(entity_id):
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: entity_id must be a lowercase UUID v4")
+        # Optional narrowing params, all independent. bool is an int subclass in
+        # Python and must be rejected for the integer frame bounds. An explicit
+        # null is rejected rather than treated as absent, because the
+        # TypeScript schema rejects it too and the bridge only ever omits an
+        # unset key -- a present null is protocol skew.
+        for optional_key in ("data_path_filter", "frame_start", "frame_end"):
+            if optional_key in request and request[optional_key] is None:
+                raise ConnectionError(
+                    f"INVALID_INSPECT_ENTITY_PARAMS: {optional_key} must be omitted, not null"
+                )
+        data_path_filter = request.get("data_path_filter")
+        if data_path_filter is not None:
+            if not isinstance(data_path_filter, str) or not data_path_filter:
+                raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: data_path_filter must be a non-empty string")
+            if len(data_path_filter) > 128:
+                raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: data_path_filter must be at most 128 chars")
+        frame_start = request.get("frame_start")
+        frame_end = request.get("frame_end")
+        if frame_start is not None and (isinstance(frame_start, bool) or not isinstance(frame_start, int)):
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_start must be an integer")
+        if frame_end is not None and (isinstance(frame_end, bool) or not isinstance(frame_end, int)):
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_end must be an integer")
+        if frame_start is not None and frame_start < -1000000:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_start must be >= -1000000")
+        if frame_start is not None and frame_start > 1000000:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_start must be <= 1000000")
+        if frame_end is not None and frame_end < -1000000:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_end must be >= -1000000")
+        if frame_end is not None and frame_end > 1000000:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_end must be <= 1000000")
+        if frame_start is not None and frame_end is not None and frame_start > frame_end:
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: frame_start must be <= frame_end")
+        animation_query = None
+        if data_path_filter is not None or frame_start is not None or frame_end is not None:
+            animation_query = {
+                "data_path_filter": data_path_filter,
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+            }
+        detail = _entity_detail(entity_id, scope, animation_query=animation_query)
         if detail is None:
             raise ConnectionError(f"ENTITY_NOT_FOUND: entity {entity_id} does not exist")
-        return {"revision": revision_id, "entity_id": entity_id, "scope": scope, "detail": detail}
+        # Bound the exact envelope the bridge measures. An oversized result is
+        # refused there, and a refusal after the work is done leaves the model
+        # unable to inspect the entity at all.
+        return fit_result_to_budget(
+            {"revision": revision_id, "entity_id": entity_id, "scope": scope, "detail": detail}
+        )
 
     def _inspect_relations_result(self, revision_id: str, params: dict) -> dict:
         from .scene_relations import collect_relations
@@ -915,11 +993,50 @@ class Connection:
 
         return collect_preflight(revision_id, params, self.project_directory)
 
-    def _capture_viewport_result(self, revision_id: str) -> dict:
-        from .viewport_capture import capture_viewport
+    def _capture_viewport_result(self, revision_id: str, params: dict | None = None) -> dict:
+        from .viewport_capture import VIEWPORT_VIEW_KEYS, capture_viewport
 
-        viewport = capture_viewport()
-        return {"revision": revision_id, "viewport": viewport}
+        request = params if isinstance(params, dict) else {}
+        # Closed in this direction too: the bridge always sends exactly these
+        # three keys (null when unset), so anything else is a version skew we
+        # must not silently ignore.
+        unknown = sorted(set(request) - CAPTURE_VIEWPORT_PARAM_KEYS)
+        if unknown:
+            raise ConnectionError(
+                f"INVALID_CAPTURE_VIEWPORT_PARAMS: unknown params {unknown}"
+            )
+        subject = request.get("subject")
+        views = request.get("views")
+        project_id = request.get("project_id")
+        if subject is not None and not isinstance(subject, str):
+            raise ConnectionError("INVALID_CAPTURE_VIEWPORT_PARAMS: subject must be a string entity id")
+        if views is not None and not isinstance(views, list):
+            raise ConnectionError("INVALID_CAPTURE_VIEWPORT_PARAMS: views must be a list of view names")
+        if isinstance(views, list) and not all(isinstance(view, str) for view in views):
+            raise ConnectionError("INVALID_CAPTURE_VIEWPORT_PARAMS: every view name must be a string")
+        if views is not None and subject is None:
+            # The no-subject capture is the human's live viewport and cannot be
+            # re-framed, so honouring the request is impossible; returning a
+            # different image than the caller asked for is worse than failing.
+            raise ConnectionError("INVALID_CAPTURE_VIEWPORT_PARAMS: named views require a subject entity id")
+        if project_id is not None and not isinstance(project_id, str):
+            raise ConnectionError("INVALID_CAPTURE_VIEWPORT_PARAMS: project_id must be a string")
+        viewport = capture_viewport(subject=subject, views=views, project_id=project_id)
+        # The bridge turns every view into a model image content block, and a
+        # view missing its mime type or data poisons the whole conversation:
+        # data:undefined;base64,undefined is rejected by the model API on every
+        # later request, so the session cannot recover. Fail the call instead.
+        views_result = viewport["views"]
+        for view in views_result:
+            if set(view) != VIEWPORT_VIEW_KEYS:
+                raise ConnectionError(
+                    f"INVALID_CAPTURE_VIEWPORT_RESULT: view keys {sorted(view)} do not match the wire contract"
+                )
+            if not view["mime_type"] or not view["data_base64"]:
+                raise ConnectionError(
+                    f"INVALID_CAPTURE_VIEWPORT_RESULT: view {view['name']} carries no image data"
+                )
+        return {"revision": revision_id, "views": views_result}
 
     def _produce_directing_evidence_result(self, params: object) -> dict:
         from .directing_evidence import produce_directing_evidence
@@ -1328,7 +1445,7 @@ class Connection:
             return
         if message["method"] == "capture_viewport":
             try:
-                result = self._capture_viewport_result(durable_revision_id)
+                result = self._capture_viewport_result(durable_revision_id, message.get("params"))
                 self._send_json({
                     "type": "bridge_result",
                     "id": bridge_id,

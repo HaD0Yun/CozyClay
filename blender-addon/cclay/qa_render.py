@@ -42,11 +42,19 @@ MAX_RESULT_MESSAGE_BYTES = MAX_MESSAGE_SIZE - 64 * 1024
 MAX_DEADLINE_SECONDS = 30.0
 MAX_CHUNK_BYTES = 512 * 1024
 MAX_CHUNKS_PER_FRAME = 32
-# Model-facing thumbnail caps. Full PNGs are streamed as artifacts and stay
-# in tool details; the model sees only these small JPEGs to cut context cost.
-THUMBNAIL_WIDTH = 256
-THUMBNAIL_HEIGHT = 144
-THUMBNAIL_QUALITY = 72
+# Model-facing thumbnail caps. Full PNGs are streamed as artifacts and stay in
+# tool details; the model sees only these JPEGs.
+#
+# Sized to the render itself, so the thumbnail lane is a JPEG re-encode with no
+# downscale. The previous 256x144 threw away 2.5x of a frame the renderer had
+# already paid for, and the QA this feeds judges thin geometry -- a sole/support
+# seam, a finger silhouette -- which is exactly what a 2.5x point-sampled
+# reduction destroys. Vision cost is about (w*h)/750 tokens, so this is ~307
+# tokens per frame against ~49 before; measured JPEG bytes went 17.2 KB -> 58.6 KB
+# on an adversarially fine test frame, well inside MAX_IMAGE_FRAME_BYTES.
+THUMBNAIL_WIDTH = WIDTH
+THUMBNAIL_HEIGHT = HEIGHT
+THUMBNAIL_QUALITY = 82
 
 
 class RenderQaError(RuntimeError):
@@ -328,7 +336,13 @@ def _encode_thumbnail(png_bytes: bytes) -> str:
             source = Path(directory) / "frame.png"
             source.write_bytes(png_bytes)
             thumb = imbuf.load(source.as_posix())
-            thumb.resize((THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT))
+            if (thumb.size[0], thumb.size[1]) != (THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT):
+                # BILINEAR, not imbuf's FAST default: FAST point-samples, so a
+                # reduction keeps one input pixel per output pixel and drops the
+                # rest. Measured on a fine test frame at 640x360 -> 256x144, FAST
+                # left the result nearly binary (stdev 0.47 vs 0.09) AND cost 5.3x
+                # the JPEG bytes, because aliased hard edges do not compress.
+                thumb.resize((THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT), method="BILINEAR")
             thumb.file_type = "JPEG"
             thumb.quality = THUMBNAIL_QUALITY
             target = Path(directory) / "thumb.jpg"

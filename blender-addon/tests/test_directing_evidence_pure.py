@@ -21,6 +21,7 @@ from cclay import connection as connection_module
 from cclay.canonical import canonical_json
 from cclay.connection import Connection
 from cclay.directing_evidence import (
+    RUNTIME_PRODUCER_VERSION,
     EVIDENCE_PRODUCTION_FAILED,
     RUNTIME_PRODUCER_ID,
     analyze_subject_motion,
@@ -152,8 +153,12 @@ class AnalyzeSubjectMotionTests(unittest.TestCase):
         self.assertEqual(blender_to_ardy([3.0, 4.0, 5.0]), [3.0, 5.0, -4.0])
 
     def test_runtime_producer_identity_is_fixed_and_digest_bound(self):
+        # The producer version is a pinned evidence identity, not the add-on
+        # version: bumping it invalidates every committed evidence digest and
+        # every camera plan authorized by one.
         producer = runtime_producer()
-        version = ".".join(str(part) for part in bl_info["version"])
+        version = RUNTIME_PRODUCER_VERSION
+        self.assertEqual(version, "0.4.0")
         self.assertEqual(producer["id"], RUNTIME_PRODUCER_ID)
         self.assertEqual(producer["id"], "cclay-addon-runtime")
         self.assertEqual(producer["version"], version)

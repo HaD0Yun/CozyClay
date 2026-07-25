@@ -10,6 +10,7 @@ connection.py
 controller_connection.py
 daemon_child.py
 directing_evidence.py
+entity_animation.py
 fixture_registry.py
 fixtures/boxing-v4-directing-evidence.json
 hand_shapes.py
@@ -30,5 +31,6 @@ scene_relations.py
 snapshot.py
 stage_scene.py
 ui_panel.py
+view_matrices.py
 viewport_capture.py
 ws_client.py

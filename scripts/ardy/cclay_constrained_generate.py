@@ -680,7 +680,7 @@ def build_constraints(
                 global_root_heading=(
                     None
                     if headings[0] is None
-                    else torch.tensor(headings, dtype=torch.float32)
+                    else torch.tensor(headings, device=device, dtype=torch.float32)
                 ),
             )
         )

@@ -8,3 +8,4 @@ export * from "./render-qa-frames.ts";
 export * from "./scene-relations.ts";
 export * from "./snapshot.ts";
 export * from "./stage-scene.ts";
+export * from "./viewport-capture.ts";

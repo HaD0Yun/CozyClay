@@ -19,6 +19,11 @@ from .snapshot import (
     canonical_quaternion,
     snapshot_revision,
 )
+from .entity_animation import (
+    MAX_BONES,
+    MAX_MATERIALS,
+    summarize_animation_curves,
+)
 from .scene_manifest import (
     build_scene_manifest,
     build_scene_manifest_v3,
@@ -627,7 +632,7 @@ def write_scene_manifest_v2(output_path: Path) -> str:
     return revision
 
 
-def _entity_detail(entity_id: str, scope: str) -> dict | None:
+def _entity_detail(entity_id: str, scope: str, animation_query=None) -> dict | None:
     """Return full detail for one entity, selected by scope.
 
     scope 'bones': armature bone hierarchy with transforms (rigged characters).
@@ -661,9 +666,18 @@ def _entity_detail(entity_id: str, scope: str) -> dict | None:
                 "length": float(bone.length),
                 "useConnect": bool(bone.use_connect),
             })
-        detail["bones"] = bones
+        # Bound the bone section so scope "all" has a real ceiling; the cap
+        # lives in entity_animation.py (bpy-free) so the pure tests can reach it.
+        bones_omitted = len(bones) - MAX_BONES
+        if bones_omitted > 0:
+            detail["bonesOmitted"] = bones_omitted
+        detail["bones"] = bones[:MAX_BONES]
     if scope in ("animation", "all"):
-        animations = []
+        # Build the raw curve list exactly as before, then delegate to the
+        # pure summarizer so a fully-keyed rig cannot blow the model context
+        # window (see the 2 MB incident). animation_query carries the optional
+        # data_path_filter / frame_start / frame_end narrowing params.
+        curves = []
         for source_label, anim_data in (
             ("object", target.animation_data),
             ("data", target.data.animation_data if target.data is not None else None),
@@ -680,13 +694,21 @@ def _entity_detail(entity_id: str, scope: str) -> dict | None:
                     }
                     for kp in fc.keyframe_points
                 ]
-                animations.append({
+                curves.append({
                     "source": source_label,
                     "dataPath": _text(fc.data_path),
                     "arrayIndex": int(fc.array_index),
                     "keyframes": keyframes,
                 })
-        detail["animations"] = animations
+        query = animation_query or {}
+        result = summarize_animation_curves(
+            curves,
+            data_path_filter=query.get("data_path_filter"),
+            frame_start=query.get("frame_start"),
+            frame_end=query.get("frame_end"),
+        )
+        detail["animations"] = result["animations"]
+        detail["animationSummary"] = result["summary"]
     if scope in ("material", "all") and target.type == "MESH":
         materials = []
         for slot in target.material_slots:
@@ -710,5 +732,12 @@ def _entity_detail(entity_id: str, scope: str) -> dict | None:
                 "useNodes": bool(mat.use_nodes),
                 "baseColor": list(base_color) if base_color else None,
             })
-        detail["materials"] = materials
+        # Bound the material section so scope "all" has a real ceiling.
+        materials_omitted = len(materials) - MAX_MATERIALS
+        if materials_omitted > 0:
+            detail["materialsOmitted"] = materials_omitted
+        detail["materials"] = materials[:MAX_MATERIALS]
+    # The whole-envelope byte ceiling is applied by the caller
+    # (connection._inspect_entity_result), which is where the revision,
+    # entity_id, and scope fields the bridge also measures are known.
     return detail

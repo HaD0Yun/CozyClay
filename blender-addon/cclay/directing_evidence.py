@@ -47,11 +47,16 @@ _PEAK_THRESHOLD_RATIO = 0.5
 _MAX_FRAME_COUNT = 20_000
 
 
+# Evidence producer identity, deliberately pinned and independent of the add-on
+# version: it is hashed into every runtime-produced evidence document, so
+# bumping it invalidates every committed evidence digest and every camera plan
+# authorized by one. Change it only when the evidence semantics change.
+RUNTIME_PRODUCER_VERSION = "0.4.0"
+
+
 def runtime_producer() -> dict:
     """The fixed identity recorded on every runtime-produced evidence doc."""
-    from . import bl_info
-
-    version = ".".join(str(part) for part in bl_info["version"])
+    version = RUNTIME_PRODUCER_VERSION
     digest = hashlib.sha256(
         f"{RUNTIME_PRODUCER_ID}\x00{version}".encode("utf-8")
     ).hexdigest()

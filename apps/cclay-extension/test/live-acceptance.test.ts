@@ -384,7 +384,7 @@ test(
 				const camera = entityByName(after.snapshot, "CCLAY Camera");
 				assert.ok(camera?.entityId, "CCLAY Camera exists in the post-apply snapshot with an entity id");
 				const detail = (await call("inspect_entity CCLAY Camera animation", () =>
-					bridge.inspectEntity(camera!.entityId!, "animation"),
+					bridge.inspectEntity(camera!.entityId!, { scope: "animation" }),
 				)) as { detail?: { animations?: Array<{ keyframes: Array<{ frame: number }> }> } };
 				const keyedFrames = [
 					...new Set(
@@ -455,23 +455,31 @@ test(
 						],
 					});
 					const captured = await call(`capture_viewport pose ${index + 1}`, () => bridge.captureViewport());
-					const bytes = Buffer.from(captured.viewport.data_base64, "base64");
+					assert.equal(captured.views.length, 1, "a no-subject capture returns exactly one view");
+					const view = captured.views[0]!;
+					assert.equal(view.name, "viewport", "the no-subject view keeps its stable name");
+					// The 2026-07 poisoning incident: a view without a mime type or
+					// data becomes an image content block the model API refuses, and
+					// the whole session dies. Assert both are present on every view.
+					assert.ok(
+						view.mime_type.startsWith("image/"),
+						`view mime type is an image type, got ${view.mime_type}`,
+					);
+					assert.ok(view.data_base64.length > 0, "view carries base64 image data");
+					const bytes = Buffer.from(view.data_base64, "base64");
 					assert.ok(bytes.length > 0, "thumbnail is non-empty");
 					assert.ok(
-						captured.viewport.width >= 1 &&
-							captured.viewport.width <= 1024 &&
-							captured.viewport.height >= 1 &&
-							captured.viewport.height <= 1024,
-						`thumbnail dimensions bounded, got ${captured.viewport.width}x${captured.viewport.height}`,
+						view.width >= 1 && view.width <= 1024 && view.height >= 1 && view.height <= 1024,
+						`thumbnail dimensions bounded, got ${view.width}x${view.height}`,
 					);
-					const extension = captured.viewport.mime_type === "image/jpeg" ? "jpg" : "png";
+					const extension = view.mime_type === "image/jpeg" ? "jpg" : "png";
 					const file = saveArtifact(`s3/pose-${index + 1}.${extension}`, bytes);
 					buffers.push(bytes);
 					captures.push({
 						file,
 						bytes: bytes.length,
-						width: captured.viewport.width,
-						height: captured.viewport.height,
+						width: view.width,
+						height: view.height,
 						sha256: createHash("sha256").update(bytes).digest("hex"),
 					});
 				}
@@ -480,7 +488,63 @@ test(
 					distinct.size >= 2,
 					`at least two thumbnails differ byte-wise (got ${distinct.size} distinct of ${buffers.length})`,
 				);
-				return { captures, distinct_thumbnails: distinct.size };
+				// The subject path is the other half of the contract: named views
+				// are synthesized from an owned entity's evaluated world bounds
+				// without moving the camera, the viewport, or the entity. The
+				// subject must be CCLAY-owned (cclay.owned_project_id), which only
+				// stage_scene stamps -- a camera created by apply_camera_plan
+				// carries an entity id but no ownership -- so stage a cube for it.
+				const stagedSubject = await stageScene("S3 owned capture subject", {
+					schema_version: 1,
+					expected_revision_id: bridge.revisionId,
+					operations: [
+						{
+							op: "add_primitive",
+							primitive_type: "CUBE",
+							name: "S3 Capture Subject",
+							location: [0, 0, 1],
+							rotation: [0, 0, 0],
+							scale: [0.6, 0.6, 0.6],
+						},
+					],
+				});
+				const subjectId = stagedSubject.entity_identities[0]?.entity_id;
+				assert.ok(subjectId, "stage_scene returned an identity for the staged subject");
+				const multi = await call("capture_viewport subject two views", () =>
+					bridge.captureViewport({ subject: subjectId!, views: ["three_quarter", "side"] }),
+				);
+				assert.deepEqual(
+					multi.views.map((view) => view.name),
+					["three_quarter", "side"],
+					"named views come back in request order",
+				);
+				const multiBytes = multi.views.map((view) => {
+					assert.ok(view.mime_type.startsWith("image/"), `subject view mime type, got ${view.mime_type}`);
+					const decoded = Buffer.from(view.data_base64, "base64");
+					assert.ok(decoded.length > 0, `subject view ${view.name} is non-empty`);
+					saveArtifact(`s3/subject-${view.name}.jpg`, decoded);
+					return createHash("sha256").update(decoded).digest("hex");
+				});
+				assert.notEqual(multiBytes[0], multiBytes[1], "two named views are two different images");
+				// A synthesized capture must not move or delete anything; the
+				// subject is still there afterwards, and the revision only moved
+				// for the staged cube.
+				const afterCapture = await inspect("S3 after subject capture");
+				assert.equal(
+					afterCapture.revision,
+					stagedSubject.resulting_revision_id,
+					"capture_viewport does not mutate the scene",
+				);
+				assert.ok(
+					entityByName(afterCapture.snapshot, "S3 Capture Subject"),
+					"the staged subject survives the capture",
+				);
+				await stageScene("S3 remove capture subject", {
+					schema_version: 1,
+					expected_revision_id: afterCapture.revision,
+					operations: [{ op: "delete_entity", entity_id: subjectId! }],
+				});
+				return { captures, distinct_thumbnails: distinct.size, subject_views: multiBytes };
 			});
 
 			// ---------------- S2 adopt + delete a pre-existing non-CCLAY cube ----------------
@@ -549,9 +613,9 @@ test(
 					});
 				const settled = await Promise.allSettled([
 					track(0, bridge.inspectProject()),
-					track(1, bridge.inspectEntity(entityIds[0]!, "all")),
-					track(2, bridge.inspectEntity(entityIds[1]!, "all")),
-					track(3, bridge.inspectEntity(entityIds[2]!, "all")),
+					track(1, bridge.inspectEntity(entityIds[0]!, { scope: "all" })),
+					track(2, bridge.inspectEntity(entityIds[1]!, { scope: "all" })),
+					track(3, bridge.inspectEntity(entityIds[2]!, { scope: "all" })),
 				]);
 				const failures = settled
 					.map((outcome, index) => ({ outcome, index }))

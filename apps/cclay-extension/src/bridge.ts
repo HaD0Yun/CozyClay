@@ -27,9 +27,12 @@ import {
 	parseProduceDirectingEvidenceResult,
 	parseSceneSnapshot,
 	parseRenderQaFramesResult,
+	parseViewportCaptureRequest,
+	parseViewportCaptureResult,
 	type ProduceDirectingEvidenceResultV1,
 	type RenderQaFramesRequestV1,
 	type RenderQaFramesResultV1,
+	type ViewportCaptureResultV1,
 	SCENE_MANIFEST_V3_CAPABILITY,
 	type SceneRelationsResultV1,
 	type SceneSnapshot,
@@ -38,6 +41,7 @@ import {
 	type StageScenePlanV1,
 	TRANSACTION_COMMIT_CAPABILITY,
 } from "@cclay/protocol";
+import type { InspectEntityOptions } from "@cclay/blender-tools";
 import { acceptUpgrade, readClientRole, type WebSocketConnection } from "./ws-server.ts";
 
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
@@ -180,6 +184,7 @@ export class BlenderBridge {
 	private pending: PendingBridge | undefined;
 	private preparedTransaction: PendingTransaction | undefined;
 	private projectId: string | undefined;
+	private addonVersion: string | undefined;
 	private currentRevisionId = BOOTSTRAP_REVISION_ID;
 	private readonly activeRequestIds = new Set<string>();
 	private bridgeQueueTail: Promise<void> = Promise.resolve();
@@ -299,17 +304,68 @@ export class BlenderBridge {
 		return { revision: result.revision, snapshot };
 	}
 
-	async inspectEntity(
-		entityId: string,
-		scope: "bones" | "animation" | "material" | "all",
-	): Promise<Record<string, unknown>> {
+	async inspectEntity(entityId: string, options: InspectEntityOptions): Promise<Record<string, unknown>> {
+		// Closed param projection (captureViewport/inspectRelations precedent):
+		// build the wire params explicitly instead of spreading the caller's
+		// object, so an options key carrying an extra field — or a rogue
+		// `entity_id` that would shadow the argument — can never reach the
+		// add-on. The add-on rejects unknown params as protocol skew
+		// (INSPECT_ENTITY_PARAM_KEYS), so this guard keeps both sides closed.
+		const { scope, data_path_filter, frame_start, frame_end } = options;
+		// TypeBox validates the cross-field-independent bounds, but the
+		// `frame_start <= frame_end` rule spans two fields and cannot be
+		// expressed in the schema. Reject it here so the TS side matches the
+		// add-on's INVALID_INSPECT_ENTITY_PARAMS refusal without a round trip.
+		if (frame_start !== undefined && frame_end !== undefined && frame_start > frame_end) {
+			throw new Error(
+				`INVALID_INSPECT_ENTITY_REQUEST: frame_start (${frame_start}) must be <= frame_end (${frame_end})`,
+			);
+		}
+		const params: Record<string, unknown> = { entity_id: entityId, scope };
+		if (data_path_filter !== undefined) params.data_path_filter = data_path_filter;
+		if (frame_start !== undefined) params.frame_start = frame_start;
+		if (frame_end !== undefined) params.frame_end = frame_end;
 		const result = await this.runBridgeRequest(
 			"inspect_entity",
-			{ entity_id: entityId, scope },
+			params,
 			() => this.currentRevisionId,
 		);
 		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
 			throw new Error("INVALID_INSPECT_ENTITY_RESULT: bridge did not return a bound revision");
+		}
+		// The detail payload's shape is scope-dependent and intentionally open
+		// (bones hierarchy, animation curve summaries, material node inputs,
+		// or all of them), so a full closed schema here would couple the
+		// bridge to every add-on section and stomp on the deterministic
+		// truncation the add-on already performs. The actual failure mode being
+		// guarded is context-window blowup: an oversized result destroys the
+		// model conversation. So verify the minimal envelope the add-on
+		// promises (entity_id, scope, object detail) and cap the serialized
+		// byte length instead of enumerating every field.
+		if (typeof result.entity_id !== "string" || typeof result.scope !== "string" || !isRecord(result.detail)) {
+			throw new Error(
+				"INVALID_INSPECT_ENTITY_RESULT: bridge did not return entity_id, scope, and object detail",
+			);
+		}
+		// Bind the answer to the question: a result describing another entity or
+		// another scope would silently become the model's picture of the entity
+		// it asked about.
+		if (result.entity_id !== entityId || result.scope !== scope) {
+			throw new Error(
+				`INVALID_INSPECT_ENTITY_RESULT: result binds ${result.entity_id}/${result.scope}, not the requested ${entityId}/${scope}`,
+			);
+		}
+		// Encoded UTF-8 bytes, not UTF-16 code units: a rig with non-ASCII bone
+		// names costs more bytes than characters, and the ceiling is a byte
+		// ceiling.
+		const serializedLength = Buffer.byteLength(JSON.stringify(result), "utf8");
+		// 64 KiB hard ceiling: the add-on reduces deterministically to stay
+		// under it, but a misbehaving or older add-on could still emit an
+		// oversized payload — refuse it before it reaches the model context.
+		if (serializedLength > 65536) {
+			throw new Error(
+				`INVALID_INSPECT_ENTITY_RESULT: detail payload exceeds the 64 KiB ceiling (${serializedLength} bytes)`,
+			);
 		}
 		return result;
 	}
@@ -362,18 +418,25 @@ export class BlenderBridge {
 		return parseMotionPreflightResult(result);
 	}
 
-	async captureViewport(): Promise<{
-		readonly revision: string;
-		readonly viewport: { readonly mime_type: string; readonly data_base64: string; readonly width: number; readonly height: number; readonly method: string };
-	}> {
-		const result = await this.runBridgeRequest("capture_viewport", {}, () => this.currentRevisionId);
+	async captureViewport(request: { readonly subject?: string; readonly views?: readonly string[] } = {}): Promise<ViewportCaptureResultV1> {
+		// Closed in both directions: the params the add-on receives are parsed
+		// here, so an unknown key or a `views` request without a subject fails
+		// before it reaches Blender instead of being silently ignored there.
+		const params = parseViewportCaptureRequest({
+			project_id: this.projectId ?? null,
+			subject: request.subject ?? null,
+			views: request.views ?? null,
+		});
+		const result = await this.runBridgeRequest("capture_viewport", params, () => this.currentRevisionId);
 		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
 			throw new Error("INVALID_CAPTURE_VIEWPORT_RESULT: bridge did not return a bound revision");
 		}
-		return result as {
-			readonly revision: string;
-			readonly viewport: { readonly mime_type: string; readonly data_base64: string; readonly width: number; readonly height: number; readonly method: string };
-		};
+		// Guard against the 2026-07 viewport-poisoning incident: the add-on
+		// returned a multi-view payload while this method blind-cast the old
+		// flat {viewport} shape, emitting an image content block with an
+		// undefined mime type and permanently poisoning the model
+		// conversation. Parse the closed schema instead of trusting shape.
+		return parseViewportCaptureResult(result);
 	}
 
 	async produceDirectingEvidence(
@@ -408,6 +471,15 @@ export class BlenderBridge {
 	/** Project id advertised by the attached Blender peer, if any. */
 	get attachedProjectId(): string | undefined {
 		return this.projectId;
+	}
+
+	/**
+	 * Add-on version the attached Blender peer reported in its hello. Attach
+	 * cannot succeed unless this equals the repo version, so the footer shows the
+	 * peer's own claim rather than restating the repo constant.
+	 */
+	get attachedAddonVersion(): string | undefined {
+		return this.addonVersion;
 	}
 
 	async stageScene(
@@ -526,6 +598,8 @@ export class BlenderBridge {
 	 * Compare the addon-reported cclay.* surface against the repo expectation.
 	 * A legacy add-on (no version capability), a version mismatch, or any
 	 * missing required method/op fails the attach with a single ADDON_STALE.
+	 * Records the reported version on success so the footer can show what the
+	 * attached peer actually claimed.
 	 */
 	private verifyAddonSurface(capabilities: readonly string[]): void {
 		const surface = new Set(capabilities);
@@ -553,6 +627,7 @@ export class BlenderBridge {
 		if (problem !== undefined) {
 			throw new Error(`ADDON_STALE: ${problem} — ${ADDON_STALE_GUIDANCE}`);
 		}
+		this.addonVersion = reportedVersion;
 	}
 
 	private completeHandshake(websocket: WebSocketConnection, hello: unknown): MutationBridgeSession {
