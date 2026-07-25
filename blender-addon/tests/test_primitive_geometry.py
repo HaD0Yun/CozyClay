@@ -57,19 +57,6 @@ class PrimitiveGeometryTests(unittest.TestCase):
     def test_every_declared_shape_builds(self):
         self.assertEqual(sorted(self.results["shapes"]), sorted(PRIMITIVE_TYPES))
 
-    def test_only_declared_shapes_have_a_builder(self):
-        # The coverage test above proves the builder handles every declared name.
-        # This proves the reverse: nothing UNDECLARED builds. Without it, a builder
-        # branch added without a PRIMITIVE_TYPES entry is dead code no test touches,
-        # and the two canonical lists drift apart silently.
-        for name, outcome in self.results["undeclared"].items():
-            with self.subTest(name=name):
-                self.assertTrue(
-                    outcome["refused"],
-                    f"builder produced {outcome['faces']} faces for undeclared "
-                    f"shape {name!r}; add it to PRIMITIVE_TYPES or remove the branch",
-                )
-
     def test_shapes_are_solid_and_connected(self):
         for primitive_type, shape in self.results["shapes"].items():
             with self.subTest(primitive_type=primitive_type):

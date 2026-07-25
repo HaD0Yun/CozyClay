@@ -736,9 +736,17 @@ class _StageTransaction:
             and material not in self.created_materials
             and material not in self.material_states
         ):
+            # Gated on the node tree ALONE, deliberately matching the exporter in
+            # manifest.py rather than the narrower `use_nodes` test this used to
+            # share with nothing. _set_material_color turns `use_nodes` ON and
+            # then writes these sockets, so a material captured while nodes were
+            # disabled would snapshot None, skip restoration on rollback, and
+            # leave the sockets mutated -- and the exporter reads them regardless
+            # of `use_nodes`, so the restored scene would hash differently and
+            # escalate to RECOVERY_REQUIRED.
             principled = (
                 material.node_tree.nodes.get("Principled BSDF")
-                if material.use_nodes and material.node_tree is not None
+                if material.node_tree is not None
                 else None
             )
             base_color = (
@@ -940,74 +948,110 @@ _TORUS_MAJOR_RADIUS = 0.75
 _TORUS_MINOR_RADIUS = 0.25
 
 
+def _build_cube(editable, bmesh) -> None:
+    bmesh.ops.create_cube(editable, size=2)
+
+
+def _build_plane(editable, bmesh) -> None:
+    bmesh.ops.create_grid(editable, x_segments=1, y_segments=1, size=1)
+
+
+def _build_uv_sphere(editable, bmesh) -> None:
+    bmesh.ops.create_uvsphere(editable, u_segments=32, v_segments=16, radius=1)
+
+
+def _build_cylinder(editable, bmesh) -> None:
+    bmesh.ops.create_cone(
+        editable, cap_ends=True, cap_tris=False, segments=32,
+        radius1=1, radius2=1, depth=2,
+    )
+
+
+def _build_cone(editable, bmesh) -> None:
+    bmesh.ops.create_cone(
+        editable, cap_ends=True, cap_tris=False, segments=32,
+        radius1=1, radius2=0, depth=2,
+    )
+
+
+def _build_circle(editable, bmesh) -> None:
+    bmesh.ops.create_circle(editable, cap_ends=True, segments=32, radius=1)
+
+
+def _build_torus(editable, bmesh) -> None:
+    # bmesh.ops has no create_torus, so sweep a minor-radius ring around Z.
+    ring = bmesh.ops.create_circle(
+        editable, cap_ends=False, segments=12, radius=_TORUS_MINOR_RADIUS
+    )
+    for vert in ring["verts"]:
+        across, along = vert.co.x, vert.co.y
+        vert.co = (across + _TORUS_MAJOR_RADIUS, 0.0, along)
+    ring_edges = {edge for vert in ring["verts"] for edge in vert.link_edges}
+    bmesh.ops.spin(
+        editable, geom=ring["verts"] + list(ring_edges),
+        axis=(0.0, 0.0, 1.0), cent=(0.0, 0.0, 0.0), dvec=(0.0, 0.0, 0.0),
+        angle=math.tau, steps=24, use_merge=True, use_duplicate=False,
+    )
+
+
+# One inspectable table instead of an if/elif chain, so the builder vocabulary can
+# be compared against PRIMITIVE_TYPES in BOTH directions by a host-side test with
+# no Blender at all. A chain could only ever be probed with guessed names, which
+# proves nothing about a branch nobody guessed.
+_PRIMITIVE_BUILDERS = {
+    "PLANE": _build_plane,
+    "CUBE": _build_cube,
+    "UV_SPHERE": _build_uv_sphere,
+    "CYLINDER": _build_cylinder,
+    "CONE": _build_cone,
+    "CIRCLE": _build_circle,
+    "TORUS": _build_torus,
+}
+
+# Shading is part of what a shape IS, not a separate wire field, so the manifest's
+# recorded primitiveType still determines the mesh exactly and no hashed schema has
+# to change. Curved surfaces were rendering visibly faceted without this.
+_SHADING_ALL_SMOOTH = frozenset({"UV_SPHERE", "TORUS"})
+# Smooth the swept side but keep the caps flat. Shading a cap as though it were
+# curved is exactly what makes a "smooth" cylinder look wrong.
+_SHADING_SMOOTH_SIDES = frozenset({"CYLINDER", "CONE"})
+_SHADING_FLAT = frozenset({"PLANE", "CUBE", "CIRCLE"})
+# The threshold separating a swept side from a cap. Safe ONLY for the fixed
+# unit-box proportions every builder authors: the unit CONE's side face
+# |normal.z| is 0.445488364 (margin 0.454511636 below it) and its cap is 1.0
+# (margin 0.1 above). A radius-1 depth-0.4 cone would be 0.928477 and be
+# misclassified as a cap. It stays safe because the director's `scale` is an
+# OBJECT transform that never touches mesh-space normals -- so if anyone ever
+# parameterises a builder's aspect ratio, replace this with structural cap
+# identification (e.g. cap faces all share one vertex ring) rather than a
+# normal-z heuristic.
+_CAP_NORMAL_Z = 0.9
+
+
 def _build_primitive_mesh(editable, primitive_type: str) -> None:
     """Author one shape into `editable`, sized to the -1..1 unit box.
 
     Construction stays pure bmesh -- no bpy.ops -- so there is no operator
     context, no selection side effect, and no dependency on the active scene.
-    The unknown branch raises instead of falling through to a sphere: with seven
+    An unknown shape raises instead of falling through to a sphere: with seven
     shapes a silent default would turn a validation gap into a wrong mesh.
     """
     import bmesh
 
-    if primitive_type == "CUBE":
-        bmesh.ops.create_cube(editable, size=2)
-    elif primitive_type == "PLANE":
-        bmesh.ops.create_grid(editable, x_segments=1, y_segments=1, size=1)
-    elif primitive_type == "UV_SPHERE":
-        bmesh.ops.create_uvsphere(editable, u_segments=32, v_segments=16, radius=1)
-    elif primitive_type == "CYLINDER":
-        bmesh.ops.create_cone(
-            editable, cap_ends=True, cap_tris=False, segments=32,
-            radius1=1, radius2=1, depth=2,
-        )
-    elif primitive_type == "CONE":
-        bmesh.ops.create_cone(
-            editable, cap_ends=True, cap_tris=False, segments=32,
-            radius1=1, radius2=0, depth=2,
-        )
-    elif primitive_type == "CIRCLE":
-        bmesh.ops.create_circle(editable, cap_ends=True, segments=32, radius=1)
-    elif primitive_type == "TORUS":
-        # bmesh.ops has no create_torus, so sweep a minor-radius ring around Z.
-        ring = bmesh.ops.create_circle(
-            editable, cap_ends=False, segments=12, radius=_TORUS_MINOR_RADIUS
-        )
-        for vert in ring["verts"]:
-            across, along = vert.co.x, vert.co.y
-            vert.co = (across + _TORUS_MAJOR_RADIUS, 0.0, along)
-        ring_edges = {edge for vert in ring["verts"] for edge in vert.link_edges}
-        bmesh.ops.spin(
-            editable, geom=ring["verts"] + list(ring_edges),
-            axis=(0.0, 0.0, 1.0), cent=(0.0, 0.0, 0.0), dvec=(0.0, 0.0, 0.0),
-            angle=math.tau, steps=24, use_merge=True, use_duplicate=False,
-        )
-    else:
+    builder = _PRIMITIVE_BUILDERS.get(primitive_type)
+    if builder is None:
         raise STAGE_SCENE_PRIMITIVE_UNSUPPORTED(
             f"primitive_type {primitive_type!r} passed validation but has no builder"
         )
+    builder(editable, bmesh)
 
-    # Shading is part of what a shape IS, not a separate wire field, so the
-    # manifest's recorded primitiveType still determines the mesh exactly and no
-    # hashed schema has to change. Curved surfaces were rendering visibly faceted.
     editable.normal_update()
-    if primitive_type in ("UV_SPHERE", "TORUS"):
+    if primitive_type in _SHADING_ALL_SMOOTH:
         for face in editable.faces:
             face.smooth = True
-    elif primitive_type in ("CYLINDER", "CONE"):
-        # Smooth the swept side but keep the caps flat. Shading a cap as though it
-        # were curved is exactly what makes a "smooth" cylinder look wrong.
-        # The 0.9 threshold is safe ONLY for the fixed unit-box proportions every
-        # builder authors: the unit CONE's side face |normal.z| is 0.445488364
-        # (margin 0.454511636 below 0.9) and its cap is 1.0 (margin 0.1 above).
-        # A radius-1 depth-0.4 cone would be 0.928477 and be misclassified as a
-        # cap. It stays safe because the director's `scale` is an OBJECT transform
-        # that never touches mesh-space normals -- so if anyone ever parameterises
-        # the builder's aspect ratio, replace this with structural cap
-        # identification (e.g. cap faces all share one vertex ring) rather than a
-        # normal-z heuristic.
+    elif primitive_type in _SHADING_SMOOTH_SIDES:
         for face in editable.faces:
-            face.smooth = abs(face.normal.z) < 0.9
+            face.smooth = abs(face.normal.z) < _CAP_NORMAL_Z
 
 
 def _create_primitive(operation: dict, transaction: _StageTransaction, project_id: str):

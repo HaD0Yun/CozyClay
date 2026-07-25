@@ -73,6 +73,30 @@ class MaterialRollbackTests(unittest.TestCase):
     def test_scene_hash_returns_to_pre_transaction_value(self):
         self.assertEqual(self.results["post_hash"], self.results["committed_hash"])
 
+    def test_disabling_material_nodes_is_not_possible_on_this_blender(self):
+        # A review raised a rollback hole for a material with `use_nodes` off: the
+        # snapshot used to require use_nodes before reading the Principled sockets,
+        # while the exporter reads them whenever a node tree exists. The snapshot
+        # now matches the exporter, and this pins WHY that hole was unreachable
+        # anyway -- on Blender 5.2 Material.use_nodes is writable but always reads
+        # back True, since every material is node-based. If a future Blender starts
+        # honouring the write, this fails and the divergence needs re-examining.
+        self.assertFalse(self.results["disabled_nodes_disable_took_effect"])
+
+    def test_rollback_restores_the_finish_after_a_disable_attempt(self):
+        self.assertEqual(
+            self.results["disabled_nodes_failure"], "STAGE_SCENE_TARGET_NOT_FOUND"
+        )
+        self.assertAlmostEqual(
+            self.results["disabled_nodes_post_roughness"],
+            self.results["disabled_nodes_pre_roughness"],
+            delta=ABS_TOLERANCE,
+        )
+        self.assertEqual(
+            self.results["disabled_nodes_post_hash"],
+            self.results["disabled_nodes_committed_hash"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

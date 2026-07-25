@@ -18,16 +18,6 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 from cclay.scene_manifest import PRIMITIVE_TYPES  # noqa: E402
 from cclay.stage_scene import _build_primitive_mesh  # noqa: E402
 
-# Names the builder must refuse. Plausible next shapes and misspellings, so that a
-# builder branch added WITHOUT a matching PRIMITIVE_TYPES entry is caught: the
-# coverage loop below only proves every declared name builds, which is the other
-# direction. Together they pin the builder's vocabulary to the canonical list.
-UNDECLARED_NAMES = (
-    "ICO_SPHERE", "TORUS_KNOT", "GRID", "MONKEY", "TUBE", "CAPSULE", "PRISM",
-    "SPHERE", "DISC", "RING", "cube", "plane", "uv_sphere", "Cube", "", "CUBE ",
-)
-
-
 def _component_count(mesh: bmesh.types.BMesh) -> int:
     """Connected components over faces joined by shared edges.
 
@@ -100,25 +90,12 @@ except Exception as exc:  # the builder must refuse, not silently emit a sphere
 finally:
     editable.free()
 
-undeclared = {}
-for name in UNDECLARED_NAMES:
-    editable = bmesh.new()
-    try:
-        _build_primitive_mesh(editable, name)
-        undeclared[name] = {
-            "refused": False, "error": None, "faces": len(editable.faces)
-        }
-    except Exception as exc:
-        undeclared[name] = {"refused": True, "error": type(exc).__name__, "faces": 0}
-    finally:
-        editable.free()
 
 print(
     "CCLAY_PRIMITIVE_GEOMETRY="
     + json.dumps({
         "shapes": results,
         "unknownError": unknown,
-        "undeclared": undeclared,
         "declared": list(PRIMITIVE_TYPES),
     })
 )

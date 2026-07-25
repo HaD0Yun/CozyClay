@@ -139,6 +139,59 @@ post_roughness = float(principled.inputs["Roughness"].default_value)
 post_metallic = float(principled.inputs["Metallic"].default_value)
 post_hash = extract_scene_manifest_v3()["sceneHash"]
 
+# Transaction C: attempt the same failure against a material with `use_nodes`
+# turned OFF out of band, which would be the one state where a snapshot gated on
+# `use_nodes` diverges from the exporter (the exporter reads Principled values
+# whenever a node tree exists). On Blender 5.2 that state is UNREACHABLE:
+# Material.use_nodes is writable but always reads back True, because every
+# material is node-based. Record whether the disable took effect, so a future
+# Blender that honours it fails here and sends someone back to this reasoning
+# instead of leaving a silent hole.
+reset_scene()
+committed_c = apply(
+    [
+        cube(CUBE_ID, "Cube", (0, 0, 0)),
+        {
+            "op": "set_material_color",
+            "entity_id": CUBE_ID,
+            "color": [0.5, 0.5, 0.5, 1.0],
+            "roughness": 0.31,
+            "metallic": 0.0,
+        },
+    ],
+    extract_scene_manifest_v2()["sceneHash"],
+)
+material_c = bpy.data.objects["Cube"].material_slots[0].material
+material_c.use_nodes = False
+principled_c = material_c.node_tree.nodes.get("Principled BSDF")
+disable_took_effect = not material_c.use_nodes
+disabled_pre_roughness = float(principled_c.inputs["Roughness"].default_value)
+# Re-read the hash AFTER the disable attempt: `useNodes` is itself an exported
+# field, so this - not committed_c - is the state rollback has to return to.
+disabled_committed_hash = extract_scene_manifest_v3()["sceneHash"]
+
+disabled_failure = None
+try:
+    apply(
+        [
+            {
+                "op": "set_material_color",
+                "entity_id": CUBE_ID,
+                "color": [0.5, 0.5, 0.5, 1.0],
+                "roughness": 0.93,
+                "metallic": 1.0,
+            },
+            {
+                "op": "set_material_color",
+                "entity_id": GHOST_ID,
+                "color": [0.1, 0.1, 0.1, 1.0],
+            },
+        ],
+        extract_scene_manifest_v2()["sceneHash"],
+    )
+except BaseException as error:  # noqa: BLE001 - probe the rollback disposition
+    disabled_failure = type(error).__name__
+
 report = {
     "committed_hash": committed_hash,
     "post_hash": post_hash,
@@ -147,5 +200,13 @@ report = {
     "post_roughness": post_roughness,
     "post_metallic": post_metallic,
     "failure": failure,
+    "disabled_nodes_committed_hash": disabled_committed_hash,
+    "disabled_nodes_post_hash": extract_scene_manifest_v3()["sceneHash"],
+    "disabled_nodes_pre_roughness": disabled_pre_roughness,
+    "disabled_nodes_post_roughness": float(
+        principled_c.inputs["Roughness"].default_value
+    ),
+    "disabled_nodes_disable_took_effect": disable_took_effect,
+    "disabled_nodes_failure": disabled_failure,
 }
 print(f"CCLAY_MATERIAL_ROLLBACK={json.dumps(report)}")
