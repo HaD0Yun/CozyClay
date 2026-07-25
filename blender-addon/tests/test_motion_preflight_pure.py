@@ -12,12 +12,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
 from cclay import motion_preflight, motion_retarget, scene_relations
 from cclay.motion_preflight import (
+    FOOT_CONTACT_CHANNELS,
+    FOOT_CONTACT_JOINT_INDICES,
     MAX_CONTACT_WINDOWS,
     MAX_LOWEST_TRACK_SAMPLES,
     PreflightMotionError,
     _contact_windows,
     _derive_entity_scale,
     _end_pose,
+    _foot_contact_windows,
     _lowest_track,
     _round3,
     _round6,
@@ -41,7 +44,7 @@ VALID_UUID = "00000000-0000-4000-8000-000000000001"
 TOP_LEVEL_KEYS = {
     "revision", "schema_version", "motion_id", "frames", "fps",
     "duration_seconds", "scale", "units", "travel", "lowest_track",
-    "contact_windows", "end_pose",
+    "contact_windows", "foot_contacts", "end_pose",
 }
 TRAVEL_KEYS = {
     "vector_horizontal", "distance_horizontal", "height_start", "height_end",
@@ -49,6 +52,9 @@ TRAVEL_KEYS = {
 }
 LOWEST_TRACK_KEYS = {"min", "max", "sample_stride", "samples"}
 CONTACT_WINDOW_KEYS = {"start_frame", "end_frame", "height"}
+FOOT_CONTACT_WINDOW_KEYS = {
+    "channel", "start_frame", "end_frame", "height", "height_max",
+}
 END_POSE_KEYS = {"root_height", "lowest_gap", "speed", "resting"}
 
 
@@ -409,11 +415,12 @@ class _FakeBones:
 
 
 class _FakeObject:
-    def __init__(self, entity_id, type_, bones=()):
+    def __init__(self, entity_id, type_, bones=(), scale=(1.0, 1.0, 1.0)):
         self._entity_id = entity_id
         self.type = type_
         self.data = mock.Mock()
         self.data.bones = _FakeBones(bones)
+        self.scale = scale
 
     def get(self, key):
         return self._entity_id if key == "cclay.entity_id" else None
@@ -460,6 +467,83 @@ class EntityScaleTests(unittest.TestCase):
         with _scene_with([_FakeObject(VALID_UUID, "ARMATURE", bones)]):
             scale = _derive_entity_scale(VALID_UUID, self._posed())
         self.assertAlmostEqual(scale, 0.01)  # 0.5 m rig thigh / 50 npz units
+
+    def test_scale_incorporates_object_world_scale(self):
+        """CozyClay issue #2: a YBot at object scale 0.01 must report a
+        meter-correct preflight scale, not the ~98.5x-inflated raw-local-unit
+        value the bug produced (rig bones are unscaled local edit-bone
+        lengths; a 100-unit local thigh under a 0.01 object scale is a
+        0.01 m). local -> 1.0 m world, over the same 50-unit npz thigh, must
+        report 0.02 (100 * 0.01 / 50), not 2.0 (100 / 50)."""
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 100.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 100.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.0, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(0.01, 0.01, 0.01)
+        )
+        with _scene_with([armature]):
+            scale = _derive_entity_scale(VALID_UUID, self._posed())
+        self.assertAlmostEqual(scale, 0.02)
+
+    def test_non_uniform_object_scale_fails_closed(self):
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(0.01, 0.01, 0.02)
+        )
+        with _scene_with([armature]):
+            with self.assertRaises(PreflightMotionError) as caught:
+                _derive_entity_scale(VALID_UUID, self._posed())
+        self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+
+    def test_zero_object_scale_fails_closed(self):
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(0.0, 0.0, 0.0)
+        )
+        with _scene_with([armature]):
+            with self.assertRaises(PreflightMotionError) as caught:
+                _derive_entity_scale(VALID_UUID, self._posed())
+        self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+
+    def test_negative_object_scale_fails_closed(self):
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(-0.01, -0.01, -0.01)
+        )
+        with _scene_with([armature]):
+            with self.assertRaises(PreflightMotionError) as caught:
+                _derive_entity_scale(VALID_UUID, self._posed())
+        self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+
+    def test_uniform_scale_within_tolerance_is_accepted(self):
+        """Floating-point round-trips (e.g. UI edits) must not spuriously trip
+        the non-uniform-scale fail-closed check."""
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones,
+            scale=(0.01, 0.01 + 1e-9, 0.01 - 1e-9),
+        )
+        with _scene_with([armature]):
+            scale = _derive_entity_scale(VALID_UUID, self._posed())
+        self.assertAlmostEqual(scale, 0.0001)
 
 
 class LoaderPassThroughTests(unittest.TestCase):
@@ -606,6 +690,122 @@ class SchemaTests(unittest.TestCase):
         committed = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
         regenerated = json.loads(json.dumps(build_golden_payload()))
         self.assertEqual(committed, regenerated)
+
+
+class FootContactTests(unittest.TestCase):
+    @staticmethod
+    def _foot_frame(root, heights):
+        """One frame with an explicit height per foot-contact joint."""
+        joints = [[root[0], root[1], root[2]] for _ in range(JOINTS)]
+        for joint_index, height in zip(FOOT_CONTACT_JOINT_INDICES, heights):
+            joints[joint_index] = [root[0], height, root[2]]
+        return joints
+
+    def _flat(self, frames, heights=(0.0, 0.0, 0.0, 0.0)):
+        return [self._foot_frame([0.0, 0.9, 0.0], heights) for _ in range(frames)]
+
+    def test_channel_order_and_joints_match_ardy(self):
+        """Pinned against ardy/motion_rep/feet.py's documented channel order.
+
+        Reordering these silently attributes one foot's contact to the other,
+        which is unrecoverable downstream because the caller only sees a name.
+        """
+        self.assertEqual(
+            [channel for channel, _joint in FOOT_CONTACT_CHANNELS],
+            ["left_heel", "left_toe", "right_heel", "right_toe"],
+        )
+        self.assertEqual(
+            [joint for _channel, joint in FOOT_CONTACT_CHANNELS],
+            ["LeftFoot", "LeftToeBase", "RightFoot", "RightToeBase"],
+        )
+        # CoreSkeleton27.left_foot_joint_idx / right_foot_joint_idx.
+        self.assertEqual(FOOT_CONTACT_JOINT_INDICES, (25, 26, 21, 22))
+
+    def test_absent_contacts_report_null_not_empty(self):
+        """None means "the npz carries no channel"; [] means "no contact seen"."""
+        posed = self._flat(10)
+        self.assertIsNone(analyze_motion(posed, 20)["foot_contacts"])
+        flags = [[False] * 4 for _ in range(10)]
+        self.assertEqual(analyze_motion(posed, 20, None, flags)["foot_contacts"], [])
+
+    def test_windows_are_named_per_channel_with_their_own_joint_height(self):
+        posed = self._flat(8, heights=(0.0, 0.0, 0.18, 0.18))
+        flags = [[False] * 4 for _ in range(8)]
+        for frame in (1, 2, 3):
+            flags[frame][0] = True
+        for frame in (5, 6):
+            flags[frame][3] = True
+        windows = _foot_contact_windows(posed, flags, 1.0)
+        self.assertEqual(
+            [
+                (w["channel"], w["start_frame"], w["end_frame"], w["height"])
+                for w in windows
+            ],
+            [("left_heel", 1, 3, 0.0), ("right_toe", 5, 6, 0.18)],
+        )
+        for window in windows:
+            self.assertEqual(set(window), FOOT_CONTACT_WINDOW_KEYS)
+
+    def test_height_reports_the_mean_and_the_worst_frame_in_the_window(self):
+        """The pair is what makes "model says planted, geometry says airborne"
+        measurable: a 6 cm height_max under a declared contact is a foot float.
+        """
+        posed = [
+            self._foot_frame([0.0, 0.9, 0.0], (height, 0.0, 0.0, 0.0))
+            for height in (0.0, 0.0, 0.03, 0.06, 0.0)
+        ]
+        flags = [[False] * 4 for _ in range(5)]
+        flags[2][0] = True
+        flags[3][0] = True
+        window = _foot_contact_windows(posed, flags, 1.0)[0]
+        self.assertEqual((window["height"], window["height_max"]), (0.045, 0.06))
+
+    def test_a_foot_planted_on_a_stair_reads_that_stair_not_an_error(self):
+        """Heights stay absolute, so correct stair climbing cannot look faulty.
+
+        A "distance above the floor" field would flag every stair contact,
+        which is why none exists.
+        """
+        posed = []
+        flags = []
+        for step in range(4):
+            for _ in range(3):
+                posed.append(
+                    self._foot_frame([0.0, 0.9, 0.0], (0.0, 0.0, 0.18 * step, 0.0))
+                )
+                flags.append([False, False, True, False])
+            posed.append(
+                self._foot_frame([0.0, 0.9, 0.0], (0.0, 0.0, 0.18 * step + 0.1, 0.0))
+            )
+            flags.append([False] * 4)
+        self.assertEqual(
+            [w["height"] for w in _foot_contact_windows(posed, flags, 1.0)],
+            [0.0, 0.18, 0.36, 0.54],
+        )
+
+    def test_windows_sort_by_frame_across_channels(self):
+        posed = self._flat(6)
+        flags = [[False] * 4 for _ in range(6)]
+        flags[4][0] = flags[5][0] = True
+        flags[0][3] = flags[1][3] = True
+        windows = _foot_contact_windows(posed, flags, 1.0)
+        self.assertEqual(
+            [w["channel"] for w in windows], ["right_toe", "left_heel"]
+        )
+
+    def test_scale_applies_to_reported_heights(self):
+        posed = self._flat(4, heights=(0.5, 0.0, 0.0, 0.0))
+        flags = [[True, False, False, False] for _ in range(4)]
+        window = _foot_contact_windows(posed, flags, 2.0)[0]
+        self.assertEqual((window["height"], window["height_max"]), (1.0, 1.0))
+
+    def test_window_count_is_capped(self):
+        frames = MAX_CONTACT_WINDOWS * 4
+        posed = self._flat(frames)
+        flags = [[frame % 2 == 0, False, False, False] for frame in range(frames)]
+        self.assertEqual(
+            len(_foot_contact_windows(posed, flags, 1.0)), MAX_CONTACT_WINDOWS
+        )
 
 
 if __name__ == "__main__":

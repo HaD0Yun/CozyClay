@@ -2,6 +2,7 @@ export * from "./camera-plan.ts";
 export * from "./manifest.ts";
 export * from "./messages.ts";
 export * from "./motion-preflight.ts";
+export * from "./pose-contacts.ts";
 export * from "./produce-directing-evidence.ts";
 export * from "./render-qa-frames.ts";
 export * from "./scene-relations.ts";

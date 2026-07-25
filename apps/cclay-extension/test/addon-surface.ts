@@ -13,6 +13,7 @@ assert.ok(REPO_ADDON_VERSION, "blender_manifest.toml version is readable");
 export const BRIDGE_METHODS = [
 	"inspect_project",
 	"inspect_entity",
+	"inspect_pose_contacts",
 	"inspect_relations",
 	"preflight_motion",
 	"capture_viewport",

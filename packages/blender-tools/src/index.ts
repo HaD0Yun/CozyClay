@@ -1,6 +1,7 @@
 export * from "./apply-camera-plan.ts";
 export * from "./capture-viewport.ts";
 export * from "./inspect-entity.ts";
+export * from "./inspect-pose-contacts.ts";
 export * from "./inspect-project.ts";
 export * from "./inspect-relations.ts";
 export * from "./inspect-summary.ts";

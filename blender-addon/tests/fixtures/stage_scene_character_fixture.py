@@ -15,7 +15,7 @@ import numpy
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 import cclay.stage_scene as stage_scene_module
-from cclay import hand_shapes, motion_retarget
+from cclay import hand_shapes, motion_retarget, pose_contacts
 
 from cclay.hand_shapes import CANONICAL_ROLE_ORDER, LIBRARY_VERSION
 from cclay.manifest import (
@@ -38,6 +38,7 @@ XBOT_ID = "22222222-2222-4222-8222-222222222222"
 DUPE_ID = "33333333-3333-4333-8333-333333333333"
 CAMERA_ID = "44444444-4444-4444-8444-444444444444"
 FAILED_CAMERA_ID = "55555555-5555-4555-8555-555555555555"
+SUPPORT_FLOOR_ID = "66666666-6666-4666-8666-666666666666"
 UUID4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -485,6 +486,201 @@ def main():
             for side in ("left", "right")
             for role in CANONICAL_ROLE_ORDER
         )
+        # Issue #2 (item D): frame-specific pose-contact inspection must
+        # distinguish the LeftFoot/RightFoot skeleton joint from the deformed
+        # mesh sole surface -- never conflate a zero joint residual with
+        # verified sole contact.
+        frame_before_pose_contacts = bpy.context.scene.frame_current
+        samples = stage_scene_module._pose_contact_samples(YBOT_ID, [1, 2, 3])
+        results["poseContactFrameOrder"] = [sample["frame"] for sample in samples] == [1, 2, 3]
+        results["poseContactRestoresCurrentFrame"] = (
+            bpy.context.scene.frame_current == frame_before_pose_contacts
+        )
+        left0 = samples[0]["sides"]["left"]
+        right0 = samples[0]["sides"]["right"]
+        results["poseContactHasBothSides"] = set(samples[0]["sides"]) == {"left", "right"}
+        results["poseContactJointAndSoleDiffer"] = (
+            left0["foot_joint_co"] is not None
+            and left0["sole_co"] is not None
+            and left0["sole_source"] == "deformed_mesh"
+            and left0["foot_joint_co"] != left0["sole_co"]
+        )
+        results["poseContactHeelToeVectorResolved"] = (
+            right0["heel_co"] is not None
+            and right0["toe_co"] is not None
+            and right0["heel_to_toe"] == [
+                right0["toe_co"][axis] - right0["heel_co"][axis] for axis in range(3)
+            ]
+        )
+        # deformed=False must fail closed to "no surface evidence", never a
+        # guessed constant joint offset.
+        joint_only = stage_scene_module._pose_contact_samples(
+            YBOT_ID, [1], deformed=False
+        )[0]["sides"]["left"]
+        results["poseContactDeformedFalseWithholdsSurfaceEvidence"] = (
+            joint_only["foot_joint_co"] is not None
+            and joint_only["heel_co"] is None
+            and joint_only["toe_co"] is None
+            and joint_only["sole_co"] is None
+            and joint_only["sole_source"] is None
+        )
+        try:
+            stage_scene_module._pose_contact_samples(CAMERA_ID, [1])
+        except stage_scene_module.PoseContactError as error:
+            results["poseContactRejectsNonArmatureEntity"] = "ARMATURE" in str(error)
+        else:
+            results["poseContactRejectsNonArmatureEntity"] = False
+        try:
+            stage_scene_module._pose_contact_samples(FAILED_CAMERA_ID, [1])
+        except stage_scene_module.PoseContactError:
+            results["poseContactRejectsUnknownEntity"] = True
+        else:
+            results["poseContactRejectsUnknownEntity"] = False
+        try:
+            stage_scene_module._pose_contact_samples(YBOT_ID, [])
+        except stage_scene_module.PoseContactError:
+            results["poseContactRejectsEmptyFrames"] = True
+        else:
+            results["poseContactRejectsEmptyFrames"] = False
+        # Issue #2 (item D continued): the callable bridge --
+        # ``pose_contacts.collect_pose_contacts`` -- not just the pure
+        # geometry helpers, must run under real Blender end-to-end: resolve
+        # the character, resolve a real declared support mesh's world AABB,
+        # measure the deformed sole against it, and return the exact closed
+        # public payload shape.
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(1.0, 0.0, -0.5))
+        support_floor = bpy.context.active_object
+        support_floor.name = "Foot Contact Support Floor"
+        support_floor.scale = (6.0, 6.0, 1.0)
+        support_floor["cclay.entity_id"] = SUPPORT_FLOOR_ID
+        support_floor["cclay.owned_project_id"] = PROJECT_ID
+        bpy.context.view_layer.update()
+
+        pose_contacts_revision = extract_scene_manifest_v2()["revisionId"]
+        bridge_frame_before = bpy.context.scene.frame_current
+        bridge_result = pose_contacts.collect_pose_contacts(
+            pose_contacts_revision,
+            {
+                "character_entity_id": YBOT_ID,
+                "frames": [1, 2],
+                "support_entity_ids": [SUPPORT_FLOOR_ID],
+            },
+        )
+        results["poseContactsBridgeRestoresCurrentFrame"] = (
+            bpy.context.scene.frame_current == bridge_frame_before
+        )
+        results["poseContactsBridgeResultShape"] = (
+            set(bridge_result) == {
+                "revision", "schema_version", "character_entity_id", "gate", "frames",
+            }
+            and bridge_result["schema_version"] == 1
+            and bridge_result["character_entity_id"] == YBOT_ID
+            and set(bridge_result["gate"]) == {"max_gap_m", "min_edge_margin_m"}
+        )
+        bridge_frames = bridge_result["frames"]
+        results["poseContactsBridgeFrameOrder"] = (
+            [frame["frame"] for frame in bridge_frames] == [1, 2]
+        )
+        bridge_left = bridge_frames[0]["sides"]["left"]
+        bridge_right = bridge_frames[0]["sides"]["right"]
+        results["poseContactsBridgeSideShape"] = set(bridge_left) == {
+            "foot_joint_position", "toe_joint_position", "heel_point", "toe_point",
+            "sole_point", "sole_source", "heel_to_toe_m", "joint_to_sole_offset_m",
+            "contact_basis", "support",
+        }
+        results["poseContactsBridgeBothJointsPresent"] = (
+            bridge_left["foot_joint_position"] is not None
+            and bridge_left["toe_joint_position"] is not None
+            and bridge_right["foot_joint_position"] is not None
+            and bridge_right["toe_joint_position"] is not None
+        )
+        results["poseContactsBridgeDeformedSoleEvidence"] = (
+            bridge_left["sole_point"] is not None
+            and bridge_left["sole_source"] == "deformed_mesh"
+            and bridge_left["contact_basis"] == "deformed_mesh"
+        )
+        bridge_support = bridge_left["support"]
+        results["poseContactsBridgeSupportFitPresent"] = (
+            bridge_support is not None
+            and set(bridge_support) == {
+                "support_entity_id", "support_height_m", "support_gap_m",
+                "inside_support_footprint", "edge_margin_m", "footprint_basis",
+                "surface_contact_verified",
+            }
+        )
+        # Never assert a specific pass/fail verdict -- the fixture pose may
+        # or may not actually be planted on the support. Only assert that
+        # the reported verdict agrees with the measured gate formula applied
+        # to the numbers the payload itself emits.
+        expected_verified = (
+            abs(bridge_support["support_gap_m"]) <= pose_contacts.DEFAULT_MAX_GAP_M
+            and bridge_support["inside_support_footprint"]
+            and bridge_support["edge_margin_m"] >= pose_contacts.DEFAULT_MIN_EDGE_MARGIN_M
+        )
+        results["poseContactsBridgeVerdictMatchesGateFormula"] = (
+            bridge_support["surface_contact_verified"] == expected_verified
+        )
+        results["poseContactsBridgeSignedGapAndFootprintEmitted"] = (
+            isinstance(bridge_support["support_gap_m"], float)
+            and isinstance(bridge_support["edge_margin_m"], float)
+            and bridge_support["footprint_basis"] == "aabb_xy"
+            and bridge_support["support_entity_id"] == SUPPORT_FLOOR_ID
+        )
+        try:
+            pose_contacts.collect_pose_contacts(
+                pose_contacts_revision,
+                {
+                    "character_entity_id": YBOT_ID,
+                    "frames": [bpy.context.scene.frame_end + 1000],
+                    "support_entity_ids": [SUPPORT_FLOOR_ID],
+                },
+            )
+        except pose_contacts.PoseContactsError as error:
+            results["poseContactsBridgeOutOfRangeFrameRejected"] = (
+                error.code == "SCENE_FRAME_OUT_OF_RANGE"
+            )
+        else:
+            results["poseContactsBridgeOutOfRangeFrameRejected"] = False
+        results["poseContactsBridgeFrameRestoredAfterOutOfRangeFailure"] = (
+            bpy.context.scene.frame_current == bridge_frame_before
+        )
+        try:
+            pose_contacts.collect_pose_contacts(
+                pose_contacts_revision,
+                {
+                    "character_entity_id": CAMERA_ID,
+                    "frames": [1],
+                    "support_entity_ids": [SUPPORT_FLOOR_ID],
+                },
+            )
+        except pose_contacts.PoseContactsError as error:
+            results["poseContactsBridgeNonArmatureRejected"] = (
+                error.code == "NOT_AN_ARMATURE"
+            )
+        else:
+            results["poseContactsBridgeNonArmatureRejected"] = False
+        try:
+            pose_contacts.collect_pose_contacts(
+                pose_contacts_revision,
+                {
+                    "character_entity_id": FAILED_CAMERA_ID,
+                    "frames": [1],
+                    "support_entity_ids": [SUPPORT_FLOOR_ID],
+                },
+            )
+        except pose_contacts.PoseContactsError as error:
+            results["poseContactsBridgeUnknownEntityRejected"] = (
+                error.code == "ENTITY_NOT_FOUND"
+            )
+        else:
+            results["poseContactsBridgeUnknownEntityRejected"] = False
+        # The support mesh was created directly (outside the staged
+        # transaction system) purely as read-only geometry for the bridge
+        # calls above; remove it so the live scene manifest hash returns to
+        # exactly what the subsequent staged transactions below expect.
+        support_floor_mesh = support_floor.data
+        bpy.data.objects.remove(support_floor, do_unlink=True)
+        bpy.data.meshes.remove(support_floor_mesh)
         motion_result = apply_stage_scene_transaction(
             {
                 "schema_version": 1,
@@ -651,6 +847,71 @@ def main():
             )
         else:
             results["handTrackOutOfRangeRejected"] = False
+        # The fixture motion is 20 fps. Every disagreement below must fail, in
+        # either operation order, because the contract is one frame rate per
+        # plan. Previously render-last played the keys 20% fast and motion-last
+        # dropped the request, and a second motion at another rate was not
+        # checked at all -- the scene simply ended at whichever ran last.
+        numpy.savez(
+            motions / "mismatch-motion.npz",
+            local_rot_mats=numpy.asarray(fixture["local_rot_mats"]),
+            posed_joints=numpy.asarray(fixture["posed_joints"]),
+            fps=numpy.asarray(25),
+        )
+        for case, operations in (
+            (
+                "fpsConflictRejectedRenderFirst",
+                [
+                    {"op": "set_render_settings", "fps": 24},
+                    {
+                        "op": "apply_motion",
+                        "entity_id": YBOT_ID,
+                        "motion_id": "fixture-motion",
+                    },
+                ],
+            ),
+            (
+                "fpsConflictRejectedMotionFirst",
+                [
+                    {
+                        "op": "apply_motion",
+                        "entity_id": YBOT_ID,
+                        "motion_id": "fixture-motion",
+                    },
+                    {"op": "set_render_settings", "fps": 24},
+                ],
+            ),
+            (
+                "fpsConflictRejectedTwoMotions",
+                [
+                    {
+                        "op": "apply_motion",
+                        "entity_id": YBOT_ID,
+                        "motion_id": "fixture-motion",
+                    },
+                    {
+                        "op": "apply_motion",
+                        "entity_id": YBOT_ID,
+                        "motion_id": "mismatch-motion",
+                    },
+                ],
+            ),
+        ):
+            try:
+                apply_stage_scene_transaction(
+                    {
+                        "schema_version": 1,
+                        "expected_revision_id": motion_result["manifest"]["revisionId"],
+                        "operations": operations,
+                    },
+                    motion_result["scene_hash"],
+                    connection,
+                    committed.append,
+                )
+            except Exception as error:
+                results[case] = "APPLY_MOTION_FPS_CONFLICT" in str(error)
+            else:
+                results[case] = False
         digit_curves = [
             fcurve
             for fcurve in animation_fcurves(ybot.animation_data)

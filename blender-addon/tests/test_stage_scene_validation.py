@@ -15,6 +15,10 @@ from cclay.stage_scene import (
     _inspect_motion_archive,
     _load_motion_payload,
     parse_stage_scene_plan,
+    _require_plan_fps_agrees,
+    _requested_scene_fps,
+    _pose_contact_frames,
+    PoseContactError,
 )
 from cclay.hand_shapes import PRESET_NAMES
 
@@ -512,7 +516,9 @@ class StageSceneValidationTests(unittest.TestCase):
             payload = b"\0" * (element_count * itemsize)
         return b"\x93NUMPY\x01\x00" + struct.pack("<H", len(header)) + header + payload
 
-    def write_motion_archive(self, path, *, rotations=None, joints=None, fps=None):
+    def write_motion_archive(
+        self, path, *, rotations=None, joints=None, fps=None, carried=None
+    ):
         rotations = rotations or self.npy_v1((1, 27, 3, 3), "<f8")
         joints = joints or self.npy_v1((1, 27, 3), "<f8")
         fps = fps or self.npy_v1((), "<i8", payload=(24).to_bytes(8, "little"))
@@ -520,6 +526,24 @@ class StageSceneValidationTests(unittest.TestCase):
             archive.writestr("local_rot_mats.npy", rotations)
             archive.writestr("posed_joints.npy", joints)
             archive.writestr("fps.npy", fps)
+            for name, member in (carried or {}).items():
+                archive.writestr(name, member)
+
+    def carried_members(self, frames=1, *, overrides=None):
+        """The six members ARDY writes next to the three the addon consumes."""
+        text = "a person walks forward."
+        members = {
+            "foot_contacts.npy": self.npy_v1((frames, 4), "|b1"),
+            "global_rot_mats.npy": self.npy_v1((frames, 27, 3, 3), "<f4"),
+            "global_root_heading.npy": self.npy_v1((frames, 2), "<f4"),
+            "root_positions.npy": self.npy_v1((frames, 3), "<f4"),
+            "smooth_root_pos.npy": self.npy_v1((frames, 3), "<f4"),
+            "text.npy": self.npy_v1(
+                (), f"<U{len(text)}", payload=text.encode("utf-32-le")
+            ),
+        }
+        members.update(overrides or {})
+        return members
 
     def assert_motion_archive_rejected(self, path):
         with self.assertRaises(StageSceneError) as caught:
@@ -630,6 +654,223 @@ class StageSceneValidationTests(unittest.TestCase):
                 archive.writestr("fps.npy", b"not-an-npy")
             self.assert_motion_archive_rejected(path)
             self.assert_loader_preflight_rejected(project_directory)
+
+    def test_motion_npz_accepts_the_members_ardy_actually_writes(self):
+        """ARDY emits nine members, not three.
+
+        ``scripts/generate.py`` and both cclay_* generators end in
+        ``np.savez(path, **motion_dict)``, so demanding an exact three-member
+        set rejected every unmodified generated motion (measured: 16 of 42
+        staged motions failed APPLY_MOTION_MALFORMED). The generators live in
+        another repo, so this direction is pinned here.
+        """
+        with tempfile.TemporaryDirectory() as project_directory:
+            path = self.motion_path(project_directory)
+            self.write_motion_archive(path, carried=self.carried_members())
+            self.assertEqual(_inspect_motion_archive(path), 24)
+
+    def test_motion_npz_frame_locks_and_type_checks_the_carried_members(self):
+        text = "a person walks forward."
+        cases = {
+            # A carried member describing a different clip must not ride along.
+            "contacts-frame-mismatch": {
+                "foot_contacts.npy": self.npy_v1((2, 4), "|b1")
+            },
+            "root-frame-mismatch": {"root_positions.npy": self.npy_v1((2, 3), "<f4")},
+            "contacts-width": {"foot_contacts.npy": self.npy_v1((1, 3), "|b1")},
+            # Contacts must stay boolean: a float array here would read as
+            # "always in contact" once preflight consumes the model's own labels.
+            "contacts-not-bool": {"foot_contacts.npy": self.npy_v1((1, 4), "<f4")},
+            "text-not-scalar": {
+                "text.npy": self.npy_v1((1,), "<U1", payload=b"\0" * 4)
+            },
+            # numpy spells unicode width in characters and stores UCS-4, so a
+            # utf-8 payload is a quarter of the declared size.
+            "text-width-lies": {
+                "text.npy": self.npy_v1((), f"<U{len(text)}", payload=text.encode())
+            },
+            "object-dtype": {"text.npy": self.npy_v1((), "|O8", payload=b"\0" * 8)},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as project_directory:
+                path = self.motion_path(project_directory)
+                self.write_motion_archive(
+                    path, carried=self.carried_members(overrides=overrides)
+                )
+                self.assert_motion_archive_rejected(path)
+
+
+class MotionFpsContractTests(unittest.TestCase):
+    """One frame rate per plan; a disagreement fails loudly and order-free."""
+
+    RENDER_24 = {"op": "set_render_settings", "fps": 24}
+
+    @staticmethod
+    def _apply(motion_id="walk-20"):
+        return {"op": "apply_motion", "entity_id": "e", "motion_id": motion_id}
+
+    @staticmethod
+    def _plan(*operations):
+        return {"operations": list(operations)}
+
+    @staticmethod
+    def _fps_of(motion_id):
+        """Motion ids in these plans encode their own native fps as a suffix."""
+        return int(motion_id.rsplit("-", 1)[1])
+
+    def _assert_conflict(self, plan, *expected_fragments):
+        with self.assertRaises(StageSceneError) as caught:
+            _require_plan_fps_agrees(plan, self._fps_of)
+        message = str(caught.exception)
+        self.assertIn("APPLY_MOTION_FPS_CONFLICT", message)
+        for fragment in expected_fragments:
+            self.assertIn(fragment, message)
+        return message
+
+    def test_requested_fps_is_none_when_the_plan_never_names_one(self):
+        """Omitting fps is the normal case and must stay unguarded: a plan that
+        only applies motion is free to adopt the motion's native rate.
+        """
+        self.assertIsNone(_requested_scene_fps(self._plan(self._apply())))
+        self.assertIsNone(
+            _requested_scene_fps(
+                self._plan({"op": "set_render_settings", "resolution_x": 1920})
+            )
+        )
+
+    def test_last_write_wins_across_several_render_operations(self):
+        """Blender keeps only the final assignment, so the guard must compare
+        against the value the scene would actually end up with. An earlier
+        matching fps must not excuse a later conflicting one.
+        """
+        plan = self._plan(
+            {"op": "set_render_settings", "fps": 20},
+            self._apply(),
+            self.RENDER_24,
+        )
+        self.assertEqual(_requested_scene_fps(plan), 24)
+        self._assert_conflict(plan, "set_render_settings is 24 fps")
+
+    def test_render_conflict_is_rejected_in_both_operation_orders(self):
+        """The defect was order-dependent and silent both ways:
+        set_render_settings last played 20 fps keys at 24 so the clip ran 20%
+        fast, apply_motion last discarded the requested fps. Neither errored.
+        """
+        for label, plan in (
+            ("render-then-motion", self._plan(self.RENDER_24, self._apply())),
+            ("motion-then-render", self._plan(self._apply(), self.RENDER_24)),
+        ):
+            with self.subTest(order=label):
+                # Both rates must appear: the director cannot fix this without
+                # knowing which of the two values to drop.
+                self._assert_conflict(
+                    plan, "set_render_settings is 24 fps", "motion walk-20 is 20 fps"
+                )
+
+    def test_two_motions_with_different_native_rates_are_rejected(self):
+        """The hole a per-operation check could never see. With no fps named in
+        the plan at all, each motion individually agrees with "nothing
+        requested", so both used to pass and the scene ended at whichever ran
+        last -- the other clip then played at the wrong rate.
+        """
+        self._assert_conflict(
+            self._plan(self._apply("walk-20"), self._apply("run-25")),
+            "motion walk-20 is 20 fps",
+            "motion run-25 is 25 fps",
+        )
+
+    def test_remediation_names_only_the_sources_actually_in_conflict(self):
+        """Telling a two-motion conflict to "omit fps from set_render_settings"
+        points the caller at an operation its plan does not contain, and the
+        reverse hides the option that actually applies.
+        """
+        two_motions = self._assert_conflict(
+            self._plan(self._apply("walk-20"), self._apply("run-25"))
+        )
+        self.assertNotIn("omit fps from set_render_settings", two_motions)
+        self.assertIn("apply only motions that share a frame rate", two_motions)
+
+        render_only = self._assert_conflict(
+            self._plan(self.RENDER_24, self._apply("walk-20"))
+        )
+        self.assertIn("omit fps from set_render_settings", render_only)
+        self.assertNotIn("apply only motions that share a frame rate", render_only)
+
+        # Regenerating at the target rate is always available, so it is always
+        # offered; it is the only route when the plan wants a rate no motion has.
+        for message in (two_motions, render_only):
+            self.assertIn("regenerate the motion", message)
+
+    def test_agreeing_plans_pass(self):
+        cases = (
+            ("motion only", self._plan(self._apply())),
+            (
+                "fps matches motion",
+                self._plan({"op": "set_render_settings", "fps": 20}, self._apply()),
+            ),
+            (
+                "two motions share a rate",
+                self._plan(self._apply("walk-20"), self._apply("jog-20")),
+            ),
+            ("no motion at all", self._plan(self.RENDER_24)),
+            (
+                "render fields but no fps",
+                self._plan(
+                    {"op": "set_render_settings", "resolution_x": 1920}, self._apply()
+                ),
+            ),
+        )
+        for label, plan in cases:
+            with self.subTest(case=label):
+                _require_plan_fps_agrees(plan, self._fps_of)
+
+    def test_motion_fps_is_never_resolved_for_a_plan_without_motion(self):
+        """No apply_motion means no npz to read, so the resolver must not run:
+        a camera-only plan is free to pick any fps it likes.
+        """
+
+        def explode(motion_id):
+            raise AssertionError(f"resolver must not run, got {motion_id}")
+
+        _require_plan_fps_agrees(self._plan(self.RENDER_24), explode)
+
+
+class PoseContactFramesValidationTests(unittest.TestCase):
+    """``_pose_contact_frames`` runs before any bpy access, so it is exercised
+    directly here without a real Blender process (see
+    ``AddCharacterRealBlenderTests`` for the bpy-dependent geometry paths).
+    """
+
+    def test_accepts_a_short_list_of_non_negative_integers(self):
+        self.assertEqual(_pose_contact_frames([0, 1, 5]), [0, 1, 5])
+
+    def test_rejects_non_list_frames(self):
+        for frames in (None, "5", 5, {0: 1}, (0, 1)):
+            with self.subTest(frames=frames):
+                with self.assertRaises(PoseContactError):
+                    _pose_contact_frames(frames)
+
+    def test_rejects_empty_frame_list(self):
+        with self.assertRaises(PoseContactError):
+            _pose_contact_frames([])
+
+    def test_rejects_too_many_frames(self):
+        with self.assertRaises(PoseContactError):
+            _pose_contact_frames(list(range(65)))
+
+    def test_accepts_the_frame_count_ceiling(self):
+        self.assertEqual(len(_pose_contact_frames(list(range(64)))), 64)
+
+    def test_rejects_negative_bool_and_non_integer_frames(self):
+        for frames in ([-1], [True], [False], [1.5], ["1"], [None]):
+            with self.subTest(frames=frames):
+                with self.assertRaises(PoseContactError):
+                    _pose_contact_frames(frames)
+
+    def test_error_is_a_stage_scene_error(self):
+        with self.assertRaises(StageSceneError):
+            _pose_contact_frames([])
+
 
 if __name__ == "__main__":
     unittest.main()

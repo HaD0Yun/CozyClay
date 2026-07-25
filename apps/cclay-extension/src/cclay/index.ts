@@ -5,6 +5,7 @@ import {
 	createApplyCameraPlanTool,
 	createCaptureViewportTool,
 	createInspectEntityTool,
+	createInspectPoseContactsTool,
 	createInspectProjectTool,
 	createInspectRelationsTool,
 	createPreflightMotionTool,
@@ -97,6 +98,7 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 
 	pi.registerTool(createInspectProjectTool(bridge));
 	pi.registerTool(createInspectEntityTool(bridge));
+	pi.registerTool(createInspectPoseContactsTool(bridge));
 	pi.registerTool(createInspectRelationsTool(bridge));
 	pi.registerTool(createPreflightMotionTool(bridge));
 	pi.registerTool(createCaptureViewportTool(bridge));

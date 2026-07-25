@@ -20,6 +20,9 @@ import {
 	parseAddonBridgeMessage,
 	parseDaemonBridgeMessage,
 	parseMotionPreflightResult,
+	type InspectPoseContactsParamsV1,
+	parsePoseContactsResult,
+	type PoseContactsResultV1,
 	parseSceneRelationsResult,
 	parseProduceDirectingEvidenceResult,
 	parseSceneSnapshot,
@@ -62,6 +65,7 @@ const NEGOTIATED_CORE_CAPABILITIES = [
 const REQUIRED_BRIDGE_METHODS = [
 	"inspect_project",
 	"inspect_entity",
+	"inspect_pose_contacts",
 	"inspect_relations",
 	"preflight_motion",
 	"capture_viewport",
@@ -326,6 +330,21 @@ export class BlenderBridge {
 		// (preflightMotion / produceDirectingEvidence precedent); parse failure
 		// throws an Error whose message starts with INVALID_INSPECT_RELATIONS_RESULT.
 		return parseSceneRelationsResult(result);
+	}
+
+	async inspectPoseContacts(params: InspectPoseContactsParamsV1): Promise<PoseContactsResultV1> {
+		const result = await this.runBridgeRequest(
+			"inspect_pose_contacts",
+			params,
+			() => this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
+			throw new Error("INVALID_INSPECT_POSE_CONTACTS_RESULT: bridge did not return a bound revision");
+		}
+		// Runtime-parse the addon payload with the closed protocol schema
+		// (inspectRelations precedent); parse failure throws an Error whose
+		// message starts with INVALID_POSE_CONTACTS_RESULT.
+		return parsePoseContactsResult(result);
 	}
 
 	async preflightMotion(params: {

@@ -17,6 +17,7 @@ SUPPORTED_BRIDGE_METHODS = (
     "capture_viewport",
     "produce_directing_evidence",
     "inspect_relations",
+    "inspect_pose_contacts",
     "preflight_motion",
     "apply_camera_plan",
     "stage_scene",

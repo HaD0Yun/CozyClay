@@ -46,7 +46,8 @@ Usage (from ~/ardy):
         --output outputs/cclay/constrained --seed 7
 
 The last stdout line is a single JSON object:
-    {"frames": int, "fps": int, "model": str,
+    {"target_space": "skeleton_joint_center", "surface_contact_verified": False,
+     "frames": int, "fps": int, "model": str,
      "targets": [{"frame", "joint", "requested", "base", "achieved",
                   "base_error_m", "achieved_error_m"}],
      "residual": {"max_error_m", "mean_error_m", "worst_frame", "worst_joint"},
@@ -56,6 +57,17 @@ The last stdout line is a single JSON object:
 request: a constraint that the sampler could not satisfy must be visible as a
 number rather than silently trusted. ``base_error_m`` is the same distance on
 the unconstrained pass, so the pair shows whether constraining helped.
+
+``target_space`` is always ``"skeleton_joint_center"``: every distance in this
+result (``achieved_error_m``, ``base_error_m``, and ``residual``) is the
+Euclidean gap between the requested point and the named SKELETON JOINT center,
+in npz space. It is not a measurement of sole/surface contact: the skeleton has
+no foot sole geometry, so a joint center landing exactly on a target says
+nothing about whether a modeled shoe sole or foot mesh actually touches the
+surface at that frame. ``surface_contact_verified`` is hard-coded ``False`` for
+that reason: zero joint-center residual cannot prove sole contact, and no
+downstream consumer should treat ``achieved_error_m == 0`` as surface-contact
+verification without an independent mesh/surface check.
 """
 
 import argparse
@@ -431,6 +443,8 @@ def main():
 
     jumps = _posed_joint_jumps(generated_joints)
     result = {
+        "target_space": "skeleton_joint_center",
+        "surface_contact_verified": False,
         "frames": int(generated_joints.shape[0]),
         "fps": int(fps),
         "model": resolved_model,

@@ -1342,11 +1342,29 @@ def _rename_entity(operation: dict, transaction: _StageTransaction, project_id: 
 _MAX_MOTION_FILE_BYTES = 64 * 1024 * 1024
 _MAX_MOTION_PAYLOAD_BYTES = 96 * 1024 * 1024
 _MAX_NPY_HEADER_BYTES = 16 * 1024
-_MOTION_MEMBER_NAMES = {
+_MOTION_REQUIRED_MEMBERS = {
     "local_rot_mats.npy",
     "posed_joints.npy",
     "fps.npy",
 }
+# ARDY writes these next to the three members we consume: scripts/generate.py
+# and both cclay_* generators end in np.savez(path, **motion_dict), so a real
+# generated motion always carries them. Demanding an exact three-member set
+# rejected every unmodified ARDY npz (measured: 16 of 42 staged motions failed
+# APPLY_MOTION_MALFORMED), so they are validated and carried rather than
+# stripped -- stripping would also throw away foot_contacts, which the model
+# predicts and preflight currently re-derives from joint heights.
+# Shapes are frame-locked to local_rot_mats so a carried member cannot smuggle
+# in a different clip; ``None`` in a shape means "the clip's frame count".
+_MOTION_OPTIONAL_MEMBERS = {
+    "foot_contacts.npy": (("b",), (None, 4)),
+    "global_rot_mats.npy": (("f",), (None, 27, 3, 3)),
+    "global_root_heading.npy": (("f",), (None, 2)),
+    "root_positions.npy": (("f",), (None, 3)),
+    "smooth_root_pos.npy": (("f",), (None, 3)),
+    "text.npy": (("U",), ()),
+}
+_MOTION_MEMBER_NAMES = _MOTION_REQUIRED_MEMBERS | set(_MOTION_OPTIONAL_MEMBERS)
 
 
 def _motion_malformed(motion_id: str, message: str) -> None:
@@ -1409,11 +1427,17 @@ def _inspect_motion_member(archive, info, motion_id: str):
         _motion_malformed(motion_id, f"{info.filename} must use C order")
     if not isinstance(descr, str):
         _motion_malformed(motion_id, f"{info.filename} must have a scalar dtype")
-    dtype_match = re.fullmatch(r"([<>=|])([A-Za-z?])([1248])", descr)
+    # Itemsize is multi-digit for the carried unicode prompt scalar (e.g. "<U187");
+    # the numeric members stay pinned to 1/2/4/8 by _is_supported_motion_dtype.
+    dtype_match = re.fullmatch(r"([<>=|])([A-Za-z?])([0-9]{1,4})", descr)
     if dtype_match is None:
         _motion_malformed(motion_id, f"{info.filename} has an invalid dtype")
     byte_order, dtype_kind, itemsize_text = dtype_match.groups()
     itemsize = int(itemsize_text)
+    if dtype_kind == "U":
+        # numpy spells unicode width in characters ("<U187"), not bytes, and the
+        # payload is UCS-4. Return bytes so every caller's size math is uniform.
+        itemsize *= 4
     return shape, dtype_kind, itemsize, byte_order, payload_offset
 
 
@@ -1427,6 +1451,25 @@ def _is_supported_motion_dtype(kind: str, itemsize: int, byte_order: str) -> boo
     )
 
 
+def _is_supported_carried_dtype(
+    kind: str, itemsize: int, byte_order: str, kinds: tuple
+) -> bool:
+    """Dtype rule for the carried members listed in _MOTION_OPTIONAL_MEMBERS.
+
+    ``_is_supported_motion_dtype`` only covers the numeric arrays we read; the
+    carried set adds boolean foot contacts and a unicode prompt scalar. Object
+    dtypes stay rejected here, and ``numpy.load(allow_pickle=False)`` in
+    ``_load_motion_payload`` is the second line of defence.
+    """
+    if kind not in kinds:
+        return False
+    if kind == "b":
+        return itemsize == 1
+    if kind == "U":
+        return itemsize > 0 and itemsize % 4 == 0
+    return _is_supported_motion_dtype(kind, itemsize, byte_order)
+
+
 def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
     motion_id = path.stem if motion_id is None else motion_id
     try:
@@ -1435,11 +1478,12 @@ def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
             names = [info.filename for info in infos]
             if len(names) != len(set(names)):
                 _motion_malformed(motion_id, "contains duplicate members")
-            if set(names) != _MOTION_MEMBER_NAMES:
-                _motion_malformed(
-                    motion_id,
-                    f"must contain exactly {sorted(_MOTION_MEMBER_NAMES)}",
-                )
+            missing = sorted(_MOTION_REQUIRED_MEMBERS - set(names))
+            if missing:
+                _motion_malformed(motion_id, f"is missing {missing}")
+            unknown = sorted(set(names) - _MOTION_MEMBER_NAMES)
+            if unknown:
+                _motion_malformed(motion_id, f"contains unknown member(s) {unknown}")
             if any(
                 info.is_dir()
                 or info.filename != Path(info.filename).name
@@ -1510,7 +1554,7 @@ def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
                 _motion_malformed(
                     motion_id, "fps.npy must be a non-boolean integral scalar"
                 )
-            for info, shape, itemsize, payload_offset in (
+            size_checks = [
                 (
                     by_name["local_rot_mats.npy"],
                     rotations_shape,
@@ -1524,7 +1568,25 @@ def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
                     joints_offset,
                 ),
                 (by_name["fps.npy"], fps_shape, fps_itemsize, fps_offset),
-            ):
+            ]
+            frame_count = rotations_shape[0]
+            for name, (kinds, template) in _MOTION_OPTIONAL_MEMBERS.items():
+                info = by_name.get(name)
+                if info is None:
+                    continue
+                shape, kind, itemsize, byte_order, offset = _inspect_motion_member(
+                    archive, info, motion_id
+                )
+                expected = tuple(
+                    frame_count if dimension is None else dimension
+                    for dimension in template
+                )
+                if shape != expected:
+                    _motion_malformed(motion_id, f"{name} must have shape {expected}")
+                if not _is_supported_carried_dtype(kind, itemsize, byte_order, kinds):
+                    _motion_malformed(motion_id, f"{name} has an unsupported dtype")
+                size_checks.append((info, shape, itemsize, offset))
+            for info, shape, itemsize, payload_offset in size_checks:
                 if payload_offset + math.prod(shape) * itemsize != info.file_size:
                     _motion_malformed(
                         motion_id,
@@ -1558,14 +1620,16 @@ def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
         _motion_malformed(motion_id, f"is not a readable npz: {error}")
 
 
-def _load_motion_payload(
-    project_directory: object, motion_id: str, *, validate: bool = True
-) -> tuple[object, object, int]:
-    """Load and validate .cclay/motions/<motion_id>.npz from the project dir.
+def _motion_path(project_directory: object, motion_id: str) -> Path:
+    """Resolve .cclay/motions/<motion_id>.npz with the trust fencing applied.
 
     The motion id grammar (validated at parse time) cannot traverse, but the
     resolved path is still fenced to the motions directory and symlinks are
     refused, mirroring the runtime-evidence trust rules.
+
+    Extracted so the plan-level fps preflight reads the same fenced path as the
+    loader instead of re-deriving it; two derivations would be two places to
+    forget a check.
     """
     if project_directory is None:
         raise StageSceneError(
@@ -1587,6 +1651,29 @@ def _load_motion_payload(
             f"APPLY_MOTION_TOO_LARGE: motion {motion_id} exceeds "
             f"{_MAX_MOTION_FILE_BYTES} bytes"
         )
+    return path
+
+
+def _motion_fps(project_directory: object, motion_id: str) -> int:
+    """The npz's native fps, read from headers only.
+
+    Cheap enough to call for every apply_motion in a plan before any mutation:
+    _inspect_motion_archive never materializes an array.
+    """
+    return _inspect_motion_archive(
+        _motion_path(project_directory, motion_id), motion_id
+    )
+
+
+def _load_motion_payload(
+    project_directory: object,
+    motion_id: str,
+    *,
+    validate: bool = True,
+    carried: tuple = (),
+) -> tuple[object, object, int, dict]:
+    """Load and validate .cclay/motions/<motion_id>.npz from the project dir."""
+    path = _motion_path(project_directory, motion_id)
     fps = _inspect_motion_archive(path, motion_id)
 
     import numpy
@@ -1595,6 +1682,12 @@ def _load_motion_payload(
         with numpy.load(path, allow_pickle=False) as data:
             local_rot_mats = data["local_rot_mats"]
             posed_joints = data["posed_joints"]
+            # Only the requested carried arrays are materialized: global_rot_mats
+            # alone is as large as local_rot_mats, so apply_motion must not pay
+            # for members it never reads.
+            carried_arrays = {
+                name: data[name] for name in carried if name in data.files
+            }
     except StageSceneError:
         raise
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
@@ -1606,7 +1699,7 @@ def _load_motion_payload(
             motion_retarget.validate_motion(local_rot_mats, posed_joints, fps)
         except motion_retarget.MotionRetargetError as error:
             raise StageSceneError(f"APPLY_MOTION_MALFORMED: {error}")
-    return local_rot_mats, posed_joints, fps
+    return local_rot_mats, posed_joints, fps, carried_arrays
 
 
 def _rig_scale_inputs(bones) -> tuple[str, object]:
@@ -1623,6 +1716,220 @@ def _rig_scale_inputs(bones) -> tuple[str, object]:
     if upper is None or lower is None:
         return prefix, None
     return prefix, (lower.head_local - upper.head_local).length
+
+
+class PoseContactError(StageSceneError):
+    """A pose-contact inspection request is malformed or its target invalid."""
+
+    code = "INVALID_POSE_CONTACT_REQUEST"
+
+
+_MAX_POSE_CONTACT_FRAMES = 64
+# ARDY's own vocabulary (LeftFoot/RightFoot/*ToeBase) is preserved verbatim in
+# the bone lookup below -- it is external constrained-generation vocabulary
+# (see motion_retarget.MIXAMO_TARGETS and motion_preflight.FOOT_CONTACT_CHANNELS)
+# and issue #2 requires it stay addressable, even though the joint itself is
+# NOT a sole-contact point (see the module docstring of motion_preflight.py).
+_POSE_CONTACT_SIDES = (
+    ("left", "LeftFoot", "LeftToeBase"),
+    ("right", "RightFoot", "RightToeBase"),
+)
+
+
+def _pose_contact_frames(frames: object) -> list[int]:
+    """Validate and return the requested frame list; fail closed on anything
+    that is not a short list of non-negative integers.
+    """
+    if (
+        not isinstance(frames, list)
+        or not frames
+        or len(frames) > _MAX_POSE_CONTACT_FRAMES
+    ):
+        raise PoseContactError(
+            f"frames must be a list of 1..{_MAX_POSE_CONTACT_FRAMES} integers"
+        )
+    result = []
+    for value in frames:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise PoseContactError(
+                "every frame must be a non-negative integer"
+            )
+        result.append(value)
+    return result
+
+
+def _pose_contact_armature(entity_id: str):
+    """Resolve ``entity_id`` to a CCLAY-tagged armature; fail closed otherwise."""
+    scene_object = _entity(entity_id)
+    if scene_object is None:
+        raise PoseContactError(f"entity_id {entity_id} does not exist")
+    if scene_object.type != "ARMATURE":
+        raise PoseContactError(
+            f"entity_id {entity_id} is a {scene_object.type}, not an ARMATURE"
+        )
+    return scene_object
+
+
+def _skinned_meshes(armature) -> list:
+    """MESH objects deformed by ``armature`` through an Armature modifier."""
+    meshes = []
+    for candidate in bpy.data.objects:
+        if candidate.type != "MESH":
+            continue
+        for modifier in candidate.modifiers:
+            if getattr(modifier, "type", None) == "ARMATURE" and modifier.object is armature:
+                meshes.append(candidate)
+                break
+    return meshes
+
+
+def _foot_vertex_group_hits(meshes, bone_name: str) -> list[tuple[object, int]]:
+    """(mesh, vertex_group_index) pairs whose vertex group is named ``bone_name``."""
+    hits = []
+    for mesh_obj in meshes:
+        group = mesh_obj.vertex_groups.get(bone_name)
+        if group is not None:
+            hits.append((mesh_obj, group.index))
+    return hits
+
+
+def _lowest_deformed_vertex_world(depsgraph, hits) -> list[float] | None:
+    """World co of the lowest-Z evaluated vertex weighted (>0) to any of ``hits``.
+
+    Reads the depsgraph-evaluated mesh, so this reflects the deformed sole
+    surface at the currently-set frame, not the rest-pose mesh or a joint
+    offset. Returns ``None`` when no such vertex exists (empty groups, no
+    weight, or no bound mesh) -- callers must not fall back to a guessed
+    constant offset.
+    """
+    best = None
+    for mesh_obj, group_index in hits:
+        evaluated = mesh_obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        try:
+            matrix = evaluated.matrix_world
+            for vertex in mesh.vertices:
+                if not any(
+                    group.group == group_index and group.weight > 0.0
+                    for group in vertex.groups
+                ):
+                    continue
+                world = matrix @ vertex.co
+                if best is None or world.z < best.z:
+                    best = world.copy()
+        finally:
+            evaluated.to_mesh_clear()
+    return list(best) if best is not None else None
+
+
+def _pose_contact_side(
+    armature, meshes, depsgraph, foot_bone_name: str, toe_bone_name: str, *, deformed: bool
+) -> dict:
+    """Raw per-side geometry for one frame; never infers surface contact.
+
+    ``foot_joint_co``/``toe_joint_co`` are the skeleton joints (e.g.
+    ``LeftFoot``/``LeftToeBase``) that issue #2 warns must not be treated as
+    sole-contact markers. ``heel_co``/``toe_co``/``sole_co`` are read from the
+    deformed mesh surface when ``deformed`` is true and a matching vertex
+    group resolves; otherwise they -- and ``sole_source`` -- are ``None``
+    rather than a guessed constant offset.
+    """
+    pose_bone = armature.pose.bones.get(foot_bone_name)
+    toe_pose_bone = armature.pose.bones.get(toe_bone_name)
+    if pose_bone is None or toe_pose_bone is None:
+        return {
+            "foot_joint_co": None,
+            "toe_joint_co": None,
+            "heel_co": None,
+            "toe_co": None,
+            "sole_co": None,
+            "sole_source": None,
+            "heel_to_toe": None,
+        }
+    foot_joint_co = list(armature.matrix_world @ pose_bone.head)
+    toe_joint_co = list(armature.matrix_world @ toe_pose_bone.head)
+    heel_co = None
+    toe_co = None
+    if deformed:
+        heel_co = _lowest_deformed_vertex_world(
+            depsgraph, _foot_vertex_group_hits(meshes, foot_bone_name)
+        )
+        toe_co = _lowest_deformed_vertex_world(
+            depsgraph, _foot_vertex_group_hits(meshes, toe_bone_name)
+        )
+    candidates = [co for co in (heel_co, toe_co) if co is not None]
+    sole_co = min(candidates, key=lambda co: co[2]) if candidates else None
+    sole_source = "deformed_mesh" if candidates else None
+    heel_to_toe = (
+        [toe_co[axis] - heel_co[axis] for axis in range(3)]
+        if heel_co is not None and toe_co is not None
+        else None
+    )
+    return {
+        "foot_joint_co": foot_joint_co,
+        "toe_joint_co": toe_joint_co,
+        "heel_co": heel_co,
+        "toe_co": toe_co,
+        "sole_co": sole_co,
+        "sole_source": sole_source,
+        "heel_to_toe": heel_to_toe,
+    }
+
+
+def _pose_contact_samples(
+    entity_id: str, frames: object, *, deformed: bool = True
+) -> list[dict]:
+    """Read-only per-frame/per-side character-side geometry for pose-contact QA.
+
+    Returns one ``{"frame": int, "sides": {"left": {...}, "right": {...}}}``
+    dict per requested frame (see ``_pose_contact_side`` for the per-side
+    shape). This is the character-side half of issue #2's frame-specific
+    pose-contact inspection: it reports skeleton joint position alongside
+    deformed-mesh heel/toe/sole samples, but deliberately stops short of
+    support-plane gap/penetration/footprint math (that support geometry and
+    the closed result schema belong to ``pose_contacts``/``connection``, so
+    this stays bpy-only and host-untestable pieces stay out of it).
+
+    Frame stepping mutates and restores ``scene.frame_current`` and forces a
+    depsgraph re-evaluation per frame via ``frame_set`` so every sample
+    reflects that frame's actually-deformed pose, never a stale evaluation.
+    ``frame_set`` does not itself reject a frame outside ``[scene.frame_start,
+    scene.frame_end]`` -- it silently clamps/holds instead, which is exactly
+    the "looks right, is wrong" failure issue #2 targets. This layer only
+    validates frame count/type (see ``_pose_contact_frames``); the caller
+    (``pose_contacts``'s pose-contact param validation) MUST reject any
+    frame outside the scene's configured range before calling this function.
+    """
+    armature = _pose_contact_armature(entity_id)
+    frame_list = _pose_contact_frames(frames)
+    meshes = _skinned_meshes(armature)
+    prefix = (
+        "mixamorig:"
+        if any(bone.name.startswith("mixamorig:") for bone in armature.data.bones)
+        else ""
+    )
+    scene = bpy.context.scene
+    original_frame = scene.frame_current
+    samples = []
+    try:
+        for frame in frame_list:
+            scene.frame_set(frame)
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            sides = {
+                side: _pose_contact_side(
+                    armature,
+                    meshes,
+                    depsgraph,
+                    f"{prefix}{foot_bone}",
+                    f"{prefix}{toe_bone}",
+                    deformed=deformed,
+                )
+                for side, foot_bone, toe_bone in _POSE_CONTACT_SIDES
+            }
+            samples.append({"frame": frame, "sides": sides})
+    finally:
+        scene.frame_set(original_frame)
+    return samples
 
 
 _KEYFRAME_BULK_VALUES: dict[str, int | float] | None = None
@@ -2010,6 +2317,77 @@ def _resolve_operation_hand_track(
     )
 
 
+def _requested_scene_fps(plan: dict) -> int | None:
+    """The fps the plan explicitly asks for, or None when it asks for nothing.
+
+    Last write wins, mirroring Blender: a plan may carry several
+    set_render_settings operations and only the final fps survives.
+    """
+    requested = None
+    for operation in plan["operations"]:
+        if operation["op"] == "set_render_settings" and "fps" in operation:
+            requested = int(operation["fps"])
+    return requested
+
+
+def _require_plan_fps_agrees(plan: dict, motion_fps_of) -> None:
+    """Require a single frame rate across the whole plan.
+
+    apply_motion bakes exactly one npz frame per scene frame, so the scene rate
+    IS the motion rate -- ARDY Core is 20 fps. Two things can disagree with it
+    and both used to be decided by operation order, silently:
+
+    * an explicit set_render_settings fps. Render-last left 20 fps keys playing
+      at 24, so the clip ran 20% fast; motion-last discarded the requested fps.
+    * a second apply_motion whose npz has a different native fps. Whichever ran
+      last won the scene, so the other clip played at the wrong rate.
+
+    Checking the whole plan up front is what makes the contract independent of
+    operation order; a per-operation check cannot see the second case at all.
+    ``motion_fps_of`` resolves a motion id to its npz fps and is injected so
+    this stays a pure function over the plan.
+
+    Deliberately ignores the LIVE scene fps: a factory-startup Blender scene is
+    already 24 fps, so comparing against it would reject every first
+    apply_motion. Resampling key spacing by scene_fps/motion_fps is the other
+    possible contract and is deliberately deferred rather than half-done -- it
+    would have to move hand_track clip frames, start_frame, contact windows and
+    camera cut frames together.
+
+    KNOWN GAP, within-plan only. Ignoring the live fps also means a LATER,
+    separate plan that carries an fps and no apply_motion is not checked at all,
+    so it can still overwrite an already-baked motion's rate and reproduce the
+    same 20%-fast defect split across two stage_scene calls. Closing it needs a
+    different signal than the plan -- the baked action already records
+    ``cclay.motion_fps`` -- so it is recorded here rather than half-enforced.
+    """
+    rates: list[tuple[str, int]] = []
+    requested = _requested_scene_fps(plan)
+    if requested is not None:
+        rates.append(("set_render_settings", requested))
+    for operation in plan["operations"]:
+        if operation["op"] == "apply_motion":
+            motion_id = operation["motion_id"]
+            rates.append((f"motion {motion_id}", int(motion_fps_of(motion_id))))
+    if len({rate for _source, rate in rates}) <= 1:
+        return
+    # Remediation names only the sources actually in conflict: telling a
+    # two-motion conflict to "omit fps from set_render_settings" points the
+    # caller at an operation its plan does not even contain.
+    remedies = []
+    if requested is not None:
+        remedies.append("omit fps from set_render_settings")
+    if sum(1 for source, _rate in rates if source != "set_render_settings") > 1:
+        remedies.append("apply only motions that share a frame rate")
+    remedies.append("or regenerate the motion at the rate you want")
+    detail = ", ".join(f"{source} is {rate} fps" for source, rate in rates)
+    raise StageSceneError(
+        f"APPLY_MOTION_FPS_CONFLICT: the plan needs one frame rate but {detail}; "
+        f"apply_motion bakes one npz frame per scene frame, so "
+        f"{', '.join(remedies)}"
+    )
+
+
 def _apply_motion(
     operation: dict,
     transaction: _StageTransaction,
@@ -2030,7 +2408,7 @@ def _apply_motion(
         )
     except hand_shapes.HandShapeError as error:
         raise StageSceneError(f"APPLY_MOTION_HAND_SHAPE_RIG_UNSUPPORTED: {error}")
-    local_rot_mats, posed_joints, fps = _load_motion_payload(
+    local_rot_mats, posed_joints, fps, _carried = _load_motion_payload(
         project_directory, operation["motion_id"], validate=False
     )
     try:
@@ -2603,13 +2981,10 @@ class _StageSceneRun:
             return _set_render_settings(*arguments)
         if op == "rename_entity":
             return _rename_entity(*arguments)
-        if op == "apply_motion":
-            return _apply_motion(
-                operation,
-                self.transaction,
-                self.project_id,
-                getattr(self.connection, "project_directory", None),
-            )
+        # apply_motion is deliberately absent: OP_DISPATCH routes it to
+        # MOTION_PREPARE so it runs as an amortized cursor, never through here.
+        # Keeping a second call site meant two places had to learn every new
+        # apply_motion argument, and only one of them was ever executed.
         scene_object = _require_owned_entity(operation["entity_id"], self.project_id)
         _require_exclusive_datablocks(scene_object)
         return self.transaction.quarantine(scene_object)
@@ -2812,6 +3187,18 @@ class _StageSceneRun:
                     operation["op"] == "apply_motion"
                     for operation in self.plan["operations"]
                 )
+                # Up front, before any mutation: one frame rate for the whole
+                # plan. Order-independent by construction, which a check inside
+                # apply_motion could not be -- it would never see a second
+                # motion whose native fps differs.
+                if self.motion_count:
+                    _require_plan_fps_agrees(
+                        self.plan,
+                        lambda motion_id: _motion_fps(
+                            getattr(self.connection, "project_directory", None),
+                            motion_id,
+                        ),
+                    )
                 try:
                     self.mode = _motion_keyframe_mode()
                 except StageSceneError:

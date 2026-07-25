@@ -636,12 +636,66 @@ class AddCharacterRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["postApplyRollbackRaised"])
         self.assertTrue(self.results["postApplyRollbackComplete"])
 
+    def test_pose_contact_samples_distinguish_joint_from_deformed_sole(self):
+        """Issue #2 item D: a frame-specific pose-contact sample must carry the
+        skeleton joint and the deformed-mesh sole surface as distinct values,
+        never conflate them, and fail closed when it cannot resolve one.
+        """
+        self.assertTrue(self.results["poseContactFrameOrder"])
+        self.assertTrue(self.results["poseContactRestoresCurrentFrame"])
+        self.assertTrue(self.results["poseContactHasBothSides"])
+        self.assertTrue(self.results["poseContactJointAndSoleDiffer"])
+        self.assertTrue(self.results["poseContactHeelToeVectorResolved"])
+        self.assertTrue(self.results["poseContactDeformedFalseWithholdsSurfaceEvidence"])
+        self.assertTrue(self.results["poseContactRejectsNonArmatureEntity"])
+        self.assertTrue(self.results["poseContactRejectsUnknownEntity"])
+        self.assertTrue(self.results["poseContactRejectsEmptyFrames"])
+
+    def test_pose_contacts_bridge_runs_end_to_end_under_real_blender(self):
+        """Issue #2 item D: the callable bridge -- ``collect_pose_contacts``,
+        not only the pure geometry helpers -- must run under real Blender
+        against a real declared support mesh and return a payload matching
+        the exact closed public schema shape, with scene frames validated
+        (never silently clamped) and missing/non-armature entities mapped to
+        the public error contract.
+        """
+        self.assertTrue(self.results["poseContactsBridgeRestoresCurrentFrame"])
+        self.assertTrue(self.results["poseContactsBridgeResultShape"])
+        self.assertTrue(self.results["poseContactsBridgeFrameOrder"])
+        self.assertTrue(self.results["poseContactsBridgeSideShape"])
+        self.assertTrue(self.results["poseContactsBridgeBothJointsPresent"])
+        self.assertTrue(self.results["poseContactsBridgeDeformedSoleEvidence"])
+        self.assertTrue(self.results["poseContactsBridgeSupportFitPresent"])
+        # The gate verdict must agree with the measured formula -- never a
+        # fixed/guessed pass, since the fixture pose is not planted on the
+        # support.
+        self.assertTrue(self.results["poseContactsBridgeVerdictMatchesGateFormula"])
+        self.assertTrue(self.results["poseContactsBridgeSignedGapAndFootprintEmitted"])
+        self.assertTrue(self.results["poseContactsBridgeOutOfRangeFrameRejected"])
+        self.assertTrue(
+            self.results["poseContactsBridgeFrameRestoredAfterOutOfRangeFailure"]
+        )
+        self.assertTrue(self.results["poseContactsBridgeNonArmatureRejected"])
+        self.assertTrue(self.results["poseContactsBridgeUnknownEntityRejected"])
+
     def test_apply_motion_bakes_a_mid_clip_hand_track(self):
         self.assertTrue(self.results["handTrackKeysAtClipFrames"])
         self.assertTrue(self.results["handTrackUntrackedSideStaysConstant"])
         self.assertTrue(self.results["handTrackResolvedState"])
         self.assertTrue(self.results["handTrackActuallyAnimates"])
         self.assertTrue(self.results["handTrackOutOfRangeRejected"])
+
+    def test_motion_fps_conflict_is_rejected_for_every_disagreement(self):
+        """One frame rate per plan, independent of operation order.
+
+        The two-motion row is the case a per-operation check could never see:
+        with no fps named anywhere, each motion agrees with "nothing
+        requested", so the scene used to end at whichever ran last while the
+        other clip played at the wrong rate.
+        """
+        self.assertTrue(self.results["fpsConflictRejectedRenderFirst"])
+        self.assertTrue(self.results["fpsConflictRejectedMotionFirst"])
+        self.assertTrue(self.results["fpsConflictRejectedTwoMotions"])
 
     def test_manifest_ignores_only_inert_easing_parameters(self):
         self.assertTrue(self.results["inertEasingFieldsRemainInspectable"])

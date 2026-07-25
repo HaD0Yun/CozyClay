@@ -27,6 +27,23 @@ indexed generically).  Payload validation additionally has a vectorized numpy
 fast path (see ``_validate_motion_payload``) because it runs synchronously on
 Blender's main thread.  The single bpy-facing entry point is
 ``collect_preflight``.
+
+SEMANTICS (CozyClay issue #2): every measurement in this module is derived
+from ``posed_joints`` -- SKELETON JOINT CENTERS, not the deformed mesh
+surface. ``LeftFoot``/``RightFoot`` and their toe joints are bone-space
+points; the offset from a foot joint to the visually-deformed sole is NOT
+constant (issue #2 measured roughly 0.11-0.17 m of variation across a single
+stair-climbing clip, driven by foot rotation). Accordingly:
+  - ``contact_windows`` and ``lowest_track`` report the minimum JOINT height
+    seen across the whole skeleton -- a proxy for "something is near the
+    floor", not a verified sole-to-support contact measurement.
+  - ``foot_contacts`` windows report the named foot JOINT's own height
+    (``height``/``height_max``), not a distance to a support surface and not
+    a sole position; a caller must not treat these as ground-truth contact
+    without independently checking the deformed mesh.
+  - Zero constraint residual against a foot joint target is a joint-center
+    accuracy statement only; it says nothing about whether the sole actually
+    touches its intended surface. Never substitute one for the other.
 """
 
 from __future__ import annotations
@@ -53,6 +70,22 @@ CONTACT_DELTA_TOLERANCE = 0.01
 RESTING_SPEED_TOLERANCE = 0.1      # end-pose resting threshold, units/second
 MAX_LOWEST_TRACK_SAMPLES = 240
 MAX_CONTACT_WINDOWS = 64
+# ARDY's foot_contacts channel order, quoted from ardy/motion_rep/feet.py:
+# "[X, T, 4] contact labels (left heel, left toe, right heel, right toe)".
+# The joint each channel measures comes from CoreSkeleton27's
+# left/right_foot_joint_idx ([25, 26] and [21, 22]); those indices are asserted
+# against JOINT_INDEX below so a skeleton reorder fails here instead of
+# silently reporting the wrong joint's height.
+FOOT_CONTACT_CHANNELS = (
+    ("left_heel", "LeftFoot"),
+    ("left_toe", "LeftToeBase"),
+    ("right_heel", "RightFoot"),
+    ("right_toe", "RightToeBase"),
+)
+FOOT_CONTACT_JOINT_INDICES = tuple(
+    motion_retarget.JOINT_INDEX[joint] for _channel, joint in FOOT_CONTACT_CHANNELS
+)
+assert FOOT_CONTACT_JOINT_INDICES == (25, 26, 21, 22), FOOT_CONTACT_JOINT_INDICES
 
 # Closed set of stage_scene contract codes the preflight loader/validation
 # path can raise; encoded by stage_scene as a leading "CODE: " message prefix.
@@ -166,12 +199,68 @@ def _end_pose(root_track, lowest_track, fps: int) -> dict:
     }
 
 
-def analyze_motion(posed_joints, fps: int, scale=None) -> dict:
+def _foot_contact_windows(posed_joints, foot_contacts, factor: float) -> list[dict]:
+    """Per-channel runs of the model's own predicted foot contacts.
+
+    This does NOT replace ``contact_windows``. That scan takes the minimum over
+    ALL joints, so it also catches a hand on a box or a knee on the floor, but
+    it cannot say which limb it saw. These four channels are feet only and are
+    named, so a caller can turn "left_toe is planted on frames 12..19 at height
+    0.181" straight into a ``--constrain 15 LeftFoot x y z`` target.
+
+    The channel is a learned part of ARDY's motion representation: ``inverse()``
+    thresholds the decoded channel at 0.5 (ardy/motion_rep/reps/ardy_motionrep.py).
+    Its training labels were themselves derived with a velocity/height heuristic
+    (ardy/motion_rep/feet.py), so treat it as the model's opinion, not ground
+    truth -- reporting it next to the measured height is what makes a
+    disagreement (planted per the model, airborne per the geometry) visible.
+
+    Heights are the contact joint's own height, already scaled, so a foot
+    planted on the third stair reads that stair's height rather than an error.
+    """
+    windows: list[dict] = []
+    for channel_index, (channel, _joint) in enumerate(FOOT_CONTACT_CHANNELS):
+        joint_index = FOOT_CONTACT_JOINT_INDICES[channel_index]
+        frame = 0
+        frames = len(foot_contacts)
+        while frame < frames:
+            if not bool(foot_contacts[frame][channel_index]):
+                frame += 1
+                continue
+            start = frame
+            while frame + 1 < frames and bool(foot_contacts[frame + 1][channel_index]):
+                frame += 1
+            heights = [
+                float(posed_joints[index][joint_index][UP_AXIS]) * factor
+                for index in range(start, frame + 1)
+            ]
+            windows.append({
+                "channel": channel,
+                "start_frame": int(start),
+                "end_frame": int(frame),
+                "height": _round3(sum(heights) / len(heights)),
+                "height_max": _round3(max(heights)),
+            })
+            frame += 1
+    # Sorted by frame so the list reads as a timeline rather than per-channel
+    # blocks; ties keep the FOOT_CONTACT_CHANNELS order.
+    windows.sort(key=lambda window: (window["start_frame"], window["end_frame"]))
+    return windows[:MAX_CONTACT_WINDOWS]
+
+
+def analyze_motion(posed_joints, fps: int, scale=None, foot_contacts=None) -> dict:
     """Pure preflight analysis of one posed_joints array (motion-local frame).
 
     Returns the full contract result minus ``revision``/``motion_id``. When
     ``scale`` (meters per npz unit) is given, every reported length is in
     meters and the tolerances apply post-scale; otherwise raw npz units.
+
+    ``foot_contacts`` is ARDY's own (F, 4) contact channel when the npz carries
+    it. It is optional on purpose: motions staged before the carried-member
+    contract have no such array (measured: 27 of 43 staged npz), so the
+    geometric ``contact_windows`` scan stays the always-present signal and
+    ``foot_contacts`` reports ``null`` rather than an empty list -- absent and
+    "the model saw no contact" must not read the same.
     """
     frames = len(posed_joints)
     fps = int(fps)
@@ -211,6 +300,11 @@ def analyze_motion(posed_joints, fps: int, scale=None) -> dict:
             "samples": [_round3(lowest[frame]) for frame in range(0, frames, stride)],
         },
         "contact_windows": _contact_windows(lowest, fps),
+        "foot_contacts": (
+            None
+            if foot_contacts is None
+            else _foot_contact_windows(posed_joints, foot_contacts, factor)
+        ),
         "end_pose": _end_pose(root_track, lowest, fps),
     }
 
@@ -244,8 +338,53 @@ def _validated_params(params) -> tuple[str, str | None]:
     return motion_id, entity_id
 
 
+# Relative tolerance for treating an object's per-axis scale as uniform.
+# Blender authors this as three independent floats, so exact equality is too
+# strict for values that round-trip through UI edits or importers.
+SCALE_UNIFORMITY_TOLERANCE = 1e-4
+
+
+def _object_world_scale(entity_id: str, scene_object) -> float:
+    """Uniform real-world meters-per-local-unit factor for ``scene_object``.
+
+    ``_rig_scale_inputs`` measures bone length in the armature's LOCAL (edit
+    bone) space, which is exactly what ``apply_motion`` wants: it retargets
+    into that same local space and lets Blender's own object transform carry
+    the result into world meters when the scene renders. preflight_motion's
+    reported ``scale``, unlike that internal retarget scale, is meant to
+    describe real-world meters, so it must fold in this same factor -- CozyClay
+    issue #2 reported preflight scale ~98.514099 for a YBot with object scale
+    ``[0.01, 0.01, 0.01]`` (the unscaled rig thigh, ~100x too large, divided
+    straight into the npz thigh) instead of the correct ~0.985. A non-uniform
+    scale has no single meters-per-unit factor, so this fails closed rather
+    than silently picking one axis.
+    """
+    axes = tuple(scene_object.scale)
+    if len(axes) != 3 or not all(isinstance(value, (int, float)) for value in axes):
+        _invalid(f"entity {entity_id} has a malformed object scale")
+    axes = tuple(float(value) for value in axes)
+    if not all(math.isfinite(value) for value in axes):
+        _invalid(f"entity {entity_id} has a non-finite object scale")
+    if any(value <= 0.0 for value in axes):
+        _invalid(f"entity {entity_id} has a non-positive object scale {axes}")
+    largest = max(axes)
+    if max(axes) - min(axes) > SCALE_UNIFORMITY_TOLERANCE * largest:
+        _invalid(
+            f"entity {entity_id} has non-uniform object scale {axes}; "
+            "preflight cannot report a single meters-per-unit factor"
+        )
+    return axes[0]
+
+
 def _derive_entity_scale(entity_id: str, posed_joints) -> float:
-    """Meters-per-npz-unit scale from the target rig, exactly like apply_motion."""
+    """Meters-per-npz-unit scale from the target rig and the object's world scale.
+
+    ``rig_thigh`` (from ``stage_scene._rig_scale_inputs``, shared with
+    ``apply_motion``) is measured in the armature's unscaled local space; it
+    must be scaled by the object's own (uniform) world scale before deriving
+    a real-world meters-per-npz-unit factor. See ``_object_world_scale`` for
+    why -- this is the fix for CozyClay issue #2's ~98.5x scale mismatch.
+    """
     from . import stage_scene
     from .scene_relations import _object_for_entity
 
@@ -261,8 +400,9 @@ def _derive_entity_scale(entity_id: str, posed_joints) -> float:
     _prefix, rig_thigh = stage_scene._rig_scale_inputs(scene_object.data.bones)
     if rig_thigh is None:
         _invalid(f"entity {entity_id} rig is missing the RightUpLeg/RightLeg bones")
+    object_scale = _object_world_scale(entity_id, scene_object)
     try:
-        return motion_retarget.derive_scale(posed_joints[0], rig_thigh)
+        return motion_retarget.derive_scale(posed_joints[0], rig_thigh * object_scale)
     except motion_retarget.MotionRetargetError as error:
         # Same closed-code mapping as collect_preflight: the bridge_error
         # code field must carry APPLY_MOTION_MALFORMED, not a class name.
@@ -370,14 +510,18 @@ def collect_preflight(revision_id: str, params, project_directory) -> dict:
     from . import stage_scene
 
     try:
-        _local_rot_mats, posed_joints, fps = stage_scene._load_motion_payload(
-            project_directory, motion_id, validate=False
+        _local_rot_mats, posed_joints, fps, carried = stage_scene._load_motion_payload(
+            project_directory,
+            motion_id,
+            validate=False,
+            carried=("foot_contacts",),
         )
         _validate_motion_payload(_local_rot_mats, posed_joints, fps)
+        foot_contacts = carried.get("foot_contacts")
         scale = None
         if entity_id is not None:
             scale = _derive_entity_scale(entity_id, posed_joints)
-        analysis = analyze_motion(posed_joints, fps, scale)
+        analysis = analyze_motion(posed_joints, fps, scale, foot_contacts)
     except stage_scene.StageSceneError as error:
         mapped = _as_contract_error(error)
         if mapped is error:

@@ -97,6 +97,7 @@ _READ_ONLY_BRIDGE_METHODS = (
     "capture_viewport",
     "produce_directing_evidence",
     "inspect_relations",
+    "inspect_pose_contacts",
     "preflight_motion",
 )
 _BOOTSTRAP_REVISION_ID = "0" * 64
@@ -904,6 +905,11 @@ class Connection:
 
         return collect_relations(revision_id, params)
 
+    def _inspect_pose_contacts_result(self, revision_id: str, params: dict) -> dict:
+        from .pose_contacts import collect_pose_contacts
+
+        return collect_pose_contacts(revision_id, params)
+
     def _preflight_motion_result(self, revision_id: str, params: dict) -> dict:
         from .motion_preflight import collect_preflight
 
@@ -1260,6 +1266,27 @@ class Connection:
         if message["method"] == "inspect_relations":
             try:
                 result = self._inspect_relations_result(
+                    durable_revision_id,
+                    message["params"],
+                )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "inspect_pose_contacts":
+            try:
+                result = self._inspect_pose_contacts_result(
                     durable_revision_id,
                     message["params"],
                 )
