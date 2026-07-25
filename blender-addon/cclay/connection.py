@@ -909,7 +909,12 @@ class Connection:
         from .entity_animation import fit_result_to_budget
         from .manifest import _entity_detail
 
-        request = params if isinstance(params, dict) else {}
+        # A non-dict params value is protocol skew, not an empty request:
+        # coercing it to {} would turn a malformed frame into a default-shaped
+        # success and hide the skew from both sides.
+        if not isinstance(params, dict):
+            raise ConnectionError("INVALID_INSPECT_ENTITY_PARAMS: params must be an object")
+        request = params
         # Closed param set: an unknown key is protocol skew, not an option.
         unknown = sorted(set(request) - INSPECT_ENTITY_PARAM_KEYS)
         if unknown:
@@ -996,7 +1001,11 @@ class Connection:
     def _capture_viewport_result(self, revision_id: str, params: dict | None = None) -> dict:
         from .viewport_capture import VIEWPORT_VIEW_KEYS, capture_viewport
 
-        request = params if isinstance(params, dict) else {}
+        # A non-dict params value is protocol skew, not an empty request; see
+        # _inspect_entity_result for why coercion is refused.
+        if not isinstance(params, dict):
+            raise ConnectionError("INVALID_CAPTURE_VIEWPORT_PARAMS: params must be an object")
+        request = params
         # Closed in this direction too: the bridge always sends exactly these
         # three keys (null when unset), so anything else is a version skew we
         # must not silently ignore.

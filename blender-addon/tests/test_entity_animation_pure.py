@@ -459,6 +459,13 @@ class InspectEntityParamValidationTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"cclay.manifest": fake_manifest}):
             return Connection._inspect_entity_result(None, REVISION, params)
 
+    def test_non_dict_params_are_refused_rather_than_coerced(self):
+        for params in ("entity", 3, [ENTITY_ID]):
+            with self.subTest(params=params):
+                with self.assertRaises(ConnectionError) as raised:
+                    self._call(params)
+                self.assertIn("params must be an object", str(raised.exception))
+
     def test_unknown_param_rejected(self):
         with self.assertRaises(ConnectionError) as raised:
             self._call({

@@ -18,6 +18,9 @@ from cclay import viewport_capture as viewport_capture_module
 from cclay.connection import Connection, ConnectionError
 
 REVISION = "a" * 64
+# Sentinel so a test can pass params=None deliberately: the bridge always sends
+# an object, and a missing params value is protocol skew the add-on refuses.
+_UNSET = object()
 
 
 def _view(name="viewport", **overrides):
@@ -33,15 +36,16 @@ def _view(name="viewport", **overrides):
     return view
 
 
-def _capture(revision=REVISION, params=None, views=None, capture=None):
+def _capture(revision=REVISION, params=_UNSET, views=None, capture=None):
     if capture is None:
         captured = {"views": list(views if views is not None else [_view()])}
 
         def capture(subject=None, views=None, project_id=None):
             return captured
 
+    request = {} if params is _UNSET else params
     with mock.patch.object(viewport_capture_module, "capture_viewport", capture):
-        return Connection._capture_viewport_result(None, revision, params)
+        return Connection._capture_viewport_result(None, revision, request)
 
 
 class CaptureViewportResultTests(unittest.TestCase):
@@ -109,6 +113,15 @@ class CaptureViewportResultTests(unittest.TestCase):
         self.assertEqual(seen["views"], ["three_quarter", "side"])
         self.assertEqual(seen["project_id"], "project-1")
         self.assertEqual([view["name"] for view in result["views"]], ["three_quarter", "side"])
+
+    def test_non_dict_params_are_refused_rather_than_coerced(self):
+        # Coercing a malformed frame to an empty request would turn protocol
+        # skew into a default-shaped success.
+        for params in ("subject", 7, ["views"], None):
+            with self.subTest(params=params):
+                with self.assertRaises(ConnectionError) as raised:
+                    _capture(params=params)
+                self.assertIn("params must be an object", str(raised.exception))
 
     def test_non_string_subject_is_refused(self):
         with self.assertRaises(ConnectionError) as raised:
