@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+	type PoseContactSideV1,
 	type PoseContactsResultV1,
 	parseInspectPoseContactsParams,
 	parsePoseContactsResult,
@@ -17,7 +18,7 @@ const uuidAt = (index: number) => `00000000-0000-4000-8000-${index.toString(16).
 const characterEntityId = uuidAt(1);
 const supportEntityId = uuidAt(2);
 
-const leftSide = {
+const leftSide: PoseContactSideV1 = {
 	foot_joint_position: [0.15, 0.24, 1.9],
 	toe_joint_position: [0.15, 0.34, 1.9],
 	heel_point: [0.15, 0.22, 1.78],
@@ -38,7 +39,7 @@ const leftSide = {
 	},
 };
 
-const rightSide = {
+const rightSide: PoseContactSideV1 = {
 	...leftSide,
 	foot_joint_position: [-0.15, 0.24, 1.9],
 	toe_joint_position: [-0.15, 0.34, 1.9],
