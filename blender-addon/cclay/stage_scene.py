@@ -1008,9 +1008,12 @@ _PRIMITIVE_BUILDERS = {
     "TORUS": _build_torus,
 }
 
-# Shading is part of what a shape IS, not a separate wire field, so the manifest's
-# recorded primitiveType still determines the mesh exactly and no hashed schema has
-# to change. Curved surfaces were rendering visibly faceted without this.
+# Shading is part of what a shape IS, so the builder owns the DEFAULT policy per
+# shape and it never became a wire field a director has to set. What the manifest
+# records is the OBSERVED result: _stage_primitive_shading in manifest.py exports
+# SMOOTH or MIXED, omitted when every face is flat. That is what lets a stored
+# revision prove its own shading and catches a user flattening a mesh out of band.
+# Curved surfaces rendered visibly faceted before any of this existed.
 _SHADING_ALL_SMOOTH = frozenset({"UV_SPHERE", "TORUS"})
 # Smooth the swept side but keep the caps flat. Shading a cap as though it were
 # curved is exactly what makes a "smooth" cylinder look wrong.
