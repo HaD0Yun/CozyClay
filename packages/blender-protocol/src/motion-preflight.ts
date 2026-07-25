@@ -4,6 +4,20 @@
 // compare against measured scene relations (inspect_relations) and reject or
 // realign mismatched motion instead of applying blindly. Generic joint math
 // only — the lowest track is the per-frame min over ALL joints.
+//
+// Semantics note (CozyClay issue #2): every height in this contract —
+// travel.*, lowest_track.*, contact_windows[].height, and
+// foot_contacts[].height / .height_max — is a skeleton joint-center position
+// (LeftFoot/RightFoot/LeftToeBase/RightToeBase etc, cskel27), scaled but
+// otherwise raw. It is NOT the deformed mesh's sole/heel/toe surface. A joint
+// reaching a target height, including an "achieved_error_m: 0.0" constraint
+// residual reported elsewhere in the pipeline, proves joint-center placement
+// only — it does not by itself verify sole-to-support contact, foot
+// orientation, or tread penetration. foot_contacts is the model's own
+// learned prediction (a plausible opinion, not measured ground truth); it
+// names timing/limb, not surface fit. Treat every preflight_motion pass as a
+// numeric sanity check to run before apply_motion, not as proof of final
+// visible mesh contact.
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
 
@@ -45,6 +59,31 @@ const MotionPreflightContactWindowV1Schema = exact({
 	height: Type.Number(),
 });
 
+// ARDY's own contact channels, mirroring FOOT_CONTACT_CHANNELS in
+// blender-addon/cclay/motion_preflight.py. Distinct from contact_windows:
+// those scan the minimum over ALL joints and cannot name the limb, these are
+// feet only and named, so a caller can map one straight to a --constrain
+// target. height is the window mean and height_max its worst frame, so a
+// declared contact that never reaches the surface is measurable. channel
+// names are ARDY's own vocabulary (left_heel/left_toe/right_heel/right_toe)
+// and are preserved verbatim for compatibility. height/height_max are the
+// named joint's own scaled skeleton-joint-center height at that frame — NOT
+// the deformed mesh sole/heel/toe surface — so a window matching an expected
+// support height is model-predicted contact TIMING, not verified
+// sole-to-support contact.
+const MotionPreflightFootContactWindowV1Schema = exact({
+	channel: Type.Union([
+		Type.Literal("left_heel"),
+		Type.Literal("left_toe"),
+		Type.Literal("right_heel"),
+		Type.Literal("right_toe"),
+	]),
+	start_frame: Type.Integer({ minimum: 0 }),
+	end_frame: Type.Integer({ minimum: 0 }),
+	height: Type.Number(),
+	height_max: Type.Number(),
+});
+
 const MotionPreflightEndPoseV1Schema = exact({
 	root_height: Type.Number(),
 	lowest_gap: Type.Number(),
@@ -65,6 +104,9 @@ export const MotionPreflightResultV1Schema = exact({
 	travel: MotionPreflightTravelV1Schema,
 	lowest_track: MotionPreflightLowestTrackV1Schema,
 	contact_windows: Type.Array(MotionPreflightContactWindowV1Schema, { maxItems: 64 }),
+	// null when the npz carries no foot_contacts array at all; [] when the
+	// model predicted no contact. The two must not collapse.
+	foot_contacts: nullable(Type.Array(MotionPreflightFootContactWindowV1Schema, { maxItems: 64 })),
 	end_pose: MotionPreflightEndPoseV1Schema,
 });
 
@@ -72,6 +114,7 @@ export type PreflightMotionParamsV1 = Static<typeof PreflightMotionParamsV1Schem
 export type MotionPreflightTravelV1 = Static<typeof MotionPreflightTravelV1Schema>;
 export type MotionPreflightLowestTrackV1 = Static<typeof MotionPreflightLowestTrackV1Schema>;
 export type MotionPreflightContactWindowV1 = Static<typeof MotionPreflightContactWindowV1Schema>;
+export type MotionPreflightFootContactWindowV1 = Static<typeof MotionPreflightFootContactWindowV1Schema>;
 export type MotionPreflightEndPoseV1 = Static<typeof MotionPreflightEndPoseV1Schema>;
 export type MotionPreflightResultV1 = Static<typeof MotionPreflightResultV1Schema>;
 

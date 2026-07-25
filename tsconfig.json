@@ -35,9 +35,24 @@
 	},
 	"include": [
 		"packages/*/src/**/*",
-		"packages/*/test/**/*",
+		// Deliberately not "packages/*/test/**/*": CozyClay's hermetic `npm run
+		// check` never hydrates Pi's live-fetched model catalog
+		// (packages/ai/src/providers/data/*.json), so Pi's own test suites
+		// under packages/{ai,agent,coding-agent,tui}/test — which assert
+		// against specific, live-catalog-dependent model IDs — cannot
+		// typecheck without either a network call or a fixture that goes
+		// stale the moment the upstream catalog rotates a model out (the same
+		// class of drift the "make CI hermetic" fix already had to work
+		// around once). CozyClay edits no source under those packages and
+		// does not run their tests (see docs/UPSTREAM-SYNC.md and the "Test
+		// CozyClay packages" step below); only CozyClay's own test suites are
+		// gated on here. Pi's own `npm run build && npm run check` verifies
+		// the vendored test suites during an upstream sync instead.
+		"packages/blender-protocol/test/**/*",
+		"packages/blender-tools/test/**/*",
+		"packages/director-core/test/**/*",
+		"packages/director-runtime/test/**/*",
 		"packages/storage/*/src/**/*",
-		"packages/storage/*/test/**/*",
 		"apps/*/src/**/*",
 		"apps/*/test/**/*",
 		"packages/coding-agent/examples/**/*"

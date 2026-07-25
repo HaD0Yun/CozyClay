@@ -46,6 +46,22 @@ const metersResult: MotionPreflightResultV1 = {
 		{ start_frame: 0, end_frame: 11, height: 0.002 },
 		{ start_frame: 34, end_frame: 47, height: 0.001 },
 	],
+	foot_contacts: [
+		{
+			channel: "left_heel",
+			start_frame: 0,
+			end_frame: 11,
+			height: 0.002,
+			height_max: 0.004,
+		},
+		{
+			channel: "right_toe",
+			start_frame: 34,
+			end_frame: 47,
+			height: 0.001,
+			height_max: 0.002,
+		},
+	],
 	end_pose: { root_height: 0.948, lowest_gap: 0.001, speed: 0.042, resting: true },
 };
 
@@ -54,6 +70,8 @@ const npzResult: MotionPreflightResultV1 = {
 	scale: null,
 	units: "npz",
 	contact_windows: [],
+	// An npz staged before the carried-member contract has no channel at all.
+	foot_contacts: null,
 };
 
 test("params: motion_id slug required, entity_id optional lowercase UUIDv4, closed", () => {
@@ -189,6 +207,52 @@ test("result: rejects oversize tracks, wrong version, bad units, bad integers", 
 	);
 	assert.throws(
 		() => parseMotionPreflightResult({ ...metersResult, revision: "Z".repeat(64) }),
+		/INVALID_PREFLIGHT_MOTION_RESULT/,
+	);
+});
+
+test("foot_contacts: null and [] stay distinct, channels are closed, cap is 64", () => {
+	// null = the npz carries no channel; [] = the model predicted no contact.
+	// Collapsing them would make "we never asked" read as "there is no contact".
+	assert.equal(parseMotionPreflightResult(npzResult).foot_contacts, null);
+	assert.deepEqual(parseMotionPreflightResult({ ...metersResult, foot_contacts: [] }).foot_contacts, []);
+	const window = metersResult.foot_contacts![0]!;
+	assert.throws(
+		() =>
+			parseMotionPreflightResult({
+				...metersResult,
+				foot_contacts: [{ ...window, channel: "left_knee" }],
+			}),
+		/INVALID_PREFLIGHT_MOTION_RESULT/,
+	);
+	assert.throws(
+		() =>
+			parseMotionPreflightResult({
+				...metersResult,
+				foot_contacts: [{ ...window, extra: true }],
+			}),
+		/INVALID_PREFLIGHT_MOTION_RESULT/,
+	);
+	// height_max is required: without it a declared contact that never reaches
+	// the surface is unreportable.
+	const { height_max: _dropped, ...withoutMax } = window;
+	assert.throws(
+		() => parseMotionPreflightResult({ ...metersResult, foot_contacts: [withoutMax] }),
+		/INVALID_PREFLIGHT_MOTION_RESULT/,
+	);
+	assert.equal(
+		parseMotionPreflightResult({
+			...metersResult,
+			foot_contacts: Array.from({ length: 64 }, () => window),
+		}).foot_contacts?.length,
+		64,
+	);
+	assert.throws(
+		() =>
+			parseMotionPreflightResult({
+				...metersResult,
+				foot_contacts: Array.from({ length: 65 }, () => window),
+			}),
 		/INVALID_PREFLIGHT_MOTION_RESULT/,
 	);
 });

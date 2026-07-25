@@ -19,6 +19,7 @@ manifest.py
 motion_preflight.py
 motion_retarget.py
 panel_state.py
+pose_contacts.py
 prepared_transaction.py
 project_store.py
 qa_image_display.py

@@ -111,6 +111,7 @@
       "height": 0.0
     }
   ],
+  "foot_contacts": null,
   "end_pose": {
     "root_height": 0.924,
     "lowest_gap": 0.0,

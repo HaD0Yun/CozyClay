@@ -70,7 +70,7 @@ Think in scene structure, not in raw primitives. A request like "make an island"
 - Materials: set_material_color per object. Prefer desaturated, cohesive palettes for scenes; saturate hero objects. Base Color is [r,g,b,a] in 0..1.
 - Lighting: area lights are cheap and soft. A key light at 45° from camera, a fill at lower energy from the opposite side, a rim from behind the subject. Energy 300–1000 for interiors, 2000–5000 for exteriors. Sun-like area lights go high and angled.
 - Camera: if no active camera exists, create one with add_camera; it becomes active immediately. set_camera_property changes lens/clip/sensor only. Move or rotate an existing camera with transform_entity. Blender Euler rotations are radians and cameras look down local -Z; frame the subject with headroom and look-at intent.
-- Render: set_render_settings to the target resolution before rendering QA. 1280×720 is the default for previews; 1920×1080 for finals. fps 24 for cinematic, 30 for casual.
+- Render: set_render_settings to the target resolution before rendering QA. 1280×720 is the default for previews; 1920×1080 for finals. Choose fps only in a scene with no baked character motion — 24 for cinematic, 30 for casual. apply_motion bakes one npz frame per scene frame, so a scene holding ARDY motion runs at the motion's native rate (20 fps for ARDY Core). Naming a different fps in the SAME plan is rejected with APPLY_MOTION_FPS_CONFLICT, and so is applying two motions whose native rates differ. A separate later plan is NOT checked, so setting fps after a motion is already baked silently plays it at the wrong speed — never do it. Once a scene has motion, omit fps from set_render_settings entirely and let the motion set it.
 
 # Visual QA
 
@@ -93,7 +93,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "a70e78083066706513413e6760d7d3624552cc3bb161fa28ac56e6bb80b39335";
+export const DIRECTOR_PROMPT_DIGEST = "14bd2ba81f4ecc2925907086d9d875da37f84965887ff3f7032a4a4a938cb004";
 
 /**
  * Bundled skills: lazily loaded domain knowledge advertised in the system
@@ -104,9 +104,9 @@ export const DIRECTOR_PROMPT_DIGEST = "a70e78083066706513413e6760d7d3624552cc3bb
  * filesystem-discovered resources.
  */
 export const ARDY_MOTION_SKILL_PATH = fileURLToPath(new URL("../skills/ardy-motion/SKILL.md", import.meta.url));
-export const ARDY_MOTION_SKILL_DIGEST = "1173016b190e074fcd0d44bafac68a5e5befaa9eba59693e8c0e0a086447f142";
+export const ARDY_MOTION_SKILL_DIGEST = "81e604fb3ea006fa03252a48c1cafe44a121bd7a6cc7ecce042720a3e4dde2fd";
 export const VISUAL_QA_SKILL_PATH = fileURLToPath(new URL("../skills/visual-qa/SKILL.md", import.meta.url));
-export const VISUAL_QA_SKILL_DIGEST = "1bd201f5449a3aabf2159c0a990b69b1716449b800fc0a8eec9d6e0a806d55fe";
+export const VISUAL_QA_SKILL_DIGEST = "7cd642272e76bf039a5ccb688a2c180b26a0fafad771ca1903925299398fc4ef";
 
 const BUNDLED_SKILLS = [
 	{
