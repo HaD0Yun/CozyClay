@@ -796,6 +796,15 @@ class MotionFpsContractTests(unittest.TestCase):
         self.assertIn("omit fps from set_render_settings", render_only)
         self.assertNotIn("apply only motions that share a frame rate", render_only)
 
+        # Two motions that already agree need no advice about sharing a rate; the
+        # real conflict there is the requested fps, so pointing at the motions
+        # would misdirect. Gated on distinct RATES, not on motion count.
+        agreeing_pair = self._assert_conflict(
+            self._plan(self.RENDER_24, self._apply("walk-20"), self._apply("jog-20"))
+        )
+        self.assertIn("omit fps from set_render_settings", agreeing_pair)
+        self.assertNotIn("apply only motions that share a frame rate", agreeing_pair)
+
         # Regenerating at the target rate is always available, so it is always
         # offered; it is the only route when the plan wants a rate no motion has.
         for message in (two_motions, render_only):

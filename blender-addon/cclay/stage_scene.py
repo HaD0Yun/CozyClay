@@ -2377,7 +2377,10 @@ def _require_plan_fps_agrees(plan: dict, motion_fps_of) -> None:
     remedies = []
     if requested is not None:
         remedies.append("omit fps from set_render_settings")
-    if sum(1 for source, _rate in rates if source != "set_render_settings") > 1:
+    # Gate on DISTINCT motion rates, not motion count: two motions that already
+    # agree with each other need no advice about sharing a rate, and offering it
+    # would point at the wrong thing when the real conflict is the requested fps.
+    if len({rate for source, rate in rates if source != "set_render_settings"}) > 1:
         remedies.append("apply only motions that share a frame rate")
     remedies.append("or regenerate the motion at the rate you want")
     detail = ", ".join(f"{source} is {rate} fps" for source, rate in rates)
