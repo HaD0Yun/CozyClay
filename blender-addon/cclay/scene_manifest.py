@@ -23,6 +23,10 @@ MAX_MAGNITUDE = 1e15
 # Every shape is authored to fit the -1..1 unit box so `scale` means the same
 # thing for all of them. Mirrors primitiveTypeSchema() in the protocol package.
 PRIMITIVE_TYPES = ("PLANE", "CUBE", "UV_SPHERE", "CYLINDER", "CONE", "CIRCLE", "TORUS")
+# Face shading a staged primitive can report. Absent from an entry means every
+# face is flat; only a non-flat mesh says so, which is what keeps manifests
+# written before shading existed byte-identical. Mirrors StagePrimitiveSchema.
+PRIMITIVE_SHADINGS = ("SMOOTH", "MIXED")
 
 _MANIFEST_V2_KEYS = {
     "schemaVersion", "projectId", "revisionId", "sceneHash", "blenderVersion",
@@ -42,7 +46,7 @@ _CAMERA_KEYS = {
 }
 _LIGHT_KEYS = {"objectId", "lightType", "color", "energy", "spotSize", "spotBlend"}
 _LIGHT_V3_KEYS = _LIGHT_KEYS | {"areaSize"}
-_STAGE_PRIMITIVE_KEYS = {"objectId", "primitiveType"}
+_STAGE_PRIMITIVE_KEYS = {"objectId", "primitiveType", "shading"}
 _STAGE_MATERIAL_KEYS = {
     "objectId", "materialName", "baseColor", "useNodes",
     "principledBaseColor",
@@ -353,6 +357,11 @@ def _validate_manifest(manifest: dict) -> None:
                 if key == "stagePrimitives":
                     if item.get("primitiveType") not in PRIMITIVE_TYPES:
                         _fail(f"{path}.primitiveType", "is unsupported")
+                    # Optional: absent means every face is flat, which is what
+                    # every primitive built before shading existed was, so older
+                    # manifests stay byte-identical and keep their revision hash.
+                    if "shading" in item and item["shading"] not in PRIMITIVE_SHADINGS:
+                        _fail(f"{path}.shading", "is unsupported")
                 else:
                     _string(item.get("materialName"), f"{path}.materialName", 1, 256)
                     _vector(item.get("baseColor"), 4, f"{path}.baseColor")

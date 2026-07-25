@@ -295,6 +295,24 @@ def _manifest_bones(scene_objects: list[bpy.types.Object]) -> list[dict]:
     return bones
 
 
+def _stage_primitive_shading(scene_object: bpy.types.Object) -> str | None:
+    """Face shading of a staged primitive, or None when it is entirely flat.
+
+    Returning None for an all-flat mesh is what keeps this hash-neutral: every
+    primitive built before the add-on shaded anything was flat, so those scenes
+    export byte-identically and their stored revisions still verify. A smooth or
+    partly-smooth mesh is a genuinely different mesh and correctly hashes
+    differently.
+    """
+    if scene_object.type != "MESH":
+        return None
+    polygons = scene_object.data.polygons
+    smooth = sum(1 for polygon in polygons if polygon.use_smooth)
+    if smooth == 0:
+        return None
+    return "SMOOTH" if smooth == len(polygons) else "MIXED"
+
+
 def _stage_manifest_entries(
     scene_objects: list[bpy.types.Object],
     object_ids: dict[bpy.types.Object, str],
@@ -305,10 +323,19 @@ def _stage_manifest_entries(
         object_id = object_ids[scene_object]
         primitive_type = scene_object.get("cclay.stage_primitive_type")
         if primitive_type in PRIMITIVE_TYPES:
-            primitives.append({
+            entry = {
                 "objectId": object_id,
                 "primitiveType": primitive_type,
-            })
+            }
+            # Face shading is render-visible state, so a stored revision has to be
+            # able to prove it. Without it an old flat UV_SPHERE and a newly built
+            # smooth one hash identically while rendering differently, and a user
+            # smoothing a cube out of band -- exactly the drift this manifest
+            # exists to detect -- stays invisible.
+            shading = _stage_primitive_shading(scene_object)
+            if shading is not None:
+                entry["shading"] = shading
+            primitives.append(entry)
         if scene_object.type != "MESH" or not scene_object.material_slots:
             continue
         material = scene_object.material_slots[0].material

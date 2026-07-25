@@ -105,6 +105,11 @@ export const primitiveTypeSchema = () =>
 const StagePrimitiveSchema = exact({
 	objectId: uuid(),
 	primitiveType: primitiveTypeSchema(),
+	// Optional so an all-flat scene -- which is every scene built before the add-on
+	// shaded anything -- exports byte-identically and keeps its revision hash.
+	// Present means the mesh genuinely differs from that flat one, which is what
+	// lets a stored revision prove its shading instead of assuming it.
+	shading: Type.Optional(Type.Union([Type.Literal("SMOOTH"), Type.Literal("MIXED")])),
 });
 const StageMaterialSchema = exact({
 	objectId: uuid(),
