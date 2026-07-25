@@ -4,6 +4,9 @@
 #   cclay-ardy-generate "a person waves both hands" [--duration 5] [--seed 7] [--project DIR]
 #   cclay-ardy-generate --segment "a person runs forward" 3 --segment "a person bows" 4 \
 #     [--seed 7] [--project DIR]
+#   cclay-ardy-generate "a person climbs three steps" --duration 6 \
+#     --base-motion <motion_id> \
+#     --constrain 30 LeftFoot 0.12 0.18 0.55 --constrain 46 RightFoot 0.12 0.36 0.85
 #
 # Runs ARDY generation on the Tailscale host (GPU diffusion, cached text
 # encoder), fetches the npz into <project>/.cclay/motions/<motion_id>.npz, and
@@ -13,6 +16,14 @@
 # continuous autoregressive rollout across the segments via
 # scripts/ardy/cclay_sequence_generate.py (synced to the box before each run)
 # and passes through the per-segment frame ranges + continuity metrics.
+#
+# Constraint mode (repeatable --constrain <frame> <joint> <x> <y> <z>, with
+# --base-motion supplying the pose source) drives ARDY's own end-effector
+# constraints via scripts/ardy/cclay_constrained_generate.py, so contacts are
+# GENERATED at measured coordinates instead of hoped for from prompt text.
+# Targets are npz space: Y-up, meters, motion-local. Convert Blender scene
+# measurements with the `scale` (meters per npz unit) from preflight_motion.
+# The result JSON reports achieved_error_m per target, measured on the output.
 #
 # Config (env):
 #   CCLAY_ARDY_HOST  ssh host of the ARDY machine   (default: 100.90.2.101)
@@ -27,6 +38,8 @@ usage() {
   {
     echo 'usage: cclay-ardy-generate "<prompt>" [--duration N] [--seed S] [--project DIR]'
     echo '       cclay-ardy-generate --segment "<prompt>" <seconds> [--segment "<prompt>" <seconds> ...] [--seed S] [--project DIR]'
+    echo '       cclay-ardy-generate "<prompt>" --duration N --base-motion <motion_id> --constrain <frame> <joint> <x> <y> <z> [--constrain ...] [--cfg-weight <text> <constraint>]'
+    echo '         joint is one of LeftFoot RightFoot LeftHand RightHand; x y z are npz space (Y-up, meters, motion-local)'
   } >&2
   exit 2
 }
@@ -42,6 +55,11 @@ SEED=""
 PROJECT="${CCLAY_PROJECT_DIR:-$PWD}"
 SEG_PROMPTS=()
 SEG_SECONDS=()
+BASE_MOTION=""
+CONSTRAIN_ARGS=()
+CONSTRAIN_COUNT=0
+CFG_TEXT=""
+CFG_CONSTRAINT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --segment)
@@ -57,6 +75,29 @@ while [[ $# -gt 0 ]]; do
     --project)
       [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --project needs a directory" >&2; usage; }
       PROJECT="$2"; shift 2 ;;
+    --base-motion)
+      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --base-motion needs a motion_id" >&2; usage; }
+      [[ "$2" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "cclay-ardy-generate: --base-motion must be a motion_id, got '$2'" >&2; usage; }
+      BASE_MOTION="$2"; shift 2 ;;
+    --constrain)
+      [[ $# -ge 6 ]] || { echo "cclay-ardy-generate: --constrain needs <frame> <joint> <x> <y> <z>" >&2; usage; }
+      [[ "$2" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain frame must be a non-negative integer, got '$2'" >&2; usage; }
+      case "$3" in
+        LeftFoot|RightFoot|LeftHand|RightHand) ;;
+        *) echo "cclay-ardy-generate: --constrain joint must be LeftFoot, RightFoot, LeftHand, or RightHand, got '$3'" >&2; usage ;;
+      esac
+      for axis in "$4" "$5" "$6"; do
+        [[ "$axis" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --constrain x y z must be numbers, got '$axis'" >&2; usage; }
+      done
+      CONSTRAIN_ARGS+=(--target "$2" "$3" "$4" "$5" "$6")
+      CONSTRAIN_COUNT=$((CONSTRAIN_COUNT + 1))
+      shift 6 ;;
+    --cfg-weight)
+      [[ $# -ge 3 ]] || { echo "cclay-ardy-generate: --cfg-weight needs <text> <constraint>" >&2; usage; }
+      for weight in "$2" "$3"; do
+        [[ "$weight" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --cfg-weight values must be numbers, got '$weight'" >&2; usage; }
+      done
+      CFG_TEXT="$2"; CFG_CONSTRAINT="$3"; shift 3 ;;
     -*) echo "cclay-ardy-generate: unknown option $1" >&2; exit 2 ;;
     *)
       if [[ -n "$PROMPT" ]]; then echo "cclay-ardy-generate: one prompt only" >&2; exit 2; fi
@@ -65,6 +106,18 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ ${#SEG_PROMPTS[@]} -gt 0 && -n "$PROMPT" ]]; then
   echo "cclay-ardy-generate: --segment and a positional prompt are mutually exclusive" >&2
+  usage
+fi
+if [[ $CONSTRAIN_COUNT -gt 0 && ${#SEG_PROMPTS[@]} -gt 0 ]]; then
+  echo "cclay-ardy-generate: --constrain and --segment are mutually exclusive; constrain a single-prompt clip" >&2
+  usage
+fi
+if [[ $CONSTRAIN_COUNT -gt 0 && -z "$BASE_MOTION" ]]; then
+  echo "cclay-ardy-generate: --constrain needs --base-motion; an ARDY end-effector constraint is a pose at a frame, so it needs a first-pass clip to take that pose from" >&2
+  usage
+fi
+if [[ -n "$BASE_MOTION" && $CONSTRAIN_COUNT -eq 0 ]]; then
+  echo "cclay-ardy-generate: --base-motion is only used by --constrain" >&2
   usage
 fi
 if [[ ${#SEG_PROMPTS[@]} -eq 0 && -z "$PROMPT" ]]; then usage; fi
@@ -80,6 +133,62 @@ MOTION_ID="${SLUG:-motion}-${STAMP}"
 REMOTE_OUT="outputs/cclay/${MOTION_ID}"
 
 MOTIONS_DIR="$PROJECT/.cclay/motions"
+
+if [[ $CONSTRAIN_COUNT -gt 0 ]]; then
+  # ---- constraint mode: ARDY end-effector targets at measured coordinates ----
+  BASE_NPZ="$MOTIONS_DIR/${BASE_MOTION}.npz"
+  [[ -f "$BASE_NPZ" ]] || { echo "cclay-ardy-generate: base motion npz not found: $BASE_NPZ" >&2; exit 1; }
+
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  LOCAL_CON_SCRIPT="$SCRIPT_DIR/ardy/cclay_constrained_generate.py"
+  [[ -f "$LOCAL_CON_SCRIPT" ]] || { echo "cclay-ardy-generate: $LOCAL_CON_SCRIPT missing (repo checkout incomplete?)" >&2; exit 1; }
+
+  REMOTE_BASE="outputs/cclay/${MOTION_ID}-base.npz"
+  echo "cclay-ardy-generate: syncing constrained script and base motion to ${HOST} ..." >&2
+  # shellcheck disable=SC2029  # REMOTE_REPO expands remotely by design
+  scp -q -o BatchMode=yes "$LOCAL_CON_SCRIPT" "$HOST:${REMOTE_REPO}/scripts/cclay_constrained_generate.py"
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "mkdir -p \"${REMOTE_REPO}/outputs/cclay\"" </dev/null
+  # shellcheck disable=SC2029
+  scp -q -o BatchMode=yes "$BASE_NPZ" "$HOST:${REMOTE_REPO}/${REMOTE_BASE}"
+
+  REMOTE_CMD="cd \"${REMOTE_REPO}\" && .venv/bin/python scripts/cclay_constrained_generate.py"
+  REMOTE_CMD+=" --prompt $(printf '%q' "$PROMPT") --duration $(printf '%q' "$DURATION")"
+  REMOTE_CMD+=" --base $(printf '%q' "$REMOTE_BASE") --output $(printf '%q' "$REMOTE_OUT")"
+  for arg in "${CONSTRAIN_ARGS[@]}"; do
+    REMOTE_CMD+=" $(printf '%q' "$arg")"
+  done
+  [[ -n "$SEED" ]] && REMOTE_CMD+=" --seed $(printf '%q' "$SEED")"
+  [[ -n "$CFG_TEXT" ]] && REMOTE_CMD+=" --cfg_weight $(printf '%q' "$CFG_TEXT") $(printf '%q' "$CFG_CONSTRAINT")"
+
+  echo "cclay-ardy-generate: generating under ${CONSTRAIN_COUNT} constraint target(s) on ${HOST} ..." >&2
+  CON_STDOUT="$(ssh -o BatchMode=yes "$HOST" "$REMOTE_CMD" </dev/null)"
+  if [[ "$CON_STDOUT" == *$'\n'* ]]; then
+    printf '%s\n' "${CON_STDOUT%$'\n'*}" >&2
+  fi
+  CON_JSON="${CON_STDOUT##*$'\n'}"
+  [[ "$CON_JSON" == \{*\} ]] || { echo "cclay-ardy-generate: remote constrained script did not end with a JSON line: ${CON_JSON}" >&2; exit 1; }
+
+  FRAME_COUNT="$(json_int frames "$CON_JSON")"
+  FPS="$(json_int fps "$CON_JSON")"
+  [[ -n "$FRAME_COUNT" && -n "$FPS" && "$FPS" -gt 0 && "$FRAME_COUNT" -gt 0 ]] || { echo "cclay-ardy-generate: malformed constrained JSON: ${CON_JSON}" >&2; exit 1; }
+  DURATION_S="$(awk -v f="$FRAME_COUNT" -v r="$FPS" 'BEGIN { printf "%.3f", f / r }')"
+
+  mkdir -p "$MOTIONS_DIR"
+  chmod 700 "$MOTIONS_DIR"
+  # shellcheck disable=SC2029
+  scp -q -o BatchMode=yes "$HOST:${REMOTE_REPO}/${REMOTE_OUT}.npz" "$MOTIONS_DIR/${MOTION_ID}.npz"
+  chmod 600 "$MOTIONS_DIR/${MOTION_ID}.npz"
+  # Drop both remote copies so outputs/cclay never grows unbounded.
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "rm -f \"${REMOTE_REPO}/${REMOTE_OUT}.npz\" \"${REMOTE_REPO}/${REMOTE_BASE}\"" </dev/null
+
+  CON_BODY="${CON_JSON#\{}"
+  CON_BODY="${CON_BODY%\}}"
+  printf '{"motion_id":"%s","duration_s":%s,"path":".cclay/motions/%s.npz","base_motion_id":"%s",%s}\n' \
+    "$MOTION_ID" "$DURATION_S" "$MOTION_ID" "$BASE_MOTION" "$CON_BODY"
+  exit 0
+fi
 
 if [[ ${#SEG_PROMPTS[@]} -gt 0 ]]; then
   # ---- segment mode: one continuous rollout with per-segment prompts ----

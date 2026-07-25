@@ -61,10 +61,11 @@ Classify the defect from the numeric signature before changing anything, then ta
 | rank | defect class (signature) | correction |
 |---|---|---|
 | 1 | **Uniform offset** — all contact windows share one constant error against the measured surfaces (or a global position/facing offset) | One `transform_entity` on the character armature or the prop assembly. |
-| 2 | **Layout mismatch** — measured contact pitch/heights disagree with the prop layout | Refit prop positions/dimensions to the MEASURED contact points, or regenerate the motion with a dimensioned prompt matching the measured layout. |
-| 3 | **Local contact residual** — one contact window is off while the others fit | Bounded local correction over that window only. NEVER a clip-wide whole-body offset above a small threshold (~0.05 m). |
-| 4 | **Wrong hand shape only** — one side's visible digit configuration is wrong while the body motion fits | Re-apply the same `motion_id` with `hand_shapes` containing both values from returned `applied_hand_shapes`, changing only the failed side; this preserves the correct side and makes the repair explicit — never regenerate correct body motion for a finger-only defect. |
-| 5 | **Wrong body mechanics or missing action** | Reword, reseed, or re-segment ARDY; never edit or splice motion arrays. |
+| 2 | **Per-contact offset** — the contact errors DIFFER from each other (typically growing across a stair or multi-step layout) | No single transform can fit them: constrained regeneration. Read the `ardy-motion` skill's section 3b and re-generate with `--constrain` at the measured contact coordinates. Do not keyframe a clip-wide offset to hide it. |
+| 3 | **Layout mismatch** — measured contact pitch/heights disagree with the prop layout | Refit prop positions/dimensions to the MEASURED contact points, or regenerate constrained against the layout you intend to keep. |
+| 4 | **Local contact residual** — one contact window is off while the others fit | Bounded local correction over that window only. NEVER a clip-wide whole-body offset above a small threshold (~0.05 m). |
+| 5 | **Wrong hand shape only** — one side's visible digit configuration is wrong while the body motion fits | Re-apply the same `motion_id` with `hand_shapes` containing both values from returned `applied_hand_shapes`, changing only the failed side; this preserves the correct side and makes the repair explicit — never regenerate correct body motion for a finger-only defect. |
+| 6 | **Wrong body mechanics or missing action** | Reword, reseed, or re-segment ARDY; never edit or splice motion arrays. |
 
 **Do not** paper over a layout mismatch by keyframing a large clip-wide vertical offset (e.g. half a meter) on a parent Empty — refit the layout or regenerate instead.
 

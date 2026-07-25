@@ -50,6 +50,51 @@ describe("bundled director skills", () => {
 		assert.ok(block.includes("read tool"));
 	});
 
+	it("ardy-motion documents constrained regeneration as the fix for measured contacts", () => {
+		const content = readFileSync(ARDY_MOTION_SKILL_PATH, "utf8");
+		for (const marker of [
+			"--constrain",
+			"--base-motion",
+			"LeftFoot",
+			"RightFoot",
+			"LeftHand",
+			"RightHand",
+			"achieved_error_m",
+			"base_error_m",
+			"residual",
+		]) {
+			assert.ok(content.includes(marker), `skill must mention ${marker}`);
+		}
+		// Coordinate frames are the load-bearing detail: ARDY targets are Y-up
+		// npz units while Blender is Z-up metres, so the skill must state the
+		// conversion or the director will silently feed swapped axes.
+		assert.match(content, /Y-up/, "skill must state the npz up axis");
+		assert.match(content, /scale/, "skill must point at the preflight scale factor");
+		assert.ok(content.includes("motion-local"), "skill must say targets are motion-local, not world space");
+	});
+
+	it("visual-qa routes per-contact offsets to constrained regeneration, not one transform", () => {
+		const content = readFileSync(VISUAL_QA_SKILL_PATH, "utf8");
+		assert.ok(content.includes("--constrain"), "QA must name the constrained escape hatch");
+		assert.ok(
+			content.includes("Per-contact offset"),
+			"QA must classify per-contact offsets separately from uniform ones",
+		);
+		// A stair layout is exactly the case a single transform cannot fix, so
+		// the per-contact row must outrank the layout-refit row.
+		assert.ok(
+			content.indexOf("Per-contact offset") < content.indexOf("Layout mismatch"),
+			"per-contact offset must be classified before layout mismatch",
+		);
+	});
+
+	it("director prompt states that prompt numbers bias but do not bind ARDY", () => {
+		assert.ok(/never sees the scene/.test(DIRECTOR_PROMPT), "prompt must say ARDY is scene-blind");
+		assert.ok(/does not bind/.test(DIRECTOR_PROMPT), "prompt must say measured numbers in text are not constraints");
+		// The prompt stays tool-level: the CLI surface belongs to the skill.
+		assert.ok(!DIRECTOR_PROMPT.includes("--constrain"));
+	});
+
 	it("ardy-motion covers generation, apply, and the post-apply QA handoff", () => {
 		const content = readFileSync(ARDY_MOTION_SKILL_PATH, "utf8");
 		for (const marker of [

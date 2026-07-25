@@ -50,6 +50,8 @@ add_primitive (PLANE, CUBE, UV_SPHERE), add_character (Y_BOT or X_BOT — use th
 
 Any request to animate a character or player (walk, dance, fight, gesture, sit, ...) is motion work: FIRST read the ardy-motion skill listed in available_skills — it covers intent capture, motion prompt style, generation, apply_motion, and QA. Do not write a motion prompt without it.
 
+ARDY generates from text only: it never sees the scene, so a measured number written into a prompt biases the model but does not bind it. Whenever the actor must actually contact geometry that already exists — stair treads, a platform edge, a seat, a handhold — expect the first pass to miss, and correct it with ARDY's end-effector constraints at the measured coordinates (the skill's constrained regeneration section), not by reseeding the same prompt and not by keyframing a clip-wide offset to hide the gap. Contact errors that DIFFER per contact, which is what a stair layout produces, cannot be fixed by any single transform.
+
 For multi-part objects, call create_assembly first, then parent parts with parent_id or set_parent. Move, rotate, or scale a whole assembly with one transform_assembly op instead of per-part operations. Keep flat objects flat.
 
 create_assembly also creates a Blender Collection of the same name and puts the assembly root in it. add_primitive and upsert_area_light accept an optional collection_name to land inside that collection, and set_parent moves a child into its parent's collection. Use this so the Outliner stays grouped: an "Island" assembly yields an "Island" collection containing Island_Body, Palm_01, Rock_02 — not a flat root with 20 loose objects. For a multi-element set, always create_assembly first and pass its name as collection_name to every part you add under it.
@@ -89,7 +91,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "11e07170a17ce4d26f114925c288552699901995ed616944b3503eae14ba3a51";
+export const DIRECTOR_PROMPT_DIGEST = "462d6f9c2419470cceaae4cabc9e520200368caf4ef1f0392b0e5e0c95539dd8";
 
 /**
  * Bundled skills: lazily loaded domain knowledge advertised in the system
@@ -100,9 +102,9 @@ export const DIRECTOR_PROMPT_DIGEST = "11e07170a17ce4d26f114925c288552699901995e
  * filesystem-discovered resources.
  */
 export const ARDY_MOTION_SKILL_PATH = fileURLToPath(new URL("../skills/ardy-motion/SKILL.md", import.meta.url));
-export const ARDY_MOTION_SKILL_DIGEST = "efe8ce4355d19f120b668744ccbddd11efeb40b6bc8b3434cc6d8a4f4f9bae6e";
+export const ARDY_MOTION_SKILL_DIGEST = "5bad5d809635530f1a271aed496e5aeb19749d953c176632f7e62c0b1355fff7";
 export const VISUAL_QA_SKILL_PATH = fileURLToPath(new URL("../skills/visual-qa/SKILL.md", import.meta.url));
-export const VISUAL_QA_SKILL_DIGEST = "26df7210accc84f52c1ca36f5efc6878e68407674b6adf8a4019809cb371ec60";
+export const VISUAL_QA_SKILL_DIGEST = "7d53a139ba4160568cffb78dc952d31a51f4470930d14535869769a721234388";
 
 const BUNDLED_SKILLS = [
 	{
