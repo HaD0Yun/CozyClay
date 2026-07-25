@@ -1,99 +1,132 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# CozyClay
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+**An AI directing harness for Blender.** Talk to a director in your terminal; it reads your live Blender scene, stages objects, plans camera moves, and renders QA frames — through a transactional bridge that never mutates your scene outside a revision-checked, committed transaction.
 
-# Pi Agent Harness
+CozyClay is not a chat window bolted onto Blender. Every mutation is a two-phase transaction bound to an exact scene revision, every entity it creates carries an ownership stamp, and every camera plan is validated against digest-authorized evidence before a single keyframe lands.
 
-This is the home of the Pi agent harness project including our self extensible coding agent.
+> Status: alpha. The protocol, the add-on, and the tool surface are all still moving. Pin a commit if you build on it.
 
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
+## What it looks like
 
-To learn more about Pi:
+```
+$ cd ~/BlenderScenes/my-short
+$ cclay
 
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
+> put the two boxers on the mat facing each other, then give me a
+  wide establishing shot that cuts to a close-up on the valley
+  between the second and third punch
 
-## All Packages
+  inspect_project      42 objects, revision 100c68ea…
+  stage_scene          + 2 characters, + 1 assembly    committed
+  produce_directing_evidence   5 action peaks, 4 motion valleys
+  apply_camera_plan    2 shots, cut at frame 161       committed
+  render_qa_frames     4 frames @ 640x360
+```
+
+Blender stays open the whole time. You keep working in the viewport; the director sees what you see.
+
+## Requirements
+
+- Node.js >= 22.19
+- Blender >= 5.1.2
+- An LLM provider account (any provider Pi supports)
+
+## Quick start
+
+```sh
+git clone https://github.com/HaD0Yun/CozyClay.git
+cd CozyClay
+npm install --ignore-scripts
+./scripts/setup-upstream.sh   # optional: only needed to sync from upstream Pi
+
+# put the launcher on PATH
+ln -s "$PWD/scripts/cclay" ~/.local/bin/cclay
+
+cd ~/BlenderScenes/my-short   # any directory becomes a project
+cclay
+```
+
+`cclay` resolves the project directory, launches Blender with the CozyClay add-on attached, waits for the project to initialize, and drops you into the director TUI. Run `cclay --no-blender` to attach Blender yourself.
+
+## How it works
+
+```text
+Blender UI
+  CozyClay add-on (blender-addon/cclay)
+    viewport + timeline context · selection · undo checkpoints
+                    ⇅ authenticated local WebSocket, ordered stream
+CozyClay extension (apps/cclay-extension) + Pi AgentSession
+  Director Runtime   prompt · tool allowlist · turn loop
+  Director Core      project state · revisions · manifests
+  Blender Bridge     correlated two-phase transactions · artifacts
+                    ⇅
+DirectorProject journal + exact recovery marker + .blend evidence
+```
+
+The add-on owns the Blender main thread. The bridge speaks a closed protocol: every message is schema-validated in both directions, unknown fields fail closed, and a mutation cannot start without a negotiated session marker plus an active parent request.
+
+### Safety model
+
+- **Revision binding.** Mutating tools take an `expected_revision_id`. A scene that moved under the director is rejected, not overwritten.
+- **Two-phase transactions.** Prepare, then commit. A failed commit rolls the ownership stamp back.
+- **Ownership stamps.** The director refuses to touch entities it does not own (`STAGE_SCENE_TARGET_NOT_CCLAY_OWNED`), so your hand-authored objects are safe.
+- **Digest-authorized evidence.** Camera plans validate against an evidence document pinned by SHA-256. Caller-supplied metadata cannot authorize a plan.
+- **Closed tool surface.** The embedded director session runs a fixed allowlist; there is no shell, no filesystem write, no network tool.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `inspect_project` | Compact scene summary: objects, transforms, cameras, lights, assemblies |
+| `inspect_entity` | Full detail for one entity — bone hierarchy, fcurves, materials |
+| `inspect_relations` | World-space geometry relations: bounds, support planes, sibling spacing |
+| `capture_viewport` | Fast visual QA — the active viewport as a JPEG |
+| `read_image` | Pull a screenshot or reference image into the conversation |
+| `produce_directing_evidence` | Derive action peaks, motion valleys, and subject samples from the scene |
+| `preflight_motion` | Analyze a generated motion archive before it is baked |
+| `stage_scene` | Transactional scene building: primitives, rigged characters, parenting, motion |
+| `apply_camera_plan` | Commit a validated multi-shot camera plan |
+| `render_qa_frames` | Deterministic 640x360 QA renders for an exact revision |
+
+## Packages
 
 | Package | Description |
-|---------|-------------|
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+|---|---|
+| [`@cclay/protocol`](packages/blender-protocol) | Closed wire schemas: bridge messages, scene manifests, camera plans, evidence |
+| [`@cclay/director-core`](packages/director-core) | Project state, canonical revisions, manifest hashing, artifact store |
+| [`@cclay/blender-tools`](packages/blender-tools) | The model-facing Blender tool implementations |
+| [`@cclay/director-runtime`](packages/director-runtime) | Director session, prompt, tool allowlist, turn loop |
+| [`apps/cclay-extension`](apps/cclay-extension) | Pi extension that binds the tools to a live Blender bridge |
+| [`blender-addon/cclay`](blender-addon/cclay) | The Blender add-on: main-thread execution, transactions, QA render |
 
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
+## Relationship to Pi
 
-## Permissions & Containerization
+CozyClay is built on [earendil-works/pi](https://github.com/earendil-works/pi) and vendors it as an additive fork: `packages/{ai,agent,coding-agent,tui,server,storage}` are upstream Pi, untouched. All CozyClay code lives in new packages, so upstream updates merge with only config-level conflicts.
 
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
+To pull a newer Pi, follow [docs/UPSTREAM-SYNC.md](docs/UPSTREAM-SYNC.md).
 
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
+## Documentation
 
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
+- [Runtime architecture](docs/BLENDER-HARNESS-ARCHITECTURE.md) — the full design, protocol, and invariants
+- [Scene snapshot v2](docs/SCENE-SNAPSHOT-V2.md) — canonical scene serialization
+- [Provider security](docs/G013-PROVIDER-SECURITY.md)
+- [Upstream sync](docs/UPSTREAM-SYNC.md)
 
 ## Development
 
-```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build        # Build all packages
-npm run check        # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+```sh
+npm install --ignore-scripts
+npm run check                                       # lint, format, types
+python3 -m unittest discover -s blender-addon/tests # Blender add-on suite
+npm --prefix packages/blender-protocol test         # per-package suites
 ```
 
-## Supply-chain hardening
+The add-on suite runs headless and covers the pure-Python logic; tests that need a real Blender binary skip themselves when one is not on PATH.
 
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
-
-## Share your OSS coding agent sessions
-
-If you use Pi or other coding agents for open source work, please share your sessions.
-
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
-
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, and [AGENTS.md](AGENTS.md) if you drive this repo with a coding agent.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
 
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+CozyClay includes Pi (MIT, Copyright (c) 2025 Mario Zechner and contributors).

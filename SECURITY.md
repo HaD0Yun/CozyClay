@@ -1,87 +1,51 @@
 # Security Policy
 
-This document should guide you about understanding the security concept behind
-Pi and also where the boundaries are.
+CozyClay runs locally, inside the security boundary of the user who launched it. It drives a local Blender instance over a loopback WebSocket and talks to whichever LLM provider you configured. It is not a sandbox and does not claim to be one.
 
-In general Pi is a coding agent that runs locally within the security boundary
-of the user that is running it.  It's the responsibiltiy of the user to monitor
-its operations or to contain it within a container, virtual machine or other
-Sandbox solution.
+## Trust model
 
-Pi treats the local user account and files writable by that account as inside
-the same trust boundary as the Pi process itself.  If an attacker can modify files
-under the user's home directory, workspace, shell startup files, environment, or
-Pi configuration, they can generally influence Pi or other local developer tools.
-Reports that depend on such prior local write access are not security
-vulnerabilities unless they demonstrate how Pi grants that write access or crosses
-an operating-system privilege boundary.
+CozyClay treats the local user account and everything writable by it as inside the same trust boundary as the CozyClay process. If an attacker can already write to your home directory, project directory, shell startup files, or CozyClay configuration, they can influence CozyClay the same way they can influence any other local developer tool. Reports that require that prior local write access are not vulnerabilities here unless they show how CozyClay itself grants that access or crosses an OS privilege boundary.
 
-Pi relies on users installing trustworthy extensions and loading trustworthy
-skills and only to use pi within trusted repositories.  This is because files
-like `AGENTS.md` or instructions in comments can be used to prompt inject the
-coding agent trivially and this cannot be protected against.
+The model-facing tool surface is the boundary CozyClay actually defends:
 
-## Reporting a Vulnerability
+- The embedded director session runs a fixed tool allowlist. No shell, no arbitrary filesystem write, no network tool.
+- Every scene mutation is a two-phase transaction bound to an exact scene revision, with rollback on failed commit.
+- The director may only mutate entities stamped as its own; hand-authored objects are refused.
+- Camera plans are authorized by a SHA-256 digest over an evidence document. Caller-supplied metadata cannot authorize a plan.
+- The bridge protocol is closed in both directions. Unknown messages and unknown fields fail closed.
 
-If you believe you found a security vulnerability in pi or another package in
-this repository, please report it privately by either:
+A bug that lets model output escape any of the above is in scope.
 
-- Emailing `security@earendil.com`, or
-- Opening a private report through GitHub Security Advisories for this repository
+## Reporting a vulnerability
+
+Report privately through [GitHub Security Advisories](https://github.com/HaD0Yun/CozyClay/security/advisories/new) for this repository. Do not open a public issue.
 
 Please include:
 
 - A description of the issue and its impact
-- Steps to reproduce, proof of concept, or relevant logs
-- Affected package, version, commit, or configuration
+- Steps to reproduce, a proof of concept, or relevant logs
+- Affected package, commit SHA, and configuration
 - Any known mitigations
 
-Do not open a public issue for security-sensitive reports.  We will review
-reports and coordinate disclosure as appropriate.
+## In scope
 
-## Scope
+- Escaping the director tool allowlist
+- Mutating scene state without a valid revision-bound, committed transaction
+- Mutating or destroying entities the director does not own
+- Authorizing a camera plan without matching digest-authorized evidence
+- Bridge protocol parsing that accepts a message it should reject, in either direction
+- Path traversal or arbitrary file read/write through a tool parameter
+- Leaking provider credentials outside the project-local agent directory
 
-Security issues in the distributed packages, command-line tools, APIs, and
-repository code are in scope as well as earendil operated infrastricture
-on `pi.dev`.
+## Out of scope
 
-## Out Of Scope
+- Prompt injection through scene names, file contents, or `AGENTS.md`. The model is not a trust boundary.
+- The absence of a sandbox around the CozyClay process itself.
+- Behavior of Pi extensions, skills, or providers you installed.
+- Anything requiring the attacker to already create, modify, or replace local files, environment variables, or shell configuration.
+- Malicious or wrong model output that stays inside the tool allowlist.
+- Denial of service that requires trusted local input.
 
-- Local code execution or sandboxing behavior (the Pi coding agent intentionally does not have a sandbox)
-- Behavior of pi extensions or skills installed by the user
-- Risks from working in untrusted repositories
-- Risks from installing untrusted extensions, skills, packages, or tools
-- Isuses caused by non trustworthy MITM proxies
-- Public internet exposure of a Pi installation
-- Prompt injection attacks
-- Exposed secrets that are third-party/user-controlled credentials
-- Reports requiring the ability to create, modify, delete, or replace files,
-  directories, symlinks, environment variables, shell configuration, or other
-  user-controlled local state on the target machine. This includes `~/.pi`,
-  `~/.pi/agent/models.json`, workspace files, `AGENTS.md`, skills, extensions,
-  extension configuration, dotfiles, and files synchronized through NFS, roaming
-  profiles, or dotfile managers, unless the report shows how Pi itself grants
-  that access.
-- Issues caused by intentionally weakened user configuration.
-- Resource/DOS claims that require trusted local input/config against the pi coding agent.
-- Reports about malicious model output.
-- User-approved or user-initiated local actions presented as vulnerabilities.
+## Upstream Pi
 
-## Notes for Reporters
-
-The most useful reports show a current, reproducible security boundary bypass
-with demonstrated impact.  Reports that only show expected local-agent behavior,
-prompt injection, or a malicious trusted extension/skill are not security
-vulnerabilities under this model.
-
-For example, a report showing that malicious contents written to a trusted Pi
-configuration file cause Pi to execute commands, load attacker-controlled tools,
-send credentials to an attacker-controlled endpoint, or otherwise change behavior
-is out of scope.
-
-When possible, include the exact affected path, package version or commit SHA,
-configuration, and a proof of concept against the latest release or latest
-`main`.  For dependency reports, include evidence that the shipped dependency is
-affected and that the issue is reachable through Pi.  For exposed-secret reports,
-include evidence that the credential is owned by Earendil or grants access to
-Earendil-operated infrastructure or services.
+`packages/{ai,agent,coding-agent,tui,server,storage}` are vendored from [earendil-works/pi](https://github.com/earendil-works/pi) unmodified. Report vulnerabilities in those packages upstream. If an upstream issue is reachable specifically through CozyClay's tool surface, report it here too so the vendored copy gets bumped.

@@ -1,15 +1,13 @@
 name: Contribution Proposal
-description: Propose a change or feature (required for new contributors before submitting a PR)
+description: Propose a change or feature before you write it
 labels: []
 body:
   - type: markdown
     attributes:
       value: |
-        **Before you start:** Read [CONTRIBUTING.md](https://github.com/earendil-works/pi-mono/blob/main/CONTRIBUTING.md).
+        Read [CONTRIBUTING.md](https://github.com/HaD0Yun/CozyClay/blob/main/CONTRIBUTING.md) first, in particular the invariants section. Proposals that weaken a listed invariant need an explicit argument.
 
-        New issues from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. Issues that do not meet the quality bar in [CONTRIBUTING.md](https://github.com/earendil-works/pi-mono/blob/main/CONTRIBUTING.md) will not be reopened or receive a reply.
-
-        Keep this short. If it doesn't fit on one screen, it's too long. Write in your own voice.
+        Changes to `packages/{ai,agent,coding-agent,tui,server,storage}` are out of scope; those are vendored from upstream Pi.
 
   - type: textarea
     id: what
@@ -31,6 +29,14 @@ body:
     id: how
     attributes:
       label: How? (optional)
-      description: Brief technical approach if you have one in mind.
+      description: Brief technical approach. Say which packages you expect to touch.
     validations:
       required: false
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Invariants
+      options:
+        - label: This change keeps schemas closed, mutations revision-bound and transactional, ownership enforced, and evidence digest-authorized — or the "Why?" above explains why it must not.
+          required: true

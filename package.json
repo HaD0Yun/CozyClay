@@ -1,5 +1,5 @@
 {
-	"name": "pi-monorepo",
+	"name": "cozyclay",
 	"private": true,
 	"type": "module",
 	"workspaces": [

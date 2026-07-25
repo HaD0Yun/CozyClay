@@ -3,7 +3,7 @@
 Git does not copy local remote configuration into GitHub. Every fresh clone must run the committed setup script before upstream work.
 
 ```sh
-git clone --branch omb-Preview https://github.com/HaD0Yun/CozyClay.git
+git clone https://github.com/HaD0Yun/CozyClay.git
 cd CozyClay
 ./scripts/setup-upstream.sh
 git remote -v
@@ -21,7 +21,7 @@ For an upstream update:
 
 ```sh
 ./scripts/setup-upstream.sh
-git switch -c sync/pi-YYYYMMDD omb-Preview
+git switch -c sync/pi-YYYYMMDD origin/main
 git merge --no-ff upstream/main
 npm ci --ignore-scripts
 npm run build

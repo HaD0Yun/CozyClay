@@ -1,5 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Questions
-    url: https://discord.com/invite/3cU7Bz4UPx
-    about: Ask questions on Discord instead of opening an issue
+  - name: Upstream Pi issues
+    url: https://github.com/earendil-works/pi/issues
+    about: Bugs in the vendored Pi agent runtime, TUI, or provider layer belong upstream

@@ -1,23 +1,19 @@
 name: Bug Report
-description: Report something that's broken
+description: Something in CozyClay is broken
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        **Before you start:** Read [CONTRIBUTING.md](https://github.com/earendil-works/pi-mono/blob/main/CONTRIBUTING.md).
+        Keep it short and concrete. Trim agent transcripts to the failing turn.
 
-        New issues from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. Issues that do not meet the quality bar in [CONTRIBUTING.md](https://github.com/earendil-works/pi-mono/blob/main/CONTRIBUTING.md) will not be reopened or receive a reply.
-
-        Keep this short. If it doesn't fit on one screen, it's too long. Write in your own voice.
-
-        **Important:** before reporting an issue in core, please validate first with `pi -ne` that this is not caused by an extension you loaded.
+        If the failure is in Pi itself (`packages/ai`, `packages/agent`, `packages/coding-agent`, `packages/tui`), report it at [earendil-works/pi](https://github.com/earendil-works/pi/issues) instead.
 
   - type: textarea
     id: description
     attributes:
       label: What happened?
-      description: Be specific. Include error messages if any.
+      description: Include the tool name and error code if there is one, e.g. `stage_scene` / `STAGE_SCENE_TARGET_NOT_CCLAY_OWNED`.
     validations:
       required: true
 
@@ -25,7 +21,7 @@ body:
     id: repro
     attributes:
       label: Steps to reproduce
-      description: Minimal steps to trigger the bug.
+      description: What you asked the director to do, and what it did instead.
     validations:
       required: true
 
@@ -37,9 +33,34 @@ body:
       required: false
 
   - type: input
-    id: version
+    id: blender
     attributes:
-      label: Version
-      description: e.g. 0.49.0
+      label: Blender version
+      placeholder: "5.1.2"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: CozyClay commit
+      description: Output of `git rev-parse --short HEAD`
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15.5 arm64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Attach log
+      description: Relevant lines from `.cclay-blender-attach.log` in your project directory.
+      render: text
     validations:
       required: false
