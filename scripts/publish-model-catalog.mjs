@@ -65,10 +65,6 @@ function readJson(path) {
 	return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function isRecord(value) {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function validateBundle(inputDir) {
 	const modelsPath = join(inputDir, "models.json");
 	const providerIndexPath = join(inputDir, "providers.json");
@@ -77,7 +73,9 @@ function validateBundle(inputDir) {
 	const models = JSON.parse(modelsBytes.toString("utf8"));
 	const providerIds = readJson(providerIndexPath);
 
-	if (!isRecord(models)) throw new Error("models.json must contain an object");
+	if (typeof models !== "object" || models === null || Array.isArray(models)) {
+		throw new Error("models.json must contain an object");
+	}
 	if (!Array.isArray(providerIds) || !providerIds.every((value) => typeof value === "string")) {
 		throw new Error("providers.json must contain an array of provider IDs");
 	}
@@ -93,13 +91,21 @@ function validateBundle(inputDir) {
 	let modelCount = 0;
 	for (const providerId of providerIds) {
 		const providerModels = models[providerId];
-		if (!isRecord(providerModels)) throw new Error(`Provider catalog must be an object: ${providerId}`);
+		if (typeof providerModels !== "object" || providerModels === null || Array.isArray(providerModels)) {
+			throw new Error(`Provider catalog must be an object: ${providerId}`);
+		}
 		const providerFile = readJson(join(providersDir, `${providerId}.json`));
 		if (!isDeepStrictEqual(providerFile, providerModels)) {
 			throw new Error(`Provider shard does not match models.json: ${providerId}`);
 		}
 		for (const [modelId, model] of Object.entries(providerModels)) {
-			if (!isRecord(model) || model.id !== modelId || model.provider !== providerId) {
+			if (
+				typeof model !== "object" ||
+				model === null ||
+				Array.isArray(model) ||
+				model.id !== modelId ||
+				model.provider !== providerId
+			) {
 				throw new Error(`Invalid model entry: ${providerId}/${modelId}`);
 			}
 			modelCount++;
@@ -181,13 +187,20 @@ function uploadJson(bucket, endpoint, sourcePath, key, cacheControl) {
 }
 
 function validateIndex(index) {
-	if (!isRecord(index) || index.schemaVersion !== CATALOG_SCHEMA_VERSION) {
+	if (
+		typeof index !== "object" ||
+		index === null ||
+		Array.isArray(index) ||
+		index.schemaVersion !== CATALOG_SCHEMA_VERSION
+	) {
 		throw new Error(`Existing ${CATALOG_INDEX_KEY} has an unsupported schema`);
 	}
 	if (!Array.isArray(index.catalogs)) throw new Error(`Existing ${CATALOG_INDEX_KEY} has no catalogs array`);
 	for (const catalog of index.catalogs) {
 		if (
-			!isRecord(catalog) ||
+			typeof catalog !== "object" ||
+			catalog === null ||
+			Array.isArray(catalog) ||
 			typeof catalog.minimumPiVersion !== "string" ||
 			typeof catalog.revision !== "string"
 		) {

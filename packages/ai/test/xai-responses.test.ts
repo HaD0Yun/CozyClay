@@ -60,6 +60,18 @@ describe("xAI Responses provider", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("excludes retired and redundant models from the built-in catalog", () => {
+		for (const modelId of [
+			"grok-3",
+			"grok-3-fast",
+			"grok-4.20-0309-non-reasoning",
+			"grok-4.20-0309-reasoning",
+			"grok-code-fast-1",
+		]) {
+			expect(Object.keys(XAI_MODELS)).not.toContain(modelId);
+		}
+	});
+
 	it("uses Responses with low/medium/high efforts only for Grok 4.5", () => {
 		expect(XAI_MODELS["grok-4.5"].api).toBe("openai-responses");
 		expect(getSupportedThinkingLevels(XAI_MODELS["grok-4.5"])).toEqual(["low", "medium", "high"]);

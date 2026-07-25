@@ -3,7 +3,7 @@ import { envApiKeyAuth } from "../src/auth/helpers.ts";
 import type { AuthContext, AuthEvent } from "../src/auth/types.ts";
 import { createModels, createProvider } from "../src/models.ts";
 import { InMemoryModelsStore, type ModelsStoreEntry } from "../src/models-store.ts";
-import { builtinModels, builtinProviders } from "../src/providers/all.ts";
+import { builtinModels, builtinProviders, getBuiltinModel } from "../src/providers/all.ts";
 import { amazonBedrockProvider } from "../src/providers/amazon-bedrock.ts";
 import { anthropicProvider } from "../src/providers/anthropic.ts";
 import { cloudflareAIGatewayProvider } from "../src/providers/cloudflare-ai-gateway.ts";
@@ -41,6 +41,41 @@ describe("builtin providers", () => {
 			if (provider.id === "radius") expect(list).toEqual([]);
 			else expect(list.length).toBeGreaterThan(0);
 			expect(list.every((m) => m.provider === provider.id)).toBe(true);
+		}
+	});
+
+	it("stores native constrained-sampling capabilities in model metadata", () => {
+		const gpt4o = getBuiltinModel("openai", "gpt-4o");
+		expect(gpt4o.compat?.supportsStrictMode).toBe(true);
+		expect(gpt4o.compat?.supportsOpenAIGrammarTools).toBeUndefined();
+		expect(getBuiltinModel("openai", "gpt-5.4").compat).toMatchObject({
+			supportsStrictMode: true,
+			supportsOpenAIGrammarTools: true,
+		});
+		expect(getBuiltinModel("anthropic", "claude-haiku-4-5").compat?.supportsStrictTools).toBe(true);
+	});
+
+	it("uses official Kimi K3 pricing for Moonshot providers", () => {
+		const models = builtinModels();
+		for (const provider of ["moonshotai", "moonshotai-cn"]) {
+			expect(models.getModel(provider, "kimi-k3")?.cost).toEqual({
+				input: 3,
+				output: 15,
+				cacheRead: 0.3,
+				cacheWrite: 0,
+			});
+		}
+	});
+
+	it("uses API-equivalent implied pricing for Kimi Coding subscription models", () => {
+		const models = builtinModels();
+		const expectedCosts = {
+			k3: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 0 },
+			"kimi-for-coding-highspeed": { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 0 },
+		};
+
+		for (const [modelId, cost] of Object.entries(expectedCosts)) {
+			expect(models.getModel("kimi-coding", modelId)?.cost).toEqual(cost);
 		}
 	});
 
