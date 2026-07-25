@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-check-test:
+  check-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,14 +32,21 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build
-        run: npm run build
-
+      # No build step: `npm run build` is Pi's release pipeline. It regenerates
+      # the model catalog from live provider APIs, so upstream data drift can
+      # break CI on a commit that changed nothing here, and CozyClay never
+      # ships Pi's dist output. Upstream builds are verified during a sync
+      # instead (docs/UPSTREAM-SYNC.md).
       - name: Check
         run: npm run check
 
-      - name: Test
-        run: npm test
+      - name: Test CozyClay packages
+        run: |
+          npm --prefix packages/blender-protocol test
+          npm --prefix packages/blender-tools test
+          npm --prefix packages/director-core test
+          npm --prefix packages/director-runtime test
+          npm --prefix apps/cclay-extension test
 
   blender-addon-tests:
     runs-on: ubuntu-latest
@@ -100,9 +107,10 @@ jobs:
         run: |
           node --import tsx --input-type=module -e '
             import { readFileSync } from "node:fs";
-            import { parseSceneSnapshot, createProjectManifest } from "./packages/blender-protocol/src/snapshot.ts";
+            import { parseSceneSnapshot } from "./packages/blender-protocol/src/snapshot.ts";
+            import { buildProjectManifest } from "./packages/director-core/src/manifest.ts";
             const snapshot = parseSceneSnapshot(JSON.parse(readFileSync("/tmp/export-a.json", "utf8")));
-            const revision = createProjectManifest(snapshot).revision;
+            const revision = buildProjectManifest(snapshot).revision;
             const expected = process.env.CCLAY_REVISION;
             if (revision !== expected) throw new Error(`parity mismatch: ts=${revision} python=${expected}`);
             console.log(`cross-language parity ok: ${revision}`);
