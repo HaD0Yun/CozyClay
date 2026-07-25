@@ -16,6 +16,14 @@ _UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_MAGNITUDE = 1e15
 
+# The one list of buildable shapes for the add-on. `manifest.py` and
+# `stage_scene.py` import this rather than repeating the tuple, because separate
+# copies are what let validation, construction and export disagree.
+#
+# Every shape is authored to fit the -1..1 unit box so `scale` means the same
+# thing for all of them. Mirrors primitiveTypeSchema() in the protocol package.
+PRIMITIVE_TYPES = ("PLANE", "CUBE", "UV_SPHERE", "CYLINDER", "CONE", "CIRCLE", "TORUS")
+
 _MANIFEST_V2_KEYS = {
     "schemaVersion", "projectId", "revisionId", "sceneHash", "blenderVersion",
     "scene", "render", "objects", "bones", "cameras", "lights", "markers",
@@ -38,6 +46,9 @@ _STAGE_PRIMITIVE_KEYS = {"objectId", "primitiveType"}
 _STAGE_MATERIAL_KEYS = {
     "objectId", "materialName", "baseColor", "useNodes",
     "principledBaseColor",
+    # Optional: emitted only when the finish leaves Blender's Principled defaults,
+    # so manifests written before surface finish existed stay hash-identical.
+    "principledRoughness", "principledMetallic",
 }
 _MARKER_KEYS = {"name", "frame", "cameraId"}
 _CAMERA_ANIMATION_KEYS = {"objectId", "target", "fcurves"}
@@ -340,7 +351,7 @@ def _validate_manifest(manifest: dict) -> None:
                         f"{path}.objectId must reference a MESH object"
                     )
                 if key == "stagePrimitives":
-                    if item.get("primitiveType") not in ("PLANE", "CUBE", "UV_SPHERE"):
+                    if item.get("primitiveType") not in PRIMITIVE_TYPES:
                         _fail(f"{path}.primitiveType", "is unsupported")
                 else:
                     _string(item.get("materialName"), f"{path}.materialName", 1, 256)
@@ -364,6 +375,18 @@ def _validate_manifest(manifest: dict) -> None:
                                 f"{path}.principledBaseColor",
                                 "components must be between 0 and 1",
                             )
+                    # Optional: present only when the finish leaves the Principled
+                    # defaults, which is what keeps older manifests hash-identical.
+                    for finish in ("principledRoughness", "principledMetallic"):
+                        if finish not in item:
+                            continue
+                        value = item[finish]
+                        if (
+                            isinstance(value, bool)
+                            or not isinstance(value, (int, float))
+                            or not 0 <= value <= 1
+                        ):
+                            _fail(f"{path}.{finish}", "must be a number between 0 and 1")
             _assert_sorted(arrays[key], lambda item: item["objectId"], key)
     if schema_version == 4:
         assembly_ids: set[str] = set()

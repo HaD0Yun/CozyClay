@@ -24,6 +24,7 @@ from .scene_manifest import (
     build_scene_manifest_v3,
     build_scene_manifest_v4,
     finalize_scene_manifest,
+    PRIMITIVE_TYPES,
     rational_fps,
 )
 
@@ -37,6 +38,13 @@ def _text(value: str) -> str:
 
 def _vector(values: Iterable[float]) -> list[float]:
     return [float(value) for value in values]
+
+
+# Blender's Principled BSDF defaults, which every generated material carried
+# before surface finish became settable. Matching values are omitted from the
+# manifest so pre-existing scenes keep their exact revision hash.
+_DEFAULT_ROUGHNESS = 0.5
+_DEFAULT_METALLIC = 0.0
 
 
 def _object_quaternion(scene_object: bpy.types.Object) -> list[float]:
@@ -296,7 +304,7 @@ def _stage_manifest_entries(
     for scene_object in scene_objects:
         object_id = object_ids[scene_object]
         primitive_type = scene_object.get("cclay.stage_primitive_type")
-        if primitive_type in ("PLANE", "CUBE", "UV_SPHERE"):
+        if primitive_type in PRIMITIVE_TYPES:
             primitives.append({
                 "objectId": object_id,
                 "primitiveType": primitive_type,
@@ -313,7 +321,7 @@ def _stage_manifest_entries(
                 if material.node_tree is not None
                 else None
             )
-            materials.append({
+            entry = {
                 "objectId": object_id,
                 "materialName": _text(material.name),
                 "baseColor": _vector(material.diffuse_color),
@@ -323,7 +331,22 @@ def _stage_manifest_entries(
                     if principled is not None
                     else None
                 ),
-            })
+            }
+            # Surface finish is recorded only when it leaves the Principled
+            # defaults the add-on has always produced, so a scene that never sets
+            # it keeps a byte-identical manifest and revision hash.
+            if principled is not None:
+                for key, socket_name, default in (
+                    ("principledRoughness", "Roughness", _DEFAULT_ROUGHNESS),
+                    ("principledMetallic", "Metallic", _DEFAULT_METALLIC),
+                ):
+                    socket = principled.inputs.get(socket_name)
+                    if socket is None:
+                        continue
+                    value = float(socket.default_value)
+                    if value != default:
+                        entry[key] = value
+            materials.append(entry)
     return primitives, materials
 
 

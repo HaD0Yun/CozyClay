@@ -22,6 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import hand_shapes, motion_retarget
+from .scene_manifest import PRIMITIVE_TYPES
 
 try:  # Blender is intentionally absent from host-side unit tests.
     import bpy  # type: ignore
@@ -50,7 +51,7 @@ _OPERATION_KEYS = {
     "transform_assembly": {
         "op", "assembly_id", "translation", "rotation_euler", "scale",
     },
-    "set_material_color": {"op", "entity_id", "color"},
+    "set_material_color": {"op", "entity_id", "color", "roughness", "metallic"},
     "upsert_area_light": {
         "op", "entity_id", "name", "location", "rotation", "scale",
         "energy", "color", "size", "collection_name",
@@ -75,7 +76,7 @@ _OPERATION_KEYS = {
         "start_frame",
     },
 }
-_PRIMITIVES = {"PLANE", "CUBE", "UV_SPHERE"}
+_PRIMITIVES = frozenset(PRIMITIVE_TYPES)
 _SENSOR_FITS = {"AUTO", "HORIZONTAL", "VERTICAL", "SQUARE"}
 _RENDER_SETTING_BOUNDS = {
     "resolution_x": (1, 65535),
@@ -120,6 +121,10 @@ class STAGE_SCENE_TARGET_TYPE_INVALID(StageSceneError):
     code = "STAGE_SCENE_TARGET_TYPE_INVALID"
 
 
+class STAGE_SCENE_PRIMITIVE_UNSUPPORTED(StageSceneError):
+    code = "STAGE_SCENE_PRIMITIVE_UNSUPPORTED"
+
+
 class STAGE_SCENE_SHARED_DATABLOCK(StageSceneError):
     code = "STAGE_SCENE_SHARED_DATABLOCK"
 class STAGE_SCENE_PARENT_CYCLE(StageSceneError):
@@ -156,13 +161,22 @@ def _uuid(value: object, label: str) -> str:
     return value
 
 
-def _number(value: object, label: str, *, minimum: float | None = None, positive: bool = False) -> float:
+def _number(
+    value: object,
+    label: str,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    positive: bool = False,
+) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         _invalid(f"{label} must be a finite number")
     if abs(value) >= 1e15:
         _invalid(f"{label} magnitude must be below 1e15")
     if minimum is not None and value < minimum:
         _invalid(f"{label} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        _invalid(f"{label} must be at most {maximum}")
     if positive and value <= 0:
         _invalid(f"{label} must be positive")
     return float(value)
@@ -346,6 +360,16 @@ def parse_stage_scene_plan(value: object) -> dict:
                     _invalid(
                         f"operations[{index}].{field} must be a vector, not null"
                     )
+        elif operation_kind == "set_material_color":
+            # roughness and metallic are optional so a plan written before surface
+            # finish existed stays valid and byte-identical on the wire.
+            required = {"op", "entity_id", "color"}
+            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
+                _invalid(
+                    f"operations[{index}] must contain {sorted(required)} "
+                    f"and only optional surface finish fields"
+                )
+            expected_keys = set(raw_operation)
         elif operation_kind == "set_light_property":
             required = {"op", "entity_id"}
             if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
@@ -433,6 +457,16 @@ def parse_stage_scene_plan(value: object) -> dict:
                 _number(operation["lens"], f"operations[{index}].lens", positive=True)
         elif operation_kind == "set_material_color":
             _vector(operation.get("color"), 4, f"operations[{index}].color", unit=True)
+            # Optional: absent keeps the Principled defaults the add-on has always
+            # produced, so an older plan stays byte-identical on the wire.
+            for finish in ("roughness", "metallic"):
+                if finish in operation:
+                    _number(
+                        operation[finish],
+                        f"operations[{index}].{finish}",
+                        minimum=0.0,
+                        maximum=1.0,
+                    )
         elif operation_kind == "upsert_area_light":
             _name(operation.get("name"), f"operations[{index}].name")
             _vector(operation.get("location"), 3, f"operations[{index}].location")
@@ -873,6 +907,73 @@ class _StageTransaction:
                 bpy.data.actions.remove(action)
 
 
+# Authored so the ring's outer edge lands exactly on the -1..1 unit box like every
+# other shape, keeping `scale` uniform: 0.75 + 0.25 = 1.0.
+_TORUS_MAJOR_RADIUS = 0.75
+_TORUS_MINOR_RADIUS = 0.25
+
+
+def _build_primitive_mesh(editable, primitive_type: str) -> None:
+    """Author one shape into `editable`, sized to the -1..1 unit box.
+
+    Construction stays pure bmesh -- no bpy.ops -- so there is no operator
+    context, no selection side effect, and no dependency on the active scene.
+    The unknown branch raises instead of falling through to a sphere: with seven
+    shapes a silent default would turn a validation gap into a wrong mesh.
+    """
+    import bmesh
+
+    if primitive_type == "CUBE":
+        bmesh.ops.create_cube(editable, size=2)
+    elif primitive_type == "PLANE":
+        bmesh.ops.create_grid(editable, x_segments=1, y_segments=1, size=1)
+    elif primitive_type == "UV_SPHERE":
+        bmesh.ops.create_uvsphere(editable, u_segments=32, v_segments=16, radius=1)
+    elif primitive_type == "CYLINDER":
+        bmesh.ops.create_cone(
+            editable, cap_ends=True, cap_tris=False, segments=32,
+            radius1=1, radius2=1, depth=2,
+        )
+    elif primitive_type == "CONE":
+        bmesh.ops.create_cone(
+            editable, cap_ends=True, cap_tris=False, segments=32,
+            radius1=1, radius2=0, depth=2,
+        )
+    elif primitive_type == "CIRCLE":
+        bmesh.ops.create_circle(editable, cap_ends=True, segments=32, radius=1)
+    elif primitive_type == "TORUS":
+        # bmesh.ops has no create_torus, so sweep a minor-radius ring around Z.
+        ring = bmesh.ops.create_circle(
+            editable, cap_ends=False, segments=12, radius=_TORUS_MINOR_RADIUS
+        )
+        for vert in ring["verts"]:
+            across, along = vert.co.x, vert.co.y
+            vert.co = (across + _TORUS_MAJOR_RADIUS, 0.0, along)
+        ring_edges = {edge for vert in ring["verts"] for edge in vert.link_edges}
+        bmesh.ops.spin(
+            editable, geom=ring["verts"] + list(ring_edges),
+            axis=(0.0, 0.0, 1.0), cent=(0.0, 0.0, 0.0), dvec=(0.0, 0.0, 0.0),
+            angle=math.tau, steps=24, use_merge=True, use_duplicate=False,
+        )
+    else:
+        raise STAGE_SCENE_PRIMITIVE_UNSUPPORTED(
+            f"primitive_type {primitive_type!r} passed validation but has no builder"
+        )
+
+    # Shading is part of what a shape IS, not a separate wire field, so the
+    # manifest's recorded primitiveType still determines the mesh exactly and no
+    # hashed schema has to change. Curved surfaces were rendering visibly faceted.
+    editable.normal_update()
+    if primitive_type in ("UV_SPHERE", "TORUS"):
+        for face in editable.faces:
+            face.smooth = True
+    elif primitive_type in ("CYLINDER", "CONE"):
+        # Smooth the swept side but keep the caps flat. Shading a cap as though it
+        # were curved is exactly what makes a "smooth" cylinder look wrong.
+        for face in editable.faces:
+            face.smooth = abs(face.normal.z) < 0.9
+
+
 def _create_primitive(operation: dict, transaction: _StageTransaction, project_id: str):
     import bmesh
 
@@ -887,16 +988,7 @@ def _create_primitive(operation: dict, transaction: _StageTransaction, project_i
     mesh = bpy.data.meshes.new(f"{operation['name']} Mesh")
     editable = bmesh.new()
     try:
-        if operation["primitive_type"] == "CUBE":
-            bmesh.ops.create_cube(editable, size=2)
-        elif operation["primitive_type"] == "PLANE":
-            bmesh.ops.create_grid(
-                editable, x_segments=1, y_segments=1, size=1
-            )
-        else:
-            bmesh.ops.create_uvsphere(
-                editable, u_segments=32, v_segments=16, radius=1
-            )
+        _build_primitive_mesh(editable, operation["primitive_type"])
         editable.to_mesh(mesh)
     finally:
         editable.free()
@@ -1180,6 +1272,18 @@ def _set_material_color(operation: dict, transaction: _StageTransaction, project
             "generated material has no Principled BSDF node"
         )
     principled.inputs["Base Color"].default_value = operation["color"]
+    # Surface finish is what separates a metal handrail from matte concrete. When
+    # omitted the Principled default is left untouched, so an older plan produces
+    # exactly the material it produced before.
+    for key, socket_name in (("roughness", "Roughness"), ("metallic", "Metallic")):
+        if key not in operation:
+            continue
+        socket = principled.inputs.get(socket_name)
+        if socket is None:
+            raise STAGE_SCENE_TARGET_TYPE_INVALID(
+                f"generated material has no {socket_name} input"
+            )
+        socket.default_value = operation[key]
 
 
 def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_id: str):

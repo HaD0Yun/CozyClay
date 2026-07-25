@@ -83,9 +83,28 @@ const LightV3Schema = exact({
 	spotBlend: Type.Union([Type.Number(), Type.Null()]),
 	areaSize: Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.Null()]),
 });
+/**
+ * The one list of buildable shapes. `stage-scene.ts` imports this rather than
+ * repeating the union, because the two copies are what let the request schema and
+ * the manifest schema disagree about what a scene may contain.
+ *
+ * Every shape is authored to fit the -1..1 unit box so `scale` means the same
+ * thing for all of them.
+ */
+export const primitiveTypeSchema = () =>
+	Type.Union([
+		Type.Literal("PLANE"),
+		Type.Literal("CUBE"),
+		Type.Literal("UV_SPHERE"),
+		Type.Literal("CYLINDER"),
+		Type.Literal("CONE"),
+		Type.Literal("CIRCLE"),
+		Type.Literal("TORUS"),
+	]);
+
 const StagePrimitiveSchema = exact({
 	objectId: uuid(),
-	primitiveType: Type.Union([Type.Literal("PLANE"), Type.Literal("CUBE"), Type.Literal("UV_SPHERE")]),
+	primitiveType: primitiveTypeSchema(),
 });
 const StageMaterialSchema = exact({
 	objectId: uuid(),
@@ -106,6 +125,11 @@ const StageMaterialSchema = exact({
 		]),
 		Type.Null(),
 	]),
+	// Emitted only when they differ from the Principled defaults the add-on has
+	// always produced (0.5 / 0.0), so every scene built before surface finish
+	// existed keeps a byte-identical manifest and revision hash.
+	principledRoughness: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	principledMetallic: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
 });
 // The owning CAMERA object's entityId, or null.
 const MarkerSchema = exact({ name: name(), frame: Type.Integer(), cameraId: nullableUuid() });

@@ -1,6 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
-import { SceneManifestV3OrV4Schema } from "./manifest.ts";
+import { primitiveTypeSchema, SceneManifestV3OrV4Schema } from "./manifest.ts";
 
 const UUID_V4_LOWERCASE = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
 const HASH_64 = "^[0-9a-f]{64}$";
@@ -29,14 +29,13 @@ const rgba = () =>
 		Type.Number({ minimum: 0, maximum: 1 }),
 	]);
 const stableName = () => Type.String({ minLength: 1, maxLength: 256 });
-const primitiveType = () => Type.Union([Type.Literal("PLANE"), Type.Literal("CUBE"), Type.Literal("UV_SPHERE")]);
 const characterType = () => Type.Union([Type.Literal("Y_BOT"), Type.Literal("X_BOT")]);
 
 const collectionNameField = () => Type.Optional(stableName());
 const AddPrimitiveSchema = exact({
 	op: Type.Literal("add_primitive"),
 	entity_id: uuid(),
-	primitive_type: primitiveType(),
+	primitive_type: primitiveTypeSchema(),
 	name: stableName(),
 	location: vector3(),
 	rotation: vector3(),
@@ -46,7 +45,7 @@ const AddPrimitiveSchema = exact({
 });
 const AddPrimitiveRequestSchema = exact({
 	op: Type.Literal("add_primitive"),
-	primitive_type: primitiveType(),
+	primitive_type: primitiveTypeSchema(),
 	name: stableName(),
 	location: vector3(),
 	rotation: vector3(),
@@ -86,15 +85,27 @@ const AddCameraRequestSchema = exact({
 	rotation: vector3(),
 	lens: Type.Optional(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1e15 })),
 });
+// roughness and metallic are optional so a plan that omits them stays
+// byte-identical on the wire and in the manifest hash. Absent means the Principled
+// defaults the add-on already produced: roughness 0.5, metallic 0.0. Without them
+// every surface in a scene was the same mid-roughness dielectric -- a metal
+// handrail, matte concrete and a polished floor were indistinguishable no matter
+// what colour they were given.
+// Written out per schema rather than spread from a helper: the addon/protocol
+// key-surface parity test reads these literals, and a spread hides them.
 const SetMaterialColorSchema = exact({
 	op: Type.Literal("set_material_color"),
 	entity_id: uuid(),
 	color: rgba(),
+	roughness: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	metallic: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
 });
 const SetMaterialColorByNameRequestSchema = exact({
 	op: Type.Literal("set_material_color"),
 	object_name: stableName(),
 	color: rgba(),
+	roughness: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+	metallic: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
 });
 const UpsertAreaLightSchema = exact({
 	op: Type.Literal("upsert_area_light"),
