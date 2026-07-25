@@ -49,7 +49,7 @@ Check:
 - **Geometry** — no visible floating, ground penetration, or unintended object intersection. A clear gap between the relation's weight-bearing body parts and their support surface is a failure, not an advisory.
 - **Interaction** — actor faces and reaches the intended target region with the body part the declared relation names; the main contact has no obvious gap or penetration; the ending appears supported and stable.
 - **Motion** — intended action is present, root travel matches the preflight numbers, feet do not visibly skate, and segment boundaries do not pop.
-- **Hands, only when consequential** — inspect a close view only when a hand's visible configuration matters or it is near the face, body, or an object; reject the wrong digit shape, rigidly splayed fingers, or visible penetration. Otherwise skip hand close-ups. Read required `applied_hand_shapes` from the `apply_motion` result as the resolved state ordered `left`, then `right`; do not infer it from defaults.
+- **Hands, only when consequential** — inspect a close view only when a hand's visible configuration matters or it is near the face, body, or an object; reject the wrong digit shape, rigidly splayed fingers, or visible penetration. Otherwise skip hand close-ups. Read required `applied_hand_shapes` from the `apply_motion` result as the resolved state ordered `left`, then `right`; do not infer it from defaults. When a row carries a `track`, that is the authoritative baked state and `left`/`right` only report its resting shape — check the contact frame, not just the last one.
 - Treat the validated hand-shape library (`1.1.0`) as fail-closed. Its vocabulary is exactly: `relaxed`, `open`, `fist`, `soft_fist`, `point`, `two_finger`, `cup`, `grasp`, `thumb_extended`, `three_finger`, `hook`. Never preserve or submit a value outside this vocabulary during repair.
 
 ARDY is scene-blind. Judge object interaction from the numeric comparison and the relative visual result; do not claim the model used prop geometry.
@@ -65,7 +65,8 @@ Classify the defect from the numeric signature before changing anything, then ta
 | 3 | **Layout mismatch** — measured contact pitch/heights disagree with the prop layout | Refit prop positions/dimensions to the MEASURED contact points, or regenerate constrained against the layout you intend to keep. |
 | 4 | **Local contact residual** — one contact window is off while the others fit | Bounded local correction over that window only. NEVER a clip-wide whole-body offset above a small threshold (~0.05 m). |
 | 5 | **Wrong hand shape only** — one side's visible digit configuration is wrong while the body motion fits | Re-apply the same `motion_id` with `hand_shapes` containing both values from returned `applied_hand_shapes`, changing only the failed side; this preserves the correct side and makes the repair explicit — never regenerate correct body motion for a finger-only defect. |
-| 6 | **Wrong body mechanics or missing action** | Reword, reseed, or re-segment ARDY; never edit or splice motion arrays. |
+| 6 | **Hand shape right but wrongly timed** — the digits are correct at the contact but held that way through the approach or the release (e.g. already closed while still reaching) | Re-apply that side as a `hand_track`, keying the open/close frames from `contact_windows`. Do not substitute a different preset to compensate for timing. |
+| 7 | **Wrong body mechanics or missing action** | Reword, reseed, or re-segment ARDY; never edit or splice motion arrays. |
 
 **Do not** paper over a layout mismatch by keyframing a large clip-wide vertical offset (e.g. half a meter) on a parent Empty — refit the layout or regenerate instead.
 

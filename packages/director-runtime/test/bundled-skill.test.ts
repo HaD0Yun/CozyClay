@@ -95,6 +95,31 @@ describe("bundled director skills", () => {
 		assert.ok(!DIRECTOR_PROMPT.includes("--constrain"));
 	});
 
+	it("ardy-motion documents the hand track as authored, not generated", () => {
+		const content = readFileSync(ARDY_MOTION_SKILL_PATH, "utf8");
+		for (const marker of ["hand_track", "APPLY_MOTION_HAND_TRACK_INVALID", "contact_windows"]) {
+			assert.ok(content.includes(marker), `skill must mention ${marker}`);
+		}
+		// The frame space is the whole reason a track is cheap to author: reuse the
+		// contact frames instead of converting into scene frames a second time.
+		assert.match(content, /0-based CLIP frame/, "skill must state the track frame space");
+		// Finger timing is a rule we author. Selling it as model output would send a
+		// later debugging pass into ARDY instead of into the keys.
+		assert.match(content, /inferred, not generated/, "skill must not claim ARDY animates fingers");
+		assert.ok(content.includes("mutually exclusive"), "skill must state hand_track excludes hand_shapes/hand_pose");
+	});
+
+	it("visual-qa separates a wrong hand shape from a wrongly timed one", () => {
+		const content = readFileSync(VISUAL_QA_SKILL_PATH, "utf8");
+		assert.ok(content.includes("wrongly timed"), "QA must classify hand timing separately");
+		assert.ok(
+			content.indexOf("Wrong hand shape only") < content.indexOf("wrongly timed"),
+			"a wrong shape is the cheaper fix and must be classified first",
+		);
+		// left/right only carry the resting shape once a track is involved.
+		assert.match(content, /resting shape/, "QA must not read a track's state off left/right");
+	});
+
 	it("ardy-motion covers generation, apply, and the post-apply QA handoff", () => {
 		const content = readFileSync(ARDY_MOTION_SKILL_PATH, "utf8");
 		for (const marker of [
@@ -143,7 +168,10 @@ describe("bundled director skills", () => {
 		assert.match(content, /explicit preset for both left and right/);
 		assert.match(content, /request-time, per-side, and clip-wide/);
 		assert.match(content, /Omitted sides resolve to `relaxed`/);
-		assert.match(content, /Within-clip hand changes .* deferred/);
+		// Within-clip changes used to be documented as deferred; they are now
+		// hand_track, so the skill must route there instead of denying them.
+		assert.doesNotMatch(content, /temporal hand tracks are deferred/);
+		assert.match(content, /changes shape mid-clip/);
 		assert.match(content, /not a runtime classifier/);
 		assert.match(content, /do not route from action, object, chair, or other keyword templates/);
 	});

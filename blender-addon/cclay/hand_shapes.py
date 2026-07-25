@@ -54,6 +54,12 @@ PRESET_LIBRARY = MappingProxyType({
 })
 
 
+# Bounded like every other wire array: a hand track is a few beats per side, not
+# a per-frame curve. Declared below PRESET_LIBRARY on purpose — everything above
+# that marker is spliced out by scripts/generate_hand_shape_library.py.
+MAX_HAND_TRACK_KEYS = 32
+
+
 class HandShapeError(ValueError):
     """A hand-shape request failed closed validation."""
 
@@ -68,6 +74,98 @@ def _preset_name(value: object, side: str) -> str:
 def resolve_hand_shapes(left: object = None, right: object = None) -> dict[str, str]:
     """Resolve independent side presets, defaulting only omitted sides to relaxed."""
     return {"left": _preset_name(left, "left"), "right": _preset_name(right, "right")}
+
+
+def resolve_hand_track(
+    left: object = None, right: object = None, frame_count: object = None
+) -> dict[str, tuple[tuple[int, str], ...]]:
+    """Validate a per-side preset keyframe track against a clip length.
+
+    A track is ``[{"frame": <clip frame>, "preset": <name>}, ...]`` per side.
+    Frames are 0-based CLIP frames — the same space as ``preflight_motion``
+    contact windows and the ARDY constraint targets — so the caller never has to
+    convert a contact into scene frames twice.
+
+    Interpolation between two keys is left to Blender on purpose: every preset
+    is a pure flexion of a fixed per-joint axis (see ``_FLEXION_ADAPTERS``), so
+    two presets differ only in angle about the SAME axis. Sliding between them
+    is a monotonic angle ramp with no shortest-path ambiguity, which is why a
+    sparse track is exact here rather than an approximation.
+
+    Returns a dict with both sides; a side with no track resolves to ``()``.
+    """
+    if not isinstance(frame_count, int) or isinstance(frame_count, bool) or frame_count < 1:
+        raise HandShapeError("hand track needs a positive integer clip frame count")
+    resolved: dict[str, tuple[tuple[int, str], ...]] = {}
+    for side, requested in (("left", left), ("right", right)):
+        if requested is None:
+            resolved[side] = ()
+            continue
+        if not isinstance(requested, (list, tuple)):
+            raise HandShapeError(f"{side} hand track must be a list of keys")
+        if not requested:
+            raise HandShapeError(
+                f"{side} hand track must not be empty; omit the side instead"
+            )
+        if len(requested) > MAX_HAND_TRACK_KEYS:
+            raise HandShapeError(
+                f"{side} hand track has {len(requested)} keys, at most "
+                f"{MAX_HAND_TRACK_KEYS} are allowed"
+            )
+        keys: list[tuple[int, str]] = []
+        previous_frame = None
+        for index, entry in enumerate(requested):
+            if not isinstance(entry, dict) or set(entry) != {"frame", "preset"}:
+                raise HandShapeError(
+                    f"{side} hand track key {index} must contain exactly frame and preset"
+                )
+            frame = entry["frame"]
+            if not isinstance(frame, int) or isinstance(frame, bool):
+                raise HandShapeError(
+                    f"{side} hand track key {index} frame must be an integer"
+                )
+            if not 0 <= frame < frame_count:
+                raise HandShapeError(
+                    f"{side} hand track key {index} frame {frame} is outside the clip "
+                    f"(0..{frame_count - 1})"
+                )
+            if previous_frame is not None and frame <= previous_frame:
+                raise HandShapeError(
+                    f"{side} hand track frames must strictly increase; key {index} "
+                    f"frame {frame} does not follow {previous_frame}"
+                )
+            previous_frame = frame
+            keys.append((frame, _preset_name(entry["preset"], side)))
+        resolved[side] = tuple(keys)
+    if not resolved["left"] and not resolved["right"]:
+        raise HandShapeError("hand track must describe at least one side")
+    return resolved
+
+
+def track_role_keys(
+    track: Sequence[tuple[int, str]], side: str
+) -> dict[str, tuple[tuple[int, tuple[float, float, float, float]], ...]]:
+    """Expand one side's track into per-role (clip frame, delta quaternion) keys.
+
+    Roles whose delta is identity at EVERY key are dropped: they need no curve.
+    A role that is identity at some keys and not others keeps all of its keys,
+    including the identity ones — dropping those would make Blender hold the
+    non-identity value across the whole clip and silently defeat the track.
+    """
+    per_role: dict[str, list[tuple[int, tuple[float, float, float, float]]]] = {}
+    for frame, preset in track:
+        deltas = preset_deltas(**{side: preset})[side]
+        for role, delta in deltas.items():
+            per_role.setdefault(role, []).append((frame, delta))
+    result = {}
+    for role, keys in per_role.items():
+        if all(
+            all(abs(value - expected) <= 1e-12 for value, expected in zip(delta, _IDENTITY))
+            for _, delta in keys
+        ):
+            continue
+        result[role] = tuple(keys)
+    return result
 
 
 def validate_rig_bones(

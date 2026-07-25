@@ -548,6 +548,109 @@ def main():
             }]
         )
         results["handShapeLibraryVersion"] = LIBRARY_VERSION == "1.1.0"
+
+        # Hand track: a side that CHANGES shape mid-clip. Clip frames are
+        # 0-based, so start_frame=1 puts key 0 on scene frame 1. The bake must
+        # keep the identity key at the open end, otherwise Blender would hold
+        # the grasp value across the whole clip and the track would be a no-op.
+        motion_result = apply_stage_scene_transaction(
+            {
+                "schema_version": 1,
+                "expected_revision_id": motion_result["manifest"]["revisionId"],
+                "operations": [{
+                    "op": "apply_motion",
+                    "entity_id": YBOT_ID,
+                    "motion_id": "fixture-motion",
+                    "hand_track": {
+                        "right": [
+                            {"frame": 0, "preset": "open"},
+                            {"frame": 2, "preset": "grasp"},
+                        ],
+                    },
+                    "start_frame": 1,
+                }],
+            },
+            motion_result["scene_hash"],
+            connection,
+            committed.append,
+        )
+        track_action = ybot.animation_data.action
+        track_curves = [
+            fcurve
+            for fcurve in animation_fcurves(ybot.animation_data)
+            if "RightHandIndex2" in fcurve.data_path
+        ]
+        track_frames = sorted(
+            {int(point.co[0]) for fcurve in track_curves for point in fcurve.keyframe_points}
+        )
+        left_curves = [
+            fcurve
+            for fcurve in animation_fcurves(ybot.animation_data)
+            if "LeftHandIndex2" in fcurve.data_path
+        ]
+        results["handTrackKeysAtClipFrames"] = (
+            bool(track_curves) and track_frames == [1, 3]
+        )
+        # The untracked side keeps its clip-wide constant: relaxed is non-identity,
+        # so it still gets a curve, but only the two clip endpoints.
+        results["handTrackUntrackedSideStaysConstant"] = bool(left_curves) and sorted(
+            {int(point.co[0]) for fcurve in left_curves for point in fcurve.keyframe_points}
+        ) == [1, 3]
+        # Resting shape is the track's LAST key, and the keys themselves are
+        # reported so QA can verify a mid-clip change.
+        results["handTrackResolvedState"] = (
+            track_action["cclay.hand_shape_right"] == "grasp"
+            and track_action["cclay.hand_shape_left"] == "relaxed"
+            and track_action.get("cclay.hand_pose") is None
+            and json.loads(track_action["cclay.hand_track_right"]) == [
+                {"frame": 0, "preset": "open"},
+                {"frame": 2, "preset": "grasp"},
+            ]
+            and track_action.get("cclay.hand_track_left") is None
+            and motion_result["applied_hand_shapes"] == [{
+                "operation_index": 0,
+                "entity_id": YBOT_ID,
+                "motion_id": "fixture-motion",
+                "left": "relaxed",
+                "right": "grasp",
+                "library_version": LIBRARY_VERSION,
+                "track": {
+                    "right": [
+                        {"frame": 0, "preset": "open"},
+                        {"frame": 2, "preset": "grasp"},
+                    ],
+                },
+            }]
+        )
+        # The point of the track: the finger actually moves between the keys.
+        bpy.context.scene.frame_set(1)
+        opened = ybot.pose.bones["mixamorig:RightHandIndex2"].rotation_quaternion.angle
+        bpy.context.scene.frame_set(3)
+        closed = ybot.pose.bones["mixamorig:RightHandIndex2"].rotation_quaternion.angle
+        results["handTrackActuallyAnimates"] = opened < 1e-6 and closed > 0.5
+        # A track frame past the clip must fail closed rather than clamp.
+        try:
+            apply_stage_scene_transaction(
+                {
+                    "schema_version": 1,
+                    "expected_revision_id": motion_result["manifest"]["revisionId"],
+                    "operations": [{
+                        "op": "apply_motion",
+                        "entity_id": YBOT_ID,
+                        "motion_id": "fixture-motion",
+                        "hand_track": {"right": [{"frame": 9999, "preset": "grasp"}]},
+                    }],
+                },
+                motion_result["scene_hash"],
+                connection,
+                committed.append,
+            )
+        except Exception as error:
+            results["handTrackOutOfRangeRejected"] = (
+                "APPLY_MOTION_HAND_TRACK_INVALID" in str(error)
+            )
+        else:
+            results["handTrackOutOfRangeRejected"] = False
         digit_curves = [
             fcurve
             for fcurve in animation_fcurves(ybot.animation_data)

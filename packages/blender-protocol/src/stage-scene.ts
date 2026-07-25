@@ -234,6 +234,17 @@ const applyMotionFields = {
 	motion_id: Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }),
 	start_frame: Type.Optional(Type.Integer({ minimum: -100000, maximum: 100000 })),
 };
+/**
+ * One preset key on a hand track. `frame` is a 0-based CLIP frame — the same
+ * space as preflight_motion contact windows and the ARDY constraint targets, so
+ * a contact never has to be converted into scene frames twice.
+ */
+const HandTrackKeySchema = exact({
+	frame: Type.Integer({ minimum: 0, maximum: 100000 }),
+	preset: handShape(),
+});
+// Mirrors MAX_HAND_TRACK_KEYS in blender-addon/cclay/hand_shapes.py.
+const handTrack = () => Type.Array(HandTrackKeySchema, { minItems: 1, maxItems: 32 });
 const ApplyMotionSchema = Type.Union([
 	exact(applyMotionFields),
 	exact({
@@ -251,6 +262,18 @@ const ApplyMotionSchema = Type.Union([
 	exact({
 		...applyMotionFields,
 		hand_shapes: exact({ left: handShape(), right: handShape() }),
+	}),
+	exact({
+		...applyMotionFields,
+		hand_track: exact({ left: handTrack() }),
+	}),
+	exact({
+		...applyMotionFields,
+		hand_track: exact({ right: handTrack() }),
+	}),
+	exact({
+		...applyMotionFields,
+		hand_track: exact({ left: handTrack(), right: handTrack() }),
 	}),
 ]);
 
@@ -315,6 +338,17 @@ export const StageSceneAppliedHandShapeSchema = exact({
 	left: handShape(),
 	right: handShape(),
 	library_version: Type.Literal("1.1.0"),
+	/**
+	 * Present only when the request carried a hand_track. `left`/`right` above
+	 * report the RESTING shape (the track's last key), so QA needs the keys
+	 * themselves to verify a side that changes shape mid-clip.
+	 */
+	track: Type.Optional(
+		exact({
+			left: Type.Optional(handTrack()),
+			right: Type.Optional(handTrack()),
+		}),
+	),
 });
 export const StageSceneMutationCandidateSchema = exact({
 	expected_revision_id: Type.String({ pattern: HASH_64 }),

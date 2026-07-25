@@ -102,7 +102,23 @@ stage_scene op: {op: "apply_motion", entity_id: <uuid>, motion_id: "<motion_id>"
 - Target must be a CozyClay character (add_character Y_BOT/X_BOT first if none exists).
 - apply_motion replaces the character's current action, sets scene fps to 20, and extends frame_end to fit.
 - ARDY's compact skeleton has no articulated fingers. The director, not a runtime classifier, chooses each side dynamically from the request's visible hand-configuration intent. The validated library (`1.1.0`) vocabulary is exactly: `relaxed`, `open`, `fist`, `soft_fist`, `point`, `two_finger`, `cup`, `grasp`, `thumb_extended`, `three_finger`, `hook`. Do not send any preset outside this vocabulary.
-- `hand_shapes` is request-time, per-side, and clip-wide: one left and one right shape apply for the entire baked clip. Omitted sides resolve to `relaxed`, but normally send both explicitly for observable intent. Within-clip hand changes and temporal hand tracks are deferred beyond the validated library; split routing by action/object keywords is not a substitute.
+- `hand_shapes` is request-time, per-side, and clip-wide: one left and one right shape apply for the entire baked clip. Omitted sides resolve to `relaxed`, but normally send both explicitly for observable intent. Never route a preset from action/object keywords.
+- **`hand_track` — a side that changes shape mid-clip.** When a hand must be open on approach and closed on contact, send `hand_track` instead of `hand_shapes` (the two, and the legacy `hand_pose`, are mutually exclusive):
+
+```
+stage_scene op: {op: "apply_motion", entity_id: <uuid>, motion_id: "<id>",
+                 hand_track: {right: [{frame: 0, preset: "open"},
+                                      {frame: 38, preset: "grasp"},
+                                      {frame: 70, preset: "grasp"},
+                                      {frame: 78, preset: "open"}]}}
+```
+
+  - `frame` is a 0-based CLIP frame — the same space as `contact_windows` and `--constrain` targets, so a contact never needs converting twice. `start_frame` still offsets the whole clip within the scene.
+  - Frames must strictly increase, at most 32 keys per side, every frame inside the clip. A frame past the end fails as `APPLY_MOTION_HAND_TRACK_INVALID`; it is never clamped.
+  - Omit a side to leave it clip-wide `relaxed`. Include a side only when it actually changes.
+  - Blender interpolates between keys, and that is exact here rather than an approximation: every preset is a pure flexion about the same per-joint axis, so two presets differ only in angle.
+  - **Timing is inferred, not generated.** ARDY has no fingers, so a track is a rule you author: derive the close/open keys from `contact_windows` or the `--constrain` frames. Never guess when the hand "should" close.
+  - The result reports `left`/`right` as the RESTING shape (the track's last key) plus a `track` field carrying the keys actually baked. Verify against `track`.
 - Choose by visible digits, not by the named activity: `point` extends the index; `two_finger` extends index and middle; `three_finger` extends index, middle, and ring; `hook` bends the fingers into a hook; `cup` forms a shallow curved palm while `grasp` closes farther around a volume; `fist` is fully closed while `soft_fist` is looser; and `thumb_extended` closes the fingers while extending the thumb. Use `relaxed` for no consequential shape and `open` for a neutral fully extended hand.
 - A preset controls finger-joint shape only. Wrist rotation, palm facing, and hand position come from ARDY/body motion or armature placement; never treat wrist/world orientation as a digit-shape choice.
 - Generation is cheap; the npz stays in `.cclay/motions/` and can be re-applied after a rollback.

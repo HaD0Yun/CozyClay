@@ -15,6 +15,7 @@ sys.path.insert(0, str(ADDON_ROOT))
 from cclay.hand_shapes import (
     CANONICAL_ROLES,
     LIBRARY_VERSION,
+    MAX_HAND_TRACK_KEYS,
     PRESET_LIBRARY,
     PRESET_NAMES,
     HandShapeError,
@@ -22,8 +23,10 @@ from cclay.hand_shapes import (
     normalize_quaternion,
     preset_deltas,
     resolve_hand_shapes,
+    resolve_hand_track,
     schedule_endpoint_frames,
     schedule_role_endpoints,
+    track_role_keys,
     validate_rig_bones,
 )
 
@@ -270,6 +273,106 @@ class GeneratorTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("stale", result.stderr)
+
+
+class HandTrackTests(unittest.TestCase):
+    """A hand track is a sparse per-side preset keyframe list in CLIP frames."""
+
+    def test_resolves_a_single_side_and_leaves_the_other_empty(self):
+        resolved = resolve_hand_track(
+            right=[{"frame": 0, "preset": "open"}, {"frame": 38, "preset": "grasp"}],
+            frame_count=120,
+        )
+        self.assertEqual(resolved["left"], ())
+        self.assertEqual(resolved["right"], ((0, "open"), (38, "grasp")))
+
+    def test_rejects_a_frame_at_or_past_the_clip_length(self):
+        for frame in (120, 500):
+            with self.subTest(frame=frame), self.assertRaises(HandShapeError) as caught:
+                resolve_hand_track(
+                    left=[{"frame": frame, "preset": "fist"}], frame_count=120
+                )
+            self.assertIn("outside the clip", str(caught.exception))
+
+    def test_rejects_non_increasing_frames(self):
+        for frames in ((10, 10), (10, 4)):
+            with self.subTest(frames=frames), self.assertRaises(HandShapeError) as caught:
+                resolve_hand_track(
+                    left=[{"frame": frames[0], "preset": "open"}, {"frame": frames[1], "preset": "fist"}],
+                    frame_count=60,
+                )
+            self.assertIn("strictly increase", str(caught.exception))
+
+    def test_rejects_unknown_preset_extra_keys_and_bool_frames(self):
+        cases = (
+            [{"frame": 0, "preset": "crush"}],
+            [{"frame": 0, "preset": "open", "ease": 3}],
+            [{"frame": 0}],
+            [{"frame": True, "preset": "open"}],
+        )
+        for keys in cases:
+            with self.subTest(keys=keys), self.assertRaises(HandShapeError):
+                resolve_hand_track(left=keys, frame_count=60)
+
+    def test_rejects_an_empty_side_and_a_wholly_empty_track(self):
+        with self.assertRaises(HandShapeError) as caught:
+            resolve_hand_track(left=[], frame_count=60)
+        self.assertIn("must not be empty", str(caught.exception))
+        with self.assertRaises(HandShapeError) as caught:
+            resolve_hand_track(frame_count=60)
+        self.assertIn("at least one side", str(caught.exception))
+
+    def test_rejects_more_keys_than_the_declared_cap(self):
+        keys = [
+            {"frame": frame, "preset": "open"}
+            for frame in range(MAX_HAND_TRACK_KEYS + 1)
+        ]
+        with self.assertRaises(HandShapeError) as caught:
+            resolve_hand_track(left=keys, frame_count=200)
+        self.assertIn("at most", str(caught.exception))
+
+    def test_rejects_a_non_positive_frame_count(self):
+        for frame_count in (0, -1, None, True, 1.5):
+            with self.subTest(frame_count=frame_count), self.assertRaises(HandShapeError):
+                resolve_hand_track(
+                    left=[{"frame": 0, "preset": "open"}], frame_count=frame_count
+                )
+
+    def test_role_keys_drop_roles_that_never_leave_identity(self):
+        # open is all-zero flexion, so a role whose grasp angle is also zero has
+        # nothing to animate and must not get a curve.
+        keys = track_role_keys(((0, "open"), (40, "grasp")), "right")
+        grasp = preset_deltas(right="grasp")["right"]
+        identity_roles = {
+            role
+            for role, delta in grasp.items()
+            if all(abs(v - e) <= 1e-12 for v, e in zip(delta, (1.0, 0.0, 0.0, 0.0)))
+        }
+        self.assertTrue(identity_roles, "expected some zero-angle roles in grasp")
+        self.assertEqual(set(keys) & identity_roles, set())
+        self.assertEqual(set(keys), set(grasp) - identity_roles)
+
+    def test_role_keys_keep_identity_keys_when_the_role_moves_later(self):
+        # Dropping the frame-0 identity key would make Blender hold the grasp
+        # value across the whole clip and silently defeat the track.
+        keys = track_role_keys(((0, "open"), (40, "grasp")), "right")
+        moving = keys["Index2"]
+        self.assertEqual([frame for frame, _ in moving], [0, 40])
+        self.assertEqual(moving[0][1], (1.0, 0.0, 0.0, 0.0))
+        self.assertNotEqual(moving[1][1], (1.0, 0.0, 0.0, 0.0))
+
+    def test_presets_share_one_flexion_axis_so_interpolation_is_unambiguous(self):
+        # The whole design rests on this: two presets differ only in angle about
+        # the same axis, so Blender interpolating between keys is exact rather
+        # than an approximation. If a preset ever gains an off-axis component,
+        # sparse keying stops being safe and this must fail.
+        for side in ("left", "right"):
+            for preset in PRESET_NAMES:
+                for role, (w, x, y, z) in preset_deltas(**{side: preset})[side].items():
+                    with self.subTest(side=side, preset=preset, role=role):
+                        self.assertAlmostEqual(y, 0.0, places=12)
+                        self.assertAlmostEqual(z, 0.0, places=12)
+                        self.assertGreaterEqual(w, 0.0)
 
 
 if __name__ == "__main__":

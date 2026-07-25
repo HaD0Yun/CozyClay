@@ -26,6 +26,8 @@ _OP_LITERAL = re.compile(r'op:\s*Type\.Literal\("([a-z_]+)"\)')
 _SCHEMA_DECL = re.compile(r"^(?:export )?const (\w+) =", re.MULTILINE)
 _KEY_LINE = re.compile(r"^(\t+)([a-z_][a-z0-9_]*):", re.MULTILINE)
 _APPLY_MOTION_BRANCH = re.compile(r"^\texact\(", re.MULTILINE)
+# bare + hand_pose + hand_shapes{left,right,both} + hand_track{left,right,both}
+_APPLY_MOTION_BRANCHES = 8
 
 
 def _plan_schema_chunks(source: str) -> dict[str, str]:
@@ -57,7 +59,11 @@ def _top_level_keys(chunk: str, schema_name: str) -> set[str]:
 
 
 def _apply_motion_keys(chunks: dict[str, str], base_chunk: str) -> set[str]:
-    """Union the shared fields with every five-branch ApplyMotion extension."""
+    """Union the shared fields with every ApplyMotion extension branch.
+
+    Eight branches: bare, hand_pose, three hand_shapes shapes (left / right /
+    both), and three hand_track shapes (left / right / both).
+    """
     union_name = "ApplyMotionSchema"
     try:
         union_chunk = chunks[union_name]
@@ -66,10 +72,11 @@ def _apply_motion_keys(chunks: dict[str, str], base_chunk: str) -> set[str]:
             f"TS schema {union_name} is missing; apply_motion parity would be incomplete"
         ) from exc
     branch_count = len(_APPLY_MOTION_BRANCH.findall(union_chunk))
-    if branch_count != 5:
+    if branch_count != _APPLY_MOTION_BRANCHES:
         raise AssertionError(
-            f"TS schema {union_name} has {branch_count} branches, expected 5; "
-            "update the apply_motion union extractor rather than silently skipping branches"
+            f"TS schema {union_name} has {branch_count} branches, expected "
+            f"{_APPLY_MOTION_BRANCHES}; update the apply_motion union extractor "
+            "rather than silently skipping branches"
         )
     return _top_level_keys(base_chunk, "applyMotionFields") | _top_level_keys(
         union_chunk, union_name

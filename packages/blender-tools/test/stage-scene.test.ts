@@ -67,7 +67,10 @@ describe("stage_scene", () => {
 		assert.match(tool.description, /independently to left and right/);
 		assert.match(tool.description, /Omitted sides default to relaxed/);
 		assert.match(tool.description, /legacy hand_pose relaxed\/open/);
-		assert.match(tool.description, /cannot transition within a clip/);
+		assert.match(tool.description, /use hand_track instead when a side must change shape/);
+		assert.match(tool.description, /mutually exclusive/);
+		// The description must not claim the motion model animates fingers.
+		assert.match(tool.description, /not produced by the motion model/);
 		assert.match(JSON.stringify(tool.parameters), /hand_shapes/);
 		assert.match(JSON.stringify(tool.parameters), /three_finger/);
 		const operationUnion = tool.parameters.properties.operations.items;
@@ -88,6 +91,9 @@ describe("stage_scene", () => {
 				["entity_id", "hand_shapes", "motion_id", "op", "start_frame"],
 				["entity_id", "hand_shapes", "motion_id", "op", "start_frame"],
 				["entity_id", "hand_shapes", "motion_id", "op", "start_frame"],
+				["entity_id", "hand_track", "motion_id", "op", "start_frame"],
+				["entity_id", "hand_track", "motion_id", "op", "start_frame"],
+				["entity_id", "hand_track", "motion_id", "op", "start_frame"],
 			],
 		);
 		for (const variant of applyUnion.anyOf) {

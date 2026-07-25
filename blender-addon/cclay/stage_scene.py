@@ -71,7 +71,8 @@ _OPERATION_KEYS = {
     },
     "rename_entity": {"op", "entity_id", "name"},
     "apply_motion": {
-        "op", "entity_id", "motion_id", "hand_pose", "hand_shapes", "start_frame",
+        "op", "entity_id", "motion_id", "hand_pose", "hand_shapes", "hand_track",
+        "start_frame",
     },
 }
 _PRIMITIVES = {"PLANE", "CUBE", "UV_SPHERE"}
@@ -228,10 +229,57 @@ def parse_stage_scene_plan(value: object) -> dict:
             if "lens" not in raw_operation:
                 expected_keys = expected_keys - {"lens"}
         elif operation_kind == "apply_motion":
-            if "hand_pose" in raw_operation and "hand_shapes" in raw_operation:
+            hand_fields = [
+                field
+                for field in ("hand_pose", "hand_shapes", "hand_track")
+                if field in raw_operation
+            ]
+            if len(hand_fields) > 1:
                 _invalid(
-                    f"operations[{index}].hand_pose and hand_shapes are mutually exclusive"
+                    f"operations[{index}].{' and '.join(hand_fields)} are mutually exclusive"
                 )
+            if "hand_track" in raw_operation:
+                requested = raw_operation["hand_track"]
+                if not isinstance(requested, dict) or not requested:
+                    _invalid(
+                        f"operations[{index}].hand_track must contain exactly left, right, or both"
+                    )
+                if not set(requested) <= {"left", "right"}:
+                    _invalid(f"operations[{index}].hand_track contains unknown fields")
+                for side in ("left", "right"):
+                    if side not in requested:
+                        continue
+                    keys = requested[side]
+                    if not isinstance(keys, list) or not keys:
+                        _invalid(
+                            f"operations[{index}].hand_track.{side} must be a non-empty list of keys"
+                        )
+                    if len(keys) > hand_shapes.MAX_HAND_TRACK_KEYS:
+                        _invalid(
+                            f"operations[{index}].hand_track.{side} has more than "
+                            f"{hand_shapes.MAX_HAND_TRACK_KEYS} keys"
+                        )
+                    for key_index, key in enumerate(keys):
+                        if not isinstance(key, dict) or set(key) != {"frame", "preset"}:
+                            _invalid(
+                                f"operations[{index}].hand_track.{side}[{key_index}] must "
+                                f"contain exactly frame and preset"
+                            )
+                        if not isinstance(key["frame"], int) or isinstance(key["frame"], bool):
+                            _invalid(
+                                f"operations[{index}].hand_track.{side}[{key_index}].frame "
+                                f"must be an integer"
+                            )
+                        if key["frame"] < 0:
+                            _invalid(
+                                f"operations[{index}].hand_track.{side}[{key_index}].frame "
+                                f"must not be negative"
+                            )
+                        if key["preset"] not in hand_shapes.PRESET_NAMES:
+                            _invalid(
+                                f"operations[{index}].hand_track.{side}[{key_index}].preset "
+                                f"is unsupported"
+                            )
             if "hand_shapes" in raw_operation:
                 requested = raw_operation["hand_shapes"]
                 if not isinstance(requested, dict):
@@ -249,7 +297,7 @@ def parse_stage_scene_plan(value: object) -> dict:
                         _invalid(
                             f"operations[{index}].hand_shapes.{side} is unsupported"
                         )
-            for optional_field in ("hand_pose", "hand_shapes", "start_frame"):
+            for optional_field in ("hand_pose", "hand_shapes", "hand_track", "start_frame"):
                 if optional_field not in raw_operation:
                     expected_keys = expected_keys - {optional_field}
         elif operation_kind == "transform_assembly":
@@ -1950,6 +1998,18 @@ def _resolve_operation_hand_shapes(operation: dict) -> dict[str, str]:
     return hand_shapes.resolve_hand_shapes(legacy, legacy)
 
 
+def _resolve_operation_hand_track(
+    operation: dict, frame_count: int
+) -> dict[str, tuple[tuple[int, str], ...]]:
+    """Resolve the optional per-side preset track against the clip length."""
+    if "hand_track" not in operation:
+        return {"left": (), "right": ()}
+    requested = operation["hand_track"]
+    return hand_shapes.resolve_hand_track(
+        requested.get("left"), requested.get("right"), frame_count
+    )
+
+
 def _apply_motion(
     operation: dict,
     transaction: _StageTransaction,
@@ -1983,6 +2043,17 @@ def _apply_motion(
     except motion_retarget.MotionRetargetError as error:
         raise StageSceneError(f"APPLY_MOTION_MALFORMED: {error}")
     frame_count = len(local_rot_mats)
+    # The track is validated against the real clip length, which is only known
+    # after the payload loads. A tracked side's resting preset is its LAST key:
+    # that is the shape the clip ends in, so the action metadata and the result
+    # stay meaningful for a side that changes shape mid-clip.
+    try:
+        hand_track = _resolve_operation_hand_track(operation, frame_count)
+    except hand_shapes.HandShapeError as error:
+        raise StageSceneError(f"APPLY_MOTION_HAND_TRACK_INVALID: {error}")
+    for side in ("left", "right"):
+        if hand_track[side]:
+            resolved[side] = hand_track[side][-1][1]
 
     bones = scene_object.data.bones
     prefix, rig_thigh = _rig_scale_inputs(bones)
@@ -2044,8 +2115,15 @@ def _apply_motion(
     action["cclay.hand_shape_left"] = resolved["left"]
     action["cclay.hand_shape_right"] = resolved["right"]
     action["cclay.hand_shape_library"] = 1
-    if "hand_shapes" not in operation:
+    if "hand_shapes" not in operation and "hand_track" not in operation:
         action["cclay.hand_pose"] = operation.get("hand_pose", "relaxed")
+    for side in ("left", "right"):
+        if hand_track[side]:
+            # Clip-relative keys, recorded verbatim so the bake is auditable
+            # without re-deriving it from the curves.
+            action[f"cclay.hand_track_{side}"] = json.dumps(
+                [{"frame": frame, "preset": preset} for frame, preset in hand_track[side]]
+            )
 
     slot, channelbag = _create_detached_action_topology(action, scene_object.name)
     yield "ACTION_CREATE"
@@ -2127,33 +2205,61 @@ def _apply_motion(
     sparse_frames = [float(start_frame)]
     if end_frame != start_frame:
         sparse_frames.append(float(end_frame))
+    # A tracked side keys its own frames per role; an untracked side keeps the
+    # clip-wide constant. Clip frames are 0-based, so they offset from
+    # start_frame exactly like the dense body curves above.
+    tracked_role_keys = {
+        side: (
+            hand_shapes.track_role_keys(hand_track[side], side)
+            if hand_track[side]
+            else None
+        )
+        for side in ("left", "right")
+    }
     for side in ("left", "right"):
+        role_keys = tracked_role_keys[side]
         for role in hand_shapes.CANONICAL_ROLE_ORDER:
             if (side, role) in authored_roles:
                 continue
             bone_name = inventory[side][role]
             pose_bone = pose_bones[bone_name]
-            delta = tuple(float(value) for value in deltas[side][role])
-            final_rotations[bone_name] = delta
-            if all(
-                abs(value - identity) <= 1e-12
-                for value, identity in zip(delta, (1.0, 0.0, 0.0, 0.0))
-            ):
-                continue
+            if role_keys is None:
+                delta = tuple(float(value) for value in deltas[side][role])
+                final_rotations[bone_name] = delta
+                if all(
+                    abs(value - identity) <= 1e-12
+                    for value, identity in zip(delta, (1.0, 0.0, 0.0, 0.0))
+                ):
+                    continue
+                role_frames = sparse_frames
+                role_values = [delta] * len(sparse_frames)
+            else:
+                keys = role_keys.get(role)
+                # The resting delta is the track's last key, which
+                # track_role_keys drops only when the role never leaves
+                # identity — so identity is the correct final rotation there.
+                resting = hand_shapes.preset_deltas(**{side: hand_track[side][-1][1]})[side][role]
+                final_rotations[bone_name] = tuple(float(value) for value in resting)
+                if keys is None:
+                    continue
+                role_frames = [float(start_frame + frame) for frame, _ in keys]
+                role_values = [
+                    tuple(float(value) for value in delta) for _, delta in keys
+                ]
             data_path = pose_bone.path_from_id("rotation_quaternion")
             for array_index in range(4):
-                component_values = [delta[array_index]] * len(sparse_frames)
+                component_values = [value[array_index] for value in role_values]
                 yield "CURVE_BUILD_READY"
                 _bulk_fcurve(
                     channelbag,
                     data_path,
                     array_index,
                     bone_name,
-                    sparse_frames,
+                    role_frames,
                     component_values,
                 )
                 expected[(data_path, array_index)] = (
-                    bone_name, sparse_frames, component_values
+                    bone_name, role_frames, component_values
                 )
                 yield "CURVE_BUILD"
 
@@ -2193,13 +2299,21 @@ def _apply_motion(
     if scene.frame_end < end_frame:
         scene.frame_end = end_frame
     bpy.context.view_layer.update()
-    return {
+    result = {
         "entity_id": operation["entity_id"],
         "motion_id": operation["motion_id"],
         "left": resolved["left"],
         "right": resolved["right"],
         "library_version": hand_shapes.LIBRARY_VERSION,
     }
+    # Only present for a tracked request: QA must be able to check the keys that
+    # were actually baked, and left/right above only carry the resting shape.
+    for side in ("left", "right"):
+        if hand_track[side]:
+            result.setdefault("track", {})[side] = [
+                {"frame": frame, "preset": preset} for frame, preset in hand_track[side]
+            ]
+    return result
 
 
 def _live_base_manifest(current_scene_hash: str) -> dict:

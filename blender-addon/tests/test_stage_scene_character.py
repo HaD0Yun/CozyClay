@@ -636,6 +636,13 @@ class AddCharacterRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["postApplyRollbackRaised"])
         self.assertTrue(self.results["postApplyRollbackComplete"])
 
+    def test_apply_motion_bakes_a_mid_clip_hand_track(self):
+        self.assertTrue(self.results["handTrackKeysAtClipFrames"])
+        self.assertTrue(self.results["handTrackUntrackedSideStaysConstant"])
+        self.assertTrue(self.results["handTrackResolvedState"])
+        self.assertTrue(self.results["handTrackActuallyAnimates"])
+        self.assertTrue(self.results["handTrackOutOfRangeRejected"])
+
     def test_manifest_ignores_only_inert_easing_parameters(self):
         self.assertTrue(self.results["inertEasingFieldsRemainInspectable"])
         self.assertTrue(self.results["relevantEasingFieldRejected"])

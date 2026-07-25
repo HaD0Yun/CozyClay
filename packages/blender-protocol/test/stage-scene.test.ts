@@ -590,3 +590,88 @@ test("rejects apply_motion traversal slugs, unknown fields, and bad frames", () 
 		);
 	}
 });
+
+test("apply_motion accepts a hand_track per side in clip frames", () => {
+	const plan = parseStageScenePlan({
+		schema_version: 1,
+		expected_revision_id: "a".repeat(64),
+		operations: [
+			{
+				op: "apply_motion",
+				entity_id: IDS[0],
+				motion_id: "reach",
+				hand_track: {
+					right: [
+						{ frame: 0, preset: "open" },
+						{ frame: 38, preset: "grasp" },
+					],
+				},
+			},
+			{
+				op: "apply_motion",
+				entity_id: IDS[0],
+				motion_id: "reach",
+				hand_track: {
+					left: [{ frame: 4, preset: "relaxed" }],
+					right: [
+						{ frame: 0, preset: "open" },
+						{ frame: 70, preset: "grasp" },
+					],
+				},
+			},
+		],
+	});
+	const first = plan.operations[0]!;
+	assert.ok(first.op === "apply_motion" && "hand_track" in first);
+	assert.deepEqual(first.hand_track, {
+		right: [
+			{ frame: 0, preset: "open" },
+			{ frame: 38, preset: "grasp" },
+		],
+	});
+});
+
+test("apply_motion rejects malformed and conflicting hand tracks", () => {
+	const base = { op: "apply_motion" as const, entity_id: IDS[0], motion_id: "reach" };
+	const rejected = [
+		// A track must carry at least one key on at least one side.
+		{ ...base, hand_track: {} },
+		{ ...base, hand_track: { right: [] } },
+		{ ...base, hand_track: null },
+		// Keys are exactly {frame, preset}, with a known preset.
+		{ ...base, hand_track: { right: [{ frame: 0 }] } },
+		{ ...base, hand_track: { right: [{ preset: "open" }] } },
+		{ ...base, hand_track: { right: [{ frame: 0, preset: "open", ease: 2 }] } },
+		{ ...base, hand_track: { right: [{ frame: 0, preset: "pinch" }] } },
+		// Clip frames are non-negative; scene offsets belong in start_frame.
+		{ ...base, hand_track: { right: [{ frame: -1, preset: "open" }] } },
+		{ ...base, hand_track: { right: [{ frame: 1.5, preset: "open" }] } },
+		{ ...base, hand_track: { middle: [{ frame: 0, preset: "open" }] } },
+		// A clip-wide shape and a track are two ways to say the same thing.
+		{ ...base, hand_shapes: { left: "fist" }, hand_track: { right: [{ frame: 0, preset: "open" }] } },
+		{ ...base, hand_pose: "relaxed", hand_track: { right: [{ frame: 0, preset: "open" }] } },
+		// Bounded like every other wire array.
+		{
+			...base,
+			hand_track: {
+				right: Array.from({ length: 33 }, (_unused, index) => ({
+					frame: index,
+					preset: "open" as const,
+				})),
+			},
+		},
+	];
+	for (const operation of rejected) {
+		assert.throws(
+			() =>
+				parseStageScenePlan({
+					schema_version: 1,
+					expected_revision_id: "a".repeat(64),
+					operations: [operation],
+				}),
+			(error: unknown) =>
+				error instanceof StageSceneValidationError && error.code === "INVALID_STAGE_SCENE_PLAN_SCHEMA",
+			`expected rejection for ${JSON.stringify(operation)}`,
+		);
+	}
+});
