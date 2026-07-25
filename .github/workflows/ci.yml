@@ -37,6 +37,19 @@ jobs:
       # break CI on a commit that changed nothing here, and CozyClay never
       # ships Pi's dist output. Upstream builds are verified during a sync
       # instead (docs/UPSTREAM-SYNC.md).
+      # Pi's `*.models.ts` files need real, structurally-typed JSON to satisfy
+      # Pi 0.82.0's `flattenModelCatalog<TProvider, TGroups extends
+      # ModelGroups>` generic (see fixtures/pi-model-data/README.md). That
+      # data is gitignored and normally fetched live by `npm run build`, which
+      # this hermetic job intentionally skips, so `tsgo --noEmit` would fail
+      # on every commit with a hard "cannot satisfy ModelGroups" error even
+      # though nothing in that package changed. Restore a pinned snapshot
+      # instead of hitting the network.
+      - name: Hydrate pinned Pi model-data fixture
+        run: |
+          mkdir -p packages/ai/src/providers/data
+          cp fixtures/pi-model-data/*.json packages/ai/src/providers/data/
+          cp fixtures/pi-model-data/.manifest.json packages/ai/src/providers/data/
       - name: Check
         run: npm run check
 
