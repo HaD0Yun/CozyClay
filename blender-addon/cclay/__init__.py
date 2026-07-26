@@ -810,6 +810,214 @@ if bpy is not None:
             self.report({"INFO"}, f"Baked {report['bakedFrames']} frames back to FK")
             return {"FINISHED"}
 
+    # Marking is deliberately its own step rather than a side effect of moving a
+    # handle: attach() keys every handle on every frame, so "the animator moved
+    # this" and "the animator meant this" are different facts and only the
+    # second one belongs in a generation request.
+    class CCLAY_OT_mark_constraint(bpy.types.Operator):
+        bl_idname = "cclay.mark_constraint"
+        bl_label = "Mark ARDY Constraint"
+        bl_description = (
+            "Commit the current frame as an ARDY constraint of the chosen kind, so "
+            "regeneration is asked to honour this pose here"
+        )
+        bl_options = {"REGISTER", "UNDO"}
+
+        # A plain string, not an enum: the panel draws one button per kind and
+        # sets this explicitly, so an enum would only duplicate that list, and
+        # constraint_capture already refuses a kind it does not know.
+        kind: bpy.props.StringProperty(name="Kind", default="RightHand")
+
+        def execute(self, context):
+            from . import constraint_capture
+
+            frame = context.scene.frame_current
+            try:
+                constraint_capture.mark_constraint(context.active_object, self.kind, frame)
+            except constraint_capture.ConstraintCaptureError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            self.report({"INFO"}, f"Marked {self.kind} at frame {frame}")
+            return {"FINISHED"}
+
+    class CCLAY_OT_clear_constraint(bpy.types.Operator):
+        bl_idname = "cclay.clear_constraint"
+        bl_label = "Clear ARDY Constraint"
+        bl_description = "Drop the constraint of this kind on the current frame"
+        bl_options = {"REGISTER", "UNDO"}
+
+        kind: bpy.props.StringProperty(name="Kind", default="RightHand")
+
+        def execute(self, context):
+            from . import constraint_capture
+
+            frame = context.scene.frame_current
+            try:
+                constraint_capture.clear_constraint(context.active_object, self.kind, frame)
+            except constraint_capture.ConstraintCaptureError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            self.report({"INFO"}, f"Cleared {self.kind} at frame {frame}")
+            return {"FINISHED"}
+
+    class CCLAY_OT_request_constraint_regeneration(bpy.types.Operator):
+        bl_idname = "cclay.request_constraint_regeneration"
+        bl_label = "Regenerate From Constraints"
+        bl_description = (
+            "Hand the committed constraints to the host so ARDY regenerates "
+            "the clip. The IK handles are removed and the whole action is "
+            "replaced by the result"
+        )
+        bl_options = {"REGISTER"}
+
+        def execute(self, context):
+            import time
+
+            from . import constraint_capture, project_store
+
+            armature = context.active_object
+            project_directory = bpy.path.abspath("//")
+            try:
+                stored = project_store.read_project_index(project_directory)
+            except project_store.ProjectStoreError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            if stored is None or not stored.get("current_revision_id"):
+                self.report(
+                    {"ERROR"},
+                    "Project is not initialized in .cclay/project.json",
+                )
+                return {"CANCELLED"}
+            entity_id = None if armature is None else armature.get("cclay.entity_id")
+            if not entity_id:
+                self.report({"ERROR"}, "Select a character owned by this project")
+                return {"CANCELLED"}
+            request_id = constraint_capture.new_request_id()
+            try:
+                # Capture first: the constraints live on the IK handles, so
+                # they have to be read before detach removes them. Only once
+                # the payload is complete is the rig collapsed and the request
+                # published, which is why the host never sees a request whose
+                # scene state is still mid-change.
+                payload = constraint_capture.capture_regeneration_request(
+                    armature,
+                    context.scene,
+                    project_directory=project_directory,
+                    entity_id=str(entity_id),
+                    expected_revision_id=str(stored["current_revision_id"]),
+                    request_id=request_id,
+                    requested_at_ms=int(time.time() * 1000),
+                )
+                if not (
+                    payload["effectors"] or payload["full_body"] or payload["root_2d"]
+                ):
+                    self.report({"ERROR"}, "Mark at least one constraint first")
+                    return {"CANCELLED"}
+                # Remembered before detach, because detach removes the anchor
+                # bones the marker curves live on. Without it the constraints
+                # disappear the moment the new clip replaces the action, and a
+                # second pass would have to be marked from scratch.
+                marks = constraint_capture.marked_frames_by_kind(armature)
+                ik_rig.detach(armature, keep_edits=True)
+                constraint_capture.write_request(project_directory, payload)
+                constraint_capture.record_pending_request(armature, request_id, marks)
+            except (
+                constraint_capture.ConstraintCaptureError,
+                ik_rig.IkRigError,
+                OSError,
+            ) as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            self.report(
+                {"INFO"},
+                f"Requested regeneration from {len(payload['effectors'])} effector, "
+                f"{len(payload['full_body'])} pose and {len(payload['root_2d'])} path "
+                "constraints",
+            )
+            return {"FINISHED"}
+
+    class CCLAY_OT_apply_regeneration_outcome(bpy.types.Operator):
+        bl_idname = "cclay.apply_regeneration_outcome"
+        bl_label = "Apply Regeneration Result"
+        bl_description = (
+            "Read the host's answer for the pending request, then put the IK "
+            "handles and the constraints back on the regenerated clip"
+        )
+        bl_options = {"REGISTER", "UNDO"}
+
+        def execute(self, context):
+            from . import constraint_capture
+
+            armature = context.active_object
+            project_directory = bpy.path.abspath("//")
+            try:
+                pending = constraint_capture.read_pending_request(armature)
+                if pending is None:
+                    self.report({"ERROR"}, "No regeneration is pending on this object")
+                    return {"CANCELLED"}
+                outcome = constraint_capture.read_outcome(
+                    project_directory, pending["request_id"]
+                )
+                if outcome is None:
+                    self.report({"INFO"}, "The host has not answered yet")
+                    return {"CANCELLED"}
+                scene = context.scene
+                failed = outcome["status"] == "failed"
+                # Both paths put the rig back the way the animator left it.
+                # Returning early on failure used to strand them: the panel
+                # keys off the pending record, so it showed only this button,
+                # and this button kept hitting the same permanent failure --
+                # no handles, no way to edit, no way to ask again.
+                if not ik_rig.has_ik_layer(armature):
+                    ik_rig.attach(armature, scene.frame_start, scene.frame_end)
+                restored = constraint_capture.restore_constraints(
+                    armature, scene, pending["marks"]
+                )
+                constraint_capture.clear_pending_request(armature)
+                # The answer has been acted on; leaving it would make the next
+                # request with a recycled id read a stale verdict.
+                constraint_capture.discard_outcome(
+                    project_directory, pending["request_id"]
+                )
+                if failed:
+                    # WARNING, not ERROR: the regeneration failed but this
+                    # operator did its own job, which was to hand the rig back
+                    # intact. Reporting ERROR alongside FINISHED also makes
+                    # bpy.ops raise, which misreports a successful recovery.
+                    self.report(
+                        {"WARNING"},
+                        f"Regeneration failed ({outcome['error_code']}): "
+                        f"{outcome['message']}. Handles and "
+                        f"{restored} constraints restored; edit and try again",
+                    )
+                    return {"FINISHED"}
+            except (
+                constraint_capture.ConstraintCaptureError,
+                ik_rig.IkRigError,
+            ) as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            result = outcome["result"]
+            achieved = result.get("achieved_error_m")
+            # Both numbers are reported and neither gates: the plan is explicit
+            # that the regenerated clip is always accepted and the animator
+            # judges it. Continuity is compared against the clip immediately
+            # before this one, because each regeneration becomes the next
+            # one's base and that is where drift accumulates.
+            jump = (result.get("continuity") or {}).get("max_jump_m")
+            warning = constraint_capture.continuity_warning(
+                constraint_capture.previous_continuity(armature), jump
+            )
+            constraint_capture.record_continuity(armature, jump)
+            if warning is not None:
+                self.report({"WARNING"}, warning)
+            self.report(
+                {"INFO"},
+                f"Applied {result['motion_id']} ({result['frames']} frames, "
+                f"achieved error {achieved}); restored {restored} constraints",
+            )
+            return {"FINISHED"}
+
     class CCLAY_OT_discard_ik_rig(bpy.types.Operator):
         bl_idname = "cclay.discard_ik_rig"
         bl_label = "Detach IK Rig, Discard Edits"
@@ -859,6 +1067,67 @@ if bpy is not None:
             else:
                 layout.operator("cclay.attach_ik_rig", icon="CON_KINEMATIC")
 
+    class CCLAY_PT_ardy_constraints(bpy.types.Panel):
+        """Frames the animator has committed as ARDY generation constraints."""
+
+        bl_idname = "CCLAY_PT_ardy_constraints"
+        bl_label = "ARDY Constraints"
+        bl_space_type = "VIEW_3D"
+        bl_region_type = "UI"
+        bl_category = "CozyClay"
+        bl_parent_id = "CCLAY_PT_ik_rig"
+
+        def draw(self, context):
+            from . import constraint_capture
+
+            layout = self.layout
+            armature = context.active_object
+            if armature is None or armature.type != "ARMATURE":
+                layout.label(text="Select a character armature", icon="INFO")
+                return
+            # Checked before the IK-layer gate: publishing a request detaches
+            # the layer, so the animator is looking at a rig with no handles
+            # exactly when they need the button that puts them back.
+            try:
+                pending = constraint_capture.read_pending_request(armature)
+            except constraint_capture.ConstraintCaptureError as error:
+                layout.label(text=str(error), icon="ERROR")
+                pending = None
+            if pending is not None:
+                layout.label(text="Regeneration requested", icon="SORTTIME")
+                layout.operator(
+                    "cclay.apply_regeneration_outcome", icon="IMPORT"
+                )
+                return
+            if not ik_rig.has_ik_layer(armature):
+                layout.label(text="Attach the IK layer first", icon="INFO")
+                return
+
+            frame = context.scene.frame_current
+            for kind in constraint_capture.ANCHOR_BY_KIND:
+                try:
+                    frames = constraint_capture.marked_frames(armature, kind)
+                except constraint_capture.ConstraintCaptureError:
+                    continue
+                row = layout.row(align=True)
+                row.label(text=kind)
+                if frame in frames:
+                    row.operator(
+                        "cclay.clear_constraint", text="", icon="KEYFRAME_HLT"
+                    ).kind = kind
+                else:
+                    row.operator("cclay.mark_constraint", text="", icon="KEYFRAME").kind = kind
+                # The frame list is the constraint list; showing it is the only
+                # way to see what regeneration will actually be asked for.
+                row.label(text=", ".join(str(value) for value in frames) or "-")
+            layout.separator()
+            layout.operator(
+                "cclay.request_constraint_regeneration", icon="FILE_REFRESH"
+            )
+            # Regeneration replaces the action outright, so the handles and any
+            # unconstrained hand-tuning between them do not survive it.
+            layout.label(text="Replaces the whole clip and detaches IK", icon="ERROR")
+
     class CCLAY_OT_disconnect(bpy.types.Operator):
         bl_idname = "cclay.disconnect"
         bl_label = "Disconnect"
@@ -885,9 +1154,14 @@ if bpy is not None:
         CCLAY_OT_attach_ik_rig,
         CCLAY_OT_detach_ik_rig,
         CCLAY_OT_discard_ik_rig,
+        CCLAY_OT_mark_constraint,
+        CCLAY_OT_clear_constraint,
+        CCLAY_OT_request_constraint_regeneration,
+        CCLAY_OT_apply_regeneration_outcome,
         CCLAY_OT_disconnect,
         CCLAY_PT_pi_status,
         CCLAY_PT_ik_rig,
+        CCLAY_PT_ardy_constraints,
     )
 else:
     _CLASSES = ()

@@ -2677,8 +2677,14 @@ def _apply_motion(
         animation_data = scene_object.animation_data_create()
     action = bpy.data.actions.new(name=f"CCLAY Motion {operation['motion_id']}")
     transaction.created_actions.append(action)
+    # Hoisted before the metadata block so start_frame can be recorded on the
+    # action; the dense-frame math below reuses the same value unchanged.
+    start_frame = operation.get("start_frame", 1)
     action["cclay.motion_id"] = operation["motion_id"]
     action["cclay.motion_fps"] = fps
+    # Downstream clip-frame conversion (clip_frame = scene_frame - start_frame)
+    # reads this from the action instead of re-deriving it from the caller.
+    action["cclay.motion_start_frame"] = start_frame
     action["cclay.motion_frames"] = frame_count
     action["cclay.hand_shape_left"] = resolved["left"]
     action["cclay.hand_shape_right"] = resolved["right"]
@@ -2695,7 +2701,6 @@ def _apply_motion(
 
     slot, channelbag = _create_detached_action_topology(action, scene_object.name)
     yield "ACTION_CREATE"
-    start_frame = operation.get("start_frame", 1)
     end_frame = start_frame + frame_count - 1
     dense_frames = [float(start_frame + offset) for offset in range(frame_count)]
     deltas = hand_shapes.preset_deltas(resolved["left"], resolved["right"])

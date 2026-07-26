@@ -33,6 +33,7 @@ import { randomUUID } from "node:crypto";
 // `index.ts`. A `src/index.ts` entry therefore shows up as "src" in the startup
 // Extensions list, so the directory name is the display name.
 import { BlenderBridge } from "../bridge.ts";
+import { startRegenerateQueueRunner } from "../regenerate-queue-runner.ts";
 
 const ENDPOINT_FILENAME = "pi-bridge.json";
 
@@ -95,6 +96,21 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 			return result;
 		},
 	};
+
+	// Started here rather than registered as a tool: the add-on has no way to
+	// push a request to this process, so it publishes a queue file and this is
+	// what looks. It is a deterministic reaction to a button the animator
+	// pressed, so it stays off the director tool allowlist entirely.
+	const regenerateQueue = startRegenerateQueueRunner({
+		cwd,
+		stageScene: (request, context) =>
+			mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
+		onError: (error) => {
+			// Reported, never thrown: a failed sweep must not take the
+			// extension down, or the next request would sit unwatched.
+			console.error("[cclay] regeneration sweep failed:", error);
+		},
+	});
 
 	pi.registerTool(createInspectProjectTool(bridge));
 	pi.registerTool(createInspectEntityTool(bridge));
@@ -162,6 +178,7 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 			clearInterval(statusInterval);
 			statusInterval = undefined;
 		}
+		await regenerateQueue.stop();
 		await bridge.close();
 		await rm(endpointPath, { force: true });
 		await rm(runtimeDirectory, { recursive: true, force: true });

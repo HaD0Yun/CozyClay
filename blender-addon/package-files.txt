@@ -7,6 +7,7 @@ camera_plan.py
 canonical.py
 checkpoint.py
 connection.py
+constraint_capture.py
 controller_connection.py
 daemon_child.py
 directing_evidence.py
@@ -19,6 +20,7 @@ identity.py
 ik_chains.py
 ik_rig.py
 manifest.py
+motion_constraints.py
 motion_preflight.py
 motion_retarget.py
 panel_state.py

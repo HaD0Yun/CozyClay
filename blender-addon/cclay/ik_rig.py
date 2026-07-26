@@ -141,9 +141,51 @@ def _sample_fk(armature, frame_start: int, frame_end: int) -> dict:
     return samples
 
 
+def _create_constraint_anchors(armature, edit_bones, hips_world) -> None:
+    """Add the constraint anchors the regenerate flow pins poses against.
+
+    These are markers, not drag handles: the Full-Body anchor marks a frame
+    whose whole-body pose will be constrained, and the 2D-Root anchor marks a
+    floor-plane waypoint. Neither joins a limb chain, so neither can move the
+    character — placing them is purely for the animator's view. They share the
+    control layer so ``detach`` removes them with the IK handles.
+
+    ``hips_world`` is captured before entering edit mode, because pose-bone
+    heads are not re-evaluated while the armature is in edit mode.
+    """
+    # Full-Body: parked beside the hips so it sits in view without cluttering
+    # the body. Its position has no geometric meaning — dragging it would not
+    # change the constraint it marks — so it is left at a fixed offset.
+    fullbody_world = hips_world + Vector((CONTROL_BONE_LENGTH, 0.0, 0.0))
+    # 2D-Root: a floor-plane handle. The vertical component is meaningless; only
+    # the ground-plane coordinates carry a waypoint, so the height is dropped to
+    # the floor (y=0 in the Y-up retarget convention) for a clean view.
+    root2d_world = Vector((hips_world.x, 0.0, hips_world.z))
+    world_to_local = armature.matrix_world.inverted()
+    for name, world_head in (
+        (ik_chains.FULLBODY_ANCHOR, fullbody_world),
+        (ik_chains.ROOT2D_ANCHOR, root2d_world),
+    ):
+        if name in edit_bones:
+            edit_bones.remove(edit_bones[name])
+        bone = edit_bones.new(name)
+        # Control-bone heads live in armature-local space, so convert back from
+        # the world position picked for the animator's view.
+        bone.head = world_to_local @ world_head
+        bone.tail = bone.head + Vector((0.0, 0.0, CONTROL_BONE_LENGTH))
+        # Anchors must not deform and must not sit in the character hierarchy,
+        # exactly like the IK handles, so they never fight a parent's animation.
+        bone.use_deform = False
+        bone.parent = None
+
+
 def _create_control_bones(armature, pole_distance: float, fk_first_frame: dict) -> None:
     previous_mode = armature.mode
     bpy.context.view_layer.objects.active = armature
+    # Capture the posed Hips head before entering edit mode: pose-bone heads are
+    # not re-evaluated while the armature is in edit mode, so reading them there
+    # would return a stale pose.
+    hips_world = _world_head(armature, "Hips")
     bpy.ops.object.mode_set(mode="EDIT")
     try:
         edit_bones = armature.data.edit_bones
@@ -163,6 +205,7 @@ def _create_control_bones(armature, pole_distance: float, fk_first_frame: dict) 
                 # dragging it is not fought by a parent's animation.
                 bone.use_deform = False
                 bone.parent = None
+        _create_constraint_anchors(armature, edit_bones, hips_world)
     finally:
         bpy.ops.object.mode_set(mode="POSE" if previous_mode == "POSE" else "OBJECT")
         bpy.ops.object.mode_set(mode="POSE")
@@ -172,6 +215,10 @@ def _create_control_bones(armature, pole_distance: float, fk_first_frame: dict) 
             ik_chains.pole_bone_name(chain.effector),
         ):
             armature.pose.bones[name].rotation_mode = "QUATERNION"
+    # Anchors match the handles' rotation_mode so the whole control layer is
+    # consistent; they carry no rotation data themselves.
+    for name in (ik_chains.FULLBODY_ANCHOR, ik_chains.ROOT2D_ANCHOR):
+        armature.pose.bones[name].rotation_mode = "QUATERNION"
 
 
 def _attach_constraints(armature) -> None:
