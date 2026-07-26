@@ -105,7 +105,10 @@ function runToSsh(project: string, args: string[]): { status: number; output: st
  * exits non-zero under `set -e`. That is expected and out of scope — the
  * captured command is the observation under test, not the final exit status.
  */
-function runWithFakeTransport(project: string, args: string[]): { status: number; output: string; sshArgv: string } {
+function runWithFakeTransport(
+	project: string,
+	args: string[],
+): { status: number; output: string; sshRecords: string[][] } {
 	const binDir = mkdtempSync(join(tmpdir(), "cclay-ardy-fake-bin-"));
 	// Keep the capture inside binDir so one recursive remove cleans everything.
 	const capture = join(binDir, "ssh-argv.txt");
@@ -114,18 +117,20 @@ function runWithFakeTransport(project: string, args: string[]): { status: number
 	writeFileSync(fakeScp, `#!/bin/sh\nexit 0\n`, { encoding: "utf8", mode: 0o755 });
 	// Fake ssh: record its full argv and emit a minimal valid JSON line so the
 	// wrapper's json_int/last-line parser proceeds past command construction.
-	// The capture path is passed through the environment rather than interpolated
-	// into the script text: a TMPDIR containing whitespace or shell
+	// Each invocation ends with an EXTRA NUL, so one process is one record: a
+	// flat NUL stream cannot distinguish two generation calls from one, which is
+	// exactly the cardinality this harness has to be able to assert.
+	// The capture path travels through the environment rather than being
+	// interpolated into the script text: a TMPDIR containing whitespace or shell
 	// metacharacters would otherwise break the redirection or be parsed as syntax.
 	const fakeSsh = join(binDir, "ssh");
 	writeFileSync(
 		fakeSsh,
-		`#!/bin/sh\nprintf '%s\\0' "$@" >> "$CCLAY_FAKE_SSH_CAPTURE"\nprintf '{"frames":60,"fps":20}\\n'\n`,
+		`#!/bin/sh\n{ printf '%s\\0' "$@"; printf '\\0'; } >> "$CCLAY_FAKE_SSH_CAPTURE"\nprintf '{"frames":60,"fps":20}\\n'\n`,
 		{ encoding: "utf8", mode: 0o755 },
 	);
 	chmodSync(fakeScp, 0o755);
 	chmodSync(fakeSsh, 0o755);
-	let sshArgv = "";
 	try {
 		const output = execFileSync(WRAPPER, ["x", "--project", project, ...args], {
 			encoding: "utf8",
@@ -137,32 +142,38 @@ function runWithFakeTransport(project: string, args: string[]): { status: number
 				CCLAY_FAKE_SSH_CAPTURE: capture,
 			},
 		});
-		sshArgv = readCapture(capture);
-		return { status: 0, output, sshArgv };
+		return { status: 0, output, sshRecords: readCapture(capture) };
 	} catch (error) {
 		const failure = error as { status?: number; stdout?: string; stderr?: string };
-		sshArgv = readCapture(capture);
 		return {
 			status: failure.status ?? -1,
 			output: `${failure.stdout ?? ""}${failure.stderr ?? ""}`,
-			sshArgv,
+			sshRecords: readCapture(capture),
 		};
 	} finally {
 		rmSync(binDir, { recursive: true, force: true });
 	}
 }
 
-/** Read the NUL-separated argv records the fake ssh appended. */
-function readCapture(capture: string): string {
+/** One record per fake-ssh process, each record being that process's argv. */
+function readCapture(capture: string): string[][] {
 	try {
 		const raw = readFileSync(capture, "utf8");
-		// Each ssh invocation wrote one NUL-terminated argv record; join the
-		// tokens of every record so callers can match against the merged text.
-		return raw.replace(/\0/g, " ").trim();
+		return raw
+			.split("\0\0")
+			.filter((record) => record.length > 0)
+			.map((record) => record.split("\0").filter((token) => token.length > 0));
 	} catch {
-		return "";
+		return [];
 	}
 }
+
+/** The argv records whose remote command runs the constrained generator. */
+function generationRecords(records: string[][]): string[][] {
+	return records.filter((record) => record.some((token) => token.includes(CONSTRAINED_SCRIPT)));
+}
+
+const CONSTRAINED_SCRIPT = "scripts/cclay_constrained_generate.py";
 
 describe("cclay-ardy-generate constraint guards", () => {
 	it("rejects --constrain without a base motion", () => {
@@ -960,25 +971,31 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 describe("cclay-ardy-generate constrained remote command construction", () => {
 	const BASE_ARGS = ["--base-motion", "abc", "--constrain", "5", "LeftFoot", "0.1", "0.2", "0.3"] as const;
 
-	it("reaches remote-command execution and forwards the constrained script invocation plus --prompt/--base/--output", () => {
+	it("runs the constrained generator exactly once and forwards the script plus --prompt/--base/--output", () => {
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshArgv } = runWithFakeTransport(root, [...BASE_ARGS]);
-		// The capture is non-empty only if the wrapper actually invoked ssh
-		// past the sync step; runToSsh dies at scp and would leave it empty.
-		assert.notEqual(sshArgv, "", "wrapper never reached the ssh remote-command call");
-		assert.match(sshArgv, /scripts\/cclay_constrained_generate\.py/);
-		assert.match(sshArgv, /--prompt/);
-		assert.match(sshArgv, /--base/);
-		assert.match(sshArgv, /--output/);
+		const { sshRecords } = runWithFakeTransport(root, [...BASE_ARGS]);
+		// Non-empty only if the wrapper actually invoked ssh past the sync step;
+		// runToSsh dies at scp and would leave this empty.
+		assert.notEqual(sshRecords.length, 0, "wrapper never reached the ssh remote-command call");
+		const generations = generationRecords(sshRecords);
+		// Cardinality, not just presence. A flat text capture cannot tell one
+		// generation from two, so duplicating the generation ssh in the wrapper
+		// used to pass every assertion here.
+		assert.equal(generations.length, 1, `expected exactly one constrained generation ssh, got ${generations.length}`);
+		const remote = generations[0].join(" ");
+		assert.match(remote, /--prompt/);
+		assert.match(remote, /--base/);
+		assert.match(remote, /--output/);
 	});
 
 	it("does not forward --num-samples (best-of-N sampling was removed)", () => {
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshArgv } = runWithFakeTransport(root, [...BASE_ARGS]);
-		assert.notEqual(sshArgv, "", "wrapper never reached the ssh remote-command call");
-		assert.doesNotMatch(sshArgv, /--num-samples/);
+		const { sshRecords } = runWithFakeTransport(root, [...BASE_ARGS]);
+		const generations = generationRecords(sshRecords);
+		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
+		assert.doesNotMatch(generations[0].join(" "), /--num-samples/);
 	});
 
 	it("forwards --contact-threshold and --root-margin when given, proving the harness can observe forwarding", () => {
@@ -988,15 +1005,17 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		// block forwards (scripts/cclay-ardy-generate:408-409) MUST appear.
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshArgv } = runWithFakeTransport(root, [
+		const { sshRecords } = runWithFakeTransport(root, [
 			...BASE_ARGS,
 			"--contact-threshold",
 			"0.6",
 			"--root-margin",
 			"0.1",
 		]);
-		assert.notEqual(sshArgv, "", "wrapper never reached the ssh remote-command call");
-		assert.match(sshArgv, /--contact-threshold/);
-		assert.match(sshArgv, /--root-margin/);
+		const generations = generationRecords(sshRecords);
+		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
+		const remote = generations[0].join(" ");
+		assert.match(remote, /--contact-threshold/);
+		assert.match(remote, /--root-margin/);
 	});
 });

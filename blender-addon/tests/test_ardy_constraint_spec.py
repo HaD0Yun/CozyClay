@@ -872,6 +872,63 @@ class MainGuardContractTests(unittest.TestCase):
             "the entrypoint must call main() directly, not a wrapper around it",
         )
 
+    def test_the_module_surface_has_no_other_activation_path(self):
+        """Only the canonical guard may reach main(), and nothing else may run.
+
+        Checking main()'s decorators and its own body was not the terminal
+        boundary I claimed. Two in-file mutations were verified to slip past it:
+        `atexit.register(main)` at module level re-invokes main at interpreter
+        shutdown, and an indirect helper called from main can call main back,
+        because a recursion scan over main only sees a callee named `main`.
+
+        So pin the module SURFACE instead of enumerating callback APIs, which
+        would repeat the same losing pattern: at module level allow only the
+        docstring, imports, literal constant assignments, function definitions
+        and the one entry guard; and allow exactly one reference to the name
+        `main` in the whole module, the call inside that guard.
+
+        What this still cannot prove is dynamic: reflection such as
+        globals()["main"](), or an outer process invoking the CLI twice. The
+        second is covered on the wrapper side, which asserts exactly one
+        constrained generation ssh record.
+        """
+        module = ast.parse(SCRIPT.read_text())
+
+        allowed = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        for index, statement in enumerate(module.body):
+            if isinstance(statement, allowed):
+                continue
+            if index == 0 and isinstance(statement, ast.Expr) and isinstance(
+                statement.value, ast.Constant
+            ):
+                continue  # module docstring
+            if isinstance(statement, ast.Assign) and all(
+                isinstance(node, (ast.Constant, ast.Tuple, ast.List, ast.Dict, ast.Name, ast.Load))
+                for node in ast.walk(statement.value)
+            ):
+                continue  # literal constant table
+            self.assertTrue(
+                isinstance(statement, ast.If) and "__main__" in ast.unparse(statement.test),
+                "module level must hold only the docstring, imports, literal "
+                "constants, definitions and the entry guard; anything else runs "
+                f"at import and could re-enter main (found "
+                f"{type(statement).__name__} at line {statement.lineno}: "
+                f"{ast.unparse(statement)[:60]})",
+            )
+
+        references = [
+            node
+            for node in ast.walk(module)
+            if isinstance(node, ast.Name) and node.id == "main"
+        ]
+        self.assertEqual(
+            len(references),
+            1,
+            "the name `main` may appear exactly once in the module, as the call "
+            "inside the entry guard; any other reference could defer or repeat it "
+            f"(found {len(references)})",
+        )
+
 
 class ArgParseTests(unittest.TestCase):
     """--num-samples must be GONE, not merely unused: argparse must reject it.
