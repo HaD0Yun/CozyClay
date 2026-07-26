@@ -450,8 +450,13 @@ class MainGuardContractTests(unittest.TestCase):
         guard's result, not merely that both exist somewhere in main(). Searches
         every statement list in main(), so the pair is still found if the guard
         moves inside an if or try block.
+
+        Collects EVERY match rather than the first: with two such assignments a
+        first-match search could validate a decoy pair while the real one was
+        weakened. The caller asserts there is exactly one.
         """
         main = cls._main_node()
+        pairs = []
         for node in ast.walk(main):
             for field in ("body", "orelse", "finalbody"):
                 block = getattr(node, field, None)
@@ -468,8 +473,8 @@ class MainGuardContractTests(unittest.TestCase):
                         and statement.value.func.id == "find_non_finite"
                     ):
                         following = block[index + 1] if index + 1 < len(block) else None
-                        return statement, following
-        return None, None
+                        pairs.append((statement, following))
+        return pairs
 
     def test_main_calls_find_non_finite(self):
         lineno = self._call_lineno(
@@ -533,14 +538,23 @@ class MainGuardContractTests(unittest.TestCase):
 
         So pin the chain: the assignment calls find_non_finite on the motion
         dict, the very next statement tests that result with `is not None`, and
-        the raise lives inside that if body. Exactly one divergence-worded raise
-        may exist, which is what rules out the decoy.
+        the raise must be a DIRECT statement of that if body. Exactly one such
+        assignment and exactly one divergence-worded raise may exist.
+
+        Nesting matters: found with ast.walk, a raise wrapped in
+        ``if non_finite["member"] == "posed_joints":`` would satisfy a
+        "somewhere in the body" check while letting non-finite rotations, root
+        positions or contacts through to measurement and save. So the raise has
+        to be unavoidable once the guard fires.
         """
         source = SCRIPT.read_text()
-        assign, following = self._guard_statements()
-        self.assertIsNotNone(
-            assign, "main() must assign non_finite = find_non_finite(...)"
+        pairs = self._guard_statements()
+        self.assertEqual(
+            len(pairs),
+            1,
+            "main() must assign non_finite = find_non_finite(...) exactly once",
         )
+        assign, following = pairs[0]
 
         arguments = [
             node.id for node in assign.value.args if isinstance(node, ast.Name)
@@ -571,19 +585,26 @@ class MainGuardContractTests(unittest.TestCase):
         self.assertIsInstance(test.comparators[0], ast.Constant)
         self.assertIsNone(test.comparators[0].value)
 
-        guarded = [
-            node
+        direct = [
+            statement
             for statement in following.body
-            for node in ast.walk(statement)
-            if isinstance(node, ast.Raise)
-            and "generated motion diverged" in (ast.get_source_segment(source, node) or "")
+            if isinstance(statement, ast.Raise)
+            and "generated motion diverged" in (ast.get_source_segment(source, statement) or "")
         ]
         self.assertEqual(
-            len(guarded), 1, "the divergence raise must live inside the guard body"
+            len(direct),
+            1,
+            "the divergence raise must be a DIRECT statement of the guard body, "
+            "not nested behind a further condition that could let members through",
+        )
+        self.assertIs(
+            direct[0],
+            following.body[-1],
+            "the raise must be the guard body's last statement, so nothing runs after it",
         )
         self.assertIn(
             "refusing to save or measure a non-finite clip",
-            ast.get_source_segment(source, guarded[0]),
+            ast.get_source_segment(source, direct[0]),
         )
 
         everywhere = [
