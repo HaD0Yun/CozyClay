@@ -245,4 +245,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, and [AGENTS.md](AGEN
 
 MIT. See [LICENSE](LICENSE).
 
-CozyClay includes Pi (MIT, Copyright (c) 2025 Mario Zechner and contributors).
+Third-party code this repository carries or derives from:
+
+| component | license | shape |
+|---|---|---|
+| [Pi](https://github.com/earendil-works/pi) — `packages/{ai,agent,coding-agent,tui,server,storage}` | MIT, Copyright (c) 2025 Mario Zechner and Pi contributors | vendored, unmodified |
+| [ARDY](https://github.com/nv-tlabs/ardy) — `scripts/ardy/upstream-patches/*.patch` | Apache-2.0, Copyright (c) NVIDIA Corporation | not vendored; these patches modify files ARDY owns, so they are derivative works of Apache-2.0 code and carry its terms, including the attribution and modification-notice requirements of section 4 |
+
+Everything else under `scripts/ardy/` (`interactive_demo/`, `tests/`, the `cclay_*_generate.py` entry points) is CozyClay's own work and imports ARDY without deriving from it.
