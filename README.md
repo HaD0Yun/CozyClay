@@ -61,11 +61,14 @@ One command is the whole entry point. `cclay` picks the project, launches Blende
 | `cclay --no-blender` | director only; attach Blender yourself. The project must already exist |
 | `cclay --model <id>` | override the model |
 | `cclay --provider <name> --model <id>` | any provider Pi supports; run `/login` once in the TUI |
+| `cclay --glm` | GLM 5.2 on Fireworks' Fast serving path — same weights as the standard `glm-5p2` model on a higher-throughput router, billed 50% above it |
 | `CCLAY_PROJECT_DIR=<dir> cclay` | point at another project from anywhere |
 | `CCLAY_BLENDER_EXECUTABLE=<path> cclay` | choose a specific Blender build instead of the detected one |
 | `CCLAY_PROJECTS_ROOT=<dir> cclay` | where the project picker looks (default `~/BlenderScenes`) |
 
-Credentials are project-local: each project keeps its own sessions and auth under `.cclay/pi-agent/`, so logging in once per project is expected. The launcher defaults to `--provider openai-codex` and imports a Codex OAuth record from `~/.gjc/agent/agent.db`; without that file, pass `--provider` explicitly and log in from the TUI.
+Credentials are project-local: each project keeps its own sessions and auth under `.cclay/pi-agent/`, so logging in once per project is expected. Switching provider does not evict the previous one's credential, so moving between `cclay` and `cclay --glm` in the same project only logs in once each.
+
+The launcher defaults to `--provider openai-codex` and imports a Codex OAuth record from `~/.gjc/agent/agent.db`; `--glm` imports the Fireworks api key from the same store unless `FIREWORKS_API_KEY` is already exported, which Pi reads by itself. Without that store, pass `--provider` explicitly and log in from the TUI.
 
 ### The loop
 

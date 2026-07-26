@@ -2,6 +2,7 @@
 # cclay — launch the CozyClay Blender director in the current directory, pi-style.
 #   cclay                          # sol director in $PWD, Blender auto-attached
 #   cclay --model gpt-5.6-sol      # override model (provider defaults to openai-codex)
+#   cclay --glm                    # GLM 5.2 on Fireworks' Fast serving path
 #   cclay --no-blender             # TUI/daemon only, attach Blender yourself
 #   CCLAY_PROJECT_DIR=... cclay    # direct at another project dir
 #   CCLAY_REPO=...                 # override the repo root (defaults to this script's repo)
@@ -96,11 +97,13 @@ export CCLAY_PROJECT_DIR="$PROJECT_DIR"
 export CCLAY_DEMO_PROJECT_DIR="$PROJECT_DIR"
 
 LAUNCH_BLENDER=1
+WANT_GLM=0
 ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --no-blender) LAUNCH_BLENDER=0 ;;
     --faux) LAUNCH_BLENDER=0; ARGS+=("$arg") ;;
+    --glm) WANT_GLM=1 ;;
     *) ARGS+=("$arg") ;;
   esac
 done
@@ -111,10 +114,24 @@ done
 # faux provider, which must not require credentials.
 HAS_PROVIDER=0
 HAS_FAUX=0
+HAS_MODEL=0
 for arg in ${ARGS[@]+"${ARGS[@]}"}; do
   [[ "$arg" == "--provider" ]] && HAS_PROVIDER=1
   [[ "$arg" == "--faux" ]] && HAS_FAUX=1
+  [[ "$arg" == "--model" ]] && HAS_MODEL=1
 done
+# --glm: GLM 5.2 on Fireworks' Fast serving path. Same weights as the standard
+# glm-5p2 model on a higher-throughput router, billed 50% above it, which is the
+# trade this shorthand exists to make. It is a shorthand, not an override:
+# an explicit --provider or --model still wins, so `cclay --glm --model X` runs X
+# on Fireworks.
+if [[ "$WANT_GLM" == "1" ]]; then
+  [[ "$HAS_MODEL" == "0" ]] && ARGS=(--model accounts/fireworks/routers/glm-5p2-fast ${ARGS[@]+"${ARGS[@]}"})
+  if [[ "$HAS_PROVIDER" == "0" ]]; then
+    ARGS=(--provider fireworks ${ARGS[@]+"${ARGS[@]}"})
+    HAS_PROVIDER=1
+  fi
+fi
 if [[ "$HAS_PROVIDER" == "0" && "$HAS_FAUX" == "0" ]]; then
   ARGS=(--provider openai-codex ${ARGS[@]+"${ARGS[@]}"})
 fi
@@ -215,8 +232,11 @@ elif [[ ! -f "$PROJECT_DIR/.cclay/project.json" ]]; then
   exit 1
 fi
 
-# Keep native Pi sessions and credentials project-local. For Codex, import the
-# existing GJC OAuth record without exposing the bearer token in argv or env.
+# Keep native Pi sessions and credentials project-local, and import the
+# credential the chosen provider needs out of the GJC store without ever putting
+# a token in argv or the environment. Codex is OAuth; Fireworks is an api key and
+# is only imported when FIREWORKS_API_KEY is not already exported, because Pi
+# reads that variable itself.
 export PI_CODING_AGENT_DIR="$PROJECT_DIR/.cclay/pi-agent"
 mkdir -p "$PI_CODING_AGENT_DIR"
 chmod 700 "$PI_CODING_AGENT_DIR"
@@ -226,34 +246,57 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
     PROVIDER="${ARGS[$((i + 1))]}"
   fi
 done
-if [[ "$PROVIDER" == "openai-codex" ]]; then
+AUTH_PROVIDER=""
+case "$PROVIDER" in
+  openai-codex) AUTH_PROVIDER="openai-codex" ;;
+  fireworks) [[ -n "${FIREWORKS_API_KEY:-}" ]] || AUTH_PROVIDER="fireworks" ;;
+esac
+if [[ -n "$AUTH_PROVIDER" ]]; then
   AUTH_DB="${HOME}/.gjc/agent/agent.db"
-  [[ -f "$AUTH_DB" ]] || { echo "Codex auth store not found; run gjc /login first" >&2; exit 1; }
-  AUTH_DB="$AUTH_DB" AUTH_OUT="$PI_CODING_AGENT_DIR/auth.json" python3 - <<'PY'
+  [[ -f "$AUTH_DB" ]] || { echo "cclay: no GJC auth store at $AUTH_DB; run gjc /login, or export the provider's api key" >&2; exit 1; }
+  AUTH_DB="$AUTH_DB" AUTH_PROVIDER="$AUTH_PROVIDER" AUTH_OUT="$PI_CODING_AGENT_DIR/auth.json" python3 - <<'PY'
 import json
 import os
 import sqlite3
 import sys
 
+provider = os.environ["AUTH_PROVIDER"]
+target = os.environ["AUTH_OUT"]
+
 try:
     with sqlite3.connect(os.environ["AUTH_DB"]) as connection:
         row = connection.execute(
             "SELECT data FROM auth_credentials WHERE provider = ?",
-            ("openai-codex",),
+            (provider,),
         ).fetchone()
-    credential = json.loads(row[0]) if row else None
-    if not credential or not credential.get("access"):
-        raise RuntimeError("no usable openai-codex credential; run gjc /login")
-    credential["type"] = "oauth"
-    target = os.environ["AUTH_OUT"]
+    stored = json.loads(row[0]) if row else None
+    if not stored:
+        raise RuntimeError("no credential in the GJC store; run gjc /login")
+    if stored.get("access"):
+        credential = dict(stored, type="oauth")
+    elif stored.get("key"):
+        credential = {"type": "api_key", "key": stored["key"]}
+    else:
+        raise RuntimeError("the stored credential carries neither an OAuth token nor an api key")
+    # Merge rather than replace: one project's auth.json holds a credential per
+    # provider, so switching provider must not evict the other one and force a
+    # re-login on the way back.
+    try:
+        with open(target, encoding="utf-8") as handle:
+            credentials = json.load(handle)
+        if not isinstance(credentials, dict):
+            credentials = {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        credentials = {}
+    credentials[provider] = credential
     temporary = f"{target}.tmp"
     with open(temporary, "w", encoding="utf-8") as handle:
-        json.dump({"openai-codex": credential}, handle, separators=(",", ":"))
+        json.dump(credentials, handle, separators=(",", ":"))
         handle.write("\n")
     os.chmod(temporary, 0o600)
     os.replace(temporary, target)
 except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error, RuntimeError) as error:
-    print(f"Cannot import Codex credentials: {error}", file=sys.stderr)
+    print(f"cclay: cannot import {provider} credentials: {error}", file=sys.stderr)
     sys.exit(1)
 PY
 fi
