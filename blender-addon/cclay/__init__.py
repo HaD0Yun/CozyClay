@@ -2,7 +2,7 @@
 import os
 
 from .identity import IdentityError, assign_entity_ids, new_project_id
-from . import project_store, qa_image_display, ui_panel
+from . import ik_rig, project_store, qa_image_display, ui_panel
 
 # Legacy Blender add-on metadata. The extension manifest
 # (blender_manifest.toml) is the single version source of truth; the tuple here
@@ -765,6 +765,100 @@ if bpy is not None:
                 controller_connection._active_controller,
             )
 
+    class CCLAY_OT_attach_ik_rig(bpy.types.Operator):
+        bl_idname = "cclay.attach_ik_rig"
+        bl_label = "Attach IK Rig"
+        bl_description = (
+            "Lay draggable IK handles over the selected character's baked motion. "
+            "The pose does not change: the handles are keyed to reproduce it"
+        )
+        bl_options = {"REGISTER", "UNDO"}
+
+        def execute(self, context):
+            try:
+                report = ik_rig.attach(context.active_object)
+            except ik_rig.IkRigError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            # The deviation is the proof that attaching changed nothing, so it
+            # belongs in front of the animator rather than in a log.
+            self.report(
+                {"INFO"},
+                f"IK handles on {report['frameEnd'] - report['frameStart'] + 1} frames, "
+                f"worst deviation {report['worstMidDeviationMm']:.3f} mm",
+            )
+            return {"FINISHED"}
+
+    # Keeping and discarding are separate operators rather than one carrying a
+    # boolean: discarding throws away work, so it must be its own named action
+    # an animator cannot reach by leaving a checkbox in the wrong state.
+    class CCLAY_OT_detach_ik_rig(bpy.types.Operator):
+        bl_idname = "cclay.detach_ik_rig"
+        bl_label = "Detach IK Rig, Keep Edits"
+        bl_description = (
+            "Remove the IK handles, baking whatever was posed back onto the bones "
+            "the motion drives"
+        )
+        bl_options = {"REGISTER", "UNDO"}
+
+        def execute(self, context):
+            try:
+                report = ik_rig.detach(context.active_object, keep_edits=True)
+            except ik_rig.IkRigError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            self.report({"INFO"}, f"Baked {report['bakedFrames']} frames back to FK")
+            return {"FINISHED"}
+
+    class CCLAY_OT_discard_ik_rig(bpy.types.Operator):
+        bl_idname = "cclay.discard_ik_rig"
+        bl_label = "Detach IK Rig, Discard Edits"
+        bl_description = (
+            "Remove the IK handles and throw away every IK edit, restoring the "
+            "motion exactly as it was generated"
+        )
+        bl_options = {"REGISTER", "UNDO"}
+
+        def execute(self, context):
+            try:
+                ik_rig.detach(context.active_object, keep_edits=False)
+            except ik_rig.IkRigError as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
+            self.report({"INFO"}, "Discarded the IK edits")
+            return {"FINISHED"}
+
+    class CCLAY_PT_ik_rig(bpy.types.Panel):
+        """Manual IK handles over a generated motion clip."""
+
+        bl_idname = "CCLAY_PT_ik_rig"
+        bl_label = "IK Rig"
+        bl_space_type = "VIEW_3D"
+        bl_region_type = "UI"
+        bl_category = "CozyClay"
+
+        def draw(self, context):
+            layout = self.layout
+            armature = context.active_object
+            if armature is None or armature.type != "ARMATURE":
+                layout.label(text="Select a character armature", icon="INFO")
+                return
+            if ik_rig.has_ik_layer(armature):
+                layout.label(text="IK handles attached", icon="CHECKMARK")
+                column = layout.column(align=True)
+                column.operator(
+                    "cclay.detach_ik_rig", text="Detach, Keep Edits", icon="KEYFRAME_HLT"
+                )
+                column.operator(
+                    "cclay.discard_ik_rig", text="Detach, Discard Edits", icon="TRASH"
+                )
+                layout.label(text="Drag CCLAY-IK-TGT-* to pose, POLE-* to set bend")
+                # An un-keyed pose is discarded the moment the frame is
+                # re-evaluated, which looks exactly like the tool not working.
+                layout.label(text="Key the handle (I) or the edit is lost", icon="ERROR")
+            else:
+                layout.operator("cclay.attach_ik_rig", icon="CON_KINEMATIC")
+
     class CCLAY_OT_disconnect(bpy.types.Operator):
         bl_idname = "cclay.disconnect"
         bl_label = "Disconnect"
@@ -788,8 +882,12 @@ if bpy is not None:
         CCLAY_OT_send_prompt,
         CCLAY_OT_cancel_turn,
         CCLAY_OT_reconnect_controller,
+        CCLAY_OT_attach_ik_rig,
+        CCLAY_OT_detach_ik_rig,
+        CCLAY_OT_discard_ik_rig,
         CCLAY_OT_disconnect,
         CCLAY_PT_pi_status,
+        CCLAY_PT_ik_rig,
     )
 else:
     _CLASSES = ()

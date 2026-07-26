@@ -16,6 +16,8 @@ fixtures/boxing-v4-directing-evidence.json
 hand_shapes.py
 handshake.py
 identity.py
+ik_chains.py
+ik_rig.py
 manifest.py
 motion_preflight.py
 motion_retarget.py
