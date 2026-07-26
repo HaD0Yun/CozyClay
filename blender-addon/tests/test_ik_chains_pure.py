@@ -94,6 +94,61 @@ class ControlBoneNamingTests(unittest.TestCase):
         ]
         self.assertEqual(len(names), len(set(names)))
 
+class ConstraintAnchorTests(unittest.TestCase):
+    """The constraint anchors extend the control layer without colliding.
+
+    ``is_control_bone`` must recognise both the existing IK handles and the new
+    anchors, while still rejecting every bone the motion drives. The anchors
+    live on ``CONSTRAINT_PREFIX``; the chain targets and poles live on
+    ``CONTROL_PREFIX``; a mixamo bone carries ``BONE_PREFIX``. The three
+    namespaces must stay disjoint so teardown, which deletes anything
+    ``is_control_bone`` accepts, never reaches a driven bone.
+    """
+
+    def test_anchors_and_ik_handles_are_all_control_bones(self):
+        # One representative of each control-layer species.
+        names = [
+            ik_chains.target_bone_name(ik_chains.IK_CHAINS[0].effector),
+            ik_chains.pole_bone_name(ik_chains.IK_CHAINS[0].effector),
+            ik_chains.FULLBODY_ANCHOR,
+            ik_chains.ROOT2D_ANCHOR,
+        ]
+        for name in names:
+            self.assertTrue(ik_chains.is_control_bone(name), name)
+
+    def test_driven_bones_and_empty_are_not_control_bones(self):
+        # False positives here would delete a bone the motion drives.
+        for name in motion_retarget.MIXAMO_TARGETS.values():
+            if name:
+                self.assertFalse(ik_chains.is_control_bone(name), name)
+                self.assertFalse(ik_chains.is_control_bone("mixamorig:" + name), name)
+        self.assertFalse(ik_chains.is_control_bone("mixamorig:Spine"))
+        self.assertFalse(ik_chains.is_control_bone(""))
+        # A bare mixamo-style name with no joint is still not a control bone.
+        self.assertFalse(ik_chains.is_control_bone("mixamorig:"))
+
+    def test_anchors_cannot_collide_with_chain_targets_or_poles(self):
+        # The two prefixes diverge after the shared "CCLAY-" stem, and the
+        # chain builders only emit CONTROL_PREFIX, so neither anchor can equal
+        # a target or pole for any effector.
+        chain_names = {
+            name
+            for chain in ik_chains.IK_CHAINS
+            for name in (ik_chains.target_bone_name(chain.effector), ik_chains.pole_bone_name(chain.effector))
+        }
+        for anchor in (ik_chains.FULLBODY_ANCHOR, ik_chains.ROOT2D_ANCHOR):
+            self.assertTrue(anchor.startswith(ik_chains.CONSTRAINT_PREFIX), anchor)
+            self.assertNotIn(anchor, chain_names)
+            self.assertFalse(anchor.startswith(ik_chains.CONTROL_PREFIX), anchor)
+
+    def test_prefixes_cannot_collide(self):
+        # A control-prefix name never starts with the constraint prefix and
+        # vice versa; both are disjoint from the mixamo bone prefix.
+        self.assertFalse(ik_chains.CONTROL_PREFIX.startswith(ik_chains.CONSTRAINT_PREFIX))
+        self.assertFalse(ik_chains.CONSTRAINT_PREFIX.startswith(ik_chains.CONTROL_PREFIX))
+        self.assertFalse(ik_chains.CONTROL_PREFIX.startswith(ik_chains.BONE_PREFIX))
+        self.assertFalse(ik_chains.CONSTRAINT_PREFIX.startswith(ik_chains.BONE_PREFIX))
+
 
 class PoleGeometryTests(unittest.TestCase):
     def test_the_pole_sits_on_the_bend_plane_at_the_requested_distance(self):

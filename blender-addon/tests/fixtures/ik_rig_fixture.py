@@ -272,6 +272,26 @@ def untouched_bone_keys(rig):
 
 results["untouchedBoneBeforeDetach"] = untouched_bone_keys(armature)
 
+# --- custom-property f-curves on a control bone must be torn down too -----
+# The next slice keys a "cclay_constraint" custom property on the anchors; this
+# probe proves _remove_control_fcurves catches a curve whose data_path is
+# pose.bones["<name>"]["<prop>"], not just location/rotation. The check runs
+# before detach so we can assert the curve existed, then assert it is gone
+# afterwards.
+CUSTOM_PROP = "cclay_constraint"
+CUSTOM_PROP_PATH = f'["{CUSTOM_PROP}"]'
+anchor_pose = armature.pose.bones[ik_chains.FULLBODY_ANCHOR]
+anchor_pose[CUSTOM_PROP] = 1.0
+anchor_pose.keyframe_insert(CUSTOM_PROP_PATH, frame=1)
+anchor_pose.keyframe_insert(CUSTOM_PROP_PATH, frame=2)
+results["customPropCurveBeforeDetach"] = sorted(
+    curve.data_path
+    for curve in action_fcurves(armature)
+    if 'pose.bones["' in curve.data_path
+    and ik_chains.is_control_bone(curve.data_path.split('"')[1])
+    and CUSTOM_PROP in curve.data_path
+)
+
 # --- detach keeping the edit --------------------------------------------
 detach_report = ik_rig.detach(armature, keep_edits=True)
 results["detachReport"] = detach_report
@@ -303,6 +323,16 @@ results["controlFcurvesAfterDetach"] = [
     if 'pose.bones["' in curve.data_path
     and ik_chains.is_control_bone(curve.data_path.split('"')[1])
 ]
+# Confirm the custom-property f-curve from the probe above is gone: this is the
+# contract the next slice depends on, that teardown deletes control-bone curves
+# whose data_path is pose.bones["<name>"]["<prop>"], not just location/rotation.
+results["customPropCurveAfterDetach"] = sorted(
+    curve.data_path
+    for curve in action_fcurves(armature)
+    if 'pose.bones["' in curve.data_path
+    and ik_chains.is_control_bone(curve.data_path.split('"')[1])
+    and CUSTOM_PROP in curve.data_path
+)
 # The baked result must be rotations on bones ARDY drives, which is the only
 # representation a motion clip can carry back.
 driven = {name for name in motion_retarget.MIXAMO_TARGETS.values() if name}
@@ -356,5 +386,41 @@ except ik_rig.IkRigError as error:
     results["nonMixamoRefused"] = str(error)
 else:
     results["nonMixamoRefused"] = "<accepted>"
+
+# --- the hashed scene manifest must not notice the layer at all -----------
+# manifest._manifest_bones requires an entity id on the ARMATURE *and* on each
+# bone, and control bones are created with edit_bones.new() and never stamped.
+# So a project with an attached layer still verifies against its stored
+# revision. If anyone ever routes control bones through stage_scene and stamps
+# them, every stored revision of every project holding a layer breaks.
+from cclay import manifest as manifest_module  # noqa: E402
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+armature3 = import_rig()
+bake_ardy_fk(armature3)
+scene = bpy.context.scene
+scene["cclay.project_id"] = "00000000-0000-4000-8000-00000000000a"
+armature3["cclay.entity_id"] = "11111111-1111-4111-8111-111111111111"
+for index, bone in enumerate(armature3.data.bones):
+    bone["cclay.entity_id"] = f"{index:08d}-0000-4000-8000-000000000001"
+before_manifest = manifest_module.extract_scene_manifest_v2()
+bpy.context.view_layer.objects.active = armature3
+bpy.ops.object.mode_set(mode="POSE")
+ik_rig.attach(armature3)
+after_manifest = manifest_module.extract_scene_manifest_v2()
+results["hash"] = {
+    "trackedBonesBefore": len(before_manifest.get("bones", [])),
+    "trackedBonesAfterAttach": len(after_manifest.get("bones", [])),
+    "controlBonesInScene": sum(
+        1 for b in armature3.data.bones if ik_chains.is_control_bone(b.name)
+    ),
+    "controlBonesTracked": sum(
+        1
+        for b in armature3.data.bones
+        if ik_chains.is_control_bone(b.name)
+        and manifest_module._tracked_entity_id(b) is not None
+    ),
+    "sceneHashUnchanged": before_manifest["sceneHash"] == after_manifest["sceneHash"],
+}
 
 print("CCLAY_IK_RIG=" + json.dumps(results))

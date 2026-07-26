@@ -39,6 +39,17 @@ BONE_PREFIX = "mixamorig:"
 CONTROL_PREFIX = "CCLAY-IK-"
 _TARGET_INFIX = "TGT-"
 _POLE_INFIX = "POLE-"
+# Constraint anchors: bones that do not belong to a limb chain. The IK handles
+# above are dragged to re-pose a chain, whereas these are the targets a
+# constraint pins a pose against — the Full-Body anchor is not draggable, and
+# the 2D-Root anchor is dragged only across the floor plane. They share the
+# control layer so teardown removes them with the handles, but they are kept on
+# a distinct prefix so they never double as a chain target or pole (those carry
+# CONTROL_PREFIX, whose "CCLAY-IK-" infix differs from "CCLAY-CONSTRAINT-" at
+# the first character after the shared "CCLAY-" stem).
+CONSTRAINT_PREFIX = "CCLAY-CONSTRAINT-"
+FULLBODY_ANCHOR = "CCLAY-CONSTRAINT-FULLBODY"
+ROOT2D_ANCHOR = "CCLAY-CONSTRAINT-ROOT2D"
 
 # Below this the bend offset carries no usable direction and the perpendicular
 # fallback takes over. A hair above float noise: the smallest bend offset
@@ -114,13 +125,23 @@ def pole_bone_name(effector: str) -> str:
 
 
 def is_control_bone(name: str) -> bool:
-    """Whether ``name`` belongs to the IK layer rather than to the character.
+    """Whether ``name`` belongs to the rig's control layer, not the character.
 
-    Teardown deletes every bone this returns true for, so it must never match a
-    bone the motion drives. Mixamo bones all carry ``BONE_PREFIX``, which this
-    prefix cannot collide with.
+    Two kinds of bone live on this layer, and both must never be mistaken for a
+    bone the motion drives. ``CONTROL_PREFIX`` marks the IK handles an animator
+    drags to re-pose a limb chain (its target and pole). ``CONSTRAINT_PREFIX``
+    marks the constraint anchors a pose is pinned against — the Full-Body anchor
+    and the 2D-Root anchor — which sit outside every limb chain and are not
+    part of the character either.
+
+    Teardown deletes every bone this returns true for, so the two prefixes must
+    be disjoint from each other and from ``BONE_PREFIX`` (every mixamo bone
+    carries that, which neither ``CCLAY-IK-`` nor ``CCLAY-CONSTRAINT-`` can
+    collide with). The chain name builders ``target_bone_name`` and
+    ``pole_bone_name`` only ever emit ``CONTROL_PREFIX``, so the anchors on
+    ``CONSTRAINT_PREFIX`` can never collide with a chain target or pole.
     """
-    return name.startswith(CONTROL_PREFIX)
+    return name.startswith(CONTROL_PREFIX) or name.startswith(CONSTRAINT_PREFIX)
 
 
 def prefixed(bone: str) -> str:

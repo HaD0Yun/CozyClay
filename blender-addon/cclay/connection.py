@@ -99,6 +99,7 @@ _READ_ONLY_BRIDGE_METHODS = (
     "produce_directing_evidence",
     "inspect_relations",
     "inspect_pose_contacts",
+    "inspect_motion_constraints",
     "preflight_motion",
 )
 # Exact capture_viewport params the bridge sends; every key is always present
@@ -993,6 +994,51 @@ class Connection:
 
         return collect_pose_contacts(revision_id, params)
 
+    def _inspect_motion_constraints_result(self, revision_id: str, params: dict) -> dict:
+        """Which frames on an entity carry ARDY constraints, and on what clip.
+
+        Read-only and diagnostic. Regeneration does not travel this way: the
+        add-on has no push channel, so it publishes a queue file instead. This
+        exists so a host can see the constraint state before it sweeps.
+        """
+        from . import constraint_capture
+
+        unknown = set(params) - {"entity_id"}
+        if unknown:
+            raise ConnectionError(
+                f"INVALID_PARAMS: unknown inspect_motion_constraints keys {sorted(unknown)}"
+            )
+        entity_id = params.get("entity_id")
+        armature = next(
+            (
+                scene_object
+                for scene_object in bpy.data.objects
+                if scene_object.get("cclay.entity_id") == entity_id
+                and scene_object.type == "ARMATURE"
+            ),
+            None,
+        )
+        if armature is None:
+            raise ConnectionError(f"ENTITY_NOT_FOUND: no armature owns entity {entity_id}")
+        try:
+            # backfill=False keeps this method genuinely read-only. The legacy
+            # start-frame recovery writes a custom property, and doing that
+            # here would mutate Blender data outside the mutation path's task
+            # tracking and revision handling.
+            clip = constraint_capture.base_clip_of(armature, backfill=False)
+        except constraint_capture.ConstraintCaptureError as error:
+            raise ConnectionError(f"INVALID_MOTION_CLIP: {error}") from None
+        pending = constraint_capture.read_pending_request(armature)
+        return {
+            "revision_id": revision_id,
+            "entity_id": entity_id,
+            "base_motion_id": clip["motion_id"],
+            "start_frame": clip["start_frame"],
+            "frame_count": clip["frame_count"],
+            "constraints": constraint_capture.marked_frames_by_kind(armature),
+            "pending_request_id": None if pending is None else pending["request_id"],
+        }
+
     def _preflight_motion_result(self, revision_id: str, params: dict) -> dict:
         from .motion_preflight import collect_preflight
 
@@ -1392,6 +1438,27 @@ class Connection:
         if message["method"] == "inspect_relations":
             try:
                 result = self._inspect_relations_result(
+                    durable_revision_id,
+                    message["params"],
+                )
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "inspect_motion_constraints":
+            try:
+                result = self._inspect_motion_constraints_result(
                     durable_revision_id,
                     message["params"],
                 )

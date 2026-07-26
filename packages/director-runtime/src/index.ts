@@ -1,4 +1,6 @@
 export * from "./apply-camera-plan-service.ts";
+export * from "./ardy-regenerate-queue.ts";
+export * from "./ardy-regenerate-service.ts";
 export * from "./inspect-service.ts";
 export * from "./render-qa-frames-service.ts";
 export * from "./resource-loader.ts";

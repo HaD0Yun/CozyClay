@@ -9,10 +9,14 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
+from cclay import ik_chains  # noqa: E402
+
 BLENDER = Path(shutil.which("blender") or "/opt/homebrew/bin/blender")
 SCRIPT = REPOSITORY_ROOT / "blender-addon/tests/fixtures/ik_rig_fixture.py"
 
@@ -66,6 +70,8 @@ class IkRigTests(unittest.TestCase):
         self.assertEqual(
             self.results["controlBones"],
             [
+                "CCLAY-CONSTRAINT-FULLBODY",
+                "CCLAY-CONSTRAINT-ROOT2D",
                 "CCLAY-IK-POLE-LeftFoot",
                 "CCLAY-IK-POLE-LeftHand",
                 "CCLAY-IK-POLE-RightFoot",
@@ -77,10 +83,26 @@ class IkRigTests(unittest.TestCase):
             ],
         )
 
+    def test_the_two_constraint_anchors_are_present_after_attach(self):
+        # The regenerate flow pins poses against the Full-Body marker and drags
+        # the 2D-Root across the floor; attach must create both.
+        bones = set(self.results["controlBones"])
+        self.assertIn(ik_chains.FULLBODY_ANCHOR, bones)
+        self.assertIn(ik_chains.ROOT2D_ANCHOR, bones)
+
+    def test_the_constraint_anchors_do_not_deform_the_mesh(self):
+        # Anchors are markers/handles, not anatomy: a deforming anchor would
+        # drag skin when its constraint fires.
+        anchors = [
+            bone
+            for bone in self.results["controlBonesDeform"]
+            if bone.startswith(ik_chains.CONSTRAINT_PREFIX)
+        ]
+        self.assertEqual(anchors, [])
+
     def test_no_control_bone_deforms_the_mesh(self):
         # A handle that weighted a vertex would drag the skin when dragged.
         self.assertEqual(self.results["controlBonesDeform"], [])
-
     def test_the_constraint_solves_for_the_wrist_not_the_elbow(self):
         # use_tail decides which end of the constrained bone is the effector;
         # with it off the rig solves for the elbow and the hand trails behind.
@@ -137,18 +159,57 @@ class IkRigTests(unittest.TestCase):
         self.assertEqual(self.results["ikConstraintsAfterDetach"], [])
         self.assertEqual(self.results["controlFcurvesAfterDetach"], [])
 
+    def test_detaching_removes_custom_property_fcurves_on_control_bones(self):
+        # The next regenerate slice keys a "cclay_constraint" custom property on
+        # the anchors, so teardown must delete a control-bone curve whose
+        # data_path is pose.bones["<name>"]["<prop>"], not just location/rotation.
+        # The probe must actually have produced a curve, otherwise the assertion
+        # below would pass vacuously.
+        self.assertGreater(len(self.results["customPropCurveBeforeDetach"]), 0)
+        self.assertEqual(self.results["customPropCurveAfterDetach"], [])
+
+    def test_the_bake_does_not_key_the_constraint_anchors(self):
+        # detach(keep_edits=True) bakes with only_selected over the chain bones.
+        # The anchors carry no IK constraint and are deselected, so the bake
+        # must not leave rotation keys on them — otherwise an action carrying
+        # them would not round-trip as an ARDY motion, and teardown would have
+        # keys to clean up that the manifest does not expect.
+        anchors = {
+            ik_chains.FULLBODY_ANCHOR,
+            ik_chains.ROOT2D_ANCHOR,
+        }
+        baked_anchor_bones = [
+            path
+            for path in self.results.get("bakedRotationBonesOutsideArdy", [])
+            if any(path == anchor for anchor in anchors)
+        ]
+        self.assertEqual(baked_anchor_bones, [])
+
     def test_detaching_a_rig_without_a_layer_is_refused(self):
         self.assertIn("carries no IK layer", self.results["detachOnCleanRigRefused"])
 
-    def test_the_layer_leaves_no_trace_in_the_hashed_bone_list(self):
-        # manifest._manifest_bones puts every bone of a tracked armature into
-        # the hashed scene manifest, so while the layer is attached the scene
-        # hash necessarily differs from its stored revision. That is acceptable
-        # for a temporary editing state only because detaching restores the bone
-        # list and every rest matrix exactly, by either route.
+    def test_attaching_the_layer_does_not_change_the_scene_hash(self):
+        # Measured, not reasoned about: an earlier version of this work claimed
+        # the opposite in its commit message. manifest._manifest_bones requires
+        # an entity id on the armature AND on each bone, and control bones are
+        # created with edit_bones.new() and never stamped, so a project with a
+        # layer attached still verifies against its stored revision.
+        hash_result = self.results["hash"]
+        self.assertTrue(hash_result["sceneHashUnchanged"])
+        self.assertEqual(
+            hash_result["trackedBonesBefore"], hash_result["trackedBonesAfterAttach"]
+        )
+        # Not vacuous: the bones really are in the scene, just not tracked.
+        self.assertEqual(hash_result["controlBonesInScene"], 10)
+        self.assertEqual(hash_result["controlBonesTracked"], 0)
+        self.assertGreater(hash_result["trackedBonesBefore"], 0)
+
+    def test_detaching_restores_the_bone_list_exactly(self):
+        # The layer is temporary, so it must leave the armature as it found it -
+        # every bone name and every rest matrix, by either detach route.
         self.assertEqual(
             self.results["boneCountWhileAttached"],
-            self.results["boneCountAfterDetach"] + 8,
+            self.results["boneCountAfterDetach"] + 10,
         )
         self.assertTrue(self.results["boneSignatureRestoredAfterKeep"])
         self.assertTrue(self.results["boneSignatureRestoredAfterDiscard"])

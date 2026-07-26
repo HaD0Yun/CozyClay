@@ -18,6 +18,11 @@ SUPPORTED_BRIDGE_METHODS = (
     "produce_directing_evidence",
     "inspect_relations",
     "inspect_pose_contacts",
+    # Read-only diagnostic: reports which frames carry ARDY constraints. The
+    # regeneration path itself does NOT go through the bridge -- the add-on
+    # cannot push, so it publishes a queue file instead -- but a host needs
+    # some way to see the constraint state it is about to act on.
+    "inspect_motion_constraints",
     "preflight_motion",
     "apply_camera_plan",
     "stage_scene",
