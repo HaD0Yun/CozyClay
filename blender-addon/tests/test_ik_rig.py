@@ -140,12 +140,25 @@ class IkRigTests(unittest.TestCase):
     def test_detaching_a_rig_without_a_layer_is_refused(self):
         self.assertIn("carries no IK layer", self.results["detachOnCleanRigRefused"])
 
-    def test_the_layer_leaves_no_trace_in_the_hashed_bone_list(self):
-        # manifest._manifest_bones puts every bone of a tracked armature into
-        # the hashed scene manifest, so while the layer is attached the scene
-        # hash necessarily differs from its stored revision. That is acceptable
-        # for a temporary editing state only because detaching restores the bone
-        # list and every rest matrix exactly, by either route.
+    def test_attaching_the_layer_does_not_change_the_scene_hash(self):
+        # Measured, not reasoned about: an earlier version of this work claimed
+        # the opposite in its commit message. manifest._manifest_bones requires
+        # an entity id on the armature AND on each bone, and control bones are
+        # created with edit_bones.new() and never stamped, so a project with a
+        # layer attached still verifies against its stored revision.
+        hash_result = self.results["hash"]
+        self.assertTrue(hash_result["sceneHashUnchanged"])
+        self.assertEqual(
+            hash_result["trackedBonesBefore"], hash_result["trackedBonesAfterAttach"]
+        )
+        # Not vacuous: the bones really are in the scene, just not tracked.
+        self.assertEqual(hash_result["controlBonesInScene"], 8)
+        self.assertEqual(hash_result["controlBonesTracked"], 0)
+        self.assertGreater(hash_result["trackedBonesBefore"], 0)
+
+    def test_detaching_restores_the_bone_list_exactly(self):
+        # The layer is temporary, so it must leave the armature as it found it -
+        # every bone name and every rest matrix, by either detach route.
         self.assertEqual(
             self.results["boneCountWhileAttached"],
             self.results["boneCountAfterDetach"] + 8,
