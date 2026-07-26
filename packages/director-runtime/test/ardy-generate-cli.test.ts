@@ -108,7 +108,7 @@ function runToSsh(project: string, args: string[]): { status: number; output: st
 function runWithFakeTransport(
 	project: string,
 	args: string[],
-): { status: number; output: string; sshRecords: string[][] } {
+): { status: number; output: string; sshRecords: string[][]; pythonCalls: number } {
 	const binDir = mkdtempSync(join(tmpdir(), "cclay-ardy-fake-bin-"));
 	// Keep the capture inside binDir so one recursive remove cleans everything.
 	const capture = join(binDir, "ssh-argv.txt");
@@ -126,10 +126,26 @@ function runWithFakeTransport(
 	// The capture path travels through the environment rather than being
 	// interpolated into the script text: a TMPDIR containing whitespace or shell
 	// metacharacters would otherwise break the redirection or be parsed as syntax.
+	// The fake ssh RUNS the remote command in a fake remote root, rather than only
+	// recording it. Counting occurrences of the script path in the command text is
+	// not sound: `for _ in 1 2; do $REMOTE_CMD; done` mentions it once and runs it
+	// twice. The stub `.venv/bin/python` records each invocation, so what gets
+	// counted is remote process cardinality.
+	const remoteRoot = join(binDir, "remote");
+	const fakePython = join(remoteRoot, "ardy", ".venv", "bin", "python");
+	mkdirSync(join(remoteRoot, "ardy", ".venv", "bin"), { recursive: true });
+	mkdirSync(join(remoteRoot, "ardy", "scripts"), { recursive: true });
+	writeFileSync(fakePython, `#!/bin/sh\necho "$@" >> "$CCLAY_FAKE_PY_CALLS"\nprintf '{"frames":60,"fps":20}\\n'\n`, {
+		encoding: "utf8",
+		mode: 0o755,
+	});
+	chmodSync(fakePython, 0o755);
+	const pyCalls = join(binDir, "python-calls.txt");
 	const fakeSsh = join(binDir, "ssh");
 	writeFileSync(
 		fakeSsh,
-		`#!/bin/sh\n{ printf '%s\\0' "$#" "$@"; } >> "$CCLAY_FAKE_SSH_CAPTURE"\nprintf '{"frames":60,"fps":20}\\n'\n`,
+		`#!/bin/sh\n{ printf '%s\\0' "$#" "$@"; } >> "$CCLAY_FAKE_SSH_CAPTURE"\n` +
+			`shift $(( $# - 1 ))\ncd "$CCLAY_FAKE_REMOTE_ROOT" || exit 1\nsh -c "$1"\n`,
 		{ encoding: "utf8", mode: 0o755 },
 	);
 	chmodSync(fakeScp, 0o755);
@@ -143,15 +159,18 @@ function runWithFakeTransport(
 				PATH: `${binDir}:${process.env.PATH ?? ""}`,
 				CCLAY_ARDY_HOST: "fake-host",
 				CCLAY_FAKE_SSH_CAPTURE: capture,
+				CCLAY_FAKE_REMOTE_ROOT: remoteRoot,
+				CCLAY_FAKE_PY_CALLS: pyCalls,
 			},
 		});
-		return { status: 0, output, sshRecords: readCapture(capture) };
+		return { status: 0, output, sshRecords: readCapture(capture), pythonCalls: countLines(pyCalls) };
 	} catch (error) {
 		const failure = error as { status?: number; stdout?: string; stderr?: string };
 		return {
 			status: failure.status ?? -1,
 			output: `${failure.stdout ?? ""}${failure.stderr ?? ""}`,
 			sshRecords: readCapture(capture),
+			pythonCalls: countLines(pyCalls),
 		};
 	} finally {
 		rmSync(binDir, { recursive: true, force: true });
@@ -213,14 +232,14 @@ const CONSTRAINED_SCRIPT = "scripts/cclay_constrained_generate.py";
  * shell runs the generator twice. So count occurrences of the script path inside
  * the commands, not the transports carrying them.
  */
-function generatorExecutions(records: string[][]): number {
-	let total = 0;
-	for (const record of records) {
-		for (const token of record) {
-			total += token.split(CONSTRAINED_SCRIPT).length - 1;
-		}
+function countLines(path: string): number {
+	try {
+		return readFileSync(path, "utf8")
+			.split("\n")
+			.filter((line) => line.length > 0).length;
+	} catch {
+		return 0;
 	}
-	return total;
 }
 
 describe("cclay-ardy-generate constraint guards", () => {
@@ -1022,21 +1041,19 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 	it("runs the constrained generator exactly once and forwards the script plus --prompt/--base/--output", () => {
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshRecords } = runWithFakeTransport(root, [...BASE_ARGS]);
+		const { sshRecords, pythonCalls } = runWithFakeTransport(root, [...BASE_ARGS]);
 		// Non-empty only if the wrapper actually invoked ssh past the sync step;
 		// runToSsh dies at scp and would leave this empty.
 		assert.notEqual(sshRecords.length, 0, "wrapper never reached the ssh remote-command call");
 		const generations = generationRecords(sshRecords);
-		// Cardinality, not just presence, and EXECUTIONS not transports. A flat
-		// text capture could not tell one generation from two; one ssh record
-		// still cannot, because `"$REMOTE_CMD || $REMOTE_CMD"` is one record and
-		// two remote executions.
+		// Cardinality, and EXECUTIONS rather than transports or command text. One
+		// ssh record is not one execution, because `"$REMOTE_CMD || $REMOTE_CMD"`
+		// is one record and two runs; and counting the script path in the command
+		// is not either, because `for _ in 1 2; do $REMOTE_CMD; done` mentions it
+		// once and runs it twice. So the fake ssh executes the command and a stub
+		// remote python records every invocation.
 		assert.equal(generations.length, 1, `expected exactly one constrained generation ssh, got ${generations.length}`);
-		assert.equal(
-			generatorExecutions(sshRecords),
-			1,
-			"the remote command must run the generator once; `cmd || cmd` is one ssh " + "record but two executions",
-		);
+		assert.equal(pythonCalls, 1, "the remote command must RUN the generator exactly once");
 		const remote = generations[0].join(" ");
 		assert.match(remote, /--prompt/);
 		assert.match(remote, /--base/);
@@ -1046,10 +1063,10 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 	it("does not forward --num-samples (best-of-N sampling was removed)", () => {
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshRecords } = runWithFakeTransport(root, [...BASE_ARGS]);
+		const { sshRecords, pythonCalls } = runWithFakeTransport(root, [...BASE_ARGS]);
 		const generations = generationRecords(sshRecords);
 		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
-		assert.equal(generatorExecutions(sshRecords), 1, "one remote generator execution");
+		assert.equal(pythonCalls, 1, "one real remote generator execution");
 		assert.doesNotMatch(generations[0].join(" "), /--num-samples/);
 	});
 
@@ -1060,7 +1077,7 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		// block forwards (scripts/cclay-ardy-generate:408-409) MUST appear.
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshRecords } = runWithFakeTransport(root, [
+		const { sshRecords, pythonCalls } = runWithFakeTransport(root, [
 			...BASE_ARGS,
 			"--contact-threshold",
 			"0.6",
@@ -1069,7 +1086,7 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		]);
 		const generations = generationRecords(sshRecords);
 		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
-		assert.equal(generatorExecutions(sshRecords), 1, "one remote generator execution");
+		assert.equal(pythonCalls, 1, "one real remote generator execution");
 		const remote = generations[0].join(" ");
 		assert.match(remote, /--contact-threshold/);
 		assert.match(remote, /--root-margin/);
