@@ -117,16 +117,19 @@ function runWithFakeTransport(
 	writeFileSync(fakeScp, `#!/bin/sh\nexit 0\n`, { encoding: "utf8", mode: 0o755 });
 	// Fake ssh: record its full argv and emit a minimal valid JSON line so the
 	// wrapper's json_int/last-line parser proceeds past command construction.
-	// Each invocation ends with an EXTRA NUL, so one process is one record: a
-	// flat NUL stream cannot distinguish two generation calls from one, which is
-	// exactly the cardinality this harness has to be able to assert.
+	// Each invocation writes its argc first, then that many NUL-terminated
+	// tokens, so one process is one record. A flat NUL stream cannot distinguish
+	// two generation calls from one, which is exactly the cardinality this
+	// harness has to assert. A double-NUL terminator would be ambiguous too,
+	// because POSIX argv permits an EMPTY element, which encodes as a bare NUL;
+	// argc framing is unambiguous since NUL itself cannot occur inside argv.
 	// The capture path travels through the environment rather than being
 	// interpolated into the script text: a TMPDIR containing whitespace or shell
 	// metacharacters would otherwise break the redirection or be parsed as syntax.
 	const fakeSsh = join(binDir, "ssh");
 	writeFileSync(
 		fakeSsh,
-		`#!/bin/sh\n{ printf '%s\\0' "$@"; printf '\\0'; } >> "$CCLAY_FAKE_SSH_CAPTURE"\nprintf '{"frames":60,"fps":20}\\n'\n`,
+		`#!/bin/sh\n{ printf '%s\\0' "$#" "$@"; } >> "$CCLAY_FAKE_SSH_CAPTURE"\nprintf '{"frames":60,"fps":20}\\n'\n`,
 		{ encoding: "utf8", mode: 0o755 },
 	);
 	chmodSync(fakeScp, 0o755);
@@ -155,14 +158,28 @@ function runWithFakeTransport(
 	}
 }
 
-/** One record per fake-ssh process, each record being that process's argv. */
+/**
+ * One record per fake-ssh process, each record being that process's argv.
+ *
+ * The stream is argc-framed: each process wrote its argument count, then that
+ * many NUL-terminated tokens. Consuming argc tokens at a time preserves record
+ * boundaries even when an argv element is the empty string, which a double-NUL
+ * terminator could not distinguish from a process boundary.
+ */
 function readCapture(capture: string): string[][] {
 	try {
-		const raw = readFileSync(capture, "utf8");
-		return raw
-			.split("\0\0")
-			.filter((record) => record.length > 0)
-			.map((record) => record.split("\0").filter((token) => token.length > 0));
+		const tokens = readFileSync(capture, "utf8").split("\0");
+		// The trailing NUL leaves one empty element; drop only that one.
+		if (tokens.length > 0 && tokens[tokens.length - 1] === "") tokens.pop();
+		const records: string[][] = [];
+		let index = 0;
+		while (index < tokens.length) {
+			const argc = Number.parseInt(tokens[index] ?? "", 10);
+			if (!Number.isInteger(argc) || argc < 0) break;
+			records.push(tokens.slice(index + 1, index + 1 + argc));
+			index += 1 + argc;
+		}
+		return records;
 	} catch {
 		return [];
 	}

@@ -796,6 +796,51 @@ class MainGuardContractTests(unittest.TestCase):
         for node in ast.walk(main):
             for child in ast.iter_child_nodes(node):
                 parents[child] = node
+
+        # Counting bare `model(...)` calls is not enough either: the sampler
+        # OBJECT can be invoked through another name. Three variants were
+        # verified to pass before this block existed -- passing `model` to a
+        # module-level `_retry_draw(sampler)` helper, aliasing `m = model` then
+        # calling `m(...)`, and `model.__call__(...)`. So restrict how the loaded
+        # model may be USED, which closes the alias axis structurally instead of
+        # enumerating wrapper names yet again.
+        model_names = [
+            node for node in ast.walk(main)
+            if isinstance(node, ast.Name) and node.id == "model"
+        ]
+        stores = [n for n in model_names if isinstance(n.ctx, ast.Store)]
+        self.assertEqual(
+            len(stores), 1, "the model must be loaded exactly once in main()"
+        )
+        for node in model_names:
+            if node in stores or node is draws[0].func:
+                continue
+            parent = parents.get(node)
+            self.assertTrue(
+                isinstance(parent, ast.Attribute) and parent.value is node,
+                "the loaded model may only be called once directly or read "
+                "through an attribute; passing or aliasing it lets another name "
+                f"invoke the sampler (line {node.lineno})",
+            )
+        # `model.motion_rep.inverse(...)` is legitimate: its callee is an
+        # Attribute on an Attribute. `model.__call__(...)` and `model.forward(...)`
+        # put the Name directly under the callee's Attribute, which is invoking
+        # the model itself by another spelling.
+        for node in ast.walk(main):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "model"
+            ):
+                self.fail(
+                    f"model.{func.attr}(...) invokes the sampler by another "
+                    f"spelling (line {node.lineno}); the one direct model(...) "
+                    "call is the only permitted invocation"
+                )
+
         forbidden = (
             ast.For, ast.AsyncFor, ast.While,
             ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
@@ -891,6 +936,24 @@ class MainGuardContractTests(unittest.TestCase):
         globals()["main"](), or an outer process invoking the CLI twice. The
         second is covered on the wrapper side, which asserts exactly one
         constrained generation ssh record.
+
+        Scope, stated narrowly on purpose: this pins that no module-level
+        STATEMENT other than the guard can reach main. It does NOT claim nothing
+        whatsoever executes at import. Definitions are admitted whole, and Python
+        does evaluate their decorators, default arguments, annotations, class
+        bases and class bodies at import time. That is not a route to a second
+        draw by itself, because the reference count below allows exactly one
+        mention of the name `main` anywhere in the module.
+
+        Measured costs, all accepted. A module-level `if TYPE_CHECKING:` block is
+        rejected even though it runs nothing; so are an `AnnAssign` and a
+        constant built by a call such as `frozenset((...))`. This module has none
+        of them and must keep its heavy imports lazy anyway, so adding one would
+        be a deliberate change that can update this contract with it. Meanwhile
+        `__all__ = ["main"]` is allowed, correctly: the string is not a
+        reference, so it neither defers nor repeats a call. `X = main` after the
+        definition IS rejected, by the reference count rather than by the
+        statement filter.
         """
         module = ast.parse(SCRIPT.read_text())
 
