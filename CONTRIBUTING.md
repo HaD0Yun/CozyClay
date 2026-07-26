@@ -55,3 +55,14 @@ Do not paste an entire agent transcript. Trim it to the failing turn.
 ## Commits
 
 `{feat,fix,docs}(scope): summary`. Explain why in the body when the why is not obvious. Do not commit `package-lock.json` unless the dependency change is the point of the PR.
+
+## Licensing of contributions
+
+CozyClay is GPL-3.0-or-later, and contributions are accepted under that same license — inbound equals outbound. There is no CLA and no copyright assignment: you keep the copyright on what you write.
+
+That is a deliberate trade. Because nobody signs rights over, CozyClay cannot later be turned into a closed-source product, by us or by anyone else. It is also why an MIT-licensed dependency is fine to add while a proprietary one is not.
+
+Two rules follow from the licenses the repository already carries:
+
+- Do not add a dependency, vendored file, or patch under a license that is incompatible with GPLv3. Apache-2.0, MIT, BSD, and MPL-2.0 are fine; GPLv2-only is not, and neither is anything with a field-of-use or non-commercial restriction.
+- If you modify or vendor third-party code, keep its notices and record it in [LICENSES/README.md](LICENSES/README.md). A patch against someone else's sources carries their license, not ours.
