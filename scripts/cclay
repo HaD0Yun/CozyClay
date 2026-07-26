@@ -232,11 +232,13 @@ elif [[ ! -f "$PROJECT_DIR/.cclay/project.json" ]]; then
   exit 1
 fi
 
-# Keep native Pi sessions and credentials project-local, and import the
-# credential the chosen provider needs out of the GJC store without ever putting
-# a token in argv or the environment. Codex is OAuth; Fireworks is an api key and
-# is only imported when FIREWORKS_API_KEY is not already exported, because Pi
-# reads that variable itself.
+# Keep native Pi sessions and credentials project-local, and import EVERY
+# credential the GJC store holds — not only the one the launch flag selects —
+# without ever putting a token in argv or the environment. Importing all of them
+# is what makes /model useful: Pi's selector only lists models from providers
+# that have a credential, so importing just the selected provider left a fresh
+# project able to see nothing but that provider's models and unable to switch
+# mid-session. Tokens never touch argv or the environment on the way in.
 export PI_CODING_AGENT_DIR="$PROJECT_DIR/.cclay/pi-agent"
 mkdir -p "$PI_CODING_AGENT_DIR"
 chmod 700 "$PI_CODING_AGENT_DIR"
@@ -246,41 +248,50 @@ for ((i = 0; i < ${#ARGS[@]}; i++)); do
     PROVIDER="${ARGS[$((i + 1))]}"
   fi
 done
-AUTH_PROVIDER=""
+# openai-codex is OAuth-only in Pi — no environment variable can stand in for a
+# missing record — so a Codex launch with nothing to import is a hard failure.
+# fireworks and anthropic both accept an env api key, so a missing row there is
+# not fatal: Pi resolves it or prompts /login.
+REQUIRED_PROVIDER=""
 case "$PROVIDER" in
-  openai-codex) AUTH_PROVIDER="openai-codex" ;;
-  fireworks) [[ -n "${FIREWORKS_API_KEY:-}" ]] || AUTH_PROVIDER="fireworks" ;;
+  openai-codex) REQUIRED_PROVIDER="$PROVIDER" ;;
 esac
-if [[ -n "$AUTH_PROVIDER" ]]; then
-  AUTH_DB="${HOME}/.gjc/agent/agent.db"
-  [[ -f "$AUTH_DB" ]] || { echo "cclay: no GJC auth store at $AUTH_DB; run gjc /login, or export the provider's api key" >&2; exit 1; }
-  AUTH_DB="$AUTH_DB" AUTH_PROVIDER="$AUTH_PROVIDER" AUTH_OUT="$PI_CODING_AGENT_DIR/auth.json" python3 - <<'PY'
+AUTH_DB="${HOME}/.gjc/agent/agent.db"
+if [[ -f "$AUTH_DB" ]]; then
+  AUTH_DB="$AUTH_DB" AUTH_REQUIRED="$REQUIRED_PROVIDER" AUTH_OUT="$PI_CODING_AGENT_DIR/auth.json" python3 - <<'PY'
 import json
 import os
 import sqlite3
 import sys
 
-provider = os.environ["AUTH_PROVIDER"]
+required = os.environ["AUTH_REQUIRED"]
 target = os.environ["AUTH_OUT"]
 
 try:
     with sqlite3.connect(os.environ["AUTH_DB"]) as connection:
-        row = connection.execute(
-            "SELECT data FROM auth_credentials WHERE provider = ?",
-            (provider,),
-        ).fetchone()
-    stored = json.loads(row[0]) if row else None
-    if not stored:
-        raise RuntimeError("no credential in the GJC store; run gjc /login")
-    if stored.get("access"):
-        credential = dict(stored, type="oauth")
-    elif stored.get("key"):
-        credential = {"type": "api_key", "key": stored["key"]}
-    else:
-        raise RuntimeError("the stored credential carries neither an OAuth token nor an api key")
-    # Merge rather than replace: one project's auth.json holds a credential per
-    # provider, so switching provider must not evict the other one and force a
-    # re-login on the way back.
+        rows = connection.execute("SELECT provider, data FROM auth_credentials").fetchall()
+
+    imported = {}
+    for provider, data in rows:
+        try:
+            stored = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(stored, dict):
+            continue
+        # Shape decides the type, not the provider name: an OAuth row carries an
+        # access token, an api-key row carries a key. A row with neither is a
+        # partial login and is skipped rather than written as a broken entry.
+        if stored.get("access"):
+            imported[provider] = dict(stored, type="oauth")
+        elif stored.get("key"):
+            imported[provider] = {"type": "api_key", "key": stored["key"]}
+
+    if required and required not in imported:
+        raise RuntimeError(f"no usable {required} credential in the GJC store; run gjc /login")
+
+    # Merge rather than replace: Pi owns this file too (/login writes it), so a
+    # credential the store does not know about must survive the import.
     try:
         with open(target, encoding="utf-8") as handle:
             credentials = json.load(handle)
@@ -288,7 +299,7 @@ try:
             credentials = {}
     except (FileNotFoundError, json.JSONDecodeError):
         credentials = {}
-    credentials[provider] = credential
+    credentials.update(imported)
     temporary = f"{target}.tmp"
     with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(credentials, handle, separators=(",", ":"))
@@ -296,7 +307,7 @@ try:
     os.chmod(temporary, 0o600)
     os.replace(temporary, target)
 except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error, RuntimeError) as error:
-    print(f"cclay: cannot import {provider} credentials: {error}", file=sys.stderr)
+    print(f"cclay: cannot import credentials: {error}", file=sys.stderr)
     sys.exit(1)
 PY
 fi
