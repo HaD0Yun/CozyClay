@@ -696,6 +696,36 @@ class MainGuardContractTests(unittest.TestCase):
             "save_motion_npz must serialize the dict find_non_finite inspected",
         )
 
+    def test_the_sampler_itself_runs_once_per_generation(self):
+        """One sample_once() call is not the same as one sampling pass.
+
+        The GPU draw is the `model(...)` call inside the helper, so duplicating
+        it there leaves exactly one sample_once() call, one motion_dict
+        assignment and one save -- the previous test stays green while the run
+        generates twice. Counting the sampler invocation itself is what pins
+        this story's actual claim.
+        """
+        helpers = [
+            node
+            for node in ast.walk(self._main_node())
+            if isinstance(node, ast.FunctionDef) and node.name == "sample_once"
+        ]
+        self.assertEqual(
+            len(helpers), 1, "main() must define sample_once exactly once"
+        )
+        draws = [
+            node
+            for node in ast.walk(helpers[0])
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "model"
+        ]
+        self.assertEqual(
+            len(draws),
+            1,
+            "exactly one model(...) sampling pass: best-of-N removal means one draw",
+        )
+
 
 class ArgParseTests(unittest.TestCase):
     """--num-samples must be GONE, not merely unused: argparse must reject it.
