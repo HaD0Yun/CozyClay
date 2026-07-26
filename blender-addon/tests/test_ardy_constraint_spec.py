@@ -788,28 +788,43 @@ class MainGuardContractTests(unittest.TestCase):
             "exactly one model(...) sampling pass: best-of-N removal means one draw",
         )
 
-        # One Call node is not one execution. Wrapping the existing draw in
-        # `for _ in range(2):` inside sample_once leaves exactly one Call node,
-        # one helper definition and one outer motion_dict assignment, so every
-        # count above still passes while two clips are drawn. Verified. So also
-        # require that no repeatable construct encloses the draw.
-        repeatable = (ast.For, ast.AsyncFor, ast.While, ast.comprehension)
+        # One Call node is not one execution, and a node-type scan gets this
+        # wrong twice over. An earlier version listed ast.comprehension, which is
+        # the WRONG node: a comprehension keeps its repeated element expression on
+        # the ListComp/SetComp/DictComp/GeneratorExp container, while the
+        # comprehension clause holds only target, iter and ifs. So
+        # `motion = [model(...) for _ in range(2)][-1]` was never seen. It also
+        # missed a nested callable: defining `draw()` around the sole model call
+        # and invoking it twice passed every count. Both verified.
+        #
+        # So walk the unique draw's ANCESTORS instead. Nothing repeatable and no
+        # further callable may sit between it and sample_once, which covers loops,
+        # all four comprehension containers, lambdas, nested functions and
+        # generator resumption in one rule.
+        parents = {}
         for node in ast.walk(helpers[0]):
-            if not isinstance(node, repeatable):
-                continue
-            enclosed = [
-                child
-                for child in ast.walk(node)
-                if isinstance(child, ast.Call)
-                and isinstance(child.func, ast.Name)
-                and child.func.id == "model"
-            ]
-            self.assertEqual(
-                enclosed,
-                [],
-                f"the model(...) draw must not sit inside a {type(node).__name__}: "
-                "a loop would generate repeatedly while the call count stays at one",
+            for child in ast.iter_child_nodes(node):
+                parents[child] = node
+        forbidden = (
+            ast.For, ast.AsyncFor, ast.While,
+            ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
+            ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef,
+        )
+        ancestor = parents.get(draws[0])
+        while ancestor is not None and ancestor is not helpers[0]:
+            self.assertNotIsInstance(
+                ancestor,
+                forbidden,
+                f"the model(...) draw must not sit inside a "
+                f"{type(ancestor).__name__} within sample_once: it could then run "
+                "more than once while the call count stays at one",
             )
+            ancestor = parents.get(ancestor)
+        self.assertIs(
+            ancestor,
+            helpers[0],
+            "the model(...) draw must be owned by sample_once itself",
+        )
 
 
 class ArgParseTests(unittest.TestCase):
