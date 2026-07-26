@@ -797,49 +797,15 @@ class MainGuardContractTests(unittest.TestCase):
             for child in ast.iter_child_nodes(node):
                 parents[child] = node
 
-        # Counting bare `model(...)` calls is not enough either: the sampler
-        # OBJECT can be invoked through another name. Three variants were
-        # verified to pass before this block existed -- passing `model` to a
-        # module-level `_retry_draw(sampler)` helper, aliasing `m = model` then
-        # calling `m(...)`, and `model.__call__(...)`. So restrict how the loaded
-        # model may be USED, which closes the alias axis structurally instead of
-        # enumerating wrapper names yet again.
-        model_names = [
-            node for node in ast.walk(main)
-            if isinstance(node, ast.Name) and node.id == "model"
-        ]
-        stores = [n for n in model_names if isinstance(n.ctx, ast.Store)]
-        self.assertEqual(
-            len(stores), 1, "the model must be loaded exactly once in main()"
-        )
-        for node in model_names:
-            if node in stores or node is draws[0].func:
-                continue
-            parent = parents.get(node)
-            self.assertTrue(
-                isinstance(parent, ast.Attribute) and parent.value is node,
-                "the loaded model may only be called once directly or read "
-                "through an attribute; passing or aliasing it lets another name "
-                f"invoke the sampler (line {node.lineno})",
-            )
-        # `model.motion_rep.inverse(...)` is legitimate: its callee is an
-        # Attribute on an Attribute. `model.__call__(...)` and `model.forward(...)`
-        # put the Name directly under the callee's Attribute, which is invoking
-        # the model itself by another spelling.
-        for node in ast.walk(main):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            if (
-                isinstance(func, ast.Attribute)
-                and isinstance(func.value, ast.Name)
-                and func.value.id == "model"
-            ):
-                self.fail(
-                    f"model.{func.attr}(...) invokes the sampler by another "
-                    f"spelling (line {node.lineno}); the one direct model(...) "
-                    "call is the only permitted invocation"
-                )
+        # No attempt here to restrict how the model OBJECT may be used. An
+        # earlier version required `model` to appear only as its load, the one
+        # direct callee, or an attribute base. That closed five alias spellings
+        # but not the sixth -- `_retry_once(model.forward, ...)` passes it -- and
+        # it rejected legitimate calls like `model.eval()` on the way. Counting
+        # invocations is the only thing that actually closes this, so the
+        # exactly-once guarantee lives in test_ardy_generate_once.py, which runs
+        # main() against a counting fake sampler. Verified: that suite fails on
+        # the `_retry_once(model.forward, ...)` shape this file cannot see.
 
         forbidden = (
             ast.For, ast.AsyncFor, ast.While,
@@ -918,7 +884,7 @@ class MainGuardContractTests(unittest.TestCase):
         )
 
     def test_the_module_surface_has_no_other_activation_path(self):
-        """Only the canonical guard may reach main(), and nothing else may run.
+        """The canonical guard is the only syntactic path to main().
 
         Checking main()'s decorators and its own body was not the terminal
         boundary I claimed. Two in-file mutations were verified to slip past it:

@@ -167,22 +167,35 @@ function runWithFakeTransport(
  * terminator could not distinguish from a process boundary.
  */
 function readCapture(capture: string): string[][] {
+	let raw: string;
 	try {
-		const tokens = readFileSync(capture, "utf8").split("\0");
-		// The trailing NUL leaves one empty element; drop only that one.
-		if (tokens.length > 0 && tokens[tokens.length - 1] === "") tokens.pop();
-		const records: string[][] = [];
-		let index = 0;
-		while (index < tokens.length) {
-			const argc = Number.parseInt(tokens[index] ?? "", 10);
-			if (!Number.isInteger(argc) || argc < 0) break;
-			records.push(tokens.slice(index + 1, index + 1 + argc));
-			index += 1 + argc;
-		}
-		return records;
+		raw = readFileSync(capture, "utf8");
 	} catch {
+		// No file means the wrapper never invoked the fake ssh. Zero records, and
+		// the cardinality assertions fail rather than pass vacuously.
 		return [];
 	}
+	const tokens = raw.split("\0");
+	// The trailing NUL leaves one empty element; drop only that one.
+	if (tokens.length > 0 && tokens[tokens.length - 1] === "") tokens.pop();
+	const records: string[][] = [];
+	let index = 0;
+	while (index < tokens.length) {
+		const head = tokens[index] ?? "";
+		// Fail closed: a lenient parse would let a truncated tail be discarded
+		// silently, and one valid record plus corruption would still read as
+		// exactly one.
+		if (!/^\d+$/.test(head)) {
+			throw new Error(`fake-ssh capture is malformed: expected argc, got ${JSON.stringify(head)}`);
+		}
+		const argc = Number.parseInt(head, 10);
+		if (index + 1 + argc > tokens.length) {
+			throw new Error(`fake-ssh capture is truncated: argc ${argc} exceeds the remaining tokens`);
+		}
+		records.push(tokens.slice(index + 1, index + 1 + argc));
+		index += 1 + argc;
+	}
+	return records;
 }
 
 /** The argv records whose remote command runs the constrained generator. */
