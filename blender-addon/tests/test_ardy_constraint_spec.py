@@ -699,20 +699,11 @@ class MainGuardContractTests(unittest.TestCase):
         """
         main = self._main_node()
 
-        self.assertEqual(
-            [
-                node
-                for node in ast.walk(ast.parse(SCRIPT.read_text()))
-                if (
-                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Name, ast.arg))
-                    and getattr(node, "name", getattr(node, "id", getattr(node, "arg", None)))
-                    == "sample_once"
-                )
-            ],
-            [],
-            "the sampling pass is inline; a helper callable could be decorated, "
-            "aliased or invoked twice without changing any count here",
-        )
+        # No `sample_once` name ban and no shape pin on how motion_dict is built.
+        # Both were implementation spellings, and execution cardinality now
+        # belongs to test_ardy_generate_once.py, which counts sampler invocations.
+        # What syntax genuinely expresses, and what stays here, is the DATA
+        # binding: one assignment, and that same name handed to the single save.
 
         assignments = [
             statement
@@ -727,20 +718,6 @@ class MainGuardContractTests(unittest.TestCase):
             len(assignments),
             1,
             "motion_dict must be assigned once; a later rebinding escapes the guard",
-        )
-        self.assertIsInstance(
-            assignments[0].value,
-            ast.DictComp,
-            "motion_dict is built inline from the sampled tensors",
-        )
-        # One syntactic statement is not one execution: wrapping the assignment
-        # in `for _ in range(2):` keeps every count above at one while generating
-        # twice and saving the second clip. Requiring it on main()'s own statement
-        # list is what rules out repeatable control flow.
-        self.assertIn(
-            assignments[0],
-            main.body,
-            "the generation must be a direct statement of main(), not inside a loop",
         )
 
         saves = [
@@ -763,71 +740,20 @@ class MainGuardContractTests(unittest.TestCase):
             "save_motion_npz must serialize the dict find_non_finite inspected",
         )
 
-    def test_the_sampler_itself_runs_once_per_generation(self):
-        """The GPU draw happens once, on main()'s own straight-line path.
-
-        Counting a helper call was never the same as counting executions, and
-        three attempts to enumerate "repeatable shapes" around a helper were each
-        defeated in turn: a list comprehension around the draw, a nested draw()
-        invoked twice, and a @retry_once decorator on the helper. Each kept every
-        count at one while drawing twice.
-
-        The sampling pass is therefore inline. With no callable there is nothing
-        to decorate, alias or re-enter, and the only thing left to pin is that
-        the single model(...) call is not nested under anything that repeats or
-        defers it. `if`, `try` and `with` around the draw stay legal, because
-        none of them runs a body more than once per entry.
-        """
-        main = self._main_node()
-        draws = [
-            node
-            for node in ast.walk(main)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "model"
-        ]
-        self.assertEqual(
-            len(draws),
-            1,
-            "exactly one model(...) sampling pass: best-of-N removal means one draw",
-        )
-
-        parents = {}
-        for node in ast.walk(main):
-            for child in ast.iter_child_nodes(node):
-                parents[child] = node
-
-        # No attempt here to restrict how the model OBJECT may be used. An
-        # earlier version required `model` to appear only as its load, the one
-        # direct callee, or an attribute base. That closed five alias spellings
-        # but not the sixth -- `_retry_once(model.forward, ...)` passes it -- and
-        # it rejected legitimate calls like `model.eval()` on the way. Counting
-        # invocations is the only thing that actually closes this, so the
-        # exactly-once guarantee lives in test_ardy_generate_once.py, which runs
-        # main() against a counting fake sampler. Verified: that suite fails on
-        # the `_retry_once(model.forward, ...)` shape this file cannot see.
-
-        forbidden = (
-            ast.For, ast.AsyncFor, ast.While,
-            ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
-            ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef,
-        )
-        ancestor = parents.get(draws[0])
-        while ancestor is not None and ancestor is not main:
-            self.assertNotIsInstance(
-                ancestor,
-                forbidden,
-                f"the model(...) draw must not sit inside a "
-                f"{type(ancestor).__name__}: it could then run more than once, or "
-                "be deferred into a callable, while the call count stays at one",
-            )
-            ancestor = parents.get(ancestor)
-        self.assertIs(
-            ancestor,
-            main,
-            "the model(...) draw must be owned by main() itself; a chain that does "
-            "not reach main means the draw moved somewhere this contract cannot see",
-        )
+    # There is deliberately NO sampler-cardinality test in this file. Six
+    # attempts lived here and each was defeated by one more spelling: a list
+    # comprehension around the draw, a nested draw() called twice, a @retry_once
+    # decorator on the helper, and then aliases and bound methods of the model
+    # object. The invariant is semantic -- how many times a callable is invoked --
+    # and syntax cannot express it. test_ardy_generate_once.py owns it by counting
+    # invocations against a fake sampler, and that suite catches every one of
+    # those spellings including `_retry_once(model.forward, ...)`, which no AST
+    # rule here could see.
+    #
+    # What stays in this file is what syntax genuinely does express: the guard
+    # is bound to its result and precedes measurement and save, the saved payload
+    # is the guarded name, the entrypoint is canonical, and the removed flags are
+    # rejected by the parser.
 
     def test_main_itself_runs_once_per_process(self):
         """The module must invoke main() once, undecorated and non-reentrant.

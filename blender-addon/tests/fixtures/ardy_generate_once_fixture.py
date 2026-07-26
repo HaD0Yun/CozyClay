@@ -207,11 +207,21 @@ class CountingModel:
     def forward(self, *a, **k):
         return self(*a, **k)
 
-    # Non-sampling model methods must be harmless, or this fixture would report a
-    # false positive for an ordinary refactor that adds `model.eval()` or
-    # `model.to(device)`. Only invocations that actually draw are counted.
-    def __getattr__(self, name):
-        return lambda *_a, **_k: None
+    # Benign non-sampling methods are listed EXPLICITLY, and anything unknown
+    # raises. An earlier version answered every unknown attribute with a no-op
+    # lambda so that `model.eval()` would not false-positive -- but that made the
+    # fake bless any generation entry point it had not been told about. Real ARDY
+    # exposes `autoregressive_step`, so an ignored second
+    # `model.autoregressive_step(...)` would have drawn again while this counter
+    # still reported 1. A masking fallback inside the test that exists to prove
+    # there are no masking fallbacks. Failing closed is the whole point: a new
+    # model API must be added here deliberately, with a decision about whether it
+    # draws.
+    def eval(self):
+        return self
+
+    def to(self, *_a, **_k):
+        return self
 
 
 class _ConstraintSet:
