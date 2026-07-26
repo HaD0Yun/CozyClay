@@ -322,13 +322,19 @@ class FiniteOutputGuardTests(unittest.TestCase):
                 self.assertEqual(result["index"], (0,))
                 self.assertEqual(result["value"], bad)
 
-    def test_detection_covers_members_outside_the_joints(self):
-        """The guard must cover EVERY member save_motion_npz serializes, not only
-        posed_joints/global_rot_mats. local_rot_mats, root_positions and
-        foot_contacts are saved too, so a divergence there is just as fatal.
+    def test_detection_covers_every_production_member(self):
+        """The guard must cover EVERY member save_motion_npz serializes.
+
+        All five real members are poisoned in turn, global_rot_mats included:
+        omitting it would let a guard that skips exactly that member pass while
+        a diverged rotation reached the npz.
         """
+        rotation = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        bad_rotation = [[self.NAN, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         for member, shape in (
-            ("local_rot_mats", [[[[self.NAN, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]]]),
+            ("posed_joints", [[[0.0, 0.0, 0.0], [self.NAN, 0.2, 0.3]]]),
+            ("global_rot_mats", [[bad_rotation]]),
+            ("local_rot_mats", [[bad_rotation]]),
             ("root_positions", [[0.0, self.NAN, 0.0]]),
             ("foot_contacts", [[0.0, 1.0, self.NAN]]),
         ):
@@ -337,6 +343,25 @@ class FiniteOutputGuardTests(unittest.TestCase):
                 result = ccg.find_non_finite(clip)
                 self.assertIsNotNone(result)
                 self.assertEqual(result["member"], member)
+        # Sanity: the unpoisoned baseline that every case above starts from must
+        # itself be clean, or these subTests could pass for the wrong reason.
+        self.assertIsNone(ccg.find_non_finite(self._clip(global_rot_mats=[[rotation]])))
+
+    def test_a_divergence_after_the_first_frame_is_found(self):
+        """Every frame is scanned, not just the first.
+
+        Every other fixture here puts the bad value in frame 0, so a guard
+        weakened to inspect only the opening frame would pass them all while a
+        clip that diverges mid-motion still reached the npz.
+        """
+        good = [[0.0, 0.0, 0.0], [0.1, 0.2, 0.3]]
+        bad = [[0.0, 0.0, 0.0], [0.1, self.NAN, 0.3]]
+        clip = self._clip(posed_joints=[good, good, good, bad])
+        result = ccg.find_non_finite(clip)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["member"], "posed_joints")
+        self.assertEqual(result["frame"], 3)
+        self.assertEqual(result["index"], (1, 1))
 
     def test_detection_does_not_depend_on_iteration_order(self):
         """A NaN in the last member when sorted alphabetically is still found."""
@@ -447,55 +472,39 @@ class MainGuardContractTests(unittest.TestCase):
         """The ``non_finite = find_non_finite(...)`` assign and the statement after it.
 
         Returned as a pair so a test can prove the raise is controlled BY the
-        guard's result, not merely that both exist somewhere in main(). Searches
-        every statement list in main(), so the pair is still found if the guard
-        moves inside an if or try block.
+        guard's result, not merely that both exist somewhere in main().
+
+        Searches ONLY ``main.body``, deliberately. A pair nested in an inner
+        block is not equivalent: wrapping the guard in ``if False:`` or in a
+        ``try`` whose handler swallows the raise satisfies every other assertion
+        while a default run walks straight on to measurement and save. Requiring
+        the guard on main()'s own unconditional statement list is what rules that
+        out, and line-number ordering alone cannot.
 
         Collects EVERY match rather than the first: with two such assignments a
         first-match search could validate a decoy pair while the real one was
         weakened. The caller asserts there is exactly one.
         """
-        main = cls._main_node()
+        block = cls._main_node().body
         pairs = []
-        for node in ast.walk(main):
-            for field in ("body", "orelse", "finalbody"):
-                block = getattr(node, field, None)
-                if not isinstance(block, list):
-                    continue
-                for index, statement in enumerate(block):
-                    if (
-                        isinstance(statement, ast.Assign)
-                        and len(statement.targets) == 1
-                        and isinstance(statement.targets[0], ast.Name)
-                        and statement.targets[0].id == "non_finite"
-                        and isinstance(statement.value, ast.Call)
-                        and isinstance(statement.value.func, ast.Name)
-                        and statement.value.func.id == "find_non_finite"
-                    ):
-                        following = block[index + 1] if index + 1 < len(block) else None
-                        pairs.append((statement, following))
+        for index, statement in enumerate(block):
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and statement.targets[0].id == "non_finite"
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id == "find_non_finite"
+            ):
+                following = block[index + 1] if index + 1 < len(block) else None
+                pairs.append((statement, following))
         return pairs
 
-    def test_main_calls_find_non_finite(self):
-        lineno = self._call_lineno(
-            self._main_node(),
-            lambda c: isinstance(c.func, ast.Name) and c.func.id == "find_non_finite",
-        )
-        self.assertIsNotNone(lineno, "main() must call find_non_finite")
-
-    def test_main_calls_a_measure_function(self):
-        def is_measure(call):
-            return (isinstance(call.func, ast.Name)
-                    and call.func.id in self.MEASURE_NAMES)
-        lineno = self._call_lineno(self._main_node(), is_measure)
-        self.assertIsNotNone(lineno, "main() must call a measure_* function")
-
-    def test_main_calls_save_motion_npz(self):
-        lineno = self._call_lineno(
-            self._main_node(),
-            lambda c: isinstance(c.func, ast.Name) and c.func.id == "save_motion_npz",
-        )
-        self.assertIsNotNone(lineno, "main() must call save_motion_npz")
+    # No standalone "main calls X" tests: the two ordering tests below already
+    # assert both endpoints exist before comparing them, and the binding test
+    # proves the guard call exists. Separate existence tests only duplicated
+    # that, and duplicated assertions rot independently.
 
     def test_guard_call_precedes_first_measure_call(self):
         guard = self._call_lineno(
