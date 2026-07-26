@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: CozyClay contributors
 #
 # cclay-owned script. Source of truth lives in the CozyClay repo at

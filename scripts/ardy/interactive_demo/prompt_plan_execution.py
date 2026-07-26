@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: CozyClay contributors
 
 """Sequential prompt-plan execution for the interactive ARDY session."""
 

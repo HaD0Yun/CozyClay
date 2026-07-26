@@ -243,9 +243,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, and [AGENTS.md](AGEN
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+**GPL-3.0-or-later.** See [LICENSE](LICENSE).
 
-Third-party code this repository carries or derives from:
+CozyClay is free software: you may use, study, change, and share it. If you distribute it, or anything you built on it, you have to pass those same freedoms on — source included, under the same license. Scenes, renders, and motion clips you produce with CozyClay are yours and are not covered by the GPL; the license is about the program, not its output.
+
+It is GPLv3 and not GPLv2 for a concrete reason: the ARDY patches below derive from Apache-2.0 code, which is compatible with GPLv3 and not with GPLv2.
+
+Third-party code this repository carries or derives from keeps its own terms, which GPL cannot replace (details in [LICENSES/](LICENSES/)):
 
 | component | license | shape |
 |---|---|---|

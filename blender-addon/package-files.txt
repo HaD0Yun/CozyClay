@@ -1,4 +1,5 @@
 # Exact archive-root paths shipped in the Blender Extension.
+LICENSE
 __init__.py
 assets/characters/x-bot-tpose.fbx
 assets/characters/y-bot-tpose.fbx
