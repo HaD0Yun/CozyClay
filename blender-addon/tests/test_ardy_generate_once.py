@@ -55,6 +55,7 @@ class ArdyGenerateOnceTests(unittest.TestCase):
             )
         cls.clean = payload["clean"]
         cls.poisoned = payload["poisoned"]
+        cls.post_draw_failure = payload["postDrawFailure"]
 
     def test_the_sampler_is_invoked_exactly_once(self):
         """One GPU draw per run, counted rather than inferred from syntax.
@@ -109,6 +110,28 @@ class ArdyGenerateOnceTests(unittest.TestCase):
     def test_divergence_costs_exactly_one_draw_not_a_retry(self):
         """Rejecting a clip must not trigger a second generation."""
         self.assertEqual(self.poisoned["modelCalls"], 1)
+
+    def test_a_post_draw_failure_costs_exactly_one_draw(self):
+        """Exactly-once is a FAILURE-path invariant, not only a happy-path one.
+
+        A retry wrapper is likeliest to appear around a step that can fail, and
+        the previous scenarios only exercised success plus the guard's own
+        ValueError. This scenario makes `motion_rep.inverse` raise RuntimeError
+        once, immediately after a completed draw. A retry around draw+inverse
+        would silently draw a second time in the same process, and nothing in the
+        source contract or the wrapper test could see it.
+        """
+        self.assertEqual(
+            self.post_draw_failure["modelCalls"],
+            1,
+            "a post-draw failure must not be retried into a second GPU draw",
+        )
+        self.assertIsNotNone(self.post_draw_failure["error"])
+        self.assertIn("simulated post-draw failure", self.post_draw_failure["error"])
+
+    def test_a_post_draw_failure_writes_nothing(self):
+        """The failure must escape, not be swallowed into a partial output."""
+        self.assertFalse(self.post_draw_failure["npzWritten"])
 
 
 if __name__ == "__main__":

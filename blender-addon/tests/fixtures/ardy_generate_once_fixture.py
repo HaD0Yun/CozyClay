@@ -172,6 +172,12 @@ class FakeMotionRep:
 
     def inverse(self, motion, **_k):
         self._owner.inverse_calls += 1
+        # Exactly-once is a FAILURE-path invariant too, not only a happy-path
+        # one, and a retry wrapper is likeliest to appear around a step that can
+        # fail. So one scenario makes the first inverse raise: a retry around
+        # draw+inverse would then draw a second time, and the counter sees it.
+        if self._owner.inverse_fails_once and self._owner.inverse_calls == 1:
+            raise RuntimeError("simulated post-draw failure inside inverse")
         return motion
 
 
@@ -182,10 +188,11 @@ class FakeDiffusion:
 class CountingModel:
     """Every invocation of the sampler is counted, however it is spelled."""
 
-    def __init__(self, poison_frame=None):
+    def __init__(self, poison_frame=None, inverse_fails_once=False):
         self.calls = 0
         self.inverse_calls = 0
         self.poison_frame = poison_frame
+        self.inverse_fails_once = inverse_fails_once
         self.motion_rep = FakeMotionRep(self)
         self.diffusion = FakeDiffusion()
         self.skeleton = FakeSkeleton()
@@ -273,9 +280,9 @@ def _base_npz(directory):
     return path
 
 
-def run(poison_frame=None):
+def run(poison_frame=None, inverse_fails_once=False):
     """Execute main() once and report what actually happened."""
-    model = CountingModel(poison_frame=poison_frame)
+    model = CountingModel(poison_frame=poison_frame, inverse_fails_once=inverse_fails_once)
     sys.modules["torch"] = _torch()
     _install_ardy(model)
     generator = _load_generator()
@@ -318,5 +325,9 @@ def run(poison_frame=None):
 
 
 if __name__ == "__main__":
-    result = {"clean": run(), "poisoned": run(poison_frame=FRAMES - 1)}
+    result = {
+        "clean": run(),
+        "poisoned": run(poison_frame=FRAMES - 1),
+        "postDrawFailure": run(inverse_fails_once=True),
+    }
     print("CCLAY_ONCE=" + json.dumps(result, default=str))
