@@ -675,6 +675,15 @@ class MainGuardContractTests(unittest.TestCase):
         )
         self.assertIsInstance(assignments[0].value, ast.Call)
         self.assertEqual(assignments[0].value.func.id, "sample_once")
+        # One syntactic call is not one execution: `for _ in range(2): motion_dict
+        # = sample_once()` keeps every count above at one while generating twice
+        # and saving the second clip. Requiring the assignment on main()'s own
+        # statement list is what rules out repeatable control flow.
+        self.assertIn(
+            assignments[0],
+            main.body,
+            "the generation must be a direct statement of main(), not inside a loop",
+        )
 
         saves = [
             node
