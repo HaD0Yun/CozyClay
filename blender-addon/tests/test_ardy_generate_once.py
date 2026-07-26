@@ -55,7 +55,7 @@ class ArdyGenerateOnceTests(unittest.TestCase):
             )
         cls.clean = payload["clean"]
         cls.poisoned = payload["poisoned"]
-        cls.post_draw_failure = payload["postDrawFailure"]
+        cls.failures = payload["failures"]
 
     def test_the_sampler_is_invoked_exactly_once(self):
         """One GPU draw per run, counted rather than inferred from syntax.
@@ -111,27 +111,49 @@ class ArdyGenerateOnceTests(unittest.TestCase):
         """Rejecting a clip must not trigger a second generation."""
         self.assertEqual(self.poisoned["modelCalls"], 1)
 
-    def test_a_post_draw_failure_costs_exactly_one_draw(self):
-        """Exactly-once is a FAILURE-path invariant, not only a happy-path one.
+    # Every post-draw phase, each raising its own native exception type.
+    EXPECTED_FAILURES = {
+        "inverse": "RuntimeError",
+        "post_process": "RuntimeError",
+        "skeleton_conversion": "ValueError",
+        "to_numpy": "TypeError",
+        "save": "OSError",
+    }
 
-        A retry wrapper is likeliest to appear around a step that can fail, and
-        the previous scenarios only exercised success plus the guard's own
-        ValueError. This scenario makes `motion_rep.inverse` raise RuntimeError
-        once, immediately after a completed draw. A retry around draw+inverse
-        would silently draw a second time in the same process, and nothing in the
-        source contract or the wrapper test could see it.
+    def test_no_post_draw_failure_is_retried_into_a_second_draw(self):
+        """Exactly-once is a FAILURE-path invariant, and it is phase- AND
+        exception-sensitive.
+
+        A retry wrapper appears around whatever can fail, so covering one phase
+        with one exception type proves little: a recovery that catches OSError at
+        the save and regenerates is invisible to a scenario that only fails
+        inverse with RuntimeError. Every post-draw boundary is therefore driven
+        here as a matrix, each with the exception that phase would really raise.
+        A recovery at any of them that re-enters the draw reports two.
         """
         self.assertEqual(
-            self.post_draw_failure["modelCalls"],
-            1,
-            "a post-draw failure must not be retried into a second GPU draw",
+            sorted(self.failures), sorted(self.EXPECTED_FAILURES),
+            "the fixture must drive every declared post-draw failure phase",
         )
-        self.assertIsNotNone(self.post_draw_failure["error"])
-        self.assertIn("simulated post-draw failure", self.post_draw_failure["error"])
-
-    def test_a_post_draw_failure_writes_nothing(self):
-        """The failure must escape, not be swallowed into a partial output."""
-        self.assertFalse(self.post_draw_failure["npzWritten"])
+        for phase, exception in self.EXPECTED_FAILURES.items():
+            with self.subTest(phase=phase):
+                outcome = self.failures[phase]
+                self.assertIsNotNone(
+                    outcome["error"], f"the injected {phase} failure must fire"
+                )
+                self.assertTrue(
+                    outcome["error"].startswith(exception),
+                    f"{phase} should raise {exception}, got {outcome['error']}",
+                )
+                self.assertEqual(
+                    outcome["modelCalls"],
+                    1,
+                    f"a failure at {phase} must not be retried into a second draw",
+                )
+                self.assertFalse(
+                    outcome["npzWritten"],
+                    f"a failure at {phase} must not leave a partial npz",
+                )
 
 
 if __name__ == "__main__":

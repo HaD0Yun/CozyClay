@@ -146,6 +146,12 @@ def _torch():
 # ardy-lite
 # --------------------------------------------------------------------------
 class FakeSkeleton:
+    """Also stands in for SOMASkeleton30, so main()'s conversion branch executes.
+
+    An earlier version left that branch dead, which meant a recovery placed
+    around the conversion could not be observed at all.
+    """
+
     device = "cpu"
     root_idx = 0
 
@@ -154,11 +160,18 @@ class FakeSkeleton:
             "LeftFoot": 1, "RightFoot": 2, "LeftHand": 3, "RightHand": 4,
         }
 
+    owner = None
+
     def fk(self, local_rot_mats, roots):
         n = len(local_rot_mats)
         rots = T(np.tile(np.eye(3), (n, JOINTS, 1, 1)))
         positions = T(np.zeros((n, JOINTS, 3)))
         return rots, positions, None
+
+    def output_to_SOMASkeleton77(self, sampled):
+        if self.owner is not None:
+            self.owner.maybe_fail("skeleton_conversion")
+        return sampled
 
 
 class FakeMotionRep:
@@ -172,12 +185,7 @@ class FakeMotionRep:
 
     def inverse(self, motion, **_k):
         self._owner.inverse_calls += 1
-        # Exactly-once is a FAILURE-path invariant too, not only a happy-path
-        # one, and a retry wrapper is likeliest to appear around a step that can
-        # fail. So one scenario makes the first inverse raise: a retry around
-        # draw+inverse would then draw a second time, and the counter sees it.
-        if self._owner.inverse_fails_once and self._owner.inverse_calls == 1:
-            raise RuntimeError("simulated post-draw failure inside inverse")
+        self._owner.maybe_fail("inverse")
         return motion
 
 
@@ -188,14 +196,38 @@ class FakeDiffusion:
 class CountingModel:
     """Every invocation of the sampler is counted, however it is spelled."""
 
-    def __init__(self, poison_frame=None, inverse_fails_once=False):
+    # Exactly-once is a FAILURE-path invariant, and it is sensitive to BOTH the
+    # phase that fails and the exception it raises: a recovery that catches
+    # OSError at the save and regenerates is invisible to a scenario that only
+    # fails inverse with RuntimeError. So every post-draw phase is routed through
+    # one injector and the host test drives them as a matrix, rather than growing
+    # one more special case per round.
+    FAILURES = {
+        "inverse": (RuntimeError, "simulated failure inside inverse"),
+        "post_process": (RuntimeError, "simulated failure inside post_process_motion"),
+        "skeleton_conversion": (ValueError, "simulated failure inside output_to_SOMASkeleton77"),
+        "to_numpy": (TypeError, "simulated failure inside to_numpy"),
+        "save": (OSError, "simulated failure inside np.savez"),
+    }
+
+    def __init__(self, poison_frame=None, fail_at=None):
         self.calls = 0
         self.inverse_calls = 0
         self.poison_frame = poison_frame
-        self.inverse_fails_once = inverse_fails_once
+        self.fail_at = fail_at
+        self.fired = set()
         self.motion_rep = FakeMotionRep(self)
         self.diffusion = FakeDiffusion()
         self.skeleton = FakeSkeleton()
+        self.skeleton.owner = self
+
+    def maybe_fail(self, phase):
+        """Raise once, the first time `phase` is reached, if it is the target."""
+        if phase != self.fail_at or phase in self.fired:
+            return
+        self.fired.add(phase)
+        error, message = self.FAILURES[phase]
+        raise error(message)
 
     def __call__(self, *_a, **_k):
         self.calls += 1
@@ -250,10 +282,17 @@ def _install_ardy(model):
     mod("ardy.model.registry", resolve_model_name=lambda name, **_k: "fake-model")
     mod("ardy.motion_rep")
     mod("ardy.motion_rep.tools", length_to_mask=lambda lengths, **_k: T(np.ones((1, FRAMES), bool)))
-    mod("ardy.postprocess", post_process_motion=lambda *_a, **_k: {})
-    mod("ardy.skeleton", SOMASkeleton30=type("SOMASkeleton30", (), {}))
-    mod("ardy.tools", seed_everything=lambda *_a, **_k: None,
-        to_numpy=lambda d: {k: np.asarray(v) for k, v in d.items()})
+    def _post_process(*_a, **_k):
+        model.maybe_fail("post_process")
+        return {}
+
+    def _to_numpy(d):
+        model.maybe_fail("to_numpy")
+        return {k: np.asarray(v) for k, v in d.items()}
+
+    mod("ardy.postprocess", post_process_motion=_post_process)
+    mod("ardy.skeleton", SOMASkeleton30=FakeSkeleton)
+    mod("ardy.tools", seed_everything=lambda *_a, **_k: None, to_numpy=_to_numpy)
     mod("ardy.constraints",
         LeftFootConstraintSet=_ConstraintSet, RightFootConstraintSet=_ConstraintSet,
         LeftHandConstraintSet=_ConstraintSet, RightHandConstraintSet=_ConstraintSet,
@@ -280,9 +319,9 @@ def _base_npz(directory):
     return path
 
 
-def run(poison_frame=None, inverse_fails_once=False):
+def run(poison_frame=None, fail_at=None):
     """Execute main() once and report what actually happened."""
-    model = CountingModel(poison_frame=poison_frame, inverse_fails_once=inverse_fails_once)
+    model = CountingModel(poison_frame=poison_frame, fail_at=fail_at)
     sys.modules["torch"] = _torch()
     _install_ardy(model)
     generator = _load_generator()
@@ -302,12 +341,23 @@ def run(poison_frame=None, inverse_fails_once=False):
         error = None
         previous = sys.argv
         sys.argv = argv
+        # save_motion_npz is real production code, so the save boundary is
+        # injected at numpy.savez rather than by faking the function under test.
+        # Patched only around main(), so writing the BASE npz above is unaffected.
+        real_savez = np.savez
+
+        def savez(*a, **k):
+            model.maybe_fail("save")
+            return real_savez(*a, **k)
+
+        np.savez = savez
         try:
             generator.main()
         except Exception as exc:  # noqa: BLE001 - the outcome IS the observation
             error = f"{type(exc).__name__}: {exc}"
         finally:
             sys.argv = previous
+            np.savez = real_savez
         npz = out + ".npz"
         if os.path.isfile(npz):
             with np.load(npz) as data:
@@ -325,9 +375,9 @@ def run(poison_frame=None, inverse_fails_once=False):
 
 
 if __name__ == "__main__":
-    result = {
-        "clean": run(),
-        "poisoned": run(poison_frame=FRAMES - 1),
-        "postDrawFailure": run(inverse_fails_once=True),
+    result = {"clean": run(), "poisoned": run(poison_frame=FRAMES - 1)}
+    # Every post-draw phase, each with its own native exception type.
+    result["failures"] = {
+        phase: run(fail_at=phase) for phase in CountingModel.FAILURES
     }
     print("CCLAY_ONCE=" + json.dumps(result, default=str))
