@@ -201,18 +201,6 @@ def parse_args():
         help="Don't apply motion post-processing (foot-skate reduction).",
     )
     parser.add_argument(
-        "--num-samples",
-        dest="num_samples",
-        type=int,
-        default=1,
-        help=(
-            "Draw N samples (1..8) and keep the one whose MEASURED constraint error "
-            "is lowest. Sampling is stochastic, so a second draw often lands a "
-            "contact the first missed; the per-sample errors and the chosen index "
-            "are reported so the selection is auditable rather than hidden."
-        ),
-    )
-    parser.add_argument(
         "--contact-threshold",
         dest="contact_threshold",
         type=float,
@@ -269,23 +257,75 @@ def save_motion_npz(path: str, motion_dict: dict, fps: float, text: str) -> None
     np.savez(path, **arrays)
 
 
-def _posed_joint_accelerations(posed_joints):
-    """Peak per-frame change IN joint velocity, i.e. the second difference.
+def find_non_finite(motion_dict):
+    """First non-finite value in any numeric array bound for the npz, or None.
 
-    The tie-breaker used to minimize peak VELOCITY, which conflates smooth with
-    slow: a draw that reaches its pinned contacts and then goes limp scores best
-    on velocity while looking worse. Acceleration is what a pop or a teleport
-    actually is, and sustained fast motion has near-zero acceleration, so this
-    ranks discontinuity without rewarding stillness.
+    Walks every member save_motion_npz serializes (posed_joints, global_rot_mats,
+    local_rot_mats, root_positions, foot_contacts) and returns a dict naming the
+    member, the first-axis frame index, the remaining indices and the value of the
+    first non-finite entry, or None when everything is finite. Members are visited
+    in sorted name order so the report is deterministic.
+
+    Stdlib-only: math.isfinite over numpy arrays via ordinary indexing/iteration
+    and float(), with no module-scope numpy import, so this carries a repo
+    regression test on a machine that has no numpy. Integer and boolean members
+    are always finite and are never reported. A threshold comparison CANNOT do
+    this job: NaN comparisons are always False, so ``value > threshold`` silently
+    passes a diverged clip; the explicit isfinite check is the only honest guard.
     """
-    import numpy as np
+    for member in sorted(motion_dict):
+        array = motion_dict[member]
+        if array is None:
+            continue
+        # bool and int dtypes are always finite; skip them without iterating so a
+        # foot_contacts boolean array does not trip float() on a numpy bool.
+        dtype = getattr(array, "dtype", None)
+        if dtype is not None and dtype.kind in ("b", "i", "u"):
+            continue
+        for frame, row in enumerate(array):
+            # A scalar member has no inner structure; treat the member itself as
+            # the frame so the report still names where the divergence is.
+            if not _is_sequence(row):
+                value = float(row)
+                if not math.isfinite(value):
+                    return {"member": member, "frame": frame, "index": (), "value": value}
+                continue
+            for index, value in _iter_leaves(row):
+                value = float(value)
+                if not math.isfinite(value):
+                    return {
+                        "member": member,
+                        "frame": frame,
+                        "index": index,
+                        "value": value,
+                    }
+    return None
 
-    if len(posed_joints) < 3:
-        return np.zeros(1)
-    velocity = np.asarray(posed_joints[1:], dtype=np.float64) - np.asarray(
-        posed_joints[:-1], dtype=np.float64
-    )
-    return np.linalg.norm(velocity[1:] - velocity[:-1], axis=-1).max(axis=-1)
+
+def _is_sequence(value) -> bool:
+    """True for nested array-like rows, False for scalars (incl. numpy 0-d)."""
+    if isinstance(value, (str, bytes, dict)):
+        return False
+    if hasattr(value, "shape") and getattr(value, "shape", None) == ():
+        return False
+    return hasattr(value, "__iter__")
+
+
+def _iter_leaves(row):
+    """Yield (index_tuple, scalar) for every leaf scalar in a nested sequence.
+
+    Walks arbitrarily nested lists/tuples/numpy rows via ordinary iteration and
+    float(), so no module-scope numpy import is needed. The index is the path of
+    subscripts after the first (frame) axis, matching how the caller reports it.
+    """
+    stack = [((), row)]
+    while stack:
+        prefix, node = stack.pop()
+        if not _is_sequence(node):
+            yield prefix, node
+            continue
+        for i in reversed(range(len(node))):
+            stack.append((prefix + (i,), node[i]))
 
 
 def _posed_joint_jumps(posed_joints):
@@ -474,36 +514,6 @@ def _quaternion_to_matrix(quaternion, device):
     return torch.tensor(
         _quaternion_matrix_rows(quaternion), device=device, dtype=torch.float32
     )
-
-
-def rank_samples(costs) -> int:
-    """Index of the winning sample given each sample's cost tuple.
-
-    Lexicographic on the FIRST TWO terms only: worst measured constraint error,
-    then peak joint acceleration. Later terms (travel) are reported for visibility
-    and must NOT rank -- including travel would silently make it a third
-    tie-breaker preferring whichever draw happens to move less. Ties keep the
-    lowest index so a rerun with the same seed picks the same draw.
-
-    Pure and stdlib-only so the ordering, which is load-bearing, carries a repo
-    test instead of resting on a live GPU run.
-    """
-    if not costs:
-        raise ValueError("rank_samples needs at least one sample cost.")
-
-    def key(cost):
-        # A NaN loses every comparison, so a diverged draw sitting at index 0 was
-        # never displaced and won outright. Map non-finite to +inf so it can only
-        # ever lose. Python's min had the same hole; this closes it.
-        return tuple(
-            math.inf if not math.isfinite(term) else term for term in cost[:2]
-        )
-
-    best = 0
-    for index in range(1, len(costs)):
-        if key(costs[index]) < key(costs[best]):
-            best = index
-    return best
 
 
 def _geodesic_degrees(a, b) -> float:
@@ -864,11 +874,6 @@ def main():
         raise ValueError("--prompt must be non-empty.")
     if args.duration <= 0:
         raise ValueError(f"--duration must be > 0 seconds, got {args.duration}.")
-    if not 1 <= args.num_samples <= 8:
-        raise ValueError(
-            f"--num-samples must be 1..8, got {args.num_samples}; each sample is a "
-            "full sampling pass on a shared GPU."
-        )
     if not 0.0 < args.contact_threshold < 1.0:
         raise ValueError(
             f"--contact-threshold must be strictly between 0 and 1, got "
@@ -969,12 +974,10 @@ def main():
         device=device,
     )
 
-    def sample_once(sample_index: int):
+    def sample_once():
         """One full sampling pass, post-processed and converted, as motion_dict."""
         if args.seed is not None:
-            # Derive a distinct seed per sample so N draws are genuinely different
-            # while the whole run stays reproducible from one --seed.
-            seed_everything(args.seed + sample_index)
+            seed_everything(args.seed)
         with torch.no_grad():
             motion = model(
                 [prompt],
@@ -1014,106 +1017,19 @@ def main():
             for key, value in sampled.items()
         }
 
-    def sample_cost(candidate: dict) -> tuple:
-        """(worst constraint error, peak joint acceleration, travel) for a sample.
+    motion_dict = sample_once()
 
-        Only the first two terms rank; travel is carried for visibility. The
-        constraint term is the worst MEASURED error across every kind requested.
-
-        Measured on the candidate's own npz arrays, never asserted. Combines every
-        constraint kind that carries a distance so a run with only a path or only a
-        pose is still ranked; orientation is folded in as its own angular term
-        rather than being ignored, and a run with no measurable constraint at all
-        ranks every sample equally so the first draw wins.
-        """
-        joints = np.asarray(candidate["posed_joints"])
-        rotations = np.asarray(candidate["global_rot_mats"])
-        costs = [
-            entry["achieved_error_m"]
-            for entry in measure_residuals(targets, base_positions, joints, skeleton)[0]
-        ]
-        costs += [
-            entry["achieved_error_m"]
-            for entry in measure_waypoints(waypoints, joints, skeleton)
-        ]
-        costs += [
-            entry["shape_max_error_m"]
-            for entry in measure_poses(
-                poses, joints, posed_joints.detach().cpu().numpy(), skeleton.root_idx
-            )
-        ]
-        # Degrees are not meters, so convert at a stated exchange rate rather than
-        # summing raw units: 1 degree of wrist error is treated as 1 mm of contact
-        # error, which keeps a 170 degree miss dominant without letting a fraction
-        # of a degree outrank a real positional miss.
-        costs += [
-            entry["achieved_error_deg"] * 0.001
-            for entry in measure_orientations(
-                orientations, base_rotations, rotations, skeleton
-            )
-        ]
-        constraint_cost = max(costs) if costs else 0.0
-        # Continuity is the tie-breaker, and in practice it decides almost every
-        # run: ARDY lands these end-effector constraints to well under a
-        # millimetre, so ranking on constraint error alone leaves every sample
-        # equal and N>1 would buy nothing. Inter-frame jump varies far more
-        # between draws, so a tie on contacts is broken by the smoother clip.
-        accelerations = _posed_joint_accelerations(joints)
-        # Travel is reported but deliberately NOT ranked. The tie-breaker rewards
-        # a smaller max jump, and a clip that barely moves also has small jumps --
-        # so in principle a near-static sample could win a tie. It cannot win a
-        # meaningful one: the tie is on constraint error, and a static body cannot
-        # reach a contact it is asked for, so it loses the primary key first. The
-        # exception is a request a static clip genuinely satisfies, say a single
-        # waypoint at the character's own start. There, preferring the calmer clip
-        # is right. But the tie-breaker CANNOT SEE THE PROMPT, so for a motion
-        # prompt that is under-constrained ("a person waves while standing", pinned
-        # only at its own start) a near-static draw ties and wins over correctly
-        # animated ones. The fix in that case is to constrain the motion itself
-        # with --constrain-path, not to change the ranking. Travel is surfaced so
-        # the situation is visible in the receipt rather than inferred.
-        root = joints[:, skeleton.root_idx, :]
-        travel = float(np.linalg.norm(root[-1] - root[0]))
-        return (
-            round(constraint_cost, 6),
-            round(float(accelerations.max()), 6),
-            round(travel, 4),
-        )
-
-    samples = []
-    for index in range(args.num_samples):
-        candidate = sample_once(index)
-        cost = sample_cost(candidate)
-        samples.append({"index": index, "cost": cost, "motion": candidate})
-        print(
-            f"    sample {index}: worst constraint error {cost[0]:.6f} m, "
-            f"peak accel {cost[1]:.4f} m, travel {cost[2]:.4f} m"
-        )
-    chosen = samples[rank_samples([entry["cost"] for entry in samples])]
-    motion_dict = chosen["motion"]
-    selection = {
-        "num_samples": args.num_samples,
-        "chosen_index": chosen["index"],
-        "sample_costs": [
-            {
-                "constraint_error_m": entry["cost"][0],
-                "peak_acceleration_m": entry["cost"][1],
-                "travel_m": entry["cost"][2],
-            }
-            for entry in samples
-        ],
-        "metric": (
-            "lexicographic: worst measured constraint error first (meters, with "
-            "orientation degrees weighted at 0.001 m/deg), then max inter-frame "
-            "acceleration as the tie-breaker; ties beyond that keep the lowest index. "
-            "travel_m is reported for visibility and is NOT ranked"
-        ),
-    }
-    if args.num_samples > 1:
-        print(
-            f"    chose sample {chosen['index']} of {args.num_samples} "
-            f"(constraint {chosen['cost'][0]:.6f} m, peak accel {chosen['cost'][1]:.4f} m, "
-            f"travel {chosen['cost'][2]:.4f} m)"
+    # A diverged clip (NaN/Inf in any array bound for the npz) must be rejected
+    # outright, not measured and saved. NaN comparisons are always False, so a
+    # threshold check would silently pass it; find_non_finite walks every member
+    # with math.isfinite instead. Failing here keeps the error honest rather than
+    # reporting garbage measurements first.
+    non_finite = find_non_finite(motion_dict)
+    if non_finite is not None:
+        raise ValueError(
+            f"generated motion diverged: {non_finite['member']} frame "
+            f"{non_finite['frame']} index {non_finite['index']} is "
+            f"{non_finite['value']!r}; refusing to save or measure a non-finite clip."
         )
 
     generated_joints = np.asarray(motion_dict["posed_joints"])
@@ -1141,7 +1057,6 @@ def main():
         "model": resolved_model,
         "targets": reported,
         "residual": residual,
-        "selection": selection,
         "orientations": orientation_report,
         "poses": pose_report,
         "waypoints": waypoint_report,

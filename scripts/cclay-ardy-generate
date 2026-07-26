@@ -53,12 +53,11 @@ usage() {
   {
     echo 'usage: cclay-ardy-generate "<prompt>" [--duration N] [--seed S] [--project DIR]'
     echo '       cclay-ardy-generate --segment "<prompt>" <seconds> [--segment "<prompt>" <seconds> ...] [--seed S] [--project DIR]'
-    echo '       cclay-ardy-generate "<prompt>" --duration N --base-motion <motion_id> --constrain <frame> <joint> <x> <y> <z> [--constrain ...] [--constrain-orient <frame> <joint> <qw> <qx> <qy> <qz> ...] [--constrain-pose <src-motion-id> <src-frame> <dst-frame> ...] [--constrain-path <frame> <x> <z> <heading> ...] [--cfg-weight <text> <constraint>] [--samples N] [--contact-threshold T] [--root-margin M]'
+    echo '       cclay-ardy-generate "<prompt>" --duration N --base-motion <motion_id> --constrain <frame> <joint> <x> <y> <z> [--constrain ...] [--constrain-orient <frame> <joint> <qw> <qx> <qy> <qz> ...] [--constrain-pose <src-motion-id> <src-frame> <dst-frame> ...] [--constrain-path <frame> <x> <z> <heading> ...] [--cfg-weight <text> <constraint>] [--contact-threshold T] [--root-margin M]'
     echo '         joint is one of LeftFoot RightFoot LeftHand RightHand; x y z are npz space (Y-up, meters, motion-local)'
     echo '         --constrain-orient qw qx qy qz is a unit quaternion: the joint'"'"'s GLOBAL rotation in npz space (Y-up) at that frame'
     echo '         --constrain-pose copies the full-body pose at <src-frame> of local motion <src-motion-id> onto <dst-frame>'
     echo '         --constrain-path x z are npz space (meters, motion-local) root coordinates; heading is radians or the literal none'
-    echo '         --samples draws N (1..8) ARDY samples and keeps the one with the lowest measured constraint error, tie-broken by smoothest motion'
     echo '         --contact-threshold is the post-process foot-contact probability cut-off, strictly between 0 and 1'
     echo '         --root-margin is the post-process root-correction margin in meters, 0 to 0.5'
   } >&2
@@ -81,7 +80,6 @@ CONSTRAIN_ARGS=()
 CONSTRAIN_COUNT=0
 CFG_TEXT=""
 CFG_CONSTRAINT=""
-SAMPLES=""
 CONTACT_THRESHOLD=""
 ROOT_MARGIN=""
 ORIENT_COUNT=0
@@ -195,12 +193,6 @@ while [[ $# -gt 0 ]]; do
         [[ "$weight" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --cfg-weight values must be numbers, got '$weight'" >&2; usage; }
       done
       CFG_TEXT="$2"; CFG_CONSTRAINT="$3"; shift 3 ;;
-    --samples)
-      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --samples needs an integer 1..8" >&2; usage; }
-      [[ -z "$SAMPLES" ]] || { echo "cclay-ardy-generate: --samples may only be given once" >&2; usage; }
-      [[ "$2" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --samples must be an integer 1..8, got '$2'" >&2; usage; }
-      awk -v n="$2" 'BEGIN { exit !(n >= 1 && n <= 8) }' || { echo "cclay-ardy-generate: --samples must be an integer 1..8, got '$2'" >&2; usage; }
-      SAMPLES="$2"; shift 2 ;;
     --contact-threshold)
       [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --contact-threshold needs a probability" >&2; usage; }
       [[ -z "$CONTACT_THRESHOLD" ]] || { echo "cclay-ardy-generate: --contact-threshold may only be given once" >&2; usage; }
@@ -239,10 +231,6 @@ if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 && -z "$BASE_MOTION" ]]; then
 fi
 if [[ -n "$BASE_MOTION" && $TOTAL_CONSTRAIN_COUNT -eq 0 ]]; then
   echo "cclay-ardy-generate: --base-motion is only used by --constrain, --constrain-orient, --constrain-pose, or --constrain-path" >&2
-  usage
-fi
-if [[ -n "$SAMPLES" && -z "$BASE_MOTION" ]]; then
-  echo "cclay-ardy-generate: --samples needs --base-motion; ARDY multi-sample selection only runs inside the constrained generation pass" >&2
   usage
 fi
 if [[ -n "$CONTACT_THRESHOLD" && -z "$BASE_MOTION" ]]; then
@@ -417,7 +405,6 @@ if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 ]]; then
   fi
   [[ -n "$SEED" ]] && REMOTE_CMD+=" --seed $(printf '%q' "$SEED")"
   [[ -n "$CFG_TEXT" ]] && REMOTE_CMD+=" --cfg_weight $(printf '%q' "$CFG_TEXT") $(printf '%q' "$CFG_CONSTRAINT")"
-  [[ -n "$SAMPLES" ]] && REMOTE_CMD+=" --num-samples $(printf '%q' "$SAMPLES")"
   [[ -n "$CONTACT_THRESHOLD" ]] && REMOTE_CMD+=" --contact-threshold $(printf '%q' "$CONTACT_THRESHOLD")"
   [[ -n "$ROOT_MARGIN" ]] && REMOTE_CMD+=" --root-margin $(printf '%q' "$ROOT_MARGIN")"
 

@@ -699,13 +699,7 @@ describe("cclay-ardy-generate clip frame range guards", () => {
 	});
 });
 
-describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards", () => {
-	it("rejects --samples without a base motion", () => {
-		const { status, output } = run(makeProject(), ["--samples", "3"]);
-		assert.equal(status, 2);
-		assert.match(output, /--samples needs --base-motion/);
-	});
-
+describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 	it("rejects --contact-threshold without a base motion", () => {
 		const { status, output } = run(makeProject(), ["--contact-threshold", "0.6"]);
 		assert.equal(status, 2);
@@ -716,25 +710,6 @@ describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards
 		const { status, output } = run(makeProject(), ["--root-margin", "0.1"]);
 		assert.equal(status, 2);
 		assert.match(output, /--root-margin needs --base-motion/);
-	});
-
-	it("rejects --samples given twice", () => {
-		const { status, output } = run(makeProject(), [
-			"--base-motion",
-			"abc",
-			"--constrain",
-			"5",
-			"LeftFoot",
-			"0",
-			"0",
-			"0",
-			"--samples",
-			"3",
-			"--samples",
-			"4",
-		]);
-		assert.equal(status, 2);
-		assert.match(output, /--samples may only be given once/);
 	});
 
 	it("rejects --contact-threshold given twice", () => {
@@ -775,25 +750,6 @@ describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards
 		assert.match(output, /--root-margin may only be given once/);
 	});
 
-	for (const samples of ["0", "9", "1.5", "abc"]) {
-		it(`rejects --samples ${samples}`, () => {
-			const { status, output } = run(makeProject(), [
-				"--base-motion",
-				"abc",
-				"--constrain",
-				"5",
-				"LeftFoot",
-				"0",
-				"0",
-				"0",
-				"--samples",
-				samples,
-			]);
-			assert.equal(status, 2);
-			assert.match(output, /--samples must be an integer 1\.\.8/);
-		});
-	}
-
 	for (const threshold of ["0", "1", "1.5"]) {
 		it(`rejects --contact-threshold ${threshold}`, () => {
 			const { status, output } = run(makeProject(), [
@@ -831,28 +787,6 @@ describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards
 			assert.match(output, /--root-margin must be a number 0\.\.0\.5/);
 		});
 	}
-
-	it("accepts the --samples boundaries 1 and 8", () => {
-		for (const samples of ["1", "8"]) {
-			const root = makeProject();
-			writeMotion(root, "abc");
-			const { status, output } = runToSsh(root, [
-				"--base-motion",
-				"abc",
-				"--constrain",
-				"5",
-				"LeftFoot",
-				"0",
-				"0",
-				"0",
-				"--samples",
-				samples,
-			]);
-			assert.notEqual(status, 2, `samples ${samples}: ${output}`);
-			assert.match(output, /syncing constrained script and base motion/);
-			assert.doesNotMatch(output, /must be an integer/);
-		}
-	});
 
 	it("accepts the --contact-threshold boundaries 0.001 and 0.999", () => {
 		for (const threshold of ["0.001", "0.999"]) {
@@ -898,7 +832,7 @@ describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards
 		}
 	});
 
-	it("accepts a well-formed combined --samples/--contact-threshold/--root-margin invocation and reaches the point where it would ssh", () => {
+	it("accepts a well-formed combined --contact-threshold/--root-margin invocation and reaches the point where it would ssh", () => {
 		const root = makeProject();
 		writeMotion(root, "abc");
 		const { status, output } = runToSsh(root, [
@@ -910,8 +844,6 @@ describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards
 			"0",
 			"0",
 			"0",
-			"--samples",
-			"4",
 			"--contact-threshold",
 			"0.6",
 			"--root-margin",
@@ -920,7 +852,26 @@ describe("cclay-ardy-generate --samples/--contact-threshold/--root-margin guards
 		assert.notEqual(status, 2);
 		assert.match(output, /syncing constrained script and base motion/);
 		assert.doesNotMatch(output, /needs --base-motion/);
-		assert.doesNotMatch(output, /must be an integer/);
 		assert.doesNotMatch(output, /must be a number/);
+	});
+
+	it("rejects --samples as an unknown option before reaching ssh", () => {
+		const root = makeProject();
+		writeMotion(root, "abc");
+		const { status, output } = run(root, [
+			"--base-motion",
+			"abc",
+			"--constrain",
+			"5",
+			"LeftFoot",
+			"0",
+			"0",
+			"0",
+			"--samples",
+			"3",
+		]);
+		assert.equal(status, 2);
+		assert.match(output, /unknown option --samples/);
+		assert.doesNotMatch(output, /syncing constrained script and base motion/);
 	});
 });

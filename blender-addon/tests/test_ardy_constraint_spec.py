@@ -19,6 +19,7 @@ import math
 import pathlib
 import sys
 import unittest
+import unittest.mock
 
 SCRIPT = (
     pathlib.Path(__file__).parents[2] / "scripts" / "ardy" / "cclay_constrained_generate.py"
@@ -263,57 +264,141 @@ class RotationMathTests(unittest.TestCase):
         self.assertAlmostEqual(ccg._geodesic_degrees(IDENTITY, turned), 180.0, places=4)
 
 
-class SampleRankingTests(unittest.TestCase):
-    """The best-of-N ordering is load-bearing, so it is pinned here.
+class FiniteOutputGuardTests(unittest.TestCase):
+    """A diverged clip (NaN/Inf) must be rejected before any measurement or save.
 
-    A regression in any of these (ranking three terms instead of two, min becoming
-    max, the tuple order swapping) would ship green otherwise: the wrapper suite
-    stops at the ssh boundary and the live GPU run is not a repo test.
+    The old best-of-N ranking mapped non-finite cost terms to +inf so a diverged
+    draw could never win. With ranking gone that protection cannot vanish: a
+    diverged clip must be refused outright. A threshold comparison CANNOT do this
+    (NaN comparisons are always False), so find_non_finite walks every array bound
+    for the npz with math.isfinite instead. Stdlib-only so it runs here without
+    numpy/torch/ardy.
     """
 
-    def test_constraint_error_outranks_smoothness(self):
-        """Hitting the contact comes first; a silky clip that misses is still wrong."""
-        self.assertEqual(
-            ccg.rank_samples([(0.10, 0.01, 2.0), (0.00, 0.90, 2.0)]), 1
+    NAN = float("nan")
+    INF = float("inf")
+
+    @staticmethod
+    def _clip(**overrides):
+        """A small finite motion_dict (all-finite baseline) with optional overrides."""
+        frame = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        base = {
+            "posed_joints": [[[0.0, 0.0, 0.0], [0.1, 0.2, 0.3]]],
+            "global_rot_mats": [[frame]],
+            "local_rot_mats": [[frame]],
+            "root_positions": [[0.0, 0.0, 0.0]],
+            "foot_contacts": [[0.0, 1.0, 0.0]],
+        }
+        base.update(overrides)
+        return base
+
+    def test_all_finite_returns_none(self):
+        self.assertIsNone(ccg.find_non_finite(self._clip()))
+
+    def test_a_nan_is_found_with_member_frame_and_index(self):
+        """The report must name where the divergence is, not just that one exists."""
+        clip = self._clip(
+            posed_joints=[[[0.0, 0.0, 0.0], [self.NAN, 0.2, 0.3]]]
         )
+        result = ccg.find_non_finite(clip)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["member"], "posed_joints")
+        self.assertEqual(result["frame"], 0)
+        self.assertEqual(result["index"], (1, 0))
+        self.assertTrue(math.isnan(result["value"]))
 
-    def test_acceleration_breaks_a_constraint_tie(self):
-        """The common case: ARDY lands these contacts to under a millimetre, so
-        nearly every real run is decided by this term rather than the first.
+    def test_positive_and_negative_inf_are_found(self):
+        """Both signs of infinity are non-finite; a threshold check would miss NaN
+        but must also not special-case +inf over -inf.
         """
-        self.assertEqual(
-            ccg.rank_samples([(0.0, 0.44, 2.7), (0.0, 0.24, 1.9), (0.0, 0.33, 2.8)]), 1
+        for bad, label in ((self.INF, "pos"), (-self.INF, "neg")):
+            with self.subTest(sign=label):
+                clip = self._clip(root_positions=[[bad, 0.0, 0.0]])
+                result = ccg.find_non_finite(clip)
+                self.assertIsNotNone(result)
+                self.assertEqual(result["member"], "root_positions")
+                self.assertEqual(result["frame"], 0)
+                self.assertEqual(result["index"], (0,))
+                self.assertEqual(result["value"], bad)
+
+    def test_detection_covers_members_outside_the_joints(self):
+        """The guard must cover EVERY member save_motion_npz serializes, not only
+        posed_joints/global_rot_mats. local_rot_mats, root_positions and
+        foot_contacts are saved too, so a divergence there is just as fatal.
+        """
+        for member, shape in (
+            ("local_rot_mats", [[[[self.NAN, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]]]),
+            ("root_positions", [[0.0, self.NAN, 0.0]]),
+            ("foot_contacts", [[0.0, 1.0, self.NAN]]),
+        ):
+            with self.subTest(member=member):
+                clip = self._clip(**{member: shape})
+                result = ccg.find_non_finite(clip)
+                self.assertIsNotNone(result)
+                self.assertEqual(result["member"], member)
+
+    def test_detection_does_not_depend_on_iteration_order(self):
+        """A NaN in the last member when sorted alphabetically is still found."""
+        clip = self._clip(zzz_last_member=[[self.NAN]])
+        result = ccg.find_non_finite(clip)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["member"], "zzz_last_member")
+
+    def test_integer_and_boolean_members_are_never_reported(self):
+        """Integer and boolean arrays are always finite; reporting them would be a
+        false alarm that blocks a valid clip.
+        """
+        clip = self._clip(
+            foot_contacts=[[1, 0, 1]],          # plain ints / bools
+            frame_counts=[[10, 20]],            # integer member
         )
+        self.assertIsNone(ccg.find_non_finite(clip))
 
-    def test_travel_is_reported_but_never_ranked(self):
-        """Including travel would quietly make it a third tie-breaker preferring
-        whichever draw moved less, which is the opposite of a quality signal.
+    def test_sorted_member_order_not_insertion_order(self):
+        """Members are visited in sorted name order, not dict insertion order, so
+        the report is deterministic regardless of how the dict was built. Build the
+        dict with a later-sorted member inserted FIRST: sorted iteration must still
+        report the alphabetically-earlier member.
         """
-        self.assertEqual(ccg.rank_samples([(0.0, 0.2, 0.05), (0.0, 0.2, 9.9)]), 0)
-        self.assertEqual(ccg.rank_samples([(0.0, 0.2, 9.9), (0.0, 0.2, 0.05)]), 0)
+        # root_positions sorts AFTER posed_joints, but is inserted first here.
+        clip = {
+            "root_positions": [[self.INF, 0.0, 0.0]],
+            "posed_joints": [[[self.NAN, 0.0, 0.0]]],
+        }
+        result = ccg.find_non_finite(clip)
+        self.assertEqual(result["member"], "posed_joints")
 
-    def test_ties_keep_the_lowest_index_so_a_seeded_rerun_is_stable(self):
-        self.assertEqual(ccg.rank_samples([(0.0, 0.2, 1.0)] * 4), 0)
 
-    def test_a_diverged_sample_cannot_win_from_the_lowest_index(self):
-        """NaN loses every comparison, so a diverged draw at index 0 used to win
-        outright -- Python's own min has the same hole. Non-finite ranked terms are
-        mapped to +inf so they can only ever lose.
-        """
-        nan = float("nan")
-        self.assertEqual(ccg.rank_samples([(nan, 0.01, 1.0), (0.0, 0.90, 1.0)]), 1)
-        self.assertEqual(ccg.rank_samples([(0.0, nan, 1.0), (0.0, 0.90, 1.0)]), 1)
-        self.assertEqual(
-            ccg.rank_samples([(float("inf"), 0.01, 1.0), (0.5, 0.90, 1.0)]), 1
-        )
-        # Every draw diverged: there is no good answer, so keep index 0 rather
-        # than raising, and let the reported costs show what happened.
-        self.assertEqual(ccg.rank_samples([(nan, nan, 1.0), (nan, nan, 1.0)]), 0)
+class ArgParseTests(unittest.TestCase):
+    """--num-samples must be GONE, not merely unused: argparse must reject it.
 
-    def test_single_sample_and_empty_input(self):
-        self.assertEqual(ccg.rank_samples([(0.5, 0.5, 0.5)]), 0)
-        with self.assertRaises(ValueError):
-            ccg.rank_samples([])
+    parse_args is module-level and stdlib-only, so it can be exercised here by
+    patching sys.argv. A minimal valid argv must still parse, so the rejection
+    test cannot pass vacuously by rejecting everything.
+    """
+
+    MINIMAL = [
+        "cclay_constrained_generate.py",
+        "--prompt", "a person waves",
+        "--duration", "2",
+        "--base", "/tmp/base.npz",
+        "--target", "5", "LeftFoot", "0.1", "0.2", "0.3",
+    ]
+
+    def test_num_samples_flag_is_rejected(self):
+        """The flag is deleted from the parser, so argparse exits with code 2."""
+        with self.assertRaises(SystemExit) as caught:
+            with unittest.mock.patch.object(sys, "argv", self.MINIMAL + ["--num-samples", "4"]):
+                ccg.parse_args()
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_a_minimal_valid_argv_still_parses(self):
+        """Guard against the rejection test passing by rejecting everything."""
+        with unittest.mock.patch.object(sys, "argv", self.MINIMAL):
+            args = ccg.parse_args()
+        self.assertEqual(args.prompt, "a person waves")
+        self.assertEqual(args.duration, 2.0)
+        self.assertFalse(hasattr(args, "num_samples"))
 
 
 class ResidualTests(unittest.TestCase):
