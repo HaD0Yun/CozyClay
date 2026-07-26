@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -89,6 +89,66 @@ function runToSsh(project: string, args: string[]): { status: number; output: st
 			status: failure.status ?? -1,
 			output: `${failure.stdout ?? ""}${failure.stderr ?? ""}`,
 		};
+	}
+}
+/**
+ * Drive the wrapper PAST remote-command construction by shadowing ssh/scp on
+ * PATH with fakes, so the suite can observe the exact command the wrapper
+ * assembled at scripts/cclay-ardy-generate:393-410 instead of dying at the
+ * first real scp.
+ *
+ * The fake scp exits 0 (it neither uploads nor downloads anything). The fake
+ * ssh appends its full argv to a capture file and prints a one-line JSON
+ * object with positive integer frames/fps so the wrapper's parser proceeds.
+ * The wrapper still fails AFTER the captured generation ssh: the fake scp at
+ * the download step writes no npz, so the subsequent chmod on the missing file
+ * exits non-zero under `set -e`. That is expected and out of scope — the
+ * captured command is the observation under test, not the final exit status.
+ */
+function runWithFakeTransport(project: string, args: string[]): { status: number; output: string; sshArgv: string } {
+	const binDir = mkdtempSync(join(tmpdir(), "cclay-ardy-fake-bin-"));
+	const capture = join(tmpdir(), `cclay-ardy-ssh-argv-${process.pid}-${Date.now()}.txt`);
+	// Fake scp: succeed without moving any bytes.
+	const fakeScp = join(binDir, "scp");
+	writeFileSync(fakeScp, `#!/bin/sh\nexit 0\n`, { encoding: "utf8", mode: 0o755 });
+	// Fake ssh: record its full argv and emit a minimal valid JSON line so the
+	// wrapper's json_int/last-line parser proceeds past command construction.
+	const fakeSsh = join(binDir, "ssh");
+	writeFileSync(fakeSsh, `#!/bin/sh\nprintf '%s\\0' "$@" >> ${capture}\nprintf '{"frames":60,"fps":20}\\n'\n`, {
+		encoding: "utf8",
+		mode: 0o755,
+	});
+	chmodSync(fakeScp, 0o755);
+	chmodSync(fakeSsh, 0o755);
+	let sshArgv = "";
+	try {
+		const output = execFileSync(WRAPPER, ["x", "--project", project, ...args], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			env: { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}`, CCLAY_ARDY_HOST: "fake-host" },
+		});
+		sshArgv = readCapture(capture);
+		return { status: 0, output, sshArgv };
+	} catch (error) {
+		const failure = error as { status?: number; stdout?: string; stderr?: string };
+		sshArgv = readCapture(capture);
+		return {
+			status: failure.status ?? -1,
+			output: `${failure.stdout ?? ""}${failure.stderr ?? ""}`,
+			sshArgv,
+		};
+	}
+}
+
+/** Read the NUL-separated argv records the fake ssh appended. */
+function readCapture(capture: string): string {
+	try {
+		const raw = readFileSync(capture, "utf8");
+		// Each ssh invocation wrote one NUL-terminated argv record; join the
+		// tokens of every record so callers can match against the merged text.
+		return raw.replace(/\0/g, " ").trim();
+	} catch {
+		return "";
 	}
 }
 
@@ -873,5 +933,58 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 		assert.equal(status, 2);
 		assert.match(output, /unknown option --samples/);
 		assert.doesNotMatch(output, /syncing constrained script and base motion/);
+	});
+});
+
+// The constrained remote-command construction block
+// (scripts/cclay-ardy-generate:393-410) is unreachable under runToSsh: the
+// fake unreachable host kills the wrapper at the first scp, BEFORE the block
+// runs. These tests shadow ssh/scp on PATH so the wrapper proceeds past the
+// sync step, assembles REMOTE_CMD, and invokes the fake ssh — whose captured
+// argv is a real observation of that block executing, not a simulation. The
+// wrapper is expected to fail AFTER the captured ssh (the fake scp download
+// writes no npz, so the post-download chmod exits non-zero); we assert on the
+// captured command, not the final status.
+describe("cclay-ardy-generate constrained remote command construction", () => {
+	const BASE_ARGS = ["--base-motion", "abc", "--constrain", "5", "LeftFoot", "0.1", "0.2", "0.3"] as const;
+
+	it("reaches remote-command execution and forwards the constrained script invocation plus --prompt/--base/--output", () => {
+		const root = makeProject();
+		writeMotion(root, "abc");
+		const { sshArgv } = runWithFakeTransport(root, [...BASE_ARGS]);
+		// The capture is non-empty only if the wrapper actually invoked ssh
+		// past the sync step; runToSsh dies at scp and would leave it empty.
+		assert.notEqual(sshArgv, "", "wrapper never reached the ssh remote-command call");
+		assert.match(sshArgv, /scripts\/cclay_constrained_generate\.py/);
+		assert.match(sshArgv, /--prompt/);
+		assert.match(sshArgv, /--base/);
+		assert.match(sshArgv, /--output/);
+	});
+
+	it("does not forward --num-samples (best-of-N sampling was removed)", () => {
+		const root = makeProject();
+		writeMotion(root, "abc");
+		const { sshArgv } = runWithFakeTransport(root, [...BASE_ARGS]);
+		assert.notEqual(sshArgv, "", "wrapper never reached the ssh remote-command call");
+		assert.doesNotMatch(sshArgv, /--num-samples/);
+	});
+
+	it("forwards --contact-threshold and --root-margin when given, proving the harness can observe forwarding", () => {
+		// This is the vacuity guard for the --num-samples test above: if the
+		// harness could not observe the forwarding block at all, the
+		// --num-samples assertion would pass trivially. Real flags that the
+		// block forwards (scripts/cclay-ardy-generate:408-409) MUST appear.
+		const root = makeProject();
+		writeMotion(root, "abc");
+		const { sshArgv } = runWithFakeTransport(root, [
+			...BASE_ARGS,
+			"--contact-threshold",
+			"0.6",
+			"--root-margin",
+			"0.1",
+		]);
+		assert.notEqual(sshArgv, "", "wrapper never reached the ssh remote-command call");
+		assert.match(sshArgv, /--contact-threshold/);
+		assert.match(sshArgv, /--root-margin/);
 	});
 });

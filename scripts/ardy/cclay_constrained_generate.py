@@ -258,20 +258,24 @@ def save_motion_npz(path: str, motion_dict: dict, fps: float, text: str) -> None
 
 
 def find_non_finite(motion_dict):
-    """First non-finite value in any numeric array bound for the npz, or None.
+    """First non-finite value in any numeric member bound for the npz, or None.
 
-    Walks every member save_motion_npz serializes (posed_joints, global_rot_mats,
-    local_rot_mats, root_positions, foot_contacts) and returns a dict naming the
-    member, the first-axis frame index, the remaining indices and the value of the
-    first non-finite entry, or None when everything is finite. Members are visited
-    in sorted name order so the report is deterministic.
+    Walks EVERY member save_motion_npz serializes (today posed_joints,
+    global_rot_mats, local_rot_mats, root_positions, foot_contacts, but the loop
+    is generic so a future member is covered without touching this function) and
+    returns a dict naming the member, the first-axis frame index, the remaining
+    indices and the first non-finite value, or None when all are finite. Sorted
+    name order keeps the report deterministic.
 
-    Stdlib-only: math.isfinite over numpy arrays via ordinary indexing/iteration
-    and float(), with no module-scope numpy import, so this carries a repo
-    regression test on a machine that has no numpy. Integer and boolean members
-    are always finite and are never reported. A threshold comparison CANNOT do
-    this job: NaN comparisons are always False, so ``value > threshold`` silently
-    passes a diverged clip; the explicit isfinite check is the only honest guard.
+    A member with no frame axis (a scalar / 0-D value) is reported with frame
+    None and index () instead of crashing on enumerate(), since this guard runs
+    only when output is already suspect. Stdlib-only: math.isfinite over numpy
+    arrays via ordinary iteration and float(), with no module-scope numpy import,
+    so this carries a repo regression test on a machine that has no numpy.
+    Integer and boolean members are always finite and are never reported. A
+    threshold comparison CANNOT do this job: NaN comparisons are always False, so
+    ``value > threshold`` silently passes a diverged clip; the explicit isfinite
+    check is the only honest guard.
     """
     for member in sorted(motion_dict):
         array = motion_dict[member]
@@ -282,9 +286,16 @@ def find_non_finite(motion_dict):
         dtype = getattr(array, "dtype", None)
         if dtype is not None and dtype.kind in ("b", "i", "u"):
             continue
+        # A scalar / 0-D member has no frame axis: enumerate() would raise
+        # TypeError. Treat the member itself as the single value, with frame None
+        # and index () so the report honestly says there is no frame axis.
+        if not _is_sequence(array):
+            value = float(array)
+            if not math.isfinite(value):
+                return {"member": member, "frame": None, "index": (), "value": value}
+            continue
         for frame, row in enumerate(array):
-            # A scalar member has no inner structure; treat the member itself as
-            # the frame so the report still names where the divergence is.
+            # A scalar row has no inner structure; report it in place.
             if not _is_sequence(row):
                 value = float(row)
                 if not math.isfinite(value):
@@ -1026,10 +1037,12 @@ def main():
     # reporting garbage measurements first.
     non_finite = find_non_finite(motion_dict)
     if non_finite is not None:
+        frame = non_finite["frame"]
+        frame_desc = "no frame axis" if frame is None else f"frame {frame}"
         raise ValueError(
-            f"generated motion diverged: {non_finite['member']} frame "
-            f"{non_finite['frame']} index {non_finite['index']} is "
-            f"{non_finite['value']!r}; refusing to save or measure a non-finite clip."
+            f"generated motion diverged: {non_finite['member']} {frame_desc} "
+            f"index {non_finite['index']} is {non_finite['value']!r}; "
+            "refusing to save or measure a non-finite clip."
         )
 
     generated_joints = np.asarray(motion_dict["posed_joints"])

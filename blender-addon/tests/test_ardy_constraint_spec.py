@@ -14,6 +14,7 @@ them precisely so this file can import it with plain stdlib. If someone moves an
 which is the intended alarm.
 """
 
+import ast
 import importlib.util
 import math
 import pathlib
@@ -367,6 +368,155 @@ class FiniteOutputGuardTests(unittest.TestCase):
         }
         result = ccg.find_non_finite(clip)
         self.assertEqual(result["member"], "posed_joints")
+
+    @staticmethod
+    def _scalar(value):
+        """A stdlib stub for a numpy 0-D float member.
+
+        Exposes shape == (), dtype.kind == 'f' and __float__ but no __iter__, so
+        it reproduces exactly how a scalar / 0-D numpy value reaches the guard.
+        No numpy on this machine, so the stub stands in for it.
+        """
+        class _Dtype:
+            kind = "f"
+
+        class _Scalar:
+            shape = ()
+            dtype = _Dtype()
+
+            def __float__(self_inner):
+                return float(value)
+
+        return _Scalar()
+
+    def test_a_non_finite_scalar_member_is_reported_not_crashed(self):
+        """A member with no frame axis (0-D) must be reported, not raise
+        TypeError on enumerate(). This guard runs only when output is already
+        suspect, so an opaque crash instead of a named divergence is wrong.
+        """
+        clip = self._clip(posed_joints=self._scalar(self.NAN))
+        result = ccg.find_non_finite(clip)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["member"], "posed_joints")
+        self.assertIsNone(result["frame"])
+        self.assertEqual(result["index"], ())
+        self.assertTrue(math.isnan(result["value"]))
+
+    def test_a_finite_scalar_member_returns_none(self):
+        clip = self._clip(posed_joints=self._scalar(1.5))
+        self.assertIsNone(ccg.find_non_finite(clip))
+
+
+class MainGuardContractTests(unittest.TestCase):
+    """main() invokes the divergence guard in the right place, locked at the AST level.
+
+    main() needs torch and numpy, so it cannot be executed on this machine. A
+    static contract over the parsed source is the idiomatic lock here:
+    ImportSurfaceTests already treats source-level invariants as first-class.
+    Each assertion below fails under a concrete mutation (verified manually for
+    the five mutations named in the story), not just a reorder.
+
+    Compared by source line number of the enclosing statement (ast lineno),
+    which is robust to statements being nested in if blocks and to reordering.
+    """
+
+    MEASURE_NAMES = ("measure_residuals", "measure_orientations",
+                     "measure_poses", "measure_waypoints")
+
+    @classmethod
+    def _main_node(cls):
+        tree = ast.parse(SCRIPT.read_text())
+        mains = [node for node in tree.body
+                 if isinstance(node, ast.FunctionDef) and node.name == "main"]
+        assert mains, "no main() definition in cclay_constrained_generate.py"
+        return mains[0]
+
+    @classmethod
+    def _call_lineno(cls, node, predicate):
+        """First lineno of a Call matching predicate, anywhere inside node."""
+        first = None
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call) and predicate(child):
+                lineno = getattr(child, "lineno")
+                if first is None or lineno < first:
+                    first = lineno
+        return first
+
+    def test_main_calls_find_non_finite(self):
+        lineno = self._call_lineno(
+            self._main_node(),
+            lambda c: isinstance(c.func, ast.Name) and c.func.id == "find_non_finite",
+        )
+        self.assertIsNotNone(lineno, "main() must call find_non_finite")
+
+    def test_main_calls_a_measure_function(self):
+        def is_measure(call):
+            return (isinstance(call.func, ast.Name)
+                    and call.func.id in self.MEASURE_NAMES)
+        lineno = self._call_lineno(self._main_node(), is_measure)
+        self.assertIsNotNone(lineno, "main() must call a measure_* function")
+
+    def test_main_calls_save_motion_npz(self):
+        lineno = self._call_lineno(
+            self._main_node(),
+            lambda c: isinstance(c.func, ast.Name) and c.func.id == "save_motion_npz",
+        )
+        self.assertIsNotNone(lineno, "main() must call save_motion_npz")
+
+    def test_guard_call_precedes_first_measure_call(self):
+        guard = self._call_lineno(
+            self._main_node(),
+            lambda c: isinstance(c.func, ast.Name) and c.func.id == "find_non_finite",
+        )
+        measure = self._call_lineno(
+            self._main_node(),
+            lambda c: (isinstance(c.func, ast.Name)
+                       and c.func.id in self.MEASURE_NAMES),
+        )
+        self.assertIsNotNone(guard)
+        self.assertIsNotNone(measure)
+        self.assertLess(guard, measure,
+                        "find_non_finite must run BEFORE the first measure_* call")
+
+    def test_guard_call_precedes_save_motion_npz(self):
+        guard = self._call_lineno(
+            self._main_node(),
+            lambda c: isinstance(c.func, ast.Name) and c.func.id == "find_non_finite",
+        )
+        save = self._call_lineno(
+            self._main_node(),
+            lambda c: isinstance(c.func, ast.Name) and c.func.id == "save_motion_npz",
+        )
+        self.assertIsNotNone(guard)
+        self.assertIsNotNone(save)
+        self.assertLess(guard, save,
+                        "find_non_finite must run BEFORE save_motion_npz")
+
+    def test_guard_result_raises_inside_main(self):
+        """main() must RAISE on a non-finite clip, not merely report one.
+
+        Asserting the message text alone is not enough: downgrading
+        ``raise ValueError(...)`` to ``print(...)`` keeps every word of the
+        message while letting a diverged clip be measured and saved, which is
+        the exact failure this guard exists to stop. So require a real
+        ast.Raise node inside main() carrying the divergence message. That is
+        structural rather than textual, and it still allows the message to be
+        reworded as long as the divergence wording survives.
+        """
+        source = SCRIPT.read_text()
+        raises = [
+            node
+            for node in ast.walk(self._main_node())
+            if isinstance(node, ast.Raise)
+            and "generated motion diverged" in (ast.get_source_segment(source, node) or "")
+        ]
+        self.assertEqual(
+            len(raises),
+            1,
+            "main() must raise exactly once on a non-finite clip",
+        )
+        segment = ast.get_source_segment(source, raises[0])
+        self.assertIn("refusing to save or measure a non-finite clip", segment)
 
 
 class ArgParseTests(unittest.TestCase):
