@@ -332,11 +332,39 @@ def _non_finite(value):
 
     An object that advertises __float__ and then raises is left to raise: a
     value claiming to be numeric and lying should fail the run loudly.
+
+    Known limit: Python 3 dropped complex.__float__, so a complex leaf is
+    skipped rather than checked. ARDY's outputs are real-valued positions,
+    rotation matrices and contact probabilities, so a complex member cannot
+    occur here; skipping beats the alternative, which is that float() raises
+    TypeError on it and aborts the run.
     """
     if not hasattr(value, "__float__"):
         return None
     as_float = float(value)
     return None if math.isfinite(as_float) else as_float
+
+
+def divergence_message(non_finite: dict) -> str:
+    """The rejection message for a find_non_finite report.
+
+    Extracted so main()'s guard body is exactly one statement, ``raise
+    ValueError(divergence_message(...))``. That lets the source contract require
+    the raise to be the FIRST statement of the guard body, which is an exact
+    reachability invariant: nothing can run ahead of it. Building the message
+    inline forced a weaker allowlist of "safe" preceding statement kinds, and
+    that allowlist admitted sys.exit() and a bare yield while rejecting an
+    ordinary AugAssign.
+
+    Pure and stdlib-only, so the wording carries a repo test.
+    """
+    frame = non_finite["frame"]
+    where = "no frame axis" if frame is None else f"frame {frame}"
+    return (
+        f"generated motion diverged: {non_finite['member']} {where} "
+        f"index {non_finite['index']} is {non_finite['value']!r}; "
+        "refusing to save or measure a non-finite clip."
+    )
 
 
 def _is_sequence(value) -> bool:
@@ -1063,13 +1091,7 @@ def main():
     # reporting garbage measurements first.
     non_finite = find_non_finite(motion_dict)
     if non_finite is not None:
-        frame = non_finite["frame"]
-        frame_desc = "no frame axis" if frame is None else f"frame {frame}"
-        raise ValueError(
-            f"generated motion diverged: {non_finite['member']} {frame_desc} "
-            f"index {non_finite['index']} is {non_finite['value']!r}; "
-            "refusing to save or measure a non-finite clip."
-        )
+        raise ValueError(divergence_message(non_finite))
 
     generated_joints = np.asarray(motion_dict["posed_joints"])
     reported, residual = measure_residuals(targets, base_positions, generated_joints, skeleton)

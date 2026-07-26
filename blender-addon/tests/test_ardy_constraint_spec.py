@@ -627,11 +627,14 @@ class MainGuardContractTests(unittest.TestCase):
         self.assertIsInstance(test.comparators[0], ast.Constant)
         self.assertIsNone(test.comparators[0].value)
 
+        # The divergence raise is now identified by the helper it calls rather
+        # than by inline wording, since main() delegates the message to
+        # divergence_message().
         direct = [
             statement
             for statement in following.body
             if isinstance(statement, ast.Raise)
-            and "generated motion diverged" in (ast.get_source_segment(source, statement) or "")
+            and "divergence_message" in (ast.get_source_segment(source, statement) or "")
         ]
         self.assertEqual(
             len(direct),
@@ -639,36 +642,43 @@ class MainGuardContractTests(unittest.TestCase):
             "the divergence raise must be a DIRECT statement of the guard body, "
             "not nested behind a further condition that could let members through",
         )
-        # Not "the raise must be the body's LAST statement": a direct
-        # unconditional raise already stops everything after it, and that form was
-        # unsound anyway, since a preceding `return` satisfies "last" while making
-        # the raise unreachable. Nor "FIRST", which the real body cannot satisfy
-        # because it builds the message first. The sound invariant is that nothing
-        # ahead of the raise can transfer control away from it.
-        raise_index = following.body.index(direct[0])
-        for earlier in following.body[:raise_index]:
-            self.assertIsInstance(
-                earlier,
-                (ast.Assign, ast.AnnAssign, ast.Expr),
-                "only plain message-building statements may precede the divergence "
-                "raise; a return, branch, loop or try ahead of it could skip the "
-                f"raise entirely (found {type(earlier).__name__})",
-            )
+        # Exact reachability: the raise is the guard body's FIRST statement, so
+        # nothing can run ahead of it. An earlier form allowed "safe" preceding
+        # statement kinds, which was both too weak and too strict -- ast.Expr
+        # admits sys.exit() and a bare yield, while an ordinary AugAssign used to
+        # build the message was rejected. Delegating the wording to
+        # divergence_message() is what makes this simple invariant possible.
+        self.assertIs(
+            direct[0],
+            following.body[0],
+            "the raise must be the guard body's FIRST statement, so nothing can "
+            "exit, branch or loop ahead of it; build the message in "
+            "divergence_message() instead of inline",
+        )
+        self.assertEqual(
+            len(following.body),
+            1,
+            "the guard body must be exactly the raise, nothing else",
+        )
+        # The wording itself lives in the helper and is pinned there, so a
+        # reworded message still fails a test rather than passing silently.
         self.assertIn(
             "refusing to save or measure a non-finite clip",
-            ast.get_source_segment(source, direct[0]),
+            ccg.divergence_message(
+                {"member": "posed_joints", "frame": 3, "index": (1, 1), "value": float("nan")}
+            ),
         )
 
         everywhere = [
             node
             for node in ast.walk(self._main_node())
             if isinstance(node, ast.Raise)
-            and "generated motion diverged" in (ast.get_source_segment(source, node) or "")
+            and "divergence_message" in (ast.get_source_segment(source, node) or "")
         ]
         self.assertEqual(
             len(everywhere),
             1,
-            "a second divergence-worded raise would let the guarded one be downgraded",
+            "a second divergence raise would let the guarded one be downgraded",
         )
 
     def test_exactly_one_sample_is_generated_and_it_is_what_gets_saved(self):
@@ -777,6 +787,29 @@ class MainGuardContractTests(unittest.TestCase):
             1,
             "exactly one model(...) sampling pass: best-of-N removal means one draw",
         )
+
+        # One Call node is not one execution. Wrapping the existing draw in
+        # `for _ in range(2):` inside sample_once leaves exactly one Call node,
+        # one helper definition and one outer motion_dict assignment, so every
+        # count above still passes while two clips are drawn. Verified. So also
+        # require that no repeatable construct encloses the draw.
+        repeatable = (ast.For, ast.AsyncFor, ast.While, ast.comprehension)
+        for node in ast.walk(helpers[0]):
+            if not isinstance(node, repeatable):
+                continue
+            enclosed = [
+                child
+                for child in ast.walk(node)
+                if isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == "model"
+            ]
+            self.assertEqual(
+                enclosed,
+                [],
+                f"the model(...) draw must not sit inside a {type(node).__name__}: "
+                "a loop would generate repeatedly while the call count stays at one",
+            )
 
 
 class ArgParseTests(unittest.TestCase):
