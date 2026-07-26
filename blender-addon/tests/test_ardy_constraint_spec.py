@@ -685,31 +685,25 @@ class MainGuardContractTests(unittest.TestCase):
         """The guarded dict must BE the saved payload, generated exactly once.
 
         Guarding `motion_dict` proves nothing if a different clip is what
-        reaches disk. Changing the save call to
-        ``save_motion_npz(npz_path, sample_once(), fps, prompt)`` satisfied
-        every other assertion here -- the guard still ran on motion_dict, still
-        preceded the save, still controlled its raise -- while generating a
-        SECOND, unguarded draw that could diverge straight into the npz. It also
-        silently broke this story's whole point, one generation per run, and made
-        the reported measurements describe a clip other than the saved one.
-        Rebinding motion_dict between the guard and the save is the same bug.
+        reaches disk. Replacing the save argument with a second generation
+        satisfied every other assertion here -- the guard still ran on
+        motion_dict, still preceded the save, still controlled its raise --
+        while producing a SECOND, unguarded draw that could diverge straight
+        into the npz. It also silently broke this story's whole point, one
+        generation per run, and made the reported measurements describe a clip
+        other than the saved one. Rebinding motion_dict between the guard and
+        the save is the same bug.
 
-        So pin the chain end to end: one sample_once() call, bound to
-        motion_dict once, and that same name handed to the single save.
+        So pin the chain end to end: the sampling pass is inline, motion_dict is
+        assigned once from it, and that same name is handed to the single save.
         """
         main = self._main_node()
 
-        generations = [
-            node
-            for node in ast.walk(main)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "sample_once"
-        ]
-        self.assertEqual(
-            len(generations),
-            1,
-            "exactly one sample_once() call: best-of-N removal means one draw per run",
+        self.assertNotIn(
+            "sample_once",
+            SCRIPT.read_text(),
+            "the sampling pass is inline; a helper callable could be decorated, "
+            "aliased or invoked twice without changing any count here",
         )
 
         assignments = [
@@ -726,12 +720,15 @@ class MainGuardContractTests(unittest.TestCase):
             1,
             "motion_dict must be assigned once; a later rebinding escapes the guard",
         )
-        self.assertIsInstance(assignments[0].value, ast.Call)
-        self.assertEqual(assignments[0].value.func.id, "sample_once")
-        # One syntactic call is not one execution: `for _ in range(2): motion_dict
-        # = sample_once()` keeps every count above at one while generating twice
-        # and saving the second clip. Requiring the assignment on main()'s own
-        # statement list is what rules out repeatable control flow.
+        self.assertIsInstance(
+            assignments[0].value,
+            ast.DictComp,
+            "motion_dict is built inline from the sampled tensors",
+        )
+        # One syntactic statement is not one execution: wrapping the assignment
+        # in `for _ in range(2):` keeps every count above at one while generating
+        # twice and saving the second clip. Requiring it on main()'s own statement
+        # list is what rules out repeatable control flow.
         self.assertIn(
             assignments[0],
             main.body,
@@ -759,25 +756,24 @@ class MainGuardContractTests(unittest.TestCase):
         )
 
     def test_the_sampler_itself_runs_once_per_generation(self):
-        """One sample_once() call is not the same as one sampling pass.
+        """The GPU draw happens once, on main()'s own straight-line path.
 
-        The GPU draw is the `model(...)` call inside the helper, so duplicating
-        it there leaves exactly one sample_once() call, one motion_dict
-        assignment and one save -- the previous test stays green while the run
-        generates twice. Counting the sampler invocation itself is what pins
-        this story's actual claim.
+        Counting a helper call was never the same as counting executions, and
+        three attempts to enumerate "repeatable shapes" around a helper were each
+        defeated in turn: a list comprehension around the draw, a nested draw()
+        invoked twice, and a @retry_once decorator on the helper. Each kept every
+        count at one while drawing twice.
+
+        The sampling pass is therefore inline. With no callable there is nothing
+        to decorate, alias or re-enter, and the only thing left to pin is that
+        the single model(...) call is not nested under anything that repeats or
+        defers it. `if`, `try` and `with` around the draw stay legal, because
+        none of them runs a body more than once per entry.
         """
-        helpers = [
-            node
-            for node in ast.walk(self._main_node())
-            if isinstance(node, ast.FunctionDef) and node.name == "sample_once"
-        ]
-        self.assertEqual(
-            len(helpers), 1, "main() must define sample_once exactly once"
-        )
+        main = self._main_node()
         draws = [
             node
-            for node in ast.walk(helpers[0])
+            for node in ast.walk(main)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "model"
@@ -788,21 +784,8 @@ class MainGuardContractTests(unittest.TestCase):
             "exactly one model(...) sampling pass: best-of-N removal means one draw",
         )
 
-        # One Call node is not one execution, and a node-type scan gets this
-        # wrong twice over. An earlier version listed ast.comprehension, which is
-        # the WRONG node: a comprehension keeps its repeated element expression on
-        # the ListComp/SetComp/DictComp/GeneratorExp container, while the
-        # comprehension clause holds only target, iter and ifs. So
-        # `motion = [model(...) for _ in range(2)][-1]` was never seen. It also
-        # missed a nested callable: defining `draw()` around the sole model call
-        # and invoking it twice passed every count. Both verified.
-        #
-        # So walk the unique draw's ANCESTORS instead. Nothing repeatable and no
-        # further callable may sit between it and sample_once, which covers loops,
-        # all four comprehension containers, lambdas, nested functions and
-        # generator resumption in one rule.
         parents = {}
-        for node in ast.walk(helpers[0]):
+        for node in ast.walk(main):
             for child in ast.iter_child_nodes(node):
                 parents[child] = node
         forbidden = (
@@ -811,19 +794,20 @@ class MainGuardContractTests(unittest.TestCase):
             ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef,
         )
         ancestor = parents.get(draws[0])
-        while ancestor is not None and ancestor is not helpers[0]:
+        while ancestor is not None and ancestor is not main:
             self.assertNotIsInstance(
                 ancestor,
                 forbidden,
                 f"the model(...) draw must not sit inside a "
-                f"{type(ancestor).__name__} within sample_once: it could then run "
-                "more than once while the call count stays at one",
+                f"{type(ancestor).__name__}: it could then run more than once, or "
+                "be deferred into a callable, while the call count stays at one",
             )
             ancestor = parents.get(ancestor)
         self.assertIs(
             ancestor,
-            helpers[0],
-            "the model(...) draw must be owned by sample_once itself",
+            main,
+            "the model(...) draw must be owned by main() itself; a chain that does "
+            "not reach main means the draw moved somewhere this contract cannot see",
         )
 
 

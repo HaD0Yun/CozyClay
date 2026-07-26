@@ -1039,50 +1039,54 @@ def main():
         device=device,
     )
 
-    def sample_once():
-        """One full sampling pass, post-processed and converted, as motion_dict."""
-        if args.seed is not None:
-            seed_everything(args.seed)
-        with torch.no_grad():
-            motion = model(
-                [prompt],
-                num_frames,
-                num_denoising_steps=diffusion_steps,
-                pad_mask=pad_mask,
-                first_heading_angle=torch.zeros(1, device=device),
-                motion_mask=motion_mask,
-                observed_motion=observed_motion,
-                cfg_weight=cfg_weight,
-                progress_bar=lambda iterable: iterable,
+    # ONE sampling pass, inlined rather than wrapped in a helper. A single-use
+    # closure called once was needless indirection, and it was also unprovable:
+    # a source contract can pin where the model(...) call sits, but not how many
+    # times a callable object is invoked. Three enumerations of "repeatable
+    # shapes" were each defeated in turn -- a list comprehension around the draw,
+    # a nested draw() invoked twice, then a @retry_once decorator on the helper.
+    # With no helper there is nothing to decorate, alias or re-enter, so the
+    # exactly-once property follows from the straight-line code itself.
+    if args.seed is not None:
+        seed_everything(args.seed)
+    with torch.no_grad():
+        motion = model(
+            [prompt],
+            num_frames,
+            num_denoising_steps=diffusion_steps,
+            pad_mask=pad_mask,
+            first_heading_angle=torch.zeros(1, device=device),
+            motion_mask=motion_mask,
+            observed_motion=observed_motion,
+            cfg_weight=cfg_weight,
+            progress_bar=lambda iterable: iterable,
+        )
+        sampled = model.motion_rep.inverse(motion, is_normalized=True)
+    if "g1" not in resolved_model.lower() and not args.no_postprocess:
+        # Passing constraint_lst lets ARDY's own postprocess enforce the
+        # contacts it was asked for instead of skating them away.
+        sampled.update(
+            post_process_motion(
+                sampled["local_rot_mats"],
+                sampled["root_positions"],
+                sampled["foot_contacts"],
+                skeleton,
+                constraint_lst=constraint_lst,
+                contact_threshold=args.contact_threshold,
+                root_margin=args.root_margin,
             )
-            sampled = model.motion_rep.inverse(motion, is_normalized=True)
-        if "g1" not in resolved_model.lower() and not args.no_postprocess:
-            # Passing constraint_lst lets ARDY's own postprocess enforce the
-            # contacts it was asked for instead of skating them away.
-            sampled.update(
-                post_process_motion(
-                    sampled["local_rot_mats"],
-                    sampled["root_positions"],
-                    sampled["foot_contacts"],
-                    skeleton,
-                    constraint_lst=constraint_lst,
-                    contact_threshold=args.contact_threshold,
-                    root_margin=args.root_margin,
-                )
-            )
-        if isinstance(skeleton, SOMASkeleton30):
-            sampled = skeleton.output_to_SOMASkeleton77(sampled)
-        sampled = to_numpy(sampled)
-        return {
-            key: (
-                value[0]
-                if hasattr(value, "shape") and len(value.shape) > 0 and value.shape[0] == 1
-                else value
-            )
-            for key, value in sampled.items()
-        }
-
-    motion_dict = sample_once()
+        )
+    if isinstance(skeleton, SOMASkeleton30):
+        sampled = skeleton.output_to_SOMASkeleton77(sampled)
+    sampled = to_numpy(sampled)
+    motion_dict = {
+        key: (
+            value[0]
+            if hasattr(value, "shape") and len(value.shape) > 0 and value.shape[0] == 1
+            else value
+        )
+        for key, value in sampled.items()
+    }
 
     # A diverged clip (NaN/Inf in any array bound for the npz) must be rejected
     # outright, not measured and saved. NaN comparisons are always False, so a

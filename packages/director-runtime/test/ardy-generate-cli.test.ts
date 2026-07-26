@@ -114,11 +114,15 @@ function runWithFakeTransport(project: string, args: string[]): { status: number
 	writeFileSync(fakeScp, `#!/bin/sh\nexit 0\n`, { encoding: "utf8", mode: 0o755 });
 	// Fake ssh: record its full argv and emit a minimal valid JSON line so the
 	// wrapper's json_int/last-line parser proceeds past command construction.
+	// The capture path is passed through the environment rather than interpolated
+	// into the script text: a TMPDIR containing whitespace or shell
+	// metacharacters would otherwise break the redirection or be parsed as syntax.
 	const fakeSsh = join(binDir, "ssh");
-	writeFileSync(fakeSsh, `#!/bin/sh\nprintf '%s\\0' "$@" >> ${capture}\nprintf '{"frames":60,"fps":20}\\n'\n`, {
-		encoding: "utf8",
-		mode: 0o755,
-	});
+	writeFileSync(
+		fakeSsh,
+		`#!/bin/sh\nprintf '%s\\0' "$@" >> "$CCLAY_FAKE_SSH_CAPTURE"\nprintf '{"frames":60,"fps":20}\\n'\n`,
+		{ encoding: "utf8", mode: 0o755 },
+	);
 	chmodSync(fakeScp, 0o755);
 	chmodSync(fakeSsh, 0o755);
 	let sshArgv = "";
@@ -126,7 +130,12 @@ function runWithFakeTransport(project: string, args: string[]): { status: number
 		const output = execFileSync(WRAPPER, ["x", "--project", project, ...args], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}`, CCLAY_ARDY_HOST: "fake-host" },
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				CCLAY_ARDY_HOST: "fake-host",
+				CCLAY_FAKE_SSH_CAPTURE: capture,
+			},
 		});
 		sshArgv = readCapture(capture);
 		return { status: 0, output, sshArgv };
