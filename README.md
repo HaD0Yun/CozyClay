@@ -88,6 +88,14 @@ The add-on owns the Blender main thread. The bridge speaks a closed protocol: ev
 | `apply_camera_plan` | Commit a validated multi-shot camera plan |
 | `render_qa_frames` | Deterministic 640x360 QA renders for an exact revision |
 
+## Commands
+
+The director TUI is Pi's, so every Pi slash command works. CozyClay adds one:
+
+| Command | What it does |
+|---|---|
+| `/btw <question>` | Ask a side question without derailing the turn in flight. It answers from the current session context, sends no tools, and writes nothing to the session history, so a staging turn that is holding a Blender transaction open keeps its context clean. Esc cancels it while it streams and dismisses the answer afterwards. |
+
 ## Packages
 
 | Package | Description |
