@@ -66,9 +66,9 @@ One command is the whole entry point. `cclay` picks the project, launches Blende
 | `CCLAY_BLENDER_EXECUTABLE=<path> cclay` | choose a specific Blender build instead of the detected one |
 | `CCLAY_PROJECTS_ROOT=<dir> cclay` | where the project picker looks (default `~/BlenderScenes`) |
 
-Credentials are project-local: each project keeps its own sessions and auth under `.cclay/pi-agent/`, so logging in once per project is expected. Switching provider does not evict the previous one's credential, so moving between `cclay` and `cclay --glm` in the same project only logs in once each.
+Credentials are project-local: each project keeps its own sessions and auth under `.cclay/pi-agent/`. On every launch the launcher imports **every** credential it finds in `~/.gjc/agent/agent.db` into that file, merging rather than replacing, so a fresh project starts with all your providers available and `/model` can switch between them mid-session. Pi's model selector only lists models from providers that hold a credential, which is why importing just the one the launch flag selected was not enough.
 
-The launcher defaults to `--provider openai-codex` and imports a Codex OAuth record from `~/.gjc/agent/agent.db`; `--glm` imports the Fireworks api key from the same store unless `FIREWORKS_API_KEY` is already exported, which Pi reads by itself. Without that store, pass `--provider` explicitly and log in from the TUI.
+The default is `--provider openai-codex`; because Pi has no environment-variable path for Codex, a Codex launch with no usable record in the store fails loudly instead of starting with nothing. Fireworks and Anthropic also accept `FIREWORKS_API_KEY` / `ANTHROPIC_API_KEY`, so a missing row for those is not fatal. With no store at all, pass `--provider` explicitly and run `/login` in the TUI.
 
 ### The loop
 
