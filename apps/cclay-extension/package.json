@@ -1,5 +1,6 @@
 {
 	"private": true,
+	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"bin": {
 		"cclay-pi": "src/main.ts"
