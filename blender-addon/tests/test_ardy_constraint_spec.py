@@ -628,6 +628,74 @@ class MainGuardContractTests(unittest.TestCase):
             "a second divergence-worded raise would let the guarded one be downgraded",
         )
 
+    def test_exactly_one_sample_is_generated_and_it_is_what_gets_saved(self):
+        """The guarded dict must BE the saved payload, generated exactly once.
+
+        Guarding `motion_dict` proves nothing if a different clip is what
+        reaches disk. Changing the save call to
+        ``save_motion_npz(npz_path, sample_once(), fps, prompt)`` satisfied
+        every other assertion here -- the guard still ran on motion_dict, still
+        preceded the save, still controlled its raise -- while generating a
+        SECOND, unguarded draw that could diverge straight into the npz. It also
+        silently broke this story's whole point, one generation per run, and made
+        the reported measurements describe a clip other than the saved one.
+        Rebinding motion_dict between the guard and the save is the same bug.
+
+        So pin the chain end to end: one sample_once() call, bound to
+        motion_dict once, and that same name handed to the single save.
+        """
+        main = self._main_node()
+
+        generations = [
+            node
+            for node in ast.walk(main)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "sample_once"
+        ]
+        self.assertEqual(
+            len(generations),
+            1,
+            "exactly one sample_once() call: best-of-N removal means one draw per run",
+        )
+
+        assignments = [
+            statement
+            for statement in ast.walk(main)
+            if isinstance(statement, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "motion_dict"
+                for target in statement.targets
+            )
+        ]
+        self.assertEqual(
+            len(assignments),
+            1,
+            "motion_dict must be assigned once; a later rebinding escapes the guard",
+        )
+        self.assertIsInstance(assignments[0].value, ast.Call)
+        self.assertEqual(assignments[0].value.func.id, "sample_once")
+
+        saves = [
+            node
+            for node in ast.walk(main)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "save_motion_npz"
+        ]
+        self.assertEqual(len(saves), 1, "main() must save exactly once")
+        payload = saves[0].args[1]
+        self.assertIsInstance(
+            payload,
+            ast.Name,
+            "the saved payload must be the guarded name, not a fresh expression",
+        )
+        self.assertEqual(
+            payload.id,
+            "motion_dict",
+            "save_motion_npz must serialize the dict find_non_finite inspected",
+        )
+
 
 class ArgParseTests(unittest.TestCase):
     """--num-samples must be GONE, not merely unused: argparse must reject it.
