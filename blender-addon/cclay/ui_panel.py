@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import time
 import uuid
@@ -142,10 +143,38 @@ _PANEL_ACTIVE_INTERVAL = 0.016
 _PANEL_IDLE_INTERVAL = 0.1
 _PANEL_BUDGET_SECONDS = 0.004
 _PANEL_MAX_UPDATES = 32
+# Streaming text must never drive the Blender redraw rate. Coalesce redraw
+# requests to at most one per this interval so a token-by-token director turn
+# cannot starve the main thread the viewport transform runs on. A coalesced
+# request stays pending, is re-checked by every pump regardless of controller
+# traffic, and is emitted by the first pump after the window expires.
+_PANEL_REDRAW_MIN_INTERVAL = 0.1
+# Redraw pacing keeps its own monotonic clock. Sharing the pump's drain-budget
+# clock would let a caller-injected time source move the pacing anchor into the
+# future, which either wedges a pending redraw or bypasses the rate bound.
+_PANEL_REDRAW_CLOCK = time.monotonic
+# The panel lives in the 3D viewport sidebar. Tagging whole areas would redraw
+# the viewport itself; only the sidebar region actually renders this panel.
+_PANEL_SPACE_TYPE = "VIEW_3D"
+_PANEL_REGION_TYPE = "UI"
+# Retained chat history is far larger than a sidebar can show. Bound the widget
+# count per draw so panel cost stays flat as the transcript grows.
+_MAX_PANEL_BODY_LINES = 120
+_PANEL_KIND_PREFIXES = {
+    "user": "You",
+    "assistant": "Pi",
+    "tool": "Tool",
+    "tool_error": "Tool error",
+    "completed": "Done",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+}
 _panel_state = PanelState()
 _controller_marker: tuple[int, object, object] | None = None
 _controller_was_active = False
 _pump_durations_ms: deque[float] = deque(maxlen=512)
+_last_redraw_at: float | None = None
+_redraw_pending = False
 
 
 class PanelActionError(RuntimeError):
@@ -158,10 +187,13 @@ def panel_snapshot() -> PanelSnapshot:
 
 def reset_panel_state() -> None:
     global _panel_state, _controller_marker, _controller_was_active
+    global _last_redraw_at, _redraw_pending
     _panel_state = PanelState()
     _controller_marker = None
     _controller_was_active = False
     _pump_durations_ms.clear()
+    _last_redraw_at = None
+    _redraw_pending = False
 
 
 def submit_prompt(
@@ -197,7 +229,7 @@ def submit_prompt(
     except (ControllerConnectionError, OSError, PanelStateError, WebSocketError) as error:
         _panel_state.submission_failed(turn_id, str(error))
         raise PanelActionError(str(error)) from error
-    _tag_redraw()
+    _force_redraw()
     return turn_id
 
 
@@ -224,13 +256,14 @@ def reconnect_controller() -> bool:
         active is not None
         and getattr(active, "state", None) == ControllerState.ACTIVE
     )
-    _tag_redraw()
+    _force_redraw()
     return reconnected
 
 
 def pump_controller_panel(
     *,
     clock=time.perf_counter,
+    redraw_clock=_PANEL_REDRAW_CLOCK,
     bpy_module=None,
     project_directory: str | PathLike[str] | None = None,
 ) -> float:
@@ -347,8 +380,8 @@ def pump_controller_panel(
 
     elapsed_ms = max(0.0, (drain_finished - started) * 1000)
     _pump_durations_ms.append(elapsed_ms)
-    if changed:
-        _tag_redraw(bpy_module)
+    if changed or _redraw_pending:
+        _request_redraw(clock=redraw_clock, bpy_module=bpy_module)
     snapshot = _panel_state.snapshot()
     pending = 0 if active is None else getattr(active, "pending_update_count", 0)
     return (
@@ -393,25 +426,14 @@ def draw_panel(
         layout.label(text=error_label, icon="ERROR")
         labels.append(error_label)
 
-    for entry in snapshot.entries:
-        prefix = {
-            "user": "You",
-            "assistant": "Pi",
-            "tool": "Tool",
-            "tool_error": "Tool error",
-            "completed": "Done",
-            "failed": "Failed",
-            "cancelled": "Cancelled",
-        }.get(entry.kind, "Event")
-        for line in _wrapped_lines(entry.text):
-            text = f"{prefix}: {line}"
-            layout.label(text=text)
-            labels.append(text)
-    if snapshot.active_text:
-        for line in _wrapped_lines(snapshot.active_text):
-            text = f"Pi: {line}"
-            layout.label(text=text)
-            labels.append(text)
+    body, truncated = _panel_body_lines(snapshot)
+    if truncated:
+        hidden_label = "Older messages hidden - full history is in the terminal"
+        layout.label(text=hidden_label)
+        labels.append(hidden_label)
+    for text in body:
+        layout.label(text=text)
+        labels.append(text)
 
     properties = getattr(getattr(context, "scene", None), "cclay_panel_chat", None)
     if properties is not None and callable(getattr(layout, "prop", None)):
@@ -445,6 +467,38 @@ def _request_transcript(
     return request_id
 
 
+def _panel_body_lines(
+    snapshot: PanelSnapshot,
+    *,
+    limit: int = _MAX_PANEL_BODY_LINES,
+) -> tuple[tuple[str, ...], bool]:
+    """Return the newest bounded chat body lines and whether older ones were cut.
+
+    Collection runs newest-first and stops at the limit, so neither wrapping nor
+    widget creation scales with retained history: an entry the panel cannot show
+    is never wrapped at all.
+    """
+    sources: list[tuple[str, str]] = []
+    if snapshot.active_text:
+        sources.append(("Pi", snapshot.active_text))
+    for entry in reversed(snapshot.entries):
+        sources.append((_PANEL_KIND_PREFIXES.get(entry.kind, "Event"), entry.text))
+
+    collected: list[str] = []
+    truncated = False
+    for prefix, text in sources:
+        if len(collected) >= limit:
+            truncated = True
+            break
+        for line in reversed(_wrapped_lines(text)):
+            if len(collected) >= limit:
+                truncated = True
+                break
+            collected.append(f"{prefix}: {line}")
+    collected.reverse()
+    return tuple(collected), truncated
+
+
 def _wrapped_lines(text: str, width: int = 96) -> tuple[str, ...]:
     lines: list[str] = []
     for source in text.splitlines() or [""]:
@@ -464,12 +518,68 @@ def _bpy_module():
 
 
 def _tag_redraw(bpy_module=None) -> None:
+    """Redraw only the sidebar regions that actually render this panel.
+
+    Tagging whole areas would force the 3D viewport, outliner and timeline to
+    redraw for every chat delta, which competes with interactive transforms on
+    Blender's single main thread.
+    """
     host = _bpy_module() if bpy_module is None else bpy_module
     context = getattr(host, "context", None)
     window_manager = getattr(context, "window_manager", None)
     for window in getattr(window_manager, "windows", ()):
         screen = getattr(window, "screen", None)
         for area in getattr(screen, "areas", ()):
-            redraw = getattr(area, "tag_redraw", None)
-            if callable(redraw):
-                redraw()
+            if getattr(area, "type", None) != _PANEL_SPACE_TYPE:
+                continue
+            for region in getattr(area, "regions", ()):
+                if getattr(region, "type", None) != _PANEL_REGION_TYPE:
+                    continue
+                redraw = getattr(region, "tag_redraw", None)
+                if callable(redraw):
+                    redraw()
+
+
+def _emit_redraw(now: float, bpy_module) -> None:
+    """Tag the panel regions and restart the pacing window at `now`."""
+    global _last_redraw_at, _redraw_pending
+    _last_redraw_at = now
+    _redraw_pending = False
+    _tag_redraw(bpy_module)
+
+
+def _force_redraw(bpy_module=None, *, clock=_PANEL_REDRAW_CLOCK) -> None:
+    """Redraw immediately for a direct user action, ignoring the pacing window."""
+    _emit_redraw(_pacing_now(clock), bpy_module)
+
+
+def _pacing_now(clock) -> float:
+    """Sample the pacing clock, which must be finite and must never go backwards.
+
+    A clock that violates either property cannot bound a redraw rate at all, so
+    it is rejected loudly instead of being absorbed into a window that would
+    silently wedge a pending redraw or waive the rate bound.
+    """
+    now = clock()
+    if not math.isfinite(now):
+        raise PanelStateError("panel redraw clock returned a non-finite value")
+    if _last_redraw_at is not None and now < _last_redraw_at:
+        raise PanelStateError("panel redraw clock went backwards")
+    return now
+
+
+def _request_redraw(*, clock=_PANEL_REDRAW_CLOCK, bpy_module=None) -> None:
+    """Redraw at most once per `_PANEL_REDRAW_MIN_INTERVAL`, never dropping state.
+
+    A coalesced request stays pending and is flushed by a later pump, so the
+    final state of a turn is always drawn even when no further traffic arrives.
+    """
+    global _redraw_pending
+    now = _pacing_now(clock)
+    if (
+        _last_redraw_at is not None
+        and now - _last_redraw_at < _PANEL_REDRAW_MIN_INTERVAL
+    ):
+        _redraw_pending = True
+        return
+    _emit_redraw(now, bpy_module)

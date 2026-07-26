@@ -32,6 +32,7 @@ import { randomUUID } from "node:crypto";
 // extension with the shortest unique suffix of its path, stripping a trailing
 // `index.ts`. A `src/index.ts` entry therefore shows up as "src" in the startup
 // Extensions list, so the directory name is the display name.
+import { registerBtwCommand } from "../btw.ts";
 import { BlenderBridge } from "../bridge.ts";
 
 const ENDPOINT_FILENAME = "pi-bridge.json";
@@ -107,6 +108,9 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
 	pi.registerTool(createRenderQaFramesTool(bridge));
+	// Ephemeral side questions. Registered after the tools on purpose: /btw
+	// runs its own tool-less request, so it must never see this catalog.
+	const btw = registerBtwCommand(pi);
 	// Prime the director with the full directing craft on the first turn of the
 	// session, then drop to the short tool-contract reminder for later turns.
 	// The domain knowledge is expensive context; once the model has read it on
@@ -158,6 +162,7 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		return {};
 	});
 	pi.on("session_shutdown", async () => {
+		btw.dismiss();
 		if (statusInterval !== undefined) {
 			clearInterval(statusInterval);
 			statusInterval = undefined;
