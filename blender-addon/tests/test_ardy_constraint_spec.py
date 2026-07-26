@@ -699,9 +699,17 @@ class MainGuardContractTests(unittest.TestCase):
         """
         main = self._main_node()
 
-        self.assertNotIn(
-            "sample_once",
-            SCRIPT.read_text(),
+        self.assertEqual(
+            [
+                node
+                for node in ast.walk(ast.parse(SCRIPT.read_text()))
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Name, ast.arg))
+                    and getattr(node, "name", getattr(node, "id", getattr(node, "arg", None)))
+                    == "sample_once"
+                )
+            ],
+            [],
             "the sampling pass is inline; a helper callable could be decorated, "
             "aliased or invoked twice without changing any count here",
         )
@@ -808,6 +816,60 @@ class MainGuardContractTests(unittest.TestCase):
             main,
             "the model(...) draw must be owned by main() itself; a chain that does "
             "not reach main means the draw moved somewhere this contract cannot see",
+        )
+
+    def test_main_itself_runs_once_per_process(self):
+        """The module must invoke main() once, undecorated and non-reentrant.
+
+        Owning the draw inside main() is not enough while main() is itself a
+        callable: a @retry_once decorator on main re-enters the whole body after
+        a post-draw failure in inverse, post-processing, measurement or save, so
+        a second GPU draw happens in the same run. `if __name__ == "__main__":
+        main(); main()` is the blunter version. Both were verified to pass every
+        other assertion in this class before this test existed.
+
+        This closes the module boundary, which is as far as a source contract
+        over this file can reach. It deliberately does NOT try to prove one draw
+        per user intent: the shell wrapper could invoke the CLI twice and nothing
+        in this file could tell. That side is covered separately, by the wrapper
+        tests asserting a single constrained ssh invocation.
+        """
+        module = ast.parse(SCRIPT.read_text())
+        main = self._main_node()
+
+        self.assertEqual(
+            main.decorator_list,
+            [],
+            "main() must be undecorated; a retry decorator would re-enter the "
+            "whole body and draw again after a post-draw failure",
+        )
+
+        recursive = [
+            node
+            for node in ast.walk(main)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "main"
+        ]
+        self.assertEqual(recursive, [], "main() must not call itself")
+
+        guards = [
+            node
+            for node in module.body
+            if isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)
+        ]
+        self.assertEqual(len(guards), 1, "exactly one __main__ entrypoint guard")
+        body = guards[0].body
+        self.assertEqual(
+            len(body), 1, "the entrypoint must be exactly one statement: main()"
+        )
+        self.assertIsInstance(body[0], ast.Expr)
+        self.assertIsInstance(body[0].value, ast.Call)
+        self.assertIsInstance(body[0].value.func, ast.Name)
+        self.assertEqual(
+            body[0].value.func.id,
+            "main",
+            "the entrypoint must call main() directly, not a wrapper around it",
         )
 
 
