@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -107,7 +107,8 @@ function runToSsh(project: string, args: string[]): { status: number; output: st
  */
 function runWithFakeTransport(project: string, args: string[]): { status: number; output: string; sshArgv: string } {
 	const binDir = mkdtempSync(join(tmpdir(), "cclay-ardy-fake-bin-"));
-	const capture = join(tmpdir(), `cclay-ardy-ssh-argv-${process.pid}-${Date.now()}.txt`);
+	// Keep the capture inside binDir so one recursive remove cleans everything.
+	const capture = join(binDir, "ssh-argv.txt");
 	// Fake scp: succeed without moving any bytes.
 	const fakeScp = join(binDir, "scp");
 	writeFileSync(fakeScp, `#!/bin/sh\nexit 0\n`, { encoding: "utf8", mode: 0o755 });
@@ -137,6 +138,8 @@ function runWithFakeTransport(project: string, args: string[]): { status: number
 			output: `${failure.stdout ?? ""}${failure.stderr ?? ""}`,
 			sshArgv,
 		};
+	} finally {
+		rmSync(binDir, { recursive: true, force: true });
 	}
 }
 

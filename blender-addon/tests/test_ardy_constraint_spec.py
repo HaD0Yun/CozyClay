@@ -442,6 +442,35 @@ class MainGuardContractTests(unittest.TestCase):
                     first = lineno
         return first
 
+    @classmethod
+    def _guard_statements(cls):
+        """The ``non_finite = find_non_finite(...)`` assign and the statement after it.
+
+        Returned as a pair so a test can prove the raise is controlled BY the
+        guard's result, not merely that both exist somewhere in main(). Searches
+        every statement list in main(), so the pair is still found if the guard
+        moves inside an if or try block.
+        """
+        main = cls._main_node()
+        for node in ast.walk(main):
+            for field in ("body", "orelse", "finalbody"):
+                block = getattr(node, field, None)
+                if not isinstance(block, list):
+                    continue
+                for index, statement in enumerate(block):
+                    if (
+                        isinstance(statement, ast.Assign)
+                        and len(statement.targets) == 1
+                        and isinstance(statement.targets[0], ast.Name)
+                        and statement.targets[0].id == "non_finite"
+                        and isinstance(statement.value, ast.Call)
+                        and isinstance(statement.value.func, ast.Name)
+                        and statement.value.func.id == "find_non_finite"
+                    ):
+                        following = block[index + 1] if index + 1 < len(block) else None
+                        return statement, following
+        return None, None
+
     def test_main_calls_find_non_finite(self):
         lineno = self._call_lineno(
             self._main_node(),
@@ -492,31 +521,82 @@ class MainGuardContractTests(unittest.TestCase):
         self.assertLess(guard, save,
                         "find_non_finite must run BEFORE save_motion_npz")
 
-    def test_guard_result_raises_inside_main(self):
-        """main() must RAISE on a non-finite clip, not merely report one.
+    def test_the_guard_result_controls_the_raise(self):
+        """The raise must be controlled BY the guard's result, bound structurally.
 
-        Asserting the message text alone is not enough: downgrading
-        ``raise ValueError(...)`` to ``print(...)`` keeps every word of the
-        message while letting a diverged clip be measured and saved, which is
-        the exact failure this guard exists to stop. So require a real
-        ast.Raise node inside main() carrying the divergence message. That is
-        structural rather than textual, and it still allows the message to be
-        reworded as long as the divergence wording survives.
+        Proving only that main() calls the guard and that a divergence-worded
+        raise exists somewhere leaves the worst mutation open: inverting
+        ``is not None`` to ``is None`` keeps every such assertion green while
+        rejecting healthy clips and saving diverged ones. Two weaker forms fail
+        here too -- a decoy unreachable raise carrying the wording, and moving
+        the raise out from under the guard.
+
+        So pin the chain: the assignment calls find_non_finite on the motion
+        dict, the very next statement tests that result with `is not None`, and
+        the raise lives inside that if body. Exactly one divergence-worded raise
+        may exist, which is what rules out the decoy.
         """
         source = SCRIPT.read_text()
-        raises = [
+        assign, following = self._guard_statements()
+        self.assertIsNotNone(
+            assign, "main() must assign non_finite = find_non_finite(...)"
+        )
+
+        arguments = [
+            node.id for node in assign.value.args if isinstance(node, ast.Name)
+        ]
+        self.assertIn(
+            "motion_dict",
+            arguments,
+            "the guard must be handed the dict that save_motion_npz serializes",
+        )
+
+        self.assertIsInstance(
+            following,
+            ast.If,
+            "the statement right after the guard call must test its result",
+        )
+        test = following.test
+        self.assertIsInstance(test, ast.Compare, "the guard test must be a comparison")
+        self.assertIsInstance(
+            test.left, ast.Name, "the guard test must compare non_finite itself"
+        )
+        self.assertEqual(test.left.id, "non_finite")
+        self.assertEqual(len(test.ops), 1)
+        self.assertIsInstance(
+            test.ops[0],
+            ast.IsNot,
+            "must be `non_finite is not None`; inverting this saves diverged clips",
+        )
+        self.assertIsInstance(test.comparators[0], ast.Constant)
+        self.assertIsNone(test.comparators[0].value)
+
+        guarded = [
+            node
+            for statement in following.body
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Raise)
+            and "generated motion diverged" in (ast.get_source_segment(source, node) or "")
+        ]
+        self.assertEqual(
+            len(guarded), 1, "the divergence raise must live inside the guard body"
+        )
+        self.assertIn(
+            "refusing to save or measure a non-finite clip",
+            ast.get_source_segment(source, guarded[0]),
+        )
+
+        everywhere = [
             node
             for node in ast.walk(self._main_node())
             if isinstance(node, ast.Raise)
             and "generated motion diverged" in (ast.get_source_segment(source, node) or "")
         ]
         self.assertEqual(
-            len(raises),
+            len(everywhere),
             1,
-            "main() must raise exactly once on a non-finite clip",
+            "a second divergence-worded raise would let the guarded one be downgraded",
         )
-        segment = ast.get_source_segment(source, raises[0])
-        self.assertIn("refusing to save or measure a non-finite clip", segment)
 
 
 class ArgParseTests(unittest.TestCase):
