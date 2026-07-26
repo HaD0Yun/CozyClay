@@ -268,12 +268,20 @@ class RotationMathTests(unittest.TestCase):
 class FiniteOutputGuardTests(unittest.TestCase):
     """A diverged clip (NaN/Inf) must be rejected before any measurement or save.
 
-    The old best-of-N ranking mapped non-finite cost terms to +inf so a diverged
-    draw could never win. With ranking gone that protection cannot vanish: a
-    diverged clip must be refused outright. A threshold comparison CANNOT do this
-    (NaN comparisons are always False), so find_non_finite walks every array bound
-    for the npz with math.isfinite instead. Stdlib-only so it runs here without
-    numpy/torch/ardy.
+    This guard is a STRENGTHENING, not a re-home of the old best-of-N
+    protection, and an earlier version of this docstring said otherwise. The old
+    rank_samples did map non-finite cost terms to +inf, but it started from
+    ``best = 0`` and only moved on a strictly smaller key, so a diverged draw at
+    index 0 still won whenever nothing displaced it. Measured against
+    3cd5fafa~1: ``rank_samples([(nan, nan, 1.0)])`` returns 0. Since
+    --num-samples defaulted to 1, the DEFAULT path had no divergence protection
+    at all; the +inf mapping only helped a multi-sample run that happened to
+    contain a finite draw.
+
+    A threshold comparison cannot do this job either, because NaN comparisons are
+    always False, so ``value > threshold`` silently passes a diverged clip. So
+    find_non_finite walks every array bound for the npz with math.isfinite.
+    Stdlib-only so it runs here without numpy/torch/ardy.
     """
 
     NAN = float("nan")
@@ -631,11 +639,21 @@ class MainGuardContractTests(unittest.TestCase):
             "the divergence raise must be a DIRECT statement of the guard body, "
             "not nested behind a further condition that could let members through",
         )
-        self.assertIs(
-            direct[0],
-            following.body[-1],
-            "the raise must be the guard body's last statement, so nothing runs after it",
-        )
+        # Not "the raise must be the body's LAST statement": a direct
+        # unconditional raise already stops everything after it, and that form was
+        # unsound anyway, since a preceding `return` satisfies "last" while making
+        # the raise unreachable. Nor "FIRST", which the real body cannot satisfy
+        # because it builds the message first. The sound invariant is that nothing
+        # ahead of the raise can transfer control away from it.
+        raise_index = following.body.index(direct[0])
+        for earlier in following.body[:raise_index]:
+            self.assertIsInstance(
+                earlier,
+                (ast.Assign, ast.AnnAssign, ast.Expr),
+                "only plain message-building statements may precede the divergence "
+                "raise; a return, branch, loop or try ahead of it could skip the "
+                f"raise entirely (found {type(earlier).__name__})",
+            )
         self.assertIn(
             "refusing to save or measure a non-finite clip",
             ast.get_source_segment(source, direct[0]),
