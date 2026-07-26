@@ -270,10 +270,10 @@ def find_non_finite(motion_dict):
     A member with no frame axis (a scalar / 0-D value) is reported with frame
     None and index () instead of crashing on enumerate(), since this guard runs
     only when output is already suspect. Stdlib-only: math.isfinite over numpy
-    arrays via ordinary iteration and float(), with no module-scope numpy import,
-    so this carries a repo regression test on a machine that has no numpy.
-    Integer and boolean members are always finite and are never reported. A
-    threshold comparison CANNOT do this job: NaN comparisons are always False, so
+    arrays via ordinary iteration, with no module-scope numpy import, so this
+    carries a repo regression test on a machine that has no numpy. Integer and
+    boolean members are always finite and are never reported. A threshold
+    comparison CANNOT do this job: NaN comparisons are always False, so
     ``value > threshold`` silently passes a diverged clip; the explicit isfinite
     check is the only honest guard.
     """
@@ -290,20 +290,20 @@ def find_non_finite(motion_dict):
         # TypeError. Treat the member itself as the single value, with frame None
         # and index () so the report honestly says there is no frame axis.
         if not _is_sequence(array):
-            value = float(array)
-            if not math.isfinite(value):
+            value = _non_finite(array)
+            if value is not None:
                 return {"member": member, "frame": None, "index": (), "value": value}
             continue
         for frame, row in enumerate(array):
             # A scalar row has no inner structure; report it in place.
             if not _is_sequence(row):
-                value = float(row)
-                if not math.isfinite(value):
+                value = _non_finite(row)
+                if value is not None:
                     return {"member": member, "frame": frame, "index": (), "value": value}
                 continue
-            for index, value in _iter_leaves(row):
-                value = float(value)
-                if not math.isfinite(value):
+            for index, leaf in _iter_leaves(row):
+                value = _non_finite(leaf)
+                if value is not None:
                     return {
                         "member": member,
                         "frame": frame,
@@ -311,6 +311,32 @@ def find_non_finite(motion_dict):
                         "value": value,
                     }
     return None
+
+
+def _non_finite(value):
+    """``value`` as a float when it is a number that is NOT finite, else None.
+
+    Only numbers can be non-finite, so anything else is outside this guard's
+    remit and is skipped rather than converted. That is deliberate and not a
+    swallowed error: save_motion_npz stores every member through np.asarray,
+    which accepts a string or object member happily, so calling float() on one
+    would abort a generation that is otherwise fine.
+
+    The numeric test is ``__float__`` rather than numbers.Real because it must
+    hold for numpy scalars without depending on numpy's ABC registration, which
+    cannot be verified on the machine that runs this repo's tests. int, float,
+    bool and the numpy float scalars all define it; str, bytes, dict and a bare
+    object do not. float(str) parses rather than dispatching to __float__, which
+    is exactly why a string member is skipped here instead of silently becoming
+    a number.
+
+    An object that advertises __float__ and then raises is left to raise: a
+    value claiming to be numeric and lying should fail the run loudly.
+    """
+    if not hasattr(value, "__float__"):
+        return None
+    as_float = float(value)
+    return None if math.isfinite(as_float) else as_float
 
 
 def _is_sequence(value) -> bool:

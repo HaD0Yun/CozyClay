@@ -431,6 +431,31 @@ class FiniteOutputGuardTests(unittest.TestCase):
         clip = self._clip(posed_joints=self._scalar(1.5))
         self.assertIsNone(ccg.find_non_finite(clip))
 
+    def test_a_non_numeric_member_is_skipped_not_crashed(self):
+        """A non-numeric member must not abort a generation that is otherwise fine.
+
+        save_motion_npz stores every member through np.asarray, which accepts a
+        string or object member happily, so the pre-guard pipeline tolerated one.
+        Calling float() on it would make this guard fail a valid run -- a
+        regression the guard itself would have introduced. Only real numbers can
+        be non-finite, so anything else is outside its remit and is skipped.
+        """
+        for label, member in (
+            ("string", "some-metadata"),
+            ("bytes", b"raw"),
+            ("dict", {"note": 1.0}),
+            ("nested object", [[object()]]),
+        ):
+            with self.subTest(member=label):
+                self.assertIsNone(ccg.find_non_finite(self._clip(extra=member)))
+
+    def test_a_non_numeric_member_does_not_hide_a_real_divergence(self):
+        """The skip must not become a blanket escape hatch."""
+        clip = self._clip(extra="some-metadata", root_positions=[[0.0, self.NAN, 0.0]])
+        result = ccg.find_non_finite(clip)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["member"], "root_positions")
+
 
 class MainGuardContractTests(unittest.TestCase):
     """main() invokes the divergence guard in the right place, locked at the AST level.
