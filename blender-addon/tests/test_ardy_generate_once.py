@@ -56,6 +56,7 @@ class ArdyGenerateOnceTests(unittest.TestCase):
         cls.clean = payload["clean"]
         cls.poisoned = payload["poisoned"]
         cls.failures = payload["failures"]
+        cls.post_draw = payload["postDrawFunctions"]
 
     def test_the_sampler_is_invoked_exactly_once(self):
         """One GPU draw per run, counted rather than inferred from syntax.
@@ -154,6 +155,39 @@ class ArdyGenerateOnceTests(unittest.TestCase):
                     outcome["npzWritten"],
                     f"a failure at {phase} must not leave a partial npz",
                 )
+
+    def test_every_post_draw_function_boundary_is_driven(self):
+        """The phase set is DERIVED from main(), not declared by hand.
+
+        A hand-maintained table proves only that the results match the table, not
+        that the table matches production: a recovery wrapped around an uncovered
+        boundary stays invisible. So the fixture parses main(), collects every
+        module-level function it calls after the draw, and makes each fail once.
+        A new post-draw boundary therefore appears automatically, and this test
+        fails if any derived boundary is never actually reached.
+        """
+        self.assertGreaterEqual(
+            len(self.post_draw), 10, "the derived post-draw surface looks truncated"
+        )
+        for name, outcome in self.post_draw.items():
+            with self.subTest(function=name):
+                self.assertTrue(
+                    outcome["firedIn"],
+                    f"the injected failure in {name} was never reached, so a "
+                    "recovery wrapped around it would be invisible",
+                )
+
+    def test_no_post_draw_function_failure_is_retried_into_a_second_draw(self):
+        """Whatever fails after the draw, the run must still cost exactly one draw."""
+        for name, outcome in self.post_draw.items():
+            for mode in ("clean", "poisoned"):
+                with self.subTest(function=name, mode=mode):
+                    self.assertEqual(
+                        outcome[mode]["modelCalls"],
+                        1,
+                        f"a failure in {name} ({mode} path) must not be retried "
+                        "into a second GPU draw",
+                    )
 
 
 if __name__ == "__main__":

@@ -205,6 +205,24 @@ function generationRecords(records: string[][]): string[][] {
 
 const CONSTRAINED_SCRIPT = "scripts/cclay_constrained_generate.py";
 
+/**
+ * How many times the captured remote commands would RUN the generator.
+ *
+ * One ssh record is not one remote execution: passing `"$REMOTE_CMD ||
+ * $REMOTE_CMD"` to a single ssh keeps the record count at one while the remote
+ * shell runs the generator twice. So count occurrences of the script path inside
+ * the commands, not the transports carrying them.
+ */
+function generatorExecutions(records: string[][]): number {
+	let total = 0;
+	for (const record of records) {
+		for (const token of record) {
+			total += token.split(CONSTRAINED_SCRIPT).length - 1;
+		}
+	}
+	return total;
+}
+
 describe("cclay-ardy-generate constraint guards", () => {
 	it("rejects --constrain without a base motion", () => {
 		const { status, output } = run(makeProject(), ["--constrain", "5", "LeftFoot", "0", "0", "0"]);
@@ -1009,10 +1027,16 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		// runToSsh dies at scp and would leave this empty.
 		assert.notEqual(sshRecords.length, 0, "wrapper never reached the ssh remote-command call");
 		const generations = generationRecords(sshRecords);
-		// Cardinality, not just presence. A flat text capture cannot tell one
-		// generation from two, so duplicating the generation ssh in the wrapper
-		// used to pass every assertion here.
+		// Cardinality, not just presence, and EXECUTIONS not transports. A flat
+		// text capture could not tell one generation from two; one ssh record
+		// still cannot, because `"$REMOTE_CMD || $REMOTE_CMD"` is one record and
+		// two remote executions.
 		assert.equal(generations.length, 1, `expected exactly one constrained generation ssh, got ${generations.length}`);
+		assert.equal(
+			generatorExecutions(sshRecords),
+			1,
+			"the remote command must run the generator once; `cmd || cmd` is one ssh " + "record but two executions",
+		);
 		const remote = generations[0].join(" ");
 		assert.match(remote, /--prompt/);
 		assert.match(remote, /--base/);
@@ -1025,6 +1049,7 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		const { sshRecords } = runWithFakeTransport(root, [...BASE_ARGS]);
 		const generations = generationRecords(sshRecords);
 		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
+		assert.equal(generatorExecutions(sshRecords), 1, "one remote generator execution");
 		assert.doesNotMatch(generations[0].join(" "), /--num-samples/);
 	});
 
@@ -1044,6 +1069,7 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		]);
 		const generations = generationRecords(sshRecords);
 		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
+		assert.equal(generatorExecutions(sshRecords), 1, "one remote generator execution");
 		const remote = generations[0].join(" ");
 		assert.match(remote, /--contact-threshold/);
 		assert.match(remote, /--root-margin/);

@@ -16,6 +16,7 @@ arrays from that point on.
 
 Prints CCLAY_ONCE=<json> for a host unittest to parse.
 """
+import ast
 import importlib.util
 import json
 import os
@@ -319,12 +320,54 @@ def _base_npz(directory):
     return path
 
 
-def run(poison_frame=None, fail_at=None):
+def post_draw_functions():
+    """The generator's own module-level functions main() calls AFTER the draw.
+
+    Derived from the source rather than listed by hand. R12 showed that a
+    hand-maintained phase table proves only that the results match the table, not
+    that the table matches main(); a recovery around an uncovered boundary stays
+    invisible. Deriving the set means a new post-draw boundary shows up here
+    automatically, and the host test asserts the driven set equals it.
+    """
+    tree = ast.parse(SCRIPT.read_text())
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
+    module_fns = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+    draw = next(
+        n.lineno for n in ast.walk(main)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "model"
+    )
+    found = {}
+    for statement in main.body:
+        if statement.end_lineno < draw:
+            continue
+        for node in ast.walk(statement):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in module_fns):
+                found.setdefault(node.func.id, node.lineno)
+    return sorted(found, key=lambda name: found[name])
+
+
+def _wrap_generator_functions(generator, model, target):
+    """Make `target`, one of the generator's post-draw functions, fail once."""
+    original = getattr(generator, target)
+
+    def failing(*a, **k):
+        if target not in model.fired:
+            model.fired.add(target)
+            raise RuntimeError(f"simulated failure inside {target}")
+        return original(*a, **k)
+
+    setattr(generator, target, failing)
+
+
+def run(poison_frame=None, fail_at=None, fail_function=None):
     """Execute main() once and report what actually happened."""
     model = CountingModel(poison_frame=poison_frame, fail_at=fail_at)
     sys.modules["torch"] = _torch()
     _install_ardy(model)
     generator = _load_generator()
+    if fail_function is not None:
+        _wrap_generator_functions(generator, model, fail_function)
 
     with tempfile.TemporaryDirectory() as tmp:
         base = _base_npz(tmp)
@@ -376,8 +419,24 @@ def run(poison_frame=None, fail_at=None):
 
 if __name__ == "__main__":
     result = {"clean": run(), "poisoned": run(poison_frame=FRAMES - 1)}
-    # Every post-draw phase, each with its own native exception type.
+    # The faked dependency boundaries, each with its own native exception type.
     result["failures"] = {
         phase: run(fail_at=phase) for phase in CountingModel.FAILURES
     }
+    # Every module-level function main() calls after the draw, derived from the
+    # source. Some run only on the clean path and some only once a divergence has
+    # been detected, so each is driven both ways and the outcome records which
+    # mode actually reached it.
+    result["postDrawFunctions"] = {}
+    for name in post_draw_functions():
+        clean = run(fail_function=name)
+        poisoned = run(poison_frame=FRAMES - 1, fail_function=name)
+        result["postDrawFunctions"][name] = {
+            "clean": clean,
+            "poisoned": poisoned,
+            "firedIn": [
+                mode for mode, outcome in (("clean", clean), ("poisoned", poisoned))
+                if outcome["error"] and name in outcome["error"]
+            ],
+        }
     print("CCLAY_ONCE=" + json.dumps(result, default=str))
