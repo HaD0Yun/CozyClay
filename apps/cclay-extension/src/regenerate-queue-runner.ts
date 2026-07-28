@@ -17,11 +17,9 @@ import {
 	createArdyRegenerateHandler,
 	recoverAbandonedClaims,
 	removeOrphanedSyntheticPoses,
-	regenerateQueuePaths,
 	sweepRegenerateRequests,
 } from "@cclay/director-runtime";
 import { execFile } from "node:child_process";
-import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,10 +30,6 @@ const CLI_TIMEOUT_MS = 30 * 60 * 1000;
 // stdout is one JSON line; anything approaching this is a runaway.
 const CLI_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TICK_MS = 5_000;
-// How long a claim must sit untouched before another process may take it. Above
-// CLI_TIMEOUT_MS because execFile kills a run at that bound, so a claim older
-// than this cannot belong to a generator that is still going.
-const CLAIM_LEASE_MS = CLI_TIMEOUT_MS * 2;
 // The wrapper ships with the repository, not with the project directory the
 // host runs in: `cwd` is the animator's .blend folder, which has no scripts/.
 // Resolved from this module so it survives being launched from anywhere.
@@ -95,17 +89,6 @@ function applyMotionRequest(
 	};
 }
 
-
-// The request filenames waiting to be claimed right now. Used to attribute a
-// failed sweep's leftover claims to this process.
-async function pendingRequestFiles(cwd: string): Promise<string[]> {
-	try {
-		return (await readdir(regenerateQueuePaths(cwd).requests)).filter((name) => name.endsWith(".json"));
-	} catch {
-		return [];
-	}
-}
-
 /**
  * Start consuming the queue. Returns a stop function.
  *
@@ -137,32 +120,15 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 			// -- a full disk, a directory yanked out from under it -- leaves the
 			// request claimed, and recovering only once would strand it until
 			// somebody restarted the host.
-			//
-			// It is bounded by a staleness lease because a claim is not proof
-			// its owner is gone. `.cclay/pi-bridge.json` is a discovery pointer
-			// the newest process overwrites, not a lock, so two extensions can
-			// share a project directory; recovering unconditionally would let
-			// one steal a claim the other is still working and run the
-			// generator twice. The lease sits above CLI_TIMEOUT_MS, which
-			// execFile enforces, so no live run can hold a claim that long.
-			await recoverAbandonedClaims(options.cwd, { staleAfterMs: CLAIM_LEASE_MS });
-			// Recorded before the sweep so a failure can name the claims this
-			// process created, and recover exactly those without waiting out a
-			// lease meant for other processes.
-			const pendingBefore = await pendingRequestFiles(options.cwd);
-			try {
-				await sweepRegenerateRequests({
-					projectDirectory: options.cwd,
-					handler,
-					contextFor: (request: ArdyRegenerateRequestV1) => ({
-						signal: AbortSignal.timeout(CLI_TIMEOUT_MS),
-						request: { expected_revision_id: request.expected_revision_id },
-					}),
-				});
-			} catch (error) {
-				await recoverAbandonedClaims(options.cwd, { only: pendingBefore }).catch(() => {});
-				throw error;
-			}
+			await recoverAbandonedClaims(options.cwd);
+			await sweepRegenerateRequests({
+				projectDirectory: options.cwd,
+				handler,
+				contextFor: (request: ArdyRegenerateRequestV1) => ({
+					signal: AbortSignal.timeout(CLI_TIMEOUT_MS),
+					request: { expected_revision_id: request.expected_revision_id },
+				}),
+			});
 		} catch (error) {
 			// A sweep failure must not kill the interval: the next animator
 			// request would then sit in the queue with nothing watching.
