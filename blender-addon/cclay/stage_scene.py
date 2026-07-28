@@ -643,7 +643,13 @@ def _destroy_object(scene_object: object) -> None:
         elif object_type == "ARMATURE":
             bpy.data.armatures.remove(data)
     for material in materials:
-        if material.users == 0:
+        # A material shared by two destroyed objects is already gone on the
+        # second visit; Blender invalidates the RNA wrapper at removal.
+        try:
+            users = material.users
+        except ReferenceError:
+            continue
+        if users == 0:
             bpy.data.materials.remove(material)
 
 
@@ -884,7 +890,17 @@ class _StageTransaction:
             scene.frame_end = self.render_state["frame_end"]
             scene.frame_set(self.render_state["frame_current"])
         for action in tuple(self.created_actions):
-            if action.name in bpy.data.actions and action.users == 0:
+            # Created datablocks may already have been destroyed as a side
+            # effect of destroying their owner (objects purge zero-user data,
+            # and _destroy_object purges zero-user materials). Touching the
+            # stale RNA wrapper raises ReferenceError and used to turn a clean
+            # rollback into RECOVERY_REQUIRED.
+            try:
+                is_registered = action.name in bpy.data.actions
+                users = action.users
+            except ReferenceError:
+                continue
+            if is_registered and users == 0:
                 bpy.data.actions.remove(action)
         bpy.context.view_layer.update()
         # Restoring the action and current frame evaluates animation and can
@@ -906,7 +922,12 @@ class _StageTransaction:
             if collection.name in bpy.data.collections and len(collection.objects) == 0:
                 bpy.data.collections.remove(collection)
         for material in tuple(self.created_materials):
-            if material.name in bpy.data.materials and material.users == 0:
+            try:
+                is_registered = material.name in bpy.data.materials
+                users = material.users
+            except ReferenceError:
+                continue
+            if is_registered and users == 0:
                 bpy.data.materials.remove(material)
         for scene_object in self.scene.objects:
             scene_object.select_set(scene_object in self.selected)
@@ -1348,12 +1369,20 @@ def _generated_material(scene_object: object, transaction: _StageTransaction):
     return material
 
 
-def _set_material_color(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    scene_object = _require_owned_entity(operation["entity_id"], project_id)
-    if scene_object.type != "MESH":
-        raise STAGE_SCENE_TARGET_TYPE_INVALID(
-            f"entity {operation['entity_id']} must be a MESH"
-        )
+def _belongs_to_character(mesh: object, root: object) -> bool:
+    """True when a mesh is skinned to (or parented under) a character armature."""
+    parent = mesh.parent
+    while parent is not None:
+        if parent == root:
+            return True
+        parent = parent.parent
+    return any(
+        modifier.type == "ARMATURE" and modifier.object == root
+        for modifier in mesh.modifiers
+    )
+
+
+def _apply_material_color(scene_object: object, operation: dict, transaction: _StageTransaction) -> None:
     material = _generated_material(scene_object, transaction)
     material.use_nodes = True
     material.diffuse_color = operation["color"]
@@ -1375,6 +1404,36 @@ def _set_material_color(operation: dict, transaction: _StageTransaction, project
                 f"generated material has no {socket_name} input"
             )
         socket.default_value = operation[key]
+
+
+def _set_material_color(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
+    scene_object = _require_owned_entity(operation["entity_id"], project_id)
+    targets: list[object]
+    if scene_object.type == "MESH":
+        targets = [scene_object]
+    elif scene_object.type == "ARMATURE" and scene_object.get("cclay.character_type") is not None:
+        # A character is authored as one armature root plus skinned meshes. The
+        # director names the character when it says "make it gray"; resolving
+        # that name to the armature and then refusing because an armature is not
+        # a mesh made a normal request fail and, worse, sent rollback down a
+        # path that used to close the bridge. Color the character's meshes.
+        targets = [
+            candidate
+            for candidate in bpy.data.objects
+            if candidate.type == "MESH"
+            and candidate.get("cclay.owned_project_id") == project_id
+            and _belongs_to_character(candidate, scene_object)
+        ]
+        if not targets:
+            raise STAGE_SCENE_TARGET_TYPE_INVALID(
+                f"character entity {operation['entity_id']} has no owned skinned mesh"
+            )
+    else:
+        raise STAGE_SCENE_TARGET_TYPE_INVALID(
+            f"entity {operation['entity_id']} must be a MESH or a CCLAY character"
+        )
+    for target in targets:
+        _apply_material_color(target, operation, transaction)
 
 
 def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_id: str):
