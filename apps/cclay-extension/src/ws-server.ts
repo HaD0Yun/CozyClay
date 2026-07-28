@@ -42,6 +42,7 @@ export class WebSocketConnection extends EventEmitter {
 	private fragmentBytes = 0;
 	private fragmentOpcode = 0;
 	private closed = false;
+	private lastClose: { readonly code: number; readonly reason: string; readonly source: "local" | "peer" } | undefined;
 	private readonly maxMessageBytes: number;
 	private readonly outbound: Buffer[] = [];
 	private outboundBytes = 0;
@@ -57,7 +58,7 @@ export class WebSocketConnection extends EventEmitter {
 		socket.on("data", (bytes) => this.read(bytes));
 		socket.on("close", () => {
 			this.clearOutbound();
-			this.emit("disconnect");
+			this.emit("disconnect", this.closeInfo());
 		});
 		socket.on("end", () => {
 			if (!socket.writableEnded) socket.end();
@@ -82,6 +83,10 @@ export class WebSocketConnection extends EventEmitter {
 	close(code = 1000, reason = ""): void {
 		if (this.closed) return;
 		this.closed = true;
+		// The socket "close" event is the only cleanup signal downstream, and it
+		// carries no code. Remember who closed and why so the bridge can log the
+		// first close instead of a bare disconnect after the fact.
+		if (this.lastClose === undefined) this.lastClose = { code, reason, source: "local" };
 		this.clearOutbound();
 		const boundedReason = Buffer.from(reason).subarray(0, 123);
 		const payload = Buffer.alloc(2 + boundedReason.byteLength);
@@ -89,6 +94,10 @@ export class WebSocketConnection extends EventEmitter {
 		boundedReason.copy(payload, 2);
 		this.writeControl(8, payload);
 		this.socket.end();
+	}
+
+	closeInfo(): { readonly code: number; readonly reason: string; readonly source: "local" | "peer" } | undefined {
+		return this.lastClose;
 	}
 
 	private clearOutbound(): void {
@@ -182,6 +191,11 @@ export class WebSocketConnection extends EventEmitter {
 			if (opcode >= 8 && (!final || length > 125)) return this.close(1008);
 			if (opcode === 8) {
 				const code = data.length >= 2 ? data.readUInt16BE(0) : 1000;
+				this.lastClose = {
+					code,
+					reason: data.length > 2 ? data.subarray(2).toString("utf8") : "",
+					source: "peer",
+				};
 				this.close(code);
 				return;
 			}

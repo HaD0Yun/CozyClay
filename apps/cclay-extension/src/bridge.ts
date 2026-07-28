@@ -6,7 +6,7 @@
 // auto-reconnect are retained.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import {
@@ -164,6 +164,15 @@ interface ArtifactFrame {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** One JSONL bridge event log per project; diagnostics must never throw. */
+function appendBridgeLog(projectDirectory: string, entry: Record<string, unknown>): void {
+	const directory = path.join(projectDirectory, ".cclay");
+	const line = `${JSON.stringify({ timestamp: new Date().toISOString(), ...entry })}\n`;
+	void mkdir(directory, { recursive: true, mode: 0o700 })
+		.then(() => appendFile(path.join(directory, "bridge.log"), line, { encoding: "utf8", mode: 0o600 }))
+		.catch(() => {});
 }
 
 /**
@@ -576,9 +585,16 @@ export class BlenderBridge {
 			}
 			void this.handleBridgeMessage(session, raw);
 		});
-		websocket.on("disconnect", () => {
+		websocket.on("disconnect", (closeInfo?: { code: number; reason: string; source: "local" | "peer" }) => {
 			if (this.transport?.websocket === websocket) {
 				const diagnostics = this.pendingDiagnostics();
+				appendBridgeLog(this.projectDirectory, {
+					event: "bridge_disconnect",
+					launchId: this.launchId,
+					projectId: this.projectId,
+					diagnostics,
+					close: closeInfo ?? websocket.closeInfo() ?? null,
+				});
 				this.transport = undefined;
 				this.failPending("BRIDGE_DISCONNECTED", `Blender bridge disconnected${diagnostics}`);
 			}

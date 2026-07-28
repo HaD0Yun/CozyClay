@@ -19,6 +19,8 @@ Behavior:
 
 import os
 import sys
+import threading
+import traceback
 from pathlib import Path
 
 import bpy
@@ -133,6 +135,23 @@ def log(*parts: object) -> None:
             handle.write(" ".join(str(part) for part in ("CCLAY_ATTACH:", *parts)) + "\n")
     except OSError:
         pass
+
+
+def _log_unhandled(exc_type, exc_value, exc_traceback) -> None:
+    log("UNHANDLED", "".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+
+
+def _install_exception_logging() -> None:
+    # Blender launched through LaunchServices has stdout/stderr routed to
+    # /dev/null, so an unhandled addon exception otherwise vanishes exactly
+    # when it explains a bridge loss.
+    sys.excepthook = _log_unhandled
+    threading.excepthook = lambda args: _log_unhandled(
+        args.exc_type, args.exc_value, args.exc_traceback
+    )
+
+
+_install_exception_logging()
 
 
 def newest_blend() -> Path | None:

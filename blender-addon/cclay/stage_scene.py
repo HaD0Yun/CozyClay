@@ -15,6 +15,7 @@ import re
 import time
 import struct
 import sys
+import traceback
 import zipfile
 import unicodedata
 import uuid
@@ -23,6 +24,13 @@ from pathlib import Path
 
 from . import hand_shapes, motion_retarget
 from .scene_manifest import PRIMITIVE_TYPES
+
+
+def _stage_log(connection, event: str, **fields) -> None:
+    """Best-effort bridge diagnostics for fakes that predate the logger."""
+    log = getattr(connection, "_log_bridge_event", None)
+    if callable(log):
+        log(event, **fields)
 
 try:  # Blender is intentionally absent from host-side unit tests.
     import bpy  # type: ignore
@@ -3315,6 +3323,14 @@ class _StageSceneRun:
     def _finish_error(self, error: BaseException) -> None:
         from .connection import DurableCommitReconciliationRequired
         self.error = error
+        _stage_log(
+            self.connection,
+            "stage_finish_error",
+            phase=self.phase,
+            recovery_direction=self.recovery_direction,
+            error=repr(error),
+            stack="".join(traceback.format_exception(type(error), error, error.__traceback__, limit=12)),
+        )
         if self.checkpoint is None:
             self.phase = "PRE_CHECKPOINT"
             outcome = "ERROR_NO_MUTATION"
@@ -3344,6 +3360,21 @@ class _StageSceneRun:
                 self.phase = "ERROR"
                 outcome = "ERROR_ROLLED_BACK"
             except BaseException as recovery_error:
+                _stage_log(
+                    self.connection,
+                    "stage_rollback_failed",
+                    phase=self.phase,
+                    error=repr(error),
+                    recovery_error=repr(recovery_error),
+                    recovery_stack="".join(
+                        traceback.format_exception(
+                            type(recovery_error),
+                            recovery_error,
+                            recovery_error.__traceback__,
+                            limit=12,
+                        )
+                    ),
+                )
                 self.connection.require_recovery()
                 self.phase = "RECONCILIATION_REQUIRED"
                 self.error = DurableCommitReconciliationRequired(

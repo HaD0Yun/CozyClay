@@ -138,7 +138,9 @@ class WebSocketClient:
             fin, opcode, payload = self._recv_frame()
             if opcode == 8:
                 self.closed = True
-                raise WebSocketError("peer closed socket")
+                code = struct.unpack("!H", payload[:2])[0] if len(payload) >= 2 else 1000
+                reason = payload[2:].decode("utf-8", errors="replace") if len(payload) > 2 else ""
+                raise WebSocketError(f"peer closed socket code={code} reason={reason!r}")
             if opcode == 9:
                 self._send_frame(10, payload); continue
             if opcode == 10: continue

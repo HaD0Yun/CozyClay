@@ -11,6 +11,7 @@ import stat
 import tempfile
 import threading
 import time
+import traceback
 from dataclasses import dataclass, replace
 from enum import Enum
 from os import PathLike
@@ -746,6 +747,10 @@ class Connection:
     def require_recovery(self) -> None:
         """Hide every bridge tool and retain a terminal recovery state."""
         self.tools_exposed = False
+        self._log_bridge_event(
+            "require_recovery",
+            stack="".join(traceback.format_stack(limit=10)),
+        )
         with self._state_lock:
             self.state = LifecycleState.RECOVERY_REQUIRED
         self._finish_in_flight_for_lifecycle("recovery_required")
@@ -1134,6 +1139,25 @@ class Connection:
         with self._send_lock:
             self.websocket.send_json(message)
 
+    def _log_bridge_event(self, event: str, **fields: Any) -> None:
+        """Append one addon-side bridge diagnostics line; never raises."""
+        try:
+            directory = self.project_directory
+            if directory is None:
+                return
+            payload = {
+                "timestamp": time.time(),
+                "event": event,
+                "state": getattr(self.state, "value", str(self.state)),
+                **fields,
+            }
+            path = Path(directory) / ".cclay" / "addon-bridge.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, default=str) + "\n")
+        except Exception:
+            pass
+
     def pump_bridge_messages(self) -> float | None:
         """Run queued Blender work and recover socket loss on the main thread."""
         now = time.monotonic()
@@ -1146,7 +1170,8 @@ class Connection:
                     "type": "ping",
                     "nonce": secrets.token_urlsafe(16),
                 })
-            except (OSError, WebSocketError):
+            except (OSError, WebSocketError) as error:
+                self._log_bridge_event("ping_send_lost", error=repr(error))
                 self._mark_lost_if_active()
             else:
                 self._last_ping_at = now
@@ -1194,6 +1219,10 @@ class Connection:
             )
         if self.state != LifecycleState.ACTIVE:
             if not self.websocket.closed:
+                self._log_bridge_event(
+                    "close_from_lifecycle_state",
+                    stack="".join(traceback.format_stack(limit=8)),
+                )
                 try:
                     self.websocket.close()
                 except (OSError, WebSocketError):
@@ -1220,11 +1249,13 @@ class Connection:
                 try:
                     message = self.websocket.recv_json()
                 except StopIteration:
+                    self._log_bridge_event("recv_loop_stop_iteration")
                     self._mark_lost_if_active()
                     return
                 except TimeoutError:
                     continue
-                except (OSError, WebSocketError):
+                except (OSError, WebSocketError) as error:
+                    self._log_bridge_event("recv_loop_lost", error=repr(error))
                     self._mark_lost_if_active()
                     return
                 if not isinstance(message, dict):
@@ -2317,6 +2348,11 @@ class Connection:
         """Drain the daemon, then force-kill only if its exit exceeds the bound."""
         if self.state == LifecycleState.STOPPED:
             return
+        self._log_bridge_event(
+            "disconnect_called",
+            reason=reason,
+            stack="".join(traceback.format_stack(limit=8)),
+        )
         self.state = LifecycleState.DRAINING
         self._finish_in_flight_for_lifecycle("disconnected")
         if bpy is not None and bpy.app.timers.is_registered(self.pump_bridge_messages):
