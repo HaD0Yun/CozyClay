@@ -16,11 +16,16 @@ export const BRIDGE_METHODS = [
 	"inspect_pose_contacts",
 	"inspect_relations",
 	"preflight_motion",
+	"inspect_performance",
+	"inspect_visual_qa_metrics",
 	"capture_viewport",
 	"produce_directing_evidence",
 	"apply_camera_plan",
 	"stage_scene",
 	"render_qa_frames",
+	"apply_performance_mode",
+	"create_fall_motion",
+	"replace_camera_action",
 ];
 
 export const STAGE_SCENE_OPS = (

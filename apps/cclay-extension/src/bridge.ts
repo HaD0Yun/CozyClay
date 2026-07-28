@@ -72,11 +72,16 @@ const REQUIRED_BRIDGE_METHODS = [
 	"inspect_pose_contacts",
 	"inspect_relations",
 	"preflight_motion",
+	"inspect_performance",
+	"inspect_visual_qa_metrics",
 	"capture_viewport",
 	"produce_directing_evidence",
 	"apply_camera_plan",
 	"stage_scene",
 	"render_qa_frames",
+	"apply_performance_mode",
+	"create_fall_motion",
+	"replace_camera_action",
 ] as const;
 const ADDON_MANIFEST_URL = new URL(
 	"../../../blender-addon/cclay/blender_manifest.toml",
@@ -257,6 +262,56 @@ export class BlenderBridge {
 	}
 
 	/**
+	 * Credential-free repair surface for tools and the TUI. It deliberately
+	 * reports stale transport evidence instead of pretending that a process
+	 * restart can be performed by the in-process bridge.
+	 */
+	inspectBridgeState(): Record<string, unknown> {
+		return {
+			attached: this.transport !== undefined,
+			project_id: this.projectId ?? null,
+			revision_id: this.currentRevisionId,
+			pending_method: this.pending?.method ?? null,
+			prepared_transaction_id: this.preparedTransaction?.prepared.transaction_id ?? null,
+			attach_failure: this.staleAddonMessage ?? null,
+			addon_version: this.addonVersion ?? null,
+		};
+	}
+
+	/**
+	 * Clear local bridge state that can keep reporting an already-dead
+	 * operation. This never touches the Blender scene or project journal; it
+	 * only rejects this process's stale pending promise and closes its stale
+	 * socket so a new attach can be accepted.
+	 */
+	repairBridge(): Record<string, unknown> {
+		const before = this.inspectBridgeState();
+		if (this.pending !== undefined) {
+			this.failPending(
+				"BRIDGE_REPAIR_REMOVED_STALE_PENDING",
+				`repair removed stale bridge operation${this.pendingDiagnostics()}`,
+			);
+		}
+		this.preparedTransaction = undefined;
+		if (this.transport !== undefined) {
+			const transport = this.transport;
+			this.transport = undefined;
+			try {
+				transport.websocket.close(1000, "bridge repair");
+			} catch {
+				// A dead transport cannot fail the repair that removes it.
+			}
+		}
+		appendBridgeLog(this.projectDirectory, {
+			event: "bridge_repair",
+			launchId: this.launchId,
+			projectId: this.projectId,
+			before,
+		});
+		return { ...before, repaired: true, attached: false };
+	}
+
+	/**
 	 * Resolves once Blender has attached and completed the hello handshake.
 	 * Rejects when an attach attempt is refused because the Blender add-on is
 	 * stale (ADDON_STALE), so the failure surfaces once instead of hanging.
@@ -425,6 +480,71 @@ export class BlenderBridge {
 		// (produceDirectingEvidence precedent); parse failure throws an Error
 		// whose message starts with INVALID_PREFLIGHT_MOTION_RESULT.
 		return parseMotionPreflightResult(result);
+	}
+
+	async inspectPerformance(params: {
+		expected_revision_id: string;
+	}): Promise<Record<string, unknown>> {
+		const result = await this.runBridgeRequest(
+			"inspect_performance",
+			params,
+			() => this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
+			throw new Error("INVALID_INSPECT_PERFORMANCE_RESULT: bridge did not return a bound revision");
+		}
+		return result;
+	}
+
+	async inspectVisualQaMetrics(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+		const result = await this.runBridgeRequest(
+			"inspect_visual_qa_metrics",
+			params,
+			() => this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision !== "string" || !HASH_64.test(result.revision)) {
+			throw new Error("INVALID_VISUAL_QA_METRICS_RESULT: bridge did not return a bound revision");
+		}
+		return result;
+	}
+
+	async createFallMotion(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+		const result = await this.runBridgeRequest(
+			"create_fall_motion",
+			params,
+			() => this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision_id !== "string" || !HASH_64.test(result.revision_id)) {
+			throw new Error("INVALID_FALL_MOTION_RESULT: bridge did not return a bound revision");
+		}
+		return result;
+	}
+
+	async replaceCameraAction(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+		const result = await this.runBridgeRequest(
+			"replace_camera_action",
+			params,
+			() => this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision_id !== "string" || !HASH_64.test(result.revision_id)) {
+			throw new Error("INVALID_CAMERA_ACTION_RESULT: bridge did not return a bound revision");
+		}
+		return result;
+	}
+
+	async applyPerformanceMode(params: {
+		expected_revision_id: string;
+		profile: "editing" | "playback" | "performance";
+	}): Promise<Record<string, unknown>> {
+		const result = await this.runBridgeRequest(
+			"apply_performance_mode",
+			params,
+			() => this.currentRevisionId,
+		);
+		if (!isRecord(result) || typeof result.revision_id !== "string" || !HASH_64.test(result.revision_id)) {
+			throw new Error("INVALID_PERFORMANCE_MODE_RESULT: bridge did not return a bound revision");
+		}
+		return result;
 	}
 
 	async captureViewport(request: { readonly subject?: string; readonly views?: readonly string[] } = {}): Promise<ViewportCaptureResultV1> {

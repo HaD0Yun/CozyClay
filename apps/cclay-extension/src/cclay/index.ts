@@ -3,15 +3,22 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createApplyCameraPlanTool,
+	createApplyPerformanceModeTool,
 	createCaptureViewportTool,
+	createFallMotionTool,
+	createInspectBridgeStateTool,
 	createInspectEntityTool,
+	createInspectPerformanceTool,
 	createInspectPoseContactsTool,
 	createInspectProjectTool,
 	createInspectRelationsTool,
+	createInspectVisualQaMetricsTool,
 	createPreflightMotionTool,
 	createProduceDirectingEvidenceTool,
 	createReadImageTool,
 	createRenderQaFramesTool,
+	createRepairBridgeTool,
+	createReplaceCameraActionTool,
 	createStageSceneTool,
 } from "@cclay/blender-tools";
 import {
@@ -114,9 +121,12 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	});
 
 	pi.registerTool(createInspectProjectTool(bridge));
+	pi.registerTool(createInspectBridgeStateTool(bridge));
+	pi.registerTool(createInspectPerformanceTool(bridge));
 	pi.registerTool(createInspectEntityTool(bridge));
 	pi.registerTool(createInspectPoseContactsTool(bridge));
 	pi.registerTool(createInspectRelationsTool(bridge));
+	pi.registerTool(createInspectVisualQaMetricsTool(bridge));
 	pi.registerTool(createPreflightMotionTool(bridge));
 	pi.registerTool(createCaptureViewportTool(bridge));
 	pi.registerTool(createReadImageTool(cwd));
@@ -124,6 +134,10 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	pi.registerTool(createStageSceneTool(mutationBridge));
 	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
 	pi.registerTool(createRenderQaFramesTool(bridge));
+	pi.registerTool(createRepairBridgeTool(bridge));
+	pi.registerTool(createApplyPerformanceModeTool(bridge));
+	pi.registerTool(createFallMotionTool(bridge));
+	pi.registerTool(createReplaceCameraActionTool(bridge));
 	// Ephemeral side questions. Registered after the tools on purpose: /btw
 	// runs its own tool-less request, so it must never see this catalog.
 	const btw = registerBtwCommand(pi);
