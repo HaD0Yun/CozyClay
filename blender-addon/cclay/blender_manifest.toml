@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "cclay"
-version = "0.32.0"
+version = "0.33.0"
 name = "CozyClay"
 tagline = "Pi-driven directing tools for Blender"
 maintainer = "CozyClay"
