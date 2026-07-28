@@ -30,6 +30,15 @@ from .handshake import (
     build_hello,
     validate_hello_ack,
 )
+from .camera_action import parse_replace_camera_action
+from .camera_action import replace_camera_action as replace_scene_camera_action
+from .fall_motion import create_fall_motion as create_scene_fall_motion
+from .fall_motion import parse_create_fall_motion
+from .performance import apply_performance_mode as apply_scene_performance_mode
+from .performance import inspect_performance as inspect_scene_performance
+from .performance import parse_apply_performance_mode
+from .qa_metrics import inspect_visual_qa_metrics as inspect_scene_qa_metrics
+from .qa_metrics import parse_inspect_visual_qa_metrics
 from .ws_client import WebSocketClient, WebSocketError
 
 try:  # Blender is intentionally absent from host-side unit tests.
@@ -102,6 +111,8 @@ _READ_ONLY_BRIDGE_METHODS = (
     "inspect_pose_contacts",
     "inspect_motion_constraints",
     "preflight_motion",
+    "inspect_performance",
+    "inspect_visual_qa_metrics",
 )
 # Exact capture_viewport params the bridge sends; every key is always present
 # and null when unset, so an unknown key is protocol skew, not an option.
@@ -1550,6 +1561,54 @@ class Connection:
             finally:
                 self.finish_bridge(bridge_id)
             return
+        if message["method"] == "inspect_performance":
+            try:
+                result = {
+                    **inspect_scene_performance(),
+                    "revision": durable_revision_id,
+                }
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
+        if message["method"] == "inspect_visual_qa_metrics":
+            try:
+                request = parse_inspect_visual_qa_metrics(message["params"])
+                if request["expected_revision_id"] != durable_revision_id:
+                    raise StaleBridgeBase(
+                        "visual QA metrics expected revision "
+                        f"{request['expected_revision_id']}, current durable revision is {durable_revision_id}"
+                    )
+                result = {
+                    **inspect_scene_qa_metrics(request),
+                    "revision": durable_revision_id,
+                }
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+            except BaseException as error:
+                self._send_bridge_error(
+                    message,
+                    getattr(error, "code", type(error).__name__),
+                    str(error),
+                )
+            finally:
+                self.finish_bridge(bridge_id)
+            return
         if message["method"] == "capture_viewport":
             try:
                 result = self._capture_viewport_result(durable_revision_id, message.get("params"))
@@ -1587,7 +1646,48 @@ class Connection:
                 self.finish_bridge(bridge_id)
             return
         try:
-            if message["method"] == "apply_camera_plan":
+            if message["method"] == "replace_camera_action":
+                request = parse_replace_camera_action(message["params"])
+                result = replace_scene_camera_action(request, durable_revision_id)
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+                self.finish_bridge(bridge_id)
+                self.finish_task("success")
+            elif message["method"] == "create_fall_motion":
+                request = parse_create_fall_motion(message["params"])
+                result = create_scene_fall_motion(request, durable_revision_id)
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+                self.finish_bridge(bridge_id)
+                self.finish_task("success")
+            elif message["method"] == "apply_performance_mode":
+                request = parse_apply_performance_mode(message["params"])
+                if request["expected_revision_id"] != durable_revision_id:
+                    raise StaleBridgeBase(
+                        "performance mode expected revision "
+                        f"{request['expected_revision_id']}, current durable revision is {durable_revision_id}"
+                    )
+                result = {
+                    **apply_scene_performance_mode(request["profile"]),
+                    "revision_id": durable_revision_id,
+                }
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+                self.finish_bridge(bridge_id)
+                self.finish_task("success")
+            elif message["method"] == "apply_camera_plan":
                 bpy.ops.cclay.apply_camera_plan(
                     plan_json=json.dumps(message["params"], separators=(",", ":")),
                     current_scene_hash=current_scene_hash,

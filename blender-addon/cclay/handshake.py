@@ -24,9 +24,14 @@ SUPPORTED_BRIDGE_METHODS = (
     # some way to see the constraint state it is about to act on.
     "inspect_motion_constraints",
     "preflight_motion",
+    "inspect_performance",
+    "inspect_visual_qa_metrics",
     "apply_camera_plan",
     "stage_scene",
     "render_qa_frames",
+    "apply_performance_mode",
+    "create_fall_motion",
+    "replace_camera_action",
 )
 # Namespaced (non-negotiated) capability strings reporting the concrete addon
 # surface, so the extension can fail fast on a stale in-memory add-on.
