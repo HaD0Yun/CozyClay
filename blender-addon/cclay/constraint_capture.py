@@ -116,8 +116,57 @@ def clear_constraint(armature, kind: str, frame: int) -> None:
     pose_bone = _require_pose_bone(armature, ANCHOR_BY_KIND[kind])
     try:
         pose_bone.keyframe_delete(f'["{CONSTRAINT_MARKER}"]', frame=frame)
-    except RuntimeError:
+    except (RuntimeError, TypeError):
+        # Blender raises TypeError when the property carries no animation at
+        # all, which is a normal state for a newly-created empty lane.
         return
+
+
+def action_channelbags(action) -> list:
+    """Every layered action channelbag, in order."""
+    return [
+        bag
+        for layer in getattr(action, "layers", ())
+        for strip in getattr(layer, "strips", ())
+        for bag in getattr(strip, "channelbags", ())
+    ]
+
+
+def _marker_channelbag(action):
+    for bag in action_channelbags(action):
+        return bag
+    raise ConstraintCaptureError(
+        "this character's action has no channels to add constraint lanes to"
+    )
+
+
+def require_marker_channelbag(armature):
+    """Preflight whether an armature can carry constraint lanes."""
+    action = getattr(getattr(armature, "animation_data", None), "action", None)
+    if action is None:
+        raise ConstraintCaptureError(
+            "this character has no animation to carry constraint lanes"
+        )
+    return _marker_channelbag(action)
+
+
+def ensure_marker_curves(armature) -> list:
+    """Create one empty marker curve per constraint kind, idempotently."""
+    bag = require_marker_channelbag(armature)
+    action = armature.animation_data.action
+    existing = {curve.data_path for curve in _action_fcurves(action)}
+    created = []
+    for kind, bone_name in ANCHOR_BY_KIND.items():
+        pose_bone = _require_pose_bone(armature, bone_name)
+        path = _marker_data_path(bone_name)
+        if pose_bone.get(CONSTRAINT_MARKER) is None:
+            pose_bone[CONSTRAINT_MARKER] = 1.0
+        if path in existing:
+            continue
+        curve = bag.fcurves.new(path, index=0)
+        curve.select = False
+        created.append(kind)
+    return created
 
 
 def _marker_data_path(bone_name: str) -> str:
@@ -125,17 +174,10 @@ def _marker_data_path(bone_name: str) -> str:
 
 
 def _action_fcurves(action):
-    """Every F-curve on an action, across both action layouts.
-
-    Blender 4.4+ keeps curves in layered channelbags while older actions expose
-    them directly, and ``apply_motion`` may have produced either.
-    """
+    """Every F-curve on an action, across both action layouts."""
     found = []
-    if hasattr(action, "layers") and len(action.layers):
-        for layer in action.layers:
-            for strip in layer.strips:
-                for bag in getattr(strip, "channelbags", ()):
-                    found.extend(bag.fcurves)
+    for bag in action_channelbags(action):
+        found.extend(bag.fcurves)
     found.extend(getattr(action, "fcurves", ()))
     return found
 

@@ -294,6 +294,18 @@ def attach(armature, frame_start: int | None = None, frame_end: int | None = Non
     if frame_end < frame_start:
         raise IkRigError("frame_end must not precede frame_start")
 
+    # Preflight the constraint lanes BEFORE any mutation. attach() creates one
+    # marker channel per kind at the end, and that needs a channelbag on the
+    # action; discovering it is missing after the control bones, constraints
+    # and dense keys are in place would leave a half-attached rig and skip the
+    # frame restore below. Asked here, the answer is a clean refusal.
+    from . import constraint_capture
+
+    try:
+        constraint_capture.require_marker_channelbag(armature)
+    except constraint_capture.ConstraintCaptureError as error:
+        raise IkRigError(str(error)) from error
+
     restore_frame = scene.frame_current
     fk = _sample_fk(armature, frame_start, frame_end)
     _create_control_bones(armature, pole_distance, fk[frame_start])
@@ -318,7 +330,34 @@ def attach(armature, frame_start: int | None = None, frame_end: int | None = Non
     report["worstMidDeviationMm"] = max(
         entry["maxMidDeviationMm"] for entry in report["chains"].values()
     )
+    # Frame restored first: whatever happens to the lanes, the animator's
+    # playhead is theirs.
     scene.frame_set(restore_frame)
+    # One empty Dope Sheet channel per constraint kind, so all six ARDY lanes
+    # exist the moment the rig does. The Dope Sheet draws a channel for an
+    # F-curve whether or not it holds keys, and a lane that exists can be
+    # selected -- which is what makes Blender's own I place a constraint mark
+    # and X remove one. It lives here rather than in the operator because the
+    # lanes belong to the rig: a rig attached by a script gets them too. The
+    # preflight above is what makes this call safe this late.
+    # The rig is attached and usable by now, so a lane failure must not undo it
+    # or escape as a traceback. Preflight makes the expected failure
+    # unreachable; this catches the unexpected one -- an RNA refusal, a
+    # timeline error -- and degrades to a usable rig with no lanes and a reason
+    # the caller can show and retry. Every exception, because nothing here is
+    # worth losing an attached rig over.
+    report["constraintLanes"] = []
+    report["constraintLaneError"] = None
+    try:
+        from . import constraint_timeline
+
+        report["constraintLanes"] = constraint_capture.ensure_marker_curves(armature)
+        # Named and ordered here too, so the lanes are ready to look at without
+        # a separate step. Grouping is a persistent change to the action, which
+        # is why it lives in the rig operations rather than in the view toggle.
+        constraint_timeline.ensure_lanes(armature)
+    except Exception as error:  # noqa: BLE001 - see above
+        report["constraintLaneError"] = str(error)
     return report
 
 

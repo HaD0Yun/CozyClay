@@ -765,27 +765,93 @@ if bpy is not None:
                 controller_connection._active_controller,
             )
 
+    def _filter_to_constraint_lanes(context, armature):
+        """Show only the six ARDY constraint marker lanes.
+
+        Mixamo FK and dense IK target/pole curves remain in the action because
+        they drive the pose; this only simplifies the editor view. A stock
+        workspace starts in Timeline mode, so promote those editors to Dope
+        Sheet mode instead of asking for another manual setup step.
+        """
+        from . import constraint_timeline
+
+        shown = constraint_timeline.lane_labels(armature)
+        editors = []
+        for screen in bpy.data.screens:
+            for area in screen.areas:
+                if area.type != "DOPESHEET_EDITOR":
+                    continue
+                space = area.spaces.active
+                if getattr(space, "mode", None) == "TIMELINE":
+                    space.mode = "DOPESHEET"
+                if (
+                    getattr(space, "mode", None) == "DOPESHEET"
+                    and getattr(space, "dopesheet", None) is not None
+                ):
+                    editors.append((area, space.dopesheet))
+        for area, dopesheet in editors:
+            dopesheet.filter_text = constraint_timeline.CHANNEL_FILTER
+            dopesheet.show_only_selected = False
+            area.tag_redraw()
+        return shown, len(editors)
+
+    def _enable_auto_key(context):
+        settings = getattr(context.scene, "tool_settings", None)
+        if settings is None or settings.use_keyframe_insert_auto:
+            return False
+        settings.use_keyframe_insert_auto = True
+        return True
+
     class CCLAY_OT_attach_ik_rig(bpy.types.Operator):
         bl_idname = "cclay.attach_ik_rig"
-        bl_label = "Attach IK Rig"
+        bl_label = "Enable Constraint Editing"
         bl_description = (
-            "Lay draggable IK handles over the selected character's baked motion. "
-            "The pose does not change: the handles are keyed to reproduce it"
+            "Set up Full-Body, 2D Root, left/right hand and left/right foot "
+            "constraint lanes in one step; the underlying motion stays unchanged"
         )
         bl_options = {"REGISTER", "UNDO"}
 
         def execute(self, context):
+            armature = context.active_object
             try:
-                report = ik_rig.attach(context.active_object)
+                report = ik_rig.attach(armature)
             except ik_rig.IkRigError as error:
                 self.report({"ERROR"}, str(error))
                 return {"CANCELLED"}
+
+            filtered_lanes = ()
+            filtered_editors = 0
+            try:
+                filtered_lanes, filtered_editors = _filter_to_constraint_lanes(
+                    context, armature
+                )
+            except Exception as error:  # view setup must not undo a valid rig
+                self.report(
+                    {"WARNING"},
+                    f"IK layer attached, but the lane-only view failed: {error}",
+                )
+            keyed = _enable_auto_key(context)
+            lane_error = report.get("constraintLaneError")
+            if lane_error:
+                self.report(
+                    {"WARNING"},
+                    f"IK layer attached, but constraint lanes failed: {lane_error}",
+                )
+
+            extra = "".join(
+                (
+                    f"; {len(filtered_lanes)} lanes shown"
+                    if filtered_editors
+                    else "; open a Dope Sheet to see the six lanes",
+                    "; Auto Keying on" if keyed else "",
+                )
+            )
             # The deviation is the proof that attaching changed nothing, so it
             # belongs in front of the animator rather than in a log.
             self.report(
                 {"INFO"},
                 f"IK handles on {report['frameEnd'] - report['frameStart'] + 1} frames, "
-                f"worst deviation {report['worstMidDeviationMm']:.3f} mm",
+                f"worst deviation {report['worstMidDeviationMm']:.3f} mm" + extra,
             )
             return {"FINISHED"}
 
