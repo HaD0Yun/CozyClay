@@ -17,12 +17,19 @@ import { DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
 // test before it can ship.
 
 describe("director tool allowlist invariant", () => {
-	it("is exactly the four authorized director tools, in order", () => {
+	it("is exactly the authorized director tools, in order", () => {
 		assert.deepEqual(DIRECTOR_TOOL_ALLOWLIST, [
 			"inspect_project",
+			"inspect_bridge_state",
+			"inspect_performance",
+			"inspect_visual_qa_metrics",
 			"stage_scene",
 			"apply_camera_plan",
 			"render_qa_frames",
+			"repair_bridge",
+			"apply_performance_mode",
+			"create_fall_motion",
+			"replace_camera_action",
 		]);
 	});
 
@@ -32,11 +39,11 @@ describe("director tool allowlist invariant", () => {
 		}
 	});
 
-	it("has no duplicate or extra entries beyond the four", () => {
+	it("has no duplicate or extra entries beyond the authorized set", () => {
 		// `as const` makes the tuple readonly and length-typed at compile time;
 		// this is the runtime mirror that catches a reordered or padded array
 		// slipped past the type system.
-		assert.equal(DIRECTOR_TOOL_ALLOWLIST.length, 4);
-		assert.equal(new Set(DIRECTOR_TOOL_ALLOWLIST).size, 4);
+		assert.equal(DIRECTOR_TOOL_ALLOWLIST.length, 11);
+		assert.equal(new Set(DIRECTOR_TOOL_ALLOWLIST).size, 11);
 	});
 });

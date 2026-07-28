@@ -62,12 +62,19 @@ describe("director runtime session", () => {
 		}
 	});
 
-	it("keeps stage_scene in the closed production allowlist", () => {
+	it("keeps the production allowlist closed to the authorized director tools", () => {
 		assert.deepEqual(DIRECTOR_TOOL_ALLOWLIST, [
 			"inspect_project",
+			"inspect_bridge_state",
+			"inspect_performance",
+			"inspect_visual_qa_metrics",
 			"stage_scene",
 			"apply_camera_plan",
 			"render_qa_frames",
+			"repair_bridge",
+			"apply_performance_mode",
+			"create_fall_motion",
+			"replace_camera_action",
 		]);
 	});
 });

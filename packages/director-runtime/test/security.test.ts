@@ -77,6 +77,13 @@ describe("hostile local resource isolation", () => {
 			inspectProject: async () => {
 				throw new Error("not invoked");
 			},
+			inspectBridgeState: () => ({ attached: false }),
+			inspectPerformance: async () => {
+				throw new Error("not invoked");
+			},
+			inspectVisualQaMetrics: async () => {
+				throw new Error("not invoked");
+			},
 			applyCameraPlan: async () => {
 				throw new Error("not invoked");
 			},
@@ -84,6 +91,16 @@ describe("hostile local resource isolation", () => {
 				throw new Error("not invoked");
 			},
 			renderQaFrames: async () => {
+				throw new Error("not invoked");
+			},
+			repairBridge: () => ({ repaired: true }),
+			applyPerformanceMode: async () => {
+				throw new Error("not invoked");
+			},
+			createFallMotion: async () => {
+				throw new Error("not invoked");
+			},
+			replaceCameraAction: async () => {
 				throw new Error("not invoked");
 			},
 		};
