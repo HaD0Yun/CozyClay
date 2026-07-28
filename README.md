@@ -64,7 +64,6 @@ npm ci --ignore-scripts
 
 mkdir -p ~/.local/bin
 ln -s "$PWD/scripts/cclay" ~/.local/bin/cclay
-ln -s "$PWD/scripts/cclay-ardy-generate" ~/.local/bin/cclay-ardy-generate
 ```
 
 Ensure `~/.local/bin` is on `PATH`, then check the installation:
@@ -75,9 +74,7 @@ cclay --help
 ```
 
 The first model request may require `/login` in the TUI. Credentials and
-sessions are stored per project under `.cclay/pi-agent/`. If a compatible GJC
-credential database exists at `~/.gjc/agent/agent.db`, CozyClay imports its
-usable credentials as a convenience; GJC is not required.
+sessions are stored per project under `.cclay/pi-agent/`.
 
 ## Quick start
 
@@ -114,7 +111,6 @@ Useful launch options:
 | `cclay --no-blender` | Start only the director for an already initialized project |
 | `cclay --provider <name> --model <id>` | Select a Pi provider and model |
 | `cclay --model <id>` | Override only the model |
-| `cclay --glm` | Use GLM 5.2 through the Fireworks fast router |
 | `CCLAY_PROJECT_DIR=<dir> cclay` | Open a project from another directory |
 | `CCLAY_BLENDER_EXECUTABLE=<path> cclay` | Use a specific Blender executable |
 | `CCLAY_PROJECTS_ROOT=<dir> cclay` | Change the project picker root |

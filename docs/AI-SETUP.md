@@ -32,7 +32,6 @@ missing, install it only with my explicit approval.
 
    mkdir -p ~/.local/bin
    ln -sfn "$PWD/scripts/cclay" ~/.local/bin/cclay
-   ln -sfn "$PWD/scripts/cclay-ardy-generate" ~/.local/bin/cclay-ardy-generate
 
 9. Run `~/.local/bin/cclay --version` and `~/.local/bin/cclay --help` and show
    me the outputs.
@@ -66,8 +65,7 @@ Use this when the machine already has Node.js and Blender:
 ```text
 Install CozyClay from https://github.com/HaD0Yun/CozyClay.git. Clone to
 ~/CozyClay or update it if it is already the CozyClay repo, run
-`npm ci --ignore-scripts`, symlink `scripts/cclay` and
-`scripts/cclay-ardy-generate` into `~/.local/bin`, then run
+`npm ci --ignore-scripts`, symlink `scripts/cclay` into `~/.local/bin`, then run
 `~/.local/bin/cclay --version` and `~/.local/bin/cclay --help`. Do not edit my
 shell startup files, do not set API keys, and do not launch Blender without
 asking. Report every command result and the next command I should run.
@@ -79,7 +77,7 @@ asking. Report every command result and the next command I should run.
 add-on version, and a Git version:
 
 ```text
-cclay cozyclay 0.0.3, add-on 0.32.0, git <revision>
+cclay cozyclay 0.0.3, add-on 0.33.0, git <revision>
 ```
 
 The exact numbers can change after updates. The command must not fail with
@@ -102,8 +100,6 @@ Prefer one of these:
 - Run `cclay` yourself and type `/login` in the CozyClay TUI.
 - Set the provider-specific environment variable locally using your provider's
   documentation.
-- Let CozyClay import an already existing compatible GJC credential database
-  at `~/.gjc/agent/agent.db`; GJC is optional.
 
 Provider credentials and sessions live under the project's
 `.cclay/pi-agent/`. Never commit `.cclay/`.
