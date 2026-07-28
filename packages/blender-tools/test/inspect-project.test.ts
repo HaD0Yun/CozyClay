@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createInspectProjectTool, type ProjectManifest } from "../src/inspect-project.ts";
+import {
+	createInspectProjectTool,
+	type ProjectManifest,
+	summarizeInspectProjectContent,
+} from "../src/inspect-project.ts";
 
 const baseSnapshot = {
 	schemaVersion: 2 as const,
@@ -194,5 +198,53 @@ describe("inspect_project", () => {
 			},
 		});
 		await assert.rejects(tool.execute("test", {}, undefined, undefined, undefined as never), failure);
+	});
+
+	it("folds a full summary into scene, render, counts, and a bounded object list", () => {
+		const lines = summarizeInspectProjectContent({
+			revision: "a".repeat(64),
+			scene: { name: "Scene", frameStart: 1, frameEnd: 250, fps: 24, activeCamera: "Camera" },
+			render: { resolutionX: 1920, resolutionY: 1080, resolutionPercentage: 100 },
+			objects: [
+				{ entityId: "id-1", name: "Rig", type: "ARMATURE", parent: null, visible: true, location: [0, 0, 0] },
+				{ entityId: "id-2", name: "Slab", type: "MESH", parent: null, visible: false, location: [1, 0, 0.18] },
+			],
+			cameras: [{ name: "Camera", lens: 50, sensorFit: "AUTO" }],
+			assemblies: [],
+			animationCount: 1,
+			boneCounts: [{ name: "Rig", boneCount: 65 }],
+		});
+		assert.deepEqual(lines, [
+			`Scene  frames 1-250  @24fps  cam Camera  rev ${"a".repeat(12)}`,
+			"render 1920x1080 @ 100%",
+			"2 objects, 1 cameras, 0 assemblies, 1 animations, 1 rigs",
+			"  Rig  ARMATURE  loc [0, 0, 0]",
+			"  Slab  MESH hidden  loc [1, 0, 0.18]",
+		]);
+	});
+
+	it("folds an objectsDiff payload into counts and bounded name lists", () => {
+		const lines = summarizeInspectProjectContent({
+			revision: "b".repeat(64),
+			objectCount: 3,
+			objectsDiff: {
+				baseRevision: "a".repeat(64),
+				added: [{ name: "New" }],
+				changed: [{ name: "Move" }],
+				removedNames: ["Drop"],
+				unchangedCount: 1,
+			},
+		});
+		assert.deepEqual(lines, [
+			`3 objects  +1 ~1 -1  unchanged 1  rev ${"b".repeat(12)}`,
+			"  + New",
+			"  ~ Move",
+			"  - Drop",
+		]);
+	});
+
+	it("a malformed fold input summarizes to nothing rather than throwing", () => {
+		assert.deepEqual(summarizeInspectProjectContent(undefined), []);
+		assert.deepEqual(summarizeInspectProjectContent({ objects: "not-a-list" }), []);
 	});
 });

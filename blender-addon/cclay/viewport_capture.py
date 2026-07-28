@@ -27,15 +27,18 @@ except ImportError:
     imbuf = None
 
 
-# 16:9, kept exactly proportional to the old 480x270 so every framing and
-# aspect calculation downstream is unchanged. Raised because the thumbnail was
-# too coarse to read: at 480x270 a hand near a handle, a contact gap, or a
-# small overlap were all a few pixels and the capture could not settle the
-# question it was taken to answer. Cost is w*h/750 vision tokens, so a view
-# went from ~173 to ~786 and the default three-view subject capture from ~519
-# to ~2360 -- affordable for evidence that is actually legible.
-CAPTURE_WIDTH = 1024
-CAPTURE_HEIGHT = 576
+# Fixed pixel budget, not fixed shape. The old 480x270 thumbnail was too coarse
+# to read: a hand near a handle, a contact gap, or a small overlap were all a
+# few pixels. The budget is the 1024x576 area (~786 vision tokens by w*h/750),
+# but the aspect now follows what is being captured: the human viewport keeps
+# its own ratio, a tall character gets 9:16, a top view matches its footprint,
+# and contact_low stays wide because a support gap is horizontal. Same area,
+# same cost, fewer wasted pixels.
+CAPTURE_PIXEL_BUDGET = 1024 * 576
+CAPTURE_MAX_SIDE = 1024
+DEFAULT_CAPTURE_ASPECT = 16.0 / 9.0
+MIN_CAPTURE_ASPECT = 9.0 / 16.0
+MAX_CAPTURE_ASPECT = 16.0 / 9.0
 # 72 was visibly blocky on gradients and thin rig lines, which is exactly where
 # the JPEG artifacts get mistaken for geometry.
 CAPTURE_QUALITY = 90
@@ -52,6 +55,37 @@ VIEWPORT_VIEW_KEYS = frozenset(
 
 class ViewportCaptureError(RuntimeError):
     """A viewport capture request cannot complete."""
+
+
+def clamp_capture_aspect(aspect: float) -> float:
+    """Keep a capture ratio inside the readable portrait-to-wide band."""
+    if not math.isfinite(aspect) or aspect <= 0.0:
+        return DEFAULT_CAPTURE_ASPECT
+    return min(MAX_CAPTURE_ASPECT, max(MIN_CAPTURE_ASPECT, aspect))
+
+
+def fit_capture_dimensions(aspect: float) -> tuple[int, int]:
+    """Largest integer dimensions at ``aspect`` within budget and side caps.
+
+    The budget is the old 1024x576 area, so 16:9 still returns exactly
+    (1024, 576); 9:16 returns (576, 1024) and 1:1 returns (768, 768), all at
+    the same vision-token cost.
+    """
+    clamped = clamp_capture_aspect(aspect)
+    width = min(CAPTURE_MAX_SIDE, int(round(math.sqrt(CAPTURE_PIXEL_BUDGET * clamped))))
+    height = int(round(width / clamped))
+    if height > CAPTURE_MAX_SIDE:
+        height = CAPTURE_MAX_SIDE
+        width = int(round(height * clamped))
+    return max(1, width), max(1, height)
+
+
+def _region_aspect(region) -> float:
+    width = getattr(region, "width", 0) or 0
+    height = getattr(region, "height", 0) or 0
+    if width <= 0 or height <= 0:
+        return DEFAULT_CAPTURE_ASPECT
+    return clamp_capture_aspect(width / height)
 
 
 def capture_viewport(
@@ -75,11 +109,14 @@ def capture_viewport(
 
     space, region = _resolve_viewport_space(bpy)
     if subject is None:
-        # No-argument path: the human's viewport, unchanged. Still returned
-        # inside the ``views`` list so the wire shape is uniform.
+        # No-argument path: the human's viewport, at the viewport's own aspect
+        # rather than a forced 16:9. Still returned inside the ``views`` list
+        # so the wire shape is uniform.
         r3d = space.region_3d
+        width, height = fit_capture_dimensions(_region_aspect(region))
         capture = _capture_with_matrices(
             bpy, space, region, r3d.view_matrix, r3d.window_matrix,
+            width=width, height=height,
             allow_window_grab=True,
         )
         capture["name"] = VIEWPORT_VIEW_NAME
@@ -94,7 +131,12 @@ def capture_viewport(
             "cclay.project_id) so the subject can be resolved as project-owned"
         )
     from .stage_scene import _require_owned_entity
-    from .view_matrices import ViewMatrixError, build_views, resolve_views
+    from .view_matrices import (
+        ViewMatrixError,
+        build_view,
+        resolve_views,
+        suggested_view_aspect,
+    )
 
     try:
         names = resolve_views(views, subject_given=True)
@@ -115,21 +157,23 @@ def capture_viewport(
         raise ViewportCaptureError(
             f"subject {subject} has non-finite world bounds; cannot frame it"
         )
-    aspect = CAPTURE_WIDTH / CAPTURE_HEIGHT
-    built = build_views(
-        names,
-        (float(minimum[0]), float(minimum[1]), float(minimum[2])),
-        (float(maximum[0]), float(maximum[1]), float(maximum[2])),
-        aspect,
-    )
+    minimum = (float(minimum[0]), float(minimum[1]), float(minimum[2]))
+    maximum = (float(maximum[0]), float(maximum[1]), float(maximum[2]))
     from mathutils import Matrix
 
     captured: list[dict] = []
-    for view in built:
+    for name in names:
+        # Aspect is chosen before the window matrix is built: an offscreen
+        # buffer at one ratio fed a projection built for another would stretch
+        # the subject instead of framing it better.
+        aspect = suggested_view_aspect(name, minimum, maximum)
+        width, height = fit_capture_dimensions(aspect)
+        view = build_view(name, minimum, maximum, aspect)
         view_matrix = Matrix(view["view_matrix"])
         window_matrix = Matrix(view["window_matrix"])
         capture = _capture_with_matrices(
             bpy, space, region, view_matrix, window_matrix,
+            width=width, height=height,
             allow_window_grab=False,
         )
         capture["name"] = view["name"]
@@ -166,7 +210,15 @@ def _resolve_viewport_space(bpy):
 
 
 def _capture_with_matrices(
-    bpy, space, region, view_matrix, window_matrix, *, allow_window_grab: bool
+    bpy,
+    space,
+    region,
+    view_matrix,
+    window_matrix,
+    *,
+    width: int,
+    height: int,
+    allow_window_grab: bool,
 ) -> dict:
     """Render one offscreen frame with explicit view/window matrices.
 
@@ -178,8 +230,6 @@ def _capture_with_matrices(
     because Blender RNA hands back a fresh object on every property read and an
     identity comparison against it is always false.
     """
-    width = CAPTURE_WIDTH
-    height = CAPTURE_HEIGHT
     method = "offscreen"
     try:
         import gpu
@@ -248,12 +298,12 @@ def _encode_thumbnail_png(png_path: Path, width: int, height: int, method: str) 
             "method": method,
         }
     thumb = imbuf.load(png_path.as_posix())
-    if (thumb.size[0], thumb.size[1]) != (CAPTURE_WIDTH, CAPTURE_HEIGHT):
+    if (thumb.size[0], thumb.size[1]) != (width, height):
         # Identity for the offscreen path, which already renders at these
         # dimensions; this only bites the window_grab fallback, whose source is
         # the full window. BILINEAR because imbuf defaults to FAST, which
         # point-samples and aliases a reduction instead of averaging it.
-        thumb.resize((CAPTURE_WIDTH, CAPTURE_HEIGHT), method="BILINEAR")
+        thumb.resize((width, height), method="BILINEAR")
     thumb.file_type = "JPEG"
     thumb.quality = CAPTURE_QUALITY
     with tempfile.TemporaryDirectory(prefix="cclay-viewport-thumb-") as directory:
@@ -264,7 +314,7 @@ def _encode_thumbnail_png(png_path: Path, width: int, height: int, method: str) 
     return {
         "mime_type": "image/jpeg",
         "data_base64": encoded,
-        "width": CAPTURE_WIDTH,
-        "height": CAPTURE_HEIGHT,
+        "width": width,
+        "height": height,
         "method": method,
     }

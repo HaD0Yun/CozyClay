@@ -27,10 +27,16 @@ DEFAULT_VIEWS = ("three_quarter", "side", "contact_low")
 ALL_VIEW_NAMES = ("three_quarter", "front", "side", "top", "contact_low")
 # Cap the number of views per call. Five named views cover every relation the
 # visual-qa skill requires (establishing, depth, contact gap, top, front); more
-# than that is redundant at 1024x576 and burns vision tokens for no new evidence.
-# Each image costs roughly w*h/750 tokens (~786 at 1024x576), so eight views is
-# ~1.4k tokens per call, a deliberate ceiling for a fast iterative QA path.
+# than that is redundant at the ~0.6 MP capture budget and burns vision tokens
+# for no new evidence. Each image costs roughly w*h/750 tokens (~786 at the
+# 1024x576-equivalent budget), so eight views is ~6.3k tokens per call, a
+# deliberate ceiling for a fast iterative QA path.
 MAX_VIEWS = 8
+# Capture aspect is chosen per view but the pixel budget stays the old
+# 1024x576 area, so a portrait or square view costs the same as a wide one.
+MIN_VIEW_ASPECT = 9.0 / 16.0
+MAX_VIEW_ASPECT = 16.0 / 9.0
+DEFAULT_VIEW_ASPECT = MAX_VIEW_ASPECT
 # Vertical field of view for the synthesized perspective. Matches the default
 # Blender viewport lens (50 mm on a 36 mm sensor ~ 39.6 degrees); wide enough to
 # frame a subject at a short distance without a fisheye look.
@@ -94,6 +100,38 @@ def bounding_radius(minimum: tuple[float, float, float], maximum: tuple[float, f
     """Half the AABB diagonal: the smallest sphere enclosing the subject."""
     half = aabb_half_extent(minimum, maximum)
     return math.sqrt(half[0] ** 2 + half[1] ** 2 + half[2] ** 2)
+
+
+def clamp_view_aspect(aspect: float) -> float:
+    """Keep a capture aspect inside the useful portrait-to-wide band."""
+    if not math.isfinite(aspect) or aspect <= 0.0:
+        return DEFAULT_VIEW_ASPECT
+    return min(MAX_VIEW_ASPECT, max(MIN_VIEW_ASPECT, aspect))
+
+
+def suggested_view_aspect(
+    name: str,
+    minimum: tuple[float, float, float],
+    maximum: tuple[float, float, float],
+) -> float:
+    """Pick the aspect that wastes the fewest pixels for one named view.
+
+    The capture budget is a fixed area, so choosing an aspect is free: a tall
+    character reads better in 9:16, a top view reads better matching its XY
+    footprint, and contact_low stays wide because a support gap is a horizontal
+    feature. Anything degenerate falls back to the old 16:9.
+    """
+    half = aabb_half_extent(minimum, maximum)
+    if name == "top":
+        if half[1] <= 1e-9:
+            return DEFAULT_VIEW_ASPECT
+        return clamp_view_aspect(half[0] / half[1])
+    if name == "contact_low":
+        return DEFAULT_VIEW_ASPECT
+    horizontal = math.sqrt(half[0] ** 2 + half[1] ** 2)
+    if half[2] > max(horizontal * 1.15, 1e-9):
+        return MIN_VIEW_ASPECT
+    return DEFAULT_VIEW_ASPECT
 
 
 def framing_distance(bounds_radius: float, fov_y: float, margin: float = FRAMING_MARGIN) -> float:
@@ -249,12 +287,13 @@ def resolve_views(requested: list[str] | None, subject_given: bool) -> list[str]
     if not isinstance(requested, list):
         raise ViewMatrixError(f"views must be a list of strings, got {type(requested).__name__}")
     # Bound the cost before validating names: a too-long list is rejected on the
-    # cap regardless of whether it also repeats names. Each image costs ~173
-    # vision tokens at 1024x576, so MAX_VIEWS is the per-call budget ceiling.
+    # cap regardless of whether it also repeats names. Each image costs ~786
+    # vision tokens at the fixed 1024x576-equivalent area, so MAX_VIEWS is the
+    # per-call budget ceiling.
     if len(requested) > MAX_VIEWS:
         raise ViewMatrixError(
             f"requested {len(requested)} views but the cap is {MAX_VIEWS}; "
-            "each image costs ~786 vision tokens at 1024x576"
+            "each image costs ~786 vision tokens at the 1024x576-equivalent budget"
         )
     resolved: list[str] = []
     seen: set[str] = set()

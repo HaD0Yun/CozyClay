@@ -12,6 +12,8 @@ from cclay.view_matrices import (
     DEFAULT_VIEWS,
     FRAMING_MARGIN,
     MAX_VIEWS,
+    MAX_VIEW_ASPECT,
+    MIN_VIEW_ASPECT,
     ViewMatrixError,
     aabb_center,
     bounding_radius,
@@ -21,6 +23,7 @@ from cclay.view_matrices import (
     look_at_view_matrix,
     perspective_window_matrix,
     resolve_views,
+    suggested_view_aspect,
 )
 
 ASPECT = 1024.0 / 576.0
@@ -117,6 +120,29 @@ class ContactLowTests(unittest.TestCase):
         # horizontal travel, so the gaze runs level with the contact plane.
         horizontal = math.hypot(target[0] - eye[0], target[1] - eye[1])
         self.assertLess(abs(delta_z), 0.1 * horizontal)
+
+
+class SuggestedViewAspectTests(unittest.TestCase):
+    def test_tall_subject_gets_portrait_for_body_views(self):
+        minimum = (-0.3, -0.2, 0.0)
+        maximum = (0.3, 0.2, 1.8)
+        for name in ("three_quarter", "front", "side"):
+            with self.subTest(name=name):
+                self.assertEqual(suggested_view_aspect(name, minimum, maximum), MIN_VIEW_ASPECT)
+
+    def test_wide_or_flat_subject_stays_wide(self):
+        minimum = (-1.0, -1.0, 0.0)
+        maximum = (1.0, 1.0, 0.2)
+        self.assertEqual(suggested_view_aspect("three_quarter", minimum, maximum), MAX_VIEW_ASPECT)
+        self.assertEqual(suggested_view_aspect("contact_low", minimum, maximum), MAX_VIEW_ASPECT)
+
+    def test_top_matches_footprint_and_clamps(self):
+        square = suggested_view_aspect("top", (-1.0, -1.0, 0.0), (1.0, 1.0, 0.2))
+        self.assertAlmostEqual(square, 1.0, places=9)
+        very_wide = suggested_view_aspect("top", (-10.0, -1.0, 0.0), (10.0, 1.0, 0.2))
+        self.assertEqual(very_wide, MAX_VIEW_ASPECT)
+        very_narrow = suggested_view_aspect("top", (-1.0, -10.0, 0.0), (1.0, 10.0, 0.2))
+        self.assertEqual(very_narrow, MIN_VIEW_ASPECT)
 
 
 class ViewCountCapTests(unittest.TestCase):

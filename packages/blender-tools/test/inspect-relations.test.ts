@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Parse } from "typebox/value";
-import { createInspectRelationsTool } from "../src/inspect-relations.ts";
+import { createInspectRelationsTool, summarizeInspectRelations } from "../src/inspect-relations.ts";
 
 const uuidAt = (index: number) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
 
@@ -91,4 +91,22 @@ test("inspect_relations: surfaces bridge rejection as a tool error", async () =>
 		tool.execute("call", { entity_ids: [uuidAt(1)] }, undefined, undefined, undefined as never),
 		failure,
 	);
+});
+
+test("inspect_relations: folds reference, entity measurements, and patterns into bounded lines", () => {
+	const lines = summarizeInspectRelations({
+		...cannedResult,
+		patterns: [{ entity_ids: [uuidAt(1)], count: 3, pitch: [1.2, 0], max_deviation: 0.002, footprint: [1.2, 0.4] }],
+	});
+	assert.deepEqual(lines, [
+		`1 entities, 1 patterns  rev ${"a".repeat(12)}`,
+		"reference Rig  ARMATURE  height 1.75m  65 bones",
+		"  Slab  MESH  size [1.2, 0.4, 0.18]  top 0.18m  supports [0.18]  rel 1.612m",
+		"  pattern x3  pitch [1.2, 0]  dev 0.002m",
+	]);
+});
+
+test("inspect_relations: an unexpected payload folds to nothing rather than throwing", () => {
+	assert.deepEqual(summarizeInspectRelations(undefined), []);
+	assert.deepEqual(summarizeInspectRelations({ entities: "not-a-list" }), []);
 });

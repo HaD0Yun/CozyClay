@@ -1,6 +1,7 @@
 import type { SceneSnapshot } from "@cclay/protocol";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { formatVector, renderFoldedResult, shortRevision } from "./folded-result.ts";
 import { diffSummaryObjects, type InspectSummary, summarizeSnapshot } from "./inspect-summary.ts";
 
 export interface ProjectManifest {
@@ -10,6 +11,93 @@ export interface ProjectManifest {
 
 export interface InspectProjectBridge {
 	inspectProject(): Promise<ProjectManifest>;
+}
+
+const SUMMARY_ROW_LIMIT = 8;
+
+function namesOf(rows: unknown): string[] {
+	return Array.isArray(rows)
+		? rows
+				.map((row) => (typeof row === "object" && row !== null && "name" in row ? String(row.name) : String(row)))
+				.filter(Boolean)
+		: [];
+}
+
+function pushNameList(lines: string[], label: string, names: readonly string[]): void {
+	if (!names.length) return;
+	const shown = names.slice(0, SUMMARY_ROW_LIMIT);
+	const rest = names.length - shown.length;
+	lines.push(`  ${label} ${shown.join(", ")}${rest > 0 ? ` (+${rest} more)` : ""}`);
+}
+
+/**
+ * Fold the model-facing inspect_project payload (a full summary or an
+ * objectsDiff payload) into a few terminal lines. Reads the content text, not
+ * `details`: details is the full manifest, which is exactly what the compact
+ * summary exists to keep off the screen.
+ */
+export function summarizeInspectProjectContent(payload: unknown): string[] {
+	if (typeof payload !== "object" || payload === null) return [];
+	const summary = payload as Record<string, unknown>;
+	const lines: string[] = [];
+	const scene = summary.scene as Record<string, unknown> | undefined;
+	if (scene) {
+		lines.push(
+			[
+				String(scene.name ?? "scene"),
+				`frames ${String(scene.frameStart ?? "?")}-${String(scene.frameEnd ?? "?")}`,
+				`@${String(scene.fps ?? "?")}fps`,
+				`cam ${String(scene.activeCamera ?? "(none)")}`,
+				`rev ${shortRevision(summary.revision)}`,
+			].join("  "),
+		);
+	}
+	const render = summary.render as Record<string, unknown> | undefined;
+	if (render) {
+		lines.push(
+			`render ${String(render.resolutionX ?? "?")}x${String(render.resolutionY ?? "?")} @ ${String(
+				render.resolutionPercentage ?? "?",
+			)}%`,
+		);
+	}
+
+	if (Array.isArray(summary.objects)) {
+		const objects = summary.objects as readonly Record<string, unknown>[];
+		const cameras = Array.isArray(summary.cameras) ? summary.cameras.length : 0;
+		const assemblies = Array.isArray(summary.assemblies) ? summary.assemblies.length : 0;
+		const boneCounts = Array.isArray(summary.boneCounts) ? summary.boneCounts.length : 0;
+		lines.push(
+			`${objects.length} objects, ${cameras} cameras, ${assemblies} assemblies, ${String(
+				summary.animationCount ?? 0,
+			)} animations${boneCounts ? `, ${boneCounts} rigs` : ""}`,
+		);
+		for (const object of objects.slice(0, SUMMARY_ROW_LIMIT)) {
+			lines.push(
+				`  ${String(object.name ?? "?")}  ${String(object.type ?? "?")}${
+					object.visible === false ? " hidden" : ""
+				}  loc ${formatVector(object.location)}`,
+			);
+		}
+		const rest = objects.length - SUMMARY_ROW_LIMIT;
+		if (rest > 0) lines.push(`  ... ${rest} more objects`);
+		return lines;
+	}
+
+	const diff = summary.objectsDiff as Record<string, unknown> | undefined;
+	if (diff) {
+		const added = namesOf(diff.added);
+		const changed = namesOf(diff.changed);
+		const removed = Array.isArray(diff.removedNames) ? diff.removedNames.map(String) : [];
+		lines.push(
+			`${String(summary.objectCount ?? "?")} objects  +${added.length} ~${changed.length} -${removed.length}  unchanged ${String(
+				diff.unchangedCount ?? 0,
+			)}  rev ${shortRevision(summary.revision)}`,
+		);
+		pushNameList(lines, "+", added);
+		pushNameList(lines, "~", changed);
+		pushNameList(lines, "-", removed);
+	}
+	return lines;
 }
 
 export function createInspectProjectTool(bridge: InspectProjectBridge) {
@@ -52,6 +140,16 @@ export function createInspectProjectTool(bridge: InspectProjectBridge) {
 				content: [{ type: "text" as const, text: JSON.stringify(payload) }],
 				details: manifest,
 			};
+		},
+		renderResult(result, options, theme, context) {
+			const raw = result.content?.find((part) => part.type === "text")?.text ?? "";
+			let payload: unknown;
+			try {
+				payload = raw ? JSON.parse(raw) : undefined;
+			} catch {
+				payload = undefined;
+			}
+			return renderFoldedResult(result, options, theme, context, summarizeInspectProjectContent(payload));
 		},
 	});
 }
