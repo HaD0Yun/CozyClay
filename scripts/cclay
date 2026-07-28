@@ -8,6 +8,10 @@
 #   CCLAY_REPO=...                 # override the repo root (defaults to this script's repo)
 set -euo pipefail
 
+# CozyClay owns the bundled Pi version. Do not show upstream `pi update`
+# notices that cannot safely update this pinned application snapshot.
+export PI_SKIP_VERSION_CHECK=1
+
 # Resolve the repo from this script's own location so a symlink on PATH works.
 CCLAY_SELF="${BASH_SOURCE[0]}"
 while [[ -L "$CCLAY_SELF" ]]; do
