@@ -29,6 +29,7 @@ for module in (
     "cclay.constraint_capture",
     "cclay.constraint_timeline",
     "cclay.motion_constraints",
+    "cclay.character_target",
 ):
     sys.modules.pop(module, None)
 

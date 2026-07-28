@@ -28,8 +28,8 @@ def _view(name="viewport", **overrides):
         "name": name,
         "mime_type": "image/jpeg",
         "data_base64": "/9j/4AAQSkZJRg==",
-        "width": 480,
-        "height": 270,
+        "width": 1024,
+        "height": 576,
         "method": "offscreen",
     }
     view.update(overrides)

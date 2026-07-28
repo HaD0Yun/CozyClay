@@ -344,8 +344,8 @@ def attach(armature, frame_start: int | None = None, frame_end: int | None = Non
     # or escape as a traceback. Preflight makes the expected failure
     # unreachable; this catches the unexpected one -- an RNA refusal, a
     # timeline error -- and degrades to a usable rig with no lanes and a reason
-    # the caller can show and retry. Every exception, because nothing here is
-    # worth losing an attached rig over.
+    # the caller can show, which Add Missing Lanes can fix later. Every
+    # exception, because nothing here is worth losing an attached rig over.
     report["constraintLanes"] = []
     report["constraintLaneError"] = None
     try:
@@ -442,6 +442,14 @@ def detach(armature, keep_edits: bool = True) -> dict:
     """
     if not has_ik_layer(armature):
         raise IkRigError("this armature carries no IK layer")
+    # Ghosts first, before anything is touched. A ghost SHARES this armature's
+    # data, so the control bones removed below are its handles too, and its IK
+    # constraints point at bones that are about to stop existing. Removing them
+    # here rather than in the operator means a script-driven detach cannot
+    # leave one behind either.
+    from . import constraint_ghost
+
+    removed_ghosts = constraint_ghost.remove_all_ghosts(armature)
     scene = bpy.context.scene
     baked_frames = 0
     if keep_edits:
@@ -478,4 +486,8 @@ def detach(armature, keep_edits: bool = True) -> dict:
                 pose_bone.constraints.remove(constraint)
     _remove_control_fcurves(armature)
     _remove_control_bones(armature)
-    return {"keptEdits": bool(keep_edits), "bakedFrames": baked_frames}
+    return {
+        "keptEdits": bool(keep_edits),
+        "bakedFrames": baked_frames,
+        "removedGhosts": removed_ghosts,
+    }

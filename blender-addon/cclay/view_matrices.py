@@ -27,8 +27,8 @@ DEFAULT_VIEWS = ("three_quarter", "side", "contact_low")
 ALL_VIEW_NAMES = ("three_quarter", "front", "side", "top", "contact_low")
 # Cap the number of views per call. Five named views cover every relation the
 # visual-qa skill requires (establishing, depth, contact gap, top, front); more
-# than that is redundant at 480x270 and burns vision tokens for no new evidence.
-# Each image costs roughly w*h/750 tokens (~173 at 480x270), so eight views is
+# than that is redundant at 1024x576 and burns vision tokens for no new evidence.
+# Each image costs roughly w*h/750 tokens (~786 at 1024x576), so eight views is
 # ~1.4k tokens per call, a deliberate ceiling for a fast iterative QA path.
 MAX_VIEWS = 8
 # Vertical field of view for the synthesized perspective. Matches the default
@@ -250,11 +250,11 @@ def resolve_views(requested: list[str] | None, subject_given: bool) -> list[str]
         raise ViewMatrixError(f"views must be a list of strings, got {type(requested).__name__}")
     # Bound the cost before validating names: a too-long list is rejected on the
     # cap regardless of whether it also repeats names. Each image costs ~173
-    # vision tokens at 480x270, so MAX_VIEWS is the per-call budget ceiling.
+    # vision tokens at 1024x576, so MAX_VIEWS is the per-call budget ceiling.
     if len(requested) > MAX_VIEWS:
         raise ViewMatrixError(
             f"requested {len(requested)} views but the cap is {MAX_VIEWS}; "
-            "each image costs ~173 vision tokens at 480x270"
+            "each image costs ~786 vision tokens at 1024x576"
         )
     resolved: list[str] = []
     seen: set[str] = set()

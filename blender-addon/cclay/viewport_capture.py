@@ -27,9 +27,18 @@ except ImportError:
     imbuf = None
 
 
-CAPTURE_WIDTH = 480
-CAPTURE_HEIGHT = 270
-CAPTURE_QUALITY = 72
+# 16:9, kept exactly proportional to the old 480x270 so every framing and
+# aspect calculation downstream is unchanged. Raised because the thumbnail was
+# too coarse to read: at 480x270 a hand near a handle, a contact gap, or a
+# small overlap were all a few pixels and the capture could not settle the
+# question it was taken to answer. Cost is w*h/750 vision tokens, so a view
+# went from ~173 to ~786 and the default three-view subject capture from ~519
+# to ~2360 -- affordable for evidence that is actually legible.
+CAPTURE_WIDTH = 1024
+CAPTURE_HEIGHT = 576
+# 72 was visibly blocky on gradients and thin rig lines, which is exactly where
+# the JPEG artifacts get mistaken for geometry.
+CAPTURE_QUALITY = 90
 # The no-argument view name, kept stable so callers can tell a human-viewport
 # capture from a synthesized multi-angle view.
 VIEWPORT_VIEW_NAME = "viewport"

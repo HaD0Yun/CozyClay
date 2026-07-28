@@ -23,7 +23,7 @@ from cclay.view_matrices import (
     resolve_views,
 )
 
-ASPECT = 480.0 / 270.0
+ASPECT = 1024.0 / 576.0
 
 
 def _matrix_rows(matrix):

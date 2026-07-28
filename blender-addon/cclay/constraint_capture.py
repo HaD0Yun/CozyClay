@@ -93,19 +93,99 @@ def _require_pose_bone(armature, bone_name: str):
     return pose_bone
 
 
+# Blender keeps a curve per rotation representation and evaluates only the one
+# `rotation_mode` selects, so a bone switched from Euler to quaternion can
+# still carry stale Euler curves. Comparing those would refuse a request over
+# an animation channel that does not drive anything.
+_ROTATION_CHANNEL = {
+    "QUATERNION": "rotation_quaternion",
+    "AXIS_ANGLE": "rotation_axis_angle",
+}
+
+
+def _pose_channels(pose_bone) -> tuple:
+    """The transform channels that actually drive this bone."""
+    mode = getattr(pose_bone, "rotation_mode", "QUATERNION")
+    rotation = _ROTATION_CHANNEL.get(mode, "rotation_euler")
+    return ("location", rotation, "scale")
+
+
+def unkeyed_pose(armature, frame: int, tolerance: float) -> list:
+    """Bones whose live pose disagrees with their own curves at ``frame``.
+
+    ``collect_constraints`` builds the request by calling ``scene.frame_set``
+    and reading the pose that comes back, and that pose is whatever the
+    F-curves evaluate to. Anything the animator moved but never keyed is
+    therefore DISCARDED by that frame set, and the old keyed value is committed
+    instead -- under a mark that looks perfectly correct.
+
+    EVERY animated bone is compared, not a list of the controls somebody
+    thought of. Two earlier revisions enumerated instead and were wrong both
+    times: the first checked only the six marker anchors, so it missed the
+    poles that bend a limb and returned "nothing to check" for Full-Body; the
+    second added targets and poles but still missed Hips, which is exactly what
+    Root2D serialises and what Full-Body carries as its root. Capture reads the
+    evaluated skeleton, so the check is over the evaluated skeleton.
+
+    Bones with no curve on a channel are skipped for that channel: with nothing
+    keyed there is no keyed value to disagree with, and the live pose is the
+    only thing capture can read either way. The two dedicated constraint
+    anchors are skipped entirely -- they carry marker keys and nothing else,
+    and capture never reads where they are. The other four entries in
+    ANCHOR_BY_KIND are the IK handles, which are exactly what IS checked.
+
+    Only the current frame can be checked, because an unkeyed edit exists only
+    at the frame the animator is standing on -- every other frame's pose
+    already IS the curves.
+
+    Returns the drifted bone names, sorted, without duplicates.
+    """
+    by_path = {}
+    for curve in _fcurves(armature):
+        by_path.setdefault(curve.data_path, {})[curve.array_index] = curve
+    # The two DEDICATED anchors are excluded by name: they exist only to carry
+    # marker keys, capture never reads their transform, so moving one is not a
+    # pose edit and must not refuse anything. Only those two -- the other four
+    # entries in ANCHOR_BY_KIND are the IK handles themselves, which are the
+    # controls this check exists for. Everything else IS read, directly or
+    # through the evaluated skeleton, which is why the rest is not a list.
+    anchors = {ik_chains.FULLBODY_ANCHOR, ik_chains.ROOT2D_ANCHOR}
+    drifted = set()
+    for pose_bone in armature.pose.bones:
+        if pose_bone.name in anchors:
+            continue
+        for channel in _pose_channels(pose_bone):
+            curves = by_path.get(f'pose.bones["{pose_bone.name}"].{channel}')
+            if not curves:
+                continue
+            live = getattr(pose_bone, channel, None)
+            if live is None:
+                continue
+            for index, curve in curves.items():
+                if index >= len(live):
+                    continue
+                if abs(float(live[index]) - curve.evaluate(frame)) > tolerance:
+                    drifted.add(pose_bone.name)
+                    break
+            if pose_bone.name in drifted:
+                break
+    return sorted(drifted)
+
+
 def mark_constraint(armature, kind: str, frame: int) -> str:
-    """Commit a constraint of ``kind`` at ``frame``; return the anchor bone name."""
+    """Commit a constraint of ``kind`` at ``frame``; return the anchor bone name.
+
+    Writes the marker key and nothing else. Marking is the inverse of
+    ``clear_constraint`` by construction: a dot is a dot, and placing one never
+    edits the animator's pose. Keeping the pose keyed is Auto Keying's job, and
+    ``unkeyed_pose`` is how a caller checks that it was done.
+    """
     if kind not in ANCHOR_BY_KIND:
         raise ConstraintCaptureError(f"unknown constraint kind {kind!r}")
     bone_name = ANCHOR_BY_KIND[kind]
     pose_bone = _require_pose_bone(armature, bone_name)
     pose_bone[CONSTRAINT_MARKER] = 1.0
     pose_bone.keyframe_insert(f'["{CONSTRAINT_MARKER}"]', frame=frame)
-    if kind in EFFECTOR_KINDS or kind == "Root2D":
-        # The value the constraint carries lives on the location curve, which
-        # attach() already keys densely; re-keying it here makes the committed
-        # frame authoritative even if the animator later scrubs without keying.
-        pose_bone.keyframe_insert("location", frame=frame)
     return bone_name
 
 
@@ -116,10 +196,102 @@ def clear_constraint(armature, kind: str, frame: int) -> None:
     pose_bone = _require_pose_bone(armature, ANCHOR_BY_KIND[kind])
     try:
         pose_bone.keyframe_delete(f'["{CONSTRAINT_MARKER}"]', frame=frame)
-    except (RuntimeError, TypeError):
-        # Blender raises TypeError when the property carries no animation at
-        # all, which is a normal state for a newly-created empty lane.
+    except RuntimeError:
+        # No key on that frame. Documented as a no-op, so it stays one.
         return
+    except TypeError:
+        # No animation on the property AT ALL. Blender raises TypeError here,
+        # not RuntimeError -- a different exception for "the curve is empty"
+        # than for "this frame has no key". Newly reachable: every kind now has
+        # an always-present lane, so an empty lane is a normal state to ask
+        # about, where before a kind with no marks had no curve at all.
+        return
+
+
+def action_channelbags(action) -> list:
+    """Every channelbag on an action, in order.
+
+    Blender 4.4+ keeps F-curves in layered channelbags. This is the one walk;
+    the marker-curve helpers and the timeline module both use it rather than
+    re-deriving the layers/strips/channelbags path in three places.
+    """
+    return [
+        bag
+        for layer in getattr(action, "layers", ())
+        for strip in getattr(layer, "strips", ())
+        for bag in getattr(strip, "channelbags", ())
+    ]
+
+
+def _marker_channelbag(action):
+    """The channelbag marker curves belong in.
+
+    The rig's clip already produced one, and putting the marker curves anywhere
+    else would give them a second slot and a second set of rows in the editor.
+    """
+    for bag in action_channelbags(action):
+        return bag
+    raise ConstraintCaptureError(
+        "this character's action has no channels to add constraint lanes to"
+    )
+
+
+def require_marker_channelbag(armature):
+    """Raise unless this armature can carry constraint lanes.
+
+    Split out so ``ik_rig.attach`` can ask before it mutates anything: the same
+    question asked afterwards is a half-attached rig.
+    """
+    action = getattr(getattr(armature, "animation_data", None), "action", None)
+    if action is None:
+        raise ConstraintCaptureError(
+            "this character has no animation to carry constraint lanes"
+        )
+    return _marker_channelbag(action)
+
+
+def ensure_marker_curves(armature) -> list:
+    """Give every constraint kind an F-curve, without giving it a keyframe.
+
+    The Dope Sheet draws a channel for an F-curve whether or not it holds any
+    keys, so creating the six empty curves up front is what makes all six ARDY
+    lanes exist from the moment the rig is attached. That in turn is what lets
+    the animator select a lane and press I to place a mark: before this, a kind
+    with no marks had no curve, therefore no row, therefore nothing to select,
+    and the very first mark of every kind had to come from a panel button.
+
+    Creates curves only. A keyframe here would be a constraint nobody asked
+    for, so ``marked_frames`` still reports an empty list for every lane this
+    function creates. Idempotent: a kind that already has a curve is left
+    exactly as it is, keys included.
+
+    Returns the kinds whose curve this call created.
+    """
+    bag = require_marker_channelbag(armature)
+    action = armature.animation_data.action
+    existing = {curve.data_path for curve in _action_fcurves(action)}
+    created = []
+    for kind, bone_name in ANCHOR_BY_KIND.items():
+        pose_bone = _require_pose_bone(armature, bone_name)
+        path = _marker_data_path(bone_name)
+        # The custom property has to exist before a curve can address it, and
+        # its value is what Blender's own I records when the animator places a
+        # mark. It is a flag: only the presence of keys means anything.
+        if pose_bone.get(CONSTRAINT_MARKER) is None:
+            pose_bone[CONSTRAINT_MARKER] = 1.0
+        if path in existing:
+            continue
+        curve = bag.fcurves.new(path, index=0)
+        # Blender hands back a SELECTED curve. Six selected lanes means the
+        # animator's first I in the Dope Sheet keys all six at once -- measured:
+        # every lane went from n to n+1 on a single press -- so their first
+        # attempt at one constraint silently pins the whole body, the root and
+        # all four effectors, and ARDY is made to honour a pose they never
+        # asked for. Handing them back deselected restores Blender's ordinary
+        # select-then-act: I does nothing until a lane is actually chosen.
+        curve.select = False
+        created.append(kind)
+    return created
 
 
 def action_channelbags(action) -> list:
@@ -174,7 +346,12 @@ def _marker_data_path(bone_name: str) -> str:
 
 
 def _action_fcurves(action):
-    """Every F-curve on an action, across both action layouts."""
+    """Every F-curve on an action, across both action layouts.
+
+    Blender 4.4+ keeps curves in layered channelbags while older actions expose
+    them directly, and ``apply_motion`` may have produced either. The layered
+    half reuses ``action_channelbags`` rather than re-deriving the same walk.
+    """
     found = []
     for bag in action_channelbags(action):
         found.extend(bag.fcurves)
@@ -202,6 +379,42 @@ def marked_frames(armature, kind: str) -> list[int]:
         if curve.data_path == wanted:
             frames.update(int(round(point.co[0])) for point in curve.keyframe_points)
     return sorted(frames)
+
+
+def lane_state(armature) -> dict:
+    """Committed frames per kind AND which kinds have a lane, in ONE pass.
+
+    ``marked_frames`` rebuilds and rescans the whole F-curve list per call, and
+    the panel draws a row per kind on every redraw. Six scans of a densely
+    baked action per redraw is the difference between a panel and a stutter, so
+    the surface that needs all six kinds asks for them together.
+
+    Lane presence rides along for the same reason: the panel also needs to know
+    whether any kind is missing a lane, and asking separately would walk every
+    F-curve a second time on every redraw. A kind has a lane when its marker
+    curve EXISTS, which is not the same as having marks -- an empty lane is the
+    normal state of an unused constraint.
+    """
+    kind_by_path = {
+        _marker_data_path(bone): kind for kind, bone in ANCHOR_BY_KIND.items()
+    }
+    frames: dict[str, set[int]] = {kind: set() for kind in ANCHOR_BY_KIND}
+    with_lanes: set[str] = set()
+    for curve in _fcurves(armature):
+        kind = kind_by_path.get(curve.data_path)
+        if kind is None:
+            continue
+        with_lanes.add(kind)
+        frames[kind].update(int(round(point.co[0])) for point in curve.keyframe_points)
+    return {
+        "frames": {kind: sorted(values) for kind, values in frames.items()},
+        "kindsWithLanes": with_lanes,
+    }
+
+
+def marked_frames_by_anchor(armature) -> dict:
+    """Every kind's committed frames, from one pass over the action."""
+    return lane_state(armature)["frames"]
 
 
 def _effective_basis(armature, pose_bone, bone):
@@ -602,11 +815,15 @@ def outcome_directory(project_directory) -> object:
 
 
 def marked_frames_by_kind(armature) -> dict:
-    """Every committed constraint, keyed by kind, in scene frames."""
+    """Every committed constraint, keyed by kind, in scene frames.
+
+    Empty kinds are dropped: this is the record stashed on the object so a
+    later pass can put the constraints back, and a kind with no frames says
+    nothing worth carrying.
+    """
     return {
         kind: frames
-        for kind in ANCHOR_BY_KIND
-        for frames in (marked_frames(armature, kind),)
+        for kind, frames in marked_frames_by_anchor(armature).items()
         if frames
     }
 

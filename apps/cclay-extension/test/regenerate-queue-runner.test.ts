@@ -6,10 +6,21 @@
 // published from Blender still sat on disk forever because no process called
 // the sweep.
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+	access,
+	chmod,
+	constants,
+	mkdir,
+	mkdtemp,
+	readFile,
+	readdir,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { startRegenerateQueueRunner } from "../src/regenerate-queue-runner.ts";
 
 const REVISION = "a".repeat(64);
@@ -188,5 +199,29 @@ describe("regeneration queue runner", () => {
 			await readFile(join(project, ".cclay", "regenerate-outcomes", "first.json"), "utf8"),
 		);
 		assert.equal(outcome.status, "succeeded");
+	});
+	// The host runs with the animator's .blend folder as cwd, which never
+	// contains scripts/. Defaulting the wrapper to cwd made every regeneration
+	// die on ENOENT after the rig had already been detached and the request
+	// published, so the animator paid the full cost for nothing.
+	it("defaults the generator to the repository wrapper, not one under the project", async () => {
+		const runner = startRegenerateQueueRunner({
+			cwd: project,
+			tickMs: 60_000,
+			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
+		});
+		await runner.started;
+		await runner.stop();
+
+		const expected = fileURLToPath(
+			new URL("../../../scripts/cclay-ardy-generate", import.meta.url),
+		);
+		assert.equal(runner.wrapperPath, expected);
+		assert.ok(
+			!runner.wrapperPath.startsWith(project),
+			`the wrapper must not be looked for inside the project: ${runner.wrapperPath}`,
+		);
+		// Resolving to a path is worthless if nothing executable is there.
+		await access(runner.wrapperPath, constants.X_OK);
 	});
 });
