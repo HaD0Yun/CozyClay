@@ -93,7 +93,7 @@ When a request is ambiguous, pick a concrete, well-framed interpretation and pro
  * short suffix of the full prompt, so its digest is not tracked separately.
  */
 export const DIRECTOR_PROMPT = DIRECTOR_PROMPT_FULL;
-export const DIRECTOR_PROMPT_DIGEST = "27eb29c4f18ad80d35ec7b288a845dc3a37c52160229b2e03327b53af0daba68";
+export const DIRECTOR_PROMPT_DIGEST = "9f6e38750fa67650b69b6dac1df36569134dad845c4e0899ae3bbd4c67fb42c3";
 
 /**
  * Bundled skills: lazily loaded domain knowledge advertised in the system
