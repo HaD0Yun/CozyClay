@@ -1,0 +1,42 @@
+name: Contribution Proposal
+description: Propose a change or feature before you write it
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [CONTRIBUTING.md](https://github.com/HaD0Yun/CozyClay/blob/main/CONTRIBUTING.md) first, in particular the invariants section. Proposals that weaken a listed invariant need an explicit argument.
+
+        Changes to `packages/{ai,agent,coding-agent,tui,server,storage}` are out of scope; those are vendored from upstream Pi.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want to change?
+      description: Be specific and concise.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why?
+      description: What problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How? (optional)
+      description: Brief technical approach. Say which packages you expect to touch.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Invariants
+      options:
+        - label: This change keeps schemas closed, mutations revision-bound and transactional, ownership enforced, and evidence digest-authorized — or the "Why?" above explains why it must not.
+          required: true

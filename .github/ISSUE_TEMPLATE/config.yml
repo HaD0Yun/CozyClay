@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Upstream Pi issues
+    url: https://github.com/earendil-works/pi/issues
+    about: Bugs in the vendored Pi agent runtime, TUI, or provider layer belong upstream

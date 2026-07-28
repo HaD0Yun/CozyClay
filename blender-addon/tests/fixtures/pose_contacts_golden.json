@@ -1,0 +1,213 @@
+{
+  "revision": "0000000000000000000000000000000000000000000000000000000000000000",
+  "schema_version": 1,
+  "character_entity_id": "00000000-0000-4000-8000-000000000001",
+  "gate": {
+    "max_gap_m": 0.03,
+    "min_edge_margin_m": 0.0
+  },
+  "frames": [
+    {
+      "frame": 1,
+      "sides": {
+        "left": {
+          "foot_joint_position": [
+            -0.1,
+            0.0,
+            0.15
+          ],
+          "toe_joint_position": [
+            -0.1,
+            0.1,
+            0.15
+          ],
+          "heel_point": [
+            -0.15,
+            -0.05,
+            0.08
+          ],
+          "toe_point": [
+            -0.05,
+            0.05,
+            0.09
+          ],
+          "sole_point": [
+            -0.15,
+            -0.05,
+            0.08
+          ],
+          "sole_source": "deformed_mesh",
+          "heel_to_toe_m": [
+            0.1,
+            0.1,
+            0.01
+          ],
+          "joint_to_sole_offset_m": [
+            -0.05,
+            -0.05,
+            -0.07
+          ],
+          "contact_basis": "deformed_mesh",
+          "support": {
+            "support_entity_id": "00000000-0000-4000-8000-000000000002",
+            "support_height_m": 0.0,
+            "support_gap_m": 0.08,
+            "inside_support_footprint": true,
+            "edge_margin_m": 1.85,
+            "footprint_basis": "aabb_xy",
+            "surface_contact_verified": false
+          }
+        },
+        "right": {
+          "foot_joint_position": [
+            0.1,
+            0.0,
+            0.02
+          ],
+          "toe_joint_position": [
+            0.1,
+            0.1,
+            0.02
+          ],
+          "heel_point": [
+            0.05,
+            -0.05,
+            0.0
+          ],
+          "toe_point": [
+            0.15,
+            0.05,
+            0.005
+          ],
+          "sole_point": [
+            0.05,
+            -0.05,
+            0.0
+          ],
+          "sole_source": "deformed_mesh",
+          "heel_to_toe_m": [
+            0.1,
+            0.1,
+            0.005
+          ],
+          "joint_to_sole_offset_m": [
+            -0.05,
+            -0.05,
+            -0.02
+          ],
+          "contact_basis": "deformed_mesh",
+          "support": {
+            "support_entity_id": "00000000-0000-4000-8000-000000000002",
+            "support_height_m": 0.0,
+            "support_gap_m": 0.0,
+            "inside_support_footprint": true,
+            "edge_margin_m": 1.95,
+            "footprint_basis": "aabb_xy",
+            "surface_contact_verified": true
+          }
+        }
+      }
+    },
+    {
+      "frame": 2,
+      "sides": {
+        "left": {
+          "foot_joint_position": [
+            0.05,
+            0.0,
+            0.23
+          ],
+          "toe_joint_position": [
+            0.05,
+            0.1,
+            0.23
+          ],
+          "heel_point": [
+            0.0,
+            -0.05,
+            0.18
+          ],
+          "toe_point": [
+            0.1,
+            0.05,
+            0.185
+          ],
+          "sole_point": [
+            0.0,
+            -0.05,
+            0.18
+          ],
+          "sole_source": "deformed_mesh",
+          "heel_to_toe_m": [
+            0.1,
+            0.1,
+            0.005
+          ],
+          "joint_to_sole_offset_m": [
+            -0.05,
+            -0.05,
+            -0.05
+          ],
+          "contact_basis": "deformed_mesh",
+          "support": {
+            "support_entity_id": "00000000-0000-4000-8000-000000000003",
+            "support_height_m": 0.18,
+            "support_gap_m": 0.0,
+            "inside_support_footprint": true,
+            "edge_margin_m": 0.0,
+            "footprint_basis": "aabb_xy",
+            "surface_contact_verified": true
+          }
+        },
+        "right": {
+          "foot_joint_position": [
+            1.1,
+            0.0,
+            0.23
+          ],
+          "toe_joint_position": [
+            1.1,
+            0.1,
+            0.23
+          ],
+          "heel_point": [
+            1.05,
+            -0.05,
+            0.18
+          ],
+          "toe_point": [
+            1.15,
+            0.05,
+            0.181
+          ],
+          "sole_point": [
+            1.05,
+            -0.05,
+            0.18
+          ],
+          "sole_source": "deformed_mesh",
+          "heel_to_toe_m": [
+            0.1,
+            0.1,
+            0.001
+          ],
+          "joint_to_sole_offset_m": [
+            -0.05,
+            -0.05,
+            -0.05
+          ],
+          "contact_basis": "deformed_mesh",
+          "support": {
+            "support_entity_id": "00000000-0000-4000-8000-000000000003",
+            "support_height_m": 0.18,
+            "support_gap_m": 0.0,
+            "inside_support_footprint": true,
+            "edge_margin_m": 0.15,
+            "footprint_basis": "aabb_xy",
+            "surface_contact_verified": true
+          }
+        }
+      }
+    }
+  ]
+}

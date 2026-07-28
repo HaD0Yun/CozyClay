@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "cclay"
+version = "0.32.0"
+name = "CozyClay"
+tagline = "Pi-driven directing tools for Blender"
+maintainer = "CozyClay"
+type = "add-on"
+tags = ["Animation"]
+blender_version_min = "5.1.2"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Read and write project state and render artifacts"
+network = "Connect to the local CozyClay daemon"

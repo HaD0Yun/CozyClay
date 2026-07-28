@@ -1,0 +1,1 @@
+{"type":"hello_ack","protocol":1,"daemon_version":"0.1.0","launch_id":"123e4567-e89b-42d3-a456-426614174000","session_id":"123e4567-e89b-42d3-a456-426614174000","server_nonce":"AAAAAAAAAAAAAAAAAAAAAA","capabilities":["inspect"],"unknown":true}

@@ -1,0 +1,175 @@
+{
+  "blenderVersion": "5.1.2",
+  "bones": [
+    {
+      "armatureObjectId": "00000000-0000-4000-8000-000000000003",
+      "entityId": "00000000-0000-4000-8000-000000000004",
+      "location": [
+        0,
+        0,
+        0
+      ],
+      "name": "Bone",
+      "parentBoneId": null,
+      "rotationQuaternion": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "cameras": [
+    {
+      "clipEnd": 1000,
+      "clipStart": 0.1,
+      "lens": 50,
+      "objectId": "00000000-0000-4000-8000-000000000001",
+      "sensorFit": "AUTO",
+      "sensorHeight": 24,
+      "sensorWidth": 36,
+      "verticalFovRadians": 0.691226616819516
+    }
+  ],
+  "lights": [
+    {
+      "color": [
+        1,
+        1,
+        1
+      ],
+      "energy": 3,
+      "lightType": "SUN",
+      "objectId": "00000000-0000-4000-8000-000000000005",
+      "spotBlend": null,
+      "spotSize": null
+    }
+  ],
+  "markers": [
+    {
+      "cameraId": "00000000-0000-4000-8000-000000000001",
+      "frame": 10,
+      "name": "CUT_10"
+    }
+  ],
+  "objects": [
+    {
+      "entityId": "00000000-0000-4000-8000-000000000001",
+      "location": [
+        0,
+        -5,
+        1.5
+      ],
+      "name": "Camera",
+      "parentId": null,
+      "rotationQuaternion": [
+        0.9238795325112867,
+        0.3826834323650898,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "type": "CAMERA",
+      "visible": true
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000003",
+      "location": [
+        0,
+        0,
+        0
+      ],
+      "name": "Armature",
+      "parentId": null,
+      "rotationQuaternion": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "type": "ARMATURE",
+      "visible": true
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000005",
+      "location": [
+        2,
+        -2,
+        3
+      ],
+      "name": "Light",
+      "parentId": null,
+      "rotationQuaternion": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "type": "LIGHT",
+      "visible": true
+    },
+    {
+      "entityId": "00000000-0000-4000-8000-000000000007",
+      "location": [
+        0,
+        0,
+        0
+      ],
+      "name": "Fighter",
+      "parentId": null,
+      "rotationQuaternion": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "type": "MESH",
+      "visible": true
+    }
+  ],
+  "projectId": "00000000-0000-4000-8000-00000000000a",
+  "render": {
+    "resolutionPercentage": 100,
+    "resolutionX": 1920,
+    "resolutionY": 1080
+  },
+  "scene": {
+    "activeCameraId": "00000000-0000-4000-8000-000000000001",
+    "fpsDenominator": 1,
+    "fpsNumerator": 24,
+    "frameEnd": 320,
+    "frameStart": 1,
+    "name": "Boxing"
+  },
+  "schemaVersion": 1,
+  "selectedEntityIds": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000007"
+  ],
+  "revisionId": "70f44fff1b8378199fcd8ae8aa759c456cbb91284f33e0daff572374c4fa3cc1",
+  "sceneHash": "25b7d06037a1a7b25d6dca812f67862776ceda01f7c1e99cbc36d3883366acef"
+}

@@ -1,0 +1,554 @@
+#!/bin/bash
+# cclay-ardy-generate — text-to-motion via the remote ARDY box, staged for apply_motion.
+#
+#   cclay-ardy-generate "a person waves both hands" [--duration 5] [--seed 7] [--project DIR]
+#   cclay-ardy-generate --segment "a person runs forward" 3 --segment "a person bows" 4 \
+#     [--seed 7] [--project DIR]
+#   cclay-ardy-generate "a person climbs three steps" --duration 6 \
+#     --base-motion <motion_id> \
+#     --constrain 30 LeftFoot 0.12 0.18 0.55 --constrain 46 RightFoot 0.12 0.36 0.85
+#
+# Runs ARDY generation on the Tailscale host (GPU diffusion, cached text
+# encoder), fetches the npz into <project>/.cclay/motions/<motion_id>.npz, and
+# prints a JSON line with the motion_id to pass to stage_scene apply_motion.
+#
+# Segment mode (repeatable --segment "<prompt>" <seconds>) generates ONE
+# continuous autoregressive rollout across the segments via
+# scripts/ardy/cclay_sequence_generate.py (synced to the box before each run)
+# and passes through the per-segment frame ranges + continuity metrics.
+#
+# Constraint mode (repeatable --constrain <frame> <joint> <x> <y> <z>, with
+# --base-motion supplying the pose source) drives ARDY's own end-effector
+# constraints via scripts/ardy/cclay_constrained_generate.py, so contacts are
+# GENERATED at measured coordinates instead of hoped for from prompt text.
+# Targets are npz space: Y-up, meters, motion-local. Convert Blender scene
+# measurements with the `scale` (meters per npz unit) from preflight_motion.
+# The result JSON reports achieved_error_m per target, measured on the output.
+# Constraint mode also accepts --constrain-orient <frame> <joint> <qw> <qx>
+# <qy> <qz> (unit quaternion, joint's GLOBAL rotation in npz space (Y-up) at
+# that frame), --constrain-pose <src-motion-id> <src-frame> <dst-frame>
+# (copies a full-body pose out of an already-staged motion onto <dst-frame>),
+# and --constrain-path <frame> <x> <z> <heading> (root XZ waypoint in npz
+# space; heading is radians or the literal "none" for free heading). All
+# three are repeatable, all three require --base-motion. Locally validated
+# before any ssh: argument types/grammar, joint names, base-motion/segment
+# combination rules, npz existence for --base-motion and --constrain-pose's
+# src-motion-id, and every clip-space frame (--constrain, --constrain-orient,
+# --constrain-path, --constrain-pose's dst-frame) against 0 <= frame <
+# duration * 20 (ARDY Core is 20 fps). Deliberately deferred to the remote
+# Python: --constrain-pose's src-frame against the source npz's actual frame
+# count (unknowable locally), and anything else that needs the loaded
+# model's fps.
+#
+# Config (env):
+#   CCLAY_ARDY_HOST  ssh host of the ARDY machine   (required)
+#   CCLAY_ARDY_REPO  ARDY checkout on that machine, relative to the remote
+#                    home or absolute               (default: ardy)
+set -euo pipefail
+
+HOST="${CCLAY_ARDY_HOST:-}"
+REMOTE_REPO="${CCLAY_ARDY_REPO:-ardy}"
+
+usage() {
+  {
+    echo 'usage: cclay-ardy-generate "<prompt>" [--duration N] [--seed S] [--project DIR]'
+    echo '       cclay-ardy-generate --segment "<prompt>" <seconds> [--segment "<prompt>" <seconds> ...] [--seed S] [--project DIR]'
+    echo '       cclay-ardy-generate "<prompt>" --duration N --base-motion <motion_id> --constrain <frame> <joint> <x> <y> <z> [--constrain ...] [--constrain-orient <frame> <joint> <qw> <qx> <qy> <qz> ...] [--constrain-pose <src-motion-id> <src-frame> <dst-frame> ...] [--constrain-path <frame> <x> <z> <heading> ...] [--cfg-weight <text> <constraint>] [--contact-threshold T] [--root-margin M]'
+    echo '         joint is one of LeftFoot RightFoot LeftHand RightHand; x y z are npz space (Y-up, meters, motion-local)'
+    echo '         --constrain-orient qw qx qy qz is a unit quaternion: the joint'"'"'s GLOBAL rotation in npz space (Y-up) at that frame'
+    echo '         --constrain-pose copies the full-body pose at <src-frame> of local motion <src-motion-id> onto <dst-frame>'
+    echo '         --constrain-path x z are npz space (meters, motion-local) root coordinates; heading is radians or the literal none'
+    echo '         --contact-threshold is the post-process foot-contact probability cut-off, strictly between 0 and 1'
+    echo '         --root-margin is the post-process root-correction margin in meters, 0 to 0.5'
+  } >&2
+  exit 2
+}
+
+# json_int KEY JSON — extract an integer field from a one-line JSON object.
+json_int() {
+  printf '%s' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p"
+}
+
+PROMPT=""
+DURATION="5.0"
+SEED=""
+PROJECT="${CCLAY_PROJECT_DIR:-$PWD}"
+SEG_PROMPTS=()
+SEG_SECONDS=()
+BASE_MOTION=""
+CONSTRAIN_ARGS=()
+CONSTRAIN_COUNT=0
+CFG_TEXT=""
+CFG_CONSTRAINT=""
+CONTACT_THRESHOLD=""
+ROOT_MARGIN=""
+ORIENT_COUNT=0
+POSE_COUNT=0
+PATH_COUNT=0
+POSE_SRC_IDS=()
+POSE_SRC_FRAMES=()
+POSE_DST_FRAMES=()
+CONSTRAIN_JOINTS=()
+CONSTRAIN_FRAMES=()
+ORIENT_JOINTS=()
+ORIENT_FRAMES=()
+PATH_FRAMES=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --segment)
+      [[ $# -ge 3 ]] || { echo "cclay-ardy-generate: --segment needs \"<prompt>\" <seconds>" >&2; usage; }
+      [[ "$3" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --segment seconds must be a number, got '$3'" >&2; usage; }
+      SEG_PROMPTS+=("$2"); SEG_SECONDS+=("$3"); shift 3 ;;
+    --duration)
+      [[ "${2:-}" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --duration must be a number, got '${2:-}'" >&2; usage; }
+      DURATION="$2"; shift 2 ;;
+    --seed)
+      [[ "${2:-}" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --seed must be a non-negative integer, got '${2:-}'" >&2; usage; }
+      SEED="$2"; shift 2 ;;
+    --project)
+      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --project needs a directory" >&2; usage; }
+      PROJECT="$2"; shift 2 ;;
+    --base-motion)
+      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --base-motion needs a motion_id" >&2; usage; }
+      [[ "$2" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "cclay-ardy-generate: --base-motion must be a motion_id, got '$2'" >&2; usage; }
+      BASE_MOTION="$2"; shift 2 ;;
+    --constrain)
+      [[ $# -ge 6 ]] || { echo "cclay-ardy-generate: --constrain needs <frame> <joint> <x> <y> <z>" >&2; usage; }
+      [[ "$2" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain frame must be a non-negative integer, got '$2'" >&2; usage; }
+      case "$3" in
+        LeftFoot|RightFoot|LeftHand|RightHand) ;;
+        *) echo "cclay-ardy-generate: --constrain joint must be LeftFoot, RightFoot, LeftHand, or RightHand, got '$3'" >&2; usage ;;
+      esac
+      for axis in "$4" "$5" "$6"; do
+        [[ "$axis" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --constrain x y z must be numbers, got '$axis'" >&2; usage; }
+      done
+      CONSTRAIN_ARGS+=(--target "$2" "$3" "$4" "$5" "$6")
+      CONSTRAIN_FRAMES+=("$2")
+      CONSTRAIN_JOINTS+=("$3")
+      CONSTRAIN_COUNT=$((CONSTRAIN_COUNT + 1))
+      shift 6 ;;
+    --constrain-orient)
+      [[ $# -ge 7 ]] || { echo "cclay-ardy-generate: --constrain-orient needs <frame> <joint> <qw> <qx> <qy> <qz>" >&2; usage; }
+      [[ "$2" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain-orient frame must be a non-negative integer, got '$2'" >&2; usage; }
+      case "$3" in
+        LeftFoot|RightFoot|LeftHand|RightHand) ;;
+        *) echo "cclay-ardy-generate: --constrain-orient joint must be LeftFoot, RightFoot, LeftHand, or RightHand, got '$3'" >&2; usage ;;
+      esac
+      for comp in "$4" "$5" "$6" "$7"; do
+        [[ "$comp" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --constrain-orient qw qx qy qz must be numbers, got '$comp'" >&2; usage; }
+      done
+      # Unit quaternion: the remote parse_orientations requires a finite norm
+      # with abs(norm - 1.0) <= 1e-3, because ARDY's end-effector rotation
+      # constraint takes a proper rotation matrix derived from the quaternion
+      # (see _quaternion_matrix_rows); a non-unit quaternion would scale as
+      # well as rotate and the constraint would not describe a pure pose. bash
+      # has no floats, so mirror the check in awk with the same tolerance and
+      # the same notion of "finite" (reject inf/nan/ind, which sqrt of an
+      # overflowed sum or log(-1)-style input would print as).
+      QUAT_NORM="$(awk -v qw="$4" -v qx="$5" -v qy="$6" -v qz="$7" 'BEGIN {
+        n = sqrt(qw*qw + qx*qx + qy*qy + qz*qz)
+        s = sprintf("%g", n)
+        finite = (s !~ /inf|nan|ind/)
+        d = n - 1.0
+        if (d < 0) d = -d
+        printf "%.6f %d", n, (finite && d <= 1e-3) ? 1 : 0
+      }')"
+      QUAT_OK="${QUAT_NORM##* }"
+      QUAT_NORM_VAL="${QUAT_NORM% *}"
+      if [[ "$QUAT_OK" != "1" ]]; then
+        echo "cclay-ardy-generate: --constrain-orient quaternion for $3 at frame $2 must be a unit quaternion, got norm ${QUAT_NORM_VAL}." >&2
+        usage
+      fi
+      CONSTRAIN_ARGS+=(--target-orient "$2" "$3" "$4" "$5" "$6" "$7")
+      ORIENT_FRAMES+=("$2")
+      ORIENT_JOINTS+=("$3")
+      ORIENT_COUNT=$((ORIENT_COUNT + 1))
+      shift 7 ;;
+    --constrain-pose)
+      [[ $# -ge 4 ]] || { echo "cclay-ardy-generate: --constrain-pose needs <src-motion-id> <src-frame> <dst-frame>" >&2; usage; }
+      [[ "$2" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "cclay-ardy-generate: --constrain-pose src-motion-id must be a motion_id, got '$2'" >&2; usage; }
+      # src-frame indexes the SOURCE npz (an already-staged motion, not the
+      # clip being generated), whose length this wrapper has no local way to
+      # know. Bound it only as a non-negative integer here; the real range
+      # check against that npz's frame count happens remotely.
+      [[ "$3" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain-pose src-frame must be a non-negative integer, got '$3'" >&2; usage; }
+      [[ "$4" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain-pose dst-frame must be a non-negative integer, got '$4'" >&2; usage; }
+      POSE_SRC_IDS+=("$2"); POSE_SRC_FRAMES+=("$3"); POSE_DST_FRAMES+=("$4")
+      POSE_COUNT=$((POSE_COUNT + 1))
+      shift 4 ;;
+    --constrain-path)
+      [[ $# -ge 5 ]] || { echo "cclay-ardy-generate: --constrain-path needs <frame> <x> <z> <heading>" >&2; usage; }
+      [[ "$2" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain-path frame must be a non-negative integer, got '$2'" >&2; usage; }
+      for axis in "$3" "$4"; do
+        [[ "$axis" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --constrain-path x z must be numbers, got '$axis'" >&2; usage; }
+      done
+      [[ "$5" == "none" || "$5" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --constrain-path heading must be a number or 'none', got '$5'" >&2; usage; }
+      CONSTRAIN_ARGS+=(--root-2d "$2" "$3" "$4" "$5")
+      PATH_FRAMES+=("$2")
+      PATH_COUNT=$((PATH_COUNT + 1))
+      shift 5 ;;
+    --cfg-weight)
+      [[ $# -ge 3 ]] || { echo "cclay-ardy-generate: --cfg-weight needs <text> <constraint>" >&2; usage; }
+      for weight in "$2" "$3"; do
+        [[ "$weight" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --cfg-weight values must be numbers, got '$weight'" >&2; usage; }
+      done
+      CFG_TEXT="$2"; CFG_CONSTRAINT="$3"; shift 3 ;;
+    --contact-threshold)
+      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --contact-threshold needs a probability" >&2; usage; }
+      [[ -z "$CONTACT_THRESHOLD" ]] || { echo "cclay-ardy-generate: --contact-threshold may only be given once" >&2; usage; }
+      [[ "$2" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --contact-threshold must be a number strictly between 0 and 1, got '$2'" >&2; usage; }
+      awk -v t="$2" 'BEGIN { exit !(t > 0 && t < 1) }' || { echo "cclay-ardy-generate: --contact-threshold must be a number strictly between 0 and 1, got '$2'" >&2; usage; }
+      CONTACT_THRESHOLD="$2"; shift 2 ;;
+    --root-margin)
+      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --root-margin needs a margin in meters" >&2; usage; }
+      [[ -z "$ROOT_MARGIN" ]] || { echo "cclay-ardy-generate: --root-margin may only be given once" >&2; usage; }
+      [[ "$2" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --root-margin must be a number 0..0.5, got '$2'" >&2; usage; }
+      awk -v m="$2" 'BEGIN { exit !(m >= 0 && m <= 0.5) }' || { echo "cclay-ardy-generate: --root-margin must be a number 0..0.5, got '$2'" >&2; usage; }
+      ROOT_MARGIN="$2"; shift 2 ;;
+    -*) echo "cclay-ardy-generate: unknown option $1" >&2; exit 2 ;;
+    *)
+      if [[ -n "$PROMPT" ]]; then echo "cclay-ardy-generate: one prompt only" >&2; exit 2; fi
+      PROMPT="$1"; shift ;;
+  esac
+done
+if [[ ${#SEG_PROMPTS[@]} -gt 0 && -n "$PROMPT" ]]; then
+  echo "cclay-ardy-generate: --segment and a positional prompt are mutually exclusive" >&2
+  usage
+fi
+TOTAL_CONSTRAIN_COUNT=$((CONSTRAIN_COUNT + ORIENT_COUNT + POSE_COUNT + PATH_COUNT))
+USED_CONSTRAINTS=()
+[[ $CONSTRAIN_COUNT -gt 0 ]] && USED_CONSTRAINTS+=(--constrain)
+[[ $ORIENT_COUNT -gt 0 ]] && USED_CONSTRAINTS+=(--constrain-orient)
+[[ $POSE_COUNT -gt 0 ]] && USED_CONSTRAINTS+=(--constrain-pose)
+[[ $PATH_COUNT -gt 0 ]] && USED_CONSTRAINTS+=(--constrain-path)
+if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 && ${#SEG_PROMPTS[@]} -gt 0 ]]; then
+  echo "cclay-ardy-generate: ${USED_CONSTRAINTS[*]} and --segment are mutually exclusive; constrain a single-prompt clip" >&2
+  usage
+fi
+if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 && -z "$BASE_MOTION" ]]; then
+  echo "cclay-ardy-generate: ${USED_CONSTRAINTS[*]} needs --base-motion; an ARDY end-effector constraint is a pose at a frame, so it needs a first-pass clip to take that pose from" >&2
+  usage
+fi
+if [[ -n "$BASE_MOTION" && $TOTAL_CONSTRAIN_COUNT -eq 0 ]]; then
+  echo "cclay-ardy-generate: --base-motion is only used by --constrain, --constrain-orient, --constrain-pose, or --constrain-path" >&2
+  usage
+fi
+if [[ -n "$CONTACT_THRESHOLD" && -z "$BASE_MOTION" ]]; then
+  echo "cclay-ardy-generate: --contact-threshold needs --base-motion; the foot-contact post-process only runs inside the constrained generation pass" >&2
+  usage
+fi
+if [[ -n "$ROOT_MARGIN" && -z "$BASE_MOTION" ]]; then
+  echo "cclay-ardy-generate: --root-margin needs --base-motion; the root-correction post-process only runs inside the constrained generation pass" >&2
+  usage
+fi
+# Clip frame bound: the remote clip is int(duration * 20) frames (ARDY Core
+# runs at 20 fps), so every clip-space frame (--constrain, --constrain-orient,
+# --constrain-path, and --constrain-pose's dst-frame — NOT src-frame, which
+# indexes an unrelated source npz and is bounded above as a non-negative
+# integer only) must satisfy 0 <= frame < duration * 20. This runs in one
+# pass after the whole argument list has been parsed, not inline per-flag,
+# because --duration may appear after a --constrain* flag on the command
+# line; checking inline could use a stale/default DURATION. Truncate with
+# the same int(duration * 20) the remote Python uses (not round), so the
+# wrapper and the box agree exactly on the first invalid frame even for a
+# fractional --duration.
+# Cap the duration first. The bound is not arbitrary: the add-on refuses a clip
+# longer than motion_retarget.MAX_FRAMES (24000 frames, 20 minutes at 20 fps), so
+# anything past that could never be applied even if the box generated it. Capping
+# here also keeps `d * 20` inside awk's integer range -- printf "%d" saturates at
+# LLONG_MAX for a ~19-digit duration, which would clamp CLIP_FRAME_LIMIT below the
+# real bound and start rejecting legitimate frames.
+awk -v d="$DURATION" 'BEGIN { exit !(d > 0 && d <= 1200) }' || {
+  echo "cclay-ardy-generate: --duration must be > 0 and <= 1200 seconds (the add-on caps a motion at 24000 frames, 20 minutes at 20 fps), got '$DURATION'" >&2
+  usage
+}
+CLIP_FRAME_LIMIT="$(awk -v d="$DURATION" 'BEGIN { printf "%d", d * 20 }')"
+# Minimum three frames in the CONSTRAINED clip: the remote
+# cclay_constrained_generate.py main() rejects int(duration * fps) < 3,
+# because inter-frame continuity (per-frame jump, velocity, acceleration) is
+# undefined below three frames and the postprocess/continuity metrics would
+# be noise. Mirror it locally with the SAME int(duration * 20) truncation
+# used for CLIP_FRAME_LIMIT, so the wrapper and the box agree on the
+# boundary: int(0.05 * 20) == 1 is rejected, int(0.15 * 20) == 3 is the
+# first accepted duration. Only the constrained pass enforces this floor
+# (the unconstrained generate.py and the segment script accept any > 0
+# duration), so gate it on a constraint being present -- the same condition
+# under which CLIP_FRAME_LIMIT is actually consulted by check_clip_frame.
+if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 && "$CLIP_FRAME_LIMIT" -lt 3 ]]; then
+  echo "cclay-ardy-generate: --duration ${DURATION}s yields ${CLIP_FRAME_LIMIT} frame(s) at 20 fps; a clip needs at least 3 so inter-frame continuity is defined. Raise the duration." >&2
+  usage
+fi
+check_clip_frame() {
+  local frame="$1" flag="$2"
+  awk -v f="$frame" -v m="$CLIP_FRAME_LIMIT" 'BEGIN { exit !(f < m) }' && return 0
+  echo "cclay-ardy-generate: $flag frame must satisfy 0 <= frame < $CLIP_FRAME_LIMIT (duration ${DURATION}s at 20 fps), got '$frame'" >&2
+  usage
+}
+if [[ ${#CONSTRAIN_FRAMES[@]} -gt 0 ]]; then
+  for frame in "${CONSTRAIN_FRAMES[@]}"; do check_clip_frame "$frame" "--constrain"; done
+fi
+if [[ ${#ORIENT_FRAMES[@]} -gt 0 ]]; then
+  for frame in "${ORIENT_FRAMES[@]}"; do check_clip_frame "$frame" "--constrain-orient"; done
+fi
+if [[ ${#PATH_FRAMES[@]} -gt 0 ]]; then
+  for frame in "${PATH_FRAMES[@]}"; do check_clip_frame "$frame" "--constrain-path"; done
+fi
+if [[ ${#POSE_DST_FRAMES[@]} -gt 0 ]]; then
+  for frame in "${POSE_DST_FRAMES[@]}"; do check_clip_frame "$frame" "--constrain-pose dst-frame"; done
+fi
+# Orientation requires a matching position target at the SAME frame and SAME
+# joint. The remote parse_orientations rejects a --target-orient with no
+# --target at that (frame, joint), because an ARDY end-effector constraint
+# conditions position AND rotation together: an orientation alone is a
+# half-specified pose, so without the position the joint's location is left
+# to the sampler and the pair does not describe a keyframe at all. Mirror
+# that locally so the request dies before ssh (the remote only catches it
+# after the model has loaded).
+if [[ ${#ORIENT_FRAMES[@]} -gt 0 ]]; then
+  for ((i = 0; i < ${#ORIENT_FRAMES[@]}; i++)); do
+    oframe="${ORIENT_FRAMES[$i]}"
+    ojoint="${ORIENT_JOINTS[$i]}"
+    matched=0
+    if [[ ${#CONSTRAIN_FRAMES[@]} -gt 0 ]]; then
+      for ((j = 0; j < ${#CONSTRAIN_FRAMES[@]}; j++)); do
+        if [[ "${CONSTRAIN_FRAMES[$j]}" == "$oframe" && "${CONSTRAIN_JOINTS[$j]}" == "$ojoint" ]]; then
+          matched=1
+          break
+        fi
+      done
+    fi
+    if [[ $matched -eq 0 ]]; then
+      echo "cclay-ardy-generate: --constrain-orient $ojoint at frame $oframe has no matching --constrain; an end-effector constraint is a pose, so give the position too." >&2
+      usage
+    fi
+  done
+fi
+if [[ ${#SEG_PROMPTS[@]} -eq 0 && -z "$PROMPT" ]]; then usage; fi
+[[ -f "$PROJECT/.cclay/project.json" ]] || { echo "cclay-ardy-generate: $PROJECT is not a CozyClay project (.cclay/project.json missing); pass --project" >&2; exit 1; }
+
+# motion_id: addon grammar ^[a-z0-9][a-z0-9-]{0,63}$
+SLUG_SOURCE="$PROMPT"
+[[ ${#SEG_PROMPTS[@]} -gt 0 ]] && SLUG_SOURCE="${SEG_PROMPTS[0]}"
+SLUG="$(printf '%s' "$SLUG_SOURCE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed -e 's/^-*//' -e 's/-*$//' | cut -c1-40)"
+STAMP="$(date +%m%d%H%M%S)"
+MOTION_ID="${SLUG:-motion}-${STAMP}"
+
+REMOTE_OUT="outputs/cclay/${MOTION_ID}"
+
+MOTIONS_DIR="$PROJECT/.cclay/motions"
+
+if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 ]]; then
+  # ---- constraint mode: ARDY end-effector targets at measured coordinates ----
+  BASE_NPZ="$MOTIONS_DIR/${BASE_MOTION}.npz"
+  [[ -f "$BASE_NPZ" ]] || { echo "cclay-ardy-generate: base motion npz not found: $BASE_NPZ" >&2; exit 1; }
+  if [[ ${#POSE_SRC_IDS[@]} -gt 0 ]]; then
+    for src_id in "${POSE_SRC_IDS[@]}"; do
+      [[ -f "$MOTIONS_DIR/${src_id}.npz" ]] || { echo "cclay-ardy-generate: --constrain-pose source motion npz not found: $MOTIONS_DIR/${src_id}.npz" >&2; exit 1; }
+    done
+  fi
+
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  LOCAL_CON_SCRIPT="$SCRIPT_DIR/ardy/cclay_constrained_generate.py"
+  [[ -f "$LOCAL_CON_SCRIPT" ]] || { echo "cclay-ardy-generate: $LOCAL_CON_SCRIPT missing (repo checkout incomplete?)" >&2; exit 1; }
+  [[ -n "$HOST" ]] || { echo "cclay-ardy-generate: CCLAY_ARDY_HOST is required (for example, user@gpu-host)" >&2; exit 1; }
+
+  REMOTE_BASE="outputs/cclay/${MOTION_ID}-base.npz"
+  echo "cclay-ardy-generate: syncing constrained script and base motion to ${HOST} ..." >&2
+  # shellcheck disable=SC2029  # REMOTE_REPO expands remotely by design
+  scp -q -o BatchMode=yes "$LOCAL_CON_SCRIPT" "$HOST:${REMOTE_REPO}/scripts/cclay_constrained_generate.py"
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "mkdir -p \"${REMOTE_REPO}/outputs/cclay\"" </dev/null
+  # shellcheck disable=SC2029
+  scp -q -o BatchMode=yes "$BASE_NPZ" "$HOST:${REMOTE_REPO}/${REMOTE_BASE}"
+
+  # ---- --constrain-pose: resolve each src-motion-id to a local npz, upload
+  # once per unique id (reusing REMOTE_BASE when it matches --base-motion). ----
+  POSE_REMOTE_IDS=()
+  POSE_REMOTE_PATHS=()
+  NEW_POSE_REMOTES=()
+  POSE_REMOTE_IDS+=("$BASE_MOTION")
+  POSE_REMOTE_PATHS+=("$REMOTE_BASE")
+  POSE_FROM_ARGS=()
+  for ((i = 0; i < POSE_COUNT; i++)); do
+    SRC_ID="${POSE_SRC_IDS[$i]}"
+    SRC_NPZ="$MOTIONS_DIR/${SRC_ID}.npz"
+    [[ -f "$SRC_NPZ" ]] || { echo "cclay-ardy-generate: --constrain-pose source motion npz not found: $SRC_NPZ" >&2; exit 1; }
+    REMOTE_POSE=""
+    for ((j = 0; j < ${#POSE_REMOTE_IDS[@]}; j++)); do
+      if [[ "${POSE_REMOTE_IDS[$j]}" == "$SRC_ID" ]]; then
+        REMOTE_POSE="${POSE_REMOTE_PATHS[$j]}"
+        break
+      fi
+    done
+    if [[ -z "$REMOTE_POSE" ]]; then
+      REMOTE_POSE="outputs/cclay/${MOTION_ID}-pose-${SRC_ID}.npz"
+      # shellcheck disable=SC2029
+      scp -q -o BatchMode=yes "$SRC_NPZ" "$HOST:${REMOTE_REPO}/${REMOTE_POSE}"
+      POSE_REMOTE_IDS+=("$SRC_ID")
+      POSE_REMOTE_PATHS+=("$REMOTE_POSE")
+      NEW_POSE_REMOTES+=("$REMOTE_POSE")
+    fi
+    POSE_FROM_ARGS+=(--pose-from "$REMOTE_POSE" "${POSE_SRC_FRAMES[$i]}" "${POSE_DST_FRAMES[$i]}")
+  done
+
+  REMOTE_CMD="cd \"${REMOTE_REPO}\" && .venv/bin/python scripts/cclay_constrained_generate.py"
+  REMOTE_CMD+=" --prompt $(printf '%q' "$PROMPT") --duration $(printf '%q' "$DURATION")"
+  REMOTE_CMD+=" --base $(printf '%q' "$REMOTE_BASE") --output $(printf '%q' "$REMOTE_OUT")"
+  if [[ ${#CONSTRAIN_ARGS[@]} -gt 0 ]]; then
+    for arg in "${CONSTRAIN_ARGS[@]}"; do
+      REMOTE_CMD+=" $(printf '%q' "$arg")"
+    done
+  fi
+  if [[ ${#POSE_FROM_ARGS[@]} -gt 0 ]]; then
+    for arg in "${POSE_FROM_ARGS[@]}"; do
+      REMOTE_CMD+=" $(printf '%q' "$arg")"
+    done
+  fi
+  [[ -n "$SEED" ]] && REMOTE_CMD+=" --seed $(printf '%q' "$SEED")"
+  [[ -n "$CFG_TEXT" ]] && REMOTE_CMD+=" --cfg_weight $(printf '%q' "$CFG_TEXT") $(printf '%q' "$CFG_CONSTRAINT")"
+  [[ -n "$CONTACT_THRESHOLD" ]] && REMOTE_CMD+=" --contact-threshold $(printf '%q' "$CONTACT_THRESHOLD")"
+  [[ -n "$ROOT_MARGIN" ]] && REMOTE_CMD+=" --root-margin $(printf '%q' "$ROOT_MARGIN")"
+
+  echo "cclay-ardy-generate: generating under ${CONSTRAIN_COUNT} target(s), ${ORIENT_COUNT} orientation(s), ${POSE_COUNT} pose(s), ${PATH_COUNT} path waypoint(s) on ${HOST} ..." >&2
+  CON_STDOUT="$(ssh -o BatchMode=yes "$HOST" "$REMOTE_CMD" </dev/null)"
+  if [[ "$CON_STDOUT" == *$'\n'* ]]; then
+    printf '%s\n' "${CON_STDOUT%$'\n'*}" >&2
+  fi
+  CON_JSON="${CON_STDOUT##*$'\n'}"
+  [[ "$CON_JSON" == \{*\} ]] || { echo "cclay-ardy-generate: remote constrained script did not end with a JSON line: ${CON_JSON}" >&2; exit 1; }
+
+  FRAME_COUNT="$(json_int frames "$CON_JSON")"
+  FPS="$(json_int fps "$CON_JSON")"
+  [[ -n "$FRAME_COUNT" && -n "$FPS" && "$FPS" -gt 0 && "$FRAME_COUNT" -gt 0 ]] || { echo "cclay-ardy-generate: malformed constrained JSON: ${CON_JSON}" >&2; exit 1; }
+  DURATION_S="$(awk -v f="$FRAME_COUNT" -v r="$FPS" 'BEGIN { printf "%.3f", f / r }')"
+
+  mkdir -p "$MOTIONS_DIR"
+  chmod 700 "$MOTIONS_DIR"
+  # shellcheck disable=SC2029
+  scp -q -o BatchMode=yes "$HOST:${REMOTE_REPO}/${REMOTE_OUT}.npz" "$MOTIONS_DIR/${MOTION_ID}.npz"
+  chmod 600 "$MOTIONS_DIR/${MOTION_ID}.npz"
+  # Drop all remote copies so outputs/cclay never grows unbounded.
+  REMOTE_CLEANUP_TARGETS=("${REMOTE_REPO}/${REMOTE_OUT}.npz" "${REMOTE_REPO}/${REMOTE_BASE}")
+  if [[ ${#NEW_POSE_REMOTES[@]} -gt 0 ]]; then
+    for r in "${NEW_POSE_REMOTES[@]}"; do REMOTE_CLEANUP_TARGETS+=("${REMOTE_REPO}/${r}"); done
+  fi
+  REMOTE_RM_CMD="rm -f"
+  for t in "${REMOTE_CLEANUP_TARGETS[@]}"; do REMOTE_RM_CMD+=" $(printf '%q' "$t")"; done
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "$REMOTE_RM_CMD" </dev/null
+
+  CON_BODY="${CON_JSON#\{}"
+  CON_BODY="${CON_BODY%\}}"
+  printf '{"motion_id":"%s","duration_s":%s,"path":".cclay/motions/%s.npz","base_motion_id":"%s",%s}\n' \
+    "$MOTION_ID" "$DURATION_S" "$MOTION_ID" "$BASE_MOTION" "$CON_BODY"
+  exit 0
+fi
+
+if [[ ${#SEG_PROMPTS[@]} -gt 0 ]]; then
+  # ---- segment mode: one continuous rollout with per-segment prompts ----
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  LOCAL_SEQ_SCRIPT="$SCRIPT_DIR/ardy/cclay_sequence_generate.py"
+  [[ -f "$LOCAL_SEQ_SCRIPT" ]] || { echo "cclay-ardy-generate: $LOCAL_SEQ_SCRIPT missing (repo checkout incomplete?)" >&2; exit 1; }
+  [[ -n "$HOST" ]] || { echo "cclay-ardy-generate: CCLAY_ARDY_HOST is required (for example, user@gpu-host)" >&2; exit 1; }
+
+  echo "cclay-ardy-generate: syncing sequence script to ${HOST} ..." >&2
+  # shellcheck disable=SC2029  # REMOTE_REPO expands remotely by design
+  scp -q -o BatchMode=yes "$LOCAL_SEQ_SCRIPT" "$HOST:${REMOTE_REPO}/scripts/cclay_sequence_generate.py"
+
+  # Build the remote command with locally shell-quoted segment prompts
+  # (printf %q — prompts may contain spaces/quotes; no injection).
+  REMOTE_CMD="cd \"${REMOTE_REPO}\" && mkdir -p outputs/cclay && .venv/bin/python scripts/cclay_sequence_generate.py"
+  for i in "${!SEG_PROMPTS[@]}"; do
+    REMOTE_CMD+=" --segment $(printf '%q' "${SEG_PROMPTS[$i]}") $(printf '%q' "${SEG_SECONDS[$i]}")"
+  done
+  REMOTE_CMD+=" --output $(printf '%q' "$REMOTE_OUT")"
+  [[ -n "$SEED" ]] && REMOTE_CMD+=" --seed $(printf '%q' "$SEED")"
+
+  echo "cclay-ardy-generate: generating ${#SEG_PROMPTS[@]} segment(s) on ${HOST} ..." >&2
+  SEQ_STDOUT="$(ssh -o BatchMode=yes "$HOST" "$REMOTE_CMD" </dev/null)"
+  # Progress lines (everything before the last line) go to stderr; the last
+  # stdout line is the contract JSON.
+  if [[ "$SEQ_STDOUT" == *$'\n'* ]]; then
+    printf '%s\n' "${SEQ_STDOUT%$'\n'*}" >&2
+  fi
+  SEQ_JSON="${SEQ_STDOUT##*$'\n'}"
+  [[ "$SEQ_JSON" == \{*\} ]] || { echo "cclay-ardy-generate: remote sequence script did not end with a JSON line: ${SEQ_JSON}" >&2; exit 1; }
+
+  FRAME_COUNT="$(json_int frames "$SEQ_JSON")"
+  FPS="$(json_int fps "$SEQ_JSON")"
+  [[ -n "$FRAME_COUNT" && -n "$FPS" && "$FPS" -gt 0 && "$FRAME_COUNT" -gt 0 ]] || { echo "cclay-ardy-generate: malformed sequence JSON: ${SEQ_JSON}" >&2; exit 1; }
+  DURATION_S="$(awk -v f="$FRAME_COUNT" -v r="$FPS" 'BEGIN { printf "%.3f", f / r }')"
+
+  mkdir -p "$MOTIONS_DIR"
+  chmod 700 "$MOTIONS_DIR"
+  # shellcheck disable=SC2029
+  scp -q -o BatchMode=yes "$HOST:${REMOTE_REPO}/${REMOTE_OUT}.npz" "$MOTIONS_DIR/${MOTION_ID}.npz"
+  chmod 600 "$MOTIONS_DIR/${MOTION_ID}.npz"
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "rm -f \"${REMOTE_REPO}/${REMOTE_OUT}.npz\"" </dev/null
+
+  # Merge {motion_id, duration_s, path} with the remote contract JSON
+  # ({frames, fps, segments, continuity}) by splicing its body.
+  SEQ_BODY="${SEQ_JSON#\{}"
+  SEQ_BODY="${SEQ_BODY%\}}"
+  printf '{"motion_id":"%s","duration_s":%s,"path":".cclay/motions/%s.npz",%s}\n' \
+    "$MOTION_ID" "$DURATION_S" "$MOTION_ID" "$SEQ_BODY"
+  exit 0
+fi
+
+SEED_ARGS=()
+[[ -n "$SEED" ]] && SEED_ARGS=(--seed "$SEED")
+
+[[ -n "$HOST" ]] || { echo "cclay-ardy-generate: CCLAY_ARDY_HOST is required (for example, user@gpu-host)" >&2; exit 1; }
+echo "cclay-ardy-generate: generating on ${HOST} ..." >&2
+# shellcheck disable=SC2029  # REMOTE_REPO expands remotely by design
+ssh -o BatchMode=yes "$HOST" \
+  "cd \"${REMOTE_REPO}\" && mkdir -p outputs/cclay && .venv/bin/python scripts/generate.py \
+     \"\$(cat)\" --duration \"${DURATION}\" --output \"${REMOTE_OUT}\" ${SEED_ARGS[*]:-}" \
+  <<<"$PROMPT" >&2
+
+mkdir -p "$MOTIONS_DIR"
+chmod 700 "$MOTIONS_DIR"
+# shellcheck disable=SC2029
+scp -q -o BatchMode=yes "$HOST:${REMOTE_REPO}/${REMOTE_OUT}.npz" "$MOTIONS_DIR/${MOTION_ID}.npz"
+chmod 600 "$MOTIONS_DIR/${MOTION_ID}.npz"
+
+# Probe frames/fps and inter-frame continuity (same jump definition as the
+# sequence script: max per-frame L2 displacement across all posed joints,
+# reported at the landing frame).
+# shellcheck disable=SC2029
+PROBE_JSON="$(ssh -o BatchMode=yes "$HOST" \
+  "cd \"${REMOTE_REPO}\" && .venv/bin/python - \"${REMOTE_OUT}.npz\"" <<'PY'
+import json
+import sys
+
+import numpy
+
+d = numpy.load(sys.argv[1])
+pj = d["posed_joints"]
+if pj.shape[0] > 1:
+    jumps = numpy.linalg.norm(pj[1:] - pj[:-1], axis=-1).max(axis=-1)
+    cont = {
+        "mean_jump_m": float(jumps.mean()),
+        "max_jump_m": float(jumps.max()),
+        "max_jump_frame": int(jumps.argmax()) + 1,
+    }
+else:
+    cont = {"mean_jump_m": 0.0, "max_jump_m": 0.0, "max_jump_frame": 0}
+print(json.dumps({
+    "frames": int(d["local_rot_mats"].shape[0]),
+    "fps": int(d["fps"]),
+    "continuity": cont,
+}))
+PY
+)"
+# The npz is staged locally; drop the remote copy so outputs/cclay never grows unbounded.
+# shellcheck disable=SC2029
+ssh -o BatchMode=yes "$HOST" "rm -f \"${REMOTE_REPO}/${REMOTE_OUT}.npz\"" </dev/null
+FRAME_COUNT="$(json_int frames "$PROBE_JSON")"
+FPS="$(json_int fps "$PROBE_JSON")"
+CONTINUITY="$(printf '%s' "$PROBE_JSON" | sed -n 's/.*"continuity"[[:space:]]*:[[:space:]]*\({[^}]*}\).*/\1/p')"
+[[ -n "$FRAME_COUNT" && -n "$FPS" && "$FPS" -gt 0 && "$FRAME_COUNT" -gt 0 && -n "$CONTINUITY" ]] || { echo "cclay-ardy-generate: malformed probe JSON: ${PROBE_JSON}" >&2; exit 1; }
+
+printf '{"motion_id":"%s","frames":%s,"fps":%s,"duration_s":%s,"path":".cclay/motions/%s.npz","continuity":%s}\n' \
+  "$MOTION_ID" "$FRAME_COUNT" "$FPS" "$DURATION" "$MOTION_ID" "$CONTINUITY"

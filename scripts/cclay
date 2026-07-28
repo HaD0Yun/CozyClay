@@ -1,0 +1,379 @@
+#!/bin/bash
+# cclay — launch the CozyClay Blender director in the current directory, pi-style.
+#   cclay                          # sol director in $PWD, Blender auto-attached
+#   cclay --model gpt-5.6-sol      # override model (provider defaults to openai-codex)
+#   cclay --glm                    # GLM 5.2 on Fireworks' Fast serving path
+#   cclay --no-blender             # TUI/daemon only, attach Blender yourself
+#   CCLAY_PROJECT_DIR=... cclay    # direct at another project dir
+#   CCLAY_REPO=...                 # override the repo root (defaults to this script's repo)
+set -euo pipefail
+
+# Resolve the repo from this script's own location so a symlink on PATH works.
+CCLAY_SELF="${BASH_SOURCE[0]}"
+while [[ -L "$CCLAY_SELF" ]]; do
+  CCLAY_LINK="$(readlink "$CCLAY_SELF")"
+  case "$CCLAY_LINK" in
+    /*) CCLAY_SELF="$CCLAY_LINK" ;;
+    *) CCLAY_SELF="$(dirname "$CCLAY_SELF")/$CCLAY_LINK" ;;
+  esac
+done
+CCLAY_REPO="${CCLAY_REPO:-$(cd "$(dirname "$CCLAY_SELF")/.." && pwd)}"
+
+# Version visibility: `cclay --version` prints this and exits, and every normal
+# launch echoes the same line before Blender/TUI startup. The add-on version is
+# the one scripts/cclay compares against a running Blender, so showing it is
+# what makes "which build is this?" answerable without opening Blender first.
+cclay_package_version() {
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$CCLAY_REPO/package.json" 2>/dev/null | head -1
+}
+cclay_addon_version() {
+  sed -n 's/^version = "\([^"]*\)".*/\1/p' \
+    "$CCLAY_REPO/blender-addon/cclay/blender_manifest.toml" 2>/dev/null | head -1
+}
+cclay_git_describe() {
+  if [[ -d "$CCLAY_REPO/.git" ]] && command -v git >/dev/null 2>&1; then
+    local sha
+    sha="$(git -C "$CCLAY_REPO" rev-parse --short=8 HEAD 2>/dev/null)" || sha=""
+    if [[ -z "$sha" ]]; then
+      echo unknown
+      return
+    fi
+    if [[ -n "$(git -C "$CCLAY_REPO" status --porcelain 2>/dev/null)" ]]; then
+      echo "$sha-dirty"
+    else
+      echo "$sha"
+    fi
+  else
+    echo unknown
+  fi
+}
+cclay_version_line() {
+  local package_version addon_version
+  package_version="$(cclay_package_version)"
+  addon_version="$(cclay_addon_version)"
+  printf 'cozyclay %s, add-on %s, git %s' \
+    "${package_version:-unknown}" "${addon_version:-unknown}" "$(cclay_git_describe)"
+}
+cclay_help() {
+  cat <<'EOF'
+Usage: cclay [options]
+
+Launch the CozyClay director in the current project and attach Blender.
+
+Options:
+  --no-blender                 Start only the director for an existing project
+  --provider <name>            Select a Pi model provider
+  --model <id>                 Select a model
+  --glm                        Use GLM 5.2 through the Fireworks fast router
+  --version, -V                Print version information
+  --help, -h                   Show this help
+
+Environment:
+  CCLAY_PROJECT_DIR            Project directory (default: nearest project or PWD)
+  CCLAY_PROJECTS_ROOT          Project picker root (default: ~/BlenderScenes)
+  CCLAY_BLENDER_EXECUTABLE     Blender executable to launch
+  CCLAY_REPO                   CozyClay checkout (normally inferred)
+
+Run /login in the director TUI to configure a model provider.
+EOF
+}
+for arg in "$@"; do
+  case "$arg" in
+    --version|-V)
+      echo "cclay $(cclay_version_line)"
+      exit 0
+      ;;
+    --help|-h)
+      cclay_help
+      exit 0
+      ;;
+  esac
+done
+
+CCLAY_EXPLICIT_PROJECT="${CCLAY_PROJECT_DIR:-}"
+PROJECT_DIR="${CCLAY_EXPLICIT_PROJECT:-$PWD}"
+
+# Resolve the project directory: any dir works.
+# 1. explicit CCLAY_PROJECT_DIR wins
+# 2. cwd (or an ancestor) that already holds .cclay/project.json is the project
+# 3. sensitive roots (~, /, /tmp): choose an existing project to continue, or start a new one
+# 4. any other dir becomes the project in place
+if [[ -z "$CCLAY_EXPLICIT_PROJECT" ]]; then
+  probe="$PWD"
+  while [[ "$probe" != "/" && "$probe" != "$HOME" ]]; do
+    if [[ -f "$probe/.cclay/project.json" ]]; then
+      PROJECT_DIR="$probe"
+      break
+    fi
+    probe="$(dirname "$probe")"
+  done
+  case "$PROJECT_DIR" in
+    "$HOME"|"/"|"/Users"|"/tmp"|"/private/tmp")
+      # Sensitive root: let the user continue an existing project or start a
+      # new one. CCLAY_DEFAULT_PROJECT_DIR skips the prompt; a non-interactive
+      # shell (scripts) falls back to the default project silently.
+      PROJECTS_ROOT="${CCLAY_PROJECTS_ROOT:-$HOME/BlenderScenes}"
+      if [[ -n "${CCLAY_DEFAULT_PROJECT_DIR:-}" ]]; then
+        PROJECT_DIR="$CCLAY_DEFAULT_PROJECT_DIR"
+        mkdir -p "$PROJECT_DIR"
+      elif [[ ! -t 0 || ! -t 1 ]]; then
+        PROJECT_DIR="$PROJECTS_ROOT/default"
+        mkdir -p "$PROJECT_DIR"
+        echo "cclay: using $PROJECT_DIR"
+      else
+        mkdir -p "$PROJECTS_ROOT"
+        PROJECTS=()
+        while IFS= read -r dir; do
+          PROJECTS+=("${dir%/}")
+        done < <(ls -1dt "$PROJECTS_ROOT"/*/ 2>/dev/null)
+        echo "cclay: continue an existing project, or start a new one:"
+        for ((i = 0; i < ${#PROJECTS[@]}; i++)); do
+          MARKER=" "
+          [[ -f "${PROJECTS[$i]}/.cclay/project.json" ]] && MARKER="*"
+          printf '  %2d) %s %s\n' "$((i + 1))" "$MARKER" "${PROJECTS[$i]##*/}"
+        done
+        echo "   n) new project"
+        echo "   q) quit"
+        echo "  (* = existing CozyClay project, newest first)"
+        read -r -p "cclay> " CHOICE || { echo "cclay: aborted"; exit 1; }
+        case "$CHOICE" in
+          q|Q|"")
+            echo "cclay: aborted"
+            exit 1
+            ;;
+          n|N)
+            read -r -p "cclay: new project name: " NAME || { echo "cclay: aborted"; exit 1; }
+            if [[ -z "$NAME" || "$NAME" == */* ]]; then
+              echo "cclay: project name must be a non-empty folder name" >&2
+              exit 1
+            fi
+            PROJECT_DIR="$PROJECTS_ROOT/$NAME"
+            mkdir -p "$PROJECT_DIR"
+            ;;
+          *)
+            if [[ ! "$CHOICE" =~ ^[1-9][0-9]*$ ]] || (( CHOICE > ${#PROJECTS[@]} )); then
+              echo "cclay: invalid choice: $CHOICE" >&2
+              exit 1
+            fi
+            PROJECT_DIR="${PROJECTS[$((CHOICE - 1))]}"
+            ;;
+        esac
+        echo "cclay: using $PROJECT_DIR"
+      fi
+      ;;
+  esac
+fi
+# Legacy export retained during the cclay -> cclay transition for any consumer
+# still keyed to the old name (demo tooling, ad-hoc scripts).
+export CCLAY_PROJECT_DIR="$PROJECT_DIR"
+export CCLAY_DEMO_PROJECT_DIR="$PROJECT_DIR"
+
+LAUNCH_BLENDER=1
+WANT_GLM=0
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --no-blender) LAUNCH_BLENDER=0 ;;
+    --faux) LAUNCH_BLENDER=0; ARGS+=("$arg") ;;
+    --glm) WANT_GLM=1 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+[[ "${CCLAY_NO_BLENDER:-${CCLAY_NO_BLENDER:-0}}" == "1" ]] && LAUNCH_BLENDER=0
+# Provider default: openai-codex, so a bare `cclay` (and the `cclay --model X`
+# shorthand) reaches the credential import below instead of starting with zero
+# models. An explicit --provider always wins, and --faux runs the in-process
+# faux provider, which must not require credentials.
+HAS_PROVIDER=0
+HAS_FAUX=0
+HAS_MODEL=0
+for arg in ${ARGS[@]+"${ARGS[@]}"}; do
+  [[ "$arg" == "--provider" ]] && HAS_PROVIDER=1
+  [[ "$arg" == "--faux" ]] && HAS_FAUX=1
+  [[ "$arg" == "--model" ]] && HAS_MODEL=1
+done
+# --glm: GLM 5.2 on Fireworks' Fast serving path. Same weights as the standard
+# glm-5p2 model on a higher-throughput router, billed 50% above it, which is the
+# trade this shorthand exists to make. It is a shorthand, not an override:
+# an explicit --provider or --model still wins, so `cclay --glm --model X` runs X
+# on Fireworks.
+if [[ "$WANT_GLM" == "1" ]]; then
+  [[ "$HAS_MODEL" == "0" ]] && ARGS=(--model accounts/fireworks/routers/glm-5p2-fast ${ARGS[@]+"${ARGS[@]}"})
+  if [[ "$HAS_PROVIDER" == "0" ]]; then
+    ARGS=(--provider fireworks ${ARGS[@]+"${ARGS[@]}"})
+    HAS_PROVIDER=1
+  fi
+fi
+if [[ "$HAS_PROVIDER" == "0" && "$HAS_FAUX" == "0" ]]; then
+  ARGS=(--provider openai-codex ${ARGS[@]+"${ARGS[@]}"})
+fi
+
+# One line up front so a log or a screenshot answers which build launched even
+# when the session itself scrolls away.
+echo "cclay: $(cclay_version_line)"
+
+# Blender owns project provisioning (cclay.initialize_project seeds .cclay/project.json;
+# the Pi extension refuses to load without it, and the addon refuses a bare skeleton).
+if [[ "$LAUNCH_BLENDER" == "1" ]]; then
+  BLENDER_EXECUTABLE_OVERRIDE="${CCLAY_BLENDER_EXECUTABLE:-${CCLAY_BLENDER_EXECUTABLE:-}}"
+  BLENDER="$BLENDER_EXECUTABLE_OVERRIDE"
+  if [[ -z "$BLENDER" ]]; then
+    for candidate in /opt/homebrew/bin/blender "/Applications/Blender.app/Contents/MacOS/Blender"; do
+      [[ -x "$candidate" ]] && BLENDER="$candidate" && break
+    done
+  fi
+  if [[ -z "$BLENDER" ]]; then
+    echo "cclay: blender not found; set CCLAY_BLENDER_EXECUTABLE or pass --no-blender" >&2
+    exit 1
+  fi
+  # One Blender per project: the attach script writes .cclay-blender.pid; reuse
+  # only when that pid is a live Blender. (Blender holds no file handle on its
+  # .blend, so lsof/pgrep-based detection misfires.)
+  BLENDER_OPEN=0
+  PIDFILE="$PROJECT_DIR/.cclay-blender.pid"
+  if [[ -f "$PIDFILE" ]]; then
+    BLENDER_PID="$(head -1 "$PIDFILE" 2>/dev/null || true)"
+    if [[ "$BLENDER_PID" =~ ^[0-9]+$ ]] && ps -p "$BLENDER_PID" -o comm= 2>/dev/null | grep -qi blender; then
+      BLENDER_OPEN=1
+    else
+      rm -f "$PIDFILE"
+    fi
+  fi
+  # Reuse guard: a live Blender may still hold a stale in-memory add-on (line 2
+  # of the pidfile records the version the attach script loaded). No external
+  # bridge exists to make a running Blender re-run the attach script, so refuse
+  # reuse: terminate our own launched Blender and fall through to a relaunch,
+  # which reinstalls the current add-on.
+  if [[ "$BLENDER_OPEN" == "1" ]]; then
+    REPO_ADDON_VERSION="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$CCLAY_REPO/blender-addon/cclay/blender_manifest.toml" 2>/dev/null | head -1 || true)"
+    if [[ -z "$REPO_ADDON_VERSION" ]]; then
+      echo "cclay: cannot read add-on version from blender_manifest.toml (repo checkout broken?)" >&2
+      exit 1
+    fi
+    RECORDED_ADDON_VERSION="$(sed -n '2p' "$PIDFILE" 2>/dev/null || true)"
+    if [[ "$RECORDED_ADDON_VERSION" != "$REPO_ADDON_VERSION" ]]; then
+      echo "cclay: Blender is running an outdated add-on (v${RECORDED_ADDON_VERSION:-unknown} != v$REPO_ADDON_VERSION) - relaunching Blender with the current add-on"
+      kill "$BLENDER_PID" 2>/dev/null || true
+      # A zombie (state Z) is already dead; only a live state counts as running.
+      for i in $(seq 1 10); do
+        STATE="$(ps -p "$BLENDER_PID" -o state= 2>/dev/null | tr -d ' ')"
+        if [[ -z "$STATE" || "$STATE" == Z* ]]; then break; fi
+        sleep 1
+      done
+      STATE="$(ps -p "$BLENDER_PID" -o state= 2>/dev/null | tr -d ' ')"
+      if [[ -n "$STATE" && "$STATE" != Z* ]]; then
+        kill -9 "$BLENDER_PID" 2>/dev/null || true
+        sleep 1
+      fi
+      rm -f "$PIDFILE"
+      BLENDER_OPEN=0
+    fi
+  fi
+  if [[ "$BLENDER_OPEN" == "1" ]]; then
+    echo "cclay: Blender already has this project open - reusing it"
+  else
+    LOG="$PROJECT_DIR/.cclay-blender-attach.log"
+    if [[ "$(uname)" == "Darwin" && -z "$BLENDER_EXECUTABLE_OVERRIDE" ]]; then
+      # LaunchServices keeps GUI apps alive regardless of the launching
+      # session (nohup/tmux-spawned Blender gets reaped by macOS when the
+      # caller is not the Aqua login session). Env does not pass through
+      # `open`, so the attach script takes its options as script args.
+      # An explicit CCLAY_BLENDER_EXECUTABLE opts out of `open -a Blender`
+      # below so the chosen binary is the one that actually launches.
+      open -n -a Blender --args --python "$CCLAY_REPO/scripts/blender_attach.py" \
+        -- --cclay-project-dir "$PROJECT_DIR" --cclay-repo "$CCLAY_REPO"
+    else
+      CCLAY_PROJECT_DIR="$PROJECT_DIR" CCLAY_REPO="$CCLAY_REPO" \
+        nohup "$BLENDER" --python "$CCLAY_REPO/scripts/blender_attach.py" > /tmp/cclay-blender.log 2>&1 &
+    fi
+    echo "cclay: launching Blender (log: $LOG)"
+  fi
+  # Fresh project: wait for Blender's initialize_project to seed .cclay/project.json
+  # before the TUI spawns the daemon (pre-listen project binding).
+  if [[ ! -f "$PROJECT_DIR/.cclay/project.json" ]]; then
+    echo "cclay: waiting for Blender to initialize the project in $PROJECT_DIR ..."
+    for i in $(seq 1 60); do
+      [[ -f "$PROJECT_DIR/.cclay/project.json" ]] && break
+      (( i % 10 == 0 )) && echo "cclay: still waiting (${i}s)"
+      sleep 1
+    done
+    if [[ ! -f "$PROJECT_DIR/.cclay/project.json" ]]; then
+      echo "cclay: Blender did not initialize the project in 60s; see ${LOG:-the Blender log}" >&2
+      exit 1
+    fi
+    echo "cclay: project initialized - starting the director"
+  fi
+elif [[ ! -f "$PROJECT_DIR/.cclay/project.json" ]]; then
+  echo "cclay: no .cclay/project.json here and --no-blender given; run cclay without --no-blender so Blender can initialize the project" >&2
+  exit 1
+fi
+
+# Keep native Pi sessions and credentials project-local, and import EVERY
+# credential the GJC store holds — not only the one the launch flag selects —
+# without ever putting a token in argv or the environment. Importing all of them
+# is what makes /model useful: Pi's selector only lists models from providers
+# that have a credential, so importing just the selected provider left a fresh
+# project able to see nothing but that provider's models and unable to switch
+# mid-session. Tokens never touch argv or the environment on the way in.
+export PI_CODING_AGENT_DIR="$PROJECT_DIR/.cclay/pi-agent"
+mkdir -p "$PI_CODING_AGENT_DIR"
+chmod 700 "$PI_CODING_AGENT_DIR"
+# Importing a compatible GJC store is optional. A user without GJC can start the
+# TUI and authenticate with Pi's /login command instead.
+AUTH_DB="${HOME}/.gjc/agent/agent.db"
+if [[ -f "$AUTH_DB" ]]; then
+  AUTH_DB="$AUTH_DB" AUTH_OUT="$PI_CODING_AGENT_DIR/auth.json" python3 - <<'PY'
+import json
+import os
+import sqlite3
+import sys
+
+target = os.environ["AUTH_OUT"]
+
+try:
+    with sqlite3.connect(os.environ["AUTH_DB"]) as connection:
+        rows = connection.execute("SELECT provider, data FROM auth_credentials").fetchall()
+
+    imported = {}
+    for provider, data in rows:
+        try:
+            stored = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(stored, dict):
+            continue
+        # Shape decides the type, not the provider name: an OAuth row carries an
+        # access token, an api-key row carries a key. A row with neither is a
+        # partial login and is skipped rather than written as a broken entry.
+        if stored.get("access"):
+            imported[provider] = dict(stored, type="oauth")
+        elif stored.get("key"):
+            imported[provider] = {"type": "api_key", "key": stored["key"]}
+
+    # Merge rather than replace: Pi owns this file too (/login writes it), so a
+    # credential the store does not know about must survive the import.
+    try:
+        with open(target, encoding="utf-8") as handle:
+            credentials = json.load(handle)
+        if not isinstance(credentials, dict):
+            credentials = {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        credentials = {}
+    credentials.update(imported)
+    temporary = f"{target}.tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(credentials, handle, separators=(",", ":"))
+        handle.write("\n")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
+    print(f"cclay: cannot import credentials: {error}", file=sys.stderr)
+    sys.exit(1)
+PY
+fi
+cd "$PROJECT_DIR"
+exec "$CCLAY_REPO/pi-test.sh" \
+  --extension "$CCLAY_REPO/apps/cclay-extension/src/cclay/index.ts" \
+  --thinking medium \
+  "${ARGS[@]+"${ARGS[@]}"}"

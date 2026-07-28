@@ -1,0 +1,923 @@
+diff --git a/ardy/viz/core_skin.py b/ardy/viz/core_skin.py
+index 28878e8..a70379a 100644
+--- a/ardy/viz/core_skin.py
++++ b/ardy/viz/core_skin.py
+@@ -1,6 +1,8 @@
+ # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import os
++from dataclasses import dataclass
+ from pathlib import Path
+ 
+ import numpy as np
+@@ -9,6 +11,39 @@ import torch
+ from ardy.skeleton.kinematics import batch_rigid_transform
+ 
+ SKIN_NAME = "skin_standard.npz"
++FIST_BIND_VERTICES_NAME = "fist_bind_vertices.npy"
++
++
++@dataclass(frozen=True, slots=True)
++class FistPoseShapeError(ValueError):
++    """The authored fist target does not match the Core skin topology."""
++
++    expected: tuple[int, ...]
++    actual: tuple[int, ...]
++
++    def __str__(self) -> str:
++        return f"Fist pose shape mismatch: expected {self.expected}, got {self.actual}"
++
++
++@dataclass(frozen=True, slots=True)
++class SkinRigMismatchError(ValueError):
++    """The skin asset and requested skeleton use different joint names."""
++
++    expected: str
++    actual: str
++
++    def __str__(self) -> str:
++        return f"Mismatch in skinning rig: expected={self.expected!r}, got={self.actual!r}"
++
++
++def apply_fist_pose(bind_vertices: np.ndarray, pose_path: Path, *, enabled: bool) -> np.ndarray:
++    """Select the authored closed-hand bind vertices when requested."""
++    if not enabled:
++        return bind_vertices
++    fist_vertices = np.load(pose_path).astype(np.float32)
++    if fist_vertices.shape != bind_vertices.shape:
++        raise FistPoseShapeError(bind_vertices.shape, fist_vertices.shape)
++    return fist_vertices
+ 
+ 
+ class CoreSkin:
+@@ -30,7 +65,14 @@ class CoreSkin:
+         # Precompute the inverse in numpy to avoid torch lazy evaluation issues
+         bind_rig_inv_np = np.linalg.inv(bind_rig_np)
+         self.bind_rig_transform_inv = torch.from_numpy(bind_rig_inv_np).to(device=device, dtype=torch.float)
+-        self.bind_vertices = torch.tensor(skin_data["bind_vertices"], device=device, dtype=torch.float)
++        bind_vertices_np = np.array(skin_data["bind_vertices"], dtype=np.float32)
++        fist_enabled = os.environ.get("ARDY_CORE_HAND_POSE") == "fist"
++        bind_vertices_np = apply_fist_pose(
++            bind_vertices_np,
++            skin_data_path.with_name(FIST_BIND_VERTICES_NAME),
++            enabled=fist_enabled,
++        )
++        self.bind_vertices = torch.from_numpy(bind_vertices_np).to(device=device, dtype=torch.float)
+         self.faces = torch.tensor(skin_data["faces"], device=device, dtype=torch.long)
+         self.lbs_indices = torch.tensor(skin_data["lbs_indices"], device=device, dtype=torch.long)
+         self.lbs_weights = torch.tensor(skin_data["lbs_weights"], device=device, dtype=torch.float)
+@@ -39,7 +81,7 @@ class CoreSkin:
+         rig_joint_names = list(skin_data["rig_joint_names"])  # list(str) : [R]
+         for sname, rname in zip(self.skeleton.bone_order_names, rig_joint_names):
+             if sname != rname:
+-                raise ValueError(f"MISMATCH in skinnging rig: expected='{sname}' vs rig='{rname}'")
++                raise SkinRigMismatchError(sname, str(rname))
+ 
+     def lbs(self, posed_transform):
+         bind_rig_transform_inv = self.bind_rig_transform_inv
+diff --git a/ardy/viz/viser_utils.py b/ardy/viz/viser_utils.py
+index 250947d..010a1d6 100644
+--- a/ardy/viz/viser_utils.py
++++ b/ardy/viz/viser_utils.py
+@@ -31,6 +31,8 @@ from ardy.viz.core_skin import CoreSkin
+ from ardy.viz.g1_rig import G1MeshRig
+ from ardy.viz.soma_skin import SOMASkin
+ 
++from interactive_demo.mixamo_avatar import AvatarConfig, MixamoAvatarRig
++
+ 
+ _G1_JOINT_AXIS_INDEX_CACHE: Optional[dict[str, int]] = None
+ 
+@@ -699,6 +701,7 @@ class Character:
+         mesh_mode: str = "core_skin",
+         g1_mesh_dir: Optional[str] = None,
+         show_root_2d_projection: bool = False,
++        mixamo_avatar_config: Optional[AvatarConfig] = None,
+     ):
+         self.server = server
+         self.name = name
+@@ -722,10 +725,26 @@ class Character:
+ 
+         self.skinned_mesh = None
+         self.g1_mesh_rig = None
++        self.mixamo_avatar_rig = None
+         self.skin = None
+         self.mesh_mode = mesh_mode
+         if create_skinned_mesh:
+-            if isinstance(self.skeleton, CoreSkeleton27) and mesh_mode == "core_skin":
++            if isinstance(self.skeleton, CoreSkeleton27) and mixamo_avatar_config is not None:
++                self.mixamo_avatar_rig = MixamoAvatarRig(
++                    name,
++                    server,
++                    self.skeleton,
++                    mixamo_avatar_config,
++                    visible=visible_skinned_mesh,
++                    opacity=skinned_mesh_opacity,
++                )
++
++                bind_pos = self.skeleton.neutral_joints.clone()
++                min_height = bind_pos[:, 1].min().item()
++                bind_pos[:, 1] -= min_height
++                bind_rotmat = torch.eye(3, device=bind_pos.device).repeat(bind_pos.shape[0], 1, 1)
++                self.set_pose(bind_pos, bind_rotmat)
++            elif isinstance(self.skeleton, CoreSkeleton27) and mesh_mode == "core_skin":
+                 self.skin = CoreSkin(self.skeleton)
+                 self.skinned_mesh = server.scene.add_mesh_simple(
+                     f"/{name}/simple_skinned",
+@@ -807,6 +826,8 @@ class Character:
+             self.skinned_mesh.color = color
+         if self.g1_mesh_rig is not None:
+             self.g1_mesh_rig.set_color(color)
++        if self.mixamo_avatar_rig is not None:
++            self.mixamo_avatar_rig.set_dark_mode(is_dark_mode)
+ 
+     def set_skeleton_visibility(self, visible: bool):
+         if self.skeleton_mesh is not None:
+@@ -820,18 +841,24 @@ class Character:
+             self.skinned_mesh.visible = visible
+         if self.g1_mesh_rig is not None:
+             self.g1_mesh_rig.set_visibility(visible)
++        if self.mixamo_avatar_rig is not None:
++            self.mixamo_avatar_rig.set_visibility(visible)
+ 
+     def set_skinned_mesh_opacity(self, opacity: float):
+         if self.skinned_mesh is not None:
+             self.skinned_mesh.opacity = opacity
+         if self.g1_mesh_rig is not None:
+             self.g1_mesh_rig.set_opacity(opacity)
++        if self.mixamo_avatar_rig is not None:
++            self.mixamo_avatar_rig.set_opacity(opacity)
+ 
+     def set_skinned_mesh_wireframe(self, wireframe: bool):
+         if self.skinned_mesh is not None:
+             self.skinned_mesh.wireframe = wireframe
+         if self.g1_mesh_rig is not None:
+             self.g1_mesh_rig.set_wireframe(wireframe)
++        if self.mixamo_avatar_rig is not None:
++            self.mixamo_avatar_rig.set_wireframe(wireframe)
+ 
+     def precompute_skinning(self, joints_pos: torch.Tensor, joints_rot: torch.Tensor):
+         """If using simple skinning, we can precompute the skinning for all frames at once.
+@@ -892,6 +919,10 @@ class Character:
+             joints_pos_np = joints_pos.detach().cpu().numpy()
+             joints_rot_np = joints_rot.detach().cpu().numpy()
+             self.g1_mesh_rig.set_pose(joints_pos_np, joints_rot_np)
++        if self.mixamo_avatar_rig is not None:
++            joints_pos_np = joints_pos.detach().cpu().numpy().astype(np.float32)
++            joints_rot_np = joints_rot.detach().cpu().numpy().astype(np.float32)
++            self.mixamo_avatar_rig.set_pose(joints_pos_np, joints_rot_np)
+ 
+         self.cur_joints_pos = joints_pos
+         self.cur_joints_rot = joints_rot
+@@ -906,6 +937,8 @@ class Character:
+             self.server.scene.remove_by_name(self.skinned_mesh.name)
+         if self.g1_mesh_rig is not None:
+             self.g1_mesh_rig.clear()
++        if self.mixamo_avatar_rig is not None:
++            self.mixamo_avatar_rig.clear()
+ 
+ 
+ class CharacterMotion:
+diff --git a/scripts/interactive_demo/characters.py b/scripts/interactive_demo/characters.py
+index e112f31..c8a636e 100644
+--- a/scripts/interactive_demo/characters.py
++++ b/scripts/interactive_demo/characters.py
+@@ -4,6 +4,7 @@
+ """Part of InteractiveTimelineDemo (split for readability)."""
+ 
+ from .common import *  # noqa: F401,F403
++from .mixamo_avatar import AvatarChoiceError, avatar_config, parse_avatar_choice
+ 
+ 
+ class CharactersMixin:
+@@ -16,6 +17,8 @@ class CharactersMixin:
+         character_name = f"character{index}"
+         # Use session's mesh_mode (set during model loading)
+         mesh_mode = getattr(session, "mesh_mode", "core_skin")
++        selected_avatar = parse_avatar_choice(session.avatar_choice)
++        selected_avatar_config = avatar_config(selected_avatar)
+         new_character = Character(
+             character_name,
+             session.client,
+@@ -29,6 +32,7 @@ class CharactersMixin:
+             dark_mode=session.gui_elements.gui_dark_mode_checkbox.value,
+             show_root_2d_projection=True,
+             mesh_mode=mesh_mode,
++            mixamo_avatar_config=selected_avatar_config,
+         )
+         with session.characters_lock:
+             session.characters[character_name] = new_character
+@@ -58,6 +62,66 @@ class CharactersMixin:
+             else:
+                 print(f"[Client {client_id}] Target velocity arrow already exists, skipping creation")
+ 
++    def set_avatar_choice(self, client_id: int, value: str) -> None:
++        """Switch all generated characters to the selected Viser avatar."""
++        if not self.client_active(client_id):
++            return
++        session = self.client_sessions[client_id]
++        try:
++            choice = parse_avatar_choice(value)
++        except AvatarChoiceError:
++            session.gui_elements.gui_avatar_dropdown.value = session.avatar_choice
++            return
++
++        config = avatar_config(choice)
++        if config is not None and not config.path.is_file():
++            session.gui_elements.gui_avatar_dropdown.value = session.avatar_choice
++            session.client.add_notification(
++                title="Avatar unavailable",
++                body=f"Private avatar file was not found: {config.path.name}",
++                auto_close_seconds=4.0,
++                color="red",
++            )
++            return
++        if config is not None and session.motion_rep is not None:
++            if not isinstance(session.motion_rep.skeleton, CoreSkeleton27):
++                session.gui_elements.gui_avatar_dropdown.value = session.avatar_choice
++                session.client.add_notification(
++                    title="Avatar unavailable",
++                    body="X Bot and Y Bot currently support the ARDY Core skeleton only.",
++                    auto_close_seconds=4.0,
++                    color="yellow",
++                )
++                return
++
++        session.avatar_choice = choice
++        with session.characters_lock:
++            poses = [
++                (character.cur_joints_pos, character.cur_joints_rot, character.cur_foot_contacts)
++                for character in session.characters.values()
++            ]
++            for character in session.characters.values():
++                character.clear()
++            session.characters.clear()
++
++        for index, (joints_pos, joints_rot, foot_contacts) in enumerate(poses):
++            skeleton = session.motion_rep.skeleton if session.motion_rep is not None else CoreSkeleton27()
++            self.add_character(client_id, skeleton, index)
++            if joints_pos is not None and joints_rot is not None:
++                with session.characters_lock:
++                    session.characters[f"character{index}"].set_pose(
++                        joints_pos,
++                        joints_rot,
++                        foot_contacts=foot_contacts,
++                    )
++
++        session.client.add_notification(
++            title="Avatar changed",
++            body=f"Now using {choice}.",
++            auto_close_seconds=2.0,
++            color="green",
++        )
++
+     def clear_motions(self, client_id: int):
+         """Clear all motions for a client."""
+         if not self.client_active(client_id):
+diff --git a/scripts/interactive_demo/client.py b/scripts/interactive_demo/client.py
+index 1b3d0cc..72e0ce7 100644
+--- a/scripts/interactive_demo/client.py
++++ b/scripts/interactive_demo/client.py
+@@ -7,7 +7,10 @@ import base64
+ import functools
+ 
+ from .common import *  # noqa: F401,F403
++from .cinematic_frame_mask import setup_cinematic_frame_mask
+ from .gui.instructions import QUICK_START_MD
++from .prompt_plan import PromptPlanRunRequest
++from .prompt_plan_execution import consume_auto_prompt_plan_path
+ 
+ _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+ 
+@@ -25,7 +28,7 @@ class ClientMixin:
+         """Initialize GUI and state for each new client."""
+         print(f"Client {client.client_id} connected")
+ 
+-        self.setup_scene(client)
++        render_grid_handle = self.setup_scene(client)
+ 
+         # Initialize constraint tracks (skeleton will be set when model is loaded)
+         constraint_tracks = {
+@@ -64,9 +67,11 @@ class ClientMixin:
+             gui_elements=gui_elements,
+             constraints=constraint_tracks,
+             timeline_data=timeline_data,
++            render_grid_handle=render_grid_handle,
+         )
+ 
+         self.client_sessions[client.client_id] = session
++        setup_cinematic_frame_mask(session)
+ 
+         # Setup transform control gizmo for initial body pose
+         self.setup_transform_gizmo(client.client_id)
+@@ -125,6 +130,17 @@ class ClientMixin:
+                 session.text_embedding = text_feat.to(self.device)
+                 # Generate initial motion
+                 self.restart(client.client_id)
++                auto_plan_path = consume_auto_prompt_plan_path()
++                if auto_plan_path is not None:
++                    report_progress("Generating startup prompt plan...")
++                    self.run_prompt_plan(
++                        client.client_id,
++                        PromptPlanRunRequest(
++                            raw_json=auto_plan_path.read_text(encoding="utf-8"),
++                            output_path=".cache/export/prompt_plan_session.pkl",
++                            base_seed=gui_elements.gui_seed.value,
++                        ),
++                    )
+                 loading_notif.title = "Model loaded"
+                 loading_notif.body = "Model loaded successfully!"
+                 loading_notif.color = "green"
+@@ -153,12 +169,12 @@ class ClientMixin:
+         session.playback_thread.start()
+         print(f"Started playback thread for client {client.client_id}")
+ 
+-    def setup_scene(self, client: viser.ClientHandle):
++    def setup_scene(self, client: viser.ClientHandle) -> viser.GridHandle:
+         """Setup the 3D scene for a client."""
+         self.configure_theme(client)
+ 
+         # Add grid
+-        client.scene.add_grid(
++        return client.scene.add_grid(
+             "/grid",
+             width=self.floor_len,
+             height=self.floor_len,
+@@ -439,6 +455,9 @@ class ClientMixin:
+ 
+         if client_id in self.client_sessions:
+             session = self.client_sessions[client_id]
++            render_stopped = self.shutdown_cinematic_render(client_id, timeout_seconds=2.0)
++            if not render_stopped:
++                print(f"Cinematic render worker for client {client_id} did not stop within the disconnect deadline")
+             # Signal playback thread to stop
+             session.stop_playback = True
+             # Wait for thread to finish (with timeout)
+diff --git a/scripts/interactive_demo/common.py b/scripts/interactive_demo/common.py
+index 1922449..bfc50e9 100644
+--- a/scripts/interactive_demo/common.py
++++ b/scripts/interactive_demo/common.py
+@@ -57,6 +57,9 @@ from ardy.viz.viser_utils import (
+     VelocityArrowMesh,
+ )
+ 
++from .cinematic_state import CinematicSessionState
++from .cinematic_frame_mask import CinematicFrameMask
++
+ # Repo root, resolved from this file's location (scripts/interactive_demo/common.py).
+ # Use this for filesystem paths to repo assets so they stay correct regardless of
+ # where the importing module lives in the package tree.
+@@ -257,6 +260,7 @@ class GuiElements:
+     gui_viz_foot_contacts_checkbox: viser.GuiInputHandle[bool]
+     gui_viz_ref_motion_checkbox: viser.GuiInputHandle[bool]
+     gui_viz_skinned_mesh_checkbox: viser.GuiInputHandle[bool]
++    gui_avatar_dropdown: viser.GuiDropdownHandle[str]
+     gui_viz_skinned_mesh_opacity_slider: viser.GuiInputHandle[float]
+     gui_viz_hand_orientations_checkbox: viser.GuiInputHandle[bool]
+     gui_viz_hide_distant_constraints_checkbox: viser.GuiInputHandle[bool]
+@@ -268,6 +272,29 @@ class GuiElements:
+     gui_viz_camera_position: viser.GuiInputHandle[tuple[float, float, float]]
+     gui_viz_camera_look_at: viser.GuiInputHandle[tuple[float, float, float]]
+     gui_viz_camera_up: viser.GuiInputHandle[tuple[float, float, float]]
++    gui_cinematic_format: viser.GuiInputHandle[str]
++    gui_cinematic_width: viser.GuiInputHandle[int]
++    gui_cinematic_height: viser.GuiInputHandle[int]
++    gui_cinematic_lens: viser.GuiInputHandle[str]
++    gui_cinematic_custom_fov: viser.GuiInputHandle[float]
++    gui_cinematic_transition: viser.GuiInputHandle[str]
++    gui_cinematic_add_key: viser.GuiInputHandle
++    gui_cinematic_remove_key: viser.GuiInputHandle
++    gui_cinematic_preview_path: viser.GuiInputHandle[bool]
++    gui_cinematic_frame_mask: viser.GuiInputHandle[bool]
++    gui_cinematic_key_summary: viser.GuiInputHandle
++    gui_cinematic_json_path: viser.GuiInputHandle[str]
++    gui_cinematic_save: viser.GuiInputHandle
++    gui_cinematic_load: viser.GuiInputHandle
++    gui_cinematic_output_path: viser.GuiInputHandle[str]
++    gui_cinematic_start_frame: viser.GuiInputHandle[int]
++    gui_cinematic_end_frame: viser.GuiInputHandle[int]
++    gui_cinematic_preview_output: viser.GuiInputHandle
++    gui_cinematic_render: viser.GuiInputHandle
++    gui_cinematic_cancel: viser.GuiInputHandle
++    gui_cinematic_status: viser.GuiInputHandle
++    gui_cinematic_progress: viser.GuiInputHandle
++    gui_cinematic_preview_image: viser.GuiInputHandle
+     gui_dark_mode_checkbox: viser.GuiInputHandle[bool]
+     gui_enable_postprocess_checkbox: viser.GuiInputHandle[bool]
+     gui_postprocess_root_margin: viser.GuiInputHandle[float]
+@@ -291,6 +318,7 @@ class ClientSession:
+     max_window_len: int = 300  # per-step window budget in frames; set on model load
+     dataset: Optional[object] = None
+     mesh_mode: str = "core_skin"  # Mesh visualization mode for character creation
++    avatar_choice: str = "Default"
+ 
+     # Motion state
+     motion_tensor: Optional[torch.Tensor] = None
+@@ -321,6 +349,10 @@ class ClientSession:
+     camera_position_buffer: list = field(default_factory=list)  # Temporal buffer for smoothing
+     camera_last_update_frame: int = -1  # Track last frame when camera was updated
+ 
++    # Cinematic editor state is isolated per browser client.
++    cinematic: CinematicSessionState = field(default_factory=CinematicSessionState)
++    cinematic_frame_mask: Optional[CinematicFrameMask] = None
++
+     # Text prompt
+     text_embedding: Optional[torch.Tensor] = None
+ 
+@@ -348,6 +380,9 @@ class ClientSession:
+     # Loaded scene mesh handle
+     loaded_scene_mesh_handle: Optional[object] = None
+ 
++    # Scene helper hidden temporarily for clean cinematic captures.
++    render_grid_handle: Optional[viser.GridHandle] = None
++
+     # Reference motion (loaded from file for constraint sampling)
+     ref_character: Optional[object] = None
+     ref_joints_pos: Optional[torch.Tensor] = None  # [T, J, 3]
+diff --git a/scripts/interactive_demo/generation.py b/scripts/interactive_demo/generation.py
+index 49c3c8b..f5e97e1 100644
+--- a/scripts/interactive_demo/generation.py
++++ b/scripts/interactive_demo/generation.py
+@@ -4,6 +4,8 @@
+ """Part of InteractiveTimelineDemo (split for readability)."""
+ 
+ from .common import *  # noqa: F401,F403
++from .prompt_plan import PromptPlanError
++from .prompt_timeline import prompt_clip_end_frame, prompt_transition_frame
+ from .window_budget import compute_window_num_frames
+ 
+ 
+@@ -27,24 +29,24 @@ class GenerationMixin:
+         session.camera_position_buffer.clear()
+         session.camera_last_update_frame = -1
+ 
+-        # Clear all timeline prompts and add current active prompt from frame 0 to infinity
++        # Clear all timeline prompts and add one finite prompt clip.
+         self.clear_timeline_prompts(client_id)
+ 
+         client = session.client
+         if session.timeline_data is not None and hasattr(client, "timeline"):
+-            # Add current active prompt from frame 0 to infinity
++            # Add current active prompt for one generation horizon.
+             prompt_uuid_list = session.timeline_data.get("prompt_uuid_list", [])
+             current_prompt = session.gui_elements.gui_prompt_text.value
+             try:
+                 new_uuid = client.timeline.add_prompt(
+                     text=current_prompt,
+                     start_frame=0,
+-                    end_frame=INFINITE_FRAME_IDX,
++                    end_frame=prompt_clip_end_frame(0, session.gen_horizon_len),
+                     color=self.get_prompt_color(0),
+                 )
+                 prompt_uuid_list.append(new_uuid)
+                 session.timeline_data["prompt_counter"] = 1  # Reset counter
+-                print(f"Added prompt for restart: '{current_prompt}' (frames 0-∞)")
++                print(f"Added prompt for restart: '{current_prompt}' (one generation horizon)")
+             except (AttributeError, Exception) as e:
+                 print(f"Error adding prompt: {e}")
+ 
+@@ -107,19 +109,25 @@ class GenerationMixin:
+                         print(f"[Restart From Now] Removed future prompt '{prompt.text}' (start={prompt.start_frame})")
+                     else:
+                         kept_uuids.append(prompt_uuid)
+-                        # Track the last prompt that covers current_frame
+-                        if prompt.start_frame <= current_frame:
++                        # Viser prompt ranges are half-open.
++                        if prompt.start_frame <= current_frame < prompt.end_frame:
+                             active_uuid = prompt_uuid
+                 except Exception as e:
+                     print(f"[Restart From Now] Error processing prompt: {e}")
+ 
+-            # Extend the active prompt to infinity so generation continues with it
++            # Extend the active prompt by one finite generation horizon.
+             if active_uuid is not None:
+                 try:
+-                    client.timeline.update_prompt(active_uuid, end_frame=INFINITE_FRAME_IDX)
++                    client.timeline.update_prompt(
++                        active_uuid,
++                        end_frame=prompt_clip_end_frame(
++                            prompt_transition_frame(current_frame),
++                            session.gen_horizon_len,
++                        ),
++                    )
+                     active_prompt = client.timeline._prompts.get(active_uuid)
+                     if active_prompt:
+-                        print(f"[Restart From Now] Extended prompt '{active_prompt.text}' to infinity")
++                        print(f"[Restart From Now] Extended prompt '{active_prompt.text}' by one generation horizon")
+                 except Exception as e:
+                     print(f"[Restart From Now] Error extending prompt: {e}")
+ 
+@@ -154,7 +162,7 @@ class GenerationMixin:
+             with session.replan_lock:
+                 self._generate_step(client_id)
+ 
+-    def _get_history_motion(self, session: ClientSession):
++    def _get_history_motion(self, session: ClientSession, history_end_idx_override: int | None = None):
+         """Get history motion for autoregressive generation."""
+         frame_idx = session.frame_idx
+         replan_buffer_size = session.gui_elements.gui_replan_buffer_size.value
+@@ -162,7 +170,15 @@ class GenerationMixin:
+         motion_tensor = session.motion_tensor
+ 
+         cur_motion_len = motion_tensor.shape[1] if motion_tensor is not None else 0
+-        history_end_idx = min(cur_motion_len - 1, frame_idx + replan_buffer_size)
++        history_end_idx = (
++            min(cur_motion_len - 1, frame_idx + replan_buffer_size)
++            if history_end_idx_override is None
++            else history_end_idx_override
++        )
++        if history_end_idx >= cur_motion_len:
++            raise PromptPlanError(
++                detail=f"history end {history_end_idx} exceeds generated motion end {cur_motion_len - 1}"
++            )
+         if (
+             cur_motion_len >= session.num_frames_per_token
+         ):  # if there are history frames, ensure history end idx is at least num_frames_per_token - 1
+@@ -177,7 +193,7 @@ class GenerationMixin:
+ 
+         return history_motion_tensor, history_start_idx, history_end_idx, history_length
+ 
+-    def _generate_step(self, client_id: int):
++    def _generate_step(self, client_id: int, history_end_idx_override: int | None = None):
+         """One autoregressive generation step."""
+         if not self.client_active(client_id):
+             return
+@@ -189,7 +205,10 @@ class GenerationMixin:
+ 
+         start_time = time.time()
+ 
+-        history_motion_tensor, history_start_idx, history_end_idx, history_length = self._get_history_motion(session)
++        history_motion_tensor, history_start_idx, history_end_idx, history_length = self._get_history_motion(
++            session,
++            history_end_idx_override,
++        )
+         print(
+             f"Generate with frame idx {session.frame_idx}, history start: {history_start_idx}, end: {history_end_idx}, length: {history_length}"
+         )
+diff --git a/scripts/interactive_demo/gui/instructions.py b/scripts/interactive_demo/gui/instructions.py
+index 1048564..6fbfdc6 100644
+--- a/scripts/interactive_demo/gui/instructions.py
++++ b/scripts/interactive_demo/gui/instructions.py
+@@ -106,6 +106,17 @@ INSTRUCTIONS_TAB_MD = f"""### What is this demo?
+     - **Root constraints**: save/load as JSON.
+     - **Scene**: load a `.ply`/`.obj` environment mesh; capture the viewport to a PNG.
+ 
++    ### Cinematic camera (Visualize tab)
++
++    1. Choose the output **Format** and **Lens**, move to a motion frame, compose the
++       camera, then press **Add / Replace Key**. Repeat for each shot.
++    2. Enable **Preview Path** and scrub or play to check the interpolated camera move.
++       The **Preview Output Frame** modal is the authoritative framing preview because
++       the live Viser canvas aspect ratio is controlled by the browser and is read-only.
++    3. Keep this browser tab connected, choose the frame range and output path, then press
++       **Render MP4**. ARDY writes the PNG sequence and MP4; **Cancel Render** stops safely
++       and restores the editor camera and scene controls.
++
+     ### Models (Model tab)
+ 
+     - Pick a **Skeleton** and **Horizon**, then press **Load Model**. Acceleration runs
+diff --git a/scripts/interactive_demo/gui/io.py b/scripts/interactive_demo/gui/io.py
+index 7401646..e2ecabd 100644
+--- a/scripts/interactive_demo/gui/io.py
++++ b/scripts/interactive_demo/gui/io.py
+@@ -3,7 +3,10 @@
+ 
+ """Interactive-demo GUI: IO tab (split from create_gui)."""
+ 
++from pathlib import Path
++
+ from ..common import *  # noqa: F401,F403
++from ..prompt_plan import PromptPlanError, PromptPlanRunRequest
+ from .instructions import KEYBOARD_SHORTCUTS_MD
+ 
+ 
+@@ -20,6 +23,11 @@ class GuiIOMixin:
+                 )
+                 g.gui_export_session_button = client.gui.add_button("Export Session")
+                 g.gui_load_session_button = client.gui.add_button("Load Session")
++                g.gui_prompt_plan_file_path = client.gui.add_text(
++                    "Prompt Plan JSON Path",
++                    initial_value=".cache/prompt_plan.json",
++                )
++                g.gui_run_prompt_plan_button = client.gui.add_button("Run Plan")
+ 
+             # Root Constraints Group
+             with client.gui.add_folder("Root Constraints", expand_by_default=True):
+@@ -128,6 +136,41 @@ class GuiIOMixin:
+                         color="blue",
+                     )
+ 
++            @g.gui_run_prompt_plan_button.on_click
++            def _(event: viser.GuiEvent) -> None:
++                plan_path = g.gui_prompt_plan_file_path.value
++                output_path = ".cache/export/prompt_plan_session.pkl"
++
++                def run_plan_thread() -> None:
++                    try:
++                        raw_json = Path(plan_path).read_text(encoding="utf-8")
++                        self.run_prompt_plan(
++                            client_id,
++                            PromptPlanRunRequest(
++                                raw_json=raw_json,
++                                output_path=output_path,
++                                base_seed=g.gui_seed.value,
++                            ),
++                        )
++                    except (OSError, UnicodeError, PromptPlanError, RuntimeError) as error:
++                        if event.client:
++                            event.client.add_notification(
++                                title="Plan Failed",
++                                body=str(error),
++                                auto_close_seconds=6.0,
++                                color="red",
++                            )
++                    else:
++                        if event.client:
++                            event.client.add_notification(
++                                title="Plan Complete",
++                                body=f"Saved to {output_path}",
++                                auto_close_seconds=4.0,
++                                color="green",
++                            )
++
++                threading.Thread(target=run_plan_thread, daemon=True).start()
++
+             @g.gui_load_root_button.on_click
+             def _(event: viser.GuiEvent) -> None:
+                 filepath = g.gui_root_file_path.value
+diff --git a/scripts/interactive_demo/gui/orchestrator.py b/scripts/interactive_demo/gui/orchestrator.py
+index 474dcfa..eb2a828 100644
+--- a/scripts/interactive_demo/gui/orchestrator.py
++++ b/scripts/interactive_demo/gui/orchestrator.py
+@@ -6,6 +6,11 @@
+ from types import SimpleNamespace
+ 
+ from ..common import *  # noqa: F401,F403
++from ..prompt_timeline import (
++    prompt_clip_end_frame,
++    prompt_starts_at_or_after_transition,
++    prompt_transition_frame,
++)
+ from .instructions import INSTRUCTIONS_TAB_MD
+ 
+ 
+@@ -29,7 +34,7 @@ class GuiMixin:
+                 uuid = timeline.add_prompt(
+                     text=default_prompt,
+                     start_frame=0,
+-                    end_frame=INFINITE_FRAME_IDX,
++                    end_frame=prompt_clip_end_frame(0, DEFAULT_HORIZON["core"]),
+                     color=self.get_prompt_color(0),
+                 )
+                 timeline.set_visible(True)
+@@ -155,17 +160,27 @@ class GuiMixin:
+ 
+         # Update timeline prompts
+         current_frame = max(0, session.frame_idx)
+-        next_frame = current_frame + 1
++        transition_frame = prompt_transition_frame(current_frame)
+ 
+         if session.timeline_data is not None and hasattr(client, "timeline"):
+             prompt_uuid_list = session.timeline_data.get("prompt_uuid_list", [])
+ 
+-            # Update the last prompt to end at current frame
++            # Viser prompt ranges are half-open. Close the previous prompt at the
++            # same boundary where the next prompt begins.
+             if len(prompt_uuid_list) > 0:
+                 last_uuid = prompt_uuid_list[-1]
+                 try:
+-                    client.timeline.update_prompt(last_uuid, end_frame=current_frame)
+-                    print(f"Updated prompt '{last_uuid}' to end at frame {current_frame}")
++                    last_prompt = client.timeline._prompts.get(last_uuid)
++                    if last_prompt is not None and prompt_starts_at_or_after_transition(
++                        last_prompt.start_frame,
++                        transition_frame,
++                    ):
++                        client.timeline.remove_prompt(last_uuid)
++                        prompt_uuid_list.pop()
++                        print(f"Replaced pending prompt '{last_uuid}' at frame {transition_frame}")
++                    else:
++                        client.timeline.update_prompt(last_uuid, end_frame=transition_frame)
++                        print(f"Updated prompt '{last_uuid}' to end at frame {transition_frame}")
+                 except (AttributeError, Exception) as e:
+                     print(f"Could not update prompt end frame: {e}")
+ 
+@@ -174,23 +189,25 @@ class GuiMixin:
+                 prompt_counter = session.timeline_data.get("prompt_counter", 1)
+                 prompt_color = self.get_prompt_color(prompt_counter)
+ 
++                prompt_start_frame = 0 if initial_prompt else transition_frame
+                 new_uuid = client.timeline.add_prompt(
+                     text=text_prompt,
+-                    start_frame=0 if initial_prompt else next_frame,
+-                    end_frame=INFINITE_FRAME_IDX,
++                    start_frame=prompt_start_frame,
++                    end_frame=prompt_clip_end_frame(prompt_start_frame, session.gen_horizon_len),
+                     color=prompt_color,
+                 )
+                 prompt_uuid_list.append(new_uuid)
+                 session.timeline_data["prompt_counter"] = prompt_counter + 1
+                 print(
+-                    f"Added new prompt '{new_uuid}' starting at frame {next_frame}: '{text_prompt}' (color: {prompt_color})"
++                    f"Added new prompt '{new_uuid}' starting at frame {prompt_start_frame}: "
++                    f"'{text_prompt}' (color: {prompt_color})"
+                 )
+             except (AttributeError, Exception) as e:
+                 print(f"Could not add new prompt to timeline: {e}")
+ 
+         session.client.add_notification(
+             title="Text prompt updated",
+-            body=f"New prompt starts at frame {next_frame}",
++            body=f"New prompt starts at frame {0 if initial_prompt else transition_frame}",
+             auto_close_seconds=3.0,
+             color="blue",
+         )
+diff --git a/scripts/interactive_demo/gui/visualize.py b/scripts/interactive_demo/gui/visualize.py
+index 6356f7f..34ef62e 100644
+--- a/scripts/interactive_demo/gui/visualize.py
++++ b/scripts/interactive_demo/gui/visualize.py
+@@ -4,12 +4,20 @@
+ """Interactive-demo GUI: Visualize tab (split from create_gui)."""
+ 
+ from ..common import *  # noqa: F401,F403
++from .cinematic_camera import build_cinematic_camera_controls
++from ..mixamo_avatar import AVATAR_OPTIONS
+ 
+ 
+ class GuiVisualizeMixin:
+     def _build_visualize_tab(self, client, client_id, tab_group, g, timeline, default_prompt):
+         with tab_group.add_tab("Visualize", viser.Icon.EYE):
+             g.gui_viz_skinned_mesh_checkbox = client.gui.add_checkbox("Show Mesh", initial_value=True)
++            g.gui_avatar_dropdown = client.gui.add_dropdown(
++                "Avatar",
++                options=list(AVATAR_OPTIONS),
++                initial_value="Default",
++                hint="Choose the built-in mesh or a private Mixamo mannequin",
++            )
+             g.gui_viz_skinned_mesh_opacity_slider = client.gui.add_slider(
+                 "Mesh Opacity", min=0.0, max=1.0, step=0.01, initial_value=1.0
+             )
+@@ -79,7 +87,7 @@ class GuiVisualizeMixin:
+             client.gui.add_markdown("**Camera Control**")
+             g.gui_viz_camera_fov_slider = client.gui.add_slider(
+                 "FOV (degrees)",
+-                min=20.0,
++                min=10.0,
+                 max=120.0,
+                 step=1.0,
+                 initial_value=50.0,
+@@ -124,6 +132,8 @@ class GuiVisualizeMixin:
+                 "Load Camera Parameters", hint="Load camera parameters from file"
+             )
+ 
++            build_cinematic_camera_controls(self, client, client_id, g)
++
+             g.gui_dark_mode_checkbox = client.gui.add_checkbox("Dark Mode", initial_value=False)
+             # Hidden from the sidebar: it still drives the theme, but the
+             # toggle itself renders in the titlebar (see configure_theme).
+@@ -451,6 +461,10 @@ class GuiVisualizeMixin:
+                     for character in session.characters.values():
+                         character.set_skinned_mesh_visibility(g.gui_viz_skinned_mesh_checkbox.value)
+ 
++            @g.gui_avatar_dropdown.on_update
++            def _(_) -> None:
++                self.set_avatar_choice(client_id, g.gui_avatar_dropdown.value)
++
+             @g.gui_viz_skinned_mesh_opacity_slider.on_update
+             def _(_) -> None:
+                 if not self.client_active(client_id):
+diff --git a/scripts/interactive_demo/playback.py b/scripts/interactive_demo/playback.py
+index fd3308b..588b781 100644
+--- a/scripts/interactive_demo/playback.py
++++ b/scripts/interactive_demo/playback.py
+@@ -3,6 +3,8 @@
+ 
+ """Part of InteractiveTimelineDemo (split for readability)."""
+ 
++import numpy as np
++
+ from .common import *  # noqa: F401,F403
+ 
+ 
+@@ -60,6 +62,18 @@ class PlaybackMixin:
+                 session.stop_playback = True
+ 
+     def set_frame(self, client_id: int, frame_idx: int, trigger_by_gui_timeline: bool = False):
++        """Apply a frame, or defer an external scrub while a render owns the camera."""
++        if not self.client_active(client_id):
++            return
++        session = self.client_sessions[client_id]
++        if session.cinematic.defer_external_frame(frame_idx, trigger_by_gui_timeline):
++            return
++        with session.cinematic.frame_camera_lock:
++            if session.cinematic.defer_external_frame(frame_idx, trigger_by_gui_timeline):
++                return
++            self._set_frame_locked(client_id, frame_idx, trigger_by_gui_timeline)
++
++    def _set_frame_locked(self, client_id: int, frame_idx: int, trigger_by_gui_timeline: bool = False):
+         """Set the current frame for a client."""
+         if not self.client_active(client_id):
+             return
+@@ -203,6 +217,23 @@ class PlaybackMixin:
+                 # Hide target velocity arrow if disabled or no character available
+                 session.target_velocity_arrow.set_visibility(False)
+ 
+-        # Update camera
+-        if session.gui_elements.gui_viz_auto_camera_checkbox.value:
++        # Cinematic preview owns the camera while enabled and populated. Auto
++        # follow remains the fallback for an off or empty preview.
++        cinematic_pose = None
++        camera_plan = session.cinematic.render_plan
++        if camera_plan is None:
++            camera_plan = session.cinematic.shot_plan
++        if (
++            session.cinematic.preview_enabled
++            and frame_idx >= 0
++            and camera_plan.keyframes
++        ):
++            cinematic_pose = camera_plan.evaluate(frame_idx)
++
++        if cinematic_pose is not None:
++            client.camera.position = np.asarray(cinematic_pose.position, dtype=np.float64)
++            client.camera.look_at = np.asarray(cinematic_pose.look_at, dtype=np.float64)
++            client.camera.up_direction = np.asarray(cinematic_pose.up, dtype=np.float64)
++            client.camera.fov = cinematic_pose.vertical_fov_radians
++        elif session.gui_elements.gui_viz_auto_camera_checkbox.value:
+             self.update_camera_follow(client_id, frame_idx)
+diff --git a/scripts/interactive_demo/session_io.py b/scripts/interactive_demo/session_io.py
+index f7547f6..23a39d2 100644
+--- a/scripts/interactive_demo/session_io.py
++++ b/scripts/interactive_demo/session_io.py
+@@ -6,6 +6,22 @@
+ from .common import *  # noqa: F401,F403
+ 
+ 
++def sync_cinematic_frame_range(gui_elements, max_frame_idx: int) -> None:
++    """Reset optional cinematic render controls to the available motion range."""
++    last_frame = max(0, int(max_frame_idx))
++    start_handle = getattr(gui_elements, "gui_cinematic_start_frame", None)
++    end_handle = getattr(gui_elements, "gui_cinematic_end_frame", None)
++
++    if start_handle is not None:
++        start_handle.min = 0
++        start_handle.max = last_frame
++        start_handle.value = 0
++    if end_handle is not None:
++        end_handle.min = 0
++        end_handle.max = last_frame
++        end_handle.value = last_frame
++
++
+ class SessionIOMixin:
+     def export_session(self, client_id: int, filepath: str):
+         """Export generated motion, text prompts, and constraints to a file using pickle."""
+@@ -265,6 +281,7 @@ class SessionIOMixin:
+ 
+                 # Update frame index input max value
+                 session.gui_elements.gui_frame_idx_input.max = session.max_frame_idx
++                sync_cinematic_frame_range(session.gui_elements, session.max_frame_idx)
+ 
+                 # Disable auto-replan when loading a session
+                 session.gui_elements.gui_enable_auto_replan_checkbox.value = False
+diff --git a/scripts/run_demo.py b/scripts/run_demo.py
+index 851883f..57ce3bf 100644
+--- a/scripts/run_demo.py
++++ b/scripts/run_demo.py
+@@ -11,6 +11,7 @@ import argparse
+ 
+ from interactive_demo.camera import CameraMixin
+ from interactive_demo.characters import CharactersMixin
++from interactive_demo.cinematic_render import CinematicRenderMixin
+ from interactive_demo.client import ClientMixin
+ from interactive_demo.common import *  # noqa: F401,F403
+ from interactive_demo.constraints import ConstraintsMixin
+@@ -29,6 +30,7 @@ from interactive_demo.gui import (
+ from interactive_demo.loading import ModelLoadingMixin
+ from interactive_demo.motion_io import MotionIOMixin
+ from interactive_demo.playback import PlaybackMixin
++from interactive_demo.prompt_plan_execution import PromptPlanExecutionMixin
+ from interactive_demo.session_io import SessionIOMixin
+ 
+ 
+@@ -39,9 +41,11 @@ class InteractiveTimelineDemo(
+     CharactersMixin,
+     ConstraintsMixin,
+     SessionIOMixin,
++    PromptPlanExecutionMixin,
+     GenerationMixin,
+     GenConstraintsMixin,
+     CameraMixin,
++    CinematicRenderMixin,
+     GuiMixin,
+     GuiPlaybackMixin,
+     GuiTextMixin,
+@@ -97,7 +101,7 @@ class InteractiveTimelineDemo(
+ 
+         # Server setup
+         self.server = viser.ViserServer(
+-            host="0.0.0.0",
++            host="127.0.0.1",
+             port=2333,
+             label="ARDY Interactive Demo",
+             enable_camera_keyboard_controls=False,

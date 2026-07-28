@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# Push this repository's ARDY-side sources onto the GPU box.
+#
+# The box used to be the authoritative copy and this repo a partial mirror; this
+# inverts that. Dry run by default, because the box is a shared machine and a
+# silent overwrite of someone's in-progress experiment is worse than a slow
+# workflow. `--apply` is the only thing that writes.
+#
+# The upstream commit gate is not ceremony: our patch under upstream-patches/ is
+# written against exactly one upstream commit, and applying it to a different one
+# either fails loudly or, worse, applies cleanly to code that moved underneath it.
+#
+# Two shapes of source live here, and both must be pushed, not only the vendored
+# copies:
+#   - files ARDY upstream OWNS are carried as upstream-patches/*.patch against the
+#     commit pinned in UPSTREAM_BASE;
+#   - files that are entirely ours are vendored as plain copies (the PAIRS list).
+# The patch is a first-class part of the sync, not a manual footnote: a dry run
+# classifies it (applied / pending / drifted) from git itself, and --apply brings
+# a clean checkout at the pin to exactly the state this repo describes.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${CCLAY_ARDY_HOST:-}"
+REMOTE="${CCLAY_ARDY_REPO:-\$HOME/ardy}"
+APPLY=0
+PATCH="$HERE/upstream-patches/0001-cclay-demo-integration.patch"
+
+usage() {
+  cat >&2 <<'EOF'
+usage: sync-to-box [--apply]
+
+  (no flags)  dry run: report every difference in BOTH directions and exit 0
+  --apply     push this directory's sources onto the box, and apply the
+              upstream patch if it is pending (already-applied is a no-op;
+              drifted aborts)
+
+env:
+  CCLAY_ARDY_HOST   required; SSH target such as user@gpu-host
+  CCLAY_ARDY_REPO   default $HOME/ardy on the box
+EOF
+  exit "${1:-2}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --apply) APPLY=1; shift ;;
+    -h|--help) usage 0 ;;
+    *) echo "sync-to-box: unknown argument '$1'" >&2; usage ;;
+  esac
+done
+
+[[ -n "$HOST" ]] || { echo "sync-to-box: CCLAY_ARDY_HOST is required (for example, user@gpu-host)" >&2; exit 1; }
+
+BASE_FILE="$HERE/UPSTREAM_BASE"
+[[ -f "$BASE_FILE" ]] || { echo "sync-to-box: missing $BASE_FILE" >&2; exit 1; }
+EXPECTED="$(tr -d '[:space:]' < "$BASE_FILE")"
+[[ -n "$EXPECTED" ]] || { echo "sync-to-box: $BASE_FILE is empty" >&2; exit 1; }
+[[ -f "$PATCH" ]] || { echo "sync-to-box: missing $PATCH" >&2; exit 1; }
+
+# shellcheck disable=SC2029  # REMOTE expands remotely by design
+ACTUAL="$(ssh -o BatchMode=yes "$HOST" "cd $REMOTE && git rev-parse HEAD" </dev/null)"
+if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+  cat >&2 <<EOF
+sync-to-box: the box is not on the upstream commit these sources target.
+  expected (scripts/ardy/UPSTREAM_BASE): $EXPECTED
+  actual   ($HOST:$REMOTE HEAD):         $ACTUAL
+Our upstream patch is written against the expected commit. Check the box out at
+that commit, or bump UPSTREAM_BASE and re-resolve the patch here first.
+EOF
+  exit 1
+fi
+echo "sync-to-box: box HEAD matches UPSTREAM_BASE ($EXPECTED)"
+
+# Paths the upstream patch owns, read from the patch itself (its `b/` side) rather
+# than hardcoded, so an added/removed hunk never silently drops out of the drift
+# check. `sort -u` guards against a path appearing in two hunks. Used both for the
+# per-file tracked-drift report and the drifted-apply abort message.
+PATCH_PATHS="$(sed -n 's|^diff --git a/[^ ]* b/||p' "$PATCH" | sort -u)"
+[[ -n "$PATCH_PATHS" ]] || { echo "sync-to-box: $PATCH declares no paths" >&2; exit 1; }
+
+# Classify the patch against a tree using only git: forward `--check` and reverse
+# `--check` together distinguish the three states. Both run with `--check`, which
+# verifies and applies nothing. The patch is read from a file path, so the caller
+# materializes it first (locally from $PATCH, remotely via base64 below).
+#
+#   forward --check   reverse --check   meaning
+#   ---------------   ----------------  ----------------------------------
+#   ok                fail              PENDING   - not yet applied; applies cleanly
+#   fail              ok                APPLIED   - already applied; reversing is clean
+#   fail              fail              DRIFTED   - neither direction applies; the tree
+#                                                  has moved and the patch conflicts
+#   ok                ok                (no-op)   - empty / already-identical patch;
+#                                                  treat as APPLIED so --apply is a no-op
+#
+# The "both ok" case cannot arise for a real content patch against a tree that
+# differs from it, but a zero-effect patch satisfies both; folding it into APPLIED
+# keeps --apply idempotent instead of erroring on a degenerate input.
+classify_patch() {
+  local repo_dir="$1" patch_file="$2"
+  local fwd rev
+  if (cd "$repo_dir" && git apply --check "$patch_file") >/dev/null 2>&1; then fwd=0; else fwd=1; fi
+  if (cd "$repo_dir" && git apply --reverse --check "$patch_file") >/dev/null 2>&1; then rev=0; else rev=1; fi
+  if [[ "$fwd" -eq 0 && "$rev" -ne 0 ]]; then echo pending; return; fi
+  if [[ "$rev" -eq 0 ]]; then echo applied; return; fi   # covers (fwd=fail,rev=ok) and (fwd=ok,rev=ok)
+  echo drifted; return
+}
+
+# Run the classification on the box. The patch is base64-encoded (newlines
+# stripped, so it is a single token inside the single-quoted ssh argument) and
+# decoded remotely into a temp file; the box never needs the patch in its tree.
+# The classification logic is inlined as a hand-authored remote snippet rather
+# than transported via `declare -f`, because bash 3.2's `declare -f` pretty-
+# printer mangles `>/dev/null 2>&1` into `> /dev/null2>& 1`. `git apply --check`
+# exits non-zero on failure; that is expected and captured by the `if`, so the
+# remote shell does NOT set -e (a failed --check would otherwise kill it before
+# it printed state). `base64 < file` (not `base64 file`) is portable across BSD
+# and GNU base64. The inlined snippet mirrors classify_patch above; keep them in
+# sync.
+remote_classify() {
+  local patch_b64
+  patch_b64="$(base64 < "$PATCH" | tr -d '\n')"
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "cd $REMOTE && \
+p=\$(mktemp) && printf '%s' '$patch_b64' | base64 -d > \"\$p\"; \
+fwd=1; rev=1; \
+if git apply --check \"\$p\" > /dev/null 2>&1; then fwd=0; fi; \
+if git apply --reverse --check \"\$p\" > /dev/null 2>&1; then rev=0; fi; \
+state=drifted; \
+if [[ \"\$fwd\" -eq 0 && \"\$rev\" -ne 0 ]]; then state=pending; fi; \
+if [[ \"\$rev\" -eq 0 ]]; then state=applied; fi; \
+rm -f \"\$p\"; \
+printf '%s' \"\$state\""
+}
+
+# --- dry-run direction 1: vendored copies, repo -> box -----------------------
+
+# Every pair is "<local path> <remote path relative to the ardy repo>".
+PAIRS=(
+  "$HERE/cclay_constrained_generate.py scripts/cclay_constrained_generate.py"
+  "$HERE/cclay_sequence_generate.py scripts/cclay_sequence_generate.py"
+)
+for path in "$HERE"/interactive_demo/*.py; do
+  [[ -f "$path" ]] || continue
+  PAIRS+=("$path scripts/interactive_demo/$(basename "$path")")
+done
+for path in "$HERE"/interactive_demo/gui/*.py; do
+  [[ -f "$path" ]] || continue
+  PAIRS+=("$path scripts/interactive_demo/gui/$(basename "$path")")
+done
+for path in "$HERE"/tests/*; do
+  [[ -f "$path" ]] || continue
+  PAIRS+=("$path tests/$(basename "$path")")
+done
+# Binary assets our patched upstream reads by name. ardy/viz/core_skin.py looks up
+# fist_bind_vertices.npy, so the patch is useless without the file beside it.
+for path in "$HERE"/assets/skeletons/cskel27/*; do
+  [[ -f "$path" ]] || continue
+  PAIRS+=("$path ardy/assets/skeletons/cskel27/$(basename "$path")")
+done
+
+DIFFERENT=0
+MISSING_REMOTE=0
+for pair in "${PAIRS[@]}"; do
+  local_path="${pair%% *}"
+  remote_path="${pair##* }"
+  local_hash="$(shasum -a 256 "$local_path" | cut -d' ' -f1)"
+  # shellcheck disable=SC2029
+  remote_hash="$(ssh -o BatchMode=yes "$HOST" \
+    "cd $REMOTE && shasum -a 256 '$remote_path' 2>/dev/null | cut -d' ' -f1" </dev/null)"
+  if [[ -z "$remote_hash" ]]; then
+    echo "  ADD      $remote_path"
+    MISSING_REMOTE=$((MISSING_REMOTE + 1))
+  elif [[ "$local_hash" != "$remote_hash" ]]; then
+    echo "  DIFFERS  $remote_path"
+    DIFFERENT=$((DIFFERENT + 1))
+  fi
+done
+
+# --- dry-run: the upstream patch itself -------------------------------------
+
+PATCH_STATE="$(remote_classify)"
+echo "sync-to-box: upstream patch is $PATCH_STATE"
+case "$PATCH_STATE" in
+  applied)  echo "  $(basename "$PATCH"): already applied, no-op on --apply" ;;
+  pending)  echo "  $(basename "$PATCH"): not yet applied; --apply will apply it" ;;
+  drifted)  echo "  $(basename "$PATCH"): conflicts with the box tree; --apply will abort" ;;
+  *) echo "sync-to-box: internal error: unknown patch state '$PATCH_STATE'" >&2; exit 1 ;;
+esac
+
+# --- dry-run direction 2: box -> repo (unbacked-up work + tracked drift) -----
+
+# Reverse direction has two parts. (1) UNTRACKED files the box has that this repo
+# does not carry are unbacked-up work, which is the whole reason this exists.
+# (2) TRACKED drift in the files our upstream patch owns: if the box has edited
+# those files away from either the pre- or post-patch state, that is divergence
+# the untracked-only check would silently miss. We detect it with the patch
+# classifier above (DRIFTED) and, for a per-file breakdown, with git status on
+# exactly the patch-owned paths.
+
+# shellcheck disable=SC2029
+ssh -o BatchMode=yes "$HOST" "cd $REMOTE && git status --porcelain" </dev/null \
+  | awk '$1=="??"{print $2}' \
+  | grep -vE '^(\.venv|\.omo|outputs|cclay/|uv\.lock)' \
+  | while read -r remote_only; do
+      base="$(basename "$remote_only")"
+      # Anything this directory already carries is backed up wherever it lives.
+      if [[ -e "$HERE/interactive_demo/$base" || -e "$HERE/interactive_demo/gui/$base" \
+            || -e "$HERE/tests/$base" || -e "$HERE/$base" \
+            || -e "$HERE/assets/skeletons/cskel27/$base" ]]; then
+        continue
+      fi
+      # Known obsolete leftovers get named as such rather than as lost work, so a
+      # dry run stays a signal instead of permanent noise. omb_sequence_generate.py
+      # is the pre-rename twin of cclay_sequence_generate.py.
+      if [[ "$base" == "omb_sequence_generate.py" ]]; then
+        echo "  OBSOLETE ON BOX (superseded by cclay_sequence_generate.py; safe to delete)  $remote_only"
+      else
+        echo "  ON BOX ONLY (unbacked-up)  $remote_only"
+      fi
+    done
+
+# Tracked drift in the patch-owned files, reported only when the patch as a whole
+# is DRIFTED. On a healthy applied tree the patch-owned files ARE modified vs HEAD
+# (the patch is applied but uncommitted), so reporting `git status` on them
+# unconditionally would cry wolf on every clean sync. The classifier already
+# decided the patch does not apply in either direction; this per-file view then
+# names which owned path the box has diverged on, so the conflict is actionable
+# instead of just "drifted, somewhere". Fed to git over ssh via stdin so paths
+# with spaces survive; GNU xargs on the box splits on newline.
+if [[ "$PATCH_STATE" == "drifted" ]]; then
+  # shellcheck disable=SC2029
+  DRIFTED_TRACKED="$(printf '%s\n' "$PATCH_PATHS" \
+    | ssh -o BatchMode=yes "$HOST" "cd $REMOTE && xargs -d '\n' git status --porcelain --" </dev/null)"
+  if [[ -n "$DRIFTED_TRACKED" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      echo "  TRACKED DRIFT (patch-owned file modified on box)  $line"
+    done <<<"$DRIFTED_TRACKED"
+  fi
+fi
+
+echo "sync-to-box: $DIFFERENT differing, $MISSING_REMOTE missing on the box"
+
+# --- gate --apply on a drifted patch before any write -----------------------
+
+if [[ "$APPLY" -eq 1 && "$PATCH_STATE" == "drifted" ]]; then
+  cat >&2 <<EOF
+sync-to-box: refusing --apply: the upstream patch has drifted on the box.
+The tracked files it owns no longer match either the pre- or post-patch state,
+so forcing the patch would lose the box's edits. Resolve the conflict here, in
+this repo, not on the box:
+  \$ ssh $HOST "cd $REMOTE && git diff -- $(printf '%s ' $PATCH_PATHS)"
+then refresh scripts/ardy/upstream-patches/0001-cclay-demo-integration.patch.
+EOF
+  exit 1
+fi
+
+if [[ "$APPLY" -eq 0 ]]; then
+  echo "sync-to-box: dry run, nothing written. Re-run with --apply to push."
+  exit 0
+fi
+
+# --- --apply: the upstream patch FIRST, then vendored copies -----------------
+#
+# Apply the patch before any scp so a drifted patch aborts BEFORE we have written
+# a single vendored file, never leaving the box half-synced. The patch-owned files
+# (ardy/viz/*.py, scripts/interactive_demo/{characters,client,...}.py) are disjoint
+# from the vendored PAIRS (our own cinematic_*/prompt_*/mixamo modules, tests,
+# assets), so the two steps do not fight over the same paths; the order is about
+# atomicity of the failure case, not about avoiding a content collision.
+
+PATCH_STATE="$(remote_classify)"
+case "$PATCH_STATE" in
+  applied)
+    echo "sync-to-box: upstream patch already applied; nothing to do (idempotent)"
+    ;;
+  pending)
+    # `git apply` with no --check applies the patch in place; the patch is piped
+    # over ssh stdin so the box needs no local copy.
+    # shellcheck disable=SC2029
+    ssh -o BatchMode=yes "$HOST" "cd $REMOTE && git apply -" \
+      < "$PATCH" >/dev/null
+    echo "sync-to-box: applied upstream patch $(basename "$PATCH")"
+    ;;
+  drifted)
+    cat >&2 <<EOF
+sync-to-box: upstream patch drifted between dry-run and apply; aborting before
+writing anything. Re-run the dry run to see the conflict.
+EOF
+    exit 1
+    ;;
+  *)
+    echo "sync-to-box: internal error: unknown patch state '$PATCH_STATE'" >&2
+    exit 1
+    ;;
+esac
+
+for pair in "${PAIRS[@]}"; do
+  local_path="${pair%% *}"
+  remote_path="${pair##* }"
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes "$HOST" "cd $REMOTE && mkdir -p \"\$(dirname '$remote_path')\"" </dev/null
+  scp -q -o BatchMode=yes "$local_path" "$HOST:$REMOTE/$remote_path"
+done
+echo "sync-to-box: pushed ${#PAIRS[@]} file(s) to $HOST:$REMOTE"
+
+echo "sync-to-box: box now matches this repo's ARDY sources"

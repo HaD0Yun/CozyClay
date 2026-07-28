@@ -1,0 +1,220 @@
+{
+  "revision": "0000000000000000000000000000000000000000000000000000000000000000",
+  "schema_version": 1,
+  "reference": {
+    "entity_id": "00000000-0000-4000-8000-000000000009",
+    "name": "Rig",
+    "type": "ARMATURE",
+    "origin": [
+      -1.0,
+      0.6,
+      0.0
+    ],
+    "aabb_min": [
+      -1.3,
+      0.3,
+      0.0
+    ],
+    "aabb_max": [
+      -0.7,
+      0.9,
+      1.8
+    ],
+    "character": {
+      "world_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "standing_height": 1.8,
+      "bone_count": 3,
+      "rest_heights": {
+        "lowest": 0.0,
+        "pelvis": 0.95,
+        "hand": null,
+        "head": 1.6
+      }
+    }
+  },
+  "entities": [
+    {
+      "entity_id": "00000000-0000-4000-8000-000000000001",
+      "name": "Crate1",
+      "type": "MESH",
+      "aabb_min": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "aabb_max": [
+        0.4,
+        1.2,
+        0.15
+      ],
+      "size": [
+        0.4,
+        1.2,
+        0.15
+      ],
+      "top_height": 0.15,
+      "support_planes": [
+        0.15
+      ],
+      "footprint": [
+        0.4,
+        1.2
+      ],
+      "relative": {
+        "offset": [
+          1.2,
+          0.0,
+          0.075
+        ],
+        "horizontal_distance": 1.2,
+        "direction": [
+          1.0,
+          0.0
+        ],
+        "top_above_reference_base": 0.15
+      }
+    },
+    {
+      "entity_id": "00000000-0000-4000-8000-000000000002",
+      "name": "Crate2",
+      "type": "MESH",
+      "aabb_min": [
+        0.3,
+        0.0,
+        0.0
+      ],
+      "aabb_max": [
+        0.7,
+        1.2,
+        0.3
+      ],
+      "size": [
+        0.4,
+        1.2,
+        0.3
+      ],
+      "top_height": 0.3,
+      "support_planes": [
+        0.3
+      ],
+      "footprint": [
+        0.4,
+        1.2
+      ],
+      "relative": {
+        "offset": [
+          1.5,
+          0.0,
+          0.15
+        ],
+        "horizontal_distance": 1.5,
+        "direction": [
+          1.0,
+          0.0
+        ],
+        "top_above_reference_base": 0.3
+      }
+    },
+    {
+      "entity_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Crate3",
+      "type": "MESH",
+      "aabb_min": [
+        0.6,
+        0.0,
+        0.0
+      ],
+      "aabb_max": [
+        1.0,
+        1.2,
+        0.45
+      ],
+      "size": [
+        0.4,
+        1.2,
+        0.45
+      ],
+      "top_height": 0.45,
+      "support_planes": [
+        0.45
+      ],
+      "footprint": [
+        0.4,
+        1.2
+      ],
+      "relative": {
+        "offset": [
+          1.8,
+          0.0,
+          0.225
+        ],
+        "horizontal_distance": 1.8,
+        "direction": [
+          1.0,
+          0.0
+        ],
+        "top_above_reference_base": 0.45
+      }
+    },
+    {
+      "entity_id": "00000000-0000-4000-8000-000000000008",
+      "name": "Pillar",
+      "type": "MESH",
+      "aabb_min": [
+        -1.5,
+        0.1,
+        0.0
+      ],
+      "aabb_max": [
+        -0.5,
+        1.1,
+        2.0
+      ],
+      "size": [
+        1.0,
+        1.0,
+        2.0
+      ],
+      "top_height": 2.0,
+      "support_planes": [],
+      "footprint": [
+        1.0,
+        1.0
+      ],
+      "relative": {
+        "offset": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "horizontal_distance": 0.0,
+        "direction": null,
+        "top_above_reference_base": 2.0
+      }
+    }
+  ],
+  "patterns": [
+    {
+      "entity_ids": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "count": 3,
+      "pitch": [
+        0.3,
+        0.0,
+        0.15
+      ],
+      "max_deviation": 0.0,
+      "footprint": [
+        0.4,
+        1.2
+      ]
+    }
+  ]
+}

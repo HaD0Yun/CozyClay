@@ -1,0 +1,61 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"paths": {
+			"*": ["./*"],
+			"@earendil-works/pi-ai": ["./packages/ai/src/index.ts"],
+			"@earendil-works/pi-ai/oauth": ["./packages/ai/src/oauth.ts"],
+			"@earendil-works/pi-ai/*": ["./packages/ai/src/*.ts", "./packages/ai/src/providers/*.ts"],
+			"@earendil-works/pi-ai/dist/*": ["./packages/ai/src/*"],
+			"@earendil-works/pi-agent-core": ["./packages/agent/src/index.ts"],
+			"@earendil-works/pi-agent-core/*": ["./packages/agent/src/*"],
+			"@earendil-works/pi-agent-sqlite-node": ["./packages/storage/sqlite-node/src/index.ts"],
+			"@earendil-works/pi-coding-agent": ["./packages/coding-agent/src/index.ts"],
+			"@earendil-works/pi-coding-agent/hooks": ["./packages/coding-agent/src/core/hooks/index.ts"],
+			"@earendil-works/pi-coding-agent/*": ["./packages/coding-agent/src/*"],
+			"@cclay/protocol": ["./packages/blender-protocol/src/index.ts"],
+			"@cclay/protocol/*": ["./packages/blender-protocol/src/*"],
+			"@cclay/director-core": ["./packages/director-core/src/index.ts"],
+			"@cclay/director-core/*": ["./packages/director-core/src/*"],
+			"@cclay/blender-tools": ["./packages/blender-tools/src/index.ts"],
+			"@cclay/blender-tools/*": ["./packages/blender-tools/src/*"],
+			"@cclay/director-runtime": ["./packages/director-runtime/src/index.ts"],
+			"@cclay/director-runtime/*": ["./packages/director-runtime/src/*"],
+			"@earendil-works/pi-server": ["./packages/server/src/index.ts"],
+			"@earendil-works/pi-server/*": ["./packages/server/src/*"],
+			"typebox": ["./node_modules/typebox"],
+			"@earendil-works/pi-tui": ["./packages/tui/src/index.ts"],
+			"@earendil-works/pi-tui/*": ["./packages/tui/src/*"],
+			"@earendil-works/pi-agent-old": ["./packages/agent-old/src/index.ts"],
+			"@earendil-works/pi-agent-old/*": ["./packages/agent-old/src/*"]
+		}
+	},
+	"include": [
+		"packages/*/src/**/*",
+		// Deliberately not "packages/*/test/**/*": CozyClay's hermetic `npm run
+		// check` never hydrates Pi's live-fetched model catalog
+		// (packages/ai/src/providers/data/*.json), so Pi's own test suites
+		// under packages/{ai,agent,coding-agent,tui}/test — which assert
+		// against specific, live-catalog-dependent model IDs — cannot
+		// typecheck without either a network call or a fixture that goes
+		// stale the moment the upstream catalog rotates a model out (the same
+		// class of drift the "make CI hermetic" fix already had to work
+		// around once). CozyClay edits no source under those packages and
+		// does not run their tests (see docs/UPSTREAM-SYNC.md and the "Test
+		// CozyClay packages" step below); only CozyClay's own test suites are
+		// gated on here. Pi's own `npm run build && npm run check` verifies
+		// the vendored test suites during an upstream sync instead.
+		"packages/blender-protocol/test/**/*",
+		"packages/blender-tools/test/**/*",
+		"packages/director-core/test/**/*",
+		"packages/director-runtime/test/**/*",
+		"packages/storage/*/src/**/*",
+		"apps/*/src/**/*",
+		"apps/*/test/**/*",
+		"packages/coding-agent/examples/**/*"
+	],
+	"exclude": ["**/dist/**", "packages/coding-agent/examples/extensions/gondolin/**"]
+}

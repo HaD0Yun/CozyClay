@@ -1,0 +1,121 @@
+{
+  "revision": "0000000000000000000000000000000000000000000000000000000000000000",
+  "schema_version": 1,
+  "motion_id": "golden-motion",
+  "frames": 48,
+  "fps": 20,
+  "duration_seconds": 2.4,
+  "scale": null,
+  "units": "npz",
+  "travel": {
+    "vector_horizontal": [
+      1.2,
+      -0.2
+    ],
+    "distance_horizontal": 1.217,
+    "height_start": 0.92,
+    "height_end": 0.924,
+    "height_min": 0.92,
+    "height_max": 0.928,
+    "height_change": 0.004
+  },
+  "lowest_track": {
+    "min": 0.0,
+    "max": 0.12,
+    "sample_stride": 1,
+    "samples": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.06,
+      0.12,
+      0.12,
+      0.06,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.06,
+      0.12,
+      0.12,
+      0.06,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.06,
+      0.12,
+      0.12,
+      0.06,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "contact_windows": [
+    {
+      "start_frame": 0,
+      "end_frame": 7,
+      "height": 0.0
+    },
+    {
+      "start_frame": 9,
+      "end_frame": 10,
+      "height": 0.12
+    },
+    {
+      "start_frame": 12,
+      "end_frame": 19,
+      "height": 0.0
+    },
+    {
+      "start_frame": 21,
+      "end_frame": 22,
+      "height": 0.12
+    },
+    {
+      "start_frame": 24,
+      "end_frame": 31,
+      "height": 0.0
+    },
+    {
+      "start_frame": 33,
+      "end_frame": 34,
+      "height": 0.12
+    },
+    {
+      "start_frame": 36,
+      "end_frame": 47,
+      "height": 0.0
+    }
+  ],
+  "foot_contacts": null,
+  "end_pose": {
+    "root_height": 0.924,
+    "lowest_gap": 0.0,
+    "speed": 0.07,
+    "resting": true
+  }
+}

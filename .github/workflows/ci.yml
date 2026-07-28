@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s $(which fdfind) /usr/local/bin/fd
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # No build step: `npm run build` is Pi's release pipeline. It regenerates
+      # the model catalog from live provider APIs, so upstream data drift can
+      # break CI on a commit that changed nothing here, and CozyClay never
+      # ships Pi's dist output. Upstream builds are verified during a sync
+      # instead (docs/UPSTREAM-SYNC.md).
+      # Pi's `*.models.ts` files need real, structurally-typed JSON to satisfy
+      # Pi 0.82.0's `flattenModelCatalog<TProvider, TGroups extends
+      # ModelGroups>` generic (see fixtures/pi-model-data/README.md). That
+      # data is gitignored and normally fetched live by `npm run build`, which
+      # this hermetic job intentionally skips, so `tsgo --noEmit` would fail
+      # on every commit with a hard "cannot satisfy ModelGroups" error even
+      # though nothing in that package changed. Restore a pinned snapshot
+      # instead of hitting the network.
+      - name: Hydrate pinned Pi model-data fixture
+        run: |
+          mkdir -p packages/ai/src/providers/data
+          cp fixtures/pi-model-data/*.json packages/ai/src/providers/data/
+          cp fixtures/pi-model-data/.manifest.json packages/ai/src/providers/data/
+      - name: Check
+        run: npm run check
+
+      - name: Test CozyClay packages
+        run: |
+          npm --prefix packages/blender-protocol test
+          npm --prefix packages/blender-tools test
+          npm --prefix packages/director-core test
+          npm --prefix packages/director-runtime test
+          npm --prefix apps/cclay-extension test
+
+  blender-addon-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run headless add-on tests
+        run: python3 -m unittest discover -s blender-addon/tests -v
+
+  blender-export-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Cache Blender
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: ~/blender-5.1.2
+          key: blender-5.1.2-linux-x64
+
+      - name: Download pinned Blender 5.1.2
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/blender.tar.xz https://download.blender.org/release/Blender5.1/blender-5.1.2-linux-x64.tar.xz
+          mkdir -p ~/blender-5.1.2
+          tar -xJf /tmp/blender.tar.xz -C ~/blender-5.1.2 --strip-components=1
+
+      - name: Export twice and require identical canonical revisions
+        run: |
+          BLENDER=~/blender-5.1.2/blender
+          PLAN=packages/blender-protocol/test/fixtures/ardy-camera-plan-v4.json
+          "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-a.json | tee /tmp/export-a.log
+          "$BLENDER" --background --factory-startup --python scripts/export_blender_fixture.py -- --plan "$PLAN" --output /tmp/export-b.json | tee /tmp/export-b.log
+          cmp /tmp/export-a.json /tmp/export-b.json
+          REV_A=$(grep -o 'CCLAY_REVISION=[0-9a-f]*' /tmp/export-a.log | cut -d= -f2)
+          REV_B=$(grep -o 'CCLAY_REVISION=[0-9a-f]*' /tmp/export-b.log | cut -d= -f2)
+          test -n "$REV_A" && test "$REV_A" = "$REV_B"
+          echo "CCLAY_REVISION=$REV_A" >> "$GITHUB_ENV"
+
+      - name: Cross-language parity on the fresh export
+        run: |
+          node --import tsx --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { parseSceneSnapshot } from "./packages/blender-protocol/src/snapshot.ts";
+            import { buildProjectManifest } from "./packages/director-core/src/manifest.ts";
+            const snapshot = parseSceneSnapshot(JSON.parse(readFileSync("/tmp/export-a.json", "utf8")));
+            const revision = buildProjectManifest(snapshot).revision;
+            const expected = process.env.CCLAY_REVISION;
+            if (revision !== expected) throw new Error(`parity mismatch: ts=${revision} python=${expected}`);
+            console.log(`cross-language parity ok: ${revision}`);
+          '

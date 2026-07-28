@@ -1,0 +1,16 @@
+{
+	"name": "@cclay/protocol",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"test": "node --import tsx --test test/*.test.ts"
+	},
+	"dependencies": {
+		"typebox": "1.1.38"
+	}
+}

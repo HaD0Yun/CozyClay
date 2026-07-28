@@ -1,0 +1,66 @@
+name: Bug Report
+description: Something in CozyClay is broken
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep it short and concrete. Trim agent transcripts to the failing turn.
+
+        If the failure is in Pi itself (`packages/ai`, `packages/agent`, `packages/coding-agent`, `packages/tui`), report it at [earendil-works/pi](https://github.com/earendil-works/pi/issues) instead.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include the tool name and error code if there is one, e.g. `stage_scene` / `STAGE_SCENE_TARGET_NOT_CCLAY_OWNED`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: What you asked the director to do, and what it did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false
+
+  - type: input
+    id: blender
+    attributes:
+      label: Blender version
+      placeholder: "5.1.2"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: CozyClay commit
+      description: Output of `git rev-parse --short HEAD`
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 15.5 arm64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Attach log
+      description: Relevant lines from `.cclay-blender-attach.log` in your project directory.
+      render: text
+    validations:
+      required: false
