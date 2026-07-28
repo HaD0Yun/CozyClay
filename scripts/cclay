@@ -18,6 +18,52 @@ while [[ -L "$CCLAY_SELF" ]]; do
   esac
 done
 CCLAY_REPO="${CCLAY_REPO:-$(cd "$(dirname "$CCLAY_SELF")/.." && pwd)}"
+
+# Version visibility: `cclay --version` prints this and exits, and every normal
+# launch echoes the same line before Blender/TUI startup. The add-on version is
+# the one scripts/cclay compares against a running Blender, so showing it is
+# what makes "which build is this?" answerable without opening Blender first.
+cclay_package_version() {
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$CCLAY_REPO/package.json" 2>/dev/null | head -1
+}
+cclay_addon_version() {
+  sed -n 's/^version = "\([^"]*\)".*/\1/p' \
+    "$CCLAY_REPO/blender-addon/cclay/blender_manifest.toml" 2>/dev/null | head -1
+}
+cclay_git_describe() {
+  if [[ -d "$CCLAY_REPO/.git" ]] && command -v git >/dev/null 2>&1; then
+    local sha
+    sha="$(git -C "$CCLAY_REPO" rev-parse --short=8 HEAD 2>/dev/null)" || sha=""
+    if [[ -z "$sha" ]]; then
+      echo unknown
+      return
+    fi
+    if [[ -n "$(git -C "$CCLAY_REPO" status --porcelain 2>/dev/null)" ]]; then
+      echo "$sha-dirty"
+    else
+      echo "$sha"
+    fi
+  else
+    echo unknown
+  fi
+}
+cclay_version_line() {
+  local package_version addon_version
+  package_version="$(cclay_package_version)"
+  addon_version="$(cclay_addon_version)"
+  printf 'cozyclay %s, add-on %s, git %s' \
+    "${package_version:-unknown}" "${addon_version:-unknown}" "$(cclay_git_describe)"
+}
+for arg in "$@"; do
+  case "$arg" in
+    --version|-V)
+      echo "cclay $(cclay_version_line)"
+      exit 0
+      ;;
+  esac
+done
+
 CCLAY_EXPLICIT_PROJECT="${CCLAY_PROJECT_DIR:-}"
 PROJECT_DIR="${CCLAY_EXPLICIT_PROJECT:-$PWD}"
 
@@ -135,6 +181,10 @@ fi
 if [[ "$HAS_PROVIDER" == "0" && "$HAS_FAUX" == "0" ]]; then
   ARGS=(--provider openai-codex ${ARGS[@]+"${ARGS[@]}"})
 fi
+
+# One line up front so a log or a screenshot answers which build launched even
+# when the session itself scrolls away.
+echo "cclay: $(cclay_version_line)"
 
 # Blender owns project provisioning (cclay.initialize_project seeds .cclay/project.json;
 # the Pi extension refuses to load without it, and the addon refuses a bare skeleton).
