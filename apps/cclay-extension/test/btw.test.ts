@@ -259,7 +259,12 @@ describe("/btw side question", () => {
 		assert.equal(harness.releases, 1);
 	});
 
-	it("leaves Esc to the agent abort while the agent is streaming", async () => {
+	it("consumes Esc while the agent is streaming instead of killing the turn", async () => {
+		// Reported from a real session: Esc is what the widget offers, and
+		// mid-turn is exactly when /btw is used, so following the hint aborted
+		// the director turn the question was about -- minutes of Blender work
+		// gone for pressing the documented key. The abort survives as a second
+		// press, once the widget and this handler are gone.
 		const harness = createHarness();
 		harness.setIdle(false);
 		const running = controller.run("who owns Cube", harness.ctx);
@@ -268,9 +273,87 @@ describe("/btw side question", () => {
 		harness.finish();
 		await running;
 
-		assert.equal(result, undefined);
+		assert.deepEqual(result, { consume: true });
 		assert.equal(controller.hasActiveRequest(), false);
 		assert.equal(lastWidget(harness), undefined);
+	});
+
+	it("keeps asking in one thread and carries the earlier exchanges", async () => {
+		// Without this every question arrived cold, so a follow-up had to
+		// restate what it was following up on.
+		const harness = createHarness();
+		assert.equal(controller.toggle(harness.ctx), true);
+
+		const first = controller.run("which entity owns that light", harness.ctx);
+		await Promise.resolve();
+		harness.emit({ type: "text_delta", delta: "the Walker rig" });
+		harness.finish();
+		await first;
+
+		const second = controller.run("and its parent", harness.ctx);
+		await Promise.resolve();
+		harness.finish();
+		await second;
+
+		const asked = harness.calls.at(-1)?.context.messages.at(-1);
+		const text = (asked?.content as { text: string }[])[0].text;
+		assert.match(text, /Earlier in this side thread:/);
+		assert.match(text, /Q: which entity owns that light/);
+		assert.match(text, /A: the Walker rig/);
+		assert.match(text, /and its parent/);
+		assert.deepEqual(controller.thread(), [
+			{ question: "which entity owns that light", answer: "the Walker rig" },
+		]);
+	});
+
+	it("does not record an answer that failed", async () => {
+		// A half sentence carried forward would read as something the model meant.
+		const harness = createHarness();
+		controller.toggle(harness.ctx);
+		const running = controller.run("who owns Cube", harness.ctx);
+		await Promise.resolve();
+		harness.emit({ type: "error", error: { errorMessage: "upstream refused" } });
+		harness.finish();
+		await running;
+
+		assert.deepEqual(controller.thread(), []);
+	});
+
+	it("closes the thread on Esc and forgets it", async () => {
+		const harness = createHarness();
+		controller.toggle(harness.ctx);
+		const running = controller.run("who owns Cube", harness.ctx);
+		await Promise.resolve();
+		harness.emit({ type: "text_delta", delta: "the Walker rig" });
+		harness.finish();
+		await running;
+		assert.equal(controller.thread().length, 1);
+
+		harness.escape("\u001b");
+
+		assert.equal(controller.isConversing(), false);
+		// Forgotten deliberately: a reopened /btw that remembered an hour-old
+		// conversation would answer against context the user forgot giving it.
+		assert.deepEqual(controller.thread(), []);
+	});
+
+	it("toggling off closes the thread the same way", async () => {
+		const harness = createHarness();
+		controller.toggle(harness.ctx);
+		assert.equal(controller.isConversing(), true);
+		assert.equal(controller.toggle(harness.ctx), false);
+		assert.deepEqual(controller.thread(), []);
+		assert.equal(lastWidget(harness), undefined);
+	});
+
+	it("says on screen that typed input is being swallowed", async () => {
+		// The thread silently eats what the user types; a widget that did not
+		// say so is one keystroke from looking like a hung session.
+		const harness = createHarness();
+		controller.toggle(harness.ctx);
+		const widget = lastWidget(harness);
+		assert.ok(widget);
+		assert.match(widget.join("\n"), /type to keep asking, Esc or \/btw to leave/);
 	});
 
 	it("ignores escape sequences that are not a bare Esc", async () => {
@@ -327,8 +410,17 @@ describe("registerBtwCommand", () => {
 
 		const command = commands.get("btw");
 		assert.ok(command);
-		assert.equal(command.description, "Ask an ephemeral side question using the current session context");
-		assert.deepEqual(events, ["message_update", "message_end", "agent_end", "session_before_switch"]);
+		assert.equal(
+			command.description,
+			"Ask an ephemeral side question, or toggle a side thread with no argument",
+		);
+		assert.deepEqual(events, [
+			"input",
+			"message_update",
+			"message_end",
+			"agent_end",
+			"session_before_switch",
+		]);
 		assert.equal(controller.hasActiveRequest(), false);
 	});
 });

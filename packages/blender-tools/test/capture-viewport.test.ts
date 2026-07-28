@@ -16,8 +16,8 @@ function singleViewResult(): ViewportCaptureResultV1 {
 				name: "viewport",
 				mime_type: "image/jpeg",
 				data_base64: IMAGE_BASE64,
-				width: 480,
-				height: 270,
+				width: 1024,
+				height: 576,
 				method: "offscreen",
 			},
 		],
@@ -32,24 +32,24 @@ function threeViewResult(): ViewportCaptureResultV1 {
 				name: "three_quarter",
 				mime_type: "image/jpeg",
 				data_base64: IMAGE_BASE64,
-				width: 480,
-				height: 270,
+				width: 1024,
+				height: 576,
 				method: "three_quarter",
 			},
 			{
 				name: "side",
 				mime_type: "image/jpeg",
 				data_base64: IMAGE_BASE64,
-				width: 480,
-				height: 270,
+				width: 1024,
+				height: 576,
 				method: "side",
 			},
 			{
 				name: "contact_low",
 				mime_type: "image/jpeg",
 				data_base64: IMAGE_BASE64,
-				width: 480,
-				height: 270,
+				width: 1024,
+				height: 576,
 				method: "contact_low",
 			},
 		],
@@ -70,7 +70,7 @@ test("capture_viewport no-subject call forwards an empty request and emits text+
 	// details is the exact result object the bridge returned.
 	assert.deepEqual(output.details, singleViewResult());
 	assert.equal(output.content.length, 3);
-	assert.deepEqual(output.content[0], { type: "text", text: "view viewport: 480x270 via offscreen" });
+	assert.deepEqual(output.content[0], { type: "text", text: "view viewport: 1024x576 via offscreen" });
 	assert.deepEqual(output.content[1], { type: "image", mimeType: "image/jpeg", data: IMAGE_BASE64 });
 	assert.deepEqual(output.content[2], {
 		type: "text",
@@ -93,11 +93,11 @@ test("capture_viewport three-view payload emits label/image pairs in capture ord
 	// every label first and every image afterwards would still satisfy counts,
 	// and the model would lose which image belongs to which view.
 	assert.deepEqual(output.content, [
-		{ type: "text", text: "view three_quarter: 480x270 via three_quarter" },
+		{ type: "text", text: "view three_quarter: 1024x576 via three_quarter" },
 		{ type: "image", mimeType: "image/jpeg", data: IMAGE_BASE64 },
-		{ type: "text", text: "view side: 480x270 via side" },
+		{ type: "text", text: "view side: 1024x576 via side" },
 		{ type: "image", mimeType: "image/jpeg", data: IMAGE_BASE64 },
-		{ type: "text", text: "view contact_low: 480x270 via contact_low" },
+		{ type: "text", text: "view contact_low: 1024x576 via contact_low" },
 		{ type: "image", mimeType: "image/jpeg", data: IMAGE_BASE64 },
 		{ type: "text", text: `capture_viewport: 3 view(s), revision ${REVISION.slice(0, 12)}` },
 	]);
@@ -170,7 +170,7 @@ test("capture_viewport refuses to emit an image block for a malformed view", asy
 			captureViewport: async () =>
 				({
 					revision: REVISION,
-					views: [{ name: "viewport", width: 480, height: 270, method: "offscreen", ...overrides }],
+					views: [{ name: "viewport", width: 1024, height: 576, method: "offscreen", ...overrides }],
 				}) as unknown as ViewportCaptureResultV1,
 		});
 		await assert.rejects(tool.execute("call", {}, undefined, undefined, undefined as never));

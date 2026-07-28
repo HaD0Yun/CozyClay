@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Parse } from "typebox/value";
-import { createInspectEntityTool, type InspectEntityOptions } from "../src/inspect-entity.ts";
+import { createInspectEntityTool, type InspectEntityOptions, summarizeInspectEntity } from "../src/inspect-entity.ts";
 
 const entityId = "00000000-0000-4000-8000-000000000000";
 const cannedResult = { revision: "a".repeat(64), detail: { bones: [] } };
@@ -158,4 +158,69 @@ test("inspect_entity: accepts frame_start == frame_end (a single-frame slice) an
 		undefined as never,
 	);
 	assert.deepEqual(receivedOptions, { scope: "animation", frame_start: 24, frame_end: 24 });
+});
+
+test("inspect_entity: folds the response into a few readable lines instead of quoting it", () => {
+	// Reported from a real session as a screen of quoted JSON. The payload is
+	// built for the model -- every f-curve carries its own keyframe list, so
+	// even a two-frame rig fills the terminal and buries what the turn was
+	// doing. The full response stays one expand away, so this is a fold and
+	// not a filter.
+	const lines = summarizeInspectEntity({
+		scope: "animation",
+		detail: {
+			name: "Walker",
+			type: "ARMATURE",
+			parent: null,
+			animationSummary: {
+				curveCount: 7,
+				keyframeCount: 14,
+				frameStart: 1,
+				frameEnd: 2,
+				groupCount: 1,
+				groups: [{ name: "mixamorig:Hips", curveCount: 7, keyframeCount: 14 }],
+				truncated: null,
+			},
+		},
+	});
+
+	assert.deepEqual(lines, [
+		"Walker  ARMATURE  scope animation",
+		"7 curves, 14 keys, frames 1-2",
+		"  mixamorig:Hips  7 curves, 14 keys",
+	]);
+});
+
+test("inspect_entity: counts bones and material slots rather than listing every one", () => {
+	assert.deepEqual(
+		summarizeInspectEntity({
+			scope: "all",
+			detail: {
+				name: "Walker",
+				type: "ARMATURE",
+				parent: "Rig",
+				bones: [{}, {}, {}],
+				bonesOmitted: 4,
+				materials: [
+					{ slot: "Body", material: "Skin" },
+					{ slot: "Eyes", material: null },
+				],
+				materialsOmitted: 2,
+			},
+		}),
+		[
+			"Walker  ARMATURE  scope all",
+			"parent Rig",
+			"3 bones (+4 omitted)",
+			"2 material slots (+2 omitted)",
+			"  Body  Skin",
+			"  Eyes  (empty)",
+		],
+	);
+});
+
+test("inspect_entity: a payload with no detail summarizes to nothing rather than throwing", () => {
+	// A renderer must never be the thing that breaks on an unexpected response.
+	assert.deepEqual(summarizeInspectEntity({}), []);
+	assert.deepEqual(summarizeInspectEntity({ scope: "bones", detail: {} }), []);
 });

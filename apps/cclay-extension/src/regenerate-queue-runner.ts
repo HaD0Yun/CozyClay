@@ -17,10 +17,13 @@ import {
 	createArdyRegenerateHandler,
 	recoverAbandonedClaims,
 	removeOrphanedSyntheticPoses,
+	regenerateQueuePaths,
 	sweepRegenerateRequests,
 } from "@cclay/director-runtime";
 import { execFile } from "node:child_process";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Long because a constrained ARDY run goes out to a GPU box over ssh and back.
 // A wrapper that hangs past this is a stuck run, and killing it produces a
@@ -29,6 +32,16 @@ const CLI_TIMEOUT_MS = 30 * 60 * 1000;
 // stdout is one JSON line; anything approaching this is a runaway.
 const CLI_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TICK_MS = 5_000;
+// How long a claim must sit untouched before another process may take it. Above
+// CLI_TIMEOUT_MS because execFile kills a run at that bound, so a claim older
+// than this cannot belong to a generator that is still going.
+const CLAIM_LEASE_MS = CLI_TIMEOUT_MS * 2;
+// The wrapper ships with the repository, not with the project directory the
+// host runs in: `cwd` is the animator's .blend folder, which has no scripts/.
+// Resolved from this module so it survives being launched from anywhere.
+const REPO_WRAPPER_PATH = fileURLToPath(
+	new URL(`../../../scripts/${ARDY_REGENERATE_WRAPPER}`, import.meta.url),
+);
 
 export interface RegenerateQueueRunnerOptions {
 	readonly cwd: string;
@@ -82,6 +95,17 @@ function applyMotionRequest(
 	};
 }
 
+
+// The request filenames waiting to be claimed right now. Used to attribute a
+// failed sweep's leftover claims to this process.
+async function pendingRequestFiles(cwd: string): Promise<string[]> {
+	try {
+		return (await readdir(regenerateQueuePaths(cwd).requests)).filter((name) => name.endsWith(".json"));
+	} catch {
+		return [];
+	}
+}
+
 /**
  * Start consuming the queue. Returns a stop function.
  *
@@ -90,8 +114,7 @@ function applyMotionRequest(
  * and sweeping them first would delete the inputs the retry needs.
  */
 export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions) {
-	const wrapperPath =
-		options.wrapperPath ?? path.join(options.cwd, "scripts", ARDY_REGENERATE_WRAPPER);
+	const wrapperPath = options.wrapperPath ?? REPO_WRAPPER_PATH;
 	// The handler's context type is the director's; the queue passes it through
 	// opaquely, so the seam is narrowed once here rather than at every call.
 	const handler = createArdyRegenerateHandler({
@@ -110,23 +133,36 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 	const tick = async () => {
 		if (stopped) return;
 		try {
-			// Recovery runs every tick, not only at startup. A sweep that threw
+			// Recovery runs every tick, not only at startup: a sweep that threw
 			// -- a full disk, a directory yanked out from under it -- leaves the
 			// request claimed, and recovering only once would strand it until
-			// somebody restarted the host. Ticks are serialized, so nothing in
-			// this process holds a claim at this point, and one extension owns
-			// a project directory (it is the single .cclay/pi-bridge.json
-			// endpoint), so no other sweep can be mid-flight either. Requests
-			// that already finished are retired rather than replayed.
-			await recoverAbandonedClaims(options.cwd);
-			await sweepRegenerateRequests({
-				projectDirectory: options.cwd,
-				handler,
-				contextFor: (request: ArdyRegenerateRequestV1) => ({
-					signal: AbortSignal.timeout(CLI_TIMEOUT_MS),
-					request: { expected_revision_id: request.expected_revision_id },
-				}),
-			});
+			// somebody restarted the host.
+			//
+			// It is bounded by a staleness lease because a claim is not proof
+			// its owner is gone. `.cclay/pi-bridge.json` is a discovery pointer
+			// the newest process overwrites, not a lock, so two extensions can
+			// share a project directory; recovering unconditionally would let
+			// one steal a claim the other is still working and run the
+			// generator twice. The lease sits above CLI_TIMEOUT_MS, which
+			// execFile enforces, so no live run can hold a claim that long.
+			await recoverAbandonedClaims(options.cwd, { staleAfterMs: CLAIM_LEASE_MS });
+			// Recorded before the sweep so a failure can name the claims this
+			// process created, and recover exactly those without waiting out a
+			// lease meant for other processes.
+			const pendingBefore = await pendingRequestFiles(options.cwd);
+			try {
+				await sweepRegenerateRequests({
+					projectDirectory: options.cwd,
+					handler,
+					contextFor: (request: ArdyRegenerateRequestV1) => ({
+						signal: AbortSignal.timeout(CLI_TIMEOUT_MS),
+						request: { expected_revision_id: request.expected_revision_id },
+					}),
+				});
+			} catch (error) {
+				await recoverAbandonedClaims(options.cwd, { only: pendingBefore }).catch(() => {});
+				throw error;
+			}
 		} catch (error) {
 			// A sweep failure must not kill the interval: the next animator
 			// request would then sit in the queue with nothing watching.
@@ -141,8 +177,10 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 
 	const started = (async () => {
 		try {
-			// After the first recovery inside tick(), so a request waiting to be
-			// retried still owns the synthetic poses that retry will need.
+			// Unleased at startup: this process holds no claim yet, and one
+			// left behind by a previous run is abandoned by definition. Ahead
+			// of the orphan sweep so a request waiting to be retried still owns
+			// the synthetic poses that retry will need.
 			await recoverAbandonedClaims(options.cwd);
 			await removeOrphanedSyntheticPoses(options.cwd);
 		} catch (error) {
@@ -157,6 +195,10 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 
 	return {
 		started,
+		// The generator this host will actually spawn. Exposed because the
+		// default is resolved, not passed in, and a wrong default fails only
+		// once an animator has already published a request.
+		wrapperPath,
 		async stop(): Promise<void> {
 			stopped = true;
 			clearInterval(timer);
