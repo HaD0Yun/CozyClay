@@ -28,11 +28,10 @@ REMOVED_OPERATIONS = {
 }
 
 
+@unittest.skipUnless(BLENDER.is_file(), "Blender is unavailable")
 class ExecutePythonStageSceneParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        if not BLENDER.is_file():
-            raise AssertionError("Blender is required for execute_blender_python parity verification")
         completed = subprocess.run(
             [str(BLENDER), "--background", "--factory-startup", "--python", str(SCRIPT)],
             cwd=REPOSITORY_ROOT,
