@@ -6,7 +6,7 @@ import { afterEach, describe, it } from "node:test";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { type BundledDirectorResourceLoader, DIRECTOR_PROMPT, DIRECTOR_PROMPT_DIGEST } from "../src/resource-loader.ts";
+import { type BundledDirectorResourceLoader, DIRECTOR_PROMPT } from "../src/resource-loader.ts";
 import { createDirectorSession, DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
 
 async function seedHostileResources(root: string, suffix = "startup") {
@@ -28,7 +28,6 @@ async function seedHostileResources(root: string, suffix = "startup") {
 
 function assertBundleOnly(loader: BundledDirectorResourceLoader) {
 	assert.equal(loader.getSystemPrompt(), DIRECTOR_PROMPT);
-	assert.equal(loader.promptDigest(), DIRECTOR_PROMPT_DIGEST);
 	assert.deepEqual(loader.getSkills(), { skills: [], diagnostics: [] });
 	assert.deepEqual(loader.getPrompts(), { prompts: [], diagnostics: [] });
 	assert.deepEqual(loader.getThemes(), { themes: [], diagnostics: [] });
@@ -39,16 +38,23 @@ function assertBundleOnly(loader: BundledDirectorResourceLoader) {
 }
 
 describe("director prompt", () => {
-	it("directs assembly composition and whole-object transforms without assembling flat objects", () => {
-		assert.match(DIRECTOR_PROMPT, /create_assembly first/);
-		assert.match(DIRECTOR_PROMPT, /parent_id or set_parent/);
-		assert.match(DIRECTOR_PROMPT, /one transform_assembly op/);
-		assert.match(DIRECTOR_PROMPT, /Keep flat objects flat/);
+	it("limits stage_scene guidance to retained operations and keeps ordinary work in Blender Python", () => {
+		assert.match(DIRECTOR_PROMPT, /execute_blender_python/);
+		assert.match(
+			DIRECTOR_PROMPT,
+			/stage_scene is only for add_character, adopt_entity, set_render_settings, and apply_motion/,
+		);
+		for (const deletedOperation of ["add_primitive", "add_camera", "transform_entity", "create_assembly"]) {
+			assert.doesNotMatch(DIRECTOR_PROMPT, new RegExp(deletedOperation));
+		}
 	});
-	it("documents the two-step evidence flow instead of banning apply_camera_plan", () => {
-		assert.match(DIRECTOR_PROMPT, /call produce_directing_evidence first/);
-		assert.match(DIRECTOR_PROMPT, /evidence_sha256 and the SAME expected_revision_id to apply_camera_plan/);
-		assert.doesNotMatch(DIRECTOR_PROMPT, /Do not call apply_camera_plan/);
+	it("documents camera evidence and ARDY's queued typed boundary", () => {
+		assert.match(DIRECTOR_PROMPT, /apply_camera_plan/);
+		assert.match(DIRECTOR_PROMPT, /evidence_sha256 from produce_directing_evidence/);
+		assert.match(DIRECTOR_PROMPT, /ardy_regenerate only to constrain an existing base motion/);
+		assert.match(DIRECTOR_PROMPT, /Unconstrained text-to-motion generation is not exposed/);
+		assert.match(DIRECTOR_PROMPT, /Do not present raw Python as a trusted ARDY path/);
+		assert.match(DIRECTOR_PROMPT, /correctness boundaries for well-behaved callers only, never security isolation/);
 	});
 });
 describe("hostile local resource isolation", () => {
@@ -81,6 +87,24 @@ describe("hostile local resource isolation", () => {
 			inspectPerformance: async () => {
 				throw new Error("not invoked");
 			},
+			inspectEntity: async () => {
+				throw new Error("not invoked");
+			},
+			inspectPoseContacts: async () => {
+				throw new Error("not invoked");
+			},
+			inspectRelations: async () => {
+				throw new Error("not invoked");
+			},
+			preflightMotion: async () => {
+				throw new Error("not invoked");
+			},
+			captureViewport: async () => {
+				throw new Error("not invoked");
+			},
+			produceDirectingEvidence: async () => {
+				throw new Error("not invoked");
+			},
 			inspectVisualQaMetrics: async () => {
 				throw new Error("not invoked");
 			},
@@ -103,6 +127,12 @@ describe("hostile local resource isolation", () => {
 			replaceCameraAction: async () => {
 				throw new Error("not invoked");
 			},
+			regenerate: async () => {
+				throw new Error("not invoked");
+			},
+			executeBlenderPython: async () => {
+				throw new Error("not invoked");
+			},
 		};
 
 		const first = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir, agentDir });
@@ -116,7 +146,6 @@ describe("hostile local resource isolation", () => {
 			assert.deepEqual(first.getActiveToolNames(), [...DIRECTOR_TOOL_ALLOWLIST]);
 			assertBundleOnly(firstLoader);
 
-			const beforeDigest = firstLoader.promptDigest();
 			assert.throws(
 				() =>
 					firstLoader.extendResources({
@@ -124,7 +153,6 @@ describe("hostile local resource isolation", () => {
 					}),
 				/RESOURCE_EXTENSION_DENIED/,
 			);
-			assert.equal(firstLoader.promptDigest(), beforeDigest);
 			assertBundleOnly(firstLoader);
 			firstLoader.extendResources({});
 

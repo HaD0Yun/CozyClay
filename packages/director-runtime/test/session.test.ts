@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { buildProjectManifest } from "@cclay/director-core";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
-import { createDirectorSession, DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
+import { createDirectorSession } from "../src/session.ts";
 
 describe("director runtime session", () => {
 	const unregister: Array<() => void> = [];
@@ -50,7 +53,12 @@ describe("director runtime session", () => {
 			model,
 			modelRuntime,
 		});
-		assert.deepEqual(session.getActiveToolNames(), ["inspect_project", "stage_scene", "apply_camera_plan"]);
+		assert.deepEqual(session.getActiveToolNames(), [
+			"inspect_project",
+			"read_image",
+			"stage_scene",
+			"apply_camera_plan",
+		]);
 		try {
 			await session.prompt("inspect this Blender scene");
 			assert.equal(calls, 1);
@@ -62,19 +70,46 @@ describe("director runtime session", () => {
 		}
 	});
 
-	it("keeps the production allowlist closed to the authorized director tools", () => {
-		assert.deepEqual(DIRECTOR_TOOL_ALLOWLIST, [
-			"inspect_project",
-			"inspect_bridge_state",
-			"inspect_performance",
-			"inspect_visual_qa_metrics",
-			"stage_scene",
-			"apply_camera_plan",
-			"render_qa_frames",
-			"repair_bridge",
-			"apply_performance_mode",
-			"create_fall_motion",
-			"replace_camera_action",
-		]);
+	it("leaves no temp agent directory behind after a session is disposed", async () => {
+		// createDirectorSession mkdtemps an agentDir it owns. Disposal must remove
+		// it, and so must any throw before the session takes ownership -- otherwise
+		// every attempt leaves a directory in tmpdir. The failure half of that
+		// contract is not reachable through this API: the only throws are internal
+		// invariant guards that fire on a miswiring inside session.ts, so it is
+		// covered by the try/catch there rather than by a test that would have to
+		// corrupt the module to fire.
+		// Point tmpdir at a private directory for the duration: other test files
+		// create director sessions in parallel processes against the shared
+		// system tmpdir, so a global count of agent directories is not stable.
+		const previousTmp = process.env.TMPDIR;
+		const isolated = mkdtempSync(join(tmpdir(), "cclay-session-test-"));
+		process.env.TMPDIR = isolated;
+		try {
+			const faux = registerFauxProvider();
+			unregister.push(faux.unregister);
+			const credentials = new InMemoryCredentialStore();
+			await credentials.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+			const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
+			const model = faux.getModel();
+			modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
+			const session = await createDirectorSession({
+				bridge: {
+					inspectProject: async () => {
+						throw new Error("not invoked");
+					},
+				},
+				model,
+				modelRuntime,
+			});
+			const owned = readdirSync(isolated).filter((entry) => entry.startsWith("cclay-director-agent-"));
+			assert.equal(owned.length, 1, "expected the session to own exactly one temp agent directory");
+			session.dispose();
+			const leaked = readdirSync(isolated).filter((entry) => entry.startsWith("cclay-director-agent-"));
+			assert.deepEqual(leaked, [], `dispose leaked temp agent directories: ${leaked.join(",")}`);
+		} finally {
+			if (previousTmp === undefined) delete process.env.TMPDIR;
+			else process.env.TMPDIR = previousTmp;
+			rmSync(isolated, { recursive: true, force: true });
+		}
 	});
 });

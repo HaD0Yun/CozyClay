@@ -1,6 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
-import { SceneManifestV2Schema, SceneManifestV3Schema, SceneManifestV4Schema } from "./manifest.ts";
+import { SceneManifestV4Schema } from "./manifest.ts";
 
 const HASH_64 = "^[0-9a-f]{64}$";
 const exact = <T extends Record<string, TSchema>>(properties: T) =>
@@ -11,7 +11,7 @@ const vector3 = () => Type.Tuple([finiteNumber(), finiteNumber(), finiteNumber()
 export const CameraPlanV1Schema = exact({
 	schema_version: Type.Literal(1),
 	expected_revision_id: Type.String({ pattern: HASH_64 }),
-	evidence_sha256: Type.String({ pattern: HASH_64 }),
+	evidence_sha256: Type.Optional(Type.String({ pattern: HASH_64 })),
 	output_format: exact({
 		width: Type.Integer({ minimum: 1 }),
 		height: Type.Integer({ minimum: 1 }),
@@ -35,7 +35,7 @@ export type CameraPlanV1 = Static<typeof CameraPlanV1Schema>;
 export const CameraPlanMutationCandidateSchema = exact({
 	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	scene_hash: Type.String({ pattern: HASH_64 }),
-	manifest: Type.Union([SceneManifestV2Schema, SceneManifestV3Schema, SceneManifestV4Schema]),
+	manifest: SceneManifestV4Schema,
 });
 export type CameraPlanMutationCandidate = Static<typeof CameraPlanMutationCandidateSchema>;
 export type Vector3 = [number, number, number];
@@ -143,30 +143,31 @@ const ardyToBlender = (value: Vector3): Vector3 => [value[0], -value[2], value[1
  * Validate the pure-math G010 predicates after the add-on has established the
  * row 2–10 fixture trust chain. Checks are deliberately kept in table order.
  */
-export function validateCameraPlan(input: unknown, evidence: DirectingAnalysisEvidenceV1): CameraPlanV1 {
+export function validateCameraPlan(input: unknown, evidence?: DirectingAnalysisEvidenceV1): CameraPlanV1 {
 	const plan = parseCameraPlan(input);
-	const { start, end } = evidence.frame_range;
-
-	if (plan.keyframes.some((keyframe) => keyframe.frame < start || keyframe.frame > end)) {
-		fail("PLAN_FRAME_OUT_OF_EVIDENCE_RANGE", "plan keyframe lies outside the valid evidence range");
-	}
-
-	const samplesByFrame = new Map(evidence.analysis.subject_samples.map((sample) => [sample.frame, sample]));
-	for (const keyframe of plan.keyframes) {
-		if (
-			keyframe.transition === "cut" &&
-			(!samplesByFrame.has(keyframe.frame - 1) || !samplesByFrame.has(keyframe.frame))
-		) {
-			fail("EVIDENCE_SUBJECT_SAMPLE_MISSING", `cut ${keyframe.frame} requires exact subject samples N-1 and N`);
+	if (evidence !== undefined) {
+		const { start, end } = evidence.frame_range;
+		if (plan.keyframes.some((keyframe) => keyframe.frame < start || keyframe.frame > end)) {
+			fail("PLAN_FRAME_OUT_OF_EVIDENCE_RANGE", "plan keyframe lies outside the valid evidence range");
 		}
-	}
 
-	const axis = subtract(evidence.analysis.action_axis.b, evidence.analysis.action_axis.a);
-	const axisLength = magnitude(axis);
-	if (axisLength < 1e-9) fail("EVIDENCE_ACTION_AXIS_ZERO_LENGTH", "action axis length is below 1e-9");
-	const axisCrossUp = cross(axis, evidence.analysis.action_axis.up);
-	if (magnitude(axisCrossUp) < 1e-9) {
-		fail("EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP", "action axis is parallel to evidence up");
+		const samplesByFrame = new Map(evidence.analysis.subject_samples.map((sample) => [sample.frame, sample]));
+		for (const keyframe of plan.keyframes) {
+			if (
+				keyframe.transition === "cut" &&
+				(!samplesByFrame.has(keyframe.frame - 1) || !samplesByFrame.has(keyframe.frame))
+			) {
+				fail("EVIDENCE_SUBJECT_SAMPLE_MISSING", `cut ${keyframe.frame} requires exact subject samples N-1 and N`);
+			}
+		}
+
+		const axis = subtract(evidence.analysis.action_axis.b, evidence.analysis.action_axis.a);
+		const axisLength = magnitude(axis);
+		if (axisLength < 1e-9) fail("EVIDENCE_ACTION_AXIS_ZERO_LENGTH", "action axis length is below 1e-9");
+		const axisCrossUp = cross(axis, evidence.analysis.action_axis.up);
+		if (magnitude(axisCrossUp) < 1e-9) {
+			fail("EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP", "action axis is parallel to evidence up");
+		}
 	}
 
 	if (plan.keyframes.some((keyframe) => !Number.isInteger(keyframe.frame))) {
@@ -204,54 +205,59 @@ export function validateCameraPlan(input: unknown, evidence: DirectingAnalysisEv
 	const cuts = plan.keyframes
 		.map((keyframe, index) => ({ keyframe, index }))
 		.filter(({ keyframe }) => keyframe.transition === "cut");
-	for (const { keyframe } of cuts) {
-		if (!evidence.analysis.motion_valley_frames.some((frame) => Math.abs(frame - keyframe.frame) <= 1)) {
-			fail("CUT_NOT_AT_MOTION_VALLEY", `cut ${keyframe.frame} has no motion valley within one frame`);
+	if (evidence !== undefined) {
+		const samplesByFrame = new Map(evidence.analysis.subject_samples.map((sample) => [sample.frame, sample]));
+		const axis = subtract(evidence.analysis.action_axis.b, evidence.analysis.action_axis.a);
+		const axisCrossUp = cross(axis, evidence.analysis.action_axis.up);
+		for (const { keyframe } of cuts) {
+			if (!evidence.analysis.motion_valley_frames.some((frame) => Math.abs(frame - keyframe.frame) <= 1)) {
+				fail("CUT_NOT_AT_MOTION_VALLEY", `cut ${keyframe.frame} has no motion valley within one frame`);
+			}
 		}
-	}
-	for (const { keyframe } of cuts) {
-		if (
-			evidence.analysis.action_peak_ranges.some(
-				(range) => keyframe.frame >= range.start - 1 && keyframe.frame <= range.end + 1,
-			)
-		) {
-			fail("CUT_SPLITS_ACTION_PEAK", `cut ${keyframe.frame} intersects an expanded action peak`);
+		for (const { keyframe } of cuts) {
+			if (
+				evidence.analysis.action_peak_ranges.some(
+					(range) => keyframe.frame >= range.start - 1 && keyframe.frame <= range.end + 1,
+				)
+			) {
+				fail("CUT_SPLITS_ACTION_PEAK", `cut ${keyframe.frame} intersects an expanded action peak`);
+			}
 		}
-	}
 
-	for (const { keyframe, index } of cuts) {
-		const previousPose = plan.keyframes[index - 1]?.pose;
-		if (previousPose === undefined) continue;
-		const before = samplesByFrame.get(keyframe.frame - 1)!;
-		const after = samplesByFrame.get(keyframe.frame)!;
-		const projected = [
-			before.height_m /
-				(magnitude(subtract(ardyToBlender(previousPose.position), before.center)) *
-					2 *
-					Math.tan(previousPose.vertical_fov_radians / 2)),
-			after.height_m /
-				(magnitude(subtract(ardyToBlender(keyframe.pose.position), after.center)) *
-					2 *
-					Math.tan(keyframe.pose.vertical_fov_radians / 2)),
-		];
-		if (projected.some((value) => !Number.isFinite(value) || value <= 0)) {
-			fail("CUT_SCALE_UNDEFINED", `cut ${keyframe.frame} has undefined projected subject scale`);
+		for (const { keyframe, index } of cuts) {
+			const previousPose = plan.keyframes[index - 1]?.pose;
+			if (previousPose === undefined) continue;
+			const before = samplesByFrame.get(keyframe.frame - 1)!;
+			const after = samplesByFrame.get(keyframe.frame)!;
+			const projected = [
+				before.height_m /
+					(magnitude(subtract(ardyToBlender(previousPose.position), before.center)) *
+						2 *
+						Math.tan(previousPose.vertical_fov_radians / 2)),
+				after.height_m /
+					(magnitude(subtract(ardyToBlender(keyframe.pose.position), after.center)) *
+						2 *
+						Math.tan(keyframe.pose.vertical_fov_radians / 2)),
+			];
+			if (projected.some((value) => !Number.isFinite(value) || value <= 0)) {
+				fail("CUT_SCALE_UNDEFINED", `cut ${keyframe.frame} has undefined projected subject scale`);
+			}
+			if (Math.max(...projected) / Math.min(...projected) > 1.35 + 1e-6) {
+				fail("CUT_SCALE_DISCONTINUITY", `cut ${keyframe.frame} exceeds the subject-scale continuity ratio`);
+			}
 		}
-		if (Math.max(...projected) / Math.min(...projected) > 1.35 + 1e-6) {
-			fail("CUT_SCALE_DISCONTINUITY", `cut ${keyframe.frame} exceeds the subject-scale continuity ratio`);
-		}
-	}
 
-	const side = scale(axisCrossUp, 1 / magnitude(axisCrossUp));
-	const sideScores = plan.keyframes.map((keyframe) =>
-		dot(subtract(ardyToBlender(keyframe.pose.position), evidence.analysis.action_axis.a), side),
-	);
-	if (sideScores.some((score) => Math.abs(score) < 1e-6)) {
-		fail("CAMERA_ON_ACTION_AXIS", "camera lies on the action axis");
-	}
-	const initialSign = Math.sign(sideScores[0]!);
-	if (sideScores.some((score) => Math.sign(score) !== initialSign)) {
-		fail("ACTION_AXIS_CROSSING", "camera changes side across the action axis");
+		const side = scale(axisCrossUp, 1 / magnitude(axisCrossUp));
+		const sideScores = plan.keyframes.map((keyframe) =>
+			dot(subtract(ardyToBlender(keyframe.pose.position), evidence.analysis.action_axis.a), side),
+		);
+		if (sideScores.some((score) => Math.abs(score) < 1e-6)) {
+			fail("CAMERA_ON_ACTION_AXIS", "camera lies on the action axis");
+		}
+		const initialSign = Math.sign(sideScores[0]!);
+		if (sideScores.some((score) => Math.sign(score) !== initialSign)) {
+			fail("ACTION_AXIS_CROSSING", "camera changes side across the action axis");
+		}
 	}
 	return plan;
 }

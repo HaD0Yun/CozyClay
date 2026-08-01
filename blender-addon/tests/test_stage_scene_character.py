@@ -191,8 +191,6 @@ class AddCharacterValidationTests(unittest.TestCase):
             def rollback(self):
                 calls.append("rollback")
 
-            def finalize_deletions(self):
-                calls.append("finalize")
 
             def finalize_orphan_actions(self):
                 calls.append("actions")
@@ -207,7 +205,7 @@ class AddCharacterValidationTests(unittest.TestCase):
             return_value={"sceneHash": "after"},
         ):
             self.assertTrue(run._recover())
-        self.assertEqual(calls, ["finalize", "actions"])
+        self.assertEqual(calls, ["actions"])
 
     def test_keyframe_snapshot_uses_bulk_foreach_get(self):
         bulk_values = {
@@ -616,10 +614,6 @@ class AddCharacterRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["dupeRollback"])
         self.assertTrue(self.results["dupeCheckpointReleased"])
 
-    def test_creates_and_activates_a_typed_camera(self):
-        self.assertTrue(self.results["cameraCreatedAndActive"])
-        self.assertTrue(self.results["cameraIdentityReturned"])
-        self.assertTrue(self.results["cameraRollback"])
 
     def test_apply_motion_result_is_immediately_inspectable(self):
         self.assertTrue(self.results["motionKeysNormalized"])

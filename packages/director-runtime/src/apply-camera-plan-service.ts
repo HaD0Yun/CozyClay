@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { ApplyCameraPlanResult } from "@cclay/blender-tools";
 import {
-	buildSceneManifestV2Revision,
-	buildSceneManifestV3Revision,
 	buildSceneManifestV4Revision,
 	canonicalRevision,
 	type DirectorProject,
 	type DirectorProjectRecoveryV2,
+	type DirectorProjectWriteInput,
+	extensionsDigest,
+	type ManifestForHashing,
 	ProjectStore,
 	type RevisionOperationEntryV2,
 	type RevisionReconcileResult,
@@ -33,7 +34,7 @@ export interface CameraPlanRevisionStore {
 	commitRevision(
 		idempotencyKey: string,
 		expectedRevisionId: string,
-		project: DirectorProjectRecoveryV2,
+		project: DirectorProjectWriteInput,
 		journalEntry: RevisionOperationEntryV2,
 	): Promise<void>;
 	reconcileRevision(idempotencyKey: string, markerPhase: TransactionMarkerPhase): Promise<RevisionReconcileResult>;
@@ -116,29 +117,15 @@ export async function commitCameraPlanMutation(
 	} else if (candidateHierarchy.hasHierarchy) {
 		throw new Error("INVALID_MUTATION_RESULT: camera plan must not introduce hierarchy");
 	}
-	if (
-		(durableManifest?.schemaVersion === 2 ||
-			durableManifest?.schemaVersion === 3 ||
-			durableManifest?.schemaVersion === 4) &&
-		// V3 and V4 share one hash-compatible substrate family (flat V4 hashes
-		// byte-identically to V3); only the V2 boundary is a real schema break.
-		// Lineage safety across V3/V4 remains enforced by the base-hash CAS and
-		// the candidate rebuild equality check below.
-		(durableManifest.schemaVersion === 2) !== (candidate.manifest.schemaVersion === 2)
-	) {
-		throw new Error("INVALID_MUTATION_RESULT: manifest schema must match the durable substrate");
-	}
 	const rebuiltManifest = (() => {
-		if (candidate.manifest.schemaVersion === 4) {
-			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-			return buildSceneManifestV4Revision(hashFreeManifest, plan.expected_revision_id, plan);
-		}
-		if (candidate.manifest.schemaVersion === 3) {
-			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-			return buildSceneManifestV3Revision(hashFreeManifest, plan.expected_revision_id, plan);
-		}
-		const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-		return buildSceneManifestV2Revision(hashFreeManifest);
+		const {
+			revisionId: _revisionId,
+			sceneHash: _sceneHash,
+			extensions: _extensions,
+			...hashFreeManifest
+		} = candidate.manifest;
+		const manifestForHashing: ManifestForHashing = hashFreeManifest;
+		return buildSceneManifestV4Revision(manifestForHashing, plan.expected_revision_id, plan);
 	})();
 	if (
 		candidate.scene_hash !== rebuiltManifest.sceneHash ||
@@ -175,7 +162,8 @@ export async function commitCameraPlanMutation(
 		project_id: current.project_id,
 		schema_version: 1,
 		current_revision_id: candidate.manifest.revisionId,
-		manifest: candidate.manifest.schemaVersion === 2 ? candidate.manifest : parseSceneManifestV4(candidate.manifest),
+		manifest: parseSceneManifestV4(candidate.manifest),
+		extensionsDigest: extensionsDigest(candidate.manifest.extensions),
 	};
 	const journalEntry: RevisionOperationEntryV2 = {
 		schema_version: 2,

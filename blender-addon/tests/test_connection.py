@@ -20,11 +20,6 @@ from cclay.connection import (
     Connection,
     ConnectionError,
     DurableCommitReconciliationRequired,
-    _test_only_inject_disconnect_fault,
-    connect,
-    disconnect_active,
-    verify_reconnect_hash,
-    reconnect,
 )
 from cclay import connection as connection_module
 
@@ -87,49 +82,6 @@ def mutation_result():
     }
 
 class ConnectionTests(unittest.TestCase):
-    def test_reconnect_gate_accepts_equal_hashes(self):
-        """§4 line 119: reconnect requires the canonical live scene hash."""
-        verify_reconnect_hash("ab12", "ab12")
-
-    def test_reconnect_gate_rejects_mismatched_hashes(self):
-        """§4 line 119: reconnect refuses a non-canonical live scene."""
-        with self.assertRaises(ConnectionError):
-            verify_reconnect_hash("ab12", "cd34")
-
-    def test_only_disconnect_fault_injector_mutates_target_value(self):
-        """§12 line 411: the test fault changes one harmless property."""
-        entities = {"object:cube": {"visible": True, "name": "Cube"}}
-
-        _test_only_inject_disconnect_fault(entities, "object:cube", "visible", False)
-
-        self.assertFalse(entities["object:cube"]["visible"])
-        self.assertEqual(entities["object:cube"]["name"], "Cube")
-
-    def test_disconnect_sends_shutdown_and_waits_for_ack_and_child(self):
-        """§4 lines 103/118: normal unload drains before child exit."""
-        process = FakeProcess()
-        child = FakeChild(process)
-        socket = FakeSocket([{"type": "shutdown_ack"}])
-        connection = Connection(child, socket)
-
-        connection.disconnect("addon_unload", timeout=0.1)
-
-        self.assertEqual(socket.sent, [{"type": "shutdown", "reason": "addon_unload"}])
-        self.assertTrue(socket.closed)
-        self.assertFalse(child.killed)
-        self.assertTrue(child.streams_closed)
-        self.assertEqual(len(process.wait_calls), 1)
-
-    def test_disconnect_force_kills_only_after_child_wait_timeout(self):
-        """§4 line 118: force-kill follows, never precedes, the drain bound."""
-        process = FakeProcess(times_out=True)
-        child = FakeChild(process)
-        socket = FakeSocket([{"type": "shutdown_ack"}])
-
-        Connection(child, socket).disconnect("addon_unload", timeout=0.1)
-
-        self.assertTrue(child.killed)
-        self.assertEqual(len(process.wait_calls), 1)
 
     def test_bridge_request_dispatches_operator_on_blender_main_thread(self):
         socket = FakeSocket()
@@ -163,11 +115,10 @@ class ConnectionTests(unittest.TestCase):
         self.assertIn("1 camera-plan keyframe", connection.task_status.descriptor)
         self.assertNotIn("secret", connection.task_status.descriptor)
 
-    def test_reconnecting_connection_hides_mutating_tool_capabilities(self):
-        """Architecture §4: reconnect exposes zero tools until full V2 equality."""
+    def test_recovery_required_refuses_bridge_requests_with_structured_error(self):
         socket = FakeSocket()
         connection = Connection(FakeChild(FakeProcess()), socket)
-        connection.tools_exposed = False
+        connection.require_recovery()
         blender = mock.Mock()
         message = {
             "type": "bridge_request",
@@ -184,11 +135,20 @@ class ConnectionTests(unittest.TestCase):
             connection.dispatch_bridge_message(message)
 
         blender.ops.cclay.apply_camera_plan.assert_not_called()
-        self.assertEqual(socket.sent[0]["type"], "bridge_error")
-        self.assertEqual(socket.sent[0]["code"], "RECOVERY_REQUIRED")
+        self.assertEqual(socket.sent, [{
+            "type": "bridge_error",
+            "id": "bridge",
+            "request_id": "request",
+            "code": "RECOVERY_REQUIRED",
+            "message": (
+                "tool remains callable, but bridge requests are refused until "
+                "reconnect verification succeeds"
+            ),
+            "retryable": False,
+        }])
 
     def test_render_qa_frames_uses_the_existing_main_thread_bridge_dispatcher(self):
-        """Task clause: use `start_bridge_dispatcher`/main-thread dispatch, not a parallel path."""
+        """Dispatches the render request through the retained main-thread dispatcher."""
         socket = FakeSocket()
         connection = Connection(FakeChild(FakeProcess()), socket)
         blender = mock.Mock()
@@ -235,7 +195,7 @@ class ConnectionTests(unittest.TestCase):
             "params": {
                 "schema_version": 1,
                 "expected_revision_id": "a" * 64,
-                "operations": [{"op": "add_primitive"}],
+                "operations": [{"op": "set_render_settings", "resolution_x": 1280}],
                 "secret": "credential",
             },
             "expected_revision_id": "a" * 64,
@@ -290,7 +250,7 @@ class ConnectionTests(unittest.TestCase):
                     return_value=resolved_manifest
                 ),
                 extract_scene_snapshot=mock.Mock(return_value=snapshot),
-                extract_scene_manifest_v2=mock.Mock(return_value=resolved_manifest),
+                extract_scene_manifest_v4=mock.Mock(return_value=resolved_manifest),
             )
             with (
                 mock.patch.object(connection_module, "bpy", blender),
@@ -351,7 +311,7 @@ class ConnectionTests(unittest.TestCase):
                     return_value=resolved_manifest
                 ),
                 extract_scene_snapshot=mock.Mock(return_value=snapshot),
-                extract_scene_manifest_v2=mock.Mock(return_value=resolved_manifest),
+                extract_scene_manifest_v4=mock.Mock(return_value=resolved_manifest),
             )
             with (
                 mock.patch.object(connection_module, "bpy", blender),
@@ -414,7 +374,7 @@ class ConnectionTests(unittest.TestCase):
             manifest_module = types.SimpleNamespace(
                 resolve_manifest_for_expected_hash=mock.Mock(return_value=None),
                 extract_scene_snapshot=mock.Mock(return_value=snapshot),
-                extract_scene_manifest_v2=mock.Mock(return_value=live_manifest),
+                extract_scene_manifest_v4=mock.Mock(return_value=live_manifest),
             )
             with (
                 mock.patch.object(connection_module, "bpy", blender),
@@ -441,7 +401,7 @@ class ConnectionTests(unittest.TestCase):
                     "params": {
                         "schema_version": 1,
                         "expected_revision_id": CANDIDATE_REVISION,
-                        "operations": [{"op": "add_primitive"}],
+                        "operations": [{"op": "set_render_settings", "resolution_x": 1280}],
                     },
                     "expected_revision_id": CANDIDATE_REVISION,
                     "deadline_ms": 30000,
@@ -604,7 +564,7 @@ class ConnectionTests(unittest.TestCase):
             manifest_module = types.SimpleNamespace(
                 resolve_manifest_for_expected_hash=mock.Mock(return_value=None),
                 extract_scene_snapshot=mock.Mock(),
-                extract_scene_manifest_v2=mock.Mock(return_value=live_manifest),
+                extract_scene_manifest_v4=mock.Mock(return_value=live_manifest),
             )
             with (
                 mock.patch.object(connection_module, "bpy", blender),
@@ -670,7 +630,7 @@ class ConnectionTests(unittest.TestCase):
                     "params": {
                         "schema_version": 1,
                         "expected_revision_id": "e" * 64,
-                        "operations": [{"op": "add_primitive"}],
+                        "operations": [{"op": "set_render_settings", "resolution_x": 1280}],
                     },
                     "expected_revision_id": "e" * 64,
                     "deadline_ms": 30000,
@@ -711,7 +671,7 @@ class ConnectionTests(unittest.TestCase):
                     return_value=resolved_manifest
                 ),
                 extract_scene_snapshot=mock.Mock(return_value=snapshot),
-                extract_scene_manifest_v2=mock.Mock(return_value=resolved_manifest),
+                extract_scene_manifest_v4=mock.Mock(return_value=resolved_manifest),
             )
             stage_message = {
                 "type": "bridge_request",
@@ -721,7 +681,7 @@ class ConnectionTests(unittest.TestCase):
                 "params": {
                     "schema_version": 1,
                     "expected_revision_id": stale_revision,
-                    "operations": [{"op": "add_primitive"}],
+                    "operations": [{"op": "set_render_settings", "resolution_x": 1280}],
                 },
                 "expected_revision_id": stale_revision,
                 "deadline_ms": 30000,
@@ -758,7 +718,7 @@ class ConnectionTests(unittest.TestCase):
                     "params": {
                         "schema_version": 1,
                         "expected_revision_id": rebound_revision,
-                        "operations": [{"op": "add_primitive"}],
+                        "operations": [{"op": "set_render_settings", "resolution_x": 1280}],
                     },
                     "expected_revision_id": rebound_revision,
                 })
@@ -807,94 +767,6 @@ class ConnectionTests(unittest.TestCase):
             "b" * 64,
         )
 
-    def test_bridge_timer_sends_ping_on_twenty_second_cadence(self):
-        socket = FakeSocket()
-        with mock.patch.object(connection_module.time, "monotonic", return_value=100.0):
-            connection = Connection(FakeChild(FakeProcess()), socket)
-
-        with mock.patch.object(connection_module.time, "monotonic", return_value=119.99):
-            self.assertEqual(connection.pump_bridge_messages(), 0.01)
-        self.assertEqual(socket.sent, [])
-
-        with mock.patch.object(connection_module.time, "monotonic", return_value=120.0):
-            self.assertEqual(connection.pump_bridge_messages(), 0.01)
-        self.assertEqual(socket.sent[0]["type"], "ping")
-        self.assertRegex(socket.sent[0]["nonce"], r"^[A-Za-z0-9_-]+$")
-
-    def test_bridge_dispatcher_ignores_pong(self):
-        received_pong = threading.Event()
-
-        class PongSocket(FakeSocket):
-            def recv_json(self):
-                if not received_pong.is_set():
-                    received_pong.set()
-                    return {"type": "pong", "nonce": "keepalive"}
-                raise TimeoutError()
-
-        connection = Connection(FakeChild(FakeProcess()), PongSocket())
-        connection.start_bridge_dispatcher()
-        self.assertTrue(received_pong.wait(timeout=1))
-        time.sleep(0.02)
-        self.assertTrue(connection._main_thread_messages.empty())
-        self.assertEqual(connection.state, "active")
-        connection.state = "disconnected"
-        connection._reader_thread.join(timeout=1)
-    def test_bridge_dispatcher_receive_loop_routes_requests(self):
-        request = {
-            "type": "bridge_request",
-            "id": "bridge",
-            "request_id": "request",
-            "method": "apply_camera_plan",
-            "params": {},
-            "expected_revision_id": "a" * 64,
-            "current_scene_hash": "b" * 64,
-            "deadline_ms": 5000,
-        }
-        connection = Connection(
-            FakeChild(FakeProcess()),
-            FakeSocket([request]),
-        )
-        blender = mock.Mock()
-        blender.app.timers.register.return_value = None
-
-        with mock.patch.object(connection_module, "bpy", blender):
-            connection.start_bridge_dispatcher()
-            connection._reader_thread.join(timeout=1)
-            connection.pump_bridge_messages()
-
-        blender.app.timers.register.assert_called_once()
-        blender.ops.cclay.apply_camera_plan.assert_called_once()
-
-    def test_reader_failure_does_not_overwrite_recovery_required(self):
-        """A late socket error must not replace the transaction's terminal state."""
-        entered_receive = threading.Event()
-        fail_receive = threading.Event()
-
-        class DelayedFailureSocket(FakeSocket):
-            def recv_json(self):
-                entered_receive.set()
-                fail_receive.wait(timeout=1)
-                raise OSError("socket closed")
-
-        connection = Connection(
-            FakeChild(FakeProcess()),
-            DelayedFailureSocket(),
-        )
-        blender = mock.Mock()
-        blender.app.timers.register.return_value = None
-
-        with mock.patch.object(connection_module, "bpy", blender):
-            connection.start_bridge_dispatcher()
-            self.assertTrue(entered_receive.wait(timeout=1))
-            connection.require_recovery()
-            fail_receive.set()
-            connection._reader_thread.join(timeout=1)
-
-        self.assertFalse(connection._reader_thread.is_alive())
-        self.assertEqual(connection.state, "recovery_required")
-        self.assertFalse(connection.tools_exposed)
-        self.assertEqual(connection.task_status.outcome, "recovery_required")
-        self.assertEqual(connection.task_status.evidence, "Recovery required")
 
     def test_bridge_cancel_marks_active_transaction_and_acknowledges(self):
         socket = FakeSocket()
@@ -1093,72 +965,6 @@ class ConnectionTests(unittest.TestCase):
             connection.hold_checkpoint(second)
         self.assertIs(connection.release_checkpoint(), first)
         self.assertIsNone(connection.release_checkpoint())
-    def test_blender_timer_handles_real_eof_once_on_main_thread(self):
-        """Architecture §4/§15.3: EOF callback records only; Blender timer restores/verifies once."""
-        socket = FakeSocket()
-        connection = Connection(FakeChild(FakeProcess()), socket)
-        checkpoint = create_checkpoint({"camera_plan_scope": {"visible": True}})
-        connection.hold_checkpoint(checkpoint)
-        blender = mock.Mock()
-        callbacks = []
-        blender.app.timers.register.side_effect = (
-            lambda callback, **_kwargs: callbacks.append(callback)
-        )
-        scene = {"camera_plan_scope": {"visible": False}}
-        main_thread_calls = []
-
-        def restore_scope(key, values):
-            main_thread_calls.append(("restore", threading.get_ident(), key))
-            scene[key] = values
-
-        def read_scope(key):
-            main_thread_calls.append(("verify", threading.get_ident(), key))
-            return scene[key]
-
-        main_thread_id = threading.get_ident()
-        with (
-            mock.patch.object(connection_module, "bpy", blender),
-            mock.patch("cclay.camera_plan._restore_scope", restore_scope),
-            mock.patch("cclay.camera_plan._read_scope", read_scope),
-        ):
-            connection.start_bridge_dispatcher()
-            connection._reader_thread.join(timeout=1)
-            self.assertEqual(connection.state, "lost")
-            self.assertIsNone(callbacks[0]())
-            self.assertIsNone(callbacks[0]())
-
-        self.assertEqual(
-            main_thread_calls,
-            [
-                ("restore", main_thread_id, "camera_plan_scope"),
-                ("verify", main_thread_id, "camera_plan_scope"),
-            ],
-        )
-        self.assertIsNone(connection.active_checkpoint)
-        self.assertEqual(connection.state, "disconnected")
-        self.assertTrue(socket.closed)
-        self.assertFalse(connection._reader_thread.is_alive())
-
-    def test_failed_timer_restore_enters_recovery_required_and_hides_mutations(self):
-        """Architecture §4/§15.3: failed verification leaves recovery-required with tools hidden."""
-        connection = Connection(FakeChild(FakeProcess()), FakeSocket())
-        connection.hold_checkpoint(
-            create_checkpoint({"camera_plan_scope": {"visible": True}})
-        )
-        connection.state = "lost"
-
-        with (
-            mock.patch("cclay.camera_plan._restore_scope"),
-            mock.patch(
-                "cclay.camera_plan._read_scope",
-                return_value={"visible": False},
-            ),
-        ):
-            self.assertIsNone(connection.pump_bridge_messages())
-
-        self.assertEqual(connection.state, "recovery_required")
-        self.assertFalse(connection.tools_exposed)
-        self.assertIsNone(connection.active_checkpoint)
 
     def test_unexpected_loss_restores_then_verifies_and_clears_checkpoint(self):
         connection = Connection(FakeChild(FakeProcess()), FakeSocket())
@@ -1201,121 +1007,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(connection.restore_on_unexpected_loss(apply, read))
         apply.assert_not_called()
         read.assert_not_called()
-
-    def test_reconnect_reads_durable_hash_and_exposes_tools_only_after_live_v2_equality(self):
-        """Architecture §4: fresh reconnect re-inspects full V2 before capabilities."""
-        connection = mock.Mock()
-        connection.tools_exposed = False
-        connection.child.process.poll.return_value = None
-        previous = mock.Mock()
-        previous.state = "lost"
-        previous.child.process.poll.return_value = 0
-        with tempfile.TemporaryDirectory() as directory:
-            cclay = pathlib.Path(directory, ".cclay")
-            cclay.mkdir()
-            (cclay / "project.json").write_text(json.dumps({
-                "current_revision_id": BASE_REVISION,
-                "manifest": {
-                    "revisionId": BASE_REVISION,
-                    "sceneHash": "b" * 64,
-                },
-            }))
-            with mock.patch.object(Connection, "start", return_value=connection) as start:
-                result = reconnect(
-                    ("daemon",),
-                    cwd=directory,
-                    project_id="project",
-                    addon_version="1",
-                    blender_version="4",
-                    live_scene_hash_fn=lambda _expected: "b" * 64,
-                    previous_connection=previous,
-                )
-
-        self.assertIs(result, connection)
-        start.assert_called_once_with(
-            ("daemon",),
-            cwd=directory,
-            project_id="project",
-            addon_version="1",
-            blender_version="4",
-            child_type=mock.ANY,
-            websocket_type=mock.ANY,
-            expose_tools=False,
-        )
-        connection.expose_tools.assert_called_once_with()
-        connection.disconnect.assert_not_called()
-
-    def test_reconnect_confirms_old_child_exit_before_spawning_replacement(self):
-        """Architecture §4: full restart confirms the old child exited first."""
-        events = []
-        previous = mock.Mock()
-        previous.state = "lost"
-        previous.child.process.poll.side_effect = [None, 0]
-
-        def disconnect(_reason):
-            events.append("old-exited")
-
-        previous.disconnect.side_effect = disconnect
-        replacement = mock.Mock()
-        replacement.tools_exposed = False
-        with tempfile.TemporaryDirectory() as directory:
-            cclay = pathlib.Path(directory, ".cclay")
-            cclay.mkdir()
-            (cclay / "project.json").write_text(json.dumps({
-                "current_revision_id": BASE_REVISION,
-                "manifest": {
-                    "revisionId": BASE_REVISION,
-                    "sceneHash": "b" * 64,
-                },
-            }))
-            with mock.patch.object(
-                Connection,
-                "start",
-                side_effect=lambda *_args, **_kwargs: events.append("replacement-started") or replacement,
-            ):
-                reconnect(
-                    ("daemon",),
-                    cwd=directory,
-                    project_id="project",
-                    addon_version="1",
-                    blender_version="4",
-                    live_scene_hash_fn=lambda _expected: "b" * 64,
-                    previous_connection=previous,
-                )
-
-        self.assertEqual(events, ["old-exited", "replacement-started"])
-
-    def test_reconnect_mismatch_terminates_replacement_with_zero_tool_exposure(self):
-        """Architecture §4: hash mismatch terminates replacement and exposes zero tools."""
-        connection = mock.Mock()
-        connection.tools_exposed = False
-        previous = mock.Mock()
-        previous.state = "stopped"
-        previous.child.process.poll.return_value = 0
-        with tempfile.TemporaryDirectory() as directory:
-            cclay = pathlib.Path(directory, ".cclay")
-            cclay.mkdir()
-            (cclay / "project.json").write_text(json.dumps({
-                "current_revision_id": BASE_REVISION,
-                "manifest": {
-                    "revisionId": BASE_REVISION,
-                    "sceneHash": "c" * 64,
-                },
-            }))
-            with mock.patch.object(Connection, "start", return_value=connection):
-                with self.assertRaisesRegex(ConnectionError, "canonical current revision"):
-                    reconnect(
-                        ("daemon",),
-                        cwd=directory,
-                        project_id="project",
-                        addon_version="1",
-                        blender_version="4",
-                        live_scene_hash_fn=lambda _expected: "b" * 64,
-                        previous_connection=previous,
-                    )
-
-        connection.expose_tools.assert_not_called()
-        connection.disconnect.assert_called_once_with("reconnect_hash_mismatch")
 
 
 

@@ -63,7 +63,10 @@ class UiPanelBlenderTests(unittest.TestCase):
             labels,
         )
         self.assertIn("Lifecycle: Recovery required", labels)
-        self.assertIn("Tools: Hidden until verified recovery", labels)
+        self.assertIn(
+            "Tools: Available, but bridge calls fail until reconnect verification succeeds",
+            labels,
+        )
         self.assertEqual(result["operators"], [])
 
 

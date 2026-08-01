@@ -6,6 +6,7 @@
 // published from Blender still sat on disk forever because no process called
 // the sweep.
 import assert from "node:assert/strict";
+import type { ArdyRegenerateRequestV1 } from "@cclay/protocol";
 import {
 	access,
 	chmod,
@@ -26,7 +27,10 @@ import { startRegenerateQueueRunner } from "../src/regenerate-queue-runner.ts";
 const REVISION = "a".repeat(64);
 const ENTITY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
-function aRequest(requestId: string, overrides: Record<string, unknown> = {}) {
+function aRequest(
+	requestId: string,
+	overrides: Partial<ArdyRegenerateRequestV1> = {},
+): ArdyRegenerateRequestV1 {
 	return {
 		schema_version: 1,
 		request_id: requestId,
@@ -80,6 +84,18 @@ describe("regeneration queue runner", () => {
 			"utf8",
 		);
 	}
+	function fakeArchive(events: string[] = []) {
+		return {
+			async read(motionId: string): Promise<Uint8Array> {
+				events.push(`read:${motionId}`);
+				return new Uint8Array();
+			},
+			async commitGenerated(motionId: string): Promise<void> {
+				events.push(`commit:${motionId}`);
+			},
+		};
+	}
+
 
 	it("consumes a request the add-on published and applies the clip", async () => {
 		await installWrapper(FAKE_WRAPPER);
@@ -87,6 +103,7 @@ describe("regeneration queue runner", () => {
 		await publish(aRequest("from-blender"));
 
 		const applied: Array<{ motionId: unknown; revision: unknown }> = [];
+		const archiveEvents: string[] = [];
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
 			wrapperPath: wrapper,
@@ -97,19 +114,76 @@ describe("regeneration queue runner", () => {
 					motionId: operation.motion_id,
 					revision: request.expected_revision_id,
 				});
+				archiveEvents.push("apply");
 				return { resulting_revision_id: "b".repeat(64) };
+			},
+			archive: fakeArchive(archiveEvents),
+			onError: (error) => {
+				throw error;
 			},
 		});
 		await runner.started;
 		await runner.stop();
 
 		assert.deepEqual(applied, [{ motionId: "regenerated-clip", revision: REVISION }]);
+		assert.deepEqual(archiveEvents, ["read:base-clip", "commit:regenerated-clip", "apply"]);
 		const outcome = JSON.parse(
 			await readFile(join(project, ".cclay", "regenerate-outcomes", "from-blender.json"), "utf8"),
 		);
 		assert.equal(outcome.status, "succeeded");
 		assert.equal(outcome.result.motion_id, "regenerated-clip");
 		assert.deepEqual(await readdir(join(project, ".cclay", "regenerate-requests")), []);
+	});
+
+	it("submits a model request through the same durable queue and returns its outcome", async () => {
+		await installWrapper(FAKE_WRAPPER);
+		process.env.ARGV_LOG = join(project, "argv.log");
+		const runner = startRegenerateQueueRunner({
+			cwd: project,
+			wrapperPath: wrapper,
+			tickMs: 60_000,
+			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
+			archive: fakeArchive(),
+			onError: (error) => {
+				throw error;
+			},
+		});
+		await runner.started;
+
+		const outcome = await runner.regenerate(aRequest("from-model"));
+		await runner.stop();
+
+		assert.equal(outcome.status, "succeeded");
+		assert.equal(outcome.request_id, "from-model");
+		if (outcome.status === "succeeded") {
+			assert.equal(outcome.result.motion_id, "regenerated-clip");
+			assert.equal(outcome.resulting_revision_id, "b".repeat(64));
+		}
+		assert.deepEqual(await readdir(join(project, ".cclay", "regenerate-requests")), []);
+	});
+
+	it("returns a typed durable failure to the model caller", async () => {
+		await installWrapper(FAILING_WRAPPER);
+		const runner = startRegenerateQueueRunner({
+			cwd: project,
+			wrapperPath: wrapper,
+			tickMs: 60_000,
+			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
+			archive: fakeArchive(),
+			onError: (error) => {
+				throw error;
+			},
+		});
+		await runner.started;
+
+		const outcome = await runner.regenerate(aRequest("model-failure"));
+		await runner.stop();
+
+		assert.equal(outcome.status, "failed");
+		if (outcome.status === "failed") {
+			assert.equal(outcome.error_code, "GENERATION_FAILED");
+			assert.match(outcome.message, /checkpoint missing/);
+		}
 	});
 
 	it("passes the constraint through to the wrapper as separate argv words", async () => {
@@ -125,6 +199,10 @@ describe("regeneration queue runner", () => {
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
+			archive: fakeArchive(),
+			onError: (error) => {
+				throw error;
+			},
 		});
 		await runner.started;
 		await runner.stop();
@@ -158,6 +236,10 @@ describe("regeneration queue runner", () => {
 				applications += 1;
 				return { resulting_revision_id: "b".repeat(64) };
 			},
+			archive: fakeArchive(),
+			onError: (error) => {
+				throw error;
+			},
 		});
 		await runner.started;
 		await runner.stop();
@@ -186,6 +268,7 @@ describe("regeneration queue runner", () => {
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
 			onError: (error) => errors.push(error),
+			archive: fakeArchive(),
 		});
 		await runner.started;
 		assert.equal(errors.length, 1, "the failure must be reported, not swallowed");
@@ -209,6 +292,9 @@ describe("regeneration queue runner", () => {
 			cwd: project,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
+			onError: (error) => {
+				throw error;
+			},
 		});
 		await runner.started;
 		await runner.stop();

@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon/tests/fixtures"))
 # The camera-free G010 substrate is the canonical directing-evidence binding scene.
 from apply_camera_plan_fixture import setup_scene
 from cclay.canonical import canonical_json
-from cclay.manifest import extract_scene_manifest_v2
+from cclay.manifest import extract_scene_manifest_v4
 
 DEFAULT_EVIDENCE = (
     REPOSITORY_ROOT
@@ -35,7 +35,7 @@ def _arguments() -> argparse.Namespace:
 def main() -> None:
     arguments = _arguments()
     setup_scene()
-    scene_manifest = extract_scene_manifest_v2()
+    scene_manifest = extract_scene_manifest_v4()
     evidence = json.loads(arguments.evidence.read_text(encoding="utf-8"))
     evidence["revision_id"] = scene_manifest["revisionId"]
     evidence["scene_hash"] = scene_manifest["sceneHash"]

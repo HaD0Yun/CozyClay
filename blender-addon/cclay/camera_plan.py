@@ -116,49 +116,49 @@ def _projected_scale(pose: dict, sample: dict) -> float:
     return float(sample["height_m"]) / denominator
 
 
-def validate_camera_plan(plan_value: object, evidence: dict) -> dict:
+def validate_camera_plan(plan_value: object, evidence: dict | None = None) -> dict:
     """Validate production CameraPlanV1 predicates in G010 row order."""
     plan = parse_camera_plan(plan_value)
-    start = evidence["frame_range"]["start"]
-    end = evidence["frame_range"]["end"]
-
-    if any(keyframe["frame"] < start or keyframe["frame"] > end for keyframe in plan["keyframes"]):
-        _validation_error(
-            "PLAN_FRAME_OUT_OF_EVIDENCE_RANGE",
-            "plan keyframe lies outside the valid evidence range",
-        )
-
-    samples_by_frame = {
-        sample["frame"]: sample for sample in evidence["analysis"]["subject_samples"]
-    }
-    for keyframe in plan["keyframes"]:
-        if (
-            keyframe["transition"] == "cut"
-            and (
-                keyframe["frame"] - 1 not in samples_by_frame
-                or keyframe["frame"] not in samples_by_frame
-            )
-        ):
+    if evidence is not None:
+        start = evidence["frame_range"]["start"]
+        end = evidence["frame_range"]["end"]
+        if any(keyframe["frame"] < start or keyframe["frame"] > end for keyframe in plan["keyframes"]):
             _validation_error(
-                "EVIDENCE_SUBJECT_SAMPLE_MISSING",
-                f"cut {keyframe['frame']} requires exact subject samples N-1 and N",
+                "PLAN_FRAME_OUT_OF_EVIDENCE_RANGE",
+                "plan keyframe lies outside the valid evidence range",
             )
 
-    action_axis = evidence["analysis"]["action_axis"]
-    axis = _subtract(action_axis["b"], action_axis["a"])
-    axis_length = _magnitude(axis)
-    if axis_length < 1e-9:
-        _validation_error(
-            "EVIDENCE_ACTION_AXIS_ZERO_LENGTH",
-            "action axis length is below 1e-9",
-        )
-    axis_cross_up = _cross(axis, action_axis["up"])
-    axis_cross_up_length = _magnitude(axis_cross_up)
-    if axis_cross_up_length < 1e-9:
-        _validation_error(
-            "EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP",
-            "action axis is parallel to evidence up",
-        )
+        samples_by_frame = {
+            sample["frame"]: sample for sample in evidence["analysis"]["subject_samples"]
+        }
+        for keyframe in plan["keyframes"]:
+            if (
+                keyframe["transition"] == "cut"
+                and (
+                    keyframe["frame"] - 1 not in samples_by_frame
+                    or keyframe["frame"] not in samples_by_frame
+                )
+            ):
+                _validation_error(
+                    "EVIDENCE_SUBJECT_SAMPLE_MISSING",
+                    f"cut {keyframe['frame']} requires exact subject samples N-1 and N",
+                )
+
+        action_axis = evidence["analysis"]["action_axis"]
+        axis = _subtract(action_axis["b"], action_axis["a"])
+        axis_length = _magnitude(axis)
+        if axis_length < 1e-9:
+            _validation_error(
+                "EVIDENCE_ACTION_AXIS_ZERO_LENGTH",
+                "action axis length is below 1e-9",
+            )
+        axis_cross_up = _cross(axis, action_axis["up"])
+        axis_cross_up_length = _magnitude(axis_cross_up)
+        if axis_cross_up_length < 1e-9:
+            _validation_error(
+                "EVIDENCE_ACTION_AXIS_PARALLEL_TO_UP",
+                "action axis is parallel to evidence up",
+            )
 
     if any(not float(keyframe["frame"]).is_integer() for keyframe in plan["keyframes"]):
         _validation_error("PLAN_FRAME_NOT_INTEGER", "keyframe frames must be integers")
@@ -216,63 +216,64 @@ def validate_camera_plan(plan_value: object, evidence: dict) -> dict:
         for index, keyframe in enumerate(plan["keyframes"])
         if keyframe["transition"] == "cut"
     ]
-    for _index, keyframe in cuts:
-        if not any(
-            abs(frame - keyframe["frame"]) <= 1
-            for frame in evidence["analysis"]["motion_valley_frames"]
-        ):
-            _validation_error(
-                "CUT_NOT_AT_MOTION_VALLEY",
-                f"cut {keyframe['frame']} has no motion valley within one frame",
-            )
-    for _index, keyframe in cuts:
-        if any(
-            keyframe["frame"] >= peak["start"] - 1
-            and keyframe["frame"] <= peak["end"] + 1
-            for peak in evidence["analysis"]["action_peak_ranges"]
-        ):
-            _validation_error(
-                "CUT_SPLITS_ACTION_PEAK",
-                f"cut {keyframe['frame']} intersects an expanded action peak",
-            )
+    if evidence is not None:
+        for _index, keyframe in cuts:
+            if not any(
+                abs(frame - keyframe["frame"]) <= 1
+                for frame in evidence["analysis"]["motion_valley_frames"]
+            ):
+                _validation_error(
+                    "CUT_NOT_AT_MOTION_VALLEY",
+                    f"cut {keyframe['frame']} has no motion valley within one frame",
+                )
+        for _index, keyframe in cuts:
+            if any(
+                keyframe["frame"] >= peak["start"] - 1
+                and keyframe["frame"] <= peak["end"] + 1
+                for peak in evidence["analysis"]["action_peak_ranges"]
+            ):
+                _validation_error(
+                    "CUT_SPLITS_ACTION_PEAK",
+                    f"cut {keyframe['frame']} intersects an expanded action peak",
+                )
 
-    for index, keyframe in cuts:
-        if index == 0:
-            continue
-        previous_pose = plan["keyframes"][index - 1]["pose"]
-        before = samples_by_frame[keyframe["frame"] - 1]
-        after = samples_by_frame[keyframe["frame"]]
-        projected = [
-            _projected_scale(previous_pose, before),
-            _projected_scale(keyframe["pose"], after),
+        for index, keyframe in cuts:
+            if index == 0:
+                continue
+            previous_pose = plan["keyframes"][index - 1]["pose"]
+            before = samples_by_frame[keyframe["frame"] - 1]
+            after = samples_by_frame[keyframe["frame"]]
+            projected = [
+                _projected_scale(previous_pose, before),
+                _projected_scale(keyframe["pose"], after),
+            ]
+            if any(not math.isfinite(value) or value <= 0 for value in projected):
+                _validation_error(
+                    "CUT_SCALE_UNDEFINED",
+                    f"cut {keyframe['frame']} has undefined projected subject scale",
+                )
+            if max(projected) / min(projected) > 1.35 + _TOLERANCE:
+                _validation_error(
+                    "CUT_SCALE_DISCONTINUITY",
+                    f"cut {keyframe['frame']} exceeds the subject-scale continuity ratio",
+                )
+
+        side = [component / axis_cross_up_length for component in axis_cross_up]
+        side_scores = [
+            _dot(
+                _subtract(_ardy_to_blender(keyframe["pose"]["position"]), action_axis["a"]),
+                side,
+            )
+            for keyframe in plan["keyframes"]
         ]
-        if any(not math.isfinite(value) or value <= 0 for value in projected):
+        if any(abs(score) < _TOLERANCE for score in side_scores):
+            _validation_error("CAMERA_ON_ACTION_AXIS", "camera lies on the action axis")
+        initial_sign = 1 if side_scores[0] > 0 else -1
+        if any((1 if score > 0 else -1) != initial_sign for score in side_scores):
             _validation_error(
-                "CUT_SCALE_UNDEFINED",
-                f"cut {keyframe['frame']} has undefined projected subject scale",
+                "ACTION_AXIS_CROSSING",
+                "camera changes side across the action axis",
             )
-        if max(projected) / min(projected) > 1.35 + _TOLERANCE:
-            _validation_error(
-                "CUT_SCALE_DISCONTINUITY",
-                f"cut {keyframe['frame']} exceeds the subject-scale continuity ratio",
-            )
-
-    side = [component / axis_cross_up_length for component in axis_cross_up]
-    side_scores = [
-        _dot(
-            _subtract(_ardy_to_blender(keyframe["pose"]["position"]), action_axis["a"]),
-            side,
-        )
-        for keyframe in plan["keyframes"]
-    ]
-    if any(abs(score) < _TOLERANCE for score in side_scores):
-        _validation_error("CAMERA_ON_ACTION_AXIS", "camera lies on the action axis")
-    initial_sign = 1 if side_scores[0] > 0 else -1
-    if any((1 if score > 0 else -1) != initial_sign for score in side_scores):
-        _validation_error(
-            "ACTION_AXIS_CROSSING",
-            "camera changes side across the action axis",
-        )
     return plan
 
 
@@ -724,13 +725,17 @@ def apply_camera_plan_transaction(
     if bpy is None:
         raise CameraPlanError("apply_camera_plan requires Blender")
     plan = parse_camera_plan(plan_value)
-    evidence = load_authorized_fixture(plan, current_scene_hash)
+    evidence = (
+        load_authorized_fixture(plan, current_scene_hash)
+        if "evidence_sha256" in plan
+        else None
+    )
     plan = validate_camera_plan(plan, evidence)
     _check_abort(deadline, cancelled)
     live_manifest = _extract_live_scene_manifest(current_scene_hash)
-    if live_manifest["sceneHash"] != evidence["scene_hash"]:
+    if live_manifest["sceneHash"] != current_scene_hash:
         raise STALE_BASE(
-            "live main-thread manifest hash differs from the authorized evidence base"
+            "live main-thread manifest hash differs from the durable expected base"
         )
 
     scene = bpy.context.scene
@@ -769,32 +774,14 @@ def apply_camera_plan_transaction(
         bpy.context.view_layer.update()
         connection.ensure_mutation_connection("before_verify")
 
-        from .manifest import (
-            extract_scene_manifest_v2,
-            extract_scene_manifest_v3,
-            extract_scene_manifest_v4,
-        )
+        from .manifest import extract_scene_manifest_v4
         from .scene_manifest import finalize_scene_manifest_child
 
-        extracted_v4 = extract_scene_manifest_v4()
-        uses_v4 = (
-            any(item["parentId"] is not None for item in extracted_v4["objects"])
-            or bool(extracted_v4["assemblies"])
+        manifest = finalize_scene_manifest_child(
+            extract_scene_manifest_v4(),
+            plan["expected_revision_id"],
+            plan,
         )
-        if uses_v4:
-            manifest = finalize_scene_manifest_child(
-                extracted_v4,
-                plan["expected_revision_id"],
-                plan,
-            )
-        elif live_manifest["schemaVersion"] == 3:
-            manifest = finalize_scene_manifest_child(
-                extract_scene_manifest_v3(),
-                plan["expected_revision_id"],
-                plan,
-            )
-        else:
-            manifest = extract_scene_manifest_v2()
         result = {
             "expected_revision_id": plan["expected_revision_id"],
             "scene_hash": manifest["sceneHash"],

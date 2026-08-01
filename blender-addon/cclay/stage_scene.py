@@ -1,7 +1,6 @@
 """Closed StageScenePlanV1 validation and transactional Blender mutation."""
 
 from __future__ import annotations
-import ast
 
 import ctypes
 import gc
@@ -13,17 +12,13 @@ import math
 import os
 import re
 import time
-import struct
-import sys
 import traceback
-import zipfile
 import unicodedata
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from . import hand_shapes, motion_retarget
-from .scene_manifest import PRIMITIVE_TYPES
+from . import hand_shapes, motion_archive, motion_retarget
+from .character_rig import CharacterRigAdapter
 
 
 def _stage_log(connection, event: str, **fields) -> None:
@@ -41,51 +36,21 @@ _UUID4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _HASH = re.compile(r"^[0-9a-f]{64}$")
-_MOTION_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _PLAN_KEYS = {"schema_version", "expected_revision_id", "operations"}
 _OPERATION_KEYS = {
-    "add_primitive": {
-        "op", "entity_id", "primitive_type", "name", "location", "rotation", "scale",
-        "parent_id", "collection_name",
-    },
     "add_character": {
         "op", "entity_id", "character_type", "name", "location", "rotation", "scale",
     },
-    "add_camera": {
-        "op", "entity_id", "name", "location", "rotation", "lens",
-    },
-    "create_assembly": {"op", "name"},
-    "set_parent": {"op", "entity_id", "parent_id"},
-    "transform_assembly": {
-        "op", "assembly_id", "translation", "rotation_euler", "scale",
-    },
-    "set_material_color": {"op", "entity_id", "color", "roughness", "metallic"},
-    "upsert_area_light": {
-        "op", "entity_id", "name", "location", "rotation", "scale",
-        "energy", "color", "size", "collection_name",
-    },
-    "delete_entity": {"op", "entity_id"},
     "adopt_entity": {"op", "entity_id"},
-    "transform_entity": {
-        "op", "entity_id", "location", "rotation_euler", "scale",
-    },
-    "set_light_property": {"op", "entity_id", "energy", "color", "size"},
-    "set_camera_property": {
-        "op", "entity_id", "lens", "clip_start", "clip_end",
-        "sensor_width", "sensor_height", "sensor_fit",
-    },
     "set_render_settings": {
         "op", "resolution_x", "resolution_y", "resolution_percentage",
         "fps", "frame_start", "frame_end",
     },
-    "rename_entity": {"op", "entity_id", "name"},
     "apply_motion": {
         "op", "entity_id", "motion_id", "hand_pose", "hand_shapes", "hand_track",
         "start_frame",
     },
 }
-_PRIMITIVES = frozenset(PRIMITIVE_TYPES)
-_SENSOR_FITS = {"AUTO", "HORIZONTAL", "VERTICAL", "SQUARE"}
 _RENDER_SETTING_BOUNDS = {
     "resolution_x": (1, 65535),
     "resolution_y": (1, 65535),
@@ -129,22 +94,8 @@ class STAGE_SCENE_TARGET_TYPE_INVALID(StageSceneError):
     code = "STAGE_SCENE_TARGET_TYPE_INVALID"
 
 
-class STAGE_SCENE_PRIMITIVE_UNSUPPORTED(StageSceneError):
-    code = "STAGE_SCENE_PRIMITIVE_UNSUPPORTED"
-
-
 class STAGE_SCENE_SHARED_DATABLOCK(StageSceneError):
     code = "STAGE_SCENE_SHARED_DATABLOCK"
-class STAGE_SCENE_PARENT_CYCLE(StageSceneError):
-    code = "STAGE_SCENE_PARENT_CYCLE"
-
-
-class STAGE_SCENE_ASSEMBLY_NOT_FOUND(StageSceneError):
-    code = "STAGE_SCENE_ASSEMBLY_NOT_FOUND"
-
-
-
-
 class STAGE_SCENE_CANCELLED(StageSceneError):
     code = "STAGE_SCENE_CANCELLED"
 
@@ -242,308 +193,72 @@ def parse_stage_scene_plan(value: object) -> dict:
         expected_keys = _OPERATION_KEYS.get(operation_kind)
         if expected_keys is None:
             _invalid(f"operations[{index}].op is unsupported")
-        raw_operation = dict(raw_operation)
-        if operation_kind in ("add_primitive", "upsert_area_light"):
-            for optional_field in ("parent_id", "collection_name"):
-                if optional_field not in raw_operation:
-                    expected_keys = expected_keys - {optional_field}
-        elif operation_kind == "add_camera":
-            if "lens" not in raw_operation:
-                expected_keys = expected_keys - {"lens"}
-        elif operation_kind == "apply_motion":
+        operation = dict(raw_operation)
+        if operation_kind == "apply_motion":
             hand_fields = [
-                field
-                for field in ("hand_pose", "hand_shapes", "hand_track")
-                if field in raw_operation
+                field for field in ("hand_pose", "hand_shapes", "hand_track")
+                if field in operation
             ]
             if len(hand_fields) > 1:
-                _invalid(
-                    f"operations[{index}].{' and '.join(hand_fields)} are mutually exclusive"
-                )
-            if "hand_track" in raw_operation:
-                requested = raw_operation["hand_track"]
-                if not isinstance(requested, dict) or not requested:
-                    _invalid(
-                        f"operations[{index}].hand_track must contain exactly left, right, or both"
-                    )
-                if not set(requested) <= {"left", "right"}:
-                    _invalid(f"operations[{index}].hand_track contains unknown fields")
-                for side in ("left", "right"):
-                    if side not in requested:
-                        continue
-                    keys = requested[side]
-                    if not isinstance(keys, list) or not keys:
-                        _invalid(
-                            f"operations[{index}].hand_track.{side} must be a non-empty list of keys"
-                        )
-                    if len(keys) > hand_shapes.MAX_HAND_TRACK_KEYS:
-                        _invalid(
-                            f"operations[{index}].hand_track.{side} has more than "
-                            f"{hand_shapes.MAX_HAND_TRACK_KEYS} keys"
-                        )
-                    for key_index, key in enumerate(keys):
-                        if not isinstance(key, dict) or set(key) != {"frame", "preset"}:
-                            _invalid(
-                                f"operations[{index}].hand_track.{side}[{key_index}] must "
-                                f"contain exactly frame and preset"
-                            )
-                        if not isinstance(key["frame"], int) or isinstance(key["frame"], bool):
-                            _invalid(
-                                f"operations[{index}].hand_track.{side}[{key_index}].frame "
-                                f"must be an integer"
-                            )
-                        if key["frame"] < 0:
-                            _invalid(
-                                f"operations[{index}].hand_track.{side}[{key_index}].frame "
-                                f"must not be negative"
-                            )
-                        if key["preset"] not in hand_shapes.PRESET_NAMES:
-                            _invalid(
-                                f"operations[{index}].hand_track.{side}[{key_index}].preset "
-                                f"is unsupported"
-                            )
-            if "hand_shapes" in raw_operation:
-                requested = raw_operation["hand_shapes"]
-                if not isinstance(requested, dict):
-                    _invalid(
-                        f"operations[{index}].hand_shapes must contain exactly left, right, or both"
-                    )
-                if not set(requested) <= {"left", "right"}:
-                    _invalid(f"operations[{index}].hand_shapes contains unknown fields")
-                if not requested:
-                    _invalid(
-                        f"operations[{index}].hand_shapes must contain exactly left, right, or both"
-                    )
-                for side in ("left", "right"):
-                    if side in requested and requested[side] not in hand_shapes.PRESET_NAMES:
-                        _invalid(
-                            f"operations[{index}].hand_shapes.{side} is unsupported"
-                        )
+                _invalid(f"operations[{index}].{' and '.join(hand_fields)} are mutually exclusive")
             for optional_field in ("hand_pose", "hand_shapes", "hand_track", "start_frame"):
-                if optional_field not in raw_operation:
+                if optional_field not in operation:
                     expected_keys = expected_keys - {optional_field}
-        elif operation_kind == "transform_assembly":
-            required = {"op", "assembly_id"}
-            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
-                _invalid(
-                    f"operations[{index}] must contain {sorted(required)} "
-                    f"and only optional transform fields"
-                )
-            expected_keys = set(raw_operation)
-            transform_fields = [
-                field
-                for field in ("translation", "rotation_euler", "scale")
-                if field in raw_operation
-            ]
-            if not transform_fields:
-                _invalid(
-                    f"operations[{index}] transform_assembly must include at least "
-                    "one transform field"
-                )
-            for field in transform_fields:
-                if raw_operation[field] is None:
-                    _invalid(
-                        f"operations[{index}].{field} must be a vector, not null"
-                    )
-        elif operation_kind == "transform_entity":
-            required = {"op", "entity_id"}
-            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
-                _invalid(
-                    f"operations[{index}] must contain {sorted(required)} "
-                    f"and only optional transform fields"
-                )
-            expected_keys = set(raw_operation)
-            transform_fields = [
-                field
-                for field in ("location", "rotation_euler", "scale")
-                if field in raw_operation
-            ]
-            if not transform_fields:
-                _invalid(
-                    f"operations[{index}] transform_entity must include at least "
-                    "one transform field"
-                )
-            for field in transform_fields:
-                if raw_operation[field] is None:
-                    _invalid(
-                        f"operations[{index}].{field} must be a vector, not null"
-                    )
-        elif operation_kind == "set_material_color":
-            # roughness and metallic are optional so a plan written before surface
-            # finish existed stays valid and byte-identical on the wire.
-            required = {"op", "entity_id", "color"}
-            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
-                _invalid(
-                    f"operations[{index}] must contain {sorted(required)} "
-                    f"and only optional surface finish fields"
-                )
-            expected_keys = set(raw_operation)
-        elif operation_kind == "set_light_property":
-            required = {"op", "entity_id"}
-            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
-                _invalid(
-                    f"operations[{index}] must contain {sorted(required)} "
-                    f"and only optional light property fields"
-                )
-            expected_keys = set(raw_operation)
-            if not expected_keys - required:
-                _invalid(
-                    f"operations[{index}] set_light_property must include at least "
-                    "one property field"
-                )
-        elif operation_kind == "set_camera_property":
-            required = {"op", "entity_id"}
-            if not required <= set(raw_operation) or not set(raw_operation) <= expected_keys:
-                _invalid(
-                    f"operations[{index}] must contain {sorted(required)} "
-                    f"and only optional camera property fields"
-                )
-            expected_keys = set(raw_operation)
-            if not expected_keys - required:
-                _invalid(
-                    f"operations[{index}] set_camera_property must include at least "
-                    "one property field"
-                )
         elif operation_kind == "set_render_settings":
-            if not set(raw_operation) <= expected_keys:
-                _invalid(
-                    f"operations[{index}] must contain 'op' "
-                    f"and only optional render setting fields"
-                )
-            expected_keys = set(raw_operation)
-        operation = _exact(raw_operation, expected_keys, f"operations[{index}]")
-        if operation_kind == "create_assembly":
-            _name(operation.get("name"), f"operations[{index}].name")
-            continue
-        if operation_kind == "transform_assembly":
-            _uuid(operation.get("assembly_id"), f"operations[{index}].assembly_id")
-            for field in ("translation", "rotation_euler", "scale"):
-                if field in operation:
-                    _vector(
-                        operation[field], 3, f"operations[{index}].{field}",
-                        positive=field == "scale",
-                    )
-            continue
+            if not set(operation) <= expected_keys:
+                _invalid(f"operations[{index}] must contain 'op' and only optional render setting fields")
+            expected_keys = set(operation)
+        operation = _exact(operation, expected_keys, f"operations[{index}]")
         if operation_kind == "set_render_settings":
             for field, (minimum, maximum) in _RENDER_SETTING_BOUNDS.items():
                 if field in operation:
-                    _integer(
-                        operation[field], f"operations[{index}].{field}",
-                        minimum=minimum, maximum=maximum,
-                    )
+                    _integer(operation[field], f"operations[{index}].{field}", minimum=minimum, maximum=maximum)
             continue
         entity_id = _uuid(operation.get("entity_id"), f"operations[{index}].entity_id")
-        if operation_kind in ("add_primitive", "set_parent"):
-            if operation.get("parent_id") is not None:
-                _uuid(operation["parent_id"], f"operations[{index}].parent_id")
-            if operation.get("parent_id") == entity_id:
-                _invalid(f"operations[{index}] cannot parent an entity to itself")
-        if operation_kind == "add_primitive":
-            if operation.get("primitive_type") not in _PRIMITIVES:
-                _invalid(f"operations[{index}].primitive_type is unsupported")
-            _name(operation.get("name"), f"operations[{index}].name")
-            _vector(operation.get("location"), 3, f"operations[{index}].location")
-            _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
-            _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
-            if "collection_name" in operation:
-                _name(
-                    operation["collection_name"],
-                    f"operations[{index}].collection_name",
-                )
-        elif operation_kind == "add_character":
+        if operation_kind == "add_character":
             if operation.get("character_type") not in _CHARACTERS:
                 _invalid(f"operations[{index}].character_type is unsupported")
             _name(operation.get("name"), f"operations[{index}].name")
             _vector(operation.get("location"), 3, f"operations[{index}].location")
             _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
             _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
-        elif operation_kind == "add_camera":
-            _name(operation.get("name"), f"operations[{index}].name")
-            _vector(operation.get("location"), 3, f"operations[{index}].location")
-            _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
-            if "lens" in operation:
-                _number(operation["lens"], f"operations[{index}].lens", positive=True)
-        elif operation_kind == "set_material_color":
-            _vector(operation.get("color"), 4, f"operations[{index}].color", unit=True)
-            # Optional: absent keeps the Principled defaults the add-on has always
-            # produced, so an older plan stays byte-identical on the wire.
-            for finish in ("roughness", "metallic"):
-                if finish in operation:
-                    _number(
-                        operation[finish],
-                        f"operations[{index}].{finish}",
-                        minimum=0.0,
-                        maximum=1.0,
-                    )
-        elif operation_kind == "upsert_area_light":
-            _name(operation.get("name"), f"operations[{index}].name")
-            _vector(operation.get("location"), 3, f"operations[{index}].location")
-            _vector(operation.get("rotation"), 3, f"operations[{index}].rotation")
-            _vector(operation.get("scale"), 3, f"operations[{index}].scale", positive=True)
-            _number(operation.get("energy"), f"operations[{index}].energy", minimum=0)
-            _vector(operation.get("color"), 3, f"operations[{index}].color", unit=True)
-            _number(operation.get("size"), f"operations[{index}].size", positive=True)
-            if "collection_name" in operation:
-                _name(
-                    operation["collection_name"],
-                    f"operations[{index}].collection_name",
-                )
-        elif operation_kind == "transform_entity":
-            for field in ("location", "rotation_euler", "scale"):
-                if field in operation:
-                    _vector(
-                        operation[field], 3, f"operations[{index}].{field}",
-                        positive=field == "scale",
-                    )
-        elif operation_kind == "set_light_property":
-            if "energy" in operation:
-                _number(operation["energy"], f"operations[{index}].energy", minimum=0)
-            if "color" in operation:
-                _vector(operation["color"], 3, f"operations[{index}].color", unit=True)
-            if "size" in operation:
-                _number(operation["size"], f"operations[{index}].size", positive=True)
-        elif operation_kind == "set_camera_property":
-            for field in (
-                "lens", "clip_start", "clip_end", "sensor_width", "sensor_height",
-            ):
-                if field in operation:
-                    _number(
-                        operation[field], f"operations[{index}].{field}",
-                        positive=True,
-                    )
-            if "sensor_fit" in operation and operation["sensor_fit"] not in _SENSOR_FITS:
-                _invalid(f"operations[{index}].sensor_fit is unsupported")
-        elif operation_kind == "rename_entity":
-            _name(operation.get("name"), f"operations[{index}].name")
-        elif operation_kind == "apply_motion":
-            motion_id = operation.get("motion_id")
-            if not isinstance(motion_id, str) or _MOTION_ID.fullmatch(motion_id) is None:
-                _invalid(
-                    f"operations[{index}].motion_id must be a lowercase "
-                    "[a-z0-9-] slug of at most 64 characters"
-                )
-            if "hand_pose" in operation and operation["hand_pose"] not in _HAND_POSES:
-                _invalid(f"operations[{index}].hand_pose is unsupported")
-            if "start_frame" in operation:
-                _integer(
-                    operation["start_frame"], f"operations[{index}].start_frame",
-                    minimum=-100000, maximum=100000,
-                )
-
-        if operation_kind in ("add_primitive", "upsert_area_light", "add_character", "add_camera"):
             if entity_id in created_ids:
-                raise StageSceneValidationError(
-                    "STAGE_SCENE_ENTITY_ID_DUPLICATE",
-                    f"entity_id {entity_id} is created more than once",
-                )
+                raise StageSceneValidationError("STAGE_SCENE_ENTITY_ID_DUPLICATE", f"entity_id {entity_id} is created more than once")
             created_ids.add(entity_id)
             stable_name = operation["name"]
             if stable_name in stable_names:
-                raise StageSceneValidationError(
-                    "STAGE_SCENE_STABLE_NAME_DUPLICATE",
-                    f"stable name {stable_name!r} is repeated",
-                )
+                raise StageSceneValidationError("STAGE_SCENE_STABLE_NAME_DUPLICATE", f"stable name {stable_name!r} is repeated")
             stable_names.add(stable_name)
+        elif operation_kind == "apply_motion":
+            try:
+                motion_archive.validate_motion_id(operation.get("motion_id"))
+            except motion_archive.MotionArchiveError:
+                _invalid(f"operations[{index}].motion_id must be a lowercase [a-z0-9-] slug of at most 64 characters")
+            if "hand_pose" in operation and operation["hand_pose"] not in _HAND_POSES:
+                _invalid(f"operations[{index}].hand_pose is unsupported")
+            if "hand_shapes" in operation:
+                requested = operation["hand_shapes"]
+                if not isinstance(requested, dict) or not requested or not set(requested) <= {"left", "right"}:
+                    _invalid(f"operations[{index}].hand_shapes must contain exactly left, right, or both")
+                for side in requested:
+                    if requested[side] not in hand_shapes.PRESET_NAMES:
+                        _invalid(f"operations[{index}].hand_shapes.{side} is unsupported")
+            if "hand_track" in operation:
+                requested = operation["hand_track"]
+                if not isinstance(requested, dict) or not requested or not set(requested) <= {"left", "right"}:
+                    _invalid(f"operations[{index}].hand_track must contain exactly left, right, or both")
+                for side, keys in requested.items():
+                    if not isinstance(keys, list) or not keys or len(keys) > hand_shapes.MAX_HAND_TRACK_KEYS:
+                        _invalid(f"operations[{index}].hand_track.{side} must be a non-empty bounded list of keys")
+                    for key_index, key in enumerate(keys):
+                        if not isinstance(key, dict) or set(key) != {"frame", "preset"}:
+                            _invalid(f"operations[{index}].hand_track.{side}[{key_index}] must contain exactly frame and preset")
+                        if not isinstance(key["frame"], int) or isinstance(key["frame"], bool) or key["frame"] < 0:
+                            _invalid(f"operations[{index}].hand_track.{side}[{key_index}].frame must be a non-negative integer")
+                        if key["preset"] not in hand_shapes.PRESET_NAMES:
+                            _invalid(f"operations[{index}].hand_track.{side}[{key_index}].preset is unsupported")
+            if "start_frame" in operation:
+                _integer(operation["start_frame"], f"operations[{index}].start_frame", minimum=-100000, maximum=100000)
     return plan
 
 
@@ -562,36 +277,34 @@ def _entity(entity_id: str):
     )
 
 
-def _ensure_collection(name: str, transaction: _StageTransaction):
-    """Get or create a Blender Collection named `name` and track it for rollback.
-
-    The collection is linked to the scene collection so it appears in the
-    Outliner. Reusing an existing collection is idempotent.
-    """
-    collection = bpy.data.collections.get(name)
-    if collection is None:
-        collection = bpy.data.collections.new(name)
-        transaction.scene.collection.children.link(collection)
-        transaction.created_collections.append(collection)
-    return collection
-
-
-def _link_to_collection(scene_object: object, collection_name: str | None, transaction: _StageTransaction):
-    """Link `scene_object` into `collection_name` if given, else the scene root.
-
-    Blender allows an object to live in multiple collections; we keep the
-    director simple by linking into the named collection only.
-    """
-    if collection_name is None:
-        transaction.scene.collection.objects.link(scene_object)
-        return
-    collection = _ensure_collection(collection_name, transaction)
-    collection.objects.link(scene_object)
-
-
 def _owned(scene_object: object, project_id: str) -> bool:
     return scene_object.get("cclay.owned_project_id") == project_id
 
+_MIGRATION_VERSION = 1
+
+
+def _is_foreign_object(scene_object: object, project_id: str) -> bool:
+    """True when an object is absent from, or owned outside, this project."""
+    return scene_object.get("cclay.owned_project_id") != project_id
+
+
+def _scene_collection_objects(collection: object):
+    """Yield each object in a scene-linked collection hierarchy once."""
+    seen_collections: set[object] = set()
+    seen_objects: set[object] = set()
+
+    def visit(current: object):
+        if current in seen_collections:
+            return
+        seen_collections.add(current)
+        for scene_object in current.objects:
+            if scene_object not in seen_objects:
+                seen_objects.add(scene_object)
+                yield scene_object
+        for child in current.children:
+            yield from visit(child)
+
+    yield from visit(collection)
 
 def _require_owned_entity(entity_id: str, project_id: str):
     scene_object = _entity(entity_id)
@@ -658,23 +371,17 @@ class _StageTransaction:
         self.scene = scene
         self.created_objects: list[object] = []
         self.created_materials: list[object] = []
-        self.created_collections: list[object] = []
-        self.object_states: dict[object, dict] = {}
-        self.material_states: dict[object, dict] = {}
-        self.quarantined: dict[object, tuple[object, ...]] = {}
         # Pre-existing foreign objects stamped with cclay.owned_project_id by
         # adopt_entity during this transaction; rollback removes the stamp.
         self.adopted_objects: list[object] = []
-        # entity_id -> collection name assigned at creation; used by set_parent
-        # to keep children in the same collection as their parent.
-        self.collection_by_entity: dict[str, str] = {}
         self.render_state: dict | None = None
         # Object -> previously assigned action (or None); actions created by
         # apply_motion during this transaction. Rollback restores the old
         # action reference and removes now-orphaned created actions.
         self.animation_states: dict[object, dict] = {}
         self.created_actions: list[object] = []
-        self.active_camera = scene.camera
+        self.custom_property_states: dict[tuple[object, str], object] = {}
+        self._missing_custom_property = object()
         self.selected = tuple(
             scene_object for scene_object in scene.objects if scene_object.select_get()
         )
@@ -707,89 +414,14 @@ class _StageTransaction:
             },
         }
 
-    def capture_object(self, scene_object: object) -> None:
-        if scene_object in self.created_objects or scene_object in self.object_states:
+    def capture_custom_property(self, target: object, key: str) -> None:
+        property_key = (target, key)
+        if property_key in self.custom_property_states:
             return
-        state = {
-            "name": scene_object.name,
-            "location": tuple(scene_object.location),
-            "rotation_mode": scene_object.rotation_mode,
-            "rotation_euler": tuple(scene_object.rotation_euler),
-            "scale": tuple(scene_object.scale),
-            "parent": scene_object.parent,
-            "matrix_parent_inverse": scene_object.matrix_parent_inverse.copy(),
-            "matrix_world": scene_object.matrix_world.copy(),
-        }
-        if scene_object.type == "LIGHT":
-            state["light"] = {
-                "type": scene_object.data.type,
-                "energy": float(scene_object.data.energy),
-                "color": tuple(scene_object.data.color),
-                "size": float(scene_object.data.size),
-            }
-        elif scene_object.type == "CAMERA":
-            cam = scene_object.data
-            state["camera"] = {
-                "lens": float(cam.lens),
-                "clip_start": float(cam.clip_start),
-                "clip_end": float(cam.clip_end),
-                "sensor_width": float(cam.sensor_width),
-                "sensor_height": float(cam.sensor_height),
-                "sensor_fit": cam.sensor_fit,
-            }
-        self.object_states[scene_object] = state
+        self.custom_property_states[property_key] = (
+            target[key] if key in target else self._missing_custom_property
+        )
 
-    def capture_materials(self, scene_object: object, material: object | None) -> None:
-        if scene_object not in self.created_objects:
-            if scene_object not in self.object_states:
-                self.capture_object(scene_object)
-            state = self.object_states[scene_object]
-            state.setdefault("material_slots", tuple(scene_object.data.materials))
-        if (
-            material is not None
-            and material not in self.created_materials
-            and material not in self.material_states
-        ):
-            # Gated on the node tree ALONE, deliberately matching the exporter in
-            # manifest.py rather than the narrower `use_nodes` test this used to
-            # share with nothing. _set_material_color turns `use_nodes` ON and
-            # then writes these sockets, so a material captured while nodes were
-            # disabled would snapshot None, skip restoration on rollback, and
-            # leave the sockets mutated -- and the exporter reads them regardless
-            # of `use_nodes`, so the restored scene would hash differently and
-            # escalate to RECOVERY_REQUIRED.
-            principled = (
-                material.node_tree.nodes.get("Principled BSDF")
-                if material.node_tree is not None
-                else None
-            )
-            base_color = (
-                tuple(principled.inputs["Base Color"].default_value)
-                if principled is not None
-                else None
-            )
-            # Surface finish is captured alongside base_color so a transaction
-            # that mutated Roughness/Metallic and then failed can restore both
-            # sockets. Like base_color, both are None when there is no
-            # Principled node, and the exact float is captured so the round trip
-            # is lossless (Blender stores these as binary32).
-            roughness = (
-                float(principled.inputs["Roughness"].default_value)
-                if principled is not None
-                else None
-            )
-            metallic = (
-                float(principled.inputs["Metallic"].default_value)
-                if principled is not None
-                else None
-            )
-            self.material_states[material] = {
-                "diffuse_color": tuple(material.diffuse_color),
-                "use_nodes": bool(material.use_nodes),
-                "base_color": base_color,
-                "roughness": roughness,
-                "metallic": metallic,
-            }
 
     def capture_render(self) -> None:
         if self.render_state is not None:
@@ -807,61 +439,13 @@ class _StageTransaction:
             "frame_current": scene.frame_current,
         }
 
-    def quarantine(self, scene_object: object) -> None:
-        if scene_object in self.quarantined:
-            return
-        collections = tuple(scene_object.users_collection)
-        self.quarantined[scene_object] = collections
-        for collection in collections:
-            collection.objects.unlink(scene_object)
-
     def rollback(self) -> None:
-        for scene_object, collections in self.quarantined.items():
-            for collection in collections:
-                if scene_object.name not in collection.objects:
-                    collection.objects.link(scene_object)
-        for scene_object, state in self.object_states.items():
-            scene_object.name = state["name"]
-            scene_object.location = state["location"]
-            scene_object.rotation_mode = state["rotation_mode"]
-            scene_object.rotation_euler = state["rotation_euler"]
-            scene_object.scale = state["scale"]
-            scene_object.parent = state["parent"]
-            scene_object.matrix_parent_inverse = state["matrix_parent_inverse"]
-            scene_object.matrix_world = state["matrix_world"]
-            if "light" in state:
-                light = state["light"]
-                scene_object.data.type = light["type"]
-                scene_object.data.energy = light["energy"]
-                scene_object.data.color = light["color"]
-                scene_object.data.size = light["size"]
-            if "camera" in state:
-                cam = state["camera"]
-                scene_object.data.lens = cam["lens"]
-                scene_object.data.clip_start = cam["clip_start"]
-                scene_object.data.clip_end = cam["clip_end"]
-                scene_object.data.sensor_width = cam["sensor_width"]
-                scene_object.data.sensor_height = cam["sensor_height"]
-                scene_object.data.sensor_fit = cam["sensor_fit"]
-            if "material_slots" in state:
-                scene_object.data.materials.clear()
-                for material in state["material_slots"]:
-                    scene_object.data.materials.append(material)
-        for material, state in self.material_states.items():
-            material.diffuse_color = state["diffuse_color"]
-            material.use_nodes = state["use_nodes"]
-            if state["base_color"] is not None:
-                principled = material.node_tree.nodes["Principled BSDF"]
-                principled.inputs["Base Color"].default_value = state["base_color"]
-                # Restore the surface finish sockets captured above. Guarded on
-                # the same Principled node as base_color, and written as the
-                # exact captured float so the round trip is lossless.
-                if state["roughness"] is not None:
-                    principled.inputs["Roughness"].default_value = state["roughness"]
-                if state["metallic"] is not None:
-                    principled.inputs["Metallic"].default_value = state["metallic"]
-        if self.active_camera is None or self.active_camera.name in bpy.data.objects:
-            self.scene.camera = self.active_camera
+        for (target, key), value in self.custom_property_states.items():
+            if value is self._missing_custom_property:
+                if key in target:
+                    del target[key]
+            else:
+                target[key] = value
         for scene_object in self.adopted_objects:
             if scene_object.get("cclay.owned_project_id") is not None:
                 del scene_object["cclay.owned_project_id"]
@@ -918,9 +502,6 @@ class _StageTransaction:
         for scene_object in reversed(self.created_objects):
             if scene_object.name in bpy.data.objects:
                 _destroy_object(scene_object)
-        for collection in reversed(self.created_collections):
-            if collection.name in bpy.data.collections and len(collection.objects) == 0:
-                bpy.data.collections.remove(collection)
         for material in tuple(self.created_materials):
             try:
                 is_registered = material.name in bpy.data.materials
@@ -936,17 +517,6 @@ class _StageTransaction:
             if self.active is not None and self.active.name in bpy.data.objects
             else None
         )
-
-    def finalize_deletions(self) -> None:
-        for scene_object in tuple(self.quarantined):
-            try:
-                object_name = scene_object.name
-            except ReferenceError:
-                self.quarantined.pop(scene_object, None)
-                continue
-            if object_name in bpy.data.objects:
-                _destroy_object(scene_object)
-            self.quarantined.pop(scene_object, None)
 
     def finalize_orphan_actions(self) -> None:
         """Remove superseded actions created by repeated apply_motion operations."""
@@ -967,185 +537,20 @@ class _StageTransaction:
                 bpy.data.actions.remove(action)
 
 
-# Authored so the ring's outer edge lands exactly on the -1..1 unit box like every
-# other shape, keeping `scale` uniform: 0.75 + 0.25 = 1.0.
-# TORUS is the one shape where `scale` is NOT the half-extent on every axis: the
-# swept tube's Z extent is 0.5, so scale.z multiplies a 0.25 canonical half-height
-# rather than a 1.0 half-extent. A circular tube cannot reach +/-1 on all three
-# axes without becoming elliptical, so the XY/XZ asymmetry is intrinsic.
-_TORUS_MAJOR_RADIUS = 0.75
-_TORUS_MINOR_RADIUS = 0.25
+def _migrate_foreign_objects(scene: object, transaction: _StageTransaction, project_id: str) -> None:
+    """Lock pre-existing foreign objects and record the completed scene migration."""
+    version = scene.get("cclay.migration_version")
+    if type(version) is int and version >= _MIGRATION_VERSION:
+        return
+    for scene_object in _scene_collection_objects(scene.collection):
+        if scene_object.library is not None:
+            continue
+        if _is_foreign_object(scene_object, project_id):
+            transaction.capture_custom_property(scene_object, "cclay.locked_by_human")
+            scene_object["cclay.locked_by_human"] = True
+    transaction.capture_custom_property(scene, "cclay.migration_version")
+    scene["cclay.migration_version"] = _MIGRATION_VERSION
 
-
-def _build_cube(editable, bmesh) -> None:
-    bmesh.ops.create_cube(editable, size=2)
-
-
-def _build_plane(editable, bmesh) -> None:
-    bmesh.ops.create_grid(editable, x_segments=1, y_segments=1, size=1)
-
-
-def _build_uv_sphere(editable, bmesh) -> None:
-    bmesh.ops.create_uvsphere(editable, u_segments=32, v_segments=16, radius=1)
-
-
-def _build_cylinder(editable, bmesh) -> None:
-    bmesh.ops.create_cone(
-        editable, cap_ends=True, cap_tris=False, segments=32,
-        radius1=1, radius2=1, depth=2,
-    )
-
-
-def _build_cone(editable, bmesh) -> None:
-    bmesh.ops.create_cone(
-        editable, cap_ends=True, cap_tris=False, segments=32,
-        radius1=1, radius2=0, depth=2,
-    )
-
-
-def _build_circle(editable, bmesh) -> None:
-    bmesh.ops.create_circle(editable, cap_ends=True, segments=32, radius=1)
-
-
-def _build_torus(editable, bmesh) -> None:
-    # bmesh.ops has no create_torus, so sweep a minor-radius ring around Z.
-    ring = bmesh.ops.create_circle(
-        editable, cap_ends=False, segments=12, radius=_TORUS_MINOR_RADIUS
-    )
-    for vert in ring["verts"]:
-        across, along = vert.co.x, vert.co.y
-        vert.co = (across + _TORUS_MAJOR_RADIUS, 0.0, along)
-    ring_edges = {edge for vert in ring["verts"] for edge in vert.link_edges}
-    bmesh.ops.spin(
-        editable, geom=ring["verts"] + list(ring_edges),
-        axis=(0.0, 0.0, 1.0), cent=(0.0, 0.0, 0.0), dvec=(0.0, 0.0, 0.0),
-        angle=math.tau, steps=24, use_merge=True, use_duplicate=False,
-    )
-
-
-# One inspectable table instead of an if/elif chain, so the builder vocabulary can
-# be compared against PRIMITIVE_TYPES in BOTH directions by a host-side test with
-# no Blender at all. A chain could only ever be probed with guessed names, which
-# proves nothing about a branch nobody guessed.
-_PRIMITIVE_BUILDERS = {
-    "PLANE": _build_plane,
-    "CUBE": _build_cube,
-    "UV_SPHERE": _build_uv_sphere,
-    "CYLINDER": _build_cylinder,
-    "CONE": _build_cone,
-    "CIRCLE": _build_circle,
-    "TORUS": _build_torus,
-}
-
-# Shading is part of what a shape IS, so the builder owns the DEFAULT policy per
-# shape and it never became a wire field a director has to set. What the manifest
-# records is the OBSERVED result: _stage_primitive_shading in manifest.py exports
-# SMOOTH or MIXED, omitted when every face is flat. That is what lets a stored
-# revision prove its own shading and catches a user flattening a mesh out of band.
-# Curved surfaces rendered visibly faceted before any of this existed.
-_SHADING_ALL_SMOOTH = frozenset({"UV_SPHERE", "TORUS"})
-# Smooth the swept side but keep the caps flat. Shading a cap as though it were
-# curved is exactly what makes a "smooth" cylinder look wrong.
-_SHADING_SMOOTH_SIDES = frozenset({"CYLINDER", "CONE"})
-_SHADING_FLAT = frozenset({"PLANE", "CUBE", "CIRCLE"})
-# The threshold separating a swept side from a cap. Safe ONLY for the fixed
-# unit-box proportions every builder authors: the unit CONE's side face
-# |normal.z| is 0.445488364 (margin 0.454511636 below it) and its cap is 1.0
-# (margin 0.1 above). A radius-1 depth-0.4 cone would be 0.928477 and be
-# misclassified as a cap. It stays safe because the director's `scale` is an
-# OBJECT transform that never touches mesh-space normals -- so if anyone ever
-# parameterises a builder's aspect ratio, replace this with structural cap
-# identification (e.g. cap faces all share one vertex ring) rather than a
-# normal-z heuristic.
-_CAP_NORMAL_Z = 0.9
-
-
-def _build_primitive_mesh(editable, primitive_type: str) -> None:
-    """Author one shape into `editable`, sized to the -1..1 unit box.
-
-    Construction stays pure bmesh -- no bpy.ops -- so there is no operator
-    context, no selection side effect, and no dependency on the active scene.
-    An unknown shape raises instead of falling through to a sphere: with seven
-    shapes a silent default would turn a validation gap into a wrong mesh.
-    """
-    import bmesh
-
-    builder = _PRIMITIVE_BUILDERS.get(primitive_type)
-    if builder is None:
-        raise STAGE_SCENE_PRIMITIVE_UNSUPPORTED(
-            f"primitive_type {primitive_type!r} passed validation but has no builder"
-        )
-    builder(editable, bmesh)
-
-    editable.normal_update()
-    if primitive_type in _SHADING_ALL_SMOOTH:
-        for face in editable.faces:
-            face.smooth = True
-    elif primitive_type in _SHADING_SMOOTH_SIDES:
-        for face in editable.faces:
-            face.smooth = abs(face.normal.z) < _CAP_NORMAL_Z
-
-
-def _create_primitive(operation: dict, transaction: _StageTransaction, project_id: str):
-    import bmesh
-
-    if _entity(operation["entity_id"]) is not None:
-        raise STAGE_SCENE_ENTITY_ID_EXISTS(
-            f"entity_id {operation['entity_id']} already exists"
-        )
-    if bpy.data.objects.get(operation["name"]) is not None:
-        raise STAGE_SCENE_STABLE_NAME_EXISTS(
-            f"stable name {operation['name']!r} already exists"
-        )
-    mesh = bpy.data.meshes.new(f"{operation['name']} Mesh")
-    editable = bmesh.new()
-    try:
-        _build_primitive_mesh(editable, operation["primitive_type"])
-        editable.to_mesh(mesh)
-    finally:
-        editable.free()
-    scene_object = bpy.data.objects.new(operation["name"], mesh)
-    scene_object["cclay.entity_id"] = operation["entity_id"]
-    scene_object["cclay.owned_project_id"] = project_id
-    scene_object["cclay.stage_primitive_type"] = operation["primitive_type"]
-    scene_object.location = operation["location"]
-    scene_object.rotation_mode = "XYZ"
-    scene_object.rotation_euler = operation["rotation"]
-    scene_object.scale = operation["scale"]
-    collection_name = operation.get("collection_name")
-    _link_to_collection(scene_object, collection_name, transaction)
-    if collection_name is not None:
-        transaction.collection_by_entity[operation["entity_id"]] = collection_name
-    transaction.created_objects.append(scene_object)
-    if operation.get("parent_id") is not None:
-        parent = _require_owned_entity(operation["parent_id"], project_id)
-        scene_object.parent = parent
-        scene_object.matrix_parent_inverse = parent.matrix_world.inverted()
-    return scene_object
-
-
-def _create_camera(operation: dict, transaction: _StageTransaction, project_id: str):
-    if _entity(operation["entity_id"]) is not None:
-        raise STAGE_SCENE_ENTITY_ID_EXISTS(
-            f"entity_id {operation['entity_id']} already exists"
-        )
-    if bpy.data.objects.get(operation["name"]) is not None:
-        raise STAGE_SCENE_STABLE_NAME_EXISTS(
-            f"stable name {operation['name']!r} already exists"
-        )
-    camera = bpy.data.cameras.new(f"{operation['name']} Data")
-    scene_object = bpy.data.objects.new(operation["name"], camera)
-    scene_object["cclay.entity_id"] = operation["entity_id"]
-    scene_object["cclay.owned_project_id"] = project_id
-    scene_object.location = operation["location"]
-    scene_object.rotation_mode = "XYZ"
-    scene_object.rotation_euler = operation["rotation"]
-    if "lens" in operation:
-        camera.lens = operation["lens"]
-    transaction.scene.collection.objects.link(scene_object)
-    transaction.created_objects.append(scene_object)
-    transaction.scene.camera = scene_object
-    return scene_object
 
 def _derived_child_entity_id(root_entity_id: str, child_name: str) -> str:
     """Deterministic UUIDv4-shaped id for a datablock imported under a character root."""
@@ -1268,211 +673,6 @@ def _create_character(operation: dict, transaction: _StageTransaction, project_i
 
 
 
-def _create_assembly(operation: dict, transaction: _StageTransaction, project_id: str):
-    if bpy.data.objects.get(operation["name"]) is not None:
-        raise STAGE_SCENE_STABLE_NAME_EXISTS(
-            f"stable name {operation['name']!r} already exists"
-        )
-    root = bpy.data.objects.new(operation["name"], None)
-    root["cclay.entity_id"] = str(uuid.uuid4())
-    root["cclay.owned_project_id"] = project_id
-    root["cclay.assembly_id"] = str(uuid.uuid4())
-    root["cclay.assembly_name"] = operation["name"]
-    # An assembly owns a Blender Collection of the same name so every part
-    # parented under it lives in one Outliner group the user can toggle/hide.
-    collection = _ensure_collection(operation["name"], transaction)
-    collection.objects.link(root)
-    transaction.collection_by_entity[root["cclay.entity_id"]] = operation["name"]
-    transaction.created_objects.append(root)
-    return root
-
-
-def _set_parent(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    child = _require_owned_entity(operation["entity_id"], project_id)
-    parent = (
-        _require_owned_entity(operation["parent_id"], project_id)
-        if operation["parent_id"] is not None
-        else None
-    )
-    ancestor = parent
-    while ancestor is not None:
-        if ancestor == child:
-            raise STAGE_SCENE_PARENT_CYCLE(
-                f"parenting entity {operation['entity_id']} would create a cycle"
-            )
-        ancestor = ancestor.parent
-    transaction.capture_object(child)
-    world = child.matrix_world.copy()
-    child.parent = parent
-    if parent is not None:
-        child.matrix_parent_inverse = parent.matrix_world.inverted()
-        # Keep the child in the same Blender Collection as its parent so the
-        # Outliner hierarchy and the parenting hierarchy stay aligned.
-        parent_collection_name = transaction.collection_by_entity.get(
-            parent.get("cclay.entity_id")
-        )
-        if parent_collection_name is not None:
-            parent_collection = bpy.data.collections.get(parent_collection_name)
-            if parent_collection is not None and child.name not in parent_collection.objects:
-                parent_collection.objects.link(child)
-            transaction.collection_by_entity[child.get("cclay.entity_id")] = parent_collection_name
-    child.matrix_world = world
-
-
-def _transform_assembly(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    root = next(
-        (
-            scene_object
-            for scene_object in bpy.data.objects
-            if scene_object.get("cclay.assembly_id") == operation["assembly_id"]
-        ),
-        None,
-    )
-    if root is None:
-        raise STAGE_SCENE_ASSEMBLY_NOT_FOUND(
-            f"assembly {operation['assembly_id']} does not exist"
-        )
-    if not _owned(root, project_id):
-        raise STAGE_SCENE_TARGET_NOT_CCLAY_OWNED(
-            f"assembly {operation['assembly_id']} was not created by CCLAY for this project"
-        )
-    transaction.capture_object(root)
-    if operation.get("translation") is not None:
-        root.location = operation["translation"]
-    if operation.get("rotation_euler") is not None:
-        root.rotation_mode = "XYZ"
-        root.rotation_euler = operation["rotation_euler"]
-    if operation.get("scale") is not None:
-        root.scale = operation["scale"]
-
-
-def _generated_material(scene_object: object, transaction: _StageTransaction):
-    entity_id = scene_object["cclay.entity_id"]
-    generated = [
-        material
-        for material in scene_object.data.materials
-        if material is not None
-        and material.get("cclay.generated_for_entity_id") == entity_id
-    ]
-    if len(generated) > 1:
-        raise STAGE_SCENE_TARGET_TYPE_INVALID(
-            f"entity {entity_id} has more than one generated material"
-        )
-    material = generated[0] if generated else None
-    transaction.capture_materials(scene_object, material)
-    if material is None:
-        material = bpy.data.materials.new(f"CCLAY Material {entity_id[:8]}")
-        material["cclay.generated_for_entity_id"] = entity_id
-        transaction.created_materials.append(material)
-    scene_object.data.materials.clear()
-    scene_object.data.materials.append(material)
-    return material
-
-
-def _belongs_to_character(mesh: object, root: object) -> bool:
-    """True when a mesh is skinned to (or parented under) a character armature."""
-    parent = mesh.parent
-    while parent is not None:
-        if parent == root:
-            return True
-        parent = parent.parent
-    return any(
-        modifier.type == "ARMATURE" and modifier.object == root
-        for modifier in mesh.modifiers
-    )
-
-
-def _apply_material_color(scene_object: object, operation: dict, transaction: _StageTransaction) -> None:
-    material = _generated_material(scene_object, transaction)
-    material.use_nodes = True
-    material.diffuse_color = operation["color"]
-    principled = material.node_tree.nodes.get("Principled BSDF")
-    if principled is None:
-        raise STAGE_SCENE_TARGET_TYPE_INVALID(
-            "generated material has no Principled BSDF node"
-        )
-    principled.inputs["Base Color"].default_value = operation["color"]
-    # Surface finish is what separates a metal handrail from matte concrete. When
-    # omitted the Principled default is left untouched, so an older plan produces
-    # exactly the material it produced before.
-    for key, socket_name in (("roughness", "Roughness"), ("metallic", "Metallic")):
-        if key not in operation:
-            continue
-        socket = principled.inputs.get(socket_name)
-        if socket is None:
-            raise STAGE_SCENE_TARGET_TYPE_INVALID(
-                f"generated material has no {socket_name} input"
-            )
-        socket.default_value = operation[key]
-
-
-def _set_material_color(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    scene_object = _require_owned_entity(operation["entity_id"], project_id)
-    targets: list[object]
-    if scene_object.type == "MESH":
-        targets = [scene_object]
-    elif scene_object.type == "ARMATURE" and scene_object.get("cclay.character_type") is not None:
-        # A character is authored as one armature root plus skinned meshes. The
-        # director names the character when it says "make it gray"; resolving
-        # that name to the armature and then refusing because an armature is not
-        # a mesh made a normal request fail and, worse, sent rollback down a
-        # path that used to close the bridge. Color the character's meshes.
-        targets = [
-            candidate
-            for candidate in bpy.data.objects
-            if candidate.type == "MESH"
-            and candidate.get("cclay.owned_project_id") == project_id
-            and _belongs_to_character(candidate, scene_object)
-        ]
-        if not targets:
-            raise STAGE_SCENE_TARGET_TYPE_INVALID(
-                f"character entity {operation['entity_id']} has no owned skinned mesh"
-            )
-    else:
-        raise STAGE_SCENE_TARGET_TYPE_INVALID(
-            f"entity {operation['entity_id']} must be a MESH or a CCLAY character"
-        )
-    for target in targets:
-        _apply_material_color(target, operation, transaction)
-
-
-def _upsert_area_light(operation: dict, transaction: _StageTransaction, project_id: str):
-    scene_object = _entity(operation["entity_id"])
-    if scene_object is None:
-        if bpy.data.objects.get(operation["name"]) is not None:
-            raise STAGE_SCENE_STABLE_NAME_EXISTS(
-                f"stable name {operation['name']!r} already exists"
-            )
-        light = bpy.data.lights.new(f"{operation['name']} Data", "AREA")
-        scene_object = bpy.data.objects.new(operation["name"], light)
-        scene_object["cclay.entity_id"] = operation["entity_id"]
-        scene_object["cclay.owned_project_id"] = project_id
-        _link_to_collection(scene_object, operation.get("collection_name"), transaction)
-        if operation.get("collection_name") is not None:
-            transaction.collection_by_entity[operation["entity_id"]] = operation["collection_name"]
-        transaction.created_objects.append(scene_object)
-    else:
-        if not _owned(scene_object, project_id):
-            raise STAGE_SCENE_TARGET_NOT_CCLAY_OWNED(
-                f"entity {operation['entity_id']} was not created by CCLAY for this project"
-            )
-        if scene_object.type != "LIGHT":
-            raise STAGE_SCENE_TARGET_TYPE_INVALID(
-                f"entity {operation['entity_id']} must be a LIGHT"
-            )
-        transaction.capture_object(scene_object)
-    scene_object.name = operation["name"]
-    scene_object.location = operation["location"]
-    scene_object.rotation_mode = "XYZ"
-    scene_object.rotation_euler = operation["rotation"]
-    scene_object.scale = operation["scale"]
-    scene_object.data.type = "AREA"
-    scene_object.data.energy = operation["energy"]
-    scene_object.data.color = operation["color"]
-    scene_object.data.size = operation["size"]
-    return scene_object
-
-
 def _adopt_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
     """Stamp a pre-existing non-CCLAY object as owned by this project.
 
@@ -1506,67 +706,6 @@ def _adopt_entity(operation: dict, transaction: _StageTransaction, project_id: s
     scene_object["cclay.owned_project_id"] = project_id
 
 
-def _transform_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    scene_object = _require_owned_entity(operation["entity_id"], project_id)
-    _require_exclusive_datablocks(scene_object)
-    transaction.capture_object(scene_object)
-    if "location" in operation:
-        scene_object.location = operation["location"]
-    if "rotation_euler" in operation:
-        scene_object.rotation_mode = "XYZ"
-        scene_object.rotation_euler = operation["rotation_euler"]
-    if "scale" in operation:
-        scene_object.scale = operation["scale"]
-
-
-def _set_light_property(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    scene_object = _require_owned_entity(operation["entity_id"], project_id)
-    if scene_object.type != "LIGHT":
-        raise STAGE_SCENE_TARGET_TYPE_INVALID(
-            f"entity {operation['entity_id']} must be a LIGHT"
-        )
-    _require_exclusive_datablocks(scene_object)
-    transaction.capture_object(scene_object)
-    light = scene_object.data
-    if "energy" in operation:
-        light.energy = operation["energy"]
-    if "color" in operation:
-        light.color = operation["color"]
-    if "size" in operation:
-        if light.type == "AREA":
-            light.size = operation["size"]
-        elif light.type == "SPOT":
-            light.spot_size = operation["size"]
-        else:
-            raise STAGE_SCENE_TARGET_TYPE_INVALID(
-                f"entity {operation['entity_id']} light type {light.type} has no size"
-            )
-
-
-def _set_camera_property(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    scene_object = _require_owned_entity(operation["entity_id"], project_id)
-    if scene_object.type != "CAMERA":
-        raise STAGE_SCENE_TARGET_TYPE_INVALID(
-            f"entity {operation['entity_id']} must be a CAMERA"
-        )
-    _require_exclusive_datablocks(scene_object)
-    transaction.capture_object(scene_object)
-    camera = scene_object.data
-    if "lens" in operation:
-        camera.lens = operation["lens"]
-    if "clip_start" in operation:
-        camera.clip_start = operation["clip_start"]
-    if "clip_end" in operation:
-        camera.clip_end = operation["clip_end"]
-    if "sensor_width" in operation:
-        camera.sensor_width = operation["sensor_width"]
-    if "sensor_height" in operation:
-        camera.sensor_height = operation["sensor_height"]
-    if "sensor_fit" in operation:
-        fit_map = {"AUTO": "AUTO", "HORIZONTAL": "HORIZONTAL", "VERTICAL": "VERTICAL", "SQUARE": "SQUARE"}
-        camera.sensor_fit = fit_map[operation["sensor_fit"]]
-
-
 def _set_render_settings(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
     render = bpy.context.scene.render
     scene = bpy.context.scene
@@ -1586,390 +725,11 @@ def _set_render_settings(operation: dict, transaction: _StageTransaction, projec
         scene.frame_end = operation["frame_end"]
 
 
-def _rename_entity(operation: dict, transaction: _StageTransaction, project_id: str) -> None:
-    scene_object = _require_owned_entity(operation["entity_id"], project_id)
-    _require_exclusive_datablocks(scene_object)
-    transaction.capture_object(scene_object)
-    scene_object.name = operation["name"]
-
-
-_MAX_MOTION_FILE_BYTES = 64 * 1024 * 1024
-_MAX_MOTION_PAYLOAD_BYTES = 96 * 1024 * 1024
-_MAX_NPY_HEADER_BYTES = 16 * 1024
-_MOTION_REQUIRED_MEMBERS = {
-    "local_rot_mats.npy",
-    "posed_joints.npy",
-    "fps.npy",
-}
-# ARDY writes these next to the three members we consume: scripts/generate.py
-# and both cclay_* generators end in np.savez(path, **motion_dict), so a real
-# generated motion always carries them. Demanding an exact three-member set
-# rejected every unmodified ARDY npz (measured: 16 of 42 staged motions failed
-# APPLY_MOTION_MALFORMED), so they are validated and carried rather than
-# stripped -- stripping would also throw away foot_contacts, which the model
-# predicts and preflight currently re-derives from joint heights.
-# Shapes are frame-locked to local_rot_mats so a carried member cannot smuggle
-# in a different clip; ``None`` in a shape means "the clip's frame count".
-_MOTION_OPTIONAL_MEMBERS = {
-    "foot_contacts.npy": (("b",), (None, 4)),
-    "global_rot_mats.npy": (("f",), (None, 27, 3, 3)),
-    "global_root_heading.npy": (("f",), (None, 2)),
-    "root_positions.npy": (("f",), (None, 3)),
-    "smooth_root_pos.npy": (("f",), (None, 3)),
-    "text.npy": (("U",), ()),
-}
-_MOTION_MEMBER_NAMES = _MOTION_REQUIRED_MEMBERS | set(_MOTION_OPTIONAL_MEMBERS)
-
-
-def _motion_malformed(motion_id: str, message: str) -> None:
-    raise StageSceneError(f"APPLY_MOTION_MALFORMED: motion {motion_id} {message}")
-
-
-def _inspect_motion_member(archive, info, motion_id: str):
+def _stage_motion_fps(project_directory: object, motion_id: str) -> int:
     try:
-        with archive.open(info, "r") as member:
-            if member.read(6) != b"\x93NUMPY":
-                _motion_malformed(motion_id, f"{info.filename} has an invalid npy magic")
-            version = tuple(member.read(2))
-            if version == (1, 0):
-                header_length_bytes = member.read(2)
-                if len(header_length_bytes) != 2:
-                    raise EOFError("truncated npy header length")
-                header_length = struct.unpack("<H", header_length_bytes)[0]
-                encoding = "latin1"
-            elif version in ((2, 0), (3, 0)):
-                header_length_bytes = member.read(4)
-                if len(header_length_bytes) != 4:
-                    raise EOFError("truncated npy header length")
-                header_length = struct.unpack("<I", header_length_bytes)[0]
-                encoding = "utf-8" if version == (3, 0) else "latin1"
-            else:
-                _motion_malformed(
-                    motion_id,
-                    f"{info.filename} uses unsupported npy version {version}",
-                )
-            if header_length > _MAX_NPY_HEADER_BYTES:
-                _motion_malformed(
-                    motion_id,
-                    f"{info.filename} header exceeds {_MAX_NPY_HEADER_BYTES} bytes",
-                )
-            header_bytes = member.read(header_length)
-            if len(header_bytes) != header_length:
-                raise EOFError("truncated npy header")
-            header = ast.literal_eval(header_bytes.decode(encoding))
-            payload_offset = member.tell()
-    except (EOFError, OSError, UnicodeError, ValueError, SyntaxError) as error:
-        _motion_malformed(motion_id, f"has an invalid {info.filename} header: {error}")
-    if not isinstance(header, dict) or set(header) != {
-        "descr", "fortran_order", "shape"
-    }:
-        _motion_malformed(motion_id, f"{info.filename} has invalid header fields")
-    shape = header["shape"]
-    fortran_order = header["fortran_order"]
-    descr = header["descr"]
-    if (
-        not isinstance(shape, tuple)
-        or any(
-            isinstance(size, bool) or not isinstance(size, int) or size < 0
-            for size in shape
-        )
-    ):
-        _motion_malformed(motion_id, f"{info.filename} has an invalid shape")
-    if not isinstance(fortran_order, bool):
-        _motion_malformed(motion_id, f"{info.filename} has invalid order metadata")
-    if fortran_order:
-        _motion_malformed(motion_id, f"{info.filename} must use C order")
-    if not isinstance(descr, str):
-        _motion_malformed(motion_id, f"{info.filename} must have a scalar dtype")
-    # Itemsize is multi-digit for the carried unicode prompt scalar (e.g. "<U187");
-    # the numeric members stay pinned to 1/2/4/8 by _is_supported_motion_dtype.
-    dtype_match = re.fullmatch(r"([<>=|])([A-Za-z?])([0-9]{1,4})", descr)
-    if dtype_match is None:
-        _motion_malformed(motion_id, f"{info.filename} has an invalid dtype")
-    byte_order, dtype_kind, itemsize_text = dtype_match.groups()
-    itemsize = int(itemsize_text)
-    if dtype_kind == "U":
-        # numpy spells unicode width in characters ("<U187"), not bytes, and the
-        # payload is UCS-4. Return bytes so every caller's size math is uniform.
-        itemsize *= 4
-    return shape, dtype_kind, itemsize, byte_order, payload_offset
-
-
-def _is_supported_motion_dtype(kind: str, itemsize: int, byte_order: str) -> bool:
-    return (
-        (
-            (kind in ("i", "u") and itemsize in (1, 2, 4, 8))
-            or (kind == "f" and itemsize in (2, 4, 8))
-        )
-        and (byte_order != "|" or itemsize == 1)
-    )
-
-
-def _is_supported_carried_dtype(
-    kind: str, itemsize: int, byte_order: str, kinds: tuple
-) -> bool:
-    """Dtype rule for the carried members listed in _MOTION_OPTIONAL_MEMBERS.
-
-    ``_is_supported_motion_dtype`` only covers the numeric arrays we read; the
-    carried set adds boolean foot contacts and a unicode prompt scalar. Object
-    dtypes stay rejected here, and ``numpy.load(allow_pickle=False)`` in
-    ``_load_motion_payload`` is the second line of defence.
-    """
-    if kind not in kinds:
-        return False
-    if kind == "b":
-        return itemsize == 1
-    if kind == "U":
-        return itemsize > 0 and itemsize % 4 == 0
-    return _is_supported_motion_dtype(kind, itemsize, byte_order)
-
-
-def _inspect_motion_archive(path: Path, motion_id: str | None = None) -> int:
-    motion_id = path.stem if motion_id is None else motion_id
-    try:
-        with zipfile.ZipFile(path, "r") as archive:
-            infos = archive.infolist()
-            names = [info.filename for info in infos]
-            if len(names) != len(set(names)):
-                _motion_malformed(motion_id, "contains duplicate members")
-            missing = sorted(_MOTION_REQUIRED_MEMBERS - set(names))
-            if missing:
-                _motion_malformed(motion_id, f"is missing {missing}")
-            unknown = sorted(set(names) - _MOTION_MEMBER_NAMES)
-            if unknown:
-                _motion_malformed(motion_id, f"contains unknown member(s) {unknown}")
-            if any(
-                info.is_dir()
-                or info.filename != Path(info.filename).name
-                or "\\" in info.filename
-                for info in infos
-            ):
-                _motion_malformed(motion_id, "contains an unsafe member name")
-            declared_size = sum(info.file_size for info in infos)
-            if declared_size > _MAX_MOTION_PAYLOAD_BYTES:
-                _motion_malformed(
-                    motion_id,
-                    f"declares more than {_MAX_MOTION_PAYLOAD_BYTES} uncompressed bytes",
-                )
-
-            by_name = {info.filename: info for info in infos}
-            (
-                rotations_shape,
-                rotations_kind,
-                rotations_itemsize,
-                rotations_byte_order,
-                rotations_offset,
-            ) = _inspect_motion_member(
-                archive, by_name["local_rot_mats.npy"], motion_id
-            )
-            (
-                joints_shape,
-                joints_kind,
-                joints_itemsize,
-                joints_byte_order,
-                joints_offset,
-            ) = _inspect_motion_member(
-                archive, by_name["posed_joints.npy"], motion_id
-            )
-            fps_shape, fps_kind, fps_itemsize, fps_byte_order, fps_offset = (
-                _inspect_motion_member(archive, by_name["fps.npy"], motion_id)
-            )
-            if (
-                len(rotations_shape) != 4
-                or rotations_shape[1:] != (27, 3, 3)
-                or not 1 <= rotations_shape[0] <= motion_retarget.MAX_FRAMES
-            ):
-                _motion_malformed(
-                    motion_id, "local_rot_mats.npy must have shape (F, 27, 3, 3)"
-                )
-            if joints_shape != (rotations_shape[0], 27, 3):
-                _motion_malformed(
-                    motion_id, "posed_joints.npy must have shape (F, 27, 3)"
-                )
-            if not _is_supported_motion_dtype(
-                rotations_kind, rotations_itemsize, rotations_byte_order
-            ):
-                _motion_malformed(
-                    motion_id, "local_rot_mats.npy must have a real numeric dtype"
-                )
-            if not _is_supported_motion_dtype(
-                joints_kind, joints_itemsize, joints_byte_order
-            ):
-                _motion_malformed(
-                    motion_id, "posed_joints.npy must have a real numeric dtype"
-                )
-            if (
-                fps_shape != ()
-                or fps_kind not in ("i", "u")
-                or not _is_supported_motion_dtype(
-                    fps_kind, fps_itemsize, fps_byte_order
-                )
-            ):
-                _motion_malformed(
-                    motion_id, "fps.npy must be a non-boolean integral scalar"
-                )
-            size_checks = [
-                (
-                    by_name["local_rot_mats.npy"],
-                    rotations_shape,
-                    rotations_itemsize,
-                    rotations_offset,
-                ),
-                (
-                    by_name["posed_joints.npy"],
-                    joints_shape,
-                    joints_itemsize,
-                    joints_offset,
-                ),
-                (by_name["fps.npy"], fps_shape, fps_itemsize, fps_offset),
-            ]
-            frame_count = rotations_shape[0]
-            for name, (kinds, template) in _MOTION_OPTIONAL_MEMBERS.items():
-                info = by_name.get(name)
-                if info is None:
-                    continue
-                shape, kind, itemsize, byte_order, offset = _inspect_motion_member(
-                    archive, info, motion_id
-                )
-                expected = tuple(
-                    frame_count if dimension is None else dimension
-                    for dimension in template
-                )
-                if shape != expected:
-                    _motion_malformed(motion_id, f"{name} must have shape {expected}")
-                if not _is_supported_carried_dtype(kind, itemsize, byte_order, kinds):
-                    _motion_malformed(motion_id, f"{name} has an unsupported dtype")
-                size_checks.append((info, shape, itemsize, offset))
-            for info, shape, itemsize, payload_offset in size_checks:
-                if payload_offset + math.prod(shape) * itemsize != info.file_size:
-                    _motion_malformed(
-                        motion_id,
-                        f"{info.filename} size does not match its header",
-                    )
-            with archive.open(by_name["fps.npy"], "r") as fps_member:
-                fps_member.read(fps_offset)
-                fps_bytes = fps_member.read(fps_itemsize)
-            byte_order = (
-                "little"
-                if fps_byte_order == "<"
-                or fps_byte_order == "|"
-                or (fps_byte_order == "=" and sys.byteorder == "little")
-                else "big"
-            )
-            fps = int.from_bytes(
-                fps_bytes,
-                byteorder=byte_order,
-                signed=fps_kind == "i",
-            )
-            if not motion_retarget.FPS_BOUNDS[0] <= fps <= motion_retarget.FPS_BOUNDS[1]:
-                _motion_malformed(
-                    motion_id,
-                    f"fps must be in {motion_retarget.FPS_BOUNDS[0]}.."
-                    f"{motion_retarget.FPS_BOUNDS[1]}",
-                )
-            return fps
-    except StageSceneError:
-        raise
-    except (NotImplementedError, RuntimeError, zipfile.BadZipFile) as error:
-        _motion_malformed(motion_id, f"is not a readable npz: {error}")
-
-
-def _motion_path(project_directory: object, motion_id: str) -> Path:
-    """Resolve .cclay/motions/<motion_id>.npz with the trust fencing applied.
-
-    The motion id grammar (validated at parse time) cannot traverse, but the
-    resolved path is still fenced to the motions directory and symlinks are
-    refused, mirroring the runtime-evidence trust rules.
-
-    Extracted so the plan-level fps preflight reads the same fenced path as the
-    loader instead of re-deriving it; two derivations would be two places to
-    forget a check.
-    """
-    if project_directory is None:
-        raise StageSceneError(
-            "APPLY_MOTION_PROJECT_DIR_UNKNOWN: the mutation connection has no "
-            "project directory bound"
-        )
-    motions_dir = (Path(project_directory) / ".cclay" / "motions").resolve()
-    path = motions_dir / f"{motion_id}.npz"
-    if path.is_symlink() or not path.is_file():
-        raise StageSceneError(
-            f"APPLY_MOTION_NOT_FOUND: .cclay/motions/{motion_id}.npz is not a regular file"
-        )
-    if path.resolve().parent != motions_dir:
-        raise StageSceneError(
-            f"APPLY_MOTION_NOT_FOUND: motion {motion_id} escapes the motions directory"
-        )
-    if path.stat().st_size > _MAX_MOTION_FILE_BYTES:
-        raise StageSceneError(
-            f"APPLY_MOTION_TOO_LARGE: motion {motion_id} exceeds "
-            f"{_MAX_MOTION_FILE_BYTES} bytes"
-        )
-    return path
-
-
-def _motion_fps(project_directory: object, motion_id: str) -> int:
-    """The npz's native fps, read from headers only.
-
-    Cheap enough to call for every apply_motion in a plan before any mutation:
-    _inspect_motion_archive never materializes an array.
-    """
-    return _inspect_motion_archive(
-        _motion_path(project_directory, motion_id), motion_id
-    )
-
-
-def _load_motion_payload(
-    project_directory: object,
-    motion_id: str,
-    *,
-    validate: bool = True,
-    carried: tuple = (),
-) -> tuple[object, object, int, dict]:
-    """Load and validate .cclay/motions/<motion_id>.npz from the project dir."""
-    path = _motion_path(project_directory, motion_id)
-    fps = _inspect_motion_archive(path, motion_id)
-
-    import numpy
-
-    try:
-        with numpy.load(path, allow_pickle=False) as data:
-            local_rot_mats = data["local_rot_mats"]
-            posed_joints = data["posed_joints"]
-            # Only the requested carried arrays are materialized: global_rot_mats
-            # alone is as large as local_rot_mats, so apply_motion must not pay
-            # for members it never reads.
-            carried_arrays = {
-                name: data[name] for name in carried if name in data.files
-            }
-    except StageSceneError:
-        raise
-    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
-        raise StageSceneError(
-            f"APPLY_MOTION_MALFORMED: motion {motion_id} is not a readable npz: {error}"
-        )
-    if validate:
-        try:
-            motion_retarget.validate_motion(local_rot_mats, posed_joints, fps)
-        except motion_retarget.MotionRetargetError as error:
-            raise StageSceneError(f"APPLY_MOTION_MALFORMED: {error}")
-    return local_rot_mats, posed_joints, fps, carried_arrays
-
-
-def _rig_scale_inputs(bones) -> tuple[str, object]:
-    """Pure read-only (bone prefix, rig thigh length) scale inputs.
-
-    Shared by ``_apply_motion`` and ``motion_preflight._derive_entity_scale``
-    so the two thigh measurements cannot drift. Returns ``(prefix, None)``
-    when the RightUpLeg/RightLeg pair is missing so each caller raises its
-    own contract error.
-    """
-    prefix = "mixamorig:" if any(b.name.startswith("mixamorig:") for b in bones) else ""
-    upper = bones.get(f"{prefix}RightUpLeg")
-    lower = bones.get(f"{prefix}RightLeg")
-    if upper is None or lower is None:
-        return prefix, None
-    return prefix, (lower.head_local - upper.head_local).length
+        return motion_archive.motion_fps(project_directory, motion_id)
+    except motion_archive.MotionArchiveError as error:
+        raise StageSceneError(str(error)) from error
 
 
 class PoseContactError(StageSceneError):
@@ -2665,9 +1425,12 @@ def _apply_motion(
         )
     except hand_shapes.HandShapeError as error:
         raise StageSceneError(f"APPLY_MOTION_HAND_SHAPE_RIG_UNSUPPORTED: {error}")
-    local_rot_mats, posed_joints, fps, _carried = _load_motion_payload(
-        project_directory, operation["motion_id"], validate=False
-    )
+    try:
+        local_rot_mats, posed_joints, fps, _carried = motion_archive.load_motion_payload(
+            project_directory, operation["motion_id"], validate=False
+        )
+    except motion_archive.MotionArchiveError as error:
+        raise StageSceneError(str(error)) from error
     try:
         validation_cursor = motion_retarget.MotionValidationCursor(
             local_rot_mats, posed_joints, fps
@@ -2690,27 +1453,21 @@ def _apply_motion(
         if hand_track[side]:
             resolved[side] = hand_track[side][-1][1]
 
-    bones = scene_object.data.bones
-    prefix, rig_thigh = _rig_scale_inputs(bones)
-    rest_rotations = {}
-    for cskel, target in motion_retarget.MIXAMO_TARGETS.items():
-        if target is None:
-            continue
-        bone = bones.get(f"{prefix}{target}")
-        if bone is not None:
-            rest_rotations[cskel] = [list(row) for row in bone.matrix_local.to_3x3()]
+    rig = CharacterRigAdapter(scene_object.data.bones)
+    prefix = rig.prefix
+    rest_rotations = rig.rest_rotations()
     for required_bone in ("Hips", "RightUpLeg", "RightLeg"):
         if required_bone not in rest_rotations:
             raise STAGE_SCENE_TARGET_TYPE_INVALID(
                 f"character rig is missing the {required_bone} bone"
             )
     try:
-        scale = motion_retarget.derive_scale(posed_joints[0], rig_thigh)
+        scale = motion_retarget.derive_scale(posed_joints[0], rig.rig_thigh)
         track_builder = motion_retarget.PoseTrackBuilder(
             local_rot_mats,
             posed_joints,
             rest_rotations,
-            list(bones[f"{prefix}Hips"].head_local),
+            rig.hips_head(),
             scale,
         )
         while not track_builder.step(max_frames=64):
@@ -2727,12 +1484,7 @@ def _apply_motion(
         for side in ("left", "right")
         for role in hand_shapes.CANONICAL_ROLE_ORDER
     )
-    authored_bone_names = tuple(
-        f"{prefix}{motion_retarget.MIXAMO_TARGETS[cskel]}"
-        for cskel in tracks["rotations"]
-        if motion_retarget.MIXAMO_TARGETS[cskel] is not None
-        and pose_bones.get(f"{prefix}{motion_retarget.MIXAMO_TARGETS[cskel]}") is not None
-    )
+    authored_bone_names = rig.authored_bone_names(tracks["rotations"], pose_bones)
     captured_names = tuple(dict.fromkeys(
         (*authored_bone_names, f"{prefix}Hips", *digit_names)
     ))
@@ -2957,21 +1709,11 @@ def _apply_motion(
 
 
 def _live_base_manifest(current_scene_hash: str) -> dict:
-    from .manifest import (
-        extract_scene_manifest_v2,
-        extract_scene_manifest_v3,
-        extract_scene_manifest_v4,
-    )
+    from .manifest import extract_scene_manifest_v4
 
-    v2 = extract_scene_manifest_v2()
-    if v2["sceneHash"] == current_scene_hash:
-        return v2
-    v3 = extract_scene_manifest_v3()
-    if v3["sceneHash"] == current_scene_hash:
-        return v3
-    v4 = extract_scene_manifest_v4()
-    if v4["sceneHash"] == current_scene_hash:
-        return v4
+    manifest = extract_scene_manifest_v4()
+    if manifest["sceneHash"] == current_scene_hash:
+        return manifest
     raise StageSceneError(
         "STALE_BASE: live main-thread manifest hash differs from the durable expected base"
     )
@@ -3106,7 +1848,6 @@ class _StageSceneRun:
         self.transaction = None
         self.checkpoint = None
         self.mode = None
-        self.uses_v4 = False
         self.applied_hand_shapes = []
         self.recovery_direction = "ROLLBACK"
         self.callback_done = False
@@ -3198,7 +1939,6 @@ class _StageSceneRun:
 
     def _recover(self) -> bool:
         if self.recovery_direction == "FORWARD":
-            self.transaction.finalize_deletions()
             self.transaction.finalize_orphan_actions()
             if self.candidate_manifest is None:
                 return False
@@ -3213,43 +1953,12 @@ class _StageSceneRun:
         )
 
     def _apply_operation(self, operation: dict):
-        op = operation["op"]
         arguments = (operation, self.transaction, self.project_id)
-        if op == "add_primitive":
-            return _create_primitive(*arguments)
-        if op == "add_character":
+        if operation["op"] == "add_character":
             return _create_character(*arguments)
-        if op == "add_camera":
-            return _create_camera(*arguments)
-        if op == "create_assembly":
-            return _create_assembly(*arguments)
-        if op == "set_parent":
-            return _set_parent(*arguments)
-        if op == "transform_assembly":
-            return _transform_assembly(*arguments)
-        if op == "set_material_color":
-            return _set_material_color(*arguments)
-        if op == "upsert_area_light":
-            return _upsert_area_light(*arguments)
-        if op == "adopt_entity":
+        if operation["op"] == "adopt_entity":
             return _adopt_entity(*arguments)
-        if op == "transform_entity":
-            return _transform_entity(*arguments)
-        if op == "set_light_property":
-            return _set_light_property(*arguments)
-        if op == "set_camera_property":
-            return _set_camera_property(*arguments)
-        if op == "set_render_settings":
-            return _set_render_settings(*arguments)
-        if op == "rename_entity":
-            return _rename_entity(*arguments)
-        # apply_motion is deliberately absent: OP_DISPATCH routes it to
-        # MOTION_PREPARE so it runs as an amortized cursor, never through here.
-        # Keeping a second call site meant two places had to learn every new
-        # apply_motion argument, and only one of them was ever executed.
-        scene_object = _require_owned_entity(operation["entity_id"], self.project_id)
-        _require_exclusive_datablocks(scene_object)
-        return self.transaction.quarantine(scene_object)
+        return _set_render_settings(*arguments)
 
     def _record_completed_motion(self) -> None:
         action = self.transaction.created_actions[-1]
@@ -3272,22 +1981,19 @@ class _StageSceneRun:
             scene_object["entityId"]: scene_object
             for scene_object in self.candidate_manifest["objects"]
         }
-        entity_identities = [
-            {
-                "entity_id": operation["entity_id"],
-                "requested_name": operation["name"],
-                "actual_name": objects_by_id[operation["entity_id"]]["name"],
-            }
-            for operation in self.plan["operations"]
-            if operation["op"] in (
-                "add_primitive", "upsert_area_light", "add_character", "add_camera",
-            )
-        ]
         self.result = {
             "expected_revision_id": self.plan["expected_revision_id"],
             "scene_hash": self.candidate_manifest["sceneHash"],
             "manifest": self.candidate_manifest,
-            "entity_identities": entity_identities,
+            "entity_identities": [
+                {
+                    "entity_id": operation["entity_id"],
+                    "requested_name": operation["name"],
+                    "actual_name": objects_by_id[operation["entity_id"]]["name"],
+                }
+                for operation in self.plan["operations"]
+                if operation["op"] == "add_character"
+            ],
             "applied_hand_shapes": self.applied_hand_shapes,
         }
 
@@ -3461,7 +2167,7 @@ class _StageSceneRun:
         try:
             from .checkpoint import create_checkpoint
             from .connection import DurableCommitReconciliationRequired
-            from .manifest import extract_scene_manifest_v3, extract_scene_manifest_v4
+            from .manifest import extract_scene_manifest_v4
             from .scene_manifest import finalize_scene_manifest_child
 
             if self.phase == "NEW":
@@ -3479,7 +2185,7 @@ class _StageSceneRun:
                 if self.motion_count:
                     _require_plan_fps_agrees(
                         self.plan,
-                        lambda motion_id: _motion_fps(
+                        lambda motion_id: _stage_motion_fps(
                             getattr(self.connection, "project_directory", None),
                             motion_id,
                         ),
@@ -3489,16 +2195,6 @@ class _StageSceneRun:
                 except StageSceneError:
                     self.mode = "invalid"
                     raise
-                self.uses_v4 = any(
-                    operation["op"] in (
-                        "create_assembly", "set_parent", "transform_assembly"
-                    )
-                    or (
-                        operation["op"] == "add_primitive"
-                        and operation.get("parent_id") is not None
-                    )
-                    for operation in self.plan["operations"]
-                )
                 self.before_manifest = _live_base_manifest(self.current_scene_hash)
                 _check_abort(self.deadline, self.cancelled)
                 self.scene = bpy.context.scene
@@ -3534,6 +2230,14 @@ class _StageSceneRun:
                     )
                 )
                 if executed:
+                    self.phase = "MIGRATE_FOREIGN_OBJECTS"
+            elif self.phase == "MIGRATE_FOREIGN_OBJECTS":
+                executed, _ = self._measure(
+                    lambda: _migrate_foreign_objects(
+                        self.scene, self.transaction, self.project_id
+                    )
+                )
+                if executed:
                     self.phase = "OP_DISPATCH"
             elif self.phase == "OP_DISPATCH":
                 if self.operation_index >= len(self.plan["operations"]):
@@ -3547,9 +2251,7 @@ class _StageSceneRun:
                     )
             elif self.phase == "OTHER_OPERATION":
                 operation = self.plan["operations"][self.operation_index]
-                executed, _ = self._measure(
-                    lambda: self._apply_operation(operation)
-                )
+                executed, _ = self._measure(lambda: self._apply_operation(operation))
                 if executed:
                     self.phase = "NEXT_OPERATION"
             elif self.phase in (
@@ -3610,10 +2312,7 @@ class _StageSceneRun:
                     self.operation_index += 1
                     self.phase = "OP_DISPATCH"
             elif self.phase == "FINAL_MANIFEST":
-                executed, extracted = self._measure(
-                    extract_scene_manifest_v4
-                    if self.uses_v4 else extract_scene_manifest_v3
-                )
+                executed, extracted = self._measure(extract_scene_manifest_v4)
                 if executed:
                     self.candidate_manifest = finalize_scene_manifest_child(
                         extracted,
@@ -3635,9 +2334,7 @@ class _StageSceneRun:
                     self.recovery_direction = "FORWARD"
                     self.phase = "POST_COMMIT_FINALIZE"
             elif self.phase == "POST_COMMIT_FINALIZE":
-                executed, _ = self._measure(self.transaction.finalize_deletions)
-                if executed:
-                    self.phase = "POST_COMMIT_ACTION_FINALIZE"
+                self.phase = "POST_COMMIT_ACTION_FINALIZE"
             elif self.phase == "POST_COMMIT_ACTION_FINALIZE":
                 executed, _ = self._measure(self.transaction.finalize_orphan_actions)
                 if executed:

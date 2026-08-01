@@ -1,0 +1,38 @@
+{
+	"note": "Stage 1 golden hash oracle. Captured from pre-Stage-1 code so the manifest schema-shape collapse can be proven hash-preserving. Stage 1's acceptance test replays the same inputs and asserts byte-identical sceneHash and revisionId.",
+	"baselineCommit": "1a7471f472707c8e94cb3ac29d49dce3a278a693",
+	"sourceManifestFixture": "fixtures/scene-manifest-v3-hierarchy-compat.json",
+	"parentRevisionId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	"operation": {
+		"schema_version": 1,
+		"expected_revision_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"operations": [
+			{
+				"op": "add_primitive",
+				"entity_id": "6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b",
+				"primitive_type": "CUBE",
+				"name": "Stage1_Baseline_Cube",
+				"location": [
+					1.5,
+					-2.25,
+					0.125
+				],
+				"rotation": [
+					0,
+					0,
+					0.7853981633974483
+				],
+				"scale": [
+					1,
+					2,
+					0.5
+				]
+			}
+		]
+	},
+	"expected": {
+		"sceneHash": "41f9f656bfe4ac961edca44777f5f842e1a48939e0c97d850f5c22efcdcf3e1e",
+		"revisionId": "fc0738291c534ac876ac9cf2e744efffbac3a319981d3fe0df75359f9bb32e87",
+		"schemaVersion": 4
+	}
+}

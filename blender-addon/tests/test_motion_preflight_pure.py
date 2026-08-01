@@ -11,6 +11,7 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
 from cclay import motion_preflight, motion_retarget, scene_relations
+from cclay.character_rig import CharacterRigAdapter
 from cclay.motion_preflight import (
     FOOT_CONTACT_CHANNELS,
     FOOT_CONTACT_JOINT_INDICES,
@@ -29,7 +30,6 @@ from cclay.motion_preflight import (
     analyze_motion,
     collect_preflight,
 )
-from cclay.stage_scene import StageSceneError
 
 try:
     import numpy
@@ -432,6 +432,24 @@ def _scene_with(objects):
     return mock.patch.object(scene_relations, "bpy", fake_bpy)
 
 
+class CharacterRigAdapterTests(unittest.TestCase):
+    def test_mixamo_prefix_and_thigh_measurement_match_preflight_scale_inputs(self):
+        rig = CharacterRigAdapter(_FakeBones([
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]))
+        self.assertEqual(rig.prefix, "mixamorig:")
+        self.assertAlmostEqual(rig.rig_thigh, 0.5)
+
+    def test_unprefixed_rig_and_missing_thigh_are_explicit(self):
+        rig = CharacterRigAdapter(_FakeBones([
+            _FakeBone("Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("RightUpLeg", (0.0, 1.0, 0.0)),
+        ]))
+        self.assertEqual(rig.prefix, "")
+        self.assertIsNone(rig.rig_thigh)
+
 class EntityScaleTests(unittest.TestCase):
     def _posed(self):
         frame = [[0.0, 100.0, 0.0] for _ in range(JOINTS)]
@@ -607,11 +625,9 @@ class ValidationParityTests(unittest.TestCase):
             "cursor": (rotations.tolist(), posed.tolist()),
         }.items():
             with self.subTest(path=path):
-                with self.assertRaises(StageSceneError) as caught:
+                with self.assertRaises(PreflightMotionError) as caught:
                     _validate_motion_payload(rots, joints, 20)
-                self.assertTrue(
-                    str(caught.exception).startswith("APPLY_MOTION_MALFORMED: ")
-                )
+                self.assertEqual(caught.exception.code, "APPLY_MOTION_MALFORMED")
 
     def test_valid_payload_passes_both_paths(self):
         rotations, posed = self._valid_payload()

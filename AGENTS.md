@@ -22,6 +22,17 @@
 - Do not preserve backward compatibility unless the user asks for it.
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
+- Never modify `packages/blender-protocol/src/stage-scene-ops.generated.ts`, `blender-addon/cclay/stage_scene_ops.generated.py`, `packages/blender-protocol/src/manifest-fields.generated.ts`, or `blender-addon/cclay/manifest_fields.generated.py` directly; update `packages/blender-protocol/src/op-registry.json` or `scripts/generate_stage_scene_ops.py` instead, then regenerate.
+
+## Graphify Code Graph
+
+- The repository-local code graph is `graphify-out/graph.json`.
+- Before broad architecture exploration, dependency tracing, impact analysis, or a non-trivial multi-file change, query the existing graph first with `graphify query`, `graphify path`, `graphify affected`, or `graphify explain` from the repository root.
+- Do not rebuild the graph for ordinary questions. Use the existing graph as an index to identify relevant files and symbols.
+- Graphify is not the source of truth. Verify every relevant result against the current source with read, search, AST, and LSP tools before editing.
+- Simple, known-location fixes do not require a graph query.
+- The graph is code-only. Documentation, PDFs, images, JSON fixtures, and SQL are not semantically indexed.
+- After non-trivial code changes, run `graphify update .` so later sessions do not query a stale graph.
 
 ## Commands
 
@@ -118,13 +129,14 @@ tmux kill-session -t pi-test
 
 Do not weaken these without the user explicitly asking. They are the reason CozyClay is safe to point at a real scene.
 
-- Wire schemas are closed in both directions; unknown fields fail.
+- Wire schemas are closed in both directions, with one explicit exception: inbound (add-on -> director) manifests may carry a bounded, UTF-8-byte-and-depth-limited, non-semantic extensions bucket under versioned `x-*` namespace keys, excluded from typed validation, from the canonical hash (enforced by a compile-time `ManifestForHashing` boundary type plus a behavioral non-participation test), and from every semantic/authorization decision, tracked by its own separate director-computed digest. Every other field, in both directions, remains closed.
 - Mutating tools require and verify `expected_revision_id`.
-- Mutations are prepare/commit with rollback; no partial writes.
-- The director only mutates entities it owns.
-- Camera plans are authorized by an evidence digest, never by caller metadata.
-- The embedded director session keeps a fixed tool allowlist.
-- The Python add-on and the TypeScript protocol must produce identical canonical revisions.
+- Mutations use the durable prepare/commit boundary and roll back Blender scene state on errors. `execute_blender_python` is ON BY DEFAULT with a per-project off switch and warning; successful scripts are committed as ordinary project mutations, while external side effects such as files, network, and processes cannot be rolled back.
+- The director may mutate any entity except one stamped `cclay.locked_by_human`. At ownership-inversion cutover, only entities foreign to the current project (owner absent, or owned by a different project) were auto-locked; entities already owned by the current project were and remain unlocked. `execute_blender_python` is explicitly exempt from entity-lock enforcement because arbitrary Python cannot be statically bounded. `adopt_entity` remains available for explicit-claim semantics.
+- Camera plans use the same expected_revision_id staleness check every mutating tool uses; directing-evidence analysis is still produced and recorded for audit, but no longer gates authorization.
+- The embedded director session keeps a fixed tool allowlist, generated from a single curated catalog (`EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS`) shared with the extension's tool registration so the two cannot drift; `execute_blender_python` is included ON BY DEFAULT, disableable per project, and checked at session construction either way. `ardy_regenerate` is an explicit typed model capability in that same catalog: it may only publish to and await the host-owned durable regeneration queue, which remains the sole path into `ArdyMotionKernel`, `ArdyArchiveService`, and committed `apply_motion`. It must never invoke wrappers, mutate archives, or use Blender Python directly. `ardy_generate` remains unavailable until it has an equivalent closed typed contract and host-queue implementation.
+- The Python add-on and the TypeScript protocol must produce identical canonical revisions, including for declaratively-registered single-property fields (Stage 4a); parity for those fields is verified by a hand-pinned numeric oracle and a cross-language execution comparison over generated fixtures, not by the generator's own determinism, which proves consistency but not correctness on its own.
+- `ArdyArchiveService` (module boundary inside `director-runtime`) validates cskel27/Y-up/FPS/replay invariants at write time and structural well-formedness at read time via typed schemas — this is real for WELL-BEHAVED callers (regeneration queue runner, ARDY services) and prevents accidental/malformed writes on that path. It provides NO authenticated caller identity, NO adversarial tamper resistance, and NO proof an archive entry was genuinely ARDY-produced. Threat table (permanent, stated in `AGENTS.md` verbatim): any process running as the same OS user as Blender/director-runtime — including a script executed via `execute_blender_python` — can read every file under `.cclay/` including archive entries and any key material; write/overwrite archive files directly, bypassing `ArdyArchiveService` entirely; produce a validly-"signed" forged entry if HMAC diagnostics are retained; and directly pose/mutate the rig in the live scene exactly as it always could, with or without ARDY involvement. None of this is prevented by typed services, module boundaries, or same-process signing. HMAC signing, if retained, is scoped explicitly as non-adversarial corruption/tamper-EVIDENCE diagnostics only (disk errors, pipeline bugs, interrupted writes) — never described as security. Real OS-level isolation (separate OS user/service account/credential broker) and proactive drift-detection tooling (comparing live rig pose against archive claims) are both explicitly OUT OF SCOPE for this plan, permanently, not deferred pending future evidence — this is the reconciled, final decision, not an open item.
 
 ## User Override
 

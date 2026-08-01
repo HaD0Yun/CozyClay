@@ -1,4 +1,4 @@
-"""Blender-independent assembly and validation for SceneManifestV2/V3/V4."""
+"""Blender-independent assembly and validation for SceneManifestV4."""
 
 from __future__ import annotations
 
@@ -28,13 +28,12 @@ PRIMITIVE_TYPES = ("PLANE", "CUBE", "UV_SPHERE", "CYLINDER", "CONE", "CIRCLE", "
 # written before shading existed byte-identical. Mirrors StagePrimitiveSchema.
 PRIMITIVE_SHADINGS = ("SMOOTH", "MIXED")
 
-_MANIFEST_V2_KEYS = {
+_MANIFEST_V4_KEYS = {
     "schemaVersion", "projectId", "revisionId", "sceneHash", "blenderVersion",
     "scene", "render", "objects", "bones", "cameras", "lights", "markers",
-    "selectedEntityIds", "cameraAnimations",
+    "selectedEntityIds", "cameraAnimations", "stagePrimitives", "stageMaterials",
+    "assemblies",
 }
-_MANIFEST_V3_KEYS = _MANIFEST_V2_KEYS | {"stagePrimitives", "stageMaterials"}
-_MANIFEST_V4_KEYS = _MANIFEST_V3_KEYS | {"assemblies"}
 _ASSEMBLY_KEYS = {"assemblyId", "name", "rootEntityId", "memberIds"}
 _SCENE_KEYS = {"name", "frameStart", "frameEnd", "fpsNumerator", "fpsDenominator", "activeCameraId"}
 _RENDER_KEYS = {"resolutionX", "resolutionY", "resolutionPercentage"}
@@ -42,10 +41,10 @@ _OBJECT_KEYS = {"entityId", "name", "type", "parentId", "visible", "location", "
 _BONE_KEYS = {"entityId", "name", "armatureObjectId", "parentBoneId", "location", "rotationQuaternion", "scale"}
 _CAMERA_KEYS = {
     "objectId", "lens", "sensorFit", "sensorWidth", "sensorHeight",
-    "verticalFovRadians", "clipStart", "clipEnd",
+    "verticalFovRadians", "clipStart", "clipEnd", "focusDistance",
 }
 _LIGHT_KEYS = {"objectId", "lightType", "color", "energy", "spotSize", "spotBlend"}
-_LIGHT_V3_KEYS = _LIGHT_KEYS | {"areaSize"}
+_LIGHT_V3_KEYS = _LIGHT_KEYS | {"areaSize", "cutoffDistance"}
 _STAGE_PRIMITIVE_KEYS = {"objectId", "primitiveType", "shading"}
 _STAGE_MATERIAL_KEYS = {
     "objectId", "materialName", "baseColor", "useNodes",
@@ -153,18 +152,9 @@ def _assert_sorted(values: list, key, label: str) -> None:
 
 
 def _validate_manifest(manifest: dict) -> None:
-    schema_version = manifest.get("schemaVersion")
-    if schema_version not in (2, 3, 4):
-        _fail("schemaVersion", "must equal 2, 3, or 4")
-    _exact_keys(
-        manifest,
-        (
-            _MANIFEST_V4_KEYS if schema_version == 4
-            else _MANIFEST_V3_KEYS if schema_version == 3
-            else _MANIFEST_V2_KEYS
-        ),
-        "manifest",
-    )
+    if manifest.get("schemaVersion") != 4:
+        _fail("schemaVersion", "must equal 4")
+    _exact_keys(manifest, _MANIFEST_V4_KEYS, "manifest")
     _uuid(manifest.get("projectId"), "projectId")
     _string(manifest.get("blenderVersion"), "blenderVersion")
 
@@ -189,12 +179,9 @@ def _validate_manifest(manifest: dict) -> None:
     arrays = {}
     array_keys = [
         "objects", "bones", "cameras", "lights", "markers",
-        "selectedEntityIds", "cameraAnimations",
+        "selectedEntityIds", "cameraAnimations", "stagePrimitives",
+        "stageMaterials", "assemblies",
     ]
-    if schema_version >= 3:
-        array_keys.extend(("stagePrimitives", "stageMaterials"))
-    if schema_version == 4:
-        array_keys.append("assemblies")
     for key in array_keys:
         value = manifest.get(key)
         if not isinstance(value, list):
@@ -249,7 +236,11 @@ def _validate_manifest(manifest: dict) -> None:
     camera_object_ids: set[str] = set()
     for index, item in enumerate(arrays["cameras"]):
         path = f"cameras[{index}]"
-        _exact_keys(item, _CAMERA_KEYS, path)
+        _exact_keys(
+            item,
+            _CAMERA_KEYS if "focusDistance" in item else _CAMERA_KEYS - {"focusDistance"},
+            path,
+        )
         _uuid(item.get("objectId"), f"{path}.objectId")
         if item["objectId"] in camera_object_ids:
             _fail("cameras", "must contain exactly one entry per camera object")
@@ -271,6 +262,8 @@ def _validate_manifest(manifest: dict) -> None:
         _number(item.get("clipEnd"), f"{path}.clipEnd")
         if item["clipEnd"] <= item["clipStart"]:
             _fail(f"{path}.clipEnd", "must be > clipStart")
+        if "focusDistance" in item:
+            _number(item["focusDistance"], f"{path}.focusDistance", 0)
     _assert_sorted(arrays["cameras"], lambda item: item["objectId"], "cameras")
     expected_camera_objects = {key for key, item in objects_by_id.items() if item["type"] == "CAMERA"}
     if camera_object_ids != expected_camera_objects:
@@ -279,7 +272,11 @@ def _validate_manifest(manifest: dict) -> None:
     light_object_ids: set[str] = set()
     for index, item in enumerate(arrays["lights"]):
         path = f"lights[{index}]"
-        _exact_keys(item, _LIGHT_V3_KEYS if schema_version >= 3 else _LIGHT_KEYS, path)
+        _exact_keys(
+            item,
+            _LIGHT_V3_KEYS if "cutoffDistance" in item else _LIGHT_V3_KEYS - {"cutoffDistance"},
+            path,
+        )
         _uuid(item.get("objectId"), f"{path}.objectId")
         if item["objectId"] in light_object_ids:
             _fail("lights", "must contain exactly one entry per light object")
@@ -299,14 +296,15 @@ def _validate_manifest(manifest: dict) -> None:
                 _number(value, f"{path}.{field}")
             elif value is not None:
                 _fail(f"{path}.{field}", "must be null for non-SPOT lights")
-        if schema_version >= 3:
-            area_size = item.get("areaSize")
-            if item["lightType"] == "AREA":
-                _number(area_size, f"{path}.areaSize")
-                if area_size <= 0:
-                    _fail(f"{path}.areaSize", "must be > 0")
-            elif area_size is not None:
-                _fail(f"{path}.areaSize", "must be null for non-AREA lights")
+        area_size = item.get("areaSize")
+        if item["lightType"] == "AREA":
+            _number(area_size, f"{path}.areaSize")
+            if area_size <= 0:
+                _fail(f"{path}.areaSize", "must be > 0")
+        elif area_size is not None:
+            _fail(f"{path}.areaSize", "must be null for non-AREA lights")
+        if "cutoffDistance" in item:
+            _number(item["cutoffDistance"], f"{path}.cutoffDistance", 0)
     _assert_sorted(arrays["lights"], lambda item: item["objectId"], "lights")
     expected_light_objects = {key for key, item in objects_by_id.items() if item["type"] == "LIGHT"}
     if light_object_ids != expected_light_objects:
@@ -337,100 +335,98 @@ def _validate_manifest(manifest: dict) -> None:
         _fail("selectedEntityIds", "must not contain duplicates")
     _assert_sorted(arrays["selectedEntityIds"], lambda value: value, "selectedEntityIds")
 
-    if schema_version >= 3:
-        for key, item_keys in (
-            ("stagePrimitives", _STAGE_PRIMITIVE_KEYS),
-            ("stageMaterials", _STAGE_MATERIAL_KEYS),
-        ):
-            seen_object_ids: set[str] = set()
-            for index, item in enumerate(arrays[key]):
-                path = f"{key}[{index}]"
-                _exact_keys(item, item_keys, path)
-                _uuid(item.get("objectId"), f"{path}.objectId")
-                if item["objectId"] in seen_object_ids:
-                    _fail(key, "must not contain duplicate objectId values")
-                seen_object_ids.add(item["objectId"])
-                if objects_by_id.get(item["objectId"], {}).get("type") != "MESH":
-                    raise INVALID_MANIFEST_REFERENCE(
-                        f"{path}.objectId must reference a MESH object"
+    for key, item_keys in (
+        ("stagePrimitives", _STAGE_PRIMITIVE_KEYS),
+        ("stageMaterials", _STAGE_MATERIAL_KEYS),
+    ):
+        seen_object_ids: set[str] = set()
+        for index, item in enumerate(arrays[key]):
+            path = f"{key}[{index}]"
+            _exact_keys(item, item_keys, path)
+            _uuid(item.get("objectId"), f"{path}.objectId")
+            if item["objectId"] in seen_object_ids:
+                _fail(key, "must not contain duplicate objectId values")
+            seen_object_ids.add(item["objectId"])
+            if objects_by_id.get(item["objectId"], {}).get("type") != "MESH":
+                raise INVALID_MANIFEST_REFERENCE(
+                    f"{path}.objectId must reference a MESH object"
+                )
+            if key == "stagePrimitives":
+                if item.get("primitiveType") not in PRIMITIVE_TYPES:
+                    _fail(f"{path}.primitiveType", "is unsupported")
+                # Optional: absent means every face is flat, which is what
+                # every primitive built before shading existed was, so older
+                # manifests stay byte-identical and keep their revision hash.
+                if "shading" in item and item["shading"] not in PRIMITIVE_SHADINGS:
+                    _fail(f"{path}.shading", "is unsupported")
+            else:
+                _string(item.get("materialName"), f"{path}.materialName", 1, 256)
+                _vector(item.get("baseColor"), 4, f"{path}.baseColor")
+                if any(component < 0 or component > 1 for component in item["baseColor"]):
+                    _fail(f"{path}.baseColor", "components must be between 0 and 1")
+                if not isinstance(item.get("useNodes"), bool):
+                    _fail(f"{path}.useNodes", "must be a boolean")
+                principled_base_color = item.get("principledBaseColor")
+                if principled_base_color is not None:
+                    _vector(
+                        principled_base_color,
+                        4,
+                        f"{path}.principledBaseColor",
                     )
-                if key == "stagePrimitives":
-                    if item.get("primitiveType") not in PRIMITIVE_TYPES:
-                        _fail(f"{path}.primitiveType", "is unsupported")
-                    # Optional: absent means every face is flat, which is what
-                    # every primitive built before shading existed was, so older
-                    # manifests stay byte-identical and keep their revision hash.
-                    if "shading" in item and item["shading"] not in PRIMITIVE_SHADINGS:
-                        _fail(f"{path}.shading", "is unsupported")
-                else:
-                    _string(item.get("materialName"), f"{path}.materialName", 1, 256)
-                    _vector(item.get("baseColor"), 4, f"{path}.baseColor")
-                    if any(component < 0 or component > 1 for component in item["baseColor"]):
-                        _fail(f"{path}.baseColor", "components must be between 0 and 1")
-                    if not isinstance(item.get("useNodes"), bool):
-                        _fail(f"{path}.useNodes", "must be a boolean")
-                    principled_base_color = item.get("principledBaseColor")
-                    if principled_base_color is not None:
-                        _vector(
-                            principled_base_color,
-                            4,
+                    if any(
+                        component < 0 or component > 1
+                        for component in principled_base_color
+                    ):
+                        _fail(
                             f"{path}.principledBaseColor",
+                            "components must be between 0 and 1",
                         )
-                        if any(
-                            component < 0 or component > 1
-                            for component in principled_base_color
-                        ):
-                            _fail(
-                                f"{path}.principledBaseColor",
-                                "components must be between 0 and 1",
-                            )
-                    # Optional: present only when the finish leaves the Principled
-                    # defaults, which is what keeps older manifests hash-identical.
-                    for finish in ("principledRoughness", "principledMetallic"):
-                        if finish not in item:
-                            continue
-                        value = item[finish]
-                        if (
-                            isinstance(value, bool)
-                            or not isinstance(value, (int, float))
-                            or not 0 <= value <= 1
-                        ):
-                            _fail(f"{path}.{finish}", "must be a number between 0 and 1")
-            _assert_sorted(arrays[key], lambda item: item["objectId"], key)
-    if schema_version == 4:
-        assembly_ids: set[str] = set()
-        member_ids: set[str] = set()
-        for index, item in enumerate(arrays["assemblies"]):
-            path = f"assemblies[{index}]"
-            _exact_keys(item, _ASSEMBLY_KEYS, path)
-            _uuid(item.get("assemblyId"), f"{path}.assemblyId")
-            _string(item.get("name"), f"{path}.name", 1, 256)
-            _uuid(item.get("rootEntityId"), f"{path}.rootEntityId")
-            if item["assemblyId"] in assembly_ids:
-                _fail("assemblies", "must not contain duplicate assemblyId values")
-            assembly_ids.add(item["assemblyId"])
-            root = objects_by_id.get(item["rootEntityId"])
-            if root is None or root["type"] != "EMPTY":
+                # Optional: present only when the finish leaves the Principled
+                # defaults, which is what keeps older manifests hash-identical.
+                for finish in ("principledRoughness", "principledMetallic"):
+                    if finish not in item:
+                        continue
+                    value = item[finish]
+                    if (
+                        isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or not 0 <= value <= 1
+                    ):
+                        _fail(f"{path}.{finish}", "must be a number between 0 and 1")
+        _assert_sorted(arrays[key], lambda item: item["objectId"], key)
+    assembly_ids: set[str] = set()
+    member_ids: set[str] = set()
+    for index, item in enumerate(arrays["assemblies"]):
+        path = f"assemblies[{index}]"
+        _exact_keys(item, _ASSEMBLY_KEYS, path)
+        _uuid(item.get("assemblyId"), f"{path}.assemblyId")
+        _string(item.get("name"), f"{path}.name", 1, 256)
+        _uuid(item.get("rootEntityId"), f"{path}.rootEntityId")
+        if item["assemblyId"] in assembly_ids:
+            _fail("assemblies", "must not contain duplicate assemblyId values")
+        assembly_ids.add(item["assemblyId"])
+        root = objects_by_id.get(item["rootEntityId"])
+        if root is None or root["type"] != "EMPTY":
+            raise INVALID_MANIFEST_REFERENCE(
+                f"{path}.rootEntityId must reference an EMPTY object"
+            )
+        if not isinstance(item.get("memberIds"), list):
+            _fail(f"{path}.memberIds", "must be an array")
+        if item["rootEntityId"] not in item["memberIds"]:
+            raise INVALID_MANIFEST_REFERENCE(
+                f"{path}.rootEntityId must be included in memberIds"
+            )
+        for member_index, member_id in enumerate(item["memberIds"]):
+            _uuid(member_id, f"{path}.memberIds[{member_index}]")
+            if member_id not in objects_by_id:
                 raise INVALID_MANIFEST_REFERENCE(
-                    f"{path}.rootEntityId must reference an EMPTY object"
+                    f"{path}.memberIds[{member_index}] references no object"
                 )
-            if not isinstance(item.get("memberIds"), list):
-                _fail(f"{path}.memberIds", "must be an array")
-            if item["rootEntityId"] not in item["memberIds"]:
-                raise INVALID_MANIFEST_REFERENCE(
-                    f"{path}.rootEntityId must be included in memberIds"
-                )
-            for member_index, member_id in enumerate(item["memberIds"]):
-                _uuid(member_id, f"{path}.memberIds[{member_index}]")
-                if member_id not in objects_by_id:
-                    raise INVALID_MANIFEST_REFERENCE(
-                        f"{path}.memberIds[{member_index}] references no object"
-                    )
-                if member_id in member_ids:
-                    _fail("assemblies", "members must belong to at most one assembly")
-                member_ids.add(member_id)
-            _assert_sorted(item["memberIds"], lambda value: value, f"{path}.memberIds")
-        _assert_sorted(arrays["assemblies"], lambda item: item["assemblyId"], "assemblies")
+            if member_id in member_ids:
+                _fail("assemblies", "members must belong to at most one assembly")
+            member_ids.add(member_id)
+        _assert_sorted(item["memberIds"], lambda value: value, f"{path}.memberIds")
+    _assert_sorted(arrays["assemblies"], lambda item: item["assemblyId"], "assemblies")
 
     animation_targets: set[tuple[str, str]] = set()
     for animation_index, animation in enumerate(arrays["cameraAnimations"]):
@@ -491,7 +487,8 @@ def _validate_manifest(manifest: dict) -> None:
     )
 
 
-def build_scene_manifest(
+def build_scene_manifest_v4(
+    *,
     project_id: str,
     blender_version: str,
     scene: dict,
@@ -503,8 +500,11 @@ def build_scene_manifest(
     markers: list[dict],
     selected_entity_ids: list[str],
     camera_animations: list[dict],
+    stage_primitives: list[dict],
+    stage_materials: list[dict],
+    assemblies: list[dict],
 ) -> dict:
-    """Validate, copy, and semantically order already-extracted scene data."""
+    """Validate, copy, and semantically order V4 extracted scene data."""
     ordered_animations = copy.deepcopy(camera_animations)
     for animation in ordered_animations:
         for fcurve in animation["fcurves"]:
@@ -512,7 +512,7 @@ def build_scene_manifest(
         animation["fcurves"].sort(key=lambda item: (item["dataPath"], item["arrayIndex"]))
     ordered_animations.sort(key=lambda item: (item["objectId"], item["target"]))
     manifest = {
-        "schemaVersion": 2,
+        "schemaVersion": 4,
         "projectId": project_id,
         "blenderVersion": blender_version,
         "scene": copy.deepcopy(scene),
@@ -524,46 +524,10 @@ def build_scene_manifest(
         "markers": sorted(copy.deepcopy(markers), key=lambda item: (item["name"], item["frame"], item["cameraId"] is not None, item["cameraId"] or "")),
         "selectedEntityIds": sorted(set(copy.deepcopy(selected_entity_ids))),
         "cameraAnimations": ordered_animations,
+        "stagePrimitives": sorted(copy.deepcopy(stage_primitives), key=lambda item: item["objectId"]),
+        "stageMaterials": sorted(copy.deepcopy(stage_materials), key=lambda item: item["objectId"]),
+        "assemblies": sorted(copy.deepcopy(assemblies), key=lambda item: item["assemblyId"]),
     }
-    _validate_manifest(manifest)
-    return manifest
-
-
-def build_scene_manifest_v3(
-    *,
-    stage_primitives: list[dict],
-    stage_materials: list[dict],
-    **parts,
-) -> dict:
-    """Build the minimal additive manifest needed by stage_scene."""
-    lights = copy.deepcopy(parts["lights"])
-    v2_parts = {
-        **parts,
-        "lights": [
-            {key: value for key, value in item.items() if key != "areaSize"}
-            for item in lights
-        ],
-    }
-    manifest = build_scene_manifest(**v2_parts)
-    manifest["schemaVersion"] = 3
-    manifest["lights"] = sorted(lights, key=lambda item: item["objectId"])
-    manifest["stagePrimitives"] = sorted(
-        copy.deepcopy(stage_primitives), key=lambda item: item["objectId"]
-    )
-    manifest["stageMaterials"] = sorted(
-        copy.deepcopy(stage_materials), key=lambda item: item["objectId"]
-    )
-    _validate_manifest(manifest)
-    return manifest
-
-
-def build_scene_manifest_v4(*, assemblies: list[dict], **parts) -> dict:
-    """Build the assembly-aware additive scene manifest."""
-    manifest = build_scene_manifest_v3(**parts)
-    manifest["schemaVersion"] = 4
-    manifest["assemblies"] = sorted(
-        copy.deepcopy(assemblies), key=lambda item: item["assemblyId"]
-    )
     _validate_manifest(manifest)
     return manifest
 

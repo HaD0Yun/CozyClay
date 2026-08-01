@@ -1,11 +1,9 @@
-"""Drift net: the addon's stage_scene validator must accept exactly the op set
-(and per-op key surface) declared by the TypeScript protocol schema.
+"""Drift net: the addon's retained stage_scene validator must accept exactly
+the operation and per-operation key surface declared by the TypeScript schema.
 
-The transform_entity/set_camera_property/... incident happened because the TS
-StageSceneOperationV1 union grew while the addon's _OPERATION_KEYS did not, so
-valid plans died addon-side. This test regex-extracts the TS source (no node
-required) and fails loudly, naming the drifted ops, if either side changes
-without the other.
+Generated manifest-only rows deliberately contribute no stage_scene operations.
+This test extracts both sources and fails loudly if the retained handwritten
+union drifts in either direction.
 """
 
 import pathlib
@@ -20,6 +18,10 @@ from cclay.stage_scene import _OPERATION_KEYS
 TS_SOURCE = (
     pathlib.Path(__file__).parents[2]
     / "packages" / "blender-protocol" / "src" / "stage-scene.ts"
+)
+GENERATED_TS_SOURCE = (
+    pathlib.Path(__file__).parents[2]
+    / "packages" / "blender-protocol" / "src" / "stage-scene-ops.generated.ts"
 )
 
 _OP_LITERAL = re.compile(r'op:\s*Type\.Literal\("([a-z_]+)"\)')
@@ -40,7 +42,7 @@ def _plan_schema_chunks(source: str) -> dict[str, str]:
     return {
         name: chunk
         for name, chunk in chunks.items()
-        if not name.endswith("RequestSchema")
+        if not name.endswith("RequestSchema") and not name.endswith("Result")
     }
 
 
@@ -86,9 +88,21 @@ def _apply_motion_keys(chunks: dict[str, str], base_chunk: str) -> set[str]:
 class ProtocolAddonOpParityTests(unittest.TestCase):
     def setUp(self):
         self.source = TS_SOURCE.read_text(encoding="utf-8")
+        self.generated_source = GENERATED_TS_SOURCE.read_text(encoding="utf-8")
+        self.schema_source = f"{self.source}\n{self.generated_source}"
 
     def test_op_name_sets_are_identical_both_directions(self):
-        ts_ops = set(_OP_LITERAL.findall(self.source))
+        ts_ops = set(_OP_LITERAL.findall(self.schema_source))
+        self.assertNotIn(
+            "...GeneratedStageSceneOperationSchemas",
+            self.source,
+            "manifest-only registry rows must not enter StageSceneOperationV1Schema",
+        )
+        self.assertEqual(
+            _OP_LITERAL.findall(self.generated_source),
+            [],
+            "manifest-only generated source must not declare stage_scene operations",
+        )
         addon_ops = set(_OPERATION_KEYS)
         self.assertTrue(ts_ops, f"no op literals extracted from {TS_SOURCE}")
         missing_in_addon = sorted(ts_ops - addon_ops)
@@ -109,6 +123,7 @@ class ProtocolAddonOpParityTests(unittest.TestCase):
     def test_per_op_key_surfaces_are_identical(self):
         compared_ops = 0
         chunks = _plan_schema_chunks(self.source)
+        chunks.update(_plan_schema_chunks(self.generated_source))
         for name, chunk in chunks.items():
             op_literals = _OP_LITERAL.findall(chunk)
             if not op_literals:

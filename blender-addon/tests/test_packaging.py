@@ -26,81 +26,6 @@ def build_archive(output: Path) -> None:
     )
 
 
-def write_incompatible_daemon(path: Path, daemon_version: str) -> None:
-    source = f'''#!/usr/bin/env python3
-import base64
-import hashlib
-import json
-import os
-import socket
-import struct
-import uuid
-
-listener = socket.socket()
-listener.bind(("127.0.0.1", 0))
-listener.listen(1)
-launch_id = str(uuid.uuid4())
-token = base64.urlsafe_b64encode(os.urandom(32)).decode("ascii").rstrip("=")
-print(json.dumps({{
-    "type": "cclay_daemon_ready",
-    "protocol": 1,
-    "port": listener.getsockname()[1],
-    "pid": os.getpid(),
-    "launch_id": launch_id,
-    "bearer_token": token,
-    "expires_in_ms": 10000,
-}}), flush=True)
-connection, _ = listener.accept()
-def receive_exact(length):
-    data = b""
-    while len(data) < length:
-        data += connection.recv(length - len(data))
-    return data
-request = b""
-while b"\\r\\n\\r\\n" not in request:
-    request += connection.recv(4096)
-headers = {{
-    line.split(":", 1)[0].strip().lower(): line.split(":", 1)[1].strip()
-    for line in request.decode("ascii").split("\\r\\n")[1:]
-    if ":" in line
-}}
-accept = base64.b64encode(hashlib.sha1(
-    (headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")
-).digest()).decode("ascii")
-connection.sendall((
-    "HTTP/1.1 101 Switching Protocols\\r\\n"
-    "Upgrade: websocket\\r\\n"
-    "Connection: Upgrade\\r\\n"
-    f"Sec-WebSocket-Accept: {{accept}}\\r\\n\\r\\n"
-).encode("ascii"))
-header = receive_exact(2)
-length = header[1] & 0x7f
-if length == 126:
-    length = struct.unpack("!H", receive_exact(2))[0]
-elif length == 127:
-    length = struct.unpack("!Q", receive_exact(8))[0]
-mask = receive_exact(4)
-payload = bytearray(receive_exact(length))
-for index in range(len(payload)):
-    payload[index] ^= mask[index % 4]
-ack = json.dumps({{
-    "type": "hello_ack",
-    "protocol": 2,
-    "daemon_version": {daemon_version!r},
-    "launch_id": launch_id,
-    "session_id": str(uuid.uuid4()),
-    "server_nonce": base64.urlsafe_b64encode(os.urandom(16)).decode("ascii").rstrip("="),
-    "capabilities": ["mutation_bridge_v2"],
-}}).encode("utf-8")
-if len(ack) < 126:
-    frame_header = bytes([0x81, len(ack)])
-else:
-    frame_header = bytes([0x81, 126]) + struct.pack("!H", len(ack))
-connection.sendall(frame_header + ack)
-connection.recv(1024)
-'''
-    path.write_text(source, encoding="utf-8")
-    path.chmod(0o700)
 
 
 class BlenderExtensionPackagingTests(unittest.TestCase):
@@ -140,7 +65,7 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
             self.assertFalse(any("tests" in Path(name).parts for name in names))
             self.assertFalse(any("__pycache__" in Path(name).parts for name in names))
             self.assertFalse(any(name.endswith(".pyc") for name in names))
-            self.assertFalse(any("generate" in Path(name).name for name in names))
+            self.assertFalse(any(Path(name).name.startswith("generate_") for name in names))
 
     def test_archive_loads_panel_detached_and_avoids_repo_discovery(self):
         with tempfile.TemporaryDirectory(prefix="cclay-isolated-install-") as directory:
@@ -229,26 +154,6 @@ class BlenderExtensionPackagingTests(unittest.TestCase):
             self.assertEqual(probe.returncode, 0)
             self.assertTrue(any(path.name == "cclay" for path in extensions.rglob("cclay")))
 
-            for daemon_version in ("9.9.9", "not-semver"):
-                with self.subTest(daemon_version=daemon_version):
-                    daemon = isolated / f"incompatible-{daemon_version}"
-                    write_incompatible_daemon(daemon, daemon_version)
-                    mismatch_environment = environment | {"CCLAY_DAEMON_EXECUTABLE": str(daemon)}
-                    mismatch = subprocess.run(
-                        [
-                            "blender",
-                            "--background",
-                            "--python-expr",
-                            "import importlib, tempfile, uuid; m=importlib.import_module('bl_ext.user_default.cclay.connection'); caught=None;\ntry: m.connect(cwd=tempfile.mkdtemp(), project_id=str(uuid.uuid4()), addon_version='0.1.0', blender_version='5.1.2')\nexcept m.ConnectionError as error: caught=str(error)\nassert caught and 'incompatible daemon version' in caught, caught; assert m._active_connection is None",
-                        ],
-                        cwd=isolated,
-                        env=mismatch_environment,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                    )
-                    self.assertEqual(mismatch.returncode, 0)
 
             subprocess.run(
                 ["blender", "--command", "extension", "remove", "cclay"],

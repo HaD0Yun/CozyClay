@@ -102,6 +102,9 @@ def _minimal_manifest_parts(bones: list[dict]) -> dict:
         markers=[],
         selected_entity_ids=[],
         camera_animations=[],
+        stage_primitives=[],
+        stage_materials=[],
+        assemblies=[],
     )
 
 
@@ -166,10 +169,10 @@ class AnchorBoneManifestVisibilityTests(unittest.TestCase):
             )]
         )
         baseline = scene_manifest.finalize_scene_manifest(
-            scene_manifest.build_scene_manifest(**_minimal_manifest_parts(baseline_bones))
+            scene_manifest.build_scene_manifest_v4(**_minimal_manifest_parts(baseline_bones))
         )
         anchored = scene_manifest.finalize_scene_manifest(
-            scene_manifest.build_scene_manifest(**_minimal_manifest_parts(anchored_bones))
+            scene_manifest.build_scene_manifest_v4(**_minimal_manifest_parts(anchored_bones))
         )
         self.assertEqual(baseline["sceneHash"], anchored["sceneHash"])
         self.assertEqual(baseline["revisionId"], anchored["revisionId"])

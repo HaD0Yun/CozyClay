@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { StageSceneResult } from "@cclay/blender-tools";
 import {
-	buildSceneManifestV3Revision,
 	buildSceneManifestV4Revision,
 	canonicalRevision,
 	type DirectorProject,
 	type DirectorProjectRecoveryV2,
+	type DirectorProjectWriteInput,
+	extensionsDigest,
+	type ManifestForHashing,
 	ProjectStore,
 	type RevisionOperationEntryV2,
 } from "@cclay/director-core";
@@ -25,7 +27,7 @@ export interface StageSceneRevisionStore {
 	commitRevision(
 		idempotencyKey: string,
 		expectedRevisionId: string,
-		project: DirectorProjectRecoveryV2,
+		project: DirectorProjectWriteInput,
 		journalEntry: RevisionOperationEntryV2,
 	): Promise<void>;
 }
@@ -38,13 +40,7 @@ export interface StageSceneHandlerOptions {
 export const createStageSceneProjectStore = (rootDir: string): StageSceneRevisionStore => new ProjectStore(rootDir);
 
 function validateEntityIdentities(plan: StageScenePlanV1, candidate: StageSceneMutationCandidate): void {
-	const namedOperations = plan.operations.filter(
-		(operation) =>
-			operation.op === "add_primitive" ||
-			operation.op === "upsert_area_light" ||
-			operation.op === "add_character" ||
-			operation.op === "add_camera",
-	);
+	const namedOperations = plan.operations.filter((operation) => operation.op === "add_character");
 	if (candidate.entity_identities.length !== namedOperations.length) {
 		throw new Error("INVALID_MUTATION_RESULT: entity identity mapping must cover every named operation");
 	}
@@ -136,12 +132,14 @@ async function commitStageSceneMutationInner(
 		throw new Error("INVALID_MUTATION_RESULT: scene_hash must equal manifest.sceneHash");
 	}
 	const rebuiltManifest = (() => {
-		if (candidate.manifest.schemaVersion === 4) {
-			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-			return buildSceneManifestV4Revision(hashFreeManifest, plan.expected_revision_id, plan);
-		}
-		const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = candidate.manifest;
-		return buildSceneManifestV3Revision(hashFreeManifest, plan.expected_revision_id, plan);
+		const {
+			revisionId: _revisionId,
+			sceneHash: _sceneHash,
+			extensions: _extensions,
+			...hashFreeManifest
+		} = candidate.manifest;
+		const manifestForHashing: ManifestForHashing = hashFreeManifest;
+		return buildSceneManifestV4Revision(manifestForHashing, plan.expected_revision_id, plan);
 	})();
 	if (
 		candidate.scene_hash !== rebuiltManifest.sceneHash ||
@@ -186,6 +184,7 @@ async function commitStageSceneMutationInner(
 		schema_version: 1,
 		current_revision_id: candidate.manifest.revisionId,
 		manifest: parseSceneManifestV4(candidate.manifest),
+		extensionsDigest: extensionsDigest(candidate.manifest.extensions),
 	};
 	const journalEntry: RevisionOperationEntryV2 = {
 		schema_version: 2,

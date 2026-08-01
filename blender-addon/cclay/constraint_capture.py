@@ -25,7 +25,8 @@ import re
 import tempfile
 import uuid
 
-from . import ik_chains, motion_constraints, motion_retarget
+from . import ik_chains, motion_archive, motion_constraints, motion_retarget
+from .character_rig import CharacterRigAdapter
 
 try:  # pragma: no cover - exercised inside Blender
     import bpy  # type: ignore
@@ -51,7 +52,7 @@ REQUEST_SCHEMA_VERSION = 1
 # The same slug grammar stage_scene enforces for apply_motion, applied to the
 # synthetic pose archives written here so a full-body constraint cannot name a
 # motion the bridge would later reject.
-_MOTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+_MOTION_ID = motion_archive.MOTION_ID
 
 # Request ids are uuid4 hex and are used directly as filenames. Checking the
 # shape where they are consumed stops a hand-edited pending property from
@@ -679,13 +680,13 @@ def motion_basis(armature, project_directory, motion_id: str) -> dict:
     rotations are handed back as the loaded array rather than converted: only
     the marked frames are ever read, and a 240-frame clip is 583k floats.
     """
-    from . import stage_scene
-
-    local_rot_mats, posed_joints, _fps, _carried = stage_scene._load_motion_payload(
-        project_directory, motion_id
-    )
-    prefix, rig_thigh = stage_scene._rig_scale_inputs(armature.data.bones)
-    del prefix
+    try:
+        local_rot_mats, posed_joints, _fps, _carried = motion_archive.load_motion_payload(
+            project_directory, motion_id
+        )
+    except motion_archive.MotionArchiveError as error:
+        raise ConstraintCaptureError(str(error)) from error
+    rig_thigh = CharacterRigAdapter(armature.data.bones).rig_thigh
     return {
         "bone_offsets": motion_constraints.derive_bone_offsets(
             [[[float(v) for v in row] for row in joint] for joint in local_rot_mats[0]],
@@ -715,7 +716,6 @@ def write_pose_source_npz(
     """
     import numpy
 
-    from . import stage_scene
 
     if _MOTION_ID.fullmatch(motion_id) is None:
         raise ConstraintCaptureError(f"invalid synthetic motion id {motion_id!r}")
@@ -739,7 +739,7 @@ def write_pose_source_npz(
         # Round-trips the archive through the same validator apply_motion uses,
         # so a malformed synthetic pose fails here rather than deep inside a
         # regeneration the host already started.
-        stage_scene._inspect_motion_archive(staged, motion_id)
+        motion_archive.inspect_motion_archive(staged, motion_id)
         os.replace(staged, path)
     except BaseException:
         try:

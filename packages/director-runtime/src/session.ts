@@ -4,22 +4,41 @@ import { join } from "node:path";
 import {
 	type ApplyCameraPlanBridge,
 	type ApplyPerformanceModeBridge,
+	type ArdyRegenerateBridge,
+	type CaptureViewportBridge,
 	type CreateFallMotionBridge,
 	createApplyCameraPlanTool,
 	createApplyPerformanceModeTool,
+	createArdyRegenerateTool,
+	createCaptureViewportTool,
+	createExecuteBlenderPythonTool,
 	createFallMotionTool,
 	createInspectBridgeStateTool,
+	createInspectEntityTool,
 	createInspectPerformanceTool,
+	createInspectPoseContactsTool,
 	createInspectProjectTool,
+	createInspectRelationsTool,
 	createInspectVisualQaMetricsTool,
+	createPreflightMotionTool,
+	createProduceDirectingEvidenceTool,
+	createReadImageTool,
 	createRenderQaFramesTool,
 	createRepairBridgeTool,
 	createReplaceCameraActionTool,
 	createStageSceneTool,
+	EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES,
+	type EmbeddedDirectorToolName,
+	type ExecuteBlenderPythonBridge,
 	type InspectBridgeStateBridge,
+	type InspectEntityBridge,
 	type InspectPerformanceBridge,
+	type InspectPoseContactsBridge,
 	type InspectProjectBridge,
+	type InspectRelationsBridge,
 	type InspectVisualQaMetricsBridge,
+	type PreflightMotionBridge,
+	type ProduceDirectingEvidenceBridge,
 	type RenderQaFramesBridge,
 	type RepairBridgeBridge,
 	type ReplaceCameraActionBridge,
@@ -31,47 +50,90 @@ import {
 	type ModelRuntime,
 	SessionManager,
 	SettingsManager,
+	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { BundledDirectorResourceLoader, DIRECTOR_PROMPT_DIGEST } from "./resource-loader.ts";
+import { BundledDirectorResourceLoader } from "./resource-loader.ts";
 
-export const DIRECTOR_TOOL_ALLOWLIST = [
-	"inspect_project",
-	"inspect_bridge_state",
-	"inspect_performance",
-	"inspect_visual_qa_metrics",
-	"stage_scene",
-	"apply_camera_plan",
-	"render_qa_frames",
-	"repair_bridge",
-	"apply_performance_mode",
-	"create_fall_motion",
-	"replace_camera_action",
-] as const;
+export const DIRECTOR_TOOL_ALLOWLIST = EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES;
 
+/**
+ * A bridge carrying members outside this type is inert rather than rejected.
+ * Excess-property checking only fires on object literals, so a bridge built by
+ * spread, Object.assign, a widened variable, or a factory can carry extra
+ * members and still typecheck. They are harmless because tool construction is
+ * driven by the closed DIRECTOR_TOOL_CONSTRUCTION_PATHS map below, which reads
+ * named bridge methods explicitly and never enumerates the bridge's own keys.
+ * Do not restate this as a compile-time guarantee; it is not one.
+ */
 export interface DirectorSessionOptions {
 	readonly bridge: InspectProjectBridge &
 		Partial<
 			ApplyCameraPlanBridge &
 				ApplyPerformanceModeBridge &
+				CaptureViewportBridge &
 				CreateFallMotionBridge &
+				ArdyRegenerateBridge &
 				InspectBridgeStateBridge &
+				InspectEntityBridge &
 				InspectPerformanceBridge &
+				InspectPoseContactsBridge &
+				InspectRelationsBridge &
 				InspectVisualQaMetricsBridge &
+				PreflightMotionBridge &
+				ProduceDirectingEvidenceBridge &
 				RenderQaFramesBridge &
 				ReplaceCameraActionBridge &
 				RepairBridgeBridge &
-				StageSceneBridge
+				StageSceneBridge &
+				ExecuteBlenderPythonBridge
 		>;
 	readonly model: Model<string>;
 	readonly modelRuntime: ModelRuntime;
 	readonly cwd?: string;
 	readonly agentDir?: string;
+	readonly allowExecuteBlenderPython?: boolean;
 }
 
+/**
+ * Tools with no bridge precondition: they are constructed from the session's own
+ * cwd or from the always-present inspect bridge, so a construction path that
+ * yields nothing for one of these is a defect, not an absent capability.
+ */
+export const UNCONDITIONAL_DIRECTOR_TOOLS: readonly string[] = ["inspect_project", "read_image"];
+
+export function assertDirectorToolConstructionPaths(
+	eligibleToolNames: readonly string[],
+	constructionPaths: Readonly<Record<string, unknown>>,
+): void {
+	const constructionPathNames = Object.keys(constructionPaths);
+	if (
+		constructionPathNames.length !== eligibleToolNames.length ||
+		constructionPathNames.some((name, index) => name !== eligibleToolNames[index])
+	) {
+		throw new Error(`DIRECTOR_TOOL_ALLOWLIST_MISMATCH: ${eligibleToolNames.join(",")}`);
+	}
+}
 export async function createDirectorSession(options: DirectorSessionOptions) {
 	const cwd = options.cwd ?? process.cwd();
 	const ownsAgentDir = options.agentDir === undefined;
 	const agentDir = options.agentDir ?? mkdtempSync(join(tmpdir(), "cclay-director-agent-"));
+	// Every failure between here and the point the session takes ownership of
+	// agentDir has to remove a directory this function created; otherwise a
+	// rejected construction leaves a temp directory behind on every attempt.
+	try {
+		return await buildDirectorSession(options, cwd, agentDir, ownsAgentDir);
+	} catch (error) {
+		if (ownsAgentDir) rmSync(agentDir, { recursive: true, force: true });
+		throw error;
+	}
+}
+
+async function buildDirectorSession(
+	options: DirectorSessionOptions,
+	cwd: string,
+	agentDir: string,
+	ownsAgentDir: boolean,
+) {
 	const resourceLoader = new BundledDirectorResourceLoader();
 	const mutationBridge =
 		options.bridge.applyCameraPlan === undefined
@@ -113,19 +175,106 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		options.bridge.replaceCameraAction === undefined
 			? undefined
 			: { replaceCameraAction: options.bridge.replaceCameraAction.bind(options.bridge) };
-	const enabledTools = [
-		"inspect_project",
-		...(inspectBridgeStateBridge === undefined ? [] : (["inspect_bridge_state"] as const)),
-		...(inspectPerformanceBridge === undefined ? [] : (["inspect_performance"] as const)),
-		...(inspectVisualQaMetricsBridge === undefined ? [] : (["inspect_visual_qa_metrics"] as const)),
-		...(stageBridge === undefined ? [] : (["stage_scene"] as const)),
-		...(mutationBridge === undefined ? [] : (["apply_camera_plan"] as const)),
-		...(renderBridge === undefined ? [] : (["render_qa_frames"] as const)),
-		...(repairBridge === undefined ? [] : (["repair_bridge"] as const)),
-		...(performanceBridge === undefined ? [] : (["apply_performance_mode"] as const)),
-		...(fallMotionBridge === undefined ? [] : (["create_fall_motion"] as const)),
-		...(cameraActionBridge === undefined ? [] : (["replace_camera_action"] as const)),
-	];
+	const inspectEntityBridge =
+		options.bridge.inspectEntity === undefined
+			? undefined
+			: { inspectEntity: options.bridge.inspectEntity.bind(options.bridge) };
+	const inspectPoseContactsBridge =
+		options.bridge.inspectPoseContacts === undefined
+			? undefined
+			: { inspectPoseContacts: options.bridge.inspectPoseContacts.bind(options.bridge) };
+	const inspectRelationsBridge =
+		options.bridge.inspectRelations === undefined
+			? undefined
+			: { inspectRelations: options.bridge.inspectRelations.bind(options.bridge) };
+	const preflightMotionBridge =
+		options.bridge.preflightMotion === undefined
+			? undefined
+			: { preflightMotion: options.bridge.preflightMotion.bind(options.bridge) };
+	const captureViewportBridge =
+		options.bridge.captureViewport === undefined
+			? undefined
+			: { captureViewport: options.bridge.captureViewport.bind(options.bridge) };
+	const directingEvidenceBridge =
+		options.bridge.produceDirectingEvidence === undefined
+			? undefined
+			: { produceDirectingEvidence: options.bridge.produceDirectingEvidence.bind(options.bridge) };
+	const ardyRegenerateBridge =
+		options.bridge.regenerate === undefined
+			? undefined
+			: { regenerate: options.bridge.regenerate.bind(options.bridge) };
+	// Annotated rather than `satisfies`: an explicit Record over the literal
+	const executeBlenderPythonBridge =
+		options.allowExecuteBlenderPython === false || options.bridge.executeBlenderPython === undefined
+			? undefined
+			: { executeBlenderPython: options.bridge.executeBlenderPython.bind(options.bridge) };
+	// tool-name union both requires every eligible catalog entry to have a
+	// construction path and rejects a path for a name the catalog does not
+	// carry, and it gives the flatMap below one element type instead of a
+	// union of eighteen distinct tool-array types.
+	const DIRECTOR_TOOL_CONSTRUCTION_PATHS: Record<EmbeddedDirectorToolName, () => ToolDefinition[]> = {
+		inspect_project: () => [createInspectProjectTool(options.bridge)],
+		inspect_bridge_state: () =>
+			inspectBridgeStateBridge === undefined ? [] : [createInspectBridgeStateTool(inspectBridgeStateBridge)],
+		inspect_performance: () =>
+			inspectPerformanceBridge === undefined ? [] : [createInspectPerformanceTool(inspectPerformanceBridge)],
+		inspect_entity: () => (inspectEntityBridge === undefined ? [] : [createInspectEntityTool(inspectEntityBridge)]),
+		inspect_pose_contacts: () =>
+			inspectPoseContactsBridge === undefined ? [] : [createInspectPoseContactsTool(inspectPoseContactsBridge)],
+		inspect_relations: () =>
+			inspectRelationsBridge === undefined ? [] : [createInspectRelationsTool(inspectRelationsBridge)],
+		inspect_visual_qa_metrics: () =>
+			inspectVisualQaMetricsBridge === undefined
+				? []
+				: [createInspectVisualQaMetricsTool(inspectVisualQaMetricsBridge)],
+		preflight_motion: () =>
+			preflightMotionBridge === undefined ? [] : [createPreflightMotionTool(preflightMotionBridge)],
+		capture_viewport: () =>
+			captureViewportBridge === undefined ? [] : [createCaptureViewportTool(captureViewportBridge)],
+		read_image: () => [createReadImageTool(cwd)],
+		produce_directing_evidence: () =>
+			directingEvidenceBridge === undefined ? [] : [createProduceDirectingEvidenceTool(directingEvidenceBridge)],
+		stage_scene: () => (stageBridge === undefined ? [] : [createStageSceneTool(stageBridge)]),
+		apply_camera_plan: () => (mutationBridge === undefined ? [] : [createApplyCameraPlanTool(mutationBridge)]),
+		render_qa_frames: () => (renderBridge === undefined ? [] : [createRenderQaFramesTool(renderBridge)]),
+		repair_bridge: () => (repairBridge === undefined ? [] : [createRepairBridgeTool(repairBridge)]),
+		apply_performance_mode: () =>
+			performanceBridge === undefined ? [] : [createApplyPerformanceModeTool(performanceBridge)],
+		create_fall_motion: () => (fallMotionBridge === undefined ? [] : [createFallMotionTool(fallMotionBridge)]),
+		replace_camera_action: () =>
+			cameraActionBridge === undefined ? [] : [createReplaceCameraActionTool(cameraActionBridge)],
+		ardy_regenerate: () =>
+			ardyRegenerateBridge === undefined ? [] : [createArdyRegenerateTool(ardyRegenerateBridge)],
+		execute_blender_python: () =>
+			executeBlenderPythonBridge === undefined ? [] : [createExecuteBlenderPythonTool(executeBlenderPythonBridge)],
+	};
+
+	assertDirectorToolConstructionPaths(DIRECTOR_TOOL_ALLOWLIST, DIRECTOR_TOOL_CONSTRUCTION_PATHS);
+	// Each path is invoked exactly once and its output validated against its own
+	// key. Keying the map by hand next to eighteen factory calls makes a
+	// copy-paste error realistic: a path can return a tool belonging to another
+	// key, return two tools, or return nothing at all. The key-coverage check
+	// above cannot see any of those, so validate the produced tools here rather
+	// than discovering the shrunken tool set at runtime.
+	const constructed = DIRECTOR_TOOL_ALLOWLIST.map((name) => [name, DIRECTOR_TOOL_CONSTRUCTION_PATHS[name]()] as const);
+	for (const [name, produced] of constructed) {
+		if (produced.length > 1) {
+			throw new Error(`DIRECTOR_TOOL_CONSTRUCTION_INVALID: ${name} produced ${produced.length} tools`);
+		}
+		const tool = produced[0];
+		if (tool !== undefined && tool.name !== name) {
+			throw new Error(`DIRECTOR_TOOL_CONSTRUCTION_INVALID: ${name} produced a tool named ${tool.name}`);
+		}
+		if (tool === undefined && UNCONDITIONAL_DIRECTOR_TOOLS.includes(name)) {
+			throw new Error(`DIRECTOR_TOOL_CONSTRUCTION_INVALID: ${name} is unconditional but produced no tool`);
+		}
+	}
+	const customTools = constructed.flatMap(([, produced]) => produced);
+	const customToolNames = customTools.map(({ name }) => name);
+	const enabledTools = DIRECTOR_TOOL_ALLOWLIST.filter((name) => customToolNames.includes(name));
+	if (enabledTools.length !== customToolNames.length) {
+		throw new Error(`DIRECTOR_TOOL_ALLOWLIST_MISMATCH: ${customToolNames.join(",")}`);
+	}
 	const { session } = await createAgentSession({
 		cwd,
 		agentDir,
@@ -136,21 +285,7 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 		// effort explicitly so behavior does not drift with backend defaults.
 		thinkingLevel: "medium",
 		resourceLoader,
-		customTools: [
-			createInspectProjectTool(options.bridge),
-			...(inspectBridgeStateBridge === undefined ? [] : [createInspectBridgeStateTool(inspectBridgeStateBridge)]),
-			...(inspectPerformanceBridge === undefined ? [] : [createInspectPerformanceTool(inspectPerformanceBridge)]),
-			...(inspectVisualQaMetricsBridge === undefined
-				? []
-				: [createInspectVisualQaMetricsTool(inspectVisualQaMetricsBridge)]),
-			...(stageBridge === undefined ? [] : [createStageSceneTool(stageBridge)]),
-			...(mutationBridge === undefined ? [] : [createApplyCameraPlanTool(mutationBridge)]),
-			...(renderBridge === undefined ? [] : [createRenderQaFramesTool(renderBridge)]),
-			...(repairBridge === undefined ? [] : [createRepairBridgeTool(repairBridge)]),
-			...(performanceBridge === undefined ? [] : [createApplyPerformanceModeTool(performanceBridge)]),
-			...(fallMotionBridge === undefined ? [] : [createFallMotionTool(fallMotionBridge)]),
-			...(cameraActionBridge === undefined ? [] : [createReplaceCameraActionTool(cameraActionBridge)]),
-		],
+		customTools,
 		tools: enabledTools,
 		sessionManager: SessionManager.inMemory(cwd),
 		settingsManager: SettingsManager.inMemory({
@@ -169,10 +304,6 @@ export async function createDirectorSession(options: DirectorSessionOptions) {
 	) {
 		session.dispose();
 		throw new Error(`DIRECTOR_TOOL_ALLOWLIST_MISMATCH: ${effectiveTools.join(",")}`);
-	}
-	if (resourceLoader.promptDigest() !== DIRECTOR_PROMPT_DIGEST) {
-		session.dispose();
-		throw new Error("DIRECTOR_PROMPT_DIGEST_MISMATCH");
 	}
 
 	const dispose = session.dispose.bind(session);

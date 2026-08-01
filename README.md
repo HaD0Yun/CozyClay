@@ -18,8 +18,10 @@ plan cameras, generate motion, and render QA frames while Blender stays open.
 ```
 
 CozyClay is not a chat panel embedded in Blender. It is a local directing
-harness with revision checks, transaction boundaries, ownership rules, and
-visual verification tools.
+harness with revision checks, durable recovery records, ownership-aware typed
+tools, and visual verification. Arbitrary `execute_blender_python` scripts are
+explicitly exempt from entity-lock enforcement and do not have transactional
+rollback for external side effects.
 
 > **Alpha:** APIs, project data, and installation steps may change. Pin a
 > commit when using CozyClay in an existing workflow.
@@ -31,8 +33,10 @@ visual verification tools.
 - **Refuses stale edits.** Scene mutations are bound to an expected revision.
   If you edit the scene while a change is being prepared, the stale change is
   rejected.
-- **Keeps hand-authored work separate.** CozyClay mutates only entities it owns
-  unless you explicitly adopt an existing object.
+- **Keeps hand-authored work separate in typed tools.** CozyClay's typed
+  mutation tools operate only on entities it owns unless you explicitly adopt an
+  existing object. Arbitrary `execute_blender_python` scripts are not ownership
+  constrained.
 - **Verifies visually.** Viewport captures, contact inspection, directing
   evidence, and deterministic QA renders are part of the tool loop.
 - **Supports generated character motion.** An optional remote
@@ -111,9 +115,14 @@ Useful launch options:
 | `cclay --no-blender` | Start only the director for an already initialized project |
 | `cclay --provider <name> --model <id>` | Select a Pi provider and model |
 | `cclay --model <id>` | Override only the model |
+| `cclay --fast` | Enable OpenAI Priority Processing without changing the model or thinking level |
 | `CCLAY_PROJECT_DIR=<dir> cclay` | Open a project from another directory |
 | `CCLAY_BLENDER_EXECUTABLE=<path> cclay` | Use a specific Blender executable |
 | `CCLAY_PROJECTS_ROOT=<dir> cclay` | Change the project picker root |
+
+In a running director session, `/fast on`, `/fast off`, and `/fast status`
+control the same project-local priority setting. Fast mode changes only the
+OpenAI service tier; it does not select another model or reduce reasoning.
 
 The launcher refuses to initialize sensitive roots such as `$HOME`, `/`, and
 `/tmp`. From those locations it opens a project picker instead.
@@ -123,10 +132,20 @@ The launcher refuses to initialize sensitive roots such as `$HOME`, `/`, and
 CozyClay works best when each turn describes one logical change:
 
 1. **Inspect** the current revision and relevant entities.
-2. **Stage** a typed operation against that exact revision.
-3. **Commit or roll back** the transaction.
+2. **Mutate** with retained `stage_scene` operations or
+   `execute_blender_python` for ordinary Blender manipulation, against that exact
+   revision.
+3. **Interpret the result.** Typed mutations use prepare/commit rollback.
+   Successful Python execution creates a revision; exceptions attempt full-file
+   reload recovery, while unknown outcomes require recovery before more writes.
 4. **Verify** with geometry checks, viewport captures, or QA renders.
-5. **Report** the committed revision and remaining visual problems.
+5. **Report** the committed or restored revision and remaining visual problems.
+
+`execute_blender_python` is enabled by default for each project. Its Blender UI
+permission can disable it per project and shows this warning: “This lets the AI
+director run arbitrary Python in your live Blender session with no sandbox.
+Locked objects are not protected. External file, network, and process effects
+cannot be rolled back. Exceptions trigger full-.blend reload recovery.”
 
 Manual viewport edits are allowed between turns. The next inspection observes
 them and advances the revision.
@@ -136,10 +155,12 @@ Project-local state:
 | Path | Contents |
 |---|---|
 | `.cclay/project.json` | Project identity |
-| `.cclay/journal.jsonl` | Append-only revision journal |
-| `.cclay/transactions/` | Interrupted transaction recovery markers |
+| `.cclay/journal.jsonl` | Append-only revision journal; records do not undo external effects |
+| `.cclay/transactions/` | Prepared-transaction markers and verified base backups for interrupted Blender-state recovery |
 | `.cclay/artifacts/` | Digest-addressed evidence and QA renders |
 | `.cclay/motions/` | Generated motion clips |
+| `.cclay/execution-journal/` | Per-script durable execution status |
+| `.cclay/execution-backups/` | Whole-`.blend` backups for script recovery |
 | `.cclay/pi-agent/` | TUI sessions and provider credentials |
 | `.cclay-blender-attach.log` | Blender attach and bridge diagnostics |
 
@@ -184,7 +205,11 @@ Motion workflow:
    contact must land on scene geometry.
 
 ARDY does not see the scene, and its skeleton has no fingers. Scene placement,
-facing, and hand shapes remain separate directing operations.
+facing, and hand shapes remain separate directing operations. `ArdyArchiveService`
+is a typed correctness boundary for well-behaved callers: it validates
+cskel27/Y-up/FPS/replay on write and structural well-formedness on read. It is
+not a security boundary; same-OS-user processes, including
+`execute_blender_python`, can read, write, forge, bypass, and mutate rigs.
 
 See [the ARDY integration guide](scripts/ardy/README.md) and the bundled
 [`ardy-motion` skill](packages/director-runtime/skills/ardy-motion/SKILL.md) for
@@ -195,10 +220,11 @@ the full workflow.
 ```text
 Blender
   CozyClay add-on
+  Blender-owned length-prefixed JSON/TCP listener
   viewport, timeline, checkpoints, transaction execution
+                    ^
+                    | extension reconnecting client
                     |
-                    | authenticated loopback WebSocket
-                    v
 CozyClay Pi extension
   director runtime, Blender tools, project journal
                     |
@@ -211,15 +237,23 @@ Typed Blender tools include:
 - `inspect_project`, `inspect_entity`, and `inspect_relations`
 - `inspect_pose_contacts`
 - `capture_viewport` and `read_image`
-- `stage_scene`
+- `stage_scene` for the retained `add_character`, `adopt_entity`,
+  `set_render_settings`, and `apply_motion` operations
 - `produce_directing_evidence` and `apply_camera_plan`
 - `preflight_motion`
 - `render_qa_frames`
-
+- `execute_blender_python` for ordinary Blender manipulation
 The director also has Pi's general tools, including filesystem reads, shell
-commands, and web access. Prefer the typed Blender tools because they enforce
-revision and transaction rules, but treat CozyClay as a local coding agent with
-shell access to the selected project directory. It is not a sandbox.
+commands, and web access. Prefer typed Blender tools because they enforce
+revision and transaction rules for well-behaved callers, but treat CozyClay as
+a local coding agent with shell access to the selected project directory. It is
+not a sandbox.
+
+Blender-state recovery uses durable journals and verified backups, including a
+full-`.blend` reload after an `execute_blender_python` exception. It cannot
+roll back external file, network, or process side effects. The local transport
+and reconnecting client do not themselves guarantee delivery, durability, or
+recovery.
 
 Read [`SECURITY.md`](SECURITY.md) before using CozyClay on sensitive projects.
 

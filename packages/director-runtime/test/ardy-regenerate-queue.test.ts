@@ -14,6 +14,7 @@ import {
 	sweepRegenerateRequests,
 	writeRegenerateRequest,
 } from "../src/ardy-regenerate-queue.ts";
+import { ArdyRegenerateGenerationError, ArdyRegenerateRevisionMismatchError } from "../src/ardy-regenerate-service.ts";
 
 const REVISION = "a".repeat(64);
 const ENTITY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -141,7 +142,7 @@ describe("ardy regenerate queue", () => {
 		const entries = await sweepRegenerateRequests({
 			projectDirectory: project,
 			handler: async () => {
-				throw new Error("ARDY_REGENERATE_CLI_ERROR: wrapper exited 1: checkpoint missing");
+				throw new ArdyRegenerateGenerationError("wrapper exited 1: checkpoint missing");
 			},
 			contextFor: (request) => ({ request: { expected_revision_id: request.expected_revision_id } }),
 		});
@@ -161,7 +162,7 @@ describe("ardy regenerate queue", () => {
 		const entries = await sweepRegenerateRequests({
 			projectDirectory: project,
 			handler: async () => {
-				throw new Error(`STALE_BASE: regenerate expected ${REVISION}, request expected c`);
+				throw new ArdyRegenerateRevisionMismatchError(REVISION, "c");
 			},
 			contextFor: (request) => ({ request: { expected_revision_id: request.expected_revision_id } }),
 		});
@@ -280,7 +281,7 @@ describe("ardy regenerate queue", () => {
 			handler: async (params) => {
 				const request = params as { request_id: string };
 				if (request.request_id === "boom") {
-					throw new Error("ARDY_REGENERATE_CLI_ERROR: wrapper exited 1");
+					throw new ArdyRegenerateGenerationError("wrapper exited 1");
 				}
 				return { result: aResult(request.request_id), resulting_revision_id: "b".repeat(64) };
 			},
@@ -308,6 +309,65 @@ describe("ardy regenerate queue", () => {
 		assert.deepEqual((await readdir(paths.motions)).sort(), ["a-person-walks.npz", "cclay-pose-wanted-f2.npz"]);
 	});
 
+	it("does not replay a request when its existing outcome is corrupt", async () => {
+		const paths = regenerateQueuePaths(project);
+		const poseId = "cclay-pose-corrupt-f8";
+		await mkdir(paths.motions, { recursive: true });
+		await writeFile(join(paths.motions, `${poseId}.npz`), "x", "utf8");
+		await writeRegenerateRequest(
+			project,
+			aRequest("corrupt-outcome", { full_body: [{ frame: 8, synthetic_motion_id: poseId }] }),
+		);
+		await mkdir(paths.outcomes, { recursive: true });
+		const outcomePath = join(paths.outcomes, "corrupt-outcome.json");
+		await writeFile(outcomePath, "{not json", "utf8");
+
+		let handlerCalls = 0;
+		await assert.rejects(
+			sweepRegenerateRequests({
+				projectDirectory: project,
+				handler: async () => {
+					handlerCalls += 1;
+					return { result: aResult("corrupt-outcome"), resulting_revision_id: "b".repeat(64) };
+				},
+				contextFor: () => ({}),
+			}),
+		);
+
+		assert.equal(handlerCalls, 0);
+		assert.equal(await readFile(outcomePath, "utf8"), "{not json");
+		assert.deepEqual(await readdir(paths.requests), ["corrupt-outcome.json.claimed"]);
+		assert.deepEqual(await readdir(paths.motions), [`${poseId}.npz`]);
+	});
+
+	it("does not replay a request when its existing outcome cannot be read", async () => {
+		const paths = regenerateQueuePaths(project);
+		const poseId = "cclay-pose-unreadable-f8";
+		await mkdir(paths.motions, { recursive: true });
+		await writeFile(join(paths.motions, `${poseId}.npz`), "x", "utf8");
+		await writeRegenerateRequest(
+			project,
+			aRequest("unreadable-outcome", { full_body: [{ frame: 8, synthetic_motion_id: poseId }] }),
+		);
+		await mkdir(join(paths.outcomes, "unreadable-outcome.json"), { recursive: true });
+
+		let handlerCalls = 0;
+		await assert.rejects(
+			sweepRegenerateRequests({
+				projectDirectory: project,
+				handler: async () => {
+					handlerCalls += 1;
+					return { result: aResult("unreadable-outcome"), resulting_revision_id: "b".repeat(64) };
+				},
+				contextFor: () => ({}),
+			}),
+		);
+
+		assert.equal(handlerCalls, 0);
+		assert.deepEqual(await readdir(paths.requests), ["unreadable-outcome.json.claimed"]);
+		assert.deepEqual(await readdir(paths.motions), [`${poseId}.npz`]);
+		assert.deepEqual(await readdir(paths.outcomes), ["unreadable-outcome.json"]);
+	});
 	it("does not regenerate a second time for a claim whose outcome already landed", async () => {
 		// The crash window that matters: runClaimed writes the outcome before
 		// it clears the claim, so dying in between leaves BOTH on disk. A

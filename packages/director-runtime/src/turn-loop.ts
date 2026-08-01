@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type {
 	ApplyCameraPlanBridge,
 	ApplyCameraPlanProgress,
+	ExecuteBlenderPythonBridge,
 	InspectProjectBridge,
 	ProjectManifest,
 	RenderQaFramesBridge,
@@ -87,11 +88,16 @@ export class DirectorTurnPublicationError extends Error {
 }
 
 export interface DirectorTurnLoopOptions {
-	readonly bridge: InspectProjectBridge & ApplyCameraPlanBridge & RenderQaFramesBridge & StageSceneBridge;
+	readonly bridge: InspectProjectBridge &
+		ApplyCameraPlanBridge &
+		RenderQaFramesBridge &
+		StageSceneBridge &
+		Partial<ExecuteBlenderPythonBridge>;
 	readonly model: Model<string>;
 	readonly modelRuntime: ModelRuntime;
 	readonly cwd?: string;
 	readonly agentDir?: string;
+	readonly projectStore?: Pick<CameraPlanRevisionStore, "readProject">;
 }
 
 export interface DirectorTurnRunOptions {
@@ -121,6 +127,7 @@ const DIRECTOR_TOOL_NAMES = new Set<DirectorToolName>([
 	"inspect_project",
 	"stage_scene",
 	"apply_camera_plan",
+	"execute_blender_python",
 	"render_qa_frames",
 ]);
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
@@ -258,6 +265,48 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			state.toolCallOrder.push("apply_camera_plan");
 			return result;
 		},
+		...(options.bridge.executeBlenderPython === undefined
+			? {}
+			: {
+					executeBlenderPython: async (request) => {
+						const state = requireActive();
+						const repair = state.phase === "rendered";
+						if (state.phase === "repaired") {
+							return fail(state, "DIRECTOR_LOOP_REPAIR_BUDGET", "at most one repair mutation is allowed");
+						}
+						if (state.phase !== "initial_inspected" && !repair) {
+							return fail(
+								state,
+								"DIRECTOR_LOOP_ORDER",
+								`execute_blender_python is not allowed after ${state.phase}`,
+							);
+						}
+						if (request.expected_revision_id !== state.currentRevisionId) {
+							return fail(
+								state,
+								"STALE_BASE",
+								"execute_blender_python is not based on the current director revision",
+							);
+						}
+						const result = await options.bridge.executeBlenderPython!(request);
+						if (result.type === "execute_result" && result.outcome === "success") {
+							state.currentRevisionId = result.new_revision_id;
+							state.phase = repair ? "repaired" : "primary_mutated";
+						} else if (result.type === "execute_result" && result.outcome === "failed_recovered") {
+							if (result.restored_revision_id !== state.currentRevisionId) {
+								return fail(
+									state,
+									"EXECUTION_RECOVERY_MISMATCH",
+									"recovered execution restored an unexpected revision",
+								);
+							}
+						} else if (result.type === "execute_result") {
+							return fail(state, "EXECUTION_OUTCOME_UNKNOWN", "Blender execution outcome requires recovery");
+						}
+						state.toolCallOrder.push("execute_blender_python");
+						return result;
+					},
+				}),
 		renderQaFrames: async (request, context) => {
 			const state = requireActive();
 			if (state.phase !== "verification_inspected") {
@@ -277,13 +326,21 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 
 	const getSession = () => {
 		if (sessionPromise === undefined) {
-			sessionPromise = createDirectorSession({
-				bridge,
-				model: options.model,
-				modelRuntime: options.modelRuntime,
-				cwd: options.cwd,
-				agentDir: options.agentDir,
-			});
+			const createSession = (allowExecuteBlenderPython: boolean) =>
+				createDirectorSession({
+					bridge,
+					model: options.model,
+					modelRuntime: options.modelRuntime,
+					cwd: options.cwd,
+					agentDir: options.agentDir,
+					allowExecuteBlenderPython,
+				});
+			sessionPromise =
+				options.projectStore === undefined
+					? createSession(true)
+					: options.projectStore
+							.readProject()
+							.then((project) => createSession(project.allowExecuteBlenderPython !== false));
 		}
 		return sessionPromise;
 	};
@@ -322,6 +379,9 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 
 	let abandonActive: (() => void) | undefined;
 	return {
+		async getActiveToolNames() {
+			return (await getSession()).getActiveToolNames();
+		},
 		async run(runOptions: DirectorTurnRunOptions): Promise<DirectorTurnResult> {
 			if (disposed) throw new Error("DIRECTOR_LOOP_DISPOSED: director loop is disposed");
 			if (active !== undefined) throw new Error("DIRECTOR_LOOP_BUSY: one director turn is already active");
@@ -639,6 +699,9 @@ export interface DirectorTurnHandlerContext {
 			readonly reportProgress: (progress: RenderQaFramesProgress) => void;
 		},
 	): Promise<RenderQaFramesResultV1>;
+	executeBlenderPython(
+		request: Parameters<ExecuteBlenderPythonBridge["executeBlenderPython"]>[0],
+	): ReturnType<ExecuteBlenderPythonBridge["executeBlenderPython"]>;
 	beginDurableCommit(): void;
 	finishDurableCommit(): Promise<void> | void;
 }
@@ -669,6 +732,7 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 		modelRuntime: options.modelRuntime,
 		cwd: options.cwd,
 		agentDir: options.agentDir,
+		projectStore: store,
 		bridge: {
 			inspectProject: async () => {
 				if (expectedRevisionId === undefined) {
@@ -691,6 +755,13 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 				const candidate = await current.applyCameraPlan(plan, bridgeContext);
 				const result = await finishCommit((begin) => commitCameraPlanMutation(store, plan, candidate, begin));
 				expectedRevisionId = result.resulting_revision_id;
+				return result;
+			},
+			executeBlenderPython: async (request) => {
+				const result = await activeContext().executeBlenderPython(request);
+				if (result.type === "execute_result" && result.outcome === "success") {
+					expectedRevisionId = result.new_revision_id;
+				}
 				return result;
 			},
 			renderQaFrames: async (request, bridgeContext) => {

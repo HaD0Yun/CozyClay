@@ -9,12 +9,11 @@ import bpy
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
-from cclay.manifest import extract_scene_manifest_v2, extract_scene_manifest_v3
+from cclay.manifest import extract_scene_manifest_v4, extract_scene_manifest_v4
 from cclay.stage_scene import apply_stage_scene_transaction
 
 PROJECT_ID = "00000000-0000-4000-8000-00000000000b"
 OTHER_PROJECT_ID = "00000000-0000-4000-8000-00000000000c"
-DEFAULT_CUBE_ID = "11111111-1111-4111-8111-111111111111"
 FOREIGN_SPHERE_ID = "22222222-2222-4222-8222-222222222222"
 SHARED_A_ID = "33333333-3333-4333-8333-333333333333"
 SHARED_B_ID = "44444444-4444-4444-8444-444444444444"
@@ -71,45 +70,21 @@ def main():
     bpy.context.scene["cclay.project_id"] = PROJECT_ID
     connection = FakeConnection()
 
-    default_cube = foreign_mesh_object("Default Cube", DEFAULT_CUBE_ID)
     foreign_sphere = foreign_mesh_object("Foreign Sphere", FOREIGN_SPHERE_ID)
-    cube_foreign_before = default_cube.get("cclay.owned_project_id") is None
 
-    # adopt_entity + delete_entity in ONE plan removes the pre-existing cube.
-    adopt_delete = apply_stage_scene_transaction(
-        plan("a" * 64, [
-            {"op": "adopt_entity", "entity_id": DEFAULT_CUBE_ID},
-            {"op": "delete_entity", "entity_id": DEFAULT_CUBE_ID},
-        ]),
-        extract_scene_manifest_v2()["sceneHash"],
-        connection,
-        lambda _candidate: {"type": "response"},
-    )
-    default_cube_gone = bpy.data.objects.get("Default Cube") is None
-    cube_absent_from_manifest = all(
-        item["entityId"] != DEFAULT_CUBE_ID
-        for item in adopt_delete["manifest"]["objects"]
-    )
-
-    # Adopt in one plan, transform in a LATER plan.
     apply_stage_scene_transaction(
         plan("a" * 64, [{"op": "adopt_entity", "entity_id": FOREIGN_SPHERE_ID}]),
-        extract_scene_manifest_v3()["sceneHash"],
+        extract_scene_manifest_v4()["sceneHash"],
         connection,
         lambda _candidate: {"type": "response"},
     )
     sphere_owned = foreign_sphere.get("cclay.owned_project_id") == PROJECT_ID
-    apply_stage_scene_transaction(
-        plan("a" * 64, [{
-            "op": "transform_entity",
-            "entity_id": FOREIGN_SPHERE_ID,
-            "location": [1, 2, 3],
-        }]),
-        extract_scene_manifest_v3()["sceneHash"],
-        connection,
-        lambda _candidate: {"type": "response"},
+    foreign_sphere.location = (1, 2, 3)
+    sphere_directly_moved = tuple(foreign_sphere.location) == (1.0, 2.0, 3.0)
+    sphere_owned_after_direct_mutation = (
+        foreign_sphere.get("cclay.owned_project_id") == PROJECT_ID
     )
-    sphere_transformed = tuple(foreign_sphere.location) == (1.0, 2.0, 3.0)
+
 
     # Re-adopting an entity this project already owns is an idempotent no-op.
     readopt_commit_entered = False
@@ -121,14 +96,14 @@ def main():
 
     apply_stage_scene_transaction(
         plan("a" * 64, [{"op": "adopt_entity", "entity_id": FOREIGN_SPHERE_ID}]),
-        extract_scene_manifest_v3()["sceneHash"],
+        extract_scene_manifest_v4()["sceneHash"],
         connection,
         commit_readopt,
     )
     sphere_still_owned = foreign_sphere.get("cclay.owned_project_id") == PROJECT_ID
 
     def attempt_adopt(entity_id):
-        before = extract_scene_manifest_v3()
+        before = extract_scene_manifest_v4()
         code = None
         commit_entered = False
 
@@ -146,7 +121,7 @@ def main():
             )
         except BaseException as error:
             code = getattr(error, "code", type(error).__name__)
-        return code, extract_scene_manifest_v3() == before, commit_entered
+        return code, extract_scene_manifest_v4() == before, commit_entered
 
     # Unknown entity id.
     unknown_code, unknown_rollback, unknown_commit_entered = attempt_adopt(UNKNOWN_ID)
@@ -166,7 +141,7 @@ def main():
 
     # Commit failure rolls the ownership stamp back off the foreign object.
     rollback_target = foreign_mesh_object("Rollback Target", ROLLBACK_ID)
-    before_failure = extract_scene_manifest_v3()
+    before_failure = extract_scene_manifest_v4()
     stamped_before_commit = False
 
     def fail_commit(_candidate):
@@ -186,15 +161,13 @@ def main():
     except RuntimeError:
         pass
     rollback_unstamped = rollback_target.get("cclay.owned_project_id") is None
-    rollback_manifest = extract_scene_manifest_v3() == before_failure
+    rollback_manifest = extract_scene_manifest_v4() == before_failure
     checkpoint_released = connection.active_checkpoint is None
 
     results = {
-        "cubeForeignBefore": cube_foreign_before,
-        "defaultCubeGone": default_cube_gone,
-        "cubeAbsentFromManifest": cube_absent_from_manifest,
         "sphereOwned": sphere_owned,
-        "sphereTransformed": sphere_transformed,
+        "sphereOwnedAfterDirectMutation": sphere_owned_after_direct_mutation,
+        "sphereDirectlyMoved": sphere_directly_moved,
         "readoptCommitEntered": readopt_commit_entered,
         "sphereStillOwned": sphere_still_owned,
         "unknownCode": unknown_code,

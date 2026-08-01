@@ -50,7 +50,8 @@ from __future__ import annotations
 
 import math
 
-from . import motion_retarget
+from . import motion_archive, motion_retarget
+from .character_rig import CharacterRigAdapter
 
 SCHEMA_VERSION = 1
 
@@ -87,14 +88,6 @@ FOOT_CONTACT_JOINT_INDICES = tuple(
 )
 assert FOOT_CONTACT_JOINT_INDICES == (25, 26, 21, 22), FOOT_CONTACT_JOINT_INDICES
 
-# Closed set of stage_scene contract codes the preflight loader/validation
-# path can raise; encoded by stage_scene as a leading "CODE: " message prefix.
-_APPLY_MOTION_CODES = frozenset({
-    "APPLY_MOTION_PROJECT_DIR_UNKNOWN",
-    "APPLY_MOTION_NOT_FOUND",
-    "APPLY_MOTION_TOO_LARGE",
-    "APPLY_MOTION_MALFORMED",
-})
 
 
 class PreflightMotionError(ValueError):
@@ -315,10 +308,7 @@ def _validated_params(params) -> tuple[str, str | None]:
     Explicit nulls for optional fields are rejected (parity with the TS
     Type.Optional contract, which forbids ``null`` for absent fields).
     """
-    # Lazy: keeps host-side pure imports free of the heavier bpy-facing module
-    # graph and avoids import cycles.
     from .scene_relations import _UUID_V4_LOWERCASE
-    from .stage_scene import _MOTION_ID
 
     if not isinstance(params, dict):
         _invalid("params must be an object")
@@ -326,7 +316,9 @@ def _validated_params(params) -> tuple[str, str | None]:
     if unknown:
         _invalid(f"unknown fields {sorted(unknown)}")
     motion_id = params.get("motion_id")
-    if not isinstance(motion_id, str) or _MOTION_ID.fullmatch(motion_id) is None:
+    try:
+        motion_id = motion_archive.validate_motion_id(motion_id)
+    except motion_archive.MotionArchiveError:
         _invalid(
             "motion_id must be a lowercase [a-z0-9-] slug of at most 64 characters"
         )
@@ -347,7 +339,7 @@ SCALE_UNIFORMITY_TOLERANCE = 1e-4
 def _object_world_scale(entity_id: str, scene_object) -> float:
     """Uniform real-world meters-per-local-unit factor for ``scene_object``.
 
-    ``_rig_scale_inputs`` measures bone length in the armature's LOCAL (edit
+    ``CharacterRigAdapter`` measures bone length in the armature's LOCAL (edit
     bone) space, which is exactly what ``apply_motion`` wants: it retargets
     into that same local space and lets Blender's own object transform carry
     the result into world meters when the scene renders. preflight_motion's
@@ -379,13 +371,12 @@ def _object_world_scale(entity_id: str, scene_object) -> float:
 def _derive_entity_scale(entity_id: str, posed_joints) -> float:
     """Meters-per-npz-unit scale from the target rig and the object's world scale.
 
-    ``rig_thigh`` (from ``stage_scene._rig_scale_inputs``, shared with
-    ``apply_motion``) is measured in the armature's unscaled local space; it
+    ``rig_thigh`` (from ``CharacterRigAdapter``, shared with ``apply_motion``)
+    is measured in the armature's unscaled local space; it
     must be scaled by the object's own (uniform) world scale before deriving
     a real-world meters-per-npz-unit factor. See ``_object_world_scale`` for
     why -- this is the fix for CozyClay issue #2's ~98.5x scale mismatch.
     """
-    from . import stage_scene
     from .scene_relations import _object_for_entity
 
     scene_object = _object_for_entity(entity_id)
@@ -395,9 +386,7 @@ def _derive_entity_scale(entity_id: str, posed_joints) -> float:
         )
     if scene_object.type != "ARMATURE" or scene_object.data is None:
         _invalid(f"entity {entity_id} must be an CCLAY character armature")
-    # Shared, read-only scale inputs; extracted into stage_scene so the
-    # preflight and apply_motion measurements cannot drift.
-    _prefix, rig_thigh = stage_scene._rig_scale_inputs(scene_object.data.bones)
+    rig_thigh = CharacterRigAdapter(scene_object.data.bones).rig_thigh
     if rig_thigh is None:
         _invalid(f"entity {entity_id} rig is missing the RightUpLeg/RightLeg bones")
     object_scale = _object_world_scale(entity_id, scene_object)
@@ -468,7 +457,6 @@ def _validate_motion_payload(local_rot_mats, posed_joints, fps) -> None:
     the stepwise cursor fallback only ever sees tiny non-numpy test doubles,
     where full validation cost is irrelevant.
     """
-    from . import stage_scene
 
     try:
         # Cursor construction is cheap metadata-only validation (fps bounds,
@@ -486,31 +474,19 @@ def _validate_motion_payload(local_rot_mats, posed_joints, fps) -> None:
             while not cursor.step():
                 pass
     except motion_retarget.MotionRetargetError as error:
-        raise stage_scene.StageSceneError(f"APPLY_MOTION_MALFORMED: {error}") from error
+        raise PreflightMotionError("APPLY_MOTION_MALFORMED", str(error)) from error
 
 
-def _as_contract_error(error):
-    """Map a stage_scene "CODE: message" error onto a coded contract error.
-
-    StageSceneError has no ``code`` attribute, so the bridge dispatcher's
-    ``getattr(error, "code", ...)`` would surface the class name. Returns the
-    input unchanged when no closed contract code prefixes the message.
-    """
-    code, separator, rest = str(error).partition(": ")
-    if separator and code in _APPLY_MOTION_CODES:
-        return PreflightMotionError(code, rest)
-    return error
-
+def _as_contract_error(error: motion_archive.MotionArchiveError) -> PreflightMotionError:
+    """Map typed archive errors onto the existing preflight bridge codes."""
+    return PreflightMotionError(error.code, error.message)
 
 def collect_preflight(revision_id: str, params, project_directory) -> dict:
     """bpy-facing preflight_motion entry: validate, load, analyze. Read-only."""
     motion_id, entity_id = _validated_params(params)
-    # Lazy import: avoids import cycles and keeps this module importable
-    # host-side without bpy.
-    from . import stage_scene
 
     try:
-        _local_rot_mats, posed_joints, fps, carried = stage_scene._load_motion_payload(
+        _local_rot_mats, posed_joints, fps, carried = motion_archive.load_motion_payload(
             project_directory,
             motion_id,
             validate=False,
@@ -522,11 +498,8 @@ def collect_preflight(revision_id: str, params, project_directory) -> dict:
         if entity_id is not None:
             scale = _derive_entity_scale(entity_id, posed_joints)
         analysis = analyze_motion(posed_joints, fps, scale, foot_contacts)
-    except stage_scene.StageSceneError as error:
-        mapped = _as_contract_error(error)
-        if mapped is error:
-            raise
-        raise mapped from error
+    except motion_archive.MotionArchiveError as error:
+        raise _as_contract_error(error) from error
     return {
         "revision": revision_id,
         "schema_version": analysis["schema_version"],

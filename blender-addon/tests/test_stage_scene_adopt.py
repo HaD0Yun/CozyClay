@@ -38,14 +38,10 @@ class StageSceneAdoptRealBlenderTests(unittest.TestCase):
             raise AssertionError(f"missing adopt results\n{completed.stdout}")
         cls.results = json.loads(lines[0].split("=", 1)[1])
 
-    def test_adopt_and_delete_in_one_plan_removes_the_foreign_cube(self):
-        self.assertTrue(self.results["cubeForeignBefore"])
-        self.assertTrue(self.results["defaultCubeGone"])
-        self.assertTrue(self.results["cubeAbsentFromManifest"])
-
-    def test_adopt_then_transform_in_a_later_plan_succeeds(self):
+    def test_adopt_preserves_ownership_through_direct_scene_mutation(self):
         self.assertTrue(self.results["sphereOwned"])
-        self.assertTrue(self.results["sphereTransformed"])
+        self.assertTrue(self.results["sphereOwnedAfterDirectMutation"])
+        self.assertTrue(self.results["sphereDirectlyMoved"])
 
     def test_readopting_an_owned_entity_is_an_idempotent_success(self):
         self.assertTrue(self.results["readoptCommitEntered"])

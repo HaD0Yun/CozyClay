@@ -31,6 +31,7 @@ import {
 	parseArdyRegenerateQueueOutcome,
 	parseArdyRegenerateRequest,
 } from "@cclay/protocol";
+import { ArdyRegenerateError, ArdyRegenerateInvalidRequestError } from "./ardy-regenerate-service.ts";
 
 export const REGENERATE_REQUEST_DIRECTORY = "regenerate-requests";
 export const REGENERATE_OUTCOME_DIRECTORY = "regenerate-outcomes";
@@ -90,22 +91,24 @@ export interface ArdyRegenerateSweepEntry {
 	readonly outcome: ArdyRegenerateQueueOutcomeV1;
 }
 
-// Maps a thrown error onto the closed error-code vocabulary. The handler
-// prefixes its throws with the code it means, so this reads the prefix rather
-// than pattern-matching message text.
 function classify(error: unknown): { code: ArdyRegenerateErrorCode; message: string } {
-	const message = error instanceof Error ? error.message : String(error);
-	if (message.startsWith("STALE_BASE")) {
-		return { code: "REVISION_MISMATCH", message };
+	if (error instanceof ArdyRegenerateError) {
+		return { code: error.code, message: error.message };
 	}
-	if (message.startsWith("INVALID_ARDY_REGENERATE_REQUEST")) {
-		return { code: "INVALID_ARDY_REGENERATE_REQUEST", message };
+	return {
+		code: "GENERATION_FAILED",
+		message: error instanceof Error ? error.message : String(error),
+	};
+}
+
+function parseQueuedRequest(value: unknown): ArdyRegenerateRequestV1 {
+	try {
+		return parseArdyRegenerateRequest(value);
+	} catch (error) {
+		throw new ArdyRegenerateInvalidRequestError(error instanceof Error ? error.message : String(error), {
+			cause: error,
+		});
 	}
-	// Everything else that can reach here comes from running or reading the
-	// generator: a non-zero exit, unparseable stdout, or a result the closed
-	// schema rejected. They are all "the generation did not produce a motion
-	// we can commit", which is what GENERATION_FAILED means.
-	return { code: "GENERATION_FAILED", message };
 }
 
 // Written temp-then-rename with the same 0600 the add-on uses for requests, so
@@ -140,11 +143,10 @@ async function readClaimedRequest(path: string): Promise<unknown> {
 	}
 }
 
-// A terminal outcome already on disk, or null if this request has not finished
-// before. This is the only thing standing between recovery and a second
-// generation: the rename claim excludes concurrent sweeps, but it says nothing
-// about a request whose handler already committed a revision before the host
-// died. Reading the answer back is what makes replay safe.
+// A terminal outcome already on disk, or null only when this request has not
+// finished before. A malformed or unreadable outcome is an operational error:
+// replaying it could commit a second revision and overwriting it would erase
+// the only record of the first attempt.
 async function existingOutcome(outcomes: string, requestId: string): Promise<ArdyRegenerateQueueOutcomeV1 | null> {
 	try {
 		const body = await readClaimedRequest(join(outcomes, `${requestId}.json`));
@@ -153,9 +155,7 @@ async function existingOutcome(outcomes: string, requestId: string): Promise<Ard
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			return null;
 		}
-		// A corrupt or half-schema outcome is not a terminal answer. Treating
-		// it as one would strand the request forever, so it is replayed.
-		return null;
+		throw error;
 	}
 }
 
@@ -187,35 +187,44 @@ async function runClaimed(
 	let outcome: ArdyRegenerateQueueOutcomeV1;
 	try {
 		const raw = await readClaimedRequest(claimedPath);
-		const request = parseArdyRegenerateRequest(raw);
-		parsed = request;
-		requestId = request.request_id;
-		// A terminal outcome means this request already ran to completion,
-		// possibly committing a revision, before the host died. Re-running it
-		// would generate a second motion and commit a second time, so the
-		// recorded answer is returned and only the leftovers are cleared.
-		const finished = await existingOutcome(paths.outcomes, requestId);
-		if (finished !== null) {
-			await retireClaim(claimedPath, paths, parsed);
-			return finished;
-		}
-		const applied = await options.handler(request, options.contextFor(request));
+		parsed = parseQueuedRequest(raw);
+		requestId = parsed.request_id;
+	} catch (error) {
+		const { code, message } = classify(error);
+		const base = claimedPath.split("/").pop() ?? "unknown";
 		outcome = parseArdyRegenerateQueueOutcome({
 			schema_version: 1,
-			request_id: request.request_id,
+			request_id: requestId === "unknown" ? base.replace(/\.json\.claimed$/, "") : requestId,
+			status: "failed",
+			error_code: code,
+			message: message.slice(0, 4096),
+		});
+		await writeOutcomeAtomically(paths.outcomes, outcome);
+		await retireClaim(claimedPath, paths, parsed);
+		return outcome;
+	}
+	// A terminal outcome means this request already ran to completion, possibly
+	// committing a revision, before the host died. Re-running it would generate
+	// a second motion and commit a second time, so the recorded answer is
+	// returned and only the leftovers are cleared. This lookup deliberately
+	// stays outside the failure-to-outcome path: a corrupt or unreadable record
+	// leaves the claim and replay inputs intact for operator recovery.
+	const finished = await existingOutcome(paths.outcomes, requestId);
+	if (finished !== null) {
+		await retireClaim(claimedPath, paths, parsed);
+		return finished;
+	}
+	try {
+		const applied = await options.handler(parsed, options.contextFor(parsed));
+		outcome = parseArdyRegenerateQueueOutcome({
+			schema_version: 1,
+			request_id: parsed.request_id,
 			status: "succeeded",
 			result: applied.result,
 			resulting_revision_id: applied.resulting_revision_id,
 		});
 	} catch (error) {
 		const { code, message } = classify(error);
-		if (requestId === "unknown") {
-			// The id could not be read, so the outcome cannot be addressed to
-			// the request that produced it. Naming it after the claimed file
-			// keeps the failure visible instead of dropping it on the floor.
-			const base = claimedPath.split("/").pop() ?? "unknown";
-			requestId = base.replace(/\.json\.claimed$/, "");
-		}
 		outcome = parseArdyRegenerateQueueOutcome({
 			schema_version: 1,
 			request_id: requestId,

@@ -1,24 +1,26 @@
-// In-extension Blender bridge (option A): owns the WebSocket server that Blender
-// attaches to, performs the protocol-v2 hello handshake, and drives the
-// bridge_request/bridge_result loop for the four director tools. Discovery-slot
-// credential ceremony and controller-peer auth are intentionally dropped; a
-// plain bearer token gates the loopback socket. Durable transaction commit and
-// auto-reconnect are retained.
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+// Blender-owned loopback bridge client. The add-on publishes discovery and
+// owns the listener; this process reconnects when that generation changes.
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { connect, type Socket } from "node:net";
 import path from "node:path";
 import {
 	type BridgeTransactionPrepared,
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
 	type MotionPreflightResultV1,
-	MUTATION_BRIDGE_CAPABILITY,
-	type MutationBridgeSession,
-	negotiateMutationBridge,
-	parseAddonBridgeMessage,
-	parseDaemonBridgeMessage,
+	type BlenderBridgeDiscoveryV1,
+	type ExecuteBlenderPythonRequestV1,
+	type ExecuteBlenderPythonResponseV1,
+	type ExecuteBlenderPythonResultV1,
+	type GetExecutionOutcomeResponseV1,
+	parseBlenderBridgeDiscovery,
+	parseBlenderBridgeHelloAck,
+	parseBlenderBridgeHelloReject,
+	parseExecuteBlenderPythonRequest,
+	parseExecuteBlenderPythonResponse,
+	parseGetExecutionOutcomeResponse,
 	parseMotionPreflightResult,
 	type InspectPoseContactsParamsV1,
 	parsePoseContactsResult,
@@ -33,77 +35,35 @@ import {
 	type RenderQaFramesRequestV1,
 	type RenderQaFramesResultV1,
 	type ViewportCaptureResultV1,
-	SCENE_MANIFEST_V3_CAPABILITY,
 	type SceneRelationsResultV1,
 	type SceneSnapshot,
 	type StageSceneMutationCandidate,
-	StageSceneOperationV1Schema,
 	type StageScenePlanV1,
-	TRANSACTION_COMMIT_CAPABILITY,
 } from "@cclay/protocol";
 import type { InspectEntityOptions } from "@cclay/blender-tools";
-import { acceptUpgrade, readClientRole, type WebSocketConnection } from "./ws-server.ts";
 
 const BOOTSTRAP_REVISION_ID = "0".repeat(64);
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const HASH_64 = /^[0-9a-f]{64}$/;
 const BRIDGE_OP_DEADLINE_MAX_MS = 30_000;
-// Local reaper margin on top of the wire deadline: a wedged-but-connected
-// addon must not stall the FIFO queue forever, so the extension arms its own
-// timer slightly past the deadline it sent.
 const BRIDGE_OP_DEADLINE_GRACE_MS = 5_000;
-const DAEMON_VERSION = "0.1.0";
-
-// Expected addon surface, computed at startup. A reused Blender may hold a
-// stale in-memory add-on; the hello capability report lets the bridge fail
-// attach with one actionable ADDON_STALE line instead of per-call cryptic
-// METHOD_NOT_SUPPORTED / unsupported-op failures.
-const ADDON_VERSION_CAPABILITY_PREFIX = "cclay.addon_version=";
-const METHOD_CAPABILITY_PREFIX = "cclay.method.";
-const OP_CAPABILITY_PREFIX = "cclay.op.";
-const NEGOTIATED_CORE_CAPABILITIES = [
-	MUTATION_BRIDGE_CAPABILITY,
-	SCENE_MANIFEST_V3_CAPABILITY,
-	TRANSACTION_COMMIT_CAPABILITY,
-] as const;
-const REQUIRED_BRIDGE_METHODS = [
-	"inspect_project",
-	"inspect_entity",
-	"inspect_pose_contacts",
-	"inspect_relations",
-	"preflight_motion",
-	"inspect_performance",
-	"inspect_visual_qa_metrics",
-	"capture_viewport",
-	"produce_directing_evidence",
-	"apply_camera_plan",
-	"stage_scene",
-	"render_qa_frames",
-	"apply_performance_mode",
-	"create_fall_motion",
-	"replace_camera_action",
-] as const;
 const ADDON_MANIFEST_URL = new URL(
 	"../../../blender-addon/cclay/blender_manifest.toml",
 	import.meta.url,
 );
 const ADDON_STALE_GUIDANCE =
 	"close Blender and run cclay again (the launcher will reinstall the current add-on)";
+const CLIENT_CAPABILITY = "execute_blender_python_v1";
+const HANDSHAKE_TIMEOUT_MS = 5_000;
+const EXECUTION_MUTATING_METHODS: ReadonlySet<string> = new Set([
+	"execute_blender_python",
+	"stage_scene",
+	"apply_camera_plan",
+	"create_fall_motion",
+	"replace_camera_action",
+	"apply_performance_mode",
+]);
 
-/** Op names of the protocol's StageSceneOperationV1 union (drift-proof). */
-function requiredStageSceneOps(): readonly string[] {
-	const union = StageSceneOperationV1Schema as unknown as {
-		anyOf?: ReadonlyArray<{ properties?: { op?: { const?: unknown } } }>;
-	};
-	const names = new Set<string>();
-	for (const member of union.anyOf ?? []) {
-		const op = member.properties?.op?.const;
-		if (typeof op === "string") names.add(op);
-	}
-	if (names.size === 0) throw new Error("stage-scene op union yielded no op names");
-	return [...names];
-}
-const REQUIRED_STAGE_SCENE_OPS = requiredStageSceneOps();
 
 /** Repo-truth addon version from blender_manifest.toml (loud startup failure). */
 export function expectedAddonVersion(manifestUrl: URL = ADDON_MANIFEST_URL): string {
@@ -113,12 +73,7 @@ export function expectedAddonVersion(manifestUrl: URL = ADDON_MANIFEST_URL): str
 }
 const EXPECTED_ADDON_VERSION = expectedAddonVersion();
 
-export interface BridgeEndpoint {
-	readonly host: "127.0.0.1";
-	readonly port: number;
-	readonly token: string;
-	readonly launchId: string;
-}
+export type BridgeEndpoint = BlenderBridgeDiscoveryV1;
 
 export interface BridgeProgress {
 	readonly phase: string;
@@ -144,17 +99,17 @@ interface PendingBridge {
 	renderRequest?: RenderQaFramesRequestV1;
 	artifactFrames: Map<number, ArtifactFrame>;
 	deadlineTimer?: ReturnType<typeof setTimeout>;
+	executionBaseRevisionId?: string;
+	outcomeRequestId?: string;
 }
 
 interface AttachedTransport {
-	readonly websocket: WebSocketConnection;
-	readonly session: MutationBridgeSession;
+	readonly socket: Socket;
+	readonly generation: number;
 }
 
 interface PendingTransaction {
 	readonly prepared: BridgeTransactionPrepared;
-	readonly session: MutationBridgeSession;
-	readonly websocket: WebSocketConnection;
 	readonly acknowledged: Promise<void>;
 	readonly resolveAcknowledged: () => void;
 }
@@ -181,20 +136,19 @@ function appendBridgeLog(projectDirectory: string, entry: Record<string, unknown
 }
 
 /**
- * Owns the Blender-facing WebSocket. A single bridge operation may be in flight
- * at a time (Blender mutates on its main thread); the bridge serializes its
- * own operations through a FIFO promise-chain queue, so concurrent tool calls
- * wait their turn. That serialization covers only this daemon's requests, so
- * addon-side BUSY remains a defensive backstop rather than dead code:
- * after an in-flight cancel (which settles locally and is best-effort on the
- * wire) the addon may still be draining the cancelled operation when the next
- * request arrives.
+ * Blender-owned loopback bridge client. A single bridge operation may be in
+ * flight at a time (Blender mutates on its main thread); this client
+ * serializes operations through a FIFO promise-chain queue. Cancellation and
+ * deadlines are advisory only: an interrupted request may have reached
+ * Blender, so reconnect outcome lookup remains authoritative.
  */
 export class BlenderBridge {
-	private server: Server | undefined;
-	private token = "";
-	private readonly launchId = randomUUID();
+	private started = false;
 	private transport: AttachedTransport | undefined;
+	private endpoint: BlenderBridgeDiscoveryV1 | undefined;
+	private readonly receiveBuffers = new WeakMap<Socket, Buffer>();
+	private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+	private connectingSocket: Socket | undefined;
 	private pending: PendingBridge | undefined;
 	private preparedTransaction: PendingTransaction | undefined;
 	private projectId: string | undefined;
@@ -206,66 +160,36 @@ export class BlenderBridge {
 	private staleAddonMessage: string | undefined;
 	private readonly projectDirectory: string;
 	private readonly operationTimeoutMs: number;
+	private executionMutationFreezeReason: string | undefined;
 
 	constructor(
 		projectDirectory = process.cwd(),
-		options: { readonly operationTimeoutMs?: number } = {},
+		options: { readonly operationTimeoutMs?: number; readonly projectId?: string } = {},
 	) {
 		this.projectDirectory = projectDirectory;
+		this.projectId = options.projectId;
 		this.operationTimeoutMs =
 			options.operationTimeoutMs ?? BRIDGE_OP_DEADLINE_MAX_MS + BRIDGE_OP_DEADLINE_GRACE_MS;
 	}
 
-	async start(): Promise<BridgeEndpoint> {
-		if (this.server !== undefined) throw new Error("bridge already started");
-		this.token = randomBytes(32).toString("base64url");
-		const server = createServer((_request, response) => {
-			response.writeHead(426, { "content-length": "0" });
-			response.end();
-		});
-		server.on("upgrade", (request, socket, head) => {
-			if (head.length > 0) {
-				socket.destroy();
-				return;
-			}
-			const port = (server.address() as { port: number }).port;
-			const role = readClientRole(request);
-			if (role !== "bridge") {
-				socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-				return;
-			}
-			const websocket = acceptUpgrade(request, socket, port, (credential) => credential === this.token);
-			if (websocket === undefined) return;
-			this.attachConnection(websocket);
-		});
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", reject);
-			server.listen(0, "127.0.0.1", () => {
-				server.off("error", reject);
-				resolve();
-			});
-		});
-		this.server = server;
-		const port = (server.address() as { port: number }).port;
-		return { host: "127.0.0.1", port, token: this.token, launchId: this.launchId };
+	async start(): Promise<void> {
+		if (this.started) throw new Error("bridge already started");
+		this.started = true;
+		// Blender publishes discovery asynchronously. Extension load must remain
+		// usable while Blender is opening; waitForAttach exposes actionable skew.
+		this.scheduleReconnect(0);
 	}
 
 	async close(): Promise<void> {
+		this.started = false;
+		if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+		this.rejectAttachWaiters(new Error("BRIDGE_CLOSED: bridge is shutting down"));
 		this.failPending("BRIDGE_CLOSED", "bridge is shutting down");
-		this.transport?.websocket.close(1001, "bridge shutdown");
+		this.transport?.socket.destroy();
+		this.connectingSocket?.destroy();
 		this.transport = undefined;
-		const server = this.server;
-		this.server = undefined;
-		if (server !== undefined) {
-			await new Promise<void>((resolve) => server.close(() => resolve()));
-		}
 	}
 
-	/**
-	 * Credential-free repair surface for tools and the TUI. It deliberately
-	 * reports stale transport evidence instead of pretending that a process
-	 * restart can be performed by the in-process bridge.
-	 */
 	inspectBridgeState(): Record<string, unknown> {
 		return {
 			attached: this.transport !== undefined,
@@ -275,67 +199,50 @@ export class BlenderBridge {
 			prepared_transaction_id: this.preparedTransaction?.prepared.transaction_id ?? null,
 			attach_failure: this.staleAddonMessage ?? null,
 			addon_version: this.addonVersion ?? null,
+			token_generation: this.endpoint?.token_generation ?? null,
 		};
 	}
 
-	/**
-	 * Clear local bridge state that can keep reporting an already-dead
-	 * operation. This never touches the Blender scene or project journal; it
-	 * only rejects this process's stale pending promise and closes its stale
-	 * socket so a new attach can be accepted.
-	 */
 	repairBridge(): Record<string, unknown> {
 		const before = this.inspectBridgeState();
-		if (this.pending !== undefined) {
-			this.failPending(
-				"BRIDGE_REPAIR_REMOVED_STALE_PENDING",
-				`repair removed stale bridge operation${this.pendingDiagnostics()}`,
+		if (this.preparedTransaction !== undefined) {
+			throw new Error(
+				"TRANSACTION_RECONCILIATION_REQUIRED: cannot repair bridge while a prepared Blender transaction is unresolved",
 			);
 		}
-		this.preparedTransaction = undefined;
-		if (this.transport !== undefined) {
-			const transport = this.transport;
-			this.transport = undefined;
-			try {
-				transport.websocket.close(1000, "bridge repair");
-			} catch {
-				// A dead transport cannot fail the repair that removes it.
-			}
-		}
-		appendBridgeLog(this.projectDirectory, {
-			event: "bridge_repair",
-			launchId: this.launchId,
-			projectId: this.projectId,
-			before,
-		});
+		this.failPending("BRIDGE_REPAIR_REMOVED_STALE_PENDING", `repair removed stale bridge operation${this.pendingDiagnostics()}`);
+		this.transport?.socket.destroy();
+		this.connectingSocket?.destroy();
+		this.transport = undefined;
+		this.scheduleReconnect(0);
+		appendBridgeLog(this.projectDirectory, { event: "bridge_repair", before });
 		return { ...before, repaired: true, attached: false };
 	}
 
-	/**
-	 * Resolves once Blender has attached and completed the hello handshake.
-	 * Rejects when an attach attempt is refused because the Blender add-on is
-	 * stale (ADDON_STALE), so the failure surfaces once instead of hanging.
-	 */
 	waitForAttach(signal?: AbortSignal): Promise<void> {
 		if (this.transport !== undefined) return Promise.resolve();
-		if (this.staleAddonMessage !== undefined) {
-			return Promise.reject(new Error(this.staleAddonMessage));
-		}
+		if (this.staleAddonMessage !== undefined) return Promise.reject(new Error(this.staleAddonMessage));
+		this.scheduleReconnect(0);
 		return new Promise<void>((resolve, reject) => {
-			const waiter = {
+			let waiter: { resolve: () => void; reject: (error: Error) => void };
+			const onAbort = () => {
+				this.attachWaiters = this.attachWaiters.filter((candidate) => candidate !== waiter);
+				reject(new Error("ATTACH_ABORTED: waiting for Blender connection was aborted"));
+			};
+			waiter = {
 				resolve: () => {
 					signal?.removeEventListener("abort", onAbort);
 					resolve();
 				},
-				reject: (error: Error) => {
+				reject: (error) => {
 					signal?.removeEventListener("abort", onAbort);
 					reject(error);
 				},
 			};
-			const onAbort = () => {
-				this.attachWaiters = this.attachWaiters.filter((candidate) => candidate !== waiter);
-				reject(new Error("ATTACH_ABORTED: waiting for Blender to attach was aborted"));
-			};
+			if (signal?.aborted) {
+				onAbort();
+				return;
+			}
 			signal?.addEventListener("abort", onAbort, { once: true });
 			this.attachWaiters.push(waiter);
 		});
@@ -352,6 +259,18 @@ export class BlenderBridge {
 
 	get revisionId(): string {
 		return this.currentRevisionId;
+	}
+
+	/**
+	 * Clears the local execution safety freeze after a human has verified the
+	 * Blender project state.
+	 */
+	clearExecutionMutationFreeze(): void {
+		this.executionMutationFreezeReason = undefined;
+	}
+
+	get executionMutationFrozen(): boolean {
+		return this.executionMutationFreezeReason !== undefined;
 	}
 
 	async inspectProject(): Promise<{ readonly revision: string; readonly snapshot: SceneSnapshot }> {
@@ -611,11 +530,38 @@ export class BlenderBridge {
 		return this.addonVersion;
 	}
 
+	async executeBlenderPython(
+		request: Omit<ExecuteBlenderPythonRequestV1, "type" | "request_id">,
+	): Promise<ExecuteBlenderPythonResponseV1> {
+		const result = await this.runBridgeRequest(
+			"execute_blender_python",
+			{},
+			request.expected_revision_id,
+			{ executionRequest: request },
+		);
+		return result as ExecuteBlenderPythonResponseV1;
+	}
+
+	async getExecutionOutcome(requestId: string): Promise<GetExecutionOutcomeResponseV1> {
+		const result = await this.runBridgeRequest(
+			"get_execution_outcome",
+			{},
+			() => this.currentRevisionId,
+			{ outcomeRequestId: requestId },
+		);
+		return result as GetExecutionOutcomeResponseV1;
+	}
+
 	async stageScene(
 		plan: StageScenePlanV1,
 		context: { readonly signal?: AbortSignal; readonly reportProgress: (progress: BridgeProgress) => void },
 	): Promise<PreparedMutationCandidate<StageSceneMutationCandidate>> {
-		const result = await this.runBridgeRequest("stage_scene", plan, plan.expected_revision_id, context);
+		const result = await this.runBridgeRequest(
+			"stage_scene",
+			plan,
+			plan.expected_revision_id,
+			context,
+		);
 		return this.requirePreparedCandidate<StageSceneMutationCandidate>(result);
 	}
 
@@ -656,19 +602,19 @@ export class BlenderBridge {
 		if (transaction.prepared.candidate_revision_id !== resultingRevisionId) {
 			throw new Error("TRANSACTION_CONFLICT: committed revision does not match Blender candidate");
 		}
-		transaction.websocket.sendText(
-			parseDaemonBridgeMessage(
-				{
-					type: "bridge_transaction_ack",
-					id: transaction.prepared.id,
-					transaction_id: transaction.prepared.transaction_id,
-					status: "committed",
-					resulting_revision_id: resultingRevisionId,
-				},
-				transaction.session,
-				new Set(),
-			),
-		);
+		const transport = this.transport;
+		if (transport === undefined || transport.socket.destroyed) {
+			throw new Error(
+				"TRANSACTION_RECONCILIATION_REQUIRED: prepared Blender transaction requires an attached bridge",
+			);
+		}
+		this.sendFrame(transport.socket, {
+			type: "bridge_transaction_ack",
+			id: transaction.prepared.id,
+			transaction_id: transaction.prepared.transaction_id,
+			status: "committed",
+			resulting_revision_id: resultingRevisionId,
+		});
 		await transaction.acknowledged;
 		this.preparedTransaction = undefined;
 		this.currentRevisionId = resultingRevisionId;
@@ -681,170 +627,297 @@ export class BlenderBridge {
 		return result as unknown as PreparedMutationCandidate<T>;
 	}
 
-	private attachConnection(websocket: WebSocketConnection): void {
-		let session: MutationBridgeSession | undefined;
-		websocket.on("text", (text: string) => {
-			let raw: unknown;
-			try {
-				raw = JSON.parse(text);
-			} catch {
-				websocket.close(1008, "invalid json");
+	private async readEndpoint(): Promise<BlenderBridgeDiscoveryV1 | undefined> {
+		try {
+			// The add-on publishes this file with atomic replace; one complete read
+			// therefore observes either generation, never a partially-written JSON.
+			return parseBlenderBridgeDiscovery(JSON.parse(await readFile(
+				path.join(this.projectDirectory, ".cclay", "bridge-endpoint.json"), "utf8",
+			)));
+		} catch (error) {
+			if (isRecord(error) && error.code === "ENOENT") return undefined;
+			throw new Error(`ADDON_STALE: Blender bridge discovery is invalid — ${String(error)}`);
+		}
+	}
+
+	private scheduleReconnect(delayMs = 250): void {
+		if (!this.started || this.reconnectTimer !== undefined) return;
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = undefined;
+			void this.refreshConnection();
+		}, delayMs);
+		this.reconnectTimer.unref?.();
+	}
+
+	private async refreshConnection(): Promise<void> {
+		try {
+			const endpoint = await this.readEndpoint();
+			if (endpoint === undefined) {
+				this.staleAddonMessage = undefined;
+				this.scheduleReconnect();
 				return;
 			}
-			if (session === undefined) {
-				try {
-					session = this.completeHandshake(websocket, raw);
-				} catch (error) {
-					if (error instanceof Error && error.message.startsWith("ADDON_STALE")) {
-						this.refuseStaleAttach(websocket, error);
+			if (this.transport?.generation === endpoint.token_generation) {
+				this.scheduleReconnect(500);
+				return;
+			}
+			this.transport?.socket.destroy();
+			await this.connectEndpoint(endpoint);
+		} catch (error) {
+			const failure = error instanceof Error ? error : new Error(String(error));
+			this.staleAddonMessage = failure.message;
+			this.rejectAttachWaiters(failure);
+			this.scheduleReconnect();
+		}
+	}
+
+	private async connectEndpoint(endpoint: BlenderBridgeDiscoveryV1): Promise<void> {
+		const socket = connect({ host: endpoint.host, port: endpoint.port });
+		this.connectingSocket = socket;
+		this.receiveBuffers.set(socket, Buffer.alloc(0));
+		try {
+			await new Promise<void>((resolve, reject) => {
+				let settled = false;
+				const finish = (error?: Error) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timeout);
+					socket.removeListener("connect", onConnect);
+					socket.removeListener("error", onError);
+					socket.removeListener("close", onClose);
+					socket.removeListener("data", onData);
+					if (error !== undefined) {
+						socket.destroy();
+						reject(error);
 					} else {
-						websocket.close(1008, "invalid hello");
+						resolve();
 					}
-				}
-				return;
-			}
-			void this.handleBridgeMessage(session, raw);
-		});
-		websocket.on("disconnect", (closeInfo?: { code: number; reason: string; source: "local" | "peer" }) => {
-			if (this.transport?.websocket === websocket) {
-				const diagnostics = this.pendingDiagnostics();
-				appendBridgeLog(this.projectDirectory, {
-					event: "bridge_disconnect",
-					launchId: this.launchId,
-					projectId: this.projectId,
-					diagnostics,
-					close: closeInfo ?? websocket.closeInfo() ?? null,
+				};
+				const fail = (message: string) => finish(new Error(message));
+				const onConnect = () => {
+					try {
+						this.sendFrame(socket, {
+							type: "hello",
+							token: endpoint.token,
+							client: "cclay-extension",
+							protocol_version: 1,
+							capabilities: [CLIENT_CAPABILITY],
+						});
+					} catch (error) {
+						finish(error instanceof Error ? error : new Error(String(error)));
+					}
+				};
+				const onError = (error: Error) => fail(`ADDON_STALE: Blender bridge connection failed — ${error.message}`);
+				const onClose = () => fail("ADDON_STALE: Blender closed the bridge before hello acknowledgement");
+				const onData = (bytes: Buffer) => this.readFrames(socket, bytes, (raw) => {
+					if (!isRecord(raw)) {
+						fail("ADDON_STALE: invalid hello response");
+						return;
+					}
+					if (raw.type === "hello_reject") {
+						try {
+							const rejected = parseBlenderBridgeHelloReject(raw);
+							fail(`ADDON_STALE: Blender rejected bridge hello (${rejected.reason}) — ${ADDON_STALE_GUIDANCE}`);
+						} catch (error) {
+							finish(error instanceof Error ? error : new Error(String(error)));
+						}
+						return;
+					}
+					try {
+						const ack = parseBlenderBridgeHelloAck(raw);
+						if (ack.addon_version !== endpoint.addon_version || ack.addon_version !== EXPECTED_ADDON_VERSION) {
+							fail(`ADDON_STALE: Blender add-on v${ack.addon_version} does not match repo v${EXPECTED_ADDON_VERSION} — ${ADDON_STALE_GUIDANCE}`);
+							return;
+						}
+						if (!ack.capabilities.includes(CLIENT_CAPABILITY)) {
+							fail(`ADDON_STALE: Blender add-on does not advertise required capability ${CLIENT_CAPABILITY} — ${ADDON_STALE_GUIDANCE}`);
+							return;
+						}
+						this.addonVersion = ack.addon_version;
+						finish();
+					} catch (error) {
+						finish(error instanceof Error ? error : new Error(String(error)));
+					}
 				});
-				this.transport = undefined;
-				this.failPending("BRIDGE_DISCONNECTED", `Blender bridge disconnected${diagnostics}`);
-			}
-		});
-	}
-
-	/** Refuse the attach with one actionable line and wake every waiter. */
-	private refuseStaleAttach(websocket: WebSocketConnection, error: Error): void {
-		this.staleAddonMessage = error.message;
-		websocket.close(1008, "stale addon");
-		const waiters = this.attachWaiters;
-		this.attachWaiters = [];
-		for (const waiter of waiters) waiter.reject(new Error(error.message));
-	}
-
-	/**
-	 * Compare the addon-reported cclay.* surface against the repo expectation.
-	 * A legacy add-on (no version capability), a version mismatch, or any
-	 * missing required method/op fails the attach with a single ADDON_STALE.
-	 * Records the reported version on success so the footer can show what the
-	 * attached peer actually claimed.
-	 */
-	private verifyAddonSurface(capabilities: readonly string[]): void {
-		const surface = new Set(capabilities);
-		const reportedVersion = capabilities
-			.find((capability) => capability.startsWith(ADDON_VERSION_CAPABILITY_PREFIX))
-			?.slice(ADDON_VERSION_CAPABILITY_PREFIX.length);
-		let problem: string | undefined;
-		if (reportedVersion === undefined) {
-			problem = "Blender add-on reported no version (pre-surface add-on is loaded)";
-		} else if (reportedVersion !== EXPECTED_ADDON_VERSION) {
-			problem = `Blender add-on v${reportedVersion} does not match repo v${EXPECTED_ADDON_VERSION}`;
-		} else {
-			const missing = [
-				...REQUIRED_BRIDGE_METHODS.filter(
-					(method) => !surface.has(`${METHOD_CAPABILITY_PREFIX}${method}`),
-				).map((method) => `method ${method}`),
-				...REQUIRED_STAGE_SCENE_OPS.filter((op) => !surface.has(`${OP_CAPABILITY_PREFIX}${op}`)).map(
-					(op) => `op ${op}`,
-				),
-			];
-			if (missing.length > 0) {
-				problem = `Blender add-on v${reportedVersion} is missing required surface: ${missing.join(", ")}`;
-			}
+				const timeout = setTimeout(
+					() => fail(`ADDON_STALE: Blender did not acknowledge bridge hello within ${HANDSHAKE_TIMEOUT_MS / 1_000} seconds`),
+					HANDSHAKE_TIMEOUT_MS,
+				);
+				timeout.unref?.();
+				socket.once("connect", onConnect);
+				socket.once("error", onError);
+				socket.once("close", onClose);
+				socket.on("data", onData);
+			});
+		} finally {
+			if (this.connectingSocket === socket) this.connectingSocket = undefined;
 		}
-		if (problem !== undefined) {
-			throw new Error(`ADDON_STALE: ${problem} — ${ADDON_STALE_GUIDANCE}`);
-		}
-		this.addonVersion = reportedVersion;
-	}
-
-	private completeHandshake(websocket: WebSocketConnection, hello: unknown): MutationBridgeSession {
-		if (!isRecord(hello) || hello.type !== "hello") {
-			throw new Error("expected hello");
-		}
-		if (typeof hello.project_id !== "string") {
-			throw new Error("hello project id missing");
-		}
-		if (this.projectId !== undefined && this.projectId !== hello.project_id) {
-			throw new Error("hello project id changed");
-		}
-		const capabilities = Array.isArray(hello.capabilities)
-			? (hello.capabilities as unknown[]).filter((entry): entry is string => typeof entry === "string")
-			: [];
-		this.verifyAddonSurface(capabilities);
-		this.projectId = hello.project_id;
-		const offered = new Set(capabilities);
-		const helloAck = {
-			type: "hello_ack",
-			protocol: 2,
-			daemon_version: DAEMON_VERSION,
-			launch_id: this.launchId,
-			session_id: randomUUID(),
-			server_nonce: randomBytes(16).toString("base64url"),
-			// Echo only the negotiated core intersection in canonical order; the
-			// namespaced cclay.* surface entries are attach metadata, and the
-			// addon-side hello_ack validator keeps its closed core tuple.
-			capabilities: NEGOTIATED_CORE_CAPABILITIES.filter((capability) => offered.has(capability)),
-		};
-		const session = negotiateMutationBridge(hello, helloAck);
-		websocket.sendText(helloAck);
+		socket.once("close", () => this.onDisconnect(socket));
+		socket.once("error", () => {});
+		socket.on("data", (bytes) => this.readFrames(socket, bytes, (raw) => void this.handleBridgeMessage(raw)));
+		this.endpoint = endpoint;
+		this.transport = { socket, generation: endpoint.token_generation };
 		this.staleAddonMessage = undefined;
-		this.transport = { websocket, session };
 		const waiters = this.attachWaiters;
 		this.attachWaiters = [];
 		for (const waiter of waiters) waiter.resolve();
-		return session;
+		appendBridgeLog(this.projectDirectory, { event: "bridge_connected", token_generation: endpoint.token_generation });
+		if (this.pending !== undefined) {
+			this.sendFrame(socket, { type: "get_execution_outcome", request_id: this.pending.requestId });
+			appendBridgeLog(this.projectDirectory, {
+				event: "bridge_outcome_query",
+				request_id: this.pending.requestId,
+				token_generation: endpoint.token_generation,
+			});
+		}
+		this.scheduleReconnect(500);
 	}
 
-	private async handleBridgeMessage(session: MutationBridgeSession, raw: unknown): Promise<void> {
-		let message: ReturnType<typeof parseAddonBridgeMessage>;
-		try {
-			message = parseAddonBridgeMessage(raw, session);
-		} catch {
-			return; // Ignore malformed frames; the deadline reaps a stuck op.
+	private rejectAttachWaiters(error: Error): void {
+		const waiters = this.attachWaiters;
+		this.attachWaiters = [];
+		for (const waiter of waiters) waiter.reject(error);
+	}
+	private onDisconnect(socket: Socket): void {
+		if (this.transport?.socket !== socket) return;
+		const diagnostics = this.pendingDiagnostics();
+		this.transport = undefined;
+		appendBridgeLog(this.projectDirectory, {
+			event: "bridge_disconnect",
+			request_id: this.pending?.requestId ?? null,
+			token_generation: this.endpoint?.token_generation ?? null,
+			diagnostics,
+		});
+		// The request may have reached Blender. Keep its request_id and ask the
+		// replacement generation for the authoritative outcome before rejecting.
+		if (this.pending !== undefined) this.scheduleReconnect(0);
+		else this.scheduleReconnect();
+	}
+
+	private readFrames(socket: Socket, chunk: Buffer, onFrame: (raw: unknown) => void): void {
+		let receiveBuffer = Buffer.concat([this.receiveBuffers.get(socket) ?? Buffer.alloc(0), chunk]);
+		if (receiveBuffer.byteLength > 18 * 1024 * 1024 + 4) {
+			socket.destroy(new Error("FRAME_TOO_LARGE: bridge receive buffer exceeds 18 MiB"));
+			return;
 		}
+		while (receiveBuffer.byteLength >= 4) {
+			const length = receiveBuffer.readUInt32BE(0);
+			if (length > 18 * 1024 * 1024) {
+				socket.destroy(new Error("FRAME_TOO_LARGE: bridge frame exceeds 18 MiB"));
+				return;
+			}
+			if (receiveBuffer.byteLength < 4 + length) {
+				this.receiveBuffers.set(socket, receiveBuffer);
+				return;
+			}
+			const payload = receiveBuffer.subarray(4, 4 + length);
+			receiveBuffer = receiveBuffer.subarray(4 + length);
+			try {
+				onFrame(JSON.parse(payload.toString("utf8")));
+			} catch {
+				socket.destroy(new Error("INVALID_FRAME: bridge frame is not JSON"));
+				return;
+			}
+		}
+		this.receiveBuffers.set(socket, receiveBuffer);
+	}
+
+	private sendFrame(socket: Socket, value: unknown): void {
+		const payload = Buffer.from(JSON.stringify(value), "utf8");
+		if (payload.byteLength > 18 * 1024 * 1024) throw new Error("FRAME_TOO_LARGE: outbound bridge frame exceeds 18 MiB");
+		const header = Buffer.alloc(4);
+		header.writeUInt32BE(payload.byteLength);
+		socket.write(Buffer.concat([header, payload]));
+	}
+
+	private async handleBridgeMessage(raw: unknown): Promise<void> {
+		if (!isRecord(raw) || typeof raw.type !== "string") return;
+		const message = raw;
 		const pending = this.pending;
 		if (message.type === "bridge_transaction_acknowledged") {
 			const transaction = this.preparedTransaction;
-			if (
-				transaction !== undefined &&
-				message.id === transaction.prepared.id &&
-				message.transaction_id === transaction.prepared.transaction_id
-			) {
-				transaction.resolveAcknowledged();
+			if (transaction !== undefined && message.id === transaction.prepared.id && message.transaction_id === transaction.prepared.transaction_id) transaction.resolveAcknowledged();
+			return;
+		}
+		if (
+			message.type === "execution_outcome_not_found" &&
+			pending !== undefined &&
+			message.request_id === (pending.outcomeRequestId ?? pending.requestId)
+		) {
+			if (pending.executionBaseRevisionId !== undefined) {
+				this.settleExecutionUnknown(pending, "Blender restart lost the execution outcome");
+			} else if (pending.outcomeRequestId !== undefined) {
+				try {
+					this.settle(pending, () => pending.resolve(parseGetExecutionOutcomeResponse(message)));
+				} catch (error) {
+					this.settle(pending, () => pending.reject(error instanceof Error ? error : new Error(String(error))));
+				}
+			} else {
+				this.failPending("OUTCOME_UNKNOWN", "Blender restart lost the execution outcome");
 			}
 			return;
 		}
+		if (
+			(message.type === "execute_result" || message.type === "precondition_failed") &&
+			pending !== undefined &&
+			message.request_id === (pending.outcomeRequestId ?? pending.requestId)
+		) {
+			try {
+				if (pending.executionBaseRevisionId !== undefined) {
+					const response = parseExecuteBlenderPythonResponse(message);
+					this.settle(pending, () => pending.resolve(this.applyExecutionResponse(response, pending.executionBaseRevisionId!)));
+				} else if (pending.outcomeRequestId !== undefined) {
+					const response = parseGetExecutionOutcomeResponse(message);
+					this.settle(pending, () => pending.resolve(this.applyExecutionOutcome(response)));
+				}
+			} catch (error) {
+				if (pending.executionBaseRevisionId !== undefined) {
+					this.settleExecutionUnknown(pending, "Blender returned a malformed execution outcome");
+				} else {
+					this.settle(pending, () => pending.reject(error instanceof Error ? error : new Error(String(error))));
+				}
+			}
+			return;
+		}
+		if (pending === undefined || message.id !== pending.id) return;
 		if (message.type === "bridge_transaction_prepared") {
-			if (
-				pending === undefined ||
-				message.id !== pending.id ||
-				message.operation !== pending.method ||
-				message.project_id !== this.projectId
-			) {
-				return;
-			}
-			if (
-				pending.preparedTransaction !== undefined &&
-				JSON.stringify(pending.preparedTransaction) !== JSON.stringify(message)
-			) {
-				this.failPending("TRANSACTION_EVIDENCE_INVALID", "transaction id was reused with different content");
-				return;
-			}
-			pending.preparedTransaction = message;
+			if (message.operation !== pending.method) return;
+			pending.preparedTransaction = message as unknown as BridgeTransactionPrepared;
 			return;
 		}
-		if (message.type === "bridge_artifact_batch_begin") {
-			if (pending === undefined || message.id !== pending.id) return;
+		if (message.type === "bridge_artifact_begin") {
+			if (
+				typeof message.frame !== "number" ||
+				typeof message.total_chunks !== "number" ||
+				typeof message.total_byte_length !== "number" ||
+				typeof message.sha256 !== "string" ||
+				message.total_chunks < 1 ||
+				message.total_byte_length < 0
+			) {
+				this.failPending("INVALID_RENDER_QA_RESULT", "artifact declaration is invalid");
+				return;
+			}
+			pending.artifactFrames.set(message.frame, {
+				totalChunks: message.total_chunks,
+				totalByteLength: message.total_byte_length,
+				sha256: message.sha256,
+				chunks: new Map(),
+				receivedBytes: 0,
+			});
+			return;
+		}
+		if (message.type === "bridge_artifact_batch_begin" && Array.isArray(message.frames)) {
 			for (const frame of message.frames) {
+				if (
+					!isRecord(frame) ||
+					typeof frame.frame !== "number" ||
+					typeof frame.total_chunks !== "number" ||
+					typeof frame.total_byte_length !== "number" ||
+					typeof frame.sha256 !== "string"
+				) {
+					this.failPending("INVALID_RENDER_QA_RESULT", "artifact declaration is invalid");
+					return;
+				}
 				pending.artifactFrames.set(frame.frame, {
 					totalChunks: frame.total_chunks,
 					totalByteLength: frame.total_byte_length,
@@ -855,81 +928,42 @@ export class BlenderBridge {
 			}
 			return;
 		}
-		if (message.type === "bridge_artifact_begin") {
-			if (pending === undefined || message.id !== pending.id) return;
-			pending.artifactFrames.set(message.frame, {
-				totalChunks: message.total_chunks,
-				totalByteLength: message.total_byte_length,
-				sha256: message.sha256,
-				chunks: new Map(),
-				receivedBytes: 0,
-			});
-			return;
-		}
-		if (message.type === "bridge_artifact_chunk") {
-			if (pending === undefined || message.id !== pending.id) return;
+		if (message.type === "bridge_artifact_chunk" && typeof message.frame === "number" && typeof message.chunk_index === "number" && typeof message.byte_length === "number" && typeof message.byte_offset === "number" && typeof message.data_base64 === "string") {
 			const artifact = pending.artifactFrames.get(message.frame);
-			if (artifact === undefined || artifact.chunks.has(message.chunk_index)) {
-				this.failPending("INVALID_RENDER_QA_RESULT", "artifact chunk has no declaration or is duplicated");
-				return;
-			}
 			const bytes = Buffer.from(message.data_base64, "base64");
-			if (bytes.byteLength !== message.byte_length || artifact.receivedBytes !== message.byte_offset) {
-				this.failPending("INVALID_RENDER_QA_RESULT", "artifact chunk offset or length is invalid");
+			if (artifact === undefined || artifact.chunks.has(message.chunk_index) || bytes.byteLength !== message.byte_length || artifact.receivedBytes !== message.byte_offset) {
+				this.failPending("INVALID_RENDER_QA_RESULT", "artifact chunk is invalid");
 				return;
 			}
 			artifact.chunks.set(message.chunk_index, bytes);
 			artifact.receivedBytes += bytes.byteLength;
 			return;
 		}
-		if (pending === undefined) return;
-		if (message.type === "bridge_progress" && message.id === pending.id) {
+		if (message.type === "bridge_progress" && typeof message.phase === "string" && typeof message.completed === "number" && typeof message.total === "number") {
 			pending.lastPhase = message.phase;
 			pending.reportProgress?.({ phase: message.phase, completed: message.completed, total: message.total });
 			return;
 		}
-		if (message.type === "bridge_result" && message.id === pending.id) {
-			const result =
-				pending.preparedTransaction === undefined
-					? message.result
-					: {
-							candidate: message.result,
-							transaction: pending.preparedTransaction,
-							requestId: pending.requestId,
-						};
-			if (pending.preparedTransaction !== undefined) {
-				let resolveAcknowledged!: () => void;
-				const acknowledged = new Promise<void>((resolve) => {
-					resolveAcknowledged = resolve;
-				});
-				this.preparedTransaction = {
-					prepared: pending.preparedTransaction,
-					session,
-					websocket: this.transport!.websocket,
-					acknowledged,
-					resolveAcknowledged,
-				};
-			}
-			// finalizeRenderResult performs fs writes and artifact-integrity
-			// checks; a rejection here must settle the pending operation as a
-			// normal tool error (not an unhandled rejection that wedges the
-			// FIFO queue behind a forever-pending dispatch).
-			let resolved: unknown;
+		if (message.type === "bridge_result") {
 			try {
-				resolved =
-					pending.renderRequest === undefined ? result : await this.finalizeRenderResult(pending, result);
+				const result = pending.renderRequest === undefined
+					? (pending.preparedTransaction === undefined
+						? message.result
+						: { candidate: message.result, transaction: pending.preparedTransaction, requestId: pending.requestId })
+					: await this.finalizeRenderResult(pending, message.result);
+				if (pending.preparedTransaction !== undefined) {
+					let resolveAcknowledged!: () => void;
+					const acknowledged = new Promise<void>((resolve) => { resolveAcknowledged = resolve; });
+					this.preparedTransaction = { prepared: pending.preparedTransaction, acknowledged, resolveAcknowledged };
+				}
+				this.settle(pending, () => pending.resolve(result));
 			} catch (error) {
-				this.settle(pending, () =>
-					pending.reject(error instanceof Error ? error : new Error(String(error))),
-				);
-				return;
+				this.settle(pending, () => pending.reject(error instanceof Error ? error : new Error(String(error))));
 			}
-			this.settle(pending, () => pending.resolve(resolved));
 			return;
 		}
-		if (message.type === "bridge_error" && message.id === pending.id) {
+		if (message.type === "bridge_error") {
 			this.settle(pending, () => pending.reject(new Error(`${message.code}: ${message.message}`)));
-			return;
 		}
 	}
 
@@ -985,6 +1019,62 @@ export class BlenderBridge {
 			frames,
 		});
 	}
+	private applyExecutionResponse(
+		response: ExecuteBlenderPythonResponseV1,
+		baseRevisionId: string,
+	): ExecuteBlenderPythonResponseV1 {
+		if (response.type === "precondition_failed") return response;
+		return this.applyExecutionResult(response, baseRevisionId);
+	}
+
+	private applyExecutionOutcome(response: GetExecutionOutcomeResponseV1): GetExecutionOutcomeResponseV1 {
+		if (response.type === "execution_outcome_not_found") return response;
+		if (response.outcome === "failed_recovered") {
+			this.currentRevisionId = response.restored_revision_id;
+			return response;
+		}
+		return this.applyExecutionResult(response, this.currentRevisionId);
+	}
+
+	private applyExecutionResult(
+		result: ExecuteBlenderPythonResultV1,
+		baseRevisionId: string,
+	): ExecuteBlenderPythonResultV1 {
+		switch (result.outcome) {
+			case "success":
+				this.currentRevisionId = result.new_revision_id;
+				break;
+			case "failed_recovered":
+				if (result.restored_revision_id !== baseRevisionId) {
+					this.freezeExecutionMutations("Blender restored a revision other than the execution base");
+					throw new Error("INVALID_EXECUTION_OUTCOME: recovered revision does not match the execution base");
+				}
+				this.currentRevisionId = baseRevisionId;
+				break;
+			case "recovery_required":
+				this.freezeExecutionMutations("Blender requires execution recovery");
+				break;
+			case "outcome_unknown":
+				this.freezeExecutionMutations("Blender execution outcome is unknown");
+				break;
+		}
+		return result;
+	}
+
+	private freezeExecutionMutations(reason: string): void {
+		this.executionMutationFreezeReason ??= reason;
+	}
+
+	private settleExecutionUnknown(pending: PendingBridge, reason: string): void {
+		this.freezeExecutionMutations(reason);
+		this.settle(pending, () => pending.resolve({
+			type: "execute_result",
+			request_id: pending.requestId,
+			outcome: "outcome_unknown",
+			reason,
+		} satisfies ExecuteBlenderPythonResultV1));
+	}
+
 	private settle(pending: PendingBridge, run: () => void): void {
 		if (this.pending !== pending) return;
 		this.pending = undefined;
@@ -1042,6 +1132,8 @@ export class BlenderBridge {
 			signal?: AbortSignal;
 			reportProgress?: (progress: BridgeProgress) => void;
 			renderRequest?: RenderQaFramesRequestV1;
+			executionRequest?: Omit<ExecuteBlenderPythonRequestV1, "type" | "request_id">;
+			outcomeRequestId?: string;
 		} = {},
 	): Promise<unknown> {
 		const signal = options.signal;
@@ -1076,8 +1168,13 @@ export class BlenderBridge {
 			signal?: AbortSignal;
 			reportProgress?: (progress: BridgeProgress) => void;
 			renderRequest?: RenderQaFramesRequestV1;
+			executionRequest?: Omit<ExecuteBlenderPythonRequestV1, "type" | "request_id">;
+			outcomeRequestId?: string;
 		} = {},
 	): Promise<unknown> {
+		if (EXECUTION_MUTATING_METHODS.has(method) && this.executionMutationFreezeReason !== undefined) {
+			return Promise.reject(new Error(`EXECUTION_RECOVERY_REQUIRED: ${this.executionMutationFreezeReason}`));
+		}
 		const transport = this.transport;
 		if (transport === undefined) {
 			return Promise.reject(
@@ -1097,25 +1194,25 @@ export class BlenderBridge {
 		const id = randomUUID();
 		const requestId = randomUUID();
 		this.activeRequestIds.add(requestId);
-		let bridgeRequest: unknown;
-		try {
-			bridgeRequest = parseDaemonBridgeMessage(
-				{
-					type: "bridge_request",
-					id,
+		const bridgeRequest = options.executionRequest === undefined && options.outcomeRequestId === undefined
+			? {
+				type: "bridge_request",
+				id,
+				request_id: requestId,
+				method,
+				params,
+				expected_revision_id: resolvedRevisionId,
+				// Advisory only: the add-on may complete after this deadline and
+				// reconnect outcome lookup is the authority for ambiguous delivery.
+				deadline_ms: BRIDGE_OP_DEADLINE_MAX_MS,
+			}
+			: options.executionRequest !== undefined
+				? parseExecuteBlenderPythonRequest({
+					type: "execute_blender_python",
 					request_id: requestId,
-					method,
-					params,
-					expected_revision_id: resolvedRevisionId,
-					deadline_ms: BRIDGE_OP_DEADLINE_MAX_MS,
-				},
-				transport.session,
-				this.activeRequestIds,
-			);
-		} catch (error) {
-			this.activeRequestIds.delete(requestId);
-			return Promise.reject(error instanceof Error ? error : new Error(String(error)));
-		}
+					...options.executionRequest,
+				})
+				: { type: "get_execution_outcome", request_id: options.outcomeRequestId };
 		return new Promise<unknown>((resolve, reject) => {
 			const pending: PendingBridge = {
 				id,
@@ -1126,6 +1223,8 @@ export class BlenderBridge {
 				reject,
 				renderRequest: options.renderRequest,
 				artifactFrames: new Map(),
+				executionBaseRevisionId: options.executionRequest?.expected_revision_id,
+				outcomeRequestId: options.outcomeRequestId,
 			};
 			this.pending = pending;
 			// Extension-side deadline enforcement: reap the operation locally
@@ -1133,19 +1232,23 @@ export class BlenderBridge {
 			// holding the node process alive; it is cleared on every settle
 			// path (result, error, cancel, disconnect, close).
 			pending.deadlineTimer = setTimeout(() => {
-				this.failPending(
-					"DEADLINE_EXCEEDED",
-					`bridge operation exceeded its deadline${this.pendingDiagnostics()}`,
-				);
+				if (pending.executionBaseRevisionId !== undefined) {
+					this.settleExecutionUnknown(pending, "Blender did not provide an execution outcome before the advisory deadline");
+				} else {
+					this.failPending(
+						"DEADLINE_EXCEEDED",
+						`bridge operation exceeded its deadline${this.pendingDiagnostics()}`,
+					);
+				}
 			}, this.operationTimeoutMs);
 			pending.deadlineTimer.unref?.();
 			const signal = options.signal;
 			if (signal !== undefined) {
 				const onAbort = () => {
 					try {
-						transport.websocket.sendText({ type: "bridge_cancel", id, request_id: requestId });
+						this.sendFrame(transport.socket, { type: "bridge_cancel", id, request_id: requestId });
 					} catch {
-						// Cancellation is best-effort; the deadline still reaps it.
+						// Cancellation is advisory; execution may still complete.
 					}
 					this.settle(pending, () => reject(new Error("CANCELLED: bridge operation cancelled")));
 				};
@@ -1155,7 +1258,7 @@ export class BlenderBridge {
 				}
 				signal.addEventListener("abort", onAbort, { once: true });
 			}
-			transport.websocket.sendText(bridgeRequest);
+			this.sendFrame(transport.socket, bridgeRequest);
 		});
 	}
 }

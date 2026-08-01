@@ -1,0 +1,4 @@
+{
+  "comment": "Single canonical source for the execute_blender_python warning. It must appear character-identically in the Blender UI beside the per-project permission and in the model-facing tool description. Do not inline a copy.",
+  "warning": "This lets the AI director run arbitrary Python in your live Blender session with no sandbox. Locked objects are not protected. External file, network, and process effects cannot be rolled back. Exceptions trigger full-.blend reload recovery."
+}

@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import type { RevisionOperationEntryV2 } from "../src/project-store.ts";
+import { canonicalRevision } from "../src/canonical.ts";
+import type { DirectorProjectWriteInput, RevisionOperationEntryV2 } from "../src/project-store.ts";
 import { ProjectStore, ProjectStoreError } from "../src/project-store.ts";
 
 const roots: string[] = [];
@@ -23,14 +24,14 @@ const ENTRY: RevisionOperationEntryV2 = {
 	candidate_scene_hash: "c".repeat(64),
 };
 
-function project(index: number) {
+function project(index: number): DirectorProjectWriteInput {
 	const revisionId = index.toString(16).padStart(64, "0");
 	return {
 		project_id: "123e4567-e89b-42d3-a456-426614174000",
 		schema_version: 1 as const,
 		current_revision_id: revisionId,
 		manifest: {
-			schemaVersion: 2 as const,
+			schemaVersion: 4 as const,
 			projectId: "123e4567-e89b-42d3-a456-426614174000",
 			revisionId,
 			sceneHash: revisionId,
@@ -51,6 +52,9 @@ function project(index: number) {
 			markers: [],
 			selectedEntityIds: [],
 			cameraAnimations: [],
+			stagePrimitives: [],
+			stageMaterials: [],
+			assemblies: [],
 		},
 	};
 }
@@ -92,6 +96,118 @@ describe("project persistence (architecture §6)", () => {
 		await assert.rejects(
 			store.readProject(),
 			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
+		);
+	});
+	it("persists and re-verifies the director-computed extensions digest", async () => {
+		const { root, store } = await createStore();
+		const value = project(1);
+		value.manifest.extensions = { "x-newer-addon": { opaque: "漢" } };
+		await store.writeProject(value);
+
+		const restarted = new ProjectStore(root);
+		const reread = (await restarted.readProject()) as unknown as { manifest: { extensions?: unknown } };
+		assert.deepEqual(reread.manifest.extensions, value.manifest.extensions);
+		const path = join(root, ".cclay", "project.json");
+		const stored = JSON.parse(await readFile(path, "utf8")) as { extensionsDigest: string };
+		assert.match(stored.extensionsDigest, /^[0-9a-f]{64}$/);
+		delete (stored as { extensionsDigest?: string }).extensionsDigest;
+		await writeFile(path, JSON.stringify(stored));
+		await assert.rejects(
+			restarted.readProject(),
+			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
+		);
+		stored.extensionsDigest = "0".repeat(64);
+		await writeFile(path, JSON.stringify(stored));
+		await assert.rejects(
+			restarted.readProject(),
+			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
+		);
+	});
+	it("rejects fields outside the closed durable project shape", async () => {
+		const { root, store } = await createStore();
+		const value = project(1);
+		value.legacyOptOut = false;
+		await assert.rejects(
+			store.writeProject(value),
+			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
+		);
+
+		await mkdir(join(root, ".cclay"));
+		await writeFile(join(root, ".cclay", "project.json"), JSON.stringify(value));
+		await assert.rejects(
+			store.readProject(),
+			(error: unknown) => error instanceof ProjectStoreError && error.code === "PROJECT_INVALID",
+		);
+	});
+	it("reads a legacy project without extensionsDigest or extensions", async () => {
+		const { root, store } = await createStore();
+		const legacy = project(1);
+		await mkdir(join(root, ".cclay"));
+		await writeFile(join(root, ".cclay", "project.json"), JSON.stringify(legacy));
+
+		const reread = (await store.readProject()) as unknown as { manifest: Record<string, unknown> };
+		assert.equal("extensions" in reread.manifest, false);
+	});
+	it("reads a legacy project without extensionsDigest and with empty extensions", async () => {
+		const { root, store } = await createStore();
+		const legacy = project(1);
+		legacy.manifest.extensions = {};
+		await mkdir(join(root, ".cclay"));
+		await writeFile(join(root, ".cclay", "project.json"), JSON.stringify(legacy));
+
+		const reread = (await store.readProject()) as unknown as { manifest: { extensions?: unknown } };
+		assert.deepEqual(reread.manifest.extensions, {});
+	});
+	it("rejects a legacy manifest version with an actionable re-initialization command", async () => {
+		const { root, store } = await createStore();
+		const legacy = project(1);
+		legacy.manifest.schemaVersion = 3 as never;
+		await mkdir(join(root, ".cclay"));
+		await writeFile(join(root, ".cclay", "project.json"), JSON.stringify(legacy));
+
+		await assert.rejects(
+			store.readProject(),
+			(error: unknown) =>
+				error instanceof ProjectStoreError &&
+				error.code === "UNSUPPORTED_PROJECT_VERSION" &&
+				error.message.includes("`cclay`"),
+		);
+	});
+	it("rejects every non-V4 manifest discriminator before project validation", async () => {
+		for (const schemaVersion of [1, 2, 3, undefined, "four"] as const) {
+			const { root, store } = await createStore();
+			const invalid = project(1);
+			if (schemaVersion === undefined) {
+				delete (invalid.manifest as { schemaVersion?: unknown }).schemaVersion;
+			} else {
+				(invalid.manifest as { schemaVersion: unknown }).schemaVersion = schemaVersion;
+			}
+			await mkdir(join(root, ".cclay"));
+			await writeFile(join(root, ".cclay", "project.json"), JSON.stringify(invalid));
+			await assert.rejects(
+				store.readProject(),
+				(error: unknown) => error instanceof ProjectStoreError && error.code === "UNSUPPORTED_PROJECT_VERSION",
+			);
+		}
+	});
+	it("rejects a legacy journal-forwarded project with a non-V4 manifest", async () => {
+		const { root, store } = await createStore();
+		const base = project(1);
+		const legacy = project(2);
+		legacy.manifest.schemaVersion = 3 as never;
+		await store.writeProject(base);
+		const payload = {
+			kind: "revision_commit_v1",
+			expected_revision_id: base.current_revision_id,
+			target_revision_id: legacy.current_revision_id,
+			project: legacy,
+			entry: {},
+		};
+		const record = { ...payload, transaction_id: canonicalRevision(payload) };
+		await writeFile(join(root, ".cclay", "journal.jsonl"), `${JSON.stringify(record)}\n`);
+		await assert.rejects(
+			store.commitRevision(KEY, base.current_revision_id, project(3), ENTRY),
+			(error: unknown) => error instanceof ProjectStoreError && error.code === "UNSUPPORTED_PROJECT_VERSION",
 		);
 	});
 	it("recovers a durable journal entry after failure before index replacement without duplicating it", async () => {

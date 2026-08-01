@@ -2,25 +2,32 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, truncate } from "node:fs/promises";
 import { join } from "node:path";
-import {
-	parseSceneManifestV2,
-	parseSceneManifestV4,
-	type SceneManifestV2,
-	type SceneManifestV4,
-} from "@cclay/protocol";
+import { parseSceneManifestV4, type SceneManifestV4 } from "@cclay/protocol";
 import { canonicalRevision } from "./canonical.ts";
+import { extensionsDigest } from "./manifest.ts";
 
 export interface DirectorProject extends Record<string, unknown> {
 	project_id: string;
 	schema_version: number;
 	current_revision_id: string;
+	extensionsDigest?: string;
 }
 
-export interface DirectorProjectRecoveryV2 extends DirectorProject {
+/**
+ * What a caller supplies to writeProject. The director derives extensionsDigest
+ * itself, so callers never provide it; DirectorProjectRecoveryV2 below is the
+ * durable record that always carries one. These cannot be related with Omit
+ * because DirectorProject has an index signature, which Omit would collapse.
+ */
+export interface DirectorProjectWriteInput extends DirectorProject {
 	project_id: string;
 	schema_version: 1;
 	current_revision_id: string;
-	manifest: SceneManifestV2 | SceneManifestV4;
+	manifest: SceneManifestV4;
+}
+
+export interface DirectorProjectRecoveryV2 extends DirectorProjectWriteInput {
+	extensionsDigest: string;
 }
 
 export interface RevisionOperationEntryV2 {
@@ -48,6 +55,7 @@ export type ProjectStoreErrorCode =
 	| "PROJECT_NOT_FOUND"
 	| "PROJECT_CORRUPT"
 	| "PROJECT_INVALID"
+	| "UNSUPPORTED_PROJECT_VERSION"
 	| "STALE_BASE"
 	| "TRANSACTION_CONFLICT";
 
@@ -95,6 +103,27 @@ function isProject(value: unknown): value is DirectorProject {
 		HASH.test(project.current_revision_id)
 	);
 }
+function assertManifestV4Project(value: unknown): void {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new ProjectStoreError(
+			"UNSUPPORTED_PROJECT_VERSION",
+			"project manifest schemaVersion is unsupported; remove .cclay and run `cclay` to re-initialize this project",
+		);
+	}
+	const manifest = (value as Record<string, unknown>).manifest;
+	if (
+		manifest === null ||
+		typeof manifest !== "object" ||
+		Array.isArray(manifest) ||
+		!Number.isInteger((manifest as Record<string, unknown>).schemaVersion) ||
+		(manifest as Record<string, unknown>).schemaVersion !== 4
+	) {
+		throw new ProjectStoreError(
+			"UNSUPPORTED_PROJECT_VERSION",
+			"project manifest schemaVersion is unsupported; remove .cclay and run `cclay` to re-initialize this project",
+		);
+	}
+}
 
 function normalizeJson(value: unknown, label: string): unknown {
 	let source: string | undefined;
@@ -112,27 +141,34 @@ function parseRecoveryProject(value: unknown, code: "PROJECT_INVALID" | "PROJECT
 		throw new ProjectStoreError(code, "project has invalid required fields");
 	}
 	const project = value as Record<string, unknown>;
+	assertManifestV4Project(value);
 	if (
-		!exactKeys(project, ["project_id", "schema_version", "current_revision_id", "manifest"]) ||
+		(!exactKeys(project, ["project_id", "schema_version", "current_revision_id", "manifest", "extensionsDigest"]) &&
+			!exactKeys(project, ["project_id", "schema_version", "current_revision_id", "manifest"])) ||
 		typeof project.project_id !== "string" ||
 		!UUID_V4.test(project.project_id) ||
 		project.schema_version !== 1 ||
 		typeof project.current_revision_id !== "string" ||
-		!HASH.test(project.current_revision_id)
+		!HASH.test(project.current_revision_id) ||
+		(project.extensionsDigest !== undefined &&
+			(typeof project.extensionsDigest !== "string" || !HASH.test(project.extensionsDigest)))
 	) {
 		throw new ProjectStoreError(code, "project has invalid required fields");
 	}
-	let manifest: SceneManifestV2 | SceneManifestV4;
+	let manifest: SceneManifestV4;
 	try {
-		const discriminator =
-			project.manifest !== null && typeof project.manifest === "object" && !Array.isArray(project.manifest)
-				? (project.manifest as Record<string, unknown>).schemaVersion
-				: undefined;
-		if (discriminator === 2) manifest = parseSceneManifestV2(project.manifest);
-		else if (discriminator === 3 || discriminator === 4) manifest = parseSceneManifestV4(project.manifest);
-		else throw new Error("unsupported manifest schema");
+		manifest = parseSceneManifestV4(project.manifest);
 	} catch (error) {
 		throw new ProjectStoreError(code, "project manifest is invalid", { cause: error });
+	}
+	const calculatedExtensionsDigest = extensionsDigest(manifest.extensions);
+	if (
+		(project.extensionsDigest === undefined &&
+			manifest.extensions !== undefined &&
+			Object.keys(manifest.extensions).length > 0) ||
+		(project.extensionsDigest !== undefined && calculatedExtensionsDigest !== project.extensionsDigest)
+	) {
+		throw new ProjectStoreError(code, "project extensions digest is invalid");
 	}
 	if (manifest.projectId !== project.project_id || manifest.revisionId !== project.current_revision_id) {
 		throw new ProjectStoreError(code, "project manifest binding is invalid");
@@ -142,6 +178,7 @@ function parseRecoveryProject(value: unknown, code: "PROJECT_INVALID" | "PROJECT
 		schema_version: 1,
 		current_revision_id: project.current_revision_id,
 		manifest,
+		extensionsDigest: calculatedExtensionsDigest,
 	};
 }
 
@@ -213,6 +250,10 @@ function parseCommitRecord(value: unknown): RevisionCommitRecord | undefined {
 		return undefined;
 	}
 	if (candidate.kind === V1_KIND) {
+		if (!isProject(candidate.project)) {
+			throw new ProjectStoreError("PROJECT_CORRUPT", "revision commit journal entry is invalid");
+		}
+		assertManifestV4Project(candidate.project);
 		if (
 			!exactKeys(candidate, V1_KEYS) ||
 			typeof candidate.expected_revision_id !== "string" ||
@@ -304,11 +345,15 @@ export class ProjectStore {
 
 	async writeProject(project: DirectorProject): Promise<void> {
 		if (!isProject(project)) throw new ProjectStoreError("PROJECT_INVALID", "project has invalid required fields");
+		assertManifestV4Project(project);
+		const manifest = parseSceneManifestV4((project as unknown as { manifest: unknown }).manifest);
+		const durableProject = { ...project, extensionsDigest: extensionsDigest(manifest.extensions) };
+		parseRecoveryProject(durableProject, "PROJECT_INVALID");
 		await mkdir(this.ombDirectory, { recursive: true });
 		const temporaryPath = join(this.ombDirectory, `.project.${process.pid}.${randomUUID()}.tmp`);
 		const handle = await open(temporaryPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
 		try {
-			await handle.writeFile(JSON.stringify(project));
+			await handle.writeFile(JSON.stringify(durableProject));
 			await handle.sync();
 		} finally {
 			await handle.close();
@@ -380,7 +425,7 @@ export class ProjectStore {
 	async commitRevision(
 		idempotencyKey: string,
 		expectedRevisionId: string,
-		project: DirectorProjectRecoveryV2,
+		project: DirectorProjectWriteInput,
 		journalEntry: RevisionOperationEntryV2,
 	): Promise<void> {
 		if (!UUID_V4.test(idempotencyKey)) {
@@ -389,7 +434,19 @@ export class ProjectStore {
 		if (!HASH.test(expectedRevisionId)) {
 			throw new ProjectStoreError("PROJECT_INVALID", "expected revision id must be a lowercase SHA-256 digest");
 		}
-		const normalizedProject = parseRecoveryProject(normalizeJson(project, "project"), "PROJECT_INVALID");
+		const normalizedProjectValue = normalizeJson(project, "project");
+		if (
+			normalizedProjectValue === null ||
+			typeof normalizedProjectValue !== "object" ||
+			Array.isArray(normalizedProjectValue)
+		) {
+			throw new ProjectStoreError("PROJECT_INVALID", "project has invalid required fields");
+		}
+		const projectManifest = parseSceneManifestV4((normalizedProjectValue as { manifest?: unknown }).manifest);
+		(normalizedProjectValue as { extensionsDigest?: string }).extensionsDigest = extensionsDigest(
+			projectManifest.extensions,
+		);
+		const normalizedProject = parseRecoveryProject(normalizedProjectValue, "PROJECT_INVALID");
 		const normalizedEntry = parseOperationEntry(normalizeJson(journalEntry, "journal entry"), "PROJECT_INVALID");
 		const payload = {
 			kind: V2_KIND,
@@ -499,6 +556,9 @@ export class ProjectStore {
 		if (!isProject(project)) {
 			throw new ProjectStoreError("PROJECT_INVALID", "project.json has invalid required fields");
 		}
-		return project;
+		assertManifestV4Project(project);
+		const recovered = parseRecoveryProject(project, "PROJECT_INVALID");
+		const { extensionsDigest: _extensionsDigest, ...readProject } = recovered;
+		return readProject;
 	}
 }

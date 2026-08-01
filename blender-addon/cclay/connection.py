@@ -1,13 +1,12 @@
-"""Owned daemon and WebSocket connection lifecycle for the Blender add-on."""
+"""Transport-neutral bridge request dispatcher for the Blender add-on."""
 
-import hashlib
+import contextlib
 import json
 import os
 import queue
 import re
-import secrets
-import subprocess
 import stat
+import io
 import tempfile
 import threading
 import time
@@ -16,19 +15,15 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from os import PathLike
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from .checkpoint import Checkpoint, restore, verify
-from .daemon_child import DaemonChild
 from .handshake import (
-    HandshakeError,
     MUTATION_BRIDGE_CAPABILITY,
     SCENE_MANIFEST_V3_CAPABILITY,
     SUPPORTED_BRIDGE_METHODS,
     TRANSACTION_COMMIT_CAPABILITY,
-    build_hello,
-    validate_hello_ack,
 )
 from .camera_action import parse_replace_camera_action
 from .camera_action import replace_camera_action as replace_scene_camera_action
@@ -39,7 +34,16 @@ from .performance import inspect_performance as inspect_scene_performance
 from .performance import parse_apply_performance_mode
 from .qa_metrics import inspect_visual_qa_metrics as inspect_scene_qa_metrics
 from .qa_metrics import parse_inspect_visual_qa_metrics
-from .ws_client import WebSocketClient, WebSocketError
+from .ws_client import WebSocketError
+from .blender_server import BlenderServer, BlenderServerError, SERVER_CAPABILITIES
+from .execution_journal import (
+    ExecutionCoordinator,
+    ExecutionJournalError,
+    query_outcome,
+    read_journal,
+    recovery_gate,
+    failed_pending_reloads,
+)
 
 try:  # Blender is intentionally absent from host-side unit tests.
     import bpy  # type: ignore
@@ -48,7 +52,7 @@ except ImportError:  # pragma: no cover - exercised by host-side imports
 
 
 class ConnectionError(RuntimeError):
-    """The owned daemon connection violated its lifecycle contract."""
+    """The framed bridge dispatcher violated its transport contract."""
 
 
 class DurableCommitReconciliationRequired(ConnectionError):
@@ -67,7 +71,7 @@ class DurableStoreFailed(ConnectionError):
 
 
 class LifecycleState(str, Enum):
-    """Closed lifecycle contract shared by the detector, UI, and restart path."""
+    """Closed dispatcher state shared by request handling and the Blender UI."""
 
     ACTIVE = "active"
     LOST = "lost"
@@ -77,11 +81,6 @@ class LifecycleState(str, Enum):
     STOPPED = "stopped"
 
 
-RECONNECTABLE_STATES = frozenset({
-    LifecycleState.LOST,
-    LifecycleState.DISCONNECTED,
-    LifecycleState.RECOVERY_REQUIRED,
-})
 
 
 @dataclass(frozen=True)
@@ -207,20 +206,10 @@ def _verify_private_runtime_directory(directory: Path) -> None:
         raise ConnectionError("runtime directory must be private (mode 0700)")
 
 
-_ATTACH_HANDOFF_FILENAME = "attach-handoff.json"
-_ATTACH_HANDOFF_FIELDS = {"schema_version", "project_id", "ticket", "expires_at_ms"}
 _DISCOVERY_SLOT_FILENAMES = {
-    "bridge": "bridge-slot.json",
     "controller_peer": "controller-peer-slot.json",
 }
 _DISCOVERY_SLOT_V1_FIELDS = {
-    "bridge": {
-        "schema_version",
-        "project_id",
-        "ticket",
-        "expires_at_ms",
-        "generation",
-    },
     "controller_peer": {
         "schema_version",
         "project_id",
@@ -231,15 +220,6 @@ _DISCOVERY_SLOT_V1_FIELDS = {
     },
 }
 _DISCOVERY_SLOT_V2_FIELDS = {
-    "bridge": {
-        "schema_version",
-        "slot",
-        "project_id",
-        "launch_id",
-        "ticket",
-        "expires_at_ms",
-        "generation",
-    },
     "controller_peer": {
         "schema_version",
         "slot",
@@ -255,7 +235,7 @@ _DISCOVERY_SLOT_V2_FIELDS = {
 
 @dataclass(frozen=True)
 class DiscoverySlot:
-    """One atomically consumed bridge or controller-peer discovery credential."""
+    """One atomically consumed controller-peer discovery credential."""
 
     runtime_directory: Path
     slot: str
@@ -290,95 +270,6 @@ def _valid_attach_ticket(ticket: object) -> bool:
     )
 
 
-def _read_attach_handoff(path: Path) -> tuple[dict[str, object], os.stat_result]:
-    try:
-        metadata = path.lstat()
-    except OSError as error:
-        raise ConnectionError(f"attach handoff is unavailable: {error}") from error
-    if stat.S_ISLNK(metadata.st_mode):
-        raise ConnectionError("attach handoff must not be a symlink")
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ConnectionError("attach handoff must be a regular file")
-    if not _owned_by_current_user(metadata):
-        raise ConnectionError("attach handoff must be owned by the current user")
-    if stat.S_IMODE(metadata.st_mode) & 0o077:
-        raise ConnectionError("attach handoff must be private (mode 0600)")
-    descriptor = -1
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-        opened = os.fstat(descriptor)
-        if (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino):
-            raise ConnectionError("attach handoff changed during verification")
-        with os.fdopen(descriptor, encoding="utf-8") as stream:
-            descriptor = -1
-            value = json.load(stream)
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ConnectionError(f"attach handoff is invalid: {error}") from error
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-    if not isinstance(value, dict) or set(value) != _ATTACH_HANDOFF_FIELDS:
-        raise ConnectionError("attach handoff fields are invalid")
-    return value, metadata
-
-
-def consume_attach_handoff(
-    project_id: str,
-    *,
-    runtime_user_directory: str | PathLike[str] | None = None,
-    now_ms: int | None = None,
-) -> tuple[Path, str] | None:
-    """Find and atomically consume a trusted, unexpired handoff for a project."""
-    user_directory = (
-        Path(runtime_user_directory)
-        if runtime_user_directory is not None
-        else _runtime_user_directory()
-    )
-    try:
-        _verify_private_runtime_directory(user_directory)
-        launches = tuple(user_directory.iterdir())
-    except (ConnectionError, OSError):
-        return None
-
-    current_time = int(time.time() * 1000) if now_ms is None else now_ms
-    for runtime_directory in sorted(launches, key=lambda path: path.name):
-        try:
-            _verify_private_runtime_directory(runtime_directory)
-            handoff_path = runtime_directory / _ATTACH_HANDOFF_FILENAME
-            value, metadata = _read_attach_handoff(handoff_path)
-        except (ConnectionError, OSError):
-            continue
-
-        expires_at_ms = value.get("expires_at_ms")
-        if (
-            value.get("schema_version") != 1
-            or not isinstance(value.get("project_id"), str)
-            or not isinstance(expires_at_ms, int)
-            or isinstance(expires_at_ms, bool)
-            or not _valid_attach_ticket(value.get("ticket"))
-        ):
-            continue
-        if expires_at_ms <= current_time:
-            try:
-                current = handoff_path.lstat()
-                if (current.st_dev, current.st_ino) == (metadata.st_dev, metadata.st_ino):
-                    handoff_path.unlink()
-            except OSError:
-                pass
-            continue
-        if value["project_id"] != project_id:
-            continue
-
-        try:
-            current = handoff_path.lstat()
-            if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
-                continue
-            handoff_path.unlink()
-        except OSError:
-            continue
-        return runtime_directory, value["ticket"]
-    return None
 
 def _read_discovery_slot_file(
     path: Path, slot: str
@@ -426,10 +317,8 @@ def consume_discovery_slot(
     Schema 1 is the currently deployed daemon file shape. Schema 2 is the
     frozen project/launch-bound shape; every version remains exact-key closed.
     """
-    if slot not in _DISCOVERY_SLOT_FILENAMES:
-        raise ConnectionError("discovery slot must be bridge or controller_peer")
-    if slot == "bridge" and lineage_id is not None:
-        raise ConnectionError("bridge discovery does not accept a lineage_id")
+    if slot != "controller_peer":
+        raise ConnectionError("discovery slot must be controller_peer")
     user_directory = (
         Path(runtime_user_directory)
         if runtime_user_directory is not None
@@ -511,31 +400,6 @@ def consume_discovery_slot(
     return None
 
 
-def connect_from_handoff(
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-    runtime_user_directory: str | PathLike[str] | None = None,
-) -> "Connection":
-    """Consume a matching handoff before attempting its one-use daemon attach."""
-    discovered = consume_attach_handoff(
-        project_id, runtime_user_directory=runtime_user_directory
-    )
-    if discovered is None:
-        raise ConnectionError(
-            "No attach handoff found for this project; run the cclay TUI first"
-        )
-    runtime_directory, ticket = discovered
-    return connect(
-        cwd=cwd,
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-        attach_runtime_directory=runtime_directory,
-        attach_ticket=ticket,
-    )
 
 
 def _read_runtime_endpoint(
@@ -600,23 +464,21 @@ def _read_runtime_endpoint(
 
 
 class Connection:
-    """One owned daemon child or attached daemon bridge connection."""
+    """Transport-neutral bridge request dispatcher."""
 
     def __init__(
         self,
-        child: DaemonChild | None,
-        websocket: WebSocketClient,
+        child: object | None,
+        websocket: Any,
         project_directory: str | PathLike[str] | None = None,
         *,
-        tools_exposed: bool = True,
+        bridge_requests_allowed: bool = True,
         identity: dict[str, str] | None = None,
         capabilities: frozenset[str] | None = None,
     ):
-        self.child = child
         self.websocket = websocket
         self.state = LifecycleState.ACTIVE
-        self.tools_exposed = tools_exposed
-        self.identity = identity
+        self.bridge_requests_allowed = bridge_requests_allowed
         self.capabilities = (
             capabilities
             if capabilities is not None
@@ -631,19 +493,14 @@ class Connection:
         self.task_status = TaskStatus()
         self._bridge_cancellations: dict[str, threading.Event] = {}
         self._terminal_bridge_ids: set[str] = set()
-        self._reader_thread: threading.Thread | None = None
         self._response_queues: dict[str, queue.Queue] = {}
-        self._cancel_ack_queues: dict[str, queue.Queue] = {}
-        self._main_thread_messages: queue.Queue = queue.Queue()
         self.last_bridge_response: dict | None = None
+        self._transport_send: Callable[[dict], None] | None = None
         self._send_lock = threading.Lock()
-        self._last_ping_at = time.monotonic()
-        self.last_pong_nonce: str | None = None
         self._state_lock = threading.Lock()
         self.project_directory = (
             Path(project_directory) if project_directory is not None else None
         )
-        self._auto_reconnect_options: dict[str, object] | None = None
 
     def begin_task(self, method: str, params: object) -> None:
         """Replace retained terminal evidence only when a real bridge task starts."""
@@ -749,15 +606,17 @@ class Connection:
         if self.task_status.outcome is None:
             self.finish_task(outcome)
 
-    def expose_tools(self) -> None:
-        """Expose bridge tools only after the reconnect scene gate succeeds."""
+    def allow_bridge_requests(self) -> None:
+        """Allow bridge requests after durable recovery evidence is reconciled."""
         if self.state != LifecycleState.ACTIVE:
-            raise ConnectionError("cannot expose tools on an inactive connection")
-        self.tools_exposed = True
+            raise ConnectionError(
+                "cannot allow bridge requests on an inactive connection"
+            )
+        self.bridge_requests_allowed = True
 
     def require_recovery(self) -> None:
-        """Hide every bridge tool and retain a terminal recovery state."""
-        self.tools_exposed = False
+        """Withhold bridge request service and retain a terminal recovery state."""
+        self.bridge_requests_allowed = False
         self._log_bridge_event(
             "require_recovery",
             stack="".join(traceback.format_stack(limit=10)),
@@ -766,11 +625,6 @@ class Connection:
             self.state = LifecycleState.RECOVERY_REQUIRED
         self._finish_in_flight_for_lifecycle("recovery_required")
 
-    def _mark_lost_if_active(self) -> None:
-        """Record reader failure without replacing a main-thread terminal state."""
-        with self._state_lock:
-            if self.state == LifecycleState.ACTIVE:
-                self.state = LifecycleState.LOST
 
     def _append_rebind_journal(
         self,
@@ -864,7 +718,7 @@ class Connection:
     ) -> dict:
         from .manifest import (
             extract_scene_snapshot,
-            extract_scene_manifest_v2,
+            extract_scene_manifest_v4,
             resolve_manifest_for_expected_hash,
         )
         from . import project_store
@@ -877,7 +731,7 @@ class Connection:
             # than bricking every turn with STALE_BASE, rebind the project to
             # the live V2 manifest so the director can keep working. Mutation
             # tools still enforce expected_revision_id against the new base.
-            live_manifest = extract_scene_manifest_v2()
+            live_manifest = extract_scene_manifest_v4()
             if self.project_directory is None:
                 raise StaleBridgeBase(
                     "live Blender scene does not match the durable project substrate"
@@ -1148,7 +1002,10 @@ class Connection:
 
     def _send_json(self, message: dict) -> None:
         with self._send_lock:
-            self.websocket.send_json(message)
+            if self._transport_send is not None:
+                self._transport_send(message)
+            else:
+                self.websocket.send_json(message)
 
     def _log_bridge_event(self, event: str, **fields: Any) -> None:
         """Append one addon-side bridge diagnostics line; never raises."""
@@ -1169,140 +1026,6 @@ class Connection:
         except Exception:
             pass
 
-    def pump_bridge_messages(self) -> float | None:
-        """Run queued Blender work and recover socket loss on the main thread."""
-        now = time.monotonic()
-        if (
-            self.state == LifecycleState.ACTIVE
-            and now - self._last_ping_at >= 20.0
-        ):
-            try:
-                self._send_json({
-                    "type": "ping",
-                    "nonce": secrets.token_urlsafe(16),
-                })
-            except (OSError, WebSocketError) as error:
-                self._log_bridge_event("ping_send_lost", error=repr(error))
-                self._mark_lost_if_active()
-            else:
-                self._last_ping_at = now
-        for _index in range(8):
-            try:
-                message = self._main_thread_messages.get_nowait()
-            except queue.Empty:
-                break
-            self.dispatch_bridge_message(message)
-
-        if self.state == LifecycleState.LOST:
-            self.tools_exposed = False
-            if self.active_checkpoint is not None:
-                if self.durable_commit_reconciliation is not None:
-                    self.state = LifecycleState.RECOVERY_REQUIRED
-                else:
-                    if self._checkpoint_recovery is not None:
-                        try:
-                            restored = self._checkpoint_recovery()
-                        except BaseException:
-                            restored = False
-                        finally:
-                            self.active_checkpoint = None
-                            self._checkpoint_recovery = None
-                    else:
-                        from .camera_plan import _read_scope, _restore_scope
-
-                        try:
-                            restored = self.restore_on_unexpected_loss(
-                                _restore_scope, _read_scope
-                            )
-                        except BaseException:
-                            restored = False
-                    self.state = (
-                        LifecycleState.DISCONNECTED
-                        if restored
-                        else LifecycleState.RECOVERY_REQUIRED
-                    )
-            else:
-                self.state = LifecycleState.DISCONNECTED
-            self._finish_in_flight_for_lifecycle(
-                "recovery_required"
-                if self.state == LifecycleState.RECOVERY_REQUIRED
-                else "disconnected"
-            )
-        if self.state != LifecycleState.ACTIVE:
-            if not self.websocket.closed:
-                self._log_bridge_event(
-                    "close_from_lifecycle_state",
-                    stack="".join(traceback.format_stack(limit=8)),
-                )
-                try:
-                    self.websocket.close()
-                except (OSError, WebSocketError):
-                    pass
-            if self._reader_thread is not None and self._reader_thread.is_alive():
-                self._reader_thread.join(timeout=0.2)
-            _begin_bridge_auto_reconnect(self)
-            return None
-        return 0.01
-
-
-    def start_bridge_dispatcher(self) -> None:
-        """Continuously receive protocol-v2 bridge traffic off the Blender thread."""
-        if self._reader_thread is not None and self._reader_thread.is_alive():
-            raise ConnectionError("bridge dispatcher is already running")
-        socket = getattr(self.websocket, "socket", None)
-        if socket is not None:
-            socket.settimeout(0.1)
-        if bpy is not None:
-            bpy.app.timers.register(self.pump_bridge_messages, first_interval=0.0)
-
-        def receive_loop() -> None:
-            while self.state == LifecycleState.ACTIVE and not self.websocket.closed:
-                try:
-                    message = self.websocket.recv_json()
-                except StopIteration:
-                    self._log_bridge_event("recv_loop_stop_iteration")
-                    self._mark_lost_if_active()
-                    return
-                except TimeoutError:
-                    continue
-                except (OSError, WebSocketError) as error:
-                    self._log_bridge_event("recv_loop_lost", error=repr(error))
-                    self._mark_lost_if_active()
-                    return
-                if not isinstance(message, dict):
-                    continue
-                if message.get("type") == "bridge_request":
-                    self._main_thread_messages.put(message)
-                    continue
-                if message.get("type") == "bridge_cancel":
-                    self.dispatch_bridge_message(message)
-                    continue
-                if message.get("type") == "pong":
-                    nonce = message.get("nonce")
-                    if isinstance(nonce, str):
-                        self.last_pong_nonce = nonce
-                    response_queue = None
-                elif message.get("type") == "cancel_ack":
-                    response_queue = self._cancel_ack_queues.get(message.get("id"))
-                elif message.get("type") in (
-                    "response",
-                    "error",
-                    "bridge_transaction_ack",
-                    "bridge_transaction_error",
-                    "bridge_transaction_status",
-                ):
-                    response_queue = self._response_queues.get(message.get("id"))
-                else:
-                    response_queue = None
-                if response_queue is not None:
-                    response_queue.put(message)
-
-        self._reader_thread = threading.Thread(
-            target=receive_loop,
-            name="cclay-bridge-receiver",
-            daemon=True,
-        )
-        self._reader_thread.start()
 
     def _send_bridge_error(
         self,
@@ -1346,11 +1069,11 @@ class Connection:
             return
         if message_type != "bridge_request":
             raise ConnectionError("unsupported daemon bridge message")
-        if not self.tools_exposed:
+        if not self.bridge_requests_allowed:
             self._send_bridge_error(
                 message,
                 "RECOVERY_REQUIRED",
-                "tool capabilities remain hidden until reconnect verification succeeds",
+                "tool remains callable, but bridge requests are refused until reconnect verification succeeds",
             )
             return
         if message.get("method") not in SUPPORTED_BRIDGE_METHODS:
@@ -1733,11 +1456,7 @@ class Connection:
                 socket_closed = socket_closed or fileno() < 0
             except OSError:
                 socket_closed = True
-        if (
-            self.state != LifecycleState.ACTIVE
-            or socket_closed
-            or self._child_has_exited()
-        ):
+        if self.state != LifecycleState.ACTIVE or socket_closed:
             self.state = LifecycleState.LOST
             raise ConnectionError(
                 f"daemon connection was lost during camera-plan phase {phase}"
@@ -1856,11 +1575,6 @@ class Connection:
         )
         return message
 
-    def _child_has_exited(self) -> bool:
-        if self.child is None:
-            return False
-        poll = getattr(self.child.process, "poll", None)
-        return callable(poll) and poll() is not None
 
     def _await_in_doubt_resolution(
         self,
@@ -1893,7 +1607,7 @@ class Connection:
                     "camera-plan durable commit failed: "
                     f"{message.get('code', 'UNKNOWN')}"
                 )
-            if self._child_has_exited() and (
+            if self.websocket.closed and (
                 self.reconcile_durable_bridge_commit(base_is_definitive=True)
                 == "not_committed"
             ):
@@ -1914,10 +1628,10 @@ class Connection:
         read_blend_project_id: Callable[[Path], str],
         read_blend_scene_hash: Callable[[Path], str],
         reload_blend: Callable[[Path], object],
-        expose_tools: bool = True,
+        allow_bridge_requests: bool = True,
         deadline: float | None = None,
     ) -> dict | None:
-        """Resolve durable startup evidence before exposing mutation tools."""
+        """Resolve durable startup evidence before allowing bridge requests."""
 
         from .prepared_transaction import (
             PreparedTransactionError,
@@ -1933,10 +1647,10 @@ class Connection:
             raise ConnectionError("prepared transaction requires a project directory")
         marker_file = marker_path(self.project_directory)
         if not marker_file.exists():
-            if expose_tools:
-                self.expose_tools()
+            if allow_bridge_requests:
+                self.allow_bridge_requests()
             return None
-        self.tools_exposed = False
+        self.bridge_requests_allowed = False
         if TRANSACTION_COMMIT_CAPABILITY not in self.capabilities:
             self.require_recovery()
             raise DurableCommitReconciliationRequired(
@@ -1954,7 +1668,7 @@ class Connection:
             ) from error
         reconcile_id = str(uuid4())
         response_queue = None
-        if self._reader_thread is not None and self._reader_thread.is_alive():
+        if self._transport_send is not None:
             response_queue = queue.Queue(maxsize=1)
             self._response_queues[reconcile_id] = response_queue
         try:
@@ -2063,8 +1777,8 @@ class Connection:
                     "marker_phase": marker.phase,
                     "outcome": "recovered",
                 }
-                if expose_tools:
-                    self.expose_tools()
+                if allow_bridge_requests:
+                    self.allow_bridge_requests()
                 return message
         except DurableCommitReconciliationRequired:
             self.require_recovery()
@@ -2076,6 +1790,19 @@ class Connection:
             ) from error
         finally:
             self._response_queues.pop(reconcile_id, None)
+    @staticmethod
+    def _prepared_mutation_result(operation: str, result: dict) -> dict:
+        """Project a mutation result to its exact extension-side candidate schema."""
+        if operation != "stage_scene":
+            return result
+        return {
+            "expected_revision_id": result["expected_revision_id"],
+            "scene_hash": result["scene_hash"],
+            "manifest": result["manifest"],
+            "entity_identities": result["entity_identities"],
+            "applied_hand_shapes": result["applied_hand_shapes"],
+        }
+
     def commit_prepared_transaction(
         self,
         *,
@@ -2109,6 +1836,7 @@ class Connection:
             )
         if self.project_directory is None:
             raise ConnectionError("prepared transaction requires a project directory")
+        result = self._prepared_mutation_result(operation, result)
         marker = prepare_transaction(
             project_root=self.project_directory,
             transaction_id=transaction_id,
@@ -2151,9 +1879,10 @@ class Connection:
             "marker_phase": marker.phase,
             "outcome": "awaiting_ack",
         }
-        response_queue = None
-        if self._reader_thread is not None and self._reader_thread.is_alive():
-            response_queue = queue.Queue(maxsize=1)
+        response_queue = queue.Queue(maxsize=1) if (
+            self._transport_send is not None
+        ) else None
+        if response_queue is not None:
             self._response_queues[bridge_id] = response_queue
         try:
             self._send_json(prepared)
@@ -2251,7 +1980,7 @@ class Connection:
             "outcome": "awaiting_ack",
         }
         response_queue = None
-        if self._reader_thread is not None and self._reader_thread.is_alive():
+        if self._transport_send is not None:
             response_queue = queue.Queue(maxsize=1)
             self._response_queues[request_id] = response_queue
         try:
@@ -2309,511 +2038,341 @@ class Connection:
         finally:
             self._response_queues.pop(request_id, None)
 
-    @classmethod
-    def start(
-        cls,
-        argv: Sequence[str],
-        *,
-        cwd: str | PathLike[str],
-        project_id: str,
-        addon_version: str,
-        blender_version: str,
-        child_type: type[DaemonChild] = DaemonChild,
-        websocket_type: type[WebSocketClient] = WebSocketClient,
-        expose_tools: bool = True,
-    ) -> "Connection":
-        """Spawn, authenticate, and complete the protocol-v2 hello exchange."""
-        child = child_type.spawn(argv, cwd=cwd)
-        websocket = None
-        try:
-            record = child.read_startup_record()
-            token = record["bearer_token"]
-            token_fingerprint = hashlib.sha256(token.encode("ascii")).hexdigest()
-            websocket = websocket_type.connect(record["port"], token, timeout=3.0)
-            token = None
-            if hasattr(websocket, "socket"):
-                websocket.socket.settimeout(3.0)
-            hello = build_hello(project_id, addon_version, blender_version)
-            websocket.send_json(hello)
-            try:
-                ack = validate_hello_ack(websocket.recv_json())
-            except HandshakeError as exc:
-                raise ConnectionError(str(exc)) from exc
-            if ack["launch_id"] != record["launch_id"]:
-                raise ConnectionError("hello_ack launch_id does not match daemon launch")
-            connection = cls(
-                child,
-                websocket,
-                project_directory=cwd,
-                tools_exposed=expose_tools,
-                capabilities=frozenset(ack["capabilities"]),
-                identity={
-                    "launch_id": record["launch_id"],
-                    "bearer_token_fingerprint": token_fingerprint,
-                    "client_nonce": hello["client_nonce"],
-                    "session_id": ack["session_id"],
-                    "server_nonce": ack["server_nonce"],
-                },
-            )
-            if bpy is not None:
-                connection.start_bridge_dispatcher()
-            return connection
-        except Exception:
-            if websocket is not None:
-                try:
-                    websocket.close()
-                except Exception:
-                    pass
-            child.kill()
-            raise
-
-    @classmethod
-    def attach(
-        cls,
-        runtime_directory: str | PathLike[str],
-        attach_ticket: str,
-        *,
-        cwd: str | PathLike[str],
-        project_id: str,
-        addon_version: str,
-        blender_version: str,
-        websocket_type: type[WebSocketClient] = WebSocketClient,
-        expose_tools: bool = True,
-    ) -> "Connection":
-        """Discover and authenticate an existing daemon as its Blender bridge."""
-        endpoint = _read_runtime_endpoint(runtime_directory)
-        if (
-            not isinstance(attach_ticket, str)
-            or len(attach_ticket) != 43
-            or any(
-                not (
-                    character.isascii()
-                    and (character.isalnum() or character in "_-")
-                )
-                for character in attach_ticket
-            )
-        ):
-            raise ConnectionError("attach ticket must be a 32-byte base64url credential")
-        websocket = None
-        ticket_fingerprint = hashlib.sha256(
-            attach_ticket.encode("ascii")
-        ).hexdigest()
-        try:
-            websocket = websocket_type.connect(
-                endpoint["port"],
-                attach_ticket,
-                timeout=3.0,
-                role="bridge",
-            )
-            attach_ticket = ""
-            if hasattr(websocket, "socket"):
-                websocket.socket.settimeout(3.0)
-            hello = build_hello(project_id, addon_version, blender_version)
-            websocket.send_json(hello)
-            try:
-                ack = validate_hello_ack(websocket.recv_json())
-            except HandshakeError as exc:
-                raise ConnectionError(str(exc)) from exc
-            if ack["launch_id"] != endpoint["launch_id"]:
-                raise ConnectionError(
-                    "hello_ack launch_id does not match runtime advertisement"
-                )
-            connection = cls(
-                None,
-                websocket,
-                project_directory=cwd,
-                tools_exposed=expose_tools,
-                capabilities=frozenset(ack["capabilities"]),
-                identity={
-                    "launch_id": endpoint["launch_id"],
-                    "attach_ticket_fingerprint": ticket_fingerprint,
-                    "attach_mode": "ticket",
-                    "client_nonce": hello["client_nonce"],
-                    "session_id": ack["session_id"],
-                    "server_nonce": ack["server_nonce"],
-                },
-            )
-            if bpy is not None:
-                connection.start_bridge_dispatcher()
-            return connection
-        except Exception:
-            if websocket is not None:
-                try:
-                    websocket.close()
-                except Exception:
-                    pass
-            raise
 
     def disconnect(self, reason: str, timeout: float = 8.0) -> None:
-        """Drain the daemon, then force-kill only if its exit exceeds the bound."""
+        """Close the transport and release dispatcher state."""
         if self.state == LifecycleState.STOPPED:
             return
-        self._log_bridge_event(
-            "disconnect_called",
-            reason=reason,
-            stack="".join(traceback.format_stack(limit=8)),
-        )
+        self._log_bridge_event("disconnect_called", reason=reason)
         self.state = LifecycleState.DRAINING
         self._finish_in_flight_for_lifecycle("disconnected")
-        if bpy is not None and bpy.app.timers.is_registered(self.pump_bridge_messages):
-            bpy.app.timers.unregister(self.pump_bridge_messages)
-        deadline = time.monotonic() + timeout
-        if self._reader_thread is not None and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=min(0.2, timeout))
-        if self.child is None:
-            if not self.websocket.closed:
-                try:
-                    self.websocket.close()
-                except (OSError, WebSocketError):
-                    pass
-        elif not self.websocket.closed:
+        if not self.websocket.closed:
             try:
-                self._send_json({"type": "shutdown", "reason": reason})
-                while time.monotonic() < deadline:
-                    socket = getattr(self.websocket, "socket", None)
-                    if socket is not None:
-                        socket.settimeout(max(0.001, deadline - time.monotonic()))
-                    message = self.websocket.recv_json()
-                    if isinstance(message, dict) and message.get("type") == "shutdown_ack":
-                        break
-            except (OSError, StopIteration, WebSocketError):
+                self.websocket.close()
+            except (OSError, WebSocketError):
                 pass
-            finally:
-                try:
-                    self.websocket.close()
-                except (OSError, WebSocketError):
-                    pass
-        if self.child is not None:
-            remaining = max(0.0, deadline - time.monotonic())
-            try:
-                self.child.process.wait(timeout=remaining)
-                self.child.close_streams()
-            except subprocess.TimeoutExpired:
-                self.child.kill()
-        if self._reader_thread is not None and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=0.2)
         self._response_queues.clear()
-        self._cancel_ack_queues.clear()
         self._bridge_cancellations.clear()
         self._terminal_bridge_ids.clear()
-        while True:
-            try:
-                self._main_thread_messages.get_nowait()
-            except queue.Empty:
-                break
         self.state = LifecycleState.STOPPED
 
 
-def verify_reconnect_hash(
-    live_scene_hash: str, canonical_revision_scene_hash: str
-) -> None:
-    """Enforce the protocol-v2 full-restart scene consistency gate."""
-    if live_scene_hash != canonical_revision_scene_hash:
-        raise ConnectionError(
-            "live scene hash does not match the canonical current revision"
-        )
 
-
-def _read_reconnect_scene_hash(cwd: str | PathLike[str]) -> str:
-    try:
-        project = json.loads(
-            (Path(cwd) / ".cclay/project.json").read_text(encoding="utf-8")
-        )
-        current_revision_id = project["current_revision_id"]
-        manifest = project["manifest"]
-        manifest_revision_id = manifest["revisionId"]
-        scene_hash = manifest["sceneHash"]
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
-        raise ConnectionError(
-            f"durable canonical current revision is unavailable: {error}"
-        ) from error
-    if manifest_revision_id != current_revision_id:
-        raise ConnectionError(
-            "durable canonical manifest does not match the current revision"
-        )
-    for name, value in (
-        ("current revision", current_revision_id),
-        ("scene hash", scene_hash),
-    ):
-        if (
-            not isinstance(value, str)
-            or len(value) != 64
-            or any(character not in "0123456789abcdef" for character in value)
-        ):
-            raise ConnectionError(f"durable canonical {name} is invalid")
-    return scene_hash
-
-
-def _confirm_previous_child_exit(previous_connection: Connection | None) -> None:
-    if previous_connection is None:
-        return
-    if previous_connection.child is None:
-        previous_connection.disconnect("restart_after_unexpected_loss")
-        return
-    poll = getattr(previous_connection.child.process, "poll", None)
-    if not callable(poll):
-        raise ConnectionError("previous daemon child exit cannot be confirmed")
-    poll()
-    if previous_connection.state != LifecycleState.STOPPED:
-        previous_connection.disconnect("restart_after_unexpected_loss")
-    if poll() is None:
-        raise ConnectionError("previous daemon child did not exit before restart")
-
-
-def _verify_fresh_connection_identity(
-    previous_connection: Connection | None, replacement: Connection
-) -> None:
-    if previous_connection is None:
-        return
-    previous_identity = previous_connection.identity
-    replacement_identity = replacement.identity
-    if not isinstance(previous_identity, dict) or not isinstance(replacement_identity, dict):
-        return
-    reused = [
-        name
-        for name in (
-            "launch_id",
-            "bearer_token_fingerprint",
-            "client_nonce",
-            "session_id",
-            "server_nonce",
-        )
-        if previous_identity.get(name) == replacement_identity.get(name)
-    ]
-    if reused:
-        raise ConnectionError(
-            "replacement daemon reused restart identities: " + ", ".join(reused)
-        )
-
-
-def reconnect(
-    argv: Sequence[str],
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-    live_scene_hash_fn: Callable[[str], str],
-    previous_connection: Connection | None = None,
-    child_type: type[DaemonChild] = DaemonChild,
-    websocket_type: type[WebSocketClient] = WebSocketClient,
-) -> Connection:
-    """Restart with fresh identities and expose tools only after the V2 hash gate."""
-    _confirm_previous_child_exit(previous_connection)
-    expected_scene_hash = _read_reconnect_scene_hash(cwd)
-    connection = Connection.start(
-        argv,
-        cwd=cwd,
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-        child_type=child_type,
-        websocket_type=websocket_type,
-        expose_tools=False,
-    )
-    try:
-        _verify_fresh_connection_identity(previous_connection, connection)
-        verify_reconnect_hash(
-            live_scene_hash_fn(expected_scene_hash),
-            expected_scene_hash,
-        )
-        _reconcile_connected_transaction(connection, cwd)
-        if (
-            previous_connection is not None
-            and isinstance(previous_connection.task_status, TaskStatus)
-            and previous_connection.task_status.task_kind is not None
-        ):
-            connection.task_status = replace(
-                previous_connection.task_status,
-                phase="recovered",
-                outcome="recovered",
-            )
-    except Exception:
-        try:
-            connection.disconnect("reconnect_hash_mismatch")
-        except Exception:
-            pass
-        raise
-    return connection
-
-
-def _test_only_inject_disconnect_fault(
-    checkpoint_entities: dict[str, dict],
-    entity_key: str,
-    property_key: str,
-    mutate_value: Any,
-) -> None:
-    """Test-only: mutate one harmless value before a simulated socket sever."""
-    try:
-        checkpoint_entities[entity_key][property_key] = mutate_value
-    except KeyError as exc:
-        raise ConnectionError(f"fault injection target does not exist: {exc}") from exc
 
 
 _active_connection: Connection | None = None
-@dataclass
-class _BridgeReconnectPlan:
-    source: Connection
-    child: DaemonChild | None
-    options: dict[str, object]
-    started_at: float
-    next_attempt_at: float
-    attempt: int = 0
-    source_released: bool = False
+class _FramedServerTransport:
+    """Connection-compatible outbound sink for the framed loopback client."""
+
+    def __init__(self, send: Callable[[dict], None]):
+        self._send = send
+        self.closed = False
+
+    def send_json(self, message: dict) -> None:
+        if not self.closed:
+            self._send(message)
+
+    def close(self) -> None:
+        self.closed = True
 
 
-_bridge_reconnect_plan: _BridgeReconnectPlan | None = None
-_BRIDGE_RECONNECT_DELAYS = (0.25, 0.5, 1.0, 2.0, 4.0)
-_BRIDGE_RECONNECT_CEILING = 5.0
-_BRIDGE_RECONNECT_WINDOW = 60.0
-_BRIDGE_MANUAL_POLL_DELAY = 10.0
-
-
-def _bridge_production_jitter(delay: float) -> float:
-    return delay * ((secrets.randbelow(401) - 200) / 1000)
-
-
-def configure_bridge_auto_reconnect(
-    connection: Connection,
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-    runtime_user_directory: str | PathLike[str] | None = None,
-    live_scene_hash_fn: Callable[[str], str] | None = None,
-    jitter: Callable[[float], float] = _bridge_production_jitter,
-    websocket_type: type[WebSocketClient] = WebSocketClient,
-) -> None:
-    """Retain only noncredential inputs needed to consume reissued bridge slots."""
-    connection._auto_reconnect_options = {
-        "cwd": Path(cwd),
-        "project_id": project_id,
-        "addon_version": addon_version,
-        "blender_version": blender_version,
-        "runtime_user_directory": Path(runtime_user_directory)
-        if runtime_user_directory is not None
-        else None,
-        "live_scene_hash_fn": live_scene_hash_fn or _live_scene_hash,
-        "jitter": jitter,
-        "websocket_type": websocket_type,
-    }
-
-
-def _begin_bridge_auto_reconnect(connection: Connection) -> None:
-    global _bridge_reconnect_plan
-    if connection._auto_reconnect_options is None:
-        return
-    if (
-        _bridge_reconnect_plan is not None
-        and _bridge_reconnect_plan.source is connection
-    ):
-        return
-    now = time.monotonic()
-    jitter = connection._auto_reconnect_options["jitter"]
-    assert callable(jitter)
-    delay = _BRIDGE_RECONNECT_DELAYS[0]
-    _bridge_reconnect_plan = _BridgeReconnectPlan(
-        source=connection,
-        child=connection.child,
-        options=connection._auto_reconnect_options,
-        started_at=now,
-        next_attempt_at=now + delay + jitter(delay),
-    )
-
-
-def _schedule_bridge_retry(plan: _BridgeReconnectPlan, now: float) -> None:
-    plan.attempt += 1
-    elapsed = now - plan.started_at
-    jitter = plan.options["jitter"]
-    assert callable(jitter)
-    if elapsed >= _BRIDGE_RECONNECT_WINDOW:
-        delay = _BRIDGE_MANUAL_POLL_DELAY
-    else:
-        delay = (
-            _BRIDGE_RECONNECT_DELAYS[plan.attempt]
-            if plan.attempt < len(_BRIDGE_RECONNECT_DELAYS)
-            else _BRIDGE_RECONNECT_CEILING
-        )
-        delay += jitter(delay)
-    plan.next_attempt_at = now + max(0.0, delay)
-
-
-def poll_active_bridge_reconnect(
-    *, force: bool = False, now: float | None = None
-) -> bool:
-    """Consume one reissued bridge generation when its reconnect attempt is due."""
-    global _active_connection, _bridge_reconnect_plan
-    plan = _bridge_reconnect_plan
-    if plan is None:
-        return False
-    current = time.monotonic() if now is None else now
-    if not force and current < plan.next_attempt_at:
-        return False
-    options = plan.options
-    identity = plan.source.identity if isinstance(plan.source.identity, dict) else {}
-    slot = consume_discovery_slot(
-        str(options["project_id"]),
-        "bridge",
-        runtime_user_directory=options["runtime_user_directory"],
-        launch_id=identity.get("launch_id"),
-    )
-    if slot is None:
-        _schedule_bridge_retry(plan, current)
-        return False
-
-    replacement: Connection | None = None
+def _execution_mutations_frozen(project_directory: Path) -> bool:
     try:
-        expected_scene_hash = _read_reconnect_scene_hash(options["cwd"])
-        if not plan.source_released:
-            if plan.child is not None:
-                plan.source.child = None
-            plan.source.disconnect("reattach_after_unexpected_loss", timeout=0.2)
-            plan.source_released = True
-        websocket_type = options["websocket_type"]
-        assert isinstance(websocket_type, type)
-        replacement = Connection.attach(
-            slot.runtime_directory,
-            slot.ticket,
-            cwd=options["cwd"],
-            project_id=str(options["project_id"]),
-            addon_version=str(options["addon_version"]),
-            blender_version=str(options["blender_version"]),
-            websocket_type=websocket_type,
-            expose_tools=False,
+        return bool(recovery_gate(project_directory))
+    except ExecutionJournalError:
+        return True
+
+
+def _execute_blender_python(message: dict, send: Callable[[dict], None], project_directory: Path) -> None:
+    request_id = message.get("request_id")
+    if not isinstance(request_id, str):
+        raise ConnectionError("execute_blender_python request_id is invalid")
+    if bpy is None:
+        send({"type": "precondition_failed", "request_id": request_id, "code": "UNSAVED_PROJECT", "message": "Blender is unavailable."})
+        return
+    from . import project_store
+    from .identity import IdentityError
+    from .manifest import extract_scene_manifest_v4
+
+    try:
+        stored = project_store.read_project_index(str(project_directory))
+        permission = project_store.read_execute_blender_python_permission(str(project_directory))
+        if stored is None or permission is False:
+            send({"type": "precondition_failed", "request_id": request_id, "code": "AUTH_INVALID", "message": "Execution is disabled in the durable project record."})
+            return
+        current_revision_id = stored.get("current_revision_id")
+        if current_revision_id != message.get("expected_revision_id"):
+            send({"type": "precondition_failed", "request_id": request_id, "code": "REVISION_STALE", "message": "Expected revision does not match the durable current revision."})
+            return
+        durable_manifest = stored.get("manifest")
+        live_manifest = extract_scene_manifest_v4()
+        project_store.verify_project_ids_match(
+            live_manifest.get("projectId"), stored.get("project_id")
         )
-        live_scene_hash_fn = options["live_scene_hash_fn"]
-        assert callable(live_scene_hash_fn)
-        verify_reconnect_hash(
-            live_scene_hash_fn(expected_scene_hash), expected_scene_hash
-        )
-        _reconcile_connected_transaction(replacement, options["cwd"])
-        replacement.child = plan.child
-        if plan.source.task_status.task_kind is not None:
-            replacement.task_status = replace(
-                plan.source.task_status,
-                phase="recovered",
-                outcome="recovered",
+        if (
+            not isinstance(durable_manifest, dict)
+            or durable_manifest.get("revisionId") != current_revision_id
+            or live_manifest.get("sceneHash") != durable_manifest.get("sceneHash")
+        ):
+            send({"type": "precondition_failed", "request_id": request_id, "code": "REVISION_STALE", "message": "Live Blender scene does not match the durable current revision."})
+            return
+    except (project_store.ProjectStoreError, IdentityError) as error:
+        send({"type": "precondition_failed", "request_id": request_id, "code": "AUTH_INVALID", "message": str(error)})
+        return
+
+    def save_backup(destination: Path) -> None:
+        bpy.ops.wm.save_as_mainfile(filepath=str(destination), copy=True)
+
+    def execute_script(script: str) -> tuple[str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            exec(script, bpy.__dict__, bpy.__dict__)
+        return stdout.getvalue(), stderr.getvalue()
+
+    def mint_revision() -> str:
+        from .manifest import extract_scene_manifest_v4
+        from .scene_manifest import finalize_scene_manifest_child
+
+        durable = project_store.read_project_index(str(project_directory))
+        if (
+            not isinstance(durable, dict)
+            or durable.get("current_revision_id") != current_revision_id
+        ):
+            raise StaleBridgeBase(
+                "durable project revision changed during Blender Python execution"
             )
-        replacement._auto_reconnect_options = options
-        _active_connection = replacement
-        _bridge_reconnect_plan = None
+        project_id = durable.get("project_id")
+        manifest = extract_scene_manifest_v4()
+        if manifest.get("projectId") != project_id:
+            raise ConnectionError(
+                "trusted manifest rescan does not match the durable project identity"
+            )
+        child = finalize_scene_manifest_child(
+            manifest,
+            current_revision_id,
+            {
+                "type": "execute_blender_python",
+                "request_id": request_id,
+            },
+        )
+        revision_id = child.get("revisionId")
+        if (
+            not isinstance(revision_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", revision_id)
+            or revision_id == current_revision_id
+        ):
+            raise ConnectionError("trusted manifest rescan did not produce one child revision")
+        updated = dict(durable)
+        updated.pop("project_id")
+        updated["current_revision_id"] = revision_id
+        updated["manifest"] = child
+        project_store.write_project_index(str(project_directory), project_id, updated)
+        return revision_id
+
+    server = _blender_server
+    result = ExecutionCoordinator(
+        project_root=project_directory,
+        source_blend_path=lambda: bpy.data.filepath or None,
+        save_backup=save_backup,
+        execute_script=execute_script,
+        mint_revision=mint_revision,
+        token_generation=0 if server is None else server.token_generation,
+    ).execute(message)
+    record = read_journal(project_directory, request_id)
+    if record is not None and record.status == "failed_pending_reload":
+        close_client = getattr(send, "close_client", None)
+        if callable(close_client):
+            close_client()
+        if _active_connection is not None:
+            _active_connection.require_recovery()
+        stop_blender_server()
+        bpy.ops.wm.open_mainfile(filepath=record.backup_path)
+        return
+    send(result)
+
+
+def _execution_outcome(project_directory: Path, request_id: str) -> dict | None:
+    return query_outcome(project_directory, request_id)
+
+
+def execution_recovery_handoff(project_directory: str | PathLike[str], request_id: str) -> dict | None:
+    """Return a preserved execution outcome after the connection is replaced."""
+    return query_outcome(project_directory, request_id)
+
+
+def recover_pending_execution_after_load(addon_version: str) -> bool:
+    """Verify the backup Blender just loaded, then publish a fresh listener."""
+    if bpy is None:
+        return False
+    loaded = Path(bpy.data.filepath).resolve()
+    if loaded.parent.name != "execution-backups" or loaded.parent.parent.name != ".cclay":
+        return False
+    project_directory = loaded.parents[2]
+    try:
+        pending = failed_pending_reloads(project_directory)
+    except ExecutionJournalError:
+        return False
+    record = next((item for item in pending if Path(item.backup_path).resolve() == loaded), None)
+    if record is None:
+        return False
+    try:
+        canonical = Path(record.canonical_blend_path).resolve()
+        canonical.relative_to(project_directory)
+        if not record.canonical_blend_path:
+            raise ExecutionJournalError("execution journal has no canonical blend path")
+
+        from . import project_store
+        from .manifest import extract_scene_manifest_v4
+
+        stored = project_store.read_project_index(str(project_directory))
+        if not isinstance(stored, dict):
+            raise ExecutionJournalError("durable project index is unavailable")
+        durable_manifest = stored.get("manifest")
+        if not isinstance(durable_manifest, dict):
+            raise ExecutionJournalError("durable project manifest is unavailable")
+
+        def has_durable_base(revision_id: str) -> bool:
+            live_manifest = extract_scene_manifest_v4()
+            return (
+                stored.get("current_revision_id") == revision_id
+                and durable_manifest.get("revisionId") == revision_id
+                and live_manifest.get("sceneHash") == durable_manifest.get("sceneHash")
+                and live_manifest.get("projectId") == stored.get("project_id")
+            )
+
+        coordinator = ExecutionCoordinator(
+            project_root=project_directory,
+            source_blend_path=lambda: None,
+            save_backup=lambda _destination: None,
+            execute_script=lambda _script: ("", ""),
+            mint_revision=lambda: "",
+        )
+        if loaded != Path(record.backup_path).resolve():
+            raise ExecutionJournalError("loaded Blender file does not match the recovery backup")
+        coordinator.verify_reloaded_evidence(record.request_id, has_durable_base)
+
+        outcome = bpy.ops.wm.save_as_mainfile(
+            filepath=str(canonical), check_existing=False
+        )
+        if "FINISHED" not in outcome:
+            raise ExecutionJournalError("cannot restore the canonical blend filepath")
+        result = coordinator.verify_reloaded(record.request_id, has_durable_base)
+        if result.get("outcome") != "failed_recovered":
+            return False
+        start_blender_server(
+            project_directory, addon_version, token_generation=record.token_generation + 1
+        )
         return True
     except Exception:
-        if replacement is not None:
-            replacement.child = None
-            replacement.disconnect("reattach_failed", timeout=0.2)
-        _schedule_bridge_retry(plan, current)
+        try:
+            coordinator = ExecutionCoordinator(
+                project_root=project_directory,
+                source_blend_path=lambda: None,
+                save_backup=lambda _destination: None,
+                execute_script=lambda _script: ("", ""),
+                mint_revision=lambda: "",
+            )
+            coordinator.verify_reloaded(record.request_id, lambda _revision_id: False)
+        except Exception:
+            pass
         return False
 
 
-def pump_connection_lifecycle() -> float:
-    """Blender timer callback for automatic bridge slot consumption."""
-    poll_active_bridge_reconnect()
-    return 0.1
+_blender_server: BlenderServer | None = None
+
+
+def _dispatch_blender_server_message(
+    message: dict, send: Callable[[dict], None], project_directory: Path
+) -> None:
+    """Use the existing bridge dispatcher for framed domain requests."""
+    global _active_connection
+    active = _active_connection
+    if active is None or active.state != LifecycleState.ACTIVE:
+        active = Connection(
+            None,
+            _FramedServerTransport(send),
+            project_directory=project_directory,
+            capabilities=frozenset({
+                MUTATION_BRIDGE_CAPABILITY,
+                SCENE_MANIFEST_V3_CAPABILITY,
+                TRANSACTION_COMMIT_CAPABILITY,
+            }),
+        )
+        _active_connection = active
+    active._transport_send = send
+    if message.get("type") == "bridge_transaction_ack":
+        response_queue = active._response_queues.get(message.get("id"))
+        if response_queue is not None:
+            response_queue.put(message)
+        return
+    if message.get("type") == "execute_blender_python":
+        _execute_blender_python(message, send, project_directory)
+        return
+    if (
+        message.get("type") == "bridge_request"
+        and message.get("method") not in _READ_ONLY_BRIDGE_METHODS
+        and message.get("method") != "inspect_project"
+        and _execution_mutations_frozen(project_directory)
+    ):
+        active._send_bridge_error(message, "RECOVERY_REQUIRED", "execution recovery is pending; mutations are frozen")
+        return
+    active.dispatch_bridge_message(message)
+
+
+def start_blender_server(
+    project_directory: str | PathLike[str], addon_version: str, *, token_generation: int = 0
+) -> BlenderServer:
+    """Start the one Blender-owned loopback listener for this project."""
+    global _blender_server
+    if _blender_server is not None:
+        if _blender_server.project_directory == Path(project_directory):
+            return _blender_server
+        raise ConnectionError("a Blender bridge server is already active for another project")
+    server = BlenderServer(
+        project_directory,
+        addon_version,
+        lambda message, send: _dispatch_blender_server_message(
+            message, send, Path(project_directory)
+        ),
+        log=lambda event, fields: _log_blender_server_event(
+            Path(project_directory), event, fields
+        ),
+        capabilities=SERVER_CAPABILITIES,
+        token_generation=token_generation,
+        outcome_lookup=lambda request_id: _execution_outcome(
+            Path(project_directory), request_id
+        ),
+    )
+    try:
+        server.start()
+    except BlenderServerError as error:
+        raise ConnectionError(str(error)) from error
+    _blender_server = server
+    return server
+
+
+def stop_blender_server() -> None:
+    """Synchronously remove the Blender-owned discovery endpoint."""
+    global _blender_server
+    server, _blender_server = _blender_server, None
+    if server is not None:
+        server.stop()
+
+
+def _log_blender_server_event(directory: Path, event: str, fields: dict) -> None:
+    try:
+        path = directory / ".cclay" / "addon-bridge.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "timestamp": time.time(), "event": event, **fields,
+            }, default=str) + "\n")
+    except OSError:
+        pass
 
 
 def _live_scene_hash(current_scene_hash: str) -> str:
+    """Return the live durable-substrate scene hash, or no hash when unavailable."""
     from .manifest import resolve_manifest_for_expected_hash
 
     manifest = resolve_manifest_for_expected_hash(current_scene_hash)
@@ -2824,14 +2383,13 @@ def _reconcile_connected_transaction(
     bridge: Connection,
     cwd: str | PathLike[str],
 ) -> None:
-    """Keep tools hidden until any durable marker reaches one authority."""
-
+    """Withhold bridge requests until the prepared transaction has one authority."""
     marker_file = Path(cwd) / ".cclay" / "prepared-transaction.json"
     if not marker_file.exists():
-        if not bridge.tools_exposed:
-            bridge.expose_tools()
+        if not bridge.bridge_requests_allowed:
+            bridge.allow_bridge_requests()
         return
-    bridge.tools_exposed = False
+    bridge.bridge_requests_allowed = False
     if bpy is None:
         bridge.require_recovery()
         raise DurableCommitReconciliationRequired(
@@ -2869,126 +2427,9 @@ def _reconcile_connected_transaction(
         read_blend_project_id=read_project_id,
         read_blend_scene_hash=read_scene_hash,
         reload_blend=lambda path: bpy.ops.wm.open_mainfile(filepath=str(path)),
-        expose_tools=True,
+        allow_bridge_requests=True,
         deadline=time.monotonic() + 3.0,
     )
-
-
-
-
-def connect_pi_extension(
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-) -> Connection:
-    """Attach to the local Pi extension's plain loopback endpoint.
-
-    This intentionally omits one-use discovery slots and controller-peer
-    credentials. The project-local file is private (0600), the socket is
-    loopback-only, and the durable revision/transaction gates remain unchanged.
-    """
-
-    endpoint_path = Path(cwd) / ".cclay" / "pi-bridge.json"
-    try:
-        metadata = endpoint_path.lstat()
-    except OSError as error:
-        raise ConnectionError(f"Pi bridge endpoint is unavailable: {error}") from error
-    if (
-        stat.S_ISLNK(metadata.st_mode)
-        or not stat.S_ISREG(metadata.st_mode)
-        or not _owned_by_current_user(metadata)
-        or stat.S_IMODE(metadata.st_mode) & 0o077
-    ):
-        raise ConnectionError("Pi bridge endpoint must be a private owned regular file")
-    try:
-        endpoint = json.loads(endpoint_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ConnectionError(f"Pi bridge endpoint is invalid: {error}") from error
-    if not isinstance(endpoint, dict) or set(endpoint) != {
-        "schema_version",
-        "runtime_directory",
-        "credential",
-    }:
-        raise ConnectionError("Pi bridge endpoint fields are invalid")
-    runtime_directory = endpoint["runtime_directory"]
-    credential = endpoint["credential"]
-    if (
-        endpoint["schema_version"] != 1
-        or not isinstance(runtime_directory, str)
-        or not runtime_directory
-        or not _valid_attach_ticket(credential)
-    ):
-        raise ConnectionError("Pi bridge endpoint values are invalid")
-    return connect(
-        cwd=cwd,
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-        attach_runtime_directory=runtime_directory,
-        attach_ticket=credential,
-    )
-
-
-def connect(
-    *,
-    cwd: str | PathLike[str],
-    project_id: str,
-    addon_version: str,
-    blender_version: str,
-    attach_runtime_directory: str | PathLike[str],
-    attach_ticket: str,
-) -> Connection:
-    """Attach to the add-on's sole daemon connection with a hash gate.
-
-    The Pi extension owns daemon lifecycle; the add-on only attaches through a
-    project-local bridge endpoint. Spawn-based ownership was removed with the
-    standalone cclay-daemon app.
-    """
-    global _active_connection
-    previous = _active_connection
-    if previous is not None and previous.state not in (
-        LifecycleState.STOPPED,
-        *RECONNECTABLE_STATES,
-    ):
-        raise ConnectionError("the add-on already owns an active daemon connection")
-    recovering = previous is not None and previous.state in RECONNECTABLE_STATES
-    expected_scene_hash = _read_reconnect_scene_hash(cwd) if recovering else None
-    if recovering:
-        previous.disconnect("reattach_after_unexpected_loss")
-    replacement = Connection.attach(
-        attach_runtime_directory,
-        attach_ticket,
-        cwd=cwd,
-        project_id=project_id,
-        addon_version=addon_version,
-        blender_version=blender_version,
-        expose_tools=False,
-    )
-    try:
-        if expected_scene_hash is not None:
-            verify_reconnect_hash(
-                _live_scene_hash(expected_scene_hash),
-                expected_scene_hash,
-            )
-            if previous is not None and previous.task_status.task_kind is not None:
-                replacement.task_status = replace(
-                    previous.task_status,
-                    phase="recovered",
-                    outcome="recovered",
-                )
-    except Exception:
-        replacement.disconnect("reattach_hash_mismatch")
-        raise
-    _reconcile_connected_transaction(replacement, cwd)
-    _active_connection = replacement
-    return replacement
-def reset_lifecycle_state() -> None:
-    """Clear reconnect coordinators after unload or an explicit disconnect."""
-    global _bridge_reconnect_plan
-    _bridge_reconnect_plan = None
-
 
 def disconnect_active(reason: str) -> bool:
     """Disconnect controllers and release the retained bridge, if one exists."""
@@ -2998,15 +2439,13 @@ def disconnect_active(reason: str) -> bool:
     active = _active_connection
     controller_closed = controller_connection.disconnect_active_controller(
         reason=reason if reason in ("client_exit", "addon_unload") else "client_exit",
-        shutdown_owner=active is not None and active.child is not None,
+        shutdown_owner=False,
     )
     if active is None or active.state == LifecycleState.STOPPED:
         _active_connection = None
-        reset_lifecycle_state()
         return controller_closed
     try:
         active.disconnect(reason)
     finally:
         _active_connection = None
-        reset_lifecycle_state()
     return True

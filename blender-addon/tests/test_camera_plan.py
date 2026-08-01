@@ -73,6 +73,10 @@ class CameraPlanRealBlenderTests(unittest.TestCase):
         )
         self.assertEqual(len(set(self.results["row34AxisSigns"])), 1)
         self.assertNotEqual(self.results["row34AxisSigns"][0], 0)
+    def test_flat_camera_plan_produces_a_child_revision(self):
+        self.assertTrue(self.results["flatChildRevision"])
+    def test_camera_plan_without_evidence_produces_a_child_revision(self):
+        self.assertTrue(self.results["noEvidenceChildRevision"])
 
     def test_commit_failure_rolls_back_and_retains_no_checkpoint(self):
         self.assertTrue(self.results["rollback"])

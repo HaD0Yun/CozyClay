@@ -115,6 +115,7 @@ def prepare_project_index(
     scene_project_id: str,
     project_created: bool,
     manifest: dict | None = None,
+    allow_execute_blender_python: bool = True,
 ) -> bool:
     """Persist a missing or legacy index, or verify a durable document unchanged."""
     stored = read_project_index(directory)
@@ -135,15 +136,37 @@ def prepare_project_index(
         revision_id = manifest.get("revisionId") if isinstance(manifest, dict) else None
         if not isinstance(revision_id, str) or not revision_id:
             raise ProjectStoreError("scene manifest requires a nonempty revisionId")
-        write_project_index(
-            directory,
-            scene_project_id,
-            {
-                "schema_version": 1,
-                "current_revision_id": revision_id,
-                "manifest": manifest,
-            },
+        if not isinstance(allow_execute_blender_python, bool):
+            raise ProjectStoreError("execute blender python permission must be a boolean")
+        extra = {
+            "schema_version": 1,
+            "current_revision_id": revision_id,
+            "manifest": manifest,
+        }
+        if allow_execute_blender_python is False:
+            extra["allowExecuteBlenderPython"] = False
+        write_project_index(directory, scene_project_id, extra)
+    return True
+def update_execute_blender_python_permission(directory: str, allow: bool) -> bool:
+    """Persist the execute_blender_python opt-out in the durable project record."""
+    if not isinstance(allow, bool):
+        raise ProjectStoreError("execute blender python permission must be a boolean")
+    stored = read_project_index(directory)
+    if stored is None:
+        return False
+    current = stored.get("allowExecuteBlenderPython")
+    if current is allow or (current is None and allow):
+        return False
+    if current is not None and not isinstance(current, bool):
+        raise ProjectStoreError(
+            "stored execute blender python permission must be a boolean"
         )
+    project_id = stored.pop("project_id")
+    if allow:
+        stored.pop("allowExecuteBlenderPython", None)
+    else:
+        stored["allowExecuteBlenderPython"] = False
+    write_project_index(directory, project_id, stored)
     return True
 
 
@@ -182,3 +205,18 @@ def repair_entity_ids(entries: Iterable[tuple[str, object]]) -> dict[str, str]:
         existing[key] = entity_id
         keys.append(key)
     return assign_entity_ids(existing, keys)  # type: ignore[arg-type]
+
+
+def read_execute_blender_python_permission(directory: str) -> bool | None:
+    """Return the durable execute_blender_python opt-out, if one is set."""
+    stored = read_project_index(directory)
+    if stored is None:
+        return None
+    current = stored.get("allowExecuteBlenderPython")
+    if current is None:
+        return None
+    if not isinstance(current, bool):
+        raise ProjectStoreError(
+            "stored execute blender python permission must be a boolean"
+        )
+    return current

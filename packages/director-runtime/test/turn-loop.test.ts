@@ -22,8 +22,8 @@ const stageRequest = (revision: string): StageSceneRequestV1 => ({
 	expected_revision_id: revision,
 	operations: [
 		{
-			op: "add_primitive",
-			primitive_type: "CUBE",
+			op: "add_character",
+			character_type: "Y_BOT",
 			name: "Hero",
 			location: [0, 0, 0],
 			rotation: [0, 0, 0],

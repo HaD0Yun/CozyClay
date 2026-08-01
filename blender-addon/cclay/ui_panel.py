@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import math
 import os
 import time
@@ -110,7 +112,7 @@ def draw_status(layout: object, active: object | None) -> tuple[str, ...]:
             "Progress: Awaiting Pi connection",
             "Outcome: Pending",
             "Evidence: No retained evidence",
-            "Tools: Hidden while disconnected",
+            "Tools: Available, but bridge calls fail while disconnected",
         ])
     else:
         state = getattr(active, "state", LifecycleState.STOPPED)
@@ -126,12 +128,14 @@ def draw_status(layout: object, active: object | None) -> tuple[str, ...]:
             f"Outcome: {outcome}",
             f"Evidence: {evidence}",
         ])
-        if getattr(active, "tools_exposed", False):
+        if getattr(active, "bridge_requests_allowed", False):
             labels.append("Tools: Available to Pi")
         elif state is LifecycleState.RECOVERY_REQUIRED:
-            labels.append("Tools: Hidden until verified recovery")
+            labels.append(
+                "Tools: Available, but bridge calls fail until reconnect verification succeeds"
+            )
         else:
-            labels.append("Tools: Hidden while degraded")
+            labels.append("Tools: Available, but bridge calls fail while degraded")
     for text in labels:
         layout.label(text=text)
     return tuple(labels)
@@ -399,6 +403,51 @@ def panel_timer_metrics() -> tuple[float, float]:
     ordered = sorted(_pump_durations_ms)
     index = min(len(ordered) - 1, max(0, (95 * len(ordered) + 99) // 100 - 1))
     return ordered[index], ordered[-1]
+def _migration_status_label(scene: object | None) -> str:
+    version = (
+        scene.get("cclay.migration_version", 0)
+        if scene is not None and callable(getattr(scene, "get", None))
+        else 0
+    )
+    return (
+        "Migration: Foreign objects locked"
+        if isinstance(version, int) and version >= 1
+        else "Migration: Pending foreign-object lock"
+    )
+
+
+
+def _sync_execute_blender_python_permission(scene: object) -> None:
+    if bpy is None:
+        return
+    value = scene.get("cclay.allow_execute_blender_python", True)
+    if not isinstance(value, bool):
+        raise project_store.ProjectStoreError(
+            "execute blender python permission must be a boolean"
+        )
+    project_store.update_execute_blender_python_permission(
+        bpy.path.abspath("//"), value
+    )
+
+
+
+
+
+
+
+def _execute_blender_python_warning() -> str:
+    """Return the canonical warning shipped beside this module."""
+    source = Path(__file__).resolve().with_name("execute_blender_python_warning.json")
+    return json.loads(source.read_text(encoding="utf-8"))["warning"]
+
+
+
+
+def _read_durable_execute_blender_python_permission():
+    """Read the durable execute_blender_python opt-out."""
+    return project_store.read_execute_blender_python_permission(bpy.path.abspath("//"))
+
+
 
 
 def draw_panel(
@@ -418,9 +467,11 @@ def draw_panel(
         else "Controller: Not connected"
     )
     status_label = f"Chat: {snapshot.status}"
+    migration_label = _migration_status_label(getattr(context, "scene", None))
     layout.label(text=controller_label)
     layout.label(text=status_label)
-    labels.extend((controller_label, status_label))
+    layout.label(text=migration_label)
+    labels.extend((controller_label, status_label, migration_label))
     if snapshot.error:
         error_label = f"Chat error: {snapshot.error}"
         layout.label(text=error_label, icon="ERROR")
@@ -436,6 +487,25 @@ def draw_panel(
         labels.append(text)
 
     properties = getattr(getattr(context, "scene", None), "cclay_panel_chat", None)
+    scene = getattr(context, "scene", None)
+    if scene is not None and callable(getattr(scene, "get", None)):
+        execute_durable = _read_durable_execute_blender_python_permission()
+        if execute_durable is not None:
+            scene["cclay.allow_execute_blender_python"] = execute_durable
+        elif "cclay.allow_execute_blender_python" not in scene:
+            scene["cclay.allow_execute_blender_python"] = True
+        elif scene.get("cclay.allow_execute_blender_python") is False:
+            _sync_execute_blender_python_permission(scene)
+        if callable(getattr(layout, "prop", None)):
+            row = layout.row(align=True) if callable(getattr(layout, "row", None)) else layout
+            row.prop(
+                scene,
+                '["cclay.allow_execute_blender_python"]',
+                text="Allow AI Python Execution",
+            )
+            warning = _execute_blender_python_warning()
+            row.label(text=warning, icon="ERROR")
+            labels.append(warning)
     if properties is not None and callable(getattr(layout, "prop", None)):
         layout.prop(properties, "prompt", text="Prompt")
     if snapshot.can_submit:

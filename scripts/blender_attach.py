@@ -13,8 +13,8 @@ Behavior:
     (which seeds .cclay/project.json), and save again
   - bare .cclay/project.json without a bound scene is a broken state the addon
     refuses to adopt silently; this script reports it and exits non-zero
-  - then polls the connect operator until the TUI daemon's one-use attach
-    handoff is discovered
+  - then starts the Blender-owned listener through cclay.connect and polls its
+    discovery/server state for extension attachment
 """
 
 import os
@@ -209,37 +209,50 @@ def setup() -> None:
                         space.show_region_ui = True
     except Exception:
         pass
-    log("ready - attaching via runtime handoff discovery")
+    log("ready - Blender-owned bridge discovery will be started by cclay.connect")
 
 
 _was_attached = False
+_was_server_ready = False
+
+def blender_server_is_running() -> bool:
+    """Whether this Blender still owns a running project listener."""
+    server = connection_module._blender_server
+    if server is None:
+        return False
+    try:
+        server.discovery()
+    except Exception:
+        return False
+    return True
+
 
 def bridge_is_attached() -> bool:
-    active = connection_module._active_connection
+    """Whether the Blender-owned listener currently has an attached client."""
+    server = connection_module._blender_server
     return (
-        active is not None
-        and active.state not in connection_module.RECONNECTABLE_STATES
-        and active.state != connection_module.LifecycleState.STOPPED
+        server is not None
+        and blender_server_is_running()
+        and server._active
     )
 
 
 
 def poll_attach() -> float | None:
-    """Persistent attach watchdog: (re)connects whenever the bridge is down.
+    """Persistent Blender-owned listener watchdog.
 
-    A daemon restart drops the bridge and a fresh one-use handoff appears once
-    a controller reissues one, so poll for the lifetime of the Blender session
-    (cheap no-op while attached) instead of stopping after the first attach.
+    Repeated cclay.connect calls are idempotent for this project. Attachment is
+    determined from the listener's active-client state.
     """
-    global _was_attached
+    global _was_attached, _was_server_ready
     if bridge_is_attached():
         if not _was_attached:
             _was_attached = True
-            log("ATTACHED via handoff discovery")
+            log("ATTACHED via Blender-owned bridge discovery")
         return 5.0
     if _was_attached:
         _was_attached = False
-        log("bridge lost - polling for a new attach handoff")
+        log("bridge client disconnected - retaining Blender-owned discovery")
     # The connect operator refuses a dirty file; this scene is attach-managed
     # (save-at-commit persists every turn), so saving here is always safe.
     if bpy.data.is_dirty and bpy.data.filepath:
@@ -250,14 +263,19 @@ def poll_attach() -> float | None:
     try:
         bpy.ops.cclay.connect()
     except Exception:
-        pass  # no handoff yet (TUI not started); keep polling
+        pass  # listener initialization can fail transiently; keep polling
     if bridge_is_attached():
         _was_attached = True
-        log("ATTACHED via handoff discovery")
+        log("ATTACHED via Blender-owned bridge discovery")
         return 5.0
+    server_ready = blender_server_is_running()
+    if server_ready and not _was_server_ready:
+        log("Blender-owned bridge listener ready; waiting for extension client")
+    _was_server_ready = server_ready
     return 1.0
 
 
 if __name__ == "__main__":
     setup()
+    poll_attach()
     bpy.app.timers.register(poll_attach, first_interval=1.0)

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { DirectorProjectRecoveryV2, RevisionOperationEntryV2 } from "../src/project-store.ts";
+import type { DirectorProjectWriteInput, RevisionOperationEntryV2 } from "../src/project-store.ts";
 import { ProjectStore, ProjectStoreError } from "../src/project-store.ts";
 
 const BASE = "a".repeat(64);
@@ -16,13 +16,13 @@ const entry: RevisionOperationEntryV2 = {
 	candidate_scene_hash: "e".repeat(64),
 };
 
-function project(revisionId: string): DirectorProjectRecoveryV2 {
+function project(revisionId: string): DirectorProjectWriteInput {
 	return {
 		project_id: PROJECT_ID,
 		schema_version: 1,
 		current_revision_id: revisionId,
 		manifest: {
-			schemaVersion: 2,
+			schemaVersion: 4,
 			projectId: PROJECT_ID,
 			revisionId,
 			sceneHash: revisionId,
@@ -43,6 +43,9 @@ function project(revisionId: string): DirectorProjectRecoveryV2 {
 			markers: [],
 			selectedEntityIds: [],
 			cameraAnimations: [],
+			stagePrimitives: [],
+			stageMaterials: [],
+			assemblies: [],
 		},
 	};
 }

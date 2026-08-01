@@ -81,6 +81,30 @@ class CameraPlanPureValidationTests(unittest.TestCase):
 
     def test_valid_plan_passes(self):
         self.assertEqual(validate_camera_plan(valid_plan(), valid_evidence()), valid_plan())
+    def test_plan_without_evidence_retains_internal_validation(self):
+        plan = valid_plan()
+        del plan["evidence_sha256"]
+        self.assertEqual(validate_camera_plan(plan), plan)
+
+    def test_no_evidence_live_scene_hash_drift_rejects_before_checkpoint(self):
+        plan = valid_plan()
+        del plan["evidence_sha256"]
+        connection = mock.Mock()
+        with (
+            mock.patch.object(camera_plan, "bpy", mock.Mock()),
+            mock.patch.object(camera_plan, "_extract_live_scene_manifest", return_value={"sceneHash": "d" * 64}),
+            mock.patch.object(camera_plan, "create_checkpoint") as create_checkpoint,
+        ):
+            with self.assertRaises(Exception) as raised:
+                camera_plan.apply_camera_plan_transaction(
+                    plan,
+                    "c" * 64,
+                    connection,
+                    lambda _result: None,
+                )
+        self.assertEqual(getattr(raised.exception, "code", None), "STALE_BASE")
+        create_checkpoint.assert_not_called()
+        connection.hold_checkpoint.assert_not_called()
 
     def test_rows_11_through_18_and_20_through_22(self):
         cases = [

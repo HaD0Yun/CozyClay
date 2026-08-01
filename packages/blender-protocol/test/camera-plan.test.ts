@@ -5,6 +5,7 @@ import {
 	type CameraPlanV1,
 	CameraPlanValidationError,
 	type DirectingAnalysisEvidenceV1,
+	parseCameraPlan,
 	parseCameraPlanMutationCandidate,
 	validateCameraPlan,
 } from "../src/camera-plan.ts";
@@ -108,6 +109,11 @@ test("row 1: closed plan schema parse — INVALID_CAMERA_PLAN_SCHEMA", () => {
 		() => validateCameraPlan({ ...validPlan(), extra: true }, validEvidence()),
 		(error: unknown) => error instanceof CameraPlanValidationError && error.code === "INVALID_CAMERA_PLAN_SCHEMA",
 	);
+});
+test("camera plan permits an absent evidence digest while retaining the closed schema", () => {
+	const { evidence_sha256: _evidenceSha256, ...planWithoutEvidence } = validPlan();
+	assert.deepEqual(parseCameraPlan(planWithoutEvidence), planWithoutEvidence);
+	assert.doesNotThrow(() => validateCameraPlan(planWithoutEvidence));
 });
 
 test("row 11: plan keyframe outside valid evidence range — PLAN_FRAME_OUT_OF_EVIDENCE_RANGE", () => {

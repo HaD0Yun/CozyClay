@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import type { DirectorProjectRecoveryV2, RevisionOperationEntryV2 } from "../src/project-store.ts";
+import { canonicalRevision } from "../src/canonical.ts";
+import type { DirectorProjectWriteInput, RevisionOperationEntryV2 } from "../src/project-store.ts";
 import { ProjectStore, ProjectStoreError } from "../src/project-store.ts";
 
 const PROJECT_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -15,7 +16,7 @@ const BASE_SCENE_HASH = "c".repeat(64);
 const TARGET_SCENE_HASH = "d".repeat(64);
 const PLAN_SHA256 = "e".repeat(64);
 
-type RecoveryProject = DirectorProjectRecoveryV2;
+type RecoveryProject = DirectorProjectWriteInput;
 
 const roots: string[] = [];
 
@@ -29,7 +30,7 @@ async function createStore(): Promise<{ root: string; store: ProjectStore }> {
 
 function manifest(revisionId: string, sceneHash: string, blenderVersion = "4.3.0") {
 	return {
-		schemaVersion: 2 as const,
+		schemaVersion: 4 as const,
 		projectId: PROJECT_ID,
 		revisionId,
 		sceneHash,
@@ -50,6 +51,9 @@ function manifest(revisionId: string, sceneHash: string, blenderVersion = "4.3.0
 		markers: [],
 		selectedEntityIds: [],
 		cameraAnimations: [],
+		stagePrimitives: [],
+		stageMaterials: [],
+		assemblies: [],
 	};
 }
 
@@ -92,72 +96,47 @@ function isTransactionConflict(error: unknown): boolean {
 }
 
 function v3Manifest(revisionId: string, sceneHash: string) {
-	const { schemaVersion: _v, cameraAnimations, ...v2 } = manifest(revisionId, sceneHash);
-	return {
-		...v2,
-		schemaVersion: 3 as const,
-		cameraAnimations,
-		lights: [],
-		stagePrimitives: [],
-		stageMaterials: [],
-	};
+	const {
+		schemaVersion: _schemaVersion,
+		stagePrimitives: _stagePrimitives,
+		stageMaterials: _stageMaterials,
+		assemblies: _assemblies,
+		...v4
+	} = manifest(revisionId, sceneHash);
+	return { ...v4, schemaVersion: 3 as const };
 }
 
 describe("revision_commit_v2 UUID transaction identity", () => {
-	it("accepts journal records minted by the pre-assembly build over v3 manifests", async () => {
-		// Old builds wrote revision_commit_v2 records whose commit_hash covered
-		// the raw stored payload with a schemaVersion 3 project manifest. The
-		// reader must validate the digest against the RAW record, not a
-		// v4-normalized re-parse, or every pre-existing project bricks with
-		// PROJECT_CORRUPT on its next commit.
+	it("rejects journal projects minted by the pre-assembly build over v3 manifests", async () => {
 		const { root, store } = await createStore();
-		const v3Target = {
-			project_id: PROJECT_ID,
-			schema_version: 1 as const,
-			current_revision_id: TARGET_REVISION_ID,
-			manifest: v3Manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
-		};
-		const { canonicalRevision } = await import("../src/canonical.ts");
-		const payload = {
-			kind: "revision_commit_v2",
-			idempotency_key: IDEMPOTENCY_KEY,
-			expected_revision_id: BASE_REVISION_ID,
-			target_revision_id: TARGET_REVISION_ID,
-			project: v3Target,
-			journal_entry: entry(),
-		};
-		const legacyRecord = { ...payload, commit_hash: canonicalRevision(payload) };
-		const { mkdir, writeFile } = await import("node:fs/promises");
-		await mkdir(join(root, ".cclay"), { recursive: true });
-		await writeFile(join(root, ".cclay", "journal.jsonl"), `${JSON.stringify(legacyRecord)}\n`);
-		await store.writeProject({
+		const legacyProject = {
 			project_id: PROJECT_ID,
 			schema_version: 1,
 			current_revision_id: TARGET_REVISION_ID,
 			manifest: v3Manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
-		} as unknown as RecoveryProject);
-
-		// A new commit on top of the legacy journal must not throw PROJECT_CORRUPT.
-		const next = project("f".repeat(64), "0".repeat(64));
-		next.current_revision_id = "f".repeat(64);
-		await commitRevision(store, "423e4567-e89b-42d3-a456-426614174000", TARGET_REVISION_ID, next, entry());
+		};
+		await mkdir(join(root, ".cclay"));
+		await writeFile(join(root, ".cclay", "project.json"), JSON.stringify(legacyProject));
+		await assert.rejects(
+			store.readProject(),
+			(error: unknown) => error instanceof ProjectStoreError && String(error.code) === "UNSUPPORTED_PROJECT_VERSION",
+		);
 	});
 
 	it("rejects a legacy record whose payload was tampered without updating commit_hash", async () => {
 		const { root, store } = await createStore();
-		const v3Target = {
+		const targetProject = {
 			project_id: PROJECT_ID,
 			schema_version: 1 as const,
 			current_revision_id: TARGET_REVISION_ID,
-			manifest: v3Manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
+			manifest: manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
 		};
-		const { canonicalRevision } = await import("../src/canonical.ts");
 		const payload = {
 			kind: "revision_commit_v2",
 			idempotency_key: IDEMPOTENCY_KEY,
 			expected_revision_id: BASE_REVISION_ID,
 			target_revision_id: TARGET_REVISION_ID,
-			project: v3Target,
+			project: targetProject,
 			journal_entry: entry(),
 		};
 		const tampered = {
@@ -165,15 +144,9 @@ describe("revision_commit_v2 UUID transaction identity", () => {
 			journal_entry: { ...entry(), plan_sha256: "f".repeat(64) },
 			commit_hash: canonicalRevision(payload),
 		};
-		const { mkdir, writeFile } = await import("node:fs/promises");
 		await mkdir(join(root, ".cclay"), { recursive: true });
 		await writeFile(join(root, ".cclay", "journal.jsonl"), `${JSON.stringify(tampered)}\n`);
-		await store.writeProject({
-			project_id: PROJECT_ID,
-			schema_version: 1,
-			current_revision_id: TARGET_REVISION_ID,
-			manifest: v3Manifest(TARGET_REVISION_ID, TARGET_SCENE_HASH),
-		} as unknown as RecoveryProject);
+		await store.writeProject(targetProject);
 
 		const next = project("f".repeat(64), "0".repeat(64));
 		next.current_revision_id = "f".repeat(64);

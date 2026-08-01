@@ -33,7 +33,7 @@ _RANGE_KEYS = {"start", "end"}
 _AXIS_KEYS = {"a", "b", "up"}
 _SUBJECT_SAMPLE_KEYS = {"frame", "center", "height_m"}
 
-BOXING_V4_EVIDENCE_SHA256 = "9b389972e9dd77d84919ce82ee688caeedc02ee62c3b1314d4e6982efd04e597"
+BOXING_V4_EVIDENCE_SHA256 = "07062d8b4d77d935d4dc17833fcd0b7b470814e044aaac8eb8cde7365ede2414"
 _PRODUCER_DIGEST = "f31de2b9d7232e5fdf56c8de4a1ecc80f7cbc4fb6c5743d6eef644d4caeacb59"
 _FIXTURE_REGISTRY = MappingProxyType({
     BOXING_V4_EVIDENCE_SHA256: (
@@ -105,13 +105,20 @@ def _fail(error_type: type[ValueError], path: str, requirement: str) -> None:
     raise error_type(f"{path} {requirement}")
 
 
-def _exact_keys(value: object, expected: set[str], path: str, error_type: type[ValueError]) -> dict:
+def _exact_keys(
+    value: object,
+    expected: set[str],
+    path: str,
+    error_type: type[ValueError],
+    optional: set[str] | None = None,
+) -> dict:
     if not isinstance(value, dict):
         _fail(error_type, path, "must be an object")
-    missing = expected - set(value)
+    optional = optional or set()
+    missing = expected - optional - set(value)
     extra = set(value) - expected
     if missing or extra:
-        _fail(error_type, path, f"must have exactly {sorted(expected)}")
+        _fail(error_type, path, f"must have required {sorted(expected - optional)} and only {sorted(expected)}")
     return value
 
 
@@ -176,11 +183,12 @@ def convert_ardy_plan_pose_to_blender(pose_value: object) -> dict:
 def parse_camera_plan(value: object) -> dict:
     """Validate only the closed CameraPlanV1 schema (precedence row 1)."""
     error = INVALID_CAMERA_PLAN_SCHEMA
-    plan = _exact_keys(value, _CAMERA_PLAN_KEYS, "plan", error)
+    plan = _exact_keys(value, _CAMERA_PLAN_KEYS, "plan", error, {"evidence_sha256"})
     if plan["schema_version"] != 1:
         _fail(error, "plan.schema_version", "must equal 1")
     _hash(plan["expected_revision_id"], "plan.expected_revision_id", error)
-    _hash(plan["evidence_sha256"], "plan.evidence_sha256", error)
+    if "evidence_sha256" in plan:
+        _hash(plan["evidence_sha256"], "plan.evidence_sha256", error)
     output = _exact_keys(plan["output_format"], _OUTPUT_FORMAT_KEYS, "plan.output_format", error)
     _integer(output["width"], "plan.output_format.width", error, 1)
     _integer(output["height"], "plan.output_format.height", error, 1)

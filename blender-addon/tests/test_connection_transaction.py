@@ -75,6 +75,8 @@ class ConnectionTransactionTests(unittest.TestCase):
                 "expected_revision_id": BASE_REVISION,
                 "scene_hash": CANDIDATE_SCENE,
                 "manifest": {"revisionId": CANDIDATE_REVISION},
+                "entity_identities": [],
+                "applied_hand_shapes": [],
             },
             save_blend=lambda path: path.write_bytes(CANDIDATE_BYTES),
             read_blend_project_id=lambda _path: PROJECT_ID,
@@ -182,7 +184,7 @@ class ConnectionTransactionTests(unittest.TestCase):
                 root,
                 [self.recovery_status("base_authoritative", BASE_REVISION)],
             )
-            connection.tools_exposed = False
+            connection.bridge_requests_allowed = False
             reloaded = []
 
             response = connection.reconcile_prepared_transaction(
@@ -197,7 +199,7 @@ class ConnectionTransactionTests(unittest.TestCase):
             self.assertEqual(response["status"], "base_authoritative")
             self.assertEqual(canonical.read_bytes(), BASE_BYTES)
             self.assertEqual(reloaded, [canonical])
-            self.assertTrue(connection.tools_exposed)
+            self.assertTrue(connection.bridge_requests_allowed)
             self.assertFalse((root / ".cclay" / "prepared-transaction.json").exists())
             self.assertEqual(
                 [message["type"] for message in websocket.sent],
@@ -214,7 +216,7 @@ class ConnectionTransactionTests(unittest.TestCase):
                 root,
                 [self.recovery_status("candidate_authoritative", CANDIDATE_REVISION)],
             )
-            connection.tools_exposed = False
+            connection.bridge_requests_allowed = False
 
             response = connection.reconcile_prepared_transaction(
                 canonical_blend_path=canonical,
@@ -227,7 +229,7 @@ class ConnectionTransactionTests(unittest.TestCase):
 
             self.assertEqual(response["status"], "candidate_authoritative")
             self.assertEqual(canonical.read_bytes(), CANDIDATE_BYTES)
-            self.assertTrue(connection.tools_exposed)
+            self.assertTrue(connection.bridge_requests_allowed)
             self.assertFalse((root / ".cclay" / "prepared-transaction.json").exists())
             self.assertEqual(
                 [message["type"] for message in websocket.sent],
@@ -237,7 +239,7 @@ class ConnectionTransactionTests(unittest.TestCase):
                 ],
             )
 
-    def test_unknown_startup_authority_retains_evidence_and_hides_tools(self):
+    def test_unknown_startup_authority_retains_evidence_and_withholds_requests(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             canonical = root / "scene.blend"
@@ -259,7 +261,7 @@ class ConnectionTransactionTests(unittest.TestCase):
                     reload_blend=lambda _path: None,
                 )
 
-            self.assertFalse(connection.tools_exposed)
+            self.assertFalse(connection.bridge_requests_allowed)
             self.assertTrue((root / ".cclay" / "prepared-transaction.json").exists())
 
 if __name__ == "__main__":
