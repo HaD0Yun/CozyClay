@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildSceneManifestV3Revision, type DirectorProject } from "@cclay/director-core";
+import { buildSceneManifestV4Revision, type DirectorProject } from "@cclay/director-core";
 import {
-	parseSceneManifestV2,
+	parseSceneManifestV4,
 	type StageSceneMutationCandidate,
 	type StageScenePlanV1,
 	type StageSceneRequestV1,
@@ -17,8 +17,8 @@ const request: StageSceneRequestV1 = {
 	expected_revision_id: parent,
 	operations: [
 		{
-			op: "add_primitive",
-			primitive_type: "CUBE",
+			op: "add_character",
+			character_type: "Y_BOT",
 			name: "Parity Subject",
 			location: [0, 0, 0],
 			rotation: [0, 0, 0],
@@ -45,21 +45,20 @@ const motionRequest: StageSceneRequestV1 = {
 		},
 	],
 };
-const v2 = parseSceneManifestV2(
+const manifest = parseSceneManifestV4(
 	JSON.parse(
 		await readFile(
-			new URL("../../director-core/test/fixtures/scene-manifest-v2-parity.json", import.meta.url),
+			new URL("../../director-core/test/fixtures/scene-manifest-v4-parity.json", import.meta.url),
 			"utf8",
 		),
 	),
 );
 
 function candidate(plan: StageScenePlanV1): StageSceneMutationCandidate {
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...base } = v2;
-	const manifest = buildSceneManifestV3Revision(
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...base } = manifest;
+	const candidateManifest = buildSceneManifestV4Revision(
 		{
 			...base,
-			schemaVersion: 3,
 			lights: [],
 			stagePrimitives: [{ objectId: ENTITY_ID, primitiveType: "CUBE" }],
 			stageMaterials: [],
@@ -69,8 +68,8 @@ function candidate(plan: StageScenePlanV1): StageSceneMutationCandidate {
 	);
 	return {
 		expected_revision_id: parent,
-		scene_hash: manifest.sceneHash,
-		manifest,
+		scene_hash: candidateManifest.sceneHash,
+		manifest: candidateManifest,
 		entity_identities: [
 			{
 				entity_id: ENTITY_ID,
@@ -110,24 +109,24 @@ function motionCandidate(plan: StageScenePlanV1): StageSceneMutationCandidate {
 
 function fakeStore(events: string[]): StageSceneRevisionStore {
 	const current: DirectorProject = {
-		project_id: v2.projectId,
+		project_id: manifest.projectId,
 		schema_version: 1,
 		current_revision_id: parent,
-		manifest: v2,
+		manifest,
 	};
 	return {
 		readProject: async () => current,
 		commitRevision: async (idempotencyKey, expected, child, journal) => {
-			const manifest = child.manifest as { revisionId: string; sceneHash: string } | undefined;
+			const candidateManifest = child.manifest as { revisionId: string; sceneHash: string } | undefined;
 			assert.match(idempotencyKey, /^[0-9a-f-]{36}$/);
 			assert.equal(expected, parent);
-			assert.equal(child.current_revision_id, manifest?.revisionId);
+			assert.equal(child.current_revision_id, candidateManifest?.revisionId);
 			assert.equal(journal.schema_version, 2);
 			assert.equal(journal.operation, "stage_scene");
 			assert.match(journal.request_id, /^[0-9a-f-]{36}$/);
 			assert.match(journal.plan_sha256, /^[0-9a-f]{64}$/);
-			assert.equal(journal.base_scene_hash, v2.sceneHash);
-			assert.equal(journal.candidate_scene_hash, manifest?.sceneHash);
+			assert.equal(journal.base_scene_hash, manifest.sceneHash);
+			assert.equal(journal.candidate_scene_hash, candidateManifest?.sceneHash);
 			events.push("commit:durable");
 		},
 	};
@@ -149,9 +148,9 @@ test("allocates daemon-owned IDs before dispatch and commits the real child revi
 			return candidate(plan);
 		},
 	});
-	assert.equal(dispatched?.operations[0]?.op, "add_primitive");
+	assert.equal(dispatched?.operations[0]?.op, "add_character");
 	assert.equal(
-		dispatched?.operations[0]?.op === "add_primitive" ? dispatched.operations[0].entity_id : undefined,
+		dispatched?.operations[0]?.op === "add_character" ? dispatched.operations[0].entity_id : undefined,
 		ENTITY_ID,
 	);
 	assert.deepEqual(events, ["bridge:result", "commit:owned", "commit:durable"]);

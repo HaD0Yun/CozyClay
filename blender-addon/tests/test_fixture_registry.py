@@ -18,8 +18,8 @@ from cclay.fixture_registry import (
     parse_directing_analysis_evidence,
 )
 
-REVISION = "100c68ea7353a0cd52506edc147decf8ec89b819ea60d528215383770e0d01a3"
-SCENE_HASH = "e724379134ccca985df4b3b4e129fc9a30653bf62e8d09279dd2a2780c51cccf"
+REVISION = "7920614992fba50993b2cc2774dbf9a11fbd6feceaf00dc97ee0c75aa7e6768a"
+SCENE_HASH = "81c57a255b9d51a6b66dd8bc7b2c898b30a7c2314ce962345277bcf86d6769ab"
 
 
 def camera_plan():

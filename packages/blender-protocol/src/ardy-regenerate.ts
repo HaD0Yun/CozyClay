@@ -155,7 +155,13 @@ const ArdyRegenerateQueueFailureV1Schema = exact({
 	schema_version: Type.Literal(1),
 	request_id: Type.String({ minLength: 1, maxLength: 256 }),
 	status: Type.Literal("failed"),
-	error_code: Type.Union(ARDY_REGENERATE_ERROR_CODES.map((code) => Type.Literal(code))),
+	error_code: Type.Union([
+		Type.Literal("INVALID_ARDY_REGENERATE_REQUEST"),
+		Type.Literal("BASE_MOTION_NOT_FOUND"),
+		Type.Literal("ENTITY_NOT_FOUND"),
+		Type.Literal("REVISION_MISMATCH"),
+		Type.Literal("GENERATION_FAILED"),
+	]),
 	message: Type.String({ minLength: 1, maxLength: 4096 }),
 });
 

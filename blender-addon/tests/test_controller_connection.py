@@ -10,14 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
-from cclay import connection as connection_module
-from cclay.connection import (
-    Connection,
-    LifecycleState,
-    configure_bridge_auto_reconnect,
-    consume_discovery_slot,
-    poll_active_bridge_reconnect,
-)
+from cclay.connection import consume_discovery_slot
 from cclay.controller_connection import (
     ControllerConnection,
     ControllerConnectionError,
@@ -121,7 +114,7 @@ class ControllerConnectionTests(unittest.TestCase):
         return runtime
 
     def write_slot(self, runtime, slot, generation=1, lineage_id=LINEAGE_ID):
-        name = "bridge-slot.json" if slot == "bridge" else "controller-peer-slot.json"
+        name = "controller-peer-slot.json"
         payload = {
             "schema_version": 1,
             "project_id": PROJECT_ID,
@@ -129,17 +122,15 @@ class ControllerConnectionTests(unittest.TestCase):
             "expires_at_ms": 9_999_999_999_999,
             "generation": generation,
         }
-        if slot == "controller_peer":
-            payload["lineage_id"] = lineage_id
+        payload["lineage_id"] = lineage_id
         path = runtime / name
         path.write_text(json.dumps(payload), encoding="utf-8")
         os.chmod(path, 0o600)
         return path
 
-    def test_discovery_slots_are_consumed_independently(self):
+    def test_controller_peer_discovery_slot_is_consumed(self):
         with tempfile.TemporaryDirectory() as root:
             runtime = self.runtime_directory(root)
-            bridge_path = self.write_slot(runtime, "bridge")
             peer_path = self.write_slot(runtime, "controller_peer")
 
             peer = consume_discovery_slot(
@@ -154,7 +145,6 @@ class ControllerConnectionTests(unittest.TestCase):
             self.assertEqual(peer.generation, 1)
             self.assertEqual(peer.lineage_id, LINEAGE_ID)
             self.assertFalse(peer_path.exists())
-            self.assertTrue(bridge_path.exists())
 
     def test_discovery_rejects_unknown_fields_and_wrong_lineage_without_consuming(self):
         with tempfile.TemporaryDirectory() as root:
@@ -359,62 +349,6 @@ class ControllerConnectionTests(unittest.TestCase):
 
         self.assertEqual(len(drained), 2)
         self.assertEqual(controller.pending_update_count, 38)
-
-    def test_bridge_reconnect_consumes_only_reissued_bridge_generation(self):
-        with tempfile.TemporaryDirectory() as root:
-            project = pathlib.Path(root) / "project"
-            project.mkdir()
-            cclay = project / ".cclay"
-            cclay.mkdir()
-            (cclay / "project.json").write_text(json.dumps({
-                "project_id": PROJECT_ID,
-                "schema_version": 1,
-                "current_revision_id": "a" * 64,
-                "manifest": {
-                    "revisionId": "a" * 64,
-                    "sceneHash": "b" * 64,
-                },
-            }), encoding="utf-8")
-            runtime = self.runtime_directory(root)
-            peer_path = self.write_slot(runtime, "controller_peer")
-            bridge_path = self.write_slot(runtime, "bridge", generation=2)
-
-            old = Connection(None, FakeWebSocket(()), project_directory=project)
-            old.identity = {"launch_id": LAUNCH_ID}
-            old.state = LifecycleState.DISCONNECTED
-            replacement = Connection(
-                None,
-                FakeWebSocket(()),
-                project_directory=project,
-                tools_exposed=False,
-            )
-            configure_bridge_auto_reconnect(
-                old,
-                cwd=project,
-                project_id=PROJECT_ID,
-                addon_version="0.1.0",
-                blender_version="4.3.0",
-                runtime_user_directory=runtime.parent,
-                live_scene_hash_fn=lambda expected: expected,
-                jitter=lambda _delay: 0.0,
-                websocket_type=FakeWebSocket,
-            )
-            connection_module._active_connection = old
-            connection_module._begin_bridge_auto_reconnect(old)
-
-            with mock.patch.object(
-                Connection, "attach", return_value=replacement
-            ) as attach:
-                self.assertTrue(poll_active_bridge_reconnect(force=True))
-
-            self.assertFalse(bridge_path.exists())
-            self.assertTrue(peer_path.exists())
-            self.assertIs(connection_module._active_connection, replacement)
-            self.assertTrue(replacement.tools_exposed)
-            self.assertEqual(old.state, LifecycleState.STOPPED)
-            self.assertEqual(attach.call_args.args[:2], (runtime, TICKET))
-            connection_module._active_connection = None
-            connection_module.reset_lifecycle_state()
 
 if __name__ == "__main__":
     unittest.main()

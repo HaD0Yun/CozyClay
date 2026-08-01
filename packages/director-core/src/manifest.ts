@@ -1,23 +1,21 @@
-import type {
-	SceneManifestV1,
-	SceneManifestV1HashFree,
-	SceneManifestV2,
-	SceneManifestV2HashFree,
-	SceneManifestV3,
-	SceneManifestV3HashFree,
-	SceneManifestV4,
-	SceneManifestV4HashFree,
-	SceneSnapshot,
-} from "@cclay/protocol";
-import { parseSceneManifestV2, parseSceneManifestV3, parseSceneManifestV4, validateManifest } from "@cclay/protocol";
+import type { SceneManifestV4, SceneManifestV4HashFree, SceneSnapshot } from "@cclay/protocol";
+import { parseSceneManifestV4 } from "@cclay/protocol";
 import { canonicalJson, canonicalRevision } from "./canonical.ts";
-import { childRevisionId, initialRevisionId, sceneHash } from "./revision.ts";
+import { childRevisionId, sceneHash } from "./revision.ts";
 
 const HASH_PLACEHOLDER = "0".repeat(64);
-
 export interface ProjectManifest {
 	readonly revision: string;
 	readonly snapshot: SceneSnapshot;
+}
+export type ManifestForHashing = Omit<SceneManifestV4, "revisionId" | "sceneHash" | "extensions">;
+
+export function extensionsDigest(extensions: SceneManifestV4["extensions"]): string {
+	const byteLength = Buffer.byteLength(canonicalJson(extensions ?? {}), "utf8");
+	if (byteLength > 65_536) {
+		throw new Error(`EXTENSIONS_TOO_LARGE: canonical extensions are ${byteLength} bytes (maximum 65536)`);
+	}
+	return canonicalRevision(extensions ?? {});
 }
 
 export function assertCanonicalSize(snapshot: SceneSnapshot): void {
@@ -31,81 +29,31 @@ export function buildProjectManifest(snapshot: SceneSnapshot): ProjectManifest {
 	return { revision: sceneHash(snapshot), snapshot };
 }
 
-export function buildSceneManifestRevision(manifestWithoutHashes: SceneManifestV1HashFree): SceneManifestV1 {
-	// Runtime callers (not just the type system) must never let a stale
-	// revisionId/sceneHash leak into the hash preimage: strip both keys
-	// unconditionally before validating or hashing, mirroring the Python
-	// finalize_scene_manifest()'s explicit .pop() of both fields.
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...clean } = manifestWithoutHashes as SceneManifestV1;
-	validateManifest(clean);
-	const { selectedEntityIds: _selectedEntityIds, blenderVersion: _blenderVersion, ...hashPreimage } = clean;
-	const computedSceneHash = canonicalRevision(hashPreimage);
-	return {
-		...clean,
-		revisionId: initialRevisionId(clean.projectId, computedSceneHash),
-		sceneHash: computedSceneHash,
-	};
-}
-
-export function buildSceneManifestV2Revision(manifestWithoutHashes: SceneManifestV2HashFree): SceneManifestV2 {
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...unparsed } = manifestWithoutHashes as SceneManifestV2;
-	// Reuse the protocol's closed TypeBox schema before hashing so this
-	// preimage cannot contain fields that a receiving protocol parser rejects.
-	const parsed = parseSceneManifestV2({
-		...unparsed,
-		revisionId: HASH_PLACEHOLDER,
-		sceneHash: HASH_PLACEHOLDER,
-	});
-	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
-	const { selectedEntityIds: _selectedEntityIds, blenderVersion: _blenderVersion, ...hashPreimage } = clean;
-	const computedSceneHash = canonicalRevision(hashPreimage);
-	return {
-		...clean,
-		revisionId: initialRevisionId(clean.projectId, computedSceneHash),
-		sceneHash: computedSceneHash,
-	};
-}
-export function buildSceneManifestV3Revision(
-	manifestWithoutHashes: SceneManifestV3HashFree,
-	parentRevisionId: string,
-	canonicalOperation: unknown,
-	canonicalDependencyHashes: unknown = [],
-): SceneManifestV3 {
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...unparsed } = manifestWithoutHashes as SceneManifestV3;
-	const parsed = parseSceneManifestV3({
-		...unparsed,
-		revisionId: HASH_PLACEHOLDER,
-		sceneHash: HASH_PLACEHOLDER,
-	});
-	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
-	const { selectedEntityIds: _selectedEntityIds, blenderVersion: _blenderVersion, ...hashPreimage } = clean;
-	const computedSceneHash = canonicalRevision(hashPreimage);
-	return {
-		...clean,
-		revisionId: childRevisionId(
-			clean.projectId,
-			parentRevisionId,
-			canonicalJson(canonicalOperation),
-			computedSceneHash,
-			canonicalJson(canonicalDependencyHashes),
-		),
-		sceneHash: computedSceneHash,
-	};
-}
-
 export function buildSceneManifestV4Revision(
 	manifestWithoutHashes: SceneManifestV4HashFree,
 	parentRevisionId: string,
 	canonicalOperation: unknown,
 	canonicalDependencyHashes: unknown = [],
 ): SceneManifestV4 {
-	const { revisionId: _revisionId, sceneHash: _sceneHash, ...unparsed } = manifestWithoutHashes as SceneManifestV4;
+	extensionsDigest(manifestWithoutHashes.extensions);
+	const {
+		revisionId: _revisionId,
+		sceneHash: _sceneHash,
+		extensions,
+		...unparsed
+	} = manifestWithoutHashes as SceneManifestV4;
+	const hashManifest: ManifestForHashing = unparsed;
 	const parsed = parseSceneManifestV4({
-		...unparsed,
+		...hashManifest,
 		revisionId: HASH_PLACEHOLDER,
 		sceneHash: HASH_PLACEHOLDER,
 	});
-	const { revisionId: _parsedRevisionId, sceneHash: _parsedSceneHash, ...clean } = parsed;
+	const {
+		revisionId: _parsedRevisionId,
+		sceneHash: _parsedSceneHash,
+		extensions: _parsedExtensions,
+		...clean
+	} = parsed;
 	const {
 		selectedEntityIds: _selectedEntityIds,
 		blenderVersion: _blenderVersion,
@@ -122,8 +70,13 @@ export function buildSceneManifestV4Revision(
 		? { ...hashFields, objects, assemblies }
 		: { ...hashFields, schemaVersion: 3, objects };
 	const computedSceneHash = canonicalRevision(hashPreimage);
+	// extensions are stripped from every hashing input above but re-attached
+	// here: the director stores and returns the add-on's opaque payload, it
+	// just never lets it influence a hash. Dropping it instead would silently
+	// discard the forward-compatibility data this envelope exists to carry.
 	return {
 		...clean,
+		...(extensions === undefined ? {} : { extensions }),
 		revisionId: childRevisionId(
 			clean.projectId,
 			parentRevisionId,

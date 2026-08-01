@@ -1,49 +1,80 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DIRECTOR_TOOL_ALLOWLIST } from "../src/session.ts";
+import { EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS } from "@cclay/blender-tools";
+import {
+	assertDirectorToolConstructionPaths,
+	DIRECTOR_TOOL_ALLOWLIST,
+	UNCONDITIONAL_DIRECTOR_TOOLS,
+} from "../src/session.ts";
 
 // The embedded director session keeps a fixed tool allowlist.
 //
-// Why this test exists: the ARDY constraint-regeneration feature exposes a
-// mutating generation surface (ardy_regenerate / ardy_generate). It would be
-// convenient to hand that surface to the embedded director by adding its tool
-// name to DIRECTOR_TOOL_ALLOWLIST. Doing so dissolves the product boundary:
-// the LLM would drive the shader/generator directly, so what the user sees is
-// no longer the deterministic pipeline the director is supposed to orchestrate
-// but whatever the model improvises turn to turn. The regeneration surface must
-// stay on the host side (a bridge the director can call into only through the
-// authorized mutating tools it already has), never as a director tool in its
-// own right. Lock the closed four-tool set down so any such addition fails this
-// test before it can ship.
+// `ardy_regenerate` is the one authorized ARDY model surface. Its factory can
+// only submit a closed request to the host-owned durable queue; `ardy_generate`
+// remains unavailable because no equivalent typed queue contract exists.
+
+// This list is deliberately duplicated: that duplication is the point. Changing
+// the catalog requires a matching deliberate edit here.
+const EXPECTED_DIRECTOR_TOOL_ALLOWLIST = [
+	"inspect_project",
+	"inspect_bridge_state",
+	"inspect_performance",
+	"inspect_entity",
+	"inspect_pose_contacts",
+	"inspect_relations",
+	"inspect_visual_qa_metrics",
+	"preflight_motion",
+	"capture_viewport",
+	"read_image",
+	"produce_directing_evidence",
+	"stage_scene",
+	"apply_camera_plan",
+	"render_qa_frames",
+	"repair_bridge",
+	"apply_performance_mode",
+	"create_fall_motion",
+	"replace_camera_action",
+	"ardy_regenerate",
+	"execute_blender_python",
+];
 
 describe("director tool allowlist invariant", () => {
 	it("is exactly the authorized director tools, in order", () => {
-		assert.deepEqual(DIRECTOR_TOOL_ALLOWLIST, [
-			"inspect_project",
-			"inspect_bridge_state",
-			"inspect_performance",
-			"inspect_visual_qa_metrics",
-			"stage_scene",
-			"apply_camera_plan",
-			"render_qa_frames",
-			"repair_bridge",
-			"apply_performance_mode",
-			"create_fall_motion",
-			"replace_camera_action",
-		]);
+		assert.deepEqual(DIRECTOR_TOOL_ALLOWLIST, EXPECTED_DIRECTOR_TOOL_ALLOWLIST);
 	});
 
-	it("admits no ardy/generate/regenerate tool name", () => {
-		for (const name of DIRECTOR_TOOL_ALLOWLIST) {
-			assert.doesNotMatch(name, /ardy|generat/i, `allowlist leaks a generation tool: ${name}`);
+	it("is derived from the embedded-eligible catalog", () => {
+		assert.deepEqual(
+			DIRECTOR_TOOL_ALLOWLIST,
+			EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS.filter(({ embeddedEligible }) => embeddedEligible).map(({ name }) => name),
+		);
+	});
+
+	it("includes only the typed queued ARDY regeneration surface", () => {
+		const catalogNames: readonly string[] = EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS.map(({ name }) => name);
+		assert.equal(catalogNames.includes("ardy_regenerate"), true);
+		assert.equal(catalogNames.includes("ardy_generate"), false);
+	});
+
+	it("has no duplicate catalog entries", () => {
+		const catalogNames = EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS.map(({ name }) => name);
+		assert.equal(new Set(catalogNames).size, catalogNames.length);
+	});
+	it("rejects an eligible catalog name with no construction path", () => {
+		assert.throws(
+			() => assertDirectorToolConstructionPaths(["inspect_project"], {}),
+			/DIRECTOR_TOOL_ALLOWLIST_MISMATCH/,
+		);
+	});
+
+	it("names every unconditional tool the session must always construct", () => {
+		// These have no bridge precondition, so a construction path that yields
+		// nothing for one of them is a defect rather than an absent capability.
+		// Keep this list in step with the paths that ignore their bridge.
+		assert.deepEqual([...UNCONDITIONAL_DIRECTOR_TOOLS], ["inspect_project", "read_image"]);
+		const catalogNames: readonly string[] = EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS.map(({ name }) => name);
+		for (const name of UNCONDITIONAL_DIRECTOR_TOOLS) {
+			assert.equal(catalogNames.includes(name), true, `unconditional tool missing from catalog: ${name}`);
 		}
-	});
-
-	it("has no duplicate or extra entries beyond the authorized set", () => {
-		// `as const` makes the tuple readonly and length-typed at compile time;
-		// this is the runtime mirror that catches a reordered or padded array
-		// slipped past the type system.
-		assert.equal(DIRECTOR_TOOL_ALLOWLIST.length, 11);
-		assert.equal(new Set(DIRECTOR_TOOL_ALLOWLIST).size, 11);
 	});
 });

@@ -171,6 +171,7 @@ const directorToolName = () =>
 		Type.Literal("stage_scene"),
 		Type.Literal("apply_camera_plan"),
 		Type.Literal("render_qa_frames"),
+		Type.Literal("execute_blender_python"),
 	]);
 const directorEventProperties = {
 	id: uuid(),

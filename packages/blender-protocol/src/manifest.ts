@@ -1,5 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Parse } from "typebox/value";
+import { GeneratedCameraManifestFields, GeneratedLightManifestFields } from "./manifest-fields.generated.ts";
 import { validateNfc, validateQuaternion } from "./snapshot.ts";
 
 const UUID_V4_LOWERCASE = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
@@ -11,6 +12,56 @@ const nullableUuid = () => Type.Union([uuid(), Type.Null()]);
 const vector3 = () => Type.Tuple([Type.Number(), Type.Number(), Type.Number()]);
 const quaternion = () => Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()]);
 const name = () => Type.String({ minLength: 1, maxLength: 256 });
+const EXTENSION_NAMESPACE = "^x-[a-z][a-z0-9-]{0,63}$";
+const MAX_EXTENSION_DEPTH = 3;
+const MAX_EXTENSION_PROPERTIES = 64;
+const MAX_EXTENSION_NAMESPACES = 16;
+const MAX_EXTENSION_STRING_LENGTH = 4096;
+
+function validateExtensionsValue(value: unknown, depth: number, path: string): void {
+	if (typeof value === "string") {
+		if (value.length > MAX_EXTENSION_STRING_LENGTH) throw new Error(`${path} string exceeds 4096 characters`);
+		// A lone surrogate has no UTF-8 encoding. JavaScript silently substitutes
+		// U+FFFD when measuring or serializing it, while Python raises
+		// UnicodeEncodeError, so the two languages would disagree on the byte
+		// count of the same payload -- exactly the divergence the byte ceiling
+		// exists to prevent. Reject it so both sides refuse identically.
+		if (/[\uD800-\uDFFF]/.test(value.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ""))) {
+			throw new Error(`${path} string contains an unpaired surrogate, which has no UTF-8 encoding`);
+		}
+		return;
+	}
+	if (value === null || typeof value === "boolean") return;
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) throw new Error(`${path} must contain finite numbers`);
+		return;
+	}
+	if (depth >= MAX_EXTENSION_DEPTH) throw new Error(`${path} exceeds maximum depth of 3`);
+	if (Array.isArray(value)) {
+		for (const [index, nested] of value.entries()) validateExtensionsValue(nested, depth + 1, `${path}[${index}]`);
+		return;
+	}
+	if (typeof value !== "object") throw new Error(`${path} must contain JSON values`);
+	const record = value as Record<string, unknown>;
+	if (Object.keys(record).length > MAX_EXTENSION_PROPERTIES) {
+		throw new Error(`${path} exceeds maximum of 64 properties`);
+	}
+	for (const [key, nested] of Object.entries(record)) validateExtensionsValue(nested, depth + 1, `${path}.${key}`);
+}
+
+export function validateExtensions(extensions: unknown): void {
+	if (extensions === undefined) return;
+	if (extensions === null || typeof extensions !== "object" || Array.isArray(extensions)) {
+		throw new Error("extensions must be an object");
+	}
+	const namespaces = Object.entries(extensions as Record<string, unknown>);
+	if (namespaces.length > MAX_EXTENSION_NAMESPACES) throw new Error("extensions exceeds maximum of 16 namespaces");
+	for (const [namespace, value] of namespaces) {
+		if (!new RegExp(EXTENSION_NAMESPACE).test(namespace))
+			throw new Error(`invalid extension namespace: ${namespace}`);
+		validateExtensionsValue(value, 0, `extensions.${namespace}`);
+	}
+}
 
 const SceneSchema = exact({
 	name: name(),
@@ -56,8 +107,8 @@ const CameraSchema = exact({
 	verticalFovRadians: Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: Math.PI }),
 	clipStart: Type.Number({ exclusiveMinimum: 0 }),
 	clipEnd: Type.Number({ exclusiveMinimum: 0 }),
+	...GeneratedCameraManifestFields,
 });
-// No entityId: identity is the owning LIGHT object's entityId (line 203).
 const LightSchema = exact({
 	objectId: uuid(),
 	lightType: Type.Union([Type.Literal("POINT"), Type.Literal("SUN"), Type.Literal("SPOT"), Type.Literal("AREA")]),
@@ -69,19 +120,8 @@ const LightSchema = exact({
 	energy: Type.Number({ minimum: 0 }),
 	spotSize: Type.Union([Type.Number(), Type.Null()]),
 	spotBlend: Type.Union([Type.Number(), Type.Null()]),
-});
-const LightV3Schema = exact({
-	objectId: uuid(),
-	lightType: Type.Union([Type.Literal("POINT"), Type.Literal("SUN"), Type.Literal("SPOT"), Type.Literal("AREA")]),
-	color: Type.Tuple([
-		Type.Number({ minimum: 0, maximum: 1 }),
-		Type.Number({ minimum: 0, maximum: 1 }),
-		Type.Number({ minimum: 0, maximum: 1 }),
-	]),
-	energy: Type.Number({ minimum: 0 }),
-	spotSize: Type.Union([Type.Number(), Type.Null()]),
-	spotBlend: Type.Union([Type.Number(), Type.Null()]),
 	areaSize: Type.Union([Type.Number({ exclusiveMinimum: 0 }), Type.Null()]),
+	...GeneratedLightManifestFields,
 });
 /**
  * The one list of buildable shapes. `stage-scene.ts` imports this rather than
@@ -164,61 +204,6 @@ const AssemblySchema = exact({
 	memberIds: Type.Array(uuid()),
 });
 
-export const SceneManifestV1Schema = exact({
-	schemaVersion: Type.Literal(1),
-	projectId: uuid(),
-	revisionId: Type.String({ pattern: HASH_64 }),
-	sceneHash: Type.String({ pattern: HASH_64 }),
-	blenderVersion: Type.String(),
-	scene: SceneSchema,
-	render: RenderSchema,
-	objects: Type.Array(ObjectSchema),
-	bones: Type.Array(BoneSchema),
-	cameras: Type.Array(CameraSchema),
-	lights: Type.Array(LightSchema),
-	markers: Type.Array(MarkerSchema),
-	selectedEntityIds: Type.Array(uuid()),
-});
-export type SceneManifestV1 = Static<typeof SceneManifestV1Schema>;
-export type SceneManifestV1HashFree = Omit<SceneManifestV1, "revisionId" | "sceneHash">;
-export const SceneManifestV2Schema = exact({
-	schemaVersion: Type.Literal(2),
-	projectId: uuid(),
-	revisionId: Type.String({ pattern: HASH_64 }),
-	sceneHash: Type.String({ pattern: HASH_64 }),
-	blenderVersion: Type.String(),
-	scene: SceneSchema,
-	render: RenderSchema,
-	objects: Type.Array(ObjectSchema),
-	bones: Type.Array(BoneSchema),
-	cameras: Type.Array(CameraSchema),
-	lights: Type.Array(LightSchema),
-	markers: Type.Array(MarkerSchema),
-	selectedEntityIds: Type.Array(uuid()),
-	cameraAnimations: Type.Array(CameraAnimationSchema),
-});
-export type SceneManifestV2 = Static<typeof SceneManifestV2Schema>;
-export type SceneManifestV2HashFree = Omit<SceneManifestV2, "revisionId" | "sceneHash">;
-export const SceneManifestV3Schema = exact({
-	schemaVersion: Type.Literal(3),
-	projectId: uuid(),
-	revisionId: Type.String({ pattern: HASH_64 }),
-	sceneHash: Type.String({ pattern: HASH_64 }),
-	blenderVersion: Type.String(),
-	scene: SceneSchema,
-	render: RenderSchema,
-	objects: Type.Array(ObjectSchema),
-	bones: Type.Array(BoneSchema),
-	cameras: Type.Array(CameraSchema),
-	lights: Type.Array(LightV3Schema),
-	markers: Type.Array(MarkerSchema),
-	selectedEntityIds: Type.Array(uuid()),
-	cameraAnimations: Type.Array(CameraAnimationSchema),
-	stagePrimitives: Type.Array(StagePrimitiveSchema),
-	stageMaterials: Type.Array(StageMaterialSchema),
-});
-export type SceneManifestV3 = Static<typeof SceneManifestV3Schema>;
-export type SceneManifestV3HashFree = Omit<SceneManifestV3, "revisionId" | "sceneHash">;
 export const SceneManifestV4Schema = exact({
 	schemaVersion: Type.Literal(4),
 	projectId: uuid(),
@@ -230,15 +215,19 @@ export const SceneManifestV4Schema = exact({
 	objects: Type.Array(ObjectSchema),
 	bones: Type.Array(BoneSchema),
 	cameras: Type.Array(CameraSchema),
-	lights: Type.Array(LightV3Schema),
+	lights: Type.Array(LightSchema),
 	markers: Type.Array(MarkerSchema),
 	selectedEntityIds: Type.Array(uuid()),
 	cameraAnimations: Type.Array(CameraAnimationSchema),
 	stagePrimitives: Type.Array(StagePrimitiveSchema),
 	stageMaterials: Type.Array(StageMaterialSchema),
 	assemblies: Type.Array(AssemblySchema),
+	extensions: Type.Optional(
+		Type.Record(Type.String({ pattern: EXTENSION_NAMESPACE }), Type.Unknown(), {
+			maxProperties: MAX_EXTENSION_NAMESPACES,
+		}),
+	),
 });
-export const SceneManifestV3OrV4Schema = Type.Union([SceneManifestV3Schema, SceneManifestV4Schema]);
 export type SceneManifestV4 = Static<typeof SceneManifestV4Schema>;
 export type SceneManifestV4HashFree = Omit<SceneManifestV4, "revisionId" | "sceneHash">;
 
@@ -274,10 +263,9 @@ function gcd(a: number, b: number): number {
 	return a;
 }
 
-export function validateManifest(
-	manifest: SceneManifestV1HashFree | SceneManifestV2HashFree | SceneManifestV3HashFree | SceneManifestV4HashFree,
-): void {
+export function validateManifest(manifest: SceneManifestV4HashFree): void {
 	validateNfc(manifest);
+	validateExtensions(manifest.extensions);
 	if (manifest.scene.frameStart > manifest.scene.frameEnd) {
 		throw new Error("scene.frameStart must not exceed scene.frameEnd");
 	}
@@ -376,7 +364,7 @@ export function validateManifest(
 	for (const marker of manifest.markers)
 		if (marker.cameraId !== null && !cameraObjectIds.has(marker.cameraId))
 			throw new Error(`marker ${marker.name} references unknown camera object: ${marker.cameraId}`);
-	if (manifest.schemaVersion !== 1) {
+	if (manifest.schemaVersion === 4) {
 		assertSorted(
 			manifest.cameraAnimations,
 			(left, right) =>
@@ -416,89 +404,55 @@ export function validateManifest(
 			}
 		}
 	}
-	if (manifest.schemaVersion === 3 || manifest.schemaVersion === 4) {
-		for (const light of manifest.lights) {
-			const isArea = light.lightType === "AREA";
-			if ((isArea && light.areaSize === null) || (!isArea && light.areaSize !== null)) {
-				throw new Error(`light ${light.objectId} areaSize must be non-null if and only if lightType is AREA`);
-			}
+	for (const light of manifest.lights) {
+		const isArea = light.lightType === "AREA";
+		if ((isArea && light.areaSize === null) || (!isArea && light.areaSize !== null)) {
+			throw new Error(`light ${light.objectId} areaSize must be non-null if and only if lightType is AREA`);
 		}
-		assertSorted(manifest.stagePrimitives, byObjectId, "stagePrimitives");
-		assertUniqueBy(manifest.stagePrimitives, (primitive) => primitive.objectId, "stage primitive objectId");
-		for (const primitive of manifest.stagePrimitives) {
-			if (objects.get(primitive.objectId)?.type !== "MESH") {
-				throw new Error(`stagePrimitives entry must reference a MESH object: ${primitive.objectId}`);
-			}
+	}
+	assertSorted(manifest.stagePrimitives, byObjectId, "stagePrimitives");
+	assertUniqueBy(manifest.stagePrimitives, (primitive) => primitive.objectId, "stage primitive objectId");
+	for (const primitive of manifest.stagePrimitives) {
+		if (objects.get(primitive.objectId)?.type !== "MESH") {
+			throw new Error(`stagePrimitives entry must reference a MESH object: ${primitive.objectId}`);
 		}
-		assertSorted(manifest.stageMaterials, byObjectId, "stageMaterials");
-		assertUniqueBy(manifest.stageMaterials, (material) => material.objectId, "stage material objectId");
-		for (const material of manifest.stageMaterials) {
-			if (objects.get(material.objectId)?.type !== "MESH") {
-				throw new Error(`stageMaterials entry must reference a MESH object: ${material.objectId}`);
-			}
+	}
+	assertSorted(manifest.stageMaterials, byObjectId, "stageMaterials");
+	assertUniqueBy(manifest.stageMaterials, (material) => material.objectId, "stage material objectId");
+	for (const material of manifest.stageMaterials) {
+		if (objects.get(material.objectId)?.type !== "MESH") {
+			throw new Error(`stageMaterials entry must reference a MESH object: ${material.objectId}`);
 		}
-		if (manifest.schemaVersion === 4) {
-			const byAssemblyId = (left: { assemblyId: string }, right: { assemblyId: string }) =>
-				compareCodePoints(left.assemblyId, right.assemblyId);
-			assertSorted(manifest.assemblies, byAssemblyId, "assemblies");
-			assertUniqueBy(manifest.assemblies, (assembly) => assembly.assemblyId, "assemblyId");
-			const assemblyMemberIds = new Set<string>();
-			for (const assembly of manifest.assemblies) {
-				if (!objects.has(assembly.rootEntityId))
-					throw new Error(`assembly ${assembly.assemblyId} has unknown rootEntityId: ${assembly.rootEntityId}`);
-				if (objects.get(assembly.rootEntityId)?.type !== "EMPTY")
-					throw new Error(`assembly ${assembly.assemblyId} rootEntityId must reference an EMPTY object`);
-				assertSorted(assembly.memberIds, compareCodePoints, `assembly ${assembly.assemblyId} memberIds`);
-				for (let index = 1; index < assembly.memberIds.length; index += 1) {
-					if (assembly.memberIds[index - 1] === assembly.memberIds[index])
-						throw new Error(`assembly ${assembly.assemblyId} memberIds must not contain duplicates`);
-				}
-				if (!assembly.memberIds.includes(assembly.rootEntityId))
-					throw new Error(`assembly ${assembly.assemblyId} memberIds must include rootEntityId`);
-				for (const memberId of assembly.memberIds)
-					if (!objects.has(memberId))
-						throw new Error(`assembly ${assembly.assemblyId} has unknown memberId: ${memberId}`);
-				for (const memberId of assembly.memberIds) {
-					if (assemblyMemberIds.has(memberId))
-						throw new Error(`assembly memberId ${memberId} belongs to more than one assembly`);
-					assemblyMemberIds.add(memberId);
-				}
-			}
+	}
+	const byAssemblyId = (left: { assemblyId: string }, right: { assemblyId: string }) =>
+		compareCodePoints(left.assemblyId, right.assemblyId);
+	assertSorted(manifest.assemblies, byAssemblyId, "assemblies");
+	assertUniqueBy(manifest.assemblies, (assembly) => assembly.assemblyId, "assemblyId");
+	const assemblyMemberIds = new Set<string>();
+	for (const assembly of manifest.assemblies) {
+		if (!objects.has(assembly.rootEntityId))
+			throw new Error(`assembly ${assembly.assemblyId} has unknown rootEntityId: ${assembly.rootEntityId}`);
+		if (objects.get(assembly.rootEntityId)?.type !== "EMPTY")
+			throw new Error(`assembly ${assembly.assemblyId} rootEntityId must reference an EMPTY object`);
+		assertSorted(assembly.memberIds, compareCodePoints, `assembly ${assembly.assemblyId} memberIds`);
+		for (let index = 1; index < assembly.memberIds.length; index += 1) {
+			if (assembly.memberIds[index - 1] === assembly.memberIds[index])
+				throw new Error(`assembly ${assembly.assemblyId} memberIds must not contain duplicates`);
+		}
+		if (!assembly.memberIds.includes(assembly.rootEntityId))
+			throw new Error(`assembly ${assembly.assemblyId} memberIds must include rootEntityId`);
+		for (const memberId of assembly.memberIds)
+			if (!objects.has(memberId))
+				throw new Error(`assembly ${assembly.assemblyId} has unknown memberId: ${memberId}`);
+		for (const memberId of assembly.memberIds) {
+			if (assemblyMemberIds.has(memberId))
+				throw new Error(`assembly memberId ${memberId} belongs to more than one assembly`);
+			assemblyMemberIds.add(memberId);
 		}
 	}
 }
 
-export function parseSceneManifest(input: unknown): SceneManifestV1 {
-	const manifest = Parse(SceneManifestV1Schema, input);
-	validateManifest(manifest);
-	return manifest;
-}
-
-export function parseSceneManifestV2(input: unknown): SceneManifestV2 {
-	const manifest = Parse(SceneManifestV2Schema, input);
-	validateManifest(manifest);
-	return manifest;
-}
-export function parseSceneManifestV3(input: unknown): SceneManifestV3 {
-	const manifest = Parse(SceneManifestV3Schema, input);
-	validateManifest(manifest);
-	return manifest;
-}
 export function parseSceneManifestV4(input: unknown): SceneManifestV4 {
-	if (
-		typeof input === "object" &&
-		input !== null &&
-		"schemaVersion" in input &&
-		(input as { schemaVersion?: unknown }).schemaVersion === 3
-	) {
-		const manifest = parseSceneManifestV3(input);
-		return Parse(SceneManifestV4Schema, {
-			...manifest,
-			schemaVersion: 4,
-			objects: manifest.objects.map((object) => ({ ...object, parentId: object.parentId ?? null })),
-			assemblies: [],
-		});
-	}
 	const manifest = Parse(SceneManifestV4Schema, input);
 	validateManifest(manifest);
 	return manifest;

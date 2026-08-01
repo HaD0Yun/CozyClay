@@ -1,11 +1,11 @@
-import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createApplyCameraPlanTool,
 	createApplyPerformanceModeTool,
 	createCaptureViewportTool,
 	createFallMotionTool,
+	createArdyRegenerateTool,
+	createExecuteBlenderPythonTool,
 	createInspectBridgeStateTool,
 	createInspectEntityTool,
 	createInspectPerformanceTool,
@@ -20,6 +20,7 @@ import {
 	createRepairBridgeTool,
 	createReplaceCameraActionTool,
 	createStageSceneTool,
+	EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES,
 } from "@cclay/blender-tools";
 import {
 	canonicalizeStageScenePlan,
@@ -42,44 +43,18 @@ import { randomUUID } from "node:crypto";
 import { registerBtwCommand } from "../btw.ts";
 import { BlenderBridge } from "../bridge.ts";
 import { startRegenerateQueueRunner } from "../regenerate-queue-runner.ts";
+import { registerOpenAIServiceTier } from "../openai-service-tier.ts";
 
-const ENDPOINT_FILENAME = "pi-bridge.json";
 
 export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	const cwd = process.cwd();
+	await registerOpenAIServiceTier(pi, cwd);
 	const store = createDirectorProjectStore(cwd);
 	// Fail at extension load rather than giving the model tools bound to no CCLAY
 	// project. Blender owns project initialization before Pi starts.
-	await store.readProject();
-
-	const bridge = new BlenderBridge();
-	const endpoint = await bridge.start();
-	const runtimeRoot = path.join(cwd, ".cclay", "pi-runtime");
-	const runtimeDirectory = path.join(runtimeRoot, endpoint.launchId);
-	const endpointPath = path.join(cwd, ".cclay", ENDPOINT_FILENAME);
-	await mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
-	await chmod(runtimeRoot, 0o700);
-	await chmod(runtimeDirectory, 0o700);
-	await writeFile(
-		path.join(runtimeDirectory, "endpoint.json"),
-		`${JSON.stringify({
-			schema_version: 1,
-			host: endpoint.host,
-			port: endpoint.port,
-			launch_id: endpoint.launchId,
-		})}\n`,
-		{ encoding: "utf8", mode: 0o600 },
-	);
-	await writeFile(
-		endpointPath,
-		`${JSON.stringify({
-			schema_version: 1,
-			runtime_directory: runtimeDirectory,
-			credential: endpoint.token,
-		})}\n`,
-		{ encoding: "utf8", mode: 0o600 },
-	);
-	await chmod(endpointPath, 0o600);
+	const project = await store.readProject();
+	const bridge = new BlenderBridge(cwd, { projectId: project.project_id });
+	await bridge.start();
 
 	const mutationBridge = {
 		stageScene: async (
@@ -105,10 +80,8 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		},
 	};
 
-	// Started here rather than registered as a tool: the add-on has no way to
-	// push a request to this process, so it publishes a queue file and this is
-	// what looks. It is a deterministic reaction to a button the animator
-	// pressed, so it stays off the director tool allowlist entirely.
+	// The runner keeps watching animator-published queue requests while its
+	// submit bridge gives the model-facing tool that same durable execution path.
 	const regenerateQueue = startRegenerateQueueRunner({
 		cwd,
 		stageScene: (request, context) =>
@@ -120,24 +93,39 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		},
 	});
 
-	pi.registerTool(createInspectProjectTool(bridge));
-	pi.registerTool(createInspectBridgeStateTool(bridge));
-	pi.registerTool(createInspectPerformanceTool(bridge));
-	pi.registerTool(createInspectEntityTool(bridge));
-	pi.registerTool(createInspectPoseContactsTool(bridge));
-	pi.registerTool(createInspectRelationsTool(bridge));
-	pi.registerTool(createInspectVisualQaMetricsTool(bridge));
-	pi.registerTool(createPreflightMotionTool(bridge));
-	pi.registerTool(createCaptureViewportTool(bridge));
-	pi.registerTool(createReadImageTool(cwd));
-	pi.registerTool(createProduceDirectingEvidenceTool(bridge));
-	pi.registerTool(createStageSceneTool(mutationBridge));
-	pi.registerTool(createApplyCameraPlanTool(cameraBridge));
-	pi.registerTool(createRenderQaFramesTool(bridge));
-	pi.registerTool(createRepairBridgeTool(bridge));
-	pi.registerTool(createApplyPerformanceModeTool(bridge));
-	pi.registerTool(createFallMotionTool(bridge));
-	pi.registerTool(createReplaceCameraActionTool(bridge));
+	const directorTools = [
+		createInspectProjectTool(bridge),
+		createInspectBridgeStateTool(bridge),
+		createInspectPerformanceTool(bridge),
+		createInspectEntityTool(bridge),
+		createInspectPoseContactsTool(bridge),
+		createInspectRelationsTool(bridge),
+		createInspectVisualQaMetricsTool(bridge),
+		createPreflightMotionTool(bridge),
+		createCaptureViewportTool(bridge),
+		createReadImageTool(cwd),
+		createProduceDirectingEvidenceTool(bridge),
+		createStageSceneTool(mutationBridge),
+		createApplyCameraPlanTool(cameraBridge),
+		createRenderQaFramesTool(bridge),
+		createRepairBridgeTool(bridge),
+		createApplyPerformanceModeTool(bridge),
+		createFallMotionTool(bridge),
+		createReplaceCameraActionTool(bridge),
+		createArdyRegenerateTool(regenerateQueue),
+		...(project.allowExecuteBlenderPython === false ? [] : [createExecuteBlenderPythonTool(bridge)]),
+	];
+	const registeredToolNames = directorTools.map((tool) => tool.name);
+	const eligibleToolNames = EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES.filter(
+		(name) => name !== "execute_blender_python" || project.allowExecuteBlenderPython !== false,
+	);
+	if (
+		registeredToolNames.length !== eligibleToolNames.length ||
+		registeredToolNames.some((name, index) => name !== eligibleToolNames[index])
+	) {
+		throw new Error(`DIRECTOR_TOOL_REGISTRATION_MISMATCH: ${registeredToolNames.join(",")}`);
+	}
+	for (const tool of directorTools) pi.registerTool(tool);
 	// Ephemeral side questions. Registered after the tools on purpose: /btw
 	// runs its own tool-less request, so it must never see this catalog.
 	const btw = registerBtwCommand(pi);
@@ -147,8 +135,7 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	// turn one it carries forward in the conversation, so repeating it every
 	// turn would waste context window linearly.
 	let directorPrimed = false;
-	// Digest-verified at activation: a tampered bundled skill fails the session
-	// before any turn runs, matching the DIRECTOR_PROMPT_DIGEST posture.
+	// Bundled skill frontmatter is validated at activation before any turn runs.
 	const skillsBlock = bundledSkillsPromptBlock();
 	pi.on("before_agent_start", (event) => ({
 		systemPrompt: `${event.systemPrompt}\n\n${
@@ -199,8 +186,6 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		}
 		await regenerateQueue.stop();
 		await bridge.close();
-		await rm(endpointPath, { force: true });
-		await rm(runtimeDirectory, { recursive: true, force: true });
 	});
 
 }

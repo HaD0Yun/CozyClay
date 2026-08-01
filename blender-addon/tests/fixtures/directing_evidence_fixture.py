@@ -28,7 +28,7 @@ from cclay.directing_evidence import (
     runtime_producer,
 )
 from cclay.fixture_registry import load_authorized_fixture
-from cclay.manifest import animation_fcurves, extract_scene_manifest_v2
+from cclay.manifest import animation_fcurves, extract_scene_manifest_v4
 from cclay.stage_scene import apply_stage_scene_transaction
 
 FOV = 2 * math.atan(12 / 48)
@@ -37,7 +37,6 @@ SHA256_HEX = set("0123456789abcdef")
 # current_revision_id + manifest sceneHash stored here, never the raw V2
 # substrate manifest.
 PROJECT_DIR = Path(tempfile.mkdtemp(prefix="cclay-evidence-project-"))
-STAGED_CUBE_ID = "88888888-8888-4888-8888-888888888888"
 
 
 def code(error: BaseException) -> str:
@@ -129,7 +128,7 @@ def write_durable_index(manifest: dict) -> None:
 
 def bind_durable_project() -> dict:
     """Persist the live V2 manifest as the durable project base (fresh path)."""
-    manifest = extract_scene_manifest_v2()
+    manifest = extract_scene_manifest_v4()
     write_durable_index(manifest)
     return manifest
 
@@ -226,7 +225,7 @@ def main() -> None:
     stale = produce(PROJECT_ID)
     bpy.data.objects["Untouched Subject"].location.x += 1.0
     bpy.context.view_layer.update()
-    mutated_manifest = extract_scene_manifest_v2()
+    mutated_manifest = extract_scene_manifest_v4()
     results["sceneMutated"] = mutated_manifest["sceneHash"] != stale["scene_hash"]
     results["sceneHashMismatch"] = expect_code(
         lambda: load_authorized_fixture(
@@ -283,8 +282,9 @@ def main() -> None:
         and max(animated_analysis["motion_valley_frames"]) <= 60
     )
 
-    # 9. After a stage_scene child commit the evidence binds the durable child
-    #    revision (not the raw V2 substrate) and authorizes apply_camera_plan.
+    # 9. After a retained stage_scene child commit the evidence binds the
+    #    durable child revision (not the raw V2 substrate) and authorizes
+    #    apply_camera_plan.
     setup_scene()
     base = bind_durable_project()
     staged = apply_stage_scene_transaction(
@@ -292,13 +292,8 @@ def main() -> None:
             "schema_version": 1,
             "expected_revision_id": base["revisionId"],
             "operations": [{
-                "op": "add_primitive",
-                "entity_id": STAGED_CUBE_ID,
-                "primitive_type": "CUBE",
-                "name": "Staged Witness Cube",
-                "location": [8.0, 8.0, 0.0],
-                "rotation": [0.0, 0.0, 0.0],
-                "scale": [0.2, 0.2, 0.2],
+                "op": "set_render_settings",
+                "resolution_x": 1280,
             }],
         },
         base["sceneHash"],
@@ -308,7 +303,7 @@ def main() -> None:
     child = produce(PROJECT_ID)
     results["childCommitBindsDurable"] = (
         child["revision_id"] == staged["manifest"]["revisionId"]
-        and child["revision_id"] != extract_scene_manifest_v2()["revisionId"]
+        and child["revision_id"] != extract_scene_manifest_v4()["revisionId"]
         and child["scene_hash"] == staged["scene_hash"]
         and child["scene_hash"] != base["sceneHash"]
     )

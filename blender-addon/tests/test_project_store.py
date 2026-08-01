@@ -17,8 +17,10 @@ from cclay.project_store import (
     apply_property_assignments,
     prepare_project_index,
     read_project_index,
+    read_execute_blender_python_permission,
     repair_entity_ids,
     restore_property_assignments,
+    update_execute_blender_python_permission,
     verify_connect_precondition,
     verify_project_ids_match,
     write_project_index,
@@ -171,6 +173,40 @@ class ProjectStoreTests(unittest.TestCase):
                             "manifest": MANIFEST,
                         },
                     )
+                    self.assertIsNone(read_execute_blender_python_permission(directory))
+
+    def test_execute_blender_python_permission_defaults_on_and_persists_opt_out(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertTrue(
+                prepare_project_index(
+                    directory,
+                    PROJECT_ID,
+                    True,
+                    MANIFEST,
+                    allow_execute_blender_python=False,
+                )
+            )
+            self.assertFalse(read_execute_blender_python_permission(directory))
+            self.assertFalse(
+                read_project_index(directory)["allowExecuteBlenderPython"]
+            )
+            self.assertTrue(
+                update_execute_blender_python_permission(directory, True)
+            )
+            self.assertIsNone(read_execute_blender_python_permission(directory))
+            self.assertNotIn(
+                "allowExecuteBlenderPython", read_project_index(directory)
+            )
+
+    def test_malformed_execute_blender_python_permission_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write_project_index(
+                directory,
+                PROJECT_ID,
+                {"allowExecuteBlenderPython": "yes"},
+            )
+            with self.assertRaises(ProjectStoreError):
+                read_execute_blender_python_permission(directory)
 
     def test_prepare_requires_manifest_for_creation_and_legacy_upgrade(self):
         with tempfile.TemporaryDirectory() as directory:

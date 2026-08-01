@@ -39,7 +39,8 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
 import cclay  # noqa: E402
 from cclay import constraint_capture, ik_rig  # noqa: E402
-from cclay import motion_constraints, motion_retarget, stage_scene  # noqa: E402
+from cclay import motion_archive, motion_constraints, motion_retarget  # noqa: E402
+from cclay.character_rig import CharacterRigAdapter  # noqa: E402
 
 CHARACTER = REPOSITORY_ROOT / "blender-addon/cclay/assets/characters/x-bot-tpose.fbx"
 ENTITY_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
@@ -86,22 +87,15 @@ def _bake():
     armature["cclay.entity_id"] = ENTITY_ID
     armature["cclay.owned_project_id"] = PROJECT_ID
 
-    local_rot_mats, posed_joints, fps, _carried = stage_scene._load_motion_payload(
+    local_rot_mats, posed_joints, fps, _carried = motion_archive.load_motion_payload(
         PROJECT, MOTION_ID
     )
-    bones = armature.data.bones
-    prefix, rig_thigh = stage_scene._rig_scale_inputs(bones)
-    rest_rotations = {}
-    for cskel, target in motion_retarget.MIXAMO_TARGETS.items():
-        if target is None:
-            continue
-        bone = bones.get(f"{prefix}{target}")
-        if bone is not None:
-            rest_rotations[cskel] = [list(row) for row in bone.matrix_local.to_3x3()]
-    scale = motion_retarget.derive_scale(posed_joints[0], rig_thigh)
+    rig = CharacterRigAdapter(armature.data.bones)
+    prefix = rig.prefix
+    scale = motion_retarget.derive_scale(posed_joints[0], rig.rig_thigh)
     tracks = motion_retarget.build_pose_tracks(
-        local_rot_mats, posed_joints, rest_rotations,
-        list(bones[f"{prefix}Hips"].head_local), scale,
+        local_rot_mats, posed_joints, rig.rest_rotations(),
+        rig.hips_head(), scale,
     )
 
     scene = bpy.context.scene
@@ -411,7 +405,7 @@ report["ikLayerRemains"] = ik_rig.has_ik_layer(armature)
 # The synthetic pose archive has to be internally consistent, loadable by the
 # same loader apply_motion uses, and actually be the frame that was marked.
 synthetic_id = payload["full_body"][0]["synthetic_motion_id"]
-pose_rotations, pose_joints, pose_fps, _carried = stage_scene._load_motion_payload(
+pose_rotations, pose_joints, pose_fps, _carried = motion_archive.load_motion_payload(
     PROJECT, synthetic_id
 )
 report["syntheticShape"] = [list(pose_rotations.shape), list(pose_joints.shape)]

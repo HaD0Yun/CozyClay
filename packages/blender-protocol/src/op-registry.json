@@ -1,0 +1,30 @@
+[
+  {
+    "op": "set_camera_focus_distance",
+    "stageSceneOperation": false,
+    "targetResolver": "entity",
+    "targetType": "CAMERA",
+    "rnaPath": "data.dof.focus_distance",
+    "wireField": "focus_distance",
+    "valueType": "number",
+    "bounds": { "min": 0.0, "max": 1e6 },
+    "captureForRollback": "none",
+    "manifestFieldPath": "cameras[].focusDistance",
+    "defaultBehavior": "omit-leaves-addon-default",
+    "requestSchemaShape": "flat"
+  },
+  {
+    "op": "set_light_cutoff_distance",
+    "stageSceneOperation": false,
+    "targetResolver": "entity",
+    "targetType": "LIGHT",
+    "rnaPath": "data.cutoff_distance",
+    "wireField": "cutoff_distance",
+    "valueType": "number",
+    "bounds": { "min": 0.0, "max": 1e6 },
+    "captureForRollback": "none",
+    "manifestFieldPath": "lights[].cutoffDistance",
+    "defaultBehavior": "omit-leaves-addon-default",
+    "requestSchemaShape": "flat"
+  }
+]

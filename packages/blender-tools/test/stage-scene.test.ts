@@ -8,9 +8,9 @@ const request: StageSceneRequestV1 = {
 	expected_revision_id: "a".repeat(64),
 	operations: [
 		{
-			op: "add_primitive",
-			primitive_type: "CUBE",
-			name: "Hero Cube",
+			op: "add_character",
+			character_type: "Y_BOT",
+			name: "Hero",
 			location: [0, 0, 1],
 			rotation: [0, 0, 0],
 			scale: [1, 1, 1],
@@ -19,7 +19,7 @@ const request: StageSceneRequestV1 = {
 };
 
 describe("stage_scene", () => {
-	it("exposes only the closed request grammar without daemon-owned add IDs", () => {
+	it("exposes only the retained closed request grammar without daemon-owned add IDs", () => {
 		const tool = createStageSceneTool({
 			stageScene: async () => ({
 				resulting_revision_id: "b".repeat(64),
@@ -31,7 +31,7 @@ describe("stage_scene", () => {
 		assert.equal(tool.parameters.additionalProperties, false);
 		const operationUnion = tool.parameters.properties.operations.items;
 		const addSchema = operationUnion.anyOf.find(
-			(schema: { properties?: { op?: { const?: string } } }) => schema.properties?.op?.const === "add_primitive",
+			(schema: { properties?: { op?: { const?: string } } }) => schema.properties?.op?.const === "add_character",
 		);
 		assert.ok(addSchema);
 		assert.equal("entity_id" in addSchema.properties, false);

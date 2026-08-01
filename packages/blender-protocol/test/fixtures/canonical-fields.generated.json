@@ -1,0 +1,22 @@
+[
+  {
+    "operation": {
+      "op": "set_camera_focus_distance",
+      "entity_id": "123e4567-e89b-42d3-a456-426614174000",
+      "focus_distance": 12.5
+    },
+    "stageSceneOperation": false,
+    "canonicalFields": "{\"focusDistance\":12.5}",
+    "sha256": "44365ea4491eb7897ded8599c3bd053c88ffa10f259097ff74f33307b4bedcae"
+  },
+  {
+    "operation": {
+      "op": "set_light_cutoff_distance",
+      "entity_id": "123e4567-e89b-42d3-a456-426614174000",
+      "cutoff_distance": 12.5
+    },
+    "stageSceneOperation": false,
+    "canonicalFields": "{\"cutoffDistance\":12.5}",
+    "sha256": "5f80dbb41bf31081f93362a978bbb40739bc413b9d908df7dd65026175a22577"
+  }
+]

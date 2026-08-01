@@ -1,5 +1,6 @@
 export * from "./ardy-regenerate.ts";
 export * from "./camera-plan.ts";
+export * from "./execute-blender-python.ts";
 export * from "./manifest.ts";
 export * from "./messages.ts";
 export * from "./motion-preflight.ts";

@@ -25,10 +25,12 @@ from cclay.camera_plan import (
 from cclay.fixture_registry import BOXING_V4_EVIDENCE_SHA256
 from cclay.canonical import canonical_revision
 from cclay.fixture_registry import convert_ardy_plan_pose_to_blender
-from cclay.manifest import animation_fcurves, extract_scene_manifest_v2
+from cclay.manifest import animation_fcurves, extract_scene_manifest_v4
+from cclay.canonical import canonical_json
+from cclay.revision import child_revision_id
 
-REVISION = "100c68ea7353a0cd52506edc147decf8ec89b819ea60d528215383770e0d01a3"
-SCENE_HASH = "e724379134ccca985df4b3b4e129fc9a30653bf62e8d09279dd2a2780c51cccf"
+REVISION = "7920614992fba50993b2cc2774dbf9a11fbd6feceaf00dc97ee0c75aa7e6768a"
+SCENE_HASH = "81c57a255b9d51a6b66dd8bc7b2c898b30a7c2314ce962345277bcf86d6769ab"
 PROJECT_ID = "00000000-0000-4000-8000-00000000000a"
 SUBJECT_ID = "00000000-0000-4000-8000-000000000002"
 
@@ -170,7 +172,11 @@ def _subject_hash(manifest: dict) -> str:
     return canonical_revision(subject)
 
 def main() -> None:
+    global REVISION, SCENE_HASH
     setup_scene()
+    initial_manifest = extract_scene_manifest_v4()
+    REVISION = initial_manifest["revisionId"]
+    SCENE_HASH = initial_manifest["sceneHash"]
     plan = bound_plan()
     results = {}
     scene = bpy.context.scene
@@ -179,7 +185,7 @@ def main() -> None:
 
     # Losing commit race: target was newly created, so rollback must remove it and restore scope.
     connection = Connection()
-    before = extract_scene_manifest_v2()
+    before = extract_scene_manifest_v4()
     subject_hash_before = _subject_hash(before)
     try:
         apply_camera_plan_transaction(
@@ -190,7 +196,7 @@ def main() -> None:
         )
     except RuntimeError:
         pass
-    after = extract_scene_manifest_v2()
+    after = extract_scene_manifest_v4()
     results["rollback"] = before["sceneHash"] == after["sceneHash"] and "CCLAY Camera" not in bpy.data.objects
     results["checkpointReleased"] = connection.active_checkpoint is None
 
@@ -198,9 +204,29 @@ def main() -> None:
     active_before = bpy.context.view_layer.objects.active.name
     first = apply_camera_plan_transaction(plan, SCENE_HASH, Connection(), lambda _result: None)
     first_manifest = first["manifest"]
+    results["flatChildRevision"] = first_manifest["revisionId"] == child_revision_id(
+        PROJECT_ID,
+        plan["expected_revision_id"],
+        canonical_json(plan),
+        first_manifest["sceneHash"],
+        canonical_json([]),
+    )
     results["selectionPreserved"] = (
         [obj.name for obj in scene.objects if obj.select_get()] == selected_before
         and bpy.context.view_layer.objects.active.name == active_before
+    )
+    setup_scene()
+    plan_without_evidence = copy.deepcopy(plan)
+    del plan_without_evidence["evidence_sha256"]
+    no_evidence = apply_camera_plan_transaction(
+        plan_without_evidence, SCENE_HASH, Connection(), lambda _result: None
+    )
+    results["noEvidenceChildRevision"] = no_evidence["manifest"]["revisionId"] == child_revision_id(
+        PROJECT_ID,
+        plan_without_evidence["expected_revision_id"],
+        canonical_json(plan_without_evidence),
+        no_evidence["manifest"]["sceneHash"],
+        canonical_json([]),
     )
 
     setup_scene()
@@ -302,7 +328,7 @@ def main() -> None:
         and results["row34AxisSigns"][0] != 0
     )
     setup_scene()
-    rollback_base = extract_scene_manifest_v2()
+    rollback_base = extract_scene_manifest_v4()
     changed_plan = copy.deepcopy(plan)
     changed_plan["output_format"]["width"] = 1280
     changed_plan["keyframes"][0]["pose"]["position"][0] = 9.0
@@ -316,7 +342,7 @@ def main() -> None:
         )
     except RuntimeError:
         pass
-    restored_existing = extract_scene_manifest_v2()
+    restored_existing = extract_scene_manifest_v4()
     results["existingRollback"] = (
         restored_existing["sceneHash"] == rollback_base["sceneHash"]
         and existing_connection.active_checkpoint is None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import math
 from pathlib import Path
 import unicodedata
 from typing import Iterable
@@ -11,6 +12,7 @@ from typing import Iterable
 import bpy
 from mathutils import Quaternion
 
+from .canonical import canonical_json
 from .snapshot import (
     UNSUPPORTED_FCURVE_FEATURE,
     UNSUPPORTED_FPS_BASE,
@@ -19,14 +21,16 @@ from .snapshot import (
     canonical_quaternion,
     snapshot_revision,
 )
+from .manifest_fields_generated import (
+    generated_camera_manifest_fields,
+    generated_light_manifest_fields,
+)
 from .entity_animation import (
     MAX_BONES,
     MAX_MATERIALS,
     summarize_animation_curves,
 )
 from .scene_manifest import (
-    build_scene_manifest,
-    build_scene_manifest_v3,
     build_scene_manifest_v4,
     finalize_scene_manifest,
     PRIMITIVE_TYPES,
@@ -39,6 +43,78 @@ _UUID_V4_LOWERCASE = re.compile(
 )
 def _text(value: str) -> str:
     return unicodedata.normalize("NFC", value)
+
+
+_EXTENSION_NAMESPACE = re.compile(r"^x-[a-z][a-z0-9-]{0,63}$")
+_MAX_EXTENSION_DEPTH = 3
+_MAX_EXTENSION_PROPERTIES = 64
+_MAX_EXTENSION_NAMESPACES = 16
+_MAX_EXTENSION_STRING_LENGTH = 4096
+_MAX_EXTENSIONS_BYTES = 65536
+
+
+def _validate_extension_value(value: object, depth: int, path: str) -> None:
+    if isinstance(value, str):
+        if len(value) > _MAX_EXTENSION_STRING_LENGTH:
+            raise ValueError(f"{path} string exceeds 4096 characters")
+        return
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"{path} must contain finite numbers")
+        return
+    if depth >= _MAX_EXTENSION_DEPTH:
+        raise ValueError(f"{path} exceeds maximum depth of 3")
+    if isinstance(value, list):
+        for index, nested in enumerate(value):
+            _validate_extension_value(nested, depth + 1, f"{path}[{index}]")
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must contain JSON values")
+    if len(value) > _MAX_EXTENSION_PROPERTIES:
+        raise ValueError(f"{path} exceeds maximum of 64 properties")
+    for key, nested in value.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{path} object keys must be strings")
+        _validate_extension_value(nested, depth + 1, f"{path}.{key}")
+
+
+def validate_extensions(value: dict) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("extensions must be an object")
+    if len(value) > _MAX_EXTENSION_NAMESPACES:
+        raise ValueError("extensions exceeds maximum of 16 namespaces")
+    for namespace, extension in value.items():
+        if not isinstance(namespace, str) or _EXTENSION_NAMESPACE.fullmatch(namespace) is None:
+            raise ValueError(f"invalid extension namespace: {namespace}")
+        _validate_extension_value(extension, 0, f"extensions.{namespace}")
+    byte_length = len(canonical_json(value).encode("utf-8"))
+    if byte_length > _MAX_EXTENSIONS_BYTES:
+        raise ValueError(
+            f"extensions canonical JSON is {byte_length} bytes (maximum 65536)"
+        )
+
+
+def write_extensions(value: dict) -> None:
+    validate_extensions(value)
+    bpy.context.scene["cclay.extensions_json"] = canonical_json(value)
+
+
+def _read_extensions(blender_scene: bpy.types.Scene) -> dict | None:
+    source = blender_scene.get("cclay.extensions_json")
+    if source is None:
+        return None
+    if not isinstance(source, str):
+        raise ValueError("cclay.extensions_json must be a canonical JSON string")
+    try:
+        value = json.loads(source)
+    except json.JSONDecodeError as error:
+        raise ValueError("cclay.extensions_json is not valid JSON") from error
+    validate_extensions(value)
+    if canonical_json(value) != source:
+        raise ValueError("cclay.extensions_json must be canonical JSON")
+    return value
 
 
 def _vector(values: Iterable[float]) -> list[float]:
@@ -385,6 +461,7 @@ def _stage_manifest_entries(
 def _extract_scene_manifest(schema_version: int) -> dict:
     """Extract the active Blender scene through the negotiated manifest path."""
     blender_scene = bpy.context.scene
+    extensions = _read_extensions(blender_scene)
     project_id = blender_scene.get("cclay.project_id")
     if not isinstance(project_id, str):
         raise ValueError("scene is missing cclay.project_id")
@@ -419,6 +496,7 @@ def _extract_scene_manifest(schema_version: int) -> dict:
                     "verticalFovRadians": float(camera.angle_y),
                     "clipStart": float(camera.clip_start),
                     "clipEnd": float(camera.clip_end),
+                    **generated_camera_manifest_fields(camera),
                 }
             )
             for target, animation_data in (
@@ -444,10 +522,10 @@ def _extract_scene_manifest(schema_version: int) -> dict:
                 "spotSize": float(light.spot_size) if light.type == "SPOT" else None,
                 "spotBlend": float(light.spot_blend) if light.type == "SPOT" else None,
             }
-            if schema_version >= 3:
-                light_entry["areaSize"] = (
-                    float(light.size) if light.type == "AREA" else None
-                )
+            light_entry["areaSize"] = (
+                float(light.size) if light.type == "AREA" else None
+            )
+            light_entry.update(generated_light_manifest_fields(light))
             lights.append(light_entry)
 
     fps_numerator, fps_denominator = rational_fps(
@@ -488,37 +566,18 @@ def _extract_scene_manifest(schema_version: int) -> dict:
         ],
         camera_animations=animations,
     )
-    if schema_version >= 3:
-        stage_primitives, stage_materials = _stage_manifest_entries(
-            scene_objects, object_ids
-        )
-        if schema_version == 4:
-            assemblies = _assembly_entries(scene_objects, object_ids)
-            manifest = build_scene_manifest_v4(
-                **manifest_parts,
-                stage_primitives=stage_primitives,
-                stage_materials=stage_materials,
-                assemblies=assemblies,
-            )
-        else:
-            manifest = build_scene_manifest_v3(
-                **manifest_parts,
-                stage_primitives=stage_primitives,
-                stage_materials=stage_materials,
-            )
-    else:
-        manifest = build_scene_manifest(**manifest_parts)
-    return finalize_scene_manifest(manifest)
-
-
-def extract_scene_manifest_v2() -> dict:
-    """Extract the active Blender scene through SceneManifestV2."""
-    return _extract_scene_manifest(2)
-
-
-def extract_scene_manifest_v3() -> dict:
-    """Extract stage_scene state through the additive SceneManifestV3."""
-    return _extract_scene_manifest(3)
+    stage_primitives, stage_materials = _stage_manifest_entries(
+        scene_objects, object_ids
+    )
+    assemblies = _assembly_entries(scene_objects, object_ids)
+    manifest = build_scene_manifest_v4(
+        **manifest_parts,
+        stage_primitives=stage_primitives,
+        stage_materials=stage_materials,
+        assemblies=assemblies,
+    )
+    finalized = finalize_scene_manifest(manifest)
+    return {**finalized, "extensions": extensions} if extensions is not None else finalized
 
 
 def extract_scene_manifest_v4() -> dict:
@@ -527,16 +586,9 @@ def extract_scene_manifest_v4() -> dict:
 
 
 def resolve_manifest_for_expected_hash(expected_hash: str) -> dict | None:
-    """Return the first V2, V3, or V4 manifest matching the expected scene hash."""
-    for extract_manifest in (
-        extract_scene_manifest_v2,
-        extract_scene_manifest_v3,
-        extract_scene_manifest_v4,
-    ):
-        manifest = extract_manifest()
-        if manifest["sceneHash"] == expected_hash:
-            return manifest
-    return None
+    """Return the V4 manifest matching the expected scene hash."""
+    manifest = extract_scene_manifest_v4()
+    return manifest if manifest["sceneHash"] == expected_hash else None
 
 def extract_scene_snapshot() -> dict:
     """Extract the active Blender scene into a Scene Snapshot v2 dictionary."""
@@ -620,9 +672,9 @@ def write_scene_snapshot(output_path: Path) -> str:
     return revision
 
 
-def write_scene_manifest_v2(output_path: Path) -> str:
-    """Write a real Blender-extracted SceneManifestV2 and return its revision."""
-    scene_manifest = extract_scene_manifest_v2()
+def write_scene_manifest(output_path: Path) -> str:
+    """Write a real Blender-extracted SceneManifestV4 and return its revision."""
+    scene_manifest = extract_scene_manifest_v4()
     output_path.write_text(
         json.dumps(scene_manifest, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
         encoding="utf-8",

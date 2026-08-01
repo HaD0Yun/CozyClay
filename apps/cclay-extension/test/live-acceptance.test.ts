@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -93,36 +93,9 @@ test(
 			return target;
 		};
 
-		// --- Bridge + handoff files (exactly the shape src/index.ts publishes) ---
-		const bridge = new BlenderBridge(projectDir);
-		const endpoint = await bridge.start();
+		// Blender publishes project and bridge discovery; the TypeScript bridge is
+		// a client of that Blender-owned listener.
 		const ombDir = path.join(projectDir, ".cclay");
-		const runtimeRoot = path.join(ombDir, "pi-runtime");
-		const runtimeDirectory = path.join(runtimeRoot, endpoint.launchId);
-		mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
-		chmodSync(runtimeRoot, 0o700);
-		chmodSync(runtimeDirectory, 0o700);
-		writeFileSync(
-			path.join(runtimeDirectory, "endpoint.json"),
-			`${JSON.stringify({
-				schema_version: 1,
-				host: endpoint.host,
-				port: endpoint.port,
-				launch_id: endpoint.launchId,
-			})}\n`,
-			{ encoding: "utf8", mode: 0o600 },
-		);
-		const endpointPath = path.join(ombDir, "pi-bridge.json");
-		writeFileSync(
-			endpointPath,
-			`${JSON.stringify({
-				schema_version: 1,
-				runtime_directory: runtimeDirectory,
-				credential: endpoint.token,
-			})}\n`,
-			{ encoding: "utf8", mode: 0o600 },
-		);
-		chmodSync(endpointPath, 0o600);
 
 		// --- One real Blender (GUI: capture_viewport needs a 3D viewport) ---
 		const blenderLogPath = path.join(ARTIFACT_DIR, "blender-stdout.log");
@@ -155,12 +128,14 @@ test(
 				} catch {}
 			}
 		};
-		const killBlender = () => {
+		const killBlender = (signal: NodeJS.Signals = "SIGTERM") => {
 			if (blender === undefined) return;
 			const child = blender;
 			blender = undefined;
-			signalBlenderGroup(child, "SIGTERM");
-			setTimeout(() => signalBlenderGroup(child, "SIGKILL"), 5_000).unref();
+			signalBlenderGroup(child, signal);
+			if (signal === "SIGTERM") {
+				setTimeout(() => signalBlenderGroup(child, "SIGKILL"), 5_000).unref();
+			}
 		};
 		process.on("exit", killBlender);
 		process.on("SIGINT", killBlender);
@@ -195,6 +170,7 @@ test(
 			log(`ok blenderExec ${stem}`);
 			return payload.result;
 		};
+		let bridge!: BlenderBridge;
 
 		// --- Composed tool flows (mirrors src/index.ts wiring, zero prod edits) ---
 		const stageScene = async (label: string, request: StageSceneRequestV1) =>
@@ -226,6 +202,20 @@ test(
 				noteRevision(result.revision, `inspect_project:${label}`);
 				return result;
 			});
+		const executeMutation = async (label: string, script: string, expectedRevision = bridge.revisionId) => {
+			const response = await call(`execute_blender_python ${label}`, () =>
+				bridge.executeBlenderPython({
+					script,
+					deadline_ms: 30_000,
+					capture_stdout: true,
+					expected_revision_id: expectedRevision,
+				}),
+			);
+			assert.equal(response.type, "execute_result");
+			assert.equal(response.outcome, "success");
+			noteRevision(response.new_revision_id, `execute_blender_python:${label}`);
+			return response;
+		};
 
 		const scenario = async (key: string, title: string, fn: () => Promise<unknown>) => {
 			const startedAt = new Date().toISOString();
@@ -253,7 +243,8 @@ test(
 			snapshot.objects.find((object) => object.name === name);
 
 		try {
-			// Blender owns project provisioning; wait for it, then for attach.
+			// Blender owns project provisioning and bridge discovery. Do not start
+			// the TypeScript client until both are durably published.
 			await call("wait for .cclay/project.json", async () => {
 				const deadline = Date.now() + 120_000;
 				while (!existsSync(path.join(ombDir, "project.json"))) {
@@ -261,14 +252,23 @@ test(
 					await sleep(250);
 				}
 			});
+			await call("wait for .cclay/bridge-endpoint.json", async () => {
+				const deadline = Date.now() + 120_000;
+				while (!existsSync(path.join(ombDir, "bridge-endpoint.json"))) {
+					if (Date.now() > deadline) throw new Error("Blender did not publish bridge discovery in 120s");
+					await sleep(250);
+				}
+			});
+			const project = JSON.parse(readFileSync(path.join(ombDir, "project.json"), "utf8")) as {
+				project_id: string;
+				current_revision_id: string;
+			};
+			bridge = new BlenderBridge(projectDir, { projectId: project.project_id });
+			await bridge.start();
 			await call("wait for bridge attach", () => bridge.waitForAttach(AbortSignal.timeout(120_000)));
 
 			// ---------------- S1 attach-handshake ----------------
 			await scenario("S1", "attach handshake accepts the repo addon surface", async () => {
-				const project = JSON.parse(readFileSync(path.join(ombDir, "project.json"), "utf8")) as {
-					project_id: string;
-					current_revision_id: string;
-				};
 				assert.equal(bridge.attached, true);
 				assert.equal(bridge.attachFailure, undefined);
 				assert.equal(bridge.attachedProjectId, project.project_id);
@@ -279,33 +279,23 @@ test(
 						"import bpy",
 						"import cclay",
 						"import cclay.connection as _connection",
-						"from cclay.handshake import build_hello",
-						"_conn = _connection._active_connection",
+						"_server = _connection._blender_server",
+						"assert _server is not None",
 						"result = {",
-						'    "negotiated": sorted(_conn.capabilities),',
-						'    "hello_capabilities": build_hello(',
-						'        bpy.context.scene["cclay.project_id"], cclay.ADDON_VERSION, bpy.app.version_string',
-						'    )["capabilities"],',
+						'    "server_capabilities": sorted(_server.capabilities),',
 						'    "addon_version": cclay.ADDON_VERSION,',
 						'    "blender_version": bpy.app.version_string,',
-						'    "tools_exposed": _conn.tools_exposed,',
 						"}",
 					].join("\n"),
 				)) as {
-					negotiated: string[];
-					hello_capabilities: string[];
+					server_capabilities: string[];
 					addon_version: string;
 					blender_version: string;
-					tools_exposed: boolean;
 				};
 				assert.equal(surface.addon_version, REPO_ADDON_VERSION);
-				assert.ok(surface.hello_capabilities.includes(`cclay.addon_version=${REPO_ADDON_VERSION}`));
-				assert.deepEqual(surface.negotiated, [
-					"mutation_bridge_v2",
-					"scene_manifest_v3",
-					"transaction_commit_v2",
+				assert.deepEqual(surface.server_capabilities, [
+					"execute_blender_python_v1",
 				]);
-				assert.equal(surface.tools_exposed, true);
 				const initial = await inspect("S1 initial");
 				noteRevision(project.current_revision_id, "project.json initial");
 				saveArtifact("s1/hello-surface.json", JSON.stringify(surface, null, 2));
@@ -313,9 +303,9 @@ test(
 				return {
 					project_id: project.project_id,
 					blender_version: surface.blender_version,
-					negotiated_capabilities: surface.negotiated,
+					server_capabilities: surface.server_capabilities,
 					addon_version: surface.addon_version,
-					hello_capability_count: surface.hello_capabilities.length,
+					server_capability_count: surface.server_capabilities.length,
 					initial_revision: initial.revision,
 				};
 			});
@@ -442,18 +432,18 @@ test(
 					[];
 				const buffers: Buffer[] = [];
 				for (const [index, position] of poses.entries()) {
-					await stageScene(`S3 pose ${index + 1}`, {
-						schema_version: 1,
-						expected_revision_id: bridge.revisionId,
-						operations: [
-							{
-								op: "transform_entity",
-								entity_id: camera!.entityId!,
-								location: position,
-								rotation_euler: lookAtOrigin(position),
-							},
-						],
-					});
+					await executeMutation(
+						`S3 pose ${index + 1}`,
+						[
+							"import bpy",
+							`entity_id = ${JSON.stringify(camera!.entityId!)}`,
+							"camera = next((object for object in bpy.data.objects if object.get('cclay.entity_id') == entity_id), None)",
+							"if camera is None: raise RuntimeError(f'camera entity {entity_id} not found')",
+							`camera.location = ${JSON.stringify(position)}`,
+							`camera.rotation_euler = ${JSON.stringify(lookAtOrigin(position))}`,
+							"bpy.context.view_layer.update()",
+						].join("\n"),
+					);
 					const captured = await call(`capture_viewport pose ${index + 1}`, () => bridge.captureViewport());
 					assert.equal(captured.views.length, 1, "a no-subject capture returns exactly one view");
 					const view = captured.views[0]!;
@@ -491,25 +481,25 @@ test(
 				// The subject path is the other half of the contract: named views
 				// are synthesized from an owned entity's evaluated world bounds
 				// without moving the camera, the viewport, or the entity. The
-				// subject must be CCLAY-owned (cclay.owned_project_id), which only
-				// stage_scene stamps -- a camera created by apply_camera_plan
-				// carries an entity id but no ownership -- so stage a cube for it.
-				const stagedSubject = await stageScene("S3 owned capture subject", {
-					schema_version: 1,
-					expected_revision_id: bridge.revisionId,
-					operations: [
-						{
-							op: "add_primitive",
-							primitive_type: "CUBE",
-							name: "S3 Capture Subject",
-							location: [0, 0, 1],
-							rotation: [0, 0, 0],
-							scale: [0.6, 0.6, 0.6],
-						},
-					],
-				});
-				const subjectId = stagedSubject.entity_identities[0]?.entity_id;
-				assert.ok(subjectId, "stage_scene returned an identity for the staged subject");
+				// subject must be CCLAY-owned (cclay.owned_project_id), so stamp the
+				// cube explicitly; a camera created by apply_camera_plan carries an
+				// entity id but no ownership.
+				const stagedSubject = await executeMutation(
+					"S3 owned capture subject",
+					[
+						"import bpy",
+						"import uuid",
+						"bpy.ops.mesh.primitive_cube_add(location=(0, 0, 1), rotation=(0, 0, 0), scale=(0.6, 0.6, 0.6))",
+						'obj = bpy.context.active_object',
+						'obj.name = "S3 Capture Subject"',
+						'obj["cclay.entity_id"] = str(uuid.uuid4())',
+						'obj["cclay.owned_project_id"] = bpy.context.scene["cclay.project_id"]',
+						"bpy.context.view_layer.update()",
+					].join("\n"),
+				);
+				const subjectSnapshot = await inspect("S3 owned capture subject");
+				const subjectId = entityByName(subjectSnapshot.snapshot, "S3 Capture Subject")?.entityId;
+				assert.ok(subjectId, "execute_blender_python created an identifiable staged subject");
 				const multi = await call("capture_viewport subject two views", () =>
 					bridge.captureViewport({ subject: subjectId!, views: ["three_quarter", "side"] }),
 				);
@@ -528,22 +518,28 @@ test(
 				assert.notEqual(multiBytes[0], multiBytes[1], "two named views are two different images");
 				// A synthesized capture must not move or delete anything; the
 				// subject is still there afterwards, and the revision only moved
-				// for the staged cube.
+				// for the executed cube creation.
 				const afterCapture = await inspect("S3 after subject capture");
 				assert.equal(
 					afterCapture.revision,
-					stagedSubject.resulting_revision_id,
+					stagedSubject.new_revision_id,
 					"capture_viewport does not mutate the scene",
 				);
 				assert.ok(
 					entityByName(afterCapture.snapshot, "S3 Capture Subject"),
 					"the staged subject survives the capture",
 				);
-				await stageScene("S3 remove capture subject", {
-					schema_version: 1,
-					expected_revision_id: afterCapture.revision,
-					operations: [{ op: "delete_entity", entity_id: subjectId! }],
-				});
+				await executeMutation(
+					"S3 remove capture subject",
+					[
+						"import bpy",
+						`entity_id = ${JSON.stringify(subjectId!)}`,
+						"obj = next((object for object in bpy.data.objects if object.get('cclay.entity_id') == entity_id), None)",
+						"if obj is None: raise RuntimeError(f'capture subject entity {entity_id} not found')",
+						"bpy.data.objects.remove(obj, do_unlink=True)",
+					].join("\n"),
+					afterCapture.revision,
+				);
 				return { captures, distinct_thumbnails: distinct.size, subject_views: multiBytes };
 			});
 
@@ -577,16 +573,24 @@ test(
 				assert.equal(intruder!.entityId, seeded.entity_id);
 				saveArtifact("s2/snapshot-with-intruder.json", JSON.stringify(inspected.snapshot, null, 2));
 
-				const staged = await stageScene("S2 adopt+delete", {
+				const adopted = await stageScene("S2 adopt", {
 					schema_version: 1,
 					expected_revision_id: inspected.revision,
-					operations: [
-						{ op: "adopt_entity", entity_id: seeded.entity_id },
-						{ op: "delete_entity", entity_id: seeded.entity_id },
-					],
+					operations: [{ op: "adopt_entity", entity_id: seeded.entity_id }],
 				});
+				const staged = await executeMutation(
+					"S2 delete adopted cube",
+					[
+						"import bpy",
+						`entity_id = ${JSON.stringify(seeded.entity_id)}`,
+						"obj = next((object for object in bpy.data.objects if object.get('cclay.entity_id') == entity_id), None)",
+						"if obj is None: raise RuntimeError(f'adopted entity {entity_id} not found')",
+						"bpy.data.objects.remove(obj, do_unlink=True)",
+					].join("\n"),
+					adopted.resulting_revision_id,
+				);
 				const after = await inspect("S2 after delete");
-				assert.equal(after.revision, staged.resulting_revision_id);
+				assert.equal(after.revision, staged.new_revision_id);
 				assert.equal(entityByName(after.snapshot, "E2E Intruder Cube"), undefined, "cube is gone");
 				saveArtifact("s2/snapshot-after-delete.json", JSON.stringify(after.snapshot, null, 2));
 				return {
@@ -628,8 +632,8 @@ test(
 				return { entity_ids: entityIds, completion_order: completionOrder };
 			});
 
-			// ---------------- S5 STALE_BASE fail-closed + rebind recovery ----------------
-			await scenario("S5", "external mutation: STALE_BASE, inspect rebind journal, recovery", async () => {
+			// ---------------- S5 stale revision fail-closed + rebind recovery ----------------
+			await scenario("S5", "external mutation: stale revision, inspect rebind journal, recovery", async () => {
 				const baseline = await inspect("S5 base");
 				const oldRevision = baseline.revision;
 				const cubeBefore = entityByName(baseline.snapshot, "Cube");
@@ -646,18 +650,31 @@ test(
 				);
 				let staleError: unknown;
 				try {
-					await stageScene("S5 against stale base", {
-						schema_version: 1,
-						expected_revision_id: oldRevision,
-						operations: [
-							{ op: "transform_entity", entity_id: cubeBefore!.entityId!, location: [0, 0, 4] },
-						],
-					});
+					const response = await call("execute_blender_python S5 against stale base", () =>
+						bridge.executeBlenderPython({
+							script: [
+								"import bpy",
+								`entity_id = ${JSON.stringify(cubeBefore!.entityId!)}`,
+								"cube = next((object for object in bpy.data.objects if object.get('cclay.entity_id') == entity_id), None)",
+								"if cube is None: raise RuntimeError(f'cube entity {entity_id} not found')",
+								"cube.location = (0, 0, 4)",
+								"bpy.context.view_layer.update()",
+							].join("\n"),
+							deadline_ms: 30_000,
+							capture_stdout: true,
+							expected_revision_id: oldRevision,
+						}),
+					);
+					if (response.type === "precondition_failed") {
+						staleError = new Error(`REVISION_STALE: ${response.message}`);
+					} else if (response.outcome !== "success") {
+						staleError = new Error(`unexpected execution outcome: ${response.outcome}`);
+					}
 				} catch (error) {
 					staleError = error;
 				}
-				assert.ok(staleError !== undefined, "stage_scene against the old revision must fail closed");
-				assert.match(String(staleError), /STALE_BASE/, `expected STALE_BASE, got: ${String(staleError)}`);
+				assert.ok(staleError !== undefined, "execute_blender_python against the old revision must fail closed");
+				assert.match(String(staleError), /REVISION_STALE/, `expected REVISION_STALE, got: ${String(staleError)}`);
 
 				const rebound = await inspect("S5 rebind");
 				assert.notEqual(rebound.revision, oldRevision, "inspect rebinds to a new revision");
@@ -677,20 +694,25 @@ test(
 
 				const cube = entityByName(rebound.snapshot, "Cube");
 				assert.ok(cube?.entityId, "Cube entity survives the rebind");
-				const recovered = await stageScene("S5 against rebound base", {
-					schema_version: 1,
-					expected_revision_id: rebound.revision,
-					operations: [
-						{ op: "transform_entity", entity_id: cube!.entityId!, location: [0, 0, 4] },
-					],
-				});
+				const recovered = await executeMutation(
+					"S5 against rebound base",
+					[
+						"import bpy",
+						`entity_id = ${JSON.stringify(cube!.entityId!)}`,
+						"cube = next((object for object in bpy.data.objects if object.get('cclay.entity_id') == entity_id), None)",
+						"if cube is None: raise RuntimeError(f'cube entity {entity_id} not found')",
+						"cube.location = (0, 0, 4)",
+						"bpy.context.view_layer.update()",
+					].join("\n"),
+					rebound.revision,
+				);
 				return {
 					old_revision: oldRevision,
 					stale_error: String(staleError),
 					rebound_revision: rebound.revision,
 					inspect_rebind_entries: rebinds.length,
 					latest_rebind: latest,
-					recovered_revision: recovered.resulting_revision_id,
+					recovered_revision: recovered.new_revision_id,
 				};
 			});
 
@@ -918,14 +940,225 @@ test(
 					revision_after: after.revision,
 				};
 			});
+			// ---------------- S10 standalone execute_blender_python success ----------------
+			await scenario("S10", "execute_blender_python commits one revision and exposes Unicode stdout", async () => {
+				const baseRevision = bridge.revisionId;
+				const response = await call("execute_blender_python S10 happy", () =>
+					bridge.executeBlenderPython({
+						script: [
+							"import bpy",
+							'bpy.context.scene["cclay.e2e_execute_happy"] = "mutated"',
+							'print("S10 Unicode: ✓ 雪")',
+						].join("\n"),
+						deadline_ms: 30_000,
+						capture_stdout: true,
+						expected_revision_id: baseRevision,
+					}),
+				);
+				assert.equal(response.type, "execute_result");
+				assert.equal(response.outcome, "success");
+				assert.notEqual(response.new_revision_id, baseRevision, "successful execution mints exactly one child revision");
+				assert.match(response.new_revision_id, /^[0-9a-f]{64}$/);
+				assert.match(response.stdout, /S10 Unicode: ✓ 雪/);
+				assert.equal(response.stdout_truncated, false);
+				assert.equal(bridge.revisionId, response.new_revision_id, "bridge adopts the execution child revision");
+				const durable = JSON.parse(readFileSync(path.join(ombDir, "project.json"), "utf8")) as {
+					current_revision_id: string;
+				};
+				assert.equal(durable.current_revision_id, response.new_revision_id, "project.json durably records the child revision");
+				const journal = JSON.parse(
+					readFileSync(path.join(ombDir, "execution-journal", `${response.request_id}.json`), "utf8"),
+				) as { status: string; base_revision_id: string; new_revision_id?: string };
+				assert.equal(journal.status, "finalized");
+				assert.equal(journal.base_revision_id, baseRevision);
+				assert.equal(journal.new_revision_id, response.new_revision_id);
+				const observed = await blenderExec(
+					"S10 observe standalone execution mutation",
+					'import bpy\nresult = bpy.context.scene.get("cclay.e2e_execute_happy")',
+				);
+				assert.equal(observed, "mutated", "sidecar observes the Blender scene mutation");
+				noteRevision(response.new_revision_id, "execute_blender_python:S10");
+				saveArtifact("s10/execution-journal.json", JSON.stringify(journal, null, 2));
+				return {
+					base_revision: baseRevision,
+					new_revision: response.new_revision_id,
+					request_id: response.request_id,
+					journal_status: journal.status,
+					stdout: response.stdout,
+				};
+			});
+
+			// ---------------- S11 standalone execute_blender_python exception/reload ----------------
+			await scenario("S11", "execute_blender_python exception reloads the backup and reconnects a fresh generation", async () => {
+				const baseRevision = bridge.revisionId;
+				const endpointBefore = JSON.parse(readFileSync(path.join(ombDir, "bridge-endpoint.json"), "utf8")) as {
+					token_generation: number;
+				};
+				const response = await call("execute_blender_python S11 exception", () =>
+					bridge.executeBlenderPython({
+						script: [
+							"import bpy",
+							'bpy.ops.mesh.primitive_cube_add(); bpy.context.object.name = "CCLAY S11 transient"',
+							'print("S11 before exception")',
+							'raise RuntimeError("S11 deliberate exception")',
+						].join("\n"),
+						deadline_ms: 30_000,
+						capture_stdout: true,
+						expected_revision_id: baseRevision,
+					}),
+				);
+				assert.equal(response.type, "execute_result");
+				assert.equal(response.outcome, "failed_recovered");
+				assert.equal(response.restored_revision_id, baseRevision, "recovery restores the exact execution base");
+				assert.equal(bridge.revisionId, baseRevision, "bridge resets to the recovered base revision");
+				const endpointDeadline = Date.now() + 120_000;
+				let endpointAfter = endpointBefore;
+				while (endpointAfter.token_generation <= endpointBefore.token_generation) {
+					if (Date.now() > endpointDeadline) throw new Error("recovery did not publish a fresh bridge generation in 120s");
+					await sleep(100);
+					endpointAfter = JSON.parse(readFileSync(path.join(ombDir, "bridge-endpoint.json"), "utf8")) as {
+						token_generation: number;
+					};
+				}
+				await bridge.waitForAttach(AbortSignal.timeout(120_000));
+				assert.equal(bridge.attached, true);
+				assert.ok(
+					endpointAfter.token_generation > endpointBefore.token_generation,
+					"recovery endpoint generation strictly increases",
+				);
+				const durable = JSON.parse(readFileSync(path.join(ombDir, "project.json"), "utf8")) as {
+					current_revision_id: string;
+				};
+				assert.equal(durable.current_revision_id, baseRevision, "failed execution creates no durable child revision");
+				const journal = JSON.parse(
+					readFileSync(path.join(ombDir, "execution-journal", `${response.request_id}.json`), "utf8"),
+				) as { status: string; base_revision_id: string; backup_path: string };
+				assert.equal(journal.status, "recovered");
+				assert.equal(journal.base_revision_id, baseRevision);
+				assert.ok(existsSync(journal.backup_path), "recovery journal retains the verified backup used for reload");
+				const readable = await inspect("S11 read after recovery");
+				assert.equal(
+					readable.snapshot.objects.some((object) => object.name === "CCLAY S11 transient"),
+					false,
+					"object created before the exception is absent after backup reload",
+				);
+				const queried = await call("get_execution_outcome S11", () => bridge.getExecutionOutcome(response.request_id));
+				assert.equal(queried.type, "execute_result");
+				assert.equal(queried.outcome, "failed_recovered");
+				assert.equal(queried.restored_revision_id, baseRevision);
+				assert.equal(readable.revision, baseRevision, "reads remain usable after the reconnect");
+				const bridgeLogDeadline = Date.now() + 5_000;
+				let bridgeLog = "";
+				while (!bridgeLog.includes(`"event":"bridge_disconnect","request_id":"${response.request_id}"`)) {
+					if (Date.now() > bridgeLogDeadline) {
+						throw new Error("bridge log did not record the execution recovery disconnect");
+					}
+					await sleep(100);
+					bridgeLog = existsSync(path.join(ombDir, "bridge.log"))
+						? readFileSync(path.join(ombDir, "bridge.log"), "utf8")
+						: "";
+				}
+				saveArtifact("s11/execution-journal.json", JSON.stringify(journal, null, 2));
+				saveArtifact(
+					"s11/endpoints.json",
+					JSON.stringify({ before: endpointBefore, after: endpointAfter }, null, 2),
+				);
+				return {
+					base_revision: baseRevision,
+					request_id: response.request_id,
+					journal_status: journal.status,
+					token_generation_before: endpointBefore.token_generation,
+					token_generation_after: endpointAfter.token_generation,
+				};
+			});
+			// ---------------- S12 crash-mid-script conservative outcome ----------------
+			await scenario("S12", "execute_blender_python SIGKILL leaves a started journal and freezes mutations", async () => {
+				const baseRevision = bridge.revisionId;
+				const journalDirectory = path.join(ombDir, "execution-journal");
+				const beforeJournalNames = new Set(existsSync(journalDirectory) ? readdirSync(journalDirectory) : []);
+				const pending = bridge.executeBlenderPython({
+					script: [
+						"import bpy",
+						"import time",
+						'bpy.context.scene["cclay.e2e_crash_mid_script"] = "written before SIGKILL"',
+						"time.sleep(60)",
+					].join("\n"),
+					deadline_ms: 30_000,
+					capture_stdout: true,
+					expected_revision_id: baseRevision,
+				});
+				const journalDeadline = Date.now() + 15_000;
+				let journalPath: string | undefined;
+				let journal: { request_id: string; status: string; base_revision_id: string } | undefined;
+				while (journal?.status !== "started") {
+					if (Date.now() > journalDeadline) throw new Error("S12 execution journal did not reach started in 15s");
+					const name = readdirSync(journalDirectory).find(
+						(candidate) => !beforeJournalNames.has(candidate) && candidate.endsWith(".json"),
+					);
+					if (name !== undefined) {
+						journalPath = path.join(journalDirectory, name);
+						journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+							request_id: string;
+							status: string;
+							base_revision_id: string;
+						};
+					}
+					await sleep(100);
+				}
+				assert.equal(journal.base_revision_id, baseRevision);
+				killBlender("SIGKILL");
+				const outcome = await Promise.race([
+					pending,
+					sleep(50_000).then(() => {
+						throw new Error("S12 did not resolve a conservative execution outcome in 50s");
+					}),
+				]);
+				assert.equal(outcome.type, "execute_result");
+				assert.equal(outcome.outcome, "outcome_unknown", "SIGKILL must not fabricate success or recovery");
+				assert.equal(bridge.executionMutationFrozen, true, "unknown execution freezes future mutations");
+				const afterKillJournal = JSON.parse(readFileSync(journalPath!, "utf8")) as {
+					request_id: string;
+					status: string;
+					base_revision_id: string;
+				};
+				assert.equal(afterKillJournal.status, "started", "SIGKILL leaves the durable journal started");
+				await assert.rejects(
+					bridge.executeBlenderPython({
+						script: "pass",
+						deadline_ms: 1,
+						capture_stdout: false,
+						expected_revision_id: baseRevision,
+					}),
+					/EXECUTION_RECOVERY_REQUIRED|MUTATION_BRIDGE_UNAVAILABLE/,
+				);
+				saveArtifact("s12/execution-journal-started.json", JSON.stringify(afterKillJournal, null, 2));
+				saveArtifact(
+					"s12/crash-evidence.json",
+					JSON.stringify(
+						{
+							base_revision: baseRevision,
+							request_id: afterKillJournal.request_id,
+							outcome: outcome.outcome,
+							execution_mutation_frozen: bridge.executionMutationFrozen,
+							journal_status: afterKillJournal.status,
+						},
+						null,
+						2,
+					),
+				);
+				return {
+					base_revision: baseRevision,
+					request_id: afterKillJournal.request_id,
+					outcome: outcome.outcome,
+					journal_status: afterKillJournal.status,
+				};
+			});
 		} finally {
-			// Trap: always kill the spawned Blender and close the bridge/server.
+			// Trap: always kill the spawned Blender and close the TypeScript client.
 			killBlender();
-			// Bounded: server.close() waits for the addon socket, which dies with
-			// the Blender process group; never let teardown hang the run.
-			await Promise.race([bridge.close().catch(() => {}), sleep(15_000)]);
-			rmSync(endpointPath, { force: true });
-			rmSync(runtimeDirectory, { recursive: true, force: true });
+			// Bounded: closing the client must not delay artifact receipts after
+			// Blender owns listener shutdown with its process lifetime.
+			await Promise.race([bridge?.close().catch(() => {}), sleep(15_000)]);
 
 			saveArtifact("results.json", `${JSON.stringify(results, null, 2)}\n`);
 			saveArtifact("revision-chain.json", `${JSON.stringify(revisionChain, null, 2)}\n`);

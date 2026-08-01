@@ -1,4 +1,3 @@
-import json
 import pathlib
 import struct
 import sys
@@ -9,11 +8,14 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 
+from cclay.motion_archive import (
+    MotionArchiveError,
+    inspect_motion_archive,
+    load_motion_payload,
+)
 from cclay.stage_scene import (
     StageSceneError,
     StageSceneValidationError,
-    _inspect_motion_archive,
-    _load_motion_payload,
     parse_stage_scene_plan,
     _require_plan_fps_agrees,
     _requested_scene_fps,
@@ -22,49 +24,7 @@ from cclay.stage_scene import (
 )
 from cclay.hand_shapes import PRESET_NAMES
 
-FIXTURES = (
-    pathlib.Path(__file__).parents[2]
-    / "packages/blender-protocol/test/fixtures/stage-scene"
-)
-
-
 class StageSceneValidationTests(unittest.TestCase):
-    def fixture(self, name: str) -> object:
-        return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
-
-    def test_shared_valid_fixture_matches_python_mirror(self):
-        plan = parse_stage_scene_plan(self.fixture("valid-plan"))
-        self.assertEqual(
-            [operation["op"] for operation in plan["operations"]],
-            ["add_primitive", "set_material_color", "upsert_area_light", "delete_entity"],
-        )
-
-    def test_unknown_field_has_schema_only_code(self):
-        with self.assertRaises(StageSceneValidationError) as caught:
-            parse_stage_scene_plan(self.fixture("invalid-unknown-field"))
-        self.assertEqual(caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA")
-
-    def test_duplicate_creation_id_has_distinct_code(self):
-        with self.assertRaises(StageSceneValidationError) as caught:
-            parse_stage_scene_plan(self.fixture("invalid-duplicate-entity-id"))
-        self.assertEqual(caught.exception.code, "STAGE_SCENE_ENTITY_ID_DUPLICATE")
-
-    def test_duplicate_stable_name_has_distinct_code(self):
-        plan = self.fixture("valid-plan")
-        plan["operations"][2]["name"] = "Floor"
-        with self.assertRaises(StageSceneValidationError) as caught:
-            parse_stage_scene_plan(plan)
-        self.assertEqual(caught.exception.code, "STAGE_SCENE_STABLE_NAME_DUPLICATE")
-
-    def test_each_grammar_branch_is_closed(self):
-        for index, operation in enumerate(self.fixture("valid-plan")["operations"]):
-            plan = self.fixture("valid-plan")
-            plan["operations"][index] = {**operation, "unknown": True}
-            with self.subTest(operation=operation["op"]):
-                with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(plan)
-                self.assertEqual(caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA")
-
     @staticmethod
     def plan(operations):
         return {
@@ -73,132 +33,57 @@ class StageSceneValidationTests(unittest.TestCase):
             "operations": operations,
         }
 
-    def test_adopt_entity_parses_closed_shape(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        plan = parse_stage_scene_plan(
-            self.plan([
-                {"op": "adopt_entity", "entity_id": entity_id},
-                {"op": "delete_entity", "entity_id": entity_id},
-            ])
-        )
+    def test_retained_operation_union_is_closed(self):
+        operations = [
+            {
+                "op": "add_character",
+                "entity_id": "11111111-1111-4111-8111-111111111111",
+                "character_type": "Y_BOT",
+                "name": "Hero",
+                "location": [0, 0, 0],
+                "rotation": [0, 0, 0],
+                "scale": [1, 1, 1],
+            },
+            {
+                "op": "adopt_entity",
+                "entity_id": "22222222-2222-4222-8222-222222222222",
+            },
+            {"op": "set_render_settings", "fps": 24},
+            {
+                "op": "apply_motion",
+                "entity_id": "11111111-1111-4111-8111-111111111111",
+                "motion_id": "wave",
+            },
+        ]
+
+        plan = parse_stage_scene_plan(self.plan(operations))
+
         self.assertEqual(
             [operation["op"] for operation in plan["operations"]],
-            ["adopt_entity", "delete_entity"],
+            ["add_character", "adopt_entity", "set_render_settings", "apply_motion"],
         )
 
-    def test_adopt_entity_rejects_unknown_fields_and_bad_uuid(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        for operation in (
-            {"op": "adopt_entity", "entity_id": entity_id, "name": "Cube"},
-            {"op": "adopt_entity", "entity_id": "not-a-uuid"},
-            {"op": "adopt_entity", "entity_id": entity_id.replace("1", "A", 1)},
-            {"op": "adopt_entity"},
-        ):
-            with self.subTest(operation=operation):
-                with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(self.plan([operation]))
-                self.assertEqual(
-                    caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
-                )
-
-    def test_transform_entity_parses_optional_transform_fields(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        plan = parse_stage_scene_plan(
-            self.plan([
-                {"op": "transform_entity", "entity_id": entity_id, "location": [1, 2, 3]},
-                {
-                    "op": "transform_entity",
-                    "entity_id": entity_id,
-                    "rotation_euler": [0, 0, 1.5],
-                    "scale": [2, 2, 2],
-                },
-            ])
+    def test_removed_operations_are_rejected(self):
+        removed_operations = (
+            "add_primitive",
+            "add_camera",
+            "create_assembly",
+            "set_parent",
+            "transform_assembly",
+            "set_material_color",
+            "upsert_area_light",
+            "delete_entity",
+            "transform_entity",
+            "set_light_property",
+            "set_camera_property",
+            "rename_entity",
         )
-        self.assertEqual(len(plan["operations"]), 2)
 
-    def test_transform_entity_rejects_empty_null_and_unknown_fields(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        for operation in (
-            {"op": "transform_entity", "entity_id": entity_id},
-            {"op": "transform_entity", "entity_id": entity_id, "location": None},
-            {"op": "transform_entity", "entity_id": entity_id, "translation": [1, 2, 3]},
-            {"op": "transform_entity", "entity_id": entity_id, "scale": [0, 1, 1]},
-        ):
+        for operation in removed_operations:
             with self.subTest(operation=operation):
                 with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(self.plan([operation]))
-                self.assertEqual(
-                    caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
-                )
-
-    def test_set_light_property_parses_optional_property_fields(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        plan = parse_stage_scene_plan(
-            self.plan([
-                {"op": "set_light_property", "entity_id": entity_id, "energy": 800},
-                {
-                    "op": "set_light_property",
-                    "entity_id": entity_id,
-                    "color": [1, 0.5, 0],
-                    "size": 2.5,
-                },
-            ])
-        )
-        self.assertEqual(len(plan["operations"]), 2)
-
-    def test_set_light_property_rejects_empty_unknown_and_out_of_range(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        for operation in (
-            {"op": "set_light_property", "entity_id": entity_id},
-            {"op": "set_light_property", "entity_id": entity_id, "power": 5},
-            {"op": "set_light_property", "entity_id": entity_id, "energy": -1},
-            {"op": "set_light_property", "entity_id": entity_id, "energy": None},
-            {"op": "set_light_property", "entity_id": entity_id, "color": [1, 1, 2]},
-            {"op": "set_light_property", "entity_id": entity_id, "size": 0},
-            {"op": "set_light_property", "energy": 5},
-        ):
-            with self.subTest(operation=operation):
-                with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(self.plan([operation]))
-                self.assertEqual(
-                    caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
-                )
-
-    def test_set_camera_property_parses_optional_property_fields(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        plan = parse_stage_scene_plan(
-            self.plan([
-                {"op": "set_camera_property", "entity_id": entity_id, "lens": 50},
-                {
-                    "op": "set_camera_property",
-                    "entity_id": entity_id,
-                    "clip_start": 0.1,
-                    "clip_end": 100,
-                    "sensor_width": 36,
-                    "sensor_height": 24,
-                    "sensor_fit": "HORIZONTAL",
-                },
-            ])
-        )
-        self.assertEqual(len(plan["operations"]), 2)
-
-    def test_set_camera_property_rejects_empty_unknown_and_out_of_range(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        for operation in (
-            {"op": "set_camera_property", "entity_id": entity_id},
-            {"op": "set_camera_property", "entity_id": entity_id, "fov": 90},
-            {"op": "set_camera_property", "entity_id": entity_id, "lens": 0},
-            {"op": "set_camera_property", "entity_id": entity_id, "clip_end": -1},
-            {"op": "set_camera_property", "entity_id": entity_id, "sensor_width": None},
-            {"op": "set_camera_property", "entity_id": entity_id, "sensor_fit": "DIAGONAL"},
-            {"op": "set_camera_property", "lens": 50},
-        ):
-            with self.subTest(operation=operation):
-                with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(self.plan([operation]))
-                self.assertEqual(
-                    caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
-                )
+                    parse_stage_scene_plan(self.plan([{"op": operation}]))
+                self.assertEqual(caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA")
 
     def test_set_render_settings_parses_closed_shape(self):
         plan = parse_stage_scene_plan(
@@ -235,139 +120,6 @@ class StageSceneValidationTests(unittest.TestCase):
                 self.assertEqual(
                     caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
                 )
-
-    def test_rename_entity_parses_closed_shape(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        plan = parse_stage_scene_plan(
-            self.plan([
-                {"op": "rename_entity", "entity_id": entity_id, "name": "Hero Light"},
-            ])
-        )
-        self.assertEqual(plan["operations"][0]["name"], "Hero Light")
-
-    def test_rename_entity_rejects_unknown_missing_and_invalid_fields(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        for operation in (
-            {"op": "rename_entity", "entity_id": entity_id},
-            {"op": "rename_entity", "entity_id": entity_id, "name": ""},
-            {"op": "rename_entity", "entity_id": entity_id, "name": 5},
-            {"op": "rename_entity", "entity_id": entity_id, "name": "x" * 257},
-            {"op": "rename_entity", "entity_id": "not-a-uuid", "name": "Cube"},
-            {
-                "op": "rename_entity",
-                "entity_id": entity_id,
-                "name": "Cube",
-                "collection_name": "Props",
-            },
-        ):
-            with self.subTest(operation=operation):
-                with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(self.plan([operation]))
-                self.assertEqual(
-                    caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
-                )
-
-    @staticmethod
-    def add_primitive_op(**overrides):
-        return {
-            "op": "add_primitive",
-            "entity_id": "11111111-1111-4111-8111-111111111111",
-            "primitive_type": "CUBE",
-            "name": "Prop Cube",
-            "location": [0, 0, 0],
-            "rotation": [0, 0, 0],
-            "scale": [1, 1, 1],
-            **overrides,
-        }
-
-    @staticmethod
-    def upsert_area_light_op(**overrides):
-        return {
-            "op": "upsert_area_light",
-            "entity_id": "22222222-2222-4222-8222-222222222222",
-            "name": "Key Light",
-            "location": [0, 0, 3],
-            "rotation": [0, 0, 0],
-            "scale": [1, 1, 1],
-            "energy": 800,
-            "color": [1, 1, 1],
-            "size": 2,
-            **overrides,
-        }
-
-    def test_creation_ops_accept_optional_collection_name(self):
-        plan = parse_stage_scene_plan(
-            self.plan([
-                self.add_primitive_op(collection_name="Props"),
-                self.upsert_area_light_op(collection_name="Lights"),
-            ])
-        )
-        self.assertEqual(plan["operations"][0]["collection_name"], "Props")
-        self.assertEqual(plan["operations"][1]["collection_name"], "Lights")
-
-    def test_creation_ops_still_parse_without_collection_name(self):
-        plan = parse_stage_scene_plan(
-            self.plan([self.add_primitive_op(), self.upsert_area_light_op()])
-        )
-        self.assertEqual(len(plan["operations"]), 2)
-
-    def test_creation_ops_reject_non_string_collection_name(self):
-        for operation in (
-            self.add_primitive_op(collection_name=5),
-            self.add_primitive_op(collection_name=None),
-            self.add_primitive_op(collection_name=""),
-            self.upsert_area_light_op(collection_name=5),
-            self.upsert_area_light_op(collection_name=None),
-            self.upsert_area_light_op(collection_name=""),
-        ):
-            with self.subTest(operation=operation):
-                with self.assertRaises(StageSceneValidationError) as caught:
-                    parse_stage_scene_plan(self.plan([operation]))
-                self.assertEqual(
-                    caught.exception.code, "INVALID_STAGE_SCENE_PLAN_SCHEMA"
-                )
-
-    def test_add_camera_parses_closed_shape_with_optional_lens(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        plan = parse_stage_scene_plan(
-            self.plan([
-                {
-                    "op": "add_camera",
-                    "entity_id": entity_id,
-                    "name": "Shot Camera",
-                    "location": [4, -6, 3],
-                    "rotation": [1.1, 0, 0.6],
-                },
-                {
-                    "op": "add_camera",
-                    "entity_id": "22222222-2222-4222-8222-222222222222",
-                    "name": "Close Camera",
-                    "location": [1, -2, 2],
-                    "rotation": [1.2, 0, 0.2],
-                    "lens": 70,
-                },
-            ])
-        )
-        self.assertEqual([operation["op"] for operation in plan["operations"]], ["add_camera", "add_camera"])
-
-    def test_add_camera_rejects_bad_shape_and_lens(self):
-        entity_id = "11111111-1111-4111-8111-111111111111"
-        base = {
-            "op": "add_camera",
-            "entity_id": entity_id,
-            "name": "Shot Camera",
-            "location": [4, -6, 3],
-            "rotation": [1.1, 0, 0.6],
-        }
-        for operation in (
-            {**base, "lens": 0},
-            {**base, "lens": "50"},
-            {**base, "scale": [1, 1, 1]},
-            {key: value for key, value in base.items() if key != "rotation"},
-        ):
-            with self.subTest(operation=operation):
-                with self.assertRaises(StageSceneValidationError):
-                    parse_stage_scene_plan(self.plan([operation]))
     def test_apply_motion_parses_optional_timing_and_hand_completion(self):
         entity_id = "11111111-1111-4111-8111-111111111111"
         plan = parse_stage_scene_plan(
@@ -430,7 +182,7 @@ class StageSceneValidationTests(unittest.TestCase):
             ),
             (
                 {**base, "hand_shapes": {"middle": "point"}},
-                "operations[0].hand_shapes contains unknown fields",
+                "operations[0].hand_shapes must contain exactly left, right, or both",
             ),
             (
                 {**base, "hand_shapes": {"left": "missing"}},
@@ -546,9 +298,9 @@ class StageSceneValidationTests(unittest.TestCase):
         return members
 
     def assert_motion_archive_rejected(self, path):
-        with self.assertRaises(StageSceneError) as caught:
-            _inspect_motion_archive(path)
-        self.assertIn("APPLY_MOTION_MALFORMED", str(caught.exception))
+        with self.assertRaises(MotionArchiveError) as caught:
+            inspect_motion_archive(path)
+        self.assertEqual(caught.exception.code, "APPLY_MOTION_MALFORMED")
 
     def assert_loader_preflight_rejected(self, project_directory):
         fake_numpy = mock.Mock()
@@ -556,9 +308,9 @@ class StageSceneValidationTests(unittest.TestCase):
             side_effect=AssertionError("numpy.load must not run before preflight")
         )
         with mock.patch.dict(sys.modules, {"numpy": fake_numpy}):
-            with self.assertRaises(StageSceneError) as caught:
-                _load_motion_payload(project_directory, "payload")
-        self.assertIn("APPLY_MOTION_MALFORMED", str(caught.exception))
+            with self.assertRaises(MotionArchiveError) as caught:
+                load_motion_payload(project_directory, "payload")
+        self.assertEqual(caught.exception.code, "APPLY_MOTION_MALFORMED")
         fake_numpy.load.assert_not_called()
 
     def test_motion_npz_declared_uncompressed_limit_precedes_materialization(self):
@@ -667,7 +419,7 @@ class StageSceneValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as project_directory:
             path = self.motion_path(project_directory)
             self.write_motion_archive(path, carried=self.carried_members())
-            self.assertEqual(_inspect_motion_archive(path), 24)
+            self.assertEqual(inspect_motion_archive(path), 24)
 
     def test_motion_npz_frame_locks_and_type_checks_the_carried_members(self):
         text = "a person walks forward."

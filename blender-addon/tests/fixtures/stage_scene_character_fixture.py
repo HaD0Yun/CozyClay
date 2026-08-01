@@ -21,7 +21,7 @@ from cclay.hand_shapes import CANONICAL_ROLE_ORDER, LIBRARY_VERSION
 from cclay.manifest import (
     _animation_snapshot,
     animation_fcurves,
-    extract_scene_manifest_v2,
+    extract_scene_manifest_v4,
     extract_scene_snapshot,
 )
 from cclay.connection import DurableCommitReconciliationRequired
@@ -301,8 +301,13 @@ def main():
     for scene_object in list(bpy.data.objects):
         bpy.data.objects.remove(scene_object, do_unlink=True)
     bpy.context.scene["cclay.project_id"] = PROJECT_ID
+    camera_data = bpy.data.cameras.new("Pose Contact Camera Data")
+    camera = bpy.data.objects.new("Pose Contact Camera", camera_data)
+    camera["cclay.entity_id"] = CAMERA_ID
+    bpy.context.scene.collection.objects.link(camera)
+    bpy.context.scene.camera = camera
     connection = FakeConnection()
-    base = extract_scene_manifest_v2()
+    base = extract_scene_manifest_v4()
     committed = []
     result = apply_stage_scene_transaction(
         {
@@ -373,61 +378,6 @@ def main():
     results["dupeNameCode"] = dupe_code
     results["dupeRollback"] = len(bpy.data.objects) == object_count
     results["dupeCheckpointReleased"] = connection.active_checkpoint is None
-    camera_commit_failure_matched = False
-    try:
-        apply_stage_scene_transaction(
-            {
-                "schema_version": 1,
-                "expected_revision_id": result["manifest"]["revisionId"],
-                "operations": [{
-                    "op": "add_camera",
-                    "entity_id": FAILED_CAMERA_ID,
-                    "name": "Rollback Camera",
-                    "location": [0, -5, 3],
-                    "rotation": [1.1, 0, 0],
-                }],
-            },
-            result["scene_hash"],
-            connection,
-            lambda _candidate: (_ for _ in ()).throw(RuntimeError("commit failed")),
-        )
-    except RuntimeError as error:
-        camera_commit_failure_matched = str(error) == "commit failed"
-    results["cameraRollback"] = (
-        camera_commit_failure_matched
-        and bpy.context.scene.camera is None
-        and bpy.data.objects.get("Rollback Camera") is None
-        and bpy.data.cameras.get("Rollback Camera Data") is None
-        and connection.active_checkpoint is None
-    )
-    camera_result = apply_stage_scene_transaction(
-        {
-            "schema_version": 1,
-            "expected_revision_id": result["manifest"]["revisionId"],
-            "operations": [{
-                "op": "add_camera",
-                "entity_id": CAMERA_ID,
-                "name": "Shot Camera",
-                "location": [4, -6, 3],
-                "rotation": [1.1, 0, 0.6],
-                "lens": 55,
-            }],
-        },
-        result["scene_hash"],
-        connection,
-        committed.append,
-    )
-    camera = next(o for o in bpy.data.objects if o.get("cclay.entity_id") == CAMERA_ID)
-    results["cameraCreatedAndActive"] = (
-        camera.type == "CAMERA"
-        and bpy.context.scene.camera is camera
-        and abs(camera.data.lens - 55) < 1e-6
-    )
-    results["cameraIdentityReturned"] = camera_result["entity_identities"] == [{
-        "entity_id": CAMERA_ID,
-        "requested_name": "Shot Camera",
-        "actual_name": "Shot Camera",
-    }]
 
     fixture = json.loads(
         pathlib.Path(__file__).with_name("ardy_motion_3frames.json").read_text(
@@ -447,7 +397,7 @@ def main():
         motion_result = apply_stage_scene_transaction(
             {
                 "schema_version": 1,
-                "expected_revision_id": camera_result["manifest"]["revisionId"],
+                "expected_revision_id": result["manifest"]["revisionId"],
                 "operations": [{
                     "op": "apply_motion",
                     "entity_id": YBOT_ID,
@@ -455,7 +405,7 @@ def main():
                     "start_frame": 1,
                 }],
             },
-            camera_result["scene_hash"],
+            result["scene_hash"],
             connection,
             committed.append,
         )
@@ -556,7 +506,7 @@ def main():
         support_floor["cclay.owned_project_id"] = PROJECT_ID
         bpy.context.view_layer.update()
 
-        pose_contacts_revision = extract_scene_manifest_v2()["revisionId"]
+        pose_contacts_revision = extract_scene_manifest_v4()["revisionId"]
         bridge_frame_before = bpy.context.scene.frame_current
         bridge_result = pose_contacts.collect_pose_contacts(
             pose_contacts_revision,
@@ -1277,9 +1227,10 @@ def main():
             "schema_version": 1,
             "expected_revision_id": motion_result["manifest"]["revisionId"],
             "operations": [{
-                "op": "transform_entity",
+                "op": "apply_motion",
                 "entity_id": YBOT_ID,
-                "location": [3, 4, 5],
+                "motion_id": "fixture-motion",
+                "start_frame": 1,
             }],
         }
         recovery_calls_before = connection.recovery_required_calls
@@ -1376,7 +1327,7 @@ def main():
             pre_commit_release_recovered,
             connection.active_checkpoint is None,
         ))
-        location_before_durable_commit = tuple(ybot.location)
+        action_before_durable_commit = ybot.animation_data.action
         recovery_calls_before = connection.recovery_required_calls
         connection.fail_release_once = True
         durable_commits = []
@@ -1386,9 +1337,10 @@ def main():
                     "schema_version": 1,
                     "expected_revision_id": motion_result["manifest"]["revisionId"],
                     "operations": [{
-                        "op": "transform_entity",
+                        "op": "apply_motion",
                         "entity_id": YBOT_ID,
-                        "location": [7, 8, 9],
+                        "motion_id": "fixture-motion",
+                        "start_frame": 1,
                     }],
                 },
                 motion_result["scene_hash"],
@@ -1398,8 +1350,8 @@ def main():
         except DurableCommitReconciliationRequired:
             results["postCommitFailureRaisedReconciliation"] = True
         results["postCommitFailureDidNotRollback"] = (
-            tuple(ybot.location) == (7.0, 8.0, 9.0)
-            and tuple(ybot.location) != location_before_durable_commit
+            ybot.animation_data.action is not None
+            and ybot.animation_data.action is not action_before_durable_commit
             and len(durable_commits) == 1
             and connection.active_checkpoint is not None
             and connection.recovery_required_calls == recovery_calls_before + 1

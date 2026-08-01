@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from cclay.scene_manifest import (
     INVALID_MANIFEST_REFERENCE,
     INVALID_SCENE_MANIFEST,
-    build_scene_manifest,
+    build_scene_manifest_v4,
     finalize_scene_manifest,
     rational_fps,
 )
@@ -44,10 +44,13 @@ def parts():
         cameras=[{"objectId": CAMERA_OBJECT, "lens": 50, "sensorFit": "AUTO",
                   "sensorWidth": 36, "sensorHeight": 24, "verticalFovRadians": 0.5, "clipStart": 0.1, "clipEnd": 1000}],
         lights=[{"objectId": LIGHT_OBJECT, "lightType": "POINT", "color": [1, 0.5, 0],
-                 "energy": 1000, "spotSize": None, "spotBlend": None}],
+                 "energy": 1000, "spotSize": None, "spotBlend": None, "areaSize": None}],
         markers=[{"name": "B", "frame": 2, "cameraId": None}, {"name": "A", "frame": 2, "cameraId": CAMERA_OBJECT},
                  {"name": "A", "frame": 2, "cameraId": None}, {"name": "A", "frame": 1, "cameraId": CAMERA_OBJECT}],
         selected_entity_ids=[OBJECT, CAMERA_OBJECT, OBJECT],
+        stage_primitives=[],
+        stage_materials=[],
+        assemblies=[],
         camera_animations=[
             {
                 "objectId": CAMERA_OBJECT,
@@ -100,7 +103,7 @@ def parts():
 
 class SceneManifestTests(unittest.TestCase):
     def test_section_6_manifest_assembles_and_sorts_full_shape(self):
-        manifest = build_scene_manifest(**parts())
+        manifest = build_scene_manifest_v4(**parts())
         self.assertEqual([x["entityId"] for x in manifest["objects"]], sorted([OBJECT, CAMERA_OBJECT, LIGHT_OBJECT, ARMATURE_OBJECT]))
         self.assertEqual([x["entityId"] for x in manifest["bones"]], [BONE, BONE_CHILD])
         self.assertEqual([(x["name"], x["frame"], x["cameraId"]) for x in manifest["markers"]],
@@ -111,8 +114,8 @@ class SceneManifestTests(unittest.TestCase):
         self.assertNotIn("entityId", manifest["lights"][0])
 
     def test_snapshot_v2_section_2_6_camera_animations_are_additive_and_semantically_sorted(self):
-        manifest = build_scene_manifest(**parts())
-        self.assertEqual(manifest["schemaVersion"], 2)
+        manifest = build_scene_manifest_v4(**parts())
+        self.assertEqual(manifest["schemaVersion"], 4)
         self.assertEqual(
             [(item["objectId"], item["target"]) for item in manifest["cameraAnimations"]],
             [(CAMERA_OBJECT, "cameraData"), (CAMERA_OBJECT, "object")],
@@ -123,10 +126,10 @@ class SceneManifestTests(unittest.TestCase):
         )
 
     def test_architecture_section_6_full_v2_is_the_sole_hash_preimage(self):
-        baseline = finalize_scene_manifest(build_scene_manifest(**parts()))
+        baseline = finalize_scene_manifest(build_scene_manifest_v4(**parts()))
         changed_parts = parts()
         changed_parts["camera_animations"][0]["fcurves"][0]["keyframes"][0]["value"] = 51.0
-        changed = finalize_scene_manifest(build_scene_manifest(**changed_parts))
+        changed = finalize_scene_manifest(build_scene_manifest_v4(**changed_parts))
         self.assertNotEqual(changed["sceneHash"], baseline["sceneHash"])
 
     def test_selection_is_reported_but_excluded_from_scene_hash(self):
@@ -134,32 +137,32 @@ class SceneManifestTests(unittest.TestCase):
         baseline_parts["selected_entity_ids"] = []
         selected_parts = parts()
         selected_parts["selected_entity_ids"] = [OBJECT]
-        baseline = finalize_scene_manifest(build_scene_manifest(**baseline_parts))
-        selected = finalize_scene_manifest(build_scene_manifest(**selected_parts))
+        baseline = finalize_scene_manifest(build_scene_manifest_v4(**baseline_parts))
+        selected = finalize_scene_manifest(build_scene_manifest_v4(**selected_parts))
         self.assertEqual(baseline["sceneHash"], selected["sceneHash"])
         self.assertEqual(baseline["revisionId"], selected["revisionId"])
         self.assertEqual(baseline["selectedEntityIds"], [])
         self.assertEqual(selected["selectedEntityIds"], [OBJECT])
 
     def test_object_transform_remains_in_scene_hash(self):
-        baseline = finalize_scene_manifest(build_scene_manifest(**parts()))
+        baseline = finalize_scene_manifest(build_scene_manifest_v4(**parts()))
         moved_parts = parts()
         moved_parts["objects"][1]["location"][0] = 1
-        moved = finalize_scene_manifest(build_scene_manifest(**moved_parts))
+        moved = finalize_scene_manifest(build_scene_manifest_v4(**moved_parts))
         self.assertNotEqual(baseline["sceneHash"], moved["sceneHash"])
 
     def test_snapshot_v2_section_2_6_camera_animations_are_closed_and_correlated(self):
         data = parts()
         data["camera_animations"][0]["unknown"] = True
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
         data = parts()
         data["camera_animations"][0]["objectId"] = OBJECT
         with self.assertRaises(INVALID_MANIFEST_REFERENCE):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
 
     def test_architecture_section_6_v1_manifest_cannot_be_used_for_mutation(self):
-        manifest = build_scene_manifest(**parts())
+        manifest = build_scene_manifest_v4(**parts())
         manifest["schemaVersion"] = 1
         with self.assertRaises(INVALID_SCENE_MANIFEST):
             finalize_scene_manifest(manifest)
@@ -168,7 +171,7 @@ class SceneManifestTests(unittest.TestCase):
         data = parts()
         data.update(scene={**data["scene"], "activeCameraId": None}, objects=[], bones=[], cameras=[], lights=[], markers=[], selected_entity_ids=[])
         data["camera_animations"] = []
-        self.assertEqual(build_scene_manifest(**data)["objects"], [])
+        self.assertEqual(build_scene_manifest_v4(**data)["objects"], [])
 
     def test_section_8_rational_fps_has_only_supported_exact_rules(self):
         self.assertEqual(rational_fps(24, 1.0), (24, 1))
@@ -181,10 +184,10 @@ class SceneManifestTests(unittest.TestCase):
         data = parts()
         data["scene"] = {**data["scene"], "fpsNumerator": 48000, "fpsDenominator": 2002}
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
 
     def test_section_6_hash_preimage_excludes_hash_fields(self):
-        manifest = build_scene_manifest(**parts())
+        manifest = build_scene_manifest_v4(**parts())
         baseline = finalize_scene_manifest(manifest)
         polluted = {**manifest, "sceneHash": "garbage", "revisionId": "placeholder"}
         self.assertEqual(finalize_scene_manifest(polluted), baseline)
@@ -192,13 +195,13 @@ class SceneManifestTests(unittest.TestCase):
         self.assertRegex(baseline["revisionId"], r"^[0-9a-f]{64}$")
 
     def test_section_6_finalize_rejects_out_of_order_input(self):
-        manifest = build_scene_manifest(**parts())
+        manifest = build_scene_manifest_v4(**parts())
         manifest["objects"] = list(reversed(manifest["objects"]))
         with self.assertRaises(INVALID_SCENE_MANIFEST):
             finalize_scene_manifest(manifest)
 
     def test_section_6_rejects_unknown_top_level_and_nested_fields(self):
-        manifest = build_scene_manifest(**parts())
+        manifest = build_scene_manifest_v4(**parts())
         with self.assertRaises(INVALID_SCENE_MANIFEST):
             finalize_scene_manifest({**manifest, "unknown": True})
         polluted = {**manifest, "scene": {**manifest["scene"], "unknown": True}}
@@ -209,7 +212,7 @@ class SceneManifestTests(unittest.TestCase):
         data = parts()
         mutate(data)
         with self.assertRaises(INVALID_MANIFEST_REFERENCE):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
 
     def test_section_6_rejects_every_invalid_cross_reference(self):
         cases = [
@@ -232,31 +235,31 @@ class SceneManifestTests(unittest.TestCase):
         data = parts()
         data["cameras"] = data["cameras"] + [dict(data["cameras"][0])]
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
         data = parts()
         data["lights"] = data["lights"] + [dict(data["lights"][0])]
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
 
     def test_section_6_spot_fields_are_iff_spot(self):
         data = parts()
         data["lights"][0]["spotSize"] = 1.0
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
         data = parts()
         data["lights"][0].update(lightType="SPOT", spotSize=None, spotBlend=0.5)
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
 
     def test_section_6_rejects_noncanonical_quaternion_and_uuid(self):
         data = parts()
         data["objects"][0]["rotationQuaternion"] = [-1, 0, 0, 0]
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
         data = parts()
         data["project_id"] = "abcdefab-cdef-4abc-8abc-abcdefabcdef".upper()
         with self.assertRaises(INVALID_SCENE_MANIFEST):
-            build_scene_manifest(**data)
+            build_scene_manifest_v4(**data)
 
 
 if __name__ == "__main__":

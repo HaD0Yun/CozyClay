@@ -2,6 +2,7 @@
 # cclay — launch the CozyClay Blender director in the current directory, pi-style.
 #   cclay                          # sol director in $PWD, Blender auto-attached
 #   cclay --model gpt-5.6-sol      # override model (provider defaults to openai-codex)
+#   cclay --fast                   # OpenAI Priority Processing; model/thinking unchanged
 #   cclay --glm                    # GLM 5.2 on Fireworks' Fast serving path
 #   cclay --no-blender             # TUI/daemon only, attach Blender yourself
 #   CCLAY_PROJECT_DIR=... cclay    # direct at another project dir
@@ -69,6 +70,7 @@ Options:
   --no-blender                 Start only the director for an existing project
   --provider <name>            Select a Pi model provider
   --model <id>                 Select a model
+  --fast                       Enable OpenAI priority service tier for supported GPT models
   --glm                        Use GLM 5.2 through the Fireworks fast router
   --version, -V                Print version information
   --help, -h                   Show this help

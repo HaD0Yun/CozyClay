@@ -4,9 +4,11 @@ __init__.py
 assets/characters/x-bot-tpose.fbx
 assets/characters/y-bot-tpose.fbx
 blender_manifest.toml
+blender_server.py
 camera_action.py
 camera_plan.py
 canonical.py
+character_rig.py
 character_target.py
 checkpoint.py
 connection.py
@@ -17,6 +19,8 @@ controller_connection.py
 daemon_child.py
 directing_evidence.py
 entity_animation.py
+execute_blender_python_warning.json
+execution_journal.py
 fall_motion.py
 fixture_registry.py
 fixtures/boxing-v4-directing-evidence.json
@@ -26,6 +30,8 @@ identity.py
 ik_chains.py
 ik_rig.py
 manifest.py
+manifest_fields_generated.py
+motion_archive.py
 motion_constraints.py
 motion_preflight.py
 motion_retarget.py
@@ -42,6 +48,7 @@ scene_manifest.py
 scene_relations.py
 snapshot.py
 stage_scene.py
+stage_scene_ops_generated.py
 ui_panel.py
 view_matrices.py
 viewport_capture.py

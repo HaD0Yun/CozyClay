@@ -1,33 +1,24 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { parseSceneManifestV2, parseSceneManifestV4 } from "../src/manifest.ts";
+import { parseSceneManifestV4 } from "../src/manifest.ts";
 
 const ROOT_ID = "11111111-1111-4111-8111-111111111111";
 const MEMBER_ID = "22222222-2222-4222-8222-222222222222";
 const ASSEMBLY_ID = "33333333-3333-4333-8333-333333333333";
 
-const v2 = parseSceneManifestV2(
-	JSON.parse(
-		await readFile(
-			new URL("../../director-core/test/fixtures/scene-manifest-v2-parity.json", import.meta.url),
-			"utf8",
-		),
+const base = JSON.parse(
+	await readFile(
+		new URL("../../director-core/test/fixtures/scene-manifest-v3-hierarchy-compat.json", import.meta.url),
+		"utf8",
 	),
-);
-
-function v3Manifest(): Record<string, unknown> {
-	return {
-		...structuredClone(v2),
-		schemaVersion: 3,
-		stagePrimitives: [],
-		stageMaterials: [],
-	};
-}
+) as Record<string, unknown>;
 
 function v4Manifest(): Record<string, unknown> {
-	const manifest = v3Manifest();
-	manifest.schemaVersion = 4;
+	const manifest: Record<string, unknown> = {
+		...structuredClone(base),
+		schemaVersion: 4,
+	};
 	manifest.objects = [
 		{
 			entityId: ROOT_ID,
@@ -54,6 +45,8 @@ function v4Manifest(): Record<string, unknown> {
 	manifest.lights = [];
 	manifest.markers = [];
 	manifest.cameraAnimations = [];
+	manifest.stagePrimitives = [];
+	manifest.stageMaterials = [];
 	manifest.scene = { ...(manifest.scene as Record<string, unknown>), activeCameraId: null };
 	manifest.assemblies = [
 		{ assemblyId: ASSEMBLY_ID, name: "Vehicle", rootEntityId: ROOT_ID, memberIds: [ROOT_ID, MEMBER_ID] },
@@ -88,15 +81,35 @@ test("SceneManifestV4 parses and round-trips assembly hierarchy", () => {
 	assert.deepEqual(parseSceneManifestV4(structuredClone(parsed)), parsed);
 });
 
-test("SceneManifestV3 parses through the V4 parser with empty hierarchy defaults", () => {
-	const parsed = parseSceneManifestV4(v3Manifest());
-	assert.equal(parsed.schemaVersion, 4);
-	assert.ok(parsed.objects.every((object) => object.parentId === null));
-	assert.deepEqual(parsed.assemblies, []);
-});
-
 test("SceneManifestV4 rejects unknown fields", () => {
 	const manifest = v4Manifest();
 	(manifest.assemblies as Array<Record<string, unknown>>)[0]!.unknown = true;
 	assert.throws(() => parseSceneManifestV4(manifest));
+});
+test("SceneManifestV4 accepts opaque namespaces but rejects invalid extension values and outer fields", () => {
+	const manifest = v4Manifest();
+	manifest.extensions = { "x-newer-addon": { arbitrary: ["payload", true] } };
+	assert.deepEqual(parseSceneManifestV4(manifest).extensions, manifest.extensions);
+
+	manifest.extensions = { "x-newer-addon": "x".repeat(4097) };
+	assert.throws(() => parseSceneManifestV4(manifest), /4096/);
+
+	const outside = v4Manifest();
+	outside.unrecognized = true;
+	assert.throws(() => parseSceneManifestV4(outside));
+});
+test("SceneManifestV4 rejects unpaired surrogates but accepts astral extension strings", () => {
+	const highSurrogate = v4Manifest();
+	highSurrogate.extensions = { "x-newer-addon": { value: "\uD800" } };
+	assert.throws(() => parseSceneManifestV4(highSurrogate), /unpaired surrogate/);
+
+	const lowSurrogate = v4Manifest();
+	lowSurrogate.extensions = { "x-newer-addon": { value: "\uDC00" } };
+	assert.throws(() => parseSceneManifestV4(lowSurrogate), /unpaired surrogate/);
+
+	const astral = { "x-newer-addon": { value: "😀" } };
+	const validPair = v4Manifest();
+	validPair.extensions = astral;
+	assert.deepEqual(parseSceneManifestV4(validPair).extensions, astral);
+	assert.equal(Buffer.byteLength('{"x-newer-addon":{"value":"😀"}}', "utf8"), 34);
 });

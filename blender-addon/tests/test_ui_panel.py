@@ -219,7 +219,7 @@ class UiPanelTests(unittest.TestCase):
                 self.bpy.app.timers.is_registered(self.addon._pump_lifecycle)
             )
 
-    def test_connect_reports_pi_bridge_instruction_when_no_endpoint_exists(self) -> None:
+    def test_connect_starts_the_blender_owned_bridge(self) -> None:
         operator = self.addon.CCLAY_OT_connect()
         reports = []
         operator.report = lambda levels, message: reports.append((levels, message))
@@ -231,11 +231,14 @@ class UiPanelTests(unittest.TestCase):
             mock.patch.object(
                 self.addon.project_store, "verify_connect_precondition"
             ),
+            mock.patch.object(
+                self.connection_module, "start_blender_server"
+            ) as start_server,
         ):
             result = operator.execute(context)
 
-        self.assertEqual(result, {"CANCELLED"})
-        self.assertIn("Pi bridge endpoint", reports[-1][1])
+        self.assertEqual(result, {"FINISHED"})
+        start_server.assert_called_once()
 
     def test_each_lifecycle_state_has_human_readable_rendering(self) -> None:
         expected = {
@@ -250,7 +253,7 @@ class UiPanelTests(unittest.TestCase):
             with self.subTest(state=state):
                 active = types.SimpleNamespace(
                     state=state,
-                    tools_exposed=state is self.connection_module.LifecycleState.ACTIVE,
+                    bridge_requests_allowed=state is self.connection_module.LifecycleState.ACTIVE,
                     identity={"launch_id": "launch", "bearer_token_fingerprint": "fingerprint"},
                     child=types.SimpleNamespace(
                         process=types.SimpleNamespace(
@@ -263,13 +266,16 @@ class UiPanelTests(unittest.TestCase):
                 self.assertIn("Provider: anthropic", labels)
                 self.assertIn("Model: claude-sonnet-4", labels)
                 if state is self.connection_module.LifecycleState.RECOVERY_REQUIRED:
-                    self.assertIn("Tools: Hidden until verified recovery", labels)
+                    self.assertIn(
+                        "Tools: Available, but bridge calls fail until reconnect verification succeeds",
+                        labels,
+                    )
 
     def test_panel_never_renders_environment_secret_or_bearer_identity(self) -> None:
         secret = "sk-secret-ui-must-never-render"
         active = types.SimpleNamespace(
             state=self.connection_module.LifecycleState.ACTIVE,
-            tools_exposed=True,
+            bridge_requests_allowed=True,
             identity={"launch_id": "launch", "bearer_token": secret, "bearer_token_fingerprint": secret},
             last_bridge_response={"secret": secret},
             child=types.SimpleNamespace(
@@ -286,7 +292,7 @@ class UiPanelTests(unittest.TestCase):
     def test_panel_surfaces_progress_evidence_and_chat_controls(self) -> None:
         active = types.SimpleNamespace(
             state=self.connection_module.LifecycleState.RECOVERY_REQUIRED,
-            tools_exposed=False,
+            bridge_requests_allowed=False,
             task_status=self.connection_module.TaskStatus(
                 task_kind="qa_render",
                 descriptor="QA render revision aaaaaaaa, frames 80, 161",
@@ -727,5 +733,14 @@ class UiPanelTests(unittest.TestCase):
             layout.labels,
         )
 
+    def test_migration_status_label_reports_pending_and_complete_states(self) -> None:
+        self.assertEqual(
+            self.ui_panel._migration_status_label({}),
+            "Migration: Pending foreign-object lock",
+        )
+        self.assertEqual(
+            self.ui_panel._migration_status_label({"cclay.migration_version": 1}),
+            "Migration: Foreign objects locked",
+        )
 if __name__ == "__main__":
     unittest.main()

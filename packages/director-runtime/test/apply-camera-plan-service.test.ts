@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildSceneManifestV3Revision, buildSceneManifestV4Revision, type DirectorProject } from "@cclay/director-core";
-import { type CameraPlanV1, parseSceneManifestV2, parseSceneManifestV4, type SceneManifestV4 } from "@cclay/protocol";
+import { buildSceneManifestV4Revision, type DirectorProject } from "@cclay/director-core";
+import { type CameraPlanV1, parseSceneManifestV4, type SceneManifestV4 } from "@cclay/protocol";
 import {
 	type CameraPlanRevisionStore,
 	commitCameraPlanMutation,
@@ -28,14 +28,16 @@ const plan: CameraPlanV1 = {
 	],
 };
 
-const manifest = parseSceneManifestV2(
+const manifest = parseSceneManifestV4(
 	JSON.parse(
 		await readFile(
-			new URL("../../director-core/test/fixtures/scene-manifest-v2-parity.json", import.meta.url),
+			new URL("../../director-core/test/fixtures/scene-manifest-v4-parity.json", import.meta.url),
 			"utf8",
 		),
 	),
 );
+const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFreeManifest } = manifest;
+const cameraCandidate = buildSceneManifestV4Revision(hashFreeManifest, plan.expected_revision_id, plan);
 
 function fakeStore(events: string[] = []): CameraPlanRevisionStore {
 	const current: DirectorProject = {
@@ -51,18 +53,19 @@ function fakeStore(events: string[] = []): CameraPlanRevisionStore {
 			assert.equal(expected, plan.expected_revision_id);
 			assert.deepEqual(Object.keys(child).sort(), [
 				"current_revision_id",
+				"extensionsDigest",
 				"manifest",
 				"project_id",
 				"schema_version",
 			]);
-			assert.equal(child.current_revision_id, manifest.revisionId);
-			assert.equal(child.manifest, manifest);
+			assert.equal(child.current_revision_id, cameraCandidate.revisionId);
+			assert.equal(child.manifest, cameraCandidate);
 			assert.equal(journal.schema_version, 2);
 			assert.equal(journal.operation, "apply_camera_plan");
 			assert.match(journal.request_id, /^[0-9a-f-]{36}$/);
 			assert.match(journal.plan_sha256, /^[0-9a-f]{64}$/);
 			assert.equal(journal.base_scene_hash, manifest.sceneHash);
-			assert.equal(journal.candidate_scene_hash, manifest.sceneHash);
+			assert.equal(journal.candidate_scene_hash, cameraCandidate.sceneHash);
 			events.push("commit:durable");
 		},
 		reconcileRevision: async () => ({
@@ -80,7 +83,11 @@ test("row 35: live main-thread V2 hash differs — STALE_BASE", async () => {
 			request: { expected_revision_id: "c".repeat(64) },
 			applyCameraPlan: async () => {
 				dispatched = true;
-				return { expected_revision_id: plan.expected_revision_id, scene_hash: manifest.sceneHash, manifest };
+				return {
+					expected_revision_id: plan.expected_revision_id,
+					scene_hash: cameraCandidate.sceneHash,
+					manifest: cameraCandidate,
+				};
 			},
 		}),
 		/STALE_BASE/,
@@ -103,14 +110,34 @@ test("commits the mutation candidate durably before returning the top-level resp
 			assert.equal(context.signal, controller.signal);
 			context.reportProgress({ phase: "mutating", completed: 1, total: 2 });
 			events.push("bridge:result");
-			return { expected_revision_id: plan.expected_revision_id, scene_hash: manifest.sceneHash, manifest };
+			return {
+				expected_revision_id: plan.expected_revision_id,
+				scene_hash: cameraCandidate.sceneHash,
+				manifest: cameraCandidate,
+			};
 		},
 	});
 	events.push("handler:resolved");
 	assert.deepEqual(received, plan);
 	assert.deepEqual(progress, [["mutating", 1, 2]]);
 	assert.deepEqual(events, ["bridge:result", "commit:owned", "commit:durable", "handler:resolved"]);
-	assert.equal(output.resulting_revision_id, manifest.revisionId);
+	assert.equal(output.resulting_revision_id, cameraCandidate.revisionId);
+});
+test("commits a camera plan without directing evidence", async () => {
+	const { evidence_sha256: _evidenceSha256, ...planWithoutEvidence } = plan;
+	const candidate = buildSceneManifestV4Revision(
+		hashFreeManifest,
+		planWithoutEvidence.expected_revision_id,
+		planWithoutEvidence,
+	);
+	const store = fakeStore();
+	store.commitRevision = async () => {};
+	const result = await commitCameraPlanMutation(store, planWithoutEvidence, {
+		expected_revision_id: planWithoutEvidence.expected_revision_id,
+		scene_hash: candidate.sceneHash,
+		manifest: candidate,
+	});
+	assert.equal(result.resulting_revision_id, candidate.revisionId);
 });
 
 test("commit conflict rejects the mutation so the add-on receives a top-level error", async () => {
@@ -124,8 +151,8 @@ test("commit conflict rejects the mutation so the add-on receives a top-level er
 			request: { expected_revision_id: plan.expected_revision_id },
 			applyCameraPlan: async () => ({
 				expected_revision_id: plan.expected_revision_id,
-				scene_hash: manifest.sceneHash,
-				manifest,
+				scene_hash: cameraCandidate.sceneHash,
+				manifest: cameraCandidate,
 			}),
 		}),
 		/STALE_BASE: commit conflict/,
@@ -133,7 +160,7 @@ test("commit conflict rejects the mutation so the add-on receives a top-level er
 });
 
 test("rejects a mutation candidate whose manifest content does not match its supplied hashes", async () => {
-	const tampered = structuredClone(manifest);
+	const tampered = structuredClone(cameraCandidate);
 	tampered.cameraAnimations[0]!.fcurves[0]!.keyframes[0]!.value += 1;
 	let committed = false;
 	const store = fakeStore();
@@ -156,7 +183,7 @@ test("rejects a mutation candidate whose manifest content does not match its sup
 });
 
 test("rejects a mutation candidate whose revisionId does not match the recomputed revision", async () => {
-	const tampered = { ...manifest, revisionId: "d".repeat(64) };
+	const tampered = { ...cameraCandidate, revisionId: "d".repeat(64) };
 	let committed = false;
 	const store = fakeStore();
 	store.commitRevision = async () => {
@@ -177,12 +204,11 @@ test("rejects a mutation candidate whose revisionId does not match the recompute
 	assert.equal(committed, false);
 });
 
-test("preserves a durable V3 substrate and derives the camera child through its parent chain", async () => {
-	const { schemaVersion: _schemaVersion, revisionId: _revisionId, sceneHash: _sceneHash, ...v2HashFree } = manifest;
-	const stagedManifest = buildSceneManifestV3Revision(
+test("preserves a durable V4 substrate and derives the camera child through its parent chain", async () => {
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFree } = manifest;
+	const stagedManifest = buildSceneManifestV4Revision(
 		{
-			...v2HashFree,
-			schemaVersion: 3,
+			...hashFree,
 			lights: manifest.lights.map((light) => ({ ...light, areaSize: null })),
 			stagePrimitives: [{ objectId: manifest.objects[1]!.entityId, primitiveType: "CUBE" }],
 			stageMaterials: [],
@@ -192,7 +218,7 @@ test("preserves a durable V3 substrate and derives the camera child through its 
 	);
 	const stagedPlan: CameraPlanV1 = { ...plan, expected_revision_id: stagedManifest.revisionId };
 	const { revisionId: _stagedRevisionId, sceneHash: _stagedSceneHash, ...stagedHashFree } = stagedManifest;
-	const cameraManifest = buildSceneManifestV3Revision(stagedHashFree, stagedPlan.expected_revision_id, stagedPlan);
+	const cameraManifest = buildSceneManifestV4Revision(stagedHashFree, stagedPlan.expected_revision_id, stagedPlan);
 	let committedManifest: SceneManifestV4 | undefined;
 	const store: CameraPlanRevisionStore = {
 		readProject: async () => ({
@@ -227,15 +253,11 @@ test("preserves a durable V3 substrate and derives the camera child through its 
 	assert.deepEqual(committedManifest?.stageMaterials, stagedManifest.stageMaterials);
 });
 
-test("commits a flat V3 camera candidate over a V4-normalized durable substrate", async () => {
-	// The daemon persists durable manifests as hash-preserving V4 while the
-	// add-on keeps emitting V3 candidates for flat scenes; the schema guard
-	// must only fence the V2 boundary or every flat camera plan fails.
-	const { schemaVersion: _schemaVersion, revisionId: _revisionId, sceneHash: _sceneHash, ...v2HashFree } = manifest;
-	const stagedManifest = buildSceneManifestV3Revision(
+test("commits a flat V4 camera candidate over a V4 durable substrate", async () => {
+	const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFree } = manifest;
+	const stagedManifest = buildSceneManifestV4Revision(
 		{
-			...v2HashFree,
-			schemaVersion: 3,
+			...hashFree,
 			lights: manifest.lights.map((light) => ({ ...light, areaSize: null })),
 			stagePrimitives: [{ objectId: manifest.objects[1]!.entityId, primitiveType: "CUBE" }],
 			stageMaterials: [],
@@ -246,7 +268,7 @@ test("commits a flat V3 camera candidate over a V4-normalized durable substrate"
 	const durableV4 = parseSceneManifestV4(stagedManifest);
 	const stagedPlan: CameraPlanV1 = { ...plan, expected_revision_id: stagedManifest.revisionId };
 	const { revisionId: _stagedRevisionId, sceneHash: _stagedSceneHash, ...stagedHashFree } = stagedManifest;
-	const cameraManifest = buildSceneManifestV3Revision(stagedHashFree, stagedPlan.expected_revision_id, stagedPlan);
+	const cameraManifest = buildSceneManifestV4Revision(stagedHashFree, stagedPlan.expected_revision_id, stagedPlan);
 	let committedRevisionId: string | undefined;
 	const store: CameraPlanRevisionStore = {
 		readProject: async () => ({
@@ -318,18 +340,12 @@ function hierarchyStore(
 	};
 }
 
-test("rejects a V3 camera candidate over a hierarchical V4 durable manifest", async () => {
+test("rejects a V4 camera candidate that drops a hierarchical durable manifest", async () => {
 	const { durable } = hierarchicalFixture();
 	const stagedPlan = { ...plan, expected_revision_id: durable.revisionId };
-	const {
-		assemblies: _assemblies,
-		schemaVersion: _version,
-		revisionId: _revision,
-		sceneHash: _hash,
-		...rest
-	} = durable;
-	const candidate = buildSceneManifestV3Revision(
-		{ ...rest, schemaVersion: 3 },
+	const { assemblies: _assemblies, revisionId: _revision, sceneHash: _hash, ...rest } = durable;
+	const candidate = buildSceneManifestV4Revision(
+		{ ...rest, assemblies: [] },
 		stagedPlan.expected_revision_id,
 		stagedPlan,
 	);
@@ -371,19 +387,7 @@ test("rejects a V4 camera candidate that mutates durable assemblies", async () =
 });
 
 test("rejects a hierarchy-introducing V4 camera candidate over a flat durable manifest", async () => {
-	const flat = parseSceneManifestV4(
-		buildSceneManifestV3Revision(
-			{
-				...structuredClone(manifest),
-				schemaVersion: 3,
-				lights: manifest.lights.map((light) => ({ ...light, areaSize: null })),
-				stagePrimitives: [],
-				stageMaterials: [],
-			},
-			"c".repeat(64),
-			{ schema_version: 1, operations: ["stage"] },
-		),
-	);
+	const flat = manifest;
 	const stagedPlan = { ...plan, expected_revision_id: flat.revisionId };
 	const { revisionId: _revision, sceneHash: _hash, ...hashFree } = flat;
 	const rootId = flat.objects[1]!.entityId;
@@ -549,8 +553,8 @@ test("does not call commitRevision when cancellation wins the durable-commit bar
 			},
 			applyCameraPlan: async () => ({
 				expected_revision_id: plan.expected_revision_id,
-				scene_hash: manifest.sceneHash,
-				manifest,
+				scene_hash: cameraCandidate.sceneHash,
+				manifest: cameraCandidate,
 			}),
 		}),
 		/CANCELLED/,

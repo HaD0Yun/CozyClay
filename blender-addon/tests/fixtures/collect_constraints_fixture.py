@@ -23,7 +23,8 @@ REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPOSITORY_ROOT / "blender-addon"))
 
 from cclay import constraint_capture, ik_chains, ik_rig  # noqa: E402
-from cclay import motion_constraints, motion_retarget, stage_scene  # noqa: E402
+from cclay import motion_constraints, motion_retarget  # noqa: E402
+from cclay.character_rig import CharacterRigAdapter  # noqa: E402
 
 CHARACTER = REPOSITORY_ROOT / "blender-addon/cclay/assets/characters/x-bot-tpose.fbx"
 START_FRAME = 1
@@ -41,19 +42,12 @@ def _bake_real_clip():
     local_rot_mats = data["local_rot_mats"][:CLIP_FRAMES]
     posed_joints = data["posed_joints"][:CLIP_FRAMES]
 
-    bones = armature.data.bones
-    prefix, rig_thigh = stage_scene._rig_scale_inputs(bones)
-    rest_rotations = {}
-    for cskel, target in motion_retarget.MIXAMO_TARGETS.items():
-        if target is None:
-            continue
-        bone = bones.get(f"{prefix}{target}")
-        if bone is not None:
-            rest_rotations[cskel] = [list(row) for row in bone.matrix_local.to_3x3()]
-    scale = motion_retarget.derive_scale(posed_joints[0], rig_thigh)
+    rig = CharacterRigAdapter(armature.data.bones)
+    prefix = rig.prefix
+    scale = motion_retarget.derive_scale(posed_joints[0], rig.rig_thigh)
     tracks = motion_retarget.build_pose_tracks(
-        local_rot_mats, posed_joints, rest_rotations,
-        list(bones[f"{prefix}Hips"].head_local), scale,
+        local_rot_mats, posed_joints, rig.rest_rotations(),
+        rig.hips_head(), scale,
     )
 
     scene = bpy.context.scene

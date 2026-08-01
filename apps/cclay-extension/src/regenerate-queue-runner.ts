@@ -5,22 +5,28 @@
 // is the only way an animator's request reaches this process. Something on
 // this side has to look, and that something is here.
 //
-// Deliberately NOT a director tool. `DIRECTOR_TOOL_ALLOWLIST` is closed, and
-// regeneration is a determinstic reaction to a button the animator pressed --
-// there is no decision for a model to make. Registering it as a tool would
-// also mean it only ran when a model chose to call it.
-import type { ArdyRegenerateRequestV1, StageSceneRequestV1 } from "@cclay/protocol";
+// The runner remains the host-owned execution path for both animator and model
+// requests: callers publish a canonical request, then the serialized sweep
+// invokes the existing queue handler.
+import type {
+	ArdyRegenerateQueueOutcomeV1,
+	ArdyRegenerateRequestV1,
+	StageSceneRequestV1,
+} from "@cclay/protocol";
 import {
 	ARDY_REGENERATE_WRAPPER,
+	ArdyArchiveService,
 	type ArdyRegenerateCliResult,
 	type ArdyRegenerateQueueHandler,
+	type ArdyArchiveService as ArdyArchiveBoundary,
 	createArdyRegenerateHandler,
 	recoverAbandonedClaims,
 	removeOrphanedSyntheticPoses,
 	sweepRegenerateRequests,
+	writeRegenerateRequest,
+	MotionArchiveStore,
 } from "@cclay/director-runtime";
 import { execFile } from "node:child_process";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Long because a constrained ARDY run goes out to a GPU box over ssh and back.
@@ -47,7 +53,10 @@ export interface RegenerateQueueRunnerOptions {
 	) => Promise<{ resulting_revision_id: string }>;
 	readonly wrapperPath?: string;
 	readonly tickMs?: number;
-	readonly onError?: (error: unknown) => void;
+	readonly onError: (error: unknown) => void;
+	// Test seam only. Production always constructs the project-backed archive
+	// service, so regeneration cannot bypass input validation or output commit.
+	readonly archive?: Pick<ArdyArchiveBoundary, "read" | "commitGenerated">;
 }
 
 // argv is passed as an array to execFile, never a shell string, so a
@@ -102,6 +111,7 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 	// opaquely, so the seam is narrowed once here rather than at every call.
 	const handler = createArdyRegenerateHandler({
 		runCli: runWrapper(wrapperPath, options.cwd),
+		archive: options.archive ?? new ArdyArchiveService(new MotionArchiveStore(options.cwd)),
 		applyMotion: async (motionId, entityId, expectedRevisionId, context) =>
 			options.stageScene(applyMotionRequest(motionId, entityId, expectedRevisionId), context),
 	}) as ArdyRegenerateQueueHandler;
@@ -112,6 +122,11 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 	// on, so overlapping sweeps would make one request's guard depend on
 	// whether another happened to finish first.
 	let running: Promise<void> = Promise.resolve();
+	type PendingWaiter = {
+		resolve: (outcome: ArdyRegenerateQueueOutcomeV1) => void;
+		reject: (error: Error) => void;
+	};
+	const pendingWaiters = new Map<string, PendingWaiter>();
 
 	const tick = async () => {
 		if (stopped) return;
@@ -121,18 +136,24 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 			// request claimed, and recovering only once would strand it until
 			// somebody restarted the host.
 			await recoverAbandonedClaims(options.cwd);
-			await sweepRegenerateRequests({
+			for (const entry of await sweepRegenerateRequests({
 				projectDirectory: options.cwd,
 				handler,
 				contextFor: (request: ArdyRegenerateRequestV1) => ({
 					signal: AbortSignal.timeout(CLI_TIMEOUT_MS),
 					request: { expected_revision_id: request.expected_revision_id },
 				}),
-			});
+			})) {
+				const waiter = pendingWaiters.get(entry.requestId);
+				if (waiter !== undefined) {
+					pendingWaiters.delete(entry.requestId);
+					waiter.resolve(entry.outcome);
+				}
+			}
 		} catch (error) {
 			// A sweep failure must not kill the interval: the next animator
 			// request would then sit in the queue with nothing watching.
-			options.onError?.(error);
+			options.onError(error);
 		}
 	};
 
@@ -150,7 +171,7 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 			await recoverAbandonedClaims(options.cwd);
 			await removeOrphanedSyntheticPoses(options.cwd);
 		} catch (error) {
-			options.onError?.(error);
+			options.onError(error);
 		}
 		await schedule();
 	})();
@@ -165,9 +186,37 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 		// default is resolved, not passed in, and a wrong default fails only
 		// once an animator has already published a request.
 		wrapperPath,
+		async regenerate(request: ArdyRegenerateRequestV1): Promise<ArdyRegenerateQueueOutcomeV1> {
+			if (stopped) {
+				throw new Error("REGENERATE_QUEUE_RUNNER_STOPPED");
+			}
+			if (pendingWaiters.has(request.request_id)) {
+				throw new Error(`DUPLICATE_ACTIVE_REGENERATE_REQUEST_ID: ${request.request_id}`);
+			}
+			let resolve: (outcome: ArdyRegenerateQueueOutcomeV1) => void = () => {};
+			let reject: (error: Error) => void = () => {};
+			const outcome = new Promise<ArdyRegenerateQueueOutcomeV1>((onResolve, onReject) => {
+				resolve = onResolve;
+				reject = onReject;
+			});
+			pendingWaiters.set(request.request_id, { resolve, reject });
+			try {
+				await writeRegenerateRequest(options.cwd, request);
+			} catch (error) {
+				pendingWaiters.delete(request.request_id);
+				reject(error instanceof Error ? error : new Error(String(error)));
+				return outcome;
+			}
+			void schedule();
+			return outcome;
+		},
 		async stop(): Promise<void> {
 			stopped = true;
 			clearInterval(timer);
+			for (const waiter of pendingWaiters.values()) {
+				waiter.reject(new Error("REGENERATE_QUEUE_RUNNER_STOPPED"));
+			}
+			pendingWaiters.clear();
 			await running.catch(() => {});
 		},
 		// Exposed for tests and for a host that wants to react immediately

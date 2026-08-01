@@ -54,7 +54,7 @@ def main() -> None:
         results["freshResult"] = sorted(bpy.ops.cclay.initialize_project())
         project_path = fresh / ".cclay" / "project.json"
         document = json.loads(project_path.read_text(encoding="utf-8"))
-        live = manifest.extract_scene_manifest_v2()
+        live = manifest.extract_scene_manifest_v4()
         results["freshFull"] = set(document) == {
             "schema_version", "project_id", "current_revision_id", "manifest"
         }
@@ -62,7 +62,7 @@ def main() -> None:
         results["freshRevisionMatches"] = document["current_revision_id"] == live["revisionId"]
 
         bpy.context.scene.objects[0].location.x = 2.0
-        child_manifest = manifest.extract_scene_manifest_v2()
+        child_manifest = manifest.extract_scene_manifest_v4()
         child_document = {
             "schema_version": 1,
             "project_id": document["project_id"],
@@ -159,7 +159,7 @@ def main() -> None:
         journal_document = json.loads(
             (journal_failure / ".cclay" / "project.json").read_text(encoding="utf-8")
         )
-        journal_live = manifest.extract_scene_manifest_v2()
+        journal_live = manifest.extract_scene_manifest_v4()
         results["journalFailureConsistent"] = (
             bpy.context.scene["cclay.project_id"] == journal_document["project_id"]
             and journal_document["manifest"] == journal_live

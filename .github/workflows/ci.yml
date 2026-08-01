@@ -128,3 +128,61 @@ jobs:
             if (revision !== expected) throw new Error(`parity mismatch: ts=${revision} python=${expected}`);
             console.log(`cross-language parity ok: ${revision}`);
           '
+  # The execute_blender_python parity matrix is the migration proof for every
+  # ordinary stage_scene operation this repo removed, and it needs a real
+  # Blender. The blender-addon-tests job above stays hermetic and fast, so the
+  # matrix runs here instead, on the same pinned build and cache key as
+  # blender-export-parity. A skipped matrix is not a passing matrix, which is
+  # why the assertion step below rejects "skipped".
+  #
+  # `main` currently has no branch protection, so this check does not by itself
+  # prevent a merge; treat a red run as blocking by convention, or require the
+  # `blender-execute-python-parity` check in repository settings.
+  blender-execute-python-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache Blender
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: ~/blender-5.1.2
+          key: blender-5.1.2-linux-x64
+
+      - name: Download pinned Blender 5.1.2
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/blender.tar.xz https://download.blender.org/release/Blender5.1/blender-5.1.2-linux-x64.tar.xz
+          mkdir -p ~/blender-5.1.2
+          tar -xJf /tmp/blender.tar.xz -C ~/blender-5.1.2 --strip-components=1
+
+      # The test resolves the binary through shutil.which("blender"), unlike
+      # blender-export-parity which invokes an absolute path.
+      - name: Put Blender on PATH
+        run: |
+          echo "$HOME/blender-5.1.2" >> "$GITHUB_PATH"
+
+      - name: Run the execute_blender_python parity matrix
+        run: |
+          command -v blender
+          python3 -m unittest discover -s blender-addon/tests -v -k ExecutePythonStageSceneParity 2>&1 | tee /tmp/execute-parity.log
+
+      # unittest writes its summary to stderr, which the tee above merged into
+      # the log. Assert the matrix RAN: a green job over four skips proves
+      # nothing.
+      - name: Require the parity matrix to have run, not skipped
+        run: |
+          set -euo pipefail
+          grep -Eq '^Ran [4-9][0-9]* tests' /tmp/execute-parity.log
+          grep -qx 'OK' /tmp/execute-parity.log
+          if grep -q 'skipped' /tmp/execute-parity.log; then
+            echo "execute_blender_python parity matrix was skipped; Blender did not resolve" >&2
+            exit 1
+          fi

@@ -403,11 +403,11 @@ scene["cclay.project_id"] = "00000000-0000-4000-8000-00000000000a"
 armature3["cclay.entity_id"] = "11111111-1111-4111-8111-111111111111"
 for index, bone in enumerate(armature3.data.bones):
     bone["cclay.entity_id"] = f"{index:08d}-0000-4000-8000-000000000001"
-before_manifest = manifest_module.extract_scene_manifest_v2()
+before_manifest = manifest_module.extract_scene_manifest_v4()
 bpy.context.view_layer.objects.active = armature3
 bpy.ops.object.mode_set(mode="POSE")
 ik_rig.attach(armature3)
-after_manifest = manifest_module.extract_scene_manifest_v2()
+after_manifest = manifest_module.extract_scene_manifest_v4()
 results["hash"] = {
     "trackedBonesBefore": len(before_manifest.get("bones", [])),
     "trackedBonesAfterAttach": len(after_manifest.get("bones", [])),

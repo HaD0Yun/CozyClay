@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from apply_camera_plan_fixture import SCENE_HASH, bound_plan, setup_scene
 from cclay.camera_plan import apply_camera_plan_transaction
-from cclay.manifest import extract_scene_manifest_v2
+from cclay.manifest import extract_scene_manifest_v4
 from cclay.qa_render import _scope_state, render_qa_frames_transaction, split_frame_for_bridge
 
 
@@ -45,7 +45,7 @@ def main() -> None:
         lambda _result: None,
     )
     bpy.context.scene.render.film_transparent = True
-    before_manifest = extract_scene_manifest_v2()
+    before_manifest = extract_scene_manifest_v4()
     before_scope = _scope_state(bpy.context.scene)
     result = render_qa_frames_transaction(
         {
@@ -73,7 +73,7 @@ def main() -> None:
             for index in range(3, len(image.pixels), 4)
         )
         bpy.data.images.remove(image)
-    after_manifest = extract_scene_manifest_v2()
+    after_manifest = extract_scene_manifest_v4()
     output = {
         "dimensions": dimensions,
         "profile": result["profile_version"],

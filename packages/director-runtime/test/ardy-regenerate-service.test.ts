@@ -3,7 +3,10 @@ import { test } from "node:test";
 import type { ArdyRegenerateRequestV1, ArdyRegenerateResultV1 } from "@cclay/protocol";
 import {
 	type ArdyRegenerateApplyMotionDispatch,
+	ArdyRegenerateApplyMotionError,
 	type ArdyRegenerateCliRunner,
+	ArdyRegenerateGenerationError,
+	ArdyRegenerateRevisionMismatchError,
 	createArdyRegenerateHandler,
 } from "../src/ardy-regenerate-service.ts";
 import type { DirectorHandlerContext } from "../src/inspect-service.ts";
@@ -106,11 +109,23 @@ function makeDispatch(
 	};
 	return { dispatch, calls };
 }
+function createHandler(runCli: ArdyRegenerateCliRunner, applyMotion: ArdyRegenerateApplyMotionDispatch) {
+	return createArdyRegenerateHandler({
+		runCli,
+		applyMotion,
+		archive: {
+			async read(): Promise<Uint8Array> {
+				return new Uint8Array();
+			},
+			async commitGenerated(): Promise<void> {},
+		},
+	});
+}
 
 test("regenerate success: all three constraint kinds ride distinct flags in argv and do not overwrite each other", async () => {
 	const { runner, calls } = makeRunner();
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
 	const { result, resulting_revision_id } = await handler(baseRequest, makeContext());
 
@@ -172,7 +187,7 @@ test("regenerate success: all three constraint kinds ride distinct flags in argv
 test("regenerate success: heading null is emitted as the literal 'none'", async () => {
 	const { runner, calls } = makeRunner();
 	const { dispatch } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
 	// Request with a null-heading waypoint and a numeric-heading waypoint.
 	const request: ArdyRegenerateRequestV1 = {
@@ -194,22 +209,71 @@ test("regenerate success: heading null is emitted as the literal 'none'", async 
 	const p2 = argv.indexOf("--constrain-path", p1 + 1);
 	assert.deepEqual(argv.slice(p2 + 1, p2 + 5), ["20", "1", "0.5", "0.7853982"]);
 });
+test("regenerate mediates inputs and generated output through the archive before apply_motion", async () => {
+	const events: string[] = [];
+	const handler = createArdyRegenerateHandler({
+		runCli: () => {
+			events.push("run");
+			return { status: 0, stdout: wrapperJson(), stderr: "" };
+		},
+		applyMotion: async () => {
+			events.push("apply");
+			return { resulting_revision_id: "b".repeat(64) };
+		},
+		archive: {
+			async read(motionId: string): Promise<Uint8Array> {
+				events.push(`read:${motionId}`);
+				return new Uint8Array();
+			},
+			async commitGenerated(motionId: string): Promise<void> {
+				events.push(`commit:${motionId}`);
+			},
+		},
+	});
+
+	await handler(baseRequest, makeContext());
+
+	assert.deepEqual(events, ["read:wave-base-1", "read:pose-synthetic-1", "run", "commit:regen-motion-1", "apply"]);
+});
+
+test("regenerate does not apply motion when generated archive commit fails", async () => {
+	const { runner } = makeRunner();
+	const { dispatch, calls } = makeDispatch();
+	const commitFailure = new Error("invalid generated npz");
+	const handler = createArdyRegenerateHandler({
+		runCli: runner,
+		applyMotion: dispatch,
+		archive: {
+			async read(): Promise<Uint8Array> {
+				return new Uint8Array();
+			},
+			async commitGenerated(): Promise<void> {
+				throw commitFailure;
+			},
+		},
+	});
+
+	await assert.rejects(handler(baseRequest, makeContext()), (error: unknown) => {
+		return error instanceof ArdyRegenerateGenerationError && error.cause === commitFailure;
+	});
+	assert.equal(calls.length, 0);
+});
 
 test("regenerate failure 1: CLI non-zero exit raises and apply_motion is never called", async () => {
 	const { runner } = makeRunner({ status: 1, stdout: "", stderr: "base motion npz not found" });
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
-	await assert.rejects(handler(baseRequest, makeContext()), /ARDY_REGENERATE_CLI_ERROR/);
+	await assert.rejects(handler(baseRequest, makeContext()), ArdyRegenerateGenerationError);
 	assert.equal(dispatchCalls.length, 0, "apply_motion must not run after a CLI failure");
 });
 
 test("regenerate failure 1b: unparseable CLI stdout raises and apply_motion is never called", async () => {
 	const { runner } = makeRunner({ status: 0, stdout: "not json at all" });
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
-	await assert.rejects(handler(baseRequest, makeContext()), /ARDY_REGENERATE_INVALID_JSON/);
+	await assert.rejects(handler(baseRequest, makeContext()), ArdyRegenerateGenerationError);
 	assert.equal(dispatchCalls.length, 0);
 });
 
@@ -218,21 +282,23 @@ test("regenerate failure 1c: runner throws synchronously raises a CLI error and 
 		throw new Error("spawn EACCES");
 	};
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
-	await assert.rejects(handler(baseRequest, makeContext()), /ARDY_REGENERATE_CLI_ERROR: spawn EACCES/);
+	await assert.rejects(handler(baseRequest, makeContext()), (error: unknown) => {
+		return error instanceof ArdyRegenerateGenerationError && error.message === "wrapper could not run: spawn EACCES";
+	});
 	assert.equal(dispatchCalls.length, 0);
 });
 
 test("regenerate failure 2: apply_motion revision conflict propagates as-is", async () => {
 	const { runner } = makeRunner();
-	const conflict = new Error("STALE_BASE: apply_motion expected aaaa, current revision is bbbb");
+	const conflict = new Error("apply_motion expected aaaa, current revision is bbbb");
 	const { dispatch } = makeDispatch({ throwError: conflict });
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
-	// The dispatch's own error surfaces verbatim; the handler does not wrap or
-	// swallow it, so the caller sees the real revision-conflict message.
-	await assert.rejects(handler(baseRequest, makeContext()), (error: unknown) => error === conflict);
+	await assert.rejects(handler(baseRequest, makeContext()), (error: unknown) => {
+		return error instanceof ArdyRegenerateApplyMotionError && error.cause === conflict;
+	});
 });
 
 test("regenerate failure 3: constraints past the result frames are dropped and recorded, run still succeeds", async () => {
@@ -243,7 +309,7 @@ test("regenerate failure 3: constraints past the result frames are dropped and r
 	// a warning, not a failure.
 	const { runner } = makeRunner({ stdout: wrapperJson({ frames: 25 }) });
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
 	const { result } = await handler(baseRequest, makeContext());
 
@@ -270,9 +336,11 @@ test("regenerate STALE_BASE: a mismatched expected_revision_id fails before any 
 		return { status: 0, stdout: wrapperJson(), stderr: "" };
 	};
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
-	await assert.rejects(handler(baseRequest, makeContext("b".repeat(64))), /STALE_BASE/);
+	await assert.rejects(handler(baseRequest, makeContext("b".repeat(64))), (error: unknown) => {
+		return error instanceof ArdyRegenerateRevisionMismatchError && error.code === "REVISION_MISMATCH";
+	});
 	assert.equal(cliRan, false, "CLI must not run on a stale revision");
 	assert.equal(dispatchCalls.length, 0, "apply_motion must not run on a stale revision");
 });
@@ -295,7 +363,7 @@ test("regenerate success with null residual: achieved_error_m is null and the ru
 		}),
 	});
 	const { dispatch } = makeDispatch();
-	const handler = createArdyRegenerateHandler({ runCli: runner, applyMotion: dispatch });
+	const handler = createHandler(runner, dispatch);
 
 	const request: ArdyRegenerateRequestV1 = {
 		...baseRequest,

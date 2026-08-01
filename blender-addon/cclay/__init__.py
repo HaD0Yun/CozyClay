@@ -62,6 +62,8 @@ if bpy is not None:
                 return {"CANCELLED"}
 
             scene = context.scene
+            if "cclay.allow_execute_blender_python" not in scene:
+                scene["cclay.allow_execute_blender_python"] = True
             project_created = not scene.get("cclay.project_id")
             directory = bpy.path.abspath("//")
             try:
@@ -124,7 +126,8 @@ if bpy is not None:
                         directory,
                         scene["cclay.project_id"],
                         project_created,
-                        manifest.extract_scene_manifest_v2(),
+                        manifest.extract_scene_manifest_v4(),
+                        scene["cclay.allow_execute_blender_python"],
                     )
             except (project_store.ProjectStoreError, IdentityError) as exc:
                 project_store.restore_property_assignments(originals)
@@ -225,9 +228,7 @@ if bpy is not None:
         bl_label = "Connect"
 
         def execute(self, context):
-            from . import connection, controller_connection
-            from .daemon_child import StartupError
-            from .ws_client import WebSocketError
+            from . import connection
 
             project_id = context.scene.get("cclay.project_id")
             if not project_id:
@@ -235,43 +236,14 @@ if bpy is not None:
                 return {"CANCELLED"}
             project_directory = bpy.path.abspath("//")
             try:
-                active = connection._active_connection
-                if active is not None and active.state in connection.RECONNECTABLE_STATES:
-                    stored = project_store.read_project_index(project_directory)
-                    if stored is None:
-                        raise project_store.ProjectStoreError(
-                            "Project is not initialized in .cclay/project.json"
-                        )
-                    project_store.verify_project_ids_match(
-                        project_id, stored.get("project_id")
-                    )
-                else:
-                    project_store.verify_connect_precondition(
-                        project_directory, project_id, bpy.data.is_dirty
-                    )
-                connect_options = {
-                    "cwd": project_directory,
-                    "project_id": project_id,
-                    "addon_version": ADDON_VERSION,
-                    "blender_version": bpy.app.version_string,
-                }
-                pi_endpoint = os.path.join(
-                    project_directory, ".cclay", "pi-bridge.json"
+                project_store.verify_connect_precondition(
+                    project_directory, project_id, bpy.data.is_dirty
                 )
-                if os.path.isfile(pi_endpoint):
-                    connection.connect_pi_extension(**connect_options)
-                else:
-                    raise connection.ConnectionError(
-                        "No Pi bridge endpoint found at .cclay/pi-bridge.json; "
-                        "run `cclay` in this project so the Pi extension can host the bridge"
-                    )
+                connection.start_blender_server(project_directory, ADDON_VERSION)
             except (
                 project_store.ProjectStoreError,
                 IdentityError,
                 connection.ConnectionError,
-                StartupError,
-                controller_connection.ControllerConnectionError,
-                WebSocketError,
             ) as exc:
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
@@ -301,7 +273,7 @@ if bpy is not None:
             if (
                 active is None
                 or active.state != connection.LifecycleState.ACTIVE
-                or not active.tools_exposed
+                or not active.bridge_requests_allowed
             ):
                 self.report({"ERROR"}, "No verified active daemon connection")
                 return {"CANCELLED"}
@@ -449,7 +421,7 @@ if bpy is not None:
             if (
                 active is None
                 or active.state != connection.LifecycleState.ACTIVE
-                or not active.tools_exposed
+                or not active.bridge_requests_allowed
             ):
                 self.report({"ERROR"}, "No verified active daemon connection")
                 return {"CANCELLED"}
@@ -609,7 +581,7 @@ if bpy is not None:
             if (
                 active is None
                 or active.state != connection.LifecycleState.ACTIVE
-                or not active.tools_exposed
+                or not active.bridge_requests_allowed
             ):
                 self.report({"ERROR"}, "No verified active daemon connection")
                 return {"CANCELLED"}
@@ -2187,6 +2159,14 @@ def _persistent(handler):
     handlers = getattr(bpy, "app", None) and getattr(bpy.app, "handlers", None)
     marker = getattr(handlers, "persistent", None) if handlers else None
     return marker(handler) if marker else handler
+@_persistent
+def _recover_execution_after_load(_unused=None) -> None:
+    """Rebuild the Blender-owned listener after a durable script rollback."""
+    from . import connection
+
+    connection.recover_pending_execution_after_load(ADDON_VERSION)
+
+
 
 
 # What was on screen when the file was written, so it can be put back. A ghost
@@ -2336,10 +2316,9 @@ def _keep_ghosts_still(_unused=None) -> None:
 
 
 def _pump_lifecycle() -> float:
-    from . import connection, controller_connection
+    from . import controller_connection
 
     _note_autokey_lapse()
-    connection.poll_active_bridge_reconnect()
     lifecycle_interval = controller_connection.poll_controller_lifecycle()
     panel_interval = ui_panel.pump_controller_panel()
     return min(lifecycle_interval, panel_interval)
@@ -2374,6 +2353,7 @@ def register() -> None:
                 (_drop_ghosts_before_save, handlers.save_pre),
                 (_restore_ghosts_after_save, handlers.save_post),
                 (_drop_ghosts_whose_mark_is_gone, handlers.depsgraph_update_post),
+                (_recover_execution_after_load, handlers.load_post),
             ):
                 if handler not in slot:
                     slot.append(handler)
@@ -2399,6 +2379,7 @@ def unregister() -> None:
                 (_drop_ghosts_before_save, handlers.save_pre),
                 (_restore_ghosts_after_save, handlers.save_post),
                 (_drop_ghosts_whose_mark_is_gone, handlers.depsgraph_update_post),
+                (_recover_execution_after_load, handlers.load_post),
             ):
                 if handler in slot:
                     slot.remove(handler)
@@ -2415,6 +2396,7 @@ def unregister() -> None:
         qa_image_display.cleanup_qa_images()
         if hasattr(bpy.types.Scene, "cclay_panel_chat"):
             del bpy.types.Scene.cclay_panel_chat
+        connection.stop_blender_server()
         connection.disconnect_active("addon_unload")
         while _registered_classes:
             bpy.utils.unregister_class(_registered_classes.pop())
