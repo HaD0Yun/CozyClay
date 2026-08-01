@@ -84,6 +84,9 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	// submit bridge gives the model-facing tool that same durable execution path.
 	const regenerateQueue = startRegenerateQueueRunner({
 		cwd,
+		// Live getter: re-reads the bridge's current revision for every
+		// request, so the handler's staleness guard sees the latest commit.
+		liveRevisionId: () => bridge.revisionId,
 		stageScene: (request, context) =>
 			mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
 		onError: (error) => {

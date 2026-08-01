@@ -106,6 +106,7 @@ describe("regeneration queue runner", () => {
 		const archiveEvents: string[] = [];
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async (request) => {
@@ -140,6 +141,7 @@ describe("regeneration queue runner", () => {
 		process.env.ARGV_LOG = join(project, "argv.log");
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
@@ -166,6 +168,7 @@ describe("regeneration queue runner", () => {
 		await installWrapper(FAILING_WRAPPER);
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
@@ -196,6 +199,7 @@ describe("regeneration queue runner", () => {
 
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
@@ -230,6 +234,7 @@ describe("regeneration queue runner", () => {
 		let applications = 0;
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async () => {
@@ -264,6 +269,7 @@ describe("regeneration queue runner", () => {
 		const errors: unknown[] = [];
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			wrapperPath: wrapper,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
@@ -290,6 +296,7 @@ describe("regeneration queue runner", () => {
 	it("defaults the generator to the repository wrapper, not one under the project", async () => {
 		const runner = startRegenerateQueueRunner({
 			cwd: project,
+			liveRevisionId: () => REVISION,
 			tickMs: 60_000,
 			stageScene: async () => ({ resulting_revision_id: "b".repeat(64) }),
 			onError: (error) => {

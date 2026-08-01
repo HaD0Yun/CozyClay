@@ -45,6 +45,12 @@ const REPO_WRAPPER_PATH = fileURLToPath(
 
 export interface RegenerateQueueRunnerOptions {
 	readonly cwd: string;
+	// The CURRENT project revision, read fresh on every request. The handler
+	// checks each request's expected_revision_id against it before spending
+	// GPU time on a regeneration, and the apply re-binds against the request's
+	// own revision afterwards. Must be a live getter: capturing the revision
+	// once would recreate the staleness bug this check exists to catch.
+	readonly liveRevisionId: () => string;
 	// The same dispatch the stage_scene tool uses, so a regenerated clip is
 	// applied and committed through exactly one code path.
 	readonly stageScene: (
@@ -114,6 +120,7 @@ export function startRegenerateQueueRunner(options: RegenerateQueueRunnerOptions
 		archive: options.archive ?? new ArdyArchiveService(new MotionArchiveStore(options.cwd)),
 		applyMotion: async (motionId, entityId, expectedRevisionId, context) =>
 			options.stageScene(applyMotionRequest(motionId, entityId, expectedRevisionId), context),
+		liveRevisionId: options.liveRevisionId,
 	}) as ArdyRegenerateQueueHandler;
 
 	let stopped = false;

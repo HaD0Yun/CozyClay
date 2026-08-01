@@ -4,14 +4,16 @@ import type {
 	ArdyRegenerateRequestV1,
 	ArdyRegenerateResultV1,
 } from "@cclay/protocol";
-import { parseArdyRegenerateRequest, parseArdyRegenerateResult } from "@cclay/protocol";
+import {
+	ARDY_CONSTRAINED_DURATION_SECONDS,
+	ARDY_CONSTRAINED_PROMPT,
+	parseArdyRegenerateRequest,
+	parseArdyRegenerateResult,
+} from "@cclay/protocol";
 import type { ArdyArchiveService } from "./ardy-archive-service.ts";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export const ARDY_REGENERATE_WRAPPER = "cclay-ardy-generate";
-
-const REGEN_PROMPT = "regenerate";
-const REGEN_DURATION_SECONDS = "600";
 
 export interface ArdyRegenerateCliResult {
 	readonly status: number;
@@ -78,10 +80,23 @@ export class ArdyRegenerateApplyMotionError extends ArdyRegenerateError {
 export interface ArdyMotionKernelOptions {
 	readonly runCli: ArdyRegenerateCliRunner;
 	readonly archive: Pick<ArdyArchiveService, "read" | "commitGenerated">;
+	// Seam for write-ahead progress records: awaited once the wrapper result
+	// has been parsed and before the generated archive is committed, so an
+	// intent recorded here is durable before the commit is observable. When
+	// absent, the kernel behaves exactly as before the seam existed.
+	readonly onGenerated?: (motionId: string, result: ArdyRegenerateResultV1) => Promise<void>;
 }
 
 export interface ArdyRegenerateHandlerOptions extends ArdyMotionKernelOptions {
 	readonly applyMotion: ArdyRegenerateApplyMotionDispatch;
+	// The CURRENT project revision, read fresh on every regenerate call. The
+	// request's expected_revision_id is checked against it before the
+	// generator runs, so a request written against an older scene fails fast
+	// instead of spending GPU minutes on a clip that would be rejected at
+	// apply time. Required, not optional with a fallback: an optional
+	// freshness check that silently defaults is how the tautological context
+	// comparison got in.
+	readonly liveRevisionId: () => string;
 }
 
 interface DroppedConstraint {
@@ -98,7 +113,13 @@ function formatNumber(value: number): string {
 }
 
 function buildConstraintArgv(request: ArdyRegenerateRequestV1): string[] {
-	const argv: string[] = [REGEN_PROMPT, "--duration", REGEN_DURATION_SECONDS, "--base-motion", request.base_motion_id];
+	const argv: string[] = [
+		ARDY_CONSTRAINED_PROMPT,
+		"--duration",
+		ARDY_CONSTRAINED_DURATION_SECONDS,
+		"--base-motion",
+		request.base_motion_id,
+	];
 	for (const target of request.effectors) {
 		argv.push(
 			"--constrain",
@@ -185,10 +206,12 @@ function adaptWrapperJsonToResult(
 export class ArdyMotionKernel {
 	readonly #runCli: ArdyRegenerateCliRunner;
 	readonly #archive: Pick<ArdyArchiveService, "read" | "commitGenerated">;
+	readonly #onGenerated: ((motionId: string, result: ArdyRegenerateResultV1) => Promise<void>) | undefined;
 
 	constructor(options: ArdyMotionKernelOptions) {
 		this.#runCli = options.runCli;
 		this.#archive = options.archive;
+		this.#onGenerated = options.onGenerated;
 	}
 
 	async regenerate(request: ArdyRegenerateRequestV1): Promise<ArdyRegenerateResultV1> {
@@ -256,6 +279,11 @@ export class ArdyMotionKernel {
 				{ cause: error },
 			);
 		}
+		// Awaited after the wrapper result parses, before the archive commit
+		// makes the motion observable to the rest of the project.
+		if (this.#onGenerated !== undefined) {
+			await this.#onGenerated(result.motion_id, result);
+		}
 		try {
 			await this.#archive.commitGenerated(result.motion_id);
 		} catch (error) {
@@ -272,10 +300,12 @@ export class ArdyMotionKernel {
 export class ArdyRegenerateService {
 	readonly #kernel: ArdyMotionKernel;
 	readonly #applyMotion: ArdyRegenerateApplyMotionDispatch;
+	readonly #liveRevisionId: () => string;
 
 	constructor(options: ArdyRegenerateHandlerOptions) {
 		this.#kernel = new ArdyMotionKernel(options);
 		this.#applyMotion = options.applyMotion;
+		this.#liveRevisionId = options.liveRevisionId;
 	}
 
 	async regenerate(
@@ -290,11 +320,16 @@ export class ArdyRegenerateService {
 				cause: error,
 			});
 		}
-		if (context.request?.expected_revision_id !== request.expected_revision_id) {
-			throw new ArdyRegenerateRevisionMismatchError(
-				request.expected_revision_id,
-				context.request?.expected_revision_id,
-			);
+		// Fast-fail staleness guard: expected_revision_id is the revision the
+		// animator's scene had when the request was built. Compare it against
+		// the CURRENT project revision, read fresh, so a request written
+		// against an older scene fails here instead of spending a multi-minute
+		// GPU run on a clip that could never commit. The apply-time binding
+		// below is kept as well: the revision can move again while the
+		// generator is running.
+		const liveRevisionId = this.#liveRevisionId();
+		if (request.expected_revision_id !== liveRevisionId) {
+			throw new ArdyRegenerateRevisionMismatchError(request.expected_revision_id, liveRevisionId);
 		}
 		const result = await this.#kernel.regenerate(request);
 		try {

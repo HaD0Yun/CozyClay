@@ -109,10 +109,15 @@ function makeDispatch(
 	};
 	return { dispatch, calls };
 }
-function createHandler(runCli: ArdyRegenerateCliRunner, applyMotion: ArdyRegenerateApplyMotionDispatch) {
+function createHandler(
+	runCli: ArdyRegenerateCliRunner,
+	applyMotion: ArdyRegenerateApplyMotionDispatch,
+	liveRevision: string = revision,
+) {
 	return createArdyRegenerateHandler({
 		runCli,
 		applyMotion,
+		liveRevisionId: () => liveRevision,
 		archive: {
 			async read(): Promise<Uint8Array> {
 				return new Uint8Array();
@@ -212,6 +217,7 @@ test("regenerate success: heading null is emitted as the literal 'none'", async 
 test("regenerate mediates inputs and generated output through the archive before apply_motion", async () => {
 	const events: string[] = [];
 	const handler = createArdyRegenerateHandler({
+		liveRevisionId: () => revision,
 		runCli: () => {
 			events.push("run");
 			return { status: 0, stdout: wrapperJson(), stderr: "" };
@@ -241,6 +247,7 @@ test("regenerate does not apply motion when generated archive commit fails", asy
 	const { dispatch, calls } = makeDispatch();
 	const commitFailure = new Error("invalid generated npz");
 	const handler = createArdyRegenerateHandler({
+		liveRevisionId: () => revision,
 		runCli: runner,
 		applyMotion: dispatch,
 		archive: {
@@ -336,9 +343,12 @@ test("regenerate STALE_BASE: a mismatched expected_revision_id fails before any 
 		return { status: 0, stdout: wrapperJson(), stderr: "" };
 	};
 	const { dispatch, calls: dispatchCalls } = makeDispatch();
-	const handler = createHandler(runner, dispatch);
+	// The live project revision has moved past what the request was built on.
+	// The staleness guard compares against it, read fresh, not against the
+	// context the queue happens to build from the same request.
+	const handler = createHandler(runner, dispatch, "b".repeat(64));
 
-	await assert.rejects(handler(baseRequest, makeContext("b".repeat(64))), (error: unknown) => {
+	await assert.rejects(handler(baseRequest, makeContext()), (error: unknown) => {
 		return error instanceof ArdyRegenerateRevisionMismatchError && error.code === "REVISION_MISMATCH";
 	});
 	assert.equal(cliRan, false, "CLI must not run on a stale revision");
