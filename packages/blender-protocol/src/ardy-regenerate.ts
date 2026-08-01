@@ -14,23 +14,9 @@
 // proves joint-center placement only, NOT sole/surface contact. Do not treat
 // achieved_error_m == 0 as ground-contact verification without an
 // independent mesh/surface check.
-import { type Static, type TSchema, Type } from "typebox";
+import { type Static, Type } from "typebox";
 import { Parse } from "typebox/value";
-
-const UUID_V4_LOWERCASE = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
-const HASH_64 = "^[0-9a-f]{64}$";
-// Mirrors the addon grammar documented inline in scripts/cclay-ardy-generate
-// (line 329: `# motion_id: addon grammar ^[a-z0-9][a-z0-9-]{0,63}$`) and
-// _MOTION_ID in blender-addon/cclay/stage_scene.py — the same slug the addon
-// and the generate wrapper validate, so the bridge cannot admit a motion id
-// that apply_motion would later reject.
-const MOTION_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
-const exact = <T extends Record<string, TSchema>>(properties: T) =>
-	Type.Object(properties, { additionalProperties: false });
-const uuid = () => Type.String({ pattern: UUID_V4_LOWERCASE });
-const hash = () => Type.String({ pattern: HASH_64 });
-const nullable = <T extends TSchema>(schema: T) => Type.Union([schema, Type.Null()]);
-const motionId = () => Type.String({ pattern: MOTION_ID_PATTERN });
+import { exact, hash, motionId, nullable, uuid } from "./schema-grammar.ts";
 
 // ARDY end-effector joints that --constrain targets. The closed literal
 // union keeps the request from naming a joint the generator cannot act on;
@@ -90,13 +76,13 @@ const ArdyRegenerateResidualV1Schema = exact({
 	worst_joint: EffectorJointSchema,
 });
 
-const ArdyRegenerateContinuityV1Schema = exact({
+export const ArdyRegenerateContinuityV1Schema = exact({
 	mean_jump_m: Type.Number(),
 	max_jump_m: Type.Number(),
 	max_jump_frame: Type.Integer({ minimum: 0 }),
 });
 
-const ArdyRegenerateDroppedConstraintV1Schema = exact({
+export const ArdyRegenerateDroppedConstraintV1Schema = exact({
 	frame: Type.Integer({ minimum: 0 }),
 	reason: Type.String({ minLength: 1, maxLength: 512 }),
 });
