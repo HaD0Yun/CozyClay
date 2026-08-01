@@ -183,6 +183,7 @@ export class BlenderBridge {
 	async close(): Promise<void> {
 		this.started = false;
 		if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = undefined;
 		this.rejectAttachWaiters(new Error("BRIDGE_CLOSED: bridge is shutting down"));
 		this.failPending("BRIDGE_CLOSED", "bridge is shutting down");
 		this.transport?.socket.destroy();
@@ -227,6 +228,7 @@ export class BlenderBridge {
 			let waiter: { resolve: () => void; reject: (error: Error) => void };
 			const onAbort = () => {
 				this.attachWaiters = this.attachWaiters.filter((candidate) => candidate !== waiter);
+				this.applyReconnectTimerRef();
 				reject(new Error("ATTACH_ABORTED: waiting for Blender connection was aborted"));
 			};
 			waiter = {
@@ -245,6 +247,7 @@ export class BlenderBridge {
 			}
 			signal?.addEventListener("abort", onAbort, { once: true });
 			this.attachWaiters.push(waiter);
+			this.applyReconnectTimerRef();
 		});
 	}
 
@@ -646,7 +649,19 @@ export class BlenderBridge {
 			this.reconnectTimer = undefined;
 			void this.refreshConnection();
 		}, delayMs);
-		this.reconnectTimer.unref?.();
+		this.applyReconnectTimerRef();
+	}
+
+	/**
+	 * The reconnect timer is the only thing that can settle an attach waiter, so
+	 * it must hold the event loop open while anyone is awaiting `waitForAttach()`
+	 * — otherwise that promise can never settle in an otherwise idle process. An
+	 * idle bridge with no waiters must still let its host exit, so the ref is
+	 * scoped to outstanding waiters and re-applied on every mutation of them.
+	 */
+	private applyReconnectTimerRef(): void {
+		if (this.attachWaiters.length > 0) this.reconnectTimer?.ref?.();
+		else this.reconnectTimer?.unref?.();
 	}
 
 	private async refreshConnection(): Promise<void> {
@@ -760,6 +775,7 @@ export class BlenderBridge {
 		this.staleAddonMessage = undefined;
 		const waiters = this.attachWaiters;
 		this.attachWaiters = [];
+		this.applyReconnectTimerRef();
 		for (const waiter of waiters) waiter.resolve();
 		appendBridgeLog(this.projectDirectory, { event: "bridge_connected", token_generation: endpoint.token_generation });
 		if (this.pending !== undefined) {
@@ -776,6 +792,7 @@ export class BlenderBridge {
 	private rejectAttachWaiters(error: Error): void {
 		const waiters = this.attachWaiters;
 		this.attachWaiters = [];
+		this.applyReconnectTimerRef();
 		for (const waiter of waiters) waiter.reject(error);
 	}
 	private onDisconnect(socket: Socket): void {
