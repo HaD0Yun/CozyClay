@@ -23,6 +23,7 @@ import { BlenderBridge } from "../src/bridge.ts";
 
 const WAITER_FIXTURE = fileURLToPath(new URL("./fixtures/attach-waiter-entry.ts", import.meta.url));
 const IDLE_FIXTURE = fileURLToPath(new URL("./fixtures/idle-bridge-entry.ts", import.meta.url));
+const PENDING_FIXTURE = fileURLToPath(new URL("./fixtures/pending-operation-entry.ts", import.meta.url));
 
 interface ChildOutcome {
 	readonly stdout: string;
@@ -63,6 +64,28 @@ test("a parked attach waiter keeps the process alive", async () => {
 			"the event loop drained while an attach waiter was still parked: waitForAttach() can never settle",
 		);
 		assert.equal(outcome.signal, "SIGKILL", "the process should have stayed alive until the harness killed it");
+	} finally {
+		await rm(project, { recursive: true, force: true });
+	}
+});
+
+test("a pending operation whose add-on vanished still settles instead of draining the loop", async () => {
+	// onDisconnect deliberately keeps the pending request_id rather than
+	// rejecting, so once the add-on is gone for good only the operation deadline
+	// can settle the caller. The add-on never comes back here, so the deadline is
+	// the sole driver and it must hold the loop open until it fires.
+	const project = await mkdtemp(path.join(tmpdir(), "cclay-keepalive-pending-"));
+	try {
+		const outcome = await runFixture(PENDING_FIXTURE, project, 15_000);
+		assert.match(outcome.stdout, /^OPERATION_PENDING$/m, "fixture never dispatched an operation");
+		assert.doesNotMatch(
+			outcome.stdout,
+			/^LOOP_DRAINED$/m,
+			"the event loop drained while a bridge operation was still pending: its promise can never settle",
+		);
+		assert.match(outcome.stdout, /^OPERATION_SETTLED:DEADLINE_EXCEEDED/m);
+		assert.equal(outcome.signal, null, "the fixture should have settled and exited on its own");
+		assert.equal(outcome.code, 0);
 	} finally {
 		await rm(project, { recursive: true, force: true });
 	}

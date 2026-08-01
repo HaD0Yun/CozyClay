@@ -653,14 +653,21 @@ export class BlenderBridge {
 	}
 
 	/**
-	 * The reconnect timer is the only thing that can settle an attach waiter, so
-	 * it must hold the event loop open while anyone is awaiting `waitForAttach()`
-	 * — otherwise that promise can never settle in an otherwise idle process. An
-	 * idle bridge with no waiters must still let its host exit, so the ref is
-	 * scoped to outstanding waiters and re-applied on every mutation of them.
+	 * The event loop must stay alive while a caller is awaiting the bridge.
+	 *
+	 * Two obligations depend on the reconnect timer. An attach waiter can only be
+	 * settled by it, and after a disconnect a pending operation is deliberately
+	 * NOT rejected — `onDisconnect` keeps its request_id so the replacement
+	 * generation can supply the authoritative outcome — which makes reconnect
+	 * that operation's settle path too. Unref'ing the timer in either state
+	 * leaves the caller parked behind work Node has already decided it is free to
+	 * stop doing.
+	 *
+	 * An idle bridge with neither obligation must still let its host exit, so the
+	 * ref is scoped and re-applied whenever `attachWaiters` or `pending` changes.
 	 */
 	private applyReconnectTimerRef(): void {
-		if (this.attachWaiters.length > 0) this.reconnectTimer?.ref?.();
+		if (this.attachWaiters.length > 0 || this.pending !== undefined) this.reconnectTimer?.ref?.();
 		else this.reconnectTimer?.unref?.();
 	}
 
@@ -1096,6 +1103,7 @@ export class BlenderBridge {
 		if (this.pending !== pending) return;
 		this.pending = undefined;
 		if (pending.deadlineTimer !== undefined) clearTimeout(pending.deadlineTimer);
+		this.applyReconnectTimerRef();
 		this.activeRequestIds.delete(pending.requestId);
 		run();
 	}
@@ -1127,6 +1135,7 @@ export class BlenderBridge {
 		if (pending === undefined) return;
 		this.pending = undefined;
 		if (pending.deadlineTimer !== undefined) clearTimeout(pending.deadlineTimer);
+		this.applyReconnectTimerRef();
 		this.activeRequestIds.delete(pending.requestId);
 		pending.reject(new Error(`${code}: ${message}`));
 	}
@@ -1244,10 +1253,13 @@ export class BlenderBridge {
 				outcomeRequestId: options.outcomeRequestId,
 			};
 			this.pending = pending;
-			// Extension-side deadline enforcement: reap the operation locally
-			// when the addon never answers. unref() keeps the timer from
-			// holding the node process alive; it is cleared on every settle
-			// path (result, error, cancel, disconnect, close).
+			this.applyReconnectTimerRef();
+			// Extension-side deadline enforcement: reap the operation locally when
+			// the addon never answers. This timer stays REF'D: it is one of only
+			// two things that can settle the caller's promise once the socket is
+			// gone, so unref'ing it would let the loop drain with the caller still
+			// awaiting. It cannot keep an idle host alive because it is cleared on
+			// every settle path (result, error, cancel, disconnect, close).
 			pending.deadlineTimer = setTimeout(() => {
 				if (pending.executionBaseRevisionId !== undefined) {
 					this.settleExecutionUnknown(pending, "Blender did not provide an execution outcome before the advisory deadline");
@@ -1258,7 +1270,6 @@ export class BlenderBridge {
 					);
 				}
 			}, this.operationTimeoutMs);
-			pending.deadlineTimer.unref?.();
 			const signal = options.signal;
 			if (signal !== undefined) {
 				const onAbort = () => {
