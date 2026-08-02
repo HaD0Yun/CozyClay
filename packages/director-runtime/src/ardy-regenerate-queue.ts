@@ -14,18 +14,26 @@
 // writes the outcome back. That is what keeps "regenerate" deterministic even
 // though a director session is what happens to be running the sweep.
 //
-// Two properties this queue is responsible for (both enforced by the shared
-// machinery):
+// Three properties this queue is responsible for (the first two enforced by
+// the shared machinery, the third a deliberate boundary):
 //
-//   Exactly-once. A request is claimed by renaming it before it is executed.
-//   rename() is atomic on POSIX, so two concurrent sweeps cannot both claim
-//   the same request: the loser gets ENOENT and moves on. Without this a slow
-//   generation would be started twice by the next tick.
+//   Exactly-once claiming. A request is claimed by renaming it before it is
+//   executed. rename() is atomic on POSIX, so two concurrent sweeps cannot
+//   both claim the same request: the loser gets ENOENT and moves on. Without
+//   this a slow generation would be started twice by the next tick.
 //
 //   No silent loss. The add-on has already detached its IK layer by the time
 //   the host sees the request, so a failure that produced no file would be
 //   indistinguishable from a host that was never running. Every claimed
 //   request produces exactly one outcome file, success or failure.
+//
+//   Deliberately legacy. This queue predates write-ahead and keeps its
+//   pre-write-ahead semantics exactly: its closed outcome union is a
+//   contract the add-on parses and cannot carry new codes, so it never
+//   gains progress records. A host that dies mid-request leaves a claim
+//   that recovery re-queues, and the request runs again -- there is no
+//   "no regeneration after a recorded generation" guarantee here, and none
+//   is claimed.
 
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -49,6 +57,10 @@ import { ArdyRegenerateError, ArdyRegenerateInvalidRequestError } from "./ardy-r
 
 export const REGENERATE_REQUEST_DIRECTORY = "regenerate-requests";
 export const REGENERATE_OUTCOME_DIRECTORY = "regenerate-outcomes";
+// Write-ahead progress records are for the NEW capability queues
+// (generate, in-between) only. This queue is deliberately legacy: its
+// closed outcome union is a contract the add-on parses and cannot carry
+// new codes, so it declares no progress directory and nothing drives one.
 // Synthetic full-body pose archives the add-on writes so --constrain-pose has
 // something to point at. They exist only for the duration of one request; the
 // host owns deleting them because the add-on has already detached and stopped
