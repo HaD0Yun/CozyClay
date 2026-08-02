@@ -79,11 +79,10 @@ describe("director tool registration", () => {
 		);
 	});
 
-	it("registers typed ARDY regeneration but no unconstrained generation tool", async () => {
+	it("registers all three typed ARDY tools against their host queue runners", async () => {
 		const source = await readFile(INDEX, "utf8");
 		assert.ok(source.includes("createArdyRegenerateTool(regenerateQueue)"));
-		for (const forbidden of ["ardy_generate", "ArdyGenerate"]) {
-			assert.ok(!source.includes(`create${forbidden}Tool`), `${forbidden} must remain unavailable`);
-		}
+		assert.ok(source.includes("createArdyGenerateTool(generateQueue)"));
+		assert.ok(source.includes("createArdyInbetweenTool(inbetweenQueue)"));
 	});
 });

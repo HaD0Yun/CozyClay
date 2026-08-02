@@ -4,6 +4,8 @@ import {
 	createApplyPerformanceModeTool,
 	createCaptureViewportTool,
 	createFallMotionTool,
+	createArdyGenerateTool,
+	createArdyInbetweenTool,
 	createArdyRegenerateTool,
 	createExecuteBlenderPythonTool,
 	createInspectBridgeStateTool,
@@ -101,9 +103,9 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	// The generate and in-between queues are consumed the same way: a
 	// serialized sweep per runner, recovery before the first sweep, the
 	// project directory as the wrapper's cwd, and the live bridge revision
-	// for the pre-kernel staleness guard. The model-facing tools for these
-	// two surfaces are the next story; the runners exist so animator-
-	// published requests never sit unwatched.
+	// for the pre-kernel staleness guard. The model-facing ardy_generate and
+	// ardy_inbetween tools submit into these same queues, so animator- and
+	// director-published requests are consumed identically.
 	const generateQueue = startGenerateQueueRunner({
 		cwd,
 		// Live getter: re-reads the bridge's current revision for every
@@ -151,6 +153,8 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		createFallMotionTool(bridge),
 		createReplaceCameraActionTool(bridge),
 		createArdyRegenerateTool(regenerateQueue),
+		createArdyGenerateTool(generateQueue),
+		createArdyInbetweenTool(inbetweenQueue),
 		...(project.allowExecuteBlenderPython === false ? [] : [createExecuteBlenderPythonTool(bridge)]),
 	];
 	const registeredToolNames = directorTools.map((tool) => tool.name);

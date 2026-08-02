@@ -52,7 +52,9 @@ describe("director prompt", () => {
 		assert.match(DIRECTOR_PROMPT, /apply_camera_plan/);
 		assert.match(DIRECTOR_PROMPT, /evidence_sha256 from produce_directing_evidence/);
 		assert.match(DIRECTOR_PROMPT, /ardy_regenerate only to constrain an existing base motion/);
-		assert.match(DIRECTOR_PROMPT, /Unconstrained text-to-motion generation is not exposed/);
+		assert.match(DIRECTOR_PROMPT, /ardy_generate for unconstrained first-pass text-to-motion generation/);
+		assert.match(DIRECTOR_PROMPT, /ardy_inbetween for pose-captured in-between synthesis/);
+		assert.doesNotMatch(DIRECTOR_PROMPT, /is not exposed as a director tool/);
 		assert.match(DIRECTOR_PROMPT, /Do not present raw Python as a trusted ARDY path/);
 		assert.match(DIRECTOR_PROMPT, /correctness boundaries for well-behaved callers only, never security isolation/);
 	});
@@ -128,6 +130,12 @@ describe("hostile local resource isolation", () => {
 				throw new Error("not invoked");
 			},
 			regenerate: async () => {
+				throw new Error("not invoked");
+			},
+			generate: async () => {
+				throw new Error("not invoked");
+			},
+			inbetween: async () => {
 				throw new Error("not invoked");
 			},
 			executeBlenderPython: async () => {

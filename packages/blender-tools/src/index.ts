@@ -1,5 +1,7 @@
 export * from "./apply-camera-plan.ts";
 export * from "./apply-performance-mode.ts";
+export * from "./ardy-generate.ts";
+export * from "./ardy-inbetween.ts";
 export * from "./ardy-regenerate.ts";
 export * from "./capture-viewport.ts";
 export * from "./create-fall-motion.ts";
@@ -42,6 +44,8 @@ export const EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS = [
 	{ name: "create_fall_motion", embeddedEligible: true },
 	{ name: "replace_camera_action", embeddedEligible: true },
 	{ name: "ardy_regenerate", embeddedEligible: true },
+	{ name: "ardy_generate", embeddedEligible: true },
+	{ name: "ardy_inbetween", embeddedEligible: true },
 	{ name: "execute_blender_python", embeddedEligible: true },
 ] as const;
 

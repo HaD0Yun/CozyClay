@@ -1,11 +1,11 @@
 ---
 name: ardy-motion
-description: Use for character or player animation/motion. Call the typed ardy_regenerate tool for constrained regeneration through the host queue, verify the archived motion, then bake it with stage_scene apply_motion.
+description: Use for character or player animation/motion. Call the typed ardy_generate, ardy_inbetween, and ardy_regenerate tools for host-queued generation, verify the archived motion, then bake it with stage_scene apply_motion.
 ---
 
 # ARDY character motion
 
-ARDY is a typed host-side generation pipeline exposed to the director only through `ardy_regenerate`. That tool publishes a closed request to the host-side regeneration queue; the host owns `MotionArchiveStore`, `ArdyArchiveService`, `ArdyMotionKernel`, and `CharacterRigAdapter`, commits the validated archive, and applies it through the durable mutation path. Do not invoke ARDY wrappers, construct archive files, or trigger Blender operators from Python.
+ARDY is a typed host-side generation pipeline exposed to the director through `ardy_generate`, `ardy_inbetween`, and `ardy_regenerate`. Each tool publishes a closed request to its host-side queue (generation, in-between, or regeneration); the host owns `MotionArchiveStore`, `ArdyArchiveService`, `ArdyMotionKernel`, and `CharacterRigAdapter`, commits the validated archive, and applies it through the durable mutation path. Do not invoke ARDY wrappers, construct archive files, or trigger Blender operators from Python.
 
 The typed ARDY APIs are correctness boundaries for well-behaved callers: they validate archive, rig, and request contracts. They are not a security boundary. Arbitrary `execute_blender_python` can bypass that validation; do not claim ARDY provides OS isolation or a drift detector.
 
@@ -13,17 +13,17 @@ The typed ARDY APIs are correctness boundaries for well-behaved callers: they va
 
 ## 1. Specify and measure the requested motion
 
-Before requesting regeneration, identify the existing `base_motion_id`, character `entity_id`, latest `expected_revision_id`, and the measured corrections the motion needs. `ardy_regenerate` is constrained regeneration of an existing base motion; it is not unconstrained text-to-motion generation.
+Before requesting generation, identify the character `entity_id`, latest `expected_revision_id`, and for constrained work the existing `base_motion_id` and the measured corrections the motion needs. `ardy_generate` is unconstrained first-pass text-to-motion generation; `ardy_inbetween` is pose-captured in-between synthesis; `ardy_regenerate` is constrained regeneration of an existing base motion.
 
 Placement and facing are not ARDY inputs. Use `execute_blender_python` to position or rotate the character armature and props. For an existing interaction, call `inspect_relations` first with the props' explicit `entity_ids` and the armature as `reference_entity_id`.
 
-Use one `ardy_regenerate` request for one correction pass. Keep its `request_id` stable across retries so the durable queue can return the recorded outcome instead of committing the same request twice. Do not concatenate, splice, crossfade, or hand-edit motion npz files or arrays.
+Use one ARDY request for one generation pass. Keep its `request_id` stable across retries so the durable queue can return the recorded outcome instead of committing the same request twice. Do not concatenate, splice, crossfade, or hand-edit motion npz files or arrays.
 
-## 2. Regenerate through the typed host path
+## 2. Generate through the typed host path
 
-Call `ardy_regenerate` with the base motion, character, latest revision, and measured effector, full-body, or root-path targets. The tool writes the request to the host queue and waits for its typed durable outcome. The host invokes the generator through `ArdyMotionKernel`, commits through `ArdyArchiveService`, applies the resulting `motion_id`, and returns `resulting_revision_id`.
+Call `ardy_generate` with the prompt (and optionally duration and seed) for an unconstrained first pass, `ardy_inbetween` with the base motion and captured pose frames for in-between synthesis, or `ardy_regenerate` with the base motion, character, latest revision, and measured effector, full-body, or root-path targets. The tool writes the request to the host queue and waits for its typed durable outcome. The host invokes the generator through `ArdyMotionKernel`, commits through `ArdyArchiveService`, applies the resulting `motion_id`, and returns `resulting_revision_id`.
 
-When geometry contact must be exact, request constrained regeneration using the host's typed request contract, with the base motion and measured targets. End-effector positions use `LeftFoot`, `RightFoot`, `LeftHand`, or `RightHand`; target coordinates are motion-local npz coordinates (Y-up, meters). Convert Blender `(x, y, z)` only from the reported `preflight_motion` scale and coordinate contract; Blender is Z-up. Use `foot_contacts` to select planted-foot timing when available, otherwise `contact_windows`.
+When geometry contact must be exact, request constrained generation using the host's typed request contract, with the base motion and measured targets. End-effector positions use `LeftFoot`, `RightFoot`, `LeftHand`, or `RightHand`; target coordinates are motion-local npz coordinates (Y-up, meters). Convert Blender `(x, y, z)` only from the reported `preflight_motion` scale and coordinate contract; Blender is Z-up. Use `foot_contacts` to select planted-foot timing when available, otherwise `contact_windows`.
 
 Constrained joint accuracy does not prove sole contact: `LeftFoot` and `RightFoot` are skeleton joint centers, not sole contact points. An `achieved_error_m` of zero proves only that the joint hit its target. Never use a guessed joint-to-sole offset as final verification. Use `inspect_pose_contacts` in visual QA to verify the deformed sole against the support surface.
 

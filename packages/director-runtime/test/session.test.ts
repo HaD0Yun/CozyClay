@@ -70,6 +70,53 @@ describe("director runtime session", () => {
 		}
 	});
 
+	it("omits host-backed ARDY tools when no ARDY host bridge is configured and includes them when one is", async () => {
+		const faux = registerFauxProvider();
+		unregister.push(faux.unregister);
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
+		const model = faux.getModel();
+		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
+
+		const bridgeBase = {
+			inspectProject: async () => {
+				throw new Error("not invoked");
+			},
+		};
+
+		const withoutHost = await createDirectorSession({ bridge: bridgeBase, model, modelRuntime });
+		try {
+			assert.deepEqual(withoutHost.getActiveToolNames(), ["inspect_project", "read_image"]);
+		} finally {
+			withoutHost.dispose();
+		}
+
+		const withHost = await createDirectorSession({
+			bridge: {
+				...bridgeBase,
+				generate: async () => {
+					throw new Error("not invoked");
+				},
+				inbetween: async () => {
+					throw new Error("not invoked");
+				},
+			},
+			model,
+			modelRuntime,
+		});
+		try {
+			assert.deepEqual(withHost.getActiveToolNames(), [
+				"inspect_project",
+				"read_image",
+				"ardy_generate",
+				"ardy_inbetween",
+			]);
+		} finally {
+			withHost.dispose();
+		}
+	});
+
 	it("leaves no temp agent directory behind after a session is disposed", async () => {
 		// createDirectorSession mkdtemps an agentDir it owns. Disposal must remove
 		// it, and so must any throw before the session takes ownership -- otherwise

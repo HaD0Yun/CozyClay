@@ -53,19 +53,24 @@ describe("bundled director skills", () => {
 		}
 	});
 
-	it("routes ardy_regenerate through typed host services and the regeneration queue", () => {
+	it("routes all three ARDY tools through typed host services and their queues", () => {
 		const content = readFileSync(ARDY_MOTION_SKILL_PATH, "utf8");
 		for (const marker of [
+			"ardy_generate",
+			"ardy_inbetween",
 			"ardy_regenerate",
 			"MotionArchiveStore",
 			"ArdyArchiveService",
 			"ArdyMotionKernel",
 			"CharacterRigAdapter",
-			"host-side regeneration queue",
+			"host-side queue",
 			"durable outcome",
+			"closed request",
 		]) {
 			assert.ok(content.includes(marker), `ardy-motion must mention ${marker}`);
 		}
+		assert.match(content, /unconstrained first-pass text-to-motion generation/);
+		assert.match(content, /pose-captured in-between synthesis/);
 		assert.match(content, /constrained regeneration of an existing base motion/);
 		assert.match(content, /correctness boundaries for well-behaved callers/);
 		assert.match(content, /not a security boundary/);

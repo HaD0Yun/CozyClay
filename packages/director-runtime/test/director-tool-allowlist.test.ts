@@ -9,9 +9,10 @@ import {
 
 // The embedded director session keeps a fixed tool allowlist.
 //
-// `ardy_regenerate` is the one authorized ARDY model surface. Its factory can
-// only submit a closed request to the host-owned durable queue; `ardy_generate`
-// remains unavailable because no equivalent typed queue contract exists.
+// `ardy_regenerate`, `ardy_generate`, and `ardy_inbetween` are the authorized
+// ARDY model surfaces. Each factory can only submit a closed request to its
+// host-owned durable queue; all three are host-backed, so a session whose
+// bridge carries no ARDY host omits them from the constructed set.
 
 // This list is deliberately duplicated: that duplication is the point. Changing
 // the catalog requires a matching deliberate edit here.
@@ -35,6 +36,8 @@ const EXPECTED_DIRECTOR_TOOL_ALLOWLIST = [
 	"create_fall_motion",
 	"replace_camera_action",
 	"ardy_regenerate",
+	"ardy_generate",
+	"ardy_inbetween",
 	"execute_blender_python",
 ];
 
@@ -50,10 +53,16 @@ describe("director tool allowlist invariant", () => {
 		);
 	});
 
-	it("includes only the typed queued ARDY regeneration surface", () => {
+	it("includes exactly the three typed queued ARDY surfaces", () => {
 		const catalogNames: readonly string[] = EMBEDDED_DIRECTOR_ELIGIBLE_TOOLS.map(({ name }) => name);
-		assert.equal(catalogNames.includes("ardy_regenerate"), true);
-		assert.equal(catalogNames.includes("ardy_generate"), false);
+		for (const name of ["ardy_regenerate", "ardy_generate", "ardy_inbetween"]) {
+			assert.equal(catalogNames.includes(name), true, `catalog must include ${name}`);
+		}
+		assert.deepEqual(catalogNames.filter((name) => name.startsWith("ardy_")).sort(), [
+			"ardy_generate",
+			"ardy_inbetween",
+			"ardy_regenerate",
+		]);
 	});
 
 	it("has no duplicate catalog entries", () => {

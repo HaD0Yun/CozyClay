@@ -60,7 +60,9 @@ describe("bundled director resource loader", () => {
 
 	it("retains substantive ARDY and visual QA guidance in the core prompt", () => {
 		assert.match(DIRECTOR_PROMPT_CORE, /ardy_regenerate only to constrain an existing base motion/);
-		assert.match(DIRECTOR_PROMPT_CORE, /Unconstrained text-to-motion generation is not exposed/);
+		assert.match(DIRECTOR_PROMPT_CORE, /ardy_generate for unconstrained first-pass text-to-motion generation/);
+		assert.match(DIRECTOR_PROMPT_CORE, /ardy_inbetween for pose-captured in-between synthesis/);
+		assert.doesNotMatch(DIRECTOR_PROMPT_CORE, /is not exposed as a director tool/);
 		assert.match(
 			DIRECTOR_PROMPT_CORE,
 			/verify with economical multi-view and motion QA; never approve from one angle/,
