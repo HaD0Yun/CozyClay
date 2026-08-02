@@ -1,81 +1,99 @@
 // The in-process orchestration harness for the issue-#1 stair loop: ONE
 // request set drives ardy_generate -> the add-on's evaluated-pose capture ->
 // ardy_inbetween -> apply, and the whole chain must compose through the REAL
-// queues (sweepGenerateRequests / sweepInbetweenRequests), the REAL
-// write-ahead machinery (ardy-queue.ts), the REAL ArdyMotionKernel bindings
-// (ArdyGenerateKernel / ArdyInbetweenKernel), the REAL MotionArchiveStore,
-// and the REAL apply_motion plan builder (applyMotionRequest). This is the
-// last thing that can be verified without a real ARDY host: live acceptance
-// on real Blender with a real GPU host is blocked on CCLAY_ARDY_HOST, which
-// is unset in CI.
+// production runners (startGenerateQueueRunner / startInbetweenQueueRunner,
+// including their startup recovery, serialized sweeps, write-ahead bindings,
+// kernels and production per-request context), the REAL write-ahead machinery
+// (ardy-queue.ts), the REAL MotionArchiveStore, the REAL apply_motion plan
+// builder, the REAL canonicalization (canonicalizeStageScenePlan +
+// buildSceneManifestV4Revision), and the REAL durable commit
+// (commitStageSceneMutation against a real ProjectStore). The revisions R1
+// and R2 are DERIVED by that canonicalization and PERSISTED by the project
+// store -- the harness never chooses them. This is the last thing that can be
+// verified without a real ARDY host: live acceptance on real Blender with a
+// real GPU host is blocked on CCLAY_ARDY_HOST, which is unset in CI.
 //
-// What is faked, and why:
-//   - The wrapper (runCli): the GPU host's stand-in. It records argv, stages
-//     the generated npz exactly like the real wrapper's scp download, and
-//     prints the contract JSON line. This is the only faked generation
-//     component.
-//   - The stage_scene bridge inside the apply dispatch. Even the production
-//     wiring (apps/cclay-extension/src/{generate,inbetween}-queue-runner.ts)
-//     is a two-part seam: applyMotionRequest builds the apply_motion plan
-//     (REAL, imported here), and the injected stageScene bridge commits it
-//     against expected_revision_id inside a live Blender session. CI has no
-//     Blender, so the bridge is simulated: it rejects a stale plan exactly
-//     as the mutation boundary would and performs the revision commit the
-//     real bridge's stage_scene mutation would land (R0 -> R1 -> R2).
+// The COMPLETE fake surface:
+//   - The wrapper script (a stand-in for scripts/cclay-ardy-generate): the
+//     GPU host's stand-in, driven through the runners' real wrapperPath seam
+//     and their real execFile discipline. It records argv, stages the
+//     generated npz exactly like the real wrapper's scp download, and prints
+//     the contract JSON line. Its reported frames count (1) matches the
+//     single-frame fixture it writes, so metadata and archive agree.
+//   - The two Blender-side calls in the apply dispatch. The production glue
+//     (apps/cclay-extension/src/cclay/index.ts) is canonicalize ->
+//     bridge.stageScene -> commitStageSceneMutation ->
+//     bridge.finishDurableCommit. CI has no Blender, so bridge.stageScene is
+//     simulated by recomputing the add-on's mutation candidate with the SAME
+//     canonical child-revision derivation the durable commit validates
+//     against, and bridge.finishDurableCommit (the transaction ack) is a
+//     no-op that advances the live-revision getter exactly as the real
+//     bridge's ack advances bridge.revisionId. Canonicalization and the
+//     durable ProjectStore commit are REAL.
 //   - capture_evaluated_pose: Blender-side (blender-addon/cclay/
 //     constraint_capture.py) and covered by its own real-Blender tests; this
-//     harness does not pretend to exercise the add-on. It stands in for
-//     capture by minting the exact archives the add-on's capture step leaves
-//     on disk (cclay-pose-<request_id>-<n>, 1-based, derived with the
-//     service's own inbetweenSyntheticPoseIds rule) with the real archive
-//     fixture.
+//     harness stands in for it by minting ONLY the synthetic pose archives
+//     the add-on's capture step leaves on disk (cclay-pose-<request_id>-<n>,
+//     1-based, derived with the service's own inbetweenSyntheticPoseIds
+//     rule) with the real archive fixture. It deliberately never touches the
+//     base clip: the archive the generate stage committed is what the
+//     in-between stage must consume, and the harness hashes it across the
+//     planting step to prove it.
 //
-// Everything else -- the archive store, both kernels, both queues, the
-// write-ahead records, the staleness guards, the synthetic-pose retirement
-// -- is the real code under test.
+// Everything else -- the runners' startup recovery, both kernels, both
+// queues, the write-ahead records, the staleness guards, the synthetic-pose
+// retirement, the derived R0 -> R1 -> R2 chain in the project store -- is the
+// real code under test.
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { ArdyGenerateRequestV1, ArdyInbetweenRequestV1, StageSceneRequestV1 } from "@cclay/protocol";
+import { buildSceneManifestV4Revision, type ManifestForHashing, ProjectStore } from "@cclay/director-core";
+import {
+	commitStageSceneMutation,
+	generateQueuePaths,
+	inbetweenQueuePaths,
+	inbetweenSyntheticPoseIds,
+	MotionArchiveStore,
+} from "@cclay/director-runtime";
 import {
 	ARDY_CONSTRAINED_DURATION_SECONDS,
 	ARDY_CONSTRAINED_PROMPT,
-	parseArdyGenerateRequest,
-	parseArdyInbetweenRequest,
+	type ArdyGenerateRequestV1,
+	type ArdyInbetweenRequestV1,
+	canonicalizeStageScenePlan,
+	parseSceneManifestV4,
+	type SceneManifestV4,
+	type StageSceneAppliedHandShape,
+	type StageSceneMutationCandidate,
+	type StageScenePlanV1,
+	type StageSceneRequestV1,
 } from "@cclay/protocol";
-import { applyMotionRequest } from "../../../apps/cclay-extension/src/ardy-queue-runner-shared.ts";
-import { MotionArchiveStore } from "../src/ardy-archive-service.ts";
-import {
-	type ArdyGenerateQueueHandler,
-	generateQueuePaths,
-	sweepGenerateRequests,
-	writeGenerateRequest,
-} from "../src/ardy-generate-queue.ts";
-import { type ArdyGenerateCliRunner, ArdyGenerateKernel } from "../src/ardy-generate-service.ts";
-import {
-	type ArdyInbetweenQueueHandler,
-	inbetweenQueuePaths,
-	sweepInbetweenRequests,
-	writeInbetweenRequest,
-} from "../src/ardy-inbetween-queue.ts";
-import { ArdyInbetweenKernel, inbetweenSyntheticPoseIds } from "../src/ardy-inbetween-service.ts";
-import { type ArdyQueueWriteAhead, writeArdyQueueProgress } from "../src/ardy-queue.ts";
+import { startGenerateQueueRunner } from "../../../apps/cclay-extension/src/generate-queue-runner.ts";
+import { startInbetweenQueueRunner } from "../../../apps/cclay-extension/src/inbetween-queue-runner.ts";
 import { validMotionArchive } from "./ardy-archive-fixture.ts";
 
-// The three revisions the loop must traverse, in order. R0 is the revision
-// the generate request is built on; the generate apply commits R1; the
-// in-between request carries R1 (issue #1 requirement 5: ardy_generate
-// applies and advances the revision) and its apply commits R2.
-const R0 = "a".repeat(64);
-const R1 = "b".repeat(64);
-const R2 = "c".repeat(64);
 const ENTITY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const GENERATE_REQUEST_ID = "0123456789abcdef0123456789abcdef";
 const INBETWEEN_REQUEST_ID = "fedcba9876543210fedcba9876543210";
 const PROMPT = "a person waves both hands";
 const INBETWEEN_CONTINUITY = { mean_jump_m: 0.042, max_jump_m: 0.121, max_jump_frame: 24 };
+
+// The project the loop starts from: a REAL V4 scene manifest (the same
+// director-core parity fixture the stage-scene commit tests use), written
+// into a REAL ProjectStore. R0 is the manifest's own recorded revision -- the
+// harness does not mint revisions, it reads them.
+const initialManifest = parseSceneManifestV4(
+	JSON.parse(
+		await readFile(
+			new URL("../../director-core/test/fixtures/scene-manifest-v4-parity.json", import.meta.url),
+			"utf8",
+		),
+	),
+);
+const R0 = initialManifest.revisionId;
 
 function generateRequest(): ArdyGenerateRequestV1 {
 	return {
@@ -90,12 +108,12 @@ function generateRequest(): ArdyGenerateRequestV1 {
 	};
 }
 
-function inbetweenRequest(options: { baseMotionId: string; expectedRevisionId?: string }): ArdyInbetweenRequestV1 {
+function inbetweenRequest(options: { baseMotionId: string; expectedRevisionId: string }): ArdyInbetweenRequestV1 {
 	return {
 		schema_version: 1,
 		request_id: INBETWEEN_REQUEST_ID,
 		entity_id: ENTITY,
-		expected_revision_id: options.expectedRevisionId ?? R1,
+		expected_revision_id: options.expectedRevisionId,
 		base_motion_id: options.baseMotionId,
 		pose_frames: [
 			{ scene_frame: 100, clip_frame: 0 },
@@ -106,14 +124,49 @@ function inbetweenRequest(options: { baseMotionId: string; expectedRevisionId?: 
 	};
 }
 
-// The simulated stage_scene commit: the revision the request was built on is
-// the only one that may commit, and a successful commit advances the project
-// exactly one step along R0 -> R1 -> R2.
-function nextRevision(current: string): string {
-	if (current === R0) return R1;
-	if (current === R1) return R2;
-	throw new Error(`unexpected revision transition from ${current}`);
+// The fake wrapper: a real executable the runners spawn through their
+// wrapperPath seam with the real execFile discipline. It records argv,
+// stages the npz like the real wrapper's scp download, and prints the
+// contract JSON line. The motion id comes from a counter file so the two
+// capabilities get distinct, deterministic ids; the reported frames count
+// matches the single-frame fixture (metadata and archive agree).
+const FAKE_WRAPPER_SOURCE = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const argv = process.argv.slice(2);
+const logPath = process.env.CCLAY_STAIR_ARGV_LOG;
+if (logPath !== undefined) {
+  fs.appendFileSync(logPath, JSON.stringify(argv) + "\\n");
 }
+const cwd = process.cwd();
+const counterPath = path.join(cwd, ".cclay", "fake-wrapper-counter");
+let count = 1;
+try {
+  count = Number(fs.readFileSync(counterPath, "utf8")) + 1;
+} catch (error) {}
+fs.mkdirSync(path.join(cwd, ".cclay", "motions"), { recursive: true });
+fs.writeFileSync(counterPath, String(count));
+const motionId = "motion-" + String(count).padStart(12, "0");
+const npzBase64 = process.env.CCLAY_STAIR_NPZ_B64;
+if (npzBase64 !== undefined) {
+  fs.writeFileSync(path.join(cwd, ".cclay", "motions", motionId + ".npz"), Buffer.from(npzBase64, "base64"));
+}
+const durationIndex = argv.indexOf("--duration");
+const durationS = durationIndex === -1 ? undefined : Number(argv[durationIndex + 1]);
+const baseIndex = argv.indexOf("--base-motion");
+const isInbetween = argv[0] === "regenerate";
+const payload = {
+  motion_id: motionId,
+  path: ".cclay/motions/" + motionId + ".npz",
+  frames: 1,
+  duration_s: isInbetween ? 600 : durationS
+};
+if (isInbetween) {
+  payload.base_motion_id = baseIndex === -1 ? undefined : argv[baseIndex + 1];
+  payload.continuity = { mean_jump_m: 0.042, max_jump_m: 0.121, max_jump_frame: 24 };
+}
+process.stdout.write(JSON.stringify(payload) + "\\n");
+`;
 
 async function existsOnDisk(path: string): Promise<boolean> {
 	try {
@@ -127,213 +180,197 @@ async function existsOnDisk(path: string): Promise<boolean> {
 	}
 }
 
+// The runners must hand the apply dispatch the production request context
+// (AbortSignal timeout + the request's expected_revision_id), not an empty
+// stand-in: the generate and in-between runners build it themselves.
+function assertProductionContext(context: unknown, expectedRevisionId: string, label: string): void {
+	const record = context as { request?: { expected_revision_id?: unknown }; signal?: unknown } | null;
+	assert.ok(
+		record !== null && typeof record === "object",
+		`${label}: the runner must pass the production request context`,
+	);
+	assert.equal(
+		record.request?.expected_revision_id,
+		expectedRevisionId,
+		`${label}: the context binds the request's expected revision`,
+	);
+	assert.ok(record.signal instanceof AbortSignal, `${label}: the context carries the production AbortSignal timeout`);
+}
+
 interface Harness {
 	readonly project: string;
 	readonly store: MotionArchiveStore;
+	readonly projectStore: ProjectStore;
 	readonly motionsDir: string;
-	// runCli and applies accumulate across every sweep of a test; they are
-	// never reset.
-	readonly counters: {
-		readonly runCli: { readonly generate: number; readonly inbetween: number; readonly total: number };
-		readonly applies: { readonly generate: number; readonly inbetween: number; readonly total: number };
-	};
-	readonly revision: { current: string };
-	// Every revision an apply committed, in commit order.
-	readonly revisionHistory: string[];
-	readonly runCalls: string[][];
+	readonly generatePaths: ReturnType<typeof generateQueuePaths>;
+	readonly inbetweenPaths: ReturnType<typeof inbetweenQueuePaths>;
+	// Mirrors the real bridge's revisionId: advanced by the fake
+	// finishDurableCommit ack, read fresh by the runners' staleness guards.
+	readonly bridgeRevision: { current: string };
 	// Every apply_motion plan the real plan builder produced, in apply order.
 	readonly applyPlans: StageSceneRequestV1[];
-	// What the queue's own writeAhead.apply callback observed: the captured
-	// poses on disk and the outcome not yet durable at the moment the
-	// in-between request was applied (see makeHarness).
+	// The production contexts the apply dispatches observed, in apply order.
+	readonly bridgeContexts: unknown[];
+	// What the apply dispatch observed at the queue's apply point: the
+	// captured poses still on disk and the outcome not yet durable (see
+	// observePosesFor).
 	readonly poseObservation: { seen: boolean; posesPresent: boolean[]; outcomeDurable: boolean };
-	sweepGenerate(): ReturnType<typeof sweepGenerateRequests>;
-	sweepInbetween(): ReturnType<typeof sweepInbetweenRequests>;
+	readonly generateRunner: ReturnType<typeof startGenerateQueueRunner>;
+	readonly inbetweenRunner: ReturnType<typeof startInbetweenQueueRunner>;
+	runCalls(): Promise<string[][]>;
+	// Arms the pose-lifetime observation for the next apply dispatch.
+	observePosesFor(poseIds: string[]): void;
 }
 
 async function makeHarness(project: string): Promise<Harness> {
+	const projectStore = new ProjectStore(project);
+	await projectStore.writeProject({
+		project_id: initialManifest.projectId,
+		schema_version: 1,
+		current_revision_id: R0,
+		manifest: initialManifest,
+	});
 	const store = new MotionArchiveStore(project);
 	const generatePaths = generateQueuePaths(project);
 	const inbetweenPaths = inbetweenQueuePaths(project);
-	const counters = {
-		runCli: { generate: 0, inbetween: 0, total: 0 },
-		applies: { generate: 0, inbetween: 0, total: 0 },
-	};
-	const revision = { current: R0 };
-	const revisionHistory: string[] = [];
-	const runCalls: string[][] = [];
+	const bridgeRevision = { current: R0 };
 	const applyPlans: StageSceneRequestV1[] = [];
+	const bridgeContexts: unknown[] = [];
 	const poseObservation: { seen: boolean; posesPresent: boolean[]; outcomeDurable: boolean } = {
 		seen: false,
 		posesPresent: [],
 		outcomeDurable: false,
 	};
-	// The fake wrapper (the GPU host's stand-in): records argv, stages the
-	// generated npz exactly like the real wrapper's scp download, and prints
-	// the contract JSON line. The in-between capability is the constrained
-	// invocation, whose argv begins with the shared constrained prompt; the
-	// unconstrained generate argv begins with the user prompt.
-	const runCli: ArdyGenerateCliRunner = async (argv) => {
-		runCalls.push([...argv]);
-		const capability = argv[0] === ARDY_CONSTRAINED_PROMPT ? "inbetween" : "generate";
-		counters.runCli[capability] += 1;
-		counters.runCli.total += 1;
-		const motionId = `motion-${String(counters.runCli.total).padStart(12, "0")}`;
-		await store.write(motionId, validMotionArchive());
-		const baseIndex = argv.indexOf("--base-motion");
-		const baseMotionId = baseIndex === -1 ? null : (argv[baseIndex + 1] ?? null);
-		const common = { motion_id: motionId, path: `.cclay/motions/${motionId}.npz` };
-		const stdout =
-			capability === "inbetween"
-				? JSON.stringify({
-						...common,
-						duration_s: 600,
-						base_motion_id: baseMotionId,
-						frames: 12000,
-						fps: 20,
-						target_space: "skeleton_joint_center",
-						surface_contact_verified: false,
-						residual: { max_error_m: 0.031, mean_error_m: 0.018, worst_frame: 24, worst_joint: "RightHand" },
-						continuity: INBETWEEN_CONTINUITY,
-						waypoints: [],
-					})
-				: JSON.stringify({
-						...common,
-						frames: 100,
-						fps: 20,
-						duration_s: 5,
-						continuity: { mean_jump_m: 0.012, max_jump_m: 0.04, max_jump_frame: 47 },
-					});
-		return { status: 0, stdout, stderr: "" };
-	};
-	// The generate-only kernels: runCli, the `generated` record via the
-	// onGenerated seam, then the commit. They never apply -- the queue is the
-	// single apply point.
-	const generateKernel = new ArdyGenerateKernel({
-		runCli,
-		archive: { commitGenerated: (motionId) => store.commitGenerated(motionId) },
-		onGenerated: async (motionId, result) => {
-			await writeArdyQueueProgress(generatePaths.progress, {
-				schema_version: 1,
-				request_id: result.request_id,
-				status: "generated",
-				motion_id: motionId,
-				result,
-			});
+	let expectedPoseIds: string[] = [];
+
+	const fakeWrapperPath = join(project, "fake-ardy-wrapper");
+	await writeFile(fakeWrapperPath, FAKE_WRAPPER_SOURCE, "utf8");
+	await chmod(fakeWrapperPath, 0o755);
+	process.env.CCLAY_STAIR_ARGV_LOG = join(project, "argv.log");
+	process.env.CCLAY_STAIR_NPZ_B64 = Buffer.from(validMotionArchive()).toString("base64");
+
+	// The production mutation glue (apps/cclay-extension/src/cclay/index.ts),
+	// with ONLY the two Blender-side calls faked.
+	const mutationBridge = {
+		stageScene: async (plan: StageScenePlanV1, context: unknown): Promise<StageSceneMutationCandidate> => {
+			bridgeContexts.push(context);
+			// The add-on's mutation candidate, rebuilt with the SAME canonical
+			// child-revision derivation commitStageSceneMutation validates
+			// against: the manifest hashes and the child revision id are
+			// computed by production code, never chosen here.
+			const current = await projectStore.readProject();
+			const durableManifest = current.manifest as SceneManifestV4;
+			const { revisionId: _revisionId, sceneHash: _sceneHash, ...hashFree } = durableManifest;
+			const manifestForHashing: ManifestForHashing = hashFree;
+			const candidateManifest = buildSceneManifestV4Revision(manifestForHashing, plan.expected_revision_id, plan);
+			const appliedHandShapes: StageSceneAppliedHandShape[] = [];
+			for (const [index, operation] of plan.operations.entries()) {
+				if (operation.op !== "apply_motion") continue;
+				appliedHandShapes.push({
+					operation_index: index,
+					entity_id: operation.entity_id,
+					motion_id: operation.motion_id,
+					left: "relaxed",
+					right: "relaxed",
+					library_version: "1.1.0",
+				});
+			}
+			return {
+				expected_revision_id: plan.expected_revision_id,
+				scene_hash: candidateManifest.sceneHash,
+				manifest: candidateManifest,
+				entity_identities: [],
+				applied_hand_shapes: appliedHandShapes,
+			};
 		},
-	});
-	const generateHandler: ArdyGenerateQueueHandler = async (params) => ({
-		result: await generateKernel.generate(parseArdyGenerateRequest(params)),
-	});
-	const inbetweenKernel = new ArdyInbetweenKernel({
-		runCli,
-		archive: {
-			read: (motionId) => store.read(motionId),
-			commitGenerated: (motionId) => store.commitGenerated(motionId),
-		},
-		onGenerated: async (motionId, result) => {
-			await writeArdyQueueProgress(inbetweenPaths.progress, {
-				schema_version: 1,
-				request_id: result.request_id,
-				status: "generated",
-				motion_id: motionId,
-				result,
-			});
-		},
-	});
-	const inbetweenHandler: ArdyInbetweenQueueHandler = async (params) => ({
-		result: await inbetweenKernel.inbetween(parseArdyInbetweenRequest(params)),
-	});
-	// The simulated stage_scene bridge. The production runners bind
-	// stageScene(applyMotionRequest(...), context); the real bridge commits
-	// the plan inside a live Blender session, where a plan whose
-	// expected_revision_id is not the current revision is rejected. This
-	// bridge performs that commit and rejection.
-	const stageScene = async (
-		plan: StageSceneRequestV1,
-		_context: unknown,
-	): Promise<{ resulting_revision_id: string }> => {
-		applyPlans.push(plan);
-		if (plan.expected_revision_id !== revision.current) {
-			throw new Error(
-				`revision mismatch: expected ${plan.expected_revision_id}, current revision is ${revision.current}`,
-			);
-		}
-		revision.current = nextRevision(revision.current);
-		revisionHistory.push(revision.current);
-		return { resulting_revision_id: revision.current };
-	};
-	const generateWriteAhead: ArdyQueueWriteAhead<ArdyGenerateRequestV1> = {
-		recoverGenerated: (motionId) => store.recoverGenerated(motionId),
-		read: (motionId) => store.read(motionId),
-		commitGenerated: (motionId) => store.commitGenerated(motionId),
-		removeStaleClaims: (motionId) => store.removeStaleGeneratedClaims(motionId),
-		apply: (request, context, motionId) => {
-			counters.applies.generate += 1;
-			counters.applies.total += 1;
-			return stageScene(applyMotionRequest(motionId, request.entity_id, request.expected_revision_id), context);
+		finishDurableCommit: (resultingRevisionId: string): void => {
+			// The Blender transaction ack; the real bridge also advances
+			// bridge.revisionId here. Mirror exactly that: the live-revision
+			// getter the runners' staleness guards read.
+			bridgeRevision.current = resultingRevisionId;
 		},
 	};
-	const inbetweenWriteAhead: ArdyQueueWriteAhead<ArdyInbetweenRequestV1> = {
-		recoverGenerated: (motionId) => store.recoverGenerated(motionId),
-		read: (motionId) => store.read(motionId),
-		commitGenerated: (motionId) => store.commitGenerated(motionId),
-		removeStaleClaims: (motionId) => store.removeStaleGeneratedClaims(motionId),
-		apply: async (request, context, motionId) => {
-			counters.applies.inbetween += 1;
-			counters.applies.total += 1;
-			// The queue's own observation point: writeAhead.apply runs after
-			// the kernel's capture preflight and archive commit, and BEFORE
-			// the outcome is durable or retireArdyClaim deletes the request's
-			// captured poses. The poses must still be on disk here, and the
-			// outcome must not exist yet -- no timing guesses needed.
-			const poseIds = inbetweenSyntheticPoseIds(request);
+	const stageScene = async (request: StageSceneRequestV1, context: unknown) => {
+		applyPlans.push(request);
+		// The pose-lifetime observation sits at the queue's apply point: the
+		// production runners' writeAhead.apply IS this stageScene dispatch,
+		// which runs after the kernel committed the archive and BEFORE the
+		// applied-progress and outcome writes retire anything. No timing
+		// guesses needed.
+		if (expectedPoseIds.length > 0) {
 			poseObservation.seen = true;
 			poseObservation.posesPresent = await Promise.all(
-				poseIds.map(async (poseId) => existsOnDisk(join(inbetweenPaths.motions, `${poseId}.npz`))),
+				expectedPoseIds.map(async (poseId) => existsOnDisk(join(inbetweenPaths.motions, `${poseId}.npz`))),
 			);
 			poseObservation.outcomeDurable = await existsOnDisk(
-				join(inbetweenPaths.outcomes, `${request.request_id}.json`),
+				join(inbetweenPaths.outcomes, `${INBETWEEN_REQUEST_ID}.json`),
 			);
-			return stageScene(applyMotionRequest(motionId, request.entity_id, request.expected_revision_id), context);
-		},
+			expectedPoseIds = [];
+		}
+		const plan = canonicalizeStageScenePlan(request, randomUUID);
+		const candidate = await mutationBridge.stageScene(plan, context);
+		const result = await commitStageSceneMutation(projectStore, plan, candidate);
+		await mutationBridge.finishDurableCommit(result.resulting_revision_id);
+		return result;
 	};
+
+	const generateRunner = startGenerateQueueRunner({
+		cwd: project,
+		liveRevisionId: () => bridgeRevision.current,
+		stageScene,
+		wrapperPath: fakeWrapperPath,
+		tickMs: 60_000,
+		onError: (error) => {
+			throw error;
+		},
+	});
+	const inbetweenRunner = startInbetweenQueueRunner({
+		cwd: project,
+		liveRevisionId: () => bridgeRevision.current,
+		stageScene,
+		wrapperPath: fakeWrapperPath,
+		tickMs: 60_000,
+		onError: (error) => {
+			throw error;
+		},
+	});
+	await Promise.all([generateRunner.started, inbetweenRunner.started]);
+
 	return {
 		project,
 		store,
+		projectStore,
 		motionsDir: inbetweenPaths.motions,
-		counters,
-		revision,
-		revisionHistory,
-		runCalls,
+		generatePaths,
+		inbetweenPaths,
+		bridgeRevision,
 		applyPlans,
+		bridgeContexts,
 		poseObservation,
-		sweepGenerate: () =>
-			sweepGenerateRequests({
-				projectDirectory: project,
-				handler: generateHandler,
-				writeAhead: generateWriteAhead,
-				contextFor: () => ({}),
-				liveRevisionId: () => revision.current,
-			}),
-		sweepInbetween: () =>
-			sweepInbetweenRequests({
-				projectDirectory: project,
-				handler: inbetweenHandler,
-				writeAhead: inbetweenWriteAhead,
-				contextFor: () => ({}),
-				liveRevisionId: () => revision.current,
-			}),
+		generateRunner,
+		inbetweenRunner,
+		runCalls: async () => {
+			const logPath = join(project, "argv.log");
+			const text = await readFile(logPath, "utf8").catch(() => "");
+			return text
+				.split("\n")
+				.filter((line) => line.trim() !== "")
+				.map((line) => JSON.parse(line) as string[]);
+		},
+		observePosesFor: (poseIds) => {
+			expectedPoseIds = poseIds;
+		},
 	};
 }
 
-// Plants the base clip and the request's synthetic pose archives the way the
-// add-on's capture step leaves them (capture_evaluated_pose + the applied
-// base clip). The capture step itself is Blender-side and covered by its own
-// real-Blender tests; this stands in for it with the real archive fixture,
-// minting exactly the ids the add-on's rule produces.
+// Plants the request's synthetic pose archives the way the add-on's capture
+// step leaves them (capture_evaluated_pose). The capture step itself is
+// Blender-side and covered by its own real-Blender tests; this stands in for
+// it with the real archive fixture, minting exactly the ids the add-on's rule
+// produces. It writes ONLY the pose archives: the base clip is the GENERATE
+// stage's committed output and must survive byte-identical into the
+// in-between stage -- the harness hashes it across this call.
 async function plantCapturedPoses(h: Harness, request: ArdyInbetweenRequestV1): Promise<void> {
-	await h.store.write(request.base_motion_id, validMotionArchive());
 	for (const poseId of inbetweenSyntheticPoseIds(request)) {
 		await h.store.write(poseId, validMotionArchive());
 	}
@@ -353,38 +390,46 @@ describe("ardy stair loop", () => {
 	});
 
 	afterEach(async () => {
+		if (h !== undefined) {
+			await h.generateRunner.stop();
+			await h.inbetweenRunner.stop();
+		}
+		delete process.env.CCLAY_STAIR_ARGV_LOG;
+		delete process.env.CCLAY_STAIR_NPZ_B64;
 		await rm(project, { recursive: true, force: true });
 	});
 
-	it("ONE request set drives generate -> captured poses -> in-between -> apply: exactly R0 -> R1 -> R2, one wrapper run per capability", async () => {
+	it("ONE request set drives generate -> captured poses -> in-between -> apply through the production runners: the canonical R0 -> R1 -> R2 chain is derived and persisted", async () => {
 		// --- Step 1: ardy_generate advances R0 -> R1 and applies the base
-		// motion, all through the real queue and kernel. ---
-		await writeGenerateRequest(project, generateRequest());
-		const generateEntries = await h.sweepGenerate();
-		assert.equal(generateEntries.length, 1);
-		const generateOutcome = generateEntries[0]!.outcome;
+		// motion, all through the real runner, queue, kernel and durable
+		// commit. ---
+		const generateOutcome = await h.generateRunner.generate(generateRequest());
 		assert.equal(
 			generateOutcome.status,
 			"succeeded",
 			generateOutcome.status === "failed" ? generateOutcome.message : "",
 		);
 		assert.equal(generateOutcome.request_id, GENERATE_REQUEST_ID);
-		assert.equal(generateOutcome.resulting_revision_id, R1, "the generate apply commits R1");
+		const R1 = (await h.projectStore.readProject()).current_revision_id;
+		assert.equal(
+			generateOutcome.resulting_revision_id,
+			R1,
+			"the generate apply commits the canonical child revision",
+		);
+		assert.notEqual(R1, R0, "the canonical child revision must differ from its parent");
 		assert.deepEqual(generateOutcome.result, {
 			schema_version: 1,
 			request_id: GENERATE_REQUEST_ID,
 			motion_id: "motion-000000000001",
-			frames: 100,
+			frames: 1,
 			duration_seconds: 5,
 			seed: 7,
 		});
-		assert.equal(h.revision.current, R1);
-		assert.deepEqual(h.revisionHistory, [R1], "the first transition lands exactly once");
-		assert.deepEqual(h.counters.runCli, { generate: 1, inbetween: 0, total: 1 });
-		assert.deepEqual(h.counters.applies, { generate: 1, inbetween: 0, total: 1 });
+		assert.equal(h.bridgeRevision.current, R1, "the fake ack advances the live revision exactly as the bridge does");
 		// The exact unconstrained argv rode through the real queue once, and
-		// the apply dispatch carried the REAL apply_motion plan bound to R0.
-		assert.deepEqual(h.runCalls, [[PROMPT, "--duration", "5", "--seed", "7"]]);
+		// the apply dispatch carried the REAL apply_motion plan bound to R0
+		// with the production request context.
+		assert.deepEqual(await h.runCalls(), [[PROMPT, "--duration", "5", "--seed", "7"]]);
 		assert.deepEqual(h.applyPlans, [
 			{
 				schema_version: 1,
@@ -392,6 +437,8 @@ describe("ardy stair loop", () => {
 				operations: [{ op: "apply_motion", entity_id: ENTITY, motion_id: "motion-000000000001" }],
 			},
 		]);
+		assertProductionContext(h.bridgeContexts[0], R0, "the generate apply dispatch");
+		const baseArchiveAfterGenerate = await readFile(join(h.motionsDir, "motion-000000000001.npz"));
 
 		// --- Step 2: the add-on's evaluated-pose capture (Blender-side; the
 		// harness stands in for it, see plantCapturedPoses). The in-between
@@ -401,7 +448,7 @@ describe("ardy stair loop", () => {
 		assert.ok(generateResult !== undefined, "the generate outcome must carry a result");
 		const inbetween = inbetweenRequest({
 			baseMotionId: generateResult.motion_id,
-			expectedRevisionId: h.revision.current,
+			expectedRevisionId: R1,
 		});
 		assert.equal(
 			inbetween.expected_revision_id,
@@ -409,77 +456,39 @@ describe("ardy stair loop", () => {
 			"the in-between request must carry R1, the revision ardy_generate applied and advanced to -- a harness that passed with R0 would be proving the staleness check is broken",
 		);
 		await plantCapturedPoses(h, inbetween);
-		await writeInbetweenRequest(project, inbetween);
+		// F1: capture planting must never touch the base archive. The
+		// in-between stage consumes the archive the GENERATE stage actually
+		// committed -- that handoff is the point of this harness.
+		const baseArchiveAfterPlant = await readFile(join(h.motionsDir, "motion-000000000001.npz"));
+		assert.deepEqual(
+			baseArchiveAfterPlant,
+			baseArchiveAfterGenerate,
+			"the generated base archive must be byte-identical after capture planting: the in-between stage consumes what the generate stage actually committed",
+		);
+		h.observePosesFor(inbetweenSyntheticPoseIds(inbetween));
 
 		// --- Step 3: ardy_inbetween advances R1 -> R2 and applies the
 		// in-between motion. ---
-		const inbetweenEntries = await h.sweepInbetween();
-		assert.equal(inbetweenEntries.length, 1);
-		const inbetweenOutcome = inbetweenEntries[0]!.outcome;
+		const inbetweenOutcome = await h.inbetweenRunner.inbetween(inbetween);
 		assert.equal(
 			inbetweenOutcome.status,
 			"succeeded",
 			inbetweenOutcome.status === "failed" ? inbetweenOutcome.message : "",
 		);
 		assert.equal(inbetweenOutcome.request_id, INBETWEEN_REQUEST_ID);
-		assert.equal(inbetweenOutcome.resulting_revision_id, R2, "the in-between apply commits R2");
-		assert.equal(h.revision.current, R2);
-		assert.deepEqual(h.revisionHistory, [R1, R2], "exactly two transitions, R0 -> R1 -> R2, in order");
+		const R2 = (await h.projectStore.readProject()).current_revision_id;
+		assert.equal(
+			inbetweenOutcome.resulting_revision_id,
+			R2,
+			"the in-between apply commits the canonical child revision of R1",
+		);
+		assert.notEqual(R2, R1, "each apply must derive a new canonical revision");
 		assert.equal(new Set([R0, R1, R2]).size, 3, "the three revisions are distinct values");
+		assert.equal(h.bridgeRevision.current, R2);
 		// The wrapper ran exactly twice across the whole loop: once per
 		// capability.
-		assert.deepEqual(h.counters.runCli, { generate: 1, inbetween: 1, total: 2 });
-		assert.deepEqual(h.counters.applies, { generate: 1, inbetween: 1, total: 2 });
-		// The queue's own callback observed the captured poses on disk AFTER
-		// capture and BEFORE the outcome was durable; the sweep retired them
-		// by the time it returned.
-		assert.equal(h.poseObservation.seen, true, "the queue's apply callback must observe the pose lifecycle");
-		assert.deepEqual(
-			h.poseObservation.posesPresent,
-			[true, true, true],
-			"captured poses must still be on disk when the queue applies (after capture, before the outcome is durable)",
-		);
-		assert.equal(
-			h.poseObservation.outcomeDurable,
-			false,
-			"the outcome must not be durable yet while the queue is still applying",
-		);
 		const poseIds = inbetweenSyntheticPoseIds(inbetween);
-		for (const poseId of poseIds) {
-			assert.equal(
-				await existsOnDisk(join(h.motionsDir, `${poseId}.npz`)),
-				false,
-				`the synthetic pose ${poseId} must be gone after the sweep retired the request`,
-			);
-		}
-		// The final result carries dropped_constraints, continuity, motion_id
-		// and resulting_revision_id, and they reach the caller intact. The
-		// wrapper contract pins in-between dropped_constraints to [] (every
-		// pose is structurally in range, see ardy-inbetween-service.ts), and
-		// the continuity the wrapper measured is echoed verbatim.
-		const inbetweenResult = inbetweenOutcome.status === "succeeded" ? inbetweenOutcome.result : undefined;
-		assert.ok(inbetweenResult !== undefined, "the in-between outcome must carry a result");
-		assert.deepEqual(inbetweenResult, {
-			schema_version: 1,
-			request_id: INBETWEEN_REQUEST_ID,
-			motion_id: "motion-000000000002",
-			frames: 12000,
-			captured_frames: 3,
-			base_motion_id: "motion-000000000001",
-			continuity: INBETWEEN_CONTINUITY,
-			dropped_constraints: [],
-		});
-		assert.equal(inbetweenResult.motion_id, "motion-000000000002");
-		assert.deepEqual(
-			inbetweenResult.continuity,
-			INBETWEEN_CONTINUITY,
-			"the measured continuity reaches the caller intact",
-		);
-		assert.deepEqual(inbetweenResult.dropped_constraints, [], "dropped_constraints is present in the final result");
-		// The exact constrained argv rode through the real queue once, with
-		// the synthetic pose ids derived by the service's own rule, and the
-		// apply dispatch carried the real apply_motion plan bound to R1.
-		assert.deepEqual(h.runCalls, [
+		assert.deepEqual(await h.runCalls(), [
 			[PROMPT, "--duration", "5", "--seed", "7"],
 			[
 				ARDY_CONSTRAINED_PROMPT,
@@ -514,63 +523,161 @@ describe("ardy stair loop", () => {
 			},
 		]);
 		assert.equal(h.applyPlans[1]!.expected_revision_id, R1, "the in-between apply plan binds R1, not R0");
+		assertProductionContext(h.bridgeContexts[1], R1, "the in-between apply dispatch");
+		// The apply dispatch observed the captured poses on disk AFTER
+		// capture and BEFORE the outcome was durable; the sweep retired them
+		// by the time it returned.
+		assert.equal(h.poseObservation.seen, true, "the queue's apply point must observe the pose lifecycle");
+		assert.deepEqual(
+			h.poseObservation.posesPresent,
+			[true, true, true],
+			"captured poses must still be on disk at the queue's apply point (after capture, before the outcome is durable)",
+		);
+		assert.equal(
+			h.poseObservation.outcomeDurable,
+			false,
+			"the outcome must not be durable yet while the queue is still applying",
+		);
+		for (const poseId of poseIds) {
+			assert.equal(
+				await existsOnDisk(join(h.motionsDir, `${poseId}.npz`)),
+				false,
+				`the synthetic pose ${poseId} must be gone after the sweep retired the request`,
+			);
+		}
+		// The final result carries dropped_constraints, continuity, motion_id
+		// and resulting_revision_id, and they reach the caller intact.
+		// dropped_constraints is pinned to [] by the real in-between
+		// adapter's wrapper-JSON projection and the protocol's clip-frame
+		// ceiling makes an out-of-range destination frame structurally
+		// unreachable (ardy-inbetween-service.ts), so asserting it proves the
+		// field survives serialization intact -- adapter plumbing, not
+		// constraint-retention coverage.
+		const inbetweenResult = inbetweenOutcome.status === "succeeded" ? inbetweenOutcome.result : undefined;
+		assert.ok(inbetweenResult !== undefined, "the in-between outcome must carry a result");
+		assert.deepEqual(inbetweenResult, {
+			schema_version: 1,
+			request_id: INBETWEEN_REQUEST_ID,
+			motion_id: "motion-000000000002",
+			frames: 1,
+			captured_frames: 3,
+			base_motion_id: "motion-000000000001",
+			continuity: INBETWEEN_CONTINUITY,
+			dropped_constraints: [],
+		});
+		assert.equal(inbetweenResult.motion_id, "motion-000000000002");
+		assert.deepEqual(
+			inbetweenResult.continuity,
+			INBETWEEN_CONTINUITY,
+			"the measured continuity reaches the caller intact",
+		);
+		assert.deepEqual(inbetweenResult.dropped_constraints, [], "dropped_constraints is present in the final result");
+		// F3: the project store holds the derived chain durably -- the
+		// current revision, the manifest's own revisionId, and one
+		// stage_scene journal record per apply, chained R0 -> R1 -> R2.
+		const durableProject = await h.projectStore.readProject();
+		assert.equal(durableProject.current_revision_id, R2);
+		assert.equal((durableProject.manifest as SceneManifestV4).revisionId, R2);
+		const journalRecords = (await readFile(h.projectStore.journalPath, "utf8"))
+			.trim()
+			.split("\n")
+			.map(
+				(line) =>
+					JSON.parse(line) as {
+						expected_revision_id: string;
+						target_revision_id: string;
+						journal_entry: { operation: string };
+					},
+			);
+		assert.deepEqual(
+			journalRecords.map((record) => record.expected_revision_id),
+			[R0, R1],
+			"each commit names its canonical parent revision",
+		);
+		assert.deepEqual(
+			journalRecords.map((record) => record.target_revision_id),
+			[R1, R2],
+			"each commit lands the canonical child revision",
+		);
+		assert.ok(
+			journalRecords.every((record) => record.journal_entry.operation === "stage_scene"),
+			"both durable commits are stage_scene operations",
+		);
 		// One committed archive per capability; the base clip is the generate
 		// output, and the captured poses are retired.
 		assert.deepEqual(await motionFiles(h), ["motion-000000000001.npz", "motion-000000000002.npz"]);
 		// Terminal queue state: requests and progress retired, both outcomes
 		// durable.
-		assert.deepEqual(await readdir(generateQueuePaths(project).requests), []);
-		assert.deepEqual(await readdir(inbetweenQueuePaths(project).requests), []);
-		assert.deepEqual(await readdir(generateQueuePaths(project).outcomes), [`${GENERATE_REQUEST_ID}.json`]);
-		assert.deepEqual(await readdir(inbetweenQueuePaths(project).outcomes), [`${INBETWEEN_REQUEST_ID}.json`]);
-		assert.deepEqual(await readdir(generateQueuePaths(project).progress), []);
-		assert.deepEqual(await readdir(inbetweenQueuePaths(project).progress), []);
+		assert.deepEqual(await readdir(h.generatePaths.requests), []);
+		assert.deepEqual(await readdir(h.inbetweenPaths.requests), []);
+		assert.deepEqual(await readdir(h.generatePaths.outcomes), [`${GENERATE_REQUEST_ID}.json`]);
+		assert.deepEqual(await readdir(h.inbetweenPaths.outcomes), [`${INBETWEEN_REQUEST_ID}.json`]);
+		assert.deepEqual(await readdir(h.generatePaths.progress!), []);
+		assert.deepEqual(await readdir(h.inbetweenPaths.progress), []);
 
 		// --- Step 4: resubmitting BOTH request ids is a read of the recorded
 		// outcome, never another run: no wrapper invocation, no archive
 		// entry, no revision, and the second read comes from the SAME outcome
 		// file (same inode and mtime, byte-identical content -- a regenerated
 		// outcome would be a temp-rename rewrite and a new inode). ---
-		const generateOutcomePath = join(generateQueuePaths(project).outcomes, `${GENERATE_REQUEST_ID}.json`);
-		const inbetweenOutcomePath = join(inbetweenQueuePaths(project).outcomes, `${INBETWEEN_REQUEST_ID}.json`);
+		const generateOutcomePath = join(h.generatePaths.outcomes, `${GENERATE_REQUEST_ID}.json`);
+		const inbetweenOutcomePath = join(h.inbetweenPaths.outcomes, `${INBETWEEN_REQUEST_ID}.json`);
 		const generateBefore = await readFile(generateOutcomePath);
 		const inbetweenBefore = await readFile(inbetweenOutcomePath);
 		const generateStatBefore = await stat(generateOutcomePath);
 		const inbetweenStatBefore = await stat(inbetweenOutcomePath);
 
-		await writeGenerateRequest(project, generateRequest());
-		const generateAgain = await h.sweepGenerate();
-		assert.equal(generateAgain.length, 1);
+		const generateAgain = await h.generateRunner.generate(generateRequest());
 		assert.deepEqual(
-			generateAgain[0]!.outcome,
+			generateAgain,
 			generateOutcome,
 			"the second generate read returns the identical recorded outcome",
 		);
-		await writeInbetweenRequest(project, inbetween);
-		const inbetweenAgain = await h.sweepInbetween();
-		assert.equal(inbetweenAgain.length, 1);
+		const inbetweenAgain = await h.inbetweenRunner.inbetween(inbetween);
 		assert.deepEqual(
-			inbetweenAgain[0]!.outcome,
+			inbetweenAgain,
 			inbetweenOutcome,
 			"the second in-between read returns the identical recorded outcome",
 		);
 
 		assert.deepEqual(
-			h.counters.runCli,
-			{ generate: 1, inbetween: 1, total: 2 },
+			await h.runCalls(),
+			[
+				[PROMPT, "--duration", "5", "--seed", "7"],
+				[
+					ARDY_CONSTRAINED_PROMPT,
+					"--duration",
+					ARDY_CONSTRAINED_DURATION_SECONDS,
+					"--base-motion",
+					"motion-000000000001",
+					"--constrain-pose",
+					poseIds[0]!,
+					"0",
+					"0",
+					"--constrain-pose",
+					poseIds[1]!,
+					"0",
+					"60",
+					"--constrain-pose",
+					poseIds[2]!,
+					"0",
+					"120",
+				],
+			],
 			"resubmitting both request ids must not invoke the wrapper a third time",
 		);
-		assert.deepEqual(
-			h.counters.applies,
-			{ generate: 1, inbetween: 1, total: 2 },
-			"resubmitting must not apply again",
-		);
-		assert.equal(h.revision.current, R2, "resubmitting must not commit another revision");
-		assert.deepEqual(h.revisionHistory, [R1, R2], "the revision sequence is still exactly two transitions");
+		assert.equal(h.applyPlans.length, 2, "resubmitting must not apply again");
+		assert.equal(h.bridgeRevision.current, R2, "resubmitting must not commit another revision");
+		assert.equal((await h.projectStore.readProject()).current_revision_id, R2);
 		assert.deepEqual(
 			await motionFiles(h),
 			["motion-000000000001.npz", "motion-000000000002.npz"],
 			"no additional archive entry",
+		);
+		assert.equal(
+			await existsOnDisk(join(h.motionsDir, "motion-000000000003.npz")),
+			false,
+			"the wrapper must not have run a third time",
 		);
 		for (const poseId of poseIds) {
 			assert.equal(
@@ -608,41 +715,44 @@ describe("ardy stair loop", () => {
 
 	it("an in-between request carrying the STALE R0 after the generate step advanced the revision is rejected as REVISION_MISMATCH with ZERO wrapper invocations", async () => {
 		// R0 -> R1 first, exactly as the main loop does.
-		await writeGenerateRequest(project, generateRequest());
-		const generateEntries = await h.sweepGenerate();
-		assert.equal(generateEntries.length, 1);
+		const generateOutcome = await h.generateRunner.generate(generateRequest());
 		assert.equal(
-			generateEntries[0]!.outcome.status,
+			generateOutcome.status,
 			"succeeded",
-			generateEntries[0]!.outcome.status === "failed" ? generateEntries[0]!.outcome.message : "",
+			generateOutcome.status === "failed" ? generateOutcome.message : "",
 		);
-		assert.equal(h.revision.current, R1);
-		assert.equal(h.counters.runCli.generate, 1);
+		const R1 = (await h.projectStore.readProject()).current_revision_id;
+		assert.notEqual(R1, R0);
+		assert.equal(h.bridgeRevision.current, R1);
+		assert.equal((await h.runCalls()).length, 1);
 
 		// The animator's in-between request was captured against the OLD
 		// scene (R0) -- the generate apply has since advanced the revision,
 		// so the request is stale before the wrapper is ever considered.
 		const stale = inbetweenRequest({ baseMotionId: "motion-000000000001", expectedRevisionId: R0 });
 		await plantCapturedPoses(h, stale);
-		await writeInbetweenRequest(project, stale);
 
-		const entries = await h.sweepInbetween();
-		assert.equal(entries.length, 1);
-		const outcome = entries[0]!.outcome;
+		const outcome = await h.inbetweenRunner.inbetween(stale);
 		assert.equal(outcome.status, "failed");
 		assert.equal(outcome.status === "failed" && outcome.error_code, "REVISION_MISMATCH");
-		assert.equal(h.counters.runCli.inbetween, 0, "a stale in-between request must never call the wrapper");
-		assert.equal(
-			h.counters.runCli.total,
-			1,
-			"the only wrapper run across the whole test was the generate capability's",
+		assert.deepEqual(
+			await h.runCalls(),
+			[[PROMPT, "--duration", "5", "--seed", "7"]],
+			"a stale in-between request must never call the wrapper",
 		);
-		assert.equal(h.counters.applies.inbetween, 0, "a stale in-between request must never reach the apply");
-		assert.equal(h.counters.applies.total, 1);
-		assert.equal(h.revision.current, R1, "the revision must not advance for a stale request");
-		assert.deepEqual(h.revisionHistory, [R1]);
 		assert.equal(h.applyPlans.length, 1, "no apply plan may be built for the stale request");
 		assert.equal(h.poseObservation.seen, false, "the in-between apply must never have run");
+		assert.equal(h.bridgeRevision.current, R1, "the revision must not advance for a stale request");
+		assert.equal((await h.projectStore.readProject()).current_revision_id, R1);
+		const journalRecords = (await readFile(h.projectStore.journalPath, "utf8"))
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line) as { target_revision_id: string });
+		assert.deepEqual(
+			journalRecords.map((record) => record.target_revision_id),
+			[R1],
+			"exactly one durable commit, the generate apply",
+		);
 		// The failure path still retires the captured poses with the request.
 		assert.deepEqual(
 			await motionFiles(h),
@@ -656,13 +766,12 @@ describe("ardy stair loop", () => {
 		);
 		// Terminal state: one recorded failure outcome, nothing left in
 		// flight.
-		assert.deepEqual(await readdir(inbetweenQueuePaths(project).requests), []);
-		assert.deepEqual(await readdir(inbetweenQueuePaths(project).outcomes), [`${INBETWEEN_REQUEST_ID}.json`]);
+		assert.deepEqual(await readdir(h.inbetweenPaths.requests), []);
+		assert.deepEqual(await readdir(h.inbetweenPaths.outcomes), [`${INBETWEEN_REQUEST_ID}.json`]);
 		// The stale request never ran the kernel, so it must not have
-		// recorded any progress at all (the progress directory may not even
-		// exist).
+		// recorded any progress at all.
 		assert.equal(
-			await existsOnDisk(join(inbetweenQueuePaths(project).progress, `${INBETWEEN_REQUEST_ID}.json`)),
+			await existsOnDisk(join(h.inbetweenPaths.progress, `${INBETWEEN_REQUEST_ID}.json`)),
 			false,
 			"a stale request must never record write-ahead progress",
 		);
