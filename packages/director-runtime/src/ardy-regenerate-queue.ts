@@ -35,25 +35,26 @@
 //   "no regeneration after a recorded generation" guarantee here, and none
 //   is claimed.
 
-import { readdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	type ArdyRegenerateErrorCode,
 	type ArdyRegenerateQueueOutcomeV1,
 	type ArdyRegenerateRequestV1,
+	parseArdyInbetweenRequest,
 	parseArdyRegenerateQueueOutcome,
 	parseArdyRegenerateRequest,
 } from "@cclay/protocol";
+import { inbetweenSyntheticPoseIds } from "./ardy-inbetween-service.ts";
 import {
 	type ArdyQueueDescriptor,
 	ardyQueuePaths,
-	CLAIMED_SUFFIX,
-	readClaimedRequest,
 	recoverAbandonedArdyClaims,
 	sweepArdyQueue,
 	writeArdyQueueRequest,
 } from "./ardy-queue.ts";
 import { ArdyRegenerateError, ArdyRegenerateInvalidRequestError } from "./ardy-regenerate-service.ts";
+import { removeOrphanedSyntheticPoses as removeOrphanedSyntheticPosesShared } from "./ardy-synthetic-poses.ts";
 
 export const REGENERATE_REQUEST_DIRECTORY = "regenerate-requests";
 export const REGENERATE_OUTCOME_DIRECTORY = "regenerate-outcomes";
@@ -64,9 +65,10 @@ export const REGENERATE_OUTCOME_DIRECTORY = "regenerate-outcomes";
 // Synthetic full-body pose archives the add-on writes so --constrain-pose has
 // something to point at. They exist only for the duration of one request; the
 // host owns deleting them because the add-on has already detached and stopped
-// caring by the time the generator runs. The prefix must match the id
-// constraint_capture.capture_regeneration_request mints.
-const SYNTHETIC_POSE_PREFIX = "cclay-pose-";
+// caring by the time the generator runs. The prefix and the cross-queue
+// orphan lifecycle live in ./ardy-synthetic-poses.ts, shared with the
+// in-between queue (which mints the same cclay-pose- prefix for its
+// captured poses).
 
 export interface ArdyRegenerateQueuePaths {
 	readonly requests: string;
@@ -171,56 +173,33 @@ export async function sweepRegenerateRequests(
  * consuming the request leaves them with no owner, and nothing else in the
  * project will ever mention them again. Run at startup, after
  * recoverAbandonedClaims, so requests waiting to be retried keep their poses.
+ *
+ * Both pose-minting queues are owners: the in-between surface mints the SAME
+ * cclay-pose- prefix into the SAME motions directory
+ * (cclay-pose-<request_id>-<n>), so a sweep that knew only the regenerate
+ * requests would delete an in-between request's in-flight poses. The shared
+ * sweep in ./ardy-synthetic-poses.ts computes the full owner set.
  */
 export async function removeOrphanedSyntheticPoses(projectDirectory: string): Promise<string[]> {
-	const paths = regenerateQueuePaths(projectDirectory);
-	let motionNames: string[];
-	try {
-		motionNames = await readdir(paths.motions);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return [];
-		}
-		throw error;
-	}
-	const referenced = new Set<string>();
-	let requestNames: string[] = [];
-	try {
-		requestNames = await readdir(paths.requests);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw error;
-		}
-	}
-	for (const name of requestNames) {
-		if (!name.endsWith(".json") && !name.endsWith(CLAIMED_SUFFIX)) {
-			continue;
-		}
-		let request: ArdyRegenerateRequestV1;
-		try {
-			request = parseArdyRegenerateRequest(await readClaimedRequest(join(paths.requests, name)));
-		} catch {
-			// An unreadable request is about to fail anyway, but until the
-			// sweep decides that, treat it as claiming nothing rather than
-			// deleting poses it might still name.
-			continue;
-		}
-		for (const pose of request.full_body) {
-			referenced.add(`${pose.synthetic_motion_id}.npz`);
-		}
-	}
-	const removed: string[] = [];
-	for (const name of motionNames.sort()) {
-		if (!name.startsWith(SYNTHETIC_POSE_PREFIX) || !name.endsWith(".npz")) {
-			continue;
-		}
-		if (referenced.has(name)) {
-			continue;
-		}
-		await rm(join(paths.motions, name), { force: true });
-		removed.push(name);
-	}
-	return removed;
+	return removeOrphanedSyntheticPosesShared(projectDirectory, [
+		{
+			requestDirectory: REGENERATE_REQUEST_DIRECTORY,
+			syntheticPoseIds: (request) => {
+				const parsed = parseArdyRegenerateRequest(request);
+				return parsed.full_body.map((pose) => pose.synthetic_motion_id);
+			},
+		},
+		{
+			// The in-between surface mints the same prefix; the literal must
+			// match INBETWEEN_REQUEST_DIRECTORY in ardy-inbetween-queue.ts.
+			// It lives here because the import direction is one-way:
+			// ardy-inbetween-queue.ts re-exports this file's sweep and
+			// imports this file's constants, so this file must not import
+			// that one back.
+			requestDirectory: "inbetween-requests",
+			syntheticPoseIds: (request) => inbetweenSyntheticPoseIds(parseArdyInbetweenRequest(request)),
+		},
+	]);
 }
 
 /**
