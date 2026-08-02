@@ -1,10 +1,12 @@
 name: CI
 
 on:
+  # dev is the integration branch work lands on before main, so it gets the
+  # same four jobs. A branch nobody verifies is worse than no branch.
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ci-${{ github.ref }}
