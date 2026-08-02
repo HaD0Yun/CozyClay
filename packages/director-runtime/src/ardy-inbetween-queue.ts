@@ -40,6 +40,7 @@ import {
 import {
 	ArdyInbetweenError,
 	ArdyInbetweenInvalidRequestError,
+	ArdyInbetweenRevisionMismatchError,
 	inbetweenSyntheticPoseIds,
 } from "./ardy-inbetween-service.ts";
 import {
@@ -106,6 +107,15 @@ export interface ArdyInbetweenSweepOptions {
 	// is about to run: the AbortSignal the caller wants used for the run, and
 	// the revision the request was built on for its apply-time commit binding.
 	readonly contextFor: (request: ArdyInbetweenRequestV1) => unknown;
+	// The CURRENT project revision, read fresh per request. The write-ahead
+	// path runs the generate-only kernel, which has no revision notion of its
+	// own, so the sweep itself checks the request's expected_revision_id
+	// against this BEFORE the kernel executes: a stale queued request fails
+	// as REVISION_MISMATCH with ZERO generator invocations, exactly like the
+	// composite service's guard. Required, not optional with a fallback: an
+	// optional freshness check that silently defaults is how the original
+	// defect survived.
+	readonly liveRevisionId: () => string;
 }
 
 export interface ArdyInbetweenSweepEntry {
@@ -136,6 +146,7 @@ function parseQueuedRequest(value: unknown): ArdyInbetweenRequestV1 {
 function inbetweenQueueDescriptor(
 	handler: ArdyInbetweenQueueHandler,
 	writeAhead: ArdyQueueWriteAhead<ArdyInbetweenRequestV1>,
+	liveRevisionId: () => string,
 ): ArdyQueueWriteAheadDescriptor<ArdyInbetweenRequestV1, ArdyInbetweenQueueOutcomeV1, ArdyInbetweenErrorCode> {
 	return {
 		requestDirectory: INBETWEEN_REQUEST_DIRECTORY,
@@ -149,7 +160,18 @@ function inbetweenQueueDescriptor(
 		parseOutcome: parseArdyInbetweenQueueOutcome,
 		parseResult: parseArdyInbetweenResult,
 		classifyError: classify,
-		handler,
+		// The composite service's staleness guard does not exist on the
+		// write-ahead path -- its handler is the generate-only kernel, which
+		// knows nothing about revisions -- so the sweep binds the guard here,
+		// BEFORE the kernel executes. A stale request fails as
+		// REVISION_MISMATCH and the generator never runs.
+		handler: (request, context) => {
+			const live = liveRevisionId();
+			if (request.expected_revision_id !== live) {
+				throw new ArdyInbetweenRevisionMismatchError(request.expected_revision_id, live);
+			}
+			return handler(request, context);
+		},
 		writeAhead,
 	};
 }
@@ -161,7 +183,7 @@ export async function sweepInbetweenRequests(options: ArdyInbetweenSweepOptions)
 	const paths = inbetweenQueuePaths(options.projectDirectory);
 	return sweepArdyQueue({
 		projectDirectory: options.projectDirectory,
-		descriptor: inbetweenQueueDescriptor(options.handler, options.writeAhead),
+		descriptor: inbetweenQueueDescriptor(options.handler, options.writeAhead, options.liveRevisionId),
 		contextFor: options.contextFor,
 		removeRequestInputs: (request) => removeSyntheticPoses(paths.motions, request),
 	});

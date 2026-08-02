@@ -26,6 +26,11 @@
 // same 0..<12000 bound locally before ssh -- so an out-of-range pose is
 // structurally unreachable and dropped_constraints is always empty, unlike
 // regenerate, whose constraint frames are unbounded in its request schema.
+//
+// The generation mechanics are the shared ArdyMotionKernel
+// (./ardy-motion-kernel.ts), parameterized here with the in-between
+// capability: the archive-input preflight (base clip plus every synthetic
+// pose), the pose-list argv builder, and the in-between result adapter.
 import type { ArdyInbetweenErrorCode, ArdyInbetweenRequestV1, ArdyInbetweenResultV1 } from "@cclay/protocol";
 import {
 	ARDY_CONSTRAINED_DURATION_SECONDS,
@@ -34,7 +39,12 @@ import {
 	parseArdyInbetweenResult,
 } from "@cclay/protocol";
 import type { ArdyArchiveService } from "./ardy-archive-service.ts";
-import { isArdyHostUnavailableFailure } from "./ardy-generate-service.ts";
+import {
+	type ArdyCliResult,
+	type ArdyCliRunner,
+	ArdyMotionKernel,
+	isArdyHostUnavailableFailure,
+} from "./ardy-motion-kernel.ts";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export const ARDY_INBETWEEN_WRAPPER = "cclay-ardy-generate";
@@ -48,15 +58,9 @@ export function inbetweenSyntheticPoseIds(request: ArdyInbetweenRequestV1): stri
 	return request.pose_frames.map((_, index) => `cclay-pose-${request.request_id}-${index + 1}`);
 }
 
-export interface ArdyInbetweenCliResult {
-	readonly status: number;
-	readonly stdout: string;
-	readonly stderr: string;
-}
+export type ArdyInbetweenCliResult = ArdyCliResult;
 
-export type ArdyInbetweenCliRunner = (
-	argv: readonly string[],
-) => Promise<ArdyInbetweenCliResult> | ArdyInbetweenCliResult;
+export type ArdyInbetweenCliRunner = ArdyCliRunner;
 
 export interface ArdyInbetweenApplyMotionResult {
 	readonly resulting_revision_id: string;
@@ -196,105 +200,60 @@ function adaptWrapperJsonToResult(wrapperJson: unknown, request: ArdyInbetweenRe
 	};
 }
 
-/** Deterministic generator boundary; it owns archive reads, argv, and stdout parsing. */
-export class ArdyInbetweenKernel {
-	readonly #runCli: ArdyInbetweenCliRunner;
-	readonly #archive: Pick<ArdyArchiveService, "read" | "commitGenerated">;
-	readonly #onGenerated: ((motionId: string, result: ArdyInbetweenResultV1) => Promise<void>) | undefined;
-
+/**
+ * The in-between capability's binding of the shared ArdyMotionKernel: the
+ * archive-input preflight, the pose-list argv, and the in-between result
+ * adapter. Kept as a named class so the write-ahead queue and tests
+ * construct exactly the generate-only kernel (runCli through
+ * commitGenerated, no apply).
+ */
+export class ArdyInbetweenKernel extends ArdyMotionKernel<
+	ArdyInbetweenRequestV1,
+	ArdyInbetweenResultV1,
+	ArdyInbetweenError
+> {
 	constructor(options: ArdyInbetweenKernelOptions) {
-		this.#runCli = options.runCli;
-		this.#archive = options.archive;
-		this.#onGenerated = options.onGenerated;
+		super({
+			runCli: options.runCli,
+			archive: options.archive,
+			onGenerated: options.onGenerated,
+			// Both preflights fail BEFORE the wrapper runs. Any failure to
+			// read the base (missing, malformed, unreadable) is the closed
+			// union's BASE_MOTION_NOT_FOUND; the generation itself never
+			// started, so GENERATION_FAILED would be a lie.
+			preflight: async (request) => {
+				try {
+					await options.archive.read(request.base_motion_id);
+				} catch (error) {
+					throw new ArdyInbetweenBaseMotionNotFoundError(
+						`base motion archive is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+						{ cause: error },
+					);
+				}
+				try {
+					for (const poseId of inbetweenSyntheticPoseIds(request)) {
+						await options.archive.read(poseId);
+					}
+				} catch (error) {
+					throw new ArdyInbetweenPoseCaptureFailedError(
+						`synthetic pose archive is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+						{ cause: error },
+					);
+				}
+			},
+			buildArgv: buildInbetweenArgv,
+			adaptWrapperJson: adaptWrapperJsonToResult,
+			parseResult: parseArdyInbetweenResult,
+			generationError: (message, errorOptions) => new ArdyInbetweenGenerationError(message, errorOptions),
+			hostUnavailableError: (message, errorOptions) => new ArdyInbetweenHostUnavailableError(message, errorOptions),
+			isHostUnavailable: isArdyHostUnavailableFailure,
+			isKnownError: (error) => error instanceof ArdyInbetweenError,
+			resultSchemaName: "inbetween",
+		});
 	}
 
-	async inbetween(request: ArdyInbetweenRequestV1): Promise<ArdyInbetweenResultV1> {
-		// Both preflights fail BEFORE the wrapper runs. Any failure to read
-		// the base (missing, malformed, unreadable) is the closed union's
-		// BASE_MOTION_NOT_FOUND; the generation itself never started, so
-		// GENERATION_FAILED would be a lie.
-		try {
-			await this.#archive.read(request.base_motion_id);
-		} catch (error) {
-			throw new ArdyInbetweenBaseMotionNotFoundError(
-				`base motion archive is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		try {
-			for (const poseId of inbetweenSyntheticPoseIds(request)) {
-				await this.#archive.read(poseId);
-			}
-		} catch (error) {
-			throw new ArdyInbetweenPoseCaptureFailedError(
-				`synthetic pose archive is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-
-		let cliResult: ArdyInbetweenCliResult;
-		try {
-			cliResult = await this.#runCli(buildInbetweenArgv(request));
-		} catch (error) {
-			throw new ArdyInbetweenGenerationError(
-				`wrapper could not run: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		if (cliResult.status !== 0) {
-			if (isArdyHostUnavailableFailure(cliResult.stderr)) {
-				throw new ArdyInbetweenHostUnavailableError(`ardy host unavailable: ${cliResult.stderr.trim()}`);
-			}
-			throw new ArdyInbetweenGenerationError(
-				`wrapper exited ${cliResult.status}${cliResult.stderr ? `: ${cliResult.stderr.trim()}` : ""}`,
-			);
-		}
-		const lines = cliResult.stdout
-			.trim()
-			.split("\n")
-			.filter((line) => line.trim() !== "");
-		if (lines.length === 0) {
-			throw new ArdyInbetweenGenerationError("wrapper produced no stdout");
-		}
-		let wrapperJson: unknown;
-		try {
-			wrapperJson = JSON.parse(lines[lines.length - 1]);
-		} catch (error) {
-			throw new ArdyInbetweenGenerationError("wrapper stdout is not parseable JSON", { cause: error });
-		}
-		if (
-			typeof wrapperJson !== "object" ||
-			wrapperJson === null ||
-			typeof (wrapperJson as { frames?: unknown }).frames !== "number"
-		) {
-			throw new ArdyInbetweenGenerationError("wrapper JSON is missing a numeric frames count");
-		}
-		let result: ArdyInbetweenResultV1;
-		try {
-			result = parseArdyInbetweenResult(adaptWrapperJsonToResult(wrapperJson, request));
-		} catch (error) {
-			if (error instanceof ArdyInbetweenError) {
-				throw error;
-			}
-			throw new ArdyInbetweenGenerationError(
-				`wrapper JSON does not satisfy the inbetween result schema: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		// Awaited after the wrapper result parses, before the archive commit
-		// makes the motion observable to the rest of the project.
-		if (this.#onGenerated !== undefined) {
-			await this.#onGenerated(result.motion_id, result);
-		}
-		try {
-			await this.#archive.commitGenerated(result.motion_id);
-		} catch (error) {
-			throw new ArdyInbetweenGenerationError(
-				`generated motion archive could not be committed: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		return result;
+	inbetween(request: ArdyInbetweenRequestV1): Promise<ArdyInbetweenResultV1> {
+		return this.run(request);
 	}
 }
 

@@ -132,6 +132,7 @@ async function makeHarness(project: string): Promise<Harness> {
 				handler,
 				writeAhead,
 				contextFor: () => ({}),
+				liveRevisionId: () => revision.current,
 				...options,
 			}),
 		recover: () => recoverAbandonedGenerateClaims(project),
@@ -259,5 +260,25 @@ describe("ardy generate queue", () => {
 		assert.equal(outcome.request_id, badId, "addressed by filename when the body cannot be read");
 		assert.equal(h.counters.runCli, 0);
 		assert.deepEqual(await readdir(paths.requests), []);
+	});
+
+	it("a stale queued request fails as REVISION_MISMATCH with ZERO runCli calls", async () => {
+		// The live-revision guard must live on the write-ahead path itself:
+		// the queue's handler is the generate-only kernel, which has no
+		// revision notion of its own, so a stale request would otherwise
+		// spend a multi-minute GPU run before failing at apply time. The
+		// sweep checks expected_revision_id against the CURRENT revision
+		// before the kernel executes.
+		await writeGenerateRequest(project, aRequest());
+
+		const entries = await h.sweep({ liveRevisionId: () => "b".repeat(64) });
+
+		assert.equal(entries.length, 1);
+		const outcome = entries[0]!.outcome;
+		assert.equal(outcome.status, "failed");
+		assert.equal(outcome.status === "failed" && outcome.error_code, "REVISION_MISMATCH");
+		assert.equal(h.counters.runCli, 0, "a stale queued request must never call the generator");
+		assert.equal(h.counters.applies, 0, "a stale queued request must never reach the apply");
+		assert.equal(h.revision.current, REVISION, "the revision must not advance for a stale request");
 	});
 });

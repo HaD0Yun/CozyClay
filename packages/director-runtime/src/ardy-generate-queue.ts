@@ -31,7 +31,11 @@ import {
 	parseArdyGenerateRequest,
 	parseArdyGenerateResult,
 } from "@cclay/protocol";
-import { ArdyGenerateError, ArdyGenerateInvalidRequestError } from "./ardy-generate-service.ts";
+import {
+	ArdyGenerateError,
+	ArdyGenerateInvalidRequestError,
+	ArdyGenerateRevisionMismatchError,
+} from "./ardy-generate-service.ts";
 import {
 	type ArdyQueueWriteAhead,
 	type ArdyQueueWriteAheadDescriptor,
@@ -79,6 +83,15 @@ export interface ArdyGenerateSweepOptions {
 	// is about to run: the AbortSignal the caller wants used for the run, and
 	// the revision the request was built on for its apply-time commit binding.
 	readonly contextFor: (request: ArdyGenerateRequestV1) => unknown;
+	// The CURRENT project revision, read fresh per request. The write-ahead
+	// path runs the generate-only kernel, which has no revision notion of its
+	// own, so the sweep itself checks the request's expected_revision_id
+	// against this BEFORE the kernel executes: a stale queued request fails
+	// as REVISION_MISMATCH with ZERO generator invocations, exactly like the
+	// composite service's guard. Required, not optional with a fallback: an
+	// optional freshness check that silently defaults is how the original
+	// defect survived.
+	readonly liveRevisionId: () => string;
 }
 
 export interface ArdyGenerateSweepEntry {
@@ -109,6 +122,7 @@ function parseQueuedRequest(value: unknown): ArdyGenerateRequestV1 {
 function generateQueueDescriptor(
 	handler: ArdyGenerateQueueHandler,
 	writeAhead: ArdyQueueWriteAhead<ArdyGenerateRequestV1>,
+	liveRevisionId: () => string,
 ): ArdyQueueWriteAheadDescriptor<ArdyGenerateRequestV1, ArdyGenerateQueueOutcomeV1, ArdyGenerateErrorCode> {
 	return {
 		requestDirectory: GENERATE_REQUEST_DIRECTORY,
@@ -122,7 +136,18 @@ function generateQueueDescriptor(
 		parseOutcome: parseArdyGenerateQueueOutcome,
 		parseResult: parseArdyGenerateResult,
 		classifyError: classify,
-		handler,
+		// The composite service's staleness guard does not exist on the
+		// write-ahead path -- its handler is the generate-only kernel, which
+		// knows nothing about revisions -- so the sweep binds the guard here,
+		// BEFORE the kernel executes. A stale request fails as
+		// REVISION_MISMATCH and the generator never runs.
+		handler: (request, context) => {
+			const live = liveRevisionId();
+			if (request.expected_revision_id !== live) {
+				throw new ArdyGenerateRevisionMismatchError(request.expected_revision_id, live);
+			}
+			return handler(request, context);
+		},
 		writeAhead,
 	};
 }
@@ -133,7 +158,7 @@ function generateQueueDescriptor(
 export async function sweepGenerateRequests(options: ArdyGenerateSweepOptions): Promise<ArdyGenerateSweepEntry[]> {
 	return sweepArdyQueue({
 		projectDirectory: options.projectDirectory,
-		descriptor: generateQueueDescriptor(options.handler, options.writeAhead),
+		descriptor: generateQueueDescriptor(options.handler, options.writeAhead, options.liveRevisionId),
 		contextFor: options.contextFor,
 	});
 }

@@ -1,3 +1,15 @@
+// ARDY constrained regeneration: re-run the CONSTRAINED wrapper against a
+// base clip with measured effector, full-body, and root-path targets, and
+// commit the regenerated motion archive.
+//
+// The generation mechanics are the shared ArdyMotionKernel
+// (./ardy-motion-kernel.ts), parameterized here with the constrained
+// capability: the archive-input preflight (base clip plus every synthetic
+// pose), the constraint argv builder, and the regenerate result adapter
+// (including the post-hoc dropped-constraint safety net). The regeneration
+// capability deliberately keeps its historic failure classification: every
+// non-zero wrapper exit is GENERATION_FAILED -- unlike generate and
+// in-between, it does not split off ARDY_HOST_UNAVAILABLE.
 import type {
 	ArdyRegenerateDroppedConstraintV1,
 	ArdyRegenerateErrorCode,
@@ -11,19 +23,14 @@ import {
 	parseArdyRegenerateResult,
 } from "@cclay/protocol";
 import type { ArdyArchiveService } from "./ardy-archive-service.ts";
+import { type ArdyCliResult, type ArdyCliRunner, ArdyMotionKernel } from "./ardy-motion-kernel.ts";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export const ARDY_REGENERATE_WRAPPER = "cclay-ardy-generate";
 
-export interface ArdyRegenerateCliResult {
-	readonly status: number;
-	readonly stdout: string;
-	readonly stderr: string;
-}
+export type ArdyRegenerateCliResult = ArdyCliResult;
 
-export type ArdyRegenerateCliRunner = (
-	argv: readonly string[],
-) => Promise<ArdyRegenerateCliResult> | ArdyRegenerateCliResult;
+export type ArdyRegenerateCliRunner = ArdyCliRunner;
 
 export interface ArdyRegenerateApplyMotionResult {
 	readonly resulting_revision_id: string;
@@ -202,108 +209,50 @@ function adaptWrapperJsonToResult(
 	};
 }
 
-/** Deterministic generator boundary; it owns archive reads, argv, and stdout parsing. */
-export class ArdyMotionKernel {
-	readonly #runCli: ArdyRegenerateCliRunner;
-	readonly #archive: Pick<ArdyArchiveService, "read" | "commitGenerated">;
-	readonly #onGenerated: ((motionId: string, result: ArdyRegenerateResultV1) => Promise<void>) | undefined;
+/** Typed orchestration boundary that validates concurrency then commits kernel output. */
+export class ArdyRegenerateService {
+	// The shared kernel, bound to the constrained capability: the archive
+	// input preflight, the constraint argv, and the regenerate result
+	// adapter (with the post-hoc dropped-constraint safety net). The
+	// regenerate capability keeps its historic all-failures-are-
+	// GENERATION_FAILED classification and supplies no host-unavailable
+	// split.
+	readonly #kernel: ArdyMotionKernel<ArdyRegenerateRequestV1, ArdyRegenerateResultV1, ArdyRegenerateError>;
+	readonly #applyMotion: ArdyRegenerateApplyMotionDispatch;
+	readonly #liveRevisionId: () => string;
 
-	constructor(options: ArdyMotionKernelOptions) {
-		this.#runCli = options.runCli;
-		this.#archive = options.archive;
-		this.#onGenerated = options.onGenerated;
-	}
-
-	async regenerate(request: ArdyRegenerateRequestV1): Promise<ArdyRegenerateResultV1> {
-		try {
-			await this.#archive.read(request.base_motion_id);
-			for (const pose of request.full_body) {
-				await this.#archive.read(pose.synthetic_motion_id);
-			}
-		} catch (error) {
-			throw new ArdyRegenerateGenerationError(
-				`motion archive is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-
-		let cliResult: ArdyRegenerateCliResult;
-		try {
-			cliResult = await this.#runCli(buildConstraintArgv(request));
-		} catch (error) {
-			throw new ArdyRegenerateGenerationError(
-				`wrapper could not run: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		if (cliResult.status !== 0) {
-			throw new ArdyRegenerateGenerationError(
-				`wrapper exited ${cliResult.status}${cliResult.stderr ? `: ${cliResult.stderr.trim()}` : ""}`,
-			);
-		}
-		const lines = cliResult.stdout
-			.trim()
-			.split("\n")
-			.filter((line) => line.trim() !== "");
-		if (lines.length === 0) {
-			throw new ArdyRegenerateGenerationError("wrapper produced no stdout");
-		}
-		let wrapperJson: unknown;
-		try {
-			wrapperJson = JSON.parse(lines[lines.length - 1]);
-		} catch (error) {
-			throw new ArdyRegenerateGenerationError("wrapper stdout is not parseable JSON", { cause: error });
-		}
-		if (
-			typeof wrapperJson !== "object" ||
-			wrapperJson === null ||
-			typeof (wrapperJson as { frames?: unknown }).frames !== "number"
-		) {
-			throw new ArdyRegenerateGenerationError("wrapper JSON is missing a numeric frames count");
-		}
-		let result: ArdyRegenerateResultV1;
-		try {
-			result = parseArdyRegenerateResult(
+	constructor(options: ArdyRegenerateHandlerOptions) {
+		this.#kernel = new ArdyMotionKernel({
+			runCli: options.runCli,
+			archive: options.archive,
+			onGenerated: options.onGenerated,
+			preflight: async (request) => {
+				try {
+					await options.archive.read(request.base_motion_id);
+					for (const pose of request.full_body) {
+						await options.archive.read(pose.synthetic_motion_id);
+					}
+				} catch (error) {
+					throw new ArdyRegenerateGenerationError(
+						`motion archive is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+						{ cause: error },
+					);
+				}
+			},
+			buildArgv: buildConstraintArgv,
+			// The kernel has already verified a numeric frames count before
+			// calling the adapter, so the drop safety net can read it here.
+			adaptWrapperJson: (wrapperJson, request) =>
 				adaptWrapperJsonToResult(
 					wrapperJson,
 					request,
 					dropOutOfRangeConstraints(request, (wrapperJson as { frames: number }).frames),
 				),
-			);
-		} catch (error) {
-			if (error instanceof ArdyRegenerateError) {
-				throw error;
-			}
-			throw new ArdyRegenerateGenerationError(
-				`wrapper JSON does not satisfy the regenerate result schema: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		// Awaited after the wrapper result parses, before the archive commit
-		// makes the motion observable to the rest of the project.
-		if (this.#onGenerated !== undefined) {
-			await this.#onGenerated(result.motion_id, result);
-		}
-		try {
-			await this.#archive.commitGenerated(result.motion_id);
-		} catch (error) {
-			throw new ArdyRegenerateGenerationError(
-				`generated motion archive could not be committed: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		return result;
-	}
-}
-
-/** Typed orchestration boundary that validates concurrency then commits kernel output. */
-export class ArdyRegenerateService {
-	readonly #kernel: ArdyMotionKernel;
-	readonly #applyMotion: ArdyRegenerateApplyMotionDispatch;
-	readonly #liveRevisionId: () => string;
-
-	constructor(options: ArdyRegenerateHandlerOptions) {
-		this.#kernel = new ArdyMotionKernel(options);
+			parseResult: parseArdyRegenerateResult,
+			generationError: (message, errorOptions) => new ArdyRegenerateGenerationError(message, errorOptions),
+			isKnownError: (error) => error instanceof ArdyRegenerateError,
+			resultSchemaName: "regenerate",
+		});
 		this.#applyMotion = options.applyMotion;
 		this.#liveRevisionId = options.liveRevisionId;
 	}
@@ -331,7 +280,7 @@ export class ArdyRegenerateService {
 		if (request.expected_revision_id !== liveRevisionId) {
 			throw new ArdyRegenerateRevisionMismatchError(request.expected_revision_id, liveRevisionId);
 		}
-		const result = await this.#kernel.regenerate(request);
+		const result = await this.#kernel.run(request);
 		try {
 			const applied = await this.#applyMotion(
 				result.motion_id,

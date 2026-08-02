@@ -243,6 +243,15 @@ function countLines(path: string): number {
 }
 
 describe("cclay-ardy-generate constraint guards", () => {
+	it("rejects a prompt that starts with a hyphen as an unknown option", () => {
+		// The argument loop has no `--` end-of-options marker, so a prompt
+		// emitted positionally as `-a person waving` is parsed as an option
+		// and dies here. This is why the protocol schema rejects leading
+		// hyphens (ardy-generate.ts): the wrapper cannot be fed such argv.
+		const { status, output } = run(makeProject(), ["-a person waving", "--duration", "5"]);
+		assert.equal(status, 2);
+		assert.match(output, /unknown option -a person waving/);
+	});
 	it("rejects --constrain without a base motion", () => {
 		const { status, output } = run(makeProject(), ["--constrain", "5", "LeftFoot", "0", "0", "0"]);
 		assert.equal(status, 2);

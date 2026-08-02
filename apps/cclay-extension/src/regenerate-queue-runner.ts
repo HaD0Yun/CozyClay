@@ -14,9 +14,7 @@ import type {
 	StageSceneRequestV1,
 } from "@cclay/protocol";
 import {
-	ARDY_REGENERATE_WRAPPER,
 	ArdyArchiveService,
-	type ArdyRegenerateCliResult,
 	type ArdyRegenerateQueueHandler,
 	type ArdyArchiveService as ArdyArchiveBoundary,
 	createArdyRegenerateHandler,
@@ -26,22 +24,13 @@ import {
 	writeRegenerateRequest,
 	MotionArchiveStore,
 } from "@cclay/director-runtime";
-import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
-// Long because a constrained ARDY run goes out to a GPU box over ssh and back.
-// A wrapper that hangs past this is a stuck run, and killing it produces a
-// recorded failure the animator can see instead of a queue that never moves.
-const CLI_TIMEOUT_MS = 30 * 60 * 1000;
-// stdout is one JSON line; anything approaching this is a runaway.
-const CLI_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-const DEFAULT_TICK_MS = 5_000;
-// The wrapper ships with the repository, not with the project directory the
-// host runs in: `cwd` is the animator's .blend folder, which has no scripts/.
-// Resolved from this module so it survives being launched from anywhere.
-const REPO_WRAPPER_PATH = fileURLToPath(
-	new URL(`../../../scripts/${ARDY_REGENERATE_WRAPPER}`, import.meta.url),
-);
+import {
+	applyMotionRequest,
+	CLI_TIMEOUT_MS,
+	DEFAULT_TICK_MS,
+	REPO_WRAPPER_PATH,
+	runWrapper,
+} from "./ardy-queue-runner-shared.ts";
 
 export interface RegenerateQueueRunnerOptions {
 	readonly cwd: string;
@@ -63,45 +52,6 @@ export interface RegenerateQueueRunnerOptions {
 	// Test seam only. Production always constructs the project-backed archive
 	// service, so regeneration cannot bypass input validation or output commit.
 	readonly archive?: Pick<ArdyArchiveBoundary, "read" | "commitGenerated">;
-}
-
-// argv is passed as an array to execFile, never a shell string, so a
-// constraint coordinate cannot escape its positional slot.
-function runWrapper(wrapperPath: string, cwd: string) {
-	return (argv: readonly string[]): Promise<ArdyRegenerateCliResult> =>
-		new Promise((resolve) => {
-			execFile(
-				wrapperPath,
-				[...argv],
-				{ cwd, timeout: CLI_TIMEOUT_MS, maxBuffer: CLI_MAX_BUFFER_BYTES },
-				(error, stdout, stderr) => {
-					// A non-zero exit is data, not an exception: the queue turns
-					// it into a recorded failure so the add-on can recover the
-					// rig instead of waiting forever.
-					const status =
-						error === null ? 0 : typeof error.code === "number" ? error.code : 1;
-					resolve({ status, stdout, stderr: error === null ? stderr : `${stderr}${error.message}` });
-				},
-			);
-		});
-}
-
-/**
- * The apply_motion the regenerated clip needs, expressed as a stage_scene
- * plan so it travels the same validated, committed path every other mutation
- * takes. Building a second application route would be a second place for the
- * revision bookkeeping to be wrong.
- */
-function applyMotionRequest(
-	motionId: string,
-	entityId: string,
-	expectedRevisionId: string,
-): StageSceneRequestV1 {
-	return {
-		schema_version: 1,
-		expected_revision_id: expectedRevisionId,
-		operations: [{ op: "apply_motion", entity_id: entityId, motion_id: motionId }],
-	};
 }
 
 /**

@@ -158,6 +158,25 @@ test("request: prompt must be 1..512 characters (single prompt, no --segment)", 
 	);
 });
 
+test("request: a prompt the wrapper would parse as an option is rejected", () => {
+	// The wrapper's argument loop has no `--` end-of-options marker: the
+	// prompt is emitted as the FIRST positional word, so a prompt starting
+	// with `-` matches the `-*)` unknown-option branch
+	// (scripts/cclay-ardy-generate:208) and would break argv. The schema
+	// rejects such prompts at the protocol boundary instead, so neither the
+	// service nor the queue can ever emit argv the wrapper would misparse.
+	for (const prompt of ["-a person waving", "-wave", "-"]) {
+		assert.throws(() => parseArdyGenerateRequest({ ...baseRequest, prompt }), /INVALID_ARDY_GENERATE_REQUEST/);
+	}
+	// A hyphen INSIDE the prompt is fine: the whole string is one argv word
+	// that does not start with `-`, so the wrapper's case statement matches
+	// it as the positional prompt.
+	assert.equal(
+		parseArdyGenerateRequest({ ...baseRequest, prompt: "a person waves - left" }).prompt,
+		"a person waves - left",
+	);
+});
+
 test("request: seed must be an integer in 0..4294967295 or null", () => {
 	assert.throws(() => parseArdyGenerateRequest({ ...baseRequest, seed: -1 }), /INVALID_ARDY_GENERATE_REQUEST/);
 	assert.equal(parseArdyGenerateRequest({ ...baseRequest, seed: 0 }).seed, 0);

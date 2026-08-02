@@ -28,7 +28,18 @@ export const ArdyGenerateRequestV1Schema = exact({
 	// read, so a stale generate request fails fast instead of clobbering a
 	// newer scene.
 	expected_revision_id: hash(),
-	prompt: Type.String({ minLength: 1, maxLength: 512 }),
+	prompt: Type.String({
+		minLength: 1,
+		maxLength: 512,
+		// The wrapper's argument loop has no end-of-options marker: the
+		// prompt is emitted as ONE positional argv word, and a prompt whose
+		// first character is `-` matches the wrapper's `-*)` branch and dies
+		// as "unknown option" (scripts/cclay-ardy-generate:208). Such prompts
+		// are rejected here instead, so the service can never emit argv the
+		// wrapper would misparse. A hyphen INSIDE the prompt is fine: the
+		// whole string is one argv word that does not start with `-`.
+		pattern: "^[^-]",
+	}),
 	// Mirrors the wrapper cap: cclay-ardy-generate requires
 	// 0 < duration <= 1200 seconds because the add-on refuses a motion longer
 	// than motion_retarget.MAX_FRAMES (24000 frames, 20 minutes at 20 fps) —

@@ -27,10 +27,11 @@ export const SYNTHETIC_POSE_PREFIX = "cclay-pose-";
 export interface SyntheticPoseOwnerQueue {
 	readonly requestDirectory: string;
 	// Derives the synthetic pose ids a request names, so a sweep can
-	// attribute each archive to the requests that own it. A request the
-	// parser cannot read is about to fail anyway; until the sweep decides
-	// that, it claims nothing (mirrors the per-request retirement contract:
-	// an unreadable request's inputs must not be deleted out from under it).
+	// attribute each archive to the requests that own it. A request that
+	// cannot be read or parsed ABORTS the whole sweep (see
+	// removeOrphanedSyntheticPoses): an unreadable request may still
+	// reference archives that are in flight, and deleting a live input is
+	// unrecoverable while leaving garbage behind is not.
 	readonly syntheticPoseIds: (request: unknown) => readonly string[];
 }
 
@@ -40,6 +41,11 @@ export interface SyntheticPoseOwnerQueue {
  *
  * Run at startup, after recoverAbandoned*Claims, so requests waiting to be
  * retried keep their poses.
+ *
+ * Fails CLOSED: if ANY owner request cannot be read or parsed, the sweep
+ * rejects and NOTHING is deleted. An unreadable request may still own
+ * archives that are in flight, and deleting a live input is unrecoverable
+ * while leaving garbage behind is not.
  */
 export async function removeOrphanedSyntheticPoses(
 	projectDirectory: string,
@@ -72,16 +78,31 @@ export async function removeOrphanedSyntheticPoses(
 			let request: unknown;
 			try {
 				request = await readClaimedRequest(join(projectDirectory, ".cclay", owner.requestDirectory, name));
-			} catch {
-				continue;
+			} catch (error) {
+				// Fail CLOSED: an unreadable owner request may still reference
+				// synthetic poses that are in flight. Treating it as owning
+				// nothing would let the sweep delete those poses out from
+				// under the pending request -- a live input is unrecoverable,
+				// while leaving garbage behind is not -- so the whole sweep
+				// aborts and nothing is deleted.
+				throw new Error(
+					`cannot read owner request ${name} in .cclay/${owner.requestDirectory}: ` +
+						`${error instanceof Error ? error.message : String(error)}`,
+					{ cause: error },
+				);
 			}
 			let requestIds: readonly string[];
 			try {
 				requestIds = owner.syntheticPoseIds(request);
-			} catch {
-				// Unparseable: treat as claiming nothing rather than deleting
-				// poses it might still name.
-				requestIds = [];
+			} catch (error) {
+				// Same fail-closed contract as the read failure above: an
+				// unparseable owner request aborts the sweep rather than
+				// claiming nothing.
+				throw new Error(
+					`cannot parse owner request ${name} in .cclay/${owner.requestDirectory}: ` +
+						`${error instanceof Error ? error.message : String(error)}`,
+					{ cause: error },
+				);
 			}
 			for (const poseId of requestIds) {
 				referenced.add(`${poseId}.npz`);

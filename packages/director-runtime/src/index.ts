@@ -4,6 +4,7 @@ export * from "./ardy-generate-queue.ts";
 export * from "./ardy-generate-service.ts";
 export * from "./ardy-inbetween-queue.ts";
 export * from "./ardy-inbetween-service.ts";
+export * from "./ardy-motion-kernel.ts";
 export * from "./ardy-queue.ts";
 export * from "./ardy-regenerate-queue.ts";
 export * from "./ardy-regenerate-service.ts";

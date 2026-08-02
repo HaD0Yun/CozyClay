@@ -9,53 +9,42 @@
 // is NOT an argv word -- the request schema carries no project field -- so
 // the runner supplies it as the wrapper's cwd, exactly like the regenerate
 // runner (apps/cclay-extension/src/regenerate-queue-runner.ts) and the
-// wrapper's own --project default ($PWD).
+// wrapper's own --project default ($PWD). The prompt schema rejects a
+// leading hyphen (packages/blender-protocol/src/ardy-generate.ts): the
+// wrapper's argument loop has no end-of-options marker, so such a prompt
+// would be parsed as an option and the service must never emit argv the
+// wrapper would misparse.
 //
-// Failure mapping onto the closed 7-code union: a wrapper exit whose stderr
-// names an unset CCLAY_ARDY_HOST or an ssh/scp client failure (unreachable
-// host, refused connection, auth failure) is ARDY_HOST_UNAVAILABLE --
-// distinct from GENERATION_FAILED, which is reserved for the generation
-// itself failing (non-zero exit for another reason, unparseable output,
-// archive commit refusal). The wrapper is the authority on host
-// availability: it validates CCLAY_ARDY_HOST itself and prints exactly
+// The generation mechanics are the shared ArdyMotionKernel
+// (./ardy-motion-kernel.ts), parameterized here with the unconstrained
+// capability: no preflight (the first pass has no archive inputs), the
+// prompt-only argv builder, and the generate result adapter. Failure
+// mapping onto the closed 7-code union: a wrapper exit whose stderr names an
+// unset CCLAY_ARDY_HOST or an ssh/scp client failure (unreachable host,
+// refused connection, auth failure) is ARDY_HOST_UNAVAILABLE -- distinct
+// from GENERATION_FAILED, which is reserved for the generation itself
+// failing (non-zero exit for another reason, unparseable output, archive
+// commit refusal). The wrapper is the authority on host availability: it
+// validates CCLAY_ARDY_HOST itself and prints exactly
 // "cclay-ardy-generate: CCLAY_ARDY_HOST is required ..." when it is unset
 // (scripts/cclay-ardy-generate:502), and every ssh/scp client diagnostic is
 // prefixed "ssh:" / "scp:" on its own line.
 import type { ArdyGenerateErrorCode, ArdyGenerateRequestV1, ArdyGenerateResultV1 } from "@cclay/protocol";
 import { parseArdyGenerateRequest, parseArdyGenerateResult } from "@cclay/protocol";
 import type { ArdyArchiveService } from "./ardy-archive-service.ts";
+import {
+	type ArdyCliResult,
+	type ArdyCliRunner,
+	ArdyMotionKernel,
+	isArdyHostUnavailableFailure,
+} from "./ardy-motion-kernel.ts";
 import type { DirectorHandlerContext } from "./inspect-service.ts";
 
 export const ARDY_GENERATE_WRAPPER = "cclay-ardy-generate";
 
-const HOST_UNAVAILABLE_PATTERNS = [
-	// The wrapper's exact unset-host diagnostic (scripts/cclay-ardy-generate:502).
-	/CCLAY_ARDY_HOST is required/,
-	// ssh/scp client failures -- Could not resolve hostname, connect
-	// refused/timed out, Permission denied -- are prefixed "ssh:" / "scp:"
-	// at the start of a line by the OpenSSH clients the wrapper shells out
-	// to. A remote Python failure inside the generation is a traceback and
-	// never matches; that stays GENERATION_FAILED.
-	/(^|\n)\s*(ssh|scp):/,
-];
+export type ArdyGenerateCliResult = ArdyCliResult;
 
-/**
- * Whether a non-zero wrapper exit means the ARDY box itself was unreachable
- * (or never configured) rather than the generation failing. Shared by the
- * generate and in-between services; the wrapper is the authority, this only
- * classifies its stderr.
- */
-export function isArdyHostUnavailableFailure(stderr: string): boolean {
-	return HOST_UNAVAILABLE_PATTERNS.some((pattern) => pattern.test(stderr));
-}
-
-export interface ArdyGenerateCliResult {
-	readonly status: number;
-	readonly stdout: string;
-	readonly stderr: string;
-}
-
-export type ArdyGenerateCliRunner = (argv: readonly string[]) => Promise<ArdyGenerateCliResult> | ArdyGenerateCliResult;
+export type ArdyGenerateCliRunner = ArdyCliRunner;
 
 export interface ArdyGenerateApplyMotionResult {
 	readonly resulting_revision_id: string;
@@ -183,85 +172,37 @@ function adaptWrapperJsonToResult(wrapperJson: unknown, request: ArdyGenerateReq
 	};
 }
 
-/** Deterministic generator boundary; it owns argv and stdout parsing. */
-export class ArdyGenerateKernel {
-	readonly #runCli: ArdyGenerateCliRunner;
-	readonly #archive: Pick<ArdyArchiveService, "commitGenerated">;
-	readonly #onGenerated: ((motionId: string, result: ArdyGenerateResultV1) => Promise<void>) | undefined;
-
+/**
+ * The generate capability's binding of the shared ArdyMotionKernel: no
+ * preflight, the prompt-only argv, and the generate result adapter. Kept as
+ * a named class so the write-ahead queue and tests construct exactly the
+ * generate-only kernel (runCli through commitGenerated, no apply).
+ */
+export class ArdyGenerateKernel extends ArdyMotionKernel<
+	ArdyGenerateRequestV1,
+	ArdyGenerateResultV1,
+	ArdyGenerateError
+> {
 	constructor(options: ArdyGenerateKernelOptions) {
-		this.#runCli = options.runCli;
-		this.#archive = options.archive;
-		this.#onGenerated = options.onGenerated;
+		super({
+			runCli: options.runCli,
+			archive: options.archive,
+			onGenerated: options.onGenerated,
+			// The unconstrained first pass has no archive inputs to preflight.
+			preflight: async () => {},
+			buildArgv: buildGenerateArgv,
+			adaptWrapperJson: adaptWrapperJsonToResult,
+			parseResult: parseArdyGenerateResult,
+			generationError: (message, errorOptions) => new ArdyGenerateGenerationError(message, errorOptions),
+			hostUnavailableError: (message, errorOptions) => new ArdyGenerateHostUnavailableError(message, errorOptions),
+			isHostUnavailable: isArdyHostUnavailableFailure,
+			isKnownError: (error) => error instanceof ArdyGenerateError,
+			resultSchemaName: "generate",
+		});
 	}
 
-	async generate(request: ArdyGenerateRequestV1): Promise<ArdyGenerateResultV1> {
-		// Built before the runner try/catch so an unrepresentable duration
-		// fails as an INVALID request, not as a GENERATION failure.
-		const argv = buildGenerateArgv(request);
-		let cliResult: ArdyGenerateCliResult;
-		try {
-			cliResult = await this.#runCli(argv);
-		} catch (error) {
-			throw new ArdyGenerateGenerationError(
-				`wrapper could not run: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		if (cliResult.status !== 0) {
-			if (isArdyHostUnavailableFailure(cliResult.stderr)) {
-				throw new ArdyGenerateHostUnavailableError(`ardy host unavailable: ${cliResult.stderr.trim()}`);
-			}
-			throw new ArdyGenerateGenerationError(
-				`wrapper exited ${cliResult.status}${cliResult.stderr ? `: ${cliResult.stderr.trim()}` : ""}`,
-			);
-		}
-		const lines = cliResult.stdout
-			.trim()
-			.split("\n")
-			.filter((line) => line.trim() !== "");
-		if (lines.length === 0) {
-			throw new ArdyGenerateGenerationError("wrapper produced no stdout");
-		}
-		let wrapperJson: unknown;
-		try {
-			wrapperJson = JSON.parse(lines[lines.length - 1]);
-		} catch (error) {
-			throw new ArdyGenerateGenerationError("wrapper stdout is not parseable JSON", { cause: error });
-		}
-		if (
-			typeof wrapperJson !== "object" ||
-			wrapperJson === null ||
-			typeof (wrapperJson as { frames?: unknown }).frames !== "number"
-		) {
-			throw new ArdyGenerateGenerationError("wrapper JSON is missing a numeric frames count");
-		}
-		let result: ArdyGenerateResultV1;
-		try {
-			result = parseArdyGenerateResult(adaptWrapperJsonToResult(wrapperJson, request));
-		} catch (error) {
-			if (error instanceof ArdyGenerateError) {
-				throw error;
-			}
-			throw new ArdyGenerateGenerationError(
-				`wrapper JSON does not satisfy the generate result schema: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		// Awaited after the wrapper result parses, before the archive commit
-		// makes the motion observable to the rest of the project.
-		if (this.#onGenerated !== undefined) {
-			await this.#onGenerated(result.motion_id, result);
-		}
-		try {
-			await this.#archive.commitGenerated(result.motion_id);
-		} catch (error) {
-			throw new ArdyGenerateGenerationError(
-				`generated motion archive could not be committed: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		}
-		return result;
+	generate(request: ArdyGenerateRequestV1): Promise<ArdyGenerateResultV1> {
+		return this.run(request);
 	}
 }
 

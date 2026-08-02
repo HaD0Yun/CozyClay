@@ -343,3 +343,19 @@ test("generate: a malformed request never reaches the generator", async () => {
 	assert.equal(calls.length, 0);
 	assert.ok(dispatch);
 });
+
+test("generate: a leading-hyphen prompt is rejected at parse, never emitted to argv", async () => {
+	// The wrapper's argument loop has no `--` marker, so a prompt like
+	// "-a person waving" would be parsed as an unknown option. The protocol
+	// schema rejects it, and the service must fail as INVALID before any
+	// argv is built.
+	const { runner, calls } = makeRunner();
+	const { dispatch } = makeDispatch();
+	const handler = createHandler(runner, dispatch);
+
+	await assert.rejects(handler({ ...baseRequest, prompt: "-a person waving" }, makeContext()), (error: unknown) => {
+		return error instanceof ArdyGenerateInvalidRequestError && error.code === "INVALID_ARDY_GENERATE_REQUEST";
+	});
+	assert.equal(calls.length, 0, "the wrapper must never receive argv a leading-hyphen prompt would break");
+	assert.ok(dispatch);
+});

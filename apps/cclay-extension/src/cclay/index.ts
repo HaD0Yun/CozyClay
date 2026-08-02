@@ -43,6 +43,8 @@ import { randomUUID } from "node:crypto";
 import { registerBtwCommand } from "../btw.ts";
 import { BlenderBridge } from "../bridge.ts";
 import { startRegenerateQueueRunner } from "../regenerate-queue-runner.ts";
+import { startGenerateQueueRunner } from "../generate-queue-runner.ts";
+import { startInbetweenQueueRunner } from "../inbetween-queue-runner.ts";
 import { registerOpenAIServiceTier } from "../openai-service-tier.ts";
 
 
@@ -93,6 +95,39 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 			// Reported, never thrown: a failed sweep must not take the
 			// extension down, or the next request would sit unwatched.
 			console.error("[cclay] regeneration sweep failed:", error);
+		},
+	});
+
+	// The generate and in-between queues are consumed the same way: a
+	// serialized sweep per runner, recovery before the first sweep, the
+	// project directory as the wrapper's cwd, and the live bridge revision
+	// for the pre-kernel staleness guard. The model-facing tools for these
+	// two surfaces are the next story; the runners exist so animator-
+	// published requests never sit unwatched.
+	const generateQueue = startGenerateQueueRunner({
+		cwd,
+		// Live getter: re-reads the bridge's current revision for every
+		// request, so the sweep's staleness guard sees the latest commit.
+		liveRevisionId: () => bridge.revisionId,
+		stageScene: (request, context) =>
+			mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
+		onError: (error) => {
+			// Reported, never thrown: a failed sweep must not take the
+			// extension down, or the next request would sit unwatched.
+			console.error("[cclay] generation sweep failed:", error);
+		},
+	});
+	const inbetweenQueue = startInbetweenQueueRunner({
+		cwd,
+		// Live getter: re-reads the bridge's current revision for every
+		// request, so the sweep's staleness guard sees the latest commit.
+		liveRevisionId: () => bridge.revisionId,
+		stageScene: (request, context) =>
+			mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
+		onError: (error) => {
+			// Reported, never thrown: a failed sweep must not take the
+			// extension down, or the next request would sit unwatched.
+			console.error("[cclay] in-between sweep failed:", error);
 		},
 	});
 
@@ -188,6 +223,8 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 			statusInterval = undefined;
 		}
 		await regenerateQueue.stop();
+		await generateQueue.stop();
+		await inbetweenQueue.stop();
 		await bridge.close();
 	});
 
