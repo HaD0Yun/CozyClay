@@ -698,6 +698,31 @@ def motion_basis(armature, project_directory, motion_id: str) -> dict:
     }
 
 
+class _StagedArchive:
+    """What a pose-archive write staged: the file and its inode identity.
+
+    ``identity`` is the staged file's ``(st_ino, st_dev)`` captured at
+    creation, before any content is written. The destination is hard-linked
+    from the staged file, so a destination this invocation created shares
+    that identity; recording it at staging time is what lets rollback prove
+    ownership by inode rather than by which exception type fired.
+    """
+
+    __slots__ = ("staged_path", "identity")
+
+    def __init__(self, staged_path, identity):
+        self.staged_path = staged_path  # pathlib.Path, or None when staging failed
+        self.identity = identity  # (st_ino, st_dev), or None when staging failed
+
+
+# The writer reports what it staged under this attribute on every exception
+# it raises, so the caller can finish its rollback record -- the staged path
+# (a surviving staged file is still this invocation's to remove) and the
+# inode identity (a destination linked before a post-link failure is still
+# this invocation's to remove) -- even when the write itself failed. Private
+# contract between write_pose_source_npz and capture_evaluated_pose.
+_STAGED_ARCHIVE_ATTR = "_cclay_staged_archive"
+
 def _motion_archive_path(project_directory, motion_id: str) -> pathlib.Path:
     """The npz path a motion id resolves to under the project's motion store."""
     return pathlib.Path(project_directory) / ".cclay" / "motions" / f"{motion_id}.npz"
@@ -723,6 +748,12 @@ def write_pose_source_npz(
     Publication is create-only: the staged archive is hard-linked to its
     destination and the staged copy unlinked, so a destination that already
     exists is refused atomically by the link instead of silently replaced.
+
+    Returns the :class:`_StagedArchive` report: the staged path (already
+    unlinked on success) and the staged file's inode identity, which the
+    destination shares as a hard link. The caller records that identity
+    alongside the destination so rollback can prove later that a file at the
+    destination is this invocation's.
     """
     import numpy
 
@@ -734,9 +765,19 @@ def write_pose_source_npz(
     )
     path = _motion_archive_path(project_directory, motion_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    staged = path.with_suffix(".npz.partial")
+    # Exclusive, invocation-unique staging: mkstemp creates the file with
+    # O_EXCL under a name unique to this call, so two concurrent invocations
+    # can never share or clobber a staging path the way the old deterministic
+    # .npz.partial name let them (one would truncate the other's staged file
+    # and then delete it as its own). The identity is captured from the open
+    # descriptor at creation, before any content is written.
+    handle, staged_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f"{motion_id}.", suffix=".partial"
+    )
+    staged = pathlib.Path(staged_name)
+    report = _StagedArchive(staged, (os.fstat(handle).st_ino, os.fstat(handle).st_dev))
     try:
-        with open(staged, "wb") as stream:
+        with os.fdopen(handle, "wb") as stream:
             numpy.savez(
                 stream,
                 local_rot_mats=numpy.asarray([local_rotations], dtype=numpy.float32),
@@ -763,6 +804,9 @@ def write_pose_source_npz(
             raise ConstraintCaptureError(f"motion {motion_id} already exists") from None
         os.unlink(staged)
     except BaseException as error:
+        # Report what was staged before anything can mask it (see
+        # _STAGED_ARCHIVE_ATTR).
+        setattr(error, _STAGED_ARCHIVE_ATTR, report)
         try:
             os.unlink(staged)
         except OSError as unlink_error:
@@ -770,7 +814,7 @@ def write_pose_source_npz(
                 error, f"failed to remove staged file {staged.name}: {unlink_error}"
             )
         raise
-    return path
+    return report
 
 
 def capture_regeneration_request(
@@ -1007,31 +1051,81 @@ def _require_pose_frame_mapping(pose_frames: list, start_frame: int, frame_count
             )
 
 
+class _RollbackEntry:
+    """One path rollback may unlink, with the inode proof that it is ours.
+
+    ``identity`` is the ``(st_ino, st_dev)`` of the staged file the write
+    created; a destination hard-linked from it shares that identity. ``None``
+    means this invocation never staged for this path, so nothing at it can be
+    this invocation's.
+    """
+
+    __slots__ = ("path", "identity")
+
+    def __init__(self, path, identity):
+        self.path = path
+        self.identity = identity
+
+
 def _rollback_archives(created, error) -> None:
     """Unlink every archive this invocation created, never masking ``error``.
 
     The set is populated with the preflighted destinations BEFORE any publish
     (see ``capture_evaluated_pose``), so no window exists where a file this
-    invocation wrote is on disk but untracked. Publication is create-only --
-    the writer's link is the only way a destination comes into existence and
-    it refuses an existing destination -- so a destination still in the set
-    that exists when rollback runs was necessarily created by this
-    invocation. Do not "simplify" that reasoning back into a check-then-act
-    race by moving the recording after the publish: a collided destination (a
-    foreign file that appeared between the preflight and its publish) is
-    dropped from the set at the moment the collision is observed, and every
-    remaining path is attempted here.
+    invocation wrote is on disk but untracked. Ownership is proven by inode,
+    not by intent: publication hard-links the destination to the staged file,
+    so a destination this invocation created shares the staged file's inode,
+    which the writer records when it stages. An entry is unlinked ONLY when
+    the file currently at its path carries that inode; a file with any other
+    inode -- or an entry with no recorded identity, whose write never staged
+    -- is another actor's and is left in place, with the skip attached to
+    ``error`` as context.
+
+    That inode check is what replaced the old ConstraintCaptureError-drop
+    heuristic, which guessed ownership from which exception type fired and
+    missed the non-ConstraintCaptureError failures (a Blender evaluation
+    error, for instance) that happen before the link. Do not reinstate the
+    heuristic: the inode proof covers every failure order, because a
+    destination only comes into existence through the writer's link and a
+    link that succeeded always leaves the staged file's inode at the
+    destination.
+
+    The path is stat'ed once; that single stat drives both the ownership
+    comparison and the unlink decision. A TOCTOU window remains between the
+    stat and the unlink: a foreign actor could replace the file after the
+    identity matched. POSIX offers no unlink-if-inode syscall, so the
+    check-then-act race cannot be closed further; the inode check removes the
+    wide preflight-to-rollback window that made foreign files deletable, and
+    the residual stat-to-unlink race is the same one every file cleanup has.
 
     Best-effort by construction: an unlink failure is attached to the primary
     error as context and the original exception is left to propagate, so the
     caller always sees the failure that actually happened.
     """
-    for path in created:
+    for entry in created:
         try:
-            path.unlink(missing_ok=True)
+            try:
+                current = entry.path.stat()
+            except FileNotFoundError:
+                # Nothing is at this path; nothing of ours needs removing.
+                continue
+            if entry.identity is None or (
+                current.st_ino, current.st_dev
+            ) != entry.identity:
+                # Not provably this invocation's: a foreign actor's file, or
+                # a path whose write never staged. Deleting it would roll
+                # back work this invocation did not do, so it is surfaced as
+                # context instead of silently ignored.
+                _attach_capture_context(
+                    error,
+                    f"rollback left {entry.path.name} in place: "
+                    "not created by this invocation (inode mismatch)",
+                )
+                continue
+            entry.path.unlink(missing_ok=True)
         except OSError as rollback_error:
             _attach_capture_context(
-                error, f"rollback failed to remove {path.name}: {rollback_error}"
+                error, f"rollback failed to remove {entry.path.name}: {rollback_error}"
             )
 
 
@@ -1150,23 +1244,23 @@ def capture_evaluated_pose(request: dict, *, project_directory, expected_revisio
     # Rollback intent is recorded BEFORE any publish, never from the writer's
     # return value afterwards: the window between a publish completing and a
     # post-hoc append is exactly a file on disk but untracked, and rollback
-    # cannot remove what it cannot see. The set carries each preflighted
-    # destination plus its staged path, so a staged file a failed writer
-    # could not remove is still attempted here. Publication is create-only
-    # (write_pose_source_npz links instead of replacing), so a destination
-    # still in this set that exists when rollback runs was necessarily
-    # created by this invocation.
-    created = []
-    for synthetic_motion_id in synthetic_ids:
-        destination = _motion_archive_path(project_directory, synthetic_motion_id)
-        created.append(destination)
-        created.append(destination.with_suffix(".npz.partial"))
+    # cannot remove what it cannot see. Each preflighted destination enters
+    # the set with no identity yet; the loop records the staged file's inode
+    # (st_ino/st_dev) alongside the destination once the writer stages, and
+    # _rollback_archives unlinks a destination only when the file at that
+    # path still carries that inode. A foreign file that appears at a
+    # preflighted destination is therefore left alone -- its inode cannot
+    # match -- no matter which exception type fires before or at the link.
+    created = [
+        _RollbackEntry(_motion_archive_path(project_directory, synthetic_motion_id), None)
+        for synthetic_motion_id in synthetic_ids
+    ]
     captured = []
     try:
-        for index, entry in enumerate(request["pose_frames"]):
-            scene.frame_set(entry["scene_frame"])
+        for index, request_entry in enumerate(request["pose_frames"]):
+            scene.frame_set(request_entry["scene_frame"])
             rotations = pose_local_rotations(
-                armature, basis["base_rotations"][entry["clip_frame"]]
+                armature, basis["base_rotations"][request_entry["clip_frame"]]
             )
             root = motion_constraints.armature_root_position_to_npz(
                 list(_hips_pose_bone(armature).head), basis["scale"]
@@ -1177,8 +1271,9 @@ def capture_evaluated_pose(request: dict, *, project_directory, expected_revisio
             # rebuilds the --pose-from argv.
             synthetic_motion_id = synthetic_ids[index]
             destination = _motion_archive_path(project_directory, synthetic_motion_id)
+            rollback_entry = created[index]
             try:
-                write_pose_source_npz(
+                written = write_pose_source_npz(
                     project_directory,
                     synthetic_motion_id,
                     local_rotations=rotations,
@@ -1186,18 +1281,37 @@ def capture_evaluated_pose(request: dict, *, project_directory, expected_revisio
                     root_position=root,
                     fps=clip["fps"],
                 )
-            except ConstraintCaptureError as error:
-                # The writer's ConstraintCaptureError sites all sit before
-                # the link, so this is a collision: the destination was taken
-                # by a foreign actor between the preflight and the publish.
-                # It is not this invocation's to roll back -- drop it from
-                # the set so the foreign file survives byte-identical.
-                created.remove(destination)
+            except BaseException as error:
+                # The writer reports what it staged on every exception it
+                # raises, so the rollback record is finished even when the
+                # write failed after staging -- or after the link. An
+                # exception WITHOUT the report is not the writer's: the write
+                # completed and something after it raised (a post-publish
+                # seam), or a wrapper failed before delegating. After a
+                # completed write the destination IS the staged file's hard
+                # link, so its stat is the identity; when nothing was
+                # written, the stat records nothing (or a file that appeared
+                # in the seam window -- the best evidence available then).
+                report = getattr(error, _STAGED_ARCHIVE_ATTR, None)
+                if report is None:
+                    try:
+                        current = destination.stat()
+                    except OSError:
+                        rollback_entry.identity = None
+                    else:
+                        rollback_entry.identity = (current.st_ino, current.st_dev)
+                else:
+                    rollback_entry.identity = report.identity
+                    if report.staged_path is not None:
+                        created.append(_RollbackEntry(report.staged_path, report.identity))
                 raise
+            rollback_entry.identity = written.identity
+            if written.staged_path is not None:
+                created.append(_RollbackEntry(written.staged_path, written.identity))
             captured.append(
                 {
-                    "scene_frame": entry["scene_frame"],
-                    "clip_frame": entry["clip_frame"],
+                    "scene_frame": request_entry["scene_frame"],
+                    "clip_frame": request_entry["clip_frame"],
                     "synthetic_motion_id": synthetic_motion_id,
                 }
             )

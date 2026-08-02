@@ -572,6 +572,61 @@ class EvaluatedPoseCaptureTests(unittest.TestCase):
         self.assertEqual(self.results["enteredBeforeStagedUnlinkFail"], 37)
         self.assertEqual(self.results["restoredAfterStagedUnlinkFail"], 37)
 
+    def test_a_non_capture_error_before_the_link_leaves_foreign_files_alone(self):
+        # The residual: a NON-ConstraintCaptureError failure (a Blender
+        # evaluation error) before the link for a later frame must not let
+        # the rollback delete a foreign file that appeared at a preflighted
+        # destination after the preflight -- while the archive frame 1 really
+        # published is still rolled back.
+        self.assertEqual(self.results["evalErrorCode"], "RuntimeError")
+        self.assertIn(
+            "simulated evaluation failure", self.results["evalErrorMessage"]
+        )
+        # The glob matches the foreign file too: it must be the ONLY archive
+        # there, byte-identical, proving the rollback removed this
+        # invocation's archive and never touched the foreign file.
+        self.assertEqual(
+            self.results["evalErrorFiles"],
+            ["cclay-pose-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-3.npz"],
+        )
+        self.assertTrue(self.results["evalErrorForeignIntact"])
+        self.assertTrue(
+            self.results["evalErrorLeftNotes"],
+            "the ownership skip must be surfaced as context on the primary error",
+        )
+        self.assertEqual(self.results["enteredBeforeEvalError"], 37)
+        self.assertEqual(self.results["restoredAfterEvalError"], 37)
+
+    def test_a_foreign_staged_file_is_neither_reused_nor_deleted(self):
+        # A leftover staged file from another invocation sits at the old
+        # deterministic .npz.partial name. The capture must stage under its
+        # own invocation-unique name (O_EXCL), publish normally, and leave
+        # the foreign staged file byte-identical -- never truncate it as its
+        # own staging and never delete it as its own cleanup.
+        self.assertIsNone(
+            self.results.get("stagedExclusiveCode"),
+            self.results.get("stagedExclusiveMessage"),
+        )
+        self.assertEqual(
+            self.results["stagedExclusiveFiles"],
+            [
+                "cclay-pose-cccccccccccccccccccccccccccccccc-1.npz",
+                "cclay-pose-cccccccccccccccccccccccccccccccc-2.npz",
+                "cclay-pose-cccccccccccccccccccccccccccccccc-3.npz",
+            ],
+        )
+        self.assertTrue(self.results["stagedExclusiveOtherIntact"])
+        # The partial set after the capture must be exactly the before-state
+        # (path L's surviving staged file) plus the foreign staged file: this
+        # invocation's own staged file was cleaned up and nothing else was
+        # touched.
+        self.assertEqual(
+            self.results["stagedExclusivePartials"],
+            self.results["stagedExclusiveExpectedPartials"],
+        )
+        self.assertEqual(self.results["enteredBeforeStagedExclusive"], 37)
+        self.assertEqual(self.results["restoredAfterStagedExclusive"], 37)
+
     def test_an_unowned_armature_fails_closed_with_no_file_written(self):
         self.assertEqual(self.results["unownedCode"], "ENTITY_NOT_OWNED")
         self.assertEqual(self.results["unownedFiles"], [])

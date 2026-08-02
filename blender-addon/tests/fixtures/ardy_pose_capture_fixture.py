@@ -66,6 +66,8 @@ COMBINED_REQUEST_ID = "77777777777777777777777777777777"
 POST_PUBLISH_REQUEST_ID = "88888888888888888888888888888888"
 FOREIGN_COLLISION_REQUEST_ID = "99999999999999999999999999999999"
 STAGED_UNLINK_REQUEST_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+EVAL_ERROR_REQUEST_ID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+STAGED_EXCLUSIVE_REQUEST_ID = "cccccccccccccccccccccccccccccccc"
 # The scene frame the test enters before each capture; outside the clip on
 # purpose, so a restored frame proves the finally ran and was not a side
 # effect of ending up on a clip frame.
@@ -80,6 +82,14 @@ report = {}
 def _synthetic_paths(request_id):
     return sorted(
         (PROJECT / ".cclay" / "motions").glob(f"cclay-pose-{request_id}-*.npz")
+    )
+
+
+def _partial_names():
+    return sorted(
+        path.name
+        for path in (PROJECT / ".cclay" / "motions").iterdir()
+        if path.name.endswith(".partial")
     )
 
 
@@ -610,6 +620,12 @@ report["foreignCollisionForeignIntact"] = (
         / ".cclay"
         / "motions"
         / f"cclay-pose-{FOREIGN_COLLISION_REQUEST_ID}-1.npz"
+    ).exists()
+    and (
+        PROJECT
+        / ".cclay"
+        / "motions"
+        / f"cclay-pose-{FOREIGN_COLLISION_REQUEST_ID}-1.npz"
     ).read_bytes()
     == b"foreign archive"
 )
@@ -627,7 +643,7 @@ unlink_fail = {"armed": False}
 
 
 def _failing_staged_unlink(path, *args, **kwargs):
-    if unlink_fail["armed"] and str(path).endswith(".npz.partial"):
+    if unlink_fail["armed"] and str(path).endswith(".partial"):
         raise OSError("simulated staged-file unlink failure")
     return original_unlink(path, *args, **kwargs)
 
@@ -635,7 +651,7 @@ def _failing_staged_unlink(path, *args, **kwargs):
 def _failing_inspect(staged, motion_id=None):
     # Only the writer's staged validations count: motion_basis and motion_fps
     # also inspect the base .npz before the loop, and those must pass.
-    if str(staged).endswith(".npz.partial"):
+    if str(staged).endswith(".partial"):
         write_calls["count"] += 1
         if write_calls["count"] == 2:
             unlink_fail["armed"] = True
@@ -667,5 +683,98 @@ report["stagedUnlinkFiles"] = [
 report["stagedUnlinkPartials"] = [
     path.name for path in (PROJECT / ".cclay" / "motions").glob("*.partial")
 ]
+
+# --- Failure path M: a NON-ConstraintCaptureError failure before the link. --
+# The residual the inode proof closes: the preflight passed, then a foreign
+# actor drops a file at a later destination, and the capture dies on a
+# Blender evaluation error -- not a ConstraintCaptureError -- before the
+# link for that path. The old rollback deleted whatever sat at any
+# preflighted path; the inode proof must leave the foreign file
+# byte-identical while still removing the archive frame 1 really published.
+original_evaluate = constraint_capture.pose_local_rotations
+eval_plant = {"count": 0}
+eval_foreign = (
+    PROJECT
+    / ".cclay"
+    / "motions"
+    / f"cclay-pose-{EVAL_ERROR_REQUEST_ID}-3.npz"
+)
+eval_foreign_bytes = b"foreign file at a preflighted destination"
+
+
+def _evaluation_error_with_foreign_plant(armature, base_rotations):
+    eval_plant["count"] += 1
+    if eval_plant["count"] == 2:
+        eval_foreign.write_bytes(eval_foreign_bytes)
+        raise RuntimeError("simulated evaluation failure")
+    return original_evaluate(armature, base_rotations)
+
+
+constraint_capture.pose_local_rotations = _evaluation_error_with_foreign_plant
+scene.frame_set(ENTERED_FRAME)
+report["enteredBeforeEvalError"] = scene.frame_current
+try:
+    constraint_capture.capture_evaluated_pose(
+        _request(success_frames, request_id=EVAL_ERROR_REQUEST_ID),
+        project_directory=str(PROJECT),
+        expected_revision_id=REVISION_ID,
+    )
+    report["evalErrorCode"] = None
+except BaseException as error:  # noqa: BLE001 - record, do not re-raise
+    _record_failure("evalError", error)
+constraint_capture.pose_local_rotations = original_evaluate
+report["restoredAfterEvalError"] = scene.frame_current
+report["evalErrorFiles"] = [
+    path.name for path in _synthetic_paths(EVAL_ERROR_REQUEST_ID)
+]
+report["evalErrorForeignIntact"] = (
+    eval_foreign.exists() and eval_foreign.read_bytes() == eval_foreign_bytes
+)
+report["evalErrorLeftNotes"] = [
+    note for note in report.get("evalErrorNotes", []) if "rollback left" in note
+]
+
+# --- Path N: a foreign invocation's staged file is neither reused nor --------
+# deleted. A leftover staged file sits at the OLD deterministic .npz.partial
+# name; the new staging must create its own invocation-unique path (O_EXCL)
+# instead, publish normally, and clean up only its own staged file.
+# Path L above left its own surviving staged file behind by design (its
+# unlink is forced to fail), so it is part of the before-state here.
+partials_before_n = _partial_names()
+other_staged = (
+    PROJECT
+    / ".cclay"
+    / "motions"
+    / f"cclay-pose-{STAGED_EXCLUSIVE_REQUEST_ID}-1.npz.partial"
+)
+other_staged_bytes = b"another invocation's staged archive"
+other_staged.write_bytes(other_staged_bytes)
+staged_exclusive_result = None
+scene.frame_set(ENTERED_FRAME)
+report["enteredBeforeStagedExclusive"] = scene.frame_current
+try:
+    staged_exclusive_result = constraint_capture.capture_evaluated_pose(
+        _request(success_frames, request_id=STAGED_EXCLUSIVE_REQUEST_ID),
+        project_directory=str(PROJECT),
+        expected_revision_id=REVISION_ID,
+    )
+    report["stagedExclusiveCode"] = None
+except BaseException as error:  # noqa: BLE001 - record, do not re-raise
+    _record_failure("stagedExclusive", error)
+report["stagedExclusiveIds"] = [
+    entry["synthetic_motion_id"]
+    for entry in (staged_exclusive_result or {}).get("pose_frames", [])
+]
+report["stagedExclusiveFiles"] = [
+    path.name for path in _synthetic_paths(STAGED_EXCLUSIVE_REQUEST_ID)
+]
+report["stagedExclusiveOtherIntact"] = (
+    other_staged.exists() and other_staged.read_bytes() == other_staged_bytes
+)
+report["stagedExclusivePartials"] = _partial_names()
+report["stagedExclusiveExpectedPartials"] = sorted(
+    partials_before_n + [other_staged.name]
+)
+report["restoredAfterStagedExclusive"] = scene.frame_current
 
 print(f"CCLAY_POSE_CAPTURE={json.dumps(report, default=str, sort_keys=True)}")
