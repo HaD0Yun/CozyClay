@@ -32,6 +32,12 @@ SUPPORTED_BRIDGE_METHODS = (
     "apply_performance_mode",
     "create_fall_motion",
     "replace_camera_action",
+    # Evaluated-pose capture for the ardy_inbetween surface: the model names
+    # scene frames, the add-on reads the evaluated rig and writes synthetic
+    # pose archives. Deliberately NOT in _READ_ONLY_BRIDGE_METHODS: it verifies
+    # expected_revision_id and writes revision-bound archives, so a mutation
+    # freeze must refuse it and it participates in task tracking.
+    "capture_evaluated_pose",
 )
 # Namespaced (non-negotiated) capability strings reporting the concrete addon
 # surface, so the extension can fail fast on a stale in-memory add-on.

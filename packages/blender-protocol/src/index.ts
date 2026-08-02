@@ -1,3 +1,6 @@
+export * from "./ardy-generate.ts";
+export * from "./ardy-inbetween.ts";
+export * from "./ardy-queue-progress.ts";
 export * from "./ardy-regenerate.ts";
 export * from "./camera-plan.ts";
 export * from "./execute-blender-python.ts";
@@ -8,6 +11,7 @@ export * from "./pose-contacts.ts";
 export * from "./produce-directing-evidence.ts";
 export * from "./render-qa-frames.ts";
 export * from "./scene-relations.ts";
+export * from "./schema-grammar.ts";
 export * from "./snapshot.ts";
 export * from "./stage-scene.ts";
 export * from "./viewport-capture.ts";

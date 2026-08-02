@@ -38,7 +38,7 @@ CCLAY_LAUNCHER = REPOSITORY_ROOT / "scripts" / "cclay"
 BLENDER_ATTACH = REPOSITORY_ROOT / "scripts" / "blender_attach.py"
 BRIDGE_TS = REPOSITORY_ROOT / "apps" / "cclay-extension" / "src" / "bridge.ts"
 
-EXPECTED_VERSION = "0.34.0"
+EXPECTED_VERSION = "0.35.0"
 
 
 def _manifest_version(text: str) -> str:

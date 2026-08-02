@@ -26,6 +26,8 @@ export const BRIDGE_METHODS = [
 	"apply_performance_mode",
 	"create_fall_motion",
 	"replace_camera_action",
+	"inspect_motion_constraints",
+	"capture_evaluated_pose",
 ];
 
 export const STAGE_SCENE_OPS = (

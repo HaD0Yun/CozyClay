@@ -4,11 +4,15 @@ import { join } from "node:path";
 import {
 	type ApplyCameraPlanBridge,
 	type ApplyPerformanceModeBridge,
+	type ArdyGenerateBridge,
+	type ArdyInbetweenBridge,
 	type ArdyRegenerateBridge,
 	type CaptureViewportBridge,
 	type CreateFallMotionBridge,
 	createApplyCameraPlanTool,
 	createApplyPerformanceModeTool,
+	createArdyGenerateTool,
+	createArdyInbetweenTool,
 	createArdyRegenerateTool,
 	createCaptureViewportTool,
 	createExecuteBlenderPythonTool,
@@ -52,6 +56,7 @@ import {
 	SettingsManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { isArdyHostConfigured } from "./ardy-host-config.ts";
 import { BundledDirectorResourceLoader } from "./resource-loader.ts";
 
 export const DIRECTOR_TOOL_ALLOWLIST = EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES;
@@ -73,6 +78,8 @@ export interface DirectorSessionOptions {
 				CaptureViewportBridge &
 				CreateFallMotionBridge &
 				ArdyRegenerateBridge &
+				ArdyGenerateBridge &
+				ArdyInbetweenBridge &
 				InspectBridgeStateBridge &
 				InspectEntityBridge &
 				InspectPerformanceBridge &
@@ -92,6 +99,14 @@ export interface DirectorSessionOptions {
 	readonly cwd?: string;
 	readonly agentDir?: string;
 	readonly allowExecuteBlenderPython?: boolean;
+	// The offer-time ARDY host gate. Defaults to the ambient CCLAY_ARDY_HOST
+	// (see isArdyHostConfigured); tests inject the signal so their outcome
+	// does not depend on the machine. When false, ardy_generate and
+	// ardy_inbetween are omitted from the constructed tool set even when
+	// their bridges are present -- the same optional mechanism an absent
+	// bridge already uses. ardy_regenerate is unaffected: it keeps its
+	// bridge-only gating.
+	readonly ardyHostConfigured?: boolean;
 }
 
 /**
@@ -135,6 +150,10 @@ async function buildDirectorSession(
 	ownsAgentDir: boolean,
 ) {
 	const resourceLoader = new BundledDirectorResourceLoader();
+	// Resolved once, before any tool construction: the gate decides whether
+	// ardy_generate / ardy_inbetween exist in this session, so it must be
+	// stable for the session's whole lifetime, not re-read per tool.
+	const ardyHostConfigured = options.ardyHostConfigured ?? isArdyHostConfigured();
 	const mutationBridge =
 		options.bridge.applyCameraPlan === undefined
 			? undefined
@@ -203,6 +222,10 @@ async function buildDirectorSession(
 		options.bridge.regenerate === undefined
 			? undefined
 			: { regenerate: options.bridge.regenerate.bind(options.bridge) };
+	const ardyGenerateBridge =
+		options.bridge.generate === undefined ? undefined : { generate: options.bridge.generate.bind(options.bridge) };
+	const ardyInbetweenBridge =
+		options.bridge.inbetween === undefined ? undefined : { inbetween: options.bridge.inbetween.bind(options.bridge) };
 	// Annotated rather than `satisfies`: an explicit Record over the literal
 	const executeBlenderPythonBridge =
 		options.allowExecuteBlenderPython === false || options.bridge.executeBlenderPython === undefined
@@ -211,7 +234,7 @@ async function buildDirectorSession(
 	// tool-name union both requires every eligible catalog entry to have a
 	// construction path and rejects a path for a name the catalog does not
 	// carry, and it gives the flatMap below one element type instead of a
-	// union of eighteen distinct tool-array types.
+	// union of twenty distinct tool-array types.
 	const DIRECTOR_TOOL_CONSTRUCTION_PATHS: Record<EmbeddedDirectorToolName, () => ToolDefinition[]> = {
 		inspect_project: () => [createInspectProjectTool(options.bridge)],
 		inspect_bridge_state: () =>
@@ -245,13 +268,17 @@ async function buildDirectorSession(
 			cameraActionBridge === undefined ? [] : [createReplaceCameraActionTool(cameraActionBridge)],
 		ardy_regenerate: () =>
 			ardyRegenerateBridge === undefined ? [] : [createArdyRegenerateTool(ardyRegenerateBridge)],
+		ardy_generate: () =>
+			ardyGenerateBridge === undefined || !ardyHostConfigured ? [] : [createArdyGenerateTool(ardyGenerateBridge)],
+		ardy_inbetween: () =>
+			ardyInbetweenBridge === undefined || !ardyHostConfigured ? [] : [createArdyInbetweenTool(ardyInbetweenBridge)],
 		execute_blender_python: () =>
 			executeBlenderPythonBridge === undefined ? [] : [createExecuteBlenderPythonTool(executeBlenderPythonBridge)],
 	};
 
 	assertDirectorToolConstructionPaths(DIRECTOR_TOOL_ALLOWLIST, DIRECTOR_TOOL_CONSTRUCTION_PATHS);
 	// Each path is invoked exactly once and its output validated against its own
-	// key. Keying the map by hand next to eighteen factory calls makes a
+	// key. Keying the map by hand next to twenty factory calls makes a
 	// copy-paste error realistic: a path can return a tool belonging to another
 	// key, return two tools, or return nothing at all. The key-coverage check
 	// above cannot see any of those, so validate the produced tools here rather

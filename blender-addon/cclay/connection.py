@@ -29,6 +29,8 @@ from .camera_action import parse_replace_camera_action
 from .camera_action import replace_camera_action as replace_scene_camera_action
 from .fall_motion import create_fall_motion as create_scene_fall_motion
 from .fall_motion import parse_create_fall_motion
+from .constraint_capture import capture_evaluated_pose as capture_scene_evaluated_pose
+from .constraint_capture import parse_capture_evaluated_pose
 from .performance import apply_performance_mode as apply_scene_performance_mode
 from .performance import inspect_performance as inspect_scene_performance
 from .performance import parse_apply_performance_mode
@@ -100,6 +102,7 @@ _TASK_KINDS = {
     "apply_camera_plan": "camera_plan",
     "render_qa_frames": "qa_render",
     "stage_scene": "stage_scene",
+    "capture_evaluated_pose": "pose_capture",
 }
 # Read-only bridge methods: no task tracking, durable base allows bootstrap.
 _READ_ONLY_BRIDGE_METHODS = (
@@ -178,6 +181,12 @@ def _task_descriptor(method: str, params: object) -> tuple[str, int]:
         revision = _digest_prefix(value.get("expected_revision_id"))
         noun = "operation" if count == 1 else "operations"
         return f"Stage scene revision {revision}, {count} {noun}", count
+    if method == "capture_evaluated_pose":
+        pose_frames = value.get("pose_frames")
+        count = len(pose_frames) if isinstance(pose_frames, list) else 0
+        revision = _digest_prefix(value.get("expected_revision_id"))
+        noun = "pose frame" if count == 1 else "pose frames"
+        return f"Pose capture revision {revision}, {count} {noun}", count
     frames = value.get("frames")
     safe_frames = [
         frame for frame in frames
@@ -1383,6 +1392,21 @@ class Connection:
             elif message["method"] == "create_fall_motion":
                 request = parse_create_fall_motion(message["params"])
                 result = create_scene_fall_motion(request, durable_revision_id)
+                self._send_json({
+                    "type": "bridge_result",
+                    "id": bridge_id,
+                    "request_id": message["request_id"],
+                    "result": result,
+                })
+                self.finish_bridge(bridge_id)
+                self.finish_task("success")
+            elif message["method"] == "capture_evaluated_pose":
+                request = parse_capture_evaluated_pose(message["params"])
+                result = capture_scene_evaluated_pose(
+                    request,
+                    project_directory=self.project_directory,
+                    expected_revision_id=durable_revision_id,
+                )
                 self._send_json({
                     "type": "bridge_result",
                     "id": bridge_id,

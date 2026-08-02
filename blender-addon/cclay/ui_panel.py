@@ -78,6 +78,7 @@ def _task_snapshot(active: object) -> tuple[str, str, str, str, str]:
     task = {
         "camera_plan": "Camera plan",
         "qa_render": "QA render",
+        "pose_capture": "Pose capture",
     }.get(kind, "Idle")
     descriptor = getattr(status, "descriptor", "Awaiting Pi-issued task")
     phase = getattr(status, "phase", "idle")

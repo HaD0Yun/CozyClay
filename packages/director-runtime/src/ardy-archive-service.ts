@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { basename, join, resolve, sep } from "node:path";
 import { inflateRawSync } from "node:zlib";
 
@@ -38,6 +38,21 @@ export class ArdyArchiveError extends Error {
 		this.cause = cause;
 	}
 }
+
+// The verdict of recoverGenerated. "already-present" means the canonical
+// archive already existed; claims are left in place, because the canonical
+// bytes are not yet known-valid -- a corrupt or truncated canonical file
+// must never destroy a valid claim. Callers sweep claims via
+// removeStaleGeneratedClaims ONLY after a successful commitGenerated, which
+// is the single point at which the canonical bytes are known-valid.
+// "restored" means the winning claim was renamed back to the canonical path
+// (losing claims are left in place -- until the commit succeeds a loser may
+// hold the only surviving copy of the bytes); "none" means neither a claim
+// nor the archive exists. recoverGenerated itself never unlinks anything.
+export type ArdyGeneratedClaimRecovery =
+	| { readonly outcome: "restored"; readonly claimsRemoved: 0 }
+	| { readonly outcome: "already-present"; readonly claimsRemoved: 0 }
+	| { readonly outcome: "none"; readonly claimsRemoved: 0 };
 
 export interface MotionArchiveValidator {
 	validateStructure(archive: Uint8Array, motionId: string): void;
@@ -446,6 +461,98 @@ export class MotionArchiveStore {
 			);
 		}
 	}
+	// A generated archive a crash stranded under a `.claim` name (see
+	// commitGenerated: the claim exists exactly when the commit was
+	// interrupted, and the publish-failure path deliberately retains it for
+	// retry). Among multiple claims the winner is the newest -- mtime ties
+	// break on the UUID segment lexicographically DESCENDING, so two hosts
+	// choose the same file deterministically -- and it is renamed back to the
+	// canonical path. Recovery NEVER unlinks anything: a claim is only
+	// removable once the canonical archive is known-valid, which is exactly
+	// what commitGenerated establishes -- so callers sweep claims with
+	// removeStaleGeneratedClaims only after a successful commit, never
+	// before. Until then a loser may hold the only surviving copy of the
+	// bytes, and a corrupt or truncated canonical file must never destroy a
+	// valid claim.
+	async recoverGenerated(motionId: string): Promise<ArdyGeneratedClaimRecovery> {
+		const path = this.pathFor(motionId);
+		const prefix = `.${motionFileName(motionId)}.`;
+		let names: string[];
+		try {
+			names = await readdir(this.motionsDirectory);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				return { outcome: "none", claimsRemoved: 0 };
+			}
+			throw new ArdyArchiveError("ARDY_ARCHIVE_IO", `could not list generated motion claims`, error);
+		}
+		const candidates = names
+			.filter((name) => name.startsWith(prefix) && name.endsWith(".claim"))
+			.map((name) => ({
+				name,
+				uuid: name.slice(prefix.length, -".claim".length),
+			}));
+		let canonicalExists: boolean;
+		try {
+			await lstat(path);
+			canonicalExists = true;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				canonicalExists = false;
+			} else {
+				throw new ArdyArchiveError("ARDY_ARCHIVE_IO", `could not inspect generated motion ${motionId}`, error);
+			}
+		}
+		// The canonical archive already exists. Its bytes are NOT yet known-valid
+		// (this method does not read them), so no claim is unlinked here; the
+		// caller sweeps claims via removeStaleGeneratedClaims only after a
+		// successful commitGenerated.
+		if (canonicalExists) {
+			return { outcome: "already-present", claimsRemoved: 0 };
+		}
+		if (candidates.length === 0) {
+			return { outcome: "none", claimsRemoved: 0 };
+		}
+		const stats = await Promise.all(
+			candidates.map(async (candidate) => ({
+				name: candidate.name,
+				uuid: candidate.uuid,
+				mtimeMs: (await stat(join(this.motionsDirectory, candidate.name))).mtimeMs,
+			})),
+		);
+		const winner = stats.reduce((best, current) =>
+			current.mtimeMs > best.mtimeMs || (current.mtimeMs === best.mtimeMs && current.uuid > best.uuid)
+				? current
+				: best,
+		);
+		await rename(join(this.motionsDirectory, winner.name), path);
+		return { outcome: "restored", claimsRemoved: 0 };
+	}
+	// Unlinks every `.claim` file for one motion. The ONLY caller contract is
+	// post-commit: commitGenerated has just validated and republished the
+	// canonical archive, so the canonical bytes are known-valid and no claim
+	// can be the only surviving copy anymore. Never call this from a path
+	// that has not committed, and never use it to "clean up" an archive whose
+	// validity is unknown -- that is exactly the delete-on-existence hole
+	// recoverGenerated is documented not to have.
+	async removeStaleGeneratedClaims(motionId: string): Promise<void> {
+		const prefix = `.${motionFileName(motionId)}.`;
+		let names: string[];
+		try {
+			names = await readdir(this.motionsDirectory);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				return;
+			}
+			throw new ArdyArchiveError("ARDY_ARCHIVE_IO", "could not list generated motion claims", error);
+		}
+		for (const name of names) {
+			if (!name.startsWith(prefix) || !name.endsWith(".claim")) {
+				continue;
+			}
+			await unlink(join(this.motionsDirectory, name));
+		}
+	}
 }
 
 export class ArdyArchiveService {
@@ -464,5 +571,11 @@ export class ArdyArchiveService {
 	}
 	commitGenerated(motionId: string): Promise<void> {
 		return this.store.commitGenerated(motionId);
+	}
+	recoverGenerated(motionId: string): Promise<ArdyGeneratedClaimRecovery> {
+		return this.store.recoverGenerated(motionId);
+	}
+	removeStaleGeneratedClaims(motionId: string): Promise<void> {
+		return this.store.removeStaleGeneratedClaims(motionId);
 	}
 }
