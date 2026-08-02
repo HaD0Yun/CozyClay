@@ -85,4 +85,30 @@ describe("director tool registration", () => {
 		assert.ok(source.includes("createArdyGenerateTool(generateQueue)"));
 		assert.ok(source.includes("createArdyInbetweenTool(inbetweenQueue)"));
 	});
+
+	it("gates the two host-backed ARDY tools on ARDY host configuration", async () => {
+		const source = await readFile(INDEX, "utf8");
+		// The gate must be the shared wrapper-derived helper, not a second
+		// local notion of availability.
+		assert.ok(
+			source.includes("isArdyHostConfigured"),
+			"the registration gate must use the shared host-availability helper",
+		);
+		// Both tools ride ONE conditional spread, so with no host neither is
+		// registered...
+		assert.match(
+			source,
+			/\.\.\.\(generateQueue !== undefined && inbetweenQueue !== undefined\s*\? \[createArdyGenerateTool\(generateQueue\), createArdyInbetweenTool\(inbetweenQueue\)\]\s*: \[\]\)/,
+			"ardy_generate and ardy_inbetween must be constructed under one conditional on their queue runners",
+		);
+		// ...and the eligible-name filter must omit them on the SAME signal
+		// the construction uses, or the load-time
+		// DIRECTOR_TOOL_REGISTRATION_MISMATCH guard would fire whenever the
+		// host is absent.
+		assert.match(
+			source,
+			/\(name !== "ardy_generate" && name !== "ardy_inbetween"\) \|\| ardyHostConfigured/,
+			"the eligible-name filter must gate on the same signal as the construction",
+		);
+	});
 });

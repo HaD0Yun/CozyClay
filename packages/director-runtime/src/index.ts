@@ -2,6 +2,7 @@ export * from "./apply-camera-plan-service.ts";
 export * from "./ardy-archive-service.ts";
 export * from "./ardy-generate-queue.ts";
 export * from "./ardy-generate-service.ts";
+export * from "./ardy-host-config.ts";
 export * from "./ardy-inbetween-queue.ts";
 export * from "./ardy-inbetween-service.ts";
 export * from "./ardy-motion-kernel.ts";

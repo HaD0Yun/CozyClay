@@ -143,7 +143,17 @@ describe("hostile local resource isolation", () => {
 			},
 		};
 
-		const first = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir, agentDir });
+		const first = await createDirectorSession({
+			bridge,
+			model,
+			modelRuntime,
+			cwd: projectDir,
+			agentDir,
+			// This test asserts the FULL allowlist, including the host-backed
+			// ARDY tools; inject the configured-host signal so the assertion
+			// does not depend on the ambient CCLAY_ARDY_HOST of the machine.
+			ardyHostConfigured: true,
+		});
 		const firstLoader = first.resourceLoader as BundledDirectorResourceLoader;
 		try {
 			assert.deepEqual(first.getActiveToolNames(), [...DIRECTOR_TOOL_ALLOWLIST]);
@@ -164,7 +174,14 @@ describe("hostile local resource isolation", () => {
 			assertBundleOnly(firstLoader);
 			firstLoader.extendResources({});
 
-			const second = await createDirectorSession({ bridge, model, modelRuntime, cwd: projectDir, agentDir });
+			const second = await createDirectorSession({
+				bridge,
+				model,
+				modelRuntime,
+				cwd: projectDir,
+				agentDir,
+				ardyHostConfigured: true,
+			});
 			try {
 				const secondLoader = second.resourceLoader as BundledDirectorResourceLoader;
 				assert.notEqual(secondLoader, firstLoader);

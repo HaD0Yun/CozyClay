@@ -36,6 +36,7 @@ import {
 	createDirectorProjectStore,
 	DIRECTOR_PROMPT_CONTRACT,
 	DIRECTOR_PROMPT_FULL,
+	isArdyHostConfigured,
 } from "@cclay/director-runtime";
 import { randomUUID } from "node:crypto";
 // This entry point lives in `src/cclay/` on purpose: Pi labels a loaded
@@ -84,6 +85,14 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		},
 	};
 
+	// The wrapper (scripts/cclay-ardy-generate) is the authority on host
+	// configuration: it requires a non-empty CCLAY_ARDY_HOST and prints
+	// "CCLAY_ARDY_HOST is required" otherwise. The same signal gates what the
+	// model is OFFERED: without a configured host the two host-backed tools
+	// would only ever fail at generation time, so they are not registered and
+	// their queue runners are not started. ardy_regenerate is unaffected.
+	const ardyHostConfigured = isArdyHostConfigured();
+
 	// The runner keeps watching animator-published queue requests while its
 	// submit bridge gives the model-facing tool that same durable execution path.
 	const regenerateQueue = startRegenerateQueueRunner({
@@ -106,32 +115,36 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 	// for the pre-kernel staleness guard. The model-facing ardy_generate and
 	// ardy_inbetween tools submit into these same queues, so animator- and
 	// director-published requests are consumed identically.
-	const generateQueue = startGenerateQueueRunner({
-		cwd,
-		// Live getter: re-reads the bridge's current revision for every
-		// request, so the sweep's staleness guard sees the latest commit.
-		liveRevisionId: () => bridge.revisionId,
-		stageScene: (request, context) =>
-			mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
-		onError: (error) => {
-			// Reported, never thrown: a failed sweep must not take the
-			// extension down, or the next request would sit unwatched.
-			console.error("[cclay] generation sweep failed:", error);
-		},
-	});
-	const inbetweenQueue = startInbetweenQueueRunner({
-		cwd,
-		// Live getter: re-reads the bridge's current revision for every
-		// request, so the sweep's staleness guard sees the latest commit.
-		liveRevisionId: () => bridge.revisionId,
-		stageScene: (request, context) =>
-			mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
-		onError: (error) => {
-			// Reported, never thrown: a failed sweep must not take the
-			// extension down, or the next request would sit unwatched.
-			console.error("[cclay] in-between sweep failed:", error);
-		},
-	});
+	const generateQueue = ardyHostConfigured
+		? startGenerateQueueRunner({
+				cwd,
+				// Live getter: re-reads the bridge's current revision for every
+				// request, so the sweep's staleness guard sees the latest commit.
+				liveRevisionId: () => bridge.revisionId,
+				stageScene: (request, context) =>
+					mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
+				onError: (error) => {
+					// Reported, never thrown: a failed sweep must not take the
+					// extension down, or the next request would sit unwatched.
+					console.error("[cclay] generation sweep failed:", error);
+				},
+			})
+		: undefined;
+	const inbetweenQueue = ardyHostConfigured
+		? startInbetweenQueueRunner({
+				cwd,
+				// Live getter: re-reads the bridge's current revision for every
+				// request, so the sweep's staleness guard sees the latest commit.
+				liveRevisionId: () => bridge.revisionId,
+				stageScene: (request, context) =>
+					mutationBridge.stageScene(request, context as Parameters<BlenderBridge["stageScene"]>[1]),
+				onError: (error) => {
+					// Reported, never thrown: a failed sweep must not take the
+					// extension down, or the next request would sit unwatched.
+					console.error("[cclay] in-between sweep failed:", error);
+				},
+			})
+		: undefined;
 
 	const directorTools = [
 		createInspectProjectTool(bridge),
@@ -153,13 +166,20 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		createFallMotionTool(bridge),
 		createReplaceCameraActionTool(bridge),
 		createArdyRegenerateTool(regenerateQueue),
-		createArdyGenerateTool(generateQueue),
-		createArdyInbetweenTool(inbetweenQueue),
+		// Both host-backed tools ride one conditional, the same optional
+		// mechanism an absent bridge uses in the director session: without a
+		// configured ARDY host there is no queue runner to submit through, so
+		// offering the tools would hand the model surfaces that can only fail.
+		...(generateQueue !== undefined && inbetweenQueue !== undefined
+			? [createArdyGenerateTool(generateQueue), createArdyInbetweenTool(inbetweenQueue)]
+			: []),
 		...(project.allowExecuteBlenderPython === false ? [] : [createExecuteBlenderPythonTool(bridge)]),
 	];
 	const registeredToolNames = directorTools.map((tool) => tool.name);
 	const eligibleToolNames = EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES.filter(
-		(name) => name !== "execute_blender_python" || project.allowExecuteBlenderPython !== false,
+		(name) =>
+			(name !== "execute_blender_python" || project.allowExecuteBlenderPython !== false) &&
+			((name !== "ardy_generate" && name !== "ardy_inbetween") || ardyHostConfigured),
 	);
 	if (
 		registeredToolNames.length !== eligibleToolNames.length ||
@@ -227,8 +247,10 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 			statusInterval = undefined;
 		}
 		await regenerateQueue.stop();
-		await generateQueue.stop();
-		await inbetweenQueue.stop();
+		// The two host-backed runners exist only when the host is configured,
+		// so they stop only when they exist.
+		if (generateQueue !== undefined) await generateQueue.stop();
+		if (inbetweenQueue !== undefined) await inbetweenQueue.stop();
 		await bridge.close();
 	});
 

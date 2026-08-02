@@ -56,6 +56,7 @@ import {
 	SettingsManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { isArdyHostConfigured } from "./ardy-host-config.ts";
 import { BundledDirectorResourceLoader } from "./resource-loader.ts";
 
 export const DIRECTOR_TOOL_ALLOWLIST = EMBEDDED_DIRECTOR_ELIGIBLE_TOOL_NAMES;
@@ -98,6 +99,14 @@ export interface DirectorSessionOptions {
 	readonly cwd?: string;
 	readonly agentDir?: string;
 	readonly allowExecuteBlenderPython?: boolean;
+	// The offer-time ARDY host gate. Defaults to the ambient CCLAY_ARDY_HOST
+	// (see isArdyHostConfigured); tests inject the signal so their outcome
+	// does not depend on the machine. When false, ardy_generate and
+	// ardy_inbetween are omitted from the constructed tool set even when
+	// their bridges are present -- the same optional mechanism an absent
+	// bridge already uses. ardy_regenerate is unaffected: it keeps its
+	// bridge-only gating.
+	readonly ardyHostConfigured?: boolean;
 }
 
 /**
@@ -141,6 +150,10 @@ async function buildDirectorSession(
 	ownsAgentDir: boolean,
 ) {
 	const resourceLoader = new BundledDirectorResourceLoader();
+	// Resolved once, before any tool construction: the gate decides whether
+	// ardy_generate / ardy_inbetween exist in this session, so it must be
+	// stable for the session's whole lifetime, not re-read per tool.
+	const ardyHostConfigured = options.ardyHostConfigured ?? isArdyHostConfigured();
 	const mutationBridge =
 		options.bridge.applyCameraPlan === undefined
 			? undefined
@@ -255,8 +268,10 @@ async function buildDirectorSession(
 			cameraActionBridge === undefined ? [] : [createReplaceCameraActionTool(cameraActionBridge)],
 		ardy_regenerate: () =>
 			ardyRegenerateBridge === undefined ? [] : [createArdyRegenerateTool(ardyRegenerateBridge)],
-		ardy_generate: () => (ardyGenerateBridge === undefined ? [] : [createArdyGenerateTool(ardyGenerateBridge)]),
-		ardy_inbetween: () => (ardyInbetweenBridge === undefined ? [] : [createArdyInbetweenTool(ardyInbetweenBridge)]),
+		ardy_generate: () =>
+			ardyGenerateBridge === undefined || !ardyHostConfigured ? [] : [createArdyGenerateTool(ardyGenerateBridge)],
+		ardy_inbetween: () =>
+			ardyInbetweenBridge === undefined || !ardyHostConfigured ? [] : [createArdyInbetweenTool(ardyInbetweenBridge)],
 		execute_blender_python: () =>
 			executeBlenderPythonBridge === undefined ? [] : [createExecuteBlenderPythonTool(executeBlenderPythonBridge)],
 	};

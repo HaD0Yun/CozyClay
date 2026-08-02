@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { buildProjectManifest } from "@cclay/director-core";
+import { type ArdyGenerateQueueOutcomeV1, parseSceneSnapshot } from "@cclay/protocol";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { parseSceneSnapshot } from "../../blender-protocol/src/snapshot.ts";
 import { createDirectorSession } from "../src/session.ts";
 
 describe("director runtime session", () => {
@@ -70,7 +70,7 @@ describe("director runtime session", () => {
 		}
 	});
 
-	it("omits host-backed ARDY tools when no ARDY host bridge is configured and includes them when one is", async () => {
+	it("omits the host-backed ARDY tools without a configured ARDY host and includes them with one", async () => {
 		const faux = registerFauxProvider();
 		unregister.push(faux.unregister);
 		const credentials = new InMemoryCredentialStore();
@@ -79,33 +79,46 @@ describe("director runtime session", () => {
 		const model = faux.getModel();
 		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
 
-		const bridgeBase = {
+		// Both bridges are present in BOTH sessions: only the injected
+		// availability signal differs, so an omission below is the host gate,
+		// not the absent-bridge mechanism. The signal is injected rather than
+		// read from the ambient environment, so the outcome does not depend on
+		// the machine the test runs on.
+		const bridge = {
 			inspectProject: async () => {
+				throw new Error("not invoked");
+			},
+			generate: async () => {
+				throw new Error("not invoked");
+			},
+			inbetween: async () => {
 				throw new Error("not invoked");
 			},
 		};
 
-		const withoutHost = await createDirectorSession({ bridge: bridgeBase, model, modelRuntime });
+		const withoutHost = await createDirectorSession({
+			bridge,
+			model,
+			modelRuntime,
+			ardyHostConfigured: false,
+		});
 		try {
+			// createDirectorSession throws when a construction guard fails, so
+			// a clean construction is itself the guard-pass assertion.
 			assert.deepEqual(withoutHost.getActiveToolNames(), ["inspect_project", "read_image"]);
 		} finally {
 			withoutHost.dispose();
 		}
 
 		const withHost = await createDirectorSession({
-			bridge: {
-				...bridgeBase,
-				generate: async () => {
-					throw new Error("not invoked");
-				},
-				inbetween: async () => {
-					throw new Error("not invoked");
-				},
-			},
+			bridge,
 			model,
 			modelRuntime,
+			ardyHostConfigured: true,
 		});
 		try {
+			// Both names appear in catalog order: the allowlist subsequence
+			// the constructed set is derived from.
 			assert.deepEqual(withHost.getActiveToolNames(), [
 				"inspect_project",
 				"read_image",
@@ -114,6 +127,84 @@ describe("director runtime session", () => {
 			]);
 		} finally {
 			withHost.dispose();
+		}
+	});
+
+	it("drives ardy_generate end to end through the assembled session when an ARDY host is configured", async () => {
+		const faux = registerFauxProvider();
+		unregister.push(faux.unregister);
+		const requestId = "0123456789abcdef0123456789abcdef";
+		faux.setResponses([
+			fauxAssistantMessage(
+				fauxToolCall("ardy_generate", {
+					request_id: requestId,
+					entity_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+					expected_revision_id: "a".repeat(64),
+					prompt: "a person waves both hands",
+					duration_seconds: 5,
+					seed: null,
+					requested_at_ms: 1_700_000_000_000,
+				}),
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("generated"),
+		]);
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
+		const model = faux.getModel();
+		modelRuntime.registerProvider(model.provider, { baseUrl: model.baseUrl, api: faux.api, models: faux.models });
+
+		// Annotated rather than inferred: a bare literal widens schema_version to
+		// `number`, which does not satisfy the closed outcome's `1` literal.
+		const outcome: ArdyGenerateQueueOutcomeV1 = {
+			schema_version: 1,
+			request_id: requestId,
+			status: "succeeded" as const,
+			result: {
+				schema_version: 1,
+				request_id: requestId,
+				motion_id: "wave-hands-01",
+				frames: 100,
+				duration_seconds: 5,
+				seed: null,
+			},
+			resulting_revision_id: "b".repeat(64),
+		};
+		let bridgeCalls = 0;
+		const session = await createDirectorSession({
+			bridge: {
+				inspectProject: async () => {
+					throw new Error("not invoked");
+				},
+				generate: async (request) => {
+					bridgeCalls += 1;
+					assert.equal(request.request_id, requestId, "the tool must forward the model's request verbatim");
+					return outcome;
+				},
+				inbetween: async () => {
+					throw new Error("not invoked");
+				},
+			},
+			model,
+			modelRuntime,
+			ardyHostConfigured: true,
+		});
+		try {
+			await session.prompt("generate a wave");
+			assert.equal(bridgeCalls, 1, "the bridge must have been driven exactly once");
+			const toolResult = session.messages.find((message) => message.role === "toolResult");
+			assert.ok(toolResult !== undefined, "the tool result must reach the session messages");
+			const serialized = JSON.stringify(toolResult);
+			assert.match(serialized, /wave-hands-01/, "the outcome's motion_id must reach the caller");
+			assert.match(
+				serialized,
+				new RegExp("b".repeat(64)),
+				"the outcome's resulting_revision_id must reach the caller",
+			);
+			assert.equal(session.messages.at(-1)?.role, "assistant");
+		} finally {
+			session.dispose();
 		}
 	});
 
