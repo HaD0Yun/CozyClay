@@ -40,10 +40,26 @@
 //     in-between stage must consume, and the harness hashes it across the
 //     planting step to prove it.
 //
+// Two smaller stand-ins, listed because an incomplete fake inventory is how
+// this harness overstated itself twice already:
+//   - The prepared-transaction envelope is short-circuited. The harness hands
+//     commitStageSceneMutation a naked candidate rather than driving the real
+//     transaction/request envelope, ack transport and reconciliation, which
+//     need a live Blender transaction.
+//   - The runners' onError callbacks throw, so a swallowed background error
+//     fails the test loudly. Production reports rather than throws.
+//
 // Everything else -- the runners' startup recovery, both kernels, both
 // queues, the write-ahead records, the staleness guards, the synthetic-pose
 // retirement, the derived R0 -> R1 -> R2 chain in the project store -- is the
 // real code under test.
+//
+// What this harness CANNOT establish is the live leg: the real wrapper's
+// host/SSH/SCP behaviour, remote GPU generation, agreement between real
+// wrapper metadata and real NPZ bytes, real capture_evaluated_pose, real
+// stage_scene/apply_motion in Blender, extension startup wiring, crash and
+// restart recovery windows, and whether the resulting motion is any good.
+// That is story S9b and it needs a configured CCLAY_ARDY_HOST.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
