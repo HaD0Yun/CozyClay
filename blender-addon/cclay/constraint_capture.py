@@ -22,6 +22,7 @@ import json
 import os
 import pathlib
 import re
+import sys
 import tempfile
 import uuid
 
@@ -697,6 +698,11 @@ def motion_basis(armature, project_directory, motion_id: str) -> dict:
     }
 
 
+def _motion_archive_path(project_directory, motion_id: str) -> pathlib.Path:
+    """The npz path a motion id resolves to under the project's motion store."""
+    return pathlib.Path(project_directory) / ".cclay" / "motions" / f"{motion_id}.npz"
+
+
 def write_pose_source_npz(
     project_directory,
     motion_id: str,
@@ -713,6 +719,10 @@ def write_pose_source_npz(
     by forward kinematics instead of being filled with anything convenient.
     Archives in this project that skipped that step disagree with their own
     rotations by 1.4 units, and nothing downstream would report it.
+
+    Publication is create-only: the staged archive is hard-linked to its
+    destination and the staged copy unlinked, so a destination that already
+    exists is refused atomically by the link instead of silently replaced.
     """
     import numpy
 
@@ -722,11 +732,8 @@ def write_pose_source_npz(
     positions = motion_constraints.forward_kinematics(
         local_rotations, bone_offsets, root_position
     )
-    directory = pathlib.Path(project_directory) / ".cclay" / "motions"
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{motion_id}.npz"
-    if path.exists():
-        raise ConstraintCaptureError(f"motion {motion_id} already exists")
+    path = _motion_archive_path(project_directory, motion_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_suffix(".npz.partial")
     try:
         with open(staged, "wb") as stream:
@@ -736,16 +743,32 @@ def write_pose_source_npz(
                 posed_joints=numpy.asarray([positions], dtype=numpy.float32),
                 fps=numpy.asarray(fps, dtype=numpy.int64),
             )
+        # The host deletes synthetic poses only after the outcome is durable,
+        # so they are private like the request files they belong to.
+        os.chmod(staged, 0o600)
         # Round-trips the archive through the same validator apply_motion uses,
         # so a malformed synthetic pose fails here rather than deep inside a
         # regeneration the host already started.
         motion_archive.inspect_motion_archive(staged, motion_id)
-        os.replace(staged, path)
-    except BaseException:
+        # Create-only publication. os.link fails with FileExistsError when the
+        # destination already exists -- the staged file and the destination
+        # sit in the same .cclay/motions directory, so the same filesystem --
+        # where os.replace would silently clobber whatever appeared in the
+        # check-then-act window. The staged copy is unlinked on success, so
+        # the destination is the archive and no .partial is left for an
+        # orphan sweep to misattribute.
+        try:
+            os.link(staged, path)
+        except FileExistsError:
+            raise ConstraintCaptureError(f"motion {motion_id} already exists") from None
+        os.unlink(staged)
+    except BaseException as error:
         try:
             os.unlink(staged)
-        except OSError:
-            pass
+        except OSError as unlink_error:
+            _attach_capture_context(
+                error, f"failed to remove staged file {staged.name}: {unlink_error}"
+            )
         raise
     return path
 
@@ -803,6 +826,412 @@ def capture_regeneration_request(
         "full_body": full_body,
         "root_2d": collected["root_2d"],
         "requested_at_ms": requested_at_ms,
+    }
+
+# --- Closed evaluated-pose capture (bridge method "capture_evaluated_pose") ---
+#
+# The model names scene frames and a base motion; the add-on reads the rig's
+# EVALUATED pose at those frames and writes one validated single-frame
+# synthetic pose archive per frame, so constrained ARDY generation can point
+# --pose-from at the results. The bounds mirror the ardy_inbetween protocol
+# surface (packages/blender-protocol/src/ardy-inbetween.ts): the pose list is
+# bounded, scene frames span the product timeline, and clip frames index the
+# constrained clip ARDY_CONSTRAINED_DURATION_SECONDS * ARDY_CLIP_FPS long.
+POSE_FRAME_LIMIT = 32
+SCENE_FRAME_BOUND = 100000
+CLIP_FRAME_BOUND = 600 * 20 - 1
+
+# The exact closed param set of the capture_evaluated_pose bridge method; an
+# unknown key is protocol skew, not an option.
+CAPTURE_PARAM_KEYS = frozenset({
+    "entity_id",
+    "expected_revision_id",
+    "base_motion_id",
+    "request_id",
+    "pose_frames",
+})
+POSE_FRAME_KEYS = frozenset({"scene_frame", "clip_frame"})
+# Lowercase UUID v4, the only entity id form the bridge emits.
+_ENTITY_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+
+
+class PoseCaptureValidationError(ConstraintCaptureError):
+    """One closed capture_evaluated_pose contract failure."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"{code}: {message}")
+        self.code = code
+
+
+def parse_capture_evaluated_pose(value: object) -> dict:
+    """Parse the closed capture_evaluated_pose request.
+
+    Mirrors ``parseArdyInbetweenRequest`` in packages/blender-protocol: the
+    param set is exact, every id carries its grammar, and ``pose_frames`` is a
+    bounded list whose entries must be unique on both axes and share ONE
+    constant ``scene_frame - clip_frame`` offset -- the same rule the protocol
+    enforces, which is the add-on's affine mapping at
+    ``motion_constraints.py:291`` stated without a start frame.
+    """
+    if not isinstance(value, dict) or set(value) != CAPTURE_PARAM_KEYS:
+        raise PoseCaptureValidationError(
+            "INVALID_CAPTURE_REQUEST",
+            "capture_evaluated_pose must carry exactly entity_id, "
+            "expected_revision_id, base_motion_id, request_id and pose_frames",
+        )
+    entity_id = value["entity_id"]
+    if not isinstance(entity_id, str) or _ENTITY_ID.fullmatch(entity_id) is None:
+        raise PoseCaptureValidationError(
+            "INVALID_CAPTURE_REQUEST", f"malformed entity id {entity_id!r}"
+        )
+    expected_revision_id = value["expected_revision_id"]
+    if (
+        not isinstance(expected_revision_id, str)
+        or _REVISION_ID.fullmatch(expected_revision_id) is None
+    ):
+        raise PoseCaptureValidationError(
+            "INVALID_CAPTURE_REQUEST",
+            f"malformed expected revision id {expected_revision_id!r}",
+        )
+    base_motion_id = value["base_motion_id"]
+    if not isinstance(base_motion_id, str) or _MOTION_ID.fullmatch(base_motion_id) is None:
+        raise PoseCaptureValidationError(
+            "INVALID_CAPTURE_REQUEST", f"malformed base motion id {base_motion_id!r}"
+        )
+    request_id = value["request_id"]
+    if not isinstance(request_id, str) or _REQUEST_ID.fullmatch(request_id) is None:
+        raise PoseCaptureValidationError(
+            "INVALID_CAPTURE_REQUEST", f"malformed request id {request_id!r}"
+        )
+    pose_frames = value["pose_frames"]
+    if not isinstance(pose_frames, list) or not 1 <= len(pose_frames) <= POSE_FRAME_LIMIT:
+        raise PoseCaptureValidationError(
+            "INVALID_CAPTURE_REQUEST",
+            f"pose_frames must be a list of 1..{POSE_FRAME_LIMIT} frame pairs",
+        )
+    parsed_frames = []
+    scene_frames = set()
+    clip_frames = set()
+    offset = None
+    for index, entry in enumerate(pose_frames):
+        if not isinstance(entry, dict) or set(entry) != POSE_FRAME_KEYS:
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames[{index}] must carry exactly scene_frame and clip_frame",
+            )
+        scene_frame = entry["scene_frame"]
+        if isinstance(scene_frame, bool) or not isinstance(scene_frame, int):
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames[{index}].scene_frame must be an integer",
+            )
+        if not -SCENE_FRAME_BOUND <= scene_frame <= SCENE_FRAME_BOUND:
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames[{index}].scene_frame {scene_frame} is outside "
+                f"{-SCENE_FRAME_BOUND}..{SCENE_FRAME_BOUND}",
+            )
+        clip_frame = entry["clip_frame"]
+        if isinstance(clip_frame, bool) or not isinstance(clip_frame, int):
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames[{index}].clip_frame must be an integer",
+            )
+        if not 0 <= clip_frame <= CLIP_FRAME_BOUND:
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames[{index}].clip_frame {clip_frame} is outside "
+                f"0..{CLIP_FRAME_BOUND}",
+            )
+        if scene_frame in scene_frames:
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames scene_frame {scene_frame} is duplicated; "
+                "scene_frame values must be unique",
+            )
+        scene_frames.add(scene_frame)
+        if clip_frame in clip_frames:
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames clip_frame {clip_frame} is duplicated; "
+                "clip_frame values must be unique",
+            )
+        clip_frames.add(clip_frame)
+        entry_offset = scene_frame - clip_frame
+        if offset is None:
+            offset = entry_offset
+        elif entry_offset != offset:
+            raise PoseCaptureValidationError(
+                "INVALID_CAPTURE_REQUEST",
+                f"pose_frames offset (scene_frame - clip_frame) {entry_offset} at "
+                f"entry ({scene_frame}, {clip_frame}) differs from the set's "
+                f"constant offset {offset}; every entry must share one offset",
+            )
+        parsed_frames.append({"scene_frame": scene_frame, "clip_frame": clip_frame})
+    return {
+        "entity_id": entity_id,
+        "expected_revision_id": expected_revision_id,
+        "base_motion_id": base_motion_id,
+        "request_id": request_id,
+        "pose_frames": parsed_frames,
+    }
+
+
+def _require_pose_frame_mapping(pose_frames: list, start_frame: int, frame_count: int) -> None:
+    """Every pair must be the add-on's affine mapping onto THIS clip.
+
+    ``clip_frame = scene_frame - start_frame`` is the exact rule
+    ``motion_constraints.scene_frame_to_clip_frame`` enforces, and the one
+    constant offset the protocol requires of the whole set is ``start_frame``.
+    A pair that contradicts it would bind a captured pose to the wrong clip
+    frame, so this fails closed before any frame is evaluated.
+    """
+    for entry in pose_frames:
+        scene_frame = entry["scene_frame"]
+        clip_frame = entry["clip_frame"]
+        try:
+            computed = motion_constraints.scene_frame_to_clip_frame(
+                scene_frame, start_frame, frame_count
+            )
+        except motion_constraints.MotionConstraintError as error:
+            raise PoseCaptureValidationError(
+                "POSE_FRAME_MAPPING_INVALID", str(error)
+            ) from error
+        if computed != clip_frame:
+            raise PoseCaptureValidationError(
+                "POSE_FRAME_MAPPING_INVALID",
+                f"scene frame {scene_frame} maps to clip frame {computed} on this "
+                f"clip, not {clip_frame}",
+            )
+
+
+def _rollback_archives(created, error) -> None:
+    """Unlink every archive this invocation created, never masking ``error``.
+
+    The set is populated with the preflighted destinations BEFORE any publish
+    (see ``capture_evaluated_pose``), so no window exists where a file this
+    invocation wrote is on disk but untracked. Publication is create-only --
+    the writer's link is the only way a destination comes into existence and
+    it refuses an existing destination -- so a destination still in the set
+    that exists when rollback runs was necessarily created by this
+    invocation. Do not "simplify" that reasoning back into a check-then-act
+    race by moving the recording after the publish: a collided destination (a
+    foreign file that appeared between the preflight and its publish) is
+    dropped from the set at the moment the collision is observed, and every
+    remaining path is attempted here.
+
+    Best-effort by construction: an unlink failure is attached to the primary
+    error as context and the original exception is left to propagate, so the
+    caller always sees the failure that actually happened.
+    """
+    for path in created:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as rollback_error:
+            _attach_capture_context(
+                error, f"rollback failed to remove {path.name}: {rollback_error}"
+            )
+
+
+def _attach_capture_context(error, message) -> None:
+    """Attach a secondary failure to the primary error without replacing it.
+
+    ``BaseException.add_note`` (Python 3.11+) keeps the original exception as
+    the one the caller sees while the note carries the context; Blender 5.x
+    and the host runtime both ship 3.11+.
+    """
+    error.add_note(message)
+
+
+def _restore_scene_frame(scene, frame) -> None:
+    """Put the scene back on the frame the call started from.
+
+    A module-level step so the guarded restore in ``capture_evaluated_pose``
+    can be exercised independently of bpy RNA method resolution.
+    """
+    scene.frame_set(frame)
+
+
+def capture_evaluated_pose(request: dict, *, project_directory, expected_revision_id: str) -> dict:
+    """The capture_evaluated_pose bridge method.
+
+    The model never supplies bone matrices or archive payloads: it names
+    ``pose_frames`` and a ``base_motion_id``, and everything else is read from
+    the live rig and the base archive. Ownership, revision, clip and mapping
+    checks all run BEFORE any frame is evaluated, and the synthetic archive
+    paths this invocation would write are preflighted in the same zone, so
+    every failure up to that point fails closed with no file written. Once the
+    loop starts the capture is atomic: any failure rolls back every archive
+    this invocation created, and the entered scene frame is restored in a
+    ``finally`` that can never mask the primary failure.
+
+    Runs on the Blender main thread (the bridge dispatcher's timer), which is
+    what makes ``scene.frame_set`` and the evaluated-pose reads safe.
+    """
+    if request["expected_revision_id"] != expected_revision_id:
+        raise PoseCaptureValidationError(
+            "REVISION_MISMATCH",
+            f"capture expected revision {request['expected_revision_id']}, "
+            f"current durable revision is {expected_revision_id}",
+        )
+    from . import project_store
+
+    stored = project_store.read_project_index(str(project_directory))
+    if stored is None or not isinstance(stored.get("project_id"), str):
+        raise ConstraintCaptureError("project index is unavailable; cannot verify ownership")
+    project_id = stored["project_id"]
+    entity_id = request["entity_id"]
+    armature = next(
+        (
+            scene_object
+            for scene_object in bpy.data.objects
+            if scene_object.get("cclay.entity_id") == entity_id
+            and scene_object.type == "ARMATURE"
+        ),
+        None,
+    )
+    if armature is None:
+        raise PoseCaptureValidationError(
+            "ENTITY_NOT_FOUND", f"armature entity {entity_id} does not exist"
+        )
+    # An entity id travels with a rig appended from another .blend; the owner
+    # stamp is what proves this project staged it.
+    if armature.get("cclay.owned_project_id") != project_id:
+        raise PoseCaptureValidationError(
+            "ENTITY_NOT_OWNED",
+            f"armature entity {entity_id} was not created by CCLAY for this project",
+        )
+    clip = base_clip_of(armature)
+    if clip["motion_id"] != request["base_motion_id"]:
+        raise PoseCaptureValidationError(
+            "BASE_MOTION_MISMATCH",
+            f"the armature's applied clip is {clip['motion_id']}, not the "
+            f"requested base motion {request['base_motion_id']}",
+        )
+    basis = motion_basis(armature, project_directory, request["base_motion_id"])
+    # The archive and the applied clip must describe the same motion: the
+    # frame mapping binds to the clip's start and length, and the rotations
+    # are indexed per clip frame, so a mismatch would corrupt every pose.
+    if len(basis["base_rotations"]) != clip["frame_count"]:
+        raise PoseCaptureValidationError(
+            "BASE_MOTION_MISMATCH",
+            f"base archive has {len(basis['base_rotations'])} frames but the "
+            f"applied clip records {clip['frame_count']}",
+        )
+    try:
+        base_fps = motion_archive.motion_fps(project_directory, request["base_motion_id"])
+    except motion_archive.MotionArchiveError as error:
+        raise PoseCaptureValidationError("BASE_MOTION_MISMATCH", str(error)) from error
+    if base_fps != clip["fps"]:
+        raise PoseCaptureValidationError(
+            "BASE_MOTION_MISMATCH",
+            f"base archive fps {base_fps} differs from the applied clip fps {clip['fps']}",
+        )
+    _require_pose_frame_mapping(
+        request["pose_frames"], clip["start_frame"], clip["frame_count"]
+    )
+    # Preflight every archive this invocation would write. A collision must
+    # refuse the whole request BEFORE any frame is evaluated -- never halfway
+    # through the loop -- and rollback may only delete files this invocation
+    # created, which is why a pre-existing file is refused instead of
+    # overwritten. The error is the same one write_pose_source_npz raises for
+    # an existing motion id, so the host sees a single collision contract.
+    synthetic_ids = [
+        f"cclay-pose-{request['request_id']}-{index + 1}"
+        for index in range(len(request["pose_frames"]))
+    ]
+    for synthetic_motion_id in synthetic_ids:
+        if _motion_archive_path(project_directory, synthetic_motion_id).exists():
+            raise ConstraintCaptureError(f"motion {synthetic_motion_id} already exists")
+    scene = bpy.context.scene
+    entered_frame = scene.frame_current
+    # Rollback intent is recorded BEFORE any publish, never from the writer's
+    # return value afterwards: the window between a publish completing and a
+    # post-hoc append is exactly a file on disk but untracked, and rollback
+    # cannot remove what it cannot see. The set carries each preflighted
+    # destination plus its staged path, so a staged file a failed writer
+    # could not remove is still attempted here. Publication is create-only
+    # (write_pose_source_npz links instead of replacing), so a destination
+    # still in this set that exists when rollback runs was necessarily
+    # created by this invocation.
+    created = []
+    for synthetic_motion_id in synthetic_ids:
+        destination = _motion_archive_path(project_directory, synthetic_motion_id)
+        created.append(destination)
+        created.append(destination.with_suffix(".npz.partial"))
+    captured = []
+    try:
+        for index, entry in enumerate(request["pose_frames"]):
+            scene.frame_set(entry["scene_frame"])
+            rotations = pose_local_rotations(
+                armature, basis["base_rotations"][entry["clip_frame"]]
+            )
+            root = motion_constraints.armature_root_position_to_npz(
+                list(_hips_pose_bone(armature).head), basis["scale"]
+            )
+            # <request_id> embedded so an orphan sweep can attribute every
+            # synthetic archive to the request that wrote it; the ordinal is
+            # the declared order, which is what the host reproduces when it
+            # rebuilds the --pose-from argv.
+            synthetic_motion_id = synthetic_ids[index]
+            destination = _motion_archive_path(project_directory, synthetic_motion_id)
+            try:
+                write_pose_source_npz(
+                    project_directory,
+                    synthetic_motion_id,
+                    local_rotations=rotations,
+                    bone_offsets=basis["bone_offsets"],
+                    root_position=root,
+                    fps=clip["fps"],
+                )
+            except ConstraintCaptureError as error:
+                # The writer's ConstraintCaptureError sites all sit before
+                # the link, so this is a collision: the destination was taken
+                # by a foreign actor between the preflight and the publish.
+                # It is not this invocation's to roll back -- drop it from
+                # the set so the foreign file survives byte-identical.
+                created.remove(destination)
+                raise
+            captured.append(
+                {
+                    "scene_frame": entry["scene_frame"],
+                    "clip_frame": entry["clip_frame"],
+                    "synthetic_motion_id": synthetic_motion_id,
+                }
+            )
+    except BaseException as error:
+        # Atomicity: any failure after the loop started rolls back every
+        # archive this invocation actually created, leaving the project
+        # exactly as the call found it. Rollback failures are attached to the
+        # original error, never raised in its place.
+        _rollback_archives(created, error)
+        raise
+    finally:
+        # The entered frame is restored on both paths, but a restoration
+        # failure must never replace the primary failure: on the error path it
+        # is attached to the active exception, and on the success path it IS
+        # the failure the caller must see -- and it also triggers the
+        # rollback, because the scene was left in a state the caller did not
+        # ask for.
+        active_error = sys.exc_info()[1]
+        try:
+            _restore_scene_frame(scene, entered_frame)
+        except BaseException as restore_error:
+            if active_error is None:
+                _rollback_archives(created, restore_error)
+                raise
+            _attach_capture_context(
+                active_error, f"scene frame restore failed: {restore_error}"
+            )
+    return {
+        "schema_version": REQUEST_SCHEMA_VERSION,
+        "request_id": request["request_id"],
+        "entity_id": entity_id,
+        "expected_revision_id": request["expected_revision_id"],
+        "base_motion_id": request["base_motion_id"],
+        "pose_frames": captured,
     }
 
 

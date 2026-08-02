@@ -56,6 +56,13 @@ class HandshakeTests(unittest.TestCase):
             addon_surface_capabilities("0.2.0"),
         )
 
+    def test_hello_reports_the_evaluated_pose_capture_method(self):
+        # The capture surface is the ardy_inbetween pose bridge: the model
+        # names scene frames and the add-on reads the evaluated rig, so the
+        # extension must see the method advertised before it can call it.
+        hello = build_hello(str(uuid.uuid4()), "0.2.0", "5.1.2")
+        self.assertIn("cclay.method.capture_evaluated_pose", hello["capabilities"])
+
     def test_protocol_v2_hello_ack_negotiates_staging_independently(self):
         valid = {
             "type": "hello_ack",
