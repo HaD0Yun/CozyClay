@@ -111,16 +111,16 @@ def validate_render_request(
     """Validate and canonicalize the closed Blender-side request."""
     if not isinstance(value, dict) or set(value) != {
         "schema_version",
-        "revision_id",
+        "expected_revision_id",
         "frames",
     }:
         raise RENDER_QA_INVALID_REQUEST(
-            "render_qa_frames requires only schema_version, revision_id, and frames"
+            "render_qa_frames requires only schema_version, expected_revision_id, and frames"
         )
     if value["schema_version"] != 1:
         raise RENDER_QA_INVALID_REQUEST("schema_version must equal 1")
-    if not _is_digest(value["revision_id"]):
-        raise RENDER_QA_INVALID_REQUEST("revision_id must be a lowercase SHA-256 digest")
+    if not _is_digest(value["expected_revision_id"]):
+        raise RENDER_QA_INVALID_REQUEST("expected_revision_id must be a lowercase SHA-256 digest")
     frames = value["frames"]
     if not isinstance(frames, list) or not frames:
         raise RENDER_QA_INVALID_REQUEST("frames must be a non-empty array")
@@ -135,7 +135,7 @@ def validate_render_request(
         raise RENDER_QA_INVALID_REQUEST("frame number lies outside the scene range")
     return {
         "schema_version": 1,
-        "revision_id": value["revision_id"],
+        "expected_revision_id": value["expected_revision_id"],
         "frames": canonical_frames,
     }
 
@@ -510,7 +510,7 @@ def render_qa_frames_transaction(
         })
     return {
         "schema_version": 1,
-        "revision_id": request["revision_id"],
+        "expected_revision_id": request["expected_revision_id"],
         "profile_version": PROFILE_VERSION,
         "frames": results,
     }

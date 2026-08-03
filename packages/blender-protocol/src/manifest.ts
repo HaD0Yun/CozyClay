@@ -87,6 +87,12 @@ const ObjectSchema = exact({
 	location: vector3(),
 	rotationQuaternion: quaternion(),
 	scale: vector3(),
+	// Canonical digest of the object's f-curve animation surface, produced by
+	// the add-on (sha256 of the canonicalized animation snapshot). The field is
+	// emitted only for animated objects, so static-only scenes keep their
+	// byte-identical canonical manifests. Optional so hand-built manifests
+	// without the field still parse.
+	animationDigest: Type.Optional(Type.Union([Type.String({ pattern: HASH_64 }), Type.Null()])),
 });
 const BoneSchema = exact({
 	entityId: uuid(),

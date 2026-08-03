@@ -151,6 +151,23 @@ class SceneManifestTests(unittest.TestCase):
         moved = finalize_scene_manifest(build_scene_manifest_v4(**moved_parts))
         self.assertNotEqual(baseline["sceneHash"], moved["sceneHash"])
 
+    def test_animation_digest_validates_and_participates_in_the_scene_hash(self):
+        baseline = finalize_scene_manifest(build_scene_manifest_v4(**parts()))
+        digest_parts = parts()
+        digest_parts["objects"] = [
+            {**entry, "animationDigest": "a" * 64} if entry["entityId"] == OBJECT else entry
+            for entry in digest_parts["objects"]
+        ]
+        with_digest = finalize_scene_manifest(build_scene_manifest_v4(**digest_parts))
+        self.assertNotEqual(baseline["sceneHash"], with_digest["sceneHash"])
+        malformed_parts = parts()
+        malformed_parts["objects"] = [
+            {**entry, "animationDigest": "not-a-hash"} if entry["entityId"] == OBJECT else entry
+            for entry in malformed_parts["objects"]
+        ]
+        with self.assertRaises(INVALID_SCENE_MANIFEST):
+            finalize_scene_manifest(build_scene_manifest_v4(**malformed_parts))
+
     def test_snapshot_v2_section_2_6_camera_animations_are_closed_and_correlated(self):
         data = parts()
         data["camera_animations"][0]["unknown"] = True

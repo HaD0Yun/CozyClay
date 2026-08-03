@@ -53,9 +53,27 @@ needed to close the gap already exists and is simply not consulted.
 `post_process_motion` runs. The downstream C++ filter then compares `1.0 > t` and
 `0.0 > t` (`Utility.cpp:102`), which is constant for every `t` in `(0,1)`.
 
-So the flag the wrapper validates and forwards has no effect on output. Derived
-from a fully-read code chain, not a runtime experiment -- worth one live A/B
-before acting on it.
+So the flag the wrapper validated and forwarded had no effect on output.
+
+CONFIRMED BY MEASUREMENT and FIXED, 2026-08-03. Three GPU runs on the box: one
+base motion, then two constrained generations holding prompt, duration, seed and
+base motion fixed and varying only `--contact-threshold` between 0.05 and 0.95.
+The two outputs were byte-identical -- SHA-256 equal, and all nine npz keys
+bit-identical with max absolute difference 0 (`foot_contacts`, `fps`,
+`global_root_heading`, `global_rot_mats`, `local_rot_mats`, `posed_joints`,
+`root_positions`, `smooth_root_pos`, `text`). The remote run JSON echoed
+`postprocess.contact_threshold` back as 0.05 and 0.95 respectively, proving the
+value reached the post-processor and still changed nothing.
+
+Caveat recorded honestly: `seed_everything(seed, deterministic=False)`
+(`remote:~/ardy/ardy/tools.py:230-238`) leaves cudnn autotune on, so byte identity
+is not guaranteed in general. Here the two runs WERE identical, which serves as
+both the determinism observation and the inertness evidence -- there was no
+difference to attribute to anything.
+
+`scripts/cclay-ardy-generate` now REFUSES `--contact-threshold` with a message
+naming the cause, rather than accepting a knob that silently does nothing. The
+flag is not exposed on any typed model tool, so no wire contract changed.
 
 ### A4. `apply_motion` does not fail closed on non-uniform scale, but preflight does
 
@@ -118,9 +136,21 @@ different one baked into Blender. Forward lean, which is distributed across thes
 segments, is the most affected quantity -- and torso lean was one of the
 naturalness defects reported against the stair climb.
 
-The cclay comment claims more than the code does. `motion_retarget.py:36` says
-`Spine3` is "composed into Spine2"; the table entry is plain `None`
-(`motion_retarget.py:40`). Nothing composes it. It is dropped.
+Correction to an earlier draft of this document: it claimed "nothing composes
+`Spine3`, it is dropped". That was wrong. `PoseTrackBuilder.step` did fold
+`L_Spine2 @ L_Spine3` before writing the `Spine2` track, and a test pinned that
+behaviour. The `None` in the table meant only "no bone of its own", not "rotation
+discarded". The comment was accurate; the draft was not.
+
+FIXED 2026-08-03. `MIXAMO_TARGETS` now maps core `Spine1`/`Spine2`/`Spine3` onto
+mixamo `Spine`/`Spine1`/`Spine2`, and core `Spine` is the dropped joint. The fold
+was removed with the remap: keeping it would have polluted mixamo `Spine1` and
+double-applied `Spine3`. This matches the ARDY viewer, which applies only mapped
+joints (`scripts/ardy/interactive_demo/mixamo_avatar.py:160-163`). The driven-bone
+set is unchanged at 24 bones with identical names, so the count assumptions in
+`ik_chains.py`, `ik_rig.py` and `stage_scene.py` still hold. The measurement was
+independently re-derived before the change and reproduced the table above to the
+fourth decimal.
 
 ## B. Structural limits
 
@@ -133,9 +163,10 @@ cskel27 **does** carry `LeftToeBase`/`RightToeBase` and they map to real Mixamo
 bones (`motion_retarget.py:30-31`, `:49-51`). An earlier version of this document
 claimed cskel27 had no toes; that was wrong.
 
-Of the 27 core joints, 24 map: `Spine3`, `RightHandEnd` and `LeftHandEnd` are
-`None`. Measured against `y-bot-tpose.fbx` (66 distinct `mixamorig:` bones), 42
-rig bones are not driven by ARDY:
+Of the 27 core joints, 24 map. Since the A5 fix the three unmapped joints are
+`Spine`, `RightHandEnd` and `LeftHandEnd` (it was `Spine3` before the remap).
+Measured against `y-bot-tpose.fbx` (66 distinct `mixamorig:` bones), 42 rig bones
+are not driven by ARDY:
 
 - **38 finger bones.** cskel27 carries `LeftHandThumb1`/`RightHandThumb1` only.
   Every other digit joint is absent. Covered separately by baked digit curves from

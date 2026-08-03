@@ -175,12 +175,18 @@ UNSCALED local thigh (~0.4 m of local units for a humanoid rig). `derive_scale` 
 by the npz thigh (which ARDY expresses in real meters) yields a factor ~100x too large for
 an object that is itself scaled 0.01. The old code never consulted the object transform.
 
-The fix: `_derive_entity_scale` (motion_preflight.py:371-398) resolves the object
-(`_object_for_entity`), requires it to be an ARMATURE, requires the rig thigh, and calls
-`motion_retarget.derive_scale(posed_joints[0], rig_thigh * object_scale)` — `object_scale`
-from `_object_world_scale` (motion_preflight.py:339-368), which reads `scene_object.scale`,
-validates it, and returns the uniform factor `axes[0]`. The multiplication is the fix
-(motion_preflight.py:394).
+The fix: the shared derivation `_derive_scale_for_object` (motion_preflight.py:371-394)
+resolves the rig (`CharacterRigAdapter` on the object's bones, requiring the rig thigh) and
+the object's world scale, and returns the LOCAL units-per-npz-unit retarget factor
+`motion_retarget.derive_scale(posed_joints[0], rig_thigh)` — `object_scale` from
+`_object_world_scale` (motion_preflight.py:339-368), which reads `scene_object.scale`,
+validates it, and returns the uniform factor `axes[0]`. The meters-per-npz-unit REPORT is
+the local factor folded by the object scale: `_meters_scale_for_entity`
+(motion_preflight.py:414-434) multiplies `local * object_scale` (the multiplication is the
+fix, motion_preflight.py:431-434; `derive_scale` is linear in the thigh length, so
+`local * object_scale == derive_scale(posed, rig_thigh * object_scale)`).
+`_derive_entity_scale` (motion_preflight.py:397-411) is the entity-lookup wrapper both
+callers share.
 
 What still fails closed: `_object_world_scale` rejects (all `INVALID_PREFLIGHT_MOTION_PARAMS`)
 a malformed scale (line 354-356), a non-finite axis (358-359), any axis ≤ 0 (360-361), and
@@ -191,13 +197,16 @@ silently picking one axis" (motion_preflight.py:350-352). The tolerance is
 `SCALE_UNIFORMITY_TOLERANCE = 1e-4` (relative to the largest axis, line 336), loose enough
 for values that round-trip through UI edits or importers (comment at 333-335).
 
-Important asymmetry with `apply_motion`: the retarget path deliberately does NOT fold in the
-object scale — `scale = motion_retarget.derive_scale(posed_joints[0], rig.rig_thigh)` and
-`PoseTrackBuilder` writes into local armature space, letting Blender's object transform
-carry it to world meters (stage_scene.py:1464-1472; the rationale is restated in the
-`_object_world_scale` docstring, motion_preflight.py:342-347). So a non-uniformly-scaled
-character still APPLIES fine; only preflight's meters REPORT fails closed. The preflight
-scale is a reporting number; the retarget scale is internal.
+Symmetry with `apply_motion` (CozyClay A4): the retarget path uses the SAME shared
+derivation — `_apply_motion_scale` (stage_scene.py:1478-1493) calls `_derive_scale_for_object`
+and `PoseTrackBuilder` writes the LOCAL factor into armature space, letting Blender's object
+transform carry it to world meters (stage_scene.py:1552-1557; the rationale is restated in
+the `_object_world_scale` docstring, motion_preflight.py:342-347). Because the shared
+derivation validates the object scale, a non-uniformly-scaled character now fails closed in
+apply_motion with the SAME `INVALID_PREFLIGHT_MOTION_PARAMS` code preflight uses, carried on
+the `StageSceneError` so the bridge_error code field never leaks the class name
+(stage_scene.py:1490-1492). The preflight meters report is a reporting number; the retarget
+scale is the same derivation without the meters fold.
 
 ## 5. `motion_retarget.py`: `validate_motion`, `MotionValidationCursor`, `derive_scale`
 

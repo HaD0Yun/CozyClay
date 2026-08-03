@@ -312,7 +312,7 @@ export function createDirectorTurnLoop(options: DirectorTurnLoopOptions) {
 			if (state.phase !== "verification_inspected") {
 				return fail(state, "DIRECTOR_LOOP_ORDER", `render_qa_frames is not allowed after ${state.phase}`);
 			}
-			if (request.revision_id !== state.currentRevisionId) {
+			if (request.expected_revision_id !== state.currentRevisionId) {
 				return fail(state, "STALE_BASE", "render_qa_frames is not based on the current director revision");
 			}
 			const result = await options.bridge.renderQaFrames(request, context);
@@ -767,7 +767,7 @@ export function createDirectorTurnHandler(options: DirectorTurnHandlerOptions) {
 			renderQaFrames: async (request, bridgeContext) => {
 				const result = parseRenderQaFramesResult(await activeContext().renderQaFrames(request, bridgeContext));
 				if (
-					result.revision_id !== request.revision_id ||
+					result.expected_revision_id !== request.expected_revision_id ||
 					result.frames.length !== request.frames.length ||
 					result.frames.some((frame, index) => frame.frame !== request.frames[index])
 				) {

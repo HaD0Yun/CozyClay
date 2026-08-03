@@ -17,7 +17,7 @@ import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
-from . import hand_shapes, motion_archive, motion_retarget
+from . import hand_shapes, motion_archive, motion_preflight, motion_retarget
 from .character_rig import CharacterRigAdapter
 
 
@@ -730,6 +730,33 @@ def _stage_motion_fps(project_directory: object, motion_id: str) -> int:
         return motion_archive.motion_fps(project_directory, motion_id)
     except motion_archive.MotionArchiveError as error:
         raise StageSceneError(str(error)) from error
+def _live_baked_motions() -> list[tuple[str, str, int]]:
+    """(entity_id, motion_id, fps) for every apply_motion bake in the live scene.
+
+    ``_apply_motion`` is the only writer of ``cclay.motion_fps``; reading it
+    back off the baked action is the cross-call signal the fps guard needs (the
+    within-plan check cannot see a later plan that only changes the rate). A
+    bake whose object lost its entity id is skipped: it could not have been
+    produced by apply_motion.
+    """
+    if bpy is None:
+        return []
+    baked = []
+    for scene_object in bpy.context.scene.objects:
+        animation_data = getattr(scene_object, "animation_data", None)
+        action = getattr(animation_data, "action", None)
+        if action is None:
+            continue
+        motion_id = action.get("cclay.motion_id")
+        fps = action.get("cclay.motion_fps")
+        entity_id = scene_object.get("cclay.entity_id")
+        if (
+            isinstance(motion_id, str)
+            and isinstance(fps, (int, float))
+            and isinstance(entity_id, str)
+        ):
+            baked.append((entity_id, motion_id, int(fps)))
+    return baked
 
 
 class PoseContactError(StageSceneError):
@@ -1344,7 +1371,12 @@ def _requested_scene_fps(plan: dict) -> int | None:
     return requested
 
 
-def _require_plan_fps_agrees(plan: dict, motion_fps_of) -> None:
+def _require_plan_fps_agrees(
+    plan: dict,
+    motion_fps_of,
+    live_baked: list[tuple[str, str, int]] = (),
+    live_scene_fps: int | None = None,
+) -> None:
     """Require a single frame rate across the whole plan.
 
     apply_motion bakes exactly one npz frame per scene frame, so the scene rate
@@ -1361,19 +1393,22 @@ def _require_plan_fps_agrees(plan: dict, motion_fps_of) -> None:
     ``motion_fps_of`` resolves a motion id to its npz fps and is injected so
     this stays a pure function over the plan.
 
-    Deliberately ignores the LIVE scene fps: a factory-startup Blender scene is
-    already 24 fps, so comparing against it would reject every first
-    apply_motion. Resampling key spacing by scene_fps/motion_fps is the other
-    possible contract and is deliberately deferred rather than half-done -- it
-    would have to move hand_track clip frames, start_frame, contact windows and
-    camera cut frames together.
+    Deliberately ignores the LIVE scene fps for a first apply: a factory-startup
+    Blender scene is already 24 fps, so comparing the motion rate against it
+    would reject every first apply_motion. Resampling key spacing by
+    scene_fps/motion_fps is the other possible contract and is deliberately
+    deferred rather than half-done -- it would have to move hand_track clip
+    frames, start_frame, contact windows and camera cut frames together.
 
-    KNOWN GAP, within-plan only. Ignoring the live fps also means a LATER,
-    separate plan that carries an fps and no apply_motion is not checked at all,
-    so it can still overwrite an already-baked motion's rate and reproduce the
-    same 20%-fast defect split across two stage_scene calls. Closing it needs a
-    different signal than the plan -- the baked action already records
-    ``cclay.motion_fps`` -- so it is recorded here rather than half-enforced.
+    CLOSED GAP, two-call case. The within-plan check cannot see a LATER,
+    separate plan that changes the scene rate, so the baked action's recorded
+    ``cclay.motion_fps`` is read back: when such a plan would leave an
+    already-baked motion playing at a different rate, it is rejected with the
+    same APPLY_MOTION_FPS_CONFLICT contract. A bake the plan re-applies over is
+    exempt -- replacing the clip is the sanctioned way to change the rate.
+    ``live_baked`` ((entity_id, motion_id, fps) triples) and ``live_scene_fps``
+    are injected by the gate (stage_scene.py:2279) so this stays a pure
+    function; both default to "no live scene" for plan-only callers.
     """
     rates: list[tuple[str, int]] = []
     requested = _requested_scene_fps(plan)
@@ -1384,6 +1419,43 @@ def _require_plan_fps_agrees(plan: dict, motion_fps_of) -> None:
             motion_id = operation["motion_id"]
             rates.append((f"motion {motion_id}", int(motion_fps_of(motion_id))))
     if len({rate for _source, rate in rates}) <= 1:
+        # The plan is coherent, but it may still change the scene rate under an
+        # already-baked motion. A bake the plan re-applies over is replaced by
+        # the plan and exempt; any other live bake must already be at the rate
+        # the plan leaves the scene at.
+        if live_scene_fps is not None and live_baked:
+            motion_rates = {
+                rate for source, rate in rates if source != "set_render_settings"
+            }
+            resulting_rate = (
+                requested
+                if requested is not None
+                else (next(iter(motion_rates)) if motion_rates else None)
+            )
+            if resulting_rate is not None and resulting_rate != live_scene_fps:
+                reapplied = {
+                    operation["entity_id"]
+                    for operation in plan["operations"]
+                    if operation["op"] == "apply_motion"
+                }
+                mismatched = [
+                    (entity_id, motion_id, baked_fps)
+                    for entity_id, motion_id, baked_fps in live_baked
+                    if entity_id not in reapplied and baked_fps != resulting_rate
+                ]
+                if mismatched:
+                    detail = ", ".join(
+                        f"motion {motion_id} baked at {baked_fps} fps"
+                        for _entity_id, motion_id, baked_fps in mismatched
+                    )
+                    raise StageSceneError(
+                        f"APPLY_MOTION_FPS_CONFLICT: the scene already carries "
+                        f"{detail} but this plan changes the scene to "
+                        f"{resulting_rate} fps; apply_motion bakes one npz frame "
+                        f"per scene frame, so keep the scene at the baked "
+                        f"motion's rate or regenerate the motion at the rate "
+                        f"you want"
+                    )
         return
     # Remediation names only the sources actually in conflict: telling a
     # two-motion conflict to "omit fps from set_render_settings" points the
@@ -1403,6 +1475,22 @@ def _require_plan_fps_agrees(plan: dict, motion_fps_of) -> None:
         f"apply_motion bakes one npz frame per scene frame, so "
         f"{', '.join(remedies)}"
     )
+def _apply_motion_scale(entity_id: str, scene_object, posed_joints) -> float:
+    """Shared scale derivation for apply_motion, with preflight's closed codes.
+
+    A non-uniform or otherwise unusable object scale surfaces as the same code
+    preflight_motion reports it (INVALID_PREFLIGHT_MOTION_PARAMS), and a
+    degenerate thigh as APPLY_MOTION_MALFORMED -- never the
+    PreflightMotionError class name (see motion_preflight.py:396-398).
+    """
+    try:
+        return motion_preflight._derive_scale_for_object(
+            entity_id, scene_object, posed_joints
+        )
+    except motion_preflight.PreflightMotionError as error:
+        raised = StageSceneError(f"{error.code}: {error}")
+        raised.code = error.code
+        raise raised from error
 
 
 def _apply_motion(
@@ -1462,7 +1550,11 @@ def _apply_motion(
                 f"character rig is missing the {required_bone} bone"
             )
     try:
-        scale = motion_retarget.derive_scale(posed_joints[0], rig.rig_thigh)
+        # Shared with preflight_motion: the object's world scale is validated
+        # (non-uniform fails closed) and the LOCAL units-per-npz-unit factor is
+        # what the retarget needs -- Blender's own object transform carries it
+        # to world meters. Same closed codes preflight uses.
+        scale = _apply_motion_scale(operation["entity_id"], scene_object, posed_joints)
         track_builder = motion_retarget.PoseTrackBuilder(
             local_rot_mats,
             posed_joints,
@@ -2181,14 +2273,19 @@ class _StageSceneRun:
                 # Up front, before any mutation: one frame rate for the whole
                 # plan. Order-independent by construction, which a check inside
                 # apply_motion could not be -- it would never see a second
-                # motion whose native fps differs.
-                if self.motion_count:
+                # motion whose native fps differs. A plan that only changes the
+                # scene fps (no apply_motion) is checked too: the live scene's
+                # already-baked motions are read back so a later rate change
+                # cannot orphan them at a different rate.
+                if self.motion_count or _requested_scene_fps(self.plan) is not None:
                     _require_plan_fps_agrees(
                         self.plan,
                         lambda motion_id: _stage_motion_fps(
                             getattr(self.connection, "project_directory", None),
                             motion_id,
                         ),
+                        live_baked=_live_baked_motions(),
+                        live_scene_fps=int(bpy.context.scene.render.fps),
                     )
                 try:
                     self.mode = _motion_keyframe_mode()

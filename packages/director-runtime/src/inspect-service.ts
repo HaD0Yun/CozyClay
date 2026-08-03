@@ -114,9 +114,9 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 					return result;
 				},
 				renderQaFrames: async (request, bridgeContext) => {
-					if (request.revision_id !== resultingRevision) {
+					if (request.expected_revision_id !== resultingRevision) {
 						throw new Error(
-							`STALE_BASE: expected ${request.revision_id}, current revision is ${resultingRevision}`,
+							`STALE_BASE: expected ${request.expected_revision_id}, current revision is ${resultingRevision}`,
 						);
 					}
 					if (context.renderQaFrames === undefined) {
@@ -131,7 +131,7 @@ export function createInspectHandler(options: InspectHandlerOptions) {
 							},
 						}),
 					);
-					if (result.revision_id !== request.revision_id) {
+					if (result.expected_revision_id !== request.expected_revision_id) {
 						throw new Error("STALE_BASE: render result does not bind the requested revision");
 					}
 					if (

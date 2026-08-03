@@ -9,6 +9,7 @@ Regenerate from the repository root:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
@@ -24,12 +25,22 @@ from cclay import manifest
 PROJECT_ID = "00000000-0000-4000-8000-00000000000a"
 CAMERA_ID = "00000000-0000-4000-8000-000000000001"
 SUBJECT_ID = "00000000-0000-4000-8000-000000000002"
+PARENT_REVISION = "d" * 64
 
 
 def arguments() -> argparse.Namespace:
     blender_arguments = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--hierarchy-output",
+        type=Path,
+        help=(
+            "optional second fixture with the camera parented to the subject, "
+            "finalized as the child of the d*64 parent revision under the "
+            "set_parent operation the parity tests replay"
+        ),
+    )
     return parser.parse_args(blender_arguments)
 
 
@@ -90,6 +101,44 @@ def main() -> None:
     options.output.parent.mkdir(parents=True, exist_ok=True)
     revision = manifest.write_scene_manifest(options.output)
     print(f"CCLAY_SCENE_MANIFEST_REVISION={revision}")
+
+    if options.hierarchy_output is not None:
+        # The hierarchical fixture is the same authored scene with the camera
+        # parented to the subject, hashed as the child of the d*64 parent
+        # revision under the set_parent operation the parity tests replay
+        # (scene-manifest-v4-parity.test.ts and test_scene_manifest_v4_parity.py
+        # both derive the recorded values that way).
+        camera.parent = subject
+        bpy.context.view_layer.update()
+        hierarchical = manifest.extract_scene_manifest_v4()
+        operation = {
+            "schema_version": 1,
+            "expected_revision_id": PARENT_REVISION,
+            "operations": [
+                {
+                    "op": "set_parent",
+                    "entity_id": CAMERA_ID,
+                    "parent_id": SUBJECT_ID,
+                }
+            ],
+        }
+        from cclay.scene_manifest import finalize_scene_manifest_child
+
+        bound = finalize_scene_manifest_child(
+            hierarchical, PARENT_REVISION, operation
+        )
+        # Match the committed hierarchy fixture's presentation: tab indentation
+        # with sceneHash before revisionId.
+        ordered = {
+            key: bound[key]
+            for key in (*[key for key in bound if key not in ("sceneHash", "revisionId")], "sceneHash", "revisionId")
+        }
+        options.hierarchy_output.parent.mkdir(parents=True, exist_ok=True)
+        options.hierarchy_output.write_text(
+            json.dumps(ordered, indent="\t", ensure_ascii=False, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        print(f"CCLAY_SCENE_MANIFEST_HIERARCHY_REVISION={bound['revisionId']}")
 
 
 if __name__ == "__main__":

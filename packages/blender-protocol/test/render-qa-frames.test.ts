@@ -12,25 +12,30 @@ const revision = "a".repeat(64);
 const thumbnailBase64 = Buffer.from("jpeg-thumbnail-payload").toString("base64");
 
 test("G011: request takes a revision id and <=12 unique in-range frames, deduped and sorted ascending", () => {
-	assert.deepEqual(parseRenderQaFramesRequest({ schema_version: 1, revision_id: revision, frames: [9, 1, 9, 3] }), {
-		schema_version: 1,
-		revision_id: revision,
-		frames: [1, 3, 9],
-	});
+	assert.deepEqual(
+		parseRenderQaFramesRequest({ schema_version: 1, expected_revision_id: revision, frames: [9, 1, 9, 3] }),
+		{
+			schema_version: 1,
+			expected_revision_id: revision,
+			frames: [1, 3, 9],
+		},
+	);
 	assert.throws(() =>
 		parseRenderQaFramesRequest({
 			schema_version: 1,
-			revision_id: revision,
+			expected_revision_id: revision,
 			frames: Array.from({ length: 13 }, (_, index) => index),
 		}),
 	);
-	assert.throws(() => parseRenderQaFramesRequest({ schema_version: 1, revision_id: revision, frames: [-1] }));
-	assert.throws(() => parseRenderQaFramesRequest({ schema_version: 1, revision_id: revision, frames: [1.5] }));
+	assert.throws(() => parseRenderQaFramesRequest({ schema_version: 1, expected_revision_id: revision, frames: [-1] }));
+	assert.throws(() =>
+		parseRenderQaFramesRequest({ schema_version: 1, expected_revision_id: revision, frames: [1.5] }),
+	);
 });
 
 test("G011: request is closed and rejects unknown fields", () => {
 	assert.throws(() =>
-		parseRenderQaFramesRequest({ schema_version: 1, revision_id: revision, frames: [1], path: "/tmp/x" }),
+		parseRenderQaFramesRequest({ schema_version: 1, expected_revision_id: revision, frames: [1], path: "/tmp/x" }),
 	);
 });
 
@@ -54,11 +59,11 @@ test("G011/G016: result binds artifact metadata to a closed thumbnail payload an
 	};
 	const result = parseRenderQaFramesResult({
 		schema_version: 1,
-		revision_id: revision,
+		expected_revision_id: revision,
 		profile_version: "cclay-qa-png-v1",
 		frames: [frame],
 	});
-	assert.equal(result.revision_id, revision);
+	assert.equal(result.expected_revision_id, revision);
 	assert.equal(result.frames[0]!.thumbnail.data_base64, thumbnailBase64);
 
 	// The full PNG is streamed as artifact chunks; restating it here once
@@ -67,14 +72,14 @@ test("G011/G016: result binds artifact metadata to a closed thumbnail payload an
 		() =>
 			parseRenderQaFramesResult({
 				schema_version: 1,
-				revision_id: revision,
+				expected_revision_id: revision,
 				profile_version: "cclay-qa-png-v1",
 				frames: [{ ...frame, image: { mime_type: "image/png", data_base64: png.toString("base64") } }],
 			}),
 		/Parse/,
 	);
 
-	assert.throws(() => parseRenderQaFramesResult({ ...result, revision_id: "stale" }));
+	assert.throws(() => parseRenderQaFramesResult({ ...result, expected_revision_id: "stale" }));
 	assert.throws(() =>
 		parseRenderQaFramesResult({ ...result, frames: [{ ...result.frames[0], uri: "file:///tmp/x" }] }),
 	);
@@ -111,7 +116,7 @@ test("G016: model-visible thumbnail content has distinct per-frame and batch siz
 		() =>
 			parseRenderQaFramesResult({
 				schema_version: 1,
-				revision_id: revision,
+				expected_revision_id: revision,
 				profile_version: "cclay-qa-png-v1",
 				frames: [
 					{
@@ -135,7 +140,7 @@ test("G016: model-visible thumbnail content has distinct per-frame and batch siz
 		() =>
 			parseRenderQaFramesResult({
 				schema_version: 1,
-				revision_id: revision,
+				expected_revision_id: revision,
 				profile_version: "cclay-qa-png-v1",
 				frames: batchPayloads.map((payload, frame) => {
 					const sha256 = createHash("sha256").update(payload).digest("hex");

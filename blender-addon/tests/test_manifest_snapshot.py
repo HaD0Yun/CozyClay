@@ -42,6 +42,7 @@ class FakeObject(dict):
         self.children_recursive: list[FakeObject] = []
         self.data = None
         self.library = None
+        self.animation_data = None
         self.location = [0.0, 0.0, 0.0]
         self.rotation_mode = "QUATERNION"
         self.rotation_quaternion = [1.0, 0.0, 0.0, 0.0]

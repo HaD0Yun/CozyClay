@@ -27,6 +27,23 @@ FIXTURE = json.loads(
 
 IDENTITY = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 
+# Rest heights along the torso, normalised by the Hips->Neck Y span (+Y up).
+# cskel27 values measured 2026-08-03 from remote:~/ardy/ardy/assets/
+# skeletons/cskel27/joints.p: torch.load(path, weights_only=False) yields a
+# 27x3 float64 array; joint order is
+# ardy.skeleton.CoreSkeleton27.bone_order_names_with_parents
+# (ardy/skeleton/definitions.py:348). Mixamo values measured from
+# blender-addon/cclay/assets/characters/y-bot-tpose.fbx imported into Blender
+# 5.2.0 headless (bone.head_local; +Y is up in this rig's armature space).
+# Both are normalised by the Hips->Neck span so the two skeletons are
+# comparable; Hips and Neck normalise to 0.0 and 1.0 by construction.
+CSKEL27_SPINE_HEIGHTS = {
+    "Spine": 0.1180, "Spine1": 0.2729, "Spine2": 0.4297, "Spine3": 0.5870,
+}
+MIXAMO_SPINE_HEIGHTS = {
+    "Spine": 0.1986, "Spine1": 0.4317, "Spine2": 0.6991,
+}
+
 
 def _rot_x(degrees: float):
     r = math.radians(degrees)
@@ -234,6 +251,47 @@ class DeriveScaleTests(unittest.TestCase):
         self.assertAlmostEqual(derive_scale(frame, 40.0), 100.0, places=6)
 
 
+class SpineCorrespondenceTests(unittest.TestCase):
+    """Pins the cskel27 <-> mixamo spine correspondence to measured rest heights.
+
+    Bottom-3 alignment (core Spine/Spine1/Spine2 onto mixamo
+    Spine/Spine1/Spine2) scores mean 0.1696 / max 0.2694 absolute error;
+    top-3 alignment (core Spine1/Spine2/Spine3 onto mixamo Spine/Spine1/
+    Spine2) scores mean 0.0628 / max 0.1121. MIXAMO_TARGETS must keep the
+    better (top-3) alignment, dropping core Spine.
+    """
+
+    def test_top_three_alignment_scores_better_than_bottom_three(self):
+        def absolute_errors(pairs):
+            return [
+                abs(CSKEL27_SPINE_HEIGHTS[cskel] - MIXAMO_SPINE_HEIGHTS[target])
+                for cskel, target in pairs
+            ]
+
+        bottom_three = absolute_errors(
+            [("Spine", "Spine"), ("Spine1", "Spine1"), ("Spine2", "Spine2")]
+        )
+        top_three = absolute_errors(
+            [("Spine1", "Spine"), ("Spine2", "Spine1"), ("Spine3", "Spine2")]
+        )
+        self.assertLess(
+            sum(top_three) / len(top_three), sum(bottom_three) / len(bottom_three)
+        )
+        self.assertLess(max(top_three), max(bottom_three))
+
+    def test_mixamo_targets_keep_the_top_three_spine_joints(self):
+        self.assertEqual(MIXAMO_TARGETS["Spine"], None)
+        self.assertEqual(MIXAMO_TARGETS["Spine1"], "Spine")
+        self.assertEqual(MIXAMO_TARGETS["Spine2"], "Spine1")
+        self.assertEqual(MIXAMO_TARGETS["Spine3"], "Spine2")
+        dropped = [
+            name
+            for name in ("Spine", "Spine1", "Spine2", "Spine3")
+            if MIXAMO_TARGETS[name] is None
+        ]
+        self.assertEqual(dropped, ["Spine"])
+
+
 class BuildPoseTracksTests(unittest.TestCase):
     def _rest_rotations(self, rest=IDENTITY):
         return {
@@ -306,10 +364,12 @@ class BuildPoseTracksTests(unittest.TestCase):
         self.assertAlmostEqual(y, 0.0, places=6)
         self.assertAlmostEqual(z, -math.sin(half), places=6)
 
-    def test_spine3_rotation_is_composed_into_spine2(self):
+    def test_spine_rotation_is_dropped_and_each_driven_spine_joint_is_own_track(self):
         frame = _identity_frame()
-        frame[JOINT_INDEX["Spine2"]] = _rot_x(10)
-        frame[JOINT_INDEX["Spine3"]] = _rot_x(20)
+        frame[JOINT_INDEX["Spine"]] = _rot_x(10)
+        frame[JOINT_INDEX["Spine1"]] = _rot_x(20)
+        frame[JOINT_INDEX["Spine2"]] = _rot_x(30)
+        frame[JOINT_INDEX["Spine3"]] = _rot_x(40)
         tracks = build_pose_tracks(
             [frame],
             [_tpose_joints()],
@@ -317,10 +377,14 @@ class BuildPoseTracksTests(unittest.TestCase):
             [0.0, 1.0, 0.0],
             1.0,
         )
-        w, x, _y, _z = tracks["rotations"]["Spine2"][0]
-        half = math.radians(15)  # (10 + 20) / 2
-        self.assertAlmostEqual(w, math.cos(half), places=6)
-        self.assertAlmostEqual(x, math.sin(half), places=6)
+        # Core Spine has no mixamo target: its rotation is not applied anywhere
+        # and no track exists for it.
+        self.assertNotIn("Spine", tracks["rotations"])
+        for name, degrees in (("Spine1", 20.0), ("Spine2", 30.0), ("Spine3", 40.0)):
+            w, x, _y, _z = tracks["rotations"][name][0]
+            half = math.radians(degrees) / 2
+            self.assertAlmostEqual(w, math.cos(half), places=6, msg=name)
+            self.assertAlmostEqual(x, math.sin(half), places=6, msg=name)
 
     def test_hips_location_scales_and_offsets_against_rest_head(self):
         joints = _tpose_joints()

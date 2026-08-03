@@ -454,12 +454,13 @@ def pose_local_rotations(armature, base_rotations=None) -> list[list[list[float]
 
     ``base_rotations`` is the clip's own rotations for this frame. When given,
     only the IK-driven joints are taken from the pose and the rest are kept
-    verbatim. That is not an optimisation: the mixamo rig has no Spine3 bone,
-    so the retarget folds Spine3 into Spine2 and the inverse cannot split them
-    again. Re-deriving the spine from the pose therefore moves the frame the
-    arms hang off, which measured as 1.4e-3 npz units at the wrist while the
-    legs -- parented to Hips, clear of the fold -- stayed at 4e-7. Keeping the
-    untouched joints from the clip removes that error instead of tolerating it.
+    verbatim. That is not an optimisation: the mixamo rig has no bone for core
+    ``Spine`` (the retarget drops that rotation), so the inverse cannot recover
+    it from the pose -- it would come back as identity. Re-deriving the spine
+    from the pose therefore moves the frame the arms hang off, which measured
+    as 1.4e-3 npz units at the wrist while the legs -- parented to Hips, clear
+    of the dropped joint -- stayed at 4e-7. Keeping the untouched joints from
+    the clip removes that error instead of tolerating it.
     """
     identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     bones = armature.data.bones

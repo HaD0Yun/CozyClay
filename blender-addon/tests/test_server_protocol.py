@@ -258,6 +258,14 @@ class BlenderServerProtocolTests(unittest.TestCase):
             sent = []
             with (
                 mock.patch.object(connection, "bpy", object()),
+                # _execute_blender_python imports the extraction module before
+                # the precondition checks; on the host there is no bpy, so the
+                # real module cannot load. The mock also keeps the later
+                # precondition extraction from needing real scene data.
+                mock.patch.dict(
+                    sys.modules,
+                    {"cclay.manifest": mock.Mock(extract_scene_manifest_v4=mock.Mock(return_value={}))},
+                ),
                 mock.patch(
                     "cclay.project_store.read_project_index",
                     return_value={"current_revision_id": "a" * 64},
@@ -275,6 +283,10 @@ class BlenderServerProtocolTests(unittest.TestCase):
             request["expected_revision_id"] = "b" * 64
             with (
                 mock.patch.object(connection, "bpy", object()),
+                mock.patch.dict(
+                    sys.modules,
+                    {"cclay.manifest": mock.Mock(extract_scene_manifest_v4=mock.Mock(return_value={}))},
+                ),
                 mock.patch(
                     "cclay.project_store.read_project_index",
                     return_value={"current_revision_id": "a" * 64},
@@ -342,15 +354,24 @@ class BlenderServerProtocolTests(unittest.TestCase):
             base_revision_id = "a" * 64
             child_revision_id = "b" * 64
             project_id = "123e4567-e89b-42d3-a456-426614174000"
-            live_manifest = {
+            # The precondition extraction (before the script) must match the
+            # durable base; the mint extraction (after the script) must show
+            # the scene changed, otherwise the content-derived mint treats the
+            # execution as a no-op.
+            pre_script_manifest = {
                 "projectId": project_id,
                 "revisionId": "ignored",
-                "sceneHash": "c" * 64,
+                "sceneHash": "d" * 64,
+            }
+            post_script_manifest = {
+                "projectId": project_id,
+                "revisionId": "ignored",
+                "sceneHash": "e" * 64,
             }
             child_manifest = {
                 "projectId": project_id,
                 "revisionId": child_revision_id,
-                "sceneHash": "c" * 64,
+                "sceneHash": "e" * 64,
             }
             project_store.write_project_index(
                 directory,
@@ -360,7 +381,7 @@ class BlenderServerProtocolTests(unittest.TestCase):
                     "current_revision_id": base_revision_id,
                     "manifest": {
                         "revisionId": base_revision_id,
-                        "sceneHash": "c" * 64,
+                        "sceneHash": "d" * 64,
                     },
                 },
             )
@@ -389,7 +410,7 @@ class BlenderServerProtocolTests(unittest.TestCase):
                     {
                         "cclay.manifest": mock.Mock(
                             extract_scene_manifest_v4=mock.Mock(
-                                return_value=live_manifest
+                                side_effect=[pre_script_manifest, post_script_manifest]
                             )
                         )
                     },
@@ -422,6 +443,84 @@ class BlenderServerProtocolTests(unittest.TestCase):
             persisted = project_store.read_project_index(directory)
             self.assertEqual(persisted["current_revision_id"], child_revision_id)
             self.assertEqual(persisted["manifest"], child_manifest)
+
+    def test_noop_execution_returns_the_durable_base_without_minting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            base_revision_id = "a" * 64
+            project_id = "123e4567-e89b-42d3-a456-426614174000"
+            live_manifest = {
+                "projectId": project_id,
+                "revisionId": "ignored",
+                "sceneHash": "c" * 64,
+            }
+            child_manifest = {
+                "projectId": project_id,
+                "revisionId": "b" * 64,
+                "sceneHash": "c" * 64,
+            }
+            project_store.write_project_index(
+                directory,
+                project_id,
+                {
+                    "schema_version": 1,
+                    "current_revision_id": base_revision_id,
+                    "manifest": {
+                        "revisionId": base_revision_id,
+                        "sceneHash": "c" * 64,
+                    },
+                },
+            )
+            blend_path = root / "scene.blend"
+            blend_path.write_bytes(b"source")
+
+            class FakeBpy:
+                def __init__(self):
+                    self.data = type("Data", (), {"filepath": str(blend_path)})()
+                    self.ops = type("Ops", (), {
+                        "wm": type("WindowManager", (), {
+                            "save_as_mainfile": staticmethod(
+                                lambda *, filepath, copy: pathlib.Path(filepath).write_bytes(
+                                    b"backup"
+                                )
+                            ),
+                        })(),
+                    })()
+
+            sent = []
+            request = execute_request(request_id(14))
+            with (
+                mock.patch.object(connection, "bpy", FakeBpy()),
+                mock.patch.dict(
+                    sys.modules,
+                    {
+                        "cclay.manifest": mock.Mock(
+                            extract_scene_manifest_v4=mock.Mock(
+                                return_value=live_manifest
+                            )
+                        )
+                    },
+                ),
+                mock.patch.object(
+                    scene_manifest,
+                    "finalize_scene_manifest_child",
+                    return_value=child_manifest,
+                ) as finalize_child,
+                mock.patch(
+                    "cclay.project_store.write_project_index",
+                    wraps=project_store.write_project_index,
+                ) as write_index,
+            ):
+                connection._execute_blender_python(request, sent.append, root)
+
+            # A script whose canonical manifest is byte-identical to the
+            # durable base must not mint a child revision: the revision the
+            # caller already holds stays valid.
+            self.assertEqual(sent[0]["new_revision_id"], base_revision_id)
+            self.assertEqual(write_index.call_count, 0)
+            finalize_child.assert_not_called()
+            persisted = project_store.read_project_index(directory)
+            self.assertEqual(persisted["current_revision_id"], base_revision_id)
 
     def test_exception_dispatch_closes_without_response(self):
         closed = []

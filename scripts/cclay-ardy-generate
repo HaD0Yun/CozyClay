@@ -58,7 +58,7 @@ usage() {
     echo '         --constrain-orient qw qx qy qz is a unit quaternion: the joint'"'"'s GLOBAL rotation in npz space (Y-up) at that frame'
     echo '         --constrain-pose copies the full-body pose at <src-frame> of local motion <src-motion-id> onto <dst-frame>'
     echo '         --constrain-path x z are npz space (meters, motion-local) root coordinates; heading is radians or the literal none'
-    echo '         --contact-threshold is the post-process foot-contact probability cut-off, strictly between 0 and 1'
+    echo '         --contact-threshold is REFUSED: inert at the pinned ARDY commit (docs/ardy/00-mismatches.md item A3)'
     echo '         --root-margin is the post-process root-correction margin in meters, 0 to 0.5'
   } >&2
   exit 2
@@ -80,7 +80,6 @@ CONSTRAIN_ARGS=()
 CONSTRAIN_COUNT=0
 CFG_TEXT=""
 CFG_CONSTRAINT=""
-CONTACT_THRESHOLD=""
 ROOT_MARGIN=""
 ORIENT_COUNT=0
 POSE_COUNT=0
@@ -194,11 +193,19 @@ while [[ $# -gt 0 ]]; do
       done
       CFG_TEXT="$2"; CFG_CONSTRAINT="$3"; shift 3 ;;
     --contact-threshold)
-      [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --contact-threshold needs a probability" >&2; usage; }
-      [[ -z "$CONTACT_THRESHOLD" ]] || { echo "cclay-ardy-generate: --contact-threshold may only be given once" >&2; usage; }
-      [[ "$2" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "cclay-ardy-generate: --contact-threshold must be a number strictly between 0 and 1, got '$2'" >&2; usage; }
-      awk -v t="$2" 'BEGIN { exit !(t > 0 && t < 1) }' || { echo "cclay-ardy-generate: --contact-threshold must be a number strictly between 0 and 1, got '$2'" >&2; usage; }
-      CONTACT_THRESHOLD="$2"; shift 2 ;;
+      # Measured inert at UPSTREAM_BASE 693f74d, so it is rejected rather than
+      # silently accepted. inverse() binarizes foot_contacts at >0.5
+      # (ardy/motion_rep/reps/ardy_motionrep.py:277) BEFORE post_process_motion
+      # consumes them, and the only reader of the threshold then compares
+      # 1.0 > t / 0.0 > t (MotionCorrection Utility.cpp:102), which is constant
+      # for every t in (0,1). Verified live: same prompt, same seed, thresholds
+      # 0.05 and 0.95 produced byte-identical npz across all 9 keys, while the
+      # remote run JSON echoed the threshold back, proving it arrived and did
+      # nothing. Accepting it would let a caller believe they had tuned contacts.
+      echo "cclay-ardy-generate: --contact-threshold has no effect at the pinned ARDY commit and is refused rather than silently ignored" >&2
+      echo "  foot contacts are binarized at >0.5 before the post-process reads the threshold, so every value in (0,1) yields identical output" >&2
+      echo "  evidence: docs/ardy/00-mismatches.md item A3" >&2
+      exit 2 ;;
     --root-margin)
       [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --root-margin needs a margin in meters" >&2; usage; }
       [[ -z "$ROOT_MARGIN" ]] || { echo "cclay-ardy-generate: --root-margin may only be given once" >&2; usage; }
@@ -231,10 +238,6 @@ if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 && -z "$BASE_MOTION" ]]; then
 fi
 if [[ -n "$BASE_MOTION" && $TOTAL_CONSTRAIN_COUNT -eq 0 ]]; then
   echo "cclay-ardy-generate: --base-motion is only used by --constrain, --constrain-orient, --constrain-pose, or --constrain-path" >&2
-  usage
-fi
-if [[ -n "$CONTACT_THRESHOLD" && -z "$BASE_MOTION" ]]; then
-  echo "cclay-ardy-generate: --contact-threshold needs --base-motion; the foot-contact post-process only runs inside the constrained generation pass" >&2
   usage
 fi
 if [[ -n "$ROOT_MARGIN" && -z "$BASE_MOTION" ]]; then
@@ -406,7 +409,6 @@ if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 ]]; then
   fi
   [[ -n "$SEED" ]] && REMOTE_CMD+=" --seed $(printf '%q' "$SEED")"
   [[ -n "$CFG_TEXT" ]] && REMOTE_CMD+=" --cfg_weight $(printf '%q' "$CFG_TEXT") $(printf '%q' "$CFG_CONSTRAINT")"
-  [[ -n "$CONTACT_THRESHOLD" ]] && REMOTE_CMD+=" --contact-threshold $(printf '%q' "$CONTACT_THRESHOLD")"
   [[ -n "$ROOT_MARGIN" ]] && REMOTE_CMD+=" --root-margin $(printf '%q' "$ROOT_MARGIN")"
 
   echo "cclay-ardy-generate: generating under ${CONSTRAIN_COUNT} target(s), ${ORIENT_COUNT} orientation(s), ${POSE_COUNT} pose(s), ${PATH_COUNT} path waypoint(s) on ${HOST} ..." >&2

@@ -193,7 +193,7 @@ def _task_descriptor(method: str, params: object) -> tuple[str, int]:
         if isinstance(frame, int) and not isinstance(frame, bool)
     ] if isinstance(frames, list) else []
     rendered_frames = ", ".join(str(frame) for frame in safe_frames) or "none"
-    revision = _digest_prefix(value.get("revision_id"))
+    revision = _digest_prefix(value.get("expected_revision_id"))
     return f"QA render revision {revision}, frames {rendered_frames}", len(safe_frames)
 
 
@@ -2171,6 +2171,18 @@ def _execute_blender_python(message: dict, send: Callable[[dict], None], project
             raise ConnectionError(
                 "trusted manifest rescan does not match the durable project identity"
             )
+        durable_manifest = durable.get("manifest")
+        if (
+            isinstance(durable_manifest, dict)
+            and durable_manifest.get("revisionId") == current_revision_id
+            and durable_manifest.get("sceneHash") == manifest.get("sceneHash")
+        ):
+            # The execution left the canonical scene byte-identical (a script
+            # that only reads, or one that only moved the playhead): do not
+            # mint a child revision for it. expected_revision_id exists to
+            # catch genuine concurrent edits; issuing a new revision for every
+            # successful call trains callers to re-read and retry instead.
+            return current_revision_id
         child = finalize_scene_manifest_child(
             manifest,
             current_revision_id,

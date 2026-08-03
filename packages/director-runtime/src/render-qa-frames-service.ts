@@ -23,9 +23,9 @@ export function createRenderArtifactReservationFactory(rootDirectory: string) {
 export function createRenderQaFramesHandler() {
 	return async (params: unknown, context: DirectorHandlerContext) => {
 		const request = parseRenderQaFramesRequest(params);
-		if (context.request?.expected_revision_id !== request.revision_id) {
+		if (context.request?.expected_revision_id !== request.expected_revision_id) {
 			throw new Error(
-				`STALE_BASE: render expected ${request.revision_id}, request expected ${String(context.request?.expected_revision_id)}`,
+				`STALE_BASE: render expected ${request.expected_revision_id}, request expected ${String(context.request?.expected_revision_id)}`,
 			);
 		}
 		if (context.renderQaFrames === undefined) {
@@ -36,7 +36,7 @@ export function createRenderQaFramesHandler() {
 			reportProgress: (progress) => context.reportProgress?.(progress.phase, progress.completed, progress.total),
 		});
 		const result = parseRenderQaFramesResult(raw);
-		if (result.revision_id !== request.revision_id) {
+		if (result.expected_revision_id !== request.expected_revision_id) {
 			throw new Error("STALE_BASE: render result does not bind the requested revision");
 		}
 		if (
@@ -45,6 +45,6 @@ export function createRenderQaFramesHandler() {
 		) {
 			throw new Error("INVALID_RENDER_QA_RESULT: result frames must exactly match the requested frames");
 		}
-		return { result, resulting_revision_id: request.revision_id };
+		return { result, resulting_revision_id: request.expected_revision_id };
 	};
 }

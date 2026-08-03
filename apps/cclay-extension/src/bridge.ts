@@ -587,10 +587,10 @@ export class BlenderBridge {
 				// STALE_BASE is decided at dispatch time: an earlier queued
 				// operation may legitimately move the current revision before
 				// this render reaches the wire.
-				if (request.revision_id !== this.currentRevisionId) {
+				if (request.expected_revision_id !== this.currentRevisionId) {
 					throw new Error("STALE_BASE: render request is not based on the current revision");
 				}
-				return request.revision_id;
+				return request.expected_revision_id;
 			},
 			{ ...context, renderRequest: request },
 		);
@@ -996,7 +996,7 @@ export class BlenderBridge {
 			pending.renderRequest === undefined ||
 			!isRecord(raw) ||
 			raw.schema_version !== 1 ||
-			raw.revision_id !== pending.renderRequest.revision_id ||
+			raw.expected_revision_id !== pending.renderRequest.expected_revision_id ||
 			raw.profile_version !== "cclay-qa-png-v1" ||
 			!Array.isArray(raw.frames)
 		) {
@@ -1038,7 +1038,7 @@ export class BlenderBridge {
 		}
 		return parseRenderQaFramesResult({
 			schema_version: 1,
-			revision_id: pending.renderRequest.revision_id,
+			expected_revision_id: pending.renderRequest.expected_revision_id,
 			profile_version: "cclay-qa-png-v1",
 			frames,
 		});

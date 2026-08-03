@@ -368,14 +368,38 @@ def _object_world_scale(entity_id: str, scene_object) -> float:
     return axes[0]
 
 
-def _derive_entity_scale(entity_id: str, posed_joints) -> float:
-    """Meters-per-npz-unit scale from the target rig and the object's world scale.
+def _derive_scale_for_object(entity_id: str, scene_object, posed_joints) -> float:
+    """Local units-per-npz-unit retarget scale for ``scene_object``.
 
-    ``rig_thigh`` (from ``CharacterRigAdapter``, shared with ``apply_motion``)
-    is measured in the armature's unscaled local space; it
-    must be scaled by the object's own (uniform) world scale before deriving
-    a real-world meters-per-npz-unit factor. See ``_object_world_scale`` for
-    why -- this is the fix for CozyClay issue #2's ~98.5x scale mismatch.
+    Shared by ``apply_motion`` (which retargets into this same local space and
+    lets Blender's own object transform carry the result into world meters when
+    the scene renders) and preflight_motion (whose meters report folds the
+    object scale on top of this factor via ``_meters_scale_for_entity``). The
+    object's world scale is validated and required uniform: a non-uniform scale
+    has no single factor, so a bake would land wrong after the object transform
+    -- the same fail-closed rule ``_object_world_scale`` applies to the
+    preflight meters report (CozyClay issue #2's ~98.5x mismatch).
+    """
+    if scene_object.type != "ARMATURE" or scene_object.data is None:
+        _invalid(f"entity {entity_id} must be an CCLAY character armature")
+    rig_thigh = CharacterRigAdapter(scene_object.data.bones).rig_thigh
+    if rig_thigh is None:
+        _invalid(f"entity {entity_id} rig is missing the RightUpLeg/RightLeg bones")
+    _object_world_scale(entity_id, scene_object)
+    try:
+        return motion_retarget.derive_scale(posed_joints[0], rig_thigh)
+    except motion_retarget.MotionRetargetError as error:
+        # Same closed-code mapping as collect_preflight: the bridge_error
+        # code field must carry APPLY_MOTION_MALFORMED, not a class name.
+        raise PreflightMotionError("APPLY_MOTION_MALFORMED", str(error)) from error
+
+
+def _derive_entity_scale(entity_id: str, posed_joints) -> float:
+    """Local units-per-npz-unit retarget scale for the entity ``entity_id`` names.
+
+    This is the single derivation both apply_motion and preflight_motion use;
+    preflight's meters-per-npz-unit REPORT additionally folds the object's
+    (uniform) world scale via ``_meters_scale_for_entity``.
     """
     from .scene_relations import _object_for_entity
 
@@ -384,18 +408,30 @@ def _derive_entity_scale(entity_id: str, posed_joints) -> float:
         raise PreflightMotionError(
             "ENTITY_NOT_FOUND", f"entity {entity_id} does not exist"
         )
-    if scene_object.type != "ARMATURE" or scene_object.data is None:
-        _invalid(f"entity {entity_id} must be an CCLAY character armature")
-    rig_thigh = CharacterRigAdapter(scene_object.data.bones).rig_thigh
-    if rig_thigh is None:
-        _invalid(f"entity {entity_id} rig is missing the RightUpLeg/RightLeg bones")
-    object_scale = _object_world_scale(entity_id, scene_object)
-    try:
-        return motion_retarget.derive_scale(posed_joints[0], rig_thigh * object_scale)
-    except motion_retarget.MotionRetargetError as error:
-        # Same closed-code mapping as collect_preflight: the bridge_error
-        # code field must carry APPLY_MOTION_MALFORMED, not a class name.
-        raise PreflightMotionError("APPLY_MOTION_MALFORMED", str(error)) from error
+    return _derive_scale_for_object(entity_id, scene_object, posed_joints)
+
+
+def _meters_scale_for_entity(entity_id: str, posed_joints) -> float:
+    """Meters-per-npz-unit REPORT scale for preflight_motion's analysis.
+
+    ``rig_thigh`` (from ``CharacterRigAdapter``) is measured in the armature's
+    unscaled local space; folding the object's own (uniform) world scale in
+    yields a real-world meters-per-npz-unit factor. ``derive_scale`` is linear
+    in the thigh length, so ``local * object_scale ==
+    derive_scale(posed, rig_thigh * object_scale)``. See ``_object_world_scale``
+    for why -- this is the fix for CozyClay issue #2's ~98.5x scale mismatch.
+    """
+    from .scene_relations import _object_for_entity
+
+    scene_object = _object_for_entity(entity_id)
+    if scene_object is None:
+        raise PreflightMotionError(
+            "ENTITY_NOT_FOUND", f"entity {entity_id} does not exist"
+        )
+    return (
+        _derive_scale_for_object(entity_id, scene_object, posed_joints)
+        * _object_world_scale(entity_id, scene_object)
+    )
 
 
 def _validate_arrays_vectorized(local_rot_mats, posed_joints) -> None:
@@ -496,7 +532,7 @@ def collect_preflight(revision_id: str, params, project_directory) -> dict:
         foot_contacts = carried.get("foot_contacts")
         scale = None
         if entity_id is not None:
-            scale = _derive_entity_scale(entity_id, posed_joints)
+            scale = _meters_scale_for_entity(entity_id, posed_joints)
         analysis = analyze_motion(posed_joints, fps, scale, foot_contacts)
     except motion_archive.MotionArchiveError as error:
         raise _as_contract_error(error) from error

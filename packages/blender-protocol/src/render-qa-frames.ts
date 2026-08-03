@@ -14,7 +14,7 @@ const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(RENDER_QA_MAX_IMAGE_FRAME_BYTES / 
 
 export const RenderQaFramesRequestV1Schema = exact({
 	schema_version: Type.Literal(1),
-	revision_id: Type.String({ pattern: HASH_64 }),
+	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	frames: Type.Array(Type.Integer({ minimum: 0, maximum: 1_000_000 }), { minItems: 1 }),
 });
 const RenderQaFrameThumbnailV1Schema = exact({
@@ -43,7 +43,7 @@ const RenderQaFrameArtifactV1Schema = exact({
 
 export const RenderQaFramesResultV1Schema = exact({
 	schema_version: Type.Literal(1),
-	revision_id: Type.String({ pattern: HASH_64 }),
+	expected_revision_id: Type.String({ pattern: HASH_64 }),
 	profile_version: Type.Literal(RENDER_QA_PROFILE_VERSION),
 	frames: Type.Array(RenderQaFrameArtifactV1Schema, { maxItems: 12 }),
 });

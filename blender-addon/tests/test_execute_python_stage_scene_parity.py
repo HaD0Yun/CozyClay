@@ -77,6 +77,15 @@ class ExecutePythonStageSceneParityTests(unittest.TestCase):
     def test_exception_uses_reload_recovery_while_successful_scripts_persist(self) -> None:
         self.assertTrue(self.results["exceptionRecoveryReloadedBackup"])
 
+    def test_read_only_execution_does_not_mint_a_new_revision(self) -> None:
+        self.assertTrue(self.results["readOnlySameRevision"], self.results)
+
+    def test_playhead_move_does_not_mint_a_new_revision(self) -> None:
+        self.assertTrue(self.results["frameChangeSameRevision"], self.results)
+
+    def test_a_real_mutation_still_advances_the_revision(self) -> None:
+        self.assertTrue(self.results["realMutationAdvancesRevision"], self.results)
+
 
 if __name__ == "__main__":
     unittest.main()

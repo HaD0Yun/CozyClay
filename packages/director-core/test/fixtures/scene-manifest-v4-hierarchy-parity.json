@@ -23,9 +23,9 @@
 			"parentId": "00000000-0000-4000-8000-000000000002",
 			"visible": true,
 			"location": [
-				2.0,
-				-4.0,
-				3.5
+				0.0,
+				-6.0,
+				2.0
 			],
 			"rotationQuaternion": [
 				1.0,
@@ -37,7 +37,8 @@
 				1.0,
 				1.0,
 				1.0
-			]
+			],
+			"animationDigest": "8d207cfec592aeacee17c54a161ff486235e16f8291d3bd447f6af841197303c"
 		},
 		{
 			"entityId": "00000000-0000-4000-8000-000000000002",
@@ -67,13 +68,14 @@
 	"cameras": [
 		{
 			"objectId": "00000000-0000-4000-8000-000000000001",
-			"lens": 55.0,
+			"lens": 35.0,
 			"sensorFit": "VERTICAL",
 			"sensorWidth": 36.0,
 			"sensorHeight": 24.0,
-			"verticalFovRadians": 0.4296308159828186,
+			"verticalFovRadians": 0.6605947017669678,
 			"clipStart": 0.10000000149011612,
-			"clipEnd": 1000.0
+			"clipEnd": 1000.0,
+			"focusDistance": 10.0
 		}
 	],
 	"lights": [],
@@ -248,6 +250,6 @@
 	"stagePrimitives": [],
 	"stageMaterials": [],
 	"assemblies": [],
-	"sceneHash": "ab422881bde6f1ee3c4b2391de73efc8afefbfdfe9d2039914fdeafce3f150ea",
-	"revisionId": "117d186270adac1e296d11083b6bfe0185969ddd975d728a8d7b3c0dbae18bc1"
+	"sceneHash": "ff8663af180876d65ebf27cf51210b33db3175919b058d704c8ba171f3d6d102",
+	"revisionId": "53b0b69d90258a8788294b5587383885a9786e28dbc81143efdcce093eac9c8a"
 }

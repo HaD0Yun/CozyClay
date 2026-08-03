@@ -859,19 +859,29 @@ describe("cclay-ardy-generate clip frame range guards", () => {
 });
 
 describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
-	it("rejects --contact-threshold without a base motion", () => {
-		const { status, output } = run(makeProject(), ["--contact-threshold", "0.6"]);
-		assert.equal(status, 2);
-		assert.match(output, /--contact-threshold needs --base-motion/);
-	});
+	// --contact-threshold is refused outright. It was measured inert at the pinned
+	// ARDY commit: foot contacts are binarized at >0.5 before the post-process
+	// reads the threshold, so every value in (0,1) produced byte-identical npz
+	// across all nine keys. The old per-value validation tests are gone with the
+	// value handling; what matters now is that no spelling of it is accepted,
+	// because silently ignoring it would let a caller believe they tuned contacts.
+	for (const args of [
+		["--contact-threshold", "0.6"],
+		["--contact-threshold", "0.001"],
+		["--contact-threshold", "0.999"],
+		["--contact-threshold", "0"],
+		["--contact-threshold", "1.5"],
+		["--contact-threshold", "not-a-number"],
+	]) {
+		it(`refuses ${args.join(" ")} and says why`, () => {
+			const { status, output } = run(makeProject(), args);
+			assert.equal(status, 2);
+			assert.match(output, /--contact-threshold has no effect at the pinned ARDY commit/);
+			assert.match(output, /binarized at >0\.5/);
+		});
+	}
 
-	it("rejects --root-margin without a base motion", () => {
-		const { status, output } = run(makeProject(), ["--root-margin", "0.1"]);
-		assert.equal(status, 2);
-		assert.match(output, /--root-margin needs --base-motion/);
-	});
-
-	it("rejects --contact-threshold given twice", () => {
+	it("refuses --contact-threshold even alongside a valid constrained invocation", () => {
 		const { status, output } = run(makeProject(), [
 			"--base-motion",
 			"abc",
@@ -883,11 +893,15 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 			"0",
 			"--contact-threshold",
 			"0.3",
-			"--contact-threshold",
-			"0.4",
 		]);
 		assert.equal(status, 2);
-		assert.match(output, /--contact-threshold may only be given once/);
+		assert.match(output, /--contact-threshold has no effect at the pinned ARDY commit/);
+	});
+
+	it("rejects --root-margin without a base motion", () => {
+		const { status, output } = run(makeProject(), ["--root-margin", "0.1"]);
+		assert.equal(status, 2);
+		assert.match(output, /--root-margin needs --base-motion/);
 	});
 
 	it("rejects --root-margin given twice", () => {
@@ -909,25 +923,6 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 		assert.match(output, /--root-margin may only be given once/);
 	});
 
-	for (const threshold of ["0", "1", "1.5"]) {
-		it(`rejects --contact-threshold ${threshold}`, () => {
-			const { status, output } = run(makeProject(), [
-				"--base-motion",
-				"abc",
-				"--constrain",
-				"5",
-				"LeftFoot",
-				"0",
-				"0",
-				"0",
-				"--contact-threshold",
-				threshold,
-			]);
-			assert.equal(status, 2);
-			assert.match(output, /--contact-threshold must be a number strictly between 0 and 1/);
-		});
-	}
-
 	for (const margin of ["-0.1", "0.6"]) {
 		it(`rejects --root-margin ${margin}`, () => {
 			const { status, output } = run(makeProject(), [
@@ -946,28 +941,6 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 			assert.match(output, /--root-margin must be a number 0\.\.0\.5/);
 		});
 	}
-
-	it("accepts the --contact-threshold boundaries 0.001 and 0.999", () => {
-		for (const threshold of ["0.001", "0.999"]) {
-			const root = makeProject();
-			writeMotion(root, "abc");
-			const { status, output } = runToSsh(root, [
-				"--base-motion",
-				"abc",
-				"--constrain",
-				"5",
-				"LeftFoot",
-				"0",
-				"0",
-				"0",
-				"--contact-threshold",
-				threshold,
-			]);
-			assert.notEqual(status, 2, `threshold ${threshold}: ${output}`);
-			assert.match(output, /syncing constrained script and base motion/);
-			assert.doesNotMatch(output, /must be a number strictly between/);
-		}
-	});
 
 	it("accepts the --root-margin boundaries 0 and 0.5", () => {
 		for (const margin of ["0", "0.5"]) {
@@ -991,7 +964,7 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 		}
 	});
 
-	it("accepts a well-formed combined --contact-threshold/--root-margin invocation and reaches the point where it would ssh", () => {
+	it("accepts a well-formed --root-margin invocation and reaches the point where it would ssh", () => {
 		const root = makeProject();
 		writeMotion(root, "abc");
 		const { status, output } = runToSsh(root, [
@@ -1003,8 +976,6 @@ describe("cclay-ardy-generate --contact-threshold/--root-margin guards", () => {
 			"0",
 			"0",
 			"0",
-			"--contact-threshold",
-			"0.6",
 			"--root-margin",
 			"0.1",
 		]);
@@ -1079,25 +1050,20 @@ describe("cclay-ardy-generate constrained remote command construction", () => {
 		assert.doesNotMatch(generations[0].join(" "), /--num-samples/);
 	});
 
-	it("forwards --contact-threshold and --root-margin when given, proving the harness can observe forwarding", () => {
+	it("forwards --root-margin when given, proving the harness can observe forwarding", () => {
 		// This is the vacuity guard for the --num-samples test above: if the
 		// harness could not observe the forwarding block at all, the
-		// --num-samples assertion would pass trivially. Real flags that the
-		// block forwards (scripts/cclay-ardy-generate:408-409) MUST appear.
+		// --num-samples assertion would pass trivially. A real flag that the
+		// block forwards MUST appear. This used to assert on --contact-threshold
+		// too; that flag is now refused outright (measured inert at the pinned
+		// ARDY commit), so --root-margin carries the guard alone.
 		const root = makeProject();
 		writeMotion(root, "abc");
-		const { sshRecords, pythonCalls } = runWithFakeTransport(root, [
-			...BASE_ARGS,
-			"--contact-threshold",
-			"0.6",
-			"--root-margin",
-			"0.1",
-		]);
+		const { sshRecords, pythonCalls } = runWithFakeTransport(root, [...BASE_ARGS, "--root-margin", "0.1"]);
 		const generations = generationRecords(sshRecords);
 		assert.equal(generations.length, 1, "wrapper never reached the ssh remote-command call");
 		assert.equal(pythonCalls, 1, "one real remote generator execution");
 		const remote = generations[0].join(" ");
-		assert.match(remote, /--contact-threshold/);
 		assert.match(remote, /--root-margin/);
 	});
 });
