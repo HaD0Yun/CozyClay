@@ -42,10 +42,28 @@ result: 20 fps keys play at 30 fps. Nothing rejects it.
 `stage_scene.py:1371-1376` predicted this gap and it is real.
 
 The docstring points at the fix it did not take: the baked action already records
-`cclay.motion_fps` (`stage_scene.py:1503`). That value is read back in exactly one
+`cclay.motion_fps` (`stage_scene.py:1503`). That value was read back in exactly one
 production place -- `constraint_capture.py:622` (`base_clip_of`) and the
 regeneration guard at `:1218` -- and **never by any fps enforcement**. The signal
-needed to close the gap already exists and is simply not consulted.
+needed to close the gap already existed and was simply not consulted.
+
+FIXED 2026-08-03. The guard now runs when the plan names an fps OR carries an
+`apply_motion`, and rejects a rate change that would orphan a live bake, by
+reading `cclay.motion_fps` back off the baked action. Re-applying over the same
+entity remains the sanctioned way to change a baked scene's rate, and the
+first-apply-into-a-factory-24fps-scene exemption is preserved deliberately --
+without it every first apply would be rejected, since a startup Blender scene is
+already 24 fps.
+
+RESIDUAL, documented rather than claimed closed: the guard's signal is a custom
+property on the baked action, and `execute_blender_python` is ON BY DEFAULT and
+exempt from entity ownership enforcement. A script that strips `cclay.motion_fps`
+off the action blinds the check, after which an fps-only plan is accepted and the
+bake is orphaned. This was proven in real Blender by the red-team lane, not
+inferred. It is not a regression -- before this change the guard could not see the
+live bake at all -- but the enforcement is only as strong as the property, and
+arbitrary Python can remove the property. Closing it properly needs a signal
+outside the scene, which is a larger change than this one.
 
 ### A3. `--contact-threshold` is inert
 
@@ -158,7 +176,7 @@ fourth decimal.
 These are accepted scope, not defects. The model emits 27 joints; that is fixed
 and correct.
 
-### B1. cskel27 drives 24 of the rig's 66 bones
+### B1. cskel27 drives 24 of the rig's 65 bones
 
 cskel27 **does** carry `LeftToeBase`/`RightToeBase` and they map to real Mixamo
 bones (`motion_retarget.py:30-31`, `:49-51`). An earlier version of this document
@@ -166,13 +184,17 @@ claimed cskel27 had no toes; that was wrong.
 
 Of the 27 core joints, 24 map. Since the A5 fix the three unmapped joints are
 `Spine`, `RightHandEnd` and `LeftHandEnd` (it was `Spine3` before the remap).
-Measured against `y-bot-tpose.fbx` (66 distinct `mixamorig:` bones), 42 rig bones
-are not driven by ARDY:
+
+Counted by importing `y-bot-tpose.fbx` into Blender 5.2.0 and reading
+`armature.data.bones`: **65** bones, of which **41** are not driven by ARDY. An
+earlier draft said 66 and 42. That came from regex-scanning the FBX byte stream,
+which also matched `Hips_skin` -- FBX skeleton-name metadata, not a bone. The
+imported armature contains no such bone. Import, do not scan.
 
 - **38 finger bones.** cskel27 carries `LeftHandThumb1`/`RightHandThumb1` only.
   Every other digit joint is absent. Covered separately by baked digit curves from
   `blender-addon/calibration/hand-shapes-v1.json`, independent of ARDY.
-- **4 leaf/skin bones**: `HeadTop_End`, `LeftToe_End`, `RightToe_End`, `Hips_skin`.
+- **3 leaf bones**: `HeadTop_End`, `LeftToe_End`, `RightToe_End`.
   `ToeBase` rotation is driven, but the toe tip is not, so the exact contact point
   at the front of the foot is not established by the motion.
 
