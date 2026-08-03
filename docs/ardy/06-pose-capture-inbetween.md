@@ -404,11 +404,13 @@ comparison got in):
   chains, toe detail — the rig has ~63 bones) never enter the pose, and the remote
   `FullBodyConstraintSet` pins only the 27 cskel27 joints (`remote:~/ardy/ardy/constraints.py:109-198`),
   so ARDY regenerates those extra joints freely. The reverse gap is handled explicitly:
-  cskel27 joints the rig lacks (`Spine3` -> None, `RightHandEnd`/`LeftHandEnd` -> None,
-  `MIXAMO_TARGETS`, `motion_retarget.py:38-52`) are not IK-driven and are carried verbatim
-  from the base clip; Spine3 specifically is folded into mixamo Spine2 by the retarget and
-  cannot be split back out (`constraint_capture.py:455-462`; the driven set is 25 bones,
-  `ik_chains.py:16-32`).
+  cskel27 joints the rig lacks (since the A5 remap: `Spine` -> None, plus
+  `RightHandEnd`/`LeftHandEnd` -> None, `MIXAMO_TARGETS`, `motion_retarget.py:38-52`)
+  are not IK-driven and are carried verbatim from the base clip. Before that remap
+  `Spine3` was the dropped joint and its rotation was folded into mixamo `Spine2`,
+  which made it unrecoverable from a captured pose; the fold was removed with the
+  remap, so the dropped joint's rotation is now simply absent rather than mixed into
+  a neighbour. The driven set is 24 bones (`ik_chains.py:16-32`).
 - The constrained pass always regenerates the WHOLE 600 s / 12000-frame clip from the base;
   there is no partial or per-segment in-between (`ARDY_CONSTRAINED_DURATION_SECONDS_VALUE`,
   `ardy-inbetween.ts:33`). Poses only pin their declared frames; everything between is the

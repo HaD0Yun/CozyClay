@@ -76,24 +76,24 @@ Ordering structure: torso chain (0-6), right arm (7-12), left arm (13-18), right
 
 ## 4. Rig joints cskel27 cannot drive — and the reverse
 
-**Rig inventory (measured).** A byte-level scan of the vendored FBX files (`blender-addon/cclay/assets/characters/y-bot-tpose.fbx`, `x-bot-tpose.fbx`; both Blender FBX 7700) for distinct `mixamorig:` name strings yields 66 names per character, identical across both:
+**Rig inventory (measured).** Importing the vendored FBX files (`blender-addon/cclay/assets/characters/y-bot-tpose.fbx`, `x-bot-tpose.fbx`; both Blender FBX 7700) into Blender 5.2.0 and reading `armature.data.bones` yields **65** bones per character, identical across both. An earlier revision of this document said 66; that came from a byte-level regex scan for `mixamorig:` strings, which also matched `Hips_skin` -- FBX skeleton-name metadata, not a bone. The imported armature contains no `Hips_skin`. Import, do not scan.
 
-- spine/torso: `Hips`, `Spine`, `Spine1`, `Spine2`, `Neck`, `Head`, `HeadTop_End`, `Hips_skin`
+- spine/torso: `Hips`, `Spine`, `Spine1`, `Spine2`, `Neck`, `Head`, `HeadTop_End`
 - arms: `Left/RightShoulder`, `Left/RightArm`, `Left/RightForeArm`, `Left/RightHand`
 - fingers (per side): `Thumb1-4`, `Index1-4`, `Middle1-4`, `Ring1-4`, `Pinky1-4`
 - legs: `Left/RightUpLeg`, `Left/RightLeg`, `Left/RightFoot`, `Left/RightToeBase`, `Left/RightToe_End`
 
 No twist/roll bones (`*ArmRoll`, `*ForeArmRoll`, `*UpLegRoll`, `*LegRoll`, `*FootRoll`) exist in the shipped rigs — the scan finds none — so the "twist-bone" question is moot for cclay's own characters (a stock Mixamo "with twist" export would add them, but nothing in cclay consumes such names).
 
-**Rig names present in the rig but ABSENT from cskel27 — 42 of 66 (ARDY can never author these):**
+**Rig names present in the rig but ABSENT from cskel27 — 41 of 65 (ARDY can never author these):**
 
 - 38 finger joints: `Thumb2`, `Thumb3`, `Thumb4`, `Index1-4`, `Middle1-4`, `Ring1-4`, `Pinky1-4` per side. cskel27 has only `LeftHandThumb1`/`RightHandThumb1` and the skin-leaf `HandEnd` per side (`definitions.py:344-345`); no Index/Middle/Ring/Pinky chain exists at all. cclay drives these itself with deterministic presets at apply time, not with ARDY data: `hand_shapes.CANONICAL_ROLES` is the 20-role-per-side list `Thumb1..4, Index1..4, Middle1..4, Ring1..4, Pinky1..4` (`blender-addon/cclay/hand_shapes.py:14-20`), `validate_rig_bones` requires all 40 present or fails (`hand_shapes.py:171-200`), and `stage_scene.py:1487-1491` adds the digit names to the captured channels.
 - 2 toe ends: `LeftToe_End`, `RightToe_End`. cskel27's leg chains end at `ToeBase` (`definitions.py:342-343, 379-380`), so toe articulation beyond the base cannot be authored.
-- 2 helpers: `HeadTop_End`, `Hips_skin` (standard Mixamo helper/skin bones; present in the FBX byte stream — whether Blender treats `Hips_skin` as an animated bone is not verified node-level, see Open questions).
+- 1 helper: `HeadTop_End` (standard Mixamo leaf).
 
 **cskel27 joints ABSENT from the rig — 3 of 27 (authored by ARDY but unmappable):**
 
-- `Spine3` — the rig has no `mixamorig:Spine3`; its rotation is folded into `mixamorig:Spine2` (`blender-addon/cclay/motion_retarget.py:429-430`).
+- `Spine` — since the A5 remap, core `Spine` is the dropped joint: `MIXAMO_TARGETS` maps core `Spine1`/`Spine2`/`Spine3` onto mixamo `Spine`/`Spine1`/`Spine2` (`blender-addon/cclay/motion_retarget.py:38-52`). Before the remap `Spine3` was the dropped joint and its rotation was folded into `Spine2`; that fold was removed with the remap, so no dropped rotation is composed anywhere now. See `docs/ardy/00-mismatches.md` item A5 for the rest-height measurement behind the change.
 - `RightHandEnd`, `LeftHandEnd` — skin leaves with no mixamo bone; they exist in the npz (and condition the hand end-effector position via `expand_joint_names`, `remote:~/ardy/ardy/skeleton/base.py:130-168`) but no bone receives their rotation.
 
 **What ARDY structurally can never author on cclay's rigs:** finger curl/spread beyond a single thumb base (the other 19 finger joints per side are not representable in the 27-joint model), toe articulation past `ToeBase`, twist/roll channels (none exist in either side), and a neck/chest joint (`ik_chains.py:103-106` notes cskel27 has neither `Neck1` nor `Chest`). The demo's own skin collapse draws the same boundary on the ARDY side: `_MIXAMO_TO_CORE` (`scripts/ardy/interactive_demo/mixamo_avatar.py:25-51`) maps `Spine2 -> Spine3`, `RightToe_End -> RightToeBase`, `HeadTop_End -> Head`, and `_core_joint_name` (`mixamo_avatar.py:99-111`) folds every `RightHandThumb*` to `RightHandThumb1`, every other `RightHand*` to `RightHandEnd`, and anything unmatched to `Hips`.
@@ -110,7 +110,7 @@ No twist/roll bones (`*ArmRoll`, `*ForeArmRoll`, `*UpLegRoll`, `*LegRoll`, `*Foo
 
 ## Open questions / unverified
 
-- The 66-name rig inventory is a regex scan of the vendored FBX byte streams for `mixamorig:` strings, not a full FBX node parse; I could not verify at Model-node level which of `Hips_skin`, `HeadTop_End`, `Left/RightToe_End` are treated as animated bones by Blender's importer vs. skin/geometry helpers. The classification of the first two as "helpers" is inferred from their names and from the demo's collapse map (`scripts/ardy/interactive_demo/mixamo_avatar.py:25-51`), not verified.
-- `blender-addon/cclay/ik_chains.py:4` and `:18` claim "every one of the 25 driven bones" / "the driven set is 25 bones", but `MIXAMO_TARGETS` has only 24 non-`None` rotation targets (`blender-addon/cclay/motion_retarget.py:38-52`). The most consistent reading is 24 rotation-driven bones plus `Hips`, which is driven as a location track (`stage_scene.py:1575+`); the comment's wording is unverified against any explicit 25-name list.
-- ARDY Core being exactly 20 fps is asserted only in cclay's own code (`blender-addon/cclay/stage_scene.py:1351`, `scripts/cclay-ardy-generate:38, 244-265`) and implied by the model folder names `ARDY-Core-RP-20FPS-Horizon40`/`Horizon8` (`remote:~/ardy/ardy/model/registry.py:25-26`) plus `fps = model.motion_rep.fps` (`remote:~/ardy/scripts/generate.py:189`, `scripts/ardy/cclay_constrained_generate.py:975`); I did not find a literal `fps = 20` assignment in the model code.
+- RESOLVED. The rig inventory is now an actual Blender 5.2.0 import reading `armature.data.bones`: 65 bones. The earlier 66-name figure was a regex scan of the FBX byte stream, which matched `Hips_skin`; that string is skeleton-name metadata and no such bone exists in the imported armature. `HeadTop_End` and `Left/RightToe_End` ARE real bones, just leaves cskel27 does not reach.
+- RESOLVED. `blender-addon/cclay/ik_chains.py` said "25 driven bones" and was wrong; `MIXAMO_TARGETS` has 24 non-`None` rotation targets and the docstring was corrected to 24 in the same change set that remapped the spine. `Hips` is additionally driven as a location track (`stage_scene.py:1575+`), which is the likely origin of the 25.
+- RESOLVED. ARDY Core is verifiably 20 fps: the released config for `nvidia/ARDY-Core-RP-20FPS-Horizon40` carries `fps: 20`, and all 20 staged npz files on the GPU box are `fps=20 int64`. There is no literal `fps = 20` in the model code because the value comes from the checkpoint config, which is why source reading alone could not settle it.
 - The exact vertex count of `bind_vertices`/`fist_bind_vertices.npy` (9084) and the rig transforms were measured with numpy/torch on the GPU box (read-only) and in the repo copy; I did not verify the LBS weights' per-vertex joint distribution beyond the documented max of 5 (`remote:~/ardy/ardy/viz/core_skin.py:61` comment).
