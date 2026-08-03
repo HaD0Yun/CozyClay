@@ -85,6 +85,7 @@ ROOT_MARGIN=""
 ORIENT_COUNT=0
 POSE_COUNT=0
 PATH_COUNT=0
+INTERVAL_ASSEMBLE=0
 POSE_SRC_IDS=()
 POSE_SRC_FRAMES=()
 POSE_DST_FRAMES=()
@@ -112,6 +113,9 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "cclay-ardy-generate: --base-motion needs a motion_id" >&2; usage; }
       [[ "$2" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "cclay-ardy-generate: --base-motion must be a motion_id, got '$2'" >&2; usage; }
       BASE_MOTION="$2"; shift 2 ;;
+    --interval-assemble)
+      [[ $INTERVAL_ASSEMBLE -eq 0 ]] || { echo "cclay-ardy-generate: --interval-assemble may only be given once" >&2; usage; }
+      INTERVAL_ASSEMBLE=1; shift ;;
     --constrain)
       [[ $# -ge 6 ]] || { echo "cclay-ardy-generate: --constrain needs <frame> <joint> <x> <y> <z>" >&2; usage; }
       [[ "$2" =~ ^[0-9]+$ ]] || { echo "cclay-ardy-generate: --constrain frame must be a non-negative integer, got '$2'" >&2; usage; }
@@ -232,6 +236,13 @@ fi
 if [[ -n "$BASE_MOTION" && $TOTAL_CONSTRAIN_COUNT -eq 0 ]]; then
   echo "cclay-ardy-generate: --base-motion is only used by --constrain, --constrain-orient, --constrain-pose, or --constrain-path" >&2
   usage
+fi
+if [[ $INTERVAL_ASSEMBLE -eq 1 ]]; then
+  [[ $POSE_COUNT -ge 2 ]] || { echo "cclay-ardy-generate: --interval-assemble needs at least two --constrain-pose entries" >&2; usage; }
+  [[ $CONSTRAIN_COUNT -eq 0 && $ORIENT_COUNT -eq 0 && $PATH_COUNT -eq 0 ]] || {
+    echo "cclay-ardy-generate: --interval-assemble accepts full-body pose intervals only" >&2
+    usage
+  }
 fi
 if [[ -n "$CONTACT_THRESHOLD" && -z "$BASE_MOTION" ]]; then
   echo "cclay-ardy-generate: --contact-threshold needs --base-motion; the foot-contact post-process only runs inside the constrained generation pass" >&2
@@ -391,9 +402,17 @@ if [[ $TOTAL_CONSTRAIN_COUNT -gt 0 ]]; then
     POSE_FROM_ARGS+=(--pose-from "$REMOTE_POSE" "${POSE_SRC_FRAMES[$i]}" "${POSE_DST_FRAMES[$i]}")
   done
 
-  REMOTE_CMD="cd \"${REMOTE_REPO}\" && .venv/bin/python scripts/cclay_constrained_generate.py"
-  REMOTE_CMD+=" --prompt $(printf '%q' "$PROMPT") --duration $(printf '%q' "$DURATION")"
-  REMOTE_CMD+=" --base $(printf '%q' "$REMOTE_BASE") --output $(printf '%q' "$REMOTE_OUT")"
+  if [[ $INTERVAL_ASSEMBLE -eq 1 ]]; then
+    LOCAL_INTERVAL_SCRIPT="$SCRIPT_DIR/ardy/cclay_interval_inbetween.py"
+    [[ -f "$LOCAL_INTERVAL_SCRIPT" ]] || { echo "cclay-ardy-generate: $LOCAL_INTERVAL_SCRIPT missing (repo checkout incomplete?)" >&2; exit 1; }
+    scp -q -o BatchMode=yes "$LOCAL_INTERVAL_SCRIPT" "$HOST:${REMOTE_REPO}/scripts/cclay_interval_inbetween.py"
+    REMOTE_CMD="cd \"${REMOTE_REPO}\" && .venv/bin/python scripts/cclay_interval_inbetween.py"
+    REMOTE_CMD+=" --prompt $(printf '%q' "$PROMPT") --base $(printf '%q' "$REMOTE_BASE") --output $(printf '%q' "$REMOTE_OUT")"
+  else
+    REMOTE_CMD="cd \"${REMOTE_REPO}\" && .venv/bin/python scripts/cclay_constrained_generate.py"
+    REMOTE_CMD+=" --prompt $(printf '%q' "$PROMPT") --duration $(printf '%q' "$DURATION")"
+    REMOTE_CMD+=" --base $(printf '%q' "$REMOTE_BASE") --output $(printf '%q' "$REMOTE_OUT")"
+  fi
   if [[ ${#CONSTRAIN_ARGS[@]} -gt 0 ]]; then
     for arg in "${CONSTRAIN_ARGS[@]}"; do
       REMOTE_CMD+=" $(printf '%q' "$arg")"

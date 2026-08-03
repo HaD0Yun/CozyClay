@@ -6,6 +6,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import path from "node:path";
 import {
+	type ArdyInbetweenRequestV1,
 	type BridgeTransactionPrepared,
 	type CameraPlanMutationCandidate,
 	type CameraPlanV1,
@@ -402,6 +403,44 @@ export class BlenderBridge {
 		// (produceDirectingEvidence precedent); parse failure throws an Error
 		// whose message starts with INVALID_PREFLIGHT_MOTION_RESULT.
 		return parseMotionPreflightResult(result);
+	}
+
+	async captureEvaluatedPose(request: ArdyInbetweenRequestV1): Promise<void> {
+		const result = await this.runBridgeRequest(
+			"capture_evaluated_pose",
+			{
+				request_id: request.request_id,
+				entity_id: request.entity_id,
+				expected_revision_id: request.expected_revision_id,
+				base_motion_id: request.base_motion_id,
+				pose_frames: request.pose_frames,
+			},
+			request.expected_revision_id,
+		);
+		if (
+			!isRecord(result) ||
+			result.schema_version !== 1 ||
+			result.request_id !== request.request_id ||
+			result.entity_id !== request.entity_id ||
+			result.expected_revision_id !== request.expected_revision_id ||
+			result.base_motion_id !== request.base_motion_id ||
+			!Array.isArray(result.pose_frames) ||
+			result.pose_frames.length !== request.pose_frames.length
+		) {
+			throw new Error("INVALID_CAPTURE_EVALUATED_POSE_RESULT: bridge result does not bind the request");
+		}
+		for (let index = 0; index < result.pose_frames.length; index++) {
+			const captured = result.pose_frames[index];
+			const requested = request.pose_frames[index]!;
+			if (
+				!isRecord(captured) ||
+				captured.scene_frame !== requested.scene_frame ||
+				captured.clip_frame !== requested.clip_frame ||
+				captured.synthetic_motion_id !== `cclay-pose-${request.request_id}-${index + 1}`
+			) {
+				throw new Error("INVALID_CAPTURE_EVALUATED_POSE_RESULT: captured pose list changed");
+			}
+		}
 	}
 
 	async inspectPerformance(params: {

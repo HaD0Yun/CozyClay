@@ -171,7 +171,15 @@ export default async function cclayExtension(pi: ExtensionAPI): Promise<void> {
 		// configured ARDY host there is no queue runner to submit through, so
 		// offering the tools would hand the model surfaces that can only fail.
 		...(generateQueue !== undefined && inbetweenQueue !== undefined
-			? [createArdyGenerateTool(generateQueue), createArdyInbetweenTool(inbetweenQueue)]
+			? [
+					createArdyGenerateTool(generateQueue),
+					createArdyInbetweenTool({
+						inbetween: async (request) => {
+							await bridge.captureEvaluatedPose(request);
+							return inbetweenQueue.inbetween(request);
+						},
+					}),
+				]
 			: []),
 		...(project.allowExecuteBlenderPython === false ? [] : [createExecuteBlenderPythonTool(bridge)]),
 	];

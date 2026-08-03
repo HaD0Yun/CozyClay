@@ -171,6 +171,7 @@ test("inbetween argv: the constrained invocation with one four-word --constrain-
 			poseIds[2],
 			"0",
 			"120",
+			"--interval-assemble",
 		],
 		"argv must be asserted element by element",
 	);
@@ -180,6 +181,7 @@ test("inbetween argv: the constrained invocation with one four-word --constrain-
 	// motion id, src-frame "0", dst-frame.
 	const poseFlags = argv.filter((token) => token === "--constrain-pose");
 	assert.equal(poseFlags.length, 3);
+	assert.equal(argv.at(-1), "--interval-assemble");
 	let firstPose = argv.indexOf("--constrain-pose");
 	for (let index = 0; index < 3; index++) {
 		const block = argv.slice(firstPose + 1, firstPose + 4);

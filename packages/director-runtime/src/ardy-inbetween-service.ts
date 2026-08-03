@@ -172,6 +172,11 @@ function buildInbetweenArgv(request: ArdyInbetweenRequestV1): string[] {
 	for (let index = 0; index < request.pose_frames.length; index++) {
 		argv.push("--constrain-pose", poseIds[index]!, "0", String(request.pose_frames[index]!.clip_frame));
 	}
+	// Generate each adjacent captured-pose interval independently, validate
+	// every shared boundary, then publish one assembled archive. The wrapper
+	// derives the true clip length from the base archive instead of the legacy
+	// 600-second constrained ceiling.
+	argv.push("--interval-assemble");
 	return argv;
 }
 
