@@ -470,9 +470,11 @@ class MotionFpsContractTests(unittest.TestCase):
         """Motion ids in these plans encode their own native fps as a suffix."""
         return int(motion_id.rsplit("-", 1)[1])
 
-    def _assert_conflict(self, plan, *expected_fragments):
+    def _assert_conflict(self, plan, *expected_fragments, live_baked=(), live_scene_fps=None):
         with self.assertRaises(StageSceneError) as caught:
-            _require_plan_fps_agrees(plan, self._fps_of)
+            _require_plan_fps_agrees(
+                plan, self._fps_of, live_baked=live_baked, live_scene_fps=live_scene_fps
+            )
         message = str(caught.exception)
         self.assertIn("APPLY_MOTION_FPS_CONFLICT", message)
         for fragment in expected_fragments:
@@ -594,6 +596,70 @@ class MotionFpsContractTests(unittest.TestCase):
             raise AssertionError(f"resolver must not run, got {motion_id}")
 
         _require_plan_fps_agrees(self._plan(self.RENDER_24), explode)
+    def test_live_bake_rejects_a_later_rate_changing_plan_without_motion(self):
+        """A2, the two-call sequence. A later plan that only sets the scene fps
+        carries no apply_motion, so the within-plan guard cannot see it; the
+        baked action's recorded fps is the signal. Changing 20 -> 30 under a
+        20 fps bake must fail closed.
+        """
+        message = self._assert_conflict(
+            self._plan({"op": "set_render_settings", "fps": 30}),
+            "motion walk baked at 20 fps",
+            "30 fps",
+            live_baked=[("e", "walk", 20)],
+            live_scene_fps=20,
+        )
+        self.assertIn("regenerate the motion", message)
+
+    def test_reapplying_the_entity_exempts_its_live_bake(self):
+        """Replacing a clip is the sanctioned way to change the rate: a plan
+        that re-bakes the entity the bake lives on may set any fps.
+        """
+        plan = self._plan(
+            {"op": "set_render_settings", "fps": 30}, self._apply("run-30")
+        )
+        _require_plan_fps_agrees(
+            plan, self._fps_of,
+            live_baked=[("e", "walk", 20)], live_scene_fps=20,
+        )
+
+    def test_live_bake_on_an_untouched_entity_still_rejects(self):
+        """A rate-changing plan may not leave some OTHER entity's bake playing
+        at the wrong rate just because it re-applies one entity.
+        """
+        plan = self._plan(
+            {"op": "set_render_settings", "fps": 30}, self._apply("run-30")
+        )
+        self._assert_conflict(
+            plan,
+            "motion other baked at 20 fps",
+            live_baked=[("e", "walk", 20), ("other", "other", 20)],
+            live_scene_fps=20,
+        )
+
+    def test_rate_neutral_plans_ignore_the_live_bake(self):
+        """A plan that does not change the scene rate cannot orphan a bake, and
+        a bake that already matches the requested rate is fine too.
+        """
+        for label, plan, live_scene_fps in (
+            ("requested matches the bake", self._plan(self.RENDER_24), 24),
+            ("no rate change", self._plan({"op": "set_render_settings", "fps": 20}), 20),
+        ):
+            with self.subTest(label=label):
+                _require_plan_fps_agrees(
+                    plan, self._fps_of,
+                    live_baked=[("e", "walk", 20)], live_scene_fps=live_scene_fps,
+                )
+
+    def test_first_apply_into_a_factory_24_fps_scene_is_exempt(self):
+        """The live scene fps is deliberately ignored when nothing is baked
+        yet: a factory-startup scene is 24 fps, so comparing the 20 fps motion
+        against it would reject every first apply.
+        """
+        _require_plan_fps_agrees(
+            self._plan(self._apply("walk-20")), self._fps_of,
+            live_baked=[], live_scene_fps=24,
+        )
 
 
 class PoseContactFramesValidationTests(unittest.TestCase):

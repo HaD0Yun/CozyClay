@@ -39,7 +39,7 @@ function stage(expected_revision_id: string) {
 }
 
 function renderResult(png: Buffer, sha256: string) {
-	return { schema_version: 1, revision_id: REVISION, profile_version: "cclay-qa-png-v1", frames: [{ frame: 1, width: 640, height: 360, profile_version: "cclay-qa-png-v1", byte_length: png.length, sha256, thumbnail: { mime_type: "image/jpeg", data_base64: Buffer.from("thumbnail").toString("base64"), width: 1, height: 1 } }] };
+	return { schema_version: 1, expected_revision_id: REVISION, profile_version: "cclay-qa-png-v1", frames: [{ frame: 1, width: 640, height: 360, profile_version: "cclay-qa-png-v1", byte_length: png.length, sha256, thumbnail: { mime_type: "image/jpeg", data_base64: Buffer.from("thumbnail").toString("base64"), width: 1, height: 1 } }] };
 }
 
 test("framed bridge errors reject pending calls and malformed inspect results do not rebind", async () => {
@@ -112,7 +112,7 @@ test("framed disconnect diagnostics include method, phase, and artifact bytes", 
 		await bind(bridge, addon);
 		const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
 		const sha256 = createHash("sha256").update(png).digest("hex");
-		const rendering = bridge.renderQaFrames({ schema_version: 1, revision_id: REVISION, frames: [1] }, { reportProgress() {} });
+		const rendering = bridge.renderQaFrames({ schema_version: 1, expected_revision_id: REVISION, frames: [1] }, { reportProgress() {} });
 		const request = await addon.receive();
 		addon.send({ type: "bridge_artifact_batch_begin", id: request.id, request_id: request.request_id, frames: [{ frame: 1, total_chunks: 2, total_byte_length: png.length * 2, sha256 }] });
 		addon.send({ type: "bridge_progress", id: request.id, request_id: request.request_id, phase: "publishing", completed: 1, total: 2 });
@@ -149,7 +149,7 @@ test("framed render accepts batch and single begins, chunks, finalization, and r
 		await bind(bridge, addon);
 		for (const [beginType, bytes, accepted] of [["bridge_artifact_batch_begin", Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]), true], ["bridge_artifact_begin", Buffer.from("not-png"), false]] as const) {
 			const sha256 = createHash("sha256").update(bytes).digest("hex");
-			const rendering = bridge.renderQaFrames({ schema_version: 1, revision_id: REVISION, frames: [1] }, { reportProgress() {} });
+			const rendering = bridge.renderQaFrames({ schema_version: 1, expected_revision_id: REVISION, frames: [1] }, { reportProgress() {} });
 			const request = await addon.receive();
 			addon.send(beginType === "bridge_artifact_batch_begin" ? { type: beginType, id: request.id, request_id: request.request_id, frames: [{ frame: 1, total_chunks: 1, total_byte_length: bytes.length, sha256 }] } : { type: beginType, id: request.id, request_id: request.request_id, frame: 1, total_chunks: 1, total_byte_length: bytes.length, sha256 });
 			addon.send({ type: "bridge_artifact_chunk", id: request.id, request_id: request.request_id, frame: 1, chunk_index: 0, byte_offset: 0, byte_length: bytes.length, data_base64: bytes.toString("base64") });
@@ -168,7 +168,7 @@ test("framed render finalization failure rejects and advances the queue", async 
 		await bind(bridge, addon);
 		const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
 		const sha256 = createHash("sha256").update(png).digest("hex");
-		const rendering = bridge.renderQaFrames({ schema_version: 1, revision_id: REVISION, frames: [1] }, { reportProgress() {} });
+		const rendering = bridge.renderQaFrames({ schema_version: 1, expected_revision_id: REVISION, frames: [1] }, { reportProgress() {} });
 		const request = await addon.receive();
 		addon.send({ type: "bridge_artifact_batch_begin", id: request.id, request_id: request.request_id, frames: [{ frame: 1, total_chunks: 1, total_byte_length: png.length, sha256 }] });
 		addon.send({ type: "bridge_result", id: request.id, request_id: request.request_id, result: renderResult(png, sha256) });

@@ -50,7 +50,7 @@ def main() -> None:
     result = render_qa_frames_transaction(
         {
             "schema_version": 1,
-            "revision_id": before_manifest["revisionId"],
+            "expected_revision_id": before_manifest["revisionId"],
             "frames": [80],
         },
         before_manifest["sceneHash"],

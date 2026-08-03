@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createExecuteBlenderPythonTool } from "@cclay/blender-tools";
 import path from "node:path";
 import test from "node:test";
 import type { CameraPlanV1 } from "@cclay/protocol";
@@ -171,6 +172,65 @@ test("get_execution_outcome remains FIFO with ordinary bridge reads", async () =
 		assert.deepEqual(await addon.receive(), { type: "get_execution_outcome", request_id: "11111111-1111-4111-8111-111111111111" });
 		addon.send({ type: "execution_outcome_not_found", request_id: "11111111-1111-4111-8111-111111111111" });
 		assert.equal((await outcome).type, "execution_outcome_not_found");
+	} finally {
+		await cleanup(project, addon, bridge);
+	}
+});
+test("rolled-back execution reaches the tool as an error while the bridge restores the prior revision", async () => {
+	const { project, addon, bridge } = await setup();
+	try {
+		const tool = createExecuteBlenderPythonTool(bridge);
+		const pending = execute(bridge);
+		const request = await addon.receive();
+		addon.send({
+			type: "execute_result",
+			request_id: request.request_id,
+			outcome: "failed_recovered",
+			restored_revision_id: REVISION,
+			error: { message: "'Action' object has no attribute 'fcurves'", traceback: "Traceback" },
+			stdout: "",
+			stdout_truncated: false,
+			stderr: "",
+			stderr_truncated: false,
+			disclosure: "Blender scene state rolled back; external side effects (files, network, processes) are not and cannot be undone.",
+		});
+		const response = await pending;
+		assert.equal(response.type, "execute_result");
+		assert.equal(response.outcome, "failed_recovered");
+		// The durable rollback is the feature working: the caller rebinds to the
+		// restored revision even though the tool call below reports an error.
+		assert.equal(bridge.revisionId, REVISION);
+
+		const surfacing = tool.execute(
+			"call",
+			{
+				script: "import bpy",
+				deadline_ms: 1,
+				capture_stdout: false,
+				expected_revision_id: REVISION,
+			},
+			undefined,
+			undefined,
+			undefined as never,
+		);
+		const surfacingRequest = await addon.receive();
+		addon.send({
+			type: "execute_result",
+			request_id: surfacingRequest.request_id,
+			outcome: "failed_recovered",
+			restored_revision_id: REVISION,
+			error: { message: "boom", traceback: "Traceback" },
+			stdout: "",
+			stdout_truncated: false,
+			stderr: "",
+			stderr_truncated: false,
+			disclosure: "Blender scene state rolled back; external side effects (files, network, processes) are not and cannot be undone.",
+		});
+		await assert.rejects(
+			surfacing,
+			/EXECUTE_BLENDER_PYTHON_FAILED_RECOVERED.*boom/,
+		);
+		assert.equal(bridge.revisionId, REVISION);
 	} finally {
 		await cleanup(project, addon, bridge);
 	}

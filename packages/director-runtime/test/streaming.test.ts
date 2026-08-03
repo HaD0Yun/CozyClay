@@ -82,7 +82,7 @@ describe("director runtime streaming adapter", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: initial.revision,
+					expected_revision_id: initial.revision,
 					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),

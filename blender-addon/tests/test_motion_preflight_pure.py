@@ -19,10 +19,11 @@ from cclay.motion_preflight import (
     MAX_LOWEST_TRACK_SAMPLES,
     PreflightMotionError,
     _contact_windows,
-    _derive_entity_scale,
+    _derive_scale_for_object,
     _end_pose,
     _foot_contact_windows,
     _lowest_track,
+    _meters_scale_for_entity,
     _round3,
     _round6,
     _validate_motion_payload,
@@ -30,6 +31,7 @@ from cclay.motion_preflight import (
     analyze_motion,
     collect_preflight,
 )
+from cclay.stage_scene import StageSceneError, _apply_motion_scale
 
 try:
     import numpy
@@ -460,20 +462,20 @@ class EntityScaleTests(unittest.TestCase):
     def test_entity_not_found_carries_contract_code(self):
         with _scene_with([]):
             with self.assertRaises(PreflightMotionError) as caught:
-                _derive_entity_scale(VALID_UUID, self._posed())
+                _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertEqual(caught.exception.code, "ENTITY_NOT_FOUND")
 
     def test_non_armature_entity_is_invalid(self):
         with _scene_with([_FakeObject(VALID_UUID, "MESH")]):
             with self.assertRaises(PreflightMotionError) as caught:
-                _derive_entity_scale(VALID_UUID, self._posed())
+                _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
 
     def test_missing_thigh_bones_are_invalid(self):
         armature = _FakeObject(VALID_UUID, "ARMATURE", [_FakeBone("Hips", (0, 1, 0))])
         with _scene_with([armature]):
             with self.assertRaises(PreflightMotionError) as caught:
-                _derive_entity_scale(VALID_UUID, self._posed())
+                _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
 
     def test_scale_matches_apply_motion_thigh_measurement(self):
@@ -482,8 +484,9 @@ class EntityScaleTests(unittest.TestCase):
             _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
             _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
         ]
-        with _scene_with([_FakeObject(VALID_UUID, "ARMATURE", bones)]):
-            scale = _derive_entity_scale(VALID_UUID, self._posed())
+        armature = _FakeObject(VALID_UUID, "ARMATURE", bones)
+        with _scene_with([armature]):
+            scale = _apply_motion_scale(VALID_UUID, armature, self._posed())
         self.assertAlmostEqual(scale, 0.01)  # 0.5 m rig thigh / 50 npz units
 
     def test_scale_incorporates_object_world_scale(self):
@@ -492,7 +495,9 @@ class EntityScaleTests(unittest.TestCase):
         value the bug produced (rig bones are unscaled local edit-bone
         lengths; a 100-unit local thigh under a 0.01 object scale is a
         0.01 m). local -> 1.0 m world, over the same 50-unit npz thigh, must
-        report 0.02 (100 * 0.01 / 50), not 2.0 (100 / 50)."""
+        report 0.02 (100 * 0.01 / 50), not 2.0 (100 / 50). The fold lives in
+        ``_meters_scale_for_entity``: the shared derivation itself is the LOCAL
+        retarget factor (see test_apply_and_preflight_share_one_derivation)."""
         bones = [
             _FakeBone("mixamorig:Hips", (0.0, 100.0, 0.0)),
             _FakeBone("mixamorig:RightUpLeg", (0.0, 100.0, 0.0)),
@@ -502,7 +507,7 @@ class EntityScaleTests(unittest.TestCase):
             VALID_UUID, "ARMATURE", bones, scale=(0.01, 0.01, 0.01)
         )
         with _scene_with([armature]):
-            scale = _derive_entity_scale(VALID_UUID, self._posed())
+            scale = _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertAlmostEqual(scale, 0.02)
 
     def test_non_uniform_object_scale_fails_closed(self):
@@ -516,7 +521,7 @@ class EntityScaleTests(unittest.TestCase):
         )
         with _scene_with([armature]):
             with self.assertRaises(PreflightMotionError) as caught:
-                _derive_entity_scale(VALID_UUID, self._posed())
+                _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
 
     def test_zero_object_scale_fails_closed(self):
@@ -530,7 +535,7 @@ class EntityScaleTests(unittest.TestCase):
         )
         with _scene_with([armature]):
             with self.assertRaises(PreflightMotionError) as caught:
-                _derive_entity_scale(VALID_UUID, self._posed())
+                _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
 
     def test_negative_object_scale_fails_closed(self):
@@ -544,12 +549,13 @@ class EntityScaleTests(unittest.TestCase):
         )
         with _scene_with([armature]):
             with self.assertRaises(PreflightMotionError) as caught:
-                _derive_entity_scale(VALID_UUID, self._posed())
+                _meters_scale_for_entity(VALID_UUID, self._posed())
         self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
 
     def test_uniform_scale_within_tolerance_is_accepted(self):
         """Floating-point round-trips (e.g. UI edits) must not spuriously trip
-        the non-uniform-scale fail-closed check."""
+        the non-uniform-scale fail-closed check, on the shared derivation the
+        apply path uses or on the meters report."""
         bones = [
             _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
             _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
@@ -560,8 +566,97 @@ class EntityScaleTests(unittest.TestCase):
             scale=(0.01, 0.01 + 1e-9, 0.01 - 1e-9),
         )
         with _scene_with([armature]):
-            scale = _derive_entity_scale(VALID_UUID, self._posed())
-        self.assertAlmostEqual(scale, 0.0001)
+            scale = _derive_scale_for_object(VALID_UUID, armature, self._posed())
+            meters = _meters_scale_for_entity(VALID_UUID, self._posed())
+        self.assertAlmostEqual(scale, 0.01)    # shared local factor
+        self.assertAlmostEqual(meters, 0.0001)  # meters report folds 0.01
+    def test_apply_and_preflight_share_one_scale_derivation(self):
+        """The apply factor and the preflight meters report are one derivation.
+
+        For a uniformly-scaled rig the meters-per-npz-unit REPORT is the
+        LOCAL apply factor folded by the object's world scale -- preflight
+        reports ``apply_factor * object_scale`` (see
+        test_scale_incorporates_object_world_scale), so the two callers
+        cannot drift into separate copies without this test failing. Both
+        also reject a non-uniformly-scaled object with the same closed
+        INVALID_PREFLIGHT_MOTION_PARAMS code.
+        """
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(2.0, 2.0, 2.0)
+        )
+        with _scene_with([armature]):
+            apply_factor = _apply_motion_scale(VALID_UUID, armature, self._posed())
+            preflight_factor = _meters_scale_for_entity(VALID_UUID, self._posed())
+        self.assertAlmostEqual(apply_factor, 0.01)  # 0.5 local / 50 npz units
+        # The meters REPORT folds the object's uniform world scale on top of
+        # the shared local factor: 0.01 local * 2.0 object scale == 0.02 m.
+        self.assertAlmostEqual(preflight_factor, apply_factor * 2.0)
+
+        skewed = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(2.0, 2.0, 3.0)
+        )
+        with _scene_with([skewed]):
+            with self.assertRaises(StageSceneError) as apply_caught:
+                _apply_motion_scale(VALID_UUID, skewed, self._posed())
+            with self.assertRaises(PreflightMotionError) as preflight_caught:
+                _meters_scale_for_entity(VALID_UUID, self._posed())
+        self.assertEqual(apply_caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+        self.assertEqual(preflight_caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+
+    def test_apply_path_rejects_non_uniform_scale_like_preflight(self):
+        """A4: the shared derivation fails closed on non-uniform object scale
+        with the same INVALID_PREFLIGHT_MOTION_PARAMS code preflight uses, so
+        a non-uniformly-scaled character cannot pass apply_motion either."""
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(0.01, 0.01, 0.02)
+        )
+        with _scene_with([armature]):
+            with self.assertRaises(PreflightMotionError) as caught:
+                _derive_scale_for_object(VALID_UUID, armature, self._posed())
+        self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+
+    def test_apply_motion_scale_maps_failure_to_the_same_closed_code(self):
+        """The apply_motion wrapper surfaces the shared failure as a
+        StageSceneError carrying preflight's exact code, so the bridge_error
+        code field never leaks the PreflightMotionError class name."""
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 0.5, 0.0)),
+        ]
+        armature = _FakeObject(
+            VALID_UUID, "ARMATURE", bones, scale=(0.01, 0.01, 0.02)
+        )
+        with _scene_with([armature]):
+            with self.assertRaises(StageSceneError) as caught:
+                _apply_motion_scale(VALID_UUID, armature, self._posed())
+        self.assertEqual(caught.exception.code, "INVALID_PREFLIGHT_MOTION_PARAMS")
+        self.assertIn("non-uniform object scale", str(caught.exception))
+
+    def test_apply_motion_scale_maps_degenerate_thigh_to_apply_motion_code(self):
+        """A degenerate thigh on a uniformly-scaled rig fails as
+        APPLY_MOTION_MALFORMED on the apply path too (motion_preflight.py's
+        mapping, surfaced with the code attached)."""
+        bones = [
+            _FakeBone("mixamorig:Hips", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightUpLeg", (0.0, 1.0, 0.0)),
+            _FakeBone("mixamorig:RightLeg", (0.0, 1.0, 0.0)),
+        ]
+        armature = _FakeObject(VALID_UUID, "ARMATURE", bones)
+        with _scene_with([armature]):
+            with self.assertRaises(StageSceneError) as caught:
+                _apply_motion_scale(VALID_UUID, armature, self._posed())
+        self.assertEqual(caught.exception.code, "APPLY_MOTION_MALFORMED")
 
 
 class LoaderPassThroughTests(unittest.TestCase):

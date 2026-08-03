@@ -9,8 +9,8 @@ bone's armature-space rest rotation, the Blender pose-bone basis is
     basis = Rb^T @ L @ Rb
 
 No hierarchy recursion is needed. The only structural differences are the
-extra Spine3 joint (composed into mixamorig Spine2) and the HandEnd leaf
-joints (no mixamo counterpart; dropped).
+extra spine joint (core ``Spine`` has no mixamo bone and its rotation is not
+applied anywhere) and the HandEnd leaf joints (no mixamo counterpart; dropped).
 
 This module is deliberately free of bpy and numpy so it can be unit tested
 with plain CPython. Matrices may be nested lists or numpy-like indexable arrays.
@@ -33,11 +33,14 @@ CSKEL27_JOINTS = (
 JOINT_INDEX = {name: index for index, name in enumerate(CSKEL27_JOINTS)}
 
 # cskel27 joint -> mixamo bone (without the mixamorig: prefix). None means the
-# joint has no direct counterpart: Spine3 is composed into Spine2, the HandEnd
-# leaves are dropped.
+# joint has no direct counterpart and its rotation is not applied anywhere.
+# cskel27 has four spine joints, the mixamo rig has three; the measured rest
+# alignment keeps the top three (Spine1/Spine2/Spine3 onto Spine/Spine1/Spine2,
+# see test_motion_retarget_pure.py) so the bottom joint Spine is dropped, as
+# are the HandEnd leaves.
 MIXAMO_TARGETS = {
-    "Hips": "Hips", "Spine": "Spine", "Spine1": "Spine1", "Spine2": "Spine2",
-    "Spine3": None,
+    "Hips": "Hips", "Spine": None, "Spine1": "Spine", "Spine2": "Spine1",
+    "Spine3": "Spine2",
     "Neck": "Neck", "Head": "Head",
     "RightShoulder": "RightShoulder", "RightArm": "RightArm",
     "RightForeArm": "RightForeArm", "RightHand": "RightHand",
@@ -418,7 +421,6 @@ class PoseTrackBuilder:
             raise ValueError("max_frames must be a positive integer")
         stop = min(self.frames, self.frame_index + int(max_frames))
         hips_rest_rot_t = self.rest_transposes["Hips"]
-        spine3_index = JOINT_INDEX["Spine3"]
         while self.frame_index < stop:
             if cancelled():
                 raise MotionRetargetError("motion retargeting was cancelled")
@@ -426,8 +428,6 @@ class PoseTrackBuilder:
             frame_rots = self.local_rot_mats[frame]
             for cskel_name in self.rotations:
                 local = frame_rots[JOINT_INDEX[cskel_name]]
-                if cskel_name == "Spine2":
-                    local = _mat_mul(local, frame_rots[spine3_index])
                 rest = self.rest_rotations[cskel_name]
                 basis = _mat_mul(
                     _mat_mul(self.rest_transposes[cskel_name], local), rest

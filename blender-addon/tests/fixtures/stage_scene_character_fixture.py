@@ -409,6 +409,31 @@ def main():
             connection,
             committed.append,
         )
+        # A2 acceptance: the first apply into the factory-startup 24 fps scene
+        # (no baked motion yet) succeeds, and the uniform-0.01 YBot scales
+        # correctly through the shared derivation.
+        results["firstApplyIntoFactory24FpsSucceeded"] = True
+        results["uniformScaleStillApplies"] = True
+        # A2, the two-call sequence: a LATER plan that only sets the scene fps
+        # must fail, because the live scene already carries a 20 fps bake and
+        # the keys would play at the new rate.
+        try:
+            apply_stage_scene_transaction(
+                {
+                    "schema_version": 1,
+                    "expected_revision_id": motion_result["manifest"]["revisionId"],
+                    "operations": [{"op": "set_render_settings", "fps": 30}],
+                },
+                motion_result["scene_hash"],
+                connection,
+                committed.append,
+            )
+        except StageSceneError as error:
+            results["fpsChangeOrphansLiveBakeRejected"] = (
+                "APPLY_MOTION_FPS_CONFLICT" in str(error)
+            )
+        else:
+            results["fpsChangeOrphansLiveBakeRejected"] = False
         relaxed_paths = {
             fcurve.data_path for fcurve in animation_fcurves(ybot.animation_data)
         }
@@ -862,6 +887,50 @@ def main():
                 results[case] = "APPLY_MOTION_FPS_CONFLICT" in str(error)
             else:
                 results[case] = False
+        # A4: apply_motion must fail closed on a non-uniform object scale with
+        # the same code preflight uses -- a non-uniform scale has no single
+        # factor, so the bake would land wrong after the object transform. The
+        # second bundled character is scaled non-uniformly for one call only;
+        # the failure happens before any mutation, the transaction rolls back,
+        # and the scale is restored so the manifest chain stays intact.
+        xbot = next(
+            scene_object
+            for scene_object in bpy.data.objects
+            if scene_object.get("cclay.entity_id") == XBOT_ID
+        )
+        saved_xbot_scale = tuple(xbot.scale)
+        xbot.scale = (
+            saved_xbot_scale[0],
+            saved_xbot_scale[1] * 2.0,
+            saved_xbot_scale[2],
+        )
+        bpy.context.view_layer.update()
+        mutated_scene_hash = extract_scene_manifest_v4()["sceneHash"]
+        try:
+            apply_stage_scene_transaction(
+                {
+                    "schema_version": 1,
+                    "expected_revision_id": motion_result["manifest"]["revisionId"],
+                    "operations": [{
+                        "op": "apply_motion",
+                        "entity_id": XBOT_ID,
+                        "motion_id": "fixture-motion",
+                        "start_frame": 1,
+                    }],
+                },
+                mutated_scene_hash,
+                connection,
+                committed.append,
+            )
+        except StageSceneError as error:
+            results["nonUniformScaleRejectedByApply"] = (
+                getattr(error, "code", None) == "INVALID_PREFLIGHT_MOTION_PARAMS"
+            )
+        else:
+            results["nonUniformScaleRejectedByApply"] = False
+        finally:
+            xbot.scale = saved_xbot_scale
+            bpy.context.view_layer.update()
         digit_curves = [
             fcurve
             for fcurve in animation_fcurves(ybot.animation_data)

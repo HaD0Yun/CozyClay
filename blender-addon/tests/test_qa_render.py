@@ -18,7 +18,7 @@ SCENE_HASH = "2" * 64
 
 
 def request(frames: list[int]) -> dict:
-    return {"schema_version": 1, "revision_id": REVISION, "frames": frames}
+    return {"schema_version": 1, "expected_revision_id": REVISION, "frames": frames}
 
 
 def _frame_result(png: bytes, *, frame: int = 8) -> dict:
@@ -67,7 +67,7 @@ class RenderQaFramesValidationTests(unittest.TestCase):
         """Task clause: "reject ... unknown-fields" and "requires the revision id"."""
         for request in (
             {"schema_version": 1, "frames": [1]},
-            {"schema_version": 1, "revision_id": REVISION, "frames": [1], "path": "/tmp/out.png"},
+            {"schema_version": 1, "expected_revision_id": REVISION, "frames": [1], "path": "/tmp/out.png"},
         ):
             with self.subTest(request=request), self.assertRaises(
                 qa_render.RENDER_QA_INVALID_REQUEST
@@ -97,7 +97,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             live_scene_hash=lambda _expected: SCENE_HASH,
             render_batch=lambda frames, **_kwargs: [(frames[0], png)],
         )
-        self.assertEqual(result["revision_id"], REVISION)
+        self.assertEqual(result["expected_revision_id"], REVISION)
         self.assertEqual(result["schema_version"], 1)
         self.assertEqual(result["profile_version"], "cclay-qa-png-v1")
         self.assertEqual(result["frames"], [{
@@ -232,7 +232,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
         metadata, _begin, _chunks = qa_render.split_frame_for_bridge(_frame_result(b"12345"))
         message = {
             "schema_version": 1,
-            "revision_id": REVISION,
+            "expected_revision_id": REVISION,
             "profile_version": "cclay-qa-png-v1",
             "frames": [metadata],
         }
@@ -270,7 +270,7 @@ class RenderQaFramesTransactionTests(unittest.TestCase):
             ]
         qa_render.ensure_bridge_result_fits({
             "schema_version": 1,
-            "revision_id": REVISION,
+            "expected_revision_id": REVISION,
             "profile_version": "cclay-qa-png-v1",
             "frames": [metadata for metadata, _begin, _chunks in prepared],
         })

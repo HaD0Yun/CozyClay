@@ -159,7 +159,7 @@ class ConnectionTests(unittest.TestCase):
             "method": "render_qa_frames",
             "params": {
                 "schema_version": 1,
-                "revision_id": "a" * 64,
+                "expected_revision_id": "a" * 64,
                 "frames": [80, 161, 199],
             },
             "expected_revision_id": "a" * 64,

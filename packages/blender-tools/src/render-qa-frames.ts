@@ -40,7 +40,7 @@ export function createRenderQaFramesTool(bridge: RenderQaFramesBridge) {
 			});
 			const modelMetadata = {
 				schema_version: result.schema_version,
-				revision_id: result.revision_id,
+				expected_revision_id: result.expected_revision_id,
 				profile_version: result.profile_version,
 				frames: result.frames.map((frame) => ({
 					frame: frame.frame,

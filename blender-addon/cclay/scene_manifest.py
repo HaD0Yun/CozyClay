@@ -37,7 +37,7 @@ _MANIFEST_V4_KEYS = {
 _ASSEMBLY_KEYS = {"assemblyId", "name", "rootEntityId", "memberIds"}
 _SCENE_KEYS = {"name", "frameStart", "frameEnd", "fpsNumerator", "fpsDenominator", "activeCameraId"}
 _RENDER_KEYS = {"resolutionX", "resolutionY", "resolutionPercentage"}
-_OBJECT_KEYS = {"entityId", "name", "type", "parentId", "visible", "location", "rotationQuaternion", "scale"}
+_OBJECT_KEYS = {"entityId", "name", "type", "parentId", "visible", "location", "rotationQuaternion", "scale", "animationDigest"}
 _BONE_KEYS = {"entityId", "name", "armatureObjectId", "parentBoneId", "location", "rotationQuaternion", "scale"}
 _CAMERA_KEYS = {
     "objectId", "lens", "sensorFit", "sensorWidth", "sensorHeight",
@@ -214,6 +214,9 @@ def _validate_manifest(manifest: dict) -> None:
         _vector(item.get("location"), 3, f"{path}.location")
         _quaternion(item.get("rotationQuaternion"), f"{path}.rotationQuaternion")
         _vector(item.get("scale"), 3, f"{path}.scale")
+        digest = item.get("animationDigest")
+        if digest is not None and not _SHA256.fullmatch(digest):
+            _fail(f"{path}.animationDigest", "must be a 64-character lowercase sha256 hex digest or null")
         if item["parentId"] is not None and item["parentId"] not in objects_by_id:
             raise INVALID_MANIFEST_REFERENCE(f"{path}.parentId references no object")
 

@@ -787,7 +787,7 @@ test(
 			await scenario("S8", "render_qa_frames: model sees <64KB JPEG, PNG artifact streamed", async () => {
 				await inspect("S8 sync");
 				const tool = createRenderQaFramesTool(bridge);
-				const request = { schema_version: 1 as const, revision_id: bridge.revisionId, frames: [1] };
+				const request = { schema_version: 1 as const, expected_revision_id: bridge.revisionId, frames: [1] };
 				const outcome = (await call("render_qa_frames frame 1", () =>
 					Promise.resolve(tool.execute("live-acceptance-s8", request, undefined, undefined, undefined as never)),
 				)) as {
@@ -875,7 +875,7 @@ test(
 					Promise.resolve(
 						tool.execute(
 							"live-acceptance-s9",
-							{ schema_version: 1 as const, revision_id: bridge.revisionId, frames },
+							{ schema_version: 1 as const, expected_revision_id: bridge.revisionId, frames },
 							undefined,
 							undefined,
 							undefined as never,

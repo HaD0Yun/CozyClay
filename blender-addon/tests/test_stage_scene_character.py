@@ -690,6 +690,20 @@ class AddCharacterRealBlenderTests(unittest.TestCase):
         self.assertTrue(self.results["fpsConflictRejectedRenderFirst"])
         self.assertTrue(self.results["fpsConflictRejectedMotionFirst"])
         self.assertTrue(self.results["fpsConflictRejectedTwoMotions"])
+    def test_fps_change_cannot_orphan_a_live_bake(self):
+        """A2, the two-call sequence: apply a 20 fps clip, then a LATER plan
+        that only sets the scene to 30 fps must fail (the keys would play at
+        30). The first apply into the factory-startup 24 fps scene still
+        succeeds, and the uniform character still applies.
+        """
+        self.assertTrue(self.results["firstApplyIntoFactory24FpsSucceeded"])
+        self.assertTrue(self.results["uniformScaleStillApplies"])
+        self.assertTrue(self.results["fpsChangeOrphansLiveBakeRejected"])
+
+    def test_apply_motion_fails_closed_on_non_uniform_scale(self):
+        """A4: a non-uniformly-scaled character is rejected by apply_motion
+        with the same INVALID_PREFLIGHT_MOTION_PARAMS code preflight uses."""
+        self.assertTrue(self.results["nonUniformScaleRejectedByApply"])
 
     def test_manifest_ignores_only_inert_easing_parameters(self):
         self.assertTrue(self.results["inertEasingFieldsRemainInspectable"])

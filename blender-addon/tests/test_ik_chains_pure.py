@@ -3,9 +3,10 @@ geometry survives the straight-limb singularity.
 
 The chains exist so an animator can grab a hand or a foot after ``apply_motion``
 has baked an ARDY clip onto the rig. That only round-trips if every bone the IK
-layer rotates is a bone ARDY itself drives: cskel27 has 27 joints, two of which
-(``Spine3`` and the ``HandEnd`` leaves) have no mixamo counterpart, so a chain
-reaching outside the driven set would produce an edit that cannot be expressed
+layer rotates is a bone ARDY itself drives: cskel27 has 27 joints, three of
+which (the extra spine joint and the two ``HandEnd`` leaves) have no mixamo
+counterpart, so a chain reaching outside the driven set would produce an edit
+that cannot be expressed
 back in the motion representation. These tests make that containment decidable
 rather than a comment.
 """

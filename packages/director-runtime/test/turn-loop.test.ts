@@ -78,7 +78,7 @@ describe("bounded director turn loop", () => {
 		const initial = await initialManifest();
 		const stage = stageRequest(initial.revision);
 		const repair = cameraPlan(CHILD_REVISION);
-		const render = { schema_version: 1 as const, revision_id: CHILD_REVISION, frames: [1] };
+		const render = { schema_version: 1 as const, expected_revision_id: CHILD_REVISION, frames: [1] };
 		const configured = await runtime([
 			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage(fauxToolCall("stage_scene", stage), { stopReason: "toolUse" }),
@@ -114,7 +114,7 @@ describe("bounded director turn loop", () => {
 					calls.push("render_qa_frames");
 					return {
 						schema_version: 1,
-						revision_id: CHILD_REVISION,
+						expected_revision_id: CHILD_REVISION,
 						profile_version: "cclay-qa-png-v1",
 						frames: [
 							{
@@ -184,7 +184,7 @@ describe("bounded director turn loop", () => {
 			fauxAssistantMessage(fauxToolCall("stage_scene", stageRequest(initial.revision)), { stopReason: "toolUse" }),
 			fauxAssistantMessage(fauxToolCall("inspect_project", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage(
-				fauxToolCall("render_qa_frames", { schema_version: 1, revision_id: CHILD_REVISION, frames: [1] }),
+				fauxToolCall("render_qa_frames", { schema_version: 1, expected_revision_id: CHILD_REVISION, frames: [1] }),
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage(fauxToolCall("apply_camera_plan", cameraPlan(CHILD_REVISION)), { stopReason: "toolUse" }),
@@ -207,7 +207,7 @@ describe("bounded director turn loop", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: CHILD_REVISION,
+					expected_revision_id: CHILD_REVISION,
 					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
@@ -258,7 +258,7 @@ describe("bounded director turn loop", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: initial.revision,
+					expected_revision_id: initial.revision,
 					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
@@ -307,7 +307,7 @@ describe("bounded director turn loop", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: initial.revision,
+					expected_revision_id: initial.revision,
 					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
@@ -337,7 +337,7 @@ describe("bounded director turn loop", () => {
 	it("prunes prior-turn QA frame images from the model context before the next turn", async () => {
 		const initial = await initialManifest();
 		const stage = stageRequest(initial.revision);
-		const render = { schema_version: 1 as const, revision_id: CHILD_REVISION, frames: [1] };
+		const render = { schema_version: 1 as const, expected_revision_id: CHILD_REVISION, frames: [1] };
 		const imageBlockCount = (context: { messages: ReadonlyArray<{ content: unknown }> }) =>
 			context.messages
 				.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
@@ -386,7 +386,7 @@ describe("bounded director turn loop", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: REPAIR_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: CHILD_REVISION,
+					expected_revision_id: CHILD_REVISION,
 					profile_version: "cclay-qa-png-v1",
 					frames: [
 						{
@@ -445,7 +445,7 @@ describe("bounded director turn loop", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: initial.revision,
+					expected_revision_id: initial.revision,
 					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),
@@ -492,7 +492,7 @@ describe("bounded director turn loop", () => {
 				applyCameraPlan: async () => ({ resulting_revision_id: CHILD_REVISION }),
 				renderQaFrames: async () => ({
 					schema_version: 1,
-					revision_id: initial.revision,
+					expected_revision_id: initial.revision,
 					profile_version: "cclay-qa-png-v1",
 					frames: [],
 				}),

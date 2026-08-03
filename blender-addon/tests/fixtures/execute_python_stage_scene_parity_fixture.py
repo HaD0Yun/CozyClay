@@ -116,6 +116,36 @@ def main() -> None:
             "noRecoveryRequired": response.get("outcome") == "success",
         }
 
+    # Content-derived mint: an execution that leaves the canonical manifest
+    # byte-identical must not mint a new revision, even though the script
+    # legitimately ran. A read-only script and a playhead move are the two
+    # observed no-op classes from the drift session.
+    noop_base = project_store.read_project_index(str(root))["current_revision_id"]
+    read_only_response = execute(root, "print('read only')")
+    read_only_same_revision = (
+        read_only_response.get("outcome") == "success"
+        and read_only_response.get("new_revision_id") == noop_base
+    )
+    frame_base = project_store.read_project_index(str(root))["current_revision_id"]
+    frame_only_response = execute(root, "bpy.context.scene.frame_set(50)")
+    frame_only_same_revision = (
+        frame_only_response.get("outcome") == "success"
+        and frame_only_response.get("new_revision_id") == frame_base
+    )
+    mutation_base = project_store.read_project_index(str(root))["current_revision_id"]
+    mutation_response = execute(
+        root,
+        (
+            "bpy.data.objects['Renamed Primitive']['cclay.entity_id'] = "
+            "'00000000-0000-4000-8000-00000000abe1'; "
+            "bpy.data.objects['Renamed Primitive'].location = (11, 12, 13)"
+        ),
+    )
+    mutation_advanced = (
+        mutation_response.get("outcome") == "success"
+        and mutation_response.get("new_revision_id") != mutation_base
+    )
+
     before_exception = project_store.read_project_index(str(root))
     exception_request_id = str(uuid.uuid4())
     exception_response: list[dict] = []
@@ -146,6 +176,9 @@ def main() -> None:
         "defaultPermission": project_store.read_execute_blender_python_permission(str(root)) is None,
         "stageSceneOperationInvocations": 0,
         "outcomes": outcomes,
+        "readOnlySameRevision": read_only_same_revision,
+        "frameChangeSameRevision": frame_only_same_revision,
+        "realMutationAdvancesRevision": mutation_advanced,
         "manifestAdvanced": final_durable is not None and final_durable["current_revision_id"] != initial_manifest["revisionId"],
         "exceptionRecoveryReloadedBackup": exception_recovery,
     }

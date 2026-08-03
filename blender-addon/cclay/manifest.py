@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import struct
 import math
 from pathlib import Path
 import unicodedata
@@ -289,6 +291,184 @@ def _animation_snapshot(
     return {identity_key: _text(object_identity), "target": _text(target), "fcurves": fcurves}
 
 
+_POSE_BONE_DATA_PATH = re.compile(r'^pose\.bones\["((?:[^"\\]|\\.)*)"\]')
+
+
+def _pose_bone_is_tracked(scene_object: bpy.types.Object, bone_name: str) -> bool:
+    """Whether an f-curve targeting a pose bone belongs to the hashed surface.
+
+    Every manifest list excludes untracked entities (no ``cclay.entity_id``):
+    scene objects, bones, and assemblies are all filtered through
+    ``_tracked_entity_id`` before they enter the hash preimage, and f-curves
+    are no exception. The IK layer (``ik_rig.attach``) keys control bones that
+    are created with ``edit_bones.new()`` and never stamped, so hashing those
+    curves would make attaching the layer change the canonical scene hash and
+    break the stored-revision contract that untracked scaffolding stays
+    invisible. Paths that do not target a pose bone belong to the tracked
+    object itself and are always hashed.
+    """
+    bones = getattr(getattr(scene_object, "data", None), "bones", None)
+    get = getattr(bones, "get", None)
+    if get is None:
+        return True
+    bone = get(bone_name)
+    return bone is not None and _tracked_entity_id(bone) is not None
+
+
+def _digest_keyframe_enums() -> dict[str, dict[str, int]]:
+    """Keyframe point enum properties as identifier -> RNA int value tables."""
+    properties = bpy.types.Keyframe.bl_rna.properties
+    return {
+        name: {
+            item.identifier: item.value
+            for item in properties[name].enum_items
+        }
+        for name in ("interpolation", "easing")
+    }
+
+
+def _animation_digest(object_id: str, scene_object: bpy.types.Object) -> str | None:
+    """Deterministic digest of a tracked object's f-curve animation surface.
+
+    Mirrors the cameraAnimations extraction (same supported surface, same
+    fail-closed behavior for drivers, modifiers, and unsupported easing), then
+    pins the ordering the manifest layer uses (fcurves by dataPath and
+    arrayIndex, keyframes by frame), so the digest is stable across
+    extractions of the same authored state. Returning a digest instead of
+    embedding the curves keeps the wire manifest small for rigs with hundreds
+    of pose channels, while any keyframe/fcurve edit still changes it and
+    therefore the canonical scene hash.
+
+    Keyframe data is read with ``foreach_get`` into raw buffers and hashed as
+    packed bytes rather than as per-point RNA objects: a dense bake (99 curves
+    x 240 keyframes) must stay inside the stage_scene uninterruptible call
+    budget, and Python-level RNA reads at that volume cost roughly half a
+    second while the packed-buffer path is a few milliseconds. Interpolation,
+    easing, and handle types are read as their RNA enum integers, which are
+    stable ABI values, so the packed bytes are deterministic across runs of
+    the same authored state.
+
+    F-curves whose data path targets an untracked pose bone are excluded
+    (``_pose_bone_is_tracked``), matching how every other manifest list drops
+    untracked entities. An object whose tracked surface is empty reports no
+    digest at all.
+    """
+    animation_data = scene_object.animation_data
+    if animation_data is None:
+        return None
+    drivers = animation_data.drivers
+    if len(drivers):
+        raise UNSUPPORTED_FCURVE_FEATURE(
+            f"{object_id!r} object animation uses drivers"
+        )
+    action = animation_data.action
+    if action is None:
+        return None
+
+    enums = _digest_keyframe_enums()
+    easing_auto = enums["easing"]["AUTO"]
+    interpolation_values = set(enums["interpolation"].values())
+    back_interpolation = enums["interpolation"].get("BACK")
+    elastic_interpolation = enums["interpolation"].get("ELASTIC")
+    easing_defaults = {
+        name: bpy.types.Keyframe.bl_rna.properties[name].default
+        for name in ("back", "amplitude", "period")
+    }
+    unsupported = (
+        f"{object_id!r} object f-curve uses unsupported easing, "
+        "interpolation, or easing parameters"
+    )
+
+    fcurves = []
+    for fcurve in animation_fcurves(animation_data):
+        if len(fcurve.modifiers):
+            raise UNSUPPORTED_FCURVE_FEATURE(
+                f"{object_id!r} object f-curve uses modifiers"
+            )
+        match = _POSE_BONE_DATA_PATH.match(fcurve.data_path)
+        if match is not None and not _pose_bone_is_tracked(scene_object, match.group(1)):
+            continue
+        fcurves.append(fcurve)
+    fcurves.sort(key=lambda fcurve: (_text(fcurve.data_path), fcurve.array_index))
+
+    payload = bytearray()
+    for fcurve in fcurves:
+        data_path = _text(fcurve.data_path)
+        path = data_path.encode("utf-8")
+        payload += struct.pack("<I", len(path))
+        payload += path
+        payload += struct.pack("<i", fcurve.array_index)
+        points = fcurve.keyframe_points
+        point_count = len(points)
+        payload += struct.pack("<I", point_count)
+        if point_count == 0:
+            continue
+        foreach_get = points.foreach_get
+        coordinates = {
+            name: [0.0] * (2 * point_count)
+            for name in ("co", "handle_left", "handle_right")
+        }
+        point_enums = {
+            name: [0] * point_count
+            for name in (
+                "interpolation", "easing", "handle_left_type", "handle_right_type",
+            )
+        }
+        easing_parameters = {
+            name: [0.0] * point_count
+            for name in ("back", "amplitude", "period")
+        }
+        for name, values in coordinates.items():
+            foreach_get(name, values)
+        for name, values in point_enums.items():
+            foreach_get(name, values)
+        for name, values in easing_parameters.items():
+            foreach_get(name, values)
+        co = coordinates["co"]
+        handle_left = coordinates["handle_left"]
+        handle_right = coordinates["handle_right"]
+        interpolation = point_enums["interpolation"]
+        easing = point_enums["easing"]
+        handle_left_type = point_enums["handle_left_type"]
+        handle_right_type = point_enums["handle_right_type"]
+        back = easing_parameters["back"]
+        amplitude = easing_parameters["amplitude"]
+        period = easing_parameters["period"]
+        order = sorted(range(point_count), key=lambda index: co[2 * index])
+        for index in order:
+            if (
+                easing[index] != easing_auto
+                or interpolation[index] not in interpolation_values
+                or (
+                    interpolation[index] == back_interpolation
+                    and back[index] != easing_defaults["back"]
+                )
+                or (
+                    interpolation[index] == elastic_interpolation
+                    and (
+                        amplitude[index] != easing_defaults["amplitude"]
+                        or period[index] != easing_defaults["period"]
+                    )
+                )
+            ):
+                raise UNSUPPORTED_FCURVE_FEATURE(unsupported)
+            payload += struct.pack(
+                "<6d",
+                co[2 * index], co[2 * index + 1],
+                handle_left[2 * index], handle_left[2 * index + 1],
+                handle_right[2 * index], handle_right[2 * index + 1],
+            )
+            payload += struct.pack(
+                "<3i",
+                interpolation[index],
+                handle_left_type[index],
+                handle_right_type[index],
+            )
+    if not payload:
+        return None
+    return hashlib.sha256(bytes(payload)).hexdigest()
+
+
 def _tracked_entity_id(entity: object) -> str | None:
     """Return the CCLAY entity id for a Blender ID-block, or None if untracked.
 
@@ -329,7 +509,7 @@ def _manifest_object(scene_object: bpy.types.Object) -> dict:
     snapshot = _object_snapshot(scene_object)
     entity_id = _tracked_entity_id(scene_object)
     assert entity_id is not None, "caller must filter to tracked scene_objects"
-    return {
+    entry = {
         "entityId": entity_id,
         "name": snapshot["name"],
         "type": snapshot["type"],
@@ -343,6 +523,14 @@ def _manifest_object(scene_object: bpy.types.Object) -> dict:
         "rotationQuaternion": snapshot["rotationQuaternion"],
         "scale": snapshot["scale"],
     }
+    digest = _animation_digest(entity_id, scene_object)
+    if digest is not None:
+        # Present only for animated objects: a scene whose tracked objects are
+        # all static keeps a byte-identical canonical manifest, so pinned
+        # oracles on static scenes do not move when the animation surface is
+        # added to the hash.
+        entry["animationDigest"] = digest
+    return entry
 
 
 def _manifest_bones(scene_objects: list[bpy.types.Object]) -> list[dict]:
@@ -459,8 +647,36 @@ def _stage_manifest_entries(
 
 
 def _extract_scene_manifest(schema_version: int) -> dict:
-    """Extract the active Blender scene through the negotiated manifest path."""
+    """Extract the active Blender scene through the negotiated manifest path.
+
+    The canonical manifest is sampled at ``scene.frame_start``: Blender's
+    animation system rewrites an animated object's RNA properties to the
+    evaluated value at the current frame on every ``frame_set``, so reading
+    them at the live playhead would make the scene hash (and therefore the
+    revision) a function of navigation state instead of authored state.
+    Sampling at frame_start makes the hash playhead-independent while the
+    per-object ``animationDigest`` still covers keyframe edits. The frame is
+    always re-evaluated (even when the playhead already sits at frame_start,
+    because property assignments since the last evaluation can leave stale
+    values behind) and the playhead is restored afterwards. Changing the scene
+    range rehashes every object, which is deliberate: frameStart is already
+    part of the hash preimage.
+    """
     blender_scene = bpy.context.scene
+    original_frame = blender_scene.frame_current
+    pinned_frame = int(blender_scene.frame_start)
+    blender_scene.frame_set(pinned_frame)
+    try:
+        return _extract_scene_manifest_at_current_frame(schema_version, blender_scene)
+    finally:
+        if original_frame != pinned_frame:
+            blender_scene.frame_set(original_frame)
+
+
+def _extract_scene_manifest_at_current_frame(
+    schema_version: int, blender_scene: bpy.types.Scene
+) -> dict:
+    """Extract the manifest from the scene at its currently pinned frame."""
     extensions = _read_extensions(blender_scene)
     project_id = blender_scene.get("cclay.project_id")
     if not isinstance(project_id, str):

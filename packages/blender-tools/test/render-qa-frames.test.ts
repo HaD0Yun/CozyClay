@@ -3,10 +3,10 @@ import { test } from "node:test";
 import type { RenderQaFramesRequestV1, RenderQaFramesResultV1 } from "@cclay/protocol";
 import { createRenderQaFramesTool } from "../src/render-qa-frames.ts";
 
-const request: RenderQaFramesRequestV1 = { schema_version: 1, revision_id: "a".repeat(64), frames: [80] };
+const request: RenderQaFramesRequestV1 = { schema_version: 1, expected_revision_id: "a".repeat(64), frames: [80] };
 const result: RenderQaFramesResultV1 = {
 	schema_version: 1,
-	revision_id: request.revision_id,
+	expected_revision_id: request.expected_revision_id,
 	profile_version: "cclay-qa-png-v1",
 	frames: [
 		{
@@ -22,10 +22,10 @@ const result: RenderQaFramesResultV1 = {
 	],
 };
 
-test("G011: render_qa_frames is an exact allowlist tool requiring revision_id with no arbitrary paths", () => {
+test("G011: render_qa_frames is an exact allowlist tool requiring expected_revision_id with no arbitrary paths", () => {
 	const tool = createRenderQaFramesTool({ renderQaFrames: async () => result });
 	assert.equal(tool.name, "render_qa_frames");
-	assert.ok("revision_id" in tool.parameters.properties);
+	assert.ok("expected_revision_id" in tool.parameters.properties);
 	assert.ok(!("path" in tool.parameters.properties));
 	assert.equal(tool.parameters.additionalProperties, false);
 });
@@ -43,7 +43,7 @@ test("G016: render_qa_frames returns metadata plus proper Pi image content block
 	assert.equal(output.details, result);
 	const metadataText = JSON.stringify({
 		schema_version: result.schema_version,
-		revision_id: result.revision_id,
+		expected_revision_id: result.expected_revision_id,
 		profile_version: result.profile_version,
 		frames: [
 			{

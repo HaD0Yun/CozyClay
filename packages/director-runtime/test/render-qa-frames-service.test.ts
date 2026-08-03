@@ -5,7 +5,7 @@ import type { RenderQaFramesRequestV1, RenderQaFramesResultV1 } from "@cclay/pro
 import { createRenderQaFramesHandler } from "../src/render-qa-frames-service.ts";
 
 const revision = "a".repeat(64);
-const request: RenderQaFramesRequestV1 = { schema_version: 1, revision_id: revision, frames: [3, 8] };
+const request: RenderQaFramesRequestV1 = { schema_version: 1, expected_revision_id: revision, frames: [3, 8] };
 const artifactBytes = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=",
 	"base64",
@@ -13,7 +13,7 @@ const artifactBytes = Buffer.from(
 const thumbnailData = Buffer.from("jpeg-thumbnail-payload").toString("base64");
 const result: RenderQaFramesResultV1 = {
 	schema_version: 1,
-	revision_id: revision,
+	expected_revision_id: revision,
 	profile_version: "cclay-qa-png-v1",
 	frames: request.frames.map((frame) => {
 		const sha256 = createHash("sha256").update(artifactBytes).digest("hex");

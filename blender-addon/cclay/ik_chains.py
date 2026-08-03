@@ -1,7 +1,7 @@
 """Pure, bpy-free IK chain definitions and pole geometry for manual rigging.
 
 ``apply_motion`` bakes an ARDY clip onto the mixamo rig as forward kinematics:
-every one of the 25 driven bones gets a per-frame local rotation and nothing
+every one of the 24 driven bones gets a per-frame local rotation and nothing
 else. That is the correct wire format and the wrong thing to edit by hand — an
 animator who wants the left hand on a handrail has to counter-rotate the
 shoulder, the upper arm and the forearm to move one point.
@@ -14,8 +14,9 @@ Blender-facing consumer.
 Two properties are load-bearing.
 
 **Every chain stays inside the bones ARDY drives.** cskel27 has 27 joints, but
-``Spine3`` composes into mixamo ``Spine2`` and the ``HandEnd`` leaves have no
-counterpart at all, so the driven set is 25 bones. An IK chain that rotated
+three have no mixamo counterpart -- the extra spine joint (core ``Spine``, see
+``motion_retarget.MIXAMO_TARGETS``) and the two ``HandEnd`` leaves -- so the
+driven set is 24 bones. An IK chain that rotated
 anything outside it would let an animator author a pose that cannot be carried
 back in the motion representation. ``test_ik_chains_pure`` asserts the
 containment against ``motion_retarget.MIXAMO_TARGETS`` directly.
