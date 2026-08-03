@@ -94,3 +94,20 @@ test("execute_blender_python surfaces unknown-outcome executions as errors", asy
 		await assert.rejects(tool.execute("call", REQUEST, undefined, undefined, undefined as never));
 	}
 });
+
+test("execute_blender_python fails closed on an unrecognized outcome", async () => {
+	// A future fifth outcome the protocol does not yet know must reject, not
+	// fall through to the caller's "no failure" reading of undefined.
+	const unknownOutcome = {
+		...success,
+		outcome: "pending",
+	} as unknown as ExecuteBlenderPythonResponseV1;
+	const { tool } = toolReturning(unknownOutcome);
+	await assert.rejects(
+		tool.execute("call", REQUEST, undefined, undefined, undefined as never),
+		(error: unknown) =>
+			error instanceof Error &&
+			error.message.startsWith("EXECUTE_BLENDER_PYTHON_UNKNOWN_OUTCOME") &&
+			error.message.includes("pending"),
+	);
+});

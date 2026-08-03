@@ -53,7 +53,7 @@ usage() {
   {
     echo 'usage: cclay-ardy-generate "<prompt>" [--duration N] [--seed S] [--project DIR]'
     echo '       cclay-ardy-generate --segment "<prompt>" <seconds> [--segment "<prompt>" <seconds> ...] [--seed S] [--project DIR]'
-    echo '       cclay-ardy-generate "<prompt>" --duration N --base-motion <motion_id> --constrain <frame> <joint> <x> <y> <z> [--constrain ...] [--constrain-orient <frame> <joint> <qw> <qx> <qy> <qz> ...] [--constrain-pose <src-motion-id> <src-frame> <dst-frame> ...] [--constrain-path <frame> <x> <z> <heading> ...] [--cfg-weight <text> <constraint>] [--contact-threshold T] [--root-margin M]'
+    echo '       cclay-ardy-generate "<prompt>" --duration N --base-motion <motion_id> --constrain <frame> <joint> <x> <y> <z> [--constrain ...] [--constrain-orient <frame> <joint> <qw> <qx> <qy> <qz> ...] [--constrain-pose <src-motion-id> <src-frame> <dst-frame> ...] [--constrain-path <frame> <x> <z> <heading> ...] [--cfg-weight <text> <constraint>] [--root-margin M]'
     echo '         joint is one of LeftFoot RightFoot LeftHand RightHand; x y z are npz space (Y-up, meters, motion-local)'
     echo '         --constrain-orient qw qx qy qz is a unit quaternion: the joint'"'"'s GLOBAL rotation in npz space (Y-up) at that frame'
     echo '         --constrain-pose copies the full-body pose at <src-frame> of local motion <src-motion-id> onto <dst-frame>'

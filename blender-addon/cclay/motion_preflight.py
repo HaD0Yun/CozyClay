@@ -394,23 +394,6 @@ def _derive_scale_for_object(entity_id: str, scene_object, posed_joints) -> floa
         raise PreflightMotionError("APPLY_MOTION_MALFORMED", str(error)) from error
 
 
-def _derive_entity_scale(entity_id: str, posed_joints) -> float:
-    """Local units-per-npz-unit retarget scale for the entity ``entity_id`` names.
-
-    This is the single derivation both apply_motion and preflight_motion use;
-    preflight's meters-per-npz-unit REPORT additionally folds the object's
-    (uniform) world scale via ``_meters_scale_for_entity``.
-    """
-    from .scene_relations import _object_for_entity
-
-    scene_object = _object_for_entity(entity_id)
-    if scene_object is None:
-        raise PreflightMotionError(
-            "ENTITY_NOT_FOUND", f"entity {entity_id} does not exist"
-        )
-    return _derive_scale_for_object(entity_id, scene_object, posed_joints)
-
-
 def _meters_scale_for_entity(entity_id: str, posed_joints) -> float:
     """Meters-per-npz-unit REPORT scale for preflight_motion's analysis.
 

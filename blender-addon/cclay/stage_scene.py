@@ -1407,7 +1407,7 @@ def _require_plan_fps_agrees(
     same APPLY_MOTION_FPS_CONFLICT contract. A bake the plan re-applies over is
     exempt -- replacing the clip is the sanctioned way to change the rate.
     ``live_baked`` ((entity_id, motion_id, fps) triples) and ``live_scene_fps``
-    are injected by the gate (stage_scene.py:2279) so this stays a pure
+    are injected by the gate (stage_scene.py:2281-2288) so this stays a pure
     function; both default to "no live scene" for plan-only callers.
     """
     rates: list[tuple[str, int]] = []
@@ -1481,7 +1481,7 @@ def _apply_motion_scale(entity_id: str, scene_object, posed_joints) -> float:
     A non-uniform or otherwise unusable object scale surfaces as the same code
     preflight_motion reports it (INVALID_PREFLIGHT_MOTION_PARAMS), and a
     degenerate thigh as APPLY_MOTION_MALFORMED -- never the
-    PreflightMotionError class name (see motion_preflight.py:396-398).
+    PreflightMotionError class name (see motion_preflight.py:391-394).
     """
     try:
         return motion_preflight._derive_scale_for_object(

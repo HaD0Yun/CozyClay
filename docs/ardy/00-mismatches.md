@@ -147,8 +147,9 @@ mixamo `Spine`/`Spine1`/`Spine2`, and core `Spine` is the dropped joint. The fol
 was removed with the remap: keeping it would have polluted mixamo `Spine1` and
 double-applied `Spine3`. This matches the ARDY viewer, which applies only mapped
 joints (`scripts/ardy/interactive_demo/mixamo_avatar.py:160-163`). The driven-bone
-set is unchanged at 24 bones with identical names, so the count assumptions in
-`ik_chains.py`, `ik_rig.py` and `stage_scene.py` still hold. The measurement was
+set is unchanged at 24 bones with identical names. `ik_chains.py`'s docstring
+previously said 25 and was wrong; this change set corrected it to 24, so the
+count assumptions in `ik_rig.py` and `stage_scene.py` still hold. The measurement was
 independently re-derived before the change and reproduced the table above to the
 fourth decimal.
 

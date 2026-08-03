@@ -36,6 +36,15 @@ function executionFailure(result: ExecuteBlenderPythonResponseV1): Error | undef
 			return new Error("EXECUTE_BLENDER_PYTHON_RECOVERY_REQUIRED: execution outcome requires recovery");
 		case "outcome_unknown":
 			return new Error(`EXECUTE_BLENDER_PYTHON_OUTCOME_UNKNOWN: ${result.reason}`);
+		default: {
+			// Fail closed twice over. Assigning to `never` makes a newly added
+			// outcome a COMPILE error here instead of a silent success, and the
+			// returned Error covers a payload that reaches a running build
+			// without passing through this compiler.
+			const unexpected: never = result;
+			const outcome = (unexpected as { outcome?: unknown }).outcome;
+			return new Error(`EXECUTE_BLENDER_PYTHON_UNKNOWN_OUTCOME: ${String(outcome)}`);
+		}
 	}
 }
 

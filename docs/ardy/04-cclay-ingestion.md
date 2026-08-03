@@ -182,11 +182,12 @@ the object's world scale, and returns the LOCAL units-per-npz-unit retarget fact
 `_object_world_scale` (motion_preflight.py:339-368), which reads `scene_object.scale`,
 validates it, and returns the uniform factor `axes[0]`. The meters-per-npz-unit REPORT is
 the local factor folded by the object scale: `_meters_scale_for_entity`
-(motion_preflight.py:414-434) multiplies `local * object_scale` (the multiplication is the
-fix, motion_preflight.py:431-434; `derive_scale` is linear in the thigh length, so
+(motion_preflight.py:397-417) multiplies `local * object_scale` (the multiplication is the
+fix, motion_preflight.py:414-417; `derive_scale` is linear in the thigh length, so
 `local * object_scale == derive_scale(posed, rig_thigh * object_scale)`).
-`_derive_entity_scale` (motion_preflight.py:397-411) is the entity-lookup wrapper both
-callers share.
+There is no separate entity-lookup wrapper: `apply_motion` calls `_derive_scale_for_object`
+via `_apply_motion_scale` (stage_scene.py:1478-1493) and `preflight_motion` calls it
+through the `_meters_scale_for_entity` entity lookup above.
 
 What still fails closed: `_object_world_scale` rejects (all `INVALID_PREFLIGHT_MOTION_PARAMS`)
 a malformed scale (line 354-356), a non-finite axis (358-359), any axis ≤ 0 (360-361), and
