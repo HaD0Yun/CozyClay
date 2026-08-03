@@ -83,7 +83,20 @@ describe("director tool registration", () => {
 		const source = await readFile(INDEX, "utf8");
 		assert.ok(source.includes("createArdyRegenerateTool(regenerateQueue)"));
 		assert.ok(source.includes("createArdyGenerateTool(generateQueue)"));
-		assert.ok(source.includes("createArdyInbetweenTool(inbetweenQueue)"));
+		// ardy_inbetween captures evaluated poses through the bridge before it
+		// submits, so it is constructed against a wrapper rather than the queue
+		// object directly. The point of this test is that the HOST QUEUE is still
+		// what ultimately serves the tool, so assert that rather than a literal
+		// argument spelling that a legitimate wiring change breaks.
+		assert.ok(source.includes("createArdyInbetweenTool("));
+		assert.ok(
+			/createArdyInbetweenTool\([\s\S]*?inbetweenQueue\.inbetween\(/.test(source),
+			"ardy_inbetween must still delegate to the host inbetween queue runner",
+		);
+		assert.ok(
+			/createArdyInbetweenTool\([\s\S]*?bridge\.captureEvaluatedPose\(/.test(source),
+			"ardy_inbetween must capture evaluated poses through the add-on, never take bone matrices from the model",
+		);
 	});
 
 	it("gates the two host-backed ARDY tools on ARDY host configuration", async () => {
@@ -95,10 +108,15 @@ describe("director tool registration", () => {
 			"the registration gate must use the shared host-availability helper",
 		);
 		// Both tools ride ONE conditional spread, so with no host neither is
-		// registered...
+		// registered. The regex deliberately does NOT pin the argument
+		// expressions: ardy_inbetween now wraps its queue to capture evaluated
+		// poses through the bridge first, and pinning the old
+		// `createArdyInbetweenTool(inbetweenQueue)` spelling made a legitimate
+		// wiring change look like a drift failure. What must stay pinned is that
+		// both constructors sit inside the SAME conditional on BOTH queues.
 		assert.match(
 			source,
-			/\.\.\.\(generateQueue !== undefined && inbetweenQueue !== undefined\s*\? \[createArdyGenerateTool\(generateQueue\), createArdyInbetweenTool\(inbetweenQueue\)\]\s*: \[\]\)/,
+			/\.\.\.\(generateQueue !== undefined && inbetweenQueue !== undefined\s*\?\s*\[[\s\S]*?createArdyGenerateTool\([\s\S]*?createArdyInbetweenTool\([\s\S]*?\]\s*:\s*\[\]\)/,
 			"ardy_generate and ardy_inbetween must be constructed under one conditional on their queue runners",
 		);
 		// ...and the eligible-name filter must omit them on the SAME signal

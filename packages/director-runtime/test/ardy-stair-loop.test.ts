@@ -524,6 +524,7 @@ describe("ardy stair loop", () => {
 				poseIds[2]!,
 				"0",
 				"120",
+				"--interval-assemble",
 			],
 		]);
 		assert.deepEqual(h.applyPlans, [
@@ -678,6 +679,7 @@ describe("ardy stair loop", () => {
 					poseIds[2]!,
 					"0",
 					"120",
+					"--interval-assemble",
 				],
 			],
 			"resubmitting both request ids must not invoke the wrapper a third time",

@@ -209,8 +209,9 @@ describe("ardy inbetween queue", () => {
 			"exactly one generated archive entry; the captured poses are retired with the request",
 		);
 		// The exact constrained argv rode through the real queue once, with
-		// --base-motion present and one four-word --constrain-pose block per
-		// captured pose.
+		// --base-motion present, one four-word --constrain-pose block per
+		// captured pose, and --interval-assemble last so the wrapper routes to
+		// the interval script instead of the plain constrained pass.
 		assert.deepEqual(h.runCalls, [
 			[
 				"regenerate",
@@ -230,6 +231,7 @@ describe("ardy inbetween queue", () => {
 				`cclay-pose-${REQUEST_ID}-3`,
 				"0",
 				"120",
+				"--interval-assemble",
 			],
 		]);
 
