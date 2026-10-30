@@ -75,6 +75,13 @@ let registeredTools = 0;
 const server = new McpServer(
 	{ name: "cozyclay-mcp", version: "0.1.0" },
 	{
+		// GHSA-46jr-4wx8-v453 / CVE-2026-111768: the SDK's element cap is off by
+		// default, so the version bump alone leaves tool-argument validation
+		// unbounded. The largest array any tool here declares is bounded by its
+		// schema (48 sculpt edits, 32 command ids); 10,000 is two orders of
+		// magnitude above that, and only stops a request that could not be a
+		// real edit of this scene.
+		maxToolInputElements: 10_000,
 		instructions:
 			"CozyClay previs. Block a 3D scene, place the camera, then read the shot back as film " +
 			"vocabulary (shot size, angle, lens) and render it into an AI image/video prompt. " +
