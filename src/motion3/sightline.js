@@ -37,13 +37,13 @@ export function hiddenBy(boxes, eye, points, skip = new Set()) {
 
 /**
  * What hides the character from eye at frame f: { share (0..1 of its joints behind any box), by: [ids that hide at least
- * MIN_HIDDEN of them, or that hide a focus point] }. focus: [{ p, own }] points that must show too, own the object they are on.
+ * MIN_HIDDEN of them, or that hide a focus point] }. focus: [{ p, own }] points that must show too, own the bodies they are on.
  */
 export function blockersAt(out, eye, f, focus = []) {
 	const joints = out.frames?.[f - (out.f0 ?? 0)]?.s.P ?? [], boxes = out.ctx.objectsAt?.(f) ?? {};
 	if (!joints.length) return { share: 0, by: [] };
 	const by = hiddenBy(boxes, eye, joints), ids = new Set(Object.keys(by).filter(id => by[id] / joints.length >= MIN_HIDDEN));
-	for (const { p, own } of focus) for (const id of Object.keys(hiddenBy(boxes, eye, [p], new Set(own ? [own] : [])))) ids.add(id);
+	for (const { p, own } of focus) for (const id of Object.keys(hiddenBy(boxes, eye, [p], new Set(own)))) ids.add(id);
 	const hidden = joints.filter(p => Object.keys(hiddenBy(boxes, eye, [p])).length).length;
 	return { share: Math.round((hidden / joints.length) * 100) / 100, by: [...ids].sort() };
 }

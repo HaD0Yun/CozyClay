@@ -10,7 +10,7 @@
 //   top            straight down, the character's forward up the image
 // depthViews adds a view when the asked ones would hide depth (see APART below).
 import { refPoint } from "./refs.js";
-import { objectBoxesAt } from "./object-pose.js";
+import { objectBoxesAt, partsOf } from "./object-pose.js";
 import { resolveBone } from "./bones.js";
 import { add, sub, scale, dot, cross, norm, apply, quatFromMat } from "./compiler/math.js";
 
@@ -136,11 +136,11 @@ export function depthViews(views) {
 	return { views: [...views, view], added: { view, reason: `${line}, so a gap along it (toward or away from the camera) does not show; ${view} looks across it` } };
 }
 
-/** The focus refs' middles at frame f, for sightlines: [{ p, own }], own the object a bare object:<id> ref is. */
+/** The focus refs' middles at frame f, for sightlines: [{ p, own }], own the bodies of the object a bare object:<id> ref is (a group's parts). */
 export function focusPoints(out, f, focus) {
 	return focus.flatMap(ref => {
 		const points = refPoints(out, f, ref), own = BARE_OBJECT.exec(ref);
-		return points.length ? [{ p: mean(points), own: own && !own[2] ? own[1] : null }] : [];
+		return points.length ? [{ p: mean(points), own: own && !own[2] ? partsOf(out.ctx.scene, own[1]) : [] }] : [];
 	});
 }
 
