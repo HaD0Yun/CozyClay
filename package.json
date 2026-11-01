@@ -85,7 +85,7 @@
     "react-hot-toast": "^2.6.0",
     "react-icons": "^5.7.0",
     "reactflow": "^11.11.4",
-    "three": "^0.185.1",
+    "three": "^0.187.0",
     "three-bvh-csg": "^0.0.18",
     "three-mesh-bvh": "^0.9.16",
     "vite": "^8.2.0"
