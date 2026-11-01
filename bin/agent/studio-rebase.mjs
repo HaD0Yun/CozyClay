@@ -24,6 +24,7 @@
 // the agent's own last edit published, and nothing it has not authored changed,
 // that move is not news: any tool is re-sent once (`own_edit_settled`).
 import { annotateRebased, busyTeaching, staleTeaching } from "./studio-rebase-text.mjs";
+import { GESTURE_WAIT_MS, isGestureBusy, sleepUnlessAborted, waitOutGesture } from "./studio-busy-wait.mjs";
 
 const IDENTITY = ["workspaceId", "documentEpoch", "sceneId", "sceneEpoch"];
 /** Tools whose targets are entities with tokens. Shot/stage patches, framing, actions,
@@ -199,15 +200,9 @@ async function decideRebase({ name, args, seen, fresh, host, refusedRevision, ow
   return result(true, "targets unchanged", targets);
 }
 
-// One bounded wait for a TARGET_BUSY editor gesture to end (under the 1.5 s ceiling).
-export const BUSY_WAIT_MS = 1200;
-const sleepUnlessAborted = (ms, signal) => new Promise(resolve => {
-  if (signal?.aborted) return resolve(false);
-  const done = value => { clearTimeout(timer); signal?.removeEventListener?.("abort", onAbort); resolve(value); };
-  const onAbort = () => done(false);
-  const timer = setTimeout(() => done(true), ms);
-  signal?.addEventListener?.("abort", onAbort, { once: true });
-});
+// One bounded wait for any other TARGET_BUSY (an open transaction) to end; the user's gesture is waited out
+// with backoff for up to 20 s instead (studio-busy-wait.mjs).
+const BUSY_WAIT_MS = 1200;
 
 /**
  * The recovery wrapper around one admission attempt (`attempt(name, args, scratch)`
@@ -263,12 +258,15 @@ export function createRebaser({ session, liveHub, workspaceHandle, mutationNames
       if (!admission || !mutationNames.has(name) || name === "verify_result" || !refused) throw error;
       const targetIds = () => [...referencedStrings(args)].filter(id => seen.known.has(id));
       if (error?.code === "TARGET_BUSY") {
-        const waitedMs = session.busyWaitMs ?? BUSY_WAIT_MS;
-        if (!await (session.sleep ?? sleepUnlessAborted)(waitedMs, session.signal)) throw error;
-        try { return annotateRebased(await attempt(name, args, { callId }), { reason: "target_busy", waitedMs, retried: true }); }
-        catch (second) {
-          if (second?.code !== "TARGET_BUSY") throw second;
-          throw Object.assign(new Error(busyTeaching({ original: second.message, waitedMs, ids: targetIds() })), { code: "TARGET_BUSY", receipt: second.receipt, autoRebased: false });
+        // The user's gesture: re-send with backoff until it ends (up to 20 s). Anything else busy: one pause, one re-send.
+        const gesture = isGestureBusy(error), pause = gesture ? 0 : session.busyWaitMs ?? BUSY_WAIT_MS, sleep = session.sleep ?? sleepUnlessAborted;
+        if (pause && !await sleep(pause, session.signal)) throw error;
+        try {
+          const waited = await waitOutGesture(() => attempt(name, args, { callId }), { refused: gesture ? error : null, signal: session.signal, sleep, onWait: session.onGestureWait, maxMs: gesture ? session.gestureWaitMs ?? GESTURE_WAIT_MS : 0 });
+          return annotateRebased(waited.result, { reason: "target_busy", waitedMs: pause + waited.waitedMs, retried: true, ...(gesture ? { tries: waited.tries } : {}) });
+        } catch (second) {
+          if (second?.code !== "TARGET_BUSY" || session.signal?.aborted) throw second;
+          throw Object.assign(new Error(busyTeaching({ original: second.message, waitedMs: pause + (second.waitedMs ?? 0), ids: targetIds() })), { code: "TARGET_BUSY", receipt: second.receipt, autoRebased: false });
         }
       }
       if (error?.code !== "STALE_SCENE" || !scratch.fresh) throw error;

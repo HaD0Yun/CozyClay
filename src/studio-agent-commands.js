@@ -364,9 +364,9 @@ export function arrangement(command, before, ports) {
     warnings, details: relations.map(({ axis, ...rest }) => rest) };
 }
 
-const FRACTIONS = { 'extreme close-up': 3.4, 'close-up': 2.2, 'medium close-up': 1.375, 'medium shot': 0.975, 'medium-wide shot': 0.66, 'wide shot': 0.41, 'extreme wide shot': 0.2 };
-const LEVELS = { ground: 0.3 / 1.8, low: 0.7 / 1.8, hip: 1.1 / 1.8, eye: 1.65 / 1.8, high: 2.1 / 1.8, overhead: 2.8 / 1.8 };
-const ANGLES = { front: 0, 'front three-quarter': 40, profile: 90, 'rear three-quarter': 140, back: 180 };
+export const FRAMING_FRACTIONS = { 'extreme close-up': 3.4, 'close-up': 2.2, 'medium close-up': 1.375, 'medium shot': 0.975, 'medium-wide shot': 0.66, 'wide shot': 0.41, 'extreme wide shot': 0.2 };
+export const FRAMING_LEVELS = { ground: 0.3 / 1.8, low: 0.7 / 1.8, hip: 1.1 / 1.8, eye: 1.65 / 1.8, high: 2.1 / 1.8, overhead: 2.8 / 1.8 };
+export const FRAMING_ANGLES = { front: 0, 'front three-quarter': 40, profile: 90, 'rear three-quarter': 140, back: 180 };
 /** Where subject bound points land through one camera: the evidence a
  * frame_shot receipt reports, plus the screen box its details keep. */
 export function projectSubject(points, camera, fov, aspectRatio) {
@@ -451,11 +451,11 @@ export function frameDraft(command, state, ports) {
   if (fov / DEG < 14 || fov / DEG > 90) fail('INVALID_ARGUMENT', 'Requested lens is outside the editor FOV range.');
   if (intent) {
     const lookAt = { x: (bounds.x.min + bounds.x.max) / 2, y: bounds.y.min + height * (1.3 / 1.8), z: (bounds.z.min + bounds.z.max) / 2 };
-    const distance = height / (2 * FRACTIONS[intent.size] * Math.tan(fov / 2));
-    const y = bounds.y.min + height * LEVELS[intent.level], dy = y - lookAt.y;
+    const distance = height / (2 * FRAMING_FRACTIONS[intent.size] * Math.tan(fov / 2));
+    const y = bounds.y.min + height * FRAMING_LEVELS[intent.level], dy = y - lookAt.y;
     if (distance * distance <= dy * dy + EPS) fail('INVALID_ARGUMENT', 'The exact lens cannot satisfy both requested size and level.');
     const horizontal = Math.sqrt(distance * distance - dy * dy);
-    const angle = (subject.rot + (intent.side === 'right' ? -1 : 1) * ANGLES[intent.view]) * DEG;
+    const angle = (subject.rot + (intent.side === 'right' ? -1 : 1) * FRAMING_ANGLES[intent.view]) * DEG;
     camera = { position: { x: lookAt.x + Math.sin(angle) * horizontal, y, z: lookAt.z + Math.cos(angle) * horizontal }, lookAt, focalMm };
   }
   const direction = vector(camera.lookAt).sub(vector(camera.position));

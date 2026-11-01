@@ -12,28 +12,31 @@
 // mark() records where a script starts; rollback() undoes only the edits after it and keeps the run open, so earlier
 // edits still land.
 import { randomUUID } from "node:crypto";
+import { waitOutGesture } from "./studio-busy-wait.mjs";
 
 // The Studio went away (a reload, a closed tab): no editor answers, or it went while a command ran (UNCERTAIN_APPLY: the
 // command may or may not have landed; mcp/live-hub.mjs).
 export const LOST_STUDIO = new Set(["LIVE_HUB_UNAVAILABLE", "STALE_HANDLE", "NO_EDITOR", "UNCERTAIN_APPLY"]);
 
-export function studioTransaction({ hub, context, turnId, admission, task = null, signal, plain = false }) {
+export function studioTransaction({ hub, context, turnId, admission, task = null, signal, plain = false, onWait }) {
 	// The main agent holds no transaction (plain): its one quick edit opens a task of its own.
 	const wrapped = !plain && Boolean(task || context.scene?.previsMode);
 	const host = Object.fromEntries(["workspaceId", "documentEpoch", "sceneId", "sceneEpoch"].map(key => [key, context.host[key]]));
 	const verb = name => task ? `task.${name === "begin" ? "begin" : name}` : `agent.turn.${name}`;
-	const control = async (name, extra = {}) => {
+	// A control the user's drag refuses (a task's cancel or rollback writes its keys back) waits for the drag to end.
+	const control = async (name, extra = {}) => (await waitOutGesture(async () => {
 		const args = task ? { taskId: task.taskId, ...extra } : { turnId };
 		const receipt = await hub.command("run_action", {
 			name: "run_action", args: { action: verb(name), args }, ...(task ? { taskId: task.taskId } : { turnId }),
-			commandId: randomUUID(), host, expectedRevision: admission.revision,
+			// a scene action of this run may have opened another scene: the controls follow the host the tools adopted
+			commandId: randomUUID(), host: admission.host ?? host, expectedRevision: admission.revision,
 		}, context.host.workspaceHandle);
 		if (!receipt.ok) throw Object.assign(new Error(receipt.message), { code: receipt.code });
 		return receipt;
-	};
+	}, { onWait })).result;
 	const owner = task ? "taskId" : "turnId", id = task ? task.taskId : turnId;
 	const open = async () => {
-		await control("begin", task ? { scope: task.scope, ...(task.reads?.length ? { reads: task.reads } : {}), ...(task.title ? { title: task.title.slice(0, 120) } : {}) } : {});
+		await control("begin", task ? { scope: task.scope, ...(task.reads?.length ? { reads: task.reads } : {}), ...(task.title ? { title: task.title.slice(0, 120) } : {}), ...(task.live ? { live: task.live() } : {}) } : {});
 		admission[owner] = id;
 	};
 	return {

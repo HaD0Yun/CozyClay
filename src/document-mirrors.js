@@ -29,7 +29,7 @@ export function createDocumentMirrors(appContext) {
 	let envelope = null;
 	const stageCharacters = () => {
 		const layers = appContext.storeDomain("motion")?.read() ?? null;
-		return cast().map(({ sessionMotion, ...entry }) => {
+		return cast().map(({ sessionMotion, placementKeys, ...entry }) => {
 			const row = layers?.find(layer => layer.id === entry.id);
 			return { ...entry, ikEdits: ikEditsOf(row), motionTake: savedTakeSource(row?.take) };
 		});

@@ -107,8 +107,8 @@ const held = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 60, use: [{ s
 const P30 = compileSpec(held, { sk, scene: { objects: {} } }).out.frames[30].s.P, front = Math.max(P30[I.RightHand][2], P30[I.RightHandMiddle3][2]) + 0.022;
 const board = [{ id: "board", name: "Board", renderer: "cube", x: -0.2, y: 0, z: front + 0.035, rot: 0, rotX: 0, rotZ: 0, scaleX: 0.6, scaleY: 1.6, scaleZ: 0.1, footprint: { width: 1, depth: 1 }, height: 1 }];
 const boardReg = createStudioAppActions({ state: () => ({ characters: [still], objects: board, frameCount: 60 }), storeDomain: name => (name === "motion" ? boardOwner : null) });
-r = boardReg.run("motion.compile", { characterId: "char-2", spec: held, install: "ifClean" });
-expect("ifClean without repair: the hand in the board is not installed", r.output.qa.ok === false && r.output.installed === false && !boardTakes.has("char-2"));
+r = boardReg.run("motion.compile", { characterId: "char-2", spec: held, install: "ifClean", repair: false });
+expect("ifClean without repair on a character with no take: the first (dirty) take is installed", r.output.qa.ok === false && r.output.installed === true && boardTakes.has("char-2"));
 r = boardReg.run("motion.compile", { characterId: "char-2", spec: held, install: "ifClean", repair: { rounds: 4 } });
 const repaired = boardTakes.get("char-2");
 expect("ifClean + repair: repaired to clean, the repaired spec is installed and output.specId names it", r.output.qa.ok && r.output.installed === true && r.output.repair.applied.length >= 1
@@ -131,5 +131,11 @@ const styled = style => createStudioAppActions({ ...ports, storeDomain: name => 
 const hinted = style => (r => r?.output ?? r)(styled(style).run("motion.compile", { characterId: "char-1", spec: long, install: false }));
 expect("a hybrid project's colliding take carries the capsule hint", hinted("hybrid").hint === "hybrid project: propose capsule figures to the user before more repairs", JSON.stringify(hinted("hybrid").qa.groups.slice(0, 2)));
 expect("a rig project's colliding take carries no hint", hinted("rig").hint === undefined && bad.hint === undefined);
+// PATCH_TOO_BROAD (patch-guard.js): a patch that mixes /fix with key edits is applied and answered with the note
+const broadBase = boardReg.run("motion.compile", { characterId: "char-2", spec: held, install: false }).output.specId;
+r = boardReg.run("motion.compile", { characterId: "char-2", base: broadBase, install: false, patch: [{ op: "replace", path: "/keys/@f=30/set/hand_r", value: [-0.22, 1.1, 0.34] }, { op: "add", path: "/fix", value: { retime: false } }] });
+const narrow = boardReg.run("motion.compile", { characterId: "char-2", base: broadBase, install: false, patch: [{ op: "add", path: "/fix", value: { retime: false } }] });
+expect("PATCH_TOO_BROAD: /fix mixed with key edits is noted and still applied; a narrow patch carries no note", /^PATCH_TOO_BROAD \/fix mixed with key edits/.test(r.output.notes?.[0] ?? "")
+	&& r.output.specId !== broadBase && narrow.output.notes === undefined, JSON.stringify(r.output.notes));
 if (failures) { console.error(`${failures} motion3 command check(s) failed`); process.exit(1); }
 console.log("motion3 commands: all checks passed");

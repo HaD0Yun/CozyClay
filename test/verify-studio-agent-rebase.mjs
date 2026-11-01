@@ -13,7 +13,6 @@ import { randomUUID } from "node:crypto";
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = mkdtempSync(join(tmpdir(), "rebase-"));
 delete process.env.CLIPROXY_API_KEY; delete process.env.CLIPROXY_BASE_URL;
 const { createStudioTools } = await import("../bin/agent/studio-tools.mjs");
-const { BUSY_WAIT_MS } = await import("../bin/agent/studio-rebase.mjs");
 const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 const { createFakeModel } = await import("./fixtures/fake-model.mjs");
 const { contextFixture, envelopeFixture } = await import("./verify-studio-agent-protocol.mjs");
@@ -170,33 +169,36 @@ const moveA = x => ({ ops: [{ op: "update", id: "obj-a", position: { world: { x,
   console.log("PASS a second stale revision is returned, not looped");
 }
 
-// 7. TARGET_BUSY that frees up: one wait, one re-send.
+// 7. A user gesture that ends: paused for (250 ms, then doubling), re-sent, flagged; the panel hears it wait.
 {
-  const ed = editor(), s = session(ed), invoke = tools(ed, s);
+  const waits = [];
+  const ed = editor(), s = session(ed, { onGestureWait: waiting => waits.push(waiting) }), invoke = tools(ed, s);
   ed.busy = 1;
   const result = await invoke("arrange_objects", moveA(3));
   assert.equal(result.autoRebased, true);
   assert.equal(result.autoRebase.reason, "target_busy");
-  assert.deepEqual(s.slept, [BUSY_WAIT_MS]);
-  assert.ok(BUSY_WAIT_MS <= 1500, "the wait is bounded");
+  assert.deepEqual(s.slept, [250]);
+  assert.deepEqual(waits, [true, false]);
   assert.ok(result.warnings.some(w => w.code === "AUTO_REBASED"));
   assert.equal(ed.attempts.length, 2);
   assert.equal(ed.history.length, 1);
-  console.log("PASS a busy gesture that ends is waited out once, flagged in the receipt");
+  console.log("PASS a busy gesture that ends is waited out, flagged in the receipt");
 }
 
-// 8. TARGET_BUSY that persists: a teaching error after exactly one retry.
+// 8. A gesture still held after 20 s: a soft error that says so (the task goes on); backoff 250 ms doubling to 2 s.
 {
   const ed = editor(), s = session(ed), invoke = tools(ed, s);
   ed.busy = Infinity;
   await assert.rejects(invoke("arrange_objects", moveA(3)), error => {
     assert.equal(error.code, "TARGET_BUSY");
-    assert.match(error.message, /user is dragging or editing/);
+    assert.match(error.message, /still dragging or editing in the editor after 20 s/);
     assert.match(error.message, /obj-a/);
-    assert.match(error.message, /Do not loop/);
+    assert.match(error.message, /does not end the task/);
     return true;
   });
-  assert.equal(ed.attempts.length, 2);
+  assert.deepEqual(s.slept, [250, 500, 1000, ...Array(9).fill(2000)]);
+  assert.ok(s.slept.reduce((a, b) => a + b, 0) <= 20_000, "the wait is bounded by 20 s");
+  assert.equal(ed.attempts.length, 1 + s.slept.length);
   assert.equal(ed.history.length, 0);
   // An abort during the wait cancels the retry and surfaces the original refusal.
   const ed2 = editor(), controller = new AbortController();

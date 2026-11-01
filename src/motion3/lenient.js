@@ -163,7 +163,8 @@ export function normalizeCompileArgs(args) {
 		if (word !== undefined) out = { ...out, install: word };
 	}
 	if (args.repair === true) out = { ...out, repair: {} };
+	// repair: false (or { rounds: 0 }) is the explicit opt-out: repair runs by default (motion3.js), so it is kept as false
 	else if (args.repair === false || (args.repair && typeof args.repair === "object" && args.repair.rounds === 0 && Object.keys(args.repair).length === 1))
-		out = Object.fromEntries(Object.entries(out).filter(([k]) => k !== "repair"));
+		out = { ...out, repair: false };
 	return out;
 }

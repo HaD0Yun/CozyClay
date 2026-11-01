@@ -13,6 +13,11 @@ import { commandKeys, keyOfId, scopeConflict, isScopeKey, layerOf, expandScope, 
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
 const VERBS = ['begin', 'requestScope', 'mark', 'rollback', 'finish', 'cancel', 'undo'];
 const FINISHED_KEPT = 32;
+/** Task controls that write no document (they grant, mark or close a scope): admitted mid-gesture, so a begin or finish never waits on the user's drag. */
+export const GESTURE_FREE_TASK_CONTROLS = new Set(['task.begin', 'task.requestScope', 'task.mark', 'task.finish']);
+// A holder the board no longer runs (its run ended without task.finish: a crash, a lost frame) and that sent nothing for this
+// long is released when another task's begin needs its keys, instead of answering SCOPE_BUSY forever.
+const ORPHAN_IDLE_MS = 30_000;
 const listOf = keys => [...keys].slice(0, 6).join(', ') + (keys.length > 6 ? ` and ${keys.length - 6} more` : '');
 
 export function createBusTasks({ ports, emit }) {
@@ -42,13 +47,24 @@ export function createBusTasks({ ports, emit }) {
 		return historyEntryId;
 	}
 	// A plain character:<id> is held as its four layers: the commands name layers, and each layer keeps its own token.
-	function grant(task, scope) {
+	function grant(task, scope, live = null) {
 		const bad = scope.find(key => !isScopeKey(key));
 		if (bad !== undefined) fail('INVALID_ARGUMENT', `"${bad}" is not a scope key: object:<id>, character:<id> (or one layer: character:<id>:placement, :take, :ik, :props), shot:<id>, stage, timeline or scene.`);
 		const keys = expandScope(scope);
+		if (live) releaseOrphans(task.taskId, keys, live);
 		const conflict = scopeConflict(task.taskId, keys, open);
 		if (conflict) fail('SCOPE_BUSY', `${conflict}; wait for it, or ask for what is free.`);
 		for (const key of keys) if (!task.keys.has(key)) { task.keys.add(key); task.tokens.set(key, tokenOf(key)); }
+	}
+	// live: the task ids the sidecar's board still runs. A holder not among them, idle past ORPHAN_IDLE_MS, finishes (keeps its edits).
+	function releaseOrphans(taskId, keys, live) {
+		const at = (ports.now ?? Date.now)();
+		for (const other of [...open.values()]) {
+			if (other.taskId === taskId || live.includes(other.taskId) || at - other.lastAt < ORPHAN_IDLE_MS) continue;
+			if (![...other.keys].some(held => keys.some(key => keysOverlap(key, held)))) continue;
+			open.delete(other.taskId);
+			emit?.({ type: 'task.released', taskId: other.taskId, by: taskId, reason: 'its run ended without finishing' });
+		}
 	}
 	function receipt(id, task, request, before, { historyEntryId = null, affectedIds = [], output, warnings = [] } = {}) {
 		const after = ports.read();
@@ -65,13 +81,14 @@ export function createBusTasks({ ports, emit }) {
 		get size() { return open.size; },
 		controls: (object, identifier) => Object.fromEntries(VERBS.map(verb => [`task.${verb}`,
 			verb === 'begin' || verb === 'requestScope'
-				? { ...object({ taskId: identifier, scope: { type: 'array', items: { type: 'string' }, maxItems: 64 } }), properties: { taskId: identifier, scope: { type: 'array', items: { type: 'string' }, maxItems: 64 }, reads: { type: 'array', items: { type: 'string' }, maxItems: 64 }, title: { type: 'string', maxLength: 120 } } }
+				? { ...object({ taskId: identifier, scope: { type: 'array', items: { type: 'string' }, maxItems: 64 } }), properties: { taskId: identifier, scope: { type: 'array', items: { type: 'string' }, maxItems: 64 }, reads: { type: 'array', items: { type: 'string' }, maxItems: 64 }, title: { type: 'string', maxLength: 120 }, live: { type: 'array', items: { type: 'string' }, maxItems: 64 } } }
 				: object({ taskId: identifier })])),
 		/** The open task a request names (null without one); a request naming a closed task is refused. */
 		of(request, id) {
 			if (!request.taskId) return null;
 			const task = open.get(request.taskId);
 			if (!task && !id.startsWith('task.')) fail('STALE_TARGET', `Task ${request.taskId} is not open.`);
+			if (task) task.lastAt = (ports.now ?? Date.now)();
 			return task ?? null;
 		},
 		/** task.* controls. `busy` says why no task may begin (an agent turn or a command transaction is open). */
@@ -89,9 +106,19 @@ export function createBusTasks({ ports, emit }) {
 			ownerOf(request, args.taskId);
 			if (id === 'task.begin') {
 				if (busy) fail('TARGET_BUSY', busy);
-				if (open.has(args.taskId) || finished.has(args.taskId)) fail('INVALID_ARGUMENT', `Task ${args.taskId} already exists.`);
-				const task = { taskId: args.taskId, title: args.title ?? '', keys: new Set(), reads: new Set(args.reads ?? []), tokens: new Map(), pre: new Map(), edits: [], notices: [], affectedIds: [] };
-				grant(task, args.scope);
+				// Its owner begins it again after its run was cut off while this editor stayed (a hub timeout read as a lost
+				// Studio): it resumes with its pre-images and edits, so a cancel still restores; the cut-off run's mark is gone.
+				const held = open.get(args.taskId);
+				if (held) {
+					grant(held, args.scope);
+					for (const key of held.keys) held.tokens.set(key, tokenOf(key));
+					held.mark = null; held.lastAt = (ports.now ?? Date.now)();
+					emit?.({ type: 'task.scope', taskId: held.taskId, scope: [...held.keys] });
+					return receipt(id, held, request, before, { output: { resumed: true } });
+				}
+				if (finished.has(args.taskId)) fail('INVALID_ARGUMENT', `Task ${args.taskId} already exists.`);
+				const task = { taskId: args.taskId, title: args.title ?? '', keys: new Set(), reads: new Set(args.reads ?? []), tokens: new Map(), pre: new Map(), edits: [], notices: [], affectedIds: [], lastAt: (ports.now ?? Date.now)() };
+				grant(task, args.scope, Array.isArray(args.live) ? args.live : null);
 				open.set(task.taskId, task);
 				emit?.({ type: 'task.begun', taskId: task.taskId, scope: [...task.keys] });
 				return receipt(id, task, request, before);

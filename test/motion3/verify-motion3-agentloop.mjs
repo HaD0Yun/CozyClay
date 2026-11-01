@@ -94,10 +94,11 @@ const onlyBody = r => r.qa.groups.every(g => g.kind === "BODY");
 // the throw tests retime alone: fix.self (elbows turned out of the body) would add its own motion to the arm
 const throwHand = (fix, limits) => ({ ...stand({ fix: { ...fix, self: false }, frames: 120, ...(limits ? { checks: { limits } } : {}) }), keys: [{ f: 30, set: { armw_r: 0 } }, { f: 36, set: { armw_r: 1, hand_r: [-0.25, 1.1, 0.25] } }, { f: 50, set: { hand_r: [-0.25, 1.1, 0.25] } }, { f: 54, set: { hand_r: [0.1, 1.45, 0.3] } }, { f: 90, set: { hand_r: [0.1, 1.45, 0.3] } }] });
 const everyday = { speedLimb: 0.16, accLimb: 0.05 };
-const fastOff = compile(throwHand(undefined, everyday), empty), fastOn = compile(throwHand({ retime: true }, everyday), empty);
+// retime is on by default (deep research 4); the baseline opts out
+const fastOff = compile(throwHand({ retime: false }, everyday), empty), fastOn = compile(throwHand(undefined, everyday), empty);
 show("hand thrown, everyday limits, no retime", fastOff);
 show("hand thrown, everyday limits, retime", fastOn);
-expect("retime: opted-in speed/acc issues gone, stretch reported", fastOff.qa.groups.some(g => g.kind === "ACC" || g.kind === "SPEED") && onlyBody(fastOn) && fastOn.fixed.retime?.maxStretch > 1, JSON.stringify(fastOn.fixed));
+expect("retime (default on): speed/acc issues gone, stretch reported; fix: { retime: false } keeps them", fastOff.qa.groups.some(g => g.kind === "ACC" || g.kind === "SPEED") && onlyBody(fastOn) && fastOn.fixed.retime?.maxStretch > 1, JSON.stringify(fastOn.fixed));
 const fastFree = compile(throwHand({ retime: true }), empty);
 expect("retime: without the opt-in a smooth fast throw is clean (but its arm in the chest, BODY) and keeps its speed", onlyBody(fastFree) && !fastFree.fixed.retime && fastFree.observations.peaks.RightHand.speed[0] > 3.8, JSON.stringify(fastFree.observations.peaks));
 // the exitcar fixture itself stays clean with the default fixes on
@@ -205,7 +206,7 @@ const registry = createStudioAppActions({ state: () => ({ characters: [CUP_CHARA
 const act = (id, args) => { const out = registry.run(id, args); return out?.output ?? out; };
 const refused = run => { try { run(); return ""; } catch (error) { return error.message; } };
 const pickUp = act("motion.compile", { characterId: CUP_CHARACTER.id, spec: RUN2_SPEC, install: false });
-const installedPickUp = act("motion.compile", { characterId: CUP_CHARACTER.id, base: pickUp.specId, install: true });
+const installedPickUp = act("motion.compile", { characterId: CUP_CHARACTER.id, base: pickUp.specId, install: true, repair: false });
 expect("frames auto: the pick-up resolves to 195 frames, and the installed take keeps the number", pickUp.frames === 195 && installedPickUp.specId === pickUp.specId
 	&& takes.get(CUP_CHARACTER.id)?.spec?.frames === 195, JSON.stringify({ frames: pickUp.frames, take: takes.get(CUP_CHARACTER.id)?.spec?.frames }));
 let drink = null;
@@ -227,7 +228,7 @@ const lateGoal = reject(s => { s.goals = [{ name: "late", near: ["joint:LeftHand
 expect("frames: a goal past the end that \"auto\" would not cover gets the number alone",
 	lateGoal.replace(/^MOTION_SPEC_INVALID: /, "").split("\n").includes("goals[0].at = [740,760] is outside 0..729 (spec.frames 730); set frames >= 761"), lateGoal);
 const overview = refused(() => act("motion.describe", { topic: "overview" }));
-expect("describe: an unknown topic names the allowed ones", overview === "$.args.topic: \"overview\" is not one of: essentials, spec, skills, anchors, props, objects, checks, goals, probes, channels, refs, fix, examples.", overview);
+expect("describe: an unknown topic names the allowed ones", overview === "$.args.topic: \"overview\" is not one of: essentials, spec, skills, anchors, props, objects, checks, goals, probes, channels, refs, fix, examples, fill.", overview);
 
 if (failures) { console.error(`${failures} motion3 agent-loop check(s) failed`); process.exit(1); }
 console.log("motion3 agent loop: all checks passed");

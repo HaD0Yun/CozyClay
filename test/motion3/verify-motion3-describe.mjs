@@ -49,6 +49,8 @@ for (const topic of DESCRIBE_TOPICS) {
 	const a = describe(topic);
 	const budget = topic === "essentials" ? DESCRIBE_BUDGET : MOTION_OUTPUT_BUDGET;
 	expect(`describe ${topic}: ${bytes(a)} B <= ${budget}`, bytes(a) <= budget, bytes(a));
+	// fill is words only (the MotionBricks workflow, motion.fill), no schema of its own
+	if (topic === "fill") { expect("describe fill: { topic, notes } naming motion.fill", a.notes.length > 0 && a.notes.join(" ").includes("motion.fill")); continue; }
 	if (topic === "skills" || topic === "essentials" || topic === "examples") continue; // examples: test/bus/verify-motion3-examples.mjs
 	expect(`describe ${topic}: { topic, schema (2020-12), example, notes }`, a.topic === topic && /2020-12/.test(a.schema.$schema) && a.example && a.notes.length > 0 && a.notes.every(n => typeof n === "string"));
 	const refs = JSON.stringify(a.schema).match(/"#\/\$defs\/[A-Za-z]+"/g) ?? [];
@@ -96,7 +98,7 @@ const ess = describe("essentials"), essText = JSON.stringify(ess);
 expect("essentials names mass, grasp, spherical, fall.v, throwObject and catchObject", ["mass", "grasp", "spherical", "throwObject", "catchObject"].every(w => essText.includes(w)) && /fall[^"]*"?[^}]*\bv\?/.test(essText), essText.slice(0, 200));
 expect("essentials answers { topic, types, skills, notes }", JSON.stringify(Object.keys(ess)) === '["topic","types","skills","notes"]' && ess.notes.every(n => typeof n === "string"));
 expect("essentials has a type line for every topic but skills, and for every shared shape it names, no other",
-	DESCRIBE_TOPICS.filter(t => t !== "skills" && t !== "essentials" && t !== "examples").every(t => typeof ess.types[t] === "string")
+	DESCRIBE_TOPICS.filter(t => !["skills", "essentials", "examples", "fill"].includes(t)).every(t => typeof ess.types[t] === "string")
 	&& ["vec3", "frameSpan", "ref", "key", "use", "walk"].every(n => typeof ess.types[n] === "string") && ["checkRef", "part", "when"].every(n => !(n in ess.types)), Object.keys(ess.types).join());
 /** f is named as a field: `{f: `, `, f?: `, or folded with others of one type, `a|f|b?: ` (`f_l|r?: ` for a pair). */
 const named = (f, text) => new RegExp(`(?:[{|]|, )${f}(?:\\|\\w+)*\\??: `).test(text);

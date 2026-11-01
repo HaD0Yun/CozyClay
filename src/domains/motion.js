@@ -31,13 +31,14 @@ import { advancePlayback, installPlaybackApplier } from "./playback.js";
 import { ko } from "../locale.js";
 import { isProxyFigure } from "../scenes.js";
 import { refuseRigOnly } from "../character-kind.js";
-import { DEFAULT_POSE, restoreBindPositions, applyPose, applyHipsOffset } from "../poses.js";
+import { restoreBindPositions, applyPose, applyHipsOffset } from "../poses.js";
 import { bakeIkDragKey, bakeIkDragRange, chainsChangedBy, clampDragTarget, ikDragRecord, ikDragTouch, solveDragTarget } from "../motion/ik-drag.js";
 import { fingersOf, solveFingerGesture, restFingers } from "../motion/fingers.js";
 import { ikKeyJson, ikTrackKeyFromJson } from "../motion/ik-key-json.js";
 import { chooseIkEntryPose } from "../ik-camera.js";
 import { applyRangePin, captureRangePinTarget, normalizeRangePin, rangePinTargetWorld, rangePinTracks, removeRangePinKeys } from "../motion/range-pin.js";
 import { rangePinObjectMatrixAt } from "../range-pin-object-transform.js";
+import { PLACEMENT_TRACK, placementRows } from "../motion/placement-keys.js"; import { createPoseKeys } from "./motion/pose-keys.js";
 import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage } from "./motion/motion-range-pin-rules.js";
 
 import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js";
@@ -98,10 +99,10 @@ export function createMotionDomain(appContext, characters) {
 		const ids = new Set([...publishedIds, ...read().map(row => row.id)]);
 		for (const id of ids) {
 			const row = layer(id), take = visibleMotion(id), full = fullMotionFor(id);
-			cast.publishMotion(id, take);
+			cast.publishMotion(id, take); cast.publishPlacement?.(id, placementRows(row.ikKeys));
 			if (full) appContext.shared.motionFullRef.current.set(id, full); else appContext.shared.motionFullRef.current.delete(id);
 			const state = states.get(id) ?? createIkState();
-			state.keys = decodeMotionKeys(row.ikKeys); state.tracked = new Set([...state.keys.values()].flatMap(entry => [...entry.keys()]));
+			state.keys = decodeMotionKeys(row.ikKeys); state.tracked = new Set([...state.keys.values()].flatMap(entry => [...entry.keys()]).filter(track => track !== PLACEMENT_TRACK));
 			state.pins = decodeRangePins(row.ikPins);
 			state.pinResiduals = decodeRangePinResiduals(row.ikPinResiduals);
 			states.set(id, state);
@@ -109,15 +110,7 @@ export function createMotionDomain(appContext, characters) {
 			if (rig) {
 				const resolved = resolveIkRig(rig); if (resolved) Object.assign(state, resolved, { rig });
 				if (savedRigs?.has(id)) appContext.shared.restoreExportRig(savedRigs.get(id));
-				else if (resolved) {
-					restFingers(resolved.fkJoints); if (take) applyTakeFrame(rig, take, Math.min(frame(), take.frames - 1));
-					else {
-						const character = cast.read().find(entry => entry.id === id);
-						restoreBindPositions(rig); applyPose(rig, { ...REST_BONES, ...(character?.pose ?? DEFAULT_POSE).bones });
-						applyHipsOffset(rig, character?.pose?.rootY ?? 0);
-					}
-					ikEvaluate(resolved.chains, state, frame(), resolved.fkJoints, take ? 6 : 0);
-				}
+				else if (resolved) poseKeys.poseRig(id, rig, resolved, state, take, frame());
 			}
 		}
 		publishedIds = new Set(read().map(row => row.id));
@@ -127,6 +120,7 @@ export function createMotionDomain(appContext, characters) {
 		appContext.shared.bufferRef.current = { ...appContext.shared.bufferRef.current, motion: visibleMotion(id), ik: appContext.shared.ikStateRef.current };
 		domain.onProject?.(); viewRevision++;
 	}
+	const poseKeys = createPoseKeys({ appContext, rigFor, visibleMotion: id => visibleMotion(id), editKeys: (id, mutate) => editKeys(id, mutate), run: (id, args) => run(id, args) });
 	const unsubscribe = documentStore.subscribe(project);
 	function write(update) {
 		return documentStore.write('motion', before => {
@@ -288,7 +282,7 @@ export function createMotionDomain(appContext, characters) {
 		return run('run.update', { txId: gesture.txId, args });
 	}
 	const domain = { documentStore, read, write, layer, writeLayer, motionFor, fullMotionFor, visibleMotion, snapshotTake, project,
-		setKeys, setRangePinState, bakeRangePin, removePin, editKeys, setKey, replace, clear, run, edit, beginGesture, finishGesture, beginAction,
+		setKeys, setRangePinState, bakeRangePin, removePin, editKeys, setKey, ...poseKeys, replace, clear, run, edit, beginGesture, finishGesture, beginAction,
 		insideAction: () => running > 0, bakeCurrentKey, keyPose,
 		bindRender(context) { appContext = context; },
 		viewRevision: () => viewRevision, canUndo: id => documentStore.canUndo(id),

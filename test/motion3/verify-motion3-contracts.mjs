@@ -137,7 +137,7 @@ expect("reportPage answers { specId, part, from, items, next }", JSON.stringify(
 const answers = DESCRIBE_TOPICS.map(topic => run(cupRegistry, "motion.describe", { topic }));
 expect("motion.describe answers every topic with { topic, schema, example, notes } (essentials: { types, skills, notes } within DESCRIBE_BUDGET)", answers.every((a, i) => a.topic === DESCRIBE_TOPICS[i]
 	&& bytes(a) <= (a.topic === "essentials" ? DESCRIBE_BUDGET : MOTION_OUTPUT_BUDGET)
-	&& (a.topic === "skills" ? Array.isArray(a.skills) && a.skills.length > 0 : a.topic === "examples" ? a.examples.length > 0 && Array.isArray(a.notes) : a.topic === "essentials" ? a.types && a.skills.length > 0 && Array.isArray(a.notes) : a.schema && a.example && Array.isArray(a.notes))));
+	&& (a.topic === "skills" ? Array.isArray(a.skills) && a.skills.length > 0 : a.topic === "examples" ? a.examples.length > 0 && Array.isArray(a.notes) : a.topic === "fill" ? a.notes.length > 0 : a.topic === "essentials" ? a.types && a.skills.length > 0 && Array.isArray(a.notes) : a.schema && a.example && Array.isArray(a.notes))));
 const one = run(cupRegistry, "motion.describe", { topic: "skills", name: "reachGrip" });
 expect("motion.describe { skills, name } answers one skill", one.name === "reachGrip" && one.example.skill === "reachGrip" && /did you mean "reachGrip"/.test(refusal(() => cupRegistry.run("motion.describe", { topic: "skills", name: "reachGirp" }))));
 const many = run(cupRegistry, "motion.describe", { topics: [{ topic: "objects" }, { topic: "skills", name: "reachGrip" }, { topic: "objects" }, { topic: "anchors" }, { topic: "skills", name: "walkTo" }] });
@@ -237,7 +237,7 @@ const slips = [], relaxed = relaxSpec({ frames: 60, goals: [{ name: "g", near: [
 expect("C19: a goal window past the clip is cut, one wholly past it is left; a free pos-only key takes its scene turn; one note each",
 	JSON.stringify(relaxed.goals.map(g => g.at)) === "[[50,59],[70,80]]" && JSON.stringify(relaxed.objects[CUP.group].keys[0].rot) === "[0,0,0,1]" && slips.length === 2, JSON.stringify(slips));
 expect("C19: verify_result frames are pulled into the range; install and repair spellings are the declared ones", JSON.stringify(clampFrames([10, 60], [0, 47])) === JSON.stringify({ frames: [10, 47], adjusted: "frames 60 lie outside 0..47: drawn at 47" })
-	&& JSON.stringify(normalizeCompileArgs({ install: "always", repair: { rounds: 0 } })) === JSON.stringify({ install: true }));
+	&& JSON.stringify(normalizeCompileArgs({ install: "always", repair: { rounds: 0 } })) === JSON.stringify({ install: true, repair: false }));
 
 if (failures) { console.error(`${failures} motion3 contract check(s) failed`); process.exit(1); }
 console.log("motion3 contracts: all checks passed");

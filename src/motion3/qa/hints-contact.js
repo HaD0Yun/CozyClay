@@ -185,7 +185,7 @@ export const contactHints = {
 		const gap = segDist(P[I[`Left${a}`]], P[I[`Left${b}`]], P[I[`Right${a}`]], P[I[`Right${b}`]]);
 		const d = sub(P[I[`Left${b}`]], P[I[`Right${b}`]]); d[1] = 0;
 		const need = (min - gap + MARGIN) / 2, dir = norm(d);
-		return { cause: X.cause("foot_l", f), hint: `foot_l: move ${vec(scale(dir, need))} m and foot_r ${vec(scale(dir, -need))} m at f${f} (${shins ? "shins" : "thighs"} ${m3(gap)} m apart, need ${min}); or spread knee_l/knee_r`,
+		return { cause: X.cause("foot_l", f), hint: `foot_l: move ${vec(scale(dir, need))} m and foot_r ${vec(scale(dir, -need))} m at f${f} (${shins ? "shins" : "thighs"} ${m3(gap)} m apart, need ${min}). Put a knee pole on every sit key: start at x +-0.06 and widen by 0.02 until SELF clears; if KNEE (bends backward) appears, go back one step; the KNEE hint's pole (x 0) is the baseline`,
 			fix: { channel: "foot_l", f, delta: scale(dir, 2 * need) } };
 	},
 	OBJECT(X, g) {

@@ -3,7 +3,7 @@
 // idempotency. Synchronous UI actions stay synchronous (including user gestures).
 import { StudioProtocolError, StudioSchemas, validateStudioSchema, validateReceipt, validateStudioIdentity, refusalCode } from './studio-agent-protocol.js';
 import { agentTurnControls, markAgentTurn, turnEditPoint, recordTurnEdit, undoTurnEdit } from './agent-turn-mark.js';
-import { createBusTasks } from './bus-tasks.js';
+import { createBusTasks, GESTURE_FREE_TASK_CONTROLS } from './bus-tasks.js'; import { uiTransactionOpen } from './studio-busy.js';
 import { createHistoryReceipts, noteRefusal, noteUndone } from './command-bus-telemetry.js';
 
 export { withCommandHistory } from './command-history.js';
@@ -55,7 +55,7 @@ export function createCommandBus({ registry, ports }) {
     tx.timer = (ports.setTimeout ?? setTimeout)(() => cancelTransaction(tx, true), ports.transactionIdleMs ?? 30_000);
   }
   function control(id, args, request, before) {
-    if (id.startsWith('task.')) return tasks.control(id, args, request, before, agentTurn ? 'Finish the agent turn first.' : transactions.size ? 'Finish the open command transaction first.' : null);
+    if (id.startsWith('task.')) return tasks.control(id, args, request, before, agentTurn ? 'Finish the agent turn first.' : transactions.size > Number(uiTransactionOpen(transactions)) ? 'Finish the open command transaction first.' : null);
     if (id.startsWith('agent.turn.')) {
       if (request.origin !== 'agent' || request.turnId !== args.turnId) fail('CAPABILITY_MISSING', 'Only the owning agent turn can control this transaction.');
       if (id === 'agent.turn.begin') {
@@ -268,7 +268,7 @@ export function createCommandBus({ registry, ports }) {
         // Document identity and the job's own publication fence still apply.
         // A readOnly action (declared data, e.g. motion.qa) only measures: no revision or gesture fence, the host check above still holds.
         if (!task && !id.startsWith('task.') && !entry?.readOnly && !['job.await', 'job.cancel', 'agent.turn.mark', 'agent.turn.rollback', 'agent.turn.finish', 'agent.turn.cancel'].includes(id) && request.expectedRevision !== before.revision) fail('STALE_SCENE', 'Authored state changed; obtain fresh intent.');
-        if (!entry?.readOnly && before.busy && !turn && !transactions.has(validated.txId) && !id.startsWith('job.')) fail('TARGET_BUSY', 'Finish the current editor gesture first.');
+        if (!entry?.readOnly && before.busy && !turn && !transactions.has(validated.txId) && !id.startsWith('job.') && !GESTURE_FREE_TASK_CONTROLS.has(id)) fail('TARGET_BUSY', 'Finish the current editor gesture first.');
       }
       if (controls[id]) return mapResult(control(id, validated, request, before), remember, rejected);
       if (transactions.size) fail('TARGET_BUSY', 'Finish or cancel the open command transaction first.');
@@ -367,7 +367,7 @@ export function createCommandBus({ registry, ports }) {
     } catch (error) { return rejected(error); }
   }
   // noteUndone: edit:undone for the user's own undo (domains/scene-undo.js), which reaches it through the bus.
-  return { run, noteUndone,
+  return { run, noteUndone, uiGesture: () => uiTransactionOpen(transactions), // the user's own drag holds a transaction (studio-busy.js)
     // Trusted UI adapter only: wire callers can consume, never mint a token.
     confirm(id, args = {}) { const prepared = registry.prepare(id, args), token = crypto.randomUUID(); confirmations.set(token, { id, args: prepared.args, host: ports.read().host, expires: (ports.now ?? Date.now)() + 300_000 }); return token; },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },

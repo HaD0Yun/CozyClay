@@ -124,7 +124,7 @@ const TAKES = [
 	["J2 bat, no keys", "y-bot-tpose", J2.SWING_SPEC, motionScene(J2.SCENE_OBJECTS), "681b862de6399b43", "7e49b1630982dfc8", "the flat back foot turned 7.2 deg (turn.js)"],
 	["J2 bat, keys", "y-bot-tpose", j2keyed, motionScene(J2.SCENE_OBJECTS), "c21fc53ff579e90f", "248dc5649b0c7499", "the same foot (turn.js)"],
 	["K8 16d12ba9", "y-bot-tpose", K8.SWING_SPEC, motionScene(K8.batKit(K8.SWING_KIT_AT)), "35a73f309c9fe95f", "496cb796f592d8e8", "the left hand's roll priced past SELF on the right hand"],
-	["N1 d5c110a7", "y-bot-tpose", N1.STANCE_SPEC, motionScene(K8.batKit(N1.STANCE_KIT_AT)), "38d773bb8b474f7a", "5528ad309521dd71", "the left hand's roll priced past BODY in the torso"],
+	["N1 d5c110a7", "y-bot-tpose", N1.STANCE_SPEC, motionScene(K8.batKit(N1.STANCE_KIT_AT)), "38d773bb8b474f7a", "24f0828dfbfa9eb0", "the left hand's roll priced past BODY in the torso; then fix.retime on by default (QA 60 -> 56)"],
 	["L2 9dcf19c5", "y-bot-tpose", G.SWING_SPEC, motionScene(G.batScene()), "ad773fd24b96b59b", "6c6926016a279376", "the flat front foot turned 18.5 deg (turn.js)"],
 	["P2 df6acdcc", "y-bot-tpose", FOLD_SPEC, bat(FOLD_KIT_AT), "f3d9e1c7e86e7d08", "f912e5753d15fa42", "the left hand's roll priced past BODY"],
 	["Q1 4db5d447", "y-bot-tpose", Q.SEVENTEEN_SPEC, bat(Q.SEVENTEEN_KIT_AT), "9521e2c61c85f8b1", "e1ad064ef842f30d", "all four"],

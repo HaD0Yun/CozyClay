@@ -131,7 +131,8 @@ const TAKES = [
 	["J2 bat, keys", "y-bot-tpose", j2keyed, motionScene(J2.SCENE_OBJECTS), 140.96, "248dc5649b0c7499", null],
 	["K8 16d12ba9", "y-bot-tpose", K8.SWING_SPEC, motionScene(K8.batKit(K8.SWING_KIT_AT)), 143.57, "496cb796f592d8e8", null],
 	["K8 6912547c", "y-bot-tpose", K8.EARLIER_SPEC, motionScene(K8.batKit(K8.EARLIER_KIT_AT)), 150.89, "2228cc5001daba8e", "fc6f95586f8b1622"],
-	["N1 d5c110a7", "y-bot-tpose", N1.STANCE_SPEC, motionScene(K8.batKit(N1.STANCE_KIT_AT)), 154.06, "fa22fc331b91e0aa", "5528ad309521dd71"],
+	// N1 d5c110a7 re-pinned when fix.retime went on by default (3 windows stretched, QA 60 -> 56; 5528ad309521dd71 with retime: false)
+	["N1 d5c110a7", "y-bot-tpose", N1.STANCE_SPEC, motionScene(K8.batKit(N1.STANCE_KIT_AT)), 154.06, "fa22fc331b91e0aa", "24f0828dfbfa9eb0"],
 	["N1 f0f2be59", "y-bot-tpose", N1.CLEAN_SPEC, motionScene(K8.batKit(N1.CLEAN_KIT_AT)), 152.2, "3d73c4b9e175a657", "e874f6556578614d"],
 	["L2 9dcf19c5", "y-bot-tpose", G.SWING_SPEC, motionScene(G.batScene()), 150.87, "a7ffbc022b463875", "6c6926016a279376"],
 	["P2 df6acdcc", "y-bot-tpose", FOLD_SPEC, foldScene, 170.87, "cba7efc1642eee3a", "f912e5753d15fa42"],

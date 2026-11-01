@@ -75,7 +75,8 @@ r = repair(EXITCAR_SPEC);
 expect("exit car (clean): one compile, no rounds, under 10 s", r.result.qa.ok && r.repair.compiles === 1 && r.repair.rounds === 0 && r.ms < budgetMs(10000), json(r.repair));
 const wing = structuredClone(EXITCAR_SPEC);
 for (const k of wing.keys) if (json(k.set.elbow_r) === "[0.4,-1,0.6]") k.set.elbow_r = [0.4, 1, 0.6];
-r = repair(wing, car, 1);
+// limitMs Infinity: the round runs whatever the machine (a loaded CI runner passed the 20 s default before the round began)
+r = repair(wing, car, 1, Infinity);
 // the chicken-wing pole patch lowers the summed severity (1243 -> 1145) but trades it for more problems (20 -> 27, the
 // hand into the head twice as deep): qa/verdict.js keeps nothing that brings new or worse failures
 expect("rounds: 1 stops after one round (at most 3 tries); the pole patch that trades 20 problems for 27 is not kept", r.repair.rounds === 1 && r.repair.compiles <= 4
@@ -245,7 +246,8 @@ expect("arm-local: when moving the body is the only fix it is kept and says so (
 const job = (s, repair) => runCompileJob({ model: "x-bot-tpose", scene: car, spec: s, ...(repair ? { repair } : {}) });
 const plainWing = job(wing);
 expect("a plain compile offers no hint patch: the words stay", plainWing.qa.groups.every(g => !g.patch && !g.patchTried) && plainWing.qa.groups.some(g => g.hint), json(plainWing.qa.groups.map(g => [g.kind, Boolean(g.patch), Boolean(g.hint)])));
-const winged = job(wing, { rounds: 1 }), below = winged.qa.groups.find(g => g.kind === "BELOW");
+// no wall clock: the repair round and the hint check run in full on any machine (compile-job.js HINT_LIMIT_MS is 20 s)
+const winged = runCompileJob({ model: "x-bot-tpose", scene: car, spec: wing, repair: { rounds: 1, limitMs: Infinity }, hintLimitMs: Infinity }), below = winged.qa.groups.find(g => g.kind === "BELOW");
 expect("hint check: the pole patch that trades 20 problems for 27 is not offered, and says what it did", below && !below.patch && /^replace \/keys\/\d+\/set\/elbow_r: compiled, did not help \(problems 20 -> 27\)$/.test(below.patchTried ?? ""), json(below));
 expect("hint check: every patch left was compiled and helped", winged.qa.groups.filter(g => g.patch).every(g => g.patchChecked && g.patchChecked.severity[1] < g.patchChecked.severity[0]), json(winged.qa.groups.filter(g => g.patch)));
 const timed = compileSpec({ ...wing, fix: { ...wing.fix, retime: true } }, { sk, scene: car });

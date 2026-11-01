@@ -158,18 +158,19 @@ expect("only the 4 newest lines keep a take (memory): an older line's note asks 
 const noTake = createRepairWatch().note({ characterId: "c", turnId: "t", specId: "spec-000000000001", qa: qaOf(1) });
 expect("no take kept (a caller without bake): never an install", noTake.install === undefined);
 
-// ---- through the registry in an agent turn: ifClean that never comes clean, the S8 shape ---------
+// ---- through the registry in an agent turn: compiles that never install, the S8 shape ---------
+// (S8 ran ifClean that never came clean; ifClean now installs the first take and one that beats it, so "never" keeps that shape)
 const held = new Map(), body = { ...CHARACTER };
 const owner2 = { replace: (id, take) => held.set(id, take), motionFor: id => held.get(id) ?? null };
 const turn = createStudioAppActions({ state: () => ({ characters: [body], objects: SCENE_OBJECTS, frameCount: 300 }), storeDomain: name => (name === "motion" ? owner2 : null) });
-const inTurn = (args, turnId = "turn-1") => { const r = turn.run("motion.compile", { characterId: body.id, install: "ifClean", ...args }, { turnId }); return { ...(r?.output ?? r?.receipt?.output ?? r), affectedIds: r.affectedIds, summary: r.summary }; };
+const inTurn = (args, turnId = "turn-1") => { const r = turn.run("motion.compile", { characterId: body.id, install: "never", ...args }, { turnId }); return { ...(r?.output ?? r?.receipt?.output ?? r), affectedIds: r.affectedIds, summary: r.summary }; };
 const heldId = () => (held.get(body.id)?.spec ? specIdOfSpec(held.get(body.id).spec) : null);
 const t0 = inTurn({ spec: cupSpec }), closer = inTurn({ base: t0.specId, patch: [{ op: "replace", path: "/use/0/args/at", value: [0.2, 0.45] }] });
 const pitch = [{ op: "replace", path: "/keys/@f=30/set/pitch", value: 40 }];
 const worse = [inTurn({ base: t0.specId, patch: pitch })];
 while (!worse.at(-1).stuck && worse.length < 12) worse.push(inTurn({ base: worse[0].specId }));
 const noted = worse.at(-1);
-expect("ifClean, never clean: nothing installed before the note", t0.installed === false && closer.installed === false && worse.slice(0, -1).every(x => x.installed === false && !x.affectedIds.length), JSON.stringify(worse.map(x => x.brief?.[0])));
+expect("never installed: nothing installed before the note", t0.installed === false && closer.installed === false && worse.slice(0, -1).every(x => x.installed === false && !x.affectedIds.length), JSON.stringify(worse.map(x => x.brief?.[0])));
 expect(`the note installs the compile with the fewest problems (${closer.qa.problems} of ${[t0, closer, ...worse].map(x => x.qa.problems).join(", ")}): the character carries it`, Boolean(noted.stuck) && heldId() === closer.specId
 	&& noted.affectedIds.includes(body.id) && /the best take so far, spec-[0-9a-f]{12}, installed/.test(noted.summary) && noted.stuck.includes(`Installed the best take here, ${closer.specId}`), JSON.stringify({ stuck: noted.stuck, summary: noted.summary, held: heldId() }));
 expect("its brief still says this compile was not installed", noted.installed === false && /not installed$/.test(noted.brief[0]), noted.brief[0]);

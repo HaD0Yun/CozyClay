@@ -155,6 +155,7 @@ export function describe(topic, name) {
 	if (!DESCRIBE_TOPICS.includes(topic)) bad(`topic "${topic}" is not a describe topic${didYouMean(String(topic), DESCRIBE_TOPICS)} (topics: ${DESCRIBE_TOPICS.join(", ")})`);
 	if (topic === "essentials") return essentials();
 	if (topic === "examples") return { topic, examples: SPEC_EXAMPLES, notes: EXAMPLE_NOTES };
+	if (topic === "fill") return { topic, notes: NOTES.fill };
 	if (topic !== "skills") return { topic, schema: rooted(SCHEMAS[topic]()), example: EXAMPLES[topic], notes: NOTES[topic] };
 	if (name === undefined) return { topic, skills: SKILL_NAMES.map(n => ({ name: n, args: skillArgs(n), needs: SKILL_INFO[n].needs, frames: SKILL_INFO[n].frames, adds: SKILL_INFO[n].adds })) };
 	if (!SKILL_NAMES.includes(name)) bad(`skill "${name}" is not a skill${didYouMean(String(name), SKILL_NAMES)} (skills: ${SKILL_NAMES.join(", ")})`);

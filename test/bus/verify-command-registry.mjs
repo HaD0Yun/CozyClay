@@ -7,17 +7,17 @@ import { parseSync } from 'rolldown/experimental';
 import { STUDIO_ACTION_IDS } from '../../src/studio-actions.js';
 import { COMMAND_MODULES, createStudioAppActions } from '../../src/commands/index.js';
 
-assert.deepEqual(Object.keys(COMMAND_MODULES), ['shot', 'cast', 'motion', 'motion3', 'physics', 'objects', 'kits', 'view', 'scene', 'project', 'export', 'ai', 'stage']);
+assert.deepEqual(Object.keys(COMMAND_MODULES), ['shot', 'cast', 'motion', 'motion3', 'motion3Fill', 'physics', 'objects', 'kits', 'view', 'scene', 'project', 'export', 'ai', 'stage']);
 const state = { shots: [], objects: [], characters: [], frame: 0, frameCount: 48, selectedObjectId: null, activeCharacterId: null, promptBlockCount: 0,
  generating: false, motionReady: true, exporting: false, canExportVideo: false, scenes: [{ id: 'scene', name: 'ONE' }], activeSceneId: 'scene',
  project: { name: null, hasFile: false, fileAccess: false, gesture: false }, aiShot: { mode: 'image', imageModel: 'gpt_image_2' },
  i2vMotion: { enabled: false, status: 'idle', dailyRemaining: null } };
 const registry = createStudioAppActions({ state: () => state });
-assert.equal(registry.ids().length, 120, 'the registry includes owned cast, motion (with the take timing edits), motion3, physics, kits and IK actions (and sculpt.compare)');
-assert.deepEqual([...registry.ids()].sort(), [...new Set([...STUDIO_ACTION_IDS, ...['stage', 'objects', 'kits', 'scene', 'project', 'shot', 'cast', 'motion', 'motion3', 'physics', 'view'].flatMap(name => COMMAND_MODULES[name].declarations.map(entry => entry.id))])].sort(), 'legacy ids plus the owned domain commands');
+assert.equal(registry.ids().length, 123, 'the registry includes owned cast, motion (with the take timing edits), motion3 (with motion.fill and motion.primitive), physics, kits and IK actions (and sculpt.compare)');
+assert.deepEqual([...registry.ids()].sort(), [...new Set([...STUDIO_ACTION_IDS, ...['stage', 'objects', 'kits', 'scene', 'project', 'shot', 'cast', 'motion', 'motion3', 'motion3Fill', 'physics', 'view'].flatMap(name => COMMAND_MODULES[name].declarations.map(entry => entry.id))])].sort(), 'legacy ids plus the owned domain commands');
 assert.deepEqual(registry.ids(), Object.values(COMMAND_MODULES).flatMap(module => module.declarations.map(entry => entry.id)), 'each id comes from its command module');
 const listed = registry.list();
-assert.equal(listed.length, 120, 'every action answers availability over the published state');
+assert.equal(listed.length, 123, 'every action answers availability over the published state');
 assert.equal(registry.state(), state, 'the registry reads the port object\'s state');
 
 // App.jsx keeps no registration of its own: no registry factory and no entry.

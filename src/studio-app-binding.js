@@ -47,7 +47,7 @@ export function createStudioAppBinding(ports) {
 	let physicsRevision = 0, viewRevision = 0;
 	function refresh() {
 		const document = Object.assign({}, ...(ports.storeDomains?.() ?? []).map(domain => domain.document()));
-		const raw = { ...ports.read(), ...document, document };
+		const read = ports.read(), raw = { ...read, ...document, document, busy: Boolean(read.busy || actionBus?.uiGesture?.()) }; // busy: studio-busy.js
 		const host = validateStudioIdentity(raw.host);
 		if (!same(owner, host)) {
 			owner = host; tokens.clear(); receipts.clear(); images.clear();
@@ -301,7 +301,7 @@ export function createStudioAppBinding(ports) {
 							.then(verification => { verified[index] = verification; }, error => { if (!(error instanceof StudioProtocolError)) throw error; skipped.push(`${name}: ${error.message}`); }));
 					});
 				}
-				if (args.checks.includes("motion")) exportFramingInto(result, { args, s, receipt, scene, ports }); if (args.visual !== "none") studioVisual(args, { s, receipt, result, images, ports });
+				if (args.checks.includes("motion")) exportFramingInto(result, { args, s, receipt, scene, ports }); if (args.visual !== "none") studioVisual(args, { s, receipt, result, images, ports, scene });
 				const finish = () => {
 					const computed = verified.filter(Boolean);
 					if (computed.length) result.verification = computed.length === 1 ? computed[0] : computed;

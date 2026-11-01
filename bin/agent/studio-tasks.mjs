@@ -26,7 +26,7 @@
 import { randomUUID } from "node:crypto";
 import { isScopeKey, scopeConflict } from "../../src/bus-task-scopes.js";
 
-export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000 });
+export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
 const ACTIVE = new Set(["queued", "waiting", "starting", "running", "paused", "review"]);
 const ENDED = new Set(["done", "failed", "cancelled"]);
 const norm = text => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -112,6 +112,8 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		if (failed) return { fail: `it depends on task ${failed.taskId} (${failed.title}), which ${failed.status === "failed" ? "failed" : "was cancelled"}` };
 		const open = task.dependsOn.map(id => tasks.get(id)).find(dep => dep.status !== "done");
 		if (open) return { kind: "deps", wait: `waits for task ${open.taskId} (${open.title}) to ${open.status === "review" ? "be accepted" : "finish"}` };
+		// the editor answered SCOPE_BUSY for a holder this board does not see: retry after the backoff, not at once
+		if (task.retryAt > now()) return { kind: "scope", wait: task.reason, retry: task.retryAt - now() };
 		const held = scopeConflict(task.taskId, task.scope, scopes());
 		if (held) return { kind: "scope", wait: `${held}` };
 		if (running().length >= L.cap) return { kind: "cap", wait: `${L.cap} tasks are running; it starts when one ends` };
@@ -133,7 +135,12 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		for (const task of list().filter(task => ["queued", "waiting"].includes(task.status)).sort((a, b) => score(b) - score(a) || a.createdAt - b.createdAt)) {
 			const held = blocker(task);
 			if (held?.fail) { end(task, "failed", { reason: held.fail }); continue; }
-			if (held) { waitOn(task, held.kind); if (task.reason !== held.wait) { task.status = "waiting"; task.reason = held.wait; tell("task.waiting", task); } continue; }
+			if (held) {
+				waitOn(task, held.kind);
+				if (held.retry && !task.wake) task.wake = setTimer(() => { task.wake = null; rescheduleNow(); }, held.retry);
+				if (task.reason !== held.wait || task.status !== "waiting") { task.status = "waiting"; task.reason = held.wait; tell("task.waiting", task); }
+				continue;
+			}
 			closeWait(task);
 			// Cache warm-up: the previous start's model has not answered yet, and STAGGER has not passed.
 			const wait = lastStart && !lastStart.warm ? lastStart.at + L.staggerMs - now() : 0;
@@ -152,7 +159,8 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		const deps = task.dependsOn.map(id => tasks.get(id)).map(dep => ({ taskId: dep.taskId, title: dep.title, summary: dep.summary, changed: dep.changed ?? [] }));
 		task.timer = setTimer(() => stop(task, `it ran past ${Math.round(L.maxMs / 60_000)} minutes`), L.maxMs);
 		task.onFrame = frame => {
-			if (task.status === "starting") { task.status = "running"; tell(resume ? "task.resumed" : "task.started", task); }
+			// a retry after SCOPE_BUSY says started once, not on every attempt
+			if (task.status === "starting") { task.status = "running"; if (!task.toldStart) tell(resume ? "task.resumed" : "task.started", task); task.toldStart = true; }
 			if (!mark.warm && ["text.delta", "tool.start", "thinking.delta"].includes(frame.type)) { mark.warm = true; rescheduleNow(); }
 			if (frame.type === "tool.start" && ++task.tools > L.maxTools) stop(task, `it made more than ${L.maxTools} tool calls`);
 		};
@@ -163,7 +171,14 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		clearTimer(task.timer);
 		if (lastStart?.taskId === task.taskId) lastStart.warm = true;
 		for (const key of Object.keys(task.usage)) if (Number.isFinite(result?.usage?.[key])) task.usage[key] += result.usage[key];
-		if (result.status === "scopeBusy") { waitOn(task, "scope"); task.status = "waiting"; task.reason = result.error?.message ?? "its scope is held by another task"; tell("task.waiting", task); }
+		if (result.status === "scopeBusy") {
+			// back off 1, 2, 4 .. 15 s; the waiting line is told once per distinct reason
+			const reason = result.error?.message ?? "its scope is held by another task";
+			task.busyTries = (task.busyTries ?? 0) + 1; task.retryAt = now() + Math.min(L.busyMaxMs, 1000 * 2 ** (task.busyTries - 1));
+			waitOn(task, "scope"); task.status = "waiting";
+			task.reason = reason;
+			if (task.busyReason !== reason) { task.busyReason = reason; tell("task.waiting", task); }
+		}
 		else if (result.status === "lost") { task.status = "paused"; task.reason = "Studio disconnected; it resumes when Studio reconnects to the same scene"; task.sceneId = result.sceneId; tell("task.paused", task); }
 		else {
 			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts) };
@@ -183,6 +198,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	}
 
 	function end(task, status, { reason, summary } = {}) {
+		if (task.wake) { clearTimer(task.wake); task.wake = null; }
 		// endedAt is when it stopped running: an accept after review does not move it.
 		closeWait(task); task.status = status; task.reason = reason; task.endedAt ??= now();
 		if (summary) task.summary = summary;
@@ -241,6 +257,7 @@ export function taskHeader(task, { deps = [], resume = null } = {}) {
 		`You are one of several tasks working on this scene at once. Your scope (the only things you may change): ${task.scope.join(", ")}.`,
 		"Everything else is read-only for you: another task or the user may be changing it. A command outside your scope is refused with SCOPE_DENIED; ask for more with run_action task.requestScope { taskId, scope }, and if that answers SCOPE_BUSY, do what you can inside your scope and say what is left.",
 		"When you finish, end with a short report for the coordinator in English: what you changed (receipt ids, ids), the QA problems left, and anything not done. The coordinator talks to the user.",
+		"Before you finish, check each visible criterion in the instructions (the user's words) and report it as met, unmet or not measurable by QA, with the measured value when there is one (anchor 7 cm off the bar). A QA count alone never means done.",
 		...deps.map(dep => `Earlier task ${dep.taskId} (${dep.title}) is done: ${dep.summary?.reply ?? ""}${dep.changed?.length ? ` It changed: ${dep.changed.join(", ")}.` : ""}`),
 		...(resume?.note ? [resume.note] : []),
 		"</task>", "", task.instructions].join("\n");

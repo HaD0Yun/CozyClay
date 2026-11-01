@@ -56,7 +56,7 @@ function TaskFrames({ client, turnId, labelOf }) {
 		let reply = "";
 		client.frames(turnId, frame => {
 			if (frame.type === "text.delta") { reply += frame.text ?? ""; setLines(list => [...list.filter(line => line.kind !== "reply"), { kind: "reply", text: reply }]); return; }
-			const label = frame.type === "tool.done" ? null : progressLine(frame, labelOf);
+			const label = frame.type === "tool.done" || (frame.type === "studio.waiting" && !frame.waiting) ? null : progressLine(frame, labelOf);
 			if (frame.type === "tool.start") reply = "";
 			if (label) setLines(list => [...list.filter(line => line.kind !== "reply"), ...(reply ? [{ kind: "said", text: reply }] : []), { kind: frame.type === "error" ? "error" : "tool", text: label }].slice(-40));
 		}, controller.signal).catch(() => {});

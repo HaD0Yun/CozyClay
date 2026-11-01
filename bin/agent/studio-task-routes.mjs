@@ -113,11 +113,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		};
 		try {
 			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: taskHeader(task, { deps, resume }), context, model: main.model, effort: main.effort, observe,
-				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, get lost() { return out.lost; } } }, "/agent/turn");
+				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, get lost() { return out.lost; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
 			return { status: "failed", error, usage: out.usage };
 		} finally { signal.removeEventListener("abort", stop); task.steer = null; }
+		// the task opened another scene of this workspace (scene.create): its coordinator follows, or its next report could not read
+		// the Studio (read_studio_context answers STALE_SCENE for the old scene) and the board stayed on Working / Being checked
+		const adopted = studioSessions.get(sessionId)?.host;
+		if (adopted && main.host && adopted.workspaceId === main.host.workspaceId && adopted.sceneId !== main.host.sceneId) main.host = { ...main.host, ...adopted };
 		await seenRead;
 		if (out.lost && pending > 0) task.midCommand = true;
 		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage };

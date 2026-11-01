@@ -1,4 +1,5 @@
 import { isProxyFigure } from "./scenes.js";
+import { samplePlacement } from "./motion/placement-keys.js";
 
 // Frame-addressed scene placement. No renderer or waypoint authoring state.
 export function sampleRootPath(character, frame, { fps = 24 } = {}) {
@@ -41,6 +42,9 @@ export function resolveCharacterPlacement(character, frame, { shotAt = () => nul
 // still.
 export function placementAt(character, frame, { shotAt = () => null, takeRoot = null } = {}) {
 	if (takeRoot) return resolveCharacterPlacement(character, frame, { takeRoot });
+	// Pose-mode placement keys (motion/placement-keys.js) move a character without a take between its keyed spots.
+	const keyed = samplePlacement(character.placementKeys, frame);
+	if (keyed) return { ...character, ...keyed };
 	const shot = shotAt(frame);
 	if (isProxyFigure(character)) return resolveCharacterPlacement(character, frame, { shotAt: () => shot });
 	if (shot?.kind === "still") return { ...character, ...shot.cast?.[character.id] };

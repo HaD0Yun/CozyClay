@@ -1,0 +1,29 @@
+{
+	"schema": "cozyclay.motion-spec.v1",
+	"label": "sit down (MotionBricks fill demo)",
+	"frames": 43,
+	"flow": false,
+	"keys": [
+		{ "f": 0, "set": {
+			"root": [0, 1.016, 0], "yaw": 0, "pitch": 0, "roll": 0,
+			"spine_yaw": 0, "spine_pitch": 0, "spine_roll": 0, "head_yaw": 0, "head_pitch": 0, "head_roll": 0,
+			"foot_l": [0.1, 0.087, 0.0], "foot_r": [-0.1, 0.087, 0.0], "fyaw_l": 0, "fyaw_r": 0, "fpitch_l": 0, "fpitch_r": 0,
+			"knee_l": [0.1, 0, 1], "knee_r": [-0.1, 0, 1],
+			"armw_l": 1, "armw_r": 1, "hand_l": [0.24, 0.9, 0.0], "hand_r": [-0.24, 0.9, 0.0],
+			"elbow_l": [0.3, -0.2, -0.9], "elbow_r": [-0.3, -0.2, -0.9] } },
+		{ "f": 20, "set": {
+			"root": [0, 0.82, -0.13], "yaw": 0, "pitch": 18, "roll": 0,
+			"spine_yaw": 0, "spine_pitch": 18, "spine_roll": 0, "head_yaw": 0, "head_pitch": -18, "head_roll": 0,
+			"foot_l": [0.1, 0.087, 0.0], "foot_r": [-0.1, 0.087, 0.0], "fyaw_l": 0, "fyaw_r": 0, "fpitch_l": 0, "fpitch_r": 0,
+			"knee_l": [0.2, 0.2, 0.96], "knee_r": [-0.2, 0.2, 0.96],
+			"hand_l": [0.22, 0.78, 0.12], "hand_r": [-0.22, 0.78, 0.12],
+			"elbow_l": [0.4, -0.3, -0.8], "elbow_r": [-0.4, -0.3, -0.8] } },
+		{ "f": 42, "set": {
+			"root": [0, 0.56, -0.3], "yaw": 0, "pitch": 4, "roll": 0,
+			"spine_yaw": 0, "spine_pitch": 22, "spine_roll": 0, "head_yaw": 0, "head_pitch": -16, "head_roll": 0,
+			"foot_l": [0.1, 0.087, 0.0], "foot_r": [-0.1, 0.087, 0.0], "fyaw_l": 0, "fyaw_r": 0, "fpitch_l": 0, "fpitch_r": 0,
+			"knee_l": [0.2, 0.45, 0.87], "knee_r": [-0.2, 0.45, 0.87],
+			"hand_l": [0.15, 0.62, -0.02], "hand_r": [-0.15, 0.62, -0.02],
+			"elbow_l": [0.5, -0.5, -0.7], "elbow_r": [-0.5, -0.5, -0.7] } }
+	]
+}

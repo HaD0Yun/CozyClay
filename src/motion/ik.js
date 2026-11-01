@@ -1066,7 +1066,8 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 	for (const chain of rig.values()) {
 		chainClipPositions.set(chain, { frame, positions: chain.bones.map((bone) => bone.position.clone()) });
 	}
-	for (const id of ikState.tracked) {
+	// "placement" is the whole character's spot (placement-keys.js), no bone
+	for (const id of [...ikState.tracked].filter(track => track !== "placement")) {
 		const chain = rig.get(id);
 		const sampled = sampleChain(ikState.keys, id, frame, chain);
 		if (!sampled) continue;

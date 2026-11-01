@@ -82,6 +82,8 @@ test('open scopes follow the bus; a progress line names the tool or the error', 
 	assert.equal(progressLine({ type: 'tool.start', name: 'run_action' }, call => `label ${call.name}`), 'label run_action');
 	assert.match(progressLine({ type: 'error', code: 'SCOPE_BUSY', message: 'held' }), /held/);
 	assert.equal(progressLine({ type: 'text.delta', text: 'x' }), null);
+	assert.match(progressLine({ type: 'studio.waiting', reason: 'gesture', waiting: true }), /Waiting: the user is editing|사용자가 편집 중/);
+	assert.doesNotMatch(progressLine({ type: 'studio.waiting', reason: 'gesture', waiting: false }), /Error|오류|TARGET_BUSY/);
 });
 
 /** A Worker the test drives: it answers only when told, so the pool's concurrency can be read. */

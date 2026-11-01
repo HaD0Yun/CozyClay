@@ -133,6 +133,7 @@ export function validateSpec(spec, { sk, scene, lenient = false, problems = [] }
 	for (const k of Object.keys(spec)) if (!SPEC_FIELDS.includes(k)) unknown(`spec.${k} is not a spec field${didYouMean(k, SPEC_FIELDS)} (fields: ${SPEC_FIELDS.join(", ")})`);
 	if (spec.fps !== undefined && spec.fps !== 24) err(`spec.fps must be 24, the timeline rate, got ${fmt(spec.fps)}`);
 	validateFlow(spec.flow, err, unknown);
+	if (spec.fill !== undefined && typeof spec.fill !== "boolean") err(`spec.fill must be true or false (false: motion.compile does not fill between key poses with MotionBricks), got ${fmt(spec.fill)}`);
 	const frames = spec.frames;
 	if (!Number.isInteger(frames) || frames < 1 || frames > 20000) err(`spec.frames must be an integer 1..20000 or "auto", got ${fmt(frames)}`);
 	const past = Number.isInteger(frames) ? pastEndAdvice(spec, frames) : "";

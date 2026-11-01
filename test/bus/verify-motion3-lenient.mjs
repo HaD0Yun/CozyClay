@@ -23,7 +23,8 @@ function expect(name, condition, detail = "") {
 }
 const refusal = run => { try { run(); return ""; } catch (error) { return error.message.replace(/^MOTION_SPEC_INVALID: /, ""); } };
 const sk = skeletonFor("y-bot-tpose"), m3 = v => Math.round(v * 1000) / 1000;
-const compile = (run, spec = run.spec) => compileSpec(spec, { sk, scene: motionScene(batKit(run.kitAt)) });
+// the skill's own frames are measured: fix.retime (on by default) would move the swing's keys, and the reach with them
+const compile = (run, spec = run.spec) => compileSpec({ ...spec, fix: { ...spec.fix, retime: false } }, { sk, scene: motionScene(batKit(run.kitAt)) });
 /** The largest difference of any baked channel value (a number, a vector or a preset map) on frames 0..to. */
 const diffUpTo = (a, b, to) => {
 	const d = (x, y) => (typeof x === "number" ? Math.abs(x - y) : Math.max(0, ...Object.keys(x).map(k => d(x[k], y?.[k] ?? NaN))));

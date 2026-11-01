@@ -198,7 +198,8 @@ export function walk(gen, keys, sk, tag = "walk") {
 }
 
 export function expandGenerators(spec, sk) {
-	let keys = (spec.keys ?? []).map((k, i) => (k.src ? k : { ...k, src: `keys[${i}]` }));
+	// a key filled by MotionBricks (src: "fill" or a pass-through "pass", bricks/fill.js) is the spec's own: QA names it keys[i] like any other
+	let keys = (spec.keys ?? []).map((k, i) => (k.src && !/^(fill(#|$)|pass$)/.test(k.src) ? k : { ...k, src: `keys[${i}]`, ...(/^fill(#|$)/.test(k.src ?? "") ? { fill: true } : {}) }));
 	(spec.generators ?? []).forEach((gen, i) => {
 		if (gen.type !== "walk") throw new Error(`MOTION_SPEC_INVALID: generators[${i}] has unknown type "${gen.type}" (only "walk")`);
 		keys = keys.concat(walk(gen, keys, sk, `generators[${i}] walk`));

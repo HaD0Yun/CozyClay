@@ -142,4 +142,12 @@ export const ZH_TIMELINE = {
 	"Click at a frame to store the current camera framing": "在某一帧点击以保存当前摄影机取景",
 	"Click the set floor in the Shot view to add waypoints": "在镜头视图中点击布景地面添加路径点",
 	"Expand timeline": "展开时间线",
+	// the Sequencer key bar (shell/PoseKeyBar.jsx)
+	"Generating the transition with MotionBricks…": "正在用 MotionBricks 生成过渡…",
+	"Timeline length in frames (24 fps)": "时间轴长度（帧，24fps）",
+	"Frames": "帧数",
+	"Key the whole pose and the character's spot at the playhead (K; Shift+K removes)": "在播放头处为整个姿势和角色位置设置关键帧（K；Shift+K 删除）",
+	"Transition between two poses (free spans): MotionBricks generates the motion between neighbouring keyed frames, then it compiles, checks and installs": "两个姿势之间的过渡生成（用于自由区间）：MotionBricks 生成相邻关键帧之间的动作，然后编译、检查并安装",
+	"Generating…": "生成中…",
+	"Fill transition (free spans)": "生成过渡（自由区间）",
 };

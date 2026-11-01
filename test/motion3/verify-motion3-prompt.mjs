@@ -23,9 +23,10 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // +55 for the cast-style fallback (an absent scene.castStyle is hybrid): +55
 // +558 for the hybrid cast gate (skills, contacts and rigs decide before any rig work; stuck or hint stops repairs): +558
 // +80 for the gate's failing-QA guard (a stuck output whose take passes QA is no reason to ask): +80
-check("the whole prompt is at most 14,936 characters", () => assert.ok(prompt.length <= 14936, `${prompt.length}`));
-check("the motion part is at most 2,690 characters", () => {
-	assert.ok(motion.length > 0 && motion.length <= 2690, `${motion.length}`);
+// +475 for the stop rule (QA 0 is done; 4 flat rounds with 4 or fewer problems, else 8; a closing ifClean compile of the best take): +475
+check("the whole prompt is at most 16,134 characters", () => assert.ok(prompt.length <= 16134, `${prompt.length}`));
+check("the motion part is at most 3,720 characters", () => {
+	assert.ok(motion.length > 0 && motion.length <= 3720, `${motion.length}`);
 });
 check("the prompt names describe, grab, goals, repair, base, beats and the 0.01 m scale floor", () => {
 	for (const word of ["motion.describe", "grab", "goals", "repair", "base", "\"beats\"", "0.01 m"]) assert.ok(prompt.includes(word), word);
@@ -41,6 +42,10 @@ check("the motion part states the procedure", () => {
 		/visual: "contact_sheet", frames: "beats"/, /visual: "trace"/, /Report qa\.problems, not qa\.total, the goals and output\.fixed/, /read output\.observations near and wrist and verify_result exportFraming/, /output\.observations, not QA/, /views, focus, trail/,
 		/Key the extremes .*never an even beat: vary the gaps/, /Lead with root, hands and feet; leave spine, head and arm swing to flow/, /a few frames off the pelvis/, /same pose on the same frame only when the action needs it/,
 		/fix the worst output\.observations\.life warning/]) assert.match(motion, rule);
+});
+check("the motion part states the stop rule and ends on an installed take", () => {
+	for (const rule of [/When QA reports 0 problems, you are done/, /With 4 or fewer problems, stop after 4 rounds without improvement; otherwise after 8 \(output\.noImprovementRounds\)/,
+		/compile once more with install: "ifClean" on the best specId/, /never end a task without an installed take/]) assert.match(motion, rule);
 });
 check("no sentence describes objects only as hinged doors", () => {
 	assert.doesNotMatch(prompt, /\(doors\)/);

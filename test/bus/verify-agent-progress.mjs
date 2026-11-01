@@ -41,7 +41,7 @@ test('every compile publishes a draft, installed or not; images are kept; clear 
 		compile({ spec: missed, install: 'ifClean' });
 		const two = latestDraft('actor-a');
 		assert.equal(two.n, 2);
-		assert.equal(two.installed, false);
+		assert.equal(two.installed, true, 'ifClean with no take on installs the first take, even one that misses a goal');
 		assert.deepEqual(two.qa.goals.map(g => [g.name, g.ok]), [['hand at head', false]], 'goals are published with their result');
 
 		compile({ spec: walkSpec(model, 140) });

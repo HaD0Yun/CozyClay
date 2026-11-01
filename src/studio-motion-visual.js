@@ -8,8 +8,10 @@ import { buildContactSheet, paintDots, sampleContactSheetFrames, sheetGrid, view
 import { compileSpec } from "./motion3/pipeline.js";
 import { motionScene } from "./motion3/scene.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
-import { beatFrames, grabReleases, traceSeries, TRACE_COLORS } from "./motion3/beats.js";
-import { cameraAt, depthViews, projectPoint, trailPoints, viewCameras } from "./motion3/views.js";
+import { actionFrames, beatFrames, grabReleases, traceSeries, TRACE_COLORS } from "./motion3/beats.js";
+import { blockersAt } from "./motion3/sightline.js";
+import { placedOut } from "./motion3/shot-framing.js";
+import { cameraAt, depthViews, focusPoints, projectPoint, trailPoints, viewCameras } from "./motion3/views.js";
 import { checkRef } from "./motion3/refs.js";
 import { renderWithGhosts } from "./ghost-set.js";
 import { GHOST_COLORS, sheetGhostSettings } from "./view-ghosts.js";
@@ -19,7 +21,7 @@ import { sheetCaption } from "./workflow/agent-progress-view.js";
 // verify_result's lighting check also reads the rendered shot frame; the binding imports it from here.
 export { verifyLighting } from "./studio-lighting-check.js";
 
-const TIMELINE_FPS = 24, TRACE_WIDTH = 960, TRACE_HEIGHT = 360, PAD = 12;
+const HIDDEN_SHARE = 0.5, TIMELINE_FPS = 24, TRACE_WIDTH = 960, TRACE_HEIGHT = 360, PAD = 12;
 const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 /** [first, last] absolute frames of a verify_result range ("whole_clip" or none: the timeline). */
@@ -32,7 +34,7 @@ function takeCompile(args, s, receipt) {
 		const sk = take?.schema === "cozyclay.take.v3" && take.spec ? skeletonFor(take.rig ?? character?.model) : null;
 		if (!character || !sk) continue;
 		try {
-			return { ...compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true }), characterId: id };
+			return { ...compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true }), characterId: id, placement: take.placement };
 		} catch { return null; }
 	}
 	return null;
@@ -92,8 +94,11 @@ function viewSheet(args, r, { s, frames, span, grid, picks, ports, added }) {
 	if (!cameras.length) throw new StudioProtocolError("TARGET_NOT_READY", "views found no compiled frame of the take in the range.");
 	const cells = cameras.flatMap(cam => frames.map(frame => ({ cam, frame }))), target = args.ghosts ? s.targets.get(r.characterId) : null;
 	if (args.ghosts && !target?.rig) throw new StudioProtocolError("TARGET_NOT_READY", "ghosts pose a copy of the character's rig; it has not loaded in the editor yet.");
+	const seen = [];
 	const sheet = buildContactSheet(cells, ({ cam: view, frame }) => {
-		const cam = cameraAt(view, frame), render = () => ports.renderFrameBuffer(frame, { eye: cam.eye, quaternion: cam.quaternion, fovDeg: cam.fovDeg, output: { width: side, height: side } });
+		const cam = cameraAt(view, frame), { by: fade } = blockersAt(r.out, cam.eye, frame, focusPoints(r.out, frame, focus));
+		if (fade.length) seen.push({ view: view.name, frame, objects: fade });
+		const render = () => ports.renderFrameBuffer(frame, { eye: cam.eye, quaternion: cam.quaternion, fovDeg: cam.fovDeg, output: { width: side, height: side }, fade });
 		const tile = target ? renderWithGhosts({ rig: target.rig, take: target.motion, objects: s.objects }, frame, render) : render();
 		const dots = trails.flatMap(t => t.points.map(({ f, p }) => [f, projectPoint(cam, p, tile.width, tile.height), rgb(t.color)])
 			.filter(([, q]) => q).map(([f, [x, y], color]) => ({ x, y, color, r: f === frame ? 4 : 1.5, alpha: f <= frame ? 1 : 0.35, ring: f === frame })));
@@ -101,12 +106,26 @@ function viewSheet(args, r, { s, frames, span, grid, picks, ports, added }) {
 	}, grid);
 	const views = cameras.map(cam => ({ name: cam.name, eye: round2(cam.eye), target: round2(cam.target), ...(cam.ride ? { rides: "focus" } : {}) }));
 	const ref = { frames, layout: grid.layout, views, ...(added ? { addedView: added } : {}), focus: focus.length ? focus : "character", ...(trails.length ? { trails: trails.map(({ ref: of, color }) => ({ ref: of, color })) } : {}), ...(picks ? { picks } : {}),
+		...(seen.length ? { seeThrough: seen } : {}),
 		...(target ? { ghosts: { ...sheetGhostSettings(), ...GHOST_COLORS } } : {}) };
 	return [{ dataUrl: ports.encodePng(sheet.data, sheet), width: sheet.width, height: sheet.height, frames, layout: grid.layout, views: views.map(v => v.name) }, ref];
 }
 
+/** The sheet frames a scene body hides at least HIDDEN_SHARE of the character from the shot camera: { hidden, hint }, or nothing. */
+function shotHidden(r, frames, ports, scene) {
+	if (!r || !scene || typeof ports.sampleStateAt !== "function") return {};
+	const character = scene.characters?.find(c => c.id === r.characterId), out = character ? placedOut(r.out, r.placement, character) : r.out;
+	const hidden = frames.flatMap(f => {
+		const at = (ports.sampleStateAt(f, scene)?.camera ?? scene.camera)?.position;
+		if (!at) return [];
+		const { share, by } = blockersAt(out, [at.x, at.y, at.z], f);
+		return share >= HIDDEN_SHARE ? [{ f, share, by }] : [];
+	});
+	return hidden.length ? { hidden, hint: "Scene bodies hide the character from the shot camera on these frames, so these tiles do not show the motion. Add views (own cameras draw what blocks them see-through) to check it, and move the shot camera if the export must show it." } : {};
+}
+
 /** Answers args.visual into result.visualRefs and keeps the image for resolve_studio_image. */
-export function studioVisual(args, { s, receipt, result, images, ports }) {
+export function studioVisual(args, { s, receipt, result, images, ports, scene }) {
 	const keep = (image, ref) => {
 		const imageId = crypto.randomUUID();
 		images.set(imageId, { ...image, revision: s.revision, receiptId: result.receiptId });
@@ -126,13 +145,13 @@ export function studioVisual(args, { s, receipt, result, images, ports }) {
 		let frames = sampleContactSheetFrames(args.range, s.frameCount), picks, adjusted;
 		// named frames past the range are drawn at its nearest end, and visualRefs[0].adjusted says so (lenient.js)
 		if (Array.isArray(args.frames)) ({ frames, adjusted } = clampFrames(args.frames, span));
-		else if (args.frames === "beats") ({ frames, picks } = beatFrames({ range: span, even: frames, timeline: r?.timeline, groups: r?.qa.groups, objects: r?.expanded.objects }));
+		else if (args.frames === "beats") ({ frames, picks } = beatFrames({ range: span, even: frames, timeline: r?.timeline, groups: r?.qa.groups, objects: r?.expanded.objects, actions: r ? actionFrames(r.out, span, TIMELINE_FPS) : [] }));
 		// Views of its own always include two that look across each other (motion3/views.js depthViews).
 		const depth = args.views ? depthViews(args.views) : null, grid = sheetGrid(frames.length, depth?.views.length ?? 0);
 		const said = ref => (adjusted ? { ...ref, adjusted } : ref);
 		if (depth) { const [image, ref] = viewSheet({ ...args, views: depth.views }, r, { s, frames, span, grid, picks, ports, added: depth.added }); return keep(image, said(ref)); }
-		const sheet = buildContactSheet(frames, ports.renderFrameBuffer, grid);
-		return keep({ dataUrl: ports.encodePng(sheet.data, sheet), width: sheet.width, height: sheet.height, frames, layout: grid.layout }, said({ frames, layout: grid.layout, ...(picks ? { picks } : {}) }));
+		const sheet = buildContactSheet(frames, ports.renderFrameBuffer, grid), hidden = shotHidden(r ?? takeCompile(args, s, receipt), frames, ports, scene);
+		return keep({ dataUrl: ports.encodePng(sheet.data, sheet), width: sheet.width, height: sheet.height, frames, layout: grid.layout }, said({ frames, layout: grid.layout, ...(picks ? { picks } : {}), ...hidden }));
 	}
 	if (args.visual === "trace") {
 		const r = takeCompile(args, s, receipt);

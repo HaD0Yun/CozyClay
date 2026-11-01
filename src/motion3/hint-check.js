@@ -17,7 +17,7 @@ const r2 = x => Math.round(x * 100) / 100;
  * checkHints(spec, qa, compile) -> qa (its groups changed in place)
  * @param {object} spec  the spec the patches address (qa's own)
  * @param {object} qa  runMotionQa's answer for spec
- * @param {(spec: object) => object} compile  spec -> its qa
+ * @param {(spec: object) => object | null} compile  spec -> its qa, or null when it is out of time (the patch is dropped)
  */
 export function checkHints(spec, qa, compile) {
 	let n = 0;
@@ -30,6 +30,8 @@ export function checkHints(spec, qa, compile) {
 		try { next = compile(applyPatch(spec, g.patch)); } catch (error) { next = { error: String(error?.message ?? error).slice(0, 160) }; }
 		const tried = g.patch.map(o => `${o.op} ${o.path}`).join(", "), patch = g.patch;
 		delete g.patch;
+		// null: the compile had used its time (compile-job.js HINT_LIMIT_MS), so the patch is not compiled and not offered
+		if (next === null) { g.patchTried = `${tried}: not compiled (the compile had used its time)`; continue; }
 		if (next?.error || !next?.groups) { g.patchTried = `${tried}: does not compile (${next?.error ?? "no QA"})`; continue; }
 		const own = [r2(severityIn(qa, key)), r2(severityIn(next, key))], v = compareQa(next, qa);
 		if (own[1] < own[0] && v.better) {

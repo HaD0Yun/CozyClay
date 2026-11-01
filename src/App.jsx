@@ -29,6 +29,7 @@ import { restorePlaybackBones, snapshotPlaybackBones } from "./motion/rig-snapsh
 import { applyTakeFrame } from "./motion3/playback.js";
 
 import { FlyControls, aimAt, forwardFrom } from "./controls.jsx";
+import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
@@ -222,6 +223,7 @@ import {
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
+import { studioBusy } from "./studio-busy.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
 import {
 	CameraGlide,
@@ -3696,21 +3698,8 @@ export default function App() {
 			captureFraming: (framing, output) => appContext.live.state.captureFramingPng(framing, output),
 			characterScale: activeChar?.scale ?? 1,
 			characterModel: activeChar?.model ?? null,
-			// QA-only framing: FlyControls rewrites the editor camera's rotation
-			// from editorLook every frame, so a bare camera.lookAt is overwritten
-			// before the next paint. Set both, the way the live frame_shot does.
-			frameEditorCam: (position, target) => {
-				const camera = editorCamRef.current;
-				if (!camera) return false;
-				const angles = aimAt(position, target);
-				editorLook.current.yaw = angles.yaw;
-				editorLook.current.pitch = angles.pitch;
-				camera.position.set(position.x, position.y, position.z);
-				camera.rotation.order = "YXZ";
-				camera.rotation.set(angles.pitch, angles.yaw, 0);
-				camera.updateProjectionMatrix();
-				return true;
-			},
+			// QA framing: the same move as run_action view.frame, without leaving Look Through.
+			frameEditorCam: (position, target) => frameEditorView(editorCamRef.current, editorLook.current, position, target),
 			lookThroughShot,
 			setLookThrough: (value) => setLookThroughShot(!!value),
 			charA,
@@ -4173,8 +4162,8 @@ export default function App() {
 			objects: storeRef.current.objects, characters: list, targets, shots: live.shots, frameCount: live.timeline.frameCount,
 			selection: live.studioSelection, activeCharacterId: live.activeCharacterId, selectedShotId: live.studioShotId,
 			view: live.studioView, camera: live.studioCamera ?? readStudioCamera(), filmback: live.filmback, manual: manualCameraOverrideRef.current,
-			bridgeReady: false, busy: storeRef.current.present() !== storeRef.current.objects || Boolean(studioGestureRef.current ||
-				ikBodyDragRef.current || recRef.current) };
+			// The user's drag transaction is added by the binding (studio-busy.js); clicks, orbit, scrubbing and playback never count.
+			bridgeReady: false, busy: studioBusy({ ikBodyDrag: ikBodyDragRef.current, recording: recRef.current }) };
 	}
 	function sampleStudioStateAt(frame, current = readStudioState()) {
 		const shot = shotAtFrame(current.shots ?? current.shotDocument?.shots ?? [], frame);
@@ -4308,17 +4297,9 @@ export default function App() {
 		// names no mode keeps the editor in it.
 		setTlFrame(frame); setWorkflowMode((current) => (current === "sculpt" && !modeSet && view.mode === "scene" ? current : view.mode)); setLookThroughShot(view.lookThrough); setGridView(view.grid); setAutoColor(view.autoColor); setTlPlaying(view.playing);
 	}
-	const studioGestureRef = useRef(false);
 	// The Studio turn authors the scene through its own families and never
 	// returns an image, so there is no image action for this host to accept.
 	// The Workflow dock keeps its half of that contract.
-	useEffect(() => {
-		if (embedMode) return;
-		const down = event => { if (event.target.closest?.("canvas, .inspector-scroll, .tl-body, .plan-board")) studioGestureRef.current = true; };
-		const up = () => { studioGestureRef.current = false; };
-		window.addEventListener("pointerdown", down, true); window.addEventListener("pointerup", up, true); window.addEventListener("pointercancel", up, true);
-		return () => { window.removeEventListener("pointerdown", down, true); window.removeEventListener("pointerup", up, true); window.removeEventListener("pointercancel", up, true); };
-	}, [embedMode]);
 	const selectedStudioChar = charIdFromHierarchyId(parseRigNodeId(selectedHierarchyId)?.rowId ?? selectedHierarchyId);
 	appContext.patchLive({
 		studioSelection: selectedSceneObjectId ? { kind: "object", id: selectedSceneObjectId, hierarchyId: selectedHierarchyId } :
@@ -4386,6 +4367,7 @@ export default function App() {
 		addCharacterWaypoint, moveCharacterWaypoint, removeCharacterWaypoint, clearCharacterWaypoints, setWaypointMode,
 		setCharacterIkKey, removeCharacterIkKey, clearCharacterIkKeys, attachSceneObject, setShotCameraRail, clearShotCameraRail,
 		choosePartColours, setGuideMode, setInsetCollapsed, exportShotVideo,
+		frameEditorView: (position, target) => { setLookThroughShot(false); return frameEditorView(editorCamRef.current, editorLook.current, position, target); },
 		readView: readStudioState, publishView: operateStudio, canPose: () => !poseRefusal,
 		switchSceneDocument, addSceneDocument, duplicateSceneDocument, renameSceneDocument, deleteSceneDocument,
 		afterRender: () => new Promise(resolve => renderWaitersRef.current.push(resolve)),

@@ -9,6 +9,7 @@ import * as shot from "./shot.js";
 import * as cast from "./cast.js";
 import * as motion from "./motion.js";
 import * as motion3 from "./motion3.js";
+import * as motion3Fill from "./motion3-fill.js";
 import * as objects from "./objects.js";
 import * as view from "./view.js";
 import * as scene from "./scene.js";
@@ -19,7 +20,7 @@ import * as stage from "./stage.js";
 import * as kits from "./kits.js";
 import * as physics from "./physics.js";
 
-export const COMMAND_MODULES = Object.freeze({ shot, cast, motion, motion3, physics, objects, kits, view, scene, project, export: exporting, ai, stage });
+export const COMMAND_MODULES = Object.freeze({ shot, cast, motion, motion3, motion3Fill, physics, objects, kits, view, scene, project, export: exporting, ai, stage });
 
 export function commandDeclarations(modules = COMMAND_MODULES) {
 	return Object.values(modules).flatMap(module => module.declarations.map(declaration => ({

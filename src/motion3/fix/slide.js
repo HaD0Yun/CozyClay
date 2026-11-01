@@ -12,7 +12,8 @@ import { QA_LIMITS } from "../qa/checks.js";
 import { groundSole } from "../qa/ground.js";
 import { round4 } from "./ease.js";
 
-const MAX_DRIFT = 0.01, DECAY = 4, PIVOT_H = 0.03, EASE_STEP = 0.02;
+// a pivot the keys carry farther than PIVOT_MAX is not a turn on the spot but the foot going somewhere (a kneel, a step back): let it go
+const MAX_DRIFT = 0.01, DECAY = 4, PIVOT_H = 0.03, EASE_STEP = 0.02, PIVOT_MAX = 0.15;
 
 export function lockFeet(out, engine) {
 	const n = out.frames.length, H = QA_LIMITS.plantH;
@@ -43,7 +44,7 @@ export function lockFeet(out, engine) {
 				hold(j);
 			}
 			if (pivot && max >= MAX_DRIFT) for (; j < n && sole[j][key][1] < PIVOT_H; j++) hold(j);
-			if (max > 2e-4 && (max < MAX_DRIFT || pivot)) {
+			if (max > 2e-4 && (max < MAX_DRIFT || (pivot && max < PIVOT_MAX))) {
 				plants++; worst = Math.max(worst, max);
 				if (max >= MAX_DRIFT) pivots++;
 				for (const [jj, d] of run) delta[jj] = d;

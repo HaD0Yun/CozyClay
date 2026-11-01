@@ -41,7 +41,7 @@ function speedHint(X, g, power) {
 	const factor = Math.ceil(Math.pow(g.worst / g.limit, power) * 1.1 * 10) / 10;
 	const a = Math.round(prev?.f ?? f - 4), b = Math.round(next?.f ?? f + 4), extra = Math.ceil((b - a) * (factor - 1));
 	const anchor = /^w_(.+)_[lr]$/.exec(ch);
-	return { cause: X.cause(ch, f), hint: `retime: stretch f${a}-f${b} by ${factor}x (+${extra} frames, move the keys from f${b} on later)${anchor ? ` - the hand switches to anchor ${anchor[1]} too fast` : ""}; or fix.retime: true`,
+	return { cause: X.cause(ch, f), hint: `retime: stretch f${a}-f${b} by ${factor}x (+${extra} frames, move the keys from f${b} on later)${anchor ? ` - the hand switches to anchor ${anchor[1]} too fast` : ""}`,
 		fix: X.spec.fix === false ? undefined : { path: "/fix/retime", value: true } };
 }
 

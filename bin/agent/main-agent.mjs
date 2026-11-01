@@ -41,7 +41,10 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 				return { ok: true, taskId, queued: true };
 			} },
 		{ ...fn("cancel_task", "Stop a task; what it changed goes back.", { taskId: { type: "string" } }, ["taskId"]),
-			handler: ({ taskId }) => bare(board.cancel(taskId) ?? fail("STALE_TARGET", `Task ${taskId} is not running or queued.`)) },
+			// an ended task holds nothing on the board; a scope its run left open in the editor is released by the next task's begin
+			handler: ({ taskId }) => { const task = board.get(taskId) ?? fail("STALE_TARGET", `No task ${taskId}.`), view = board.cancel(taskId);
+				if (!view && task.status === "review") fail("STALE_TARGET", `Task ${taskId} is in review: accept_task or reject_task it.`);
+				return view ? bare(view) : { taskId, status: task.status, note: `Task ${taskId} already ended (${task.status}); its scope is free: dispatch the next task now.` }; } },
 		{ ...fn("accept_task", "Accept a task in review (dispatched with verify): it is done and the tasks that depend on it start.", { taskId: { type: "string" } }, ["taskId"]),
 			handler: ({ taskId }) => bare(board.accept(taskId) ?? fail("STALE_TARGET", `Task ${taskId} is not in review.`)) },
 		{ ...fn("reject_task", "Reject a task in review: it fails with your reason and the tasks that depend on it fail too. Its changes stay (the user can undo the task).", { taskId: { type: "string" }, reason: { type: "string", maxLength: 300 } }, ["taskId", "reason"]),
@@ -62,10 +65,30 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 }
 
 /** The board and the events the main agent has not seen yet, appended to its Studio context each turn. */
+// What one turn's context may carry about tasks: a stuck task once told 7021 events in a minute and the next message
+// no longer fit the model (prompt too long). Repeats fold into one line with a count; the newest lines win.
+const MAX_EVENTS = 50, MAX_EVENT_BYTES = 20_000, MAX_BOARD = 24, MAX_BOARD_BYTES = 20_000;
+const cut = (text, n) => (typeof text === "string" && text.length > n ? `${text.slice(0, n - 1)}…` : text);
+const slim = ({ timing: _timing, usage: _usage, summary, reason, ...view }) => ({ ...view, ...(reason ? { reason: cut(reason, 400) } : {}), ...(summary ? { summary: { reply: cut(summary.reply, 1200) } } : {}) });
+const capped = (items, max, bytes) => {
+	const kept = items.slice(-max);
+	while (kept.length > 1 && JSON.stringify(kept).length > bytes) kept.shift();
+	return { kept, dropped: items.length - kept.length };
+};
+
+/** The <task-board> and <task-events> blocks of the main agent's next message, each under ~20 KB whatever happened. */
 export function mainContextText(board, events) {
-	const rows = board.board().map(bare).map(task => ({ ...task, usage: { cost: Number(task.usage.cost.toFixed(4)), requests: task.usage.requests } }));
-	const told = events.map(bare);
-	return `\n<task-board>${JSON.stringify(rows)}</task-board>${told.length ? `\n<task-events>${JSON.stringify(told)}</task-events>` : ""}`;
+	const rows = capped(board.board().map(bare).map(task => ({ ...slim(task), usage: { cost: Number(task.usage.cost.toFixed(4)), requests: task.usage.requests } })), MAX_BOARD, MAX_BOARD_BYTES);
+	const folded = [];
+	for (const event of events.map(slim)) {
+		const last = folded.findLast(e => e.taskId === event.taskId);
+		const flip = ["task.waiting", "task.started"], same = last && flip.includes(event.type) && flip.includes(last.type) && (!event.reason || !last.reason || last.reason === event.reason);
+		if (same) Object.assign(last, { repeats: (last.repeats ?? 1) + 1, type: event.type, status: event.status, at: event.at, reason: event.reason ?? last.reason });
+		else folded.push(event);
+	}
+	const told = capped(folded, MAX_EVENTS, MAX_EVENT_BYTES);
+	const more = (n, what) => (n ? `\n(${n} older ${what} left out)` : "");
+	return `\n<task-board>${JSON.stringify(rows.kept)}${more(rows.dropped, "tasks")}</task-board>${told.kept.length ? `\n<task-events>${JSON.stringify(told.kept)}${more(told.dropped, "events")}</task-events>` : ""}`;
 }
 
 const DONE = /(완료|끝났|끝냈|마쳤|마무리|설치했|적용했|반영했|해결했|\bdone\b|\bfinished\b|\bcompleted?\b|\binstalled\b|\bapplied\b)/i;

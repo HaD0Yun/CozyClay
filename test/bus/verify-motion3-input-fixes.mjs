@@ -69,7 +69,7 @@ const ifClean = compile({ spec: idle, install: "if_clean" });
 expect("install \"if_clean\" is ifClean (its summary says what ifClean did)", ifClean.output.installed === true && /already installed|; installed/.test(ifClean.summary), ifClean.summary);
 expect("install \"sometimes\" is still refused by the schema", /install must be true, false, "ifClean" or "never", got "sometimes"/.test(refused(() => compile({ spec: idle, install: "sometimes" }))));
 expect("repair: { rounds: 0 } is no repair; repair: true is the default rounds", !("repair" in compile({ spec: idle, repair: { rounds: 0 } }).output)
-	&& json(normalizeCompileArgs({ repair: true })) === json({ repair: {} }) && json(normalizeCompileArgs({ repair: false })) === "{}" && json(normalizeCompileArgs({ install: "never" })) === json({ install: "never" }));
+	&& json(normalizeCompileArgs({ repair: true })) === json({ repair: {} }) && json(normalizeCompileArgs({ repair: false })) === json({ repair: false }) && json(normalizeCompileArgs({ install: "never" })) === json({ install: "never" }));
 
 // 6. probes through the action: the cut window and the grown every are named, the summary counts them
 const probed = compile({ spec: idle, probes: [{ name: "hips", position: "joint:Hips", frames: [10, 90], every: 2 }] });

@@ -291,8 +291,8 @@ expect(
 // A take v3 persists as its source: the baked arrays are stripped from the
 // stage, and the motion layer compiles the saved source again on load.
 expect(
-	"the save keeps the layer's IK edits and the take v3 source, never the baked arrays",
-	app.includes("cast().map(({ sessionMotion, ...entry }) => {") && app.includes("ikEdits: ikEditsOf(row), motionTake: savedTakeSource(row?.take)") && app.includes("characters: stageCharacters() }") &&
+	"the save keeps the layer's IK edits (placement keys ride them) and the take v3 source, never the baked arrays",
+	app.includes("cast().map(({ sessionMotion, placementKeys, ...entry }) => {") && app.includes("ikEdits: ikEditsOf(row), motionTake: savedTakeSource(row?.take)") && app.includes("characters: stageCharacters() }") &&
 	app.includes("const saved = normalizeTakeSource(entry.motionTake), take = saved ? restoredTake(entry.id, saved) : null;") &&
 	app.includes("compileTakeSource(take.source)"),
 );

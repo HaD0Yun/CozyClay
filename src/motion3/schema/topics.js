@@ -2,6 +2,7 @@
 // fields.js and types.js). Each example is a part of a spec that passes validation when merged
 // into a spec with standIdle at f0 0 and frames 60 (probes: a motion.compile probes list);
 // test/motion3/verify-motion3-describe.mjs checks that. Object ids are examples: use the scene's.
+import { POSES, POSE_NAMES } from "../poses.js";
 import { CONVENTIONS } from "../compiler/vocab.js";
 import { FIX_KEYS } from "../fix/index.js";
 import { literal } from "./brief.js";
@@ -44,7 +45,7 @@ export const EXAMPLES = {
 		{ name: "fingers at the spot", near: ["prop:cupGrip.fingers", "anchor:spot"], at: 30 },
 		{ name: "cup at the mouth", near: ["object:cup.rim", "landmark:mouth"], tol: 0.06, at: [40, 50] },
 		{ name: "hand above the hips", above: ["joint:RightHand", "bone:Hips"], at: 30 }] },
-	fix: { fix: { reach: true, slide: true, penetration: 0.02, self: true, retime: false } },
+	fix: { fix: { reach: true, slide: true, penetration: 0.02, self: true, retime: true } },
 };
 
 const UNITS = `World metres, +Y up; ${CONVENTIONS.yaw}; the character's left is +X at yaw 0. Angles in degrees.`;
@@ -53,7 +54,7 @@ const NO_JUMP = "No at/along: it rests in the palm, fingers closed on it. Throw/
 const CARRY = { props: EXAMPLES.objects.props, objects: { cup: EXAMPLES.objects.objects.cup } };
 
 export const NOTES = {
-	essentials: ["types: ? optional, =v default, a..b range, A | B one of, [key]: T map, a|b?: T both, x_l|r each side, (text) meaning.",
+	essentials: ["types: ? optional, =v default, a..b range, A | B one of, [key]: T map, a|b?: T both, x_l|r per side, (text) note.",
 		`A carried object: ${literal(CARRY)}. ${NO_JUMP}`,
 		"motion.describe { topic } or { topic: 'skills', name }: more."],
 	spec: [UNITS,
@@ -114,8 +115,13 @@ export const NOTES = {
 		"object:<id> takes a body or a group (the box around its parts); in a distance a bare object:<id> means its surface.",
 		"Goals and probes take every kind; spec.checks keep joint:, prop: and anchor:."],
 	fix: [`spec.fix keys: ${FIX_KEYS.join(", ")}; false turns all off. output.fixed reports what each one changed.`,
-		"reach, slide, self, stance and person are on by default; penetration and retime are opt-in.",
+		"reach, slide, self, stance, person and retime are on by default; penetration is opt-in; fix: { retime: false } keeps the key timing exactly.",
 		"reach also brings the body to a hand on a world or scene-object anchor the straight arm misses: a lean, a hip shift, lower hips, the feet kept (fixed.reachBody lists each move); farther, place the body. retime is kept only when QA is no worse with it.",
 		"self keeps the arms out of the body on its fitted skin (QA BODY measures the same skin): wrist targets inside it go onto it, elbows turn about the shoulder-wrist line, a hand a little inside is pushed out. A fit's target (the mouth) is never moved; what is left is BODY, with checks.allow { part, object: <body part>, depth } for a contact meant to touch (a hand on a knee).",
 		"person keeps the arms out of the other characters (QA PERSON): the wrist target moves out back the side the hand came from, however deep; an FK arm is left (fixed.person.skipped). A touch you mean: checks.allow { part, object: \"person:<id>\", depth }."],
+	fill: ["Fill: MotionBricks generates the transition between two poses (free spans), as keys marked src: \"fill\".", "motion.compile does not fill unless fill: true (then it fills the safe gaps between key poses); motion.fill fills on request.",
+		"Workflow: key 2-4 named poses at the extremes ({ f, pose, at?: [x, z], face?: deg, set?: overrides }), one motion.fill, then base + patch (a whole key: { op: \"replace\", path: \"/keys/@f=40\", value: { f: 40, pose: \"squat\" } }, or move it to another frame) and fill again; never type channel numbers into fill keys (src fill): QA on them is the model's, change the key around them.",
+		`Poses: ${POSE_NAMES.map(n => `${n} (${POSES[n].says})`).join("; ")}.`,
+		"timing (native fill, the upstream runtime's policy): \"exact\" keeps every authored frame: use it when the user's timing matters (a plop, a hit, a beat). \"retime\": the model picks each gap's length and the later keys move. \"playground\" chains like the HF playground: middle keys are guides passed 8 frames early, only the last key is reached, usually later (output.fill.moved, guides). \"free\" warps the model's length into the gap. Without timing the server's default fill runs; gate: false fills every gap of 14+ frames.",
+		"A key the model cannot reach (a knee past its stop, a foot through the floor) stays a QA problem the repair cannot patch on fill keys: move or soften the authored key instead."],
 };

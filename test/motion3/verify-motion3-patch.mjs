@@ -67,9 +67,10 @@ expect("an existing spec.fix gets the member added instead", json(compile(held({
 expect("applying it makes QA clean", compile(applyPatch(held(undefined), pen.patch), board).qa.ok);
 
 // 5. Speed spikes past a speed limit the spec opted into (C13): the retime suggestion becomes /fix/retime.
-const thrown = { ...stand({ frames: 120, checks: { limits: { speedLimb: 0.16 } } }), keys: [{ f: 30, set: { armw_r: 0 } }, { f: 36, set: { armw_r: 1, hand_r: [-0.25, 1.1, 0.25] } }, { f: 50, set: { hand_r: [-0.25, 1.1, 0.25] } }, { f: 54, set: { hand_r: [0.1, 1.45, 0.3] } }, { f: 90, set: { hand_r: [0.1, 1.45, 0.3] } }] };
+// fix.retime is on by default (it stretches this throw clean), so the spec turns it off to see the suggestion
+const thrown = { ...stand({ frames: 120, checks: { limits: { speedLimb: 0.16 } }, fix: { retime: false } }), keys: [{ f: 30, set: { armw_r: 0 } }, { f: 36, set: { armw_r: 1, hand_r: [-0.25, 1.1, 0.25] } }, { f: 50, set: { hand_r: [-0.25, 1.1, 0.25] } }, { f: 54, set: { hand_r: [0.1, 1.45, 0.3] } }, { f: 90, set: { hand_r: [0.1, 1.45, 0.3] } }] };
 const fast = compile(thrown, empty).qa.groups.find(g => g.kind === "SPEED");
-expect("SPEED (opted in): add /fix { retime: true }", json(fast?.patch) === json([{ op: "add", path: "/fix", value: { retime: true } }]), json(fast?.patch));
+expect("SPEED (opted in, retime off): replace /fix/retime with true", json(fast?.patch) === json([{ op: "replace", path: "/fix/retime", value: true }]), json(fast?.patch));
 
 // 6. attachPatches on its own: the fix shapes other lanes' hints return (C6).
 const group = fix => Object.defineProperty({ kind: "X", subject: "s" }, "fix", { value: fix, enumerable: false });

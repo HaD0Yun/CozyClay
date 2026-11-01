@@ -3,5 +3,6 @@
 	"entry": ["test/**/*.mjs", "tools/**/*.mjs", "bin/**/*.mjs", "mcp/**/*.mjs", "workers/api/src/**/*.js"],
 	"project": ["src/**", "bin/**", "mcp/**", "tools/**", "test/**", "workers/**"],
 	"includeEntryExports": true,
-	"ignore": ["dist/**", "**/node_modules/**", "mcp/runtime/**"]
+	"ignore": ["dist/**", "**/node_modules/**", "mcp/runtime/**"],
+	"ignoreDependencies": ["onnxruntime-node"]
 }

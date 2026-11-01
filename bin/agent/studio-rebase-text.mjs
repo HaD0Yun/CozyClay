@@ -16,14 +16,14 @@ export function busyTeaching({ original, waitedMs, ids }) {
   const gesture = /gesture/i.test(original);
   const target = ids.length ? ` (it targets ${ids.slice(0, 6).join(", ")})` : "";
   return trim(gesture
-    ? `${original} The user is dragging or editing in the editor right now${target}; nothing was applied. Waited ${waitedMs} ms and retried once, still busy. Do not loop on this tool: tell the user you are waiting, then retry after they release.`
+    ? `${original} The user is still dragging or editing in the editor after ${Math.round(waitedMs / 1000)} s${target}; nothing was applied. This is not a failure of your work and does not end the task: tell the user you are waiting for them to let go, then call this tool again.`
     : `${original} Nothing was applied. Waited ${waitedMs} ms and retried once, still busy${target}. Do not loop on this tool: finish or cancel the open operation, or ask the user.`);
 }
 
 /** Mark a result that only succeeded because the sidecar re-sent it. */
 export function annotateRebased(result, info) {
   const message = trim(info.reason === "target_busy"
-    ? `Editor was mid-gesture; waited ${info.waitedMs} ms and re-sent the command once.`
+    ? `Editor was mid-gesture; waited ${info.waitedMs} ms for the user and re-sent the command.`
     : info.reason === "own_edit_settled"
       ? `Scene revision moved ${info.fromRevision} -> ${info.toRevision} after your own edit, with nothing else changed; command re-sent once.`
       : `Scene revision moved ${info.fromRevision} -> ${info.toRevision} by edits that left the targets unchanged; command re-sent once.`).slice(0, 120);

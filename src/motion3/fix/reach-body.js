@@ -1,5 +1,5 @@
 // Reach by the body (spec.fix.reach): a hand on a pinned target (a world anchor, or an anchor on a scene object no
-// hand carries, at half weight or more) that the straight arm misses by more than QA's reach limit brings the body to
+// hand carries, at half weight or more, or its own hand_l/r coordinates on IK) that the straight arm misses by more than QA's reach limit brings the body to
 // it instead of leaving REACH to the agent. Over each run of such frames the body leans toward the target (spine_pitch
 // forward, only for a target ahead and not above the shoulder), the hips shift toward it and, for a low target, go
 // down: one amount t in (0, 1] of LEAN deg, SHIFT m and DROP m, the least that brings the hand within GOOD m at the
@@ -25,16 +25,24 @@ import { popChecks } from "../qa/style.js";
 const GOOD = 0.01, BENT = 0.97, LEAN = 25, SHIFT = 0.08, DROP = 0.15, EASE = 10, GAP = 2, SLACK = 0.002, TRIES = [0.25, 0.5, 0.75, 1];
 const smooth = x => x * x * (3 - 2 * x);
 
-/** The anchor that leads hand k at frame f when it is pinned (world, or a scene object no hand carries), else null. */
+// a hand keyed by hand_l/r world coordinates is pinned too (no anchor weight): deep research 8, a plant keyed that way
+// 0.76-0.89 m from the shoulder stayed 0.2-0.3 m short while the same plant on an anchor brought the body to it
+const COORDS = "#hand";
+const coordsOf = (c, k) => (Array.isArray(c[`hand_${k}`]) && c[`hand_${k}`].length === 3 && c[`hand_${k}`].every(Number.isFinite) ? c[`hand_${k}`] : null);
+
+/** The anchor that leads hand k at frame f when it is pinned (world, or a scene object no hand carries), COORDS for a
+ * hand on its keyed coordinates (no anchor weight on that hand at all), else null. */
 function pinned(ctx, c, k, f) {
 	if (!(c[`armw_${k}`] >= 0.5)) return null;
-	let best = null;
+	let best = null, sum = 0;
 	for (const [ch, w] of Object.entries(c)) {
 		const m = /^w_(.+)_([lr])$/.exec(ch);
+		if (m && m[2] === k && w > 0) sum += w;
 		if (m && m[2] === k && w >= 0.5 && (!best || w > best.w)) best = { w, name: m[1] };
 	}
 	const a = best && ctx.spec.anchors?.[best.name];
-	return a && (a.kind === "world" || (a.kind === "object" && !ctx.objectHand?.(a.object, f))) ? best.name : null;
+	if (a) return a.kind === "world" || (a.kind === "object" && !ctx.objectHand?.(a.object, f)) ? best.name : null;
+	return sum <= 1e-6 && coordsOf(c, k) ? COORDS : null;
 }
 
 /** How deep the body is in the scene at frame f (the sum over QA's capsules), m; the reaching hand against the object it reaches for is left out. */
@@ -89,9 +97,9 @@ export function reachBody(out, engine) {
 	for (const k of ["r", "l"]) for (const [a, b] of runsOf(out, k, limit)) {
 		// the target is the anchor's point (a fit winds the wrist target past it, so the miss does not say where it is);
 		// the run's worst frame is where it is farthest from the shoulder
-		const sh = f => at(f).s.P[I[`${SIDES[k]}Arm`]], target = f => { const { s, diag, c } = at(f), name = pinned(ctx, c, k, f); return name ? resolveAnchor(ctx, name, s, { ...diag, frame: f }, c) : null; };
+		const sh = f => at(f).s.P[I[`${SIDES[k]}Arm`]], target = f => { const { s, diag, c } = at(f), name = pinned(ctx, c, k, f); return name === COORDS ? coordsOf(c, k) : name ? resolveAnchor(ctx, name, s, { ...diag, frame: f }, c) : null; };
 		// measured where the hand is fully on it (armw and the anchor's weight at 1) when the run has such frames: before, it is still on its way
-		const full = f => at(f).c[`armw_${k}`] >= 0.99 && at(f).c[`w_${pinned(ctx, at(f).c, k, f)}_${k}`] >= 0.99;
+		const full = f => { const c = at(f).c, name = pinned(ctx, c, k, f); return c[`armw_${k}`] >= 0.99 && (name === COORDS || c[`w_${name}_${k}`] >= 0.99); };
 		const span = Array.from({ length: b - a + 1 }, (_, i) => a + i), pick = span.some(full) ? span.filter(full) : span;
 		let fw = -1, T = null;
 		for (const f of pick) { const q = target(f); if (q && (!T || len(sub(q, sh(f))) > len(sub(T, sh(fw))))) { fw = f; T = q; } }
@@ -115,7 +123,7 @@ export function reachBody(out, engine) {
 		};
 		const legOk = (d, d0) => ["l", "r"].every(q => !((d[`leg_miss_${q}`] ?? 0) > Math.max(d0[`leg_miss_${q}`] ?? 0, 5e-4) + SLACK));
 		const otherOk = (d, d0) => !(at(fw).c[`armw_${other}`] > 0.5) || (d[`arm_miss_${other}`] ?? 0) <= (d0[`arm_miss_${other}`] ?? 0) + SLACK;
-		const object = ctx.spec.anchors[pinned(ctx, c, k, fw)]?.object, saved = at(fw), depth0 = depthIn(out, fw, k, object);
+		const object = ctx.spec.anchors?.[pinned(ctx, c, k, fw)]?.object, saved = at(fw), depth0 = depthIn(out, fw, k, object);
 		const trial = t => {
 			set(fw, t);
 			engine.solve([fw]);

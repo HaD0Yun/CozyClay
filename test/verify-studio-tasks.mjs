@@ -205,7 +205,8 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 {
 	// Timing per task: when it was queued, started and ended, and how long it waited on a held scope, its dependencies
 	// and the cap; live in the board view, final in the ended event, and kept out of the main agent's context.
-	const { board, runs, events, advance } = boardFixture({ cap: 2 });
+	// busyMaxMs 0: a SCOPE_BUSY retry comes at once here (the backoff has its own case below)
+	const { board, runs, events, advance } = boardFixture({ cap: 2, busyMaxMs: 0 });
 	const a = dispatch(board, "a", ["object:a"]); dispatch(board, "b", ["object:b"]);
 	const c = dispatch(board, "c", ["object:c"]), d = dispatch(board, "d", ["object:d"], { dependsOn: [a.taskId] }), e = dispatch(board, "e", ["object:a"]);
 	await tick();
@@ -229,6 +230,31 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 	assert.equal(timing(e.taskId).waitCapMs, 250, "e waited on a's object, then on the cap");
 	assert.ok(!mainContextText(board, events).includes("waitCapMs"), "timing stays out of the main agent's context");
 	console.log("PASS timing: each task records queued, started and ended at and its scope, dependency and cap waits; in the view and the ended event");
+}
+{
+	// A holder the board does not see (an editor-side task its run left open): SCOPE_BUSY retries back off 1, 2, 4 .. 15 s,
+	// told once (one started, one waiting per reason), and the main agent's context stays small whatever the events.
+	const { board, runs, events, advance } = boardFixture();
+	const x = dispatch(board, "x", ["character:alex"]);
+	await tick();
+	const busy = { status: "scopeBusy", error: { message: "character:alex:placement is held by task gone" } };
+	let attempts = 0;
+	for (let i = 0; i < 40; i++) {
+		const run = runs.findLast(r => r.task.taskId === x.taskId);
+		if (run && !run.settled) { run.task.onFrame?.({ type: "tool.start" }); run.settled = true; run.resolve(busy); attempts++; await tick(); await tick(); }
+		advance(1000); await tick();
+	}
+	const told = events.filter(e => e.taskId === x.taskId);
+	assert.ok(attempts <= 8, `${attempts} attempts in 40 s, not one per tick`);
+	assert.equal(told.filter(e => e.type === "task.started").length, 1, "started is told once");
+	assert.equal(told.filter(e => e.type === "task.waiting").length, 1, "waiting is told once per reason");
+	const flood = [];
+	for (let i = 0; i < 3510; i++) flood.push({ type: "task.started", taskId: x.taskId, status: "running", usage: { input: 1 } }, { type: "task.waiting", taskId: x.taskId, status: "waiting", reason: busy.error.message, usage: { input: 1 } });
+	flood.push({ type: "task.failed", taskId: "y", status: "failed", reason: "r".repeat(30_000) });
+	const text = mainContextText(board, flood);
+	assert.ok(text.length < 45_000, `${text.length} chars for 7021 events`);
+	assert.ok(/"repeats":7020/.test(text) && !text.includes('"usage":{"input"'), "repeats fold into one line, usage dropped");
+	console.log(`PASS SCOPE_BUSY backoff: ${attempts} attempts in 40 s, 1 started + 1 waiting told; 7021 events -> ${text.length} chars of context`);
 }
 {
 	const { board, runs, advance } = boardFixture({ staggerMs: 1500 });

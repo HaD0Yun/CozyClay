@@ -63,6 +63,8 @@ export function seedBoard(board, tasks = []) {
 /** The line a running card shows: the last tool it started, or the compile it waits for. */
 export function progressLine(frame, labelOf = call => call.name) {
 	if (frame?.type === "tool.start") return labelOf(frame);
+	// The sidecar waits out the user's own drag (bin/agent/studio-busy-wait.mjs): a quiet status, never an error.
+	if (frame?.type === "studio.waiting") return frame.waiting ? ko("Waiting: the user is editing", "대기 중: 사용자가 편집 중", "等待：用户正在编辑") : ko("Working…", "작업 중…");
 	if (frame?.type === "error") return ko(`Error: ${frame.message ?? frame.code}`, `오류: ${frame.message ?? frame.code}`, `错误：${frame.message ?? frame.code}`);
 	return null;
 }

@@ -330,3 +330,14 @@
 		font-variant-numeric: tabular-nums;
 	}
 }
+
+/* Sequencer key bar (PoseKeyBar.jsx): timeline length, and in Pose mode Key / Fill (MotionBricks). */
+.app:not([data-embed-mode]) .v2-dock > .bottom-timeline:has(> .pose-key-bar) { --timeline-height: calc(100% - 30px); }
+/* its own row above the transport, right of the Animation | Assets tabs that sit over the dock's top-left */
+.pose-key-bar { display: flex; align-items: center; gap: 8px; height: 30px; box-sizing: border-box; padding: 4px 12px 0 220px; font-size: 12px; color: var(--text-secondary, #6b6f76); }
+.pose-key-bar label { display: inline-flex; align-items: center; gap: 6px; }
+.pose-key-bar input[type="number"] { width: 72px; font: inherit; color: var(--text-primary, #202124); background: var(--surface-panel, #fff); border: 1px solid currentColor; border-radius: 4px; padding: 1px 4px; }
+.pose-key-bar button { font: inherit; padding: 2px 8px; border-radius: 4px; border: 1px solid currentColor; background: var(--surface-panel, #fff); color: var(--text-primary, #202124); cursor: pointer; }
+.pose-key-bar button:disabled { opacity: 0.45; cursor: default; }
+.pose-key-bar > label, .pose-key-bar > button, .pose-key-bar .pose-key-count { flex-shrink: 0; white-space: nowrap; }
+.pose-key-bar .pose-key-status { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
