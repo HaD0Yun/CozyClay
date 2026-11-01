@@ -59,6 +59,12 @@ assert.ok(seen.findings.some(line => line.includes("cube-1")) && seen.findings.s
 // the pictures go through verify_result when they can, so the panel's progress card shows them
 const shown = [], viaVerify = await createTurnReview({ invoke: async (name, args) => { if (args.visual) shown.push(args.visual); return { receiptId: "r", revision: 3, checks: {}, visualRefs: args.visual ? [{ imageId: `id-${args.visual}` }] : [] }; }, resolveImage: async id => png(id), hub: hubOf(), workspaceHandle: "w" })({ edited: true, ids: ["cube-1"], motionIds: [], stage: false });
 assert.deepEqual([shown, viaVerify.content.slice(1).map(p => p.data)], [["frame", "plan"], ["id-frame", "id-plan"]]);
+const targeted = [];
+await createTurnReview({ invoke: async (name, args) => { targeted.push(args.targets); return {}; }, resolveImage: async () => null, hub: hubOf({ inspect_studio: () => ({ relations: [], entityIds: ["cube-1", "hero"], characters: [{ id: "hero" }], camera: {} }) }), workspaceHandle: "w" })({ edited: true, ids: ["shot-3", "cube-1", "camera-key-4"], motionIds: [], stage: false });
+assert.deepEqual(targeted[0], ["cube-1"], "shots and camera keys are not sent as targets");
+const framedOnly = [];
+await createTurnReview({ invoke: async (name, args) => { framedOnly.push(args); return {}; }, resolveImage: async () => null, hub: hubOf({ inspect_studio: () => ({ relations: [], entityIds: ["hero"], characters: [{ id: "hero" }], camera: {} }) }), workspaceHandle: "w" })({ edited: true, ids: ["shot-3"], motionIds: [], stage: false });
+assert.ok(!framedOnly.some(a => a.targets.includes("shot-3")) && framedOnly.some(a => a.visual === "frame" && a.targets[0] === "hero"), "a shot-only edit still looks through the cast");
 const broken = await createTurnReview({ invoke: async () => { throw new Error("refused"); }, hub: hubOf({ capture_framing_png() { throw new Error("no editor"); } }), workspaceHandle: "w" })({ edited: true, ids: ["x"], motionIds: [], stage: true });
 assert.deepEqual([broken.findings, broken.images], [[], 1], "a check or capture that cannot run is left out, and the review still answers");
 

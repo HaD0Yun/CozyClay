@@ -20,6 +20,7 @@ const empty = at([]);
 assert.ok(has(empty, /^Hero#char-a IN_FRAME 1\.00 height 0\.\d+$/), empty.relations.join("|"));
 assert.deepEqual(empty.characters[0], { id: "char-a", bounds: { min: { x: -0.3, y: 0, z: -0.2 }, max: { x: 0.3, y: 1.8, z: 0.2 } } }, "characters carry world bounds");
 assert.deepEqual(empty.camera.inFrame, ["char-a"]);
+assert.deepEqual(at([object("lamp", "Lamp", 1, 0, 0, 1, 1, 1)]).entityIds, ["char-a", "lamp"], "what a check can target");
 
 const onTable = at([object("table", "Table", 1.5, 0, 0, 1, 0.8, 1), object("lamp", "Lamp", 1.5, 0.8, 0, 0.2, 0.4, 0.2)]);
 assert.ok(has(onTable, /^Lamp#lamp ON Table#table$/), onTable.relations.join("|"));

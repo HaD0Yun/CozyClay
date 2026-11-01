@@ -60,13 +60,15 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage })
 	return async edits => {
 		const seen = await quiet(() => hub.command("inspect_studio", { scope: "relations" }, workspaceHandle));
 		const characters = (seen?.characters ?? []).map(c => c.id), verify = args => quiet(() => invoke("verify_result", args));
-		const placement = edits.ids.length ? await verify({ targets: edits.ids, checks: ["placement"] }) : null;
+		// A receipt also names shots and camera keys; verify_result refuses a target that is not an object or a character.
+		const known = seen?.entityIds ? new Set(seen.entityIds) : null, edited = known ? edits.ids.filter(id => known.has(id)) : edits.ids;
+		const placement = edited.length ? await verify({ targets: edited, checks: ["placement"] }) : null;
 		const framing = characters.length && seen?.camera ? await verify({ targets: characters.slice(0, MAX_TARGETS), checks: ["framing"], range: "whole_clip" }) : null;
 		const lighting = edits.stage && characters.length ? await verify({ targets: characters.slice(0, MAX_TARGETS), checks: ["lighting"] }) : null;
 		const motion = [];
 		for (const id of edits.motionIds) { const r = await quiet(() => invoke("run_action", { action: "motion.qa", args: { characterId: id } })); if (r?.output?.qa) motion.push({ id, qa: r.output.qa }); }
 		// Through verify_result, so the agent panel's progress card shows the user what the model looked at; a bare capture where it has no target.
-		const targets = (edits.ids.length ? edits.ids : characters).slice(0, MAX_TARGETS), images = [];
+		const targets = (edited.length ? edited : characters).slice(0, MAX_TARGETS), images = [];
 		for (const [visual, capture] of [["frame", "capture_framing_png"], ["plan", "capture_plan_png"]]) {
 			const seenBy = targets.length && resolveImage ? await verify({ targets, checks: ["placement"], visual }) : null, ref = seenBy?.visualRefs?.[0];
 			const shown = ref?.imageId ? await quiet(() => resolveImage(ref.imageId, { receiptId: seenBy.receiptId, revision: seenBy.revision })) : null;
