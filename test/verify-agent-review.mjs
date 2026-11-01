@@ -27,6 +27,9 @@ const scripted = turnEdits(tool("a", { calls: [{ ok: true, revision: { before: 1
 assert.deepEqual([scripted.edited, scripted.ids], [true, ["cube-2"]], "a script's nested edits count, its refused ones do not");
 assert.deepEqual(turnEdits(tool("a", { authored: true }, { action: "motion.compile", args: { characterId: "char-a" } })).motionIds, ["char-a"], "a motion action names its character");
 assert.equal(turnEdits(tool("a", { authored: true }, { action: "stage.set" })).stage, true, "a stage action asks for the lighting check");
+const nested = turnEdits(tool("a", { calls: [{ ok: true, action: "motion.compile", authored: true, affectedIds: ["char-b"] }, { ok: true, action: "stage.set", authored: true, affectedIds: [] }] }, { code: "..." }));
+assert.deepEqual([nested.motionIds, nested.stage], [["char-b"], true], "a script's nested actions ask for their checks too");
+assert.deepEqual(turnEdits(tool("a", { calls: [{ ok: false, action: "motion.compile", authored: true, affectedIds: ["char-b"] }] })).motionIds, [], "a refused nested action asks for nothing");
 
 // ---- failing numbers ----
 assert.deepEqual(reviewFindings({}), [], "nothing measured, nothing to say");
@@ -56,6 +59,9 @@ assert.ok(seen.findings.some(line => line.includes("cube-1")) && seen.findings.s
 const broken = await createTurnReview({ invoke: async () => { throw new Error("refused"); }, hub: hubOf({ capture_framing_png() { throw new Error("no editor"); } }), workspaceHandle: "w" })({ edited: true, ids: ["x"], motionIds: [], stage: true });
 assert.deepEqual([broken.findings, broken.images], [[], 1], "a check or capture that cannot run is left out, and the review still answers");
 
+const gone = await createTurnReview({ invoke: async () => { throw new Error("refused"); }, hub: { async command() { throw new Error("no editor"); } }, workspaceHandle: "w" })({ edited: true, ids: ["x"], motionIds: [], stage: false });
+assert.equal(gone, null, "an editor that went away gets no review message");
+
 // ---- the loop ----
 const edit = id => [{ type: "tool.start", callId: id, name: "arrange_objects", args: {} }, { type: "tool.done", callId: id, ok: true, result: { authored: true, affectedIds: ["cube-1"] } }];
 const run = async (runs, { review = async () => ({ findings: [], content: [{ type: "text", text: "look" }], images: 0 }), signal } = {}) => {
@@ -81,6 +87,10 @@ const failed = await run([[...edit("a"), { type: "error", code: "x" }, { type: "
 assert.equal(failed.reviews.length, 0, "a failed run is not reviewed");
 const stopped = new AbortController(); stopped.abort();
 assert.equal((await run([[...edit("a"), { type: "done" }]], { signal: stopped.signal })).reviews.length, 0, "a stopped run is not reviewed");
+const noEditor = await run([[...edit("a"), { type: "done" }]], { review: async () => null });
+assert.deepEqual([noEditor.inputs.length, noEditor.done.length], [1, 1], "no review to send ends the turn");
+const toolFailed = await run([[...edit("a"), { type: "tool.start", callId: "b", name: "arrange_objects" }, { type: "tool.done", callId: "b", ok: false, error: "INVALID_ARGUMENT: x" }, { type: "done" }], [{ type: "done" }]]);
+assert.equal(toolFailed.reviews.length, 1, "a refused call the model has answered does not hide its earlier edits from the review");
 const threw = await run([[...edit("a"), { type: "done" }]], { review: async () => { throw new Error("gone"); } });
 assert.deepEqual([threw.inputs.length, threw.done.length, threw.frames.find(f => f.type === "tool.done" && f.callId === "review-1").ok], [1, 1, false], "a review that cannot run ends the turn cleanly");
 

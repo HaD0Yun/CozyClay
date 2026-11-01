@@ -21,10 +21,11 @@ export function turnEdits(frames) {
 			if (call.ok === false || !(call.authored === true || changed(call))) continue;
 			edited = true;
 			for (const id of call.affectedIds ?? []) ids.add(id);
+			// a nested call's receipt names its action; the outer script's arguments do not
+			const action = call.action ?? (call === result ? args?.action : null) ?? "";
+			if (/^motion\./.test(action)) for (const id of call === result && args?.args?.characterId ? [args.args.characterId] : call.affectedIds ?? []) motionIds.add(id);
+			if (/^(stage|light)/.test(action)) stage = true;
 		}
-		const action = args?.action ?? "";
-		if (edited && /^motion\./.test(action) && args?.args?.characterId) motionIds.add(args.args.characterId);
-		if (edited && /^(stage|light)/.test(action)) stage = true;
 	}
 	return { edited, ids: [...ids].slice(0, MAX_TARGETS), motionIds: [...motionIds], stage };
 }
@@ -66,6 +67,7 @@ export function createTurnReview({ invoke, hub, workspaceHandle }) {
 		for (const id of edits.motionIds) { const r = await quiet(() => invoke("run_action", { action: "motion.qa", args: { characterId: id } })); if (r?.output?.qa) motion.push({ id, qa: r.output.qa }); }
 		const images = [];
 		for (const name of ["capture_framing_png", "capture_plan_png"]) { const part = imagePart(await quiet(() => hub.command(name, {}, workspaceHandle))); if (part) images.push(part); }
+		if (!seen && !images.length) return null; // the editor went away: nothing to show the model
 		const findings = reviewFindings({ placement, framing, motion, lighting });
 		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null }), images: images.length };
 	};
