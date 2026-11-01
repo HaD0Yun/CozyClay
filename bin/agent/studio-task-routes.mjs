@@ -103,7 +103,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			// What the task last wrote: read again after each of its authored edits, while Studio is there to answer.
 			if (frame.type === "tool.done" && frame.ok && frame.result?.authored) seenRead = seenRead.then(() => readContext(main.host)).then(c => scopeFingerprint(c, task.scope)).then(seen => { task.seen = seen; }, () => {});
 			if (frame.type === "text.delta") { out.segment += frame.text ?? ""; out.reply = out.segment; }
-			else if (frame.type === "tool.start") out.segment = "";
+			else if (frame.type === "tool.start") out.segment = frame.review ? `${out.segment}\n` : "";
 			else if (frame.type === "tool.done" && frame.ok && frame.result?.receiptId) out.receipts.push({ receiptId: frame.result.receiptId, action: frame.result.action ?? frame.name, affectedIds: (frame.result.affectedIds ?? []).slice(0, 6) });
 			else if (frame.type === "tool.done" && !frame.ok && LOST_STUDIO.has(String(frame.error ?? "").split(":")[0])) { out.lost = true; if (String(frame.error).startsWith("UNCERTAIN_APPLY")) task.midCommand = true; stop(); }
 			else if (frame.type === "error") { out.error = { code: frame.code, message: frame.message }; if (frame.code === "SCOPE_BUSY") out.busy = true; if (LOST_STUDIO.has(frame.code)) out.lost = true; }

@@ -773,6 +773,6 @@ Agent panel**), which calls the same `motion.compile` on the same scene.
 
 ## The review of a turn
 
-When a Studio turn edits the scene and the model stops, the editor measures what changed and renders the shot frame and the top view. The model gets the failing numbers, the pictures and the relation list as its next message, and it repairs or says why not. This repeats after a repair, at most 3 times a turn. `COZYCLAY_AGENT_REVIEW=off` turns it off.
+When a Studio turn edits the scene and the model stops, the editor measures what changed and renders the shot frame and the top view. The model gets the failing numbers, the pictures and the relation list as its next message, and it repairs or says why not. This repeats after a repair, at most 3 times a turn. The agent panel shows it as a "Verify the result" row with what failed, and its progress card shows the pictures. The main agent and tasks both run it. A task's summary keeps what the model wrote before the review. `COZYCLAY_AGENT_REVIEW=off` turns it off.
 
 `inspect_studio { scope: "relations" }` answers the relation rows (`Lamp#cube-2 ON Table#cube-5`, `Hero#char-a OCCLUDED_BY Pillar#cube-3 30%`, `Hero#char-a IN_FRAME 1.00 height 0.42`, `LEFT_OF`, `RIGHT_OF`, `NEAR`), character world bounds, and the shot camera's in-frame and out-of-frame lists. The turn's context carries them too, while they fit.

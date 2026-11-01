@@ -38,7 +38,7 @@ function landing(box, camera, fov, aspect) {
 
 /**
  * state: the scene as commands read it (objects, characters, frame, camera, filmback). ports: { bounds }. Answers { relations: [strings],
- * characters: [{ id, bounds }], camera: { position, lookAt, focalMm, inFrame, outOfFrame } | null, truncated? }, most telling rows first.
+ * characters: [{ id, bounds }], entityIds (what a check can target), camera: { position, lookAt, focalMm, inFrame, outOfFrame } | null, truncated? }, most telling rows first.
  */
 export function studioRelations(state, ports) {
 	const solid = o => !isEmptyObject(o) && !isEffectivelyHidden(o, state.objects, state.characters);
@@ -77,5 +77,5 @@ export function studioRelations(state, ports) {
 		}
 	}
 	const relations = [...occluded.sort((a, b) => b.n - a.n).map(x => x.text), ...framed, ...support, ...near.sort((a, b) => a.d - b.d).map(x => x.text), ...side];
-	return { relations: relations.slice(0, ROWS), ...(relations.length > ROWS ? { truncated: relations.length - ROWS } : {}), characters: characters.slice(0, 24).map(c => ({ id: c.id, bounds: c.box })), camera };
+	return { relations: relations.slice(0, ROWS), ...(relations.length > ROWS ? { truncated: relations.length - ROWS } : {}), characters: characters.slice(0, 24).map(c => ({ id: c.id, bounds: c.box })), entityIds: all.map(a => a.id), camera };
 }

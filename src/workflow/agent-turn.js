@@ -47,6 +47,12 @@ export function stepLabel(step, toolLabels = {}) {
 /** One line of what a verify_result measured: the framing size, motion verification, the image it looked at. */
 function verifySummary(result, args) {
 	const parts = [];
+	// The turn's own review of its edits (bin/agent/studio-review.mjs): what failed, and that the model was shown the pictures.
+	if (Array.isArray(result?.findings)) {
+		const n = result.findings.length;
+		parts.push(n ? `${ko(`${n} check${n === 1 ? "" : "s"} failed`, `검사 ${n}건 실패`, `${n} 项检查未通过`)}: ${result.findings[0]}` : ko("checks passed", "검사 통과", "检查通过"));
+		if (result.images > 0) parts.push(ko("looked at the frame and top view", "화면과 탑뷰 확인", "已查看画面和俯视图"));
+	}
 	const size = result?.checks?.framing?.derivedSize;
 	if (size) parts.push(size);
 	if (result?.geometry?.axisConsistent === false) parts.push(ko("cameras cross the line", "카메라가 축을 넘음"));

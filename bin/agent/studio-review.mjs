@@ -55,18 +55,26 @@ export function reviewContent({ findings, relations = [], images = [], revision 
 }
 
 /** Measures one run's edits through the turn's own tools. A check that cannot run is left out: the review never fails a turn. */
-export function createTurnReview({ invoke, hub, workspaceHandle }) {
+export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage }) {
 	const quiet = async work => { try { return await work(); } catch (error) { console.warn(`[agent] review check skipped: ${error.message}`); return null; } };
 	return async edits => {
 		const seen = await quiet(() => hub.command("inspect_studio", { scope: "relations" }, workspaceHandle));
 		const characters = (seen?.characters ?? []).map(c => c.id), verify = args => quiet(() => invoke("verify_result", args));
-		const placement = edits.ids.length ? await verify({ targets: edits.ids, checks: ["placement"] }) : null;
+		// A receipt also names shots and camera keys; verify_result refuses a target that is not an object or a character.
+		const known = seen?.entityIds ? new Set(seen.entityIds) : null, edited = known ? edits.ids.filter(id => known.has(id)) : edits.ids;
+		const placement = edited.length ? await verify({ targets: edited, checks: ["placement"] }) : null;
 		const framing = characters.length && seen?.camera ? await verify({ targets: characters.slice(0, MAX_TARGETS), checks: ["framing"], range: "whole_clip" }) : null;
 		const lighting = edits.stage && characters.length ? await verify({ targets: characters.slice(0, MAX_TARGETS), checks: ["lighting"] }) : null;
 		const motion = [];
 		for (const id of edits.motionIds) { const r = await quiet(() => invoke("run_action", { action: "motion.qa", args: { characterId: id } })); if (r?.output?.qa) motion.push({ id, qa: r.output.qa }); }
-		const images = [];
-		for (const name of ["capture_framing_png", "capture_plan_png"]) { const part = imagePart(await quiet(() => hub.command(name, {}, workspaceHandle))); if (part) images.push(part); }
+		// Through verify_result, so the agent panel's progress card shows the user what the model looked at; a bare capture where it has no target.
+		const targets = (edited.length ? edited : characters).slice(0, MAX_TARGETS), images = [];
+		for (const [visual, capture] of [["frame", "capture_framing_png"], ["plan", "capture_plan_png"]]) {
+			const seenBy = targets.length && resolveImage ? await verify({ targets, checks: ["placement"], visual }) : null, ref = seenBy?.visualRefs?.[0];
+			const shown = ref?.imageId ? await quiet(() => resolveImage(ref.imageId, { receiptId: seenBy.receiptId, revision: seenBy.revision })) : null;
+			const part = imagePart(shown) ?? imagePart(await quiet(() => hub.command(capture, {}, workspaceHandle)));
+			if (part) images.push(part);
+		}
 		if (!seen && !images.length) return null; // the editor went away: nothing to show the model
 		const findings = reviewFindings({ placement, framing, motion, lighting });
 		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null }), images: images.length };
@@ -98,7 +106,8 @@ export function reviewedStart({ start, review, signal, now = Date.now }) {
 			const edits = turnEdits(frames);
 			if (failed || signal?.aborted || !edits.edited || round >= MAX_REVIEWS) break;
 			const callId = `review-${round + 1}`, started = now();
-			yield { type: "tool.start", callId, name: "verify_result", label: "Check the result", args: { review: round + 1 } };
+			// review: true: not the model's own call, so what it wrote before stays its reply (a task's summary, the main agent's claim check)
+			yield { type: "tool.start", callId, name: "verify_result", label: "Check the result", args: { review: round + 1 }, review: true };
 			let result = null;
 			try { result = await review(edits); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
 			yield { type: "tool.done", callId, ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: result.images } } : { error: "The review could not run." }) };

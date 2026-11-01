@@ -474,7 +474,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		const send = event => {
 			if (event.type === "text.delta") { replySegment += event.text ?? ""; lastReply = replySegment; }
 			else if (!["execution_telemetry", "execution_tool_started", "thinking.delta", "tool.compose", "tool.progress", "sculpt.sketch", "studio.waiting"].includes(event.type)) {
-				if (event.type === "tool.start") replySegment = "";
+				if (event.type === "tool.start" && !event.review) replySegment = "";
 				turnFrames.push(event);
 			}
 			emitStudioEvent(value.turnId, event); value.observe?.(event);
@@ -590,7 +590,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			send(frame);
 		};
 		// A scripted model has fixed replies: it takes a review only when its test asks.
-		const reviewing = !value.main && process.env.COZYCLAY_AGENT_REVIEW !== "off" && (!fauxProvider || fauxProvider.review === true), persistenceMeta = { sceneName: value.context?.scene?.name ?? value.context?.sceneName ?? null, firstText: value.text, ...(value.task ? { parentId: value.task.parentId, taskId: value.task.taskId } : {}) };
+		const reviewing = process.env.COZYCLAY_AGENT_REVIEW !== "off" && (!fauxProvider || fauxProvider.review === true), persistenceMeta = { sceneName: value.context?.scene?.name ?? value.context?.sceneName ?? null, firstText: value.text, ...(value.task ? { parentId: value.task.parentId, taskId: value.task.taskId } : {}) };
 		const modelKey = value.model || (fauxProvider ? `${fauxProvider.provider?.id || fauxProvider.provider || "faux"}/scripted` : "gpt-6-astra");
 		let runner = studioRunners.get(value.sessionId);
 		if (!runner) {
@@ -599,7 +599,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		try {
 			if (!session.modelSession) session.modelSession = await runner.openSession(value.sessionId, { surface: "studio" });
-			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, hub, workspaceHandle: value.context.host.workspaceHandle }) }) : input => session.modelSession.start(input))({
+			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
 				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
 				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan], systemPrompt: value.main?.systemPrompt ?? (value.context.scene?.previsMode === "storyboard" ? STUDIO_SYSTEM_PROMPT_STORYBOARD : undefined), signal: controller.signal, emit: send,
