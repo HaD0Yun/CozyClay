@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { blockersAt, hiddenBy } from "../../src/motion3/sightline.js";
 import { actionFrames, beatFrames } from "../../src/motion3/beats.js";
+import { focusPoints } from "../../src/motion3/views.js";
 import { withFaded } from "../../src/capture-fade.js";
 
 let failures = 0;
@@ -30,9 +31,11 @@ const raised = { pos: [0, 2, 2], R: I, half: [1, 0.2, 0.05] };
 expect("a box's pos is its base centre: a lintel above the sight lines hides nothing", Object.keys(hiddenBy({ raised }, [0, 1, 5], [[0, 1, 0]])).length === 0);
 const seen = blockersAt(scene({ table: wall(2) }, []), eye, 0);
 expect("a frame with no joints hides nothing", seen.share === 0 && seen.by.length === 0);
-const focus = [{ p: [3, 1, 0], own: null }], side = { pos: [1.8, 0, 2.5], R: I, half: [0.3, 1.25, 0.1] };
+const focus = [{ p: [3, 1, 0], own: [] }], side = { pos: [1.8, 0, 2.5], R: I, half: [0.3, 1.25, 0.1] };
 expect("a body hiding only the focus is named", blockersAt(scene({ side }), eye, 0).by.length === 0 && blockersAt(scene({ side }), eye, 0, focus).by[0] === "side");
-expect("a focus object does not hide itself", blockersAt(scene({ door: wall(0) }, [[0, 1, 9]]), eye, 0, [{ p: [0, 1, 0], own: "door" }]).by.length === 0);
+expect("a focus object does not hide itself", blockersAt(scene({ door: wall(0) }, [[0, 1, 9]]), eye, 0, [{ p: [0, 1, 0], own: ["door"] }]).by.length === 0);
+const groupScene = { f0: 0, frames: [{ s: { P: [[0, 1, 9]] } }], ctx: { spec: { objects: {} }, scene: { objects: { top: { ancestors: ["table"], half: [1, 0.05, 1], pos: [0, 1, 0], R: I }, leg: { ancestors: ["table"], half: [0.1, 0.5, 0.1], pos: [0, 0, 0], R: I }, wall: { half: [1, 1.25, 0.05], pos: [0, 0, 2], R: I } } }, objectsAt: () => ({ top: { pos: [0, 1, 0], R: I, half: [1, 0.05, 1] }, leg: { pos: [0, 0, 0], R: I, half: [0.1, 0.5, 0.1] } }) } };
+expect("a focused group's own parts do not hide it", blockersAt(groupScene, eye, 0, focusPoints(groupScene, 0, ["object:table"])).by.length === 0, focusPoints(groupScene, 0, ["object:table"]));
 
 // ---- actions a beats sheet must show ----
 const sk = { index: { Hips: 0, LeftHand: 1, RightHand: 2, LeftFoot: 3, RightFoot: 4 } };
