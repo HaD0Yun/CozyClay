@@ -136,6 +136,14 @@ export function depthViews(views) {
 	return { views: [...views, view], added: { view, reason: `${line}, so a gap along it (toward or away from the camera) does not show; ${view} looks across it` } };
 }
 
+/** The focus refs' middles at frame f, for sightlines: [{ p, own }], own the object a bare object:<id> ref is. */
+export function focusPoints(out, f, focus) {
+	return focus.flatMap(ref => {
+		const points = refPoints(out, f, ref), own = BARE_OBJECT.exec(ref);
+		return points.length ? [{ p: mean(points), own: own && !own[2] ? own[1] : null }] : [];
+	});
+}
+
 /** Pixel [x, y] of world point p in a width x height image of cam, y counted from the bottom row; null behind it. */
 export function projectPoint(cam, p, width, height) {
 	const rel = sub(p, cam.eye), depth = -dot(rel, cam.back);
