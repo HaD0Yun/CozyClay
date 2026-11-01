@@ -36,7 +36,7 @@ export const STUDIO_VARIANTS = freezeStudioData({
 	framingViews: ["front", "front three-quarter", "profile", "rear three-quarter", "back"], framingLevels: ["ground", "low", "hip", "eye", "high", "overhead"],
 	framingSides: ["left", "right"], positionSides: ["left", "right", "front", "behind"], positionBases: ["world", "subject", "shot_camera"], collisionPolicies: ["report", "avoid"],
 	objectOps: ["create", "update", "remove", "group", "ungroup"], characterOps: ["create", "update", "remove"],
-	inspectionScopes: ["selection", "scene", "entities", "shot", "motion", "catalogue", "actions", "document"], receiptStatuses: ["applied", "partial", "noop", "transient", "installed", "undone"],
+	inspectionScopes: ["selection", "scene", "entities", "shot", "motion", "catalogue", "actions", "document", "relations"], receiptStatuses: ["applied", "partial", "noop", "transient", "installed", "undone"],
 	opStatuses: ["applied", "partial", "noop"],
 	jobStates: ["queued", "generating", "preparing", "verifying", "repairing", "committing", "reconciling", "installed", "review_required", "failed", "cancelled", "stale_target", "stale_environment"],
 });

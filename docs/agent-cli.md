@@ -770,3 +770,9 @@ What is not on the CLI is the old generation surface: there is no
 `generate_motion` tool or prompt-to-motion install verb on the live hub. For
 prompt-driven motion, use a session in the Agent panel (**View ▾ → Panels →
 Agent panel**), which calls the same `motion.compile` on the same scene.
+
+## The review of a turn
+
+When a Studio turn edits the scene and the model stops, the editor measures what changed and renders the shot frame and the top view. The model gets the failing numbers, the pictures and the relation list as its next message, and it repairs or says why not. This repeats after a repair, at most 3 times a turn. `COZYCLAY_AGENT_REVIEW=off` turns it off.
+
+`inspect_studio { scope: "relations" }` answers the relation rows (`Lamp#cube-2 ON Table#cube-5`, `Hero#char-a OCCLUDED_BY Pillar#cube-3 30%`, `Hero#char-a IN_FRAME 1.00 height 0.42`, `LEFT_OF`, `RIGHT_OF`, `NEAR`), character world bounds, and the shot camera's in-frame and out-of-frame lists. The turn's context carries them too, while they fit.

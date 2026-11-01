@@ -548,10 +548,9 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					// Agent declares the change to the model in a system message.
 					if (input.tools !== undefined) state.agent.state.tools = await adapters(input);
 					removeEventListeners = mapEvents(queue);
-					// Compose and deliver once; agent-stream.mjs retries provider calls in place without
-					// repeating attachments, captures or completed tool executions.
-					let prompts;
-					if (input.surface === "studio") {
+					// Compose and deliver once; agent-stream.mjs retries provider calls in place, repeating no attachment, capture or finished tool.
+					// input.review: the turn's review of its own edits (studio-review.mjs).
+					let prompts; if (input.review) prompts = [{ role: "user", content: input.review }]; else if (input.surface === "studio") {
 						const studioContext = typeof input.studioContextText === "string" ? input.studioContextText : `<studio-context>\n${input.contextText || ""}\n</studio-context>`;
 						const attachments = Array.isArray(input.attachments) ? input.attachments : [];
 						if (input.frameObservation) {

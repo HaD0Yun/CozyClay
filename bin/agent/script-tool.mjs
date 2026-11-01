@@ -14,7 +14,7 @@ const publicData = value => value === undefined ? null : JSON.parse(JSON.stringi
 function callSummary(name, result, error) {
 	if (error) return { name, ok: false, receiptId: error.receipt?.receiptId ?? null, status: error.receipt?.status ?? null, revision: error.receipt?.revision ?? null,
 		affectedIds: (error.receipt?.affectedIds ?? []).slice(0, MAX_AFFECTED_IDS), code: error.code ?? null, message: error.message ?? String(error) };
-	return { name, ok: result?.ok !== false, receiptId: result?.receiptId ?? null, status: result?.status ?? null, revision: result?.revision ?? null,
+	return { name, ...(typeof result?.action === "string" ? { action: result.action } : {}), ok: result?.ok !== false, receiptId: result?.receiptId ?? null, status: result?.status ?? null, revision: result?.revision ?? null,
 		affectedIds: Array.isArray(result?.affectedIds) ? result.affectedIds.slice(0, MAX_AFFECTED_IDS) : [], code: result?.code ?? null, message: result?.message ?? null };
 }
 
