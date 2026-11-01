@@ -232,6 +232,7 @@ verify_result { "targets": ["char-a"], "checks": ["motion"], "visual": "trace" }
 
 - `frames` defaults to `"even"`, as today.
 - Beats pick, in order: grab and release frames, actions (`actionFrames`: up to 2 scene bodies that start moving, such as a kicked door, and up to 2 limb speed peaks over 2.5 m/s relative to the hips), beat starts, the worstFrame of the top 2 groups, then even fill. Frames within +-3 of a pick are dropped. At most 6, ascending.
+- `frame_shot { framing: { intent }, over: "shot" }` fits one held camera to every pose of the shot (`src/motion3/shot-framing.js`). It tries views near the asked one and its mirror, from farther back on a longer lens, before turning away. `checks.held` answers `{ frames, hidden, outOfFrame, askedDeg, chosenDeg }`. Any framing that holds the shot still answers `checks.held` and a `HELD_SHOT` warning when it misses frames. A named `focalMm` stays that lens.
 - A shot camera sheet of a take names the frames where scene bodies hide at least half of the character's joints: `hidden: [{ f, share, by }]` and a `hint`. The tiles stay what the export shows.
 - `frames` may also be up to 8 timeline frames, `[f, ...]`. They are shown ascending; a frame outside the range is drawn at the range's nearest end and named in `visualRefs[0].adjusted` (C19). 7-8 frames tile 4x2.
 

@@ -9,6 +9,7 @@ The agent writes a **motion spec**. The deterministic compiler bakes every frame
 3. `run_action motion.compile { characterId, spec, install: false }`. Read `output.qa.groups`: each group has a `cause` and a `hint`.
 4. Apply the hint of the largest group. When a value is a guess (a turn radius, a heading, a height), write it as `{ range: [lo, hi] }` and let the compiler search it. Compile again. Repeat until `qa.ok`.
 5. `motion.compile` with `install: true`. Then do one `verify_result` contact sheet as a visual check: `frames: "beats"` with `views: ["side", "front"]` in a scene with walls. Read `hidden` and `seeThrough` in `visualRefs[0]`.
+   To show a take from one still camera: `frame_shot { subjectIds, framing: { intent }, over: "shot" }` frames every pose of the shot, goes farther back on a longer lens or to the mirrored view, and turns away only as far as walls need. Read `checks.held`: `chosenDeg` can differ from `askedDeg`. To show the user something in the viewport: `run_action view.frame { position, lookAt }`; the shot camera does not change.
 6. Report the QA numbers, `output.fixed` (what the compiler changed for you), what was declared in `checks`, and anything that was not checked.
 
 ## Transition between two poses (free spans): MotionBricks fill (`motion.fill`, opt-in)

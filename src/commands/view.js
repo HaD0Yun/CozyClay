@@ -12,7 +12,7 @@ const operations = Object.entries({ ...groups, 'view.update': Object.keys(fields
 	id, label: id, description: 'Change selection, timeline or viewer state without authoring history.', kind: 'transient',
 	input: { type: 'object', properties: Object.fromEntries(keys.map(key => [key, fields[key]])), required: [], additionalProperties: false },
 }));
-export const declarations = Object.freeze([...operations, ...["view.setPartColours", "view.setGuideMode", "view.setInset", "view.setGhosts"].map(studioActionDeclaration)]);
+export const declarations = Object.freeze([...operations, ...["view.setPartColours", "view.setGuideMode", "view.setInset", "view.setGhosts", "view.frame"].map(studioActionDeclaration)]);
 // A storyboard project has no Motion department; every door says so the same way.
 export const STORYBOARD_MOTION_REFUSAL = Object.freeze({ en: 'Motion tools are not part of a Storyboard project.', ko: '모션 도구는 스토리보드 프로젝트에 없어요.', zh: '故事板项目不包含动作工具。' });
 export const viewCommand = args => Object.entries(groups).find(([, keys]) => Object.keys(args).every(key => keys.includes(key)))?.[0] ?? 'view.update';
@@ -48,4 +48,5 @@ export function register(registry, ports) {
 	viewAction("view.setInset", ({ collapsed }) => { ports.setInsetCollapsed(collapsed); return `Top-View inset ${collapsed ? "folded" : "unfolded"}.`; });
 	// The ghosts' setting lives with them (view-ghosts.js), not in the App: no port to reach.
 	viewAction("view.setGhosts", args => describeGhosts(setGhostSettings(args)));
+	viewAction("view.frame", ({ position, lookAt }) => { if (ports.frameEditorView(position, lookAt) === false) fail("TARGET_NOT_READY", "The editor view has no camera yet."); return "Moved the editor view."; });
 }
