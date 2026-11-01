@@ -12,3 +12,8 @@ https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-ag
 The encode/decode code in `src/motion3/bricks/model-io.js` ports the upstream kernels, which are
 Apache-2.0. No upstream sample motion (BVH) is used or shipped. The demo specs in `demo/` are
 CozyClay's own key poses.
+
+`tools/motionbricks/` (vault.mjs, poses.mjs) reads the SOMA Smart Primitive documents and their BVH sample clips from the same
+repository at a pinned commit into `~/.cache/cozyclay/motionbricks/soma-clips/`. Those clips are under the NVIDIA Sample Data
+Evaluation License (evaluation and testing of NVIDIA technologies only): they are fetched by each user, never committed, and
+the poses made from them are local files, not shipped defaults.

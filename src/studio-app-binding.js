@@ -301,7 +301,7 @@ export function createStudioAppBinding(ports) {
 							.then(verification => { verified[index] = verification; }, error => { if (!(error instanceof StudioProtocolError)) throw error; skipped.push(`${name}: ${error.message}`); }));
 					});
 				}
-				if (args.checks.includes("motion")) exportFramingInto(result, { args, s, receipt, scene, ports }); if (args.visual !== "none") studioVisual(args, { s, receipt, result, images, ports });
+				if (args.checks.includes("motion")) exportFramingInto(result, { args, s, receipt, scene, ports }); if (args.visual !== "none") studioVisual(args, { s, receipt, result, images, ports, scene });
 				const finish = () => {
 					const computed = verified.filter(Boolean);
 					if (computed.length) result.verification = computed.length === 1 ? computed[0] : computed;

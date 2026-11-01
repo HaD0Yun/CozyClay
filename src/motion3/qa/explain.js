@@ -3,6 +3,7 @@
 // direction and an amount in world metres or degrees, at a frame). Hints are derived from the
 // geometry of the worst frame and from the keys that bracket it. A hint function returns
 // { cause, hint, fix? }; fix rides on the group unseen (non-enumerable) for qa/patch.js.
+import { keyReachHints } from "./key-reach.js";
 import { contactHints } from "./hints-contact.js";
 import { motionHints } from "./hints-motion.js";
 import { objectHints } from "./hints-object.js";
@@ -14,7 +15,7 @@ import { fingerHints } from "./finger-checks.js";
 import { heldDriftHints } from "./held-drift.js";
 import { attachPatches } from "./patch.js";
 
-const HINTS = { ...contactHints, ...motionHints, ...objectHints, ...goalHints, ...wristHints, ...loadHints, ...graspHints, ...fingerHints, ...heldDriftHints };
+const HINTS = { ...keyReachHints, ...contactHints, ...motionHints, ...objectHints, ...goalHints, ...wristHints, ...loadHints, ...graspHints, ...fingerHints, ...heldDriftHints };
 
 function keyTable(out) {
 	const byCh = new Map();

@@ -16,6 +16,7 @@
 // stored spec; liftRequest takes what the agent obviously meant: spec.probes are request probes, and a
 // bare goals[].moved id is object:<id>; relaxSpec (lenient.js) fixes mechanical slips in the expanded
 // spec before validation and the answer lists each fix in notes.
+import { expandPoses } from "./poses.js";
 import { compileMotion } from "./compiler/compile.js";
 import { validateSpec } from "./compiler/validate.js";
 import { runMotionQa } from "./qa/index.js";
@@ -89,6 +90,7 @@ export function liftRequest(spec, probes) {
  */
 export function compileSpec(sent, { sk, scene }, opts = {}) {
 	const notes = [], refusals = [];
+	sent = expandPoses(sent, sk); // keys that name a pose (poses.js)
 	try {
 		return compilePrepared(opts.lenient ? sent : prepareSpec(sent, { sk, scene }, notes, refusals), { sk, scene }, opts, notes, refusals);
 	} catch (error) {

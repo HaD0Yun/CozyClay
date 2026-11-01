@@ -63,7 +63,7 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 			const { spec, frames, keyed } = poseKeysSpec({ entry: entry(), ikKeys: keys, take: owner.motionFor(id), frameCount, poseRigAt: f => owner.poseRigAt(id, f) });
 			owner.project?.(); // back to the playhead's pose after reading the keyed frames
 			const receipt = await run("motion.fill", { characterId: id, spec, install: true }), out = receipt.output ?? {};
-			const added = frames.length - keyed.length, warn = out.fill?.warnings?.length ? ` · ${out.fill.warnings.length} warning(s)` : "";
+			const added = frames.length - keyed.length, retimes = (out.fill?.warnings ?? []).filter(w => /model's length|^guide |^last key /.test(w)), warn = retimes.length ? ` · ${retimes.map(w => w.replace(/ \(model's length\); later keys moved/, " · keys after").replace(/^gap /, "")).join(" | ")}` : out.fill?.warnings?.length ? ` · ${out.fill.warnings.length} warning(s)` : "";
 			say(ko(`Filled ${out.fill?.gaps?.length ?? 0} gaps (${out.fill?.keys ?? 0} fill keys${added ? `, ${added} middle poses added` : ""}); QA ${out.qa?.problems ?? out.qa?.groups?.length ?? 0} problems${warn}`,
 				`${out.fill?.gaps?.length ?? 0}구간을 채웠어요 (채움 키 ${out.fill?.keys ?? 0}개${added ? `, 중간 포즈 ${added}개 추가` : ""}); QA 문제 ${out.qa?.problems ?? out.qa?.groups?.length ?? 0}개${warn}`));
 		} catch (error) { motion().project?.(); say(error.message); } finally { setBusy(false); }

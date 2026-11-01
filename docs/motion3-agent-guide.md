@@ -8,7 +8,8 @@ The agent writes a **motion spec**. The deterministic compiler bakes every frame
 2. Plan the beats with frame ranges at 24 fps. **Build them from skills first** (`spec.use`), then add your own keys for what no skill covers.
 3. `run_action motion.compile { characterId, spec, install: false }`. Read `output.qa.groups`: each group has a `cause` and a `hint`.
 4. Apply the hint of the largest group. When a value is a guess (a turn radius, a heading, a height), write it as `{ range: [lo, hi] }` and let the compiler search it. Compile again. Repeat until `qa.ok`.
-5. `motion.compile` with `install: true`. Then do one `verify_result` contact sheet as a visual check.
+5. `motion.compile` with `install: true`. Then do one `verify_result` contact sheet as a visual check: `frames: "beats"` with `views: ["side", "front"]` in a scene with walls. Read `hidden` and `seeThrough` in `visualRefs[0]`.
+   To show a take from one still camera: `frame_shot { subjectIds, framing: { intent }, over: "shot" }` frames every pose of the shot, goes farther back on a longer lens or to the mirrored view, and turns away only as far as walls need. Read `checks.held`: `chosenDeg` can differ from `askedDeg`. To show the user something in the viewport: `run_action view.frame { position, lookAt }`; the shot camera does not change.
 6. Report the QA numbers, `output.fixed` (what the compiler changed for you), what was declared in `checks`, and anything that was not checked.
 
 ## Transition between two poses (free spans): MotionBricks fill (`motion.fill`, opt-in)
@@ -18,6 +19,23 @@ The fill is a **transition between two poses (free spans)**. MotionBricks, a loc
 Author 2-4 whole-body key poses. Each pose keys root, `yaw/pitch/roll`, `spine_*`, `head_*`, `foot_l/r`, `knee_l/r`, `fyaw`/`fpitch`, `hand_l/r` with `elbow_l/r`, and `armw_l: 1, armw_r: 1` on the first key. Each gap between neighbouring authored keys (at most 46 frames per model call) becomes keys marked `src: "fill"`. The filled spec then compiles, runs QA and installs like `motion.compile`, and QA names fill keys `keys[n]` like your own. To change it, edit a key (an edited fill key drops its `src`) and send `motion.fill { base, at: <its frame> }`: only the two gaps beside it are filled again. Fingers, wrist twist and props are not filled. `motion.describe { topic: "fill" }` has the details.
 
 In the Studio, Pose mode has the same workflow on the Sequencer's key bar: **Key** (K) keys the whole pose and the character's spot at the playhead, Shift+K removes it, **Frames** sets the timeline length, and **Fill transition (free spans)** runs `motion.fill` over the keyed frames.
+
+### Keys in a scene with objects (stairs, a carried box)
+
+Values from a take with no overlaps: climb, take a box from a table, turn and carry it down (X Bot, 0.3 m box, steps 0.3 m deep and 0.17 m high, 2026-11-01). Each rule is a mistake that cost a round.
+
+- Space keys about 18 frames apart and move one foot per gap. A foot keyed at the same spot and heading at both ends of a gap stays planted through it; two feet moving together read as a shuffle. Check the keys alone first (`motion.compile` without `fill`): a key frame with QA on it is the author's, not the fill's.
+- Feet on a step: ankle `y` = the tread's top + the rig's ankle height (0.087 on the X Bot). Put the ankle 0.20 m short of the edge the toes point at, going up and going down: a toe in the next riser is a `COLLIDE`.
+- Turning: turn on the spot in 45-degree keys, one foot stepping per key, the feet on a 0.1 m circle about the root and the hands ahead of the body at each key. A named-pose key that sets `yaw` turns the feet with it unless it keys `fyaw_l/r`, so a key that leaves a foot behind keys that foot's `fyaw`.
+- Taking a box in both hands: `objects.box: { prop, grab: <f>, mass: 0.3 }` on one hand. Three keys, 16 frames apart: hands raised ahead of the table, `x = ±0.30`; then beside the box at its `z`, `x = ±(half width + 0.18)`; then the grab key at `x = ±(half width + 0.04)`, `y` = the box's middle + 0.025. The next key lifts straight up about 0.17 m before anything moves back. The other hand stays on the box after the grab by itself (`fix.grasp`).
+- Weight lowers a held box 6 mm per kg, so a box lifted off a table first sinks into it: keep `mass` under 1 for a light box.
+- Carrying: hands 0.42 m ahead of the root and 0.14 m above it, elbows `[±0.4, -0.85, -0.35]`. Lower, the box hits the thighs on a step down. Standing up at the bottom, hold the hands 0.6 m ahead with the elbows out (`[±0.6, -0.72, -0.35]`) so the box clears the torso and the forearms.
+
+### Native mode (opt-in, dev server)
+
+`COZYCLAY_MB_MODE=native` on the dev server (`tools/dev-full.mjs`) switches `motion.fill` and `fill: true` to `src/motion3/bricks/fill-native.js`, which drives the model the way the upstream runtime does: 4 target poses (with velocity) at a key the motion passes through and 1 (a stop) at the last key, engine-style endpoint correction, and dense output keys. `COZYCLAY_MB_TIMING` picks the timing: `exact` (default, authored frames kept, the model's own length comes back as a `timing` warning), `free`, `retime` (each gap takes the model's length and later keys move) or `playground` (one chain, middle keys are guides that come back in `output.fill.guides`, the result installs without repair or thinning). `COZYCLAY_MB_GATE=0` also generates the gaps the default fill leaves to the compiler. Without these variables nothing changes.
+
+Smart Primitives on a scene object: `node tools/motionbricks/vault.mjs --block x,z,width,depth,height --objects objects.json [--doc jump_0_75m] [--seq OneHandedJump0]` writes a spec that installs as is (`motion.compile` with `repair: false, thin: false`). It places the official SOMA Smart Primitive targets on the block, runs the chain like the upstream runtime (target-pose IK pins included), and corrects block overlaps (QA COLLIDE) and joint pops (QA POP/FLIP) inside the chain so the next step continues from the corrected frames. `node tools/motionbricks/poses.mjs [out.json]` exports the 22 target poses as pose-library entries. Both fetch NVIDIA's sample clips at a pinned commit into `~/.cache/cozyclay/motionbricks/`: they are under the NVIDIA Sample Data Evaluation License (evaluation and testing only) and must not be committed or shipped.
 
 ### Model setup (dev server only)
 
@@ -74,6 +92,7 @@ The compiler fixes small mechanical errors itself and reports each fix in `outpu
 |---|---|---|
 | `reach` | on | A wrist target up to 5 cm past the arm's reach goes onto it through a soft knee, so the arm never snaps straight. An ankle target up to 5 cm past the leg's reach lowers the hips just enough, eased over 6 frames. Farther misses stay for QA (`REACH`). |
 | `slide` | on | A sole point under the floor lifts its ankle onto the floor (`fixed.ground`), so a squat with the heels up stands on the balls of the feet. A planted heel or ball that drifts less than 1 cm stays where it landed. A foot that turns (`fyaw`, `fpitch`) on its planted ball with the heel up, or on its planted heel, pivots about that point whatever the drift (`fixed.slide.pivots`): a batter's back foot turns on its ball. |
+| `clear` | on | A swinging foot whose skin enters a scene body lifts over its top, or moves back out through the side it entered when the body is too tall to clear. A still foot sunk into a top comes back up onto it. The compile reports it as `fixed.clear`. |
 | `penetration` | off; `0.02` or `true` | A hand or forearm inside a scene box by at most this much past its allowance moves out along the box normal, eased. FK arms (`armw` 0) are counted as `skipped`. |
 | `person` | on | An upper arm, forearm or hand inside another character (QA `PERSON`, their installed take) moves its wrist target out by the depth plus 4 mm, eased, over 6 fixed passes. The escape keeps the side the hand came from, so a hand keyed deep into someone comes back out the front, not through their back. No depth limit. `checks.allow { part, object: "person:<id>", depth }` lets a meant touch go that deep. FK arms (`armw` 0) are counted as `skipped`. |
 | `retime` | on; `false` | Key intervals around a speed or acceleration spike get longer, borrowed from the neighbouring key intervals. The frame count stays. Frame-range checks follow. |

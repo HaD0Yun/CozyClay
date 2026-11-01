@@ -4,14 +4,14 @@
 // and last keyed frame, the first and last key of each free span (its boundary), both keys of a hold (a key equal to a neighbour
 // within the pause tolerance: holds carry the pauses), the move-onset key (the first whose pose differs from the first pose: without
 // it the move-start delay fell 0.70 -> 0.33 s, deep research 15), the frames the agent patched this round, and the keys while a
-// prop carries an object (objects.<id> grab..release: QA does not measure where the carry goes, so a lift could go). Fill keys stay.
+// prop carries an object (objects.<id> grab..release: QA does not measure where the carry goes, so a lift could go), fast keys under 14 frames apart and hinge keys. Fill keys stay.
 // Candidates go lowest motion contribution first: the RMS over the take of 10 joints between the compile with and without the key.
 // LIMIT_MS at most. Answer: { spec, result, thinned: { removed: [f], kept, before, after, ms } } or null when none went.
 import { classifySpans } from "./bricks/fill-density.js";
 import { isFillKey } from "./bricks/fill-src.js";
 import { qaProblems } from "../qa-label.js";
 
-const LIMIT_MS = 10000, POS = 0.01, POLE = 0.05, ANGLE = 1;
+const LIMIT_MS = 10000, POS = 0.01, POLE = 0.05, ANGLE = 1, SNAP = 14, SNAP_SPEED = 1.5, TARGETS = ["root", "foot_l", "foot_r", "hand_l", "hand_r"];
 const dist = (a, b) => Math.hypot(...a.map((v, i) => v - b[i]));
 
 /** Two keys' sets read as the same pose (within the pause tolerance: 1 cm, 5 cm on a pole, 1 deg). */
@@ -52,6 +52,12 @@ export function thinSpec(spec, result, compile, { protect = [], limitMs = LIMIT_
 	}
 	const at = f => keys.filter(k => k.f === f && !isFillKey(k)), same = (f, g) => at(f).some(a => at(g).some(b => samePose(a, b)));
 	authored.forEach((f, i) => { if ([authored[i - 1], authored[i + 1]].some(g => g !== undefined && same(f, g))) kept.add(f); });
+	// a fast move is the author's timing, and QA reads no weight in it: two keys closer than the fill's shortest gap whose foot, hand
+	// or root target moves over SNAP_SPEED (a kick's snap and impact, 5-6 frames apart) and keys that drive a hinge stay (a kick lost its four keys and the door its slam with QA unchanged)
+	const hinges = Object.values(spec.objects ?? {}).map(o => o?.channel).filter(Boolean);
+	const target = (f, ch) => at(f).map(k => k.set?.[ch]).find(Array.isArray);
+	const fast = (f, g) => g - f < SNAP && TARGETS.some(ch => { const a = target(f, ch), b = target(g, ch); return a && b && dist(a, b) / (g - f) * 24 > SNAP_SPEED; });
+	authored.forEach((f, i) => { if (fast(f, authored[i + 1])) { kept.add(f); kept.add(authored[i + 1]); } if (at(f).some(k => hinges.some(ch => k.set?.[ch] !== undefined))) kept.add(f); });
 	const onset = authored.find(f => f !== authored[0] && !same(f, authored[0]));
 	if (onset !== undefined) kept.add(onset);
 	// each candidate's contribution: the compile without it against this one (its QA is the first removal's when it goes first)

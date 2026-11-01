@@ -15,7 +15,7 @@ import { spanReason, floorAnkle } from "./fill-spans.js";
 import { classifySpans, densityNotes } from "./fill-density.js";
 import { quatFromMat, matFromQuat } from "../compiler/math.js";
 
-const STEP = 24 / 30; // one model frame in spec frames
+export const STEP = 24 / 30; // one model frame in spec frames
 const isFill = isFillKey;
 const lerp = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => v + (b[i] - v) * t) : a + (b - a) * t);
 
@@ -26,7 +26,7 @@ function nlerpRot(A, B, t) {
 }
 
 /** The SOMA pose at fractional spec frame t of a compiled take (frames clamp to the take). */
-function poseAt(sk, frames, cache, t) {
+export function poseAt(sk, frames, cache, t) {
 	t = Math.max(0, Math.min(frames.length - 1, t));
 	const i = Math.min(Math.floor(t), frames.length - 2), u = Math.max(0, t - i);
 	const at = f => cache.get(f) ?? cache.set(f, somaPose(sk, frames[f].s)).get(f);
@@ -36,7 +36,7 @@ function poseAt(sk, frames, cache, t) {
 }
 
 /** Authored key frames in order and the gaps between neighbours (only those with frames to fill), optionally those around `at`. */
-function fillGaps(keys, at, minGap = 2) {
+export function fillGaps(keys, at, minGap = 2) {
 	const fs = [...new Set(keys.filter(k => !isFill(k)).map(k => k.f))].sort((a, b) => a - b);
 	const gaps = fs.slice(1).map((fb, i) => [fs[i], fb]).filter(([fa, fb]) => fb - fa >= minGap);
 	return at === undefined ? gaps : gaps.filter(([fa, fb]) => fa <= at && at <= fb);
@@ -80,7 +80,7 @@ const flightKeyedGap = (authored, fa, fb) => { const floor = floorAnkle(authored
  * 14-18-frame gaps were where the fill hurt (POP +0.74, penetration +1.73 per gap). Else "unsafe_gap" or "hold".
  */
 const SAFE_GAP = 19, HIP_CHANGE = 0.3;
-function safeGap(authored, baked, fa, fb) {
+export function safeGap(authored, baked, fa, fb) {
 	const at = f => authored.filter(k => k.f === f).reduce((set, k) => ({ ...set, ...k.set }), {});
 	const a = at(fa), b = at(fb), names = Object.keys(a).filter(ch => ch in b);
 	const near = (x, y, ch) => (Array.isArray(x) ? x.every((v, i) => Math.abs(v - y[i]) <= (/^(knee|elbow)_/.test(ch) ? 0.05 : 0.01)) : Math.abs(x - y) <= 1);
@@ -93,7 +93,7 @@ function safeGap(authored, baked, fa, fb) {
 }
 
 /** QA problems a gap owns: the groups whose worst frame lies in it, and their frame issues. */
-const gapQa = (qa, fa, fb) => { const own = (qa?.groups ?? []).filter(g => g.worstFrame >= fa && g.worstFrame <= fb); return { groups: own.length, count: own.reduce((n, g) => n + (g.count ?? 1), 0) }; };
+export const gapQa = (qa, fa, fb) => { const own = (qa?.groups ?? []).filter(g => g.worstFrame >= fa && g.worstFrame <= fb); return { groups: own.length, count: own.reduce((n, g) => n + (g.count ?? 1), 0) }; };
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const handOn = (keys, f, k) => keys.some(key => key.f === f && Object.entries(key.set ?? {}).some(([ch, v]) => new RegExp(`^w_.+_${k}$`).test(ch) && v > 0.5));
 
@@ -122,7 +122,7 @@ export function pinHands(dense, fa, fb, authored, frames, sk) {
  * where the run starts, or where it ends when the run reaches the gap's end (the authored key there), or slide straight
  * between the two keys when the run spans the whole gap (then any slide is the author's).
  */
-function lockFeet(out, planted) {
+export function lockFeet(out, planted) {
 	const last = out.length - 1;
 	out.holds = { l: [], r: [] };
 	for (const [k, h] of [["l", 0], ["r", 2]]) {
@@ -144,12 +144,12 @@ function lockFeet(out, planted) {
 	}
 }
 
-function sparseKeys(dense, fa, gap) {
+export function sparseKeys(dense, fa, gap, tolScale = 1) {
 	const byF = new Map();
 	for (const ch of Object.keys(dense[0])) {
 		// a held sole is keyed at both ends of its contact episode, so the curve between them stays flat (SLIDE was 41% of fill-span problems)
 		const side = /^(foot|fyaw|fpitch)_([lr])$/.exec(ch)?.[2], forced = side ? (dense.holds?.[side] ?? []).flat() : [];
-		for (const i of pickKeys(ch, dense.map(d => d[ch]), forced)) {
+		for (const i of pickKeys(ch, dense.map(d => d[ch]), forced, tolScale)) {
 			if (!byF.has(i)) byF.set(i, {});
 			byF.get(i)[ch] = dense[i][ch];
 		}
@@ -157,7 +157,7 @@ function sparseKeys(dense, fa, gap) {
 	return [...byF].sort((a, b) => a[0] - b[0]).map(([i, set]) => { const rounded = roundChannels(set); return { f: fa + i, set: rounded, src: fillSrc(rounded, gap) }; });
 }
 
-const merge = (keys, add) => [...keys, ...add].map((k, i) => [k, i]).sort((a, b) => a[0].f - b[0].f || a[1] - b[1]).map(([k]) => k);
+export const merge = (keys, add) => [...keys, ...add].map((k, i) => [k, i]).sort((a, b) => a[0].f - b[0].f || a[1] - b[1]).map(([k]) => k);
 
 // 14: the shortest call is 6 tokens = 18 model frames = 13.6 spec frames; a shorter gap would compress time 1.13-1.7x
 const MIN_AUTO_GAP = 14, MAX_GAP = 46;
@@ -165,7 +165,7 @@ const MIN_AUTO_GAP = 14, MAX_GAP = 46;
  * A gap longer than one call (46 frames) gets the compiler's own pose at its middle as an authored pass-through key
  * (src: "pass"), again until every gap fits; the channels are the ones the authored keys set.
  */
-function passThrough(spec, compile) {
+export function passThrough(spec, compile) {
 	let keys = [...(spec.keys ?? [])], added = 0;
 	for (let guard = 0; guard < 64; guard++) {
 		const fs = [...new Set(keys.filter(k => !isFill(k)).map(k => k.f))].sort((a, b) => a - b);

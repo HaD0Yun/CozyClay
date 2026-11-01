@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
+import { withFaded } from "./capture-fade.js";
 
 export const CAPTURE_W = 1920;
 export const CAPTURE_H = 1080;
@@ -95,9 +96,8 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 				},
 			};
 		}
-		// verify_result's own views (src/motion3/views.js): one read-back, rows bottom-up, from a
-		// camera at eye with quaternion [x, y, z, w] and a vertical fov, on a target of its own size.
-		function renderView({ eye, quaternion, fovDeg, output }) {
+		// verify_result's own views (motion3/views.js): one read-back from a camera at eye, a vertical fov, fade drawn see-through.
+		function renderView({ eye, quaternion, fovDeg, output, fade }) {
 			const own = createExportCapture(output, () => {
 				const source = camRef.current;
 				if (!source) return null;
@@ -108,7 +108,7 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 				cam.fov = fovDeg;
 				return cam;
 			});
-			try { return own.render(); } finally { own.dispose(); }
+			try { return withFaded(scene, fade, own.render); } finally { own.dispose(); }
 		}
 		const api = { ...createExportCapture({ width, height }), createExportCapture, renderView };
 		apiRef.current = api;

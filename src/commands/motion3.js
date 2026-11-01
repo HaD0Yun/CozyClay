@@ -5,6 +5,7 @@
 import { fail, characterOf } from "./shared.js";
 import { motionScene } from "../motion3/scene.js";
 import { skeletonFor } from "../motion3/rigs/index.js";
+import { expandPoses } from "../motion3/poses.js";
 import { fk } from "../motion3/compiler/skeleton.js";
 import { add, apply, ry } from "../motion3/compiler/math.js";
 import { resolveBone } from "../motion3/bones.js";
@@ -162,14 +163,14 @@ export function register(registry, ports) {
 		: fail("TARGET_NOT_READY", "This character has no compiled take; run motion.compile first.");
 
 	// normalizeArgs: other spellings of install and repair become the declared ones before the schema check (lenient.js)
-	registry.register({ ...declarations[0], normalizeArgs: normalizeCompileArgs, available: mounted, target: args => args.characterId, run({ characterId, spec, base, patch, install: asked = true, probes, repair, thin }, context) {
+	registry.register({ ...declarations[0], normalizeArgs: normalizeCompileArgs, available: mounted, target: args => args.characterId, run({ characterId, spec, base, patch, install: asked = true, probes, repair, thin, filled }, context) {
 		const install = asked === "never" ? false : asked;
 		const character = characterOf(ports, characterId);
 		if ((spec === undefined) === (base === undefined)) fail("INVALID_ARGUMENT", "Send exactly one of spec or base (the specId of a compiled spec, with patch).");
 		if (patch !== undefined && base === undefined) fail("INVALID_ARGUMENT", "patch applies to base, the specId of a compiled spec; send base with it, or the whole spec.");
 		// a base the store forgot (a reload) may still be the installed take's spec: a document read names it by specId
 		const installedSpec = () => { const take = owner().motionFor(characterId); return take?.spec && specIdOf(take.spec) === base ? structuredClone(take.spec) : null; };
-		const patched = [], source = spec ?? asArgument(() => applyPatch(store.get(base) ?? installedSpec() ?? unknownSpec("base", base), patch ?? [], patched));
+		const patched = [], source = spec ? expandPoses(spec, skeletonFor(characterOf(ports, characterId).model)) : asArgument(() => applyPatch(store.get(base) ?? installedSpec() ?? unknownSpec("base", base), patch ?? [], patched));
 		const scene = sceneFor(character), at = placeKey(character, scene);
 		// the take is always baked: the user watches every draft, installed or not
 		// MotionBricks fills between the authored key poses first when spec.fill is true and the dev server can run it (motion3-fill.js autoFill)
@@ -184,7 +185,7 @@ export function register(registry, ports) {
 		// a small patch on one authored key keeps the fill beside it (patch-guard.js): re-fills there made 14-22% of the new problems
 		const keepFill = base === undefined ? null : keptFill(store.get(base) ?? installedSpec(), source);
 		// the installed take's QA, measured before this compile when the store lost it (motion3-installed.js)
-		return after(install === false ? null : installedQa.measure(character, scene), on => after(keepFill ? { spec: source, fill: keepFill } : autoFill(ports, character, source), auto => after(compile(character, auto.spec, { probes, repair: repairWith, installing: install !== false, thin, protect }, {}, context?.taskId, scene), r => {
+		return after(install === false ? null : installedQa.measure(character, scene), on => after(filled ? { spec: source, fill: filled } : keepFill ? { spec: source, fill: keepFill } : autoFill(ports, character, source), auto => after(compile(character, auto.spec, { probes, repair: repairWith, installing: install !== false, thin, protect }, {}, context?.taskId, scene), r => {
 			const { qa, take } = r, notes = [...patched, ...(r.notes ?? [])];
 			// ifClean: install a clean result (qa.ok includes the goals; after repair when asked), and one that beats the installed
 			// take's QA (fewer groups, then fewer frame issues) or the first when none is on (variant K: box ended with no take in 4 of

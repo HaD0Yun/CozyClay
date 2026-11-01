@@ -17,7 +17,8 @@ const input = (properties, required = Object.keys(properties)) => ({ type: 'obje
 const record = { type: 'object', properties: {}, additionalProperties: true };
 // A capsule figure is cast by model id; its posture is the one body choice it
 // has. A patched posture outside POSTURES normalizes to "stand" (createCharacterEntry).
-const newCharacter = { ...record, properties: { model: { type: 'string', enum: [...CHARACTER_KIND_IDS] }, posture: { type: 'string', enum: [...POSTURES] } }, required: [] };
+const newCharacter = { ...record, properties: { model: { type: 'string', enum: [...CHARACTER_KIND_IDS] }, posture: { type: 'string', enum: [...POSTURES] },
+	x: { type: 'number', description: 'floor position, metres (position { x, z } is read the same)' }, z: { type: 'number' }, rot: { type: 'number', description: 'yaw, degrees (yawDeg too)' } }, required: [] };
 const characterPatch = { ...record, properties: { posture: { type: 'string', description: `One of ${POSTURES.join(', ')}; anything else stands.` } }, required: [] };
 const mutation = (id, label, schema, exposure = 'open') => ({ id, label, description: label, kind: 'mutation', undoDomain: 'cast', input: schema, exposure });
 
@@ -59,7 +60,11 @@ export function register(registry, ports) {
 		if (object.attach) fail('INVALID_ARGUMENT', 'A character cannot be grouped under an object that a character carries.');
 	};
 	const methods = {
-		'character.add': ({ character: value }) => {
+		'character.add': ({ character: sent }) => {
+			// position { x, z } and yawDeg were dropped without a word and the character stood at the origin (agent runs, 2026-10-30)
+			const { position, yawDeg, ...value } = sent;
+			if (position && typeof position === 'object') { if (Number.isFinite(position.x) && value.x === undefined) value.x = position.x; if (Number.isFinite(position.z) && value.z === undefined) value.z = position.z; }
+			if (Number.isFinite(yawDeg) && value.rot === undefined) value.rot = yawDeg;
 			const row = createCharacterEntry({ ...value, id: value.id ?? createStableItemId('character') }, owner().read().length);
 			if (owner().read().some(entry => entry.id === row.id)) fail('INVALID_ARGUMENT', 'Character id already exists.');
 			owner().write(rows => [...rows, row]);

@@ -35,6 +35,7 @@ import ReviewOverlay from "./review-overlay.jsx";
 import "./previs.css";
 import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
+import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
@@ -3773,21 +3774,8 @@ export default function App() {
 			captureFraming: (framing, output) => appContext.live.state.captureFramingPng(framing, output),
 			characterScale: activeChar?.scale ?? 1,
 			characterModel: activeChar?.model ?? null,
-			// QA-only framing: FlyControls rewrites the editor camera's rotation
-			// from editorLook every frame, so a bare camera.lookAt is overwritten
-			// before the next paint. Set both, the way the live frame_shot does.
-			frameEditorCam: (position, target) => {
-				const camera = editorCamRef.current;
-				if (!camera) return false;
-				const angles = aimAt(position, target);
-				editorLook.current.yaw = angles.yaw;
-				editorLook.current.pitch = angles.pitch;
-				camera.position.set(position.x, position.y, position.z);
-				camera.rotation.order = "YXZ";
-				camera.rotation.set(angles.pitch, angles.yaw, 0);
-				camera.updateProjectionMatrix();
-				return true;
-			},
+			// QA framing: the same move as run_action view.frame, without leaving Look Through.
+			frameEditorCam: (position, target) => frameEditorView(editorCamRef.current, editorLook.current, position, target),
 			lookThroughShot,
 			setLookThrough: (value) => setLookThroughShot(!!value),
 			charA,
@@ -4455,6 +4443,7 @@ export default function App() {
 		addCharacterWaypoint, moveCharacterWaypoint, removeCharacterWaypoint, clearCharacterWaypoints, setWaypointMode,
 		setCharacterIkKey, removeCharacterIkKey, clearCharacterIkKeys, attachSceneObject, setShotCameraRail, clearShotCameraRail,
 		choosePartColours, setGuideMode, setInsetCollapsed, exportShotVideo,
+		frameEditorView: (position, target) => { setLookThroughShot(false); return frameEditorView(editorCamRef.current, editorLook.current, position, target); },
 		readView: readStudioState, publishView: operateStudio, canPose: () => !poseRefusal,
 		switchSceneDocument, addSceneDocument, duplicateSceneDocument, renameSceneDocument, deleteSceneDocument,
 		afterRender: () => new Promise(resolve => renderWaitersRef.current.push(resolve)),

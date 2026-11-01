@@ -28,7 +28,8 @@ export function studioTransaction({ hub, context, turnId, admission, task = null
 		const args = task ? { taskId: task.taskId, ...extra } : { turnId };
 		const receipt = await hub.command("run_action", {
 			name: "run_action", args: { action: verb(name), args }, ...(task ? { taskId: task.taskId } : { turnId }),
-			commandId: randomUUID(), host, expectedRevision: admission.revision,
+			// a scene action of this run may have opened another scene: the controls follow the host the tools adopted
+			commandId: randomUUID(), host: admission.host ?? host, expectedRevision: admission.revision,
 		}, context.host.workspaceHandle);
 		if (!receipt.ok) throw Object.assign(new Error(receipt.message), { code: receipt.code });
 		return receipt;

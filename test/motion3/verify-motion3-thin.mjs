@@ -42,5 +42,14 @@ for (const [name, least] of [["h-sit", 0.15], ["h-parkour", 0.15]]) {
 	const r = job(held).thinned;
 	expect("a key made a hold with its neighbour is kept", !r?.removed.includes(f) && !r?.removed.includes(next.f), JSON.stringify({ f, next: next.f, removed: r?.removed }));
 }
+// a fast move: two keys under 14 frames apart whose target moves over 1.5 m/s stay, however little QA cares
+{
+	const doc = load("h-sit"), job = spec => runCompileJob({ model: doc.model, scene: motionScene(doc.objects), spec, installing: true, thinLimitMs: 120000 });
+	const f = job(doc.spec).thinned?.removed?.[0], k = doc.spec.keys.find(x => x.f === f && !isFillKey(x));
+	if (!k.set.hand_r) k.set.hand_r = [0, 1, 0];
+	const fast = { ...doc.spec, keys: [...doc.spec.keys, { f: f + 5, set: { ...k.set, hand_r: (k.set.hand_r ?? [0, 1, 0]).map((v, i) => (i === 2 ? v + 0.5 : v)), ...(k.set.hand_r ? {} : { armw_r: 1 }) } }].sort((a, b) => a.f - b.f) };
+	const r = job(fast).thinned;
+	expect("a key 5 frames from its neighbour is kept with it", !r?.removed.includes(f) && !r?.removed.includes(f + 5), JSON.stringify({ f, removed: r?.removed }));
+}
 if (failures) { console.error(`${failures} thin check(s) failed`); process.exit(1); }
 console.log("verify-motion3-thin: all checks passed");

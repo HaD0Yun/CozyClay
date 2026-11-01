@@ -37,6 +37,7 @@ const castOverride = {
 };
 /** A world floor point in metres; y is the floor. */
 const floorPoint = input({ x: { type: "number" }, z: { type: "number" } });
+const worldPoint = input({ x: { type: "number" }, y: { type: "number" }, z: { type: "number" } });
 const waypointFrame = { ...frame, minimum: 1 };
 /** The tracks an IK key stores (src/motion/ik.js IK_TRACKS and FK_TRACKS). A
  * chain track keys its three bones (upper, lower, end); a joint track one. */
@@ -131,6 +132,8 @@ export const STUDIO_ACTIONS = freezeStudioData([
 		description: "Fold (collapsed: true) or unfold the Top-View inset pane over the viewport. A viewer setting that is never undone." },
 	{ id: "view.setGhosts", label: "Ghosts", kind: "transient", input: input({ mode: { type: "string", enum: ["off", "step", "keys"] } }, { count: { type: "integer", minimum: 1, maximum: 6 }, step: { type: "integer", minimum: 1, maximum: 24 } }),
 		description: "Onion skin in the editor viewport, like the View menu's Ghosts: translucent poses of the active character's installed take, count (1-6, default 3) before the playhead in blue and as many after it in orange, fading with distance in time; props the take carries (a kit's bat) ghost with the body. mode step spaces them every step frames (1-24, default 4), keys puts them on the spec's key frames, off hides them; e.g. { mode: \"step\", count: 3, step: 4 }. An editor overlay: never in capture_frame, exports or contact sheets (verify_result ghosts: true draws them on a views sheet). A viewer setting: never saved or undone." },
+	{ id: "view.frame", label: "Move editor view", kind: "transient", input: input({ position: worldPoint, lookAt: worldPoint }),
+		description: "Move the editor view the user is looking at (world metres) and leave Look Through, so they see what you point at. The shot camera, its keys and the export do not change (frame_shot frames those). A viewer setting that is never undone." },
 	{ id: "export.shotVideo", exposure: "confirm", confirmationReason: "Exporting writes a video file outside the Studio.", label: "Export video (mp4)", kind: "job", timeoutMs: 300_000, input: input({}, { ...shotId, scope: { type: "string", enum: ["timeline", "shot"], description: "timeline: the whole timeline, every shot back to back; shot: one shot (shotId, or the one under the playhead)." } }),
 		description: "Record a shot to an MP4 (camera move and character motion, no editor chrome), like the Export menu's Video (mp4), and hand it to the configured export folder or, when none is usable, the browser download. With shotId it records that shot's own range; without it, what the menu records: the whole take when there is motion, else the shot under the playhead (else the first shot), keyed from the current camera if it has no keys. Waits until the file is encoded (up to 5 minutes) and answers status \"completed\" with output.fileName and output.frameCount. One export at a time; not a motion generation." },
 	{ id: "scene.create", label: "New scene", kind: "document", input: input(),

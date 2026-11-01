@@ -353,7 +353,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		pruneStudioSessions();
 		const cookies = parseCookies(req), supplied = cookies.studio_owner;
 		let owner = studioOwnerTokens.get(sessionId);
-		if (!owner && create) { owner = randomBytes(24).toString("hex"); studioOwnerTokens.set(sessionId, owner); return owner; }
+		// one owner per browser: a new session adopts the token the browser holds (its cookie, shared by every tab and Studio on the host)
+		if (!owner && create) { owner = /^[0-9a-f]{48}$/.test(supplied ?? "") ? supplied : randomBytes(24).toString("hex"); studioOwnerTokens.set(sessionId, owner); return owner; }
 		if (!owner || supplied !== owner) throw Object.assign(new Error("Studio session owner mismatch."), { code: "AUTH_REQUIRED" });
 		return owner;
 	};
@@ -613,7 +614,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		if (controller.signal.aborted) { turnOutcome = "cancelled"; turnFailureCode = "aborted"; }
 		if (!record.terminal) emitFrame({ type: "done" });
-		close(); if (!res.writableEnded) res.end(); session.controller = null; session.activeTurnId = null;
+		// session.host: a scene this turn opened, which a task's coordinator reads next (studio-task-routes.mjs)
+		close(); if (!res.writableEnded) res.end(); session.controller = null; session.activeTurnId = null; if (admission.host?.workspaceId === value.context.host.workspaceId) session.host = studioIdentity({ ...value.context.host, ...admission.host });
 		// The review starts only now, after the stream has ended, and only ever
 		// appends one note to the record: it neither delays nor steers the turn.
 		if (record.supervisor === "pending") void (async () => {

@@ -56,6 +56,11 @@ const oauthServer = createServer((req, res) => {
 		void import("../mcp/motionbricks/service.mjs").then(({ handleFillRoute }) => handleFillRoute(req, res)).catch(() => { if (!res.headersSent) { res.writeHead(503, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "FILL_FAILED", message: "MotionBricks fill is not available on this server" } })); } });
 		return;
 	}
+	// motion.primitive: a MotionBricks Smart Primitive over a scene block (opt-in, mcp/motionbricks/primitive.mjs)
+	if (path === "/agent/motion-primitive" && req.method === "POST") {
+		void import("../mcp/motionbricks/primitive.mjs").then(({ handlePrimitiveRoute }) => handlePrimitiveRoute(req, res)).catch(() => { if (!res.headersSent) { res.writeHead(503, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "CAPABILITY_MISSING", message: "Smart Primitives are not available on this server" } })); } });
+		return;
+	}
 	if (path.startsWith("/agent/")) {
 		void agentHandler(req, res, path).then((handled) => { if (!handled && !res.writableEnded) { res.writeHead(404); res.end(); } }).catch(() => { if (!res.headersSent) { res.writeHead(502); res.end(JSON.stringify({ error: "agent unavailable" })); } });
 		return;

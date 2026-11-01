@@ -142,6 +142,7 @@ export const PROBE_TYPES = {
 
 export const FIX_TYPES = {
 	reach: bool("wrist targets past reach go onto it softly; hips lower for near-miss ankles", { default: true }),
+	clear: bool("a swinging foot in a body lifts over it or backs out; a still foot sunk in a top comes up", { default: true }),
 	slide: bool("lifts sunk soles; a planted heel or ball drifting under 1 cm stays put; a heel-up foot pivots on its ball", { default: true }),
 	penetration: { oneOf: [{ type: "boolean" }, { type: "number", minimum: 0, maximum: 0.05 }], default: 0, description: "push hands out of boxes up to this depth, m (true = 0.02)" },
 	self: bool("arms kept out of the body's skin (wrists, elbows)", { default: true }),
