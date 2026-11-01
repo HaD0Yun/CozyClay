@@ -56,6 +56,9 @@ assert.deepEqual(invoked[0][1].targets, ["cube-1"]); assert.deepEqual(invoked[1]
 assert.equal(seen.images, 2, "the shot frame and the top view");
 assert.deepEqual(seen.content.slice(1).map(part => part.data), ["capture_framing_png", "capture_plan_png"]);
 assert.ok(seen.findings.some(line => line.includes("cube-1")) && seen.findings.some(line => line.startsWith("motion hero")));
+// the pictures go through verify_result when they can, so the panel's progress card shows them
+const shown = [], viaVerify = await createTurnReview({ invoke: async (name, args) => { if (args.visual) shown.push(args.visual); return { receiptId: "r", revision: 3, checks: {}, visualRefs: args.visual ? [{ imageId: `id-${args.visual}` }] : [] }; }, resolveImage: async id => png(id), hub: hubOf(), workspaceHandle: "w" })({ edited: true, ids: ["cube-1"], motionIds: [], stage: false });
+assert.deepEqual([shown, viaVerify.content.slice(1).map(p => p.data)], [["frame", "plan"], ["id-frame", "id-plan"]]);
 const broken = await createTurnReview({ invoke: async () => { throw new Error("refused"); }, hub: hubOf({ capture_framing_png() { throw new Error("no editor"); } }), workspaceHandle: "w" })({ edited: true, ids: ["x"], motionIds: [], stage: true });
 assert.deepEqual([broken.findings, broken.images], [[], 1], "a check or capture that cannot run is left out, and the review still answers");
 
@@ -93,6 +96,14 @@ const toolFailed = await run([[...edit("a"), { type: "tool.start", callId: "b", 
 assert.equal(toolFailed.reviews.length, 1, "a refused call the model has answered does not hide its earlier edits from the review");
 const threw = await run([[...edit("a"), { type: "done" }]], { review: async () => { throw new Error("gone"); } });
 assert.deepEqual([threw.inputs.length, threw.done.length, threw.frames.find(f => f.type === "tool.done" && f.callId === "review-1").ok], [1, 1, false], "a review that cannot run ends the turn cleanly");
+
+assert.equal(once1.frames.find(f => f.type === "tool.start" && f.callId === "review-1").review, true, "the row says it is not the model's call");
+
+// ---- what the panel shows ----
+const { stepResult } = await import("../src/workflow/agent-turn.js");
+const row = result => stepResult({ kind: "tool", name: "verify_result", status: "done", args: { review: 1 }, result });
+assert.equal(row({ findings: [], images: 2 }), "checks passed · looked at the frame and top view");
+assert.equal(row({ findings: ["placement: x", "framing: y"], images: 0 }), "2 checks failed: placement: x");
 
 // ---- a whole turn: real route, runner and tools ----
 const world = { revision: 41 }, hostOf = () => contextFixture().host, commands = [];
