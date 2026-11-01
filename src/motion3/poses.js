@@ -52,6 +52,9 @@ export function expandPoses(spec, sk) {
 	return { ...spec, keys: spec.keys.map(k => {
 		if (!k || typeof k.pose !== "string") return k;
 		const { pose, at, face, set, ...rest } = k;
-		return { ...rest, set: { ...poseChannels(pose, sk, { at, face }), ...(set ?? {}) } };
+		// fyaw is a world heading: a key that turns the body with set.yaw turns the feet with it unless it keys them (an agent turning
+		// a carry by 180 deg left the feet facing back, and both knees bent backward for 95 frames)
+		const feet = Number.isFinite(set?.yaw) ? Object.fromEntries(["l", "r"].filter(s => set[`fyaw_${s}`] === undefined).map(s => [`fyaw_${s}`, set.yaw])) : {};
+		return { ...rest, set: { ...poseChannels(pose, sk, { at, face }), ...feet, ...(set ?? {}) } };
 	}) };
 }

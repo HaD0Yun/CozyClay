@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // COLLIDE for the feet (qa/foot-checks.js): the foot's skin against scene bodies. Session e7edb718: a swinging toe
-// went 8 cm into a stair's riser with QA clean, because the shin capsule ends at the ankle. The stairs take now
-// reports both toes, its hint lifts the foot over the step, and repair clears most of it; a foot resting on a
-// body's top is a step (up to the ground's 1 cm) and a sole sunk deeper is reported; allow excuses a foot.
+// went 8 cm into a stair's riser with QA clean, because the shin capsule ends at the ankle. fix.clear now lifts those
+// toes on its own. With it off the stairs take reports both toes, its hint lifts the foot over the step, and repair
+// clears most of it; a foot resting on a body's top is a step (up to the ground's 1 cm) and a sole sunk deeper is
+// reported; allow excuses a foot.
 import { readFileSync } from "node:fs";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { repairSpec } from "../../src/motion3/repair.js";
@@ -17,8 +18,11 @@ function expect(name, condition, detail = "") {
 
 const sk = skeletonFor("y-bot-tpose");
 const stairs = JSON.parse(readFileSync(new URL("../fixtures/foot-collide/stairs.json", import.meta.url), "utf8"));
-const stairScene = motionScene(stairs.objects), stairSpec = { fps: 24, ...stairs.spec };
+const stairScene = motionScene(stairs.objects), cleared = { fps: 24, ...stairs.spec }, stairSpec = { ...cleared, fix: { ...cleared.fix, clear: false } };
 const foot = r => r.qa.groups.filter(g => /^foot_[lr] x /.test(g.subject));
+
+const onByDefault = compileSpec(cleared, { sk, scene: stairScene });
+expect("fix.clear, on by default, takes both toes out of the risers", foot(onByDefault).length === 0 && onByDefault.out.fixed?.clear?.frames > 0, foot(onByDefault));
 
 const r = compileSpec(stairSpec, { sk, scene: stairScene }), groups = foot(r);
 const right = groups.find(g => g.subject === "foot_r x cube-2"), left = groups.find(g => g.subject === "foot_l x cube-3");

@@ -54,7 +54,7 @@ const NO_JUMP = "No at/along: it rests in the palm, fingers closed on it. Throw/
 const CARRY = { props: EXAMPLES.objects.props, objects: { cup: EXAMPLES.objects.objects.cup } };
 
 export const NOTES = {
-	essentials: ["types: ? optional, =v default, a..b range, A | B one of, [key]: T map, a|b?: T both, x_l|r each side, (text) meaning.",
+	essentials: ["types: ? optional, =v default, a..b range, A | B one of, [key]: T map, a|b?: T both, x_l|r per side, (text) note.",
 		`A carried object: ${literal(CARRY)}. ${NO_JUMP}`,
 		"motion.describe { topic } or { topic: 'skills', name }: more."],
 	spec: [UNITS,

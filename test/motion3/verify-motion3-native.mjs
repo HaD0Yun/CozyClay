@@ -14,6 +14,8 @@ import { isFillKey } from "../../src/motion3/bricks/fill-src.js";
 import { STEP } from "../../src/motion3/bricks/fill.js";
 import { correctMotion, stepFeet } from "../../src/motion3/bricks/fill-native-core.js";
 import { fillSpecNative } from "../../src/motion3/bricks/fill-native.js";
+import { carryHands } from "../../src/motion3/bricks/fill-carry.js";
+import { holdStance } from "../../src/motion3/bricks/fill-stance.js";
 import { fillBrief, declarations } from "../../src/commands/motion3-fill.js";
 import { validateStudioSchema } from "../../src/studio-agent-protocol.js";
 import { fillRequest } from "../../mcp/motionbricks/service.mjs";
@@ -126,6 +128,44 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 	const off = await primitiveRequest({ kind: "vault", objectId: "cube", objects: [] }).then(() => null, e => e.code);
 	if (saved !== undefined) process.env.COZYCLAY_MB_PRIMITIVES = saved;
 	expect("primitive: off unless COZYCLAY_MB_PRIMITIVES=1 (CAPABILITY_MISSING)", off === "CAPABILITY_MISSING", String(off));
+}
+
+{ // carry: the hand holding a carried object (and the other hand when both gap ends key it) follows the author's curve, not the model
+	const rows = n => Array.from({ length: n }, () => ({ hand_r: [9, 9, 9], hand_l: [9, 9, 9], root: [0, 1, 0] }));
+	const baked = { hand_r: Array.from({ length: 40 }, (_, f) => [-0.2, 1, f / 100]), hand_l: Array.from({ length: 40 }, (_, f) => [0.2, 1, f / 100]) };
+	const spec = { props: { grip: { hand: "r" } }, objects: { box: { prop: "grip", grab: 10, release: 30 } } };
+	const ik = f => ({ f, set: { armw_l: 1, armw_r: 1, hand_l: [0.2, 1, 0], hand_r: [-0.2, 1, 0] } });
+	const inside = carryHands(rows(21), 10, 30, spec, [ik(10), ik(30)], baked), near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+	expect("carry: the carrying hand takes the author's curve after the grab ease", near(inside[10].hand_r, baked.hand_r[20]));
+	expect("carry: the other hand, keyed at both ends, follows too", near(inside[10].hand_l, baked.hand_l[20]));
+	expect("carry: the body stays the model's", JSON.stringify(inside[10].root) === "[0,1,0]");
+	const before = carryHands(rows(10), 0, 9, spec, [ik(0), ik(9)], baked);
+	expect("carry: a gap before the grab keeps the model's hands", JSON.stringify(before[5].hand_r) === "[9,9,9]");
+	const oneHand = carryHands(rows(21), 10, 30, spec, [{ f: 10, set: { armw_r: 1, hand_r: [-0.2, 1, 0] } }, { f: 30, set: {} }], baked);
+	expect("carry: a free other hand (no IK keys at the gap ends) keeps the model's swing", JSON.stringify(oneHand[10].hand_l) === "[9,9,9]");
+	const ease = carryHands(rows(21), 10, 30, spec, [ik(10), ik(30)], baked);
+	expect("carry: the grab frame blends in, not a jump", ease[0].hand_r[0] > -0.2 && ease[0].hand_r[0] < 9);
+	{ // body frame: keyed 0.4 m in front at yaw 0 and at yaw 90, the hand rides the model's body through the turn (not the chord)
+		const b = { root: Array.from({ length: 21 }, () => [0, 1, 0]), yaw: Array.from({ length: 21 }, (_, f) => (f <= 10 ? 0 : 90)), hand_r: Array.from({ length: 21 }, (_, f) => (f <= 10 ? [0, 1, 0.4] : [0.4, 1, 0])) };
+		const turning = Array.from({ length: 11 }, (_, i) => ({ hand_r: [9, 9, 9], root: [0, 1, 0], yaw: i * 9 }));
+		const out = carryHands(turning, 10, 20, { props: { grip: { hand: "r" } }, objects: { box: { prop: "grip", grab: 0 } } }, [], b);
+		expect("carry: through a turn the hand stays 0.4 m from the body (rides the yaw)", Math.abs(Math.hypot(out[5].hand_r[0], out[5].hand_r[2]) - 0.4) < 1e-6, JSON.stringify(out[5].hand_r));
+		expect("carry: at the turn's middle the hand is ahead at 45 degrees", Math.abs(out[5].hand_r[0] - out[5].hand_r[2]) < 1e-6);
+	}
+	expect("carry: no carried object, nothing changes", JSON.stringify(carryHands(rows(3), 0, 2, {}, [], baked)[1].hand_r) === "[9,9,9]");
+}
+
+{ // stance: the foot keyed at one spot at both gap ends stays there; the stepping foot keeps the model's swing
+	const rows = Array.from({ length: 5 }, (_, i) => ({ foot_l: [0.1, 0.1 + i / 50, i / 100], foot_r: [-0.1, 0.1 + (i === 2 ? 0.2 : 0), i / 10] }));
+	const keys = [{ f: 10, set: { foot_l: [0.1, 0.1, 0], foot_r: [-0.1, 0.1, 0] } }, { f: 14, set: { foot_l: [0.1, 0.1, 0], foot_r: [-0.1, 0.1, 0.4] } }];
+	rows[4].foot_l = [0.1, 0.1, 0]; rows[0].foot_l = [0.1, 0.1, 0];
+	holdStance(rows, 10, 14, keys);
+	expect("stance: the support foot does not leave its spot", rows.every(r => Math.abs(r.foot_l[1] - 0.1) < 1e-9 && Math.abs(r.foot_l[2]) < 1e-9));
+	expect("stance: the stepping foot keeps its lift", rows[2].foot_r[1] > 0.25);
+	const swing = Array.from({ length: 5 }, (_, i) => ({ foot_r: [0, 0.1, i], fyaw_r: [170, 30, 60, 100, -175][i], fpitch_r: [0, 30, 55, 30, 0][i] }));
+	holdStance(swing, 0, 4, [{ f: 0, set: { foot_r: [0, 0.1, 0] } }, { f: 4, set: { foot_r: [0, 0.1, 4] } }]);
+	expect("swing: the heading turns the short way across +-180", swing.every(r => r.fyaw_r >= 170 && r.fyaw_r <= 185), JSON.stringify(swing.map(r => r.fyaw_r)));
+	expect("swing: the toe-down stops before the foot flips", swing.every(r => r.fpitch_r <= 40));
 }
 
 console.log(failures ? `${failures} failed` : "all passed");

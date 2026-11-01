@@ -28,19 +28,21 @@ import { reachBody } from "./reach-body.js";
 import { lockFeet } from "./slide.js";
 import { holdTurns } from "./turn.js";
 import { liftSoles } from "./ground.js";
+import { clearFeet } from "./clear.js";
+import { otherHandHold } from "./other-hand.js";
 import { pushOut } from "./push.js";
 import { retime } from "./retime.js";
 import { selfClear } from "./self.js";
 import { personOut } from "./person.js";
 
-const FIX_KEYS = ["reach", "slide", "penetration", "self", "retime", "stance", "grasp", "person"];
+const FIX_KEYS = ["reach", "slide", "clear", "penetration", "self", "retime", "stance", "grasp", "person"];
 export { FIX_KEYS };
 
 export function fixOptions(fix) {
-	if (fix === false) return { reach: false, slide: false, penetration: 0, self: false, retime: false, stance: false, grasp: false, person: false };
+	if (fix === false) return { reach: false, slide: false, clear: false, penetration: 0, self: false, retime: false, stance: false, grasp: false, person: false };
 	const f = fix ?? {};
 	const pen = f.penetration === true ? 0.02 : Math.min(0.05, Math.max(0, Number(f.penetration) || 0));
-	return { reach: f.reach !== false, slide: f.slide !== false, penetration: pen, self: f.self !== false, retime: f.retime !== false, stance: f.stance !== false, grasp: f.grasp !== false, person: f.person !== false };
+	return { reach: f.reach !== false, slide: f.slide !== false, clear: f.clear !== false, penetration: pen, self: f.self !== false, retime: f.retime !== false, stance: f.stance !== false, grasp: f.grasp !== false, person: f.person !== false };
 }
 
 /** The slide report with the flat feet whose turn waited (turn.js): turns { frames, max deg }. */
@@ -55,8 +57,10 @@ export function applyFixes(out, fix, engine, { whole = true } = {}) {
 	if (fix.reach) put("reachLegs", lowerHips(out, engine));
 	if (fix.reach) put("reachBody", reachBody(out, engine));
 	if (fix.slide) put("slide", withTurns(holdTurns(out, engine), lockFeet(out, engine)));
+	if (fix.clear) put("clear", clearFeet(out, engine));
 	// a pivot can hold a foot past the leg's reach: the hips go down for those frames too
 	if (fix.reach && fixed.slide?.pivots) put("reachLegs", mergeReach(fixed.reachLegs, lowerHips(out, engine)));
+	if (fix.grasp) put("otherHand", otherHandHold(out, engine));
 	if (fix.penetration > 0) put("penetration", pushOut(out, engine, fix.penetration));
 	if (fix.self) put("self", selfClear(out, engine));
 	if (fix.person) put("person", personOut(out, engine));

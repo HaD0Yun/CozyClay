@@ -14,6 +14,9 @@ import { classifySpans, densityNotes } from "./fill-density.js";
 import { STEP, poseAt, fillGaps, pinHands, sparseKeys, merge, passThrough, safeGap, gapQa, gapCheck } from "./fill.js";
 import { MIN_GAP, TOL_SCALE, correctMotion, denseChannels, gapTokens, groundSoles, relaxPops } from "./fill-native-core.js";
 import { fillRetime, fillPlayground } from "./fill-native-chain.js";
+import { carryHands } from "./fill-carry.js";
+import { despikeAngles } from "./fill-despike.js";
+import { holdStance } from "./fill-stance.js";
 
 /** Same contract as fill.js fillSpec ({ spec, gaps, calls, spans, ... }), the native policy. */
 export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = "exact", gate = true } = {}) {
@@ -52,7 +55,7 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		const wants = Math.round((asked.tokens * 4 - 6) * STEP);
 		if (Math.abs(wants - (fb - fa)) >= 6) warnings.push(`timing f${fa}-f${fb}: ${fb - fa} frames, model wants ~${wants}${wants > fb - fa ? " (rushed)" : " (drags)"}`);
 		const motion = correctMotion(decodeMotion(res.out, res.tokens, align), poses[3], poses[4]);
-		const dense = pinHands(denseChannels(motion, fa, fb, r.out.baked, base.out.baked), fa, fb, authored, r.out.frames, sk);
+		const dense = carryHands(pinHands(holdStance(despikeAngles(denseChannels(motion, fa, fb, r.out.baked, base.out.baked), r.out.baked, fa), fa, fb, authored), fa, fb, authored, r.out.frames, sk), fa, fb, spec, authored, r.out.baked);
 		const grounded = groundSoles(dense, fa, { spec: { ...spec, fix: { ...(spec.fix ?? {}), slide: false } }, keys, compile, sk });
 		const relaxed = relaxPops(dense, fa, { spec, keys, compile, sk });
 		const fill = sparseKeys(dense, fa, ends[i], TOL_SCALE);

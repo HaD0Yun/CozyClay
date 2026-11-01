@@ -5,6 +5,9 @@ import { encodePoses, decodeMotion, MIN_TOKENS } from "./model-io.js";
 import { frameChannels, unwrapSeries } from "./forward.js";
 import { isFillKey, shortHash } from "./fill-src.js";
 import { classifySpans, densityNotes } from "./fill-density.js";
+import { carryHands } from "./fill-carry.js";
+import { despikeAngles } from "./fill-despike.js";
+import { holdStance } from "./fill-stance.js";
 import { STEP, poseAt, pinHands, sparseKeys, merge, passThrough, safeGap } from "./fill.js";
 import { MIN_GAP, TOL_SCALE, lerp, correctMotion, denseChannels, saneChannels } from "./fill-native-core.js";
 
@@ -51,7 +54,7 @@ export async function fillRetime(spec, { sk, compile, run }) {
 		const motion = correctMotion(decodeMotion(res.out, res.tokens, align), poses[3], poses[4]);
 		const auth = keys.filter(k => !isFillKey(k));
 		const end = shortHash(auth.filter(k => k.f === fa || k.f === fb).map(k => [k.f, k.set]));
-		const dense = pinHands(denseChannels(motion, fa, fb, r.out.baked, base.out.baked), fa, fb, auth, r.out.frames, sk);
+		const dense = carryHands(pinHands(holdStance(despikeAngles(denseChannels(motion, fa, fb, r.out.baked, base.out.baked), r.out.baked, fa), fa, fb, auth), fa, fb, auth, r.out.frames, sk), fa, fb, spec, auth, r.out.baked);
 		const fill = sparseKeys(dense, fa, end, TOL_SCALE);
 		keys = merge(keys, fill);
 		report.push({ f: [fa, fb], frames: fb - fa, authoredFrames: fb - fa - delta, tokens: res.tokens, targets: nTarget, keys: fill.length, ms: Math.round(ms) });
