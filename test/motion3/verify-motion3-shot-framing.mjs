@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // One held camera for a whole take (motion3/shot-framing.js): it frames every pose and stays off what hides them.
-import { fitHeld, heldIssues } from "../../src/motion3/shot-framing.js";
+import { fitHeld, heldIssues, placedOut } from "../../src/motion3/shot-framing.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -41,6 +41,15 @@ const tight = heldIssues(walk(), { eye: [2.2, 0.9, 0], lookAt: [0, 0.9, 0] }, fr
 expect("heldIssues names the frames a pose leaves the picture", tight.outOfFrame.includes(48) && !tight.outOfFrame.includes(0), tight);
 const behind = heldIssues(walk(), { eye: [0, 1, -3], lookAt: [0, 1, -6] }, frames, opts);
 expect("a camera facing away has every frame out", behind.outOfFrame.length === frames.length, behind);
+
+const one = { f0: 0, frames: [{ s: { P: [[1, 1, 2]] } }], ctx: {} }, at = { position: [1, 0, 1], yaw: 0 };
+expect("a character still at its placement keeps the compile's joints", placedOut(one, at, { x: 1, y: 0, z: 1, rot: 0 }) === one);
+expect("a moved character carries its joints", JSON.stringify(placedOut(one, at, { x: 4, y: 0, z: 1, rot: 0 }).frames[0].s.P[0]) === "[4,1,2]");
+const turnedP = placedOut(one, at, { x: 1, y: 0, z: 1, rot: 90 }).frames[0].s.P[0];
+expect("a turned character turns them about its placement (+z goes to +x)", Math.abs(turnedP[0] - 2) < 1e-9 && Math.abs(turnedP[2] - 1) < 1e-9, turnedP);
+expect("the original compile is not changed", one.frames[0].s.P[0][0] === 1);
+const away = fitHeld(placedOut(walk(), { position: [0, 0, 0], yaw: 0 }, { x: 10, y: 0, z: 0, rot: 0 }), frames, { asked: 90, ...opts });
+expect("a held camera frames a character moved off the origin", Math.abs(away.lookAt[0] - 10) < 0.01 && away.outOfFrame.length === 0, away);
 
 if (failures) { console.error(`${failures} failure(s)`); process.exit(1); }
 console.log("PASS shot framing");

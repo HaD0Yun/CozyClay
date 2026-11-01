@@ -3,7 +3,7 @@
 import { compileSpec } from "../motion3/pipeline.js";
 import { motionScene } from "../motion3/scene.js";
 import { skeletonFor } from "../motion3/rigs/index.js";
-import { fitHeld, heldIssues } from "../motion3/shot-framing.js";
+import { fitHeld, heldIssues, placedOut } from "../motion3/shot-framing.js";
 import { shotAtFrame } from "../cuts.js";
 import { sampleContactSheetFrames } from "../studio-contact-sheet.js";
 import { FRAMING_ANGLES, FRAMING_FRACTIONS, FRAMING_LEVELS } from "../studio-agent-commands.js";
@@ -15,7 +15,7 @@ const SAMPLES = 24, FPS = 24;
 function compiledTake(character, ports) {
 	const take = ports.storeDomain?.("motion")?.motionFor?.(character.id), sk = take?.schema === "cozyclay.take.v3" && take.spec ? skeletonFor(take.rig ?? character.model) : null;
 	if (!sk) return null;
-	try { return compileSpec({ fps: FPS, ...take.spec }, { sk, scene: motionScene(ports.state().objects) }, { lenient: true }).out; } catch { return null; }
+	try { return placedOut(compileSpec({ fps: FPS, ...take.spec }, { sk, scene: motionScene(ports.state().objects) }, { lenient: true }).out, take.placement, character); } catch { return null; }
 }
 
 const shotFrames = (shot, frameCount) => {

@@ -9,6 +9,18 @@ const CLEAR = 0.25, STEP = 3, MARGIN = 1.1, PAD = 0.12, HIDDEN_SHARE = 0.5, DEG 
 const jointsAt = (out, f) => out.frames?.[f - (out.f0 ?? 0)]?.s.P ?? [];
 const dotOf = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
+/**
+ * out with its joints where the stage draws them. A compile is in the world of take.placement; a character moved or turned since
+ * carries its take along, and the scene's bodies stay. character: { x, y, z, rot (deg) }.
+ */
+export function placedOut(out, placement, character) {
+	const from = placement?.position ?? [0, 0, 0], was = placement?.yaw ?? 0, to = [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw = character.rot ?? 0;
+	if (Math.abs(was - yaw) < 1e-6 && from.every((v, i) => Math.abs(v - to[i]) < 1e-6)) return out;
+	const a = (yaw - was) * DEG, c = Math.cos(a), n = Math.sin(a);
+	const move = p => { const x = p[0] - from[0], y = p[1] - from[1], z = p[2] - from[2]; return [x * c + z * n + to[0], y + to[1], -x * n + z * c + to[2]]; };
+	return { ...out, frames: out.frames.map(fr => ({ ...fr, s: { ...fr.s, P: fr.s.P.map(move) } })) };
+}
+
 /** The camera at azimuth deg on these points: their middle in view, far enough to hold them all at MARGIN and fill `fraction` of the height. */
 function fitAt(points, deg, { tanV, aspect, fraction, levelShare }) {
 	const back = [Math.sin(deg * DEG), 0, Math.cos(deg * DEG)], right = [back[2], 0, -back[0]];

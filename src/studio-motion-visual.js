@@ -10,6 +10,7 @@ import { motionScene } from "./motion3/scene.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
 import { actionFrames, beatFrames, grabReleases, traceSeries, TRACE_COLORS } from "./motion3/beats.js";
 import { blockersAt } from "./motion3/sightline.js";
+import { placedOut } from "./motion3/shot-framing.js";
 import { cameraAt, depthViews, focusPoints, projectPoint, trailPoints, viewCameras } from "./motion3/views.js";
 import { checkRef } from "./motion3/refs.js";
 import { renderWithGhosts } from "./ghost-set.js";
@@ -33,7 +34,7 @@ function takeCompile(args, s, receipt) {
 		const sk = take?.schema === "cozyclay.take.v3" && take.spec ? skeletonFor(take.rig ?? character?.model) : null;
 		if (!character || !sk) continue;
 		try {
-			return { ...compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true }), characterId: id };
+			return { ...compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true }), characterId: id, placement: take.placement };
 		} catch { return null; }
 	}
 	return null;
@@ -113,10 +114,11 @@ function viewSheet(args, r, { s, frames, span, grid, picks, ports, added }) {
 /** The sheet frames a scene body hides at least HIDDEN_SHARE of the character from the shot camera: { hidden, hint }, or nothing. */
 function shotHidden(r, frames, ports, scene) {
 	if (!r || !scene || typeof ports.sampleStateAt !== "function") return {};
+	const character = scene.characters?.find(c => c.id === r.characterId), out = character ? placedOut(r.out, r.placement, character) : r.out;
 	const hidden = frames.flatMap(f => {
 		const at = (ports.sampleStateAt(f, scene)?.camera ?? scene.camera)?.position;
 		if (!at) return [];
-		const { share, by } = blockersAt(r.out, [at.x, at.y, at.z], f);
+		const { share, by } = blockersAt(out, [at.x, at.y, at.z], f);
 		return share >= HIDDEN_SHARE ? [{ f, share, by }] : [];
 	});
 	return hidden.length ? { hidden, hint: "Scene bodies hide the character from the shot camera on these frames, so these tiles do not show the motion. Add views (own cameras draw what blocks them see-through) to check it, and move the shot camera if the export must show it." } : {};
