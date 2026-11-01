@@ -1011,6 +1011,17 @@
 .agent-activity[data-agent-activity="failed"],
 .agent-activity[data-agent-activity="no-model"] { color: var(--agent-alert); }
 
+/* The latest request's context, pushed to the line's end. Never coloured by the line's state; past 80% only its
+ * percentage turns bold (AgentContextMeter.jsx). */
+.agent-context-meter {
+	margin-left: auto;
+	flex: none;
+	color: var(--agent-text-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.agent-context-meter strong { font-weight: 700; }
+
 @keyframes agent-pulse {
 	0%, 100% { opacity: 1; transform: scale(1); }
 	50% { opacity: 0.35; transform: scale(0.65); }

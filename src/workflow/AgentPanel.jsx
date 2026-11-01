@@ -3,7 +3,7 @@ import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock,
 import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
 import { isImeComposing } from "../ime.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
-import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js";
+import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
 import {
 	AGENT_PANEL_OVERLAY_BREAKPOINT,
 	AGENT_PANEL_RAIL_WIDTH,
@@ -375,7 +375,7 @@ export default function AgentPanel({
 		onAuthLost: () => setAuthState("signed-out"),
 	}), [surface, transport]);
 	const chat = useSyncExternalStore(store.subscribe, store.getState, store.getState);
-	const { draft, items, pendingAttachments, quota, rateLimit, streaming } = chat;
+	const { context, draft, items, pendingAttachments, quota, rateLimit, streaming } = chat;
 
 	// Studio history is sidecar-backed; Workflow keeps the existing in-memory UX.
 	useEffect(() => {
@@ -920,7 +920,7 @@ export default function AgentPanel({
 		{authenticated && <div className="agent-activity" data-agent-activity={activity.phase} data-agent-activity-kind={activity.kind} role="status" aria-live="polite">
 			<span className={`agent-activity-indicator ${activity.tone}`} aria-hidden="true" />
 			<span className="agent-activity-text">{activity.text}</span>
-			{activity.detail && <span className="agent-activity-detail">{activity.detail}</span>}
+			{activity.detail && <span className="agent-activity-detail">{activity.detail}</span>}<AgentContextMeter context={context} />
 		</div>}
 
 		{authenticated && <div

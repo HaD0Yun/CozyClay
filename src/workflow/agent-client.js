@@ -790,11 +790,11 @@ const MOCK_SCRIPT = [
 	{ delay: 40, event: { type: "text.delta", text: "Framing a wide two-shot from the current blocking. " } },
 	{ delay: 120, event: { type: "text.delta", text: "Capturing the viewport first." } },
 	{ delay: 120, event: { type: "tool.start", callId: "call-1", name: "capture_blocking_frame", label: "Capture blocking frame", args: { shot: "current" } } },
-	{ delay: 260, event: { type: "tool.done", callId: "call-1", ok: true, elapsedMs: 268, result: { width: 1280, height: 720 } } },
+	{ delay: 260, event: { type: "tool.done", callId: "call-1", ok: true, elapsedMs: 268, result: { width: 1280, height: 720 } } }, { delay: 0, event: { type: "context", tokens: 41_200, window: 1_000_000 } },
 	{ delay: 90, event: { type: "tool.start", callId: "call-2", name: "render_from_frame", label: "Render from frame", args: { style: "storyboard", strength: 0.6 } } },
 	{ delay: 420, event: { type: "tool.done", callId: "call-2", ok: true, elapsedMs: 1412, result: { imageId: "img-1" } } },
 	{ delay: 80, event: { type: "image", imageId: "img-1", dataUrl: MOCK_IMAGE, width: 512, height: 288, prompt: "wide two-shot, storyboard ink" } },
-	{ delay: 60, event: { type: "quota", plan: "Plus", primary: { usedPercent: 46, windowMinutes: 300, resetAt: null }, credits: { has: true } } },
+	{ delay: 60, event: { type: "quota", plan: "Plus", primary: { usedPercent: 46, windowMinutes: 300, resetAt: null }, credits: { has: true } } }, { delay: 0, event: { type: "context", tokens: 95_900, window: 1_000_000 } },
 	{ delay: 40, event: { type: "done" } },
 ];
 
@@ -812,11 +812,11 @@ const MOCK_STUDIO_RECEIPT = {
 const MOCK_STUDIO_SCRIPT = [
 	{ delay: 40, event: { type: "text.delta", text: "Reading the scene before I move anyone. " } },
 	{ delay: 120, event: { type: "tool.start", callId: "studio-1", name: "inspect_studio", label: "inspect studio", args: { scope: "selection" } } },
-	{ delay: 220, event: { type: "tool.done", callId: "studio-1", ok: true, elapsedMs: 214, result: { entities: 2 } } },
+	{ delay: 220, event: { type: "tool.done", callId: "studio-1", ok: true, elapsedMs: 214, result: { entities: 2 } } }, { delay: 0, event: { type: "context", tokens: 41_200, window: 1_000_000 } },
 	{ delay: 90, event: { type: "text.delta", text: "Blocking the two-shot now." } },
 	{ delay: 120, event: { type: "tool.start", callId: "studio-2", name: "arrange_characters", label: "arrange characters", args: { ops: [{ op: "update", characterId: "char-a", position: { world: { x: -0.8, y: 0, z: 0.4 } } }] } } },
 	{ delay: 320, event: { type: "tool.done", callId: "studio-2", ok: true, elapsedMs: 332, result: { ok: true, receiptId: MOCK_STUDIO_RECEIPT.receiptId } } },
-	{ delay: 60, event: { type: "receipt", receipt: MOCK_STUDIO_RECEIPT } },
+	{ delay: 60, event: { type: "receipt", receipt: MOCK_STUDIO_RECEIPT } }, { delay: 0, event: { type: "context", tokens: 95_900, window: 1_000_000 } },
 	{ delay: 40, event: { type: "done" } },
 ];
 
@@ -1133,7 +1133,7 @@ export function createAgentChatStore({
 		pendingAttachments: [],
 		items: [],
 		streaming: false,
-		quota: null,
+		quota: null, context: null,
 		rateLimit: null,
 		lastPrompt: "",
 		turnStartedAt: null,
@@ -1273,10 +1273,9 @@ export function createAgentChatStore({
 		}
 		if (event?.type === "job.state" || event?.type === "job.progress") { applyJobEvent(event); return; }
 		if (event?.type === "receipt") { applyReceiptEvent(event.receipt); return; }
-		if (event?.type === "quota") {
-			set({ quota: { plan: event.plan, usedPercent: event.primary?.usedPercent, windowMinutes: event.primary?.windowMinutes, resetAt: event.primary?.resetAt, credits: event.credits } });
-			return;
-		}
+		if (event?.type === "quota") { set({ quota: { plan: event.plan, usedPercent: event.primary?.usedPercent, windowMinutes: event.primary?.windowMinutes, resetAt: event.primary?.resetAt, credits: event.credits } }); return; }
+		// The latest model request's prompt against the model's window (bin/agent/agent-runner.mjs countAttempt, agent-context-meter.js).
+		if (event?.type === "context") { set({ context: { tokens: event.tokens, window: event.window ?? null } }); return; }
 		if (event?.type !== "error") return;
 		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : event.message || ERROR_COPY[event.code] || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
 		if (activeTurn) activeTurn.failure = failure;
@@ -1325,7 +1324,7 @@ export function createAgentChatStore({
 		settledActions.clear();
 		// Clearing the transcript also retires the server session: a cleared chat
 		// the model still remembers is the divergence this replaces.
-		set({ sessionId: newId(), turnId: null, items: [], pendingAttachments: [], rateLimit: null, lastPrompt: "", turnStartedAt: null, lastTurn: null });
+		set({ sessionId: newId(), turnId: null, items: [], pendingAttachments: [], rateLimit: null, context: null, lastPrompt: "", turnStartedAt: null, lastTurn: null });
 	};
 	const restore = (transcript, sessionId = state.sessionId) => {
 		abandonSupervisorNotes(); seenReceipts.clear(); settledActions.clear();
@@ -1349,7 +1348,7 @@ export function createAgentChatStore({
 			return item?.kind === "plan" ? [{ kind: "plan", id: newId(), steps: item.steps }] : [];
 		}));
 		const lastPrompt = [...restored].reverse().find((item) => item.kind === "user")?.text || "";
-		set({ sessionId, turnId: null, items: restored, rateLimit: null, lastPrompt, turnStartedAt: null, lastTurn: null, streaming: false });
+		set({ sessionId, turnId: null, items: restored, rateLimit: null, context: null, lastPrompt, turnStartedAt: null, lastTurn: null, streaming: false });
 		return restored;
 	};
 	return {

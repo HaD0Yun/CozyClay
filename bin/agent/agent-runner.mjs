@@ -368,12 +368,15 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 		};
 
 		// Every finished provider request counts, failed attempts included (agent-stream.mjs retries in place).
+		// On the Studio surface, a request that reported a prompt also tells the panel its context: that prompt (input + cache read + cache write,
+		// this request only, never the turn's sum) against the model's catalog window (src/workflow/agent-context-meter.js).
 		const countAttempt = (message) => {
-			const usage = state.active?.usage;
-			if (!usage) return;
-			usage.requests += 1;
+			const usage = state.active?.usage; if (!usage) return;
+			usage.requests += 1; const prompt = ["input", "cacheRead", "cacheWrite"].reduce((sum, key) => sum + (Number.isFinite(message?.usage?.[key]) ? message.usage[key] : 0), 0);
 			for (const key of ["input", "output", "cacheRead", "cacheWrite"]) if (Number.isFinite(message?.usage?.[key])) usage[key] += message.usage[key];
 			if (Number.isFinite(message?.usage?.cost?.total)) state.active.cost = (state.active.cost ?? 0) + message.usage.cost.total;
+			// held until the agent's message_end (or the turn's end): the stream finishes before the agent has handed on its last text deltas
+			if (prompt > 0 && state.lastInput?.surface === "studio") state.active.pendingContext = { type: "context", tokens: prompt, window: state.currentModel?.contextWindow > 0 ? state.currentModel.contextWindow : null };
 		};
 
 		// A Codex 401 earns one forced credential refresh per turn and one more try of the same request: completed tools
@@ -506,7 +509,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					const fallback = code === "aborted" ? "The turn was aborted." : code === "truncated" ? "The model stream ended before a terminal response event." : "The model or live editor could not complete this turn.";
 					queue.push({ type: "error", code, message: outOfTokens || detail || fallback, ...(classified.status ? { status: classified.status } : {}) });
 				}
-				queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });
+				if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });
 				queue.close();
 			};
 			return state.agent.subscribe((event) => {
@@ -514,7 +517,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					reasoning.onMessageEvent(event.assistantMessageEvent);
 					if (event.assistantMessageEvent?.type === "text_delta") pushFrame({ type: "text.delta", text: event.assistantMessageEvent.delta });
 				} else if (event.type === "tool_execution_start") startTool(event);
-				else if (event.type === "tool_execution_end") endTool(event);
+				else if (event.type === "tool_execution_end") endTool(event); else if (event.type === "message_end" && state.active?.pendingContext) { pushFrame(state.active.pendingContext); state.active.pendingContext = null; }
 				else if (event.type === "agent_end") finish(event);
 			});
 		};

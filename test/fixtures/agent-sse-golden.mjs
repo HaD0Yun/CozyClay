@@ -27,6 +27,7 @@ export function normaliseFrame(frame) {
 	// Token counts are the faux provider's estimate of the prompt text, which
 	// differs per caller; the usage shape and the request count are pinned.
 	if (value.type === "done" && value.usage) for (const key of ["input", "output", "cacheRead", "cacheWrite"]) value.usage[key] = Number.isFinite(value.usage[key]) ? "<tokens>" : value.usage[key];
+	if (value.type === "context" && Number.isFinite(value.tokens)) value.tokens = "<tokens>";
 	return value;
 }
 
