@@ -5,10 +5,12 @@ import {
 
 const escapeContext = context => JSON.stringify(context).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e").replaceAll("&", "\\u0026");
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
-export function encodeStudioContext(context) {
-	const encoded = escapeContext(validateStudioContext(context));
+export function encodeStudioContext(context, { relations = null } = {}) {
+	const valid = validateStudioContext(context), encoded = escapeContext(valid);
 	if (utf8ByteLength(encoded) > STUDIO_CONTEXT_MAX_BYTES) fail("CONTEXT_TOO_LARGE", `Escaped Studio context exceeds ${STUDIO_CONTEXT_MAX_BYTES / 1024} KiB.`);
-	return encoded;
+	// inspect_studio scope "relations" (studio-relations.js) rides along while it fits: a context never fails for it.
+	const related = relations ? escapeContext({ ...valid, relations }) : null;
+	return related && utf8ByteLength(related) <= STUDIO_CONTEXT_MAX_BYTES ? related : encoded;
 }
 export function studioCacheKey(context, projectionKind = "scene") {
 	const c = validateStudioContext(context);

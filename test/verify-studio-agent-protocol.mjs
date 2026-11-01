@@ -485,7 +485,7 @@ function registerTests() {
 	test("schema refusals name the path, what is allowed and what arrived (G3)", () => {
 		const said = (name, args) => { try { protocol.validateStudioCommand({ name, args }); return "accepted"; } catch (error) { assert.equal(error.code, "INVALID_ARGUMENT"); return error.message; } };
 		const exact = [
-			["inspect_studio", { scope: "overview" }, '$.args.scope: "overview" is not one of: selection, scene, entities, shot, motion, catalogue, actions, document.'],
+			["inspect_studio", { scope: "overview" }, '$.args.scope: "overview" is not one of: selection, scene, entities, shot, motion, catalogue, actions, document, relations.'],
 			["inspect_studio", { scope: "actions", ids: '["motion.compile"]' }, "$.args.ids: expected an array of strings, got a string."],
 			["inspect_studio", {}, '$.args: missing required field "scope".'],
 			["inspect_studio", { scope: "actions", ids: ["a", "a"] }, '$.args.ids: items must be unique; "a" appears twice.'],
