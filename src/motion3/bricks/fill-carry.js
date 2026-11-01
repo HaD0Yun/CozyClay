@@ -25,7 +25,12 @@ const turn = (v, deg) => { const a = deg * Math.PI / 180, c = Math.cos(a), n = M
 /** A hand target in the body frame (root position, root yaw) at frame f of the compiled channels, or null. */
 const bodyLocal = (baked, ch, f) => { const r = baked?.root?.[f], h = baked?.[ch]?.[f]; return r && h ? turn([h[0] - r[0], h[1] - r[1], h[2] - r[2]], -(baked.yaw?.[f] ?? 0)) : null; };
 
-const ikHand = (authored, f, k) => authored.some(key => key.f === f && (key.set?.[`armw_${k}`] ?? 0) >= 0.5 && Array.isArray(key.set?.[`hand_${k}`]));
+/** A hand keyed at frame f on the IK arm. armw holds from the last key that set it: the guide sets it on the first key only. */
+const ikHand = (authored, f, k) => {
+	if (!authored.some(key => key.f === f && Array.isArray(key.set?.[`hand_${k}`]))) return false;
+	const weight = authored.filter(key => key.f <= f && key.set?.[`armw_${k}`] !== undefined).sort((a, b) => a.f - b.f).at(-1)?.set[`armw_${k}`];
+	return (weight ?? 0) >= 0.5;
+};
 
 /**
  * dense: the fill's rows for spec frames fa..fb (row i is frame fa + i). baked: the compiled channels of the spec without this
