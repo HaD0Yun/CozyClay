@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Free, open source previs software that runs in the browser. Block a scene, pose characters, and author camera moves and cuts, then hand the same shots to an AI video model. No Blender, no Unity — one command." />
-    <meta name="theme-color" content="#f5f5f7" />
+    <meta name="theme-color" content="#141312" />
     <meta name="apple-mobile-web-app-title" content="CozyClay" />
     <link rel="canonical" href="https://cozyclay.org/" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
@@ -61,324 +61,229 @@
 
     <style>
       @font-face { font-family: "Instrument Serif"; font-weight: 400; font-display: swap; src: url("/fonts/instrument-serif-latin.woff2") format("woff2"); }
-      @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url("/fonts/instrument-serif-italic-latin.woff2") format("woff2"); }
       @font-face { font-family: "Inter"; font-weight: 100 900; font-display: swap; src: url("/fonts/inter-latin.woff2") format("woff2"); }
       @font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/fonts/jetbrains-mono-400-latin.woff2") format("woff2"); }
+
+      /* A dark set between takes: warm neutrals, one clay accent. The richness
+         belongs to the footage; the chrome stays out of its way. */
       :root {
-        --paper: #f5f5f7;
-        --paper-2: #ececf0;
-        --panel: #ffffff;
-        --line: #d2d2d7;
-        --line-strong: #c7c7cc;
-        --ink: #111111;
-        --muted: #636366;
-        --brand: #111111;
-        --brand-deep: #000000;
-        --brand-tint: #e8e8ea;
-        --ok: #2f6b3a;
+        color-scheme: dark;
+        --bg: #141312;
+        --raised: #1c1b19;
+        --field: #0f0e0d;
+        --line: rgba(242, 239, 232, .12);
+        --line-strong: rgba(242, 239, 232, .24);
+        --ink: #f2efe8;
+        --muted: #aeaba3;
+        --dim: #8f8c84;
+        --clay: #dd7a38;
+        --on-clay: #170b04;
         --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
         --sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif;
         --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        --radius: 16px;
-        --shadow-clay: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .06);
-        --shadow-window: 0 2px 6px rgba(0, 0, 0, .06), 0 30px 60px rgba(0, 0, 0, .18);
         --header-h: 64px;
+        --seq-h: 44px;
       }
       * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 12px); }
+      html { background: var(--bg); scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 16px); }
       body {
-        margin: 0;
-        background: var(--paper);
-        color: var(--ink);
-        font: 17px/1.5 var(--sans);
-        -webkit-font-smoothing: antialiased;
+        margin: 0; background: var(--bg); color: var(--ink);
+        font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
         font-feature-settings: "cv11", "ss01", "ss03";
-        letter-spacing: -.011em;
       }
-      a { color: var(--brand); }
+      a { color: inherit; }
       button { font-family: inherit; }
       img, video { max-width: 100%; }
-      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; border-radius: 6px; }
-      .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
-      .wrap.narrow { max-width: 820px; }
+      :focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 4px; }
+      .wrap { max-width: 1240px; margin: 0 auto; padding: 0 32px; }
 
-      h1 { font-family: var(--serif); font-size: clamp(40px, 6vw, 68px); line-height: 1.02; letter-spacing: -.02em; font-weight: 400; margin: 0; max-width: 900px; }
-      h1 em { font-style: italic; color: inherit; }
-      h2 { font-family: var(--serif); font-size: clamp(34px, 4.2vw, 52px); line-height: 1.05; letter-spacing: -.015em; font-weight: 400; margin: 0 0 16px; }
-      h3 { font-size: 19px; line-height: 1.3; font-weight: 600; margin: 0; letter-spacing: -.02em; }
-      .kicker { display: inline-block; margin: 0 0 14px; font: 400 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-      .sub { margin: 0 0 40px; max-width: 40em; color: var(--muted); font-size: 19px; }
-      .small, figcaption { font-size: 14px; color: var(--muted); }
-      code, pre, kbd { font-family: var(--mono); font-size: 13.5px; letter-spacing: 0; }
+      h1, h2 { font-family: var(--serif); font-weight: 400; margin: 0; letter-spacing: -.01em; }
+      h1 { font-size: clamp(48px, 6.2vw, 92px); line-height: 1; }
+      h2 { font-size: clamp(36px, 4.4vw, 60px); line-height: 1.04; }
+      h3 { margin: 0; font-size: 20px; line-height: 1.3; font-weight: 500; }
+      p { margin: 0; }
+      code, pre, kbd { font-family: var(--mono); font-size: 14px; }
+      .label { display: block; margin-bottom: 16px; font: 400 13px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+      .lead { max-width: 36em; margin-top: 16px; color: var(--muted); font-size: 19px; }
 
-      /* Header: one row at every width. On phones only the brand and the two
-         actions stay; the section links are a scroll away. */
-      header.site {
-        position: sticky; top: 0; z-index: 10;
-        background: rgba(245, 245, 247, .8);
-        backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
-        border-bottom: 1px solid var(--line);
-      }
-      header.site .wrap { display: flex; align-items: center; gap: 16px; height: var(--header-h); }
-      .brand { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; font-size: 18px; letter-spacing: -.02em; color: var(--ink); text-decoration: none; margin-right: auto; }
-      .brand img { width: 36px; height: auto; }
-      header.site nav { display: flex; align-items: center; gap: 28px; font-size: 15px; }
+      header.site { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); }
+      header.site .wrap { display: flex; align-items: center; gap: 16px; height: var(--header-h); max-width: none; padding: 0 24px; }
+      .brand { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-right: auto; font-weight: 500; font-size: 18px; text-decoration: none; }
+      /* The mark's eyes and mouth are transparent cut-outs drawn for white paper,
+         so it always sits on a white tile; on the dark page they would go black. */
+      .brand img { width: 40px; height: 40px; padding: 4px; object-fit: contain; background: #fff; border-radius: 8px; }
+      header.site nav { display: flex; gap: 24px; font-size: 15px; }
       header.site nav a { display: flex; align-items: center; min-height: 44px; color: var(--muted); text-decoration: none; }
       header.site nav a:hover { color: var(--ink); }
       .actions { display: flex; align-items: center; gap: 8px; }
-      .icon-link { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 999px; color: var(--ink); }
-      .icon-link:hover { background: var(--paper-2); }
+      .icon-link { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; color: var(--muted); }
+      .icon-link:hover { color: var(--ink); background: var(--raised); }
 
       .btn {
-        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-        min-height: 48px; padding: 0 24px; border-radius: 8px; border: 1px solid transparent;
-        font-size: 17px; font-weight: 600; text-decoration: none; cursor: pointer; white-space: nowrap;
-        transition: background-color .15s, transform .15s, box-shadow .15s;
+        display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 24px;
+        border: 1px solid transparent; border-radius: 8px; font-size: 16px; font-weight: 500;
+        text-decoration: none; white-space: nowrap; cursor: pointer; transition: background-color .15s, border-color .15s;
       }
-      .btn:active { transform: translateY(1px) scale(.99); }
-      .btn.primary { background: var(--brand); color: #fff; }
-      .btn.primary:hover { background: var(--brand-deep); }
-      .btn.ghost { background: var(--panel); color: var(--ink); border-color: var(--line-strong); }
+      .btn.primary { background: var(--clay); color: var(--on-clay); }
+      .btn.primary:hover { background: #e68a4c; }
+      .btn.ghost { border-color: var(--line-strong); color: var(--ink); }
       .btn.ghost:hover { border-color: var(--ink); }
-      .btn.sm { min-height: 40px; padding: 0 18px; font-size: 15px; }
-      .cta { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+      .btn.sm { min-height: 40px; padding: 0 16px; font-size: 15px; }
 
-      /* Hero: headline left, the pitch and the two ways in on the right. */
-      /* First screen: black stage, the headline and the reel. Scrolling plays
-         it out: the reel rises over the headline and grows to the full width,
-         then the page continues. --p (0..1) is set by the script below. */
-      .stage {
-        position: relative; height: 210vh; color: #f2efe8; --p: 0;
-        background:
-          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-          radial-gradient(120% 90% at 50% 35%, #1f1e1c 0%, #161615 55%, #111110 100%);
-      }
-      .stage-pin {
-        position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden;
-        display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-        padding-top: calc(var(--header-h) + 2vh);
-      }
-      .stage h1 {
-        margin: 0; padding: 0 4vw; width: 100%; max-width: none; text-align: center;
-        font-family: var(--sans); font-size: clamp(44px, 8.6vw, 140px); line-height: 1; letter-spacing: -.06em; font-weight: 600;
-        font-feature-settings: "ss01", "cv11";
-        opacity: calc(.88 * (1 - var(--p) * 1.4));
-        transform: translateY(calc(var(--p) * -12vh)) scale(calc(1 - var(--p) * .12));
-        transform-origin: 50% 0;
-      }
-      .stage-reel {
-        position: relative; z-index: 1; width: min(1280px, 94vw); margin-top: 7vh;
-        transform: translateY(calc(var(--p) * var(--rise, 0px))) scale(calc(.94 + var(--p) * var(--grow, .06)));
-        transform-origin: 50% 0;
-      }
-      .stage .window { border-color: #2c2b29; background: #1a1a19; box-shadow: 0 30px 80px rgba(0, 0, 0, .45); }
-      .stage .titlebar { background: #22211f; border-bottom-color: #2c2b29; }
-      .stage .titlebar span { color: #8a8a90; }
-      .stage-cue {
-        position: absolute; bottom: 3vh; left: 50%; margin-left: -11px; color: #8a8a90;
-        opacity: calc(1 - var(--p) * 5); animation: cue 1.8s ease-in-out infinite;
-      }
-      @keyframes cue { 50% { transform: translateY(6px); } }
-      body.on-stage header.site { background: #151514; border-bottom-color: #262624; }
-      body.on-stage header.site .brand, body.on-stage header.site .icon-link { color: #f2efe8; }
-      body.on-stage header.site nav a { color: #9a9aa0; }
-      body.on-stage header.site nav a:hover { color: #f2efe8; }
-      body.on-stage header.site .btn.primary { background: #f2efe8; color: #0b0b0c; }
-      .hero-grid { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 28px; }
-
-      .stage h1 .line { display: inline-block; white-space: nowrap; }
-      .curved .ch { display: inline-block; white-space: pre; transform-origin: 50% 55%; will-change: transform; }
-      .hero-side { display: flex; flex-direction: column; align-items: center; gap: 22px; max-width: 640px; }
-      .lede { margin: 0; color: var(--muted); font-size: 19px; }
-      .hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
-      .cmd {
-        display: inline-flex; align-items: center; gap: 4px; padding: 0 4px 0 14px; min-height: 48px;
-        background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
-      }
-      .cmd .copy { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: none; border: 0; color: var(--muted); cursor: pointer; border-radius: 6px; }
-      .cmd .copy:hover { color: var(--ink); background: var(--paper); }
-      .cmd .copy .ic-done { display: none; color: var(--ok); }
-      .cmd .copy[data-state="copied"] .ic-copy { display: none; }
-      .cmd .copy[data-state="copied"] .ic-done { display: block; }
-      .meta-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin: 0; color: var(--muted); font-size: 14px; }
-      .meta-line a { color: var(--muted); }
-      .meta-line > * + *::before { content: "·"; margin-right: 8px; }
-      .meta-line { gap: 4px 8px; }
-
-      .window { border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: var(--panel); box-shadow: var(--shadow-window); }
-      .titlebar { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #e8e8ed; border-bottom: 1px solid var(--line); }
-      .titlebar i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
-      .titlebar i:nth-child(2) { background: #febc2e; }
-      .titlebar i:nth-child(3) { background: #28c840; }
-      .titlebar span { flex: 1; text-align: center; margin-right: 52px; font-size: 13px; font-weight: 500; color: var(--muted); }
-
-
-
-      /* Before/after compare. --pos is the divider, set by the script below. */
-      .compare { position: relative; aspect-ratio: 16 / 9; background: #000; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+      /* First screen: the shot itself, with the pitch on its dark lower corner. */
+      .hero { position: relative; display: flex; flex-direction: column; height: calc(100vh - var(--header-h)); height: calc(100svh - var(--header-h)); min-height: 560px; max-height: 1080px; border-bottom: 1px solid var(--line); }
+      .compare { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
       .compare video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
       .compare .cmp-b { clip-path: inset(0 0 0 var(--pos)); }
-      .cmp-line { position: absolute; top: 0; bottom: 0; left: var(--pos); width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
+      .compare::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, rgba(10, 9, 8, .86), rgba(10, 9, 8, 0) 62%), linear-gradient(to right, rgba(10, 9, 8, .72), rgba(10, 9, 8, 0) 52%); }
+      .cmp-line { position: absolute; z-index: 1; top: 0; bottom: 0; left: var(--pos); width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none; }
       .cmp-knob {
-        position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px;
-        display: flex; align-items: center; justify-content: center; border-radius: 50%;
-        background: #fff; color: var(--ink); box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+        position: absolute; top: 28%; left: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px;
+        display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--ink); color: var(--bg);
       }
       .cmp-range { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
-      .compare:has(.cmp-range:focus-visible) .cmp-knob { outline: 3px solid var(--brand); outline-offset: 2px; }
-      .compare > span {
-        position: absolute; bottom: 14px; padding: 5px 10px; border-radius: 6px; pointer-events: none;
-        background: rgba(0, 0, 0, .55); color: #fff; font: 400 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
-        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-      }
-      .compare .tag-l { left: 14px; }
-      .compare .tag-r { right: 14px; }
+      .compare:has(.cmp-range:focus-visible) .cmp-knob { outline: 2px solid var(--clay); outline-offset: 2px; }
+      .tag { position: absolute; z-index: 1; top: 16px; padding: 4px 8px; border-radius: 4px; background: rgba(10, 9, 8, .72); color: var(--ink); font: 400 13px/1.4 var(--mono); pointer-events: none; }
+      .tag-l { left: 16px; }
+      .tag-r { right: 16px; }
 
-      section { padding: 88px 0; border-top: 1px solid var(--line); }
-      section.alt { background: var(--paper-2); }
-      section.stage { padding: 0; border-top: 0; }
+      .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + 32px); width: min(600px, 44vw); pointer-events: none; }
+      .pitch p { margin-top: 16px; max-width: 30em; color: #d6d3cb; font-size: 18px; }
+      .pitch-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; pointer-events: auto; }
+      .cmd { display: inline-flex; align-items: center; gap: 4px; min-height: 48px; padding: 0 4px 0 16px; background: rgba(15, 14, 13, .85); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); }
+      .cmd .copy { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; background: none; border: 0; border-radius: 4px; color: var(--muted); cursor: pointer; }
+      .cmd .copy:hover { color: var(--ink); background: var(--raised); }
+      .cmd .copy .ic-done { display: none; color: var(--clay); }
+      .cmd .copy[data-state="copied"] .ic-copy { display: none; }
+      .cmd .copy[data-state="copied"] .ic-done { display: block; }
 
-      .card {
-        min-width: 0; padding: 28px; background: var(--panel);
-        border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-clay);
-      }
-      .card p { margin: 8px 0 0; color: var(--muted); }
+      /* The strip under the shot reads like the studio's Sequencer: transport,
+         frame number and a playhead, all taken from the playing clip. */
+      .seq { flex: none; display: flex; align-items: center; gap: 16px; height: var(--seq-h); padding: 0 24px 0 16px; background: var(--bg); font: 400 13px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+      .seq button { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; background: none; border: 0; border-radius: 4px; color: var(--ink); cursor: pointer; }
+      .seq button:hover { background: var(--raised); }
+      .seq button .ic-play { display: none; }
+      .seq button[data-paused="true"] .ic-play { display: block; }
+      .seq button[data-paused="true"] .ic-pause { display: none; }
+      .seq b { font-weight: 400; color: var(--clay); }
+      .seq-range { flex: 1; min-width: 0; height: 32px; margin: 0; background: none; cursor: pointer; appearance: none; -webkit-appearance: none; }
+      .seq-range::-webkit-slider-runnable-track { height: 16px; background: repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px 8.3333%); border-bottom: 1px solid var(--line-strong); }
+      .seq-range::-moz-range-track { height: 16px; background: repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px 8.3333%); border-bottom: 1px solid var(--line-strong); }
+      .seq-range::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 24px; margin-top: -4px; background: var(--clay); box-shadow: 0 0 0 0 transparent; }
+      .seq-range::-moz-range-thumb { width: 2px; height: 24px; border: 0; border-radius: 0; background: var(--clay); }
 
-      /* Why */
-      .why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px 64px; align-items: start; }
-      .why h2 { margin: 0; }
-      .why p { margin: 0 0 16px; color: var(--muted); font-size: 19px; }
-      .why p strong { color: var(--ink); font-weight: 600; }
+      section { padding: 96px 0; border-bottom: 1px solid var(--line); }
+      section.hero { padding: 0; }
 
-      /* Workflow: pick a step, see it. */
-      .flow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 24px 40px; align-items: start; }
-      .flow-tabs, .ai-tabs { display: flex; flex-direction: column; gap: 4px; }
-      .flow-tabs button, .ai-tabs button {
-        display: flex; gap: 16px; align-items: flex-start; width: 100%; padding: 16px; text-align: left;
-        background: none; border: 1px solid transparent; border-radius: 12px; color: var(--muted); font-size: 15px; cursor: pointer;
-        transition: background-color .15s, border-color .15s;
-      }
-      .ai-tabs button { display: block; }
-      .flow-tabs button:hover, .ai-tabs button:hover { background: var(--paper-2); }
-      .flow-tabs button[aria-selected="true"], .ai-tabs button[aria-selected="true"] { background: var(--panel); border-color: var(--line); box-shadow: var(--shadow-clay); }
-      .flow-tabs b {
-        flex: none; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px;
-        background: var(--paper-2); color: var(--muted); font-size: 15px;
-      }
-      .flow-tabs button[aria-selected="true"] b { background: var(--brand); color: #fff; }
-      .flow-tabs em { font-style: normal; }
-      .flow-tabs strong, .ai-tabs strong { display: block; margin-bottom: 4px; color: var(--ink); font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
-      .ai-tabs span { display: block; }
-      .flow-view figure { margin: 0; }
-      .flow-view video { display: block; width: 100%; height: auto; aspect-ratio: 1440 / 600; border-radius: var(--radius); border: 1px solid var(--line); background: var(--paper-2); }
-      .flow-view figcaption { margin-top: 12px; }
-      .flow-exports { display: flex; align-items: center; padding: 8px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
-      .flow-exports[hidden] { display: none; }
-      .flow-exports .exports { width: 100%; }
-      .exports { margin: 0; padding: 0; list-style: none; display: grid; }
-      .exports li { display: flex; gap: 14px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--line); }
-      .exports li:last-child { border-bottom: 0; }
-      .exports b { flex: 0 0 9.5em; font-weight: 550; }
+      /* Why: what a prompt has to carry, one line each. */
+      .why { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 32px 80px; align-items: start; }
+      .why strong { color: var(--ink); font-weight: 500; }
+      .why .lead + .lead { margin-top: 16px; }
+      .asks { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+      .asks li { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+      .asks span { font: 400 13px/1 var(--mono); color: var(--clay); }
+
+      /* How it works: every step on show, each clip in its 2.4 frame. */
+      .steps { display: grid; gap: 64px; margin-top: 64px; }
+      .step { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 16px 48px; align-items: start; }
+      .step p { margin-top: 8px; color: var(--muted); }
+      .step video { display: block; width: 100%; height: auto; aspect-ratio: 1440 / 600; border-radius: 4px; background: var(--raised); }
+      .step figure { margin: 0; }
+      .step figcaption { margin-top: 8px; color: var(--dim); font-size: 14px; }
+      .exports { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+      .exports li { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
       .exports span { color: var(--muted); font-size: 15px; }
 
-      /* Direct it with AI: pick a surface, get its setup. */
-      .ai { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 24px 40px; align-items: start; }
-      .ai-view p { margin: 0 0 16px; color: var(--muted); }
-      .ai-view .shortcut { margin: 0; padding: 18px 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; color: var(--ink); line-height: 2; }
-      .ai-view .keys { white-space: nowrap; }
-      .ai-view kbd { padding: 2px 8px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 6px; background: var(--paper); }
-
-      .code {
-        position: relative; padding: 18px 92px 18px 22px;
-        background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-clay);
-      }
+      /* Agents: three ways in, with what to type right beside each. */
+      .ways { margin-top: 48px; border-top: 1px solid var(--line); }
+      .way { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 16px 48px; padding: 32px 0; border-bottom: 1px solid var(--line); }
+      .way p { margin-top: 8px; color: var(--muted); font-size: 16px; }
+      .shortcut { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 64px; padding: 16px 24px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 16px; }
+      kbd { padding: 2px 8px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--raised); color: var(--ink); }
+      .code { position: relative; padding: 16px 80px 16px 24px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; }
       .code[hidden] { display: none; }
       .code pre { margin: 0; overflow-x: auto; line-height: 1.7; }
-      .code .copy { position: absolute; right: 12px; top: 12px; min-height: 36px; padding: 0 14px; border: 0; background: none; color: var(--brand); font-weight: 600; }
-      .code .copy[data-state="copied"] { color: var(--ok); }
+      .code .copy { position: absolute; top: 8px; right: 8px; min-height: 36px; padding: 0 12px; background: none; border: 0; border-radius: 4px; color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; }
+      .code .copy:hover { background: var(--raised); }
+      .code .copy[data-state="copied"] { color: var(--clay); }
 
       /* Quick start */
-      .start { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 32px 56px; align-items: start; }
-      .start-head h2 { margin-bottom: 8px; }
-      .start-head p { margin: 0 0 8px; color: var(--muted); }
-      .start-head a { display: inline-flex; align-items: center; min-height: 44px; font-size: 15px; font-weight: 500; text-decoration: none; }
-      .start-body { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-      .seg { align-self: flex-start; display: flex; gap: 2px; padding: 2px; background: #dcdce1; border-radius: 10px; }
-      .seg button {
-        min-height: 44px; padding: 0 18px; border: 0; border-radius: 8px; background: transparent;
-        color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
-      }
-      .seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+      .start { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px 64px; align-items: start; }
+      .start-head p { margin-top: 16px; color: var(--muted); }
+      .start-head code { color: var(--ink); }
+      .start-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+      .seg { align-self: flex-start; display: flex; gap: 4px; }
+      .seg button { min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 15px; font-weight: 500; cursor: pointer; }
+      .seg button:hover { color: var(--ink); }
+      .seg button[aria-pressed="true"] { border-color: var(--line-strong); color: var(--ink); }
+      .small { color: var(--dim); font-size: 14px; }
+      .small a { color: var(--muted); text-underline-offset: 2px; }
 
+      details { margin-top: 64px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; font-weight: 500; cursor: pointer; list-style: none; }
+      summary::-webkit-details-marker { display: none; }
+      summary::after { content: "+"; font: 400 20px/1 var(--mono); color: var(--dim); transition: transform .2s; }
+      details[open] summary::after { transform: rotate(45deg); }
+      .scroller { overflow-x: auto; padding-bottom: 16px; }
       table { width: 100%; border-collapse: collapse; }
-      th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-      th { font-weight: 600; white-space: nowrap; }
+      th, td { padding: 12px 16px 12px 0; text-align: left; border-top: 1px solid var(--line); }
+      th { font-weight: 500; white-space: nowrap; }
       td { color: var(--muted); }
       td:first-child { font-family: var(--mono); font-size: 14px; color: var(--ink); white-space: nowrap; }
-      .scroller { overflow-x: auto; }
 
-      details { border-bottom: 1px solid var(--line); padding: 6px 0; }
-      details summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; cursor: pointer; font-weight: 600; list-style: none; }
-      details summary::-webkit-details-marker { display: none; }
-      details summary::after { content: "+"; flex: none; font: 400 22px/1 var(--mono); color: var(--muted); transition: transform .2s; }
-      details[open] summary::after { transform: rotate(45deg); }
-      details p { color: var(--muted); margin: 0 0 14px; max-width: 40em; }
-      #controls { padding: 0 0 104px; }
-      #controls .scroller { margin: 12px 0; }
+      /* Guides: a reading list, not a card row. */
+      .reads { margin-top: 48px; border-top: 1px solid var(--line); }
+      .reads a { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr) 24px; gap: 8px 48px; align-items: baseline; padding: 24px 0; border-bottom: 1px solid var(--line); text-decoration: none; }
+      .reads p { color: var(--muted); font-size: 16px; }
+      .reads i { font-style: normal; color: var(--dim); transition: transform .15s, color .15s; }
+      .reads a:hover i { transform: translateX(4px); color: var(--clay); }
 
-      /* Read */
-      .reads { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
-      a.card { display: flex; flex-direction: column; color: var(--ink); text-decoration: none; transition: transform .2s, border-color .2s; }
-      a.card:hover { transform: translateY(-3px); border-color: var(--line-strong); }
-      a.card p { flex: 1; font-size: 15px; }
-      a.card .more { margin-top: 20px; color: var(--brand); font-size: 15px; font-weight: 600; }
+      .closing .wrap { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 32px 64px; }
+      .closing img { display: block; width: 96px; height: 96px; padding: 12px; margin-bottom: 24px; object-fit: contain; background: #fff; border-radius: 16px; }
+      .closing p { margin-top: 16px; color: var(--muted); font-size: 19px; }
+      .cta { display: flex; flex-wrap: wrap; gap: 8px; }
 
-      .closing { text-align: center; }
-      .closing .wrap { display: flex; flex-direction: column; align-items: center; gap: 24px; }
-      .closing img { width: 88px; height: auto; }
-      .closing h2 { margin: 0; }
-      .closing .sub { margin: 0; }
-
-      footer.site { border-top: 1px solid var(--line); padding: 32px 0 40px; color: var(--muted); font-size: 14px; }
-      footer.site .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; }
-      footer.site p { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; }
+      footer.site { padding: 32px 0 40px; color: var(--dim); font-size: 14px; }
+      footer.site .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; }
+      footer.site p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 24px; }
       footer.site a { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); text-decoration: none; }
       footer.site a:hover { color: var(--ink); }
       footer.site p.legal { display: block; }
       footer.site .legal a { display: inline; min-height: 0; text-decoration: underline; text-underline-offset: 2px; }
 
       @media (max-width: 960px) {
-        .steps, .reads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .ai, .why, .start, .flow, .hero-grid { grid-template-columns: minmax(0, 1fr); }
+        .why, .start, .step, .way { grid-template-columns: minmax(0, 1fr); }
+        .reads a { grid-template-columns: minmax(0, 1fr) 24px; }
+        .reads p { grid-row: 2; grid-column: 1 / -1; }
+        .pitch { width: min(560px, 60vw); }
       }
       @media (max-width: 760px) {
-        header.site nav { display: none; }
-      }
-      @media (max-width: 720px) {
         :root { --header-h: 56px; }
-        .stage { height: 170vh; }
-        .stage-pin { justify-content: center; padding-top: var(--header-h); }
-        .stage-reel { margin-top: 6vh; }
+        header.site nav { display: none; }
         body { font-size: 16px; }
-        .brand img { width: 32px; }
+        .wrap { padding: 0 16px; }
+        header.site .wrap { padding: 0 16px; }
         section { padding: 72px 0; }
-        #controls { padding-bottom: 72px; }
-        .hero-actions .btn, .hero-actions .cmd { width: 100%; }
-        .hero-actions .cmd { justify-content: space-between; }
-        .flow-tabs, .ai-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 4px; }
-        .flow-tabs button, .ai-tabs button { width: auto; padding: 10px 6px; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
-        .flow-tabs em, .ai-tabs span { display: none; }
-        .flow-tabs strong, .ai-tabs strong { margin: 0; font-size: 14px; }
-        .flow-tabs b { width: 26px; height: 26px; font-size: 13px; }
-        .flow-exports { aspect-ratio: auto; padding: 4px 20px; }
+        .brand img { width: 36px; height: 36px; }
+        /* On a phone the frame is too small to carry text, so the pitch stacks. */
+        .hero { height: auto; min-height: 0; }
+        .compare { flex: none; aspect-ratio: 16 / 9; }
+        .compare::after { display: none; }
+        .cmp-knob { top: 50%; }
+        .tag { top: 8px; }
+        .tag-l { left: 8px; }
+        .tag-r { right: 8px; }
+        .seq { order: 1; }
+        .pitch { position: static; order: 2; width: auto; padding: 32px 16px 40px; pointer-events: auto; }
+        .pitch-actions .btn, .pitch-actions .cmd { width: 100%; }
+        .pitch-actions .cmd { justify-content: space-between; }
+        .steps { gap: 48px; margin-top: 48px; }
+        .code { padding-left: 16px; }
+        .exports li { grid-template-columns: minmax(0, 1fr); gap: 0; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .stage { height: auto; --p: 0 !important; }
-        .stage-pin { position: relative; height: auto; padding-bottom: 72px; }
-        .stage-reel { transform: none; }
-        .stage-cue { display: none; }
         html { scroll-behavior: auto; }
-        .btn, a.card, .seg button, details summary::after { transition: none; }
+        .btn, .reads i, summary::after { transition: none; }
       }
     </style>
   </head>
@@ -401,106 +306,134 @@
     </header>
 
     <main>
-      <section class="stage" id="stage">
-        <div class="stage-pin">
-          <h1 class="curved" aria-label="Previs the shot"><span class="line">Previs the shot</span></h1>
-          <div class="stage-reel">
-            <div class="window">
-              <div class="compare" id="compare" style="--pos: 50%">
-                <video class="cmp-a" src="/media/truck-greybox.mp4" poster="/media/truck-greybox-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata"></video>
-                <video class="cmp-b" src="/media/truck-seedance.mp4" poster="/media/truck-seedance-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video>
-                <div class="cmp-line" aria-hidden="true"><span class="cmp-knob"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l-6 6 6 6M15 6l6 6-6 6"/></svg></span></div>
-                <input class="cmp-range" type="range" min="0" max="100" step="1" value="50" aria-label="Compare the CozyClay greybox with the Seedance 2.5 take" />
-                <span class="tag-l" aria-hidden="true">CozyClay</span>
-                <span class="tag-r" aria-hidden="true">Seedance 2.5</span>
-              </div>
+      <section class="hero" id="stage">
+        <div class="compare" id="compare" style="--pos: 50%">
+          <video class="cmp-a" src="/media/truck-greybox.mp4" poster="/media/truck-greybox-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata"></video>
+          <video class="cmp-b" src="/media/truck-seedance.mp4" poster="/media/truck-seedance-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video>
+          <div class="cmp-line" aria-hidden="true"><span class="cmp-knob"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l-6 6 6 6M15 6l6 6-6 6"/></svg></span></div>
+          <input class="cmp-range" type="range" min="0" max="100" step="1" value="50" aria-label="Compare the CozyClay greybox with the Seedance 2.5 take" />
+          <span class="tag tag-l" aria-hidden="true">CozyClay greybox</span>
+          <span class="tag tag-r" aria-hidden="true">Seedance 2.5 take</span>
+        </div>
+        <div class="seq" id="seq">
+          <button type="button" id="seq-toggle" aria-label="Pause the clip" data-paused="false">
+            <svg class="ic-pause" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="2" y="1" width="3" height="12"/><rect x="9" y="1" width="3" height="12"/></svg>
+            <svg class="ic-play" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M3 1l9 6-9 6z"/></svg>
+          </button>
+          <span><b id="seq-frame">0000</b> / <span id="seq-total">0720</span> · 24fps</span>
+          <input class="seq-range" id="seq-range" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek the clip" />
+        </div>
+        <div class="pitch">
+          <h1>Block the shot in 3D, then generate it</h1>
+          <p>Free, open source previs in your browser. Stage the scene, pose characters, set the camera and cuts, then hand the same shot to an AI video model.</p>
+          <div class="pitch-actions">
+            <a class="btn primary" href="/app/">Try it in your browser</a>
+            <div class="cmd">
+              <code>npx cozyclay --via site</code>
+              <button type="button" class="copy" data-copy="npx cozyclay --via site" aria-label="Copy the command">
+                <svg class="ic-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></svg>
+                <svg class="ic-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+              </button>
             </div>
           </div>
-          <span class="stage-cue" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
         </div>
       </section>
 
-      <section id="why" class="alt">
+      <section id="why">
         <div class="wrap why">
           <div>
-            <span class="kicker">Why</span>
+            <span class="label">Why</span>
             <h2>A text prompt cannot hold a whole scene</h2>
+            <p class="lead">AI video costs money per take, and one miss means paying again.</p>
+            <p class="lead"><strong>Make those decisions first, in 3D, where they are cheap to change.</strong> The video model then gets the shot as a first frame, a greybox reference clip and a prompt that describes the real framing. It follows the blocking instead of guessing.</p>
           </div>
-          <div>
-            <p>AI video costs money per take, and one miss means paying again. A prompt cannot say where everyone stands, how they move, where the camera is and when it cuts.</p>
-            <p><strong>Make those decisions first, in 3D, where they are cheap to change.</strong> The video model then gets the shot as a first frame, a greybox reference clip and a prompt that describes the real framing. It follows the blocking instead of guessing.</p>
-          </div>
+          <ul class="asks" aria-label="What a prompt cannot say">
+            <li>Where everyone stands <span>Stage</span></li>
+            <li>How they move <span>Move</span></li>
+            <li>Where the camera is <span>Shoot</span></li>
+            <li>When it cuts <span>Shoot</span></li>
+          </ul>
         </div>
       </section>
 
       <section id="how">
         <div class="wrap">
-          <span class="kicker">How it works</span>
+          <span class="label">How it works</span>
           <h2>Stage, move, shoot, export</h2>
-          <p class="sub">One local workspace that handles like a 3D editor, from the empty deck to the files a video model reads.</p>
-          <div class="flow">
-            <div class="flow-tabs" role="tablist" aria-label="Workflow steps">
-              <button type="button" role="tab" id="flow-t1" aria-controls="flow-p1" aria-selected="true">
-                <b>1</b><span><strong>Stage</strong><em>Build the set from primitives. Add rigged characters, or capsule stand-ins.</em></span>
-              </button>
-              <button type="button" role="tab" id="flow-t2" aria-controls="flow-p2" aria-selected="false" tabindex="-1">
-                <b>2</b><span><strong>Move</strong><em>Describe the action. The compiler bakes every frame; QA checks collisions, foot slide and reach.</em></span>
-              </button>
-              <button type="button" role="tab" id="flow-t3" aria-controls="flow-p3" aria-selected="false" tabindex="-1">
-                <b>3</b><span><strong>Shoot</strong><em>Shots on a timeline, dolly rails and cranes, a look through the lens.</em></span>
-              </button>
-              <button type="button" role="tab" id="flow-t4" aria-controls="flow-p4" aria-selected="false" tabindex="-1">
-                <b>4</b><span><strong>Export</strong><em>Everything the video model needs, in one pack. Every edit is one undo step.</em></span>
-              </button>
-            </div>
-            <div class="flow-view">
-              <figure role="tabpanel" id="flow-p1" aria-labelledby="flow-t1">
+          <p class="lead">One local workspace that handles like a 3D editor, from the empty deck to the files a video model reads.</p>
+          <div class="steps">
+            <article class="step">
+              <div>
+                <span class="label">Step 1</span>
+                <h3>Stage</h3>
+                <p>Build the set from primitives. Add rigged characters, or capsule stand-ins.</p>
+              </div>
+              <figure>
                 <video src="/media/step-stage.mp4" poster="/media/step-stage-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A whole street built from cubes and cylinders in CozyClay."></video>
                 <figcaption>A whole street from cubes and cylinders, railings and lamps included.</figcaption>
               </figure>
-              <figure role="tabpanel" id="flow-p2" aria-labelledby="flow-t2" hidden>
+            </article>
+            <article class="step">
+              <div>
+                <span class="label">Step 2</span>
+                <h3>Move</h3>
+                <p>Describe the action. The compiler bakes every frame; QA checks collisions, foot slide and reach.</p>
+              </div>
+              <figure>
                 <video src="/media/step-move.mp4" poster="/media/step-move-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="A request to the agent, then the clay character walks to a ball and pushes it with both hands."></video>
                 <figcaption>Ask the agent; the character walks to the ball and pushes it with both hands.</figcaption>
               </figure>
-              <figure role="tabpanel" id="flow-p3" aria-labelledby="flow-t3" hidden>
+            </article>
+            <article class="step">
+              <div>
+                <span class="label">Step 3</span>
+                <h3>Shoot</h3>
+                <p>Shots on a timeline, dolly rails and cranes, a look through the lens.</p>
+              </div>
+              <figure>
                 <video src="/media/step-shoot.mp4" poster="/media/step-shoot-poster.jpg" width="1440" height="600" muted loop playsinline preload="none" aria-label="The shot camera riding a four-point rail while the crane rises, with its live preview."></video>
                 <figcaption>The camera rides a rail while the crane takes it up, previewed live.</figcaption>
               </figure>
-              <div role="tabpanel" id="flow-p4" aria-labelledby="flow-t4" class="flow-exports" hidden>
-                <ul class="exports" aria-label="Export formats">
-                  <li><b>Keyframe pack</b><span>First and last frame, greybox clip, camera, prompt</span></li>
-                  <li><b>Video</b><span>The shot as an mp4</span></li>
-                  <li><b>Passes</b><span>Depth and normal</span></li>
-                  <li><b>Contact sheet</b><span>The shots side by side</span></li>
-                  <li><b>OTIO cut list</b><span>The edit, for your editing software</span></li>
-                  <li><b>Storyboard</b><span>Panels with captions and an animatic</span></li>
-                </ul>
+            </article>
+            <article class="step">
+              <div>
+                <span class="label">Step 4</span>
+                <h3>Export</h3>
+                <p>Everything the video model needs, in one pack. Every edit is one undo step.</p>
               </div>
-            </div>
+              <ul class="exports" aria-label="Export formats">
+                <li><b>Keyframe pack</b><span>First and last frame, greybox clip, camera, prompt</span></li>
+                <li><b>Video</b><span>The shot as an mp4</span></li>
+                <li><b>Passes</b><span>Depth and normal</span></li>
+                <li><b>Contact sheet</b><span>The shots side by side</span></li>
+                <li><b>OTIO cut list</b><span>The edit, for your editing software</span></li>
+                <li><b>Storyboard</b><span>Panels with captions and an animatic</span></li>
+              </ul>
+            </article>
           </div>
         </div>
       </section>
 
       <section id="ai">
         <div class="wrap">
-          <span class="kicker">Direct it with AI</span>
+          <span class="label">Direct it with AI</span>
           <h2>Your agent builds the scene while you watch</h2>
-          <p class="sub">The same scene can be driven from three places, live in the viewport. Bring ChatGPT, Anthropic, OpenAI, Gemini, MiniMax, OpenRouter or CLIProxyAPI.</p>
-          <div class="ai">
-            <div class="ai-tabs" role="tablist" aria-label="Ways to drive CozyClay">
-              <button type="button" role="tab" id="ai-t1" aria-controls="ai-p1" aria-selected="true"><strong>Agent panel</strong><span>In the studio</span></button>
-              <button type="button" role="tab" id="ai-t2" aria-controls="ai-p2" aria-selected="false" tabindex="-1"><strong>MCP server</strong><span>Claude, Cursor, any client</span></button>
-              <button type="button" role="tab" id="ai-t3" aria-controls="ai-p3" aria-selected="false" tabindex="-1"><strong>Terminal</strong><span>Coding agents</span></button>
-            </div>
-            <div class="ai-view">
-              <div role="tabpanel" id="ai-p1" aria-labelledby="ai-t1">
+          <p class="lead">The same scene can be driven from three places, live in the viewport. Bring ChatGPT, Anthropic, OpenAI, Gemini, MiniMax, OpenRouter or CLIProxyAPI.</p>
+          <div class="ways">
+            <div class="way">
+              <div>
+                <h3>Agent panel</h3>
                 <p>Chat beside the viewport and watch each change land. Sign in with ChatGPT or use your own key. Every change the agent makes is one undo step.</p>
-                <p class="shortcut">Open the studio, then press <span class="keys"><kbd>Cmd/Ctrl</kbd> + <kbd>B</kbd></span></p>
               </div>
-              <div role="tabpanel" id="ai-p2" aria-labelledby="ai-t2" hidden>
+              <p class="shortcut">Open the studio, then press <kbd>Cmd/Ctrl</kbd> + <kbd>B</kbd></p>
+            </div>
+            <div class="way">
+              <div>
+                <h3>MCP server</h3>
                 <p>Add CozyClay to Claude Desktop, Claude Code, Cursor or any MCP client. The agent edits the scene in the studio you have open.</p>
-                <div class="code">
-                  <pre><code>{
+              </div>
+              <div class="code">
+                <pre><code>{
   "mcpServers": {
     "cozyclay": {
       "command": "npx",
@@ -508,110 +441,94 @@
     }
   }
 }</code></pre>
-                  <button type="button" class="copy" data-copy='{ "mcpServers": { "cozyclay": { "command": "npx", "args": ["-y", "cozyclay", "mcp"] } } }'>Copy</button>
-                </div>
+                <button type="button" class="copy" data-copy='{ "mcpServers": { "cozyclay": { "command": "npx", "args": ["-y", "cozyclay", "mcp"] } } }'>Copy</button>
               </div>
-              <div role="tabpanel" id="ai-p3" aria-labelledby="ai-t3" hidden>
+            </div>
+            <div class="way">
+              <div>
+                <h3>Terminal</h3>
                 <p>Coding agents drive a running studio from the shell, JSON in and out.</p>
-                <div class="code">
-                  <pre><code>npx cozyclay
+              </div>
+              <div class="code">
+                <pre><code>npx cozyclay
 cclay live status --wait</code></pre>
-                  <button type="button" class="copy" data-copy="npx cozyclay&#10;cclay live status --wait">Copy</button>
-                </div>
+                <button type="button" class="copy" data-copy="npx cozyclay&#10;cclay live status --wait">Copy</button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section id="start" class="alt">
-        <div class="wrap start">
-          <div class="start-head">
-            <span class="kicker">Quick start</span>
-            <h2>One command</h2>
-            <p>Node.js 22.19+ and a Chromium browser. The studio opens at <code>127.0.0.1:5180/app/</code>.</p>
-            <a href="#controls" id="controls-link">Full control list →</a>
-          </div>
-          <div class="start-body">
-            <div class="seg" id="start-tabs">
-              <button type="button" aria-pressed="true" data-panel="start-npx">npx</button>
-              <button type="button" aria-pressed="false" data-panel="start-src">From source</button>
+      <section id="start">
+        <div class="wrap">
+          <div class="start">
+            <div class="start-head">
+              <span class="label">Quick start</span>
+              <h2>One command</h2>
+              <p>Node.js 22.19+ and a Chromium browser. The studio opens at <code>127.0.0.1:5180/app/</code>.</p>
             </div>
-            <div class="code" id="start-npx">
-              <pre><code>npx cozyclay --via site</code></pre>
-              <button type="button" class="copy" data-copy="npx cozyclay --via site">Copy</button>
-            </div>
-            <div class="code" id="start-src" hidden>
-              <pre><code>git clone https://github.com/NomaDamas/CozyClay.git
+            <div class="start-body">
+              <div class="seg" id="start-tabs">
+                <button type="button" aria-pressed="true" data-panel="start-npx">npx</button>
+                <button type="button" aria-pressed="false" data-panel="start-src">From source</button>
+              </div>
+              <div class="code" id="start-npx">
+                <pre><code>npx cozyclay --via site</code></pre>
+                <button type="button" class="copy" data-copy="npx cozyclay --via site">Copy</button>
+              </div>
+              <div class="code" id="start-src" hidden>
+                <pre><code>git clone https://github.com/NomaDamas/CozyClay.git
 cd CozyClay
 npm install
 npm run dev</code></pre>
-              <button type="button" class="copy" data-copy="git clone https://github.com/NomaDamas/CozyClay.git&#10;cd CozyClay&#10;npm install&#10;npm run dev">Copy</button>
+                <button type="button" class="copy" data-copy="git clone https://github.com/NomaDamas/CozyClay.git&#10;cd CozyClay&#10;npm install&#10;npm run dev">Copy</button>
+              </div>
+              <p class="small">Asking an AI agent to set it up? Give it the repository link; its instructions are in <a href="https://github.com/NomaDamas/CozyClay/blob/main/INSTALL_FOR_AGENTS.md">INSTALL_FOR_AGENTS.md</a>.</p>
             </div>
-            <p class="small">Asking an AI agent to set it up? Give it the repository link; its instructions are in <a href="https://github.com/NomaDamas/CozyClay/blob/main/INSTALL_FOR_AGENTS.md">INSTALL_FOR_AGENTS.md</a>.</p>
           </div>
-        </div>
-      </section>
-
-      <section id="controls" class="alt">
-        <div class="wrap">
-        <details>
-          <summary>Full control list</summary>
-        <div class="scroller">
-          <table>
-            <thead><tr><th>Input</th><th>Action</th></tr></thead>
-            <tbody>
-              <tr><td>Right-drag</td><td>Look around (fly)</td></tr>
-              <tr><td>RMB + WASD</td><td>Walk while flying</td></tr>
-              <tr><td>RMB + Q/E</td><td>Crane down / up</td></tr>
-              <tr><td>Middle-drag</td><td>Pan</td></tr>
-              <tr><td>Alt + drag</td><td>Orbit the selection</td></tr>
-              <tr><td>Scroll</td><td>Dolly</td></tr>
-              <tr><td>W / E / R</td><td>Move / rotate / scale tool</td></tr>
-              <tr><td>Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z</td><td>Undo / redo</td></tr>
-              <tr><td>Ctrl/Cmd+D</td><td>Duplicate the selection</td></tr>
-              <tr><td>F</td><td>Frame the selection</td></tr>
-            </tbody>
-          </table>
-        </div>
-        </details>
+          <details id="controls">
+            <summary>Full control list</summary>
+            <div class="scroller">
+              <table>
+                <thead><tr><th>Input</th><th>Action</th></tr></thead>
+                <tbody>
+                  <tr><td>Right-drag</td><td>Look around (fly)</td></tr>
+                  <tr><td>RMB + WASD</td><td>Walk while flying</td></tr>
+                  <tr><td>RMB + Q/E</td><td>Crane down / up</td></tr>
+                  <tr><td>Middle-drag</td><td>Pan</td></tr>
+                  <tr><td>Alt + drag</td><td>Orbit the selection</td></tr>
+                  <tr><td>Scroll</td><td>Dolly</td></tr>
+                  <tr><td>W / E / R</td><td>Move / rotate / scale tool</td></tr>
+                  <tr><td>Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z</td><td>Undo / redo</td></tr>
+                  <tr><td>Ctrl/Cmd+D</td><td>Duplicate the selection</td></tr>
+                  <tr><td>F</td><td>Frame the selection</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
         </div>
       </section>
 
       <section id="read">
         <div class="wrap">
-          <span class="kicker">Guides</span>
+          <span class="label">Guides</span>
           <h2>Read</h2>
           <div class="reads">
-            <a class="card" href="/greybox-to-video/">
-              <h3>Greybox to AI video</h3>
-              <p>Why a grey blockout is the most reliable input for a video model, and the block-then-generate loop.</p>
-              <span class="more">Read →</span>
-            </a>
-            <a class="card" href="/seedance-camera-control/">
-              <h3>Seedance 2.5 camera control</h3>
-              <p>Getting the same camera on every take with a reference clip.</p>
-              <span class="more">Read →</span>
-            </a>
-            <a class="card" href="/previs-software/">
-              <h3>Previs software compared</h3>
-              <p>Free, open source and browser-based previs tools side by side.</p>
-              <span class="more">Read →</span>
-            </a>
-            <a class="card" href="/ai-camera-control/">
-              <h3>Camera control for AI video</h3>
-              <p>Why camera prompts drift and what the models actually accept.</p>
-              <span class="more">Read →</span>
-            </a>
+            <a href="/greybox-to-video/"><h3>Greybox to AI video</h3><p>Why a grey blockout is the most reliable input for a video model, and the block-then-generate loop.</p><i aria-hidden="true">→</i></a>
+            <a href="/seedance-camera-control/"><h3>Seedance 2.5 camera control</h3><p>Getting the same camera on every take with a reference clip.</p><i aria-hidden="true">→</i></a>
+            <a href="/previs-software/"><h3>Previs software compared</h3><p>Free, open source and browser-based previs tools side by side.</p><i aria-hidden="true">→</i></a>
+            <a href="/ai-camera-control/"><h3>Camera control for AI video</h3><p>Why camera prompts drift and what the models actually accept.</p><i aria-hidden="true">→</i></a>
           </div>
         </div>
       </section>
 
       <section class="closing">
         <div class="wrap">
-          <img src="/media/cozyclay-mark.png" width="144" height="98" alt="" loading="lazy" />
-          <h2>Block your first shot</h2>
-          <p class="sub">Free, open source, and running in your browser in under a minute.</p>
+          <div>
+            <img src="/media/cozyclay-mark.png" width="144" height="98" alt="" loading="lazy" />
+            <h2>Block your first shot</h2>
+            <p>Free, open source, and running in your browser in under a minute.</p>
+          </div>
           <div class="cta">
             <a class="btn primary" href="/app/">Try it in your browser</a>
             <a class="btn ghost" href="https://discord.gg/Hp9V5wwgjF">Join the Discord</a>
@@ -621,8 +538,10 @@ npm run dev</code></pre>
     </main>
 
     <script>
-      // Quick start: one code block at a time. The link to the control list opens it.
       (() => {
+        const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        // Quick start: one code block at a time.
         const tabs = document.querySelectorAll("#start-tabs button");
         tabs.forEach((tab) => tab.addEventListener("click", () => {
           tabs.forEach((other) => {
@@ -631,14 +550,12 @@ npm run dev</code></pre>
             document.getElementById(other.dataset.panel).hidden = !on;
           });
         }));
-        document.getElementById("controls-link").addEventListener("click", () => {
-          document.querySelector("#controls details").open = true;
-        });
         document.querySelectorAll("button.copy[data-copy]").forEach((button) => {
           button.addEventListener("click", async () => {
             try { await navigator.clipboard.writeText(button.dataset.copy); button.dataset.state = "copied"; setTimeout(() => { button.dataset.state = ""; }, 1400); } catch {}
           });
         });
+
         // Hero compare: drag (or arrow keys on the hidden range) moves the divider;
         // the generated take follows the greybox clock so both show the same frame.
         const compare = document.getElementById("compare");
@@ -662,6 +579,7 @@ npm run dev</code></pre>
           if (compare.hasPointerCapture(event.pointerId)) fromPointer(event);
         });
         range.addEventListener("input", () => setPos(Number(range.value)));
+
         // The greybox is the clock. Every frame the take is checked against it and
         // re-seeked when it drifts more than about one frame; both files have a
         // keyframe every second, so the seek lands at once. A short cooldown lets
@@ -676,109 +594,61 @@ npm run dev</code></pre>
             settleUntil = performance.now() + 400;
           }
         };
+
+        // Sequencer strip: transport, frame number and playhead, read from the clip.
+        const FPS = 24;
+        const toggle = document.getElementById("seq-toggle");
+        const seek = document.getElementById("seq-range");
+        const frame = document.getElementById("seq-frame");
+        const total = document.getElementById("seq-total");
+        const pad = (n) => String(n).padStart(4, "0");
+        let scrubbing = false;
+        const drawSeq = () => {
+          const length = greybox.duration;
+          if (!Number.isFinite(length) || length <= 0) return;
+          frame.textContent = pad(Math.floor(greybox.currentTime * FPS));
+          total.textContent = pad(Math.round(length * FPS));
+          if (!scrubbing) seek.value = String(Math.round((greybox.currentTime / length) * 1000));
+        };
+        const drawToggle = () => {
+          toggle.dataset.paused = String(greybox.paused);
+          toggle.setAttribute("aria-label", greybox.paused ? "Play the clip" : "Pause the clip");
+        };
+        toggle.addEventListener("click", () => {
+          if (greybox.paused) greybox.play().catch(() => {});
+          else greybox.pause();
+        });
+        seek.addEventListener("input", () => {
+          scrubbing = true;
+          greybox.currentTime = (Number(seek.value) / 1000) * greybox.duration;
+          take.currentTime = greybox.currentTime;
+          drawSeq();
+        });
+        seek.addEventListener("change", () => { scrubbing = false; });
+
         const tick = () => {
           if (!greybox.paused) syncTake();
+          drawSeq();
           if (greybox.requestVideoFrameCallback) greybox.requestVideoFrameCallback(tick);
           else requestAnimationFrame(tick);
         };
         tick();
         greybox.addEventListener("waiting", () => take.pause());
-        // Tab lists (workflow steps, agent surfaces): click or arrow keys pick a panel.
-        document.querySelectorAll("[role=tablist]").forEach((list) => {
-          const tabs = [...list.querySelectorAll("[role=tab]")];
-          const select = (tab) => tabs.forEach((other) => {
-            const on = other === tab;
-            other.setAttribute("aria-selected", String(on));
-            other.tabIndex = on ? 0 : -1;
-            document.getElementById(other.getAttribute("aria-controls")).hidden = !on;
-          });
-          tabs.forEach((tab, i) => {
-            tab.addEventListener("click", () => select(tab));
-            tab.addEventListener("keydown", (event) => {
-              const move = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
-              if (!move) return;
-              event.preventDefault();
-              const next = tabs[(i + move + tabs.length) % tabs.length];
-              select(next);
-              next.focus();
-            });
-          });
-        });
-        // How it works: the open step's clip plays while the section is on screen.
-        const flowView = document.querySelector(".flow-view");
-        let flowSeen = false;
-        const playOpenStep = () => flowView.querySelectorAll("video").forEach((clip) => {
-          if (flowSeen && !clip.closest("[role=tabpanel]").hidden) clip.play().catch(() => {});
-          else clip.pause();
-        });
-        new IntersectionObserver(([entry]) => { flowSeen = entry.isIntersecting; playOpenStep(); }).observe(flowView);
-        document.querySelectorAll(".flow-tabs [role=tab]").forEach((tab) => tab.addEventListener("click", playOpenStep));
-        document.querySelector(".flow-tabs").addEventListener("keydown", () => setTimeout(playOpenStep));
-        // Hero headline: the letters sit on the front of a cylinder, so the
-        // middle bulges toward the viewer and the ends fall away.
-        const headline = document.querySelector("h1.curved");
-        headline.querySelectorAll(".line").forEach((line) => {
-          const text = line.textContent;
-          line.textContent = "";
-          line.setAttribute("aria-hidden", "true");
-          for (const char of text) {
-            const span = document.createElement("span");
-            span.className = "ch";
-            span.textContent = char;
-            line.appendChild(span);
-          }
-        });
-        const bend = () => {
-          const chars = [...headline.querySelectorAll(".ch")];
-          chars.forEach((c) => { c.style.transform = ""; });
-          const box = headline.getBoundingClientRect();
-          const centre = box.left + box.width / 2;
-          const half = Math.max(...[...headline.querySelectorAll(".line")].map((l) => l.getBoundingClientRect().width)) / 2;
-          chars.forEach((c) => {
-            const r = c.getBoundingClientRect();
-            const u = Math.max(-1, Math.min(1, (r.left + r.width / 2 - centre) / half));
-            const depth = Math.sqrt(1 - 0.75 * u * u);
-            c.style.transform = "scale(" + (0.84 + 0.16 * depth).toFixed(3) + ")";
-          });
-        };
-        bend();
-        document.fonts.ready.then(bend);
-        addEventListener("resize", bend);
-        // First screen: map the scroll through the stage to --p, and size the
-        // reel's rise and growth so it ends centred at the full width.
-        const stage = document.getElementById("stage");
-        const reel = stage.querySelector(".stage-reel");
-        const header = document.querySelector("header.site");
-        const still = matchMedia("(prefers-reduced-motion: reduce)");
-        const measure = () => {
-          const pin = stage.querySelector(".stage-pin");
-          const start = 0.94;
-          const width = reel.offsetWidth;
-          const full = Math.min(innerWidth * 0.98, (innerHeight - header.offsetHeight - 24) * 16 / 9 + 0);
-          const end = Math.max(start, full / width);
-          stage.style.setProperty("--grow", (end - start).toFixed(3));
-          const top = reel.offsetTop;
-          const target = header.offsetHeight + Math.max(12, (innerHeight - header.offsetHeight - reel.offsetHeight * end) / 2);
-          stage.style.setProperty("--rise", (target - top) + "px");
-          void pin;
-        };
-        let queued = false;
-        const onScroll = () => {
-          queued = false;
-          const box = stage.getBoundingClientRect();
-          const span = stage.offsetHeight - innerHeight;
-          const p = still.matches || span <= 0 ? 0 : Math.min(1, Math.max(0, -box.top / span));
-          stage.style.setProperty("--p", p.toFixed(4));
-          document.body.classList.toggle("on-stage", box.bottom > header.offsetHeight);
-        };
-        const queue = () => { if (!queued) { queued = true; requestAnimationFrame(onScroll); } };
-        measure();
-        onScroll();
-        addEventListener("scroll", queue, { passive: true });
-        addEventListener("resize", () => { measure(); queue(); });
-        greybox.addEventListener("seeked", syncTake);
-        greybox.addEventListener("play", syncTake);
-        greybox.addEventListener("pause", syncTake);
+        greybox.addEventListener("loadedmetadata", drawSeq);
+        greybox.addEventListener("seeked", () => { syncTake(); drawSeq(); });
+        greybox.addEventListener("play", () => { syncTake(); drawToggle(); });
+        greybox.addEventListener("pause", () => { syncTake(); drawToggle(); });
+        if (still) { greybox.pause(); take.pause(); }
+        drawToggle();
+
+        // How it works: each clip plays only while it is on screen.
+        if (!still) {
+          const clips = new IntersectionObserver((entries) => entries.forEach((entry) => {
+            if (entry.isIntersecting) entry.target.play().catch(() => {});
+            else entry.target.pause();
+          }), { threshold: 0.4 });
+          document.querySelectorAll(".step video").forEach((clip) => clips.observe(clip));
+        }
       })();
     </script>
 
