@@ -22,14 +22,18 @@
 //   - timing per task, in memory like the rest: queued, started and ended at, and the time it waited on a held scope, on
 //     its dependencies and on the cap, so the scheduling can be judged from data (in the view and the ended event)
 //   - the same instructions on the same scope as a queued or running task are not started twice (19)
-//   - a task that runs past MAX_MS or MAX_TOOLS tool calls is stopped and reported as such (20)
+//   - a task that runs past MAX_MS, makes MAX_TOOLS tool calls of its own (the turn's automatic reviews do not count), or
+//     shows no model or tool event for IDLE_MS is stopped and reported as such (20). A limit stop finishes the task: what
+//     it did stays (task.finish). Only the user's cancel takes its edits back (task.cancel). The ended event says which
+//     (edits: kept | reverted), so the main agent never tells the user that reverted work was kept
 import { randomUUID } from "node:crypto";
 import { isScopeKey, scopeConflict } from "../../src/bus-task-scopes.js";
 
-export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
+export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, idleMs: 3 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
 const ACTIVE = new Set(["queued", "waiting", "starting", "running", "paused", "review"]);
 const ENDED = new Set(["done", "failed", "cancelled"]);
 const norm = text => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+const span = ms => (ms % 60_000 ? `${Math.round(ms / 1000)} s` : `${ms / 60_000} min`);
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
 
 /**
@@ -43,7 +47,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	const list = () => [...tasks.values()];
 	const running = () => list().filter(task => ["starting", "running"].includes(task.status));
 	const scopes = () => new Map(running().map(task => [task.taskId, { taskId: task.taskId, title: task.title, keys: new Set(task.scope) }]));
-	const view = task => ({ taskId: task.taskId, title: task.title, status: task.status, scope: task.scope, ...(task.reason ? { reason: task.reason } : {}), ...(task.turnId ? { turnId: task.turnId } : {}),
+	const view = task => ({ taskId: task.taskId, title: task.title, status: task.status, scope: task.scope, ...(task.reason ? { reason: task.reason } : {}), ...(task.edits ? { edits: task.edits } : {}), ...(task.turnId ? { turnId: task.turnId } : {}),
 		...(task.dependsOn.length ? { dependsOn: task.dependsOn } : {}), ...(task.verify ? { verify: true } : {}), tools: task.tools, usage: task.usage, ...(task.summary ? { summary: task.summary } : {}), ...(task.changed?.length ? { changed: task.changed } : {}), timing: timing(task) });
 	// An open wait counts up to now, so a board read mid-wait is already true.
 	const waited = (task, kind) => task.waited[kind] + (task.wait?.kind === kind ? now() - task.wait.since : 0);
@@ -157,18 +161,24 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		const mark = lastStart;
 		task.controller = new AbortController();
 		const deps = task.dependsOn.map(id => tasks.get(id)).map(dep => ({ taskId: dep.taskId, title: dep.title, summary: dep.summary, changed: dep.changed ?? [] }));
-		task.timer = setTimer(() => stop(task, `it ran past ${Math.round(L.maxMs / 60_000)} minutes`), L.maxMs);
+		task.timer = setTimer(() => stop(task, `stopped at the ${span(L.maxMs)} limit`), L.maxMs);
+		// No-progress watchdog: a run that sends nothing for IDLE_MS (a model that never answered a review) is stopped.
+		// One timer per run; a frame only moves lastAt, and the timer re-arms for what is left when it fires early.
+		task.lastAt = now();
+		const idle = () => { const left = task.lastAt + L.idleMs - now(); task.idleTimer = left > 0 ? setTimer(idle, left) : null; if (left <= 0) stop(task, `stopped after ${span(L.idleMs)} with no model or tool activity`); };
+		task.idleTimer = setTimer(idle, L.idleMs);
 		task.onFrame = frame => {
+			task.lastAt = now();
 			// a retry after SCOPE_BUSY says started once, not on every attempt
 			if (task.status === "starting") { task.status = "running"; if (!task.toldStart) tell(resume ? "task.resumed" : "task.started", task); task.toldStart = true; }
 			if (!mark.warm && ["text.delta", "tool.start", "thinking.delta"].includes(frame.type)) { mark.warm = true; rescheduleNow(); }
-			if (frame.type === "tool.start" && ++task.tools > L.maxTools) stop(task, `it made more than ${L.maxTools} tool calls`);
+			if (frame.type === "tool.start" && !frame.review && ++task.tools > L.maxTools) stop(task, `stopped after more than ${L.maxTools} tool calls`);
 		};
 		Promise.resolve().then(() => run(task, { resume, deps, signal: task.controller.signal })).then(result => settle(task, result), error => settle(task, { status: "failed", error }));
 	}
 
 	function settle(task, result) {
-		clearTimer(task.timer);
+		clearTimer(task.timer); if (task.idleTimer) { clearTimer(task.idleTimer); task.idleTimer = null; }
 		if (lastStart?.taskId === task.taskId) lastStart.warm = true;
 		for (const key of Object.keys(task.usage)) if (Number.isFinite(result?.usage?.[key])) task.usage[key] += result.usage[key];
 		if (result.status === "scopeBusy") {
@@ -182,10 +192,16 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		else if (result.status === "lost") { task.status = "paused"; task.reason = "Studio disconnected; it resumes when Studio reconnects to the same scene"; task.sceneId = result.sceneId; tell("task.paused", task); }
 		else {
 			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts) };
-			if (result.status === "done") task.changed = changedBy(task, result.receipts);
+			if (result.status === "done" || result.ended === "task.finish") task.changed = changedBy(task, result.receipts);
 			// A cancel that arrived after the run finished cannot take it back: it stays done (and can be undone).
-			const status = task.stopReason ? "failed" : task.cancelled && result.status !== "done" ? "cancelled" : result.status;
-			end(task, status === "done" && task.verify ? "review" : status, { reason: task.stopReason ?? (result.status === "failed" ? clip(String(result.error?.message ?? result.error ?? "the run failed"), 300) : undefined), summary });
+			const status = task.cancelled && result.status !== "done" ? "cancelled" : task.stopReason ? "failed" : result.status;
+			// What the bus did with its edits, as the run saw the task close: finish keeps them, cancel puts them back.
+			task.edits = result.ended === "task.finish" ? "kept" : result.ended === "task.cancel" ? "reverted" : status === "cancelled" ? "reverted" : undefined;
+			const said = { kept: "its edits were kept", reverted: "its edits were reverted" }[task.edits] ?? "whether its edits landed is unknown";
+			const reason = status === "cancelled" ? `cancelled by the user; ${said}`
+				: task.stopReason ? `${task.stopReason}; ${said}; ask the user whether to continue`
+				: result.status === "failed" ? clip(String(result.error?.message ?? result.error ?? "the run failed"), 300) : undefined;
+			end(task, status === "done" && task.verify ? "review" : status, { reason, summary });
 		}
 		rescheduleNow();
 	}
@@ -207,7 +223,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 
 	function stop(task, reason) {
 		if (!["starting", "running"].includes(task.status)) return;
-		task.stopReason = `stopped: ${reason}; ask the user whether to continue`;
+		task.stopReason = reason;
 		task.controller.abort(new Error(task.stopReason));
 	}
 

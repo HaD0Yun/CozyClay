@@ -106,6 +106,27 @@ test("cancel restores only the task's keys and removes what it created; undo-tas
   } finally { f.dispose(); }
 });
 
+test("a task stopped at a limit finishes: every edit it made stays (made ids too), and a cancel after that takes nothing back", () => {
+  const { f, ids, task, begin, x, move } = setup();
+  try {
+    const a = task('task-a'), count = f.store.current.objects.length;
+    ok(begin('task-a', [`object:${ids.cube}`]));
+    ok(move(a, ids.cube, 1));
+    const made = ok(a('object.duplicate', { objectId: ids.cube }));
+    const madeId = made.affectedIds.find(id => ![ids.cube, ids.sphere, ids.cylinder].includes(id));
+    ok(move(a, madeId, 6));
+    // the board's limit stop: the run ends and the transaction closes with task.finish (studio-turn-transaction.mjs)
+    const finished = ok(a('task.finish', { taskId: 'task-a' }));
+    assert.ok(finished.affectedIds.includes(ids.cube), 'the finish receipt names what the task changed');
+    assert.equal(x(ids.cube), 1, 'the edit stays'); assert.equal(x(madeId), 6, 'and what it made');
+    assert.equal(f.store.current.objects.length, count + 1);
+    refused(a('task.cancel', { taskId: 'task-a' }), 'STALE_TARGET');
+    assert.equal(x(ids.cube), 1, 'a cancel after the finish reverts nothing');
+    ok(begin('task-b', [`object:${ids.cube}`]));
+    ok(task('task-b')('task.finish', { taskId: 'task-b' }));
+  } finally { f.dispose(); }
+});
+
 test("a mark and its rollback; undo_edit of the task's newest edit; a reader hears of a change", () => {
   const { f, ids, task, begin, x, move } = setup();
   try {
