@@ -3,6 +3,8 @@
 //   GET  /agent/main/<sessionId>/board    the tasks of that main session
 //   GET  /agent/main/<sessionId>/events   the board's events, live (task.queued .. task.done), and main.turn when the
 //                                         main agent reports on its own
+//   POST /agent/main/<sessionId>/reconnect { context }: the panel came back (a reload) with the Studio's new handle; the
+//                                         board follows it and resumes its paused tasks there
 //   POST /agent/task/<taskId>/cancel      stop a task (its keys go back)
 //   POST /agent/task/<taskId>/steer       { text }: add to a running task
 // A task's run is an ordinary Studio turn (handleStudioTurn) in a child session the main session's owner owns, so its
@@ -12,8 +14,12 @@ import { createTaskBoard, taskHeader } from "./studio-tasks.mjs";
 import { createMainTools, doneClaimCorrection, mainContextText } from "./main-agent.mjs";
 import { MAIN_SYSTEM_PROMPT } from "./main-prompt.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
+import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
 
-const TERMINAL = new Set(["task.review", "task.done", "task.failed", "task.cancelled", "task.paused"]);
+const TERMINAL = new Set(["task.review", "task.done", "task.incomplete", "task.failed", "task.cancelled", "task.paused"]);
+// A task's own action list names the one bus control it may send (the editor's registry does not list controls).
+const withTaskActions = context => (Array.isArray(context?.actionIndex) && !context.actionIndex.some(row => row.id === TASK_SCOPE_ACTION.id)
+	? { ...context, actionIndex: [...context.actionIndex, { id: TASK_SCOPE_ACTION.id, label: TASK_SCOPE_ACTION.label }] } : context);
 const EVENT_TURN_TEXT = "(Task events arrived while the user waited. Tell the user what happened, in their language, in one or two lines.)";
 const fakeResponse = () => ({ headersSent: false, writableEnded: false, destroyed: false, setHeader() {}, writeHead() {}, flushHeaders() {}, write: () => true, once() {}, end() { this.writableEnded = true; } });
 const ownerRequest = owner => ({ headers: { cookie: `studio_owner=${encodeURIComponent(owner)}` } });
@@ -31,6 +37,8 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		main.notify = event => {
 			main.events.push(event);
 			emitStudioEvent(feedId, event);
+			// Lost on the old handle after the panel already reconnected on a new one: resume there now, not at the next message.
+			if (event.type === "task.paused" && main.host && main.board.get(event.taskId)?.host !== main.host) queueMicrotask(() => main.board.reconnect(main.host.sceneId));
 			if (TERMINAL.has(event.type)) eventTurnSoon(main);
 		};
 		main.board = createTaskBoard({ limits, run: (task, options) => runTask(main, task, options), emit: main.notify });
@@ -58,9 +66,11 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		main.host = value.context.host; main.model = value.model; main.effort = value.effort;
 		main.board.reconnect(value.context.host.sceneId);
 		const userText = value.text;
-		return handleStudioTurn(req, res, { ...value, main: {
+		// hidden: the main agent reporting on its own is no user message (a panel that reattaches to it shows no prompt)
+		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
 			systemPrompt: MAIN_SYSTEM_PROMPT,
-			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle }),
+			// The live host, not this turn's: a reload mid-turn moves the Studio to a new handle (POST .../reconnect).
+			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle }),
 			contextText: () => mainContextText(main.board, main.events.splice(0)),
 			check: reply => doneClaimCorrection(reply, main.board.board(), userText),
 		} }, "/agent/turn");
@@ -82,6 +92,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 				resume = { ...resume, note: `The scene changed while the Studio reloaded: ${changed.join(", ")} no longer read${changed.length === 1 ? "s" : ""} as you left ${changed.length === 1 ? "it" : "them"}. Re-read your scope with inspect_studio before you continue; do not assume your last edits landed.` };
 			} else resume = { ...resume, note: "Studio reconnected after a disconnect; your scope reads as you left it. Continue the task from where you were." };
 		}
+		task.host = main.host;
 		task.seen = await scopeFingerprint(context, task.scope);
 		task.midCommand = false;
 		const sessionId = task.sessionId ??= randomUUID();
@@ -96,6 +107,9 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		signal.addEventListener("abort", stop, { once: true });
 		task.steer = text => session()?.modelSession?.steer(text, []);
 		let pending = 0, seenRead = Promise.resolve();
+		// The Studio reloaded on the same handle: its document epoch is new (POST .../reconnect), so this run's commands
+		// answer STALE_SCENE. That is a lost Studio too: pause, and resume on the new epoch.
+		const reloaded = frame => String(frame.error ?? "").startsWith("STALE_SCENE") && main.host && main.host.documentEpoch !== context.host.documentEpoch;
 		const observe = frame => {
 			task.onFrame?.(frame);
 			if (frame.type === "tool.start") pending++;
@@ -105,14 +119,14 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			if (frame.type === "text.delta") { out.segment += frame.text ?? ""; out.reply = out.segment; }
 			else if (frame.type === "tool.start") out.segment = frame.review ? `${out.segment}\n` : "";
 			else if (frame.type === "tool.done" && frame.ok && frame.result?.receiptId) out.receipts.push({ receiptId: frame.result.receiptId, action: frame.result.action ?? frame.name, affectedIds: (frame.result.affectedIds ?? []).slice(0, 6) });
-			else if (frame.type === "tool.done" && !frame.ok && LOST_STUDIO.has(String(frame.error ?? "").split(":")[0])) { out.lost = true; if (String(frame.error).startsWith("UNCERTAIN_APPLY")) task.midCommand = true; stop(); }
+			else if (frame.type === "tool.done" && !frame.ok && (LOST_STUDIO.has(String(frame.error ?? "").split(":")[0]) || reloaded(frame))) { out.lost = true; if (String(frame.error).startsWith("UNCERTAIN_APPLY")) task.midCommand = true; stop(); }
 			else if (frame.type === "error") { out.error = { code: frame.code, message: frame.message }; if (frame.code === "SCOPE_BUSY") out.busy = true; if (LOST_STUDIO.has(frame.code)) out.lost = true; }
 			else if (frame.type === "done" && frame.usage) out.usage = { ...frame.usage, cost: frame.cost ?? 0 };
 			// How the bus closed the task: a stop that came after the run already finished keeps its edits (task.finish).
 			else if (frame.type === "receipt" && /^task\.(cancel|finish)$/.test(frame.receipt?.action ?? "")) out.ended = frame.receipt.action;
 		};
 		try {
-			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: taskHeader(task, { deps, resume }), context, model: main.model, effort: main.effort, observe,
+			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: taskHeader(task, { deps, resume }), context: withTaskActions(context), model: main.model, effort: main.effort, observe,
 				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, get lost() { return out.lost; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
@@ -171,6 +185,19 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			if (board[2] === "board") json(res, 200, { tasks: main.board.board() });
 			else writeStudioStream(res, main.feed, Number(new URL(req.url, "http://127.0.0.1").searchParams.get("after") || 0));
 			return true;
+		}
+		// The panel after a reload: its Studio has a new handle (and document epoch). The board reads and runs there from
+		// now on, and the tasks the reload paused resume at once instead of at the user's next message.
+		const reconnect = /^\/agent\/main\/([^/]+)\/reconnect$/.exec(path);
+		if (reconnect && req.method === "POST") {
+			const sessionId = decodeURIComponent(reconnect[1]), main = mains.get(sessionId);
+			if (!main || !owned(req, sessionId)) { json(res, 403, { error: { code: "AUTH_REQUIRED", message: "Not owned by this session." } }); return true; }
+			let value;
+			try { value = await validateEnvelope({ ...(await readBody(req)), surface: "studio", sessionId, turnId: randomUUID(), text: "reconnect" }); } catch (error) { json(res, 400, { error: error?.toJSON?.() ?? "invalid request" }); return true; }
+			try { await readContext(value.context.host); } catch (error) { json(res, 409, { error: { code: error?.code ?? "LIVE_HUB_UNAVAILABLE", message: "The Studio does not answer on that handle." } }); return true; }
+			main.host = value.context.host;
+			main.board.reconnect(main.host.sceneId);
+			json(res, 200, { ok: true, tasks: main.board.board() }); return true;
 		}
 		const action = /^\/agent\/task\/([^/]+)\/(cancel|steer)$/.exec(path);
 		if (action && req.method === "POST") {

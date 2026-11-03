@@ -2,7 +2,7 @@
 // toggle) or the server's COZYCLAY_STUDIO_TASKS flag: the chat then talks to the main agent (POST /agent/main), which
 // answers at once and dispatches tasks; this board shows them. Pure parts here (the reducer, labels, the switch's
 // storage); the network side is createTaskBoardClient; the view is TaskBoard.jsx.
-//   server events (GET /agent/main/<sessionId>/events): task.queued|waiting|started|resumed|paused|review|done|failed|cancelled
+//   server events (GET /agent/main/<sessionId>/events): task.queued|waiting|started|resumed|paused|review|done|incomplete|failed|cancelled
 //     carry the task's view { taskId, title, status, scope, reason?, turnId?, usage, summary? }; task.sceneChanged
 //     { taskId, keys, midCommand }; main.turn { turnId } (the main agent reporting on its own)
 //   editor events (the command bus): task.userEdit { taskId, keys } (the user changed something in its scope)
@@ -27,6 +27,7 @@ export const TASK_STATUS_COPY = {
 	paused: ko("Paused: Studio lost", "일시정지: Studio 연결 끊김"),
 	review: ko("Being checked", "확인 중"),
 	done: ko("Done", "완료"),
+	incomplete: ko("Incomplete: criteria unmet", "미완료: 기준 미달"),
 	failed: ko("Failed", "실패"),
 	cancelled: ko("Cancelled", "취소됨"),
 };
@@ -96,7 +97,7 @@ export function boardGroups(board) {
 	for (const id of board.order) {
 		const task = board.tasks[id];
 		// review: the run ended but the coordinator still checks it, so it waits (and offers no cancel: not in ACTIVE_STATUSES).
-		const group = task.status === "failed" || task.status === "paused" ? "failed" : task.status === "running" || task.status === "starting" ? "running" : ACTIVE_STATUSES.has(task.status) || task.status === "review" ? "waiting" : "done";
+		const group = task.status === "failed" || task.status === "paused" || task.status === "incomplete" ? "failed" : task.status === "running" || task.status === "starting" ? "running" : ACTIVE_STATUSES.has(task.status) || task.status === "review" ? "waiting" : "done";
 		groups[group].push(task);
 	}
 	return groups;
@@ -135,6 +136,12 @@ export function reduceScopes(scopes, event) {
 	return scopes;
 }
 
+/** Whether the panel follows a session's board at all: only once the sidecar has one, after a main turn started (live),
+ * ended (pulse) or the restored session said so; asking before answered 403/404 every 2 s, ~25 times a session. */
+export const followsBoard = ({ sessionId, live = false, pulse = 0, restored = false }) => Boolean(sessionId) && (live || pulse > 0 || restored);
+/** After a failed read: try again unless the board does not exist (403/404) and no turn is under way to make it. */
+export const retriesBoard = (error, live) => !([403, 404].includes(error?.status) && !live);
+
 /**
  * The sidecar side of the board. All requests are same-origin with the Studio session's owner cookie.
  * fetchImpl(url, init) -> Response; url(path) -> the sidecar URL.
@@ -167,6 +174,8 @@ export function createTaskBoardClient({ fetchImpl = globalThis.fetch?.bind(globa
 		board: sessionId => json(`/agent/main/${id(sessionId)}/board`),
 		events: (sessionId, after, onEvent, signal) => stream(`/agent/main/${id(sessionId)}/events?after=${after}`, onEvent, signal),
 		frames: (turnId, onEvent, signal) => stream(`/agent/turn/${id(turnId)}/events?after=0`, onEvent, signal),
+		/** After a reload: the Studio's new handle, so the board runs there and its paused tasks resume. */
+		reconnect: (sessionId, context) => json(`/agent/main/${id(sessionId)}/reconnect`, { method: "POST", body: JSON.stringify({ context }) }),
 		cancel: taskId => json(`/agent/task/${id(taskId)}/cancel`, { method: "POST", body: "{}" }),
 		steer: (taskId, text) => json(`/agent/task/${id(taskId)}/steer`, { method: "POST", body: JSON.stringify({ text }) }),
 	};

@@ -206,7 +206,7 @@ import {
 import { captureFraming, classifyMove, moveSequenceSlate, moveSequencePhrase } from "./camera-move.js";
 import { sampleAt } from "./sample-at.js";
 import { exportOffscreenVideo } from "./offscreen-export.js";
-import { parseRigNodeId } from "./hierarchy-model.js";
+import { characterRowExists, parseRigNodeId } from "./hierarchy-model.js";
 import { timelineContentExtent } from "./timeline-extent.js";
 import {
 	guideGeometry,
@@ -3588,9 +3588,8 @@ export default function App() {
 	// its pose and its motion.
 	const isCameraSelection = selectedHierarchyId === "camera";
 	const isCharacterSelection = selectedHierarchyId === "characters"
-		|| selectedHierarchyId === "characterA"
-		|| selectedHierarchyId === "characterB"
-		|| selectedHierarchyId.startsWith("character:");
+		|| ((selectedHierarchyId === "characterA" || selectedHierarchyId === "characterB" || selectedHierarchyId.startsWith("character:"))
+			&& characterRowExists(selectedHierarchyId, characters));
 	// The View menu's three toggles, as the menu reads them: one radio choice
 	// for the part colours, and a dot on the trigger whenever the viewport is
 	// showing something other than the plain stage.
