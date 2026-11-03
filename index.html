@@ -134,15 +134,19 @@
       .btn.ghost:hover { border-color: var(--ink); }
       .btn.sm { min-height: 40px; padding: 0 16px; font-size: 15px; }
 
-      /* First screen: the shot itself, with the pitch on its dark lower corner. */
-      .hero { position: relative; display: flex; flex-direction: column; height: calc(100vh - var(--header-h)); height: calc(100svh - var(--header-h)); min-height: 560px; max-height: 1080px; border-bottom: 1px solid var(--line); }
-      .compare { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+      /* First screen: the whole 16:9 shot in a frame no wider than 1200 px, so the
+         1080p takes are stretched as little as possible (at most 1.25x on a 2x
+         screen), with the pitch on the frame's dark lower corner. */
+      .hero { position: relative; padding: 24px 32px 32px; border-bottom: 1px solid var(--line); }
+      .stage { position: relative; display: flex; flex-direction: column; width: min(100%, 1200px, calc(max(100vh - var(--header-h) - var(--seq-h) - 58px, 400px) * 16 / 9)); width: min(100%, 1200px, calc(max(100svh - var(--header-h) - var(--seq-h) - 58px, 400px) * 16 / 9)); margin: 0 auto; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; }
+      .compare { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #000; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
       .compare video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-      /* Each video is cropped a little from its outer side, so the middle of the
-         shot shows on both sides of the divider instead of the halves lining up. */
-      .compare { --zoom: 1.025; }
-      .compare .cmp-a { transform: scale(var(--zoom)); transform-origin: right center; }
-      .compare .cmp-b { transform: scale(var(--zoom)); transform-origin: left center; }
+      /* Each video slides a little toward its outer side, so the middle of the shot
+         shows on both sides of the divider instead of the halves lining up. A whole-pixel
+         shift, not a scale, so the take is drawn without a second resample. */
+      .compare { --shift: 20px; }
+      .compare .cmp-a { translate: calc(-1 * var(--shift)) 0; }
+      .compare .cmp-b { translate: var(--shift) 0; }
       .cmp-take { position: absolute; inset: 0; overflow: hidden; clip-path: inset(0 0 0 var(--pos)); }
       .compare::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, rgba(10, 9, 8, .86), rgba(10, 9, 8, 0) 62%), linear-gradient(to right, rgba(10, 9, 8, .72), rgba(10, 9, 8, 0) 52%); }
       .cmp-line { position: absolute; z-index: 1; top: 0; bottom: 0; left: var(--pos); width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none; }
@@ -156,7 +160,8 @@
       .tag-l { left: 16px; }
       .tag-r { right: 16px; }
 
-      .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + 32px); width: min(600px, 44vw); pointer-events: none; }
+      .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + 32px); width: min(500px, 42%); pointer-events: none; }
+      .pitch h1 { font-size: clamp(40px, 4vw, 60px); line-height: 1.04; }
       .pitch p { margin-top: 16px; max-width: 30em; color: #d6d3cb; font-size: 18px; }
       .pitch-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; pointer-events: auto; }
       .cmd { display: inline-flex; align-items: center; gap: 4px; min-height: 48px; padding: 0 4px 0 16px; background: rgba(15, 14, 13, .85); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); }
@@ -182,7 +187,6 @@
       .seq-range::-moz-range-thumb { width: 2px; height: 24px; border: 0; border-radius: 0; background: var(--clay); }
 
       section { padding: 96px 0; border-bottom: 1px solid var(--line); }
-      section.hero { padding: 0; }
 
       /* Why: what a prompt has to carry, one line each. */
       .why { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 32px 80px; align-items: start; }
@@ -264,7 +268,7 @@
         .why, .start, .step, .way { grid-template-columns: minmax(0, 1fr); }
         .reads a { grid-template-columns: minmax(0, 1fr) 24px; }
         .reads p { grid-row: 2; grid-column: 1 / -1; }
-        .pitch { width: min(560px, 60vw); }
+        .pitch { width: min(500px, 60%); }
       }
       @media (max-width: 760px) {
         :root { --header-h: 56px; }
@@ -275,9 +279,10 @@
         section { padding: 72px 0; }
         .brand img { width: 36px; height: 36px; }
         /* On a phone the frame is too small to carry text, so the pitch stacks. */
-        .hero { height: auto; min-height: 0; }
-        .compare { flex: none; aspect-ratio: 16 / 9; }
+        .hero { padding: 0; }
+        .stage { width: 100%; border: 0; border-radius: 0; }
         .compare::after { display: none; }
+        .compare { --shift: 8px; }
         .cmp-knob { top: 50%; }
         .tag { top: 8px; }
         .tag-l { left: 8px; }
@@ -317,6 +322,7 @@
 
     <main>
       <section class="hero" id="stage">
+        <div class="stage">
         <div class="compare" id="compare" style="--pos: 50%">
           <video class="cmp-a" src="/media/truck-greybox.mp4" poster="/media/truck-greybox-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata"></video>
           <div class="cmp-take"><video class="cmp-b" src="/media/truck-seedance.mp4" poster="/media/truck-seedance-poster.jpg" width="1920" height="1080" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video></div>
@@ -346,6 +352,7 @@
               </button>
             </div>
           </div>
+        </div>
         </div>
       </section>
 
@@ -572,8 +579,11 @@ npm run dev</code></pre>
         const greybox = compare.querySelector(".cmp-a");
         const take = compare.querySelector(".cmp-b");
         const range = compare.querySelector(".cmp-range");
+        // The divider stops short of each edge by the shift, where the slid video leaves a gap.
+        const shiftPx = parseFloat(getComputedStyle(compare).getPropertyValue("--shift")) || 0;
         const setPos = (pct) => {
-          const p = Math.min(100, Math.max(0, pct));
+          const edge = (shiftPx / (compare.clientWidth || 1)) * 100;
+          const p = Math.min(100 - edge, Math.max(edge, pct));
           compare.style.setProperty("--pos", p + "%");
           range.value = String(Math.round(p));
         };
