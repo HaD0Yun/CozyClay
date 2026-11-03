@@ -7,6 +7,7 @@ import { SCENE_OBJECTS, CHARACTER } from "./fixtures/cup-scene.mjs";
 import { EXITCAR_SPEC, SCENE_OBJECTS as CAR_OBJECTS, CHARACTER as DRIVER } from "./fixtures/exitcar-scene.mjs";
 import { specIdOf, createSpecStore, SPEC_STORE_SIZE } from "../../src/motion3/spec-store.js";
 import { deltaOf } from "../../src/motion3/delta.js";
+import { specRefusalPath } from "../../src/motion3/schema/fields.js";
 import { MOTION_OUTPUT_BUDGET } from "../../src/motion3/report.js";
 import { MOVED_BARE, BASE_REMEASURE, REMEASURE, BASE_PROBES_IN_SPEC, PROBES_IN_SPEC } from "./fixtures/round2-calls.mjs";
 
@@ -107,6 +108,16 @@ const badPath = refusal(() => cup.run("motion.compile", { characterId: CHARACTER
 expect("a bad patch path: the C7 message with its index, what is there and how to address it by frame", badPath.includes("patch[1] (replace /keys/12/f): /keys/12 does not exist (keys has 9 entries; by f: /keys/@f=<f>, f 0, 1, 2") && !/MOTION_SPEC_INVALID/.test(badPath), badPath);
 expect("spec and base together, and patch without base, are refused", /exactly one of spec or base/.test(refusal(() => cup.run("motion.compile", { characterId: CHARACTER.id, spec, base: first.specId })))
 	&& /patch applies to base/.test(refusal(() => cup.run("motion.compile", { characterId: CHARACTER.id, spec, patch: [{ op: "remove", path: "/label" }] }))));
+
+// #1042: a refused spec names its top-level field (telemetry), the message stays the compiler's own
+const detailsOf = run => { try { run(); return null; } catch (error) { return error.details; } };
+expect("specRefusalPath names a declared spec field only", specRefusalPath("MOTION_SPEC_INVALID: spec.frames must be an integer") === "$.args.spec.frames"
+	&& specRefusalPath("keys[3].f = 400 is outside 0..99") === "$.args.spec.keys" && specRefusalPath("spec.madeUp is not a spec field") === "$.args.spec" && specRefusalPath("walkTo: bad arg") === "$.args.spec");
+const neither = detailsOf(() => cup.run("motion.compile", { characterId: CHARACTER.id }));
+expect("neither spec nor base: the field and rule ride on the refusal", neither?.path === "$.args.spec" && neither?.rule === "variant", JSON.stringify(neither));
+expect("neither spec nor base: the message says which was missing", /neither was sent/.test(refusal(() => cup.run("motion.compile", { characterId: CHARACTER.id }))));
+const badKey = detailsOf(() => cup.run("motion.compile", { characterId: CHARACTER.id, spec: stand({ keys: [{ f: 9999, set: { yaw: 0 } }], checks: {} }), install: false }));
+expect("a refused spec key carries $.args.spec.keys and rule spec", badKey?.path === "$.args.spec.keys" && badKey?.rule === "spec", JSON.stringify(badKey));
 
 // eviction through the registry: 64 more compiles forget the first base
 const evictReg = createStudioAppActions(portsFor(CHARACTER, SCENE_OBJECTS));

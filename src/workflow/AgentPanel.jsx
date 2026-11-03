@@ -332,6 +332,9 @@ export default function AgentPanel({
 	// something the panel tried and could not do.
 	const [steerNotice, setSteerNotice] = useState("");
 	const [restoreReady, setRestoreReady] = useState(surface !== "studio");
+	// The restored session has a task board on the sidecar (task mode): the board follows it from the start and hands it
+	// the Studio's new handle once (a reload), instead of polling a board that may not exist.
+	const [restoredMain, setRestoredMain] = useState(null);
 
 	const composerRef = useRef(null);
 	const fileInputRef = useRef(null);
@@ -370,7 +373,8 @@ export default function AgentPanel({
 			try {
 				const payload = await transport.loadSession(stored);
 				if (!Array.isArray(payload?.transcript)) throw new Error("missing transcript");
-				if (!cancelled) store.restore(payload.transcript, payload.sessionId || stored);
+				// A turn the sidecar still runs (a reload cut the panel off it) is followed again; main: it has a task board.
+				if (!cancelled) { store.restore(payload.transcript, payload.sessionId || stored); setRestoredMain(payload.main === true ? payload.sessionId || stored : null); if (payload.active?.turnId) void store.resume(payload.active); }
 			} catch (error) {
 				if (!cancelled) {
 					store.newSession();
@@ -378,9 +382,7 @@ export default function AgentPanel({
 					// was ever sent) is nothing to restore, not a failure; with no agent server the offline card says why.
 					if (![404, 502, 503].includes(error?.status) && !(error instanceof TypeError || error instanceof SyntaxError)) setRestoreNotice("Previous conversation could not be restored");
 				}
-			} finally {
-				if (!cancelled) setRestoreReady(true);
-			}
+			} finally { if (!cancelled) setRestoreReady(true); }
 		})();
 		return () => { cancelled = true; };
 	}, [surface, store, transport]);
@@ -902,7 +904,7 @@ export default function AgentPanel({
 			{!layout.some((entry) => entry.type === "steps" && entry.last) && progressCard}{taskMode && <TaskRows items={items} />}
 			{rateLimit && <PausedCard resetAt={rateLimit.resetAt} provider={providerLabel(modelProviders, limitedProvider)} alternative={alternative} onRetry={() => { store.clearRateLimit(); runTurn(chat.lastPrompt, "retry_button"); }} onSwitchModel={switchModel} />}
 		</div>
-		{surface === "studio" && taskMode && authenticated && <><Suspense fallback={null}><TaskBoard sessionId={chat.sessionId} pulse={chat.lastTurn?.endedAt ?? 0} labelOf={taskStepLabel} onMainNote={store.note} /></Suspense><TaskDetail /></>}
+		{surface === "studio" && taskMode && authenticated && <><Suspense fallback={null}><TaskBoard sessionId={chat.sessionId} pulse={chat.lastTurn?.endedAt ?? 0} live={streaming} restored={restoredMain === chat.sessionId} reconnectContext={buildContextRef} labelOf={taskStepLabel} onMainNote={store.note} /></Suspense><TaskDetail /></>}
 
 		{/* Never a blank panel: busy states name the phase and tick, a finished
 		    turn states how it ended, and idle says so in as many words. */}

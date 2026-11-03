@@ -243,4 +243,8 @@ await assert.rejects(brokenJob.run("export.shotVideo", {}), /affectedIds/, "a se
 assert.deepEqual(validateStudioCommand({ name: "run_action", args: { action: "shot.split", args: { shotId: "shot-1" } } }).args, { action: "shot.split", args: { shotId: "shot-1" } });
 assert.equal(validateStudioCommand({ name: "inspect_studio", args: { scope: "actions" } }).args.scope, "actions");
 
+// #1042: an unknown action id names the nearest declared ones and carries its rule for telemetry.
+assert.throws(() => studioActionDeclaration("shot.setCameraRale"), error => error.code === "INVALID_ARGUMENT" && /Did you mean shot\.setCameraRail/.test(error.message)
+	&& error.details.rule === "unknown_action" && error.details.path === "$.action");
+assert.throws(() => studioActionDeclaration("frame_shot"), error => /Tool names \(frame_shot, arrange_objects, \.\.\.\) are not action ids/.test(error.message));
 console.log(`studio actions verified: ${STUDIO_ACTIONS.length} declared`);

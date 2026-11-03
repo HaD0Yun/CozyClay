@@ -274,3 +274,27 @@ test('shared contract: physical target/IK fingerprint changes, view exclusion an
   const ik = physicsFingerprintInput(input); input.characters[0].position.x = 1; assert.notDeepEqual(physicsFingerprintInput(input), ik);
   assert.equal(validateStudioCommand({ name: 'arrange_objects', args: { ops: [prop('world')] } }).args.collisionPolicy, 'report'); assert.deepEqual(studioObjectCatalogue().imageRefs, []);
 });
+
+test('framing #1042: crew words and defaults land on the first call; a wrong subject says which ids work', () => {
+  const words = validateStudioCommand({ name: 'frame_shot', args: { subjectIds: 'alex', framing: { intent: { size: 'Medium', view: 'side', level: 'eye level' } } } }).args;
+  assert.deepEqual(words.subjectIds, ['alex'], 'a lone id becomes the one-item list');
+  assert.deepEqual(words.framing.intent, { size: 'medium shot', view: 'profile', level: 'eye', side: 'left' }, 'spellings read as the declared words; side defaults');
+  assert.deepEqual(validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex'], framing: { intent: { size: 'wide shot' } } } }).args.framing.intent,
+    { size: 'wide shot', view: 'front', level: 'eye', side: 'left' }, 'size alone is a whole intent');
+  for (const [size, want] of [['CU', 'close-up'], ['close up', 'close-up'], ['MCU', 'medium close-up'], ['wide', 'wide shot'], ['full shot', 'wide shot'], ['medium wide', 'medium-wide shot'], ['establishing', 'extreme wide shot']])
+    assert.equal(validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex'], framing: { intent: { size } } } }).args.framing.intent.size, want, size);
+  assert.throws(() => validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex'], framing: { intent: { size: 'huge' } } } }),
+    error => error.code === 'INVALID_ARGUMENT' && /\$\.args\.framing\.intent\.size: "huge" is not one of: extreme close-up, close-up/.test(error.message) && error.details.rule === 'enum', 'an unknown size lists the allowed ones');
+  assert.throws(() => validateStudioCommand({ name: 'frame_shot', args: { subjectIds: ['alex', 'blair'], framing: { intent: { size: 'wide shot' } } } }),
+    error => /\$\.args\.subjectIds: expected exactly 1 item, got 2\. Exactly ONE character id/.test(error.message) && error.details.path === '$.args.subjectIds', 'a two-subject call is told to name one');
+
+  const f = fixture();
+  seed(f, { id: 'table' });
+  assert.throws(() => f.prepare('frame_shot', { subjectIds: ['table'], framing }),
+    error => error.code === 'INVALID_ARGUMENT' && /table is an object; frame_shot frames a character\. Visible character ids: alex\./.test(error.message) && error.details.path === '$.args.subjectIds[]');
+  assert.throws(() => f.prepare('frame_shot', { subjectIds: ['ghost'], framing }), error => error.code === 'STALE_TARGET' && /no character ghost in this scene\. Visible character ids: alex\./.test(error.message));
+  f.state.characters[0].hidden = true;
+  assert.throws(() => f.prepare('frame_shot', { subjectIds: ['alex'], framing }), error => error.code === 'TARGET_NOT_READY' && /alex is hidden.*hidden: false/.test(error.message));
+  const g = fixture(); g.state.camera = null;
+  assert.throws(() => g.prepare('frame_shot', { subjectIds: ['alex'], framing }), error => error.code === 'TARGET_NOT_READY' && /still loading.*send the same frame_shot again/.test(error.message), 'not ready says wait and retry');
+});

@@ -13,3 +13,12 @@ export const STUDIO_ERROR_CODES = Object.freeze([
  */
 export const refusalCode = error => error?.code
 	?? (["TypeError", "ReferenceError", "RangeError", "SyntaxError"].includes(error?.name) ? "INTERNAL_ERROR" : "INVALID_ARGUMENT");
+/**
+ * What kind of check an INVALID_ARGUMENT refusal failed (a protocol error's details.rule), for studio:refused.
+ * The schema validator (studio-agent-protocol.js validateStudioSchema) sets type, unknown_field, missing, items,
+ * unique, format, enum, range and variant; unknown_action is an action id the registry does not declare; spec is a
+ * motion spec the compiler refused, recipe a sculpt recipe; check is any other refusal a command raised itself, and
+ * unclassified a plain Error that reached the bus without a code.
+ */
+export const STUDIO_REFUSAL_RULES = Object.freeze(["type", "unknown_field", "missing", "items", "unique", "format", "enum", "range", "variant",
+	"unknown_action", "spec", "recipe", "check", "unclassified"]);

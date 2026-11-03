@@ -176,7 +176,27 @@ export function studioActionRefusal(code, message, uiMessage) {
 export function resolveStudioToast(value, isKo, ko, isZh = false) {
 	return typeof value === "function" ? { uiMessage: value(isKo, ko, isZh), message: value(false, en => en, false) } : { uiMessage: value, message: value };
 }
-const unknown = (id, known) => fail("INVALID_ARGUMENT", `Unknown Studio action "${id}". Known actions: ${known.join(", ")}. List them with inspect_studio { scope: "actions" }.`);
+/** The known ids nearest to an unknown one: same family first ("shot.framing" -> shot.frame), then by edit distance. */
+function nearestActions(id, known, count = 3) {
+	const distance = (a, b) => {
+		let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+		for (let i = 1; i <= a.length; i++) {
+			const next = [i];
+			for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+			row = next;
+		}
+		return row[b.length];
+	};
+	const text = String(id).slice(0, 64), lower = text.toLowerCase(), family = lower.split(".")[0];
+	return known.map(candidate => ({ candidate, score: distance(lower, candidate.toLowerCase()) - (candidate.toLowerCase().split(".")[0] === family ? 4 : 0) }))
+		.filter(({ candidate, score }) => score <= Math.max(3, Math.floor(candidate.length / 2)))
+		.sort((a, b) => a.score - b.score).slice(0, count).map(({ candidate }) => candidate);
+}
+// The refusal names the nearest ids first, so a retry is right even when the full list is cut (#1042).
+const unknown = (id, known) => {
+	const near = nearestActions(id, known);
+	throw new StudioProtocolError("INVALID_ARGUMENT", `Unknown Studio action "${String(id).slice(0, 64)}".${near.length ? ` Did you mean ${near.join(", ")}?` : ""} Tool names (frame_shot, arrange_objects, ...) are not action ids. Known actions: ${known.join(", ")}. List them with inspect_studio { scope: "actions" }.`, { path: "$.action", rule: "unknown_action" });
+};
 
 export function studioActionDeclaration(id) {
 	return STUDIO_ACTIONS.find(action => action.id === id) ?? unknown(id, STUDIO_ACTION_IDS);

@@ -43,17 +43,37 @@ try {
   for (let i = 0; i < 4; i++) assert.equal(f.binding.bus.run('shot.testRefuse', {}, { origin: 'ui' }).ok, false);
   const ui = take('studio:refused');
   assert.equal(ui.length, 3, 'three per key');
-  assert.deepEqual(ui[0], { code: 'INVALID_ARGUMENT', origin: 'ui', phase: 'admission', group: 'shot', command: 'shot.testRefuse' });
+  assert.deepEqual(ui[0], { code: 'INVALID_ARGUMENT', origin: 'ui', phase: 'admission', group: 'shot', command: 'shot.testRefuse', rule: 'unclassified' }, 'a plain Error has no field');
   assert.equal(friction.snapshot().refusals_ui, '4-5', 'the counter keeps every refusal');
   for (const props of ui) closed('studio:refused', props);
   const mcp = f.binding.bus.run('shot.testRefuse', {}, { origin: 'mcp', host: f.host(), expectedRevision: -1 });
   assert.equal(mcp.code, 'STALE_SCENE', JSON.stringify(mcp));
   assert.deepEqual(take('studio:refused'), [{ code: 'STALE_SCENE', origin: 'agent', phase: 'admission', group: 'shot', command: 'shot.testRefuse' }], 'mcp is sent as agent');
   assert.equal(agent('shot.testRefuse').ok, false);
-  assert.deepEqual(take('studio:refused'), [{ code: 'INVALID_ARGUMENT', origin: 'agent', phase: 'admission', group: 'shot', command: 'shot.testRefuse' }], 'a new origin is a new key');
+  assert.deepEqual(take('studio:refused'), [{ code: 'INVALID_ARGUMENT', origin: 'agent', phase: 'admission', group: 'shot', command: 'shot.testRefuse', rule: 'unclassified' }], 'a new origin is a new key');
   // An action the registry does not declare (#975): the group only, never the made-up id.
   assert.equal(agent('shot.madeUpByModel').ok, false);
-  assert.deepEqual(take('studio:refused').map(row => [row.group, Object.hasOwn(row, 'command')]), [['shot', false]], 'an unknown id is not sent');
+  const unknownRows = take('studio:refused');
+  assert.deepEqual(unknownRows.map(row => [row.group, Object.hasOwn(row, 'command'), row.rule, row.field]), [['shot', false, 'unknown_action', '$.action']], 'an unknown id is not sent; its rule is');
+  for (const props of unknownRows) closed('studio:refused', props);
+
+  // #1042: a schema refusal names the failing field (path only, indices folded) and its rule; never the value.
+  f.registry.register({ id: 'shot.testSchema', kind: 'mutation', undoDomain: 'shot', available: () => true, run: () => ({ affectedIds: [], summary: 'ok' }),
+    input: { type: 'object', properties: { ops: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'object', properties: { size: { type: 'string', enum: ['wide shot', 'close-up'] } }, required: ['size'], additionalProperties: false } } }, required: ['ops'], additionalProperties: false } });
+  const badEnum = agent('shot.testSchema', { ops: [{ size: 'wide shot' }, { size: 'SECRET-VALUE' }] });
+  assert.equal(badEnum.code, 'INVALID_ARGUMENT');
+  assert.match(badEnum.message, /^\$\.args\.ops\[1\]\.size: "SECRET-VALUE" is not one of: wide shot, close-up\.$/, 'the agent reads the field and the allowed values');
+  const missing = agent('shot.testSchema', { ops: [{}] }), unknownKey = agent('shot.testSchema', { ops: [{ size: 'close-up', madeUpKey: 1 }] });
+  assert.match(missing.message, /\$\.args\.ops\[0\]: missing required field "size"/);
+  assert.match(unknownKey.message, /allowed: size/);
+  const schemaRows = take('studio:refused');
+  assert.deepEqual(schemaRows.map(row => [row.command, row.rule, row.field]), [
+    ['shot.testSchema', 'enum', '$.args.ops[].size'], ['shot.testSchema', 'missing', '$.args.ops[].size'], ['shot.testSchema', 'unknown_field', '$.args.ops[]']], 'field paths, indices folded');
+  for (const props of schemaRows) closed('studio:refused', props);
+  assert.ok(!JSON.stringify(schemaRows).includes('SECRET') && !JSON.stringify(schemaRows).includes('madeUpKey'), 'no value and no made-up key leaves');
+  // A bus control is code-defined, so it is reported by name.
+  assert.equal(agent('job.await', { jobId: 'not a valid id!' }).code, 'INVALID_ARGUMENT');
+  assert.deepEqual(take('studio:refused').map(row => [row.command, row.rule, row.field]), [['job.await', 'format', '$.jobId']], 'a control refusal names the control');
 
   // A cancel the caller asked for is neither an event nor a counted refusal.
   const started = deferred();

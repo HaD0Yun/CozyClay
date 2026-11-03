@@ -1612,6 +1612,9 @@ Count bucket: `0`, `1`, `2`, `3`, `4-5`, `6-10`, `gte11` (the
 | | `origin` | `ui`, `agent` | The user's control, or the agent or an MCP client |
 | | `phase` | `admission`, `commit` | Refused before any change, or after the command started changing |
 | | `group` | `object`, `shot`, `cast`, `scene`, `motion`, `edit`, `task`, `agent`, `other` | The command's family |
+| | `command` | a declared action or bus control id | Absent for an id the caller made up (then `rule` is `unknown_action`) or a build before #975 |
+| | `rule` | `type`, `unknown_field`, `missing`, `items`, `unique`, `format`, `enum`, `range`, `variant`, `unknown_action`, `spec`, `recipe`, `check`, `unclassified` | `INVALID_ARGUMENT` only (#1042): which kind of check failed |
+| | `field` | schema path, list positions as `[]` | `INVALID_ARGUMENT` only, when known: `$.args.framing.intent.size`, `$.args.spec.keys`, `$.args.recipe.parts[].size` |
 | `edit:undone` | `age` | age bucket | Time since the undone edit was made; present only when `result = done` and the age is known |
 | | `kind` | `pose`, `camera`, `object`, `shot`, `prompt`, `agent_turn`, `ik_preview`, `other` | `agent_turn` is the agent's whole turn; `ik_preview` is an un-applied IK drag |
 | | `via` | `key`, `menu`, `button` | How the user asked for the undo |
@@ -1635,7 +1638,7 @@ Count bucket: `0`, `1`, `2`, `3`, `4-5`, `6-10`, `gte11` (the
 
 Caps and windows:
 
-- `studio:refused`: at most 3 per (`code`, `group`, `origin`) per session.
+- `studio:refused`: at most 3 per (`code`, `command` or `group`, `field` or `rule`, `origin`) per session.
   The rest are counted only in `app:friction_summary` `refusals_ui` /
   `refusals_agent`, so rank codes with these rows but total refusals with the
   summary. A cancel the caller asked for (`CANCELLED`) is not a refusal.
@@ -1709,6 +1712,31 @@ older scene revision), `TARGET_BUSY` (another gesture held the target) and
 `UNCERTAIN_APPLY` (the Studio could not confirm the change landed). The
 per-session cap flattens frequent codes, so `refusals` is a lower bound; read
 `sessions` for reach. Split by `phase` to see refusals after a change started.
+
+Which field the agent gets wrong, per command (#1042):
+
+```sql
+SELECT
+    properties.command AS command,
+    properties.rule AS rule,
+    properties.field AS field,
+    count() AS refusals,
+    uniq(distinct_id) AS users
+FROM events
+WHERE event = 'studio:refused'
+  AND properties.code = 'INVALID_ARGUMENT'
+  AND properties.origin = 'agent'
+  AND JSONExtractRaw(properties, 'internal_qa') != 'true'
+  AND timestamp >= now() - INTERVAL 14 DAY
+GROUP BY command, rule, field
+ORDER BY refusals DESC
+```
+
+`command` empty with `rule` `unknown_action` is an action id the registry does
+not declare (the old "command not reported" bucket). `rule` `spec` is a motion
+spec the compiler refused (`field` is its top-level spec field), `recipe` a
+sculpt recipe, `check` a refusal a command raised itself and `unclassified` a
+plain error without a code.
 
 ## 2.7 What people fixed after the agent (90 days)
 
