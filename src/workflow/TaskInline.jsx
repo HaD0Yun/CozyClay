@@ -98,7 +98,7 @@ function OpenTask({ task, client, undo, labelOf }) {
 				<span className="task-dot" aria-hidden="true" />
 				<span>{TASK_STATUS_COPY[task.status] ?? task.status}{cost ? ` · ${cost}` : ""}</span>
 				{active && <button type="button" className="agent-ghost-button task-detail-cancel" onClick={() => act(() => client.cancel(task.taskId), ko("Cancelled; its changes go back.", "취소함: 바뀐 것은 되돌아가요."))}>{ko("Cancel", "취소")}</button>}
-				{task.status === "done" && !task.undone && <button type="button" className="agent-ghost-button task-detail-undo" onClick={() => act(() => undo(task.taskId), ko("Undone.", "되돌림."))}>{ko("Undo task", "작업 되돌리기")}</button>}
+				{(task.status === "done" || task.status === "incomplete") && !task.undone && <button type="button" className="agent-ghost-button task-detail-undo" onClick={() => act(() => undo(task.taskId), ko("Undone.", "되돌림."))}>{ko("Undo task", "작업 되돌리기")}</button>}
 			</div>
 			{task.scope?.length > 0 && <p className="task-detail-scope" title={task.scope.join(", ")}>{ko("Touches", "건드리는 것")}: {[...new Set(task.scope.map(scopeLabel))].join(" · ")}</p>}
 			{task.reason && task.status !== "done" && <p className="task-detail-reason">{taskReason(task.reason)}</p>}

@@ -26,12 +26,23 @@
 //     shows no model or tool event for IDLE_MS is stopped and reported as such (20). A limit stop finishes the task: what
 //     it did stays (task.finish). Only the user's cancel takes its edits back (task.cancel). The ended event says which
 //     (edits: kept | reverted), so the main agent never tells the user that reverted work was kept
+//   - a run that ends but reports a visible criterion unmet ends incomplete, not done: its changes stay, the main agent
+//     hears task.incomplete with the unmet criteria, and its dependents fail as after a failed task
 import { randomUUID } from "node:crypto";
 import { isScopeKey, scopeConflict } from "../../src/bus-task-scopes.js";
 
 export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, idleMs: 3 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
 const ACTIVE = new Set(["queued", "waiting", "starting", "running", "paused", "review"]);
-const ENDED = new Set(["done", "failed", "cancelled"]);
+const ENDED = new Set(["done", "incomplete", "failed", "cancelled"]);
+// The task's report ends with "Unmet criteria: none" or "Unmet criteria: <list>" (taskHeader); a report without that line
+// still counts a criterion it calls unmet ("- hands on the bar: unmet"), but never "0 unmet" or "no unmet criteria".
+const UNMET_LINE = /\bunmet criteria\s*\**\s*[:：]\s*\**\s*(.+)$/im, NONE = /^(none|nothing|n\/a|-|0)\b/i;
+export function unmetCriteria(reply) {
+	const text = String(reply ?? ""), line = UNMET_LINE.exec(text);
+	if (line) { const value = line[1].replace(/[*_`]/g, "").trim(); return NONE.test(value) ? null : clip(value, 300); }
+	const said = text.split(/\n+/).find(row => /\b(unmet|not met)\b/i.test(row) && !/\b(0|no|none|zero)\s+(criteria\s+)?(unmet|not met)\b/i.test(row));
+	return said ? clip(said.replace(/^[\s*_>-]+/, "").trim(), 300) : null;
+}
 const norm = text => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 const span = ms => (ms % 60_000 ? `${Math.round(ms / 1000)} s` : `${ms / 60_000} min`);
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
@@ -112,8 +123,8 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 
 	// What still holds a queued task back, or null when it may start now.
 	function blocker(task) {
-		const failed = task.dependsOn.map(id => tasks.get(id)).find(dep => ["failed", "cancelled"].includes(dep.status));
-		if (failed) return { fail: `it depends on task ${failed.taskId} (${failed.title}), which ${failed.status === "failed" ? "failed" : "was cancelled"}` };
+		const failed = task.dependsOn.map(id => tasks.get(id)).find(dep => ["failed", "cancelled", "incomplete"].includes(dep.status));
+		if (failed) return { fail: `it depends on task ${failed.taskId} (${failed.title}), which ${{ failed: "failed", cancelled: "was cancelled", incomplete: "ended with criteria unmet" }[failed.status]}` };
 		const open = task.dependsOn.map(id => tasks.get(id)).find(dep => dep.status !== "done");
 		if (open) return { kind: "deps", wait: `waits for task ${open.taskId} (${open.title}) to ${open.status === "review" ? "be accepted" : "finish"}` };
 		// the editor answered SCOPE_BUSY for a holder this board does not see: retry after the backoff, not at once
@@ -194,12 +205,16 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts) };
 			if (result.status === "done" || result.ended === "task.finish") task.changed = changedBy(task, result.receipts);
 			// A cancel that arrived after the run finished cannot take it back: it stays done (and can be undone).
-			const status = task.cancelled && result.status !== "done" ? "cancelled" : task.stopReason ? "failed" : result.status;
+			let status = task.cancelled && result.status !== "done" ? "cancelled" : task.stopReason ? "failed" : result.status;
 			// What the bus did with its edits, as the run saw the task close: finish keeps them, cancel puts them back.
 			task.edits = result.ended === "task.finish" ? "kept" : result.ended === "task.cancel" ? "reverted" : status === "cancelled" ? "reverted" : undefined;
 			const said = { kept: "its edits were kept", reverted: "its edits were reverted" }[task.edits] ?? "whether its edits landed is unknown";
+			// The run ended, but its own report says a visible criterion is unmet: that is not done (nor up for review).
+			const unmet = status === "done" ? unmetCriteria(result.reply) : null;
+			if (unmet) status = "incomplete";
 			const reason = status === "cancelled" ? `cancelled by the user; ${said}`
 				: task.stopReason ? `${task.stopReason}; ${said}; ask the user whether to continue`
+				: unmet ? `criteria unmet: ${unmet}`
 				: result.status === "failed" ? clip(String(result.error?.message ?? result.error ?? "the run failed"), 300) : undefined;
 			end(task, status === "done" && task.verify ? "review" : status, { reason, summary });
 		}
@@ -274,6 +289,7 @@ export function taskHeader(task, { deps = [], resume = null } = {}) {
 		"Everything else is read-only for you: another task or the user may be changing it. A command outside your scope is refused with SCOPE_DENIED; ask for more with run_action task.requestScope { taskId, scope }, and if that answers SCOPE_BUSY, do what you can inside your scope and say what is left.",
 		"When you finish, end with a short report for the coordinator in English: what you changed (receipt ids, ids), the QA problems left, and anything not done. The coordinator talks to the user.",
 		"Before you finish, check each visible criterion in the instructions (the user's words) and report it as met, unmet or not measurable by QA, with the measured value when there is one (anchor 7 cm off the bar). A QA count alone never means done.",
+		"End the report with one line: \"Unmet criteria: none\" when every criterion is met or not measurable, or \"Unmet criteria: <the unmet ones>\". A task with an unmet criterion ends incomplete, not done.",
 		...deps.map(dep => `Earlier task ${dep.taskId} (${dep.title}) is done: ${dep.summary?.reply ?? ""}${dep.changed?.length ? ` It changed: ${dep.changed.join(", ")}.` : ""}`),
 		...(resume?.note ? [resume.note] : []),
 		"</task>", "", task.instructions].join("\n");

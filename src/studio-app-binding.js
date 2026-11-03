@@ -1,7 +1,7 @@
 // The Studio's agent binding: inspection, admission and the agent's commands
 // over the editor's native state. App.jsx supplies the ports (reads, commits,
 // history, the action registry); this module owns no React or renderer state.
-import { taskTargetPorts } from "./bus-task-targets.js";
+import { taskTargetPorts } from "./bus-task-targets.js"; import { TASK_SCOPE_ACTION } from "./bus-tasks.js";
 import { createCommandBus } from "./command-bus.js";
 import { readElementDocument, elementReadback, elementPatchArgs, elementTarget, elementPatchReceipt } from "./commands/elements.js";
 import { physicsKeyStamp } from "./motion/physics-review.js";
@@ -337,7 +337,8 @@ export function createStudioAppBinding(ports) {
 			// request: ids answer those actions' full declarations, input included.
 			if (command.args.scope === "actions") {
 				const actions = (ports.actions?.()?.list() ?? []).filter(row => !row.agentHidden);
-				return { ...head, actions: command.args.ids ? actions.filter(row => command.args.ids.includes(row.id)) : actions.map(({ input, description, ...row }) => row) };
+				// task.requestScope is a bus control a task's action list names: described by id, never listed as a command.
+				return { ...head, actions: command.args.ids ? [...actions, { ...TASK_SCOPE_ACTION, available: true }].filter(row => command.args.ids.includes(row.id)) : actions.map(({ input, description, ...row }) => row) };
 			}
 			const s = refresh();
 			const wanted = row => (!args.ids || args.ids.includes(row.id)) && (!args.query || Boolean(row.name?.includes(args.query)));

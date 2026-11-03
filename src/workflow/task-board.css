@@ -26,14 +26,14 @@
 .task-row:hover, .task-row:focus-visible { background: var(--chip-fill, rgba(127, 127, 127, 0.1)); outline: none; }
 .task-row-title { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 550; }
 .task-row-line { flex: 1 1 0; min-width: 64px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2, var(--agent-text-muted)); }
-.task-row[data-status="failed"] .task-row-line { color: var(--danger, var(--agent-alert)); }
+.task-row[data-status="failed"] .task-row-line, .task-row[data-status="incomplete"] .task-row-line { color: var(--danger, var(--agent-alert)); }
 .task-row[data-status="cancelled"], .task-row[data-status="done"] .task-row-title { opacity: 0.8; }
 
 .task-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3, var(--agent-text-dim)); }
 [data-status="running"] > .task-dot, [data-status="starting"] > .task-dot { background: var(--select, var(--agent-accent)); animation: task-dot-pulse 1.2s ease-in-out infinite; }
 [data-status="waiting"] > .task-dot, [data-status="queued"] > .task-dot, [data-status="review"] > .task-dot { background: none; box-shadow: inset 0 0 0 1.5px var(--text-3, var(--agent-text-dim)); }
 [data-status="done"] > .task-dot { background: var(--ok, var(--agent-ok)); }
-[data-status="failed"] > .task-dot, [data-status="paused"] > .task-dot { background: var(--danger, var(--agent-alert)); }
+[data-status="failed"] > .task-dot, [data-status="incomplete"] > .task-dot, [data-status="paused"] > .task-dot { background: var(--danger, var(--agent-alert)); }
 @keyframes task-dot-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { [data-status] > .task-dot { animation: none; } }
 
