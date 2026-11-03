@@ -81,3 +81,14 @@ test("a character row names a character only when the cast has it (no phantom Ch
 	assert.equal(characterRowExists("character:z", [{ id: "a" }]), false);
 	assert.equal(characterRowExists("character:b.rig", [{ id: "b" }]), true);
 });
+
+test("attach: a rejected event-stream fetch is retried, not reported as a failure", async () => {
+	const { attachStudioTurn } = await import("../src/workflow/agent-turn-attach.js");
+	let calls = 0; const seen = [];
+	const body = () => { const chunks = [new TextEncoder().encode("x")]; return { getReader: () => ({ read: async () => (chunks.length ? { value: chunks.shift(), done: false } : { done: true }), releaseLock() {} }) }; };
+	const fetchImpl = async () => { calls += 1; if (calls === 1) throw new TypeError("Failed to fetch"); return { ok: true, body: body() }; };
+	const parse = () => ({ events: calls >= 2 && !seen.length ? [{ type: "done", eventSeq: 1 }] : [], tail: "" });
+	await attachStudioTurn({ fetchImpl, url: (path) => path, parse, attempts: 3 }, "turn-9", (event) => seen.push(event.type), new AbortController().signal);
+	assert.equal(calls, 2);
+	assert.deepEqual(seen, ["done"]);
+});

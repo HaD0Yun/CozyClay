@@ -2,6 +2,8 @@
 // and the next send was refused as busy). The panel reads its events from the first one until it ends, and shows its
 // message again in place of what the transcript had persisted of it.
 
+const RETRY_MS = 500;
+
 /** Streams turn `turnId`'s events to onEvent until the turn ends; a dropped stream resumes after the last event seen,
  * never twice. A refusal before any event throws with its status. */
 export async function attachStudioTurn({ fetchImpl, url, parse, attempts }, turnId, onEvent, signal) {
@@ -13,7 +15,10 @@ export async function attachStudioTurn({ fetchImpl, url, parse, attempts }, turn
 		onEvent(event);
 	};
 	for (let attempt = 0; !terminal && !signal?.aborted && attempt <= attempts; attempt += 1) {
-		const response = await fetchImpl(url(`/agent/turn/${encodeURIComponent(turnId)}/events?after=${cursor}`), { headers: { accept: "text/event-stream" }, credentials: "same-origin", signal });
+		let response;
+		// A rejected fetch (a network blip) is retried like a dropped stream: the sidecar turn may still be running.
+		try { response = await fetchImpl(url(`/agent/turn/${encodeURIComponent(turnId)}/events?after=${cursor}`), { headers: { accept: "text/event-stream" }, credentials: "same-origin", signal }); }
+		catch (error) { if (signal?.aborted) return; if (attempt >= attempts) throw error; await new Promise((resolve) => setTimeout(resolve, RETRY_MS)); continue; }
 		if (!response?.ok || !response.body) { if (!attempt) throw Object.assign(new Error(`${response?.status}`), { status: response?.status }); break; }
 		const reader = response.body.getReader(), decoder = new TextDecoder();
 		let buffer = "";
