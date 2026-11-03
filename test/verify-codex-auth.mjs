@@ -119,6 +119,17 @@ try {
 		await auth.handleOAuthRequest({ method: "POST", url: "/oauth/cancel" }, { writeHead(code) { assert.equal(code, 200); }, end(body) { cancelled = JSON.parse(body); } });
 		assert.deepEqual(cancelled, { ok: true });
 		assert.equal(auth.status().failure, "user_closed");
+		// Cancel pressed while the browser's callback is already exchanging the code: the tokens are not kept.
+		const fourth = await auth.startOAuth();
+		globalThis.fetch = async (url, init) => { if (!String(url).startsWith("https://auth.openai.com/")) return realFetch(url, init); auth.cancelOAuth(); return new Response(JSON.stringify({ access_token: "a.b.c", refresh_token: "late-refresh", expires_in: 3600 }), { status: 200 }); };
+		try {
+			// A fresh socket (agent: false): the browser's callback is a new connection to the new sign-in.
+			const { get } = await import("node:http");
+			const late = await new Promise((resolve, reject) => get(`http://127.0.0.1:${port}/auth/callback?state=${new URL(fourth.authorizeUrl).searchParams.get("state")}&code=late`, { agent: false }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); }).on("error", reject));
+			assert.equal(late, 409);
+		} finally { globalThis.fetch = realFetch; }
+		assert.equal(auth.status().signedIn, false, "a sign-in cancelled mid-exchange stores no tokens");
+		assert.equal(auth.status().failure, "user_closed");
 		// Every callback port busy: 409 port_busy, and status says so.
 		restore();
 		const blocker = createServer();

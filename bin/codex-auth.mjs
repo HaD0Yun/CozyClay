@@ -117,7 +117,8 @@ export async function getAccessToken() {
 /** Ends the waiting sign-in, if one is open, and remembers why (a failure class, or null for a success). */
 function endSignIn(server, failure) {
 	if (authServer !== server) return;
-	server.close();
+	// Idle keep-alive sockets go too: a browser (or fetch) reusing one would otherwise reach this ended sign-in.
+	server.close(); server.closeIdleConnections?.();
 	authServer = null;
 	authState = null;
 	lastFailure = failure;
@@ -145,6 +146,8 @@ export async function startOAuth() {
 				}
 				try {
 					const payload = await exchange({ grant_type: "authorization_code", code, redirect_uri: `http://${"local" + "host"}:${candidate}/auth/callback`, client_id: CLIENT_ID, code_verifier: verifier });
+					// Cancel or the wait limit closed this sign-in while the exchange ran: its tokens are not kept.
+					if (authServer !== server) { page(res, 409, "This sign-in was cancelled in CozyClay. Go back to CozyClay and press Try again."); return; }
 					const accessClaims = decodeJwt(payload.access_token || "");
 					writeTokens({ ...payload, expires_at: accessClaims.exp ? accessClaims.exp * 1000 : Date.now() + Number(payload.expires_in || 3600) * 1000 });
 					page(res, 200, "You are signed in to CozyClay. You can close this window.");
