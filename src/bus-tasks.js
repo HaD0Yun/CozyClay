@@ -18,6 +18,12 @@ export const GESTURE_FREE_TASK_CONTROLS = new Set(['task.begin', 'task.requestSc
 // A holder the board no longer runs (its run ended without task.finish: a crash, a lost frame) and that sent nothing for this
 // long is released when another task's begin needs its keys, instead of answering SCOPE_BUSY forever.
 const ORPHAN_IDLE_MS = 30_000;
+// The refusal names the one call that grows the scope, ready to send: a task's action list need not carry task.* controls.
+const scopeDenied = (taskId, keys) => `Outside this task's scope: ${listOf(keys)}. Ask for it with run_action ${JSON.stringify({ action: 'task.requestScope', args: { taskId, scope: [...keys] } })}, or leave it to the task that holds it.`;
+/** task.requestScope as an action row (inspect_studio scope "actions", a task's action list): it is a bus control, not a registered command. */
+export const TASK_SCOPE_ACTION = Object.freeze({ id: 'task.requestScope', label: 'Ask for more scope keys (inside a task)', kind: 'control',
+	description: 'Inside a task only: grows its scope by the keys named. args { taskId, scope: [keys] }; answers SCOPE_BUSY while another task holds one of them.',
+	input: { type: 'object', properties: { taskId: { type: 'string' }, scope: { type: 'array', items: { type: 'string' }, maxItems: 64 } }, required: ['taskId', 'scope'], additionalProperties: false } });
 const listOf = keys => [...keys].slice(0, 6).join(', ') + (keys.length > 6 ? ` and ${keys.length - 6} more` : '');
 
 export function createBusTasks({ ports, emit }) {
@@ -161,7 +167,7 @@ export function createBusTasks({ ports, emit }) {
 				return null;
 			}
 			const outside = keys.filter(key => !task.keys.has(key));
-			if (outside.length) fail('SCOPE_DENIED', `Outside this task's scope: ${listOf(outside)}. Ask for it with task.requestScope, or leave it to the task that holds it.`);
+			if (outside.length) fail('SCOPE_DENIED', scopeDenied(task.taskId, outside));
 			const moved = keys.filter(key => task.tokens.has(key) && tokenOf(key) !== task.tokens.get(key));
 			if (moved.length) {
 				for (const key of moved) task.tokens.set(key, tokenOf(key));

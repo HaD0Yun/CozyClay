@@ -9615,3 +9615,29 @@ input[type=range] {
 	font-weight: 600;
 }
 }
+
+/* #1048: a Pose tab that cannot open looks it (it used to read as clickable),
+   and its click lights up what to do next for one beat (pose-entry.js). The
+   first-success guide's step 1 lights its target the same way (#1047). */
+.vp-mode-key[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.pose-point,
+.guide-target { position: relative; }
+.pose-point::after,
+.guide-target::after {
+	content: "";
+	position: absolute;
+	inset: -3px;
+	border-radius: inherit;
+	box-shadow: 0 0 0 2px var(--accent), 0 0 14px var(--accent-soft);
+	pointer-events: none;
+	animation: pose-point-pulse 800ms var(--ease) 2 alternate;
+}
+.guide-target::after { animation-iteration-count: infinite; }
+@keyframes pose-point-pulse {
+	from { opacity: .35; }
+	to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.pose-point::after,
+	.guide-target::after { animation: none; }
+}
