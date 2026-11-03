@@ -984,7 +984,7 @@ const implementations={
   assert.equal(f.stand.saves.length,2,'the first save still opens the naming dialog');
   f.stand.project.name='Heist';f.stand.granted=true;
   f.stand.saveOutcome={saved:false,failure:'missing-resources'};await refused('TARGET_NOT_READY',/missing/);
-  f.stand.saveOutcome={saved:false,cancelled:true};await refused('TARGET_NOT_READY',/closed/);
+  f.stand.saveOutcome={saved:false,cancelled:true};await refused('CANCELLED',/closed/);
   // A browser without file access downloads the project instead.
   f.stand.project={name:'Heist',hasFile:false,fileAccess:false,gesture:false};f.stand.saveOutcome={saved:true,name:'Heist',fileName:'Heist.cclayproject',downloaded:true};
   const downloaded=await run();assert.equal(downloaded.status,'completed',JSON.stringify(downloaded));assert.match(downloaded.summary,/download/);
