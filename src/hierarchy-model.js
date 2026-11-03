@@ -42,6 +42,16 @@ export function parseRigNodeId(id) {
 	return match ? { rowId: match[1], token: match[2] } : null;
 }
 
+/** True when a character row id (characterA, characterB, character:<id>, or a rig node under one) names a character
+ * the cast has. The default selection is characterA, which with an empty cast is no one: the Inspector showed a
+ * "Character 1" that does not exist. */
+export function characterRowExists(id, characters = []) {
+	const rowId = parseRigNodeId(id)?.rowId ?? id;
+	if (rowId === "characterA") return characters.length > 0;
+	if (rowId === "characterB") return characters.length > 1;
+	return typeof rowId === "string" && characters.some((entry) => `character:${entry.id}` === rowId);
+}
+
 export const HIERARCHY_NODES = [
 	{
 		// Keep the legacy selection id until App wiring moves to the document
