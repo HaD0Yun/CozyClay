@@ -5,7 +5,9 @@ import "./workflow.css";
 import "./cozy-scene-node.css";
 import WorkflowBuilder from "./WorkflowBuilder.jsx";
 import { initAnalytics } from "../analytics.js";
+import { installDomMutationGuard } from "../dom-mutation-guard.js";
 
+installDomMutationGuard();
 void initAnalytics();
 
 createRoot(document.getElementById("workflow-root")).render(

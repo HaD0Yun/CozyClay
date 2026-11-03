@@ -1,9 +1,11 @@
 // app:render_crash and app:gl_lost: a white screen and a dead GPU context become
 // countable and joinable to device:profile. Only closed values leave: the thrown
 // value's type label (the app:error vocabulary, via describeError) and the GL
-// failure kind. Never a message, stack, component stack or file name.
+// failure kind, plus the studio UI locale (en, ko, zh, other) on a crash. Never a
+// message, stack, component stack or file name.
 import { describeError, initAnalytics, track } from "./analytics.js";
 import { admit, bump } from "./analytics-friction.js";
+import { uiLocale } from "./analytics-values.js";
 
 const CRASHES_PER_SESSION = 2;
 const GL_LOST_KINDS = new Set(["unavailable", "context_lost"]);
@@ -21,7 +23,7 @@ let send = (event, props) => {
 export function reportRenderCrash(error) {
 	try {
 		bump("errors");
-		const props = { error_type: describeError({ error }).error_type };
+		const props = { error_type: describeError({ error }).error_type, locale: uiLocale() };
 		if (admit("app:render_crash", CRASHES_PER_SESSION)) send("app:render_crash", props);
 	} catch {
 		// Telemetry must never throw from inside the crash net.

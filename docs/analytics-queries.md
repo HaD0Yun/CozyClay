@@ -1218,6 +1218,7 @@ event is **unknown, not 0**. Exclude `internal_qa = true` with
 | Event | Property | Values | Source | Cap |
 | --- | --- | --- | --- | --- |
 | `app:render_crash` | `error_type` | The `app:error` label set (`Error`, `TypeError`, ..., `DOMException`, `non_error`, `other`) | `ErrorBoundary.componentDidCatch` (`src/error-boundary.jsx`): the crash screen is showing | 2 per session |
+| `app:render_crash`, `app:error` | `locale` | `en`, `ko`, `zh`, `other` | The studio UI language (`uiLocale`, `src/analytics-values.js`): the stored Settings choice, `en` when none. Not the browser language, so a crash under browser translation (English UI, `zh-*` browser) splits from one in the in-app Chinese UI (#1046). Builds before this release have no `locale`: unknown, not `en` | with the event |
 | `app:gl_lost` | `kind` | `unavailable`, `context_lost` | `unavailable`: the one-time mount check behind the WebGL-unavailable overlay (`src/use-webgl-available.js`). `context_lost`: `ContextLossGuard` (`src/stage-canvas-rigs.jsx`) on `webglcontextlost` | 1 per kind per session |
 
 - No message, stack, component stack, file name or renderer string leaves.

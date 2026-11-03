@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
 import { createDocumentStore } from "../document-store.js";
-import { useDocumentDomain } from "../store/use-document-store.js";
+import { useChangedState, useDocumentDomain } from "../store/use-document-store.js";
 import {
 	SCENES_STORAGE_KEY,
 	readSceneDocument,
@@ -201,7 +201,10 @@ export function useScenes(appContext) {
 	 * workspace layout, custom poses) round-trips through a real
 	 * `.cclayproject` file. localStorage stays as the always-on session
 	 * cache; the file is the portable, user-owned document. */
-	const [projectSaveState, setProjectSaveState] = useState("idle");
+	// refreshProjectDirty runs after most commits; a no-op React update from it
+	// kept a pending lane behind every playback-frame commit and chained React
+	// into "Maximum update depth exceeded" on busy machines (#1045).
+	const [projectSaveState, setProjectSaveState] = useChangedState("idle");
 
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 

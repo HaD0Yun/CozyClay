@@ -35,6 +35,22 @@ export const ERROR_TYPE_VALUES = new Set([
 	"NotReadableError", "InvalidStateError", "QuotaExceededError", "SecurityError", "NetworkError",
 	"DataCloneError", "OperationError", "EncodingError", "UnknownError", "DOMException", "non_error", "other",
 ]);
+// The studio UI language (locale.js) app:error and app:render_crash carry, so a
+// crash can be told apart by in-app language rather than browser language (#1046).
+// Read here, not imported from locale.js, to keep the analytics modules light.
+export const UI_LOCALE_VALUES = new Set(["en", "ko", "zh", "other"]);
+const UI_LOCALE_KEY = "cozyclay.locale";
+
+/** The UI locale label: the stored choice, "en" when none (locale.js's default), "other" for an unknown value. */
+export function uiLocale() {
+	let value;
+	try {
+		value = globalThis.localStorage?.getItem(UI_LOCALE_KEY) ?? "en";
+	} catch {
+		return "en";
+	}
+	return value === "en" || value === "ko" || value === "zh" ? value : "other";
+}
 export const SESSION_DURATION_BUCKETS = new Set(["lt1m", "1-5m", "5-15m", "15-30m", "gte30m"]);
 // The SDK's session id is a random UUID; nothing else may ride in that slot.
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
