@@ -484,7 +484,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		// for a second one).
 		const telemetry = createTurnTelemetry(send, value.turnId);
 		let turnOutcome = "succeeded", turnFailureCode = null, toolFailed = false;
-		const controller = new AbortController(); session.controller = controller; session.activeTurnId = value.turnId;
+		const controller = new AbortController(); session.controller = controller; session.activeTurnId = value.turnId; session.activeText = value.hidden ? null : value.text;
 		// Admission is the document identity plus the exact scene revision each
 		// command expects. Per-entity tokens are deliberately absent: the revision
 		// already moves whenever any authored content changes, and a turn's second
@@ -716,12 +716,15 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		if (path.startsWith("/agent/sessions/") && req.method === "GET") {
 			const sessionId = decodeURIComponent(path.slice("/agent/sessions/".length));
-			try {
-				const persisted = sessionStore.read(sessionId);
-				if (!persisted) { json(res, 404, { error: "session not found" }); return true; }
-				json(res, 200, { sessionId, transcript: transcriptFromHistory(persisted.history), meta: persisted.meta });
-			} catch { json(res, 404, { error: "session not found" }); }
-			return true;
+			// A Studio turn still running for its owner (the panel reloaded mid-turn): the panel attaches to it by turnId,
+			// so the message and its progress come back and the next message is not refused as busy. main: the session
+			// has a task board (task mode), so the panel follows it and hands it the Studio's new handle.
+			const live = studioSessions.get(sessionId), mine = live && parseCookies(req).studio_owner === live.owner;
+			const running = mine && live.activeTurnId && live.controller && !live.controller.signal.aborted ? { active: { turnId: live.activeTurnId, ...(live.activeText ? { text: live.activeText } : {}) } } : {};
+			try { const persisted = sessionStore.read(sessionId);
+				if (!persisted && !running.active) { json(res, 404, { error: "session not found" }); return true; }
+				json(res, 200, { sessionId, transcript: persisted ? transcriptFromHistory(persisted.history) : [], meta: persisted?.meta ?? null, ...running, ...(mine && studioEvents.has(`main:${sessionId}`) ? { main: true } : {}) });
+			} catch { json(res, 404, { error: "session not found" }); } return true;
 		}
 		if (path === "/agent/models" && req.method === "GET") {
 			try {

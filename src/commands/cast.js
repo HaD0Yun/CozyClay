@@ -31,7 +31,9 @@ const semantic = [
 	mutation('character.setPose', 'Set character pose', input({ characterId: id, pose: { oneOf: [id, record, { type: 'null' }] }, clearMotion: { type: 'boolean' } }, ['characterId', 'pose'])),
 	
 	mutation('characters.arrange', 'Arrange characters', STUDIO_TOOL_SCHEMAS.arrange_characters),
-	mutation('cast.replace', 'Replace cast', input({ characters: { type: 'array', items: record, minItems: 1 } }), 'ui-only'),
+	// An empty cast is a legal stage (character.remove may empty it too); the UI replaces the cast with [] when the
+	// last character goes or an empty scene loads, and a minItems refusal there was thrown uncaught (#1040).
+	mutation('cast.replace', 'Replace cast', input({ characters: { type: 'array', items: record } }), 'ui-only'),
 	mutation('cast.setCustomPoses', 'Set pose library', input({ poses: { type: 'array', items: record } }), 'ui-only'),
 	mutation('cast.savePose', 'Save pose', input({ pose: record, characterId: id, clearMotion: { type: 'boolean' } }, ['pose']), 'ui-only'),
 	mutation('cast.removePose', 'Remove saved pose', input({ id }), 'ui-only'),

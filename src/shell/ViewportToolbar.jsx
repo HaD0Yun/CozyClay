@@ -347,7 +347,7 @@ export default function ViewportToolbar() {
 								data-disabled-reason={refused || undefined}
 								aria-label={mode.label}
 								title={refused || `${mode.label} (${mode.key})`}
-								onClick={() => selectWorkflowMode(mode.id)}
+								onClick={(event) => selectWorkflowMode(mode.id, { hinted: event.detail > 0 })}
 							>
 								<RailIcon name={mode.id} />
 								<span className="vp-key-digit">{mode.key}</span>
