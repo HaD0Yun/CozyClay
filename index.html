@@ -118,8 +118,10 @@
       .actions { display: flex; align-items: center; gap: 8px; }
       .icon-link { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; color: var(--muted); }
       .icon-link:hover { color: var(--ink); background: var(--raised); }
-      .icon-link:has(.gh-stars:not([hidden])) { width: auto; gap: 8px; padding: 0 12px; text-decoration: none; }
       .gh-stars { font: 400 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
+      /* Under 360 px the brand, the count and "Try it" do not fit on one row, so the count drops. */
+      @media (min-width: 360px) { .icon-link:has(.gh-stars:not([hidden])) { width: auto; gap: 8px; padding: 0 12px; text-decoration: none; } }
+      @media (max-width: 359px) { .gh-stars { display: none; } }
 
       .btn {
         display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 24px;
