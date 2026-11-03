@@ -40,7 +40,8 @@ export function register(registry, ports) {
 			}
 			const saved = owner() ? await owner().save({ ...args, saveAs: as }, context) : await ports.saveProject(as);
 			if (saved?.naming) fail("TARGET_NOT_READY", "Not saved: the project has no name yet. The Save dialog is open for the user.");
-			if (saved?.cancelled) fail("TARGET_NOT_READY", "Not saved: the user closed the file picker.");
+			// A cancel the user asked for is not a refusal (#1041): CANCELLED is never counted as studio:refused.
+			if (saved?.cancelled) fail("CANCELLED", "Not saved: the user closed the file picker.");
 			if (!saved?.saved) fail("TARGET_NOT_READY", saved?.failure === "missing-resources" ? "Not saved: some project assets or motions are missing."
 				: saved?.failure === "resources-too-large" ? "Not saved: the project's resources are too large." : "Not saved: writing the project file failed.");
 			return { affectedIds: [], output: { fileName: saved.fileName }, summary: saved.downloaded
@@ -50,7 +51,7 @@ export function register(registry, ports) {
 	registry.register({ ...exportAsAnimation, available: () => true,
 		run: async (_args, context) => {
 			const saved = await owner().exportAsAnimationProject(context);
-			if (saved?.cancelled) fail("TARGET_NOT_READY", "Not exported: the user closed the file picker.");
+			if (saved?.cancelled) fail("CANCELLED", "Not exported: the user closed the file picker.");
 			if (!saved?.saved) fail("TARGET_NOT_READY", saved?.failure === "not-storyboard"
 				? "Export as Animation project is available only for storyboard projects."
 				: "Not exported: writing the animation project file failed.");
@@ -61,6 +62,8 @@ export function register(registry, ports) {
 	for (const declaration of [opening, fresh, starter, restore, browse]) registry.register({ ...declaration,
 		available, run: async (args, context) => {
 			const result = await owner().projectAction(declaration.id, args, context);
+			// "cancelled": the user closed the picker or kept their unsaved changes; false: a real failure, already shown.
+			if (result === "cancelled") fail("CANCELLED", "The project was not opened: the user cancelled.");
 			if (result === false) fail("TARGET_NOT_READY", "The project was not opened; check the project dialog.");
 			return { affectedIds: [owner().metadata().activeSceneId], output: { opened: result === true }, summary: `${declaration.label}.` };
 		} });
