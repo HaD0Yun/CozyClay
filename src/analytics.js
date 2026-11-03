@@ -1,6 +1,6 @@
 import { appVersion } from "./app-version.js";
 import { FIRST_EDIT_KINDS, FIRST_EDIT_VERSION } from "./semantic-edit.js";
-import { ERROR_TYPE_VALUES, EXPORT_FAILURE_CODES, exportPropAllowed } from "./analytics-values.js";
+import { ERROR_TYPE_VALUES, EXPORT_FAILURE_CODES, UI_LOCALE_VALUES, exportPropAllowed, uiLocale } from "./analytics-values.js";
 import { bump as bumpFriction, observeLongTasks, snapshot as frictionSnapshot } from "./analytics-friction.js";
 import { STRICT_EVENT_KEYS, strictPropValidator } from "./analytics-strict.js";
 export const MCP_TOOL_CATEGORIES = Object.freeze(["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]);
@@ -103,7 +103,7 @@ const EVENT_PROPERTIES = Object.freeze({
 	"app:session_started": [],
 	"app:session_ended": ["duration_bucket", "action_count_bucket", "scenes_touched", ...EDIT_BUCKET_KEYS, "session_id"],
 	...STRICT_EVENT_KEYS,
-	"app:error": ["error_kind", "error_type", "error_source", "error_file", "error_line", "error_col"],
+	"app:error": ["error_kind", "error_type", "error_source", "error_file", "error_line", "error_col", "locale"],
 	"device:profile": ["gpu_vendor", "gpu_class", "webgl", "cpu_bucket", "memory_bucket", "frame_rate_bucket"],
 	"survey:use_case": ["use_case", "team"],
 	"feature:used": ["name"],
@@ -161,7 +161,7 @@ const EXECUTION_FAILURE_CODES = Object.freeze({
 const ERROR_PROPERTY_VALUES = Object.freeze({
 	error_kind: new Set(["error", "unhandled_rejection"]),
 	error_type: ERROR_TYPE_VALUES,
-	error_source: new Set(["app", "extension", "external", "unknown"]),
+	error_source: new Set(["app", "extension", "external", "unknown"]), locale: UI_LOCALE_VALUES,
 });
 const ERROR_FILE_PATTERN = /^[A-Za-z0-9_.-]{1,80}\.(?:m?js|jsx|ts|tsx)$/;
 const DEVICE_PROPERTY_VALUES = Object.freeze({
@@ -903,7 +903,7 @@ function installErrorListeners() {
 			const signature = [props.error_kind, props.error_type, props.error_source, props.error_file, props.error_line, props.error_col].join("|");
 			if (errorSignaturesSeen.has(signature) || errorSignaturesSeen.size >= ERROR_SIGNATURE_LIMIT) return;
 			errorSignaturesSeen.add(signature);
-			track("app:error", props);
+			track("app:error", { ...props, locale: uiLocale() });
 		} catch {
 			// Error telemetry must never throw from inside an error handler.
 		}

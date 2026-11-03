@@ -28,7 +28,7 @@ try {
 		console.error = quiet;
 		restore();
 	}
-	ok("componentDidCatch emits app:render_crash once with a closed error_type", JSON.stringify(sent) === JSON.stringify([{ event: "app:render_crash", props: { error_type: "TypeError" } }]));
+	ok("componentDidCatch emits app:render_crash once with a closed error_type and the UI locale", JSON.stringify(sent) === JSON.stringify([{ event: "app:render_crash", props: { error_type: "TypeError", locale: "en" } }]));
 } finally {
 	await server.close();
 }

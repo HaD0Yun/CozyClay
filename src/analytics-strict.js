@@ -2,7 +2,7 @@
 // generic "short string" rule. analytics.js asks strictPropValidator(event) once
 // per event; a property its validator refuses is dropped.
 import { STUDIO_ERROR_CODES } from "./studio-error-codes.js";
-import { ERROR_TYPE_VALUES, sessionEndedPropAllowed } from "./analytics-values.js";
+import { ERROR_TYPE_VALUES, UI_LOCALE_VALUES, sessionEndedPropAllowed } from "./analytics-values.js";
 import { FRICTION_SUMMARY_KEYS, frictionPropAllowed } from "./analytics-friction.js";
 import { AREA_IDS, CONTROL_IDS } from "./analytics-controls.js";
 
@@ -58,7 +58,8 @@ const SCHEMAS = Object.freeze({
 		command: (value) => typeof value === "string" && value.length <= 48 && /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+){1,3}$/.test(value),
 	},
 	// error_type: the app:error label set (analytics.js describeError); never a message or stack.
-	"app:render_crash": { error_type: inSet(ERROR_TYPE_VALUES) },
+	// locale: the studio UI language (analytics-values.js uiLocale), not the browser's.
+	"app:render_crash": { error_type: inSet(ERROR_TYPE_VALUES), locale: inSet(UI_LOCALE_VALUES) },
 	"app:gl_lost": { kind: oneOf("unavailable", "context_lost") },
 	"studio:ready": { boot: oneOf("lt2s", "2-5s", "5-15s", "gte15s") },
 	// late_ticks (the late_tick_ratio set) is an estimate: timer ticks that caught up more than one frame,

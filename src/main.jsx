@@ -15,7 +15,10 @@ import { StudioReadyMark } from "./studio-telemetry.js";
 import { listenForUnboundShortcuts } from "./shortcut-friction.js";
 import { fetchPlaygroundProject, isPlaygroundEmbed, playgroundSceneUrl, stashPlaygroundProject } from "./playground.js";
 import { preloadBodies } from "./motion3/body.js";
+import { installDomMutationGuard } from "./dom-mutation-guard.js";
 
+// Before the first render: a translator can rewrite text nodes at any time (#1046).
+installDomMutationGuard();
 registerPwa();
 void initAnalytics();
 listenForUnboundShortcuts();

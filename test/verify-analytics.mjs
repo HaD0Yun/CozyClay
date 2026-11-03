@@ -9,6 +9,7 @@ import { noteRefusal as noteBusRefusal } from "../src/command-bus-telemetry.js";
 import { STRICT_EVENT_KEYS, bucketAge, bucketLong, refusalCodeOf, strictPropValidator } from "../src/analytics-strict.js";
 import * as postTurn from "../src/post-turn-edits.js";
 import { draftTelemetrySeam, noteDraftCompiled } from "../src/motion-draft-telemetry.js";
+import { uiLocale } from "../src/analytics-values.js";
 import { crashTelemetrySeam, reportGlLost, reportRenderCrash } from "../src/crash-telemetry.js";
 import { noteNoticeShown, noteUpdateClicked, noteUpdatePolled, updateTelemetrySeam } from "../src/update/update-telemetry.js";
 import * as promptTelemetry from "../src/workflow/prompt-telemetry.js";
@@ -1199,6 +1200,7 @@ try {
 		for (let i = 0; i < 2; i += 1) run.listeners.get("error")({ error: new TypeError("private"), filename: "http://127.0.0.1:5180/src/App.jsx", lineno: 3, colno: 4 });
 		run.listeners.get("error")({ message: "ResizeObserver loop limit exceeded" });
 		assert.equal(run.records.filter(({ event }) => event === "app:error").length, 1, "one app:error per signature");
+		assert.equal(run.records.find(({ event }) => event === "app:error").properties.locale, "en", "app:error carries the UI locale (#1046)");
 		run.module.track("app:friction_summary", { active_time: "lt1m", undos: "private" });
 		const [ended, summary] = await run.unload();
 		assert.equal(ended.event, "app:session_ended");
@@ -1497,6 +1499,7 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 			error_kind: ["error", "unhandled_rejection"],
 			error_type: ["TypeError", "DOMException", "other", "non_error"],
 			error_source: ["app", "extension", "external", "unknown"],
+			locale: ["en", "ko", "zh", "other"],
 		},
 		"device:profile": {
 			gpu_vendor: ["nvidia", "amd", "intel", "apple", "qualcomm", "arm", "software", "other", "unknown"],
@@ -1565,8 +1568,8 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 		reportRenderCrash(new CustomerNamedError());
 		reportRenderCrash("string throw");
 		assert.deepEqual(sent, [
-			{ event: "app:render_crash", props: { error_type: "TypeError" } },
-			{ event: "app:render_crash", props: { error_type: "other" } },
+			{ event: "app:render_crash", props: { error_type: "TypeError", locale: "en" } },
+			{ event: "app:render_crash", props: { error_type: "other", locale: "en" } },
 		], "a type label only, and at most two per session");
 		assert.equal(friction.snapshot().errors, "3", "every caught crash moves the errors counter, past the cap too");
 		assert.equal(JSON.stringify(sent).includes("private"), false, "never the message or stack");
@@ -1578,12 +1581,31 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 		assert.deepEqual(sanitizeProps("app:render_crash", { error_type: "AcmeStudioError", stack: secret }), {}, "app:render_crash rejects an open type and a stack");
 		assert.deepEqual(sanitizeProps("app:render_crash", { error_type: "RangeError" }), { error_type: "RangeError" });
 		assert.deepEqual(sanitizeProps("app:gl_lost", { kind: "restored" }), {}, "app:gl_lost rejects an unknown kind");
-		assert.deepEqual(STRICT_EVENT_KEYS["app:render_crash"], ["error_type"]);
+		assert.deepEqual(STRICT_EVENT_KEYS["app:render_crash"], ["error_type", "locale"]);
+		assert.deepEqual(sanitizeProps("app:render_crash", { error_type: "NotFoundError", locale: "zh" }), { error_type: "NotFoundError", locale: "zh" });
+		assert.deepEqual(sanitizeProps("app:render_crash", { locale: "zh-CN" }), {}, "locale is the closed UI set, never a browser tag");
 		assert.deepEqual(STRICT_EVENT_KEYS["app:gl_lost"], ["kind"]);
 		restoreCrash();
 		friction.reset();
 	}
 	console.log("PASS app:render_crash and app:gl_lost: closed values, 2 crashes and 1 per GL kind per session");
+	// #1046: the UI locale is the stored studio language, never the browser's.
+	{
+		const saved = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+		const withStored = (value) => {
+			Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => value } });
+			return uiLocale();
+		};
+		try {
+			assert.deepEqual(["en", "ko", "zh", null, "zh-CN", "fr"].map(withStored), ["en", "ko", "zh", "en", "other", "other"]);
+			Object.defineProperty(globalThis, "localStorage", { configurable: true, get() { throw new Error("denied"); } });
+			assert.equal(uiLocale(), "en", "unreadable storage is the English default the studio shows");
+		} finally {
+			if (saved) Object.defineProperty(globalThis, "localStorage", saved);
+			else delete globalThis.localStorage;
+		}
+	}
+	console.log("PASS UI locale label: en, ko, zh, other");
 	// P2-c: playback:summary, the first-success guide, agent:panel_toggled, studio:ready and delete regret.
 	{
 		const { bucketCatchup, bucketPlaybackFps, bucketSpeed, playbackTelemetrySeam, startPlaybackRun } = await import("../src/playback-telemetry.js");

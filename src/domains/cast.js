@@ -179,10 +179,13 @@ export function useCast(appContext) {
 	const [poseRevision, setPoseTick] = useState(0);
 
 	// Fallback second slot mirrors the old charB defaults so preset math and
-	// the two-subject inspector never see a hole before B exists.
-	const charA = characters[0] ?? createCharacterEntry(null, 0);
-
-	const charB = characters[1] ?? { ...createCharacterEntry(null, 1), x: 1.15, z: 0.1, rot: -14 };
+	// the two-subject inspector never see a hole before B exists. The
+	// placeholders are made once: a fresh object per render made charA, charB
+	// and waypoints new effect dependencies on every commit, so an empty or
+	// one-character cast re-ran App's dirty check after each playback frame and
+	// chained React into "Maximum update depth exceeded" (#1045).
+	const [[placeholderA, placeholderB]] = useState(() => [createCharacterEntry(null, 0), { ...createCharacterEntry(null, 1), x: 1.15, z: 0.1, rot: -14 }]);
+	const charA = characters[0] ?? placeholderA, charB = characters[1] ?? placeholderB;
 
 	const showB = characters.some((entry, index) => index > 0 && !entry.hidden);
 
