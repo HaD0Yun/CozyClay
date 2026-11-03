@@ -40,7 +40,7 @@ export function endpointClass(base) {
 	let host;
 	try { host = new URL(base).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch { return "unknown"; }
 	if (!host) return "unknown";
-	if (host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "0.0.0.0" || /^127\./.test(host) || /^::ffff:127\./.test(host)) return "local";
+	if (host === "localhost" || host.endsWith(".localhost") || host === "::1" || /^0(?:\.0){3}$/.test(host) || /^127\./.test(host) || /^::ffff:127\./.test(host)) return "local";
 	if (host.endsWith(".local") || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^169\.254\./.test(host) || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe80:/.test(host)) return "lan";
 	return "hosted";
 }

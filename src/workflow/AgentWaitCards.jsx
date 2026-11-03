@@ -17,12 +17,12 @@ export function PausedCard({ resetAt, provider, alternative, onRetry, onSwitchMo
 	const countdown = formatResetIn(resetAt, now);
 	return <div className="agent-paused" data-agent-card="rate-limited" role="status">
 		<div className="agent-paused-head"><FiClock size={12} aria-hidden="true" /> {ko(`Paused — ${provider} quota reached`, `일시 중지 — ${provider} 사용 한도 도달`)}
-			<span className="agent-paused-countdown" data-agent-paused-wait={countdown ? "known" : "unknown"}>{countdown ? ko(`try again in ${countdown}`, `${countdown} 후 다시 시도`) : ko("wait time not given", "대기 시간 미제공")}</span>
+			<span className="agent-paused-countdown" data-agent-paused-wait={countdown ? "known" : "unknown"}>{countdown ? ko(`try again in ${countdown}`, `${countdown} 후 다시 시도`) : ko("wait time not given", "대기 시간 미제공", "未提供等待时间")}</span>
 		</div>
 		<p style={{ margin: 0 }}>{ko(`${provider} stopped taking requests from your account for now. This is ${provider}'s own quota or rate limit, not CozyClay's.`, `${provider}가 지금 이 계정의 요청을 받지 않아요. CozyClay가 아닌 ${provider} 자체의 사용 한도예요.`)}</p>
 		<div className="agent-paused-actions">
-			<button type="button" className="agent-paused-wait" onClick={onRetry}>{ko("Wait & retry", "기다렸다가 다시 시도")}</button>
-			<button type="button" className="agent-paused-switch" data-agent-switch-provider={alternative?.provider ?? ""} onClick={onSwitchModel}>{alternative ? ko(`Switch to ${alternative.label}`, `${alternative.label}(으)로 전환`) : ko("Switch model", "모델 변경")}</button>
+			<button type="button" className="agent-paused-wait" onClick={onRetry}>{ko("Wait & retry", "기다렸다가 다시 시도", "等待后重试")}</button>
+			<button type="button" className="agent-paused-switch" data-agent-switch-provider={alternative?.provider ?? ""} onClick={onSwitchModel}>{alternative ? ko(`Switch to ${alternative.label}`, `${alternative.label}(으)로 전환`) : ko("Switch model", "모델 변경", "切换模型")}</button>
 		</div>
 	</div>;
 }
