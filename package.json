@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node tools/dev-full.mjs --host 127.0.0.1 --port 5180",
     "dev:ui": "vite",
-    "build": "vite build && node tools/sitemap.mjs",
+    "build": "vite build && node tools/sitemap.mjs && node tools/github-stars.mjs",
     "lint": "node tools/check-knip.mjs && node tools/check-loc.mjs && node tools/check-eslint.mjs",
     "lint:update": "node tools/check-knip.mjs --update && node tools/check-loc.mjs --update && node tools/check-eslint.mjs --update",
     "test": "npm run build && node tools/run-tests.mjs",
