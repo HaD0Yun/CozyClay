@@ -4,12 +4,14 @@ import { noteGuideDismissed, noteGuideOpened, noteGuideStep } from "./guide-tele
 
 const ANIMATION_STEPS = [
 	{
-		en: "Select a character in the Outliner.",
-		ko: "아웃라이너에서 캐릭터를 선택하세요.",
-		zh: "在大纲视图中选择一个角色。",
-		hintEn: "Click Character 1 (or its row) to make it active.",
-		hintKo: "캐릭터 1(또는 캐릭터 행)을 클릭하면 활성화됩니다.",
-		hintZh: "点击角色 1（或其所在行）使其成为当前角色。",
+		// #1047: a new project starts with no character, so the old "Select Character 1"
+		// had nothing to select. Adding one is the step, and it ticks itself off.
+		en: "Add a character.",
+		ko: "캐릭터를 추가하세요.",
+		zh: "添加一个角色。",
+		hintEn: "Click the lit Add button at the top left of the view, then Y Bot.",
+		hintKo: "장면 왼쪽 위에 빛나는 추가 버튼을 누르고 Y Bot을 고르세요.",
+		hintZh: "点击视图左上角高亮的“添加”按钮，然后选择 Y Bot。",
 	},
 	{
 		en: "Move it in the Scene view.",
@@ -74,15 +76,30 @@ const STORYBOARD_STEPS = [
 
 const STEPS_BY_MODE = { animation: ANIMATION_STEPS, storyboard: STORYBOARD_STEPS };
 
+const ADD_BUTTON = "[data-testid='viewport-add']";
+
 /** A compact, dismissible first-run checklist that follows the v2 shell grammar. */
-export default function FirstSuccessGuide({ open, onDismiss, previsMode = "animation" }) {
+export default function FirstSuccessGuide({ open, onDismiss, previsMode = "animation", castCount = 0 }) {
 	const storyboard = previsMode === "storyboard";
 	const mode = storyboard ? "storyboard" : "animation";
 	const STEPS = STEPS_BY_MODE[mode];
-	const [step, setStep] = useState(0);
+	const [marked, setStep] = useState(0);
 	useEffect(() => {
 		if (open) { setStep(0); noteGuideOpened(mode); }
 	}, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- the mode at opening time
+	// Step 1 is done while a character exists, whether it was added now or was already there.
+	const castDone = mode === "animation" && castCount > 0;
+	const step = castDone ? Math.max(marked, 1) : marked;
+	const addStep = open && mode === "animation" && step === 0;
+	useEffect(() => {
+		if (open && castDone && marked === 0) noteGuideStep(mode, 1, STEPS.length);
+	}, [open, castDone]); // eslint-disable-line react-hooks/exhaustive-deps -- reported once, when it ticks
+	// ...and until then its target, the Add button, is lit.
+	useEffect(() => {
+		const target = addStep ? globalThis.document?.querySelector(ADD_BUTTON) : null;
+		target?.classList.add("guide-target");
+		return () => target?.classList.remove("guide-target");
+	}, [addStep]);
 	if (!open) return null;
 	const complete = step >= STEPS.length;
 	// Closing after the last step is not a drop-off: only an unfinished guide reports guide:dismissed.
@@ -101,7 +118,7 @@ export default function FirstSuccessGuide({ open, onDismiss, previsMode = "anima
 				<div className="v2-first-success-guide-complete first-success-guide-complete" id="first-success-guide-description" role="status">
 					<div className="v2-first-success-guide-check first-success-guide-check">✓</div>
 					<strong>{storyboard ? ko("You made your first panel.", "첫 패널을 만들었어요.") : ko("You made your first shot.", "첫 샷을 만들었어요.")}</strong>
-					<p>{storyboard ? ko("Describe, review on the Board, then stylize or export. You can close this guide and keep adding panels.", "설명하고, 보드에서 확인한 뒤 스타일을 입히거나 내보내세요. 가이드를 닫고 패널을 계속 추가하세요.") : ko("Select, move, ask, and play are the core CozyClay loop. You can close this guide and keep blocking.", "선택하고, 움직이고, 요청하고, 재생하는 것이 CozyClay의 핵심 흐름입니다. 가이드를 닫고 계속 블로킹하세요.")}</p>
+					<p>{storyboard ? ko("Describe, review on the Board, then stylize or export. You can close this guide and keep adding panels.", "설명하고, 보드에서 확인한 뒤 스타일을 입히거나 내보내세요. 가이드를 닫고 패널을 계속 추가하세요.") : ko("Add, move, ask, and play are the core CozyClay loop. You can close this guide and keep blocking.", "추가하고, 움직이고, 요청하고, 재생하는 것이 CozyClay의 핵심 흐름입니다. 가이드를 닫고 계속 블로킹하세요.")}</p>
 					<button type="button" className="v2-first-success-guide-next first-success-guide-next btn primary" onClick={dismiss}>{ko("Continue editing", "편집 계속하기")}</button>
 				</div>
 			) : (

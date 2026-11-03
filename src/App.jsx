@@ -129,6 +129,7 @@ import {
 } from "./project.js";
 import ProjectBrowser, { ProjectNameDialog } from "./project-browser.jsx";
 import FirstSuccessGuide from "./first-success-guide.jsx";
+import { usePoseEntry } from "./pose-entry.js";
 import { noteDeleteUndone, notePanelToggled } from "./studio-telemetry.js";
 import UseCaseQuestion from "./use-case-question.jsx";
 import ObjectGizmo from "./object-gizmo.jsx";
@@ -1116,11 +1117,14 @@ export default function App() {
 	// the "load a character" one, which would read as a loading problem.
 	const activeCapabilities = characterCapabilities(activeChar);
 	const poseRefusal = !activeCapabilities.pose ? kindRefusal("pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "캐릭터를 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
+	// #1048: one rigged character is selected and posed; otherwise Pose points at what to do next.
+	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: setActiveCharacterId, enter: () => selectWorkflowMode("pose") });
 	// False when the mode refuses (its reason shows as a toast): the 1-5 keys report that as shortcut:ignored.
-	function selectWorkflowMode(next) {
+	// `hinted`: a pointer click on the disabled tab already showed the reason (friction-hint.js).
+	function selectWorkflowMode(next, { hinted = false } = {}) {
 		if (next === "pose" && poseRefusal) {
-			setToast(poseRefusal);
-			return false;
+			if (!poseEntry.request() && !hinted) setToast(poseEntry.plan.reason);
+			return poseEntry.plan.selectId != null;
 		}
 		// A storyboard is stills: there is no Motion department to open.
 		if (next === "motion" && storyboardProject) {
@@ -4598,7 +4602,7 @@ export default function App() {
 		moveCameraKeyframe, removeCameraKeyframe, syncActiveCameraFraming, activeCamera, activeShotDuration,
 		changeActiveCamera, cameraRail, previewCameraShot, toggleCameraRailDraw, deleteCameraRail,
 		selectTimelineShot, clearMotion,
-		spawnCharacter, exportShotVideo, stopShotRecording, retryExport, poseRefusal,
+		spawnCharacter, exportShotVideo, stopShotRecording, retryExport, poseRefusal: poseEntry.blocked ? poseEntry.plan.reason : null,
 		beginWorkspaceResize, frameAll, setAxisView,
 		preferencesOpen, setPreferencesOpen, statusText, setStatusText, previewRanges, setPreviewRanges,
 		flySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
@@ -5320,7 +5324,7 @@ export default function App() {
 					else newProject(name);
 				}}
 			/>
-			<FirstSuccessGuide open={firstSuccessGuideOpen} previsMode={scenesDomain.previsMode} onDismiss={() => setFirstSuccessGuideOpen(false)} />
+			<FirstSuccessGuide open={firstSuccessGuideOpen} castCount={characters.length} previsMode={scenesDomain.previsMode} onDismiss={() => setFirstSuccessGuideOpen(false)} />
 			<UseCaseQuestion
 				open={useCaseAskOpen}
 				isKo={isKo} isZh={isZh}
