@@ -5,6 +5,13 @@
 
 /** Top-level spec fields. */
 export const SPEC_FIELDS = ["schema", "fps", "frames", "label", "keys", "anchors", "props", "fits", "objects", "generators", "checks", "fix", "use", "channels", "detourRadius", "search", "goals", "flow", "idle", "fill"];
+/** The spec field a MOTION_SPEC_INVALID message is about, as a schema path for telemetry (#1042): its first line
+ * opens with spec.<field> or <field>[i] ("spec.frames must be ...", "keys[2].f must be ..."); the field must be one
+ * of SPEC_FIELDS, so nothing the caller made up leaves. Else "$.args.spec". */
+export function specRefusalPath(message) {
+	const head = /^(?:MOTION_SPEC_INVALID:\s*)?(?:spec\.)?([A-Za-z]+)/.exec(String(message ?? ""))?.[1];
+	return SPEC_FIELDS.includes(head) ? `$.args.spec.${head}` : "$.args.spec";
+}
 /** One key: { f, set, step?, src? } (src is written by the skills expander). */
 export const KEY_FIELDS = ["f", "set", "step", "src"];
 /** One spec.use entry. */

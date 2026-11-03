@@ -3,6 +3,7 @@ import { STUDIO_ELEMENTS, isSettableElement } from "./studio-elements.js";
 import { STUDIO_ERROR_CODES, refusalCode } from "./studio-error-codes.js";
 import { EFFECT_VALUE_SCHEMA } from "./effects/effect-record.js";
 import { TEXT_VALUE_SCHEMA } from "./text/text-record.js";
+import { normalizeFramingArgs } from "./studio-framing-words.js";
 import { wrongType, unknownField, missingField, arrayRefusal, duplicateItem, stringRefusal, enumRefusal, numberRefusal, unionRefusal } from "./studio-schema-errors.js";
 // Mirrors PREVIS_MODES and CAST_STYLES (project.js) and POSTURES (scenes.js). Neither is imported:
 // both pull in three.js, which the agent sidecar must not load. The protocol tests pin the lists to their owners.
@@ -88,10 +89,9 @@ const position = union(
 	object({ onObject: ref }, { offsetXZ: object({ x: number(), z: number() }) }),
 );
 const facing = union(object({ yawDeg: number() }), object({ towardId: ref }), object({ sameAsId: ref }), object({ awayFromId: ref }));
-const framing = union(
-	object({ intent: object({ size: choices(STUDIO_VARIANTS.framingSizes), view: choices(STUDIO_VARIANTS.framingViews), level: choices(STUDIO_VARIANTS.framingLevels), side: choices(STUDIO_VARIANTS.framingSides) }, { focalMm: positive }) }),
-	object({ exact: object({ position: vec3, lookAt: vec3, focalMm: positive }) }),
-);
+// size is the one word a framing needs; view, level and side default to a frontal eye-level shot (#1042).
+const framing = union(object({ intent: object({ size: choices(STUDIO_VARIANTS.framingSizes) }, { view: { ...choices(STUDIO_VARIANTS.framingViews), default: "front" }, level: { ...choices(STUDIO_VARIANTS.framingLevels), default: "eye" }, side: { ...choices(STUDIO_VARIANTS.framingSides), default: "left", description: "Which way the view turns from the subject's facing: left (toward the subject's left, +X at yaw 0) or right" }, focalMm: { ...positive, description: "Lens focal length in mm; the lens must give a field of view between 14 and 90 degrees" } }) }),
+	object({ exact: object({ position: vec3, lookAt: vec3, focalMm: positive }) }));
 const localSpace = { ...choices(["parent"]), description: "\"parent\" reads position.world, rotationDeg and facing.yawDeg in the parent's local frame (its pivot and rotation, not its scale); omit for world space." };
 const objectOp = union(
 	object({ op: literal("create"), source: object({ kind: id }), position }, { name, facing, scale: positiveVec3,
@@ -188,13 +188,14 @@ const patchOp = union(
 	object({ target: object({ kind: literal("shot") }, { id }), set: STUDIO_PATCH_SET_SCHEMAS.shot }),
 	object({ target: object({ kind: literal("stage") }), set: STUDIO_PATCH_SET_SCHEMAS.stage }),
 );
+const SUBJECT_IDS_NOTE = "Exactly ONE character id (a character, not an object): size, level and view are measured on it. For a two-shot name one of the pair and choose a size wide enough for both (medium-wide shot or wider), then read checks";
 const toolSchemas = {
 	inspect_studio: object({ scope: choices(STUDIO_VARIANTS.inspectionScopes) }, { ids: ids(32), select: ids(32), query: name, cursor: text(512), limit: { ...integer(1, 32), default: 12 } }),
 	operate_studio: object({}, { selection, shotId: id, frame: integer(), playing: bool, mode: choices(STUDIO_VARIANTS.modes), view: object({}, { lookThrough: bool, grid: bool, autoColor: bool }) }),
 	arrange_objects: object({ ops: { ...array(objectOp, 100, 1), description: "Applied in order, as one undo step. Each op sees the parts created by earlier ops, so build an assembly in one call: create the main part, then place the rest with position.onObject / relativeTo(+side,gapM) / between naming earlier parts (e.g. relativeTo \"Hood\"). Reference parts created in this call by name, never by id." } }, { collisionPolicy: { ...choices(STUDIO_VARIANTS.collisionPolicies), default: "report" } }),
 	arrange_characters: object({ ops: array(characterOp, 8, 1) }),
 	patch_elements: object({ ops: array(patchOp, 32, 1) }),
-	frame_shot: object({ subjectIds: ids(1), framing }, { shotId: id, caption: { type: "string", maxLength: 500 }, keyAtFrame: integer(), over: { ...choices(["shot"]), description: "Fit one held camera to every pose of the shot, turned off the asked view only as far as walls need" } }),
+	frame_shot: object({ subjectIds: { ...ids(1), description: SUBJECT_IDS_NOTE, "x-studio-bound": `${SUBJECT_IDS_NOTE}.` }, framing }, { shotId: id, caption: { type: "string", maxLength: 500 }, keyAtFrame: integer(), over: { ...choices(["shot"]), description: "Fit one held camera to every pose of the shot, turned off the asked view only as far as walls need" } }),
 	verify_result: object({ checks: { ...array(choices(["placement", "framing", "motion", "lighting"]), 4, 1, true), description: "lighting measures the shot frame rendered at the playhead: checks.lighting { meanLuma 0..1, clippedPct (a channel at full scale), crushedPct (pure black), subjects: [{ id, meanLuma, contrast (5th to 95th percentile luma spread, 0..1) }] inside each target character's projected box, look: { preset, envLight, ao } the stage look's environment light and occlusion strength }. motion also answers exportFraming (one per character with a take): what the camera the export renders shows of the take over sampledFrames: camera (shot where a shot covers the frame, studio = the Studio camera as it stands when none does; shotIds), character { screenFraction [min, max] of the frame height, inFrame [lowest share of its joints' screen box inside the frame, frame], behindCamera, cut { head, hand_l, hand_r, foot_l, foot_r } }, and every object the take names { id, name, inFrame, out, cut }; out, cut and behindCamera are spans [first, last] of sampled frames; { character: { id }, reason } when it cannot be measured" } }, { receiptId: id, targets: ids(), range: union(literal("whole_clip"), range), visual: { ...choices(["none", "frame", "contact_sheet", "plan", "trace"]), default: "none" }, frames: { ...union(choices(["even", "beats"]), array(integer(), 8, 1, true)), default: "even", description: "contact_sheet frames: even spacing, beats (grab/release, beat starts, the worst QA frames, then even fill, answered in visualRefs[0].picks), or up to 8 timeline frames of your choice" }, views: { ...array(choices(["front", "side", "three-quarter", "top"]), 2, 1, true), description: "contact_sheet from cameras of its own around the character instead of the shot camera (which stays as it is): a row per view, each held still over the frames and framed on focus, so small actions fill the tile; side and three-quarter look from the focus's side; a sheet always holds two views at least 60 degrees apart: if the asked ones look along nearly one line, side, front or top is added and named in visualRefs[0].addedView" }, focus: { ...union(text(120), array(text(120), 3, 1, true)), description: "with views: what to frame, as refs (object:<id>, joint:<Bone>, prop:<prop>.<point>, landmark:mouth); default the whole character" }, trail: { ...union(text(120), array(text(120), 3, 1, true)), description: "with views: refs whose path over the range is drawn as one dot per frame (spacing shows speed; later frames faint, the tile's own frame ringed), colours in visualRefs[0].trails" }, ghosts: { ...bool, description: "with views: each tile also shows the first target's poses around its frame as translucent ghosts (onion skin), earlier ones blue, later ones orange, carried props included, so spacing and arcs read in one tile; how many and how far apart is view.setGhosts (while it is off: 3 each side, every 4 frames), answered in visualRefs[0].ghosts" } }),
 	undo_edit: object({ receiptId: id }),
 	run_action: object({ action: id }, { args: openObject, confirmationToken: id }),
@@ -332,46 +333,46 @@ export function validateStudioSchema(schema, value, code = "INVALID_ARGUMENT", p
 		if (matches.length === 0 && failures.length) {
 			const kind = record(value) && record(value.target) ? value.target.kind : undefined, discriminated = kind !== undefined && failures.find(({ branch }) => branch.properties?.target?.properties?.kind?.const === kind);
 			const forms = !discriminated && unionRefusal(path, failures, value);
-			if (forms) fail(code, forms, path);
+			if (forms) fail(code, forms, path, { rule: "variant" });
 			const chosen = discriminated || failures.reduce((best, next) => next.error.details.path.length > best.error.details.path.length ? next : best);
 			throw chosen.error;
 		}
-		if (matches.length !== 1 && schema.oneOf) fail(code, `${path}: matches ${matches.length} variants; send the fields of exactly one.`, path);
+		if (matches.length !== 1 && schema.oneOf) fail(code, `${path}: matches ${matches.length} variants; send the fields of exactly one.`, path, { rule: "variant" });
 		return matches[0];
 	}
-	if (Object.hasOwn(schema, "const")) { if (value !== schema.const) fail(code, wrongType(path, schema, value), path); return value; }
-	if (schema.type === "null") { if (value !== null) fail(code, wrongType(path, schema, value), path); return null; }
+	if (Object.hasOwn(schema, "const")) { if (value !== schema.const) fail(code, wrongType(path, schema, value), path, { rule: "type" }); return value; }
+	if (schema.type === "null") { if (value !== null) fail(code, wrongType(path, schema, value), path, { rule: "type" }); return null; }
 	if (schema.type === "object") {
-		if (!record(value)) fail(code, wrongType(path, schema, value), path);
+		if (!record(value)) fail(code, wrongType(path, schema, value), path, { rule: "type" });
 		const open = schema.additionalProperties === true;
-		for (const key of Object.keys(value)) if (!Object.hasOwn(schema.properties, key) && !open) fail(code, unknownField(path, schema, key), path);
+		for (const key of Object.keys(value)) if (!Object.hasOwn(schema.properties, key) && !open) fail(code, unknownField(path, schema, key), path, { rule: "unknown_field" });
 		const result = {};
 		if (open) for (const key of Object.keys(value)) if (!Object.hasOwn(schema.properties, key)) result[key] = structuredClone(value[key]);
 		for (const [key, child] of Object.entries(schema.properties)) {
 			if (Object.hasOwn(value, key)) result[key] = validateStudioSchema(child, value[key], code, `${path}.${key}`);
-			else if (schema.required.includes(key)) fail(code, missingField(path, key), `${path}.${key}`);
+			else if (schema.required.includes(key)) fail(code, missingField(path, key), `${path}.${key}`, { rule: "missing" });
 			else if (Object.hasOwn(child, "default")) result[key] = structuredClone(child.default);
 		}
-		if (schema["x-studio-range"] && result.endFrameExclusive <= result.startFrame) fail(code, "Frame range must be nonempty and half-open.", path);
+		if (schema["x-studio-range"] && result.endFrameExclusive <= result.startFrame) fail(code, "Frame range must be nonempty and half-open.", path, { rule: "range" });
 		return result;
 	}
 	if (schema.type === "array") {
-		if (!Array.isArray(value) || value.length < schema.minItems || value.length > schema.maxItems) fail(code, arrayRefusal(path, schema, value), path);
+		if (!Array.isArray(value) || value.length < schema.minItems || value.length > schema.maxItems) fail(code, arrayRefusal(path, schema, value), path, { rule: Array.isArray(value) ? "items" : "type" });
 		const result = value.map((item, i) => validateStudioSchema(schema.items, item, code, `${path}[${i}]`));
-		if (schema.uniqueItems && new Set(result.map(item => JSON.stringify(item))).size !== result.length) fail(code, duplicateItem(path, result), path);
+		if (schema.uniqueItems && new Set(result.map(item => JSON.stringify(item))).size !== result.length) fail(code, duplicateItem(path, result), path, { rule: "unique" });
 		return result;
 	}
 	if (schema.type === "string") {
-		if (typeof value !== "string" || !value.trim() || (schema.maxLength !== undefined && [...value].length > schema.maxLength) || (schema.pattern && !new RegExp(schema.pattern).test(value))) fail(code, stringRefusal(path, schema, value), path);
-		if (schema.enum && !schema.enum.includes(value)) fail(code, enumRefusal(path, schema, value), path);
+		if (typeof value !== "string" || !value.trim() || (schema.maxLength !== undefined && [...value].length > schema.maxLength) || (schema.pattern && !new RegExp(schema.pattern).test(value))) fail(code, stringRefusal(path, schema, value), path, { rule: typeof value === "string" ? "format" : "type" });
+		if (schema.enum && !schema.enum.includes(value)) fail(code, enumRefusal(path, schema, value), path, { rule: "enum" });
 		return value;
 	}
-	if (schema.type === "boolean") { if (typeof value !== "boolean") fail(code, wrongType(path, schema, value), path); return value; }
+	if (schema.type === "boolean") { if (typeof value !== "boolean") fail(code, wrongType(path, schema, value), path, { rule: "type" }); return value; }
 	if (schema.type === "number" || schema.type === "integer") {
-		if (typeof value !== "number" || !Number.isFinite(value) || (schema.type === "integer" && !Number.isSafeInteger(value)) || (schema.exclusiveMinimum !== undefined && value <= schema.exclusiveMinimum)) fail(code, numberRefusal(path, schema, value), path);
+		if (typeof value !== "number" || !Number.isFinite(value) || (schema.type === "integer" && !Number.isSafeInteger(value)) || (schema.exclusiveMinimum !== undefined && value <= schema.exclusiveMinimum)) fail(code, numberRefusal(path, schema, value), path, { rule: Number.isFinite(value) && (schema.type !== "integer" || Number.isSafeInteger(value)) ? "range" : "type" });
 		if ((schema.minimum !== undefined && value < schema.minimum) || (schema.maximum !== undefined && value > schema.maximum)) {
 			const bounds = [schema.minimum, schema.maximum].filter(bound => bound !== undefined);
-			fail(code, `${path}: Expected a number within [${bounds.join(", ")}], got ${value}.`, path);
+			fail(code, `${path}: Expected a number within [${bounds.join(", ")}], got ${value}.`, path, { rule: "range" });
 		}
 		return value;
 	}
@@ -468,7 +469,8 @@ function validatePatchPaths(args) {
 export function validateStudioCommand(command) {
 	if (!record(command) || !STUDIO_TOOLS.includes(command.name)) fail("UNKNOWN_TOOL", "Unsupported Studio tool.");
 	if (command.name === "patch_elements") validatePatchPaths(command.args);
-	const { args } = validateStudioSchema(object({ name: choices(STUDIO_TOOLS), args: toolSchemas[command.name] }), command);
+	// A frame_shot intent in a crew's words ("medium", "eye level") reads as the declared ones first (studio-framing-words.js).
+	const { args } = validateStudioSchema(object({ name: choices(STUDIO_TOOLS), args: toolSchemas[command.name] }), command.name === "frame_shot" ? { ...command, args: normalizeFramingArgs(command.args) } : command);
 	if (command.name === "inspect_studio" && args.ids && args.query !== undefined) fail("INVALID_ARGUMENT", "IDs and query are exclusive.");
 	if (command.name === "operate_studio" && (!Object.keys(args).length || (args.view && !Object.keys(args.view).length))) fail("INVALID_ARGUMENT", "Transient operation must specify an action.");
 	if (args.ops) {

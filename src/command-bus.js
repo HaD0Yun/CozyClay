@@ -249,7 +249,8 @@ export function createCommandBus({ registry, ports }) {
       if (request.origin === 'ui' && error.uiMessage) ports.showRefusal?.(error.uiMessage);
       const value = refusal(request, before, error, job ? applied : undefined);
       // Session friction and studio:refused, by who asked and what (command-bus-telemetry.js).
-      noteRefusal(value, request.origin, action ?? id, registry.ids?.().includes(action ?? id) === true);
+      // A bus control (job.await, edit.undo, agent.turn.*, task.*) is code-defined too, so it is reported by name (#1042).
+      noteRefusal(value, request.origin, action ?? id, registry.ids?.().includes(action ?? id) === true || (!action && Object.hasOwn(controls, id)), error);
       const recorded = begun ? remember(value) : value;
       if (job && !job.completion) { job.outcome = recorded; job.completion = Promise.resolve(recorded); emit({ type: 'job.completed', jobId: job.id, receipt: recorded }); }
       return recorded;

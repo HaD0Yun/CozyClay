@@ -32,7 +32,8 @@ export function arrayRefusal(path, schema, value) {
 	if (!Array.isArray(value)) return wrongType(path, schema, value);
 	const lo = schema.minItems ?? 0, hi = schema.maxItems ?? Infinity;
 	const want = lo === hi ? `exactly ${lo}` : hi === Infinity ? `at least ${lo}` : lo === 0 ? `at most ${hi}` : `${lo} to ${hi}`;
-	return `${path}: expected ${want} item${lo === hi && lo === 1 ? "" : "s"}, got ${value.length}.`;
+	// x-studio-bound says why the bound is what it is (frame_shot subjectIds: one character), so the retry is right.
+	return `${path}: expected ${want} item${lo === hi && lo === 1 ? "" : "s"}, got ${value.length}.${schema["x-studio-bound"] ? ` ${schema["x-studio-bound"]}` : ""}`;
 }
 
 export const duplicateItem = (path, items) => {

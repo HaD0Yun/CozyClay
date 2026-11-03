@@ -10,6 +10,7 @@ import { focalMmToFov, SENSOR_FORMATS } from './shot.js';
 import { coplanarConflicts } from './coplanar-depth.js';
 import { clampWarning } from './receipt-findings.js';
 import { occludersOf, primarySubjects, sideOfAxis } from './studio-geometry-facts.js';
+import { frameSubject } from './studio-frame-subject.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
 import { supportGaps } from './studio-support-gap.js';
@@ -427,11 +428,10 @@ export function sampledFramingResult(args, scene, ports, frameCount, measured, r
   catch (error) { if (!(error instanceof StudioProtocolError)) throw error; return { reason: error.message }; }
 }
 export function frameDraft(command, state, ports) {
-  if (state.frameCount <= 0) fail('TARGET_NOT_READY', 'A nonempty timeline is required.');
-  const subject = state.characters.find(e => e.id === command.args.subjectIds[0]);
-  if (!subject || subject.hidden) fail('TARGET_NOT_READY', 'Framing requires one visible character.');
+  if (state.frameCount <= 0) fail('TARGET_NOT_READY', 'A nonempty timeline is required; set its length with shot.setTimeline { frameCount } (24 to 28800).');
+  const subject = frameSubject(command.args.subjectIds[0], state, SENSOR_FORMATS);
   const points = geometry(subject, state, ports), bounds = aabb(points), height = bounds.y.max - bounds.y.min;
-  if (height <= EPS || !state.camera || !SENSOR_FORMATS[state.filmback?.sensorId] || !(state.filmback.aspectRatio > 0)) fail('TARGET_NOT_READY', 'Subject stature and camera filmback must be available.');
+  if (height <= EPS) fail('TARGET_NOT_READY', `${subject.id} has no measurable height yet (its body is still loading); wait a moment and send the same frame_shot again.`);
   let shot = command.args.shotId ? state.shotDocument.shots.find(s => s.id === command.args.shotId) : shotAtFrame(state.shotDocument.shots, state.frame) ?? state.shotDocument.shots.find(s => s.id === state.selectedShotId);
   const created = !shot && !state.shotDocument.shots.length && !command.args.shotId;
   if (created) shot = createShot('Shot 1', 0, state.frameCount - 1);

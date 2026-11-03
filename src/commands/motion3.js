@@ -10,7 +10,8 @@ import { fk } from "../motion3/compiler/skeleton.js";
 import { add, apply, ry } from "../motion3/compiler/math.js";
 import { resolveBone } from "../motion3/bones.js";
 import { MOTION_ACTION_HELP as HELP } from "../motion3/docs.js";
-import { DESCRIBE_TOPICS } from "../motion3/schema/fields.js";
+import { DESCRIBE_TOPICS, specRefusalPath } from "../motion3/schema/fields.js";
+import { StudioProtocolError } from "../studio-agent-protocol.js";
 import { describe, describeMany } from "../motion3/describe.js";
 import { createSpecStore, specIdOf, SPEC_STORE_SIZE } from "../motion3/spec-store.js";
 import { applyPatch } from "../motion3/json-patch.js";
@@ -70,6 +71,8 @@ const DEFAULT_BONES = ["Hips", "Head", "LeftHand", "RightHand", "LeftFoot", "Rig
 const MAX_ADJUSTED = 8;
 const adjustedOf = notes => (notes.length ? { adjusted: notes.length > MAX_ADJUSTED ? [...notes.slice(0, MAX_ADJUSTED - 1), `${notes.length - MAX_ADJUSTED + 1} more`] : notes } : {});
 const adjustedSay = notes => (notes.length ? `; ${notes.length} input${notes.length > 1 ? "s" : ""} adjusted (output.adjusted)` : "");
+// An argument refusal that names its field for studio:refused (#1042); the message is what the agent reads.
+const argumentFail = (message, path, rule = "check") => { throw new StudioProtocolError("INVALID_ARGUMENT", message, { path, rule }); };
 const unknownSpec = (what, value, then = "send spec") => fail("INVALID_ARGUMENT", `${what} "${value}" is not known (the editor keeps the last ${SPEC_STORE_SIZE} compiled specs this session); ${then}`);
 
 const sameArray = (a, b) => a?.length === b?.length && Array.prototype.every.call(a, (v, i) => v === b[i]);
@@ -83,11 +86,11 @@ function sameTake(installed, take) {
 /** then(value) now, or when the promise settles (a compile answers at once in Node, later from the browser's worker). */
 const after = (value, then) => (typeof value?.then === "function" ? value.then(then) : then(value));
 /** Runs `run`, turning a MOTION_SPEC_INVALID error into INVALID_ARGUMENT with the exact message. */
-function asArgument(run) {
+function asArgument(run, field = specRefusalPath) {
 	try {
 		return run();
 	} catch (error) {
-		if (/^MOTION_SPEC_INVALID/.test(error.message)) fail("INVALID_ARGUMENT", error.message.replace(/^MOTION_SPEC_INVALID:\s*/, ""));
+		if (/^MOTION_SPEC_INVALID/.test(error.message)) throw new StudioProtocolError("INVALID_ARGUMENT", error.message.replace(/^MOTION_SPEC_INVALID:\s*/, ""), { path: typeof field === "function" ? field(error.message) : field, rule: "spec" });
 		throw error;
 	}
 }
@@ -166,11 +169,11 @@ export function register(registry, ports) {
 	registry.register({ ...declarations[0], normalizeArgs: normalizeCompileArgs, available: mounted, target: args => args.characterId, run({ characterId, spec, base, patch, install: asked = true, probes, repair, thin, filled }, context) {
 		const install = asked === "never" ? false : asked;
 		const character = characterOf(ports, characterId);
-		if ((spec === undefined) === (base === undefined)) fail("INVALID_ARGUMENT", "Send exactly one of spec or base (the specId of a compiled spec, with patch).");
-		if (patch !== undefined && base === undefined) fail("INVALID_ARGUMENT", "patch applies to base, the specId of a compiled spec; send base with it, or the whole spec.");
+		if ((spec === undefined) === (base === undefined)) argumentFail(`$.args: send exactly one of spec or base: spec is a whole motion spec (schema "cozyclay.motion-spec.v1"), base the specId ("spec-" + 12 hex) of a compiled spec, with patch${spec === undefined ? "; neither was sent" : "; both were sent"}.`, "$.args.spec", "variant");
+		if (patch !== undefined && base === undefined) argumentFail("$.args.patch applies to base, the specId of a compiled spec; send base with it, or the whole spec.", "$.args.base", "missing");
 		// a base the store forgot (a reload) may still be the installed take's spec: a document read names it by specId
 		const installedSpec = () => { const take = owner().motionFor(characterId); return take?.spec && specIdOf(take.spec) === base ? structuredClone(take.spec) : null; };
-		const patched = [], source = spec ? expandPoses(spec, skeletonFor(characterOf(ports, characterId).model)) : asArgument(() => applyPatch(store.get(base) ?? installedSpec() ?? unknownSpec("base", base), patch ?? [], patched));
+		const patched = [], source = spec ? expandPoses(spec, skeletonFor(characterOf(ports, characterId).model)) : asArgument(() => applyPatch(store.get(base) ?? installedSpec() ?? unknownSpec("base", base), patch ?? [], patched), "$.args.patch");
 		const scene = sceneFor(character), at = placeKey(character, scene);
 		// the take is always baked: the user watches every draft, installed or not
 		// MotionBricks fills between the authored key poses first when spec.fill is true and the dev server can run it (motion3-fill.js autoFill)
@@ -247,10 +250,10 @@ export function register(registry, ports) {
 			const open = asks.filter(a => a.name === undefined && (asks.length === 1 || a.topic === "skills"));
 			if (name !== undefined && open.length !== 1) fail("INVALID_ARGUMENT", "name goes with one topic; inside topics give each its own: topics: [{ topic, name? }].");
 			if (name !== undefined) open[0].name = name;
-			const output = asArgument(() => describeMany(asks));
+			const output = asArgument(() => describeMany(asks), "$.args.topics");
 			return { affectedIds: [], summary: `Described ${output.topics.map(a => (a.name ? `${a.topic} ${a.name}` : a.topic)).join(", ")}${output.more ? `; ${output.more.length} more did not fit` : ""}.`, output };
 		}
-		return { affectedIds: [], summary: `Described ${topic}${name ? ` ${name}` : ""}.`, output: asArgument(() => describe(topic, name)) };
+		return { affectedIds: [], summary: `Described ${topic}${name ? ` ${name}` : ""}.`, output: asArgument(() => describe(topic, name), "$.args.name") };
 	} });
 	// a characterId reads the installed take's report (session 2ad2760a asked for it that way and was refused): the stored
 	// one when this session compiled that spec, else the take's QA run now
@@ -266,7 +269,7 @@ export function register(registry, ports) {
 	// and installed whatever QA says (a user edit), as one undo entry
 	registry.register({ ...declarations[5], available: mounted, target: args => args.characterId, run({ characterId, ...args }, context) {
 		const character = characterOf(ports, characterId), take = installed(characterId), scene = sceneFor(character);
-		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects));
+		const { spec, keyed } = asArgument(() => keyObject(take.spec, scene, args, expandUse(take.spec, { sk: rigOf(character), scene, lenient: true }).spec.objects), "$.args");
 		return after(compile(character, spec, { lenient: true }, { prompt: take.prompt }), r => {
 			const timing = put(character, r.take, context);
 			return { affectedIds: [characterId], summary: `${keyed.removed ? "Removed the key of" : "Keyed"} ${keyed.objectId} at f${keyed.f}; QA ${qaSay(r.qa)}; installed.`,
