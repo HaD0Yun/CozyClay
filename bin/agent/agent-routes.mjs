@@ -599,7 +599,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		try {
 			if (!session.modelSession) session.modelSession = await runner.openSession(value.sessionId, { surface: "studio" });
-			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle }) }) : input => session.modelSession.start(input))({
+			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
 				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
 				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan], systemPrompt: value.main?.systemPrompt ?? (value.context.scene?.previsMode === "storyboard" ? STUDIO_SYSTEM_PROMPT_STORYBOARD : undefined), signal: controller.signal, emit: send,

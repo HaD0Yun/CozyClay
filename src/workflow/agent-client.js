@@ -387,6 +387,7 @@ export const ERROR_COPY = {
 	rate_limit: "You have hit the usage limit for this window.",
 	upstream: "The model service failed to answer.",
 	overloaded: "The model service is overloaded right now. Try again in a moment.",
+	busy: "The agent is still answering. Try again in a moment.",
 };
 
 // Silence is the failure mode this replaces: a live turn says what it is doing
@@ -406,6 +407,7 @@ const FAILURE_REASON = {
 	rate_limited: "usage limit reached",
 	overloaded: "service overloaded",
 	no_output: "no response",
+	busy: "agent still answering",
 };
 
 function shortFailureReason(failure) {
@@ -1277,7 +1279,7 @@ export function createAgentChatStore({
 		// The latest model request's prompt against the model's window (bin/agent/agent-runner.mjs countAttempt, agent-context-meter.js).
 		if (event?.type === "context") { set({ context: { tokens: event.tokens, window: event.window ?? null } }); return; }
 		if (event?.type !== "error") return;
-		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : event.message || ERROR_COPY[event.code] || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
+		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : (event.message !== event.code && event.message) || ERROR_COPY[event.code] || event.message || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
 		if (activeTurn) activeTurn.failure = failure;
 		if (event.code === "rate_limit") { set({ rateLimit: { resetAt: event.resetAt || null, message: event.message || ERROR_COPY.rate_limit } }); return; }
 		if (event.code === "auth") { onAuthLost?.(); return; }

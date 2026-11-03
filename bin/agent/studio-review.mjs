@@ -31,13 +31,15 @@ export function turnEdits(frames) {
 }
 
 /** Failing numbers out of what the editor measured, one line each. Nothing that passed is listed. */
-export function reviewFindings({ placement, framing, motion = [], lighting } = {}) {
-	const lines = [], p = placement?.checks?.placement ?? placement?.checks, f = framing?.checks?.framing;
-	if (p?.overlapIds?.length) lines.push(`placement: footprints overlap for ${p.overlapIds.join(", ")} (deepest ${p.maximumFootprintOverlapM ?? "?"} m)`);
-	if (p?.unsupportedIds?.length) lines.push(`placement: floating over 1 cm: ${p.unsupportedIds.join(", ")}`);
+export function reviewFindings({ placement, framing, motion = [], lighting, owned = null } = {}) {
+	// owned (a task's ids): a finding about none of them is another task's to fix, and is dropped
+	const mine = ids => (!owned || ids.some(id => owned.has(id)) ? ids : []);
+	const lines = [], p = placement?.checks?.placement ?? placement?.checks, f = framing?.checks?.framing, overlap = mine(p?.overlapIds ?? []), floating = (p?.unsupportedIds ?? []).filter(id => !owned || owned.has(id));
+	if (overlap.length) lines.push(`placement: footprints overlap for ${overlap.join(", ")} (deepest ${p.maximumFootprintOverlapM ?? "?"} m)`);
+	if (floating.length) lines.push(`placement: floating over 1 cm: ${floating.join(", ")}`);
 	for (const issue of (f?.issueFrames ?? []).slice(0, 6)) lines.push(`framing: ${issue.codes.join(", ")} at frame ${issue.frame}`);
 	if (!f?.issueFrames && (f?.clipped || f?.occluded || f?.behindCamera)) lines.push(`framing: ${["clipped", "occluded", "behindCamera"].filter(k => f[k]).join(", ")} at the current frame`);
-	for (const { id, qa } of motion) if (qa?.total > 0) lines.push(`motion ${id}: QA ${qa.total} frame issues: ${(qa.groups ?? []).slice(0, QA_GROUPS).map(g => `${g.kind} ${g.subject} x${g.count}`).join("; ")}`);
+	for (const { id, qa } of motion) if (qa?.total > 0 && (!owned || owned.has(id))) lines.push(`motion ${id}: QA ${qa.total} frame issues: ${(qa.groups ?? []).slice(0, QA_GROUPS).map(g => `${g.kind} ${g.subject} x${g.count}`).join("; ")}`);
 	const l = lighting?.checks?.lighting;
 	if (l?.clippedPct >= LIGHT_PCT) lines.push(`lighting: ${l.clippedPct}% of the frame clipped`);
 	if (l?.crushedPct >= LIGHT_PCT) lines.push(`lighting: ${l.crushedPct}% of the frame pure black`);
@@ -54,12 +56,17 @@ export function reviewContent({ findings, relations = [], images = [], revision 
 	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}: the shot camera, then the top view.\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
 }
 
-/** Measures one run's edits through the turn's own tools. A check that cannot run is left out: the review never fails a turn. */
-export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage }) {
+/**
+ * Measures one run's edits through the turn's own tools. A check that cannot run is left out: the review never fails a turn.
+ * scope (a task's run): only the characters and objects its scope keys name, plus the ids the run edited, are checked. A
+ * finding about another task's character asked the task to repair what it may not touch (SCOPE_DENIED) and stalled it.
+ */
+export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, scope = null }) {
 	const quiet = async work => { try { return await work(); } catch (error) { console.warn(`[agent] review check skipped: ${error.message}`); return null; } };
 	return async edits => {
 		const seen = await quiet(() => hub.command("inspect_studio", { scope: "relations" }, workspaceHandle));
-		const characters = (seen?.characters ?? []).map(c => c.id), verify = args => quiet(() => invoke("verify_result", args));
+		const owned = scope ? new Set([...scope.filter(key => /^(object|character):/.test(key)).map(key => key.slice(key.indexOf(":") + 1)), ...edits.ids, ...edits.motionIds]) : null;
+		const characters = (seen?.characters ?? []).map(c => c.id).filter(id => !owned || owned.has(id)), verify = args => quiet(() => invoke("verify_result", args));
 		// A receipt also names shots and camera keys; verify_result refuses a target that is not an object or a character.
 		const known = seen?.entityIds ? new Set(seen.entityIds) : null, edited = known ? edits.ids.filter(id => known.has(id)) : edits.ids;
 		const placement = edited.length ? await verify({ targets: edited, checks: ["placement"] }) : null;
@@ -76,7 +83,7 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage })
 			if (part) images.push(part);
 		}
 		if (!seen && !images.length) return null; // the editor went away: nothing to show the model
-		const findings = reviewFindings({ placement, framing, motion, lighting });
+		const findings = reviewFindings({ placement, framing, motion, lighting, owned });
 		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null }), images: images.length };
 	};
 }

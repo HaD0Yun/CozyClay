@@ -60,7 +60,7 @@ export default function TaskBoard({ sessionId, pulse, labelOf, onMainNote }) {
 					await client.events(sessionId, afterRef.current, event => {
 						if (event.type === "main.turn" && event.turnId) {
 							let text = "";
-							client.frames(event.turnId, frame => { if (frame.type === "text.delta") text += frame.text ?? ""; if (frame.type === "tool.start") text = ""; }, controller.signal)
+							client.frames(event.turnId, frame => { if (frame.type === "text.delta") text += frame.text ?? ""; if (frame.type === "tool.start" || frame.type === "error" && frame.code === "aborted") text = ""; }, controller.signal)
 								.then(() => noteRef.current?.(text), () => {});
 						}
 						dispatch({ event });
