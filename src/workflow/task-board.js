@@ -27,7 +27,7 @@ export const TASK_STATUS_COPY = {
 	paused: ko("Paused: Studio lost", "일시정지: Studio 연결 끊김"),
 	review: ko("Being checked", "확인 중"),
 	done: ko("Done", "완료"),
-	incomplete: ko("Incomplete: criteria unmet", "미완료: 기준 미달"),
+	incomplete: ko("Incomplete: criteria unmet", "미완료: 기준 미달", "未完成：标准未达到"),
 	failed: ko("Failed", "실패"),
 	cancelled: ko("Cancelled", "취소됨"),
 };
