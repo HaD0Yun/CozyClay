@@ -304,17 +304,34 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 	console.log("PASS case 19: equal instructions on an equal scope answer the running task; bad scopes and dependencies are refused");
 }
 {
-	const { board, runs, status, advance } = boardFixture({ maxTools: 2, maxMs: 60_000 });
+	// case 20: a limit stop finishes the task (task.finish: its edits stay) and says so; the turn's own reviews are not
+	// tool calls of the task; a run with no model or tool event for idleMs is stopped the same way.
+	const { board, runs, status, advance, events } = boardFixture({ maxTools: 2, maxMs: 60_000, idleMs: 30_000 });
 	dispatch(board, "busy", ["object:a"]); dispatch(board, "slow", ["object:b"]); await tick();
+	for (let i = 0; i < 5; i++) runs[0].task.onFrame({ type: "tool.start", review: true });
+	assert.ok(!runs[0].options.signal.aborted, "review tool.start frames do not count toward maxTools");
 	for (let i = 0; i < 3; i++) runs[0].task.onFrame({ type: "tool.start" });
 	assert.ok(runs[0].options.signal.aborted, "case 20: past the tool limit the run is stopped");
-	runs[0].resolve({ status: "cancelled" }); await tick(); await tick();
-	assert.equal(status().busy, "failed"); assert.match(board.board()[0].reason, /more than 2 tool calls; ask the user whether to continue/);
-	advance(60_000);
+	runs[0].resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" }, receipts: [{ receiptId: "r1", affectedIds: ["a"] }] }); await tick(); await tick();
+	assert.equal(status().busy, "failed"); assert.match(board.board()[0].reason, /^stopped after more than 2 tool calls; its edits were kept; ask the user whether to continue$/);
+	assert.equal(board.board()[0].edits, "kept"); assert.deepEqual(board.board()[0].changed, ["object:a"], "what a stopped task kept is handed on as data");
+	assert.equal(events.findLast(event => event.taskId === runs[0].task.taskId).edits, "kept", "the ended event says the edits were kept");
+	assert.match(mainContextText(board, events), /"edits":"kept"/, "and so does the main agent's context");
+	for (let i = 0; i < 3; i++) { advance(15_000); runs[1].task.onFrame({ type: "text.delta", text: "." }); }
+	assert.ok(!runs[1].options.signal.aborted, "a run that keeps talking is not idle (45 s, idle 30 s)");
+	advance(15_000);
 	assert.ok(runs[1].options.signal.aborted, "and past the time limit");
-	runs[1].resolve({ status: "cancelled" }); await tick(); await tick();
-	assert.match(board.board()[1].reason, /ran past 1 minutes/);
-	console.log("PASS case 20: a task past its tool-call or time limit is stopped and reported as such");
+	runs[1].resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
+	assert.match(board.board()[1].reason, /^stopped at the 1 min limit; its edits were kept; ask the user whether to continue$/);
+	const quiet = dispatch(board, "quiet", ["object:c"]); await tick();
+	const run = runs.find(r => r.task.taskId === quiet.taskId);
+	run.task.onFrame({ type: "text.delta", text: "x" });
+	advance(29_999); assert.ok(!run.options.signal.aborted);
+	advance(1); assert.ok(run.options.signal.aborted, "no model or tool event for idleMs: stopped");
+	run.resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
+	assert.match(board.get(quiet.taskId).reason, /^stopped after 30 s with no model or tool activity; its edits were kept/);
+	assert.equal(TASK_LIMITS.idleMs, 3 * 60_000, "the watchdog's default is 3 minutes");
+	console.log("PASS case 20: a task past its tool-call, time or no-progress limit is stopped, keeps its edits and says so; reviews are not counted");
 }
 {
 	const { board, runs, status } = boardFixture({ cap: 1 });
@@ -322,8 +339,10 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 	assert.equal(board.cancel(b.taskId).status, "cancelled", "a queued task is cancelled at once");
 	board.cancel(a.taskId);
 	assert.ok(runs[0].options.signal.aborted, "a running one is stopped");
-	runs[0].resolve({ status: "cancelled" }); await tick(); await tick();
+	runs[0].resolve({ status: "cancelled", ended: "task.cancel" }); await tick(); await tick();
 	assert.equal(status().a, "cancelled"); assert.equal(board.cancel(a.taskId), null);
+	assert.equal(board.get(a.taskId).reason, "cancelled by the user; its edits were reverted", "a user cancel says its edits went back");
+	assert.equal(board.board()[0].edits, "reverted");
 	console.log("PASS cancel: a queued task ends at once, a running one stops and ends cancelled");
 }
 {
@@ -510,5 +529,95 @@ async function reloadScenario({ lostWith, reloadKeeps }) {
 	assert.match(mid.ended.reason, /scene changed while the Studio reloaded .* mid-command/);
 	assert.deepEqual(mid.notes, [], "a task lost mid-command on a changed scope does not resume blind");
 	console.log("PASS case 14 after a reload: a paused task resumes when its scope reads as it left it, re-reads when it changed (and the main agent hears it), and fails when it was mid-command");
+}
+// --- (e) a limit stop keeps the task's edits; a user message preempts the hidden event turn ----------------------
+async function routesFixture(step, taskLimits) {
+	const f = objectsFixture(), commands = [];
+	const read = () => { const context = f.binding.handlers.read_studio_context({ host: f.host() }); return { ...context, host: { ...context.host, workspaceHandle: "handle-1" } }; };
+	const hub = {
+		async command(name, payload) {
+			commands.push({ name, taskId: payload.taskId, action: payload.args?.action });
+			const response = await dispatchLiveFrame(JSON.stringify({ type: "cmd", id: randomUUID(), name, args: payload }), f.binding.handlers);
+			if (!response.ok) throw Object.assign(new Error(response.error), { code: String(response.error).split(":")[0] });
+			return response.value;
+		},
+		workspaceId: () => f.host().workspaceId, resolveWorkspace: () => "handle-1", connected: true, workspaceHandles: ["handle-1"],
+	};
+	const fakeModel = createFakeModel();
+	fakeModel.fauxProvider.setResponses(Array.from({ length: 40 }, () => step));
+	let server;
+	const handler = createAgentHandler({ auth: { getAccessToken: async () => "token" }, codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: fakeModel.models, fauxProvider: fakeModel.fauxProvider,
+		liveHub: hub, studioRuntime: { readContext: async () => read() }, supervisor: false, studioTasks: () => true, taskLimits: { staggerMs: 0, ...taskLimits }, port: () => server.address().port });
+	server = createServer((req, res) => handler(req, res).catch(error => { if (!res.headersSent) res.writeHead(500); res.end(error.stack); }));
+	server.listen(0, "127.0.0.1"); await once(server, "listening");
+	const origin = `http://127.0.0.1:${server.address().port}`, sessionId = randomUUID();
+	let cookie = null;
+	const post = async text => {
+		const response = await fetch(`${origin}/agent/main`, { method: "POST", headers: { "content-type": "application/json", origin, ...(cookie ? { cookie } : {}) },
+			body: JSON.stringify({ surface: "studio", sessionId, turnId: randomUUID(), text, context: read(), model: "faux/scripted" }) });
+		cookie ??= response.headers.get("set-cookie").split(";")[0];
+		return [...(await response.text()).matchAll(/^data: (.+)$/gm)].map(match => JSON.parse(match[1]));
+	};
+	const board = async () => (await (await fetch(`${origin}/agent/main/${sessionId}/board`, { headers: { origin, cookie } })).json()).tasks;
+	const until = async (test, what) => { for (let i = 0; i < 400; i++) { const value = await test(); if (value) return value; await new Promise(r => setTimeout(r, 15)); } assert.fail(`timed out waiting for ${what}`); };
+	const close = async () => { await handler.close?.(); await new Promise(resolve => server.close(resolve)); f.dispose(); };
+	return { f, commands, post, board, until, close };
+}
+const isMain = context => getCurrentSystemPrompt(context.messages) === MAIN_SYSTEM_PROMPT;
+const lastText = context => JSON.stringify(context.messages.at(-1) ?? {});
+// A model that never answers (until the run is aborted): the hang the review's out-of-scope repair caused.
+const hang = options => new Promise(resolve => { if (options?.signal?.aborted) return resolve(); options?.signal?.addEventListener("abort", resolve, { once: true }); setTimeout(resolve, 5000); });
+{
+	let cube;
+	const step = async (context, options) => {
+		if (isMain(context)) {
+			if (context.messages.at(-1).role === "user" && lastText(context).includes("Move the cube")) return fauxAssistantMessage([fauxToolCall("dispatch_task", { title: "cube", instructions: `Move ${cube} to x 1.`, scope: [`object:${cube}`] }, { id: `m-${randomUUID()}` })]);
+			return fauxAssistantMessage([fauxText("ok")]);
+		}
+		if (!context.messages.some(message => message.role === "toolResult")) return fauxAssistantMessage([fauxToolCall("run_action", { action: "object.set", args: { id: cube, set: { position: { x: 1, y: 0, z: 0 } } } }, { id: `t-${randomUUID()}` })]);
+		await hang(options);
+		return fauxAssistantMessage([fauxText("never said")]);
+	};
+	const r = await routesFixture(step, { maxMs: 1000 });
+	cube = r.f.store.current.objects.find(o => o.renderer === "cube").id;
+	await r.post("Move the cube");
+	const [task] = await r.until(async () => { const tasks = await r.board(); return ["failed", "done", "cancelled"].includes(tasks[0]?.status) && tasks; }, "the task to stop");
+	assert.equal(task.status, "failed", JSON.stringify(task));
+	assert.equal(task.reason, "stopped at the 1 s limit; its edits were kept; ask the user whether to continue");
+	assert.equal(task.edits, "kept");
+	assert.equal(r.f.store.current.objects.find(o => o.id === cube).x, 1, "the edit the task finished before its limit stays in the scene");
+	const closing = r.commands.filter(c => c.taskId === task.taskId && /^task\.(finish|cancel)$/.test(c.action ?? "")).map(c => c.action);
+	assert.deepEqual(closing, ["task.finish"], "a limit stop closes the task with task.finish, never task.cancel");
+	await r.close();
+	console.log("PASS end to end: a task stopped at its time limit finishes on the bus, keeps its edit, and the board says the edits were kept");
+}
+{
+	let cube, eventTurns = 0, aborted = 0, userSaw = null;
+	const eventStarted = deferred();
+	const step = async (context, options) => {
+		if (isMain(context)) {
+			const last = lastText(context);
+			if (context.messages.at(-1).role !== "user") return fauxAssistantMessage([fauxText("ok")]);
+			if (last.includes("Move the cube")) return fauxAssistantMessage([fauxToolCall("dispatch_task", { title: "cube", instructions: `Move ${cube} to x 1.`, scope: [`object:${cube}`] }, { id: `m-${randomUUID()}` })]);
+			if (last.includes("Task events arrived")) { eventTurns++; eventStarted.resolve(); await hang(options); if (options?.signal?.aborted) aborted++; return fauxAssistantMessage([fauxText("The cube task is done.")]); }
+			userSaw = last; return fauxAssistantMessage([fauxText("큐브를 옮겼어요.")]);
+		}
+		if (!context.messages.some(message => message.role === "toolResult")) return fauxAssistantMessage([fauxToolCall("run_action", { action: "object.set", args: { id: cube, set: { position: { x: 1, y: 0, z: 0 } } } }, { id: `t-${randomUUID()}` })]);
+		return fauxAssistantMessage([fauxText("Moved the cube.")]);
+	};
+	const r = await routesFixture(step, {});
+	cube = r.f.store.current.objects.find(o => o.renderer === "cube").id;
+	await r.post("Move the cube");
+	await r.until(async () => (await r.board())[0]?.status === "done", "the task to finish");
+	await eventStarted.promise;
+	const started = Date.now();
+	const frames = await r.post("어떻게 됐어?");
+	assert.ok(Date.now() - started < 4000, "the user's turn did not wait out the hidden turn");
+	assert.ok(!frames.some(frame => frame.type === "error"), `no busy refusal: ${JSON.stringify(frames.filter(frame => frame.type === "error"))}`);
+	assert.ok(frames.some(frame => frame.type === "text.delta" && /큐브/.test(frame.text)), "the user's turn answered");
+	assert.equal(eventTurns, 1); assert.equal(aborted, 1, "the hidden event turn was aborted");
+	assert.match(userSaw ?? "", /<task-events>.*task\.done/, "the events the hidden turn was telling reach the user's turn");
+	await r.close();
+	console.log("PASS preempt: a user message during the hidden event turn aborts it, is answered (no busy), and carries the pending task events");
 }
 process.exit(0);
