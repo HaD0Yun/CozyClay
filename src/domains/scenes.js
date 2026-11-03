@@ -517,7 +517,7 @@ export function useScenes(appContext) {
 
 	function requestNewProject(authorized = false, choices = {}) {
 		if (!authorized) return runProject("project.new", Object.keys(chosen(choices)).length ? chosen(choices) : undefined);
-		if (domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return;
+		if (domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled"; // the user kept their unsaved changes
 		// The choices made on the start screen ride on the name dialog until its
 		// submit commits the project.
 		setProjectNameDialog({ kind: "new", initialName: projectName ?? "My Project", ...chosen(choices) });

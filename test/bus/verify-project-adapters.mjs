@@ -33,6 +33,7 @@ try {
     assert.equal(f.project.dirtyStore.read('projectDirty'), true);
     globalThis.window = { ...globalThis.window, confirm: () => false };
     assert.equal((await f.run('project.openStarter', { id: 'missing-starter' })).code, 'CANCELLED', 'keeping unsaved changes is a cancel');
+    assert.equal((await f.run('project.new')).code, 'CANCELLED', 'declining the new-project discard is a cancel');
     assert.deepEqual(refused(), [], 'a user cancel sends no studio:refused');
     // A real failure still refuses: a file the reader cannot parse.
     globalThis.window = { showSaveFilePicker: abort, showOpenFilePicker: async () => [{ getFile: async () => ({ name: 'bad.cclayproject', text: async () => 'not json', lastModified: 0 }) }] };
