@@ -584,7 +584,7 @@ console.log("PASS motion:draft_compiled: buckets, flags, closed schema, and the 
 	const valid = {
 		"agent:connect_opened": { entry: "failure_card" },
 		"agent:connect_started": { provider: "openai-compatible", method: "oauth" },
-		"agent:connect_finished": { provider: "other", method: "api_key", outcome: "abandoned", step: "prompt", duration: "1-2m" },
+		"agent:connect_finished": { provider: "other", method: "api_key", outcome: "abandoned", step: "prompt", duration: "1-2m", reason: "callback_error" },
 		"agent:model_changed": { provider: "cliproxy", after_failure: true },
 	};
 	for (const [event, props] of Object.entries(valid)) {
@@ -593,10 +593,11 @@ console.log("PASS motion:draft_compiled: buckets, flags, closed schema, and the 
 	for (const [event, key, value] of [
 		["agent:connect_opened", "entry", "toolbar"], ["agent:connect_started", "provider", "private-cloud"], ["agent:connect_started", "method", "password"],
 		["agent:connect_finished", "outcome", "timeout"], ["agent:connect_finished", "step", "callback"], ["agent:connect_finished", "duration", "lt1s"],
+		["agent:connect_finished", "reason", "EADDRINUSE"], ["agent:connect_finished", "reason", "access_denied: the user said no"],
 		["agent:model_changed", "after_failure", "yes"],
 	]) assert.deepEqual(sanitizeProps(event, { [key]: value }), {}, `${event} rejects ${key}=${value}`);
 }
-console.log("PASS connect funnel schemas: closed entries, providers, methods, outcomes, steps and durations");
+console.log("PASS connect funnel schemas: closed entries, providers, methods, outcomes, steps, durations and failure reasons");
 
 // U1: the update notice's closed schemas and caps. Never a version string, path, command or npm output.
 {

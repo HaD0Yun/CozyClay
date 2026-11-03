@@ -384,7 +384,7 @@ export function supervisorFollowUp(note) {
 export const ERROR_COPY = {
 	auth: "Your session expired. Sign in again to continue.",
 	entitlement: "This account cannot generate images.",
-	rate_limit: "You have hit the usage limit for this window.",
+	rate_limit: "The model provider's quota for your account is used up for now. It is the provider's limit, not CozyClay's.",
 	upstream: "The model service failed to answer.",
 	overloaded: "The model service is overloaded right now. Try again in a moment.",
 	busy: "The agent is still answering. Try again in a moment.",
@@ -403,8 +403,8 @@ const ACTIVITY_IDLE_TEXT = "Ready";
 const FAILURE_REASON = {
 	auth: "session expired",
 	entitlement: "not on this plan",
-	rate_limit: "usage limit reached",
-	rate_limited: "usage limit reached",
+	rate_limit: "provider quota reached",
+	rate_limited: "provider quota reached",
 	overloaded: "service overloaded",
 	no_output: "no response",
 	busy: "agent still answering",
@@ -567,9 +567,9 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 			// too showed the page twice. The waiting card links the page from /oauth/status.
 			return request("/oauth/start", { method: "POST", body: "{}" });
 		},
-		async signOut() {
-			return request("/oauth/logout", { method: "POST", body: "{}" });
-		},
+		// The waiting card's Cancel (#1044): the sidecar stops waiting for the sign-in page.
+		async cancelSignIn() { return request("/oauth/cancel", { method: "POST", body: "{}" }); },
+		async signOut() { return request("/oauth/logout", { method: "POST", body: "{}" }); },
 		/** `{ providers, models }` (#379). The flat `models` is key-addressed
 		 * (`provider/id`) and carries each model's efforts; `providers` is the same
 		 * list grouped, with the sign-in state the dropdown disables its options
@@ -1283,7 +1283,7 @@ export function createAgentChatStore({
 		if (event?.type !== "error") return;
 		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : (event.message !== event.code && event.message) || ERROR_COPY[event.code] || event.message || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
 		if (activeTurn) activeTurn.failure = failure;
-		if (event.code === "rate_limit") { set({ rateLimit: { resetAt: event.resetAt || null, message: event.message || ERROR_COPY.rate_limit } }); return; }
+		if (event.code === "rate_limit") { set({ rateLimit: { resetAt: event.resetAt || null, message: event.message || ERROR_COPY.rate_limit, provider: typeof event.provider === "string" ? event.provider : null } }); return; }
 		if (event.code === "auth") { onAuthLost?.(); return; }
 		setItems((items) => {
 			// Only THIS turn's failed tool call can carry the failure. Attaching it to

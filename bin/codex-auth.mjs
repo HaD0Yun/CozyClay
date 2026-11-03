@@ -19,6 +19,14 @@ let authServer = null;
 let authState = null;
 let refreshLock = null;
 const listeners = new Set();
+// How long a sign-in page stays answerable (the callback server's life), and the ports its redirect may use.
+let signInWaitMs = 10 * 60 * 1000;
+let callbackPorts = [1455, 1457];
+let open = openBrowser;
+// Why the last sign-in ended without a session (#1044), until the next one starts or one succeeds: timeout (the wait
+// ran out), callback_error (the page came back refused or the code exchange failed), port_busy (no callback port was
+// free), user_closed (Cancel on the waiting card). A class only; the provider's own words stay here.
+let lastFailure = null;
 
 const readTokens = () => {
 	if (tokens) return tokens;
@@ -63,7 +71,9 @@ export function status() {
 	const auth = claim["https://api.openai.com/auth"] || {};
 	// `pending` keeps the panel on "Waiting for your browser…" while a sign-in page is open, with its link.
 	const pending = Boolean(authServer && authState) && !readTokens()?.refresh_token;
-	return { signedIn: !!readTokens()?.refresh_token, ...(pending ? { pending, authorizeUrl: authState.result.authorizeUrl } : {}), email: claim.email || null, plan: auth.chatgpt_plan_type || null, accountId: auth.chatgpt_account_id || null, expiresAt: readTokens()?.expires_at || null, providersConfigured: providersConfigured() };
+	const signedIn = !!readTokens()?.refresh_token;
+	const failure = !signedIn && !pending && lastFailure ? { failure: lastFailure } : {};
+	return { signedIn, ...(pending ? { pending, authorizeUrl: authState.result.authorizeUrl, waitUntil: authState.result.waitUntil } : {}), ...failure, email: claim.email || null, plan: auth.chatgpt_plan_type || null, accountId: auth.chatgpt_account_id || null, expiresAt: readTokens()?.expires_at || null, providersConfigured: providersConfigured() };
 }
 export function readStored() {
 	const current = readTokens();
@@ -104,39 +114,91 @@ export async function getAccessToken() {
 	try { return await refreshLock; } catch { return null; }
 }
 
+/** Ends the waiting sign-in, if one is open, and remembers why (a failure class, or null for a success). */
+function endSignIn(server, failure) {
+	if (authServer !== server) return;
+	// Idle keep-alive sockets go too: a browser (or fetch) reusing one would otherwise reach this ended sign-in.
+	server.close(); server.closeIdleConnections?.();
+	authServer = null;
+	authState = null;
+	lastFailure = failure;
+}
+
 export async function startOAuth() {
 	if (authServer) return authState.result;
+	lastFailure = null;
 	const verifier = createPkceVerifier();
 	const state = randomUUID();
 	const challenge = pkceChallenge(verifier);
-	let port = 1455;
+	const page = (res, code, text) => { res.writeHead(code, { "content-type": "text/html; charset=utf-8" }); res.end(text); };
 	const listener = (candidate) => new Promise((resolve, reject) => {
 		const server = createServer(async (req, res) => {
-			const url = new URL(req.url || "/", `http://127.0.0.1:${candidate}`);
-			if (url.pathname !== "/auth/callback") return;
-			if (url.searchParams.get("state") !== state) { res.writeHead(400); res.end("invalid state"); return; }
-			res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end("You are signed in to CozyClay. You can close this window.");
 			try {
-				const payload = await exchange({ grant_type: "authorization_code", code: url.searchParams.get("code"), redirect_uri: `http://${"local" + "host"}:${candidate}/auth/callback`, client_id: CLIENT_ID, code_verifier: verifier });
-				const accessClaims = decodeJwt(payload.access_token || "");
-				writeTokens({ ...payload, expires_at: accessClaims.exp ? accessClaims.exp * 1000 : Date.now() + Number(payload.expires_in || 3600) * 1000 });
-			} finally { server.close(); authServer = null; authState = null; }
+				const url = new URL(req.url || "/", `http://127.0.0.1:${candidate}`);
+				if (url.pathname !== "/auth/callback") return;
+				if (url.searchParams.get("state") !== state) { res.writeHead(400); res.end("invalid state"); return; }
+				// The sign-in page came back refused (the user declined, or the provider said no): this attempt is over.
+				const code = url.searchParams.get("code");
+				if (url.searchParams.get("error") || !code) {
+					page(res, 400, "The ChatGPT sign-in did not finish. Go back to CozyClay and press Try again.");
+					endSignIn(server, "callback_error");
+					return;
+				}
+				try {
+					const payload = await exchange({ grant_type: "authorization_code", code, redirect_uri: `http://${"local" + "host"}:${candidate}/auth/callback`, client_id: CLIENT_ID, code_verifier: verifier });
+					// Cancel or the wait limit closed this sign-in while the exchange ran: its tokens are not kept.
+					if (authServer !== server) { page(res, 409, "This sign-in was cancelled in CozyClay. Go back to CozyClay and press Try again."); return; }
+					const accessClaims = decodeJwt(payload.access_token || "");
+					writeTokens({ ...payload, expires_at: accessClaims.exp ? accessClaims.exp * 1000 : Date.now() + Number(payload.expires_in || 3600) * 1000 });
+					page(res, 200, "You are signed in to CozyClay. You can close this window.");
+					endSignIn(server, null);
+				} catch {
+					// Before #1044 this rejection went unhandled and the page had already said "signed in".
+					page(res, 502, "The ChatGPT sign-in could not be completed. Go back to CozyClay and press Try again.");
+					endSignIn(server, "callback_error");
+				}
+			} catch { if (!res.headersSent) { res.writeHead(500); res.end(); } }
 		});
 		server.once("error", reject); server.listen({ port: candidate, host: "127.0.0.1" }, () => resolve(server));
 	});
-	try { authServer = await listener(port); } catch (error) { if (error.code !== "EADDRINUSE") throw error; port = 1457; authServer = await listener(port); }
+	let port;
+	for (const candidate of callbackPorts) {
+		try { authServer = await listener(candidate); port = candidate; break; } catch (error) { if (error.code !== "EADDRINUSE") throw error; }
+	}
+	if (!authServer) {
+		lastFailure = "port_busy";
+		throw Object.assign(new Error(`Another program is using the sign-in ports (${callbackPorts.join(", ")}). Close other sign-in windows or tools, then try again.`), { code: "port_busy" });
+	}
 	const authorizeUrl = new URL(AUTHORIZE_ENDPOINT);
 	for (const [key, value] of Object.entries({ response_type: "code", client_id: CLIENT_ID, redirect_uri: `http://${"local" + "host"}:${port}/auth/callback`, scope: SCOPE, code_challenge: challenge, code_challenge_method: "S256", state, id_token_add_organizations: "true", codex_cli_simplified_flow: "true", originator: "cozyclay" })) authorizeUrl.searchParams.set(key, value);
-	authState = { result: { ok: true, port, authorizeUrl: authorizeUrl.toString() } };
-	// An abandoned sign-in stops listening after ten minutes, so the panel cannot wait on it forever.
+	// waitUntil: when the waiting card stops waiting; the panel shows it (#1044).
+	authState = { result: { ok: true, port, authorizeUrl: authorizeUrl.toString(), waitUntil: new Date(Date.now() + signInWaitMs).toISOString() } };
+	// An abandoned sign-in stops listening after signInWaitMs, so the panel cannot wait on it forever.
 	const server = authServer;
-	setTimeout(() => { if (authServer === server) { server.close(); authServer = null; authState = null; } }, 10 * 60 * 1000).unref?.();
-	openBrowser(authorizeUrl.toString());
+	setTimeout(() => endSignIn(server, "timeout"), signInWaitMs).unref?.();
+	open(authorizeUrl.toString());
 	return authState.result;
+}
+/** The waiting card's Cancel: the sign-in page stops being answerable. */
+export function cancelOAuth() {
+	if (authServer) endSignIn(authServer, "user_closed");
+	return { ok: true };
+}
+/** Tests only: the wait, the callback ports and the browser opener; returns the restore. */
+export function oauthSeam({ waitMs = signInWaitMs, ports = callbackPorts, openUrl = open } = {}) {
+	const previous = [signInWaitMs, callbackPorts, open];
+	[signInWaitMs, callbackPorts, open] = [waitMs, ports, openUrl];
+	return () => { if (authServer) endSignIn(authServer, null); [signInWaitMs, callbackPorts, open] = previous; lastFailure = null; };
 }
 export function logout() { clearTokens(); return { ok: true }; }
 export async function handleOAuthRequest(req, res) {
-	if (req.method === "POST" && req.url === "/oauth/start") return respond(res, 200, await startOAuth());
+	if (req.method === "POST" && req.url === "/oauth/start") {
+		try { return respond(res, 200, await startOAuth()); } catch (error) {
+			if (error?.code !== "port_busy") throw error;
+			return respond(res, 409, { error: { code: "port_busy", message: error.message } });
+		}
+	}
+	if (req.method === "POST" && req.url === "/oauth/cancel") return respond(res, 200, cancelOAuth());
 	if (req.method === "GET" && req.url === "/oauth/status") return respond(res, 200, status());
 	if (req.method === "POST" && req.url === "/oauth/logout") return respond(res, 200, logout());
 	return false;

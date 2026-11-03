@@ -2000,7 +2000,7 @@ Builds before this release have no rows (**unknown, not 0**).
 | --- | --- | --- |
 | `agent:connect_opened` | `entry`: `first_run`, `failure_card`, `signed_out`, `menu`, `other` | The menu's Connect a model, the signed-out card's other-provider button, or a refused key's Log in again. The signed-out card reads `first_run` until this browser profile has connected once. 5 per session |
 | `agent:connect_started` | `provider`, `method` (`oauth`, `api_key`, `chatgpt`) | A provider's login button, or Sign in with ChatGPT. One per attempt |
-| `agent:connect_finished` | `provider`, `method`, `outcome`, `step`, `duration` (lt10s … gte5m) | One per attempt, see below |
+| `agent:connect_finished` | `provider`, `method`, `outcome`, `step`, `duration` (lt10s … gte5m), `reason` (not-ok only, when known) | One per attempt, see below |
 | `agent:model_changed` | `provider`, `after_failure` (bool) | The model list. 10 per session |
 
 `provider` is one of the ten providers CozyClay configures itself
@@ -2013,10 +2013,15 @@ of a long tail read `other`.
 - `failed`: the flow ended with an error, or the login could not start.
 - `cancelled`: the user pressed Cancel inside a running flow.
 - `abandoned`: the panel was closed or left mid-flow, or another attempt
-  began. A ChatGPT sign-in that comes back without a session is also
-  `abandoned`: the sidecar reports a failed and a closed browser sign-in the
-  same way, and the panel's sign-in error is set only when the start request
-  itself fails.
+  began. Before #1044 a ChatGPT sign-in that came back without a session was
+  also `abandoned`; from #1044 the sidecar names why the wait ended, and that
+  attempt reads `failed` with a `reason`.
+
+`reason` (from #1044, on `failed`, `cancelled` and `abandoned` when known):
+`timeout` (the 10-minute wait ran out), `callback_error` (the sign-in page
+came back refused, or the code exchange failed), `port_busy` (no callback
+port was free), `user_closed` (Cancel, or the login list closed), `other`.
+Split `failed`/`waiting` by it to see which one to fix.
 
 `step` is how far the attempt got: `list` (it never started a flow),
 `waiting` (the flow ran), `prompt` (it was asking for a key, an address or a

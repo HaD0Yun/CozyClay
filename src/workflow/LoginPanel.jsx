@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FiX } from "react-icons/fi";
 import { answerLogin, cancelLogin, fetchLogins, logoutProvider, readLogin, startLogin } from "./login-client.js";
+import { formatWaitLeft } from "./agent-provider-help.js";
 import { connectFinished, connectPanelClosed, connectStarted, connectStep } from "./connect-telemetry.js";
 
 // "Connect a model": pi's own login (the coding agent's /login) inside the agent panel (#pi-login). The list
@@ -51,6 +52,13 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 	const [query, setQuery] = useState("");
 	const [flow, setFlow] = useState(null);
 	const live = useRef(true);
+	// The wait's countdown (#1044), coarse: the card says minutes.
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!flow?.flowId || flow.done) return undefined;
+		const tick = setInterval(() => setNow(Date.now()), 15_000);
+		return () => clearInterval(tick);
+	}, [flow?.flowId, flow?.done]);
 	const load = useCallback(async () => {
 		try { setProviders(await fetchLogins()); setError(""); } catch (failure) { setError(failure?.message || "The login list is unavailable."); }
 	}, []);
@@ -59,7 +67,7 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 	// The attempt's funnel step follows the flow: waiting, a prompt to answer, then done.
 	useEffect(() => {
 		if (!flow?.flowId) return;
-		if (flow.done) connectFinished(flow.ok ? "ok" : "failed");
+		if (flow.done) { if (flow.ok) connectFinished("ok"); else connectFinished(flow.reason === "user_closed" ? "cancelled" : "failed", flow.reason ?? "other"); }
 		else connectStep(flow.prompt ? "prompt" : "waiting");
 	}, [flow?.flowId, flow?.done, flow?.ok, flow?.prompt]);
 	// Read the running flow until pi finishes it.
@@ -73,13 +81,14 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 				try { page = await readLogin(flow.flowId, after); } catch (failure) { if (!stopped) setFlow((current) => current && { ...current, done: true, ok: false, message: failure?.message || "The login stopped." }); return; }
 				if (stopped) return;
 				after = page.next;
+				if (page.waitUntil) setFlow((current) => current && current.flowId === flow.flowId && current.waitUntil !== page.waitUntil ? { ...current, waitUntil: page.waitUntil } : current);
 				for (const entry of page.events) {
 					setFlow((current) => {
 						if (!current || current.flowId !== flow.flowId) return current;
 						if (entry.type === "prompt") return { ...current, prompt: entry };
 						if (entry.type === "prompt_closed") return current.prompt?.promptId === entry.promptId ? { ...current, prompt: null } : current;
 						if (entry.type === "event") return { ...current, log: [...current.log, entry] };
-						return { ...current, prompt: null, done: true, ok: entry.ok, message: entry.message ?? "" };
+						return { ...current, prompt: null, done: true, ok: entry.ok, message: entry.message ?? "", reason: entry.reason };
 					});
 					if (entry.type === "done" && entry.ok) { await onChanged?.(); load(); }
 				}
@@ -97,7 +106,8 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 		connectStarted(provider.id, method.type);
 		try {
 			const flowId = await startLogin(provider.id, method.type);
-			setFlow({ flowId, name: provider.name, label: method.label, log: [], prompt: null, done: false });
+			// provider and method stay on the flow: a failed one is tried again in place (#1044)
+			setFlow({ flowId, name: provider.name, label: method.label, provider, method, log: [], prompt: null, done: false });
 		} catch (failure) { connectFinished("failed"); setError(failure?.message || "That login could not start."); }
 	};
 	const answer = async (value) => {
@@ -107,7 +117,7 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 		try { await answerLogin(flow.flowId, prompt.promptId, value); } catch (failure) { setError(failure?.message || "That answer was not taken."); }
 	};
 	const cancel = async () => {
-		if (flow && !flow.done) { connectFinished("cancelled"); await cancelLogin(flow.flowId).catch(() => {}); }
+		if (flow && !flow.done) { connectFinished("cancelled", "user_closed"); await cancelLogin(flow.flowId).catch(() => {}); }
 		setFlow(null);
 	};
 	const logout = async (provider) => {
@@ -118,16 +128,20 @@ export function LoginPanel({ onClose, onChatGPT, onChanged }) {
 	return <section className="agent-keys agent-login" aria-label="Connect a model" data-agent-keys="true">
 		<div className="agent-keys-head">
 			<h3 className="agent-keys-title">Connect a model</h3>
-			<button type="button" className="agent-icon-button agent-keys-close" aria-label="Close" onClick={async () => { connectFinished("abandoned"); await cancel(); onClose?.(); }}><FiX size={11} aria-hidden="true" /></button>
+			<button type="button" className="agent-icon-button agent-keys-close" aria-label="Close" onClick={async () => { connectFinished("abandoned", "user_closed"); await cancel(); onClose?.(); }}><FiX size={11} aria-hidden="true" /></button>
 		</div>
 		{error && <p className="agent-key-error" role="alert">{error}</p>}
 		{flow ? <div className="agent-login-flow" data-login-flow={flow.done ? (flow.ok ? "connected" : "failed") : "running"}>
 			<p className="agent-key-label">{flow.name} · {flow.label}</p>
 			<FlowLog entries={flow.log} />
 			{flow.prompt && <PromptForm key={flow.prompt.promptId} prompt={flow.prompt} onSubmit={answer} />}
-			{!flow.done && !flow.prompt && <p className="agent-key-note">Waiting for {flow.name}…</p>}
+			{!flow.done && !flow.prompt && <p className="agent-key-note">Waiting for {flow.name}… Finish signing in on the page that opened, then come back here.</p>}
+			{!flow.done && formatWaitLeft(flow.waitUntil, now) && <p className="agent-key-note" data-login-wait="true">This sign-in stops waiting in {formatWaitLeft(flow.waitUntil, now)}.</p>}
 			{flow.done && <p className={flow.ok ? "agent-key-note" : "agent-key-error"} role={flow.ok ? "status" : "alert"}>{flow.ok ? `Connected to ${flow.name}.` : flow.message}</p>}
-			<div className="agent-key-controls"><button type="button" className="agent-ghost-button" onClick={cancel}>{flow.done ? "Back to the list" : "Cancel"}</button></div>
+			<div className="agent-key-controls">
+				{flow.done && !flow.ok && flow.provider && <button type="button" className="agent-key-save" data-login-retry="true" onClick={() => begin(flow.provider, flow.method)}>Try again</button>}
+				<button type="button" className="agent-ghost-button" onClick={cancel}>{flow.done ? "Back to the list" : "Cancel"}</button>
+			</div>
 		</div> : <>
 			<p className="agent-keys-hint">A subscription signs in on its own page. A key or server address you type stays with the local CozyClay service and is never shown again.</p>
 			<input className="agent-key-input" type="search" aria-label="Search providers" placeholder="Search providers" value={query} onChange={(event) => setQuery(event.target.value)} />

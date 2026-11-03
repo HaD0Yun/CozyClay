@@ -14,7 +14,6 @@ import {
 	JOB_STATE_COPY,
 	createAgentChatStore,
 	effortOptions,
-	ERROR_COPY,
 	formatJobProgress,
 	isTerminalJobState,
 	jobStateTone,
@@ -40,6 +39,8 @@ import "./agent-panel.css";
 const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
 import { AgentProgressCard } from "./AgentProgressCard.jsx";
 import { LoginPanel } from "./LoginPanel.jsx";
+import { PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
+import { SIGN_IN_FAILURE_COPY, otherProviderModel, providerLabel } from "./agent-provider-help.js";
 import { TurnSteps } from "./AgentTurnSteps.jsx";
 import { PlanCard } from "./AgentPlanCard.jsx";
 import { ReplyText } from "./AgentReplyText.jsx";
@@ -95,25 +96,6 @@ function OfflineCard({ probing, onRetry }) {
 		<button type="button" className="agent-ghost-button agent-offline-retry" onClick={onRetry} disabled={probing} aria-busy={probing}>
 			<FiRotateCw size={11} aria-hidden="true" /> {probing ? ko("Checking…", "확인 중…") : ko("Retry", "다시 확인", "重新检查")}
 		</button>
-	</div>;
-}
-
-function PausedCard({ resetAt, onRetry, onSwitchModel }) {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		const timer = setInterval(() => setNow(Date.now()), 1000);
-		return () => clearInterval(timer);
-	}, []);
-	const countdown = formatResetIn(resetAt, now);
-	return <div className="agent-paused" data-agent-card="rate-limited" role="status">
-		<div className="agent-paused-head"><FiClock size={12} aria-hidden="true" /> Paused — usage limit reached
-			<span className="agent-paused-countdown">{countdown ? `resets in ${countdown}` : "resets soon"}</span>
-		</div>
-		<p style={{ margin: 0 }}>{ERROR_COPY.rate_limit}</p>
-		<div className="agent-paused-actions">
-			<button type="button" className="agent-paused-wait" onClick={onRetry}>Wait &amp; retry</button>
-			<button type="button" className="agent-paused-switch" onClick={onSwitchModel}>Switch model</button>
-		</div>
 	</div>;
 }
 
@@ -497,7 +479,6 @@ export default function AgentPanel({
 			document.removeEventListener("visibilitychange", onReturn);
 		};
 	}, [authState, refreshProviderState]);
-
 	// Mock states that only exist as a rendered result (a finished streaming
 	// turn, a paused card, a failed tool call) are driven by replaying the
 	// scripted turn once, so QA screenshots the same code path a live turn uses.
@@ -646,9 +627,11 @@ export default function AgentPanel({
 	// `via`: how the prompt was sent, for agent:prompt_sent (prompt-telemetry.js keeps no text).
 	const runTurn = useCallback((text, via = "typed") => {
 		setAttachNotice(null); setSteerNotice("");
-		stagePrompt(text, { via, model, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
+		// An OpenAI-compatible server's address class (local, lan, hosted), never the address (#1043).
+		const endpoint = modelProviders.find((entry) => entry.id === String(model ?? "").split("/")[0])?.endpoint;
+		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
 		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode });
-	}, [attachFrame, effort, model, store, taskMode]);
+	}, [attachFrame, effort, model, modelProviders, store, taskMode]);
 	const taskStepLabel = useCallback((call) => stepLabel(call, presentation.toolLabels), [presentation.toolLabels]);
 	const stopTurn = useCallback(() => store.stop(), [store]);
 	// Steering the turn that is already running: the composer's text joins THAT
@@ -675,10 +658,17 @@ export default function AgentPanel({
 			await transport.signIn();
 			await refreshProviderState();
 		} catch (error) {
-			connectFinished("failed"); if (agentServerUnavailable(error)) { setAuthState("offline"); return; }
+			connectFinished("failed", error?.code === "port_busy" ? "port_busy" : "other"); if (agentServerUnavailable(error)) { setAuthState("offline"); return; }
 			setSignInError(error?.message || ko("Sign-in could not start.", "로그인을 시작하지 못했어요."));
 			setAuthState("signed-out");
 		}
+	}, [refreshProviderState, transport]);
+
+	// The waiting card's Cancel (#1044): the sidecar stops waiting and the card goes back to the choices.
+	const cancelSignIn = useCallback(async () => {
+		connectFinished("cancelled", "user_closed");
+		await transport.cancelSignIn?.().catch(() => {});
+		await refreshProviderState();
 	}, [refreshProviderState, transport]);
 
 	const signOut = useCallback(async () => {
@@ -736,7 +726,11 @@ export default function AgentPanel({
 		setMenuOpen(false);
 	}, [store]);
 
+	// A rate limit is the provider's: another connected provider is the way on (#1043).
+	const limitedProvider = rateLimit?.provider || String(model ?? "").split("/")[0];
+	const alternative = useMemo(() => rateLimit ? otherProviderModel(modelProviders, models, model, limitedProvider) : null, [limitedProvider, model, modelProviders, models, rateLimit]);
 	const switchModel = useCallback(() => {
+		if (alternative) { chooseModel(alternative.model); store.clearRateLimit(); return; }
 		// Only a model whose provider holds a credential is worth switching to:
 		// the others are exactly the ones the dropdown draws disabled.
 		const usable = models.filter((entry) => modelIsSelectable(modelProviders, entry.id));
@@ -745,7 +739,7 @@ export default function AgentPanel({
 		const next = list[(index + 1) % list.length];
 		if (next) chooseModel(next.id);
 		store.clearRateLimit();
-	}, [chooseModel, model, modelProviders, models, store]);
+	}, [alternative, chooseModel, model, modelProviders, models, store]);
 
 	const onComposerKeyDown = useCallback((event) => {
 		if (event.key === "Escape" && streaming) {
@@ -862,19 +856,14 @@ export default function AgentPanel({
 			{authState === "signed-out" && <div className="agent-state-card" data-agent-card="signed-out">
 				<h3>Connect a model</h3>
 				<p>Sign in with ChatGPT, or log in to another provider with a subscription, an API key, or your own proxy server. Sign-in happens in your browser — no token is ever stored in this page.</p>
-				<button type="button" className="agent-primary-button agent-signin" onClick={signIn}>Sign in with ChatGPT</button>
-				{signInError && <p className="agent-key-error agent-signin-error" role="alert">{signInError}</p>}
+				{(signInError || SIGN_IN_FAILURE_COPY[account?.failure]) && <p className="agent-key-error agent-signin-error" role="alert" data-agent-signin-failure={account?.failure || "start"}>{signInError || SIGN_IN_FAILURE_COPY[account?.failure]}</p>}
+				<button type="button" className="agent-primary-button agent-signin" onClick={signIn}>{signInError || SIGN_IN_FAILURE_COPY[account?.failure] ? "Try again: sign in with ChatGPT" : "Sign in with ChatGPT"}</button>
 				<button type="button" className="agent-ghost-button agent-use-key" onClick={() => openProviderKeys("signed_out")}>Log in with another provider</button>
 			</div>}
 
 			{authState === "offline" && <OfflineCard probing={probing} onRetry={retryServer} />}
 
-			{authState === "signing-in" && <div className="agent-state-card" data-agent-card="signing-in">
-				<span className="agent-spinner" aria-hidden="true" />
-				<h3>Waiting for your browser…</h3>
-				<p>Finish the ChatGPT sign-in in the browser page that just opened. This panel picks up the session when you come back.</p>
-				{account?.authorizeUrl && <a className="agent-ghost-button agent-signin-link" href={account.authorizeUrl} target="_blank" rel="noopener noreferrer">Open the sign-in page again</a>}
-			</div>}
+			{authState === "signing-in" && <SigningInCard account={account} onCancel={cancelSignIn} onWaitEnded={refreshProviderState} />}
 
 			{authState === "no-entitlement" && <div className="agent-state-card" data-agent-card="no-entitlement">
 				<h3>Image generation is not on this plan</h3>
@@ -913,7 +902,7 @@ export default function AgentPanel({
 			})}
 
 			{!layout.some((entry) => entry.type === "steps" && entry.last) && progressCard}{taskMode && <TaskRows items={items} />}
-			{rateLimit && <PausedCard resetAt={rateLimit.resetAt} onRetry={() => { store.clearRateLimit(); runTurn(chat.lastPrompt, "retry_button"); }} onSwitchModel={switchModel} />}
+			{rateLimit && <PausedCard resetAt={rateLimit.resetAt} provider={providerLabel(modelProviders, limitedProvider)} alternative={alternative} onRetry={() => { store.clearRateLimit(); runTurn(chat.lastPrompt, "retry_button"); }} onSwitchModel={switchModel} />}
 		</div>
 		{surface === "studio" && taskMode && authenticated && <><Suspense fallback={null}><TaskBoard sessionId={chat.sessionId} pulse={chat.lastTurn?.endedAt ?? 0} live={streaming} restored={restoredMain === chat.sessionId} reconnectContext={buildContextRef} labelOf={taskStepLabel} onMainNote={store.note} /></Suspense><TaskDetail /></>}
 
