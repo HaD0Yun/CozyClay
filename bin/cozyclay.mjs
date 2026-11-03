@@ -263,7 +263,7 @@ const agentHandler = createAgentHandler({ port: () => opts.port, ...(SOURCE_CHEC
 const studioRoutes = createStudioRoutes({ port: opts.port, stateFile: STATE_FILE, takeRuntime, update: { currentVersion: version, stateDir: STATE_DIR, kind: INSTALL_KIND, enabled: updateChecksEnabled, pkgRoot: PKG_ROOT }, restart: { getServer: () => server, closeHub: () => agentHandler.close() } });
 server = createServer((req, res) => {
 	const url = new URL(req.url ?? "/", "http://127.0.0.1");
-	if (/^\/oauth\/(start|status|logout)$/.test(url.pathname)) {
+	if (/^\/oauth\/(start|status|logout|cancel)$/.test(url.pathname)) {
 		const origin = req.headers.origin;
 		const hosts = new Set([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]);
 		const origins = new Set([`http://127.0.0.1:${opts.port}`, `http://${"local" + "host"}:${opts.port}`]);

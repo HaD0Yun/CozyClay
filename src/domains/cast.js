@@ -697,8 +697,9 @@ export function useCast(appContext) {
 		if (studioPick === id) setStudioPick(DEFAULT_POSE.id);
 	}
 
+	// Runs from the cross-tab scene subscription: a refusal ends here, logged, never in window.onerror (#1040).
 	function applyExternalCharacters(characters) {
-		appContext.storeDomain('cast').run('cast.replace', { characters });
+		try { appContext.storeDomain('cast').run('cast.replace', { characters }); } catch (error) { if (error?.name !== "StudioProtocolError") throw error; console.warn('[cozyclay] the cast from another tab was not applied', error.code, error.message); }
 	}
 	function publishStudioCharacters(next) {
 		if (typeof next === 'function') next = next(appContext.live.characters);

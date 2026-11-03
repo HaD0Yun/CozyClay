@@ -29,7 +29,7 @@ import { ko } from "../locale.js";
 import { startAgentTurn, trackAgentTurns } from "./agent-turn-telemetry.js";
 import { STUDIO_VARIANTS, validateReceipt } from "../studio-agent-protocol.js";
 import { refusalFailureCode, transportFailureCode } from "./agent-failure-codes.js";
-import { requestAgentImage, sidecarRequest, sidecarUrl } from "../agent-image-client.js"; import { clearSculptSketch, sculptSketchFrame } from "../sculpt-sketch-state.js";
+import { requestAgentImage, sidecarRequest, sidecarUrl } from "../agent-image-client.js"; import { clearSculptSketch, sculptSketchFrame } from "../sculpt-sketch-state.js"; import { attachStudioTurn, resumedItems } from "./agent-turn-attach.js";
 import { actionLabelsOf, changedLine, scriptNow, stepFields, thinkingLine, withCompose, withThinking, withToolStart, withTurnEnd } from "./agent-turn.js";
 import { isPlanFrame, restoredPlans, withPlanEnd, withPlanFrame } from "./agent-plan.js";
 
@@ -384,9 +384,10 @@ export function supervisorFollowUp(note) {
 export const ERROR_COPY = {
 	auth: "Your session expired. Sign in again to continue.",
 	entitlement: "This account cannot generate images.",
-	rate_limit: "You have hit the usage limit for this window.",
+	rate_limit: "The model provider's quota for your account is used up for now. It is the provider's limit, not CozyClay's.",
 	upstream: "The model service failed to answer.",
 	overloaded: "The model service is overloaded right now. Try again in a moment.",
+	busy: "The agent is still answering. Try again in a moment.",
 };
 
 // Silence is the failure mode this replaces: a live turn says what it is doing
@@ -402,10 +403,11 @@ const ACTIVITY_IDLE_TEXT = "Ready";
 const FAILURE_REASON = {
 	auth: "session expired",
 	entitlement: "not on this plan",
-	rate_limit: "usage limit reached",
-	rate_limited: "usage limit reached",
+	rate_limit: "provider quota reached",
+	rate_limited: "provider quota reached",
 	overloaded: "service overloaded",
 	no_output: "no response",
+	busy: "agent still answering",
 };
 
 function shortFailureReason(failure) {
@@ -565,9 +567,9 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 			// too showed the page twice. The waiting card links the page from /oauth/status.
 			return request("/oauth/start", { method: "POST", body: "{}" });
 		},
-		async signOut() {
-			return request("/oauth/logout", { method: "POST", body: "{}" });
-		},
+		// The waiting card's Cancel (#1044): the sidecar stops waiting for the sign-in page.
+		async cancelSignIn() { return request("/oauth/cancel", { method: "POST", body: "{}" }); },
+		async signOut() { return request("/oauth/logout", { method: "POST", body: "{}" }); },
 		/** `{ providers, models }` (#379). The flat `models` is key-addressed
 		 * (`provider/id`) and carries each model's efforts; `providers` is the same
 		 * list grouped, with the sign-in state the dropdown disables its options
@@ -641,6 +643,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 			const note = await response.json();
 			return note?.type === "supervisor" && ["reviewed", "unavailable"].includes(note.verdict) ? note : null;
 		},
+		// A Studio turn already running on the sidecar (the panel reloaded mid-turn), from its first event.
+		attach: (turnId, onEvent, signal) => attachStudioTurn({ fetchImpl, url: sidecarUrl, parse: parseSseChunk, attempts: RESUME_ATTEMPTS }, turnId, onEvent, signal),
 		/** Streams sidecar events to `onEvent`. Resolves when the turn ends. */
 		async turn(turnRequest, onEvent, signal) {
 			const { sessionId, text, attachFrame, model, effort, attachments, supervisor, tasks } = turnRequest;
@@ -1277,9 +1281,9 @@ export function createAgentChatStore({
 		// The latest model request's prompt against the model's window (bin/agent/agent-runner.mjs countAttempt, agent-context-meter.js).
 		if (event?.type === "context") { set({ context: { tokens: event.tokens, window: event.window ?? null } }); return; }
 		if (event?.type !== "error") return;
-		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : event.message || ERROR_COPY[event.code] || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
+		const failure = { code: event.code || "upstream", message: event.code === "unauthorized" ? keyRefusedMessage(event.message) : (event.message !== event.code && event.message) || ERROR_COPY[event.code] || event.message || "The turn failed.", ...(Number.isFinite(event.status) ? { status: event.status } : {}) };
 		if (activeTurn) activeTurn.failure = failure;
-		if (event.code === "rate_limit") { set({ rateLimit: { resetAt: event.resetAt || null, message: event.message || ERROR_COPY.rate_limit } }); return; }
+		if (event.code === "rate_limit") { set({ rateLimit: { resetAt: event.resetAt || null, message: event.message || ERROR_COPY.rate_limit, provider: typeof event.provider === "string" ? event.provider : null } }); return; }
 		if (event.code === "auth") { onAuthLost?.(); return; }
 		setItems((items) => {
 			// Only THIS turn's failed tool call can carry the failure. Attaching it to
@@ -1326,6 +1330,15 @@ export function createAgentChatStore({
 		// the model still remembers is the divergence this replaces.
 		set({ sessionId: newId(), turnId: null, items: [], pendingAttachments: [], rateLimit: null, context: null, lastPrompt: "", turnStartedAt: null, lastTurn: null });
 	};
+	// How a turn ends, sent or resumed: a turn the author already replaced owns none of this state. Its live sculpt
+	// sketch (the ghost clay of a call still being written) ends with it, whatever ended it. Nothing on screen is a failure.
+	const endTurn = (turn, signal, startedAt) => {
+		if (controller?.signal === signal) controller = null; if (activeTurn !== turn) return false; wireTurnId = null; clearSculptSketch();
+		if (!turn.produced && !turn.failure && !signal.aborted) { turn.failure = { code: "no_output", message: "The turn ended without a response.", recovery: { action: "retry", retryAllowed: true } }; setItems((items) => [...items, { kind: "failure", id: newId(), failure: turn.failure }]); }
+		// The end state stays in the transcript with the turn's steps (agent-turn.js withTurnEnd).
+		const endedAt = clock(); activeTurn = null; const lastTurn = { status: signal.aborted ? "stopped" : turn.failure ? "failed" : "done", endedAt, durationMs: endedAt - startedAt, failure: turn.failure };
+		set({ streaming: false, turnStartedAt: null, lastTurn, items: withPlanEnd(withTurnEnd(state.items, lastTurn, newId), lastTurn.status) }); return true;
+	};
 	const restore = (transcript, sessionId = state.sessionId) => {
 		abandonSupervisorNotes(); seenReceipts.clear(); settledActions.clear();
 		const restoredReceiptIds = new Set();
@@ -1338,10 +1351,7 @@ export function createAgentChatStore({
 			if (item?.kind === "tool") return [{ kind: "tool", id: newId(), callId: newId(), name: item.name || "tool", label: item.label, ok: item.ok, elapsedMs: item.elapsedMs, status: item.ok === false ? "failed" : "done" }];
 			if (item?.kind === "receipt") {
 				if (item.receiptId && restoredReceiptIds.has(item.receiptId)) return [];
-				if (item.receiptId) {
-					restoredReceiptIds.add(item.receiptId);
-					seenReceipts.add(item.receiptId);
-				}
+				if (item.receiptId) { restoredReceiptIds.add(item.receiptId); seenReceipts.add(item.receiptId); }
 				return [{ kind: "receipt", id: `receipt:${item.receiptId || newId()}`, receiptId: item.receiptId, summary: item.summary || "Receipt", receipt: { status: "applied", warnings: [], verification: { status: "verified" } } }];
 			}
 			if (item?.kind === "failure") return [{ kind: "failure", id: newId(), failure: { code: item.code || "upstream", message: String(item.message || "The turn failed."), recovery: { action: "retry", retryAllowed: true } } }];
@@ -1422,24 +1432,17 @@ export function createAgentChatStore({
 			} catch (error) {
 				if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) });
 			} finally {
-				if (controller?.signal === signal) controller = null;
-				// A turn the author already replaced owns none of this state. Its live sculpt sketch
-				// (the ghost clay of a call still being written) ends with it, whatever ended it.
-				if (activeTurn === turn) {
-					wireTurnId = null; clearSculptSketch();
-					// Ending with nothing on screen is a failure, not a result.
-					if (!turn.produced && !turn.failure && !signal.aborted) {
-						turn.failure = { code: "no_output", message: "The turn ended without a response.", recovery: { action: "retry", retryAllowed: true } };
-						setItems((items) => [...items, { kind: "failure", id: newId(), failure: turn.failure }]);
-					}
-					const endedAt = clock();
-					activeTurn = null;
-					// The end state stays in the transcript with the turn's steps (agent-turn.js withTurnEnd).
-					const lastTurn = { status: signal.aborted ? "stopped" : turn.failure ? "failed" : "done", endedAt, durationMs: endedAt - startedAt, failure: turn.failure };
-					set({ streaming: false, turnStartedAt: null, lastTurn, items: withPlanEnd(withTurnEnd(state.items, lastTurn, newId), lastTurn.status) });
-					if (studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
-				}
+				if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
 			}
+		},
+		// After a reload mid-turn: show its message again and follow the turn to its end (the next message waits, not busy).
+		async resume({ turnId, text } = {}) {
+			if (!studio || !turnId || state.streaming || typeof transport.attach !== "function") return;
+			const startedAt = clock(), turn = { produced: false, failure: null, reviewable: false }, shown = String(text ?? "").trim();
+			activeTurn = turn; wireTurnId = turnId; controller = new AbortController(); const { signal } = controller;
+			set({ turnId, streaming: true, turnStartedAt: startedAt, lastTurn: null, ...(shown ? { lastPrompt: shown } : {}), items: resumedItems(state.items, shown, newId) });
+			try { await transport.attach(turnId, (event) => { sculptSketchFrame(event); applyEvent(event); }, signal); }
+			catch (error) { if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) }); } finally { endTurn(turn, signal, startedAt); }
 		},
 		/** Steering the turn that is ALREADY running (#379). `send()` deliberately
 		 * returns early while streaming — a second turn would authorize a second

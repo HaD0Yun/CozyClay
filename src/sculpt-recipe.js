@@ -38,7 +38,7 @@ export const SCULPT_MIRROR_SUFFIX = ".mirror";
 const MIN_HEIGHT = 0.05;
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const PART_KEYS = new Set(["id", "shape", "size", "position", "rotation", "color", "parent", "mirror", ...SCULPT_SHAPE_KEYS, ...SCULPT_PART_FIELDS.map((field) => field.key)]);
+export const PART_KEYS = new Set(["id", "shape", "size", "position", "rotation", "color", "parent", "mirror", ...SCULPT_SHAPE_KEYS, ...SCULPT_PART_FIELDS.map((field) => field.key)]);
 const wrapDegrees = (deg) => {
 	const wrapped = ((((deg + 180) % 360) + 360) % 360) - 180;
 	return wrapped === -180 ? 180 : wrapped;

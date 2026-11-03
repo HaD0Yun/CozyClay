@@ -6,9 +6,9 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ko } from "../locale.js";
 import { useBus } from "../app-context.js";
 import { compileActivity, watchCompileActivity } from "../commands/motion3-compile.js";
-import { createTaskBoardClient, emptyBoard, progressLine, reduceBoard, reduceScopes, seedBoard, taskView } from "./task-board.js";
+import { createTaskBoardClient, emptyBoard, followsBoard, progressLine, reduceBoard, reduceScopes, retriesBoard, seedBoard, taskView } from "./task-board.js";
 
-const RETRY_MS = 2000;
+const RETRY_MS = 2000, RECONNECT_TRIES = 15;
 const sleep = (ms, signal) => new Promise(resolve => { const timer = setTimeout(resolve, ms); signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true }); });
 
 /** Marks outliner rows (data-node-id is the scope key: object:<id>, character:<id>) inside running tasks' scopes. */
@@ -30,7 +30,7 @@ function useScopeBadges(scopes, titles) {
 	}, [scopes, titles]);
 }
 
-export default function TaskBoard({ sessionId, pulse, labelOf, onMainNote }) {
+export default function TaskBoard({ sessionId, pulse, live = false, restored = false, reconnectContext = null, labelOf, onMainNote }) {
 	const client = useMemo(() => createTaskBoardClient(), []);
 	const bus = useBus();
 	const [board, dispatch] = useReducer((state, action) => (action.seed ? seedBoard(state, action.seed) : action.reset ? emptyBoard() : reduceBoard(state, action.event)), undefined, emptyBoard);
@@ -48,9 +48,29 @@ export default function TaskBoard({ sessionId, pulse, labelOf, onMainNote }) {
 		if (event.type === "task.userEdit" || event.type === "task.undone") dispatch({ event });
 	}), [bus]);
 
-	// The board's live events; the main session exists only after its first turn, so a refusal retries (pulse: a turn ended).
+	// The board's live events. The main session exists only once a turn of it ran (live: one runs now; pulse: one ended;
+	// restored: the sidecar said it has one), so nothing is asked before; a refusal is tried again only while a turn runs
+	// (its POST may not have reached the sidecar yet), and a dropped stream always.
+	const liveRef = useRef(live);
+	useEffect(() => { liveRef.current = live; }, [live]);
+	const active = followsBoard({ sessionId, live, pulse, restored });
+	// After a reload the Studio reconnects on its own: hand its context to the board once it has a live handle.
 	useEffect(() => {
-		if (!sessionId) return undefined;
+		if (!restored || !sessionId) return undefined;
+		const controller = new AbortController();
+		(async () => {
+			for (let attempt = 0; attempt < RECONNECT_TRIES && !controller.signal.aborted; attempt += 1) {
+				const context = reconnectContext?.current?.() ?? null; // the panel's context builder, a ref
+				if (context?.host?.workspaceHandle) {
+					try { await client.reconnect(sessionId, context); return; } catch (error) { if (error?.status === 403) return; }
+				}
+				await sleep(RETRY_MS, controller.signal);
+			}
+		})();
+		return () => controller.abort();
+	}, [client, restored, sessionId, reconnectContext]);
+	useEffect(() => {
+		if (!active) return undefined;
 		const controller = new AbortController();
 		(async () => {
 			while (!controller.signal.aborted) {
@@ -60,17 +80,20 @@ export default function TaskBoard({ sessionId, pulse, labelOf, onMainNote }) {
 					await client.events(sessionId, afterRef.current, event => {
 						if (event.type === "main.turn" && event.turnId) {
 							let text = "";
-							client.frames(event.turnId, frame => { if (frame.type === "text.delta") text += frame.text ?? ""; if (frame.type === "tool.start") text = ""; }, controller.signal)
+							client.frames(event.turnId, frame => { if (frame.type === "text.delta") text += frame.text ?? ""; if (frame.type === "tool.start" || frame.type === "error" && frame.code === "aborted") text = ""; }, controller.signal)
 								.then(() => noteRef.current?.(text), () => {});
 						}
 						dispatch({ event });
 					}, controller.signal);
-				} catch { /* not there yet, or the stream dropped: try again */ }
+				} catch (error) {
+					// No board for this session (403/404): wait for the next turn rather than poll it every RETRY_MS.
+					if (!retriesBoard(error, liveRef.current)) return;
+				}
 				await sleep(RETRY_MS, controller.signal);
 			}
 		})();
 		return () => controller.abort();
-	}, [client, sessionId, pulse]);
+	}, [client, sessionId, pulse, active, live]);
 
 	// A running card's progress line: its own frames, the last tool it started.
 	const running = board.order.filter(id => board.tasks[id]?.status === "running" && board.tasks[id]?.turnId);

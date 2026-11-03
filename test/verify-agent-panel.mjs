@@ -140,8 +140,8 @@ const controls = [
 	["stop control", "agent-stop"],
 	["suggestion chips", "presentation.suggestions"],
 	["paused card", "PausedCard"],
-	["Wait & retry", "Wait &amp; retry"],
-	["Switch model", "Switch model"],
+	["Wait & retry", "<PausedCard resetAt"],
+	["Switch model", "onSwitchModel={switchModel}"],
 	["error Retry", ">Retry<"],
 	["step list Retry", "onRetry={() => runTurn(chat.lastPrompt, \"retry_button\")} />"],
 ];
@@ -540,7 +540,27 @@ expect("a stopped turn says so", stoppedTurn.kind === "terminal" && stoppedTurn.
 const failedTurn = phase({ lastTurn: { status: "failed", endedAt: 3500, durationMs: 900, failure: { code: "upstream", status: 400, message: "400 — The requested model is not supported" } } });
 expect("a failed turn names the reason the transport reported", failedTurn.text === "Failed: 400 — The requested model is not supported", failedTurn.text);
 const limitedTurn = phase({ lastTurn: { status: "failed", endedAt: 3500, durationMs: 900, failure: { code: "rate_limit", message: module_.ERROR_COPY.rate_limit } } });
-expect("a usage limit is stated in a few words", limitedTurn.text === "Failed: usage limit reached", limitedTurn.text);
+expect("a usage limit is stated in a few words", limitedTurn.text === "Failed: provider quota reached", limitedTurn.text);
+// #1043: a rate limit is the provider's quota, says how long to wait, and offers another connected provider.
+{
+	expect("the rate-limit copy names the provider's quota, not CozyClay's", /provider's quota/.test(module_.ERROR_COPY.rate_limit) && /not CozyClay's/.test(module_.ERROR_COPY.rate_limit), module_.ERROR_COPY.rate_limit);
+	const providers = [
+		{ id: "google", label: "Google Gemini", signedIn: true, models: [{ key: "google/gemini-x" }, { key: "google/gemini-y" }] },
+		{ id: "anthropic", label: "Anthropic", signedIn: false, models: [{ key: "anthropic/claude-x" }] },
+		{ id: "openai-compatible", label: "OpenAI-compatible", signedIn: true, endpoint: "local", models: [{ key: "openai-compatible/qwen" }] },
+	];
+	const models = [{ id: "google/gemini-x" }, { id: "google/gemini-y" }, { id: "anthropic/claude-x" }, { id: "openai-compatible/qwen" }];
+	const help = await import("../src/workflow/agent-provider-help.js");
+	const cards = readFileSync(new URL("../src/workflow/AgentWaitCards.jsx", import.meta.url), "utf8");
+	const next = help.otherProviderModel(providers, models, "google/gemini-x");
+	expect("the switch skips the limited provider and one without a credential", JSON.stringify(next) === JSON.stringify({ model: "openai-compatible/qwen", provider: "openai-compatible", label: "OpenAI-compatible" }), JSON.stringify(next));
+	expect("no other connected provider: no switch target", help.otherProviderModel(providers.slice(0, 2), models, "google/gemini-x") === null);
+	expect("the card names the provider by its label", help.providerLabel(providers, "google") === "Google Gemini" && help.providerLabel([], "google") === "google");
+	expect("the client keeps the frame's provider on the paused state", client.includes('provider: typeof event.provider === "string" ? event.provider : null'));
+	expect("the paused card offers the other provider by name, and the wait or that none was given", cards.includes("Switch to ${alternative.label}") && cards.includes('ko("Wait & retry"') && cards.includes('"wait time not given"') && panel.includes("alternative={alternative}"));
+	expect("the wait left reads in minutes, then seconds", help.formatWaitLeft("1970-01-01T00:10:00.000Z", 0) === "10 min" && help.formatWaitLeft("1970-01-01T00:00:40.000Z", 0) === "40 s" && help.formatWaitLeft(undefined, 0) === null);
+	expect("every waiting-card failure class has words", ["timeout", "callback_error", "port_busy"].every((reason) => typeof help.SIGN_IN_FAILURE_COPY[reason] === "string"));
+}
 const settled = phase({ lastTurn: { status: "done", endedAt: 3500, durationMs: 12000, failure: null } }, 3500 + module_.ACTIVITY_TERMINAL_MS);
 expect("the terminal state gives way to a quiet Ready", settled.kind === "idle" && settled.text === "Ready" && !settled.ticking, settled.text);
 expect("an idle panel says Ready", phase({}).text === "Ready" && phase({}).phase === "idle");
@@ -575,6 +595,13 @@ const refusedCard = refused.items.find((item) => item.kind === "failure");
 expect("an upstream refusal renders a failure card with the reported detail", refusedCard?.failure.code === "upstream" && refusedCard.failure.message === "429 — usage limit, resets in 42m" && refusedCard.failure.status === 429);
 expect("the failure card offers a retry", refusedCard.failure.recovery.retryAllowed === true);
 expect("a refused turn ends as failed", refused.lastTurn?.status === "failed");
+
+// A second message while the agent still answers: the server says only "busy"; the card says what that means, once.
+const busyTurn = await driveTurn(async (onEvent) => { onEvent({ type: "error", code: "busy", message: "busy" }); onEvent({ type: "done" }); });
+const busyCard = busyTurn.items.find((item) => item.kind === "failure");
+expect("a busy refusal reads as plain English, not \"busy busy\"", busyCard?.failure.message === module_.ERROR_COPY.busy && /still answering/.test(busyCard.failure.message), busyCard?.failure.message);
+expect("the activity line says why in a few words", module_.describeActivity(busyTurn, { now: 3500 }).text === "Failed: agent still answering", module_.describeActivity(busyTurn, { now: 3500 }).text);
+expect("a failure card never repeats its code as its message", panel.includes("(failure.message !== failure.code && failure.message)"));
 
 const attached = await driveTurn(async (onEvent) => {
 	onEvent({ type: "tool.start", callId: "c1", name: "capture_blocking_frame" });
@@ -1093,7 +1120,9 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	expect("the server's own refusal is not \"offline\"", !module_.agentServerUnavailable(await reason(failing(new Response("{}", { status: 500 })))) && !module_.agentServerUnavailable({ status: 401 }));
 	expect("the panel probes into an offline state and retries it", panel.includes('setAuthState("offline")') && /\}, \[applyModelList, probe, sessionState, transport\]\);/.test(panel) && panel.includes("<OfflineCard probing={probing} onRetry={retryServer} />"));
 	expect("offline hides the sign-in card and the login list", !/authState === "offline"[^\n]*agent-signin/.test(panel) && panel.includes('keysOpen && authState !== "offline" && <LoginPanel'));
-	expect("a failed ChatGPT sign-in shows its reason under the button", /agent-signin" onClick=\{signIn\}>Sign in with ChatGPT<\/button>\n\t+\{signInError && <p className="agent-key-error agent-signin-error" role="alert">/.test(panel));
+	// #1044: the reason (a start that failed, or how the sidecar's wait ended) sits above the button that tries again.
+	expect("a failed ChatGPT sign-in shows its reason and tries again in place", /\{\(signInError \|\| SIGN_IN_FAILURE_COPY\[account\?\.failure\]\) && <p className="agent-key-error agent-signin-error" role="alert"[^\n]*\n\t+<button type="button" className="agent-primary-button agent-signin" onClick=\{signIn\}>\{signInError \|\| SIGN_IN_FAILURE_COPY\[account\?\.failure\] \? "Try again: sign in with ChatGPT" : "Sign in with ChatGPT"\}/.test(panel));
+	expect("the ChatGPT waiting card says what to do, when it stops waiting, and can be cancelled", readFileSync(new URL("../src/workflow/AgentWaitCards.jsx", import.meta.url), "utf8").includes("data-agent-signin-wait") && panel.includes("<SigningInCard account={account} onCancel={cancelSignIn}") && panel.includes('connectFinished("cancelled", "user_closed")'));
 	expect("the offline card is token-driven", /\.agent-offline-icon \{[^}]*color: var\(--agent-text-muted\)/.test(css));
 	const { parseSync } = await import("rolldown/experimental");
 	const { transformWithOxc } = await import("vite");
@@ -1183,6 +1212,20 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 		const keyed = sent.splice(0).filter((row) => row.event === "agent:connect_finished").map((row) => `${row.props.outcome}:${row.props.step}`);
 		expect("connect: with another provider ready, a pending ChatGPT sign-in stays open; ok waits for ChatGPT itself, an ended unsigned one is abandoned",
 			stillOpen === 0 && JSON.stringify(keyed) === JSON.stringify(["ok:done", "abandoned:waiting"]), JSON.stringify({ stillOpen, keyed }));
+		// #1044: why an attempt did not connect, a class only, on failed / cancelled / abandoned; never on ok.
+		connectStarted("openai-codex", "chatgpt"); connectAuthState("signing-in", { signedIn: false, pending: true });
+		connectAuthState("signed-out", { signedIn: false, failure: "timeout" });
+		connectStarted("openai-codex", "chatgpt"); connectAuthState("signing-in", { signedIn: false, pending: true });
+		connectAuthState("signed-out", { signedIn: false, failure: "callback_error" });
+		connectStarted("openai-codex", "chatgpt"); connectFinished("failed", "port_busy");
+		connectStarted("anthropic-subscription", "oauth"); connectStep("waiting"); connectFinished("cancelled", "user_closed");
+		connectStarted("anthropic-subscription", "oauth"); connectStep("waiting"); connectFinished("failed", "a message, not a class");
+		connectStarted("anthropic-subscription", "oauth"); connectFinished("ok", "timeout");
+		const reasons = sent.splice(0).filter((row) => row.event === "agent:connect_finished").map((row) => `${row.props.outcome}:${row.props.step}:${row.props.reason ?? "-"}`);
+		expect("connect: a failed or closed wait names its class (timeout, callback_error, port_busy, user_closed, other), ok none",
+			JSON.stringify(reasons) === JSON.stringify(["failed:waiting:timeout", "failed:waiting:callback_error", "failed:list:port_busy", "cancelled:waiting:user_closed", "failed:waiting:other", "ok:done:-"]), JSON.stringify(reasons));
+		const sanitizedReason = sanitizeProps("agent:connect_finished", { provider: "openai-codex", method: "chatgpt", outcome: "failed", step: "waiting", duration: "lt10s", reason: "timeout" });
+		expect("connect: the reason survives the closed schema", sanitizedReason.reason === "timeout" && !Object.hasOwn(sanitizeProps("agent:connect_finished", { reason: "EADDRINUSE 127.0.0.1:1455" }), "reason"), JSON.stringify(sanitizedReason));
 		// Caps: connect_opened 5, model_changed 10 per session; after_failure follows the last turn.
 		for (let i = 0; i < 9; i += 1) connectOpened("menu");
 		noteTurnOutcome("failed"); modelChanged("anthropic/claude-x");
@@ -1197,7 +1240,7 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 		expect("prompt_sent: every send path names its via, the chip and the draft are noted, and the panel stages before it sends",
 			["\"retry_button\")", "\"regenerate\")", "\"supervisor\")"].every((via) => panelSource.includes(via)) && panelSource.includes("noteChipDraft(); store.setDraft(chip)")
 			&& panelSource.includes("noteDraftInput(); store.setDraft(event.target.value)") && /stagePrompt\(text, [^\n]*\n\s*return store\.send\(text/.test(panelSource));
-		expect("connect: the four openers and the ChatGPT attempt are wired", login.includes("connectStarted(provider.id, method.type)") && login.includes('connectFinished("cancelled")') && login.includes('connectFinished("abandoned")')
+		expect("connect: the four openers and the ChatGPT attempt are wired", login.includes("connectStarted(provider.id, method.type)") && login.includes('connectFinished("cancelled", "user_closed")') && login.includes('connectFinished("abandoned", "user_closed")')
 			&& panelSource.includes('connectOpened("menu")') && panelSource.includes('openProviderKeys("signed_out")') && panelSource.includes('openProviderKeys("failure_card")') && panelSource.includes('connectStarted("openai-codex", "chatgpt")') && panelSource.includes("connectAuthState(authState, account)") && panelSource.includes("if (result.ok) noteDraftConsumed();"));
 	} finally {
 		restore(); friction.reset();

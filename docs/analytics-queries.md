@@ -1613,6 +1613,9 @@ Count bucket: `0`, `1`, `2`, `3`, `4-5`, `6-10`, `gte11` (the
 | | `origin` | `ui`, `agent` | The user's control, or the agent or an MCP client |
 | | `phase` | `admission`, `commit` | Refused before any change, or after the command started changing |
 | | `group` | `object`, `shot`, `cast`, `scene`, `motion`, `edit`, `task`, `agent`, `other` | The command's family |
+| | `command` | a declared action or bus control id | Absent for an id the caller made up (then `rule` is `unknown_action`) or a build before #975 |
+| | `rule` | `type`, `unknown_field`, `missing`, `items`, `unique`, `format`, `enum`, `range`, `variant`, `unknown_action`, `spec`, `recipe`, `check`, `unclassified` | `INVALID_ARGUMENT` only (#1042): which kind of check failed |
+| | `field` | schema path, list positions as `[]` | `INVALID_ARGUMENT` only, when known: `$.args.framing.intent.size`, `$.args.spec.keys`, `$.args.recipe.parts[].size` |
 | `edit:undone` | `age` | age bucket | Time since the undone edit was made; present only when `result = done` and the age is known |
 | | `kind` | `pose`, `camera`, `object`, `shot`, `prompt`, `agent_turn`, `ik_preview`, `other` | `agent_turn` is the agent's whole turn; `ik_preview` is an un-applied IK drag |
 | | `via` | `key`, `menu`, `button` | How the user asked for the undo |
@@ -1636,7 +1639,7 @@ Count bucket: `0`, `1`, `2`, `3`, `4-5`, `6-10`, `gte11` (the
 
 Caps and windows:
 
-- `studio:refused`: at most 3 per (`code`, `group`, `origin`) per session.
+- `studio:refused`: at most 3 per (`code`, `command` or `group`, `field` or `rule`, `origin`) per session.
   The rest are counted only in `app:friction_summary` `refusals_ui` /
   `refusals_agent`, so rank codes with these rows but total refusals with the
   summary. A cancel the caller asked for (`CANCELLED`) is not a refusal.
@@ -1710,6 +1713,31 @@ older scene revision), `TARGET_BUSY` (another gesture held the target) and
 `UNCERTAIN_APPLY` (the Studio could not confirm the change landed). The
 per-session cap flattens frequent codes, so `refusals` is a lower bound; read
 `sessions` for reach. Split by `phase` to see refusals after a change started.
+
+Which field the agent gets wrong, per command (#1042):
+
+```sql
+SELECT
+    properties.command AS command,
+    properties.rule AS rule,
+    properties.field AS field,
+    count() AS refusals,
+    uniq(distinct_id) AS users
+FROM events
+WHERE event = 'studio:refused'
+  AND properties.code = 'INVALID_ARGUMENT'
+  AND properties.origin = 'agent'
+  AND JSONExtractRaw(properties, 'internal_qa') != 'true'
+  AND timestamp >= now() - INTERVAL 14 DAY
+GROUP BY command, rule, field
+ORDER BY refusals DESC
+```
+
+`command` empty with `rule` `unknown_action` is an action id the registry does
+not declare (the old "command not reported" bucket). `rule` `spec` is a motion
+spec the compiler refused (`field` is its top-level spec field), `recipe` a
+sculpt recipe, `check` a refusal a command raised itself and `unclassified` a
+plain error without a code.
 
 ## 2.7 What people fixed after the agent (90 days)
 
@@ -1973,7 +2001,7 @@ Builds before this release have no rows (**unknown, not 0**).
 | --- | --- | --- |
 | `agent:connect_opened` | `entry`: `first_run`, `failure_card`, `signed_out`, `menu`, `other` | The menu's Connect a model, the signed-out card's other-provider button, or a refused key's Log in again. The signed-out card reads `first_run` until this browser profile has connected once. 5 per session |
 | `agent:connect_started` | `provider`, `method` (`oauth`, `api_key`, `chatgpt`) | A provider's login button, or Sign in with ChatGPT. One per attempt |
-| `agent:connect_finished` | `provider`, `method`, `outcome`, `step`, `duration` (lt10s … gte5m) | One per attempt, see below |
+| `agent:connect_finished` | `provider`, `method`, `outcome`, `step`, `duration` (lt10s … gte5m), `reason` (not-ok only, when known) | One per attempt, see below |
 | `agent:model_changed` | `provider`, `after_failure` (bool) | The model list. 10 per session |
 
 `provider` is one of the ten providers CozyClay configures itself
@@ -1986,10 +2014,15 @@ of a long tail read `other`.
 - `failed`: the flow ended with an error, or the login could not start.
 - `cancelled`: the user pressed Cancel inside a running flow.
 - `abandoned`: the panel was closed or left mid-flow, or another attempt
-  began. A ChatGPT sign-in that comes back without a session is also
-  `abandoned`: the sidecar reports a failed and a closed browser sign-in the
-  same way, and the panel's sign-in error is set only when the start request
-  itself fails.
+  began. Before #1044 a ChatGPT sign-in that came back without a session was
+  also `abandoned`; from #1044 the sidecar names why the wait ended, and that
+  attempt reads `failed` with a `reason`.
+
+`reason` (from #1044, on `failed`, `cancelled` and `abandoned` when known):
+`timeout` (the 10-minute wait ran out), `callback_error` (the sign-in page
+came back refused, or the code exchange failed), `port_busy` (no callback
+port was free), `user_closed` (Cancel, or the login list closed), `other`.
+Split `failed`/`waiting` by it to see which one to fix.
 
 `step` is how far the attempt got: `list` (it never started a flow),
 `waiting` (the flow ran), `prompt` (it was asking for a key, an address or a

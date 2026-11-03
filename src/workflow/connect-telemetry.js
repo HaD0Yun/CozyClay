@@ -10,6 +10,8 @@ import { admit } from "../analytics-friction.js";
 import { CONNECT_PROVIDERS, bucketLong } from "../analytics-strict.js";
 const METHODS = new Set(["oauth", "api_key", "chatgpt"]);
 const ENTRIES = new Set(["first_run", "failure_card", "signed_out", "menu", "other"]);
+// Why an attempt ended without a connection (#1044), a class the sidecar or the panel names; never its message.
+const CONNECT_FAILURE_REASONS = Object.freeze(["timeout", "callback_error", "port_busy", "user_closed", "other"]);
 const CONNECTED_KEY = "cozyclay.agentConnected";
 const OPENED_PER_SESSION = 5, MODEL_CHANGES_PER_SESSION = 10;
 
@@ -40,13 +42,15 @@ export function connectStep(step) {
 	if (attempt && ["list", "prompt", "waiting", "done"].includes(step)) attempt.step = step;
 }
 
-/** The open attempt ends: ok, failed, cancelled (the user's Cancel) or abandoned (closed or left unfinished). */
-export function connectFinished(outcome) {
+/** The open attempt ends: ok, failed, cancelled (the user's Cancel) or abandoned (closed or left unfinished).
+ * `reason`: why one that did not connect ended (CONNECT_FAILURE_REASONS), when that is known. */
+export function connectFinished(outcome, reason) {
 	const ended = attempt;
 	if (!ended) return;
 	attempt = null;
 	const step = outcome === "ok" ? "done" : ended.step;
-	emit("agent:connect_finished", { provider: ended.provider, method: ended.method, outcome, step, duration: bucketLong(now() - ended.startedAt) });
+	const why = outcome !== "ok" && reason !== undefined ? { reason: CONNECT_FAILURE_REASONS.includes(reason) ? reason : "other" } : {};
+	emit("agent:connect_finished", { provider: ended.provider, method: ended.method, outcome, step, duration: bucketLong(now() - ended.startedAt), ...why });
 	if (outcome === "ok") { try { storage()?.setItem(CONNECTED_KEY, "1"); } catch { /* storage is optional */ } }
 }
 
@@ -62,8 +66,9 @@ export function connectAuthState(state, account) {
 	if (attempt?.method !== "chatgpt") return;
 	if (account?.signedIn === true) connectFinished("ok");
 	else if (state === "signing-in" || account?.pending === true) connectStep("waiting");
-	// The browser sign-in failed or was closed, with or without another provider ready:
-	// the sidecar reports neither apart.
+	// The sidecar names why the wait ended (#1044): the sign-in page came back refused, or the wait ran out.
+	else if (typeof account?.failure === "string") connectFinished(account.failure === "user_closed" ? "cancelled" : "failed", account.failure);
+	// The sign-in ended with no reason given, with or without another provider ready.
 	else if (state === "signed-out" || state === "ready" || state === "no-entitlement") connectFinished("abandoned");
 }
 
