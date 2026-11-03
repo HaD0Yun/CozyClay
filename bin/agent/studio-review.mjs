@@ -2,6 +2,8 @@
 // asked, so a model could stop on a scene it never looked at. Now when a run edits the scene and the model stops, the editor measures
 // what changed and renders the shot frame and the top view, and the model gets those as its next message: it repairs, or says why not.
 // Repeats after a repair, at most MAX_REVIEWS times a turn. BlenderGym (CVPR 2025): compute spent on verification is what moves 3D editing.
+import { layerOf } from "../../src/bus-task-scopes.js";
+
 const MAX_REVIEWS = 3;
 // Estimates, not calibrated: a picture this share clipped or crushed is worth a look.
 const LIGHT_PCT = 10;
@@ -65,7 +67,7 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, s
 	const quiet = async work => { try { return await work(); } catch (error) { console.warn(`[agent] review check skipped: ${error.message}`); return null; } };
 	return async edits => {
 		const seen = await quiet(() => hub.command("inspect_studio", { scope: "relations" }, workspaceHandle));
-		const owned = scope ? new Set([...scope.filter(key => /^(object|character):/.test(key)).map(key => key.slice(key.indexOf(":") + 1)), ...edits.ids, ...edits.motionIds]) : null;
+		const owned = scope ? new Set([...scope.map(key => layerOf(key)?.id ?? (key.startsWith("object:") ? key.slice(7) : null)).filter(Boolean), ...edits.ids, ...edits.motionIds]) : null;
 		const characters = (seen?.characters ?? []).map(c => c.id).filter(id => !owned || owned.has(id)), verify = args => quiet(() => invoke("verify_result", args));
 		// A receipt also names shots and camera keys; verify_result refuses a target that is not an object or a character.
 		const known = seen?.entityIds ? new Set(seen.entityIds) : null, edited = known ? edits.ids.filter(id => known.has(id)) : edits.ids;

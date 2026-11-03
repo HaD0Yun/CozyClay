@@ -82,6 +82,9 @@ assert.ok(!scoped.findings.some(line => line.includes("theirs") || line.includes
 assert.ok(scoped.findings.includes("placement: floating over 1 cm: cup-1"), "an id the run edited stays in");
 assert.deepEqual(reviewFindings({ placement: { checks: { placement: { overlapIds: ["cup-1", "theirs"] } } }, owned: new Set(["cup-1"]) }), ["placement: footprints overlap for cup-1, theirs (deepest ? m)"], "an overlap that touches the task's id stays whole");
 assert.deepEqual(reviewFindings({ motion: [{ id: "theirs", qa: { total: 4, groups: [] } }], owned: new Set(["mine"]) }), [], "another character's motion QA is dropped");
+const layeredArgs = [];
+await createTurnReview({ invoke: async (name, args) => { layeredArgs.push(args); return {}; }, resolveImage: async () => null, hub: cast, workspaceHandle: "w", scope: ["character:mine:placement", "object:cup-1"] })({ edited: true, ids: ["cup-1"], motionIds: [], stage: false });
+assert.deepEqual(layeredArgs.find(a => a.checks?.[0] === "framing").targets, ["mine"], "a layered character key (character:<id>:<layer>) still owns that character");
 const mainArgs = [];
 await createTurnReview({ invoke: async (name, args) => { mainArgs.push(args); return {}; }, hub: cast, workspaceHandle: "w" })({ edited: true, ids: ["cup-1"], motionIds: [], stage: false });
 assert.deepEqual(mainArgs.find(a => a.checks?.[0] === "framing").targets, ["mine", "theirs"], "a turn that is not a task still frames the whole cast");
