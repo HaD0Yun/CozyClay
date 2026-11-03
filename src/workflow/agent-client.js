@@ -1331,15 +1331,12 @@ export function createAgentChatStore({
 		set({ sessionId: newId(), turnId: null, items: [], pendingAttachments: [], rateLimit: null, context: null, lastPrompt: "", turnStartedAt: null, lastTurn: null });
 	};
 	// How a turn ends, sent or resumed: a turn the author already replaced owns none of this state. Its live sculpt
-	// sketch (the ghost clay of a call still being written) ends with it, whatever ended it.
+	// sketch (the ghost clay of a call still being written) ends with it, whatever ended it. Nothing on screen is a failure.
 	const endTurn = (turn, signal, startedAt) => {
-		if (controller?.signal === signal) controller = null;
-		if (activeTurn !== turn) return false; wireTurnId = null; clearSculptSketch();
-		// Ending with nothing on screen is a failure, not a result.
+		if (controller?.signal === signal) controller = null; if (activeTurn !== turn) return false; wireTurnId = null; clearSculptSketch();
 		if (!turn.produced && !turn.failure && !signal.aborted) { turn.failure = { code: "no_output", message: "The turn ended without a response.", recovery: { action: "retry", retryAllowed: true } }; setItems((items) => [...items, { kind: "failure", id: newId(), failure: turn.failure }]); }
-		const endedAt = clock(); activeTurn = null;
 		// The end state stays in the transcript with the turn's steps (agent-turn.js withTurnEnd).
-		const lastTurn = { status: signal.aborted ? "stopped" : turn.failure ? "failed" : "done", endedAt, durationMs: endedAt - startedAt, failure: turn.failure };
+		const endedAt = clock(); activeTurn = null; const lastTurn = { status: signal.aborted ? "stopped" : turn.failure ? "failed" : "done", endedAt, durationMs: endedAt - startedAt, failure: turn.failure };
 		set({ streaming: false, turnStartedAt: null, lastTurn, items: withPlanEnd(withTurnEnd(state.items, lastTurn, newId), lastTurn.status) }); return true;
 	};
 	const restore = (transcript, sessionId = state.sessionId) => {
@@ -1438,8 +1435,7 @@ export function createAgentChatStore({
 				if (endTurn(turn, signal, startedAt) && studio && turn.reviewable && options.supervisor === true && !signal.aborted) requestSupervisorNote(turnId);
 			}
 		},
-		// The panel reloaded while its Studio turn ran on: show that message again and follow the turn to its end, so its
-		// progress comes back and the next message waits for it instead of being refused as busy.
+		// After a reload mid-turn: show its message again and follow the turn to its end (the next message waits, not busy).
 		async resume({ turnId, text } = {}) {
 			if (!studio || !turnId || state.streaming || typeof transport.attach !== "function") return;
 			const startedAt = clock(), turn = { produced: false, failure: null, reviewable: false }, shown = String(text ?? "").trim();
