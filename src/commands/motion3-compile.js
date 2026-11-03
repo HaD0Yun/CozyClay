@@ -8,12 +8,14 @@
 // runs the same code on the same plain inputs), whichever worker runs it.
 import { runCompileJob } from "../motion3/compile-job.js";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
+import { specRefusalPath } from "../motion3/schema/fields.js";
 
 const POOL = 2;
 
 /** A job error (or a worker's serialized one) as the Studio's protocol error when it carries a code. */
 function rethrow(error) {
-	if (error?.code && !(error instanceof StudioProtocolError)) throw new StudioProtocolError(error.code, error.message);
+	// A refused spec names its top-level field for studio:refused (command-bus-telemetry.js); the message is unchanged.
+	if (error?.code && !(error instanceof StudioProtocolError)) throw new StudioProtocolError(error.code, error.message, error.code === "INVALID_ARGUMENT" ? { path: specRefusalPath(error.message), rule: "spec" } : {});
 	if (error instanceof Error) throw error;
 	throw Object.assign(new Error(error?.message ?? String(error)), { name: error?.name ?? "Error" });
 }
