@@ -5,7 +5,7 @@ import { createCredentialStore } from "./credential-store.mjs";
 import { readCredentials } from "./provider-keys.mjs";
 import { cliproxyBase, cliproxyProvider, extendCliproxyProvider, registryLiveCliproxy } from "./cliproxy-provider.mjs";
 export { cliproxyLiveModel } from "./cliproxy-provider.mjs";
-import { OPENAI_COMPATIBLE_ID, openaiCompatibleProvider, refreshOpenAICompatible } from "./openai-compatible-provider.mjs";
+import { OPENAI_COMPATIBLE_ID, endpointClass, openaiCompatibleProvider, refreshOpenAICompatible } from "./openai-compatible-provider.mjs";
 import { rolesByMain } from "./model-roles.mjs";
 export { MODEL_ROLES, fallbackChain, resolveRoleModels } from "./model-roles.mjs";
 
@@ -313,7 +313,8 @@ export async function listAgentModels({ models, codex, auth = defaultAuth, keys 
 		} else if (provider.id === OPENAI_COMPATIBLE_ID && signedIn) {
 			// the server's own /v1/models is the lineup, read on every listing so a model loaded since then shows up
 			const error = await refreshOpenAICompatible(resolvedModels);
-			providers.push({ id: provider.id, label: provider.label, signedIn, authSource, models: catalogModels(resolvedModels, provider.id, getSupportedThinkingLevels), ...(error ? { error } : {}) }); continue;
+			// the address's class (local, lan, hosted), never the address: agent:prompt_sent splits this lane by it (#1043)
+			providers.push({ id: provider.id, label: provider.label, signedIn, authSource, endpoint: endpointClass(resolvedModels.getModels(provider.id)[0]?.baseUrl), models: catalogModels(resolvedModels, provider.id, getSupportedThinkingLevels), ...(error ? { error } : {}) }); continue;
 		}
 		providers.push({ id: provider.id, label: provider.label, signedIn, authSource, models: list });
 	}

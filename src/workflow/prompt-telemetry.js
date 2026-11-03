@@ -58,8 +58,12 @@ export function noteChipDraft() {
 	fromChip = true;
 }
 
-/** The panel is sending `text`: keep only what the event needs, never the text. */
-export function stagePrompt(text, { via = "typed", model = "", attached = false, taskMode = false } = {}) {
+// An OpenAI-compatible server's address class from the model list (bin/agent/openai-compatible-provider.mjs endpointClass).
+const ENDPOINTS = new Set(["local", "lan", "hosted", "unknown"]);
+
+/** The panel is sending `text`: keep only what the event needs, never the text. `endpoint`: the address class of an
+ * openai-compatible model's server, sent only for that provider (#1043). */
+export function stagePrompt(text, { via = "typed", model = "", endpoint, attached = false, taskMode = false } = {}) {
 	try {
 		const trimmed = String(text ?? "").trim();
 		if (!trimmed) return;
@@ -69,6 +73,7 @@ export function stagePrompt(text, { via = "typed", model = "", attached = false,
 		staged = { at: now(), tokens: promptTokens(trimmed), props: {
 			provider: CONNECT_PROVIDERS.includes(provider) ? provider : "other", via: how, prompt_len: bucketPromptLength(trimmed.length),
 			...(composing ? { compose_ms: bucketLong(now() - draftStartedAt) } : {}), attached: Boolean(attached), task_mode: Boolean(taskMode),
+			...(provider === "openai-compatible" ? { endpoint: ENDPOINTS.has(endpoint) ? endpoint : "unknown" } : {}),
 		} };
 	} catch {
 		staged = null;

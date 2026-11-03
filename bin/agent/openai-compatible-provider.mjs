@@ -33,6 +33,18 @@ function endpointModel(id, base) {
 	};
 }
 
+/** The kind of address a server answers on, for telemetry (#1043): "local" (this machine: loopback, localhost),
+ * "lan" (a private network address or a .local name), "hosted" (anything else), "unknown" (no parseable address).
+ * Only this class leaves the sidecar, never the address. */
+export function endpointClass(base) {
+	let host;
+	try { host = new URL(base).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch { return "unknown"; }
+	if (!host) return "unknown";
+	if (host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "0.0.0.0" || /^127\./.test(host) || /^::ffff:127\./.test(host)) return "local";
+	if (host.endsWith(".local") || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^169\.254\./.test(host) || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe80:/.test(host)) return "lan";
+	return "hosted";
+}
+
 /** Moonshot's own API (#947): a host check on the address, nothing else. */
 export const isMoonshotBase = (base) => { try { return /^api\.moonshot\.(ai|cn)$/.test(new URL(base).hostname); } catch { return false; } };
 // The documented default output limit for Kimi K3 models; the catalog's 1048576 is the context window.

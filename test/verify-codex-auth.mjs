@@ -79,6 +79,61 @@ try {
 		if (previousCliproxyKey === undefined) delete process.env.CLIPROXY_API_KEY;
 		else process.env.CLIPROXY_API_KEY = previousCliproxyKey;
 	}
+// #1044: the ChatGPT sign-in's waiting step knows when it gives up, and says why it ended.
+{
+	const { createServer } = await import("node:http");
+	const free = async () => { const probe = createServer(); await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve)); const { port } = probe.address(); await new Promise((resolve) => probe.close(resolve)); return port; };
+	const opened = [];
+	const port = await free();
+	let restore = auth.oauthSeam({ waitMs: 60, ports: [port], openUrl: (url) => opened.push(url) });
+	try {
+		auth.logout();
+		const started = await auth.startOAuth();
+		assert.equal(opened.length, 1, "the sign-in page opens once");
+		assert.ok(Date.parse(started.waitUntil) > Date.now() - 1000, "the start says when the wait ends");
+		assert.equal(auth.status().pending, true);
+		assert.equal(auth.status().waitUntil, started.waitUntil, "status carries the end of the wait");
+		await new Promise((resolve) => setTimeout(resolve, 120));
+		assert.deepEqual([auth.status().pending, auth.status().failure], [undefined, "timeout"], "a wait that runs out reads as timeout");
+		// A refused page: the callback carries error=, the attempt ends as callback_error, the page says so.
+		const again = await auth.startOAuth();
+		assert.equal(auth.status().failure, undefined, "a new start clears the old reason");
+		const state = new URL(again.authorizeUrl).searchParams.get("state");
+		const refused = await fetch(`http://127.0.0.1:${port}/auth/callback?state=${state}&error=access_denied`);
+		assert.equal(refused.status, 400);
+		assert.match(await refused.text(), /did not finish/);
+		assert.equal(auth.status().failure, "callback_error");
+		// A code the token endpoint refuses: no "signed in" page, no unhandled rejection, callback_error.
+		const realFetch = globalThis.fetch;
+		const third = await auth.startOAuth();
+		globalThis.fetch = async (url, init) => String(url).startsWith("https://auth.openai.com/") ? new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }) : realFetch(url, init);
+		try {
+			const exchanged = await realFetch(`http://127.0.0.1:${port}/auth/callback?state=${new URL(third.authorizeUrl).searchParams.get("state")}&code=bad`);
+			assert.equal(exchanged.status, 502);
+			assert.doesNotMatch(await exchanged.text(), /You are signed in/);
+		} finally { globalThis.fetch = realFetch; }
+		assert.equal(auth.status().failure, "callback_error");
+		// Cancel on the waiting card.
+		await auth.startOAuth();
+		let cancelled;
+		await auth.handleOAuthRequest({ method: "POST", url: "/oauth/cancel" }, { writeHead(code) { assert.equal(code, 200); }, end(body) { cancelled = JSON.parse(body); } });
+		assert.deepEqual(cancelled, { ok: true });
+		assert.equal(auth.status().failure, "user_closed");
+		// Every callback port busy: 409 port_busy, and status says so.
+		restore();
+		const blocker = createServer();
+		await new Promise((resolve) => blocker.listen(port, "127.0.0.1", resolve));
+		restore = auth.oauthSeam({ waitMs: 60, ports: [port], openUrl: (url) => opened.push(url) });
+		try {
+			let code, body;
+			await auth.handleOAuthRequest({ method: "POST", url: "/oauth/start" }, { writeHead(value) { code = value; }, end(value) { body = JSON.parse(value); } });
+			assert.equal(code, 409);
+			assert.equal(body.error.code, "port_busy");
+			assert.equal(auth.status().failure, "port_busy");
+		} finally { await new Promise((resolve) => blocker.close(resolve)); }
+	} finally { restore(); }
+	console.log("PASS ChatGPT sign-in wait: waitUntil, timeout, callback_error (refused page and failed exchange), user_closed, port_busy");
+}
 } finally {
 	off();
 	rmSync(scratch, { recursive: true, force: true });

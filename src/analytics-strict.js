@@ -113,6 +113,8 @@ const SCHEMAS = Object.freeze({
 	"agent:connect_finished": {
 		provider: oneOf(...CONNECT_PROVIDERS, "other"), method: oneOf("oauth", "api_key", "chatgpt"),
 		outcome: oneOf("ok", "failed", "cancelled", "abandoned"), step: oneOf("list", "prompt", "waiting", "done"), duration: long,
+		// An attempt that did not connect: why, when known (#1044; connect-telemetry.js CONNECT_FAILURE_REASONS).
+		reason: oneOf("timeout", "callback_error", "port_busy", "user_closed", "other"),
 	},
 	"agent:model_changed": { provider: oneOf(...CONNECT_PROVIDERS, "other"), after_failure: bool },
 	"agent:prompt_sent": {
@@ -120,6 +122,8 @@ const SCHEMAS = Object.freeze({
 		prompt_len: oneOf("1-20", "21-80", "81-240", "gte241"), compose_ms: long, similarity: oneOf("first", "same", "near", "different"),
 		gap: (value) => value === "first" || long(value), prev_outcome: oneOf("succeeded", "failed", "cancelled", "none"), turn_index: count,
 		attached: bool, task_mode: bool,
+		// openai-compatible only: the server address's class, never the address (#1043).
+		endpoint: oneOf("local", "lan", "hosted", "unknown"),
 	},
 	"ui:rage_click": { control: oneOf(...CONTROL_IDS, ...AREA_IDS, "other"), clicks: oneOf("3", "4-5", "gte6"), changed: bool },
 	"ui:dead_click": { control: oneOf(...CONTROL_IDS, ...AREA_IDS, "other"), reason: oneOf("aria_disabled", "refused", "no_effect") },
