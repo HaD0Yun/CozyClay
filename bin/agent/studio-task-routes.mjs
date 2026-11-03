@@ -14,6 +14,7 @@ import { MAIN_SYSTEM_PROMPT } from "./main-prompt.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
 
 const TERMINAL = new Set(["task.review", "task.done", "task.failed", "task.cancelled", "task.paused"]);
+const PREEMPT_WAIT_MS = 5000;
 const EVENT_TURN_TEXT = "(Task events arrived while the user waited. Tell the user what happened, in their language, in one or two lines.)";
 const fakeResponse = () => ({ headersSent: false, writableEnded: false, destroyed: false, setHeader() {}, writeHead() {}, flushHeaders() {}, write: () => true, once() {}, end() { this.writableEnded = true; } });
 const ownerRequest = owner => ({ headers: { cookie: `studio_owner=${encodeURIComponent(owner)}` } });
@@ -38,30 +39,48 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		return main;
 	}
 
-	// The main agent reports on its own when a task ends and nobody is talking to it.
+	// The main agent reports on its own when a task ends and nobody is talking to it. The user does not see this turn
+	// start (the panel reads Ready), so a message they send meanwhile preempts it (preemptEventTurn) instead of answering busy.
 	function eventTurnSoon(main) {
 		if (main.eventTimer) return;
 		main.eventTimer = setTimeout(async () => {
 			main.eventTimer = null;
 			const session = studioSessions.get(main.sessionId);
-			if (!session?.owner || !main.host || !main.events.length) return;
+			if (!session?.owner || !main.host || !main.events.length || main.eventTurn) return;
 			if (session.activeTurnId) return eventTurnSoon(main);
+			const turn = main.eventTurn = { turnId: randomUUID(), told: [], preempted: false, done: null };
 			let context;
-			try { context = await readContext(main.host); } catch { return; }
-			const turnId = randomUUID();
-			emitStudioEvent(main.feedId, { type: "main.turn", turnId });
-			await runMain(main, ownerRequest(session.owner), fakeResponse(), { surface: "studio", sessionId: main.sessionId, turnId, text: EVENT_TURN_TEXT, context, model: main.model, effort: main.effort }).catch(() => {});
+			try { context = await readContext(main.host); } catch { main.eventTurn = null; return; }
+			// a user turn began while the context was read: it carries the events, or a later event turn does
+			if (turn.preempted || session.activeTurnId) { main.eventTurn = null; if (!turn.preempted) eventTurnSoon(main); return; }
+			emitStudioEvent(main.feedId, { type: "main.turn", turnId: turn.turnId });
+			turn.done = runMain(main, ownerRequest(session.owner), fakeResponse(), { surface: "studio", sessionId: main.sessionId, turnId: turn.turnId, text: EVENT_TURN_TEXT, context, model: main.model, effort: main.effort }, turn).catch(() => {});
+			await turn.done;
+			if (main.eventTurn === turn) main.eventTurn = null;
 		}, eventTurnDelayMs);
 	}
 
-	function runMain(main, req, res, value) {
+	// A user message while only the hidden event turn runs: that turn stops and the events it was telling go back, so the
+	// user's turn reads them in its <task-events>. A second user turn still answers busy (agent-runner.mjs).
+	async function preemptEventTurn(main) {
+		const turn = main.eventTurn;
+		if (!turn) return;
+		turn.preempted = true;
+		const session = studioSessions.get(main.sessionId);
+		if (session?.activeTurnId === turn.turnId) { session.controller?.abort(); await session.modelSession?.abort?.("user message"); }
+		if (turn.done) await Promise.race([turn.done, new Promise(resolve => setTimeout(resolve, PREEMPT_WAIT_MS))]);
+		if (main.eventTurn === turn) main.eventTurn = null;
+		main.events.unshift(...turn.told.splice(0));
+	}
+
+	function runMain(main, req, res, value, eventTurn = null) {
 		main.host = value.context.host; main.model = value.model; main.effort = value.effort;
 		main.board.reconnect(value.context.host.sceneId);
 		const userText = value.text;
 		return handleStudioTurn(req, res, { ...value, main: {
 			systemPrompt: MAIN_SYSTEM_PROMPT,
 			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle }),
-			contextText: () => mainContextText(main.board, main.events.splice(0)),
+			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
 			check: reply => doneClaimCorrection(reply, main.board.board(), userText),
 		} }, "/agent/turn");
 	}
@@ -113,7 +132,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		};
 		try {
 			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: taskHeader(task, { deps, resume }), context, model: main.model, effort: main.effort, observe,
-				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, get lost() { return out.lost; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
+				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
 			return { status: "failed", error, usage: out.usage };
@@ -124,7 +143,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		if (adopted && main.host && adopted.workspaceId === main.host.workspaceId && adopted.sceneId !== main.host.sceneId) main.host = { ...main.host, ...adopted };
 		await seenRead;
 		if (out.lost && pending > 0) task.midCommand = true;
-		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage };
+		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}) };
 		if (out.lost) return { status: "lost", sceneId: context.host.sceneId, ...common };
 		if (out.busy) return { status: "scopeBusy", error: out.error, ...common };
 		if (signal.aborted && out.ended !== "task.finish") return { status: "cancelled", ...common };
@@ -161,7 +180,9 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			try { value = await validateEnvelope(await readBody(req)); } catch (error) { json(res, 400, { error: error?.toJSON?.() ?? "invalid request" }); return true; }
 			const session = studioSessions.get(value.sessionId);
 			if (session && parseCookies(req).studio_owner !== session.owner) { json(res, 403, { error: { code: "AUTH_REQUIRED", message: "Studio session owner mismatch." } }); return true; }
-			await runMain(mainOf(value.sessionId), req, res, value);
+			const main = mainOf(value.sessionId);
+			await preemptEventTurn(main);
+			await runMain(main, req, res, value);
 			return true;
 		}
 		const board = /^\/agent\/main\/([^/]+)\/(board|events)$/.exec(path);

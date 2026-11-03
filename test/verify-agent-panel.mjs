@@ -596,6 +596,13 @@ expect("an upstream refusal renders a failure card with the reported detail", re
 expect("the failure card offers a retry", refusedCard.failure.recovery.retryAllowed === true);
 expect("a refused turn ends as failed", refused.lastTurn?.status === "failed");
 
+// A second message while the agent still answers: the server says only "busy"; the card says what that means, once.
+const busyTurn = await driveTurn(async (onEvent) => { onEvent({ type: "error", code: "busy", message: "busy" }); onEvent({ type: "done" }); });
+const busyCard = busyTurn.items.find((item) => item.kind === "failure");
+expect("a busy refusal reads as plain English, not \"busy busy\"", busyCard?.failure.message === module_.ERROR_COPY.busy && /still answering/.test(busyCard.failure.message), busyCard?.failure.message);
+expect("the activity line says why in a few words", module_.describeActivity(busyTurn, { now: 3500 }).text === "Failed: agent still answering", module_.describeActivity(busyTurn, { now: 3500 }).text);
+expect("a failure card never repeats its code as its message", panel.includes("(failure.message !== failure.code && failure.message)"));
+
 const attached = await driveTurn(async (onEvent) => {
 	onEvent({ type: "tool.start", callId: "c1", name: "capture_blocking_frame" });
 	onEvent({ type: "tool.done", callId: "c1", ok: false, error: "Viewport is not ready" });

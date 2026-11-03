@@ -6,8 +6,8 @@
 //
 // A task (parallel Studio tasks, P2): the run holds task.begin { taskId, scope, reads, title } instead, so other tasks
 // edit other keys of the same scene meanwhile. Its commands carry the taskId and commit one by one (src/bus-tasks.js).
-// A stopped task cancels (its keys go back to where they were); a task that ends, even on an error, finishes and keeps
-// what it did. A task whose Studio went away (the browser reloaded) is neither: the editor that held it is gone.
+// A task the user stopped cancels (its keys go back to where they were); a task that ends, even on an error, or that the
+// board stopped at a limit (task.keep: its time, tool or no-progress limit), finishes and keeps what it did. A task whose Studio went away (the browser reloaded) is neither: the editor that held it is gone.
 //
 // mark() records where a script starts; rollback() undoes only the edits after it and keeps the run open, so earlier
 // edits still land.
@@ -60,7 +60,7 @@ export function studioTransaction({ hub, context, turnId, admission, task = null
 				// Finish only the transaction this run opened (a rollback keeps it open).
 				if (admission[owner] === id) {
 					delete admission[owner];
-					const stopped = task && (signal?.aborted || input?.signal?.aborted);
+					const stopped = task && (signal?.aborted || input?.signal?.aborted) && !task.keep;
 					if (!(task && (lost || task.lost))) {
 						try {
 							const receipt = await control(stopped ? "cancel" : "finish");
