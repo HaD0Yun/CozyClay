@@ -504,7 +504,7 @@ function TreeRow({
 				</div>
 			) : (
 				<button
-					type="button"
+					type="button" data-kind={node.kind}
 					className={"hierarchy-row" + (showLabel ? "" : " icon-only") + (touched ? " agent-touched" : "")}
 					aria-label={showLabel ? undefined : label}
 					onClick={() => onSelect(node.id)}
