@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAgentChatStore, createHttpTransport } from "../src/workflow/agent-client.js";
-import { TASK_STATUS_COPY, boardGroups, followsBoard, reduceBoard, emptyBoard, retriesBoard } from "../src/workflow/task-board.js";
+import { TASK_STATUS_COPY, boardGroups, boardTurn, followsBoard, reduceBoard, emptyBoard, retriesBoard } from "../src/workflow/task-board.js";
 import { characterRowExists } from "../src/hierarchy-model.js";
 
 const ids = () => { let n = 0; return () => `id-${++n}`; };
@@ -64,6 +64,40 @@ test("the board is followed only once its main session exists, and a missing boa
 	assert.equal(retriesBoard({ status: 403 }, false), false); assert.equal(retriesBoard({ status: 404 }, false), false);
 	assert.equal(retriesBoard({ status: 403 }, true), true, "while its first turn is on the way, it is tried again");
 	assert.equal(retriesBoard(new TypeError("dropped"), false), true, "a dropped stream is followed again");
+});
+
+test("no board or session request before the sidecar admitted the main turn (box QA: 19 x 403/404 per track)", async () => {
+	const urls = [], answers = [];
+	const fetchImpl = (url, init = {}) => { urls.push(`${init.method ?? "GET"} ${String(url).replace(/^https?:\/\/[^/]+/, "")}`); return new Promise(resolve => answers.push(resolve)); };
+	const store = createAgentChatStore({ transport: createHttpTransport({ fetchImpl, surface: "studio" }), surface: "studio", newId: ids(), buildContext: () => ({ host: { workspaceHandle: "h" }, actionIndex: [] }) });
+	const boardAsked = () => followsBoard({ sessionId: store.getState().sessionId, ...boardTurn(store.getState()) });
+	assert.equal(boardAsked(), false, "a fresh page asks nothing");
+	// A refused first turn: still no session on the sidecar, so its end does not start the board either.
+	const refused = store.send("first", { tasks: true });
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(store.getState().streaming, true); assert.equal(boardAsked(), false, "sending: the main session does not exist yet");
+	answers.shift()(new Response("{}", { status: 409 })); await refused;
+	assert.equal(boardAsked(), false, "a refused turn made no session");
+	let open;
+	const admitted = store.send("second", { tasks: true });
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(boardAsked(), false, "waiting for the sidecar to admit the turn");
+	answers.shift()(new Response(new ReadableStream({ start: controller => { open = controller; } }), { headers: { "content-type": "text/event-stream" } }));
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(boardAsked(), true, "the response opened: the session and its board exist");
+	open.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: "done", eventSeq: 1 })}\n\n`)); open.close(); await admitted;
+	assert.equal(boardAsked(), true, "after the turn the board is still followed");
+	assert.deepEqual(urls.filter(url => /\/board|\/events|\/agent\/sessions\//.test(url)), [], "the store itself never asks the board");
+	store.newSession();
+	assert.equal(boardAsked(), false, "a new session starts over");
+});
+
+test("the stored session id is looked up as a restore: a session gone with the last server answers 200, not 404", async () => {
+	const urls = [];
+	const transport = createHttpTransport({ fetchImpl: async url => { urls.push(String(url)); return new Response(JSON.stringify({ sessionId: "old", missing: true }), { headers: { "content-type": "application/json" } }); }, surface: "studio" });
+	assert.deepEqual(await transport.loadSession("old", { restore: true }), { sessionId: "old", missing: true });
+	await transport.loadSession("old");
+	assert.match(urls[0], /\/agent\/sessions\/old\?restore=1$/); assert.match(urls[1], /\/agent\/sessions\/old$/, "the history picker's read is unchanged");
 });
 
 test("an incomplete task needs a look and says why", () => {

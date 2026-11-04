@@ -603,8 +603,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 			const result = await request(`/agent/sessions?surface=${encodeURIComponent(surface || "studio")}`);
 			return Array.isArray(result?.sessions) ? result.sessions : [];
 		},
-		async loadSession(sessionId) {
-			return request(`/agent/sessions/${encodeURIComponent(sessionId)}`);
+		async loadSession(sessionId, { restore = false } = {}) {
+			return request(`/agent/sessions/${encodeURIComponent(sessionId)}${restore ? "?restore=1" : ""}`);
 		},
 		// Legacy callers pass a session id; a Studio host passes the frozen stop
 		// envelope so the sidecar can cancel one turn and one owned job.
@@ -726,6 +726,7 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 					onEvent({ type: "done" });
 					return;
 				}
+				turnRequest.onOpen?.(sessionId); // the sidecar admitted the turn: its session (and a main session's board) exists now
 				let streamError = null;
 				try { await readStream(response); } catch (error) { streamError = error; }
 				// A lost observer is not a lost turn: resume from the cursor instead of
@@ -1419,7 +1420,7 @@ export function createAgentChatStore({
 			const signal = controller.signal;
 			try {
 				await transport.turn({
-					onTurnId: (id) => { wireTurnId = id; },
+					onTurnId: (id) => { wireTurnId = id; }, onOpen: (id) => set({ openSession: id }),
 					...(studio ? { surface: "studio", turnId, context } : {}),
 					sessionId: state.sessionId,
 					text: trimmed,
@@ -1440,7 +1441,7 @@ export function createAgentChatStore({
 			if (!studio || !turnId || state.streaming || typeof transport.attach !== "function") return;
 			const startedAt = clock(), turn = { produced: false, failure: null, reviewable: false }, shown = String(text ?? "").trim();
 			activeTurn = turn; wireTurnId = turnId; controller = new AbortController(); const { signal } = controller;
-			set({ turnId, streaming: true, turnStartedAt: startedAt, lastTurn: null, ...(shown ? { lastPrompt: shown } : {}), items: resumedItems(state.items, shown, newId) });
+			set({ turnId, streaming: true, openSession: state.sessionId, turnStartedAt: startedAt, lastTurn: null, ...(shown ? { lastPrompt: shown } : {}), items: resumedItems(state.items, shown, newId) });
 			try { await transport.attach(turnId, (event) => { sculptSketchFrame(event); applyEvent(event); }, signal); }
 			catch (error) { if (!signal.aborted) applyEvent({ type: "error", code: "upstream", message: String(error?.message || error) }); } finally { endTurn(turn, signal, startedAt); }
 		},
