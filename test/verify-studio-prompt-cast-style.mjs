@@ -74,5 +74,5 @@ test("motion.compile hints a hybrid project to propose capsules when the rig tak
 test("both prompts stage a handled prop within reach: a shared table at most 0.6 m deep between the two", () => {
 	assert.match(MAIN_SYSTEM_PROMPT, /11\. Staging what people handle: unless the user places or sizes it, a prop someone may pick up, drink from or pass \(a cup, a glass, a phone, a plate\) sits within about 0\.3 m of the table or counter edge its user stands at, and a table between two people is at most 0\.6 m deep along the line between them/);
 	assert.match(MAIN_SYSTEM_PROMPT, /Write the size and the spot in the assumption\./, "the coordinator writes it into the task's assumption");
-	assert.match(prompt, /2\. Staging first: [^\n]*A prop someone handles \(a cup, a phone\) sits within 0\.3 m of its user's edge; a table between two people is at most 0\.6 m deep between them\./, "a task that sizes the table itself follows the same rule");
+	assert.match(prompt, /2\. Staging first: [^\n]*Unless the user places or sizes it, a prop someone handles \(a cup, a phone\) sits within 0\.3 m of its user's edge; a table between two people is at most 0\.6 m deep between them\./, "a task that sizes the table itself follows the same rule");
 });
