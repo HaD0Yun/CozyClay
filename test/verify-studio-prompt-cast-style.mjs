@@ -67,3 +67,12 @@ test("motion.compile hints a hybrid project to propose capsules when the rig tak
 	for (const style of ["rig", "capsule", undefined]) assert.equal(hybridCapsuleHint(style, { stuck: "x", qa: failing("COLLIDE") }), null, `no hint for ${style}`);
 	assert.ok(prompt.includes("qa.ok is false and whose output carries stuck or hint"), "the prompt tells the agent what the hint means, on a failing take only");
 });
+
+// Box QA 2026-11-04, track A: the cup went in the middle of a 0.9-1.0 m table between the two, and "the man picks it up"
+// could not reach it (shoulder 0.71 m from the grip, arm 0.69 m). Measured offline: in the middle of a 0.6 m deep table
+// (0.3 m from his edge) the same take grips it.
+test("both prompts stage a handled prop within reach: a shared table at most 0.6 m deep between the two", () => {
+	assert.match(MAIN_SYSTEM_PROMPT, /11\. Staging what people handle: unless the user places or sizes it, a prop someone may pick up, drink from or pass \(a cup, a glass, a phone, a plate\) sits within about 0\.3 m of the table or counter edge its user stands at, and a table between two people is at most 0\.6 m deep along the line between them/);
+	assert.match(MAIN_SYSTEM_PROMPT, /Write the size and the spot in the assumption\./, "the coordinator writes it into the task's assumption");
+	assert.match(prompt, /2\. Staging first: [^\n]*A prop someone handles \(a cup, a phone\) sits within 0\.3 m of its user's edge; a table between two people is at most 0\.6 m deep between them\./, "a task that sizes the table itself follows the same rule");
+});
