@@ -715,16 +715,17 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			return true;
 		}
 		if (path.startsWith("/agent/sessions/") && req.method === "GET") {
-			const sessionId = decodeURIComponent(path.slice("/agent/sessions/".length));
+			// ?restore=1: the panel's one look-up of the id it stored. A session gone with the last server is an answer, not an error.
+			const sessionId = decodeURIComponent(path.slice("/agent/sessions/".length)), missing = () => json(res, new URL(req.url, "http://127.0.0.1").searchParams.get("restore") === "1" ? 200 : 404, { sessionId, missing: true, error: "session not found" });
 			// A Studio turn still running for its owner (the panel reloaded mid-turn): the panel attaches to it by turnId,
 			// so the message and its progress come back and the next message is not refused as busy. main: the session
 			// has a task board (task mode), so the panel follows it and hands it the Studio's new handle.
 			const live = studioSessions.get(sessionId), mine = live && parseCookies(req).studio_owner === live.owner;
 			const running = mine && live.activeTurnId && live.controller && !live.controller.signal.aborted ? { active: { turnId: live.activeTurnId, ...(live.activeText ? { text: live.activeText } : {}) } } : {};
 			try { const persisted = sessionStore.read(sessionId);
-				if (!persisted && !running.active) { json(res, 404, { error: "session not found" }); return true; }
+				if (!persisted && !running.active) { missing(); return true; }
 				json(res, 200, { sessionId, transcript: persisted ? transcriptFromHistory(persisted.history) : [], meta: persisted?.meta ?? null, ...running, ...(mine && studioEvents.has(`main:${sessionId}`) ? { main: true } : {}) });
-			} catch { json(res, 404, { error: "session not found" }); } return true;
+			} catch { missing(); } return true;
 		}
 		if (path === "/agent/models" && req.method === "GET") {
 			try {

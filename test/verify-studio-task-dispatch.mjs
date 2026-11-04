@@ -77,6 +77,7 @@ const scene = { entityIndex: [{ id: "cube-1", kind: "object" }, { id: "mina", ki
 	assert.equal(unmetCriteria("- hands wrap the bar: met"), null);
 	assert.equal(unmetCriteria("Unmet criteria: hands off the bar (7 cm)"), "hands off the bar (7 cm)");
 	assert.equal(unmetCriteria("Report:\n- hands wrap the bar: unmet (7 cm off)\n- feet land on top: met"), "hands wrap the bar: unmet (7 cm off)", "a report without the line still counts a criterion it calls unmet");
+	assert.match(taskHeader({ taskId: "t", scope: ["stage"], instructions: "" }), /Making something new \(character\.add, object\.add, including a text object, a kit\) needs no scope key/, "a stage task knows it may make a character");
 	assert.match(taskHeader({ taskId: "t", scope: ["stage"], instructions: "" }), /End the report with one line: "Unmet criteria: none" .* ends incomplete, not done/);
 	const events = [], runs = [];
 	const board = createTaskBoard({ limits: { staggerMs: 0 }, emit: event => events.push(event), run: task => { const run = { task, ...deferred() }; runs.push(run); return run.promise; } });
@@ -179,6 +180,10 @@ const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 	assert.deepEqual(restored.active, { turnId, text: "Move the cube" }, "the session read names the running turn and its message");
 	assert.equal(restored.main, true, "and that it has a task board");
 	assert.equal((await get(`/agent/sessions/${sessionId}`, { cookie: "studio_owner=intruder" })).status, 404, "another owner learns nothing of it");
+	const gone = await get(`/agent/sessions/${randomUUID()}?restore=1`);
+	assert.equal(gone.status, 200, "the panel's restore look-up of a session gone with the last server is no error"); assert.equal((await gone.json()).missing, true);
+	assert.equal((await get(`/agent/sessions/${randomUUID()}`)).status, 404, "a plain read still answers 404");
+	assert.equal((await get(`/agent/sessions/${sessionId}?restore=1`, { cookie: "studio_owner=intruder" })).status, 200, "another owner still learns nothing: it reads as missing");
 	const attached = get(`/agent/turn/${encodeURIComponent(turnId)}/events?after=0`).then(response => response.text());
 	mainGate.resolve();
 	const replay = await attached;
@@ -214,7 +219,7 @@ const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 	assert.match(MAIN_SYSTEM_PROMPT, /never switch scenes as an undo/);
 	assert.match(MAIN_SYSTEM_PROMPT, /10\. A title, caption or any words on screen is a text object \(object\.add kind "text"\)/);
 	const header = taskHeader({ taskId: "t", scope: ["shot:s1"], instructions: "" });
-	assert.match(header, /What you create \(object\.add, including a text object, character\.add, a kit\) needs no scope key/);
+	assert.match(header, /Making something new \(character\.add, object\.add, including a text object, a kit\) needs no scope key/);
 	assert.match(header, /Undoing an earlier task's work is the coordinator's undo_task/);
 	// The main agent's tools against a real editor bus: a task moves the cube, undo_task puts it back.
 	const f = objectsFixture(), cube = f.store.current.objects.find(o => o.renderer === "cube").id;

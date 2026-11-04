@@ -178,6 +178,21 @@ for (const { name, reads, notified } of [
   } finally { stop(); f.dispose(); }
 });
 
+// Box QA 2026-11-03 (#1058 P1): a stage task on an empty scene asked for "characters", was refused, and never made her.
+test('a stage task on an empty scene makes a character: creation needs no key, and the made one joins its scope', () => {
+  const f = castFixture(appFixture({ characters: [] }));
+  try {
+    const a = (action, args = {}) => f.run(action, args, 'agent', { taskId: 'task-a', expectedRevision: 0 });
+    ok(a('task.begin', { taskId: 'task-a', scope: ['stage'] }));
+    assert.match(refused(a('task.requestScope', { taskId: 'task-a', scope: ['characters'] }), 'INVALID_ARGUMENT').message, /needs no key: run character\.add/);
+    ok(a('character.add', { character: { id: 'actor-new', model: 'proxy-figure', x: 0.4, z: 0.4, subject: 'a person' } }));
+    ok(a('character.move', { characterId: 'actor-new', x: 0, z: 0, rot: 0 }));
+    const row = f.cast.read().find(entry => entry.id === 'actor-new');
+    assert.deepEqual([row.x, row.z, row.posture], [0, 0, 'stand']);
+    ok(a('task.finish', { taskId: 'task-a' }));
+  } finally { f.dispose(); }
+});
+
 test('what a command writes, known before it runs', () => {
   const state = { objects: [{ id: 'g' }, { id: 'p', parent: 'g' }], selectedShotId: 's1' };
   assert.deepEqual(commandKeys('object.set', { id: 'g' }, state), ['object:g', 'object:p'], 'a group carries its subtree');
