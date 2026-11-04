@@ -39,6 +39,11 @@ export function createBusTasks({ ports, emit }) {
 		return kind === 'scene' ? `r${state.revision}` : `${kind}:${state.domainRevisions?.[kind === 'timeline' ? 'shot' : kind] ?? 0}`;
 	};
 	const snapshot = key => ({ key, value: ports.snapshotTarget ? ports.snapshotTarget(key) : fail('CAPABILITY_MISSING', 'This editor cannot snapshot task targets.') });
+	const sceneNow = () => ports.read().host?.sceneId ?? null;
+	const finalOf = task => new Map([...task.pre.keys()].map(key => [key, { token: tokenOf(key), value: JSON.stringify(snapshot(key).value) }]));
+	// A key moved when its token did and its content did too: a later task undone first puts the same content back
+	// under a new token, and that is not a change.
+	const movedSince = task => [...task.final].filter(([key, { token, value }]) => tokenOf(key) !== token && JSON.stringify(snapshot(key).value) !== value).map(([key]) => key);
 	// A scene key has no restorable value (documents have no undo): it is left as it is and said so.
 	function restore(task, values, action) {
 		task.skipped = values.filter(v => v.value === null).map(v => v.key);
@@ -101,9 +106,9 @@ export function createBusTasks({ ports, emit }) {
 		control(id, args, request, before, busy) {
 			if (id === 'task.undo') {
 				const task = finished.get(args.taskId) ?? fail('UNDO_EXPIRED', `Task ${args.taskId} is not a finished task this editor still holds.`);
-				// A key moved when its token did and its content did too: a later task undone first puts the same content back
-				// under a new token, and that is not a change.
-				const moved = [...task.final].filter(([key, { token, value }]) => tokenOf(key) !== token && JSON.stringify(snapshot(key).value) !== value).map(([key]) => key);
+				// Its pre-images are another scene's rows: putting them into the open scene would overwrite it.
+				if (task.sceneId && task.sceneId !== sceneNow()) fail('UNDO_CONFLICT', `Task ${args.taskId} edited another scene (${task.sceneId}); open that scene first, then undo it.`);
+				const moved = movedSince(task);
 				if (moved.length) fail('UNDO_CONFLICT', `Changed since the task finished: ${listOf(moved)}; undo those first or edit by hand.`);
 				const historyEntryId = restore(task, [...task.pre.values()], 'undone');
 				finished.delete(args.taskId);
@@ -145,7 +150,7 @@ export function createBusTasks({ ports, emit }) {
 				const historyEntryId = restore(task, [...task.pre.values()], 'cancelled');
 				return receipt(id, task, request, before, { historyEntryId, affectedIds: task.affectedIds });
 			}
-			task.final = new Map([...task.pre.keys()].map(key => [key, { token: tokenOf(key), value: JSON.stringify(snapshot(key).value) }]));
+			task.final = finalOf(task); task.sceneId = sceneNow();
 			finished.set(task.taskId, task);
 			while (finished.size > FINISHED_KEPT) finished.delete(finished.keys().next().value);
 			emit?.({ type: 'task.finished', taskId: task.taskId });
@@ -222,6 +227,14 @@ export function createBusTasks({ ports, emit }) {
 			if (!task && owner) fail('TARGET_BUSY', `The last edit belongs to running task ${owner.taskId}${owner.title ? ` (${owner.title})` : ''}; cancel or undo it from that task.`);
 			return null;
 		},
+		/**
+		 * Around a document action (#1058): opening a scene reloads its shot and motion slices through the scene file, so
+		 * their JSON comes back different with nothing edited, and task.undo saw a conflict (box QA C5, twice). A finished
+		 * task untouched when its scene is left takes the reloaded state as its final when that scene opens again; one
+		 * that was changed keeps its conflict.
+		 */
+		leavingScene() { const at = sceneNow(); for (const task of finished.values()) if (task.sceneId === at) task.cleanAtLeave = !movedSince(task).length; },
+		openedScene() { const at = sceneNow(); for (const task of finished.values()) if (task.sceneId === at && task.cleanAtLeave) { task.final = finalOf(task); task.cleanAtLeave = false; } },
 		dispose() { open.clear(); finished.clear(); entryTask.clear(); },
 	};
 }
