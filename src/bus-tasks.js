@@ -22,7 +22,7 @@ const ORPHAN_IDLE_MS = 30_000;
 const scopeDenied = (taskId, keys) => `Outside this task's scope: ${listOf(keys)}. Ask for it with run_action ${JSON.stringify({ action: 'task.requestScope', args: { taskId, scope: [...keys] } })}, or leave it to the task that holds it.`;
 /** task.requestScope as an action row (inspect_studio scope "actions", a task's action list): it is a bus control, not a registered command. */
 export const TASK_SCOPE_ACTION = Object.freeze({ id: 'task.requestScope', label: 'Ask for more scope keys (inside a task)', kind: 'control',
-	description: 'Inside a task only: grows its scope by the keys named. args { taskId, scope: [keys] }; answers SCOPE_BUSY while another task holds one of them.',
+	description: 'Inside a task only: grows its scope by the keys named. args { taskId, scope: [keys] }; answers SCOPE_BUSY while another task holds one of them. A creation (character.add, object.add, a kit) needs no key.',
 	input: { type: 'object', properties: { taskId: { type: 'string' }, scope: { type: 'array', items: { type: 'string' }, maxItems: 64 } }, required: ['taskId', 'scope'], additionalProperties: false } });
 const listOf = keys => [...keys].slice(0, 6).join(', ') + (keys.length > 6 ? ` and ${keys.length - 6} more` : '');
 
@@ -55,7 +55,7 @@ export function createBusTasks({ ports, emit }) {
 	// A plain character:<id> is held as its four layers: the commands name layers, and each layer keeps its own token.
 	function grant(task, scope, live = null) {
 		const bad = scope.find(key => !isScopeKey(key));
-		if (bad !== undefined) fail('INVALID_ARGUMENT', `"${bad}" is not a scope key: object:<id>, character:<id> (or one layer: character:<id>:placement, :take, :ik, :props), shot:<id>, stage, timeline or scene.`);
+		if (bad !== undefined) fail('INVALID_ARGUMENT', `"${bad}" is not a scope key: object:<id>, character:<id> (or one layer: character:<id>:placement, :take, :ik, :props), shot:<id>, stage, timeline or scene. Making a new character or object needs no key: run character.add or object.add, and it joins the task.`);
 		const keys = expandScope(scope);
 		if (live) releaseOrphans(task.taskId, keys, live);
 		const conflict = scopeConflict(task.taskId, keys, open);
