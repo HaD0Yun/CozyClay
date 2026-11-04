@@ -75,6 +75,7 @@ const silent = (_context, options) => new Promise(resolve => options?.signal?.ad
 	assert.deepEqual(stalled.errors.map(e => e.code), ["stalled"], `one error, the reason, not a second "aborted": ${JSON.stringify(stalled.errors)}`);
 	assert.match(stalled.errors[0].message, /the model did not respond for 0\.?\d* ?s|the model did not respond for \d+ s/);
 	assert.ok(stalled.ms >= IDLE_MS && stalled.ms < IDLE_MS + 3000, `ended after the limit, not before: ${stalled.ms} ms`);
+	assert.deepEqual(stalled.frames.filter(frame => !frame.type.startsWith("execution_")).slice(-2).map(frame => frame.type), ["error", "done"], "the reason comes right before done: a panel that reattaches in between still gets done");
 	const next = await turn("캐릭터 뒤에 따뜻한 포인트 라이트 하나 추가해줘.");
 	assert.deepEqual([next.errors.length, next.done], [0, 1], `the next message is taken, not answered busy: ${JSON.stringify(next.errors)}`);
 	assert.ok(next.frames.some(frame => frame.type === "text.delta"), "and answered");

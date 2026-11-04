@@ -93,16 +93,19 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			// The live host, not this turn's: a reload mid-turn moves the Studio to a new handle (POST .../reconnect).
 			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
-			check: reply => doneClaimCorrection(reply, main.board.board(), userText),
+			check: reply => (guard.tell() ? "" : doneClaimCorrection(reply, main.board.board(), userText)),
 		}, observe: guard.observe }, "/agent/turn").finally(guard.stop);
 	}
 
 	// The main turn's no-progress guard (#1058): a frame, or any event of a model still streaming (snapshot().eventAt), is
 	// progress. None for idleMs: the turn ends with the reason the user sees (a call that never finished, or a model that
 	// never answered), the run is stopped quietly so that reason is the turn's only error, and the panel's input comes back.
+	// The reason is told right before the turn's done frame (tell, from check), since an error closes a replay: a panel that
+	// reattached between the two would miss done. A run that does not wind down within PREEMPT_WAIT_MS is told anyway.
 	function watchMain(main, turnId) {
 		const idleMs = limits?.mainIdleMs ?? MAIN_TURN_LIMITS.idleMs, open = new Map(), span = idleMs % 60_000 ? `${Math.round(idleMs / 1000)} s` : `${idleMs / 60_000} min`;
-		let lastAt = Date.now(), timer = null, ended = false;
+		let lastAt = Date.now(), timer = null, ended = false, reason = null;
+		const tell = () => { const told = reason; if (told) emitStudioEvent(turnId, { type: "error", code: "stalled", message: told }); reason = null; return Boolean(told); };
 		const check = async () => {
 			const session = studioSessions.get(main.sessionId), active = session?.activeTurnId === turnId;
 			const eventAt = active ? (await session.modelSession?.snapshot?.())?.eventAt ?? 0 : 0;
@@ -111,14 +114,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			const left = Math.max(lastAt, eventAt) + idleMs - Date.now();
 			if (left > 0) { timer = setTimeout(check, left); return; }
 			const call = [...open.values()].at(-1);
-			emitStudioEvent(turnId, { type: "error", code: "stalled", message: call ? `Stopped: the ${call} call did not finish (no progress for ${span}).` : `Stopped: the model did not respond for ${span}.` });
+			reason = call ? `Stopped: the ${call} call did not finish (no progress for ${span}).` : `Stopped: the model did not respond for ${span}.`;
+			timer = setTimeout(tell, PREEMPT_WAIT_MS);
 			await session.modelSession?.abort?.("no progress", { quiet: true });
 			session.controller?.abort();
 		};
 		timer = setTimeout(check, idleMs);
 		return {
 			observe: frame => { lastAt = Date.now(); if (frame.type === "tool.start") open.set(frame.callId, frame.label ?? frame.name); else if (frame.type === "tool.done") open.delete(frame.callId); },
-			stop: () => { ended = true; clearTimeout(timer); },
+			tell, stop: () => { ended = true; clearTimeout(timer); },
 		};
 	}
 
