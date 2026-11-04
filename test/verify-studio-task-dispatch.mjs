@@ -206,5 +206,37 @@ const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 	await handler.close?.(); await new Promise(resolve => server.close(resolve)); f.dispose();
 	pass("4 a reload mid-turn: the session read names the running turn (attach replays it to its end), and the new handle reaches the board: a task paused on STALE_HANDLE resumes at once");
 }
+
+// --- 5 undo is the task's real undo; words are a text object ---------------------------------------------------
+{
+	assert.match(MAIN_SYSTEM_PROMPT, /9\. Undo .*call undo_task \{ taskId \} at once/);
+	assert.match(MAIN_SYSTEM_PROMPT, /Never rebuild the old state yourself or dispatch an inverse task/);
+	assert.match(MAIN_SYSTEM_PROMPT, /never switch scenes as an undo/);
+	assert.match(MAIN_SYSTEM_PROMPT, /10\. A title, caption or any words on screen is a text object \(object\.add kind "text"\)/);
+	const header = taskHeader({ taskId: "t", scope: ["shot:s1"], instructions: "" });
+	assert.match(header, /What you create \(object\.add, including a text object, character\.add, a kit\) needs no scope key/);
+	assert.match(header, /Undoing an earlier task's work is the coordinator's undo_task/);
+	// The main agent's tools against a real editor bus: a task moves the cube, undo_task puts it back.
+	const f = objectsFixture(), cube = f.store.current.objects.find(o => o.renderer === "cube").id;
+	const hub = { command: async (name, args) => { const response = await dispatchLiveFrame(JSON.stringify({ type: "cmd", id: randomUUID(), name, args: { ...args, host: f.host() } }), f.binding.handlers);
+		if (!response.ok) throw Object.assign(new Error(response.error), { code: String(response.error).split(":")[0] }); return response.value; } };
+	const studio = [{ name: "run_action", handler: args => hub.command("run_action", { name: "run_action", args, commandId: randomUUID(), expectedRevision: f.store.current.revision ?? 0, taskId: admission.taskId }) }];
+	const admission = { host: f.host(), revision: 0 };
+	const tools = createMainTools({ board: createTaskBoard({ run: () => new Promise(() => {}) }), studio, hub, admission, workspaceHandle: "h" });
+	const tool = name => tools.find(entry => entry.name === name);
+	const x0 = f.store.current.objects.find(o => o.id === cube).x;
+	const moved = await tool("quick_edit").handler({ scope: [`object:${cube}`], tool: "run_action", args: { action: "object.set", args: { id: cube, set: { position: { x: x0 + 3, y: 0, z: 0 } } } } });
+	assert.equal(moved.ok, true, JSON.stringify(moved));
+	assert.ok(moved.quickEditTaskId, "a quick edit answers the taskId undo_task takes");
+	assert.equal(f.store.current.objects.find(o => o.id === cube).x, x0 + 3);
+	const undone = await tool("undo_task").handler({ taskId: moved.quickEditTaskId });
+	assert.equal(undone.ok, true, JSON.stringify(undone));
+	assert.equal(f.store.current.objects.find(o => o.id === cube).x, x0, "the edit went back through task.undo, no inverse edit");
+	await assert.rejects(tool("undo_task").handler({ taskId: moved.quickEditTaskId }), error => error.code === "UNDO_EXPIRED", "an undone task cannot be undone twice");
+	const [add] = f.binding.handlers.inspect_studio({ scope: "actions", ids: ["object.add"] }).actions;
+	assert.match(add.description, /"text" for words, a title or a sign/, "object.add says it makes text");
+	f.dispose();
+	pass("5 undo_task undoes a quick edit or a task through task.undo; the prompts send undo there and words to a text object");
+}
 console.log(`${passed} passed`);
 process.exit(0);

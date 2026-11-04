@@ -87,6 +87,9 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 		{ ...fn("reject_task", "Reject a task in review: it fails with your reason and the tasks that depend on it fail too. Its changes stay (the user can undo the task).", { taskId: { type: "string" }, reason: { type: "string", maxLength: 300 } }, ["taskId", "reason"]),
 			handler: ({ taskId, reason }) => bare(board.reject(taskId, reason) ?? fail("STALE_TARGET", `Task ${taskId} is not in review.`)) },
 		{ ...fn("task_board", "List every task with its status, scope, reason and summary.", {}, []), handler: () => ({ tasks: board.board().map(bare) }) },
+		// The panel's Undo button (task.undo): the user's "undo that" is this, never an inverse edit made by hand.
+		{ ...fn("undo_task", "Undo a task that ended with its edits kept (or a quick_edit, by the taskId it answered): what it changed goes back as one undo step, like the panel's Undo button. Opening a scene has no undo.", { taskId: { type: "string" } }, ["taskId"]),
+			handler: async ({ taskId }) => { const receipt = await control("task.undo", taskId); return receipt?.ok === false ? fail(receipt.code, receipt.message) : receipt; } },
 		{ ...fn("quick_edit", "Make ONE small edit yourself inside scope (no motion compile, no scene or project action): tool is one of arrange_objects, arrange_characters, patch_elements, frame_shot, run_action with its usual args.",
 			{ scope: keys, tool: { enum: QUICK_TOOLS }, args: { type: "object" } }, ["scope", "tool", "args"]),
 		handler: async ({ scope, tool, args }) => {
@@ -95,7 +98,7 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 			const taskId = randomUUID(), begun = await control("task.begin", taskId, { scope, title: "quick edit" });
 			if (!begun.ok) fail(begun.code, begun.message);
 			admission.taskId = taskId;
-			try { return await studioTool.handler(args); }
+			try { const result = await studioTool.handler(args); return result && typeof result === "object" ? { ...result, quickEditTaskId: taskId } : result; }
 			finally { delete admission.taskId; await control("task.finish", taskId).catch(() => {}); }
 		} },
 	];

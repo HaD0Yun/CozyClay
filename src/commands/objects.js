@@ -27,7 +27,8 @@ const PATCH_HINTS = { scale: 'use scaleX, scaleY, scaleZ', rotY: 'use rot for ya
 const mutation = (id, label, input) => ({ id, label, description: label, kind: 'mutation', undoDomain: 'objects', input });
 const semantic = [
 	mutation('object.set', 'Set object fields', setInput),
-	mutation('object.add', 'Add object', input({ kind: { type: 'string' }, placement, name: { type: 'string' }, parent: id, first: { type: 'boolean' }, text: setInput.properties.set.properties.text }, ['kind'])),
+	{ ...mutation('object.add', 'Add object', input({ kind: { type: 'string' }, placement, name: { type: 'string' }, parent: id, first: { type: 'boolean' }, text: setInput.properties.set.properties.text }, ['kind'])),
+		description: 'Add an object. kind: a catalogue kind (inspect_studio scope "catalogue"), or "text" for words, a title or a sign: text { value, size } stands in the set as a 3D object (no 2D screen overlay), so place it where the shot camera sees it.' },
 	// A clay prop from a recipe of soft parts (docs/sculpt-from-image.md). With `id` it re-sculpts that
 	// sculpt in place (one undo); without, it creates one. The recipe is checked by sculpt-recipe.js.
 	{ ...mutation('object.sculpt', 'Sculpt a clay prop from a recipe', input({ recipe: { type: 'object', properties: {}, additionalProperties: true }, edits: { type: 'array', minItems: 1, maxItems: 48, items: { type: 'object', properties: {}, additionalProperties: true } }, id, name: { type: 'string', maxLength: 240 }, placement, parent: id }, [])),
