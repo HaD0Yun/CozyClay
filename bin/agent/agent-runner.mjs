@@ -517,8 +517,9 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });
 				queue.close();
 			};
+			// eventAt: any event of the run, a model still streaming among them (the main turn's no-progress guard, studio-task-routes.mjs)
 			return state.agent.subscribe((event) => {
-				if (event.type === "message_update") {
+				if (state.active) state.active.eventAt = clock(); if (event.type === "message_update") {
 					reasoning.onMessageEvent(event.assistantMessageEvent);
 					if (event.assistantMessageEvent?.type === "text_delta") pushFrame({ type: "text.delta", text: event.assistantMessageEvent.delta });
 				} else if (event.type === "tool_execution_start") startTool(event);
@@ -629,7 +630,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				state.agent.abort();
 				return { ok: true };
 			},
-			snapshot: async () => (state.agent ? { streaming: state.agent.state.isStreaming, pendingToolCalls: [...state.agent.state.pendingToolCalls], messages: conversation().length } : null),
+			snapshot: async () => (state.agent ? { streaming: state.agent.state.isStreaming, pendingToolCalls: [...state.agent.state.pendingToolCalls], messages: conversation().length, eventAt: state.active?.eventAt ?? null } : null),
 			close: async () => { for (const unsubscribe of state.unsubscribers.splice(0)) unsubscribe(); state.agent?.abort(); await state.agent?.waitForIdle(); },
 		};
 		state.public = publicSession;

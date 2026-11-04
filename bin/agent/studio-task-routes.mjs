@@ -10,7 +10,7 @@
 // A task's run is an ordinary Studio turn (handleStudioTurn) in a child session the main session's owner owns, so its
 // frames replay on GET /agent/turn/<turnId>/events like any turn's.
 import { randomUUID } from "node:crypto";
-import { createTaskBoard, taskHeader } from "./studio-tasks.mjs";
+import { createTaskBoard, taskHeader, TASK_LIMITS } from "./studio-tasks.mjs";
 import { createMainTools, doneClaimCorrection, mainContextText } from "./main-agent.mjs";
 import { MAIN_SYSTEM_PROMPT } from "./main-prompt.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
@@ -18,6 +18,8 @@ import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
 
 const TERMINAL = new Set(["task.review", "task.done", "task.incomplete", "task.failed", "task.cancelled", "task.paused"]);
 const PREEMPT_WAIT_MS = 5000;
+// A main turn with no model or tool event for idleMs ends with the reason (#1058), like a task's idle watchdog (studio-tasks.mjs).
+const MAIN_TURN_LIMITS = Object.freeze({ idleMs: TASK_LIMITS.idleMs });
 // A task's own action list names the one bus control it may send (the editor's registry does not list controls).
 const withTaskActions = context => (Array.isArray(context?.actionIndex) && !context.actionIndex.some(row => row.id === TASK_SCOPE_ACTION.id)
 	? { ...context, actionIndex: [...context.actionIndex, { id: TASK_SCOPE_ACTION.id, label: TASK_SCOPE_ACTION.label }] } : context);
@@ -84,7 +86,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 	function runMain(main, req, res, value, eventTurn = null) {
 		main.host = value.context.host; main.model = value.model; main.effort = value.effort;
 		main.board.reconnect(value.context.host.sceneId);
-		const userText = value.text;
+		const userText = value.text, guard = watchMain(main, value.turnId);
 		// hidden: the main agent reporting on its own is no user message (a panel that reattaches to it shows no prompt)
 		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
 			systemPrompt: MAIN_SYSTEM_PROMPT,
@@ -92,7 +94,32 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
 			check: reply => doneClaimCorrection(reply, main.board.board(), userText),
-		} }, "/agent/turn");
+		}, observe: guard.observe }, "/agent/turn").finally(guard.stop);
+	}
+
+	// The main turn's no-progress guard (#1058): a frame, or any event of a model still streaming (snapshot().eventAt), is
+	// progress. None for idleMs: the turn ends with the reason the user sees (a call that never finished, or a model that
+	// never answered), the run is stopped quietly so that reason is the turn's only error, and the panel's input comes back.
+	function watchMain(main, turnId) {
+		const idleMs = limits?.mainIdleMs ?? MAIN_TURN_LIMITS.idleMs, open = new Map(), span = idleMs % 60_000 ? `${Math.round(idleMs / 1000)} s` : `${idleMs / 60_000} min`;
+		let lastAt = Date.now(), timer = null, ended = false;
+		const check = async () => {
+			const session = studioSessions.get(main.sessionId), active = session?.activeTurnId === turnId;
+			const eventAt = active ? (await session.modelSession?.snapshot?.())?.eventAt ?? 0 : 0;
+			if (ended) return;
+			if (!active) lastAt = Date.now(); // not admitted yet: the wait starts when the turn does
+			const left = Math.max(lastAt, eventAt) + idleMs - Date.now();
+			if (left > 0) { timer = setTimeout(check, left); return; }
+			const call = [...open.values()].at(-1);
+			emitStudioEvent(turnId, { type: "error", code: "stalled", message: call ? `Stopped: the ${call} call did not finish (no progress for ${span}).` : `Stopped: the model did not respond for ${span}.` });
+			await session.modelSession?.abort?.("no progress", { quiet: true });
+			session.controller?.abort();
+		};
+		timer = setTimeout(check, idleMs);
+		return {
+			observe: frame => { lastAt = Date.now(); if (frame.type === "tool.start") open.set(frame.callId, frame.label ?? frame.name); else if (frame.type === "tool.done") open.delete(frame.callId); },
+			stop: () => { ended = true; clearTimeout(timer); },
+		};
 	}
 
 	async function runTask(main, task, { resume, deps, signal }) {

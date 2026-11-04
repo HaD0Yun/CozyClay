@@ -51,11 +51,14 @@ export function reviewFindings({ placement, framing, motion = [], lighting, owne
 const imagePart = captured => { const m = /^data:([^;]+);base64,(.*)$/.exec(captured?.dataUrl ?? ""); return m ? { type: "image", data: m[2], mimeType: m[1] } : null; };
 
 /** The next user message of the turn. Its label is OBSERVATION_LABEL's (session-store.mjs): a transcript does not show it as the user's words. */
-export function reviewContent({ findings, relations = [], images = [], revision = null }) {
+// request (#1058): the user's message this turn answers. Without it a passed check sent the model back to an earlier,
+// unfinished request (an undo of the lighting re-added a character and reframed the shot: 7 more minutes of a locked panel).
+export function reviewContent({ findings, relations = [], images = [], revision = null, request = "" }) {
 	const asks = findings.length
 		? `These checks failed:\n${findings.map(line => `- ${line}`).join("\n")}\nRepair what belongs to this request and stop when they pass. If one should stay or you cannot fix it, say why in one line.`
-		: "The checks that ran passed. Look at the pictures: if they do not show what was asked, fix it. If they do, do not repeat your answer; finish in one short line.";
-	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}: the shot camera, then the top view.\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
+		: `The checks that ran passed. Look at the pictures: if they do not show what ${request ? "this request" : "was"} asked, fix it${request ? "; an earlier request is not this turn's to finish" : ""}. If they do, do not repeat your answer; finish in one short line.`;
+	const asked = request ? `\nThis turn's request: ${JSON.stringify(request.length > 300 ? `${request.slice(0, 299)}…` : request)}` : "";
+	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}: the shot camera, then the top view.${asked}\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
 }
 
 /**
@@ -65,7 +68,7 @@ export function reviewContent({ findings, relations = [], images = [], revision 
  */
 export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, scope = null }) {
 	const quiet = async work => { try { return await work(); } catch (error) { console.warn(`[agent] review check skipped: ${error.message}`); return null; } };
-	return async edits => {
+	return async (edits, request = "") => {
 		const seen = await quiet(() => hub.command("inspect_studio", { scope: "relations" }, workspaceHandle));
 		const owned = scope ? new Set([...scope.map(key => layerOf(key)?.id ?? (key.startsWith("object:") ? key.slice(7) : null)).filter(Boolean), ...edits.ids, ...edits.motionIds]) : null;
 		const characters = (seen?.characters ?? []).map(c => c.id).filter(id => !owned || owned.has(id)), verify = args => quiet(() => invoke("verify_result", args));
@@ -86,7 +89,8 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, s
 		}
 		if (!seen && !images.length) return null; // the editor went away: nothing to show the model
 		const findings = reviewFindings({ placement, framing, motion, lighting, owned });
-		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null }), images: images.length };
+		// a task's request is its scope and brief (taskHeader); the main turn's is the user's message
+		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null, request: scope ? "" : String(request ?? "") }), images: images.length };
 	};
 }
 
@@ -118,7 +122,8 @@ export function reviewedStart({ start, review, signal, now = Date.now }) {
 			// review: true: not the model's own call, so what it wrote before stays its reply (a task's summary, the main agent's claim check)
 			yield { type: "tool.start", callId, name: "verify_result", label: "Check the result", args: { review: round + 1 }, review: true };
 			let result = null;
-			try { result = await review(edits); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
+			// a stop (the main turn's no-progress guard among them) ends a review that waits on an editor that never answers
+			try { result = await Promise.race([review(edits, input.text), new Promise(resolve => signal?.addEventListener("abort", () => resolve(null), { once: true }))]); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
 			yield { type: "tool.done", callId, ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: result.images } } : { error: "The review could not run." }) };
 			if (!result || signal?.aborted) break;
 			next = { ...input, text: "", attachments: [], frameObservation: undefined, review: result.content };
