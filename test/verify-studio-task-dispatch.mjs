@@ -77,6 +77,7 @@ const scene = { entityIndex: [{ id: "cube-1", kind: "object" }, { id: "mina", ki
 	assert.equal(unmetCriteria("- hands wrap the bar: met"), null);
 	assert.equal(unmetCriteria("Unmet criteria: hands off the bar (7 cm)"), "hands off the bar (7 cm)");
 	assert.equal(unmetCriteria("Report:\n- hands wrap the bar: unmet (7 cm off)\n- feet land on top: met"), "hands wrap the bar: unmet (7 cm off)", "a report without the line still counts a criterion it calls unmet");
+	assert.match(taskHeader({ taskId: "t", scope: ["stage"], instructions: "" }), /Making something new \(character\.add, object\.add, a kit\) needs no scope key/, "a stage task knows it may make a character");
 	assert.match(taskHeader({ taskId: "t", scope: ["stage"], instructions: "" }), /End the report with one line: "Unmet criteria: none" .* ends incomplete, not done/);
 	const events = [], runs = [];
 	const board = createTaskBoard({ limits: { staggerMs: 0 }, emit: event => events.push(event), run: task => { const run = { task, ...deferred() }; runs.push(run); return run.promise; } });
