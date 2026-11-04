@@ -53,20 +53,22 @@ const invoked = [], invoke = async (name, args) => { invoked.push([name, args]);
 const seen = await createTurnReview({ invoke, hub: hubOf(), workspaceHandle: "w" })({ edited: true, ids: ["cube-1"], motionIds: ["hero"], stage: false });
 assert.deepEqual(invoked.map(([, a]) => a.checks?.[0] ?? a.action), ["placement", "framing", "motion.qa"], "placement of what changed, framing of the cast, QA of the moved character");
 assert.deepEqual(invoked[0][1].targets, ["cube-1"]); assert.deepEqual(invoked[1][1].targets, ["hero"]); assert.equal(invoked[1][1].range, "whole_clip");
-assert.equal(seen.images, 2, "the shot frame and the top view");
-assert.deepEqual(seen.content.slice(1).map(part => part.data), ["capture_framing_png", "capture_plan_png"]);
+assert.equal(seen.images, 0, "failed checks go as text: no picture, and never the top view");
+assert.ok(!asked.includes("capture_framing_png") && !asked.includes("capture_plan_png"));
+const calm = [], passedOnly = await createTurnReview({ invoke: async () => ({ checks: {} }), hub: { async command(name) { calm.push(name); return name === "inspect_studio" ? { relations: [], characters: [{ id: "hero" }], camera: {} } : png(name); } }, workspaceHandle: "w" })({ edited: true, ids: ["cube-1"], motionIds: [], stage: false });
+assert.deepEqual([passedOnly.content, passedOnly.images, calm], [null, 0, ["inspect_studio"]], "passed checks end the review: no picture, no model call");
 assert.ok(seen.findings.some(line => line.includes("cube-1")) && seen.findings.some(line => line.startsWith("motion hero")));
 // the pictures go through verify_result when they can, so the panel's progress card shows them
-const shown = [], viaVerify = await createTurnReview({ invoke: async (name, args) => { if (args.visual) shown.push(args.visual); return { receiptId: "r", revision: 3, checks: {}, visualRefs: args.visual ? [{ imageId: `id-${args.visual}` }] : [] }; }, resolveImage: async id => png(id), hub: hubOf(), workspaceHandle: "w" })({ edited: true, ids: ["cube-1"], motionIds: [], stage: false });
-assert.deepEqual([shown, viaVerify.content.slice(1).map(p => p.data)], [["frame", "plan"], ["id-frame", "id-plan"]]);
+const shown = [], viaVerify = await createTurnReview({ invoke: async (name, args) => { if (args.visual) shown.push(args.visual); return { receiptId: "r", revision: 3, checks: {}, visualRefs: args.visual ? [{ imageId: `id-${args.visual}` }] : [] }; }, resolveImage: async id => png(id), hub: hubOf(), workspaceHandle: "w" })({ edited: true, ids: ["cube-1"], motionIds: [], stage: true });
+assert.deepEqual([shown, viaVerify.content.slice(1).map(p => p.data)], [["frame"], ["id-frame"]], "a stage change is looked at through the shot alone");
 const targeted = [];
 await createTurnReview({ invoke: async (name, args) => { targeted.push(args.targets); return {}; }, resolveImage: async () => null, hub: hubOf({ inspect_studio: () => ({ relations: [], entityIds: ["cube-1", "hero"], characters: [{ id: "hero" }], camera: {} }) }), workspaceHandle: "w" })({ edited: true, ids: ["shot-3", "cube-1", "camera-key-4"], motionIds: [], stage: false });
 assert.deepEqual(targeted[0], ["cube-1"], "shots and camera keys are not sent as targets");
 const framedOnly = [];
-await createTurnReview({ invoke: async (name, args) => { framedOnly.push(args); return {}; }, resolveImage: async () => null, hub: hubOf({ inspect_studio: () => ({ relations: [], entityIds: ["hero"], characters: [{ id: "hero" }], camera: {} }) }), workspaceHandle: "w" })({ edited: true, ids: ["shot-3"], motionIds: [], stage: false });
+await createTurnReview({ invoke: async (name, args) => { framedOnly.push(args); return {}; }, resolveImage: async () => null, hub: hubOf({ inspect_studio: () => ({ relations: [], entityIds: ["hero"], characters: [{ id: "hero" }], camera: {} }) }), workspaceHandle: "w" })({ edited: true, ids: ["shot-3"], motionIds: [], stage: true });
 assert.ok(!framedOnly.some(a => a.targets.includes("shot-3")) && framedOnly.some(a => a.visual === "frame" && a.targets[0] === "hero"), "a shot-only edit still looks through the cast");
 const broken = await createTurnReview({ invoke: async () => { throw new Error("refused"); }, hub: hubOf({ capture_framing_png() { throw new Error("no editor"); } }), workspaceHandle: "w" })({ edited: true, ids: ["x"], motionIds: [], stage: true });
-assert.deepEqual([broken.findings, broken.images], [[], 1], "a check or capture that cannot run is left out, and the review still answers");
+assert.deepEqual([broken.findings, broken.images, Boolean(broken.content)], [[], 0, true], "a check or capture that cannot run is left out, and the review still answers");
 
 const gone = await createTurnReview({ invoke: async () => { throw new Error("refused"); }, hub: { async command() { throw new Error("no editor"); } }, workspaceHandle: "w" })({ edited: true, ids: ["x"], motionIds: [], stage: false });
 assert.equal(gone, null, "an editor that went away gets no review message");
@@ -116,6 +118,8 @@ const stopped = new AbortController(); stopped.abort();
 assert.equal((await run([[...edit("a"), { type: "done" }]], { signal: stopped.signal })).reviews.length, 0, "a stopped run is not reviewed");
 const noEditor = await run([[...edit("a"), { type: "done" }]], { review: async () => null });
 assert.deepEqual([noEditor.inputs.length, noEditor.done.length], [1, 1], "no review to send ends the turn");
+const clean = await run([[...edit("a"), { type: "done" }]], { review: async () => ({ findings: [], content: null, images: 0 }) });
+assert.deepEqual([clean.inputs.length, clean.done.length, clean.frames.find(f => f.type === "tool.done" && f.callId === "review-1").ok], [1, 1, true], "passed checks: the review row shows, and no second model run");
 const toolFailed = await run([[...edit("a"), { type: "tool.start", callId: "b", name: "arrange_objects" }, { type: "tool.done", callId: "b", ok: false, error: "INVALID_ARGUMENT: x" }, { type: "done" }], [{ type: "done" }]]);
 assert.equal(toolFailed.reviews.length, 1, "a refused call the model has answered does not hide its earlier edits from the review");
 const threw = await run([[...edit("a"), { type: "done" }]], { review: async () => { throw new Error("gone"); } });
@@ -126,7 +130,7 @@ assert.equal(once1.frames.find(f => f.type === "tool.start" && f.callId === "rev
 // ---- what the panel shows ----
 const { stepResult } = await import("../src/workflow/agent-turn.js");
 const row = result => stepResult({ kind: "tool", name: "verify_result", status: "done", args: { review: 1 }, result });
-assert.equal(row({ findings: [], images: 2 }), "checks passed · looked at the frame and top view");
+assert.equal(row({ findings: [], images: 1 }), "checks passed · looked at the shot");
 assert.equal(row({ findings: ["placement: x", "framing: y"], images: 0 }), "2 checks failed: placement: x");
 
 // ---- a whole turn: real route, runner and tools ----
@@ -164,8 +168,8 @@ assert.match(first.text, /"relations":\{"rows":\["Lamp#cube-2 ON Table#cube-5"\]
 const last = fake.calls[2].messages.at(-1);
 assert.equal(last.role, "user");
 assert.match(last.content[0].text, /^Studio frame observation[\s\S]*placement: footprints overlap for char-alex[\s\S]*Lamp#cube-2 ON Table#cube-5/, "the model is told the failing number and the relations");
-assert.deepEqual(last.content.slice(1).map(p => p.type), ["image", "image"], "and is shown the frame and the plan");
-assert.ok(commands.includes("capture_framing_png") && commands.includes("capture_plan_png") && commands.includes("verify_result"));
+assert.equal(last.content.length, 1, "failed checks go as text alone");
+assert.ok(!commands.includes("capture_framing_png") && !commands.includes("capture_plan_png") && commands.includes("verify_result"));
 assert.equal(transcriptFromHistory(fake.calls[2].messages).filter(e => e.kind === "user" && e.text?.includes("footprints")).length, 0, "the review is never shown as the user's words");
 console.warn = silent;
 rmSync(sessionDir, { recursive: true, force: true });
