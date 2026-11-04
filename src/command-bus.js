@@ -274,7 +274,7 @@ export function createCommandBus({ registry, ports }) {
       if (controls[id]) return mapResult(control(id, validated, request, before), remember, rejected);
       if (transactions.size) fail('TARGET_BUSY', 'Finish or cancel the open command transaction first.');
       if (turn && entry.kind === 'document') fail('TARGET_BUSY', 'Finish the agent turn before changing documents.');
-      exposure(entry, validated, request);
+      exposure(entry, validated, request); if (entry.kind === 'document') tasks.leavingScene(); // #1058: task.undo across scene switches
       const scoped = tasks.admit(task, entry, validated, request, before);
       releaseToasts = ports.captureToasts?.(toast => toasts.push(typeof toast === 'string' ? { message: toast } : toast));
       const domain = entry.domain ?? entry.undoDomain;
@@ -340,7 +340,7 @@ export function createCommandBus({ registry, ports }) {
         clearTimer();
         releaseToasts?.(); releaseToasts = null;
         const refused = output?.output === undefined ? toastRefusal() : null; // a job that answered was not refused by a toast that showed meanwhile
-        if (refused) throw refused;
+        if (refused) throw refused; if (entry.kind === 'document') tasks.openedScene(entry.id);
         return tasks.record(scoped, recordTurnEdit(turn, point, remember(receipt(entry, request, before, { ...output, affectedIds: [...new Set([...output.affectedIds, ...nestedIds])] }, historyEntryId ?? committedHistoryId, toasts, turn))));
       });
       const finished = value?.then ? value.then(finish) : finish(value);
