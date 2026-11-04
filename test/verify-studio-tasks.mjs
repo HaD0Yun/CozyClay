@@ -306,7 +306,7 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 {
 	// case 20: a limit stop finishes the task (task.finish: its edits stay) and says so; the turn's own reviews are not
 	// tool calls of the task; a run with no model or tool event for idleMs is stopped the same way.
-	const { board, runs, status, advance, events } = boardFixture({ maxTools: 2, maxMs: 60_000, idleMs: 30_000 });
+	const { board, runs, status, advance, events } = boardFixture({ maxTools: 2, maxMs: 60_000, idleMs: 30_000, modelMs: 50_000 });
 	dispatch(board, "busy", ["object:a"]); dispatch(board, "slow", ["object:b"]); await tick();
 	for (let i = 0; i < 5; i++) runs[0].task.onFrame({ type: "tool.start", review: true });
 	assert.ok(!runs[0].options.signal.aborted, "review tool.start frames do not count toward maxTools");
@@ -322,16 +322,55 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 	advance(15_000);
 	assert.ok(runs[1].options.signal.aborted, "and past the time limit");
 	runs[1].resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
-	assert.match(board.board()[1].reason, /^stopped at the 1 min limit; its edits were kept; ask the user whether to continue$/);
+	assert.match(board.board()[1].reason, /^stopped at the 1 min limit \(model request open for 1 min, last output 15 s ago; last event: text\.delta\); its edits were kept; ask the user whether to continue$/);
 	const quiet = dispatch(board, "quiet", ["object:c"]); await tick();
 	const run = runs.find(r => r.task.taskId === quiet.taskId);
 	run.task.onFrame({ type: "text.delta", text: "x" });
 	advance(29_999); assert.ok(!run.options.signal.aborted);
 	advance(1); assert.ok(run.options.signal.aborted, "no model or tool event for idleMs: stopped");
 	run.resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
-	assert.match(board.get(quiet.taskId).reason, /^stopped after 30 s with no model or tool activity; its edits were kept/);
+	assert.match(board.get(quiet.taskId).reason, /^stopped after 30 s with no model or tool activity \(model request open for 30 s, last output 30 s ago; last event: text\.delta\); its edits were kept/);
 	assert.equal(TASK_LIMITS.idleMs, 3 * 60_000, "the watchdog's default is 3 minutes");
-	console.log("PASS case 20: a task past its tool-call, time or no-progress limit is stopped, keeps its edits and says so; reviews are not counted");
+	assert.equal(TASK_LIMITS.modelMs, 5 * 60_000, "a model's first byte may take 5 minutes");
+	console.log("PASS case 20: a task past its tool-call, time or no-progress limit is stopped, keeps its edits and says what was in flight; reviews are not counted");
+}
+{
+	// #1058, the 2026-11-03 box stops at default limits: the last tool ended, then the model sent nothing for 3 min while the
+	// model proxy retried an overloaded provider. That is not a stall at 3 min; at 5 min it is "did not respond".
+	const { board, runs, advance } = boardFixture();
+	const slow = dispatch(board, "overloaded", ["shot:a"]); await tick();
+	runs[0].task.onFrame({ type: "tool.start", callId: "c1", name: "run_action", args: { action: "shot.frame" } });
+	runs[0].task.onFrame({ type: "tool.done", callId: "c1", ok: true });
+	advance(3 * 60_000); assert.ok(!runs[0].options.signal.aborted, "3 min with a model request open and no byte: still waiting");
+	runs[0].task.onFrame({ type: "thinking.delta", text: "…" });
+	advance(3 * 60_000 - 1); assert.ok(!runs[0].options.signal.aborted, "the answer came; the stream may pause up to idleMs");
+	advance(1); assert.ok(runs[0].options.signal.aborted, "a stream silent for idleMs is a stall");
+	runs[0].resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
+	assert.match(board.get(slow.taskId).reason, /^stopped after 3 min with no model or tool activity \(model request open for 6 min, last output 3 min ago; last event: thinking\.delta\)/);
+	console.log("PASS #1058: a model request waits 5 min for its first byte; a stream that went silent stops after 3 min, and the reason says which");
+}
+{
+	// #1058: a running tool or review is not a stall; a model request that sent no byte is stopped after modelMs, as its own reason
+	const { board, runs, advance } = boardFixture({ maxMs: 200_000, idleMs: 30_000, modelMs: 50_000 });
+	const slow = dispatch(board, "slow tool", ["object:d"]); await tick();
+	const tool = runs.find(r => r.task.taskId === slow.taskId);
+	tool.task.onFrame({ type: "tool.start", callId: "c1", name: "run_action", args: { action: "motion.compile" } });
+	advance(45_000); assert.ok(!tool.options.signal.aborted, "a tool running past idleMs is not idle");
+	tool.task.onFrame({ type: "tool.done", callId: "c1", ok: true });
+	tool.task.onFrame({ type: "tool.start", callId: "review-1", name: "verify_result", review: true });
+	advance(45_000); assert.ok(!tool.options.signal.aborted, "nor is the turn's review");
+	tool.task.onFrame({ type: "tool.done", callId: "review-1", ok: true });
+	advance(45_000); assert.ok(!tool.options.signal.aborted, "a model request waits modelMs for its first byte, not idleMs");
+	advance(5_000); assert.ok(tool.options.signal.aborted, "no response byte for modelMs: stopped");
+	tool.resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
+	assert.match(board.get(slow.taskId).reason, /^stopped: the model did not respond in 50 s \(model request open for 50 s with no response bytes; last event: tool\.done review\); its edits were kept/);
+	const hung = dispatch(board, "hung tool", ["object:e"]); await tick();
+	const held = runs.find(r => r.task.taskId === hung.taskId);
+	held.task.onFrame({ type: "thinking.delta", text: "…" }); held.task.onFrame({ type: "tool.start", callId: "c2", name: "run_action", args: { action: "task.requestScope" } });
+	advance(200_000); assert.ok(held.options.signal.aborted, "a tool that never ends is bounded by maxMs");
+	held.resolve({ status: "failed", ended: "task.finish", error: { code: "aborted" } }); await tick(); await tick();
+	assert.match(board.get(hung.taskId).reason, /^stopped at the 200 s limit \(tool run_action task\.requestScope running for 200 s; last event: tool\.start run_action task\.requestScope\)/);
+	console.log("PASS #1058: a running tool or review is not idle (maxMs bounds it); a model with no response byte stops after modelMs, its own reason");
 }
 {
 	const { board, runs, status } = boardFixture({ cap: 1 });
@@ -583,7 +622,7 @@ const hang = options => new Promise(resolve => { if (options?.signal?.aborted) r
 	await r.post("Move the cube");
 	const [task] = await r.until(async () => { const tasks = await r.board(); return ["failed", "done", "cancelled"].includes(tasks[0]?.status) && tasks; }, "the task to stop");
 	assert.equal(task.status, "failed", JSON.stringify(task));
-	assert.equal(task.reason, "stopped at the 1 s limit; its edits were kept; ask the user whether to continue");
+	assert.match(task.reason, /^stopped at the 1 s limit \(model request open for \d+ s with no response bytes; last event: tool\.done run_action object\.set\); its edits were kept; ask the user whether to continue$/, "#1058: the reason says the model had not answered since the edit");
 	assert.equal(task.edits, "kept");
 	assert.equal(r.f.store.current.objects.find(o => o.id === cube).x, 1, "the edit the task finished before its limit stays in the scene");
 	const closing = r.commands.filter(c => c.taskId === task.taskId && /^task\.(finish|cancel)$/.test(c.action ?? "")).map(c => c.action);

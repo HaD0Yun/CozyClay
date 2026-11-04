@@ -23,7 +23,9 @@
 //     its dependencies and on the cap, so the scheduling can be judged from data (in the view and the ended event)
 //   - the same instructions on the same scope as a queued or running task are not started twice (19)
 //   - a task that runs past MAX_MS, makes MAX_TOOLS tool calls of its own (the turn's automatic reviews do not count), or
-//     shows no model or tool event for IDLE_MS is stopped and reported as such (20). A limit stop finishes the task: what
+//     stalls is stopped and reported as such (20): a running tool or review is never a stall (MAX_MS bounds it), a model
+//     request with no response byte yet is one after MODEL_MS ("did not respond"), a stream that went quiet after IDLE_MS;
+//     the reason names what was in flight and the last event (#1058). A limit stop finishes the task: what
 //     it did stays (task.finish). Only the user's cancel takes its edits back (task.cancel). The ended event says which
 //     (edits: kept | reverted), so the main agent never tells the user that reverted work was kept
 //   - a run that ends but reports a visible criterion unmet ends incomplete, not done: its changes stay, the main agent
@@ -31,7 +33,7 @@
 import { randomUUID } from "node:crypto";
 import { isScopeKey, scopeConflict } from "../../src/bus-task-scopes.js";
 
-export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, idleMs: 3 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
+export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, idleMs: 3 * 60_000, modelMs: 5 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
 const ACTIVE = new Set(["queued", "waiting", "starting", "running", "paused", "review"]);
 const ENDED = new Set(["done", "incomplete", "failed", "cancelled"]);
 // The task's report ends with "Unmet criteria: none" or "Unmet criteria: <list>" (taskHeader); a report without that line
@@ -46,6 +48,10 @@ export function unmetCriteria(reply) {
 const norm = text => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 const span = ms => (ms % 60_000 ? `${Math.round(ms / 1000)} s` : `${ms / 60_000} min`);
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
+// Frames that are the model's own output: a request that sent one has answered.
+const MODEL_BYTES = new Set(["text.delta", "thinking.delta", "tool.compose", "sculpt.sketch"]);
+const callName = frame => frame.review ? "review" : [frame.name, frame.args?.action].filter(part => typeof part === "string").join(" ") || "tool";
+const eventName = frame => (/^tool\./.test(frame.type) ? `${frame.type} ${callName(frame)}` : String(frame.type));
 
 /**
  * run(task, { resume }) runs one task to its end and answers { status: "done" | "failed" | "cancelled" | "lost" |
@@ -172,14 +178,25 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		const mark = lastStart;
 		task.controller = new AbortController();
 		const deps = task.dependsOn.map(id => tasks.get(id)).map(dep => ({ taskId: dep.taskId, title: dep.title, summary: dep.summary, changed: dep.changed ?? [] }));
-		task.timer = setTimer(() => stop(task, `stopped at the ${span(L.maxMs)} limit`), L.maxMs);
-		// No-progress watchdog: a run that sends nothing for IDLE_MS (a model that never answered a review) is stopped.
-		// One timer per run; a frame only moves lastAt, and the timer re-arms for what is left when it fires early.
+		task.timer = setTimer(() => stop(task, `stopped at the ${span(L.maxMs)} limit (${inFlight(task)})`), L.maxMs);
+		// Stall watchdog (#1058): one timer per run that re-arms for what is left. While a tool (or the turn's review) runs, the
+		// run waits on it, not stalls; once none runs, a model request is open since the last tool ended: MODEL_MS for its first
+		// byte (a provider overload the model proxy retries sends nothing), then IDLE_MS between frames once it streams.
+		task.watch = { tools: new Map(), since: now(), bytes: false, last: "run start", seq: 0 };
 		task.lastAt = now();
-		const idle = () => { const left = task.lastAt + L.idleMs - now(); task.idleTimer = left > 0 ? setTimer(idle, left) : null; if (left <= 0) stop(task, `stopped after ${span(L.idleMs)} with no model or tool activity`); };
-		task.idleTimer = setTimer(idle, L.idleMs);
+		const idle = () => {
+			const watch = task.watch, left = watch.tools.size ? L.idleMs : watch.bytes ? task.lastAt + L.idleMs - now() : watch.since + L.modelMs - now();
+			task.idleTimer = left > 0 ? setTimer(idle, left) : null;
+			if (left <= 0) stop(task, watch.bytes ? `stopped after ${span(L.idleMs)} with no model or tool activity (${inFlight(task)})` : `stopped: the model did not respond in ${span(L.modelMs)} (${inFlight(task)})`);
+		};
+		task.idleTimer = setTimer(idle, Math.min(L.idleMs, L.modelMs));
 		task.onFrame = frame => {
 			task.lastAt = now();
+			const watch = task.watch, ended = frame.type === "tool.done" && watch.tools.get(frame.callId);
+			if (frame.type === "tool.start") watch.tools.set(frame.callId ?? `#${++watch.seq}`, { name: callName(frame), at: now() });
+			else if (frame.type === "tool.done" && watch.tools.delete(frame.callId) && !watch.tools.size) { watch.since = now(); watch.bytes = false; }
+			else if (MODEL_BYTES.has(frame.type)) watch.bytes = true;
+			if (!/^execution_/.test(frame.type)) watch.last = ended ? `tool.done ${ended.name}` : eventName(frame); // telemetry is not an event of the run
 			// a retry after SCOPE_BUSY says started once, not on every attempt
 			if (task.status === "starting") { task.status = "running"; if (!task.toldStart) tell(resume ? "task.resumed" : "task.started", task); task.toldStart = true; }
 			if (!mark.warm && ["text.delta", "tool.start", "thinking.delta"].includes(frame.type)) { mark.warm = true; rescheduleNow(); }
@@ -234,6 +251,13 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		closeWait(task); task.status = status; task.reason = reason; task.endedAt ??= now();
 		if (summary) task.summary = summary;
 		tell(`task.${status === "done" ? "done" : status}`, task);
+	}
+
+	// What the run was waiting on when it was stopped, and its last event: the board says why, not only that it stopped.
+	function inFlight(task) {
+		const watch = task.watch, ago = at => span(Math.round((now() - at) / 1000) * 1000), [tool] = watch.tools.values();
+		const what = tool ? `tool ${tool.name} running for ${ago(tool.at)}` : `model request open for ${ago(watch.since)}${watch.bytes ? `, last output ${ago(task.lastAt)} ago` : " with no response bytes"}`;
+		return `${what}; last event: ${watch.last}`;
 	}
 
 	function stop(task, reason) {
