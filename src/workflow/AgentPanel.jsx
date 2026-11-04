@@ -34,6 +34,7 @@ import {
 	supervisorFollowUp,
 } from "./agent-client.js";
 import { TaskDetail, TaskRows, TaskStrip, readStoredTaskMode, storeTaskMode } from "./TaskInline.jsx";
+import { boardTurn } from "./task-board.js";
 import "./agent-panel.css";
 // The task board (task mode, parallel Studio tasks) loads only where it is used: the Studio, never the workflow page.
 const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
@@ -335,6 +336,7 @@ export default function AgentPanel({
 	// The restored session has a task board on the sidecar (task mode): the board follows it from the start and hands it
 	// the Studio's new handle once (a reload), instead of polling a board that may not exist.
 	const [restoredMain, setRestoredMain] = useState(null);
+	const restoreLookup = useRef(null); // the stored id is looked up once, also when StrictMode replays the effect
 
 	const composerRef = useRef(null);
 	const fileInputRef = useRef(null);
@@ -371,7 +373,9 @@ export default function AgentPanel({
 		if (!stored) { setRestoreReady(true); return undefined; }
 		(async () => {
 			try {
-				const payload = await transport.loadSession(stored);
+				if (restoreLookup.current?.transport !== transport || restoreLookup.current.stored !== stored) restoreLookup.current = { transport, stored, payload: transport.loadSession(stored, { restore: true }) };
+				const payload = await restoreLookup.current.payload;
+				if (payload?.missing) { if (!cancelled) store.newSession(); return; } // gone with the last server: nothing to restore
 				if (!Array.isArray(payload?.transcript)) throw new Error("missing transcript");
 				// A turn the sidecar still runs (a reload cut the panel off it) is followed again; main: it has a task board.
 				if (!cancelled) { store.restore(payload.transcript, payload.sessionId || stored); setRestoredMain(payload.main === true ? payload.sessionId || stored : null); if (payload.active?.turnId) void store.resume(payload.active); }
@@ -904,7 +908,7 @@ export default function AgentPanel({
 			{!layout.some((entry) => entry.type === "steps" && entry.last) && progressCard}{taskMode && <TaskRows items={items} />}
 			{rateLimit && <PausedCard resetAt={rateLimit.resetAt} provider={providerLabel(modelProviders, limitedProvider)} alternative={alternative} onRetry={() => { store.clearRateLimit(); runTurn(chat.lastPrompt, "retry_button"); }} onSwitchModel={switchModel} />}
 		</div>
-		{surface === "studio" && taskMode && authenticated && <><Suspense fallback={null}><TaskBoard sessionId={chat.sessionId} pulse={chat.lastTurn?.endedAt ?? 0} live={streaming} restored={restoredMain === chat.sessionId} reconnectContext={buildContextRef} labelOf={taskStepLabel} onMainNote={store.note} /></Suspense><TaskDetail /></>}
+		{surface === "studio" && taskMode && authenticated && <><Suspense fallback={null}><TaskBoard sessionId={chat.sessionId} {...boardTurn(chat)} restored={restoredMain === chat.sessionId} reconnectContext={buildContextRef} labelOf={taskStepLabel} onMainNote={store.note} /></Suspense><TaskDetail /></>}
 
 		{/* Never a blank panel: busy states name the phase and tick, a finished
 		    turn states how it ended, and idle says so in as many words. */}

@@ -139,6 +139,9 @@ export function reduceScopes(scopes, event) {
 /** Whether the panel follows a session's board at all: only once the sidecar has one, after a main turn started (live),
  * ended (pulse) or the restored session said so; asking before answered 403/404 every 2 s, ~25 times a session. */
 export const followsBoard = ({ sessionId, live = false, pulse = 0, restored = false }) => Boolean(sessionId) && (live || pulse > 0 || restored);
+/** The panel's turn as the board sees it: it counts only once the sidecar admitted a turn of this session (the response
+ * opened, so the session, its owner and a main session's board exist); before that the board answered 404, then 403. */
+export const boardTurn = chat => (chat.openSession === chat.sessionId ? { live: chat.streaming, pulse: chat.lastTurn?.endedAt ?? 0 } : {});
 /** After a failed read: try again unless the board does not exist (403/404) and no turn is under way to make it. */
 export const retriesBoard = (error, live) => !([403, 404].includes(error?.status) && !live);
 
