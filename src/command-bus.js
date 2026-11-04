@@ -340,7 +340,7 @@ export function createCommandBus({ registry, ports }) {
         clearTimer();
         releaseToasts?.(); releaseToasts = null;
         const refused = output?.output === undefined ? toastRefusal() : null; // a job that answered was not refused by a toast that showed meanwhile
-        if (refused) throw refused; if (entry.kind === 'document') tasks.openedScene();
+        if (refused) throw refused; if (entry.kind === 'document') tasks.openedScene(entry.id);
         return tasks.record(scoped, recordTurnEdit(turn, point, remember(receipt(entry, request, before, { ...output, affectedIds: [...new Set([...output.affectedIds, ...nestedIds])] }, historyEntryId ?? committedHistoryId, toasts, turn))));
       });
       const finished = value?.then ? value.then(finish) : finish(value);

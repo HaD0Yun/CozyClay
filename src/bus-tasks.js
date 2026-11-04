@@ -12,6 +12,8 @@ import { commandKeys, keyOfId, scopeConflict, isScopeKey, layerOf, expandScope, 
 
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
 const VERBS = ['begin', 'requestScope', 'mark', 'rollback', 'finish', 'cancel', 'undo'];
+// Document actions around a finished task's undo (#1058): moving between scenes of one project, or replacing what is loaded.
+const NAVIGATES = new Set(['scene.switch', 'scene.create', 'scene.duplicate']), REPLACES = new Set(['project.new', 'project.open', 'project.openStarter', 'project.restore', 'load_scenes']);
 const FINISHED_KEPT = 32;
 /** Task controls that write no document (they grant, mark or close a scope): admitted mid-gesture, so a begin or finish never waits on the user's drag. */
 export const GESTURE_FREE_TASK_CONTROLS = new Set(['task.begin', 'task.requestScope', 'task.mark', 'task.finish']);
@@ -40,6 +42,7 @@ export function createBusTasks({ ports, emit }) {
 	};
 	const snapshot = key => ({ key, value: ports.snapshotTarget ? ports.snapshotTarget(key) : fail('CAPABILITY_MISSING', 'This editor cannot snapshot task targets.') });
 	const sceneNow = () => ports.read().host?.sceneId ?? null;
+	let leftEpoch = null;
 	const finalOf = task => new Map([...task.pre.keys()].map(key => [key, { token: tokenOf(key), value: JSON.stringify(snapshot(key).value) }]));
 	// A key moved when its token did and its content did too: a later task undone first puts the same content back
 	// under a new token, and that is not a change.
@@ -233,8 +236,13 @@ export function createBusTasks({ ports, emit }) {
 		 * task untouched when its scene is left takes the reloaded state as its final when that scene opens again; one
 		 * that was changed keeps its conflict.
 		 */
-		leavingScene() { const at = sceneNow(); for (const task of finished.values()) if (task.sceneId === at) task.cleanAtLeave = !movedSince(task).length; },
-		openedScene() { const at = sceneNow(); for (const task of finished.values()) if (task.sceneId === at && task.cleanAtLeave) { task.final = finalOf(task); task.cleanAtLeave = false; } },
+		leavingScene() { const at = sceneNow(); leftEpoch = ports.read().host?.documentEpoch; for (const task of finished.values()) if (task.sceneId === at) task.cleanAtLeave = !movedSince(task).length; },
+		openedScene(id) {
+			// A document replaced (a project opened, scenes loaded) may keep a scene id with other content: its tasks' undo ends.
+			if (REPLACES.has(id) || ports.read().host?.documentEpoch !== leftEpoch) { finished.clear(); return; }
+			const at = sceneNow();
+			for (const task of finished.values()) if (task.sceneId === at) { if (NAVIGATES.has(id) && task.cleanAtLeave) task.final = finalOf(task); task.cleanAtLeave = false; }
+		},
 		dispose() { open.clear(); finished.clear(); entryTask.clear(); },
 	};
 }

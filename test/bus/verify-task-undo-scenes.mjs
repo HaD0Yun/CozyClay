@@ -26,11 +26,11 @@ function editor() {
     tasks.record(point, { ok: true, authored: true, receiptId: `r${state.revision}`, affectedIds: ['s1'], warnings: [] });
   };
   // a scene switch the way the bus runs a document action; reloading writes the same shots in another key order
-  const open = scene => {
+  const open = (scene, action = 'scene.switch', shots = scenes[scene].shot.shots) => {
     tasks.leavingScene();
     state.scene = scene; state.revision++; state.shotRevision++;
-    scenes[scene].shot = { shots: scenes[scene].shot.shots.map(({ id, start }) => ({ start, id })) };
-    tasks.openedScene();
+    scenes[scene].shot = { shots: shots.map(({ id, start }) => ({ start, id })) };
+    tasks.openedScene(action);
   };
   return { tasks, scenes, state, request, run, editShot, open };
 }
@@ -62,4 +62,17 @@ test('a change made before the scene was left still blocks the undo after coming
   assert.deepEqual([refused.ok, refused.code], [false, 'UNDO_CONFLICT']);
   assert.match(refused.message, /Changed since the task finished: shot:s1/);
   assert.equal(e.scenes.a.shot.shots[0].start, 96, "the user's edit stays");
+});
+
+// #1065 review: a project opened (or scenes loaded) can keep the scene id with other content; rebasing then would let the
+// undo overwrite what was loaded.
+test('a replaced document ends the undo of its tasks: scene ids may stay, the content does not', () => {
+  const e = editor();
+  e.run('task.begin', { taskId: 't', scope: ['shot:s1'] }, e.request('t'));
+  e.editShot('t', 48);
+  e.run('task.finish', { taskId: 't' }, e.request('t'));
+  e.open('a', 'project.open', [{ id: 's1', start: 200 }]);
+  const expired = e.run('task.undo', { taskId: 't' });
+  assert.deepEqual([expired.ok, expired.code], [false, 'UNDO_EXPIRED']);
+  assert.equal(e.scenes.a.shot.shots[0].start, 200, 'the loaded content stays');
 });
