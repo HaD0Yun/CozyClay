@@ -27,6 +27,10 @@ const scripted = turnEdits(tool("a", { calls: [{ ok: true, revision: { before: 1
 assert.deepEqual([scripted.edited, scripted.ids], [true, ["cube-2"]], "a script's nested edits count, its refused ones do not");
 assert.deepEqual(turnEdits(tool("a", { authored: true }, { action: "motion.compile", args: { characterId: "char-a" } })).motionIds, ["char-a"], "a motion action names its character");
 assert.equal(turnEdits(tool("a", { authored: true }, { action: "stage.set" })).stage, true, "a stage action asks for the lighting check");
+assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.effect", args: { id: "smoke-1" } })).stage, true, "an effect object is a look change");
+assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.add", args: { kind: "point-light" } })).stage, true, "a practical light is a look change");
+assert.equal(turnEdits(tool("a", { authored: true }, { ops: [{ op: "create", kind: "spot-light" }] })).stage, true, "a light made through arrange_objects too");
+assert.equal(turnEdits(tool("a", { authored: true }, { action: "object.add", args: { kind: "cube" } })).stage, false, "a cube is measured by placement, not looked at");
 const nested = turnEdits(tool("a", { calls: [{ ok: true, action: "motion.compile", authored: true, affectedIds: ["char-b"] }, { ok: true, action: "stage.set", authored: true, affectedIds: [] }] }, { code: "..." }));
 assert.deepEqual([nested.motionIds, nested.stage], [["char-b"], true], "a script's nested actions ask for their checks too");
 assert.deepEqual(turnEdits(tool("a", { calls: [{ ok: false, action: "motion.compile", authored: true, affectedIds: ["char-b"] }] })).motionIds, [], "a refused nested action asks for nothing");

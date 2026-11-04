@@ -7,7 +7,7 @@ import { layerOf } from "../../src/bus-task-scopes.js";
 const MAX_REVIEWS = 3;
 // Estimates, not calibrated: a picture this share clipped or crushed is worth a look.
 const LIGHT_PCT = 10;
-const MAX_TARGETS = 32, QA_GROUPS = 5;
+const MAX_TARGETS = 32, QA_GROUPS = 5, LOOK_KIND = /"kind":"(?:point-light|spot-light|effect)"/;
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const changed = r => Number.isSafeInteger(r?.revision?.after) && r.revision.after !== r.revision.before;
 
@@ -26,7 +26,8 @@ export function turnEdits(frames) {
 			// a nested call's receipt names its action; the outer script's arguments do not
 			const action = call.action ?? (call === result ? args?.action : null) ?? "";
 			if (/^motion\./.test(action)) for (const id of call === result && args?.args?.characterId ? [args.args.characterId] : call.affectedIds ?? []) motionIds.add(id);
-			if (/^(stage|light)/.test(action)) stage = true;
+			// the look no check measures: the stage, and lights, glows and effects that are objects (#1064 review)
+			if (/^(stage|light)|^object\.(light|glow|effect)\b/.test(action) || LOOK_KIND.test(JSON.stringify(call === result ? args ?? {} : call.args ?? {}))) stage = true;
 		}
 	}
 	return { edited, ids: [...ids].slice(0, MAX_TARGETS), motionIds: [...motionIds], stage };
