@@ -11,6 +11,7 @@ import { moveHint } from "./hints-contact.js";
 import { add, scale, sub, len } from "../compiler/math.js";
 import { shapeOf, normalAt, signedDistance } from "../shapes.js";
 import { partsOf, restingAt } from "../object-pose.js";
+import { atReach, bodyMove } from "./hints-goal.js";
 
 const MARGIN = 0.005;
 const graspOff = X => X.spec?.fix?.grasp === false;
@@ -22,6 +23,22 @@ function heldAt(X, id, f) {
 	return partsOf(scene, id).map(p => ({ ...scene.objects[p], ...(X.out.ctx.objectPose?.(p, f) ?? at[p] ?? {}) }));
 }
 
+/**
+ * Box QA 2026-11-04 (a cup in the middle of a table): the arm was at full reach on the reach to the grab, so the hand
+ * stopped at the cup's rim and the fingers closed on air; the grip hints (nearer the palm, another point on the cup)
+ * sent the agent through six compiles. When hand k is at full reach on the frames before the grab of carry `id`, the
+ * fix is the body (bodyMove, `need` m nearer), else the object nearer the body: null when the arm reached.
+ */
+function outOfReach(X, k, id, need) {
+	const grab = X.spec?.objects?.[id]?.grab;
+	if (!Number.isInteger(grab) || !X.fr) return null;
+	const f = [grab, grab - 1, grab - 2].find(g => g >= 0 && atReach(X, k, g));
+	if (f === undefined) return null;
+	const why = ` (${id} is out of reach: the hand stops at its rim and the fingers cannot close round it; or move ${id} nearer the body first)`;
+	const body = bodyMove(X, k, f, Math.max(need, 0.03), why), cause = `${id} out of reach at f${f}`;
+	return body ? { cause, ...body } : { cause, hint: `${id}: arm ${k} is at full reach at f${f}; move ${id} nearer the body, or the body nearer it` };
+}
+
 export const graspHints = {
 	FINGER_GAP(X, g) {
 		if (graspOff(X)) return turnOn;
@@ -31,6 +48,8 @@ export const graspHints = {
 		const palm = scale(add(s.P[X.I[`${S}Hand`]], s.P[X.I[`${S}HandMiddle1`]]), 0.5), parts = heldAt(X, id, f);
 		if (!parts.length) return null;
 		const near = parts.reduce((m, e) => (signedDistance(e, palm) < signedDistance(m, palm) ? e : m)), gap = signedDistance(near, palm);
+		const short = outOfReach(X, k, id, Math.max(0, gap - 0.03));
+		if (short) return short;
 		return moveHint(X, `hand_${k}`, f, scale(normalAt(near, palm), -Math.max(0, gap - 0.03)), ` (onto ${id}: the fingers reach it from nearer)`);
 	},
 	FINGER_PEN(X, g) {
@@ -55,6 +74,8 @@ export const graspHints = {
 		if (!o || !X.out) return null;
 		const part = X.out.ctx.scene.objects[partsOf(X.out.ctx.scene, id)[0]], kind = part ? shapeOf(part).kind : "box";
 		const grasp = kind === "sphere" ? "spherical" : kind === "cylinder" ? "power" : "palm";
+		const k = X.spec?.props?.[o.prop]?.hand, short = k && outOfReach(X, k, id, 0.03);
+		if (short) return short;
 		if (o.grasp === grasp) return { cause: `objects.${id}.grasp ${grasp}`, hint: `${id} rests on the fingers only: hold it nearer the palm (the hand lower under it) or with both hands` };
 		return { cause: `objects.${id} (no grasp for a ${kind})`, hint: `${id}: set objects.${id}.grasp to "${grasp}" (how a ${kind} is held)`, fix: { path: `/objects/${id}/grasp`, value: grasp } };
 	},
