@@ -1,13 +1,13 @@
 // The verify -> repair loop of a Studio turn (#1030). verify_result ran only when the model chose to, and images came only when it
 // asked, so a model could stop on a scene it never looked at. Now when a run edits the scene and the model stops, the editor measures
-// what changed and renders the shot frame and the top view, and the model gets those as its next message: it repairs, or says why not.
+// what changed; failed checks go to the model as its next message (a stage change also gets the shot frame): it repairs, or says why not.
 // Repeats after a repair, at most MAX_REVIEWS times a turn. BlenderGym (CVPR 2025): compute spent on verification is what moves 3D editing.
 import { layerOf } from "../../src/bus-task-scopes.js";
 
 const MAX_REVIEWS = 3;
 // Estimates, not calibrated: a picture this share clipped or crushed is worth a look.
 const LIGHT_PCT = 10;
-const MAX_TARGETS = 32, QA_GROUPS = 5;
+const MAX_TARGETS = 32, QA_GROUPS = 5, LOOK_KIND = /"kind":"(?:point-light|spot-light|effect)"/;
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const changed = r => Number.isSafeInteger(r?.revision?.after) && r.revision.after !== r.revision.before;
 
@@ -26,7 +26,8 @@ export function turnEdits(frames) {
 			// a nested call's receipt names its action; the outer script's arguments do not
 			const action = call.action ?? (call === result ? args?.action : null) ?? "";
 			if (/^motion\./.test(action)) for (const id of call === result && args?.args?.characterId ? [args.args.characterId] : call.affectedIds ?? []) motionIds.add(id);
-			if (/^(stage|light)/.test(action)) stage = true;
+			// the look no check measures: the stage, and lights, glows and effects that are objects (#1064 review)
+			if (/^(stage|light)|^object\.(light|glow|effect)\b/.test(action) || LOOK_KIND.test(JSON.stringify(call === result ? args ?? {} : call.args ?? {}))) stage = true;
 		}
 	}
 	return { edited, ids: [...ids].slice(0, MAX_TARGETS), motionIds: [...motionIds], stage };
@@ -56,9 +57,9 @@ const imagePart = captured => { const m = /^data:([^;]+);base64,(.*)$/.exec(capt
 export function reviewContent({ findings, relations = [], images = [], revision = null, request = "" }) {
 	const asks = findings.length
 		? `These checks failed:\n${findings.map(line => `- ${line}`).join("\n")}\nRepair what belongs to this request and stop when they pass. If one should stay or you cannot fix it, say why in one line.`
-		: `The checks that ran passed. Look at the pictures: if they do not show what ${request ? "this request" : "was"} asked, fix it${request ? "; an earlier request is not this turn's to finish" : ""}. If they do, do not repeat your answer; finish in one short line.`;
+		: `The checks that ran passed. Look at the picture: if the light and look do not show what ${request ? "this request" : "was"} asked, fix it${request ? "; an earlier request is not this turn's to finish" : ""}. If they do, do not repeat your answer; finish in one short line.`;
 	const asked = request ? `\nThis turn's request: ${JSON.stringify(request.length > 300 ? `${request.slice(0, 299)}…` : request)}` : "";
-	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}: the shot camera, then the top view.${asked}\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
+	return [{ type: "text", text: `Studio frame observation after your edits, scene revision ${JSON.stringify(revision)}${images.length ? ": the shot camera" : ""}.${asked}\n${asks}${relations.length ? `\nRelations:\n${relations.join("\n")}` : ""}` }, ...images];
 }
 
 /**
@@ -79,16 +80,20 @@ export function createTurnReview({ invoke, hub, workspaceHandle, resolveImage, s
 		const lighting = edits.stage && characters.length ? await verify({ targets: characters.slice(0, MAX_TARGETS), checks: ["lighting"] }) : null;
 		const motion = [];
 		for (const id of edits.motionIds) { const r = await quiet(() => invoke("run_action", { action: "motion.qa", args: { characterId: id } })); if (r?.output?.qa) motion.push({ id, qa: r.output.qa }); }
+		const findings = reviewFindings({ placement, framing, motion, lighting, owned });
+		// #1058: passed checks end the review with no model call (box QA: 5 of 7 such rounds only said "looks fine", one redid an
+		// earlier request). A stage change is the look no check measures, so it alone gets the shot picture; the top view never
+		// led to a repair (0 of 12 rounds) and is not sent.
+		if (!findings.length && !edits.stage) return seen ? { findings, content: null, images: 0 } : null;
 		// Through verify_result, so the agent panel's progress card shows the user what the model looked at; a bare capture where it has no target.
 		const targets = (edited.length ? edited : characters).slice(0, MAX_TARGETS), images = [];
-		for (const [visual, capture] of [["frame", "capture_framing_png"], ["plan", "capture_plan_png"]]) {
+		for (const [visual, capture] of findings.length ? [] : [["frame", "capture_framing_png"]]) {
 			const seenBy = targets.length && resolveImage ? await verify({ targets, checks: ["placement"], visual }) : null, ref = seenBy?.visualRefs?.[0];
 			const shown = ref?.imageId ? await quiet(() => resolveImage(ref.imageId, { receiptId: seenBy.receiptId, revision: seenBy.revision })) : null;
 			const part = imagePart(shown) ?? imagePart(await quiet(() => hub.command(capture, {}, workspaceHandle)));
 			if (part) images.push(part);
 		}
 		if (!seen && !images.length) return null; // the editor went away: nothing to show the model
-		const findings = reviewFindings({ placement, framing, motion, lighting, owned });
 		// a task's request is its scope and brief (taskHeader); the main turn's is the user's message
 		return { findings, content: reviewContent({ findings, relations: seen?.relations, images, revision: seen?.revision?.scene ?? null, request: scope ? "" : String(request ?? "") }), images: images.length };
 	};
@@ -125,7 +130,7 @@ export function reviewedStart({ start, review, signal, now = Date.now }) {
 			// a stop (the main turn's no-progress guard among them) ends a review that waits on an editor that never answers
 			try { result = await Promise.race([review(edits, input.text), new Promise(resolve => signal?.addEventListener("abort", () => resolve(null), { once: true }))]); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
 			yield { type: "tool.done", callId, ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: result.images } } : { error: "The review could not run." }) };
-			if (!result || signal?.aborted) break;
+			if (!result?.content || signal?.aborted) break;
 			next = { ...input, text: "", attachments: [], frameObservation: undefined, review: result.content };
 		}
 		if (done) yield done;
