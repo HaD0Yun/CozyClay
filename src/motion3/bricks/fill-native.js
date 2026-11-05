@@ -11,7 +11,7 @@ import { encodePoses, decodeMotion } from "./model-io.js";
 import { isFillKey, shortHash, editedFill } from "./fill-src.js";
 import { spanReason } from "./fill-spans.js";
 import { classifySpans, densityNotes } from "./fill-density.js";
-import { STEP, poseAt, fillGaps, pinHands, sparseKeys, merge, passThrough, safeGap, gapQa, gapCheck } from "./fill.js";
+import { STEP, poseAt, fillGaps, pinHands, sparseKeys, boundToGap, merge, passThrough, safeGap, gapQa, gapCheck } from "./fill.js";
 import { MIN_GAP, TOL_SCALE, correctMotion, denseChannels, gapTokens, groundSoles, relaxPops } from "./fill-native-core.js";
 import { fillRetime, fillPlayground } from "./fill-native-chain.js";
 import { carryHands } from "./fill-carry.js";
@@ -58,7 +58,7 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		const dense = carryHands(pinHands(holdStance(despikeAngles(denseChannels(motion, fa, fb, r.out.baked, base.out.baked), r.out.baked, fa), fa, fb, authored), fa, fb, authored, r.out.frames, sk), fa, fb, spec, authored, r.out.baked);
 		const grounded = groundSoles(dense, fa, { spec: { ...spec, fix: { ...(spec.fix ?? {}), slide: false } }, keys, compile, sk });
 		const relaxed = relaxPops(dense, fa, { spec, keys, compile, sk });
-		const fill = sparseKeys(dense, fa, ends[i], TOL_SCALE);
+		const fill = boundToGap(sparseKeys(dense, fa, ends[i], TOL_SCALE), authored, fa, fb);
 		const qaCurve = gapQa(r.qa, fa, fb);
 		keys = merge(keys, fill);
 		const qaModel = gapQa(compile({ ...spec, keys }).qa, fa, fb);
