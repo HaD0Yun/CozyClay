@@ -39,6 +39,11 @@ export function globalWorse(base, filled, authored) {
 	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); return t; };
 	const a = tally(base.qa), b = tally(filled.qa), out = Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
 	if (keyMiss(filled.out.baked, authored) > Math.max(0.05, keyMiss(base.out.baked, authored))) out.push("keys");
+	// naturalness (qa/motion-life.js): the fill is there to make the take less mechanical, so it may not make parts start and stop
+	// together more often (sync share, 0.05 slack) or add acceleration seams (jerk spikes)
+	const la = base.observations?.life ?? {}, lb = filled.observations?.life ?? {};
+	if ((lb.sync?.[0] ?? 0) > (la.sync?.[0] ?? 0) + 0.05) out.push("sync");
+	if ((lb.jerk?.[2] ?? 0) > (la.jerk?.[2] ?? 0)) out.push("jerk");
 	return out;
 }
 
@@ -98,28 +103,37 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 	// key's root after a far fill), so the whole take is checked against the compiler's own: while a problem class is worse or an
 	// authored key is missed by more than the curve misses it (5 cm floor), the filled gap whose removal helps most is dropped
 	if (process.env.COZYCLAY_MB_NOGUARD !== "1") {
-		const filledGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f);
 		const without = (ks, [fa, fb]) => ks.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb));
-		const score = ks => { const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored) }; };
-		let cur = score(keys);
+		// a gap that already made a problem class worse on its own frames goes first (cheap: read during the fill); the search below
+		// only weighs the rest. A time budget (COZYCLAY_MB_SELECT_MS, 60 s) bounds it: past it, the fill keys that are left go too,
+		// so the answer is never worse than the compiler's own curve
+		for (const g of report.filter(g => g.keys !== undefined && !g.dropped && g.localWorse?.length)) { keys = without(keys, g.f); g.dropped = ["local"]; }
+		const filledGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f);
+		const budget = Number(process.env.COZYCLAY_MB_SELECT_MS ?? 60000), t0 = performance.now(), late = () => performance.now() - t0 > budget;
+		// each compile is synchronous; the dev server's live hub shares this event loop (tools/dev-full.mjs), so yield before each one
+		// or the editor misses its heartbeat over a long selection (live-control.js: pong within 10 s)
+		const tick = () => new Promise(res => setImmediate(res));
+		const score = async ks => { await tick(); const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored) }; };
+		let cur = await score(keys);
 		// few gaps: the largest set of filled gaps with nothing worse (fewest QA problems among equals); many: greedy removal below
 		if (cur.worse.length && filledGaps.length <= 6) {
 			const all = keys, n = filledGaps.length; let best = null;
-			for (let mask = (1 << n) - 2; mask >= 0; mask--) {
+			for (let mask = (1 << n) - 2; mask >= 0 && !late(); mask--) {
 				const drop = filledGaps.filter((_, i) => !(mask & (1 << i))), kept = n - drop.length;
 				if (best && kept < best.kept) continue;
-				const ks = drop.reduce(without, all), sc = score(ks);
+				const ks = drop.reduce(without, all), sc = await score(ks);
 				if (sc.worse.length) continue;
 				if (!best || kept > best.kept || sc.r.qa.total < best.sc.r.qa.total) best = { kept, ks, sc, drop };
 			}
 			if (best) { keys = best.ks; cur = best.sc; for (const g of best.drop) { const row = report.find(x => x.f === g); if (row) row.dropped = ["global"]; filledGaps.splice(filledGaps.indexOf(g), 1); } }
 		}
-		while (cur.worse.length && filledGaps.length) {
+		while (cur.worse.length && filledGaps.length && !late()) {
 			let best = null;
-			for (const g of filledGaps) { const ks = without(keys, g), sc = score(ks); if (!best || sc.worse.length < best.sc.worse.length) best = { g, ks, sc }; }
+			for (const g of filledGaps) { const ks = without(keys, g), sc = await score(ks); if (!best || sc.worse.length < best.sc.worse.length) best = { g, ks, sc }; }
 			keys = best.ks; cur = best.sc; filledGaps.splice(filledGaps.indexOf(best.g), 1);
 			const row = report.find(x => x.f === best.g); if (row) row.dropped = ["global"];
 		}
+		if (cur.worse.length) { for (const g of filledGaps) { keys = without(keys, g); const row = report.find(x => x.f === g); if (row) row.dropped = ["budget"]; } warnings.push(`MotionBricks selection ran past ${budget} ms; the compiler's curve kept`); }
 	}
 	const baked = compile({ ...spec, keys }).out.baked, frames = baked.root?.length ?? (Number.isFinite(spec.frames) ? spec.frames : 0);
 	const { kind, spans } = classifySpans({ ...spec, keys }, baked, frames), notes = densityNotes(keys, kind, spans, baked);
