@@ -122,6 +122,7 @@ export function pinHands(dense, fa, fb, authored, frames, sk) {
  * where the run starts, or where it ends when the run reaches the gap's end (the authored key there), or slide straight
  * between the two keys when the run spans the whole gap (then any slide is the author's).
  */
+const RELEASE = 4;
 export function lockFeet(out, planted) {
 	const last = out.length - 1;
 	out.holds = { l: [], r: [] };
@@ -137,6 +138,12 @@ export function lockFeet(out, planted) {
 				for (let f = i; f <= j; f++) {
 					const w = i === 0 && j === last ? f / last : j === last && i > 0 ? 1 : 0;
 					out[f][ch] = lerp(a, b, w);
+				}
+				// a run that ends inside the gap lets the foot go from where it was held, easing onto the model's foot over RELEASE
+				// frames: the model's foot drifts a little while planted and a release in one frame was a POP (t2B3 f31, f148)
+				if (j < last && !(i === 0 && j === last)) {
+					const held = out[j][ch];
+					for (let f = j + 1, n = 1; f <= Math.min(last - 1, j + RELEASE) && !on[f]; f++, n++) { const t = n / (RELEASE + 1); out[f][ch] = lerp(held, out[f][ch], t * t * (3 - 2 * t)); }
 				}
 			}
 			i = j;

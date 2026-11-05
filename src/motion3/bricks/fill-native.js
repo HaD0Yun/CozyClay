@@ -19,6 +19,29 @@ import { despikeAngles } from "./fill-despike.js";
 import { holdStance } from "./fill-stance.js";
 
 /** Same contract as fill.js fillSpec ({ spec, gaps, calls, spans, ... }), the native policy. */
+const CLASSES = { overlap: /^(COLLIDE|BODY|SELF|FACE)$/, slide: /^SLIDE$/, pop: /^(POP|FLIP)$/, float: /^FLOAT$/, held: /^HELD_OBJECT_DRIFT$/, reach: /^(REACH|KEY|GOAL)$/, wrist: /^WRIST$/ };
+/** The problem classes whose frame count around a gap ([fa-6, fb+6]) grows from the compiler's curve (before) to the filled take (after). */
+export function worseKinds(before, after, fa, fb, pad = 6) {
+	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) { if (g.last < fa - pad || g.first > fb + pad) continue; for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); } return t; };
+	const a = tally(before), b = tally(after);
+	return Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
+}
+
+const KEY_POINTS = ["root", "foot_l", "foot_r", "hand_l", "hand_r"];
+/** Largest distance (m) between an authored key's point channels and the compiled take at its frame. */
+function keyMiss(baked, authored) {
+	let worst = 0;
+	for (const k of authored) for (const ch of KEY_POINTS) { const w = k.set?.[ch], g = baked?.[ch]?.[k.f]; if (Array.isArray(w) && Array.isArray(g)) worst = Math.max(worst, Math.hypot(w[0] - g[0], w[1] - g[1], w[2] - g[2])); }
+	return worst;
+}
+/** Problem classes (whole take) the filled compile has more of than the compiler's curve, plus "keys" when it misses a key further. */
+export function globalWorse(base, filled, authored) {
+	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); return t; };
+	const a = tally(base.qa), b = tally(filled.qa), out = Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
+	if (keyMiss(filled.out.baked, authored) > Math.max(0.05, keyMiss(base.out.baked, authored))) out.push("keys");
+	return out;
+}
+
 export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = "exact", gate = true } = {}) {
 	const promoted = (spec.keys ?? []).filter(editedFill).length;
 	if (timing === "playground" && at === undefined) return fillPlayground({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
@@ -60,10 +83,29 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		const relaxed = relaxPops(dense, fa, { spec, keys, compile, sk });
 		const fill = boundToGap(sparseKeys(dense, fa, ends[i], TOL_SCALE), authored, fa, fb);
 		const qaCurve = gapQa(r.qa, fa, fb);
-		keys = merge(keys, fill);
-		const qaModel = gapQa(compile({ ...spec, keys }).qa, fa, fb);
+		const withFill = merge(keys, fill), qaAfter = compile({ ...spec, keys: withFill }).qa;
+		const qaModel = gapQa(qaAfter, fa, fb);
+		// per-kind gate (exact/free): the gap keeps the model's keys only if no problem class gets worse on the frames around it
+		const worse = process.env.COZYCLAY_MB_NOGUARD !== "1" ? worseKinds(r.qa, qaAfter, fa, fb) : [];
+		if (worse.length) { report.push({ f: [fa, fb], tokens: res.tokens, dropped: worse, modelWants: wants, ms: Math.round(ms) }); skipped.push({ f: [fa, fb], reason: `worse: ${worse.join(",")}` }); continue; }
+		keys = withFill;
 		const warp = +(((fb - fa) / STEP + 1) / (res.tokens * 4 - 6)).toFixed(2);
 		report.push({ f: [fa, fb], tokens: res.tokens, targets: nTarget, modelWants: wants, ...(warp === 1 ? {} : { warp }), keys: fill.length, ...(grounded ? { grounded } : {}), ...(relaxed ? { relaxed } : {}), qa: [qaCurve.groups, qaModel.groups], ms: Math.round(ms) });
+	}
+	// global back-off (exact/free): gaps interact (a pop one gap removed and the next one added; the compiler's ground fix moving a
+	// key's root after a far fill), so the whole take is checked against the compiler's own: while a problem class is worse or an
+	// authored key is missed by more than the curve misses it (5 cm floor), the filled gap whose removal helps most is dropped
+	if (process.env.COZYCLAY_MB_NOGUARD !== "1") {
+		const filledGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f);
+		const without = (ks, [fa, fb]) => ks.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb));
+		const score = ks => { const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored) }; };
+		let cur = score(keys);
+		while (cur.worse.length && filledGaps.length) {
+			let best = null;
+			for (const g of filledGaps) { const ks = without(keys, g), sc = score(ks); if (!best || sc.worse.length < best.sc.worse.length) best = { g, ks, sc }; }
+			keys = best.ks; cur = best.sc; filledGaps.splice(filledGaps.indexOf(best.g), 1);
+			const row = report.find(x => x.f === best.g); if (row) row.dropped = ["global"];
+		}
 	}
 	const baked = compile({ ...spec, keys }).out.baked, frames = baked.root?.length ?? (Number.isFinite(spec.frames) ? spec.frames : 0);
 	const { kind, spans } = classifySpans({ ...spec, keys }, baked, frames), notes = densityNotes(keys, kind, spans, baked);
