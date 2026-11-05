@@ -21,7 +21,7 @@ import { ASSET_MAX_SOURCE_BYTES, assetIdForBytes, meshIdForBytes, referencedAsse
 // The studio source spans App.jsx and app-stage.jsx (module-level extraction); pin against both.
 import { readStudioSource } from "./bus/verify-domain-modules.mjs";
 const appSource = readStudioSource()
-	+ readFileSync(new URL("../src/app-stage.jsx", import.meta.url), "utf8");
+	+ readFileSync(new URL("../src/app-stage.jsx", import.meta.url), "utf8") + readFileSync(new URL("../src/project-assets.js", import.meta.url), "utf8");
 
 // --- envelope round trip --------------------------------------------------
 const projectPose = { id: "custom_1", label: "My Pose", bones: { hips: [0.1, 0, 0] } };
