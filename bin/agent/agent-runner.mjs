@@ -15,7 +15,10 @@ const DEFAULT_MODEL = "gpt-6-astra";
 const RETRY_MAX_DELAY_MS = 20000;
 
 const AUTH_ERROR_PATTERN = /\b(401|403)\b|unauthorized|forbidden/i;
-const RATE_LIMIT_PATTERN = /\b429\b|rate.?limit|too many requests/i;
+// "usage limit", "quota", "resource exhausted": a provider's quota refusal that names no status, e.g. pi-ai's Codex
+// adapter, which turns a 429 into "You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min." (#1043:
+// it read as upstream, so the panel never showed the quota card).
+const RATE_LIMIT_PATTERN = /\b429\b|rate.?limit|too many requests|usage limit|quota|resource.?exhausted/i;
 const OVERLOAD_PATTERN = /\b529\b|overloaded/i;
 // Checked after the three above: a request that never got an HTTP answer, when only pi-ai's folded string survives.
 const NETWORK_PATTERN = /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up|network error/i;

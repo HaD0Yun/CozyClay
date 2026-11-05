@@ -14,7 +14,7 @@ import { createModels, createAssistantMessageEventStream } from "@earendil-works
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxThinking } from "@earendil-works/pi-ai/providers/faux";
 import { fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createAgentRunner, classifyError, classifyProviderError } from "../bin/agent/agent-runner.mjs";
-import { retryAfterMs, retryHintMs, retryKind } from "../bin/agent/agent-stream.mjs";
+import { headerRetryAfterMs, retryAfterMs, retryHintMs, retryKind } from "../bin/agent/agent-stream.mjs";
 import { failureCodeOf } from "../bin/agent/agent-failure-codes.mjs";
 import * as piAi from "@earendil-works/pi-ai";
 import { createSessionStore, transcriptFromHistory } from "../bin/agent/session-store.mjs";
@@ -135,6 +135,48 @@ function errorMessage(text) {
 	}
 }
 
+// --- #1043: a failed answer's Retry-After header reaches the retry and the rate-limit frame (real Codex adapter) ---
+// pi-ai drops a failed response's headers; agent-stream's per-request fetch keeps the wait. The Codex adapter also turns
+// a 429 into "You have hit your ChatGPT usage limit", with no status: it must still read as a rate limit.
+{
+	const replies = [];
+	let served = 0;
+	const fixture = createServer(async (req, res) => {
+		req.resume(); await once(req, "end");
+		served += 1;
+		const reply = replies.shift();
+		if (reply) { res.writeHead(429, { "content-type": "application/json", ...reply }); res.end(JSON.stringify({ error: { code: "usage_limit_reached", plan_type: "plus", message: "" } })); return; }
+		res.writeHead(200, { "content-type": "text/event-stream" });
+		res.end(`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed" } })}\n\n`);
+	});
+	const listening = once(fixture, "listening", { signal: AbortSignal.timeout(5000) });
+	fixture.listen(0, "127.0.0.1"); await listening;
+	const codexBaseUrl = `http://127.0.0.1:${fixture.address().port}`;
+	const token = `e30.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "runner-retry-after-fixture" } })).toString("base64url")}.e30`;
+	const auth = { readStored: () => ({ access_token: token, refresh_token: "fixture-refresh", expires_at: Date.now() + 3600000 }) };
+	let runner;
+	try {
+		const models = await createAgentModels({ auth, keys: { readKeys: () => ({}) }, env: {}, codexBaseUrl });
+		runner = createAgentRunner({ models, codexBaseUrl });
+		const turn = async (name) => collect(await runner.openSession(name), { text: "hello", model: "openai-codex/gpt-6-astra", signal: AbortSignal.timeout(8000) });
+
+		replies.push({ "retry-after": "600" });
+		let frames = await turn("retry-after-long");
+		let error = frames.find((frame) => frame.type === "error");
+		expect("a 10-minute Retry-After ends the turn at once, one request", served === 1, `served=${served}`);
+		expect("it reads as the provider's rate limit with the header's wait", error?.code === "rate_limit" && error.provider === "openai-codex" && error.retryAfterMs === 600_000 && Date.parse(error.resetAt) > Date.now() + 590_000, JSON.stringify(error));
+
+		served = 0;
+		replies.push({ "retry-after-ms": "60" });
+		frames = await turn("retry-after-short");
+		expect("a short Retry-After is waited out once and the turn completes", served === 2 && frames.every((frame) => frame.type !== "error") && frames.at(-1)?.type === "done", JSON.stringify({ served, frames }));
+	} finally {
+		await runner?.close();
+		const closed = once(fixture, "close", { signal: AbortSignal.timeout(5000) });
+		fixture.close(); fixture.closeAllConnections(); await closed;
+	}
+}
+
 // --- 429 twice then success: pi's own retry (maxRetries:2) absorbs both, one turn ---
 {
 	const models = createModels();
@@ -180,7 +222,28 @@ function errorMessage(text) {
 	assert.equal(retryAfterMs(failed(gemini429)), 37_500, "the message's own wait, uncapped");
 	assert.equal(retryAfterMs(failed('{"retryDelay":"12s"}')), 12_000, "Gemini's RetryInfo alone");
 	assert.equal(retryHintMs(failed(gemini429)), 20_000, "the backoff hint stays capped");
-	console.log("PASS retry classification: transient, Gemini resample, short quota wait, final");
+	// pi-ai's Codex adapter turns a 429 into this sentence: no status, a wait in minutes.
+	const codexLimit = "You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min.";
+	assert.equal(retryAfterMs(failed(codexLimit)), 38 * 60_000, "a wait in minutes");
+	assert.equal(retryAfterMs(failed("Rate limit reached. Try again in 2 hours.")), 2 * 3_600_000, "a wait in hours");
+	assert.equal(kind(codexLimit), null, "a usage limit an hour away is final at once");
+	assert.equal(kind("429 Too Many Requests. Please retry after 300 seconds."), null, "a rate limit that asks for minutes is final, not retried for a minute");
+	assert.equal(kind("Rate limit reached. Please try again in 2.5s."), "transient", "a short rate limit is still retried");
+	// 408 / 5xx statuses pi-ai's word list misses, read only where the status is folded in.
+	for (const text of ["522: <html>origin timed out</html>", "OpenAI API error (530): <html>", "got status: 521 Web Server Is Down.", "408 Request Timeout"]) {
+		assert.equal(kind(text), "transient", text);
+	}
+	for (const text of ["501 Not Implemented", "422: {\"error\":\"bad tool schema\"}", "Request body 523 bytes too large", "Claude Code turn failed (error_during_execution)"]) {
+		assert.equal(kind(text), null, text);
+	}
+	// A failed response's own Retry-After header (kept by agent-stream's fetch) wins over the text.
+	assert.equal(retryAfterMs({ ...failed("429 Too Many Requests"), serverRetryAfterMs: 4000 }), 4000);
+	assert.equal(headerRetryAfterMs(new Headers({ "retry-after": "12" })), 12_000);
+	assert.equal(headerRetryAfterMs(new Headers({ "retry-after-ms": "250", "retry-after": "12" })), 250);
+	assert.ok(Math.abs(headerRetryAfterMs(new Headers({ "retry-after": new Date(Date.now() + 90_000).toUTCString() })) - 90_000) <= 1000, "an HTTP date");
+	assert.equal(headerRetryAfterMs(new Headers({ "retry-after": "soon" })), undefined);
+	assert.equal(headerRetryAfterMs(new Headers()), undefined);
+	console.log("PASS retry classification: transient, Gemini resample, short quota wait, minute waits, 5xx statuses, final");
 
 	// A 4xx folded into the message rides on the frame, so the turn reads as invalid_request, not upstream.
 	for (const [text, expected] of [
@@ -190,6 +253,8 @@ function errorMessage(text) {
 		["502 Bad Gateway", "upstream"],
 		["Provider stopped with: SAFETY", "upstream"],
 		["429 Too Many Requests", "rate_limited"],
+		["You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min.", "rate_limited"],
+		["RESOURCE_EXHAUSTED: quota exceeded for model", "rate_limited"],
 	]) {
 		const { code, status } = classifyError({ message: text });
 		expect(`"${text.slice(0, 32)}" -> ${expected}`, failureCodeOf({ code, ...(status ? { status } : {}) }) === expected, JSON.stringify({ code, status }));
@@ -245,6 +310,12 @@ async function scriptedTurn(name, steps) {
 	expect("a rate limit without a wait carries no reset time", plain?.code === "rate_limit" && plain.provider === "faux" && !("resetAt" in plain), JSON.stringify(plain));
 }
 
+// --- a rate limit with no wait keeps three retries; the fourth is for overloads (#1043) ---
+{
+	const { frames, calls } = await scriptedTurn("errors-429-budget", Array.from({ length: 6 }, () => errorMessage("429 Too Many Requests")));
+	expect("a plain 429 is tried 4 times, then the quota card", calls.length === 4 && frames.find((f) => f.type === "error")?.code === "rate_limit", JSON.stringify({ calls: calls.length }));
+}
+
 // --- one session whose tool set changes between turns (the Studio Tasks switch) still runs ---
 {
 	const models = createModels();
@@ -274,24 +345,24 @@ for (const token of ["AIza-secret-0123456789abcdefghijk", "sk-or-secret", "sk-an
 	expect(`provider key material (${token.split("secret")[0]}) is redacted from the runner error frame`, !!error && !error.message.includes("AIza") && !error.message.includes("secret"), JSON.stringify(error));
 }
 
-// --- 529 four times: retries exhausted (maxRetries:3 = 4 attempts total, #975) -> error{code:'overloaded'} ---
+// --- 529 five times: retries exhausted (maxRetries:4 = 5 attempts total, #975, #1043) -> error{code:'overloaded'} ---
 {
 	const sessionsDir = mkdtempSync(join(tmpdir(), "cozyclay-agent-runner-errors-overloaded-store-"));
 	const sessionStore = createSessionStore(sessionsDir);
 	const models = createModels();
 	const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted", name: "Scripted", input: ["text", "image"] }] });
 	models.setProvider(faux.provider);
-	const calls = installScripts(faux, [errorMessage("500 overloaded"), errorMessage("500 overloaded"), errorMessage("500 overloaded"), errorMessage("500 overloaded"), fauxAssistantMessage([fauxText("recovered after overload")])]);
+	const calls = installScripts(faux, [...Array.from({ length: 5 }, () => errorMessage("500 overloaded")), fauxAssistantMessage([fauxText("recovered after overload")])]);
 	const runner = createAgentRunner({ models, tools: [], sessionStore });
 	const session = await runner.openSession("errors-529", { surface: "workflow" });
 	const frames = await collect(session, { text: "hi", model: "faux/scripted" });
 	const firstHistory = sessionStore.read("errors-529")?.history || [];
 	console.log("16a-overloaded-store-roles", JSON.stringify(firstHistory.map((message) => message.role)));
 	const error = frames.find((f) => f.type === "error");
-	expect("529 four times exhausts retries with one error frame", !!error, JSON.stringify(frames));
+	expect("529 five times exhausts retries with one error frame", !!error, JSON.stringify(frames));
 	expect("the error frame carries code:'overloaded'", error?.code === "overloaded", JSON.stringify(error));
 	expect("a done frame follows the error frame", frames.at(-1)?.type === "done", JSON.stringify(frames));
-	expect("the model was called exactly 4 times", calls.length === 4, `calls.length=${calls.length}`);
+	expect("the model was called exactly 5 times", calls.length === 5, `calls.length=${calls.length}`);
 	expect("overloaded failures keep model history limited to the user message", JSON.stringify(firstHistory.map((message) => message.role)) === "[\"user\"]", JSON.stringify(firstHistory));
 	const firstSession = sessionStore.read("errors-529");
 	expect("overloaded failure is persisted separately with code and message", firstSession?.turnErrors?.length === 1 && firstSession.turnErrors[0].code === error.code && firstSession.turnErrors[0].message === error.message, JSON.stringify(firstSession?.turnErrors));
