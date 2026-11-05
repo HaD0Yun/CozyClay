@@ -100,7 +100,9 @@ export function register(registry, ports) {
 		const filled = await requestFill(ports.fetch ?? globalThis.fetch, { spec: source, model: character.model, objects: ports.state?.().objects ?? [], ...(at === undefined ? {} : { at }), ...(timing ? { timing } : {}), ...(gate === undefined ? {} : { gate }) });
 		// the brief rides in the compile's own output (fitted to the receipt budget with it); the playground fill is kept as generated: no repair or thinning
 		const fill = fillBrief(filled, source);
-		const r = await registry.get("motion.compile").run({ characterId, spec: filled.spec, install, filled: fill, ...(filled.mode === "native-playground" ? { repair: false, thin: false } : {}) }, context);
+		// a native fill is not thinned either: thinning drops the fill keys QA does not miss, which takes the take back toward the
+		// compiler's even curve (bench rules2: installed sync share 0.70 against 0.63 unfilled, 0.70 before thinning)
+		const r = await registry.get("motion.compile").run({ characterId, spec: filled.spec, install, filled: fill, ...(filled.mode === "native-playground" ? { repair: false, thin: false } : /^native/.test(filled.mode ?? "") ? { thin: false } : {}) }, context);
 		return { ...r, summary: `${r.summary}${fill.mode ? ` Fill ${fill.mode}, ${fill.keys} keys.` : ""}${fill.moved ? ` The fill moved authored keys ${fill.moved.join(", ")}.` : ""}` };
 	} });
 	// a Smart Primitive's take is the runner's dense spec (it holds its own contacts and block clearance): compiled as is, no repair or thinning

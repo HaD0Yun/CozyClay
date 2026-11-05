@@ -1,6 +1,7 @@
 // The MotionBricks fill as a request the dev server answers (POST /agent/motion-fill, tools/dev-full.mjs):
 // { spec, at?, model?, auto?, objects?, timing?, gate? } -> { spec (the filled spec, fill keys src: "fill"), gaps, calls, ms }. The Studio's motion.fill
 // action sends the authored spec here because the model runs on onnxruntime-node, not in the browser. One runner per process.
+import { Worker } from "node:worker_threads";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { motionScene } from "../../src/motion3/scene.js";
@@ -33,6 +34,27 @@ export async function fillRequest({ spec, at, model = "x-bot-tpose", auto = fals
 	return { ...filled, ms: Math.round(performance.now() - t0) };
 }
 
+let worker, nextId = 0;
+const waiting = new Map();
+/** fillRequest on the fill worker (fill-worker.mjs), so the dev server's event loop (and the live hub on it) stays free. */
+export function fillInWorker(args) {
+	if (!worker) {
+		worker = new Worker(new URL("./fill-worker.mjs", import.meta.url));
+		worker.unref();
+		worker.on("message", ({ id, ok, value, error }) => {
+			const w = waiting.get(id);
+			if (!w) return;
+			waiting.delete(id);
+			ok ? w.resolve(value) : w.reject(Object.assign(new Error(error.message), error.code ? { code: error.code } : {}));
+		});
+		const fail = error => { for (const w of waiting.values()) w.reject(error); waiting.clear(); worker = undefined; };
+		worker.on("error", fail);
+		worker.on("exit", code => fail(Object.assign(new Error(`the fill worker stopped (${code})`), { code: "FILL_FAILED" })));
+	}
+	const id = ++nextId;
+	return new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); worker.postMessage({ id, args }); });
+}
+
 const BODY_LIMIT = 16 * 1024 * 1024; // the spec and the scene's objects
 
 /** POST /agent/motion-fill on the dev server (tools/dev-full.mjs): JSON { spec, at?, model? } in, fillRequest's answer or { error: { code, message } } out. */
@@ -46,7 +68,8 @@ export async function handleFillRoute(req, res) {
 			if (size > BODY_LIMIT) throw Object.assign(new Error("request body is over 16 MB"), { code: "INVALID_ARGUMENT" });
 			chunks.push(chunk);
 		}
-		send(200, await fillRequest(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")));
+		const args = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+		send(200, await (process.env.COZYCLAY_MB_INLINE === "1" ? fillRequest(args) : fillInWorker(args)));
 	} catch (error) {
 		const bad = error.code === "INVALID_ARGUMENT" || error instanceof SyntaxError || /^(FILL_GAP_TOO_LONG|MOTION_SPEC_INVALID)/.test(error.message);
 		send(bad ? 400 : 500, { error: { code: bad ? "INVALID_ARGUMENT" : error.code === "TARGET_NOT_READY" ? error.code : "FILL_FAILED", message: error.message.replace(/^MOTION_SPEC_INVALID:\s*/, "") } });
