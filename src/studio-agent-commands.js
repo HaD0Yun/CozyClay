@@ -14,6 +14,7 @@ import { frameSubject } from './studio-frame-subject.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
 import { supportGaps } from './studio-support-gap.js';
+import { deckLiftY, floorLiftWarnings } from './deck-lift.js';
 
 const DEG = Math.PI / 180, EPS = 1e-8, CHARACTER_SUPPORT_TOLERANCE = 5e-3;
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
@@ -269,7 +270,7 @@ function transformPatch(op, isObject) {
 export function arrangement(command, before, ports) {
   const isObject = command.name === 'arrange_objects', key = isObject ? 'objects' : 'characters';
   let rows = before[key];
-  const relations = [], warnings = [], clamps = [], createdByName = new Map();
+  const relations = [], warnings = [], clamps = [], liftedIds = new Set(), createdByName = new Map();
   // References resolve against the evolving draft (`rows`), in op order.
   const draft = () => ({ ...before, [key]: rows });
   for (const rawOp of command.args.ops) {
@@ -295,9 +296,11 @@ export function arrangement(command, before, ports) {
       if (op.space === 'parent') op = parentFrameOp(op, entity, rows, createdByName);
       entity = patchEntity(entity, transformPatch(op, isObject));
       const placed = place(entity, op, draft(), ports);
-      entity = placed.entity;
-      // What was asked against what the domain kept: scale and position limits move values silently.
-      const asked = isObject ? { ...(op.position?.world ?? {}), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
+      // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (deck-lift.js).
+      const lift = op.position?.world || placed.relation?.support === 'floor' ? deckLiftY(placed.entity, () => Math.min(...geometry(placed.entity, draft(), ports).map(p => p.y)), before.floorY ?? 0) : null;
+      entity = lift === null ? placed.entity : patchEntity(placed.entity, { y: lift }); liftedIds[lift === null ? 'delete' : 'add'](entity.id);
+      // What was asked against what the domain kept: scale and position limits move values silently; the lift is FLOOR_LIFT, not a clamp.
+      const asked = isObject ? { ...(op.position?.world ?? {}), ...(lift === null ? {} : { y: undefined }), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
         : { ...(op.position?.world ?? {}), ...(op.scale === undefined ? {} : { scale: op.scale }) };
       const clamp = clampWarning(entity.id, Object.fromEntries(Object.entries(asked).filter(([k]) => ['x', 'y', 'z', 'scale', 'scaleX', 'scaleY', 'scaleZ'].includes(k))), entity);
       if (clamp) clamps.push(clamp);
@@ -357,6 +360,7 @@ export function arrangement(command, before, ports) {
     warnings.push(...coplanar.slice(0, 2));
     if (coplanar.length > 2) warnings.push({ code: 'COPLANAR_FACES', count: coplanar.length - 2, message: `${coplanar.length - 2} more coplanar face pairs omitted` });
   }
+  warnings.push(...floorLiftWarnings([...liftedIds].filter(id => rows.some(e => e.id === id)), nameOf));
   if (relations.some(r => r.adjustmentM)) warnings.push({ code: 'OUTWARD_ADJUSTMENT', count: relations.filter(r => r.adjustmentM).length });
   const relation = relations.length === 1 ? relations[0] : null;
   return { domain: isObject ? 'objects' : 'cast', draft: equal(rows, before[key]) ? before[key] : rows, affectedIds,
