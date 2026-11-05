@@ -58,7 +58,9 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 	// the authored key moves it, and that pose would become the model's target
 	const base = compile({ ...spec, keys: spec.keys.filter(k => !isFillKey(k)) }), baseCache = new Map();
 	for (const [i, [fa, fb]] of gaps.entries()) {
-		const r = compile({ ...spec, keys }), cache = new Map();
+		// every gap reads its context from the authored keys' compile (not the take with the earlier gaps filled), so the gaps do not
+		// lean on each other and any subset of them can stay (the selection below); COZYCLAY_MB_CHAIN=1 keeps the old chaining
+		const r = process.env.COZYCLAY_MB_CHAIN === "1" ? compile({ ...spec, keys }) : base, cache = r === base ? baseCache : new Map();
 		const safe = safeGap(authored, r.out.baked, fa, fb);
 		const reason = spanReason(spec, authored, r.out.baked, fa, fb) ?? (safe === "hold" || (gate && safe) ? safe : null);
 		if (reason) { skipped.push({ f: [fa, fb], reason }); report.push({ f: [fa, fb], skipped: reason }); continue; }
@@ -86,11 +88,11 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		const withFill = merge(keys, fill), qaAfter = compile({ ...spec, keys: withFill }).qa;
 		const qaModel = gapQa(qaAfter, fa, fb);
 		// per-kind gate (exact/free): the gap keeps the model's keys only if no problem class gets worse on the frames around it
-		const worse = process.env.COZYCLAY_MB_NOGUARD !== "1" ? worseKinds(r.qa, qaAfter, fa, fb) : [];
-		if (worse.length) { report.push({ f: [fa, fb], tokens: res.tokens, dropped: worse, modelWants: wants, ms: Math.round(ms) }); skipped.push({ f: [fa, fb], reason: `worse: ${worse.join(",")}` }); continue; }
+		// the local reading is kept for the report; which gaps stay is decided on the whole take below (gaps interact)
+		const localWorse = worseKinds(r.qa, qaAfter, fa, fb);
 		keys = withFill;
 		const warp = +(((fb - fa) / STEP + 1) / (res.tokens * 4 - 6)).toFixed(2);
-		report.push({ f: [fa, fb], tokens: res.tokens, targets: nTarget, modelWants: wants, ...(warp === 1 ? {} : { warp }), keys: fill.length, ...(grounded ? { grounded } : {}), ...(relaxed ? { relaxed } : {}), qa: [qaCurve.groups, qaModel.groups], ms: Math.round(ms) });
+		report.push({ f: [fa, fb], tokens: res.tokens, targets: nTarget, modelWants: wants, ...(localWorse.length ? { localWorse } : {}), ...(warp === 1 ? {} : { warp }), keys: fill.length, ...(grounded ? { grounded } : {}), ...(relaxed ? { relaxed } : {}), qa: [qaCurve.groups, qaModel.groups], ms: Math.round(ms) });
 	}
 	// global back-off (exact/free): gaps interact (a pop one gap removed and the next one added; the compiler's ground fix moving a
 	// key's root after a far fill), so the whole take is checked against the compiler's own: while a problem class is worse or an
@@ -100,6 +102,18 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		const without = (ks, [fa, fb]) => ks.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb));
 		const score = ks => { const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored) }; };
 		let cur = score(keys);
+		// few gaps: the largest set of filled gaps with nothing worse (fewest QA problems among equals); many: greedy removal below
+		if (cur.worse.length && filledGaps.length <= 6) {
+			const all = keys, n = filledGaps.length; let best = null;
+			for (let mask = (1 << n) - 2; mask >= 0; mask--) {
+				const drop = filledGaps.filter((_, i) => !(mask & (1 << i))), kept = n - drop.length;
+				if (best && kept < best.kept) continue;
+				const ks = drop.reduce(without, all), sc = score(ks);
+				if (sc.worse.length) continue;
+				if (!best || kept > best.kept || sc.r.qa.total < best.sc.r.qa.total) best = { kept, ks, sc, drop };
+			}
+			if (best) { keys = best.ks; cur = best.sc; for (const g of best.drop) { const row = report.find(x => x.f === g); if (row) row.dropped = ["global"]; filledGaps.splice(filledGaps.indexOf(g), 1); } }
+		}
 		while (cur.worse.length && filledGaps.length) {
 			let best = null;
 			for (const g of filledGaps) { const ks = without(keys, g), sc = score(ks); if (!best || sc.worse.length < best.sc.worse.length) best = { g, ks, sc }; }
