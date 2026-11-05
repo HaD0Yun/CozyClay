@@ -37,7 +37,7 @@ import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
-import { refuseHiddenCapture } from "./live-capture-guard.js";
+import { captureFrameAt, refuseHiddenCapture } from "./live-capture-guard.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -2446,16 +2446,8 @@ export default function App() {
 			capture_framing_png: (args = {}) => {
 				refuseHiddenCapture();
 				const live = appContext.live.state;
-				// A named frame renders the way the video export draws it: the cast
-				// posed and the shot camera parked at that frame, then both put back,
-				// so a run of frames needs no seek and leaves the playhead alone.
-				if (args.frame !== undefined) {
-					const { frame } = args, frameCount = Math.max(1, live.timeline.frameCount);
-					if (!Number.isSafeInteger(frame) || frame < 0 || frame >= frameCount) throw new Error(`Frame ${frame} is outside the timeline (0-${frameCount - 1}).`);
-					const shot = live.captureShotFrame(frame);
-					if (!shot.dataUrl) throw new Error("The shot renderer is not ready");
-					return { ...shot, frame, partColours: live.partColours, meta: live.captureShotMeta(frame) };
-				}
+				// A named frame (#1074) renders the way the video export draws it.
+				if (args.frame !== undefined) return captureFrameAt(live, args.frame);
 				const output = requestedCaptureOutput(args) ?? SHOT_ASPECT_PRESETS[live.stage.shotAspect] ?? SHOT_ASPECT_PRESETS["16:9"];
 				const dataUrl = live.captureFramingPng(live.captureCurrentFraming(), output);
 				if (!dataUrl) throw new Error("The shot renderer is not ready");

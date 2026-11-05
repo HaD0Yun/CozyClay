@@ -393,8 +393,28 @@ try {
 	assert.deepEqual(readdirSync(framesDir).sort(), ["000010.png", "000015.png", "000020.png"], "each file is named for its timeline frame");
 	for (const name of readdirSync(framesDir)) assert.ok(readFileSync(join(framesDir, name)).subarray(0, 8).equals(PNG_MAGIC));
 	assert.equal(batch.bytes, 3 * Buffer.from(PNG_BASE64, "base64").byteLength);
-	const single = ok(await run(["capture", "--frames", "7", "--out-dir", framesDir, "--framing"]));
+
+	// A reused --out-dir would hand an earlier run's frames to a glob encode:
+	// refused before any capture, and --force clears only frame files.
+	const sentBeforeReuse = alpha.received.length;
+	const reused = await run(["capture", "--frames", "7", "--out-dir", framesDir]);
+	assert.equal(reused.code, 2, `a folder holding PNGs is refused: ${reused.stdout}`);
+	const reusedBody = only(reused);
+	assert.equal(reusedBody.error.code, "DIR_NOT_EMPTY");
+	assert.match(reusedBody.error.recovery.hint, /empty --out-dir, or --force/);
+	assert.equal(alpha.received.slice(sentBeforeReuse).filter((frame) => frame.name === "capture_framing_png").length, 0, "nothing is captured into a refused folder");
+	assert.deepEqual(readdirSync(framesDir).sort(), ["000010.png", "000015.png", "000020.png"], "a refused run leaves the folder as it was");
+	writeFileSync(join(framesDir, "notes.txt"), "kept");
+	const single = ok(await run(["capture", "--frames", "7", "--out-dir", framesDir, "--framing", "--force"]));
 	assert.deepEqual([single.frames, single.first, single.last], [1, 7, 7], "one frame and an implied --framing are fine");
+	assert.deepEqual(readdirSync(framesDir).sort(), ["000007.png", "notes.txt"], "--force removes the earlier frames and keeps other files");
+	writeFileSync(join(framesDir, "cover.png"), "not a frame");
+	const foreign = await run(["capture", "--frames", "7", "--out-dir", framesDir, "--force"]);
+	assert.equal(foreign.code, 2);
+	assert.equal(only(foreign).error.code, "DIR_NOT_EMPTY");
+	assert.match(only(foreign).error.recovery.hint, /only removes frame files/);
+	assert.deepEqual(only(foreign).error.details.png, ["cover.png"]);
+	assert.deepEqual(readdirSync(framesDir).sort(), ["cover.png", "notes.txt"], "--force removed its own frame file, never the foreign PNG");
 
 	for (const [args, pattern] of [
 		[["capture", "--frames", "0-2"], /needs --out-dir/],
@@ -405,6 +425,7 @@ try {
 		[["capture", "--frames", "0-99999999", "--out-dir", framesDir], /at most 10000/],
 		[["capture", "--frames", "0-2", "--out-dir", framesDir, "--out", framePath], /not --out/],
 		[["capture", "--out", framePath, "--step", "2"], /go with --frames/],
+		[["capture", "--out", framePath, "--force"], /go with --frames/],
 	]) {
 		const refused = await run(args);
 		assert.equal(refused.code, 2, `${args.join(" ")} is a usage error: ${refused.stdout}`);
@@ -423,7 +444,7 @@ try {
 	assert.match(staleBatchBody.error.message, /reload the Studio tab/);
 	assert.deepEqual([staleBatchBody.error.details.frame, staleBatchBody.error.details.written], [3, 0]);
 	assert.deepEqual(readdirSync(staleDir), []);
-	evidence.batchCapture = { batch, single, stale: staleBatchBody.error };
+	evidence.batchCapture = { batch, single, reused: reusedBody.error, stale: staleBatchBody.error };
 
 	/* ------------------------------- receipts ------------------------------ */
 
