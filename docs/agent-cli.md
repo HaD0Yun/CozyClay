@@ -377,6 +377,7 @@ state, never on a guess about what the dead hub saw.
 | verb | what it does | receipt? |
 | --- | --- | --- |
 | `status [--wait]` | the hub, its editors, and the selected one; `--wait` blocks until a selectable editor connects | no |
+| `save --out file.cclayproject [--force]` | save the open scene document locally; `--force` permits replacing an existing file | no |
 | `describe` | the full live scene document (scenes, objects, characters, camera, timeline) | no |
 | `inspect --scope selection\|scene\|entities\|shot\|motion\|catalogue` `[--ids a,b]` `[--query text]` | the scene context: identity, revisions, entity tokens, shots, receipts — the source for admission envelopes | no |
 | `capture --out frame.png [--framing]` | the editor's 640×360 viewport PNG, or with `--framing` the full-resolution shot-camera PNG | no |
@@ -446,6 +447,22 @@ coordinates or `relativeTo` an entity with `basis` (`world` / `subject` /
 an object. Sizes: extreme close-up … extreme wide shot. Views: front, front
 three-quarter, profile, rear three-quarter, back. Levels: ground, low, hip,
 eye, high, overhead. Sides: left, right.
+
+### Saving a project
+
+```sh
+cclay live save --out scene.cclayproject
+cclay live save --out scene.cclayproject --force
+```
+
+The CLI reads `describe` through the existing hub and writes the project itself;
+no Studio file picker or confirmation token is needed. The result is one JSON
+object: `{ok:true, path:"/absolute/scene.cclayproject", bytes:1234}`.
+Existing files are refused with `FILE_EXISTS` unless `--force` is supplied.
+All scenes and the current authoring camera are included. The current describe
+response does not expose workspace layout, custom poses, workflow or embedded
+asset records, so these are omitted; the scene name supplies the saved project
+name. If a hub supplies those project fields, they are included.
 
 ### Global flags
 

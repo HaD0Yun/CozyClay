@@ -10,12 +10,17 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
-import { admissionEnvelope, describeEditors, numberedPath, pngFromCaptureFrame, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
+import { admissionEnvelope, describeEditors, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
+
+import { captureToFile, saveToFile } from "./files.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
 
   cclay live status [--wait]             the hub, its editors, and the selected one
   cclay live describe                    read the live scene document
+  cclay live save --out file.cclayproject [--force]
+                                         writes locally; omits workspace layout, custom poses,
+                                         workflow and embedded assets absent from describe
   cclay live inspect --scope selection|scene|entities|shot|motion|catalogue
                                          [--ids a,b] [--query text]
   cclay live capture --out frame.png [--framing]
@@ -50,11 +55,12 @@ Exit codes: 0 ok - 1 editor or receipt error - 2 usage - 3 no hub -
 
 class UsageError extends Error {}
 
-const BOOLEAN_FLAGS = new Set(["--pretty", "--wait", "--framing", "--play", "--pause", "--strict"]);
+const BOOLEAN_FLAGS = new Set(["--force", "--pretty", "--wait", "--framing", "--play", "--pause", "--strict"]);
 const GLOBAL_FLAGS = ["--workspace", "--timeout", "--pretty", "--live-port"];
 const VERBS = new Map([
 	["status", { flags: ["--wait"] }],
 	["describe", { flags: [] }],
+	["save", { flags: ["--out", "--force"] }],
 	["inspect", { flags: ["--scope", "--ids", "--query"] }],
 	["capture", { flags: ["--out", "--framing"] }],
 	["arrange-objects", { flags: ["--op", "-f", "--file"], command: "arrange_objects" }],
@@ -398,19 +404,8 @@ async function runVerb({ client, verb, spec, name, flags }) {
 		return command("inspect_studio", args);
 	}
 
-	if (verb === "capture") {
-		const out = resolvePath(required(flags, "--out", verb));
-		if (flags.get("--framing") === true) {
-			const value = await command("capture_framing_png", {});
-			const bytes = pngFromDataUrl(value?.dataUrl);
-			writeFileSync(out, bytes);
-			return { path: out, width: value.width, height: value.height, bytes: bytes.byteLength };
-		}
-		const value = await command("capture_frame", {});
-		const bytes = pngFromCaptureFrame(value);
-		writeFileSync(out, bytes);
-		return { path: out, width: value.width, height: value.height, bytes: bytes.byteLength, assertions: value.assertions };
-	}
+	if (verb === "save") return saveToFile(command, resolvePath(required(flags, "--out", verb)), flags.get("--force") === true);
+	if (verb === "capture") return captureToFile(command, resolvePath(required(flags, "--out", verb)), flags.get("--framing") === true);
 
 	if (verb === "arrange-objects" || verb === "arrange-characters") return admitted(spec.command, operationArguments(flags, verb));
 
