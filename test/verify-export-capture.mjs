@@ -35,11 +35,12 @@ const gl = {
 };
 let cleanup;
 const browser = {};
-const CaptureRig = new Function("THREE", "useThree", "useEffect", "window", "GIZMO_LAYER",
+const page = { visibilityState: "visible" };
+const CaptureRig = new Function("THREE", "useThree", "useEffect", "window", "document", "GIZMO_LAYER",
 	"CAPTURE_W", "CAPTURE_H", "MCP_CAPTURE_W", "MCP_CAPTURE_H", "CAPTURE_FOG_NEAR", "CAPTURE_FOG_FAR",
 	`${component.replace("export function", "function")}; return CaptureRig;`)(
 	{ ...THREE, WebGLRenderTarget: RenderTarget }, () => ({ gl, scene }), (effect) => { cleanup = effect(); },
-	browser, 5, 1920, 1080, 640, 360, 55, 95,
+	browser, page, 5, 1920, 1080, 640, 360, 55, 95,
 );
 const camera = new THREE.PerspectiveCamera(45, 16 / 9, 0.1, 100);
 camera.position.set(1, 2, 3);
@@ -50,6 +51,12 @@ CaptureRig({ apiRef, camRef, width: 16, height: 9 });
 const editorApi = apiRef.current;
 const exportApi = editorApi.createExportCapture({ width: 12, height: 7 });
 assert.equal(exportApi.scene, scene);
+// The renderer itself stays usable in a hidden tab: the video export writes each
+// frame's bones and camera before it renders, so only live captures are refused.
+page.visibilityState = "hidden";
+assert.equal(exportApi.render().byteLength, 12 * 7 * 4, "export rendering still works in a hidden tab");
+capturedCamera = undefined;
+page.visibilityState = "visible";
 assert.equal(exportApi.render().byteLength, 12 * 7 * 4);
 assert.equal(capturedCamera.aspect, 12 / 7);
 assert.equal(capturedCamera.layers.isEnabled(5), false);

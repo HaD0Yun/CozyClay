@@ -37,6 +37,7 @@ import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
+import { refuseHiddenCapture } from "./live-capture-guard.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -2415,6 +2416,7 @@ export default function App() {
 			};
 		},
 		capture_frame: async () => {
+				refuseHiddenCapture();
 				const live = appContext.live.state;
 				return captureMcpFrame({
 					partColours: live.partColours,
@@ -2442,6 +2444,7 @@ export default function App() {
 			// The full-resolution shot-camera pull the editor's own exports use —
 		// not capture_frame's 640x360 preview, which stays exactly as it is.
 			capture_framing_png: (args = {}) => {
+				refuseHiddenCapture();
 				const live = appContext.live.state;
 				// A named frame renders the way the video export draws it: the cast
 				// posed and the shot camera parked at that frame, then both put back,

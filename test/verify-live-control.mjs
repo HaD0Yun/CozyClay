@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { refuseHiddenCapture } from "../src/live-capture-guard.js";
 import {
 	createLiveControl,
 	dispatchLiveFrame,
@@ -438,6 +439,17 @@ assert.equal(LIVE_WORKSPACE_ID_KEY, "cozyclay:live-workspace-id");
 	relabeled.setMeta({ project: "Example project", scene: "Scene 1" });
 	assert.deepEqual(sent.shift(), { type: "meta", meta: { project: "Example project", scene: "Scene 1" } });
 	relabeled.close();
+}
+
+{
+	// A live capture from a hidden tab is refused with a stable code; a visible page (or headless Chrome, which reports visible) passes.
+	assert.doesNotThrow(() => refuseHiddenCapture({ visibilityState: "visible" }));
+	assert.doesNotThrow(() => refuseHiddenCapture(undefined));
+	assert.throws(() => refuseHiddenCapture({ visibilityState: "hidden" }), (error) => error.code === "TAB_HIDDEN" && /front.*headless Chrome/.test(error.message));
+	const frame = JSON.stringify({ type: "cmd", id: "c1", name: "capture_framing_png", args: {} });
+	const result = await dispatchLiveFrame(frame, { capture_framing_png: () => refuseHiddenCapture({ visibilityState: "hidden" }) });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "TAB_HIDDEN", "the code survives the editor transport");
 }
 
 console.log("all live control checks PASS");
