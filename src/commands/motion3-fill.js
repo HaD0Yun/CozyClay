@@ -49,12 +49,15 @@ const authoredFrames = sp => [...new Set((sp?.keys ?? []).filter(k => !isFillKey
  * one line per gap, the authored keys the fill moved (retime, playground) and the guides, at most MAX_LINES of each. Exported for the test.
  */
 export function fillBrief(filled, source) {
-	const gap = g => (g.kept ? `f${g.f.join("-")} kept` : g.skipped ? `f${g.f.join("-")} skipped (${g.skipped})` : `${g.f ? `f${g.f.join("-")}` : `to f${g.key}`} ${g.tokens} tokens, ${g.targets} target${g.targets === 1 ? "" : "s"}${g.modelWants ? `, model wants ${g.modelWants.exact ?? g.modelWants}` : ""}${g.early ? `, early ${g.early}` : ""}`);
+	// a generated gap the guard dropped says so and why (local / global / install / time): the agent read "filled 3 gaps" with 0 keys
+	// and filled the same spec again 6 more times (bench box t2F5)
+	const gap = g => (g.kept ? `f${g.f.join("-")} kept` : g.skipped ? `f${g.f.join("-")} skipped (${g.skipped})` : g.dropped ? `f${g.f.join("-")} dropped (${[].concat(g.dropped).join(", ")}${g.localWorse?.length ? `: ${g.localWorse.join("/")} worse` : ""})` : `${g.f ? `f${g.f.join("-")}` : `to f${g.key}`} ${g.tokens} tokens, ${g.targets} target${g.targets === 1 ? "" : "s"}${g.modelWants ? `, model wants ${g.modelWants.exact ?? g.modelWants}` : ""}${g.early ? `, early ${g.early}` : ""}`);
 	const was = authoredFrames(source), now = authoredFrames(filled.spec);
 	// a playground fill drops its middle keys (guides): then only the last key is paired
 	const moved = (was.length === now.length ? was.map((f, i) => [f, now[i]]) : [[was.at(-1), now.at(-1)]]).filter(([a, b]) => a !== b);
 	const keys = filled.spec.keys.filter(k => isFillKey(k)).length;
-	return { ...(filled.mode ? { mode: filled.mode } : {}), calls: filled.calls, keys, ...(filled.ms === undefined ? {} : { ms: filled.ms }), gaps: more(filled.gaps ?? [], gap),
+	const kept = (filled.gaps ?? []).filter(g => g.keys !== undefined && !g.dropped).length;
+	return { ...(filled.mode ? { mode: filled.mode } : {}), calls: filled.calls, kept, keys, ...(filled.ms === undefined ? {} : { ms: filled.ms }), gaps: more(filled.gaps ?? [], gap),
 		...(moved.length ? { moved: more(moved, ([a, b]) => `f${a} -> f${b}`) } : {}), ...(filled.guides?.length ? { guides: more(filled.guides, g => `f${g.authored} reached f${g.at}`) } : {}),
 		...(filled.skipped?.length ? { skipped: filled.skipped.length } : {}), ...(filled.dropped ? { dropped: Array.isArray(filled.dropped) ? filled.dropped.length : filled.dropped } : {}),
 		...(filled.passThrough ? { passThrough: Array.isArray(filled.passThrough) ? filled.passThrough.length : filled.passThrough } : {}),
