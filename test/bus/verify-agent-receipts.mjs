@@ -56,7 +56,9 @@ try {
   assert.deepEqual(path('scale').vec, { x: 1, y: 0.01, z: 1 }, 'scale reads back after the clamp');
   assert.equal(path('parent').text, null);
   assert.equal(readback.childIds, undefined);
-  assert.deepEqual(readback.bounds, { min: { x: -6 - row.footprint.width / 2, y: 0, z: -6 - row.footprint.depth / 2 }, max: { x: -6 + row.footprint.width / 2, y: row.height * 0.01, z: -6 + row.footprint.depth / 2 } });
+  // The slab asked for y 0 is lifted 3 mm off the deck (#1075) and says so.
+  assert.deepEqual(readback.bounds, { min: { x: -6 - row.footprint.width / 2, y: 0.003, z: -6 - row.footprint.depth / 2 }, max: { x: -6 + row.footprint.width / 2, y: Number((0.003 + row.height * 0.01).toFixed(4)), z: -6 + row.footprint.depth / 2 } });
+  assert.equal(find(squash, 'FLOOR_LIFT')[0].id, crate);
   const many = arrange(Array.from({ length: 10 }, (_, i) => create(`Bulk ${i}`, { x: 20 + i * 3, y: 0, z: -20 })));
   assert.equal(many.delta.length, 8);
   const truncated = find(many, 'READBACK_TRUNCATED');
