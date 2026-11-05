@@ -34,7 +34,9 @@ One process owns the hub; everything else just connects to it:
 
 2. **Open a browser tab** at the Studio URL (`http://127.0.0.1:5209/app/`).
    A headless Chromium with remote debugging is fine — the editor is the page,
-   not the window.
+   not the window. From a source checkout,
+   `node tools/headless-studio.mjs --project shot.cclayproject --live-port 5629`
+   does steps 1 and 2 in one owned process (dev server plus headless Chrome).
 
 3. **Gate on an editor** with `status --wait` (below).
 
