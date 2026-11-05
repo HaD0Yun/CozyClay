@@ -1,9 +1,12 @@
 // The provider call behind every model request of the agent runner (agent-runner.mjs). pi-agent-core 1.x's Agent does
 // not retry a failed request (the removed AgentHarness did), so one request is retried here, in place:
-//   - a transient failure, by pi-ai's own isRetryableAssistantError (429, 5xx, overload, dropped connections), up to
-//     RETRY_POLICY.maxRetries times with pi-ai's backoff (1 s, 2 s, 4 s), or as long as the provider's message asks
-//     ("retry after 8 s", "try again in 2.5s"), capped at RETRY_HINT_CAP_MS (#975: two quick retries lost turns to
-//     overloads that cleared within ~10 s), or at QUOTA_WAIT_MAX_MS for a rate limit, a wait that long once per request;
+//   - a transient failure, by pi-ai's own isRetryableAssistantError (429, 5xx, overload, dropped connections) or a
+//     408 / 5xx status pi-ai's word list leaves out (521, 522, 523, 530, ...), up to RETRY_POLICY.maxRetries times with
+//     pi-ai's backoff (1 s, 2 s, 4 s, 8 s: 15 s in all, #1043; three tries gave 7 s against overloads that clear in
+//     ~10 s, #975; a rate limit keeps three), or as long as the provider asks (a Retry-After / retry-after-ms header, "retry after 8 s", "try
+//     again in 2.5s"), capped at RETRY_HINT_CAP_MS, or at QUOTA_WAIT_MAX_MS for a rate limit, a wait that long once per
+//     request; a rate limit whose provider asks for more than QUOTA_WAIT_MAX_MS is final at once, so the panel can
+//     show that wait and offer another provider instead of a minute of retries the provider already refused;
 //   - a Gemini request that ended on a finish reason a fresh sample usually clears (MALFORMED_FUNCTION_CALL, ...):
 //     pi-ai reads it as a final error, so it ended the turn as "upstream" (#1043);
 //   - a quota refusal pi-ai will not retry (its "quota exceeded" / "billing" words) that names a short wait, e.g.
@@ -15,23 +18,56 @@
 // attempt's own start event is then dropped, its partial message replaces the failed one. A retried request carries
 // the same context, so no failed assistant message is stored and no completed tool runs again.
 
-const RETRY_POLICY = Object.freeze({ maxRetries: 3, baseDelayMs: 1000 });
+const RETRY_POLICY = Object.freeze({ maxRetries: 4, baseDelayMs: 1000 });
+// A rate limit that named no wait keeps the three tries it had (7 s): the extra one is for overloads, and a quota's
+// card should not wait longer to say so.
+const RATE_LIMIT_RETRIES = 3;
 const RETRY_HINT_CAP_MS = 20_000;
 const QUOTA_WAIT_MAX_MS = 60_000;
-const RETRY_HINT = /(?:retry|try again)\D{0,12}?(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec|seconds?)\b/i;
+// "retry in 37.5s", "try again in 750ms", and the ChatGPT usage limit's "Try again in ~38 min." (pi-ai's Codex adapter).
+const RETRY_HINT = /(?:retry|try again)\D{0,12}?(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)\b/i;
+const UNIT_MS = (unit) => (/^ms|^milli/i.test(unit) ? 1 : /^s/i.test(unit) ? 1000 : /^m/i.test(unit) ? 60_000 : 3_600_000);
 // google.rpc.RetryInfo in a Gemini error body: "retryDelay": "37s".
 const RETRY_DELAY_FIELD = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/;
-const RATE_LIMITED = /(?<![a-z0-9])429(?![a-z0-9])|rate.?limit|too many requests|resource.?exhausted|quota/i;
+const RATE_LIMITED = /(?<![a-z0-9])429(?![a-z0-9])|rate.?limit|too many requests|resource.?exhausted|quota|usage limit/i;
+// The HTTP status a failed message leads with, as pi-ai and the SDKs fold it: "503 ...", "522: <body>",
+// "OpenAI API error (522): ...", Gemini's "got status: 503 ...". A number elsewhere in a body is never read.
+// The bracketed form must be "(NNN):", so "Image too large (523 KB)" or "(512 tokens over)" is no status.
+const LEADING_STATUS = /^(?:got status: )?([1-5]\d\d)(?=[\s:)]|$)|^[^\n(:]{0,80}\(([1-5]\d\d)\):/;
+// The statuses the OpenAI and Anthropic SDKs retry (pi-ai's provider-retry.js) that its message word list can miss: a
+// request timeout and any 5xx but 501 (not implemented) and 505 (HTTP version). 429 stays with pi-ai, which tells
+// a billing refusal from a throttle.
+const TRANSIENT_STATUS = (status) => status === 408 || (status >= 500 && status <= 599 && status !== 501 && status !== 505);
+const leadingStatus = (text) => { const match = LEADING_STATUS.exec(text); return Number(match?.[1] ?? match?.[2]); };
+// The wait a failed HTTP answer asked for in its headers, per the SDKs' order: retry-after-ms, then Retry-After as
+// seconds or an HTTP date. Undefined when it named none.
+export function headerRetryAfterMs(headers) {
+	try {
+		const ms = Number.parseFloat(headers?.get?.("retry-after-ms") ?? "");
+		if (Number.isFinite(ms) && ms >= 0) return Math.ceil(ms);
+		const value = headers?.get?.("retry-after");
+		if (!value) return undefined;
+		const seconds = Number(value);
+		const wait = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+		return Number.isFinite(wait) ? Math.max(0, Math.ceil(wait)) : undefined;
+	} catch { return undefined; }
+}
+// pi-ai drops a failed response's headers, so the request's fetch is wrapped to keep a failed answer's wait. Only the
+// adapters that take a caller's fetch get it: the Google ones refuse one.
+const FETCH_APIS = new Set(["openai-completions", "openai-responses", "openai-codex-responses", "azure-openai-responses", "anthropic-messages", "mistral-conversations"]);
 // Gemini finish reasons pi-ai turns into "Provider stopped with: <reason>" that a new sample usually answers.
 // SAFETY, RECITATION, BLOCKLIST and the like are the content's, and stay final.
 const RESAMPLE_STOP = /Provider stopped with: (?:MALFORMED_FUNCTION_CALL|UNEXPECTED_TOOL_CALL|FINISH_REASON_UNSPECIFIED|OTHER)\b/;
 
-/** The wait a failed message names, in ms, uncapped ("retry in 37.5s", Gemini's retryDelay), or 0 when it names none. */
+/** The wait a failed message names, in ms, uncapped: its response's Retry-After header (`serverRetryAfterMs`), else its
+ * text ("retry in 37.5s", "Try again in ~38 min", Gemini's retryDelay); 0 when it names none. */
 export function retryAfterMs(message) {
+	const header = message?.serverRetryAfterMs;
+	if (Number.isFinite(header) && header > 0) return Math.ceil(header);
 	const text = String(message?.errorMessage ?? "");
 	const match = RETRY_HINT.exec(text);
 	const field = RETRY_DELAY_FIELD.exec(text);
-	const ms = match ? Number(match[1]) * (/^m/i.test(match[2]) ? 1 : 1000) : field ? Number(field[1]) * 1000 : 0;
+	const ms = match ? Number(match[1]) * UNIT_MS(match[2]) : field ? Number(field[1]) * 1000 : 0;
 	return Number.isFinite(ms) && ms > 0 ? Math.ceil(ms) : 0;
 }
 
@@ -43,11 +79,13 @@ export function retryHintMs(message) {
 /** Why a failed attempt may be tried again: "transient", "resample", "quota_wait", or null (final). */
 export function retryKind(ai, message) {
 	if (message?.stopReason !== "error") return null;
-	if (ai.isRetryableAssistantError(message)) return "transient";
 	const text = String(message.errorMessage ?? "");
-	if (RESAMPLE_STOP.test(text)) return "resample";
 	const wait = retryAfterMs(message);
-	return RATE_LIMITED.test(text) && wait > 0 && wait <= QUOTA_WAIT_MAX_MS ? "quota_wait" : null;
+	// A rate limit whose provider asked for more than a minute: retrying sooner is refused again.
+	if (RATE_LIMITED.test(text) && wait > QUOTA_WAIT_MAX_MS) return null;
+	if (ai.isRetryableAssistantError(message) || TRANSIENT_STATUS(leadingStatus(text))) return "transient";
+	if (RESAMPLE_STOP.test(text)) return "resample";
+	return RATE_LIMITED.test(text) && wait > 0 ? "quota_wait" : null;
 }
 
 /** How long to wait before retry `retries + 1` of a `kind` failure. */
@@ -107,7 +145,8 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 		// refusal is the quota's answer.
 		let longWaited = false;
 		const shouldRetry = async (message, retries) => {
-			if (retries >= RETRY_POLICY.maxRetries || signal?.aborted) return false;
+			const limit = RATE_LIMITED.test(String(message?.errorMessage ?? "")) ? RATE_LIMIT_RETRIES : RETRY_POLICY.maxRetries;
+			if (retries >= limit || signal?.aborted) return false;
 			const kind = retryKind(ai, message);
 			if (kind) {
 				const wait = retryWaitMs(ai, kind, message, retries);
@@ -137,8 +176,15 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 				let forwarding = false;
 				let answered = false;
 				let message;
+				let serverWait;
+				// globalThis.fetch is read per call: the Codex response observer (providers.mjs) wraps it.
+				const fetch = async (input, init) => {
+					const response = await globalThis.fetch(input, init);
+					if (!response.ok) serverWait = headerRetryAfterMs(response.headers);
+					return response;
+				};
 				try {
-					const response = await models.streamSimple(model, context, options);
+					const response = await models.streamSimple(model, context, FETCH_APIS.has(model?.api) && !options.fetch ? { ...options, fetch } : options);
 					for await (const event of response) {
 						if (event.type === "done" || event.type === "error") break;
 						if (ANSWER_EVENT.test(event.type)) answered = true;
@@ -150,6 +196,7 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 				} catch (error) {
 					message = failedMessage(model, error, signal);
 				}
+				if (message.stopReason === "error" && serverWait !== undefined) message = { ...message, serverRetryAfterMs: serverWait };
 				onAttempt(message);
 				if (!answered && message.stopReason === "error" && await shouldRetry(message, retries)) continue;
 				// An abort that landed during a backoff ends the request as aborted, like any other cancellation.
