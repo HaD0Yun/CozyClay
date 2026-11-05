@@ -142,7 +142,7 @@ export async function dispatchLiveFrame(data, handlers = {}) {
 	try {
 		return result(frame.id, true, await handler(frame.args));
 	} catch (error) {
-		return result(frame.id, false, errorMessage(error));
+		return result(frame.id, false, typeof error?.code === "string" ? { code: error.code, message: errorMessage(error) } : errorMessage(error));
 	}
 }
 
