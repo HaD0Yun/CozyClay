@@ -879,7 +879,8 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
 | `agent:turn_requested` | `surface`, `turn_id` |
 | `agent:tool_executed` | `turn_id`, `tool_category`, `outcome`, `duration_bucket` |
 | `agent:turn_succeeded` | `turn_id`, `duration_bucket` |
-| `agent:turn_failed`, `agent:turn_cancelled` | `turn_id`, `duration_bucket`, `failure_code` |
+| `agent:turn_failed` | `turn_id`, `duration_bucket`, `failure_code`, `provider`, `endpoint` (openai-compatible only) |
+| `agent:turn_cancelled` | `turn_id`, `duration_bucket`, `failure_code` |
 | `agent:result_applied` | `turn_id` |
 | `mcp:tool_requested` | `request_id`, `tool_category`, `tool_name` |
 | `mcp:tool_executed` | `request_id`, `tool_category`, `tool_name`, `outcome`, `duration_bucket` |
@@ -900,6 +901,9 @@ Historical `feature:used(mcp_connected)` is a connection signal, not work.
   `stale_scene`, `capability_missing`, `busy`, `invalid_request`, `unknown`.
   Never raw error
   prose.
+- `agent:turn_failed` `provider`: the `agent:prompt_sent` provider of the same
+  turn (absent when the turn had no staged prompt). `endpoint`: `local`, `lan`,
+  `hosted` or `unknown`, for `openai-compatible` only (#1043).
 - New Agent codes, split out of `upstream` and `auth` in the analytics hygiene
   release (split by `app_version`; older rows keep the coarse code):
   - `key_refused`: the model provider rejected the key or credentials

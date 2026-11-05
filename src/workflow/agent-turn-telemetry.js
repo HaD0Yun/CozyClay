@@ -129,7 +129,7 @@ export function startAgentTurn({ surface, capture, now, correlationId = null }) 
 			}
 		}
 		tools.clear();
-		emit(`agent:turn_${outcome}`, { turn_id: turnId, duration_bucket: bucketMs(clock() - startedAt), ...(outcome !== "succeeded" ? { failure_code: failureCode } : {}) });
+		emit(`agent:turn_${outcome}`, { turn_id: turnId, duration_bucket: bucketMs(clock() - startedAt), ...(outcome !== "succeeded" ? { failure_code: failureCode } : {}), ...(outcome === "failed" ? origin : {}) });
 		const summary = advisory(() => ({ turn_id: turnId, outcome, wall: bucketLong(clock() - startedAt), ...tally.props(outcome), ...takeDrafts(matchId) }), null);
 		if (summary) emit("agent:turn_summary", summary);
 		// Only a Studio turn is followed by Studio edits; the Workflow canvas has no edit groups to count.
@@ -139,6 +139,9 @@ export function startAgentTurn({ surface, capture, now, correlationId = null }) 
 	// The prompt the panel staged as it sent this turn (prompt-telemetry.js), with the same turn id.
 	const prompt = takePrompt(turnId);
 	if (prompt) emit("agent:prompt_sent", prompt);
+	// A failed turn names its provider and, for openai-compatible, the server address's class (#1043), so failures
+	// split by provider and by local vs hosted server without a join. The prompt's own closed values, never the address.
+	const origin = prompt ? { provider: prompt.provider, ...(prompt.endpoint ? { endpoint: prompt.endpoint } : {}) } : {};
 	return {
 		turnId,
 		cancel: () => finish("cancelled", "aborted"),
