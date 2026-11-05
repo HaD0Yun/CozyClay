@@ -451,7 +451,7 @@ export class LiveHub {
 			if (frame.ok === true) {
 				pending.resolve(frame.value);
 			} else {
-				pending.reject(hubError("EDITOR_ERROR", typeof frame.error === "string" ? frame.error : "Live editor rejected the command."));
+				pending.reject(hubError(typeof frame.error?.code === "string" ? frame.error.code : "EDITOR_ERROR", typeof frame.error === "string" ? frame.error : frame.error?.message ?? "Live editor rejected the command."));
 			}
 		});
 		socket.on("close", () => this.disconnect(socket));

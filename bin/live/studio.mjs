@@ -86,3 +86,12 @@ export function numberedPath(path, index) {
 	const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
 	return dot > slash ? `${path.slice(0, dot)}-${index + 1}${path.slice(dot)}` : `${path}-${index + 1}`;
 }
+
+/** Optional inspect filters and entity paging, shared with the CLI parser. */
+export function inspectArguments(flags, integerFlag) {
+	const args = {};
+	if (flags.has("--ids")) args.ids = String(flags.get("--ids")).split(",").map(value => value.trim()).filter(Boolean);
+	for (const key of ["query", "cursor"]) if (flags.has(`--${key}`)) args[key] = String(flags.get(`--${key}`));
+	if (flags.has("--limit")) args.limit = integerFlag(flags, "--limit");
+	return args;
+}
