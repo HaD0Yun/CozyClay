@@ -3,6 +3,7 @@
 // action sends the authored spec here because the model runs on onnxruntime-node, not in the browser. One runner per process.
 import { Worker } from "node:worker_threads";
 import { compileSpec } from "../../src/motion3/pipeline.js";
+import { runCompileJob } from "../../src/motion3/compile-job.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { fillSpec } from "../../src/motion3/bricks/fill.js";
@@ -27,7 +28,9 @@ export async function fillRequest({ spec, at, model = "x-bot-tpose", auto = fals
 	// the editor's scene objects (motion3-fill.js sends them): an anchor or a check naming a wall, a table or a door handle compiles here too
 	const scene = motionScene(Array.isArray(objects) ? objects : []);
 	if (mode === "native") {
-		const filled = await fillSpecNative(spec, { sk, compile: s => compileSpec(s, { sk, scene }), run }, { at, timing: timing ?? (TIMINGS.includes(process.env.COZYCLAY_MB_TIMING) ? process.env.COZYCLAY_MB_TIMING : "exact"), gate: typeof gate === "boolean" ? gate : process.env.COZYCLAY_MB_GATE !== "0" });
+		// the unfilled spec as motion.compile installs it (repair, no thinning): the naturalness bar of the fill's guard
+		const reference = async () => { const j = runCompileJob({ model, scene, spec: { fps: 24, ...spec }, repair: { rounds: 2 }, installing: true, thin: false, hintLimitMs: 0 }); return compileSpec(j.stored, { sk, scene }).observations?.life; };
+		const filled = await fillSpecNative(spec, { sk, compile: s => compileSpec(s, { sk, scene }), run, reference }, { at, timing: timing ?? (TIMINGS.includes(process.env.COZYCLAY_MB_TIMING) ? process.env.COZYCLAY_MB_TIMING : "exact"), gate: typeof gate === "boolean" ? gate : process.env.COZYCLAY_MB_GATE !== "0" });
 		return { ...filled, ms: Math.round(performance.now() - t0) };
 	}
 	const filled = await fillSpec(spec, { sk, compile: s => compileSpec(s, { sk, scene }), run }, { at, auto: auto === true, targets: Number(process.env.COZYCLAY_MB_TARGETS) === 4 ? 4 : 1, footLock: process.env.COZYCLAY_MB_FOOTLOCK === "speed" ? "speed" : "channel" });

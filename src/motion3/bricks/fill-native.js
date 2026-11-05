@@ -35,19 +35,19 @@ function keyMiss(baked, authored) {
 	return worst;
 }
 /** Problem classes (whole take) the filled compile has more of than the compiler's curve, plus "keys" when it misses a key further. */
-export function globalWorse(base, filled, authored) {
+export function globalWorse(base, filled, authored, life = base.observations?.life) {
 	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); return t; };
 	const a = tally(base.qa), b = tally(filled.qa), out = Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
 	if (keyMiss(filled.out.baked, authored) > Math.max(0.05, keyMiss(base.out.baked, authored))) out.push("keys");
 	// naturalness (qa/motion-life.js): the fill is there to make the take less mechanical, so it may not make parts start and stop
 	// together more often (sync share, 0.05 slack) or add acceleration seams (jerk spikes)
-	const la = base.observations?.life ?? {}, lb = filled.observations?.life ?? {};
+	const la = life ?? {}, lb = filled.observations?.life ?? {};
 	if ((lb.sync?.[0] ?? 0) > (la.sync?.[0] ?? 0) + 0.05) out.push("sync");
 	if ((lb.jerk?.[2] ?? 0) > (la.jerk?.[2] ?? 0)) out.push("jerk");
 	return out;
 }
 
-export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = "exact", gate = true } = {}) {
+export async function fillSpecNative(spec, { sk, compile, run, reference }, { at, timing = "exact", gate = true } = {}) {
 	const promoted = (spec.keys ?? []).filter(editedFill).length;
 	if (timing === "playground" && at === undefined) return fillPlayground({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
 	if (timing === "retime" && at === undefined) return fillRetime({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
@@ -113,7 +113,11 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		// each compile is synchronous; the dev server's live hub shares this event loop (tools/dev-full.mjs), so yield before each one
 		// or the editor misses its heartbeat over a long selection (live-control.js: pong within 10 s)
 		const tick = () => new Promise(res => setImmediate(res));
-		const score = async ks => { await tick(); const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored) }; };
+		// the bar for naturalness is the take the user gets without the fill: motion.compile repairs an installing compile, and repair
+		// changes how mechanical it reads (bench rules2: sync share 0.71 raw, 0.63 repaired); reference() gives that take's life
+		let life = base.observations?.life;
+		try { const ref = await reference?.(); if (ref) { const a = life ?? {}; life = { ...a, sync: [Math.min(a.sync?.[0] ?? 1, ref.sync?.[0] ?? 1)], jerk: [0, 0, Math.min(a.jerk?.[2] ?? Infinity, ref.jerk?.[2] ?? Infinity)] }; } } catch { /* a reference only */ }
+		const score = async ks => { await tick(); const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored, life) }; };
 		let cur = await score(keys);
 		// few gaps: the largest set of filled gaps with nothing worse (fewest QA problems among equals); many: greedy removal below
 		if (cur.worse.length && filledGaps.length <= 6) {
