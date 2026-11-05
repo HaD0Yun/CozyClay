@@ -7,6 +7,9 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnOwned } from "./process-supervisor.mjs";
+import { PROJECT_SESSION_KEY, WORKFLOW_STORAGE_KEY, normalizeCastStyle, normalizePrevisMode } from "../src/project.js";
+import { SCENES_STORAGE_KEY } from "../src/scenes.js";
+import { WORKSPACE_LAYOUT_KEY } from "../src/stage-startup-defaults.js";
 
 const CHROME_CANDIDATES = [
 	process.env.CHROME_PATH,
@@ -132,22 +135,43 @@ async function connect(wsUrl) {
 	return { send, evaluate, once, close: () => ws.close() };
 }
 
-/** Load a portable project into the same Studio that a user opens. The project
- * document is seeded before the app bundle runs, so this path exercises the
- * real scene store and live-control connection instead of a test renderer. */
-export async function openStudioProject(cdp, studioUrl, project) {
+/** The localStorage writes the Studio reads on boot: scenes, project session
+ * (name, previs mode, cast style), workflow and workspace layout. */
+export function studioSeedScript(project) {
+	const session = { name: String(project.name || "Headless Project"), previsMode: normalizePrevisMode(project.previsMode), castStyle: normalizeCastStyle(project.castStyle), updatedAt: Date.now() };
+	const entries = [
+		[SCENES_STORAGE_KEY, project.scenesDocument],
+		[PROJECT_SESSION_KEY, session],
+		[WORKFLOW_STORAGE_KEY, project.workflow],
+		[WORKSPACE_LAYOUT_KEY, project.workspaceLayout],
+	].filter(([, value]) => value);
+	return entries.map(([key, value]) => `localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(JSON.stringify(value))});`).join("\n");
+}
+
+/** Load a portable project into the same Studio that a user opens. Embedded
+ * assets go through the app's own restore (src/project-assets.js, served by
+ * the dev server) and the documents are seeded before the app bundle runs, so
+ * this path exercises the real scene store and live-control connection. */
+export async function openStudioProject(cdp, studioUrl, project, { raw = null } = {}) {
 	const origin = new URL(studioUrl).origin;
 	if (!project?.scenesDocument || typeof project.scenesDocument !== "object") throw new Error("headless Studio needs a parsed project with scenesDocument");
 	await cdp.send("Page.enable");
 	await cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "all" });
-	const scenes = JSON.stringify(project.scenesDocument), name = String(project.name || "Headless Project");
-	const values = [
-		`localStorage.setItem('cozyclay.scenes.v5', ${JSON.stringify(scenes)})`,
-		`localStorage.setItem('cozyclay.project-session.v1', ${JSON.stringify(JSON.stringify({ name, previsMode: project.previsMode || "animation", updatedAt: Date.now() }))})`,
-		project.workflow ? `localStorage.setItem('cozyclay.workflow.v1', ${JSON.stringify(JSON.stringify(project.workflow))})` : null,
-		project.workspaceLayout ? `localStorage.setItem('cozyclay.workspace-layout.v1', ${JSON.stringify(JSON.stringify(project.workspaceLayout))})` : null,
-	].filter(Boolean);
-	await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: `${values.join("; ")};` });
+	if (project.assets?.length) {
+		if (typeof raw !== "string") throw new Error("headless Studio needs the raw project text to restore embedded assets");
+		const blank = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${origin}/favicon.ico` });
+		await blank;
+		const restored = await cdp.evaluate(`(async () => {
+			const { readProjectDocument } = await import("/src/project.js");
+			const { restoreProjectAssets } = await import("/src/project-assets.js");
+			const parsed = readProjectDocument(${JSON.stringify(raw)});
+			if (!parsed.ok) throw new Error("project: " + parsed.reason);
+			return restoreProjectAssets(parsed.project);
+		})()`);
+		if (restored.length !== project.assets.length) console.warn(`headless Studio: restored ${restored.length} of ${project.assets.length} embedded assets`);
+	}
+	await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: studioSeedScript(project) });
 	const loaded = cdp.once("Page.loadEventFired");
 	await cdp.send("Page.navigate", { url: studioUrl });
 	await loaded;
