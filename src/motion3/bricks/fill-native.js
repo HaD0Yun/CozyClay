@@ -47,10 +47,11 @@ export function globalWorse(base, filled, authored, life = base.observations?.li
 	return out;
 }
 
-export async function fillSpecNative(spec, { sk, compile, run, reference }, { at, timing = "exact", gate = true } = {}) {
-	// one deadline for the whole fill (COZYCLAY_MB_DEADLINE_MS, 50 s): the Studio waits 90 s for the answer (motion3-fill.js
+export async function fillSpecNative(spec, { sk, compile, run, reference }, { at, timing = "exact", gate = true, receivedAt } = {}) {
+	// one deadline for the whole fill (COZYCLAY_MB_DEADLINE_MS, 45 s, from when the dev server got the request): the Studio waits 90 s for the answer (motion3-fill.js
 	// FILL_TIMEOUT_MS) and a gap or the last compiles can run past it; gaps not started by half of it keep the compiler's curve
-	const started = performance.now(), deadline = Number(process.env.COZYCLAY_MB_DEADLINE_MS ?? 50000), elapsed = () => performance.now() - started;
+	const started = performance.now() - (Number.isFinite(receivedAt) ? Math.max(0, Date.now() - receivedAt) : 0), deadline = Number(process.env.COZYCLAY_MB_DEADLINE_MS ?? 45000), elapsed = () => performance.now() - started;
+	if (elapsed() > deadline) return { spec, mode: "native", gaps: [], calls: 0, warnings: ["this fill waited past its deadline behind another one; the compiler's take is kept"] };
 	const promoted = (spec.keys ?? []).filter(editedFill).length;
 	if (timing === "playground" && at === undefined) return fillPlayground({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
 	if (timing === "retime" && at === undefined) return fillRetime({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
