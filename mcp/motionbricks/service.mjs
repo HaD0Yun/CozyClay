@@ -28,8 +28,8 @@ export async function fillRequest({ spec, at, model = "x-bot-tpose", auto = fals
 	// the editor's scene objects (motion3-fill.js sends them): an anchor or a check naming a wall, a table or a door handle compiles here too
 	const scene = motionScene(Array.isArray(objects) ? objects : []);
 	if (mode === "native") {
-		// the unfilled spec as motion.compile installs it (repair, no thinning): the naturalness bar of the fill's guard
-		const reference = async () => { const j = runCompileJob({ model, scene, spec: { fps: 24, ...spec }, repair: { rounds: 2 }, installing: true, thin: false, hintLimitMs: 0 }); return compileSpec(j.stored, { sk, scene }).observations?.life; };
+		// a spec as motion.compile installs a native fill (repair, no thinning): the fill's install check compares both takes through it
+		const reference = async s => { const j = runCompileJob({ model, scene, spec: { fps: 24, ...s }, repair: { rounds: 2 }, installing: true, thin: false, hintLimitMs: 0 }); return compileSpec(j.stored, { sk, scene }); };
 		const filled = await fillSpecNative(spec, { sk, compile: s => compileSpec(s, { sk, scene }), run, reference }, { at, timing: timing ?? (TIMINGS.includes(process.env.COZYCLAY_MB_TIMING) ? process.env.COZYCLAY_MB_TIMING : "exact"), gate: typeof gate === "boolean" ? gate : process.env.COZYCLAY_MB_GATE !== "0" });
 		return { ...filled, ms: Math.round(performance.now() - t0) };
 	}
