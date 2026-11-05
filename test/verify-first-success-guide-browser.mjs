@@ -109,11 +109,18 @@ await evaluate("document.querySelector('[data-testid=start-create]').click()");
 expect("creating from the preview opens the editor", await waitFor("!document.querySelector('.project-browser') && !!document.querySelector('.timeline')"));
 expect("guidance starts after project creation", await waitFor("!!document.querySelector('.first-success-guide')"));
 const guideText = await evaluate("document.querySelector('.first-success-guide')?.textContent || ''");
-const animationPattern = LOCALE === "ko" ? /아웃라이너에서 캐릭터를 선택.*장면 보기에서 캐릭터를 움직.*에이전트에게 동작을 요청.*타임라인을 문지르거나 Space/s : /Select a character.*Move it.*Ask the Agent for a motion.*Scrub the timeline.*Space/s;
+const animationPattern = LOCALE === "ko" ? /캐릭터를 추가.*장면 보기에서 캐릭터를 움직.*에이전트에게 동작을 요청.*타임라인을 문지르거나 Space/s : /Add a character.*Move it.*Ask the Agent for a motion.*Scrub the timeline.*Space/s;
 expect("guidance names selection, movement, the agent ask, and playback", animationPattern.test(guideText), guideText);
 expect("an animation project shows none of the storyboard steps", !guideText.includes("Agent panel") && !guideText.includes("에이전트 패널을 여세요"), guideText);
 
-for (let index = 0; index < 4; index += 1) {
+// #1047: a new project has no character; step 1 lights Add and ticks itself off when one is added.
+expect("step 1 lights the Add button", await waitFor("document.querySelector('[data-testid=viewport-add]')?.classList.contains('guide-target')"));
+await evaluate("document.querySelector('[data-testid=viewport-add]').click()");
+expect("Add offers Y Bot", await waitFor("!!document.querySelector('[data-add=character]')"));
+await evaluate("document.querySelector('[data-add=character]').click()");
+expect("adding a character advances step 1 by itself", await waitFor(`document.querySelector('.first-success-guide')?.textContent.includes(${JSON.stringify(LOCALE === "ko" ? "2 / 4 단계" : "Step 2 of 4")})`));
+expect("the Add button stops glowing after step 1", await waitFor("!document.querySelector('[data-testid=viewport-add]')?.classList.contains('guide-target')"));
+for (let index = 1; index < 4; index += 1) {
 	await evaluate("document.querySelector('.first-success-guide-next')?.click()");
 	const expected = index === 3 ? (LOCALE === "ko" ? "첫 샷을 만들었어요." : "You made your first shot.") : (LOCALE === "ko" ? `${index + 2} / 4 단계` : `Step ${index + 2} of 4`);
 	expect(`guide advances after action ${index + 1}`, await waitFor(`document.querySelector('.first-success-guide')?.textContent.includes(${JSON.stringify(expected)})`));

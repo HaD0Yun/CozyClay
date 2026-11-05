@@ -1,8 +1,8 @@
 // Events whose every property is checked against its own closed set, never the
 // generic "short string" rule. analytics.js asks strictPropValidator(event) once
 // per event; a property its validator refuses is dropped.
-import { STUDIO_ERROR_CODES } from "./studio-error-codes.js";
-import { ERROR_TYPE_VALUES, sessionEndedPropAllowed } from "./analytics-values.js";
+import { STUDIO_ERROR_CODES, STUDIO_REFUSAL_RULES } from "./studio-error-codes.js";
+import { ERROR_TYPE_VALUES, UI_LOCALE_VALUES, sessionEndedPropAllowed } from "./analytics-values.js";
 import { FRICTION_SUMMARY_KEYS, frictionPropAllowed } from "./analytics-friction.js";
 import { AREA_IDS, CONTROL_IDS } from "./analytics-controls.js";
 
@@ -13,6 +13,8 @@ const LONG_BUCKETS = new Set(["lt10s", "10-30s", "30-60s", "1-2m", "2-5m", "gte5
 const AGE_BUCKETS = new Set(["lt2s", "2-10s", "10-60s", "gte60s"]);
 const SHORT_MS_BUCKETS = new Set(["lt50", "50-150", "150-500", "500-2000", "gte2000"]);
 const REFUSAL_CODES = new Set([...STUDIO_ERROR_CODES, "other"]);
+// A studio:refused field path: "$", then .name or [] steps (command-bus-telemetry.js refusalField).
+export const REFUSAL_FIELD_PATTERN = /^\$(?:\.[A-Za-z_][A-Za-z0-9_]{0,47}|\[\])*$/;
 // The providers CozyClay configures itself (bin/agent/providers.mjs PROVIDERS); the
 // connect funnel reports any other id the login list offers as "other".
 export const CONNECT_PROVIDERS = Object.freeze(["openai-codex", "anthropic", "anthropic-subscription", "openai", "google",
@@ -56,9 +58,14 @@ const SCHEMAS = Object.freeze({
 		group: oneOf("object", "shot", "cast", "scene", "motion", "edit", "task", "agent", "other"),
 		// A registered Studio action id (command-bus-telemetry.js sends only those): code-defined, never args (#975).
 		command: (value) => typeof value === "string" && value.length <= 48 && /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+){1,3}$/.test(value),
+		// INVALID_ARGUMENT only (#1042): the schema path that failed, array indices folded to [] ("$.args.framing.intent.size",
+		// "$.args.ops[].position"): field names the action's schema declares, never a value or a key the caller made up.
+		field: (value) => typeof value === "string" && value.length <= 96 && REFUSAL_FIELD_PATTERN.test(value),
+		rule: inSet(new Set(STUDIO_REFUSAL_RULES)),
 	},
 	// error_type: the app:error label set (analytics.js describeError); never a message or stack.
-	"app:render_crash": { error_type: inSet(ERROR_TYPE_VALUES) },
+	// locale: the studio UI language (analytics-values.js uiLocale), not the browser's.
+	"app:render_crash": { error_type: inSet(ERROR_TYPE_VALUES), locale: inSet(UI_LOCALE_VALUES) },
 	"app:gl_lost": { kind: oneOf("unavailable", "context_lost") },
 	"studio:ready": { boot: oneOf("lt2s", "2-5s", "5-15s", "gte15s") },
 	// late_ticks (the late_tick_ratio set) is an estimate: timer ticks that caught up more than one frame,
@@ -113,6 +120,8 @@ const SCHEMAS = Object.freeze({
 	"agent:connect_finished": {
 		provider: oneOf(...CONNECT_PROVIDERS, "other"), method: oneOf("oauth", "api_key", "chatgpt"),
 		outcome: oneOf("ok", "failed", "cancelled", "abandoned"), step: oneOf("list", "prompt", "waiting", "done"), duration: long,
+		// An attempt that did not connect: why, when known (#1044; connect-telemetry.js CONNECT_FAILURE_REASONS).
+		reason: oneOf("timeout", "callback_error", "port_busy", "user_closed", "other"),
 	},
 	"agent:model_changed": { provider: oneOf(...CONNECT_PROVIDERS, "other"), after_failure: bool },
 	"agent:prompt_sent": {
@@ -120,6 +129,8 @@ const SCHEMAS = Object.freeze({
 		prompt_len: oneOf("1-20", "21-80", "81-240", "gte241"), compose_ms: long, similarity: oneOf("first", "same", "near", "different"),
 		gap: (value) => value === "first" || long(value), prev_outcome: oneOf("succeeded", "failed", "cancelled", "none"), turn_index: count,
 		attached: bool, task_mode: bool,
+		// openai-compatible only: the server address's class, never the address (#1043).
+		endpoint: oneOf("local", "lan", "hosted", "unknown"),
 	},
 	"ui:rage_click": { control: oneOf(...CONTROL_IDS, ...AREA_IDS, "other"), clicks: oneOf("3", "4-5", "gte6"), changed: bool },
 	"ui:dead_click": { control: oneOf(...CONTROL_IDS, ...AREA_IDS, "other"), reason: oneOf("aria_disabled", "refused", "no_effect") },

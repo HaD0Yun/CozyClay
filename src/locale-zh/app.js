@@ -108,7 +108,7 @@ export const ZH_APP = {
 	"You made your first panel.": "你做出了第一个面板。",
 	"You made your first shot.": "你做出了第一个镜头。",
 	"Describe, review on the Board, then stylize or export. You can close this guide and keep adding panels.": "描述、在看板上检查，然后风格化或导出。你可以关闭本指南并继续添加面板。",
-	"Select, move, ask, and play are the core CozyClay loop. You can close this guide and keep blocking.": "选择、移动、提问和播放是 CozyClay 的核心流程。你可以关闭本指南并继续摆位。",
+	"Add, move, ask, and play are the core CozyClay loop. You can close this guide and keep blocking.": "添加、移动、提问和播放是 CozyClay 的核心流程。你可以关闭本指南并继续摆位。",
 	"Continue editing": "继续编辑",
 	"Follow these four actions to see a result quickly.": "跟随这四个步骤，快速看到结果。",
 	"Skip guide": "跳过指南",

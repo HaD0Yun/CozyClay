@@ -51,7 +51,7 @@ function verifySummary(result, args) {
 	if (Array.isArray(result?.findings)) {
 		const n = result.findings.length;
 		parts.push(n ? `${ko(`${n} check${n === 1 ? "" : "s"} failed`, `검사 ${n}건 실패`, `${n} 项检查未通过`)}: ${result.findings[0]}` : ko("checks passed", "검사 통과", "检查通过"));
-		if (result.images > 0) parts.push(ko("looked at the frame and top view", "화면과 탑뷰 확인", "已查看画面和俯视图"));
+		if (result.images > 0) parts.push(ko("looked at the shot", "샷 화면 확인", "已查看镜头画面"));
 	}
 	const size = result?.checks?.framing?.derivedSize;
 	if (size) parts.push(size);

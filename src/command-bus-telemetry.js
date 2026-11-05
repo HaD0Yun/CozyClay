@@ -1,11 +1,13 @@
 // The command bus's friction signals: studio:refused (one per refusal, capped per
 // key), the history receipts an undo can name, and edit:undone for the user's own
 // undos (domains/scene-undo.js). Only closed values leave: a refusal code, a
-// command group, an edit kind, an age bucket. Never ids, args or messages.
+// command group, an edit kind, an age bucket, a refused argument's schema path.
+// Never ids, argument values or messages.
 import { EDIT_GROUPS, recordSemanticEdit, track } from './analytics.js';
 import { createFirstEditRecorder } from './semantic-edit.js';
 import { admit, bump } from './analytics-friction.js';
-import { bucketAge, refusalCodeOf } from './analytics-strict.js';
+import { bucketAge, refusalCodeOf, REFUSAL_FIELD_PATTERN } from './analytics-strict.js';
+import { STUDIO_REFUSAL_RULES } from './studio-error-codes.js';
 import { noteEditGesture } from './post-turn-edits.js';
 import { noteBusReceipt } from './click-friction.js';
 
@@ -81,10 +83,28 @@ const emit = (event, props) => {
 	try { send(event, props); } catch { /* telemetry is advisory */ }
 };
 
-/** A refusal receipt: the session counter always moves; the event, at most 3 times per (code, command, origin).
- * `registered`: `id` is an action the registry declares, so it may ride along as `command`; an id the caller
- * made up (an unknown action) is reported by its group alone. */
-export function noteRefusal(value, origin, id, registered = false) {
+/** An INVALID_ARGUMENT's failing field as studio:refused carries it: the error's schema path with array
+ * indices folded to [] ("$.args.ops[3].position" -> "$.args.ops[].position"), or undefined when it has none or
+ * the path is not plain field names. Paths come from the schema the command declares (studio-agent-protocol.js
+ * validateStudioSchema) or from a command that names its own declared field; never a value. */
+function refusalField(path) {
+	if (typeof path !== 'string') return undefined;
+	const folded = path.replace(/\[[^\]]*\]/g, '[]');
+	return folded.length <= 96 && REFUSAL_FIELD_PATTERN.test(folded) ? folded : undefined;
+}
+/** The closed rule of an INVALID_ARGUMENT (STUDIO_REFUSAL_RULES): the error's own, else "check" for a coded
+ * refusal a command raised itself and "unclassified" for a plain Error that reached the bus without a code. */
+function refusalRule(error) {
+	const rule = error?.details?.rule;
+	if (STUDIO_REFUSAL_RULES.includes(rule)) return rule;
+	return error?.code ? 'check' : 'unclassified';
+}
+
+/** A refusal receipt: the session counter always moves; the event, at most 3 times per (code, command, field, origin).
+ * `registered`: `id` is an action the registry declares (or a bus control), so it may ride along as `command`; an id the
+ * caller made up (an unknown action) is reported by its group alone. `error`: what was thrown; an INVALID_ARGUMENT
+ * adds its failing `field` and `rule` (#1042). */
+export function noteRefusal(value, origin, id, registered = false, error = undefined) {
 	// A cancel the caller asked for is not a refusal. A UI one tells a click it was refused (click-friction.js);
 	// an agent's or MCP client's refusal at the same moment is not the user's click.
 	if (value.code === 'CANCELLED') return;
@@ -92,7 +112,9 @@ export function noteRefusal(value, origin, id, registered = false) {
 	const by = origin === 'ui' ? 'ui' : 'agent', code = refusalCodeOf(value.code), group = commandGroup(id);
 	bump(by === 'ui' ? 'refusals_ui' : 'refusals_agent');
 	const command = registered ? String(id) : undefined;
-	if (admit(`studio:refused:${code}:${command ?? group}:${by}`, REFUSALS_PER_KEY)) emit('studio:refused', { code, origin: by, phase: value.phase, group, ...(command ? { command } : {}) });
+	const argument = code === 'INVALID_ARGUMENT' ? { rule: refusalRule(error), field: refusalField(error?.details?.path) } : {};
+	const detail = { ...(command ? { command } : {}), ...(argument.field ? { field: argument.field } : {}), ...(argument.rule ? { rule: argument.rule } : {}) };
+	if (admit(`studio:refused:${code}:${command ?? group}:${argument.field ?? argument.rule ?? ''}:${by}`, REFUSALS_PER_KEY)) emit('studio:refused', { code, origin: by, phase: value.phase, group, ...detail });
 }
 
 // receiptId -> { at, kind }: when a history receipt was recorded and what it did.

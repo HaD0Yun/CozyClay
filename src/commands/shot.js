@@ -12,6 +12,7 @@ import { cameraKeyWarnings } from '../camera-direction.js';
 import { TIMELINE_FPS } from '../timeline-defaults.js';
 import { studioActionDeclaration, studioActionRefusal } from '../studio-actions.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas } from '../studio-agent-protocol.js';
+import { normalizeFramingArgs } from '../studio-framing-words.js';
 import { elementSetSchema, registerElementSet } from './elements.js';
 import './elements/shot.js';
 import { changedIds, fail, shotLabel } from './shared.js';
@@ -222,6 +223,8 @@ export function register(registry, ports) {
   registerElementSet(registry, ports, extra[0]);
   for (const declaration of declarations.filter(row => row.id !== 'shot.set')) registry.register({ ...declaration,
     ...(declaration.id === 'shot.setRange' ? { normalizeArgs: lenientRange } : {}),
+    // run_action shot.frame reads a crew's framing words as frame_shot does (studio-framing-words.js, #1042).
+    ...(declaration.id === 'shot.frame' ? { normalizeArgs: normalizeFramingArgs } : {}),
     available: state => mounted() === true ? (availability[declaration.id] ?? (existing.includes(declaration) ? hasShots : () => true))(state) : mounted(),
     run(args, context) {
       if (declaration.id === 'shot.frame') return framed(args);

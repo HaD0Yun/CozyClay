@@ -11,10 +11,12 @@ import { zstdDecompressSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { fauxProvider, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxProvider, fauxAssistantMessage, fauxText, fauxThinking } from "@earendil-works/pi-ai/providers/faux";
 import { fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createAgentRunner, classifyError, classifyProviderError } from "../bin/agent/agent-runner.mjs";
-import { retryHintMs } from "../bin/agent/agent-stream.mjs";
+import { retryAfterMs, retryHintMs, retryKind } from "../bin/agent/agent-stream.mjs";
+import { failureCodeOf } from "../bin/agent/agent-failure-codes.mjs";
+import * as piAi from "@earendil-works/pi-ai";
 import { createSessionStore, transcriptFromHistory } from "../bin/agent/session-store.mjs";
 import { createModels as createAgentModels, loadProvider } from "../bin/agent/providers.mjs";
 
@@ -159,6 +161,88 @@ function errorMessage(text) {
 	assert.equal(hint("request 429 failed after 3 retries"), 0, "a count is not a wait");
 	assert.equal(retryHintMs(undefined), 0);
 	console.log("PASS retry hint: seconds and milliseconds, capped, none without a unit");
+}
+
+// --- #1043: what is retried, and how a final provider failure is labelled ---
+{
+	const failed = (text) => ({ stopReason: "error", errorMessage: text });
+	const kind = (text) => retryKind(piAi, failed(text));
+	const gemini429 = 'got status: 429 Too Many Requests. {"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. Please retry in 37.5s.","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"37s"}]}}';
+	assert.equal(kind("503 Service Unavailable"), "transient");
+	assert.equal(kind("Provider stopped with: MALFORMED_FUNCTION_CALL"), "resample", "a Gemini malformed call is sampled again");
+	assert.equal(kind("Provider stopped with: UNEXPECTED_TOOL_CALL"), "resample");
+	assert.equal(kind("Provider stopped with: SAFETY"), null, "a content block stays final");
+	assert.equal(kind(gemini429), "quota_wait", "a per-minute quota that names its wait is waited out once");
+	assert.equal(kind("429 You exceeded your current quota, please check your plan and billing details."), null, "a quota without a wait is final");
+	assert.equal(kind("429 quota exceeded. Please retry in 3600s."), null, "a wait past a minute is final");
+	assert.equal(kind("400 INVALID_ARGUMENT"), null);
+	assert.equal(retryKind(piAi, { stopReason: "stop" }), null);
+	assert.equal(retryAfterMs(failed(gemini429)), 37_500, "the message's own wait, uncapped");
+	assert.equal(retryAfterMs(failed('{"retryDelay":"12s"}')), 12_000, "Gemini's RetryInfo alone");
+	assert.equal(retryHintMs(failed(gemini429)), 20_000, "the backoff hint stays capped");
+	console.log("PASS retry classification: transient, Gemini resample, short quota wait, final");
+
+	// A 4xx folded into the message rides on the frame, so the turn reads as invalid_request, not upstream.
+	for (const [text, expected] of [
+		['{"error":{"code":400,"message":"Invalid JSON payload","status":"INVALID_ARGUMENT"}}', "invalid_request"],
+		["404 model not found", "invalid_request"],
+		["413 Request Entity Too Large", "invalid_request"],
+		["502 Bad Gateway", "upstream"],
+		["Provider stopped with: SAFETY", "upstream"],
+		["429 Too Many Requests", "rate_limited"],
+	]) {
+		const { code, status } = classifyError({ message: text });
+		expect(`"${text.slice(0, 32)}" -> ${expected}`, failureCodeOf({ code, ...(status ? { status } : {}) }) === expected, JSON.stringify({ code, status }));
+	}
+}
+
+async function scriptedTurn(name, steps) {
+	const models = createModels();
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "scripted", name: "Scripted", input: ["text", "image"] }] });
+	models.setProvider(faux.provider);
+	const calls = installScripts(faux, steps);
+	const runner = createAgentRunner({ models, tools: [] });
+	const session = await runner.openSession(name, { surface: "workflow" });
+	const frames = await collect(session, { text: "hi", model: "faux/scripted" });
+	await runner.close();
+	return { frames, calls };
+}
+
+// --- a Gemini MALFORMED_FUNCTION_CALL is sampled again instead of ending the turn as upstream (#1043) ---
+{
+	const { frames, calls } = await scriptedTurn("errors-resample", [errorMessage("Provider stopped with: MALFORMED_FUNCTION_CALL"), fauxAssistantMessage([fauxText("resampled")])]);
+	expect("a malformed Gemini call is retried and the turn completes", calls.length === 2 && frames.every((f) => f.type !== "error"), JSON.stringify(frames));
+}
+
+// --- a stream that drops after its reasoning only is retried; the answer arrives once (#1043) ---
+{
+	const { frames, calls } = await scriptedTurn("errors-midstream-thinking", [
+		fauxAssistantMessage([fauxThinking("planning the shot")], { stopReason: "error", errorMessage: "terminated" }),
+		fauxAssistantMessage([fauxText("after the drop")]),
+	]);
+	const text = frames.filter((f) => f.type === "text.delta").map((f) => f.text).join("");
+	expect("a drop after reasoning alone is retried", calls.length === 2 && frames.every((f) => f.type !== "error") && text === "after the drop", JSON.stringify({ calls: calls.length, frames }));
+}
+
+// --- a drop after the answer started is not retried: the panel never sees an answer twice ---
+{
+	const { frames, calls } = await scriptedTurn("errors-midstream-text", [
+		fauxAssistantMessage([fauxText("half an answer")], { stopReason: "error", errorMessage: "terminated" }),
+		fauxAssistantMessage([fauxText("second answer")]),
+	]);
+	expect("a drop after answer text ends the turn", calls.length === 1 && frames.some((f) => f.type === "error"), JSON.stringify({ calls: calls.length }));
+}
+
+// --- a final rate limit names its provider and the provider's wait (#1043) ---
+{
+	const quota = "429 You exceeded your current quota, please check your plan and billing details. Please retry in 0.05s.";
+	const started = Date.now();
+	const { frames, calls } = await scriptedTurn("errors-quota", [errorMessage(quota), errorMessage(quota), fauxAssistantMessage([fauxText("never")])]);
+	const error = frames.find((f) => f.type === "error");
+	expect("a short quota wait is taken once, then the turn fails as rate_limit", calls.length === 2 && error?.code === "rate_limit", JSON.stringify({ calls: calls.length, error }));
+	expect("the rate_limit frame names the provider and when to retry", error?.provider === "faux" && error?.retryAfterMs === 50 && Date.parse(error?.resetAt) >= started, JSON.stringify(error));
+	const plain = (await scriptedTurn("errors-quota-plain", [errorMessage("429 quota exceeded, check billing"), fauxAssistantMessage([fauxText("never")])])).frames.find((f) => f.type === "error");
+	expect("a rate limit without a wait carries no reset time", plain?.code === "rate_limit" && plain.provider === "faux" && !("resetAt" in plain), JSON.stringify(plain));
 }
 
 // --- one session whose tool set changes between turns (the Studio Tasks switch) still runs ---

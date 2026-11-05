@@ -36,6 +36,10 @@ const index = readFileSync("app/index.html", "utf8");
 assert.match(index, /<html[^>]*\btranslate="no"/);
 assert.match(index, /<meta name="google" content="notranslate" \/>/);
 assert.doesNotMatch(readFileSync("index.html", "utf8"), /notranslate|translate="no"/);
+// #1046: the workflow editor is a React app too; translation crashed it the same way.
+const workflowIndex = readFileSync("workflow/index.html", "utf8");
+assert.match(workflowIndex, /<html[^>]*\btranslate="no"/);
+assert.match(workflowIndex, /<meta name="google" content="notranslate" \/>/);
 pass("studio opts out of browser page translation; landing does not");
 assert.match(index, /<html lang="en"[ >]/);
 assert.match(index, /rel="manifest" href="\/manifest\.webmanifest"/);

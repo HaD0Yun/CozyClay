@@ -5,11 +5,15 @@ import { elementSetSchema, registerElementSet } from './elements.js';
 import './elements/object.js';
 import { createSceneObject, updateSceneObject, removeSceneObject, setSceneObjectParent, descendantsOf, normalizeSceneObject, groupUnderNewEmpty, objectPatchFields, createSculptObject, SCULPT_KIND } from '../scene-objects.js';
 import { expandSculptParts, normalizeSculptRecipe, patchSculptRecipe } from '../sculpt-recipe.js';
+import { sculptRefusalPath } from '../sculpt-refusal-path.js';
 import { runSculptCompare, sculptCompare } from './sculpt-compare.js';
 import { clampWarning } from '../receipt-findings.js';
 import { effectPresetSet } from '../effects/effect-record.js';
 import { withLightWarnings } from '../light-blockers.js';
-import { STUDIO_TOOL_SCHEMAS, StudioSchemas } from '../studio-agent-protocol.js';
+import { STUDIO_TOOL_SCHEMAS, StudioSchemas, StudioProtocolError } from '../studio-agent-protocol.js';
+
+// An argument refusal that names its field for studio:refused (#1042); the message is what the agent reads.
+const argumentFail = (message, path, rule = 'check') => { throw new StudioProtocolError('INVALID_ARGUMENT', message, { path, rule }); };
 
 const id = StudioSchemas.TargetGuard.properties.targetId;
 const input = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
@@ -23,7 +27,8 @@ const PATCH_HINTS = { scale: 'use scaleX, scaleY, scaleZ', rotY: 'use rot for ya
 const mutation = (id, label, input) => ({ id, label, description: label, kind: 'mutation', undoDomain: 'objects', input });
 const semantic = [
 	mutation('object.set', 'Set object fields', setInput),
-	mutation('object.add', 'Add object', input({ kind: { type: 'string' }, placement, name: { type: 'string' }, parent: id, first: { type: 'boolean' }, text: setInput.properties.set.properties.text }, ['kind'])),
+	{ ...mutation('object.add', 'Add object', input({ kind: { type: 'string' }, placement, name: { type: 'string' }, parent: id, first: { type: 'boolean' }, text: setInput.properties.set.properties.text }, ['kind'])),
+		description: 'Add an object. kind: a catalogue kind (inspect_studio scope "catalogue"), or "text" for words, a title or a sign: text { value, size } stands in the set as a 3D object (no 2D screen overlay), so place it where the shot camera sees it.' },
 	// A clay prop from a recipe of soft parts (docs/sculpt-from-image.md). With `id` it re-sculpts that
 	// sculpt in place (one undo); without, it creates one. The recipe is checked by sculpt-recipe.js.
 	{ ...mutation('object.sculpt', 'Sculpt a clay prop from a recipe', input({ recipe: { type: 'object', properties: {}, additionalProperties: true }, edits: { type: 'array', minItems: 1, maxItems: 48, items: { type: 'object', properties: {}, additionalProperties: true } }, id, name: { type: 'string', maxLength: 240 }, placement, parent: id }, [])),
@@ -75,21 +80,22 @@ export function register(registry, ports) {
 		},
 		'object.sculpt': args => {
 			const before = owned().read();
-			if ((args.recipe === undefined) === (args.edits === undefined)) fail('INVALID_ARGUMENT', 'Give exactly one of recipe (whole) or edits (part by part).');
-			if (args.edits !== undefined && args.id === undefined) fail('INVALID_ARGUMENT', 'edits patch an existing sculpt: give its id.');
+			if ((args.recipe === undefined) === (args.edits === undefined)) argumentFail(`$.args: give exactly one of recipe (a whole recipe { version: 1, parts: [...] }) or edits (part by part, with id)${args.recipe === undefined ? '; neither was sent' : '; both were sent'}.`, '$.args.recipe', 'variant');
+			if (args.edits !== undefined && args.id === undefined) argumentFail('$.args.edits patch an existing sculpt: give its id (an object id whose kind is sculpt), or send a whole recipe without id to make a new one.', '$.args.id', 'missing');
 			let refused, changedParts = null;
 			if (args.edits !== undefined) {
 				const target = objectOf(args.id);
-				if (target.renderer !== SCULPT_KIND) fail('INVALID_ARGUMENT', `${args.id} is a ${target.renderer}, not a sculpt.`);
+				if (target.renderer !== SCULPT_KIND) argumentFail(`$.args.id: ${args.id} is a ${target.renderer}, not a sculpt; edits patch a sculpt only.`, '$.args.id');
 				refused = patchSculptRecipe(target.recipe, args.edits);
 				changedParts = refused.changed;
 			} else refused = normalizeSculptRecipe(args.recipe);
-			if (!refused.ok) fail('INVALID_ARGUMENT', `Recipe refused at ${refused.error}`);
+			// The failing recipe field rides on the refusal for studio:refused (#1042); the message stays as it was.
+			if (!refused.ok) throw new StudioProtocolError('INVALID_ARGUMENT', `Recipe refused at ${refused.error}`, { path: sculptRefusalPath(refused.path), rule: 'recipe' });
 			const patch = { ...(args.placement ?? {}), ...(args.name === undefined ? {} : { name: args.name }) };
 			let objectId = args.id;
 			if (objectId !== undefined) {
 				const target = objectOf(objectId);
-				if (target.renderer !== SCULPT_KIND) fail('INVALID_ARGUMENT', `${objectId} is a ${target.renderer}, not a sculpt; omit id to create a new sculpt.`);
+				if (target.renderer !== SCULPT_KIND) argumentFail(`$.args.id: ${objectId} is a ${target.renderer}, not a sculpt; omit id to create a new sculpt.`, '$.args.id');
 				owned().write(updateSceneObject(before, objectId, { ...patch, recipe: refused.recipe }));
 			} else {
 				if (args.parent !== undefined) objectOf(args.parent);

@@ -966,9 +966,18 @@ for (const [drafts, expected] of [
 	assert.equal(sent[0].provider, "anthropic");
 	for (const props of sent) assert.deepEqual(sanitizeProps("agent:prompt_sent", props), props, "the payload is closed values only");
 	assert.ok(!JSON.stringify(captured).includes(SENTINEL) && !JSON.stringify(captured).includes("door"), "no prompt text or word in any payload");
+	// #1043: an openai-compatible prompt carries its server address's class, never the address; other providers none.
+	assert.equal(Object.hasOwn(sent[0], "endpoint"), false, "no endpoint class outside openai-compatible");
+	for (const [endpoint, expected] of [["local", "local"], ["lan", "lan"], ["hosted", "hosted"], [undefined, "unknown"], ["http://10.0.0.5:1234", "unknown"]]) {
+		prompts.stagePrompt("hello", { via: "typed", model: "openai-compatible/qwen", endpoint });
+		const props = prompts.takePrompt("a".repeat(32));
+		assert.equal(props.endpoint, expected, `endpoint ${endpoint} -> ${expected}`);
+		assert.deepEqual(sanitizeProps("agent:prompt_sent", props).endpoint, expected, "the class survives the closed schema");
+	}
+	assert.equal(sanitizeProps("agent:prompt_sent", { endpoint: "http://127.0.0.1:11434" }).endpoint, undefined, "an address never passes");
 	restorePrompts();
 }
-console.log("PASS agent:prompt_sent: one per send on the real transport turn, its turn id, similarity/gap/prev_outcome, and no text anywhere");
+console.log("PASS agent:prompt_sent: one per send on the real transport turn, its turn id, similarity/gap/prev_outcome, the openai-compatible endpoint class, and no text anywhere");
 console.log("PASS agent:turn_summary: counts, refusal_top, stale_retry, authored, first_tool, cancel_phase, drafts trend and clearing, one per turn");
 console.log("PASS post-turn window: opened at finish with the analytics turn id, closed by the next turn's start");
 

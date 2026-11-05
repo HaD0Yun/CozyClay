@@ -205,6 +205,39 @@ await check("a provider's 401 in a turn reads as logging in again", () => {
 	assert.equal(keyRefusedMessage('401 {"error":{"message":"invalid x-api-key"}}'), "The model provider refused the credentials (401: invalid x-api-key).");
 });
 
+// #1044: a login nobody finishes stops, and a failed one names its class; #1043: the endpoint class.
+await check("a pi login that waits too long stops as timeout, a cancelled one as user_closed, a refused one as callback_error", async () => {
+	const { createLoginFlows, loginFailureReason } = await import("../bin/agent/provider-login.mjs");
+	const waitForCallback = (interaction) => new Promise((resolve, reject) => {
+		if (interaction.signal.aborted) { reject(new Error("Login cancelled")); return; }
+		interaction.signal.addEventListener("abort", () => reject(new Error("Login cancelled")), { once: true });
+	});
+	const flows = createLoginFlows({ getModels: async () => ({ login: (_id, type, interaction) => type === "refused" ? Promise.reject(new Error("Anthropic authorization failed: access_denied")) : waitForCallback(interaction) }) });
+	const settle = async (id) => { let page; for (let i = 0; i < 50 && !page?.done; i += 1) page = await flows.read(id, 0); return page; };
+	const slow = flows.start("anthropic-subscription", "oauth", { timeoutMs: 30 });
+	const first = await flows.read(slow, 0);
+	assert.ok(Date.parse(first.waitUntil) > 0, "the waiting step knows when it gives up");
+	const timedOut = (await settle(slow)).events.at(-1);
+	assert.deepEqual([timedOut.ok, timedOut.reason], [false, "timeout"]);
+	assert.match(timedOut.message, /stopped\. Press Try again/);
+	const cancelled = flows.start("anthropic-subscription", "oauth");
+	flows.cancel(cancelled);
+	assert.equal((await settle(cancelled)).events.at(-1).reason, "user_closed");
+	const refused = flows.start("anthropic-subscription", "refused");
+	assert.equal((await settle(refused)).events.at(-1).reason, "callback_error");
+	assert.equal(loginFailureReason(Object.assign(new Error("listen EADDRINUSE: address already in use 127.0.0.1:53692"), { code: "EADDRINUSE" })), "port_busy");
+	assert.equal(loginFailureReason(new Error("Anthropic sign-in timed out")), "timeout");
+	assert.equal(loginFailureReason(new Error("something else")), "other");
+});
+
+await check("an OpenAI-compatible server's address reads as a class, never the address", async () => {
+	const { endpointClass } = await import("../bin/agent/openai-compatible-provider.mjs");
+	const cases = [["http://127.0.0.1:11434/v1", "local"], ["http://localhost:1234/v1", "local"], ["http://[::1]:8080/v1", "local"], ["http://0.0.0.0:8000/v1", "local"],
+		["http://192.168.1.20:1234/v1", "lan"], ["http://10.0.0.5:8000/v1", "lan"], ["http://172.20.0.2:8000/v1", "lan"], ["http://gpu-box.local:8000/v1", "lan"],
+		["https://api.example.com/v1", "hosted"], ["http://172.32.0.1/v1", "hosted"], ["not a url", "unknown"], [undefined, "unknown"]];
+	for (const [base, expected] of cases) assert.equal(endpointClass(base), expected, String(base));
+});
+
 rmSync(rootDir, { recursive: true, force: true });
 if (failures) { console.error(`${failures} pi login check(s) failed`); process.exit(1); }
 console.log("verify-agent-login: all checks passed");

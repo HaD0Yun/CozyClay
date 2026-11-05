@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
 import { createDocumentStore } from "../document-store.js";
-import { useDocumentDomain } from "../store/use-document-store.js";
+import { useChangedState, useDocumentDomain } from "../store/use-document-store.js";
 import {
 	SCENES_STORAGE_KEY,
 	readSceneDocument,
@@ -153,7 +153,8 @@ export function useScenes(appContext) {
 	const runtimeValues = useRef(new Map());
 	async function runProject(id, args = {}) {
 		const receipt = await appContext.bus.run(id, args);
-		if (!receipt.ok) appContext.notify(receipt.message);
+		// The user's own cancel (picker closed, discard declined) needs no toast.
+		if (!receipt.ok && receipt.code !== "CANCELLED") appContext.notify(receipt.message);
 		return receipt;
 	}
 	async function runWithValue(id, key, value) {
@@ -200,7 +201,10 @@ export function useScenes(appContext) {
 	 * workspace layout, custom poses) round-trips through a real
 	 * `.cclayproject` file. localStorage stays as the always-on session
 	 * cache; the file is the portable, user-owned document. */
-	const [projectSaveState, setProjectSaveState] = useState("idle");
+	// refreshProjectDirty runs after most commits; a no-op React update from it
+	// kept a pending lane behind every playback-frame commit and chained React
+	// into "Maximum update depth exceeded" on busy machines (#1045).
+	const [projectSaveState, setProjectSaveState] = useChangedState("idle");
 
 	const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 
@@ -432,7 +436,7 @@ export function useScenes(appContext) {
 	 * first-run dialog and by `npx cozyclay --scene <id>` (`?scene=`). */
 	// A cast style chosen on the start screen overrides the starter's own.
 	async function openStarterScene(id, source = "starter", context = null, name = null, castStyle = undefined) {
-		if (source === "starter" && domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return false;
+		if (source === "starter" && domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled";
 		const url = playgroundSceneUrl(`?scene=${encodeURIComponent(id)}`);
 		const project = url ? await fetchSceneProject(url) : null;
 		if (!project) {
@@ -451,7 +455,7 @@ export function useScenes(appContext) {
 		try {
 			const { file, handle = null, blocked } = await pickProjectToOpen();
 			if (blocked) throw new StudioProtocolError("TARGET_NOT_READY", ko("This browser would not read that file. Open it once more.", "이 브라우저가 그 파일을 읽지 못했어요. 한 번 더 열어 주세요."));
-			if (!file) return false;
+			if (!file) return "cancelled"; // the user closed the picker
 			const result = readProjectDocument(file.text);
 			if (!result.ok) {
 				appContext.notify(ko(`Cannot open project: ${result.reason}`, `프로젝트를 열 수 없어요: ${result.reason}`, `无法打开项目：${result.reason}`));
@@ -467,7 +471,7 @@ export function useScenes(appContext) {
 			appContext.notify(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems)}`);
 			return true;
 		} catch (err) {
-			if (err?.name === "AbortError") return false;
+			if (err?.name === "AbortError") return "cancelled";
 			if (err?.code) throw err;
 			console.error("openProject failed", err);
 			appContext.notify(ko("Could not open the project", "프로젝트를 열지 못했어요"));
@@ -516,7 +520,7 @@ export function useScenes(appContext) {
 
 	function requestNewProject(authorized = false, choices = {}) {
 		if (!authorized) return runProject("project.new", Object.keys(chosen(choices)).length ? chosen(choices) : undefined);
-		if (domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return;
+		if (domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled"; // the user kept their unsaved changes
 		// The choices made on the start screen ride on the name dialog until its
 		// submit commits the project.
 		setProjectNameDialog({ kind: "new", initialName: projectName ?? "My Project", ...chosen(choices) });

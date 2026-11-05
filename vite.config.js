@@ -67,7 +67,7 @@ export default defineConfig({
 						res.end();
 						return;
 					}
-					if (!oauthUrl && /^\/oauth\/(start|status|logout)$/.test(path)) {
+					if (!oauthUrl && /^\/oauth\/(start|status|logout|cancel)$/.test(path)) {
 						res.statusCode = 503;
 						res.setHeader("content-type", "application/json; charset=utf-8");
 						res.end(JSON.stringify({ error: "oauth sidecar is not configured" }));

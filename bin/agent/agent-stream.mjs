@@ -3,25 +3,64 @@
 //   - a transient failure, by pi-ai's own isRetryableAssistantError (429, 5xx, overload, dropped connections), up to
 //     RETRY_POLICY.maxRetries times with pi-ai's backoff (1 s, 2 s, 4 s), or as long as the provider's message asks
 //     ("retry after 8 s", "try again in 2.5s"), capped at RETRY_HINT_CAP_MS (#975: two quick retries lost turns to
-//     overloads that cleared within ~10 s);
+//     overloads that cleared within ~10 s), or at QUOTA_WAIT_MAX_MS for a rate limit, a wait that long once per request;
+//   - a Gemini request that ended on a finish reason a fresh sample usually clears (MALFORMED_FUNCTION_CALL, ...):
+//     pi-ai reads it as a final error, so it ended the turn as "upstream" (#1043);
+//   - a quota refusal pi-ai will not retry (its "quota exceeded" / "billing" words) that names a short wait, e.g.
+//     Gemini's per-minute free tier ("Please retry in 37s"): once, after that wait (#1043);
 //   - an expired Codex sign-in (401), once per turn, after a forced credential refresh (refreshAuth, the runner's).
-// An attempt is retried only while nothing of it reached the Agent: its events are held until its first content event,
-// so the transcript and the panel only ever see the attempt that answered. A retried request carries the same context,
-// so no failed assistant message is stored and no completed tool runs again.
+// An attempt is retried only while no answer of it reached the Agent: its events are held until its first content
+// event, so the transcript and the panel only ever see the attempt that answered. Reasoning is forwarded as it streams
+// and does not commit the attempt (#1043: a stream that dropped after its reasoning ended the turn); the retried
+// attempt's own start event is then dropped, its partial message replaces the failed one. A retried request carries
+// the same context, so no failed assistant message is stored and no completed tool runs again.
 
 const RETRY_POLICY = Object.freeze({ maxRetries: 3, baseDelayMs: 1000 });
 const RETRY_HINT_CAP_MS = 20_000;
+const QUOTA_WAIT_MAX_MS = 60_000;
 const RETRY_HINT = /(?:retry|try again)\D{0,12}?(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|sec|seconds?)\b/i;
+// google.rpc.RetryInfo in a Gemini error body: "retryDelay": "37s".
+const RETRY_DELAY_FIELD = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/;
+const RATE_LIMITED = /(?<![a-z0-9])429(?![a-z0-9])|rate.?limit|too many requests|resource.?exhausted|quota/i;
+// Gemini finish reasons pi-ai turns into "Provider stopped with: <reason>" that a new sample usually answers.
+// SAFETY, RECITATION, BLOCKLIST and the like are the content's, and stay final.
+const RESAMPLE_STOP = /Provider stopped with: (?:MALFORMED_FUNCTION_CALL|UNEXPECTED_TOOL_CALL|FINISH_REASON_UNSPECIFIED|OTHER)\b/;
+
+/** The wait a failed message names, in ms, uncapped ("retry in 37.5s", Gemini's retryDelay), or 0 when it names none. */
+export function retryAfterMs(message) {
+	const text = String(message?.errorMessage ?? "");
+	const match = RETRY_HINT.exec(text);
+	const field = RETRY_DELAY_FIELD.exec(text);
+	const ms = match ? Number(match[1]) * (/^m/i.test(match[2]) ? 1 : 1000) : field ? Number(field[1]) * 1000 : 0;
+	return Number.isFinite(ms) && ms > 0 ? Math.ceil(ms) : 0;
+}
 
 /** The wait a failed message asks for, in ms (capped), or 0 when it names none. */
 export function retryHintMs(message) {
-	const match = RETRY_HINT.exec(String(message?.errorMessage ?? ""));
-	if (!match) return 0;
-	const ms = Number(match[1]) * (/^m/i.test(match[2]) ? 1 : 1000);
-	return Number.isFinite(ms) && ms > 0 ? Math.min(ms, RETRY_HINT_CAP_MS) : 0;
+	return Math.min(retryAfterMs(message), RETRY_HINT_CAP_MS);
+}
+
+/** Why a failed attempt may be tried again: "transient", "resample", "quota_wait", or null (final). */
+export function retryKind(ai, message) {
+	if (message?.stopReason !== "error") return null;
+	if (ai.isRetryableAssistantError(message)) return "transient";
+	const text = String(message.errorMessage ?? "");
+	if (RESAMPLE_STOP.test(text)) return "resample";
+	const wait = retryAfterMs(message);
+	return RATE_LIMITED.test(text) && wait > 0 && wait <= QUOTA_WAIT_MAX_MS ? "quota_wait" : null;
+}
+
+/** How long to wait before retry `retries + 1` of a `kind` failure. */
+function retryWaitMs(ai, kind, message, retries) {
+	const asked = retryAfterMs(message);
+	if (kind === "quota_wait") return asked;
+	const cap = RATE_LIMITED.test(String(message?.errorMessage ?? "")) ? QUOTA_WAIT_MAX_MS : RETRY_HINT_CAP_MS;
+	return Math.max(ai.retryDelayMs(RETRY_POLICY, retries + 1), Math.min(asked, cap));
 }
 
 const CONTENT_EVENT = /^(text|thinking|toolcall)_/;
+// The events that commit an attempt: an answer or a tool call the Agent will act on. Reasoning alone does not.
+const ANSWER_EVENT = /^(text|toolcall)_/;
 const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 
 /** Resolves after `ms`, or as soon as `signal` aborts. */
@@ -64,16 +103,28 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 	return (model, context, options = {}) => {
 		const { signal } = options;
 		const out = ai.createAssistantMessageEventStream();
+		// A quota wait, or any wait longer than RETRY_HINT_CAP_MS (a rate limit's own), is taken once per request: a second
+		// refusal is the quota's answer.
+		let longWaited = false;
 		const shouldRetry = async (message, retries) => {
 			if (retries >= RETRY_POLICY.maxRetries || signal?.aborted) return false;
-			if (ai.isRetryableAssistantError(message)) {
-				await pause(Math.max(ai.retryDelayMs(RETRY_POLICY, retries + 1), retryHintMs(message)), signal);
+			const kind = retryKind(ai, message);
+			if (kind) {
+				const wait = retryWaitMs(ai, kind, message, retries);
+				if (kind === "quota_wait" || wait > RETRY_HINT_CAP_MS) { if (longWaited) return false; longWaited = true; }
+				await pause(wait, signal);
 				return !signal?.aborted;
 			}
 			return refreshAuth(model, message);
 		};
+		// The Agent opens one partial message per request: a retried attempt's own start is not sent again.
+		let started = false;
+		const forward = (event) => {
+			if (event.type === "start") { if (started) return; started = true; }
+			out.push(event);
+		};
 		const finish = (message, held = []) => {
-			for (const early of held) out.push(early);
+			for (const early of held) forward(early);
 			const failed = message.stopReason === "error" || message.stopReason === "aborted";
 			out.push(failed ? { type: "error", reason: message.stopReason, error: message } : { type: "done", reason: message.stopReason, message });
 			out.end();
@@ -84,21 +135,23 @@ export function createRetryingStream({ ai, models, refreshAuth = async () => fal
 				if (signal?.aborted) { finish(failedMessage(model, new Error("Request was aborted"), signal)); return; }
 				const held = [];
 				let forwarding = false;
+				let answered = false;
 				let message;
 				try {
 					const response = await models.streamSimple(model, context, options);
 					for await (const event of response) {
 						if (event.type === "done" || event.type === "error") break;
-						if (forwarding) { out.push(event); continue; }
+						if (ANSWER_EVENT.test(event.type)) answered = true;
+						if (forwarding) { forward(event); continue; }
 						held.push(event);
-						if (CONTENT_EVENT.test(event.type)) { forwarding = true; for (const early of held.splice(0)) out.push(early); }
+						if (CONTENT_EVENT.test(event.type)) { forwarding = true; for (const early of held.splice(0)) forward(early); }
 					}
 					message = await response.result();
 				} catch (error) {
 					message = failedMessage(model, error, signal);
 				}
 				onAttempt(message);
-				if (!forwarding && message.stopReason === "error" && await shouldRetry(message, retries)) continue;
+				if (!answered && message.stopReason === "error" && await shouldRetry(message, retries)) continue;
 				// An abort that landed during a backoff ends the request as aborted, like any other cancellation.
 				finish(message.stopReason === "error" && signal?.aborted ? { ...message, stopReason: "aborted" } : message, held);
 				return;

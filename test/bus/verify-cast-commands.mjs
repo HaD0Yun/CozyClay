@@ -165,3 +165,20 @@ test('cast: raw setters are guarded and scene load resets history without author
     assert.deepEqual(f.buffer.current.waypoints, incoming[0].layer.waypoints);
   } finally { f.dispose(); }
 });
+
+test('cast: the UI may replace the cast with an empty one, and an external apply never throws (#1040)', () => {
+  const f = castFixture();
+  try {
+    owned(f);
+    const emptied = ok(f.run('cast.replace', { characters: [] }));
+    assert.deepEqual(f.cast.read(), [], 'the last character can go: an empty stage is legal');
+    assert.equal(ok(f.run('edit.undo', { receiptId: emptied.receiptId })).status, 'undone');
+    assert.equal(f.cast.read().length, 2);
+    // The cross-tab scene subscription feeds the cast straight from a store callback.
+    assert.doesNotThrow(() => f.cast.applyExternalCharacters([]));
+    assert.deepEqual(f.cast.read(), []);
+    const warn = console.warn; let warned = 0; console.warn = () => { warned++; };
+    try { assert.doesNotThrow(() => f.cast.applyExternalCharacters('not a cast')); } finally { console.warn = warn; }
+    assert.equal(warned, 1, 'a refused external cast is logged, not thrown into window.onerror');
+  } finally { f.dispose(); }
+});

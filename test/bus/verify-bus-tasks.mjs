@@ -106,6 +106,27 @@ test("cancel restores only the task's keys and removes what it created; undo-tas
   } finally { f.dispose(); }
 });
 
+test("a task stopped at a limit finishes: every edit it made stays (made ids too), and a cancel after that takes nothing back", () => {
+  const { f, ids, task, begin, x, move } = setup();
+  try {
+    const a = task('task-a'), count = f.store.current.objects.length;
+    ok(begin('task-a', [`object:${ids.cube}`]));
+    ok(move(a, ids.cube, 1));
+    const made = ok(a('object.duplicate', { objectId: ids.cube }));
+    const madeId = made.affectedIds.find(id => ![ids.cube, ids.sphere, ids.cylinder].includes(id));
+    ok(move(a, madeId, 6));
+    // the board's limit stop: the run ends and the transaction closes with task.finish (studio-turn-transaction.mjs)
+    const finished = ok(a('task.finish', { taskId: 'task-a' }));
+    assert.ok(finished.affectedIds.includes(ids.cube), 'the finish receipt names what the task changed');
+    assert.equal(x(ids.cube), 1, 'the edit stays'); assert.equal(x(madeId), 6, 'and what it made');
+    assert.equal(f.store.current.objects.length, count + 1);
+    refused(a('task.cancel', { taskId: 'task-a' }), 'STALE_TARGET');
+    assert.equal(x(ids.cube), 1, 'a cancel after the finish reverts nothing');
+    ok(begin('task-b', [`object:${ids.cube}`]));
+    ok(task('task-b')('task.finish', { taskId: 'task-b' }));
+  } finally { f.dispose(); }
+});
+
 test("a mark and its rollback; undo_edit of the task's newest edit; a reader hears of a change", () => {
   const { f, ids, task, begin, x, move } = setup();
   try {
@@ -155,6 +176,21 @@ for (const { name, reads, notified } of [
     ok(writer('task.finish', { taskId: 'writer' }));
     ok(reader('task.finish', { taskId: 'reader' }));
   } finally { stop(); f.dispose(); }
+});
+
+// Box QA 2026-11-03 (#1058 P1): a stage task on an empty scene asked for "characters", was refused, and never made her.
+test('a stage task on an empty scene makes a character: creation needs no key, and the made one joins its scope', () => {
+  const f = castFixture(appFixture({ characters: [] }));
+  try {
+    const a = (action, args = {}) => f.run(action, args, 'agent', { taskId: 'task-a', expectedRevision: 0 });
+    ok(a('task.begin', { taskId: 'task-a', scope: ['stage'] }));
+    assert.match(refused(a('task.requestScope', { taskId: 'task-a', scope: ['characters'] }), 'INVALID_ARGUMENT').message, /needs no key: run character\.add/);
+    ok(a('character.add', { character: { id: 'actor-new', model: 'proxy-figure', x: 0.4, z: 0.4, subject: 'a person' } }));
+    ok(a('character.move', { characterId: 'actor-new', x: 0, z: 0, rot: 0 }));
+    const row = f.cast.read().find(entry => entry.id === 'actor-new');
+    assert.deepEqual([row.x, row.z, row.posture], [0, 0, 'stand']);
+    ok(a('task.finish', { taskId: 'task-a' }));
+  } finally { f.dispose(); }
 });
 
 test('what a command writes, known before it runs', () => {

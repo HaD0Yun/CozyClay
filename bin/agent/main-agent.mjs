@@ -8,31 +8,68 @@ import { randomUUID } from "node:crypto";
 const QUICK_TOOLS = ["arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "run_action"];
 // No compile, no task or turn control, no document action: a quick edit is one small authored change.
 const QUICK_REFUSED = /compile|^motion\.|^task\.|^agent\.|^(scene|project)\.|^load_scenes$/;
-const keys = { type: "array", items: { type: "string" }, minItems: 1, maxItems: 32, description: "scope keys: object:<id>, character:<id>, shot:<id>, stage, timeline, scene" };
+// What each job needs, said where the coordinator picks the keys: a task holding the wrong ones has every write refused.
+const KEYS_HELP = "scope keys: object:<id>, character:<id>, shot:<id>, stage, timeline, scene. Ids must exist (read them with inspect_studio). Something the task creates (character.add, object.add, a kit) needs no key: it joins the task's scope when made. Name every existing thing the job changes: placing or animating a character -> character:<id>; moving a prop -> object:<id>; a camera move or reframe of an existing shot -> shot:<id>; a new shot, or shot order, ranges or frame count -> timeline (a new shot takes timeline, never stage or scene); lights, environment or lens -> stage; opening another scene or project -> scene. Adding a character and framing her in a shot -> that shot:<id> (or timeline when the shot is new); adding one with nothing else changed -> stage.";
+const keys = { type: "array", items: { type: "string" }, minItems: 1, maxItems: 32, description: KEYS_HELP };
+const ID_KEY = /^(object|character|shot):(.+?)(?::(?:placement|take|ik|props))?$/s;
+/**
+ * The scope ids a dispatch names that the scene does not have, as one refusal naming the ids it does have, or null.
+ * A list the context cut short (a big scene) is not proof of absence: those ids are let through.
+ */
+export function unknownScopeIds(steps, context) {
+	if (!context) return null;
+	const rows = context.entityIndex ?? context.entities ?? [];
+	const entitiesComplete = !context.entityPage || rows.length >= context.entityPage.total;
+	const have = { object: rows.filter(row => row.kind === "object").map(row => row.id), character: rows.filter(row => row.kind !== "object").map(row => row.id), shot: (context.shots ?? []).map(shot => shot.id) };
+	const complete = { object: entitiesComplete, character: entitiesComplete, shot: !context.shotsTruncated };
+	const bad = [];
+	for (const key of steps.flatMap(step => [...(step.scope ?? []), ...(step.reads ?? [])])) {
+		const match = ID_KEY.exec(key);
+		if (match && complete[match[1]] && !have[match[1]].includes(match[2]) && !bad.some(entry => entry.key === key)) bad.push({ key, kind: match[1] });
+	}
+	if (!bad.length) return null;
+	const kinds = [...new Set(bad.map(entry => entry.kind))];
+	const valid = kinds.map(kind => `${kind}: ${have[kind].length ? have[kind].slice(0, 24).join(", ") : kind === "shot" ? "none (a new shot needs timeline)" : `none (adding a ${kind} needs no key for it)`}`).join("; ");
+	return `scope: ${bad.map(entry => entry.key).join(", ")} ${bad.length === 1 ? "names" : "name"} nothing in this scene. Valid ids, ${valid}. ${KEYS_HELP.slice(KEYS_HELP.indexOf("Something the task creates"))}`;
+}
 const verify = { type: "boolean", description: "end in review, not done: its dependents wait until you accept_task or reject_task it" };
 // A task's timing is for measuring the board, not for the coordinator's decisions: it stays out of its context (case 16).
 const bare = ({ timing: _timing, ...view }) => view;
 const fn = (name, description, properties, required) => ({ type: "function", name, description, parameters: { type: "object", properties, required, additionalProperties: false } });
 
 /** The main agent's tools: inspect_studio from the run's own Studio tools, the board's, and quick_edit. */
-export function createMainTools({ board, studio, hub, admission, workspaceHandle }) {
-	const inspect = studio.find(tool => tool.name === "inspect_studio");
+export function createMainTools({ board, studio, hub, admission, workspaceHandle, liveHandle = () => null }) {
+	const studioInspect = studio.find(tool => tool.name === "inspect_studio");
 	const fail = (code, message) => { throw Object.assign(new Error(`${code}: ${message}`), { code }); };
+	const handle = () => liveHandle() || workspaceHandle;
 	const control = (action, taskId, args = {}) => hub.command("run_action", { name: "run_action", args: { action, args: { taskId, ...args } }, taskId,
-		commandId: randomUUID(), host: admission.host, expectedRevision: admission.revision }, workspaceHandle);
+		commandId: randomUUID(), host: admission.host, expectedRevision: admission.revision }, handle());
+	// A read on this turn's handle after the Studio reloaded onto another one is read again there.
+	const inspect = { ...studioInspect, handler: async (args, call) => {
+		try { return await studioInspect.handler(args, call); }
+		catch (error) {
+			if (!["STALE_HANDLE", "LIVE_HUB_UNAVAILABLE", "NO_EDITOR"].includes(error?.code) || handle() === workspaceHandle) throw error;
+			return hub.command("inspect_studio", args, handle());
+		}
+	} };
+	// Ids are checked against the scene as it is now: a made-up id holds nothing, and its task's every write is refused.
+	const checkIds = async steps => {
+		const context = admission.snapshot ? await admission.snapshot().catch(() => null) : null, refusal = unknownScopeIds(steps, context);
+		if (refusal) fail("INVALID_ARGUMENT", refusal);
+	};
 	return [
 		inspect,
 		{ ...fn("dispatch_task", "Start a task: a Studio agent that does the work inside its scope while you keep talking. Answers its taskId and status (queued, waiting with the reason, or duplicateOf an equal task).",
 			{ title: { type: "string", maxLength: 120 }, instructions: { type: "string", maxLength: 6000, description: "what to do, self-contained" }, scope: keys,
 				reads: { ...keys, minItems: 0, description: "keys the task reads but does not change (it hears when they change)" }, dependsOn: { type: "array", items: { type: "string" }, maxItems: 8 }, verify },
 			["title", "instructions", "scope"]),
-		handler: args => bare(board.dispatch(args)) },
+		handler: async args => { await checkIds([args]); return bare(board.dispatch(args)); } },
 		{ ...fn("dispatch_plan", "Queue several tasks that depend on each other in one call: each has a local ref, and dependsOn names refs of this plan or taskIds of earlier tasks. A cycle or an unknown ref refuses the whole plan. Answers every task with its ref, taskId and status.",
 			{ tasks: { type: "array", minItems: 1, maxItems: 12, items: { type: "object", additionalProperties: false, required: ["ref", "title", "instructions", "scope"], properties: {
 				ref: { type: "string", maxLength: 40 }, title: { type: "string", maxLength: 120 }, instructions: { type: "string", maxLength: 6000, description: "what to do, self-contained" }, scope: keys,
 				reads: { ...keys, minItems: 0, description: "keys the task reads but does not change (it hears when they change)" }, dependsOn: { type: "array", items: { type: "string" }, maxItems: 8, description: "refs of this plan or earlier taskIds" }, verify } } } },
 			["tasks"]),
-		handler: args => ({ tasks: board.dispatchPlan(args).tasks.map(bare) }) },
+		handler: async args => { await checkIds(args.tasks ?? []); return { tasks: board.dispatchPlan(args).tasks.map(bare) }; } },
 		{ ...fn("steer_task", "Add to a running task's instructions (the user changed their mind about its work).", { taskId: { type: "string" }, text: { type: "string", maxLength: 4000 } }, ["taskId", "text"]),
 			handler: async ({ taskId, text }) => {
 				const task = board.get(taskId) ?? fail("STALE_TARGET", `No task ${taskId}.`);
@@ -50,6 +87,14 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 		{ ...fn("reject_task", "Reject a task in review: it fails with your reason and the tasks that depend on it fail too. Its changes stay (the user can undo the task).", { taskId: { type: "string" }, reason: { type: "string", maxLength: 300 } }, ["taskId", "reason"]),
 			handler: ({ taskId, reason }) => bare(board.reject(taskId, reason) ?? fail("STALE_TARGET", `Task ${taskId} is not in review.`)) },
 		{ ...fn("task_board", "List every task with its status, scope, reason and summary.", {}, []), handler: () => ({ tasks: board.board().map(bare) }) },
+		// The panel's Undo button (task.undo): the user's "undo that" is this, never an inverse edit made by hand.
+		{ ...fn("undo_task", "Undo a task that ended with its edits kept (or a quick_edit, by the taskId it answered): what it changed goes back as one undo step, like the panel's Undo button. Opening a scene has no undo.", { taskId: { type: "string" } }, ["taskId"]),
+			handler: async ({ taskId }) => {
+				// A review task's dependents would start on an undone result, and a running one is stopped instead (its edits go back).
+				const status = board.get(taskId)?.status;
+				if (status === "review") fail("TARGET_NOT_READY", `Task ${taskId} is in review: reject_task it first, then undo_task it.`);
+				if (["queued", "waiting", "starting", "running", "paused"].includes(status)) fail("TARGET_NOT_READY", `Task ${taskId} is ${status}: cancel_task stops it and puts its edits back.`);
+				const receipt = await control("task.undo", taskId); return receipt?.ok === false ? fail(receipt.code, receipt.message) : receipt; } },
 		{ ...fn("quick_edit", "Make ONE small edit yourself inside scope (no motion compile, no scene or project action): tool is one of arrange_objects, arrange_characters, patch_elements, frame_shot, run_action with its usual args.",
 			{ scope: keys, tool: { enum: QUICK_TOOLS }, args: { type: "object" } }, ["scope", "tool", "args"]),
 		handler: async ({ scope, tool, args }) => {
@@ -58,7 +103,7 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 			const taskId = randomUUID(), begun = await control("task.begin", taskId, { scope, title: "quick edit" });
 			if (!begun.ok) fail(begun.code, begun.message);
 			admission.taskId = taskId;
-			try { return await studioTool.handler(args); }
+			try { const result = await studioTool.handler(args); return result && typeof result === "object" ? { ...result, quickEditTaskId: taskId } : result; }
 			finally { delete admission.taskId; await control("task.finish", taskId).catch(() => {}); }
 		} },
 	];
@@ -92,7 +137,7 @@ export function mainContextText(board, events) {
 }
 
 const DONE = /(완료|끝났|끝냈|마쳤|마무리|설치했|적용했|반영했|해결했|\bdone\b|\bfinished\b|\bcompleted?\b|\binstalled\b|\bapplied\b)/i;
-const STATUS_KO = { review: "검토 대기", queued: "대기 중", waiting: "대기 중", starting: "시작 중", running: "진행 중", paused: "일시정지", failed: "실패", cancelled: "취소됨" };
+const STATUS_KO = { incomplete: "기준 미달로 종료", review: "검토 대기", queued: "대기 중", waiting: "대기 중", starting: "시작 중", running: "진행 중", paused: "일시정지", failed: "실패", cancelled: "취소됨" };
 
 /**
  * A correction for every sentence of `reply` that calls a task finished while the board says otherwise, in the user's

@@ -2,7 +2,7 @@ import { summariseCanvasResult } from "./agent-tools.mjs";
 import { createReasoningFrames } from "./turn-frames.mjs";
 import { sanitizeUpstreamDetail } from "./agent-routes.mjs";
 import { budgetStudioRequest } from "./studio-context-budget.mjs";
-import { createRetryingStream } from "./agent-stream.mjs";
+import { createRetryingStream, retryAfterMs } from "./agent-stream.mjs";
 import { NETWORK_CODES, frameCodeOf } from "./agent-failure-codes.mjs";
 
 const DEFAULT_MODEL = "gpt-6-astra";
@@ -45,8 +45,11 @@ export function classifyProviderError(message, errorCode) {
 	return NETWORK_PATTERN.test(message) ? "network" : "upstream";
 }
 
+// 400/404/413/422 ride along so a request the provider refused as malformed (a schema it rejects, a model it does not
+// serve, a prompt over its limit) reads as invalid_request, not as the provider's trouble (#1043: every one of them was
+// "upstream", the fallback below).
 function extractStatus(message) {
-	const match = /\b(401|403|429|5\d\d)\b/.exec(message);
+	const match = /\b(400|401|403|404|413|422|429|5\d\d)\b/.exec(message);
 	return match ? Number(match[1]) : undefined;
 }
 
@@ -507,13 +510,16 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					const code = status === "aborted" ? "aborted" : truncated || outOfTokens ? "truncated" : classified.code;
 					const detail = sanitizeUpstreamDetail(JSON.stringify({ message: rawMessage }));
 					const fallback = code === "aborted" ? "The turn was aborted." : code === "truncated" ? "The model stream ended before a terminal response event." : "The model or live editor could not complete this turn.";
-					queue.push({ type: "error", code, message: outOfTokens || detail || fallback, ...(classified.status ? { status: classified.status } : {}) });
+					// A rate limit names its provider and, when the provider said, how long to wait (#1043): the panel's paused card.
+					const wait = code === "rate_limit" ? retryAfterMs(last) : 0, limited = code === "rate_limit" ? { provider: state.provider, ...(wait > 0 ? { retryAfterMs: wait, resetAt: new Date(Date.now() + wait).toISOString() } : {}) } : {};
+					queue.push({ type: "error", code, message: outOfTokens || detail || fallback, ...(classified.status ? { status: classified.status } : {}), ...limited });
 				}
 				if (state.active.pendingContext) queue.push(state.active.pendingContext); queue.push({ type: "done", usage: { ...state.active.usage }, ...(state.lastInput?.reportCost ? { cost: state.active.cost ?? 0 } : {}) });
 				queue.close();
 			};
+			// eventAt: any event of the run, a model still streaming among them (the main turn's no-progress guard, studio-task-routes.mjs)
 			return state.agent.subscribe((event) => {
-				if (event.type === "message_update") {
+				if (state.active) state.active.eventAt = clock(); if (event.type === "message_update") {
 					reasoning.onMessageEvent(event.assistantMessageEvent);
 					if (event.assistantMessageEvent?.type === "text_delta") pushFrame({ type: "text.delta", text: event.assistantMessageEvent.delta });
 				} else if (event.type === "tool_execution_start") startTool(event);
@@ -624,7 +630,7 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 				state.agent.abort();
 				return { ok: true };
 			},
-			snapshot: async () => (state.agent ? { streaming: state.agent.state.isStreaming, pendingToolCalls: [...state.agent.state.pendingToolCalls], messages: conversation().length } : null),
+			snapshot: async () => (state.agent ? { streaming: state.agent.state.isStreaming, pendingToolCalls: [...state.agent.state.pendingToolCalls], messages: conversation().length, eventAt: state.active?.eventAt ?? null } : null),
 			close: async () => { for (const unsubscribe of state.unsubscribers.splice(0)) unsubscribe(); state.agent?.abort(); await state.agent?.waitForIdle(); },
 		};
 		state.public = publicSession;

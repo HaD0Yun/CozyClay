@@ -17,6 +17,7 @@ import {
 	updateSceneObject,
 } from "../src/scene-objects.js";
 import { expandSculptParts, sculptStandingBox } from "../src/sculpt-recipe.js";
+import { sculptRefusalPath } from "../src/sculpt-refusal-path.js";
 
 let failures = 0;
 async function check(name, fn) {
@@ -137,6 +138,12 @@ await check("object.sculpt refuses a bad recipe and a non-sculpt target with the
 		assert.equal(bad.ok, false);
 		assert.equal(bad.code, "INVALID_ARGUMENT");
 		assert.match(bad.message, /Recipe refused at parts\[head\]\.size\[1\]/);
+		// #1042: the failing recipe field reaches telemetry as a schema path; the part id never does.
+		assert.equal(sculptRefusalPath("parts[head].size[1]"), "$.args.recipe.parts[].size[]");
+		assert.equal(sculptRefusalPath("parts[head].madeUpKey"), "$.args.recipe.parts[]", "a key the caller made up is cut off");
+		assert.equal(sculptRefusalPath("edits[2].set"), "$.args.edits[].set");
+		const neither = f.run("object.sculpt", {});
+		assert.match(neither.message, /give exactly one of recipe .* or edits .*neither was sent/);
 		const wrong = f.run("object.sculpt", { id: "cube", recipe: pillar });
 		assert.equal(wrong.ok, false);
 		assert.match(wrong.message, /cube is a cube, not a sculpt/);

@@ -24,7 +24,8 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // +558 for the hybrid cast gate (skills, contacts and rigs decide before any rig work; stuck or hint stops repairs): +558
 // +80 for the gate's failing-QA guard (a stuck output whose take passes QA is no reason to ask): +80
 // +475 for the stop rule (QA 0 is done; 4 flat rounds with 4 or fewer problems, else 8; a closing ifClean compile of the best take): +475
-check("the whole prompt is at most 16,134 characters", () => assert.ok(prompt.length <= 16134, `${prompt.length}`));
+// +177 for in-reach staging (unless the user places or sizes it: a handled prop within 0.3 m of its user's edge; a shared table at most 0.6 m deep, #1066): +177
+check("the whole prompt is at most 16,311 characters", () => assert.ok(prompt.length <= 16311, `${prompt.length}`));
 check("the motion part is at most 3,720 characters", () => {
 	assert.ok(motion.length > 0 && motion.length <= 3720, `${motion.length}`);
 });
