@@ -60,7 +60,9 @@ export async function fillSpecNative(spec, { sk, compile, run, reference }, { at
 	// checked inside the deadline (t2A2: 6.7 s a compile, the pass-through poses alone 18 s), so it keeps the compiler's take at once
 	const probe0 = performance.now(); compile({ ...spec, keys: (spec.keys ?? []).filter(k => !isFillKey(k)) }); const baseMs = performance.now() - probe0;
 	if (baseMs > Number(process.env.COZYCLAY_MB_MAX_COMPILE_MS ?? 2000)) return { spec, mode: "native", gaps: [], calls: 0, warnings: [`one compile of this spec takes ${(baseMs / 1000).toFixed(1)} s; MotionBricks cannot fill and check it within the ${deadline / 1000} s deadline, so the compiler's take is kept`] };
-	const passed = passThrough(spec, compile);
+	// the agent's spec before pass-through keys: the install check measures against it (a pass key changes the take too: real agent
+	// take t2A3, QA 20 -> 33 with every fill key dropped and its pass keys left in)
+	const original = spec, passed = passThrough(spec, compile);
 	spec = passed.spec;
 	const authored = spec.keys.filter(k => !isFillKey(k)), authoredFs = [...new Set(authored.map(k => k.f))].sort((a, b) => a - b);
 	const gaps = fillGaps(spec.keys, at, MIN_GAP);
@@ -151,16 +153,18 @@ export async function fillSpecNative(spec, { sk, compile, run, reference }, { at
 	// same repair (reference(spec)); if the filled one is worse in any class or reading, every fill key goes
 	// It always runs (a check that ran only when time was left made the same spec come out filled on one run and plain on the next),
 	// and when the whole set fails it tries the earlier half of the kept gaps, then a quarter, then an eighth, before keeping none
+	// pass keys are there for the gaps the model fills: with no fill key kept the agent's own keys go back as sent (no check needed)
+	if (process.env.COZYCLAY_MB_NOGUARD !== "1" && !keys.some(isFillKey)) keys = original.keys;
 	if (process.env.COZYCLAY_MB_NOGUARD !== "1" && reference && keys.some(isFillKey)) {
-		const plain = spec.keys.filter(k => !isFillKey(k)), keptGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f).sort((a, b) => a[0] - b[0]);
+		const plain = original.keys.filter(k => !isFillKey(k)), mine = plain, keptGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f).sort((a, b) => a[0] - b[0]);
 		let ok = false, why = [];
 		try {
-			const rb = await reference({ ...spec, keys: plain });
+			const rb = await reference({ ...original, keys: plain });
 			for (const share of [1, 1 / 2, 1 / 4, 1 / 8]) {
 				const n = Math.ceil(keptGaps.length * share);
 				if (share < 1 && n >= Math.ceil(keptGaps.length * share * 2)) continue;
 				const use = keptGaps.slice(0, n), drop = keptGaps.slice(n), ks = drop.reduce((acc, [fa, fb]) => acc.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb)), keys);
-				const worse = globalWorse(rb, await reference({ ...spec, keys: ks }), authored);
+				const worse = globalWorse(rb, await reference({ ...spec, keys: ks }), mine);
 				if (!worse.length) { keys = ks; for (const g of report.filter(g => drop.some(d => d === g.f))) g.dropped = ["install"]; ok = true; break; }
 				why = worse;
 				if (n <= 1) break;
