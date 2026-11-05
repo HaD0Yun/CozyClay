@@ -149,12 +149,24 @@ export async function fillSpecNative(spec, { sk, compile, run, reference }, { at
 	// install check: the user gets the take after motion.compile's repair, which can undo a gain or add a problem the raw compile did
 	// not have (bench rules2: sync share 0.71 raw both ways, 0.63 repaired without the fill, 0.75 with it). Both takes go through the
 	// same repair (reference(spec)); if the filled one is worse in any class or reading, every fill key goes
-	if (process.env.COZYCLAY_MB_NOGUARD !== "1" && reference && keys.some(isFillKey) && elapsed() < deadline) {
+	// It always runs (a check that ran only when time was left made the same spec come out filled on one run and plain on the next),
+	// and when the whole set fails it tries the earlier half of the kept gaps, then a quarter, then an eighth, before keeping none
+	if (process.env.COZYCLAY_MB_NOGUARD !== "1" && reference && keys.some(isFillKey)) {
+		const plain = spec.keys.filter(k => !isFillKey(k)), keptGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f).sort((a, b) => a[0] - b[0]);
+		let ok = false, why = [];
 		try {
-			const plain = spec.keys.filter(k => !isFillKey(k)), [rb, rf] = [await reference({ ...spec, keys: plain }), await reference({ ...spec, keys })];
-			const worse = globalWorse(rb, rf, authored);
-			if (worse.length) { keys = plain; for (const g of report.filter(g => g.keys !== undefined && !g.dropped)) g.dropped = ["install"]; warnings.push(`after repair the filled take was worse (${worse.join(", ")}); the compiler's take is kept`); }
-		} catch { /* the check needs repair; without it the raw guard above stands */ }
+			const rb = await reference({ ...spec, keys: plain });
+			for (const share of [1, 1 / 2, 1 / 4, 1 / 8]) {
+				const n = Math.ceil(keptGaps.length * share);
+				if (share < 1 && n >= Math.ceil(keptGaps.length * share * 2)) continue;
+				const use = keptGaps.slice(0, n), drop = keptGaps.slice(n), ks = drop.reduce((acc, [fa, fb]) => acc.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb)), keys);
+				const worse = globalWorse(rb, await reference({ ...spec, keys: ks }), authored);
+				if (!worse.length) { keys = ks; for (const g of report.filter(g => drop.some(d => d === g.f))) g.dropped = ["install"]; ok = true; break; }
+				why = worse;
+				if (n <= 1) break;
+			}
+		} catch { why = ["repair failed"]; }
+		if (!ok) { keys = plain; for (const g of report.filter(g => g.keys !== undefined && !g.dropped)) g.dropped = ["install"]; warnings.push(`after repair the filled take was worse (${why.join(", ")}); the compiler's take is kept`); }
 	}
 	const baked = compile({ ...spec, keys }).out.baked, frames = baked.root?.length ?? (Number.isFinite(spec.frames) ? spec.frames : 0);
 	const { kind, spans } = classifySpans({ ...spec, keys }, baked, frames), notes = densityNotes(keys, kind, spans, baked);
