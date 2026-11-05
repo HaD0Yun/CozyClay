@@ -8,7 +8,7 @@ import { validateReceipt, validateStudioCommand } from '../src/studio-agent-prot
 import { physicsFingerprintInput } from '../src/studio-agent-context.js';
 import { arrangement, frameDraft, placementChecks, framingChecks, createStudioCommandJournal, studioObjectCatalogue } from '../src/studio-agent-commands.js';
 import { createShot } from '../src/cuts.js';
-import { DECK_LIFT_M } from '../src/deck-lift.js';
+import { DECK_LIFT_M } from '../src/studio-support-gap.js';
 
 // These are the shared domain planners now, not the retired agent executor.
 // Receipt/admission/replay/undo remain exercised through the real bus in the
