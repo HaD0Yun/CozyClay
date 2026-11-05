@@ -342,6 +342,10 @@ try {
 	assert.ok(inspectedByIds.entities.length > 0);
 	assert.deepEqual(alpha.received.at(-1).args.ids, ["cube-1", "char-a"]);
 
+	ok(await run(["inspect", "--scope", "entities", "--limit", "2", "--cursor", "page-token"]));
+	assert.deepEqual(alpha.received.at(-1).args, { scope: "entities", limit: 2, cursor: "page-token" });
+	assert.equal((await run(["inspect", "--scope", "entities", "--limit", "1.5"])).code, 2);
+
 	/* -------------------------------- capture ------------------------------ */
 
 	const framePath = join(scratch, "frame.png");
