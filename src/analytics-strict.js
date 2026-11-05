@@ -20,6 +20,11 @@ export const REFUSAL_FIELD_PATTERN = /^\$(?:\.[A-Za-z_][A-Za-z0-9_]{0,47}|\[\])*
 export const CONNECT_PROVIDERS = Object.freeze(["openai-codex", "anthropic", "anthropic-subscription", "openai", "google",
 	"minimax", "minimax-cn", "openrouter", "cliproxy", "openai-compatible"]);
 
+// An openai-compatible server address's class (bin/agent/openai-compatible-provider.mjs endpointClass), never the address.
+const ENDPOINT_CLASSES = Object.freeze(["local", "lan", "hosted", "unknown"]);
+/** agent:turn_failed's provider (agent:prompt_sent's list, or "other") and endpoint (#1043). */
+export const turnOriginAllowed = (key, value) => (key === "provider" ? value === "other" || CONNECT_PROVIDERS.includes(value) : ENDPOINT_CLASSES.includes(value));
+
 /** landing:cta_clicked targets: the landing page's links out and copy buttons. */
 export const LANDING_CTA_TARGETS = Object.freeze(["app", "github", "discord", "npm", "copy_npx", "copy_clone", "copy_mcp", "copy_terminal", "agent_install_doc"]);
 
@@ -130,7 +135,7 @@ const SCHEMAS = Object.freeze({
 		gap: (value) => value === "first" || long(value), prev_outcome: oneOf("succeeded", "failed", "cancelled", "none"), turn_index: count,
 		attached: bool, task_mode: bool,
 		// openai-compatible only: the server address's class, never the address (#1043).
-		endpoint: oneOf("local", "lan", "hosted", "unknown"),
+		endpoint: oneOf(...ENDPOINT_CLASSES),
 	},
 	"ui:rage_click": { control: oneOf(...CONTROL_IDS, ...AREA_IDS, "other"), clicks: oneOf("3", "4-5", "gte6"), changed: bool },
 	"ui:dead_click": { control: oneOf(...CONTROL_IDS, ...AREA_IDS, "other"), reason: oneOf("aria_disabled", "refused", "no_effect") },

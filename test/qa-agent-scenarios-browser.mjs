@@ -93,6 +93,15 @@ function state() {
     characters: entities.filter((row) => row.kind === "character").map(({ id, motion }) => ({ id, takeId: motion?.takeId ?? null, frames: motion?.frames ?? 0 })),
   };
 }
+// A new project starts on an empty stage (#986), but S2 and S4-S8 address the
+// first cast member as char-a. Cast the Y Bot through the live CLI (the rigged
+// body S4 needs for motion) and prove the editor holds it before any scenario.
+async function ensureCharacter() {
+  const hasCharacter = (row) => row.characters.some((entry) => entry.id === "char-a");
+  if (!hasCharacter(state())) live(["run", "character.add", "--args", JSON.stringify({ character: { id: "char-a", model: "y-bot-tpose" } })]);
+  const settled = untilState(hasCharacter, 20_000);
+  if (!hasCharacter(settled)) throw new Error(`char-a is not on the stage after character.add: ${JSON.stringify(settled.characters)}`);
+}
 const finalReply = () => evaluate(`(() => [...document.querySelectorAll('.agent-row.assistant .agent-assistant-text')].map(node => node.innerText.trim()).filter(Boolean).at(-1) || '')()`);
 const results = [];
 let setupFailure = null;
@@ -152,6 +161,7 @@ try {
   await pageLoad(baseUrl);
   await waitFor(`!!document.querySelector('aside[aria-label="Agent"]') && !!document.querySelector('aside[aria-label="Agent"] textarea[aria-label="Message the agent"]')`);
   await readHandle();
+  await ensureCharacter();
   await showAgentPane();
   await chooseModel();
 } catch (error) {

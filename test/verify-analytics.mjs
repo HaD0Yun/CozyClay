@@ -1402,7 +1402,7 @@ const executionSchemas = {
 	"agent:turn_requested": ["surface", "turn_id"],
 	"agent:tool_executed": ["turn_id", "tool_category", "outcome", "duration_bucket"],
 	"agent:turn_succeeded": ["turn_id", "duration_bucket"],
-	"agent:turn_failed": ["turn_id", "duration_bucket", "failure_code"],
+	"agent:turn_failed": ["turn_id", "duration_bucket", "failure_code", "provider", "endpoint"],
 	"agent:turn_cancelled": ["turn_id", "duration_bucket", "failure_code"],
 	"agent:result_applied": ["turn_id"],
 	"mcp:tool_requested": ["tool_category", "tool_name", "request_id"],
@@ -1413,7 +1413,7 @@ assert.deepEqual([...executionDisclosure.keys()].sort(), Object.keys(executionSc
 const executionProps = {
 	surface: "workflow", run_id: executionId, turn_id: executionId, request_id: executionId,
 	node_count_bucket: "1-3", tool_category: "other", tool_name: "describe_scene", outcome: "succeeded",
-	duration_bucket: "1-3s", failure_code: "unknown",
+	duration_bucket: "1-3s", failure_code: "unknown", provider: "openai-compatible", endpoint: "local",
 };
 for (const [event, properties] of Object.entries(executionSchemas)) {
 	assert.deepEqual(Object.keys(sanitizeProps(event, executionProps)).sort(), [...properties].sort(), `${event}: exact property contract`);
@@ -1438,6 +1438,7 @@ const executionEnums = [
 	["workflow:run_requested", "node_count_bucket", ["0", "1-3", "4-10", "gte11"]],
 	["workflow:run_failed", "failure_code", ["aborted", "capture_failed", "generation_failed", "unknown"]],
 	["agent:turn_failed", "failure_code", ["aborted", "auth", "rate_limited", "tool_failed", "upstream", "network", "unknown"]],
+	["agent:turn_failed", "endpoint", ["local", "lan", "hosted", "unknown"]],
 	["agent:tool_executed", "tool_category", ["workflow_read", "workflow_write", "workflow_run", "frame_capture", "image_generate", "scene_write", "other"]],
 	["mcp:tool_executed", "tool_category", ["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]],
 	["agent:tool_executed", "outcome", ["succeeded", "failed", "cancelled"]],
@@ -1458,6 +1459,9 @@ for (const event of Object.keys(executionSchemas).filter((event) => executionSch
 		assert.deepEqual(sanitizeProps(event, { duration_bucket }), { duration_bucket });
 	}
 }
+// agent:turn_failed provider: agent:prompt_sent's closed list (its privacy row points there), "other" for the rest.
+for (const provider of ["google", "openai-compatible", "openai-codex", "other"]) assert.deepEqual(sanitizeProps("agent:turn_failed", { provider }), { provider });
+assert.deepEqual(sanitizeProps("agent:turn_failed", { provider: "my-gateway" }), {});
 assert.deepEqual(sanitizeProps("workflow:run_requested", { surface: "studio" }), {});
 assert.deepEqual(sanitizeProps("agent:tool_executed", { outcome: "uncertain" }), {});
 for (const capture of [() => { throw new Error("transport"); }, () => Promise.reject(new Error("transport"))]) {
