@@ -378,7 +378,7 @@ const implementations={
   assert.deepEqual(overlapped.checks.placement.overlapIds,[cube]);assert(overlapped.checks.placement.maximumFootprintOverlapM>0);assert.deepEqual(overlapped.unsupportedChecks,[]);
   const lifted=await f.call('arrange_objects',f.request('arrange_objects',{ops:[{op:'create',source:{kind:'cube'},position:{world:{x:3,y:0.25,z:0}}}]}));assert.equal(lifted.ok,true,JSON.stringify(lifted));
   const gaps=(await verify({targets:[cube,lifted.affectedIds[0],'actor-a'],checks:['placement']})).checks.placement;
-  assert.deepEqual({supportGapM:gaps.supportGapM,unsupportedIds:gaps.unsupportedIds},{supportGapM:{[cube]:0,[lifted.affectedIds[0]]:0.25},unsupportedIds:[lifted.affectedIds[0]]},'placement measures how far each object stands off its support');
+  assert.deepEqual({supportGapM:gaps.supportGapM,unsupportedIds:gaps.unsupportedIds},{supportGapM:{[cube]:0.003,[lifted.affectedIds[0]]:0.25},unsupportedIds:[lifted.affectedIds[0]]},'placement measures how far each object stands off its support');
   const prop=await verify({targets:[cube],checks:['motion']});
   assert.deepEqual(prop.unsupportedChecks,['motion']);assert.match(prop.unsupportedReasons.motion,/not a character/);
   // A take the UI installed carries no verification: verify_result measures it.
@@ -570,7 +570,7 @@ const implementations={
   assert.equal(partial.kind,undefined);assert.deepEqual(partial.undo,{historyEntryId:turnId,entries:1,canUndoDirect:false});
   const finish=await f.call('run_action',inTurn('run_action',{action:'agent.turn.finish',args:{turnId}}));assert.equal(finish.authored,true,JSON.stringify(finish));
   assert.equal((await f.call('undo_edit',f.request('undo_edit',{receiptId:finish.receiptId}))).status,'undone','the turn is one undo step');
-  const undone=f.store.current.objects.find(o=>o.id===id);assert.equal(undone.color,'#c2c6c8');assert.deepEqual([undone.x,undone.y,undone.z],[2,0,0]);
+  const undone=f.store.current.objects.find(o=>o.id===id);assert.equal(undone.color,'#c2c6c8');assert.deepEqual([undone.x,undone.y,undone.z],[2,0.003,0]);
  },
  async 'patch-partial-drop'(f){
   const created=await f.call('arrange_objects',f.request('arrange_objects',createArgs));assert.equal(created.ok,true,JSON.stringify(created));const id=created.affectedIds[0];
@@ -613,8 +613,8 @@ const implementations={
   const created=await f.call('arrange_objects',f.request('arrange_objects',createArgs));assert.equal(created.ok,true,JSON.stringify(created));const id=created.affectedIds[0];
   const r=await f.call('run_action',f.request('run_action',{action:'object.duplicate',args:{objectId:id}}));
   assert.equal(r.status,'applied',JSON.stringify(r));assert.deepEqual(r.affectedIds,['copy-1']);assert.equal(r.revision.after,r.revision.before+1);
-  assert.deepEqual(r.delta,[{id:'copy-1',after:{bounds:{min:{x:2,y:0,z:-0.5},max:{x:3,y:1,z:0.5}},patched:[
-   {path:'object.renderer',text:'cube'},{path:'object.position',vec:{x:2.5,y:0,z:0}},
+  assert.deepEqual(r.delta,[{id:'copy-1',after:{bounds:{min:{x:2,y:0.003,z:-0.5},max:{x:3,y:1.003,z:0.5}},patched:[
+   {path:'object.renderer',text:'cube'},{path:'object.position',vec:{x:2.5,y:0.003,z:0}},
    {path:'object.rotation',vec:{x:0,y:0,z:0}},{path:'object.scale',vec:{x:1,y:1,z:1}},
    {path:'object.name',text:'Copy'},{path:'object.color',text:'#c2c6c8'},{path:'object.opacity',text:null},
    {path:'object.parent',text:null},{path:'object.path',text:null},{path:'object.remove',flag:false},
@@ -730,7 +730,7 @@ const implementations={
   const result=await f.call('inspect_studio',{scope:'entities',ids:[chassis,wheel]});
   const root=result.entities.find(row=>row.id===chassis),part=result.entities.find(row=>row.id===wheel);
   assert.equal(root.local,undefined,'a root carries no local transform');
-  assert.deepEqual(part.position,{x:4,y:0.5,z:0},'local +X of a yaw-90 parent is world -Z');
+  assert.deepEqual(part.position,{x:4,y:0.503,z:0},'local +X of a yaw-90 parent is world -Z');
   assert.equal(part.yawDeg,90);
   assert.deepEqual(part.local,{position:{x:1,y:0.5,z:0},rotationDeg:{x:0,y:0,z:0}});
  },
@@ -754,21 +754,21 @@ const implementations={
   const object=()=>f.store.current.objects.find(o=>o.id===id);
   // Where the prop is drawn: its numbers, through the frame it rides.
   const shown=()=>{const o=object(),local=carried.sceneObjectMatrix(o,new THREE.Matrix4());if(o.attach)local.premultiply(carried.attachFrameMatrix(f.rigs[o.attach.characterId],o.attach.bone,new THREE.Matrix4()));return new THREE.Vector3().setFromMatrixPosition(local).toArray().map(v=>Math.round(v*1e4)/1e4+0);};
-  assert.deepEqual(shown(),[2,0,0]);
+  assert.deepEqual(shown(),[2,0.003,0]);
   const listed=Object.fromEntries((await f.call('inspect_studio',{scope:'actions'})).actions.map(a=>[a.id,a]));
   assert.equal(listed['object.attach']?.available,true);assert.equal(listed['object.detach']?.available,false,'nothing rides a character yet');
   const before=f.binding.refresh().revision;
   const hand=await run('object.attach',{objectId:id,characterId:'actor-b',bone:'rightHand'});
   assert.equal(hand.status,'applied',JSON.stringify(hand));assert.deepEqual(hand.affectedIds,[id]);assert.deepEqual(hand.revision,{before,after:before+1});
   assert.deepEqual(object().attach,{characterId:'actor-b',bone:'rightHand'});
-  assert.deepEqual(shown(),[2,0,0],'the prop keeps its place on screen');
+  assert.deepEqual(shown(),[2,0.003,0],'the prop keeps its place on screen');
   assert.deepEqual((await f.call('inspect_studio',{scope:'entities',ids:[id]})).entities[0].attachment,{characterId:'actor-b',bone:'rightHand'});
   // Bone to root on another character: one conversion from where it is drawn.
   const root=await run('object.attach',{objectId:id,characterId:'actor-a'});
-  assert.equal(root.status,'applied',JSON.stringify(root));assert.deepEqual(object().attach,{characterId:'actor-a',bone:null});assert.deepEqual(shown(),[2,0,0]);
+  assert.equal(root.status,'applied',JSON.stringify(root));assert.deepEqual(object().attach,{characterId:'actor-a',bone:null});assert.deepEqual(shown(),[2,0.003,0]);
   assert.equal((await run('object.attach',{objectId:id,characterId:'actor-a'})).status,'noop');
   const detached=await run('object.detach',{objectId:id});
-  assert.equal(detached.status,'applied',JSON.stringify(detached));assert.equal(object().attach,null);assert.deepEqual(shown(),[2,0,0]);
+  assert.equal(detached.status,'applied',JSON.stringify(detached));assert.equal(object().attach,null);assert.deepEqual(shown(),[2,0.003,0]);
   const undo=await f.call('undo_edit',f.request('undo_edit',{receiptId:detached.receiptId}));
   assert.equal(undo.status,'undone',JSON.stringify(undo));assert.deepEqual(object().attach,{characterId:'actor-a',bone:null});
   f.actual.undoScene();assert.deepEqual(object().attach,{characterId:'actor-b',bone:'rightHand'},'Ctrl+Z steps back through the attachments');

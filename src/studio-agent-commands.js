@@ -13,7 +13,7 @@ import { occludersOf, primarySubjects, sideOfAxis } from './studio-geometry-fact
 import { frameSubject } from './studio-frame-subject.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
-import { supportGaps } from './studio-support-gap.js';
+import { supportGaps, liftOffDeck, floorLiftWarnings } from './studio-support-gap.js';
 
 const DEG = Math.PI / 180, EPS = 1e-8, CHARACTER_SUPPORT_TOLERANCE = 5e-3;
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
@@ -269,7 +269,7 @@ function transformPatch(op, isObject) {
 export function arrangement(command, before, ports) {
   const isObject = command.name === 'arrange_objects', key = isObject ? 'objects' : 'characters';
   let rows = before[key];
-  const relations = [], warnings = [], clamps = [], createdByName = new Map();
+  const relations = [], warnings = [], clamps = [], liftedIds = new Set(), createdByName = new Map();
   // References resolve against the evolving draft (`rows`), in op order.
   const draft = () => ({ ...before, [key]: rows });
   for (const rawOp of command.args.ops) {
@@ -295,9 +295,10 @@ export function arrangement(command, before, ports) {
       if (op.space === 'parent') op = parentFrameOp(op, entity, rows, createdByName);
       entity = patchEntity(entity, transformPatch(op, isObject));
       const placed = place(entity, op, draft(), ports);
-      entity = placed.entity;
-      // What was asked against what the domain kept: scale and position limits move values silently.
-      const asked = isObject ? { ...(op.position?.world ?? {}), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
+      // An object placed on the deck (world or floor support, never stacked) is lifted off its plane (studio-support-gap.js).
+      entity = liftOffDeck(placed.entity, Boolean(op.position?.world) || placed.relation?.support === 'floor', e => Math.min(...geometry(e, draft(), ports).map(p => p.y)), before.floorY ?? 0, patchEntity, liftedIds);
+      // What was asked against what the domain kept: scale and position limits move values silently; the lift is FLOOR_LIFT, not a clamp.
+      const asked = isObject ? { ...(op.position?.world ?? {}), ...(liftedIds.has(entity.id) ? { y: undefined } : {}), ...(op.scale ? { scaleX: op.scale.x, scaleY: op.scale.y, scaleZ: op.scale.z } : {}) }
         : { ...(op.position?.world ?? {}), ...(op.scale === undefined ? {} : { scale: op.scale }) };
       const clamp = clampWarning(entity.id, Object.fromEntries(Object.entries(asked).filter(([k]) => ['x', 'y', 'z', 'scale', 'scaleX', 'scaleY', 'scaleZ'].includes(k))), entity);
       if (clamp) clamps.push(clamp);
@@ -341,7 +342,7 @@ export function arrangement(command, before, ports) {
   if (command.args.collisionPolicy === 'avoid' && overlaps.length) fail('VERIFICATION_FAILED', 'The final batch is still blocked after its outward adjustments.');
   // Every finding the receipt carries: a value moved to a limit first, then what the final scene shows wrong.
   const nameOf = id => { const e = [...after.objects, ...after.characters].find(row => row.id === id); return e?.name ?? e?.subject ?? id; };
-  warnings.push(...clamps.slice(0, 3));
+  warnings.push(...clamps.slice(0, 3), ...floorLiftWarnings([...liftedIds].filter(id => rows.some(e => e.id === id)), nameOf));
   for (const item of overlaps.slice(0, 5)) warnings.push({ code: 'FOOTPRINT_OVERLAP', id: item.id, message: [...`${nameOf(item.of)} overlaps ${nameOf(item.id)} by ${Number(item.depth.toFixed(2))} m`].slice(0, 120).join('') });
   if (overlaps.length > 5) warnings.push({ code: 'FOOTPRINT_OVERLAP', count: overlaps.length - 5, message: `${overlaps.length - 5} more footprint overlaps omitted` });
   if (isObject) {
