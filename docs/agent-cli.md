@@ -99,7 +99,7 @@ ids and the layout:
 cclay live inspect --scope entities
 ```
 ```json
-{"context":{"schema":"studio-context-v1","host":{…},"revision":{"scene":3,"physics":3,"view":1},"units":{"distance":"m","angle":"deg","up":"+Y","yawZero":"+Z","yawPositiveToward":"+X","fps":24,"rangeEnd":"exclusive"},"scene":{"name":"SCENE 01","aspect":"16:9","floorY":0,"frameCount":432,"objectCount":0,"characterCount":1},"selection":{"kind":"character","id":"char-a","hierarchyId":"characterA"},"activeCharacterId":"char-a","view":{…},"shot":null,"camera":{…},"entities":[{"id":"char-a","kind":"character","token":"target-2","name":"a young woman in a tan coat",…}],"entityPage":{…},"shots":[],…,"recentReceipts":[…],"jobs":[],"capabilities":{…}},"entities":[{"id":"char-a","kind":"character","name":"a young woman in a tan coat","token":"target-2"}],"total":1,"nextCursor":null}
+{"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"entities":[{"id":"char-a","kind":"character","token":"target-2","name":"a young woman in a tan coat"}],"total":1,"nextCursor":null}
 ```
 
 Place a box next to her — `relativeTo` positions it in the subject's own
@@ -192,23 +192,23 @@ full admission envelope — which you build from one `inspect`:
 cclay live inspect --scope shot
 ```
 ```json
-{"context":{"schema":"studio-context-v1","host":{"surface":"studio","workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…","workspaceHandle":"8306b693-…"},"revision":{"scene":5,"physics":4,"view":3},"units":{…},"scene":{"name":"SCENE 01","aspect":"16:9","floorY":0,"frameCount":432,"objectCount":1,"characterCount":1},"selection":{"kind":"character","id":"char-a","hierarchyId":"characterA"},"activeCharacterId":"char-a","view":{…},"shot":{"id":"shot-mu3uybub-3","name":"Shot 1","range":{"startFrame":0,"endFrameExclusive":432},"mode":"keys"},"camera":{…},"entities":[{"id":"char-a","kind":"character","token":"target-2",…},{"id":"cube","kind":"object","token":"target-5",…}],"entityPage":{"returned":2,"total":2,"truncated":false,"nextCursor":null},"shots":[{"id":"shot-mu3uybub-3","name":"Shot 1","range":{"startFrame":0,"endFrameExclusive":432},"keyCount":1}],"shotsTruncated":false,"assets":[],"recentReceipts":[{"id":"receipt-mu3uybub-4","summary":"applied","canUndoDirect":true},{"id":"receipt-mu3uybgp-2","summary":"applied","canUndoDirect":false},…],"jobs":[],"capabilities":{…}},"entities":[{"id":"char-a","kind":"character","name":"a young woman in a tan coat","token":"target-2"},{"id":"cube","kind":"object","name":"Side box","token":"target-5"}],"total":2,"nextCursor":null}
+{"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"shots":[{"id":"shot-mu3uybub-3","name":"Shot 1",…}]},"schema":{"shots":{…}}}
 ```
 
-Build the envelope from that context — the four host identity fields and the
+Build the envelope from that response — the four host identity fields and the
 scene revision you saw. Mint your own `commandId`; the editor journals it,
 which is what makes the command reconcilable later:
 
 ```sh
 cclay live inspect --scope shot > /tmp/329-doc/f-b-inspect.json
 node -e '
-const c = require("/tmp/329-doc/f-b-inspect.json").context;
+const c = require("/tmp/329-doc/f-b-inspect.json");
 const host = (({workspaceId, documentEpoch, sceneId, sceneEpoch}) => ({workspaceId, documentEpoch, sceneId, sceneEpoch}))(c.host);
 const envelope = {
   name: "frame_shot",
   args: {
     subjectIds: ["char-a"],
-    shotId: c.shot.id,
+    shotId: c.document.shots[0].id,
     keyAtFrame: 96,
     framing: { intent: { size: "medium shot", view: "front", level: "eye", side: "left" } },
   },
@@ -335,10 +335,11 @@ case above reconciles `applied` because there the page never reloaded).
 `not_applied` both mean the same next step — a fresh `inspect`, then choose:
 
 ```sh
-cclay live inspect --scope selection
+cclay live inspect --scope scene --ids cube > /tmp/329-doc/f-c-inspect2.json
+cat /tmp/329-doc/f-c-inspect2.json
 ```
 ```json
-{"context":{"schema":"studio-context-v1","host":{…},"revision":{"scene":3,"physics":3,"view":1},"units":{…},"scene":{"name":"SCENE 01","aspect":"16:9","floorY":0,"frameCount":432,"objectCount":1,"characterCount":1},"selection":{…},"activeCharacterId":"char-a","view":{…},"shot":null,"camera":{…},"entities":[{…},{"id":"cube","kind":"object","token":"target-1","name":"Stand-in box",…}],"entityPage":{…},"shots":[],…,"recentReceipts":[…],"jobs":[],"capabilities":{…}},"entities":[{"id":"char-a","kind":"character","name":"a young woman in a tan coat","token":"target-3"},{"id":"cube","kind":"object","name":"Stand-in box","token":"target-1"}],"total":2,"nextCursor":null}
+{"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"objects":[{"id":"cube","name":"Stand-in box",…}]},"schema":{"objects":{…}}}
 ```
 
 The reload reopened the same project and the box is still there, renamed
@@ -350,7 +351,7 @@ answered `noop` — also fine, just nothing to undo):
 
 ```sh
 node -e '
-const c = require("/tmp/329-doc/f-c-inspect2.json").context;
+const c = require("/tmp/329-doc/f-c-inspect2.json");
 const host = (({workspaceId, documentEpoch, sceneId, sceneEpoch}) => ({workspaceId, documentEpoch, sceneId, sceneEpoch}))(c.host);
 const envelope = {
   name: "arrange_objects",
@@ -378,7 +379,7 @@ state, never on a guess about what the dead hub saw.
 | --- | --- | --- |
 | `status [--wait]` | the hub, its editors, and the selected one; `--wait` blocks until a selectable editor connects | no |
 | `describe` | the full live scene document (scenes, objects, characters, camera, timeline) | no |
-| `inspect --scope selection\|scene\|entities\|shot\|motion\|catalogue` `[--ids a,b]` `[--query text]` | the scene context: identity, revisions, entity tokens, shots, receipts — the source for admission envelopes | no |
+| `inspect --scope selection\|scene\|entities\|shot\|motion\|catalogue` `[--ids a,b]` `[--query text]` `[--limit n]` `[--cursor c]` | the scene context: identity, revisions, entity tokens, shots, receipts — the source for admission envelopes | no |
 | `capture --out frame.png [--framing]` | the editor's 640×360 viewport PNG, or with `--framing` the full-resolution shot-camera PNG | no |
 | `arrange-objects --op '<json>'` \| `-f ops.json` | create / update / remove / group / ungroup set pieces, up to 100 ops, with relative placement and collision policy | yes |
 | `arrange-characters --op '<json>'` \| `-f ops.json` | create / update / remove cast, up to 8 ops | yes |
@@ -438,6 +439,14 @@ cclay live tool generate_motion --args '{"phases":["A person walks forward."]}'
 
 Nothing reached the editor. Select a rigged character and the same call goes to
 the editor's own motion readiness checks.
+
+Entity inspection pages default to 12 rows (maximum 32): use `--limit 32` and pass the returned `nextCursor` as `--cursor` until it is null; `total` is the matching entity count. Shot and selection scopes return `scope: "document"`, `document` and `schema`, while entities returns `entities`, `total` and `nextCursor`; all carry top-level `host` and `revision`.
+
+```sh
+cclay live arrange-objects --op '{"op":"create","source":{"kind":"cube"},"position":{"world":{"x":1,"y":0,"z":2}}}'
+```
+
+Other placement forms are `{relativeTo, basis, side, gapM, support}`, `{between, fraction, support}` and `{onObject, offsetXZ?}`.
 
 The op JSON for `arrange-*` is one operation, an array of them, or
 `{"ops":[…], "collisionPolicy":"report"|"avoid"}`. Placement is `world`

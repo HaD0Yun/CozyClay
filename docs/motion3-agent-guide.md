@@ -2,6 +2,8 @@
 
 The agent writes a **motion spec**. The deterministic compiler bakes every frame on the real rig (X Bot or Y Bot), fixes small mechanical errors itself, and QA measures the result. Every QA issue group says what caused it and what to change. The agent edits the spec and compiles again until QA reports nothing. A 730-frame scene compiles in about 150 ms and QA takes about 80 ms, so iterate freely, normally inside one `script` call.
 
+`motion.compile` thins redundant free-span keys by default. The receipt reports `output.thinned {removed, kept, before, after}`. Use `thin: false` to keep every authored key when the spec is generated per frame.
+
 ## Loop
 
 1. Read the scene with `inspect_studio`: object ids, positions (base pivot = bottom centre), sizes, the character (`model`, `x/y/z`, `rot`).
