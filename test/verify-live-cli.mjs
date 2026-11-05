@@ -10,6 +10,7 @@
  * are asserted against what actually crossed the socket.
  */
 import assert from "node:assert/strict";
+import { dispatchLiveFrame } from "../src/live-control.js";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -196,6 +197,10 @@ const connectEditor = async (url, workspaceId, meta, controls = { silent: new Se
 		if (frame.type !== "cmd") return;
 		received.push(frame);
 		if (controls.silent?.has(frame.name)) return;
+		if (controls.hidden && frame.name.startsWith("capture_")) {
+			void dispatchLiveFrame(JSON.stringify(frame), { [frame.name]: () => { throw Object.assign(new Error("Bring the Studio tab to the front or run headless Chrome."), { code: "TAB_HIDDEN" }); } }).then(result => socket.send(JSON.stringify(result)));
+			return;
+		}
 		try {
 			socket.send(JSON.stringify({ type: "result", id: frame.id, ok: true, value: answer(frame) }));
 		} catch (error) {
@@ -354,6 +359,16 @@ try {
 	assert.equal(framingCaptured.height, 1080);
 	assert.equal(framingCaptured.assertions, undefined, "capture_framing_png carries no assertions");
 	assert.ok(readFileSync(framingPath).subarray(0, 8).equals(PNG_MAGIC));
+	alpha.controls.hidden = true;
+	for (const extra of [[], ["--framing"]]) {
+		const before = readFileSync(framePath);
+		const refused = await run(["capture", ...extra, "--out", framePath]);
+		assert.equal(refused.code, 1);
+		assert.equal(only(refused).error.code, "TAB_HIDDEN");
+		assert.match(only(refused).error.message, /front.*headless Chrome/);
+		assert.deepEqual(readFileSync(framePath), before, "refused capture never overwrites the output");
+	}
+	alpha.controls.hidden = false;
 	evidence.capture = { frame: captured, framing: framingCaptured };
 
 	/* ------------------------------- receipts ------------------------------ */

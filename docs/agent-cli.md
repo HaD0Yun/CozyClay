@@ -471,6 +471,8 @@ so piping through `jq` is always safe.
 | 5 | `TIMEOUT` or `UNCERTAIN_APPLY` | do not retry; reconcile or re-inspect |
 | 6 | `STALE_SCENE`, `STALE_TARGET`, `TARGET_BUSY` | `inspect` again and re-issue |
 
+`TAB_HIDDEN` (exit 1) means capture was refused because the Studio page is hidden: its animation-frame callbacks may not have applied the requested frame or camera. Bring the Studio tab to the front or use headless Chrome (whose pages report visible), then capture again. This applies to both preview and `--framing` captures.
+
 ### The two-editor rule
 
 With exactly one editor connected, commands route to it automatically. With
