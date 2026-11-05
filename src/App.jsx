@@ -2367,6 +2367,9 @@ export default function App() {
 		activeShotId: activeShot?.id ?? null,
 		captureCurrentFraming,
 		captureFramingPng,
+		// One timeline frame through the recorder's own path (`cclay live
+		// capture --frames`, #1074): posed and parked, then put back.
+		captureShotFrame: (frame) => ({ dataUrl: captureShotFramePng(frame), width: shotOutput.width, height: shotOutput.height, shotId: shotAtFrame(shots, frame)?.id ?? null }),
 		// The Top View pull (verify_result visual "plan", capture_plan_png).
 		capturePlanPng,
 		captureShotMeta,
@@ -2440,6 +2443,16 @@ export default function App() {
 		// not capture_frame's 640x360 preview, which stays exactly as it is.
 			capture_framing_png: (args = {}) => {
 				const live = appContext.live.state;
+				// A named frame renders the way the video export draws it: the cast
+				// posed and the shot camera parked at that frame, then both put back,
+				// so a run of frames needs no seek and leaves the playhead alone.
+				if (args.frame !== undefined) {
+					const { frame } = args, frameCount = Math.max(1, live.timeline.frameCount);
+					if (!Number.isSafeInteger(frame) || frame < 0 || frame >= frameCount) throw new Error(`Frame ${frame} is outside the timeline (0-${frameCount - 1}).`);
+					const shot = live.captureShotFrame(frame);
+					if (!shot.dataUrl) throw new Error("The shot renderer is not ready");
+					return { ...shot, frame, partColours: live.partColours, meta: live.captureShotMeta(frame) };
+				}
 				const output = requestedCaptureOutput(args) ?? SHOT_ASPECT_PRESETS[live.stage.shotAspect] ?? SHOT_ASPECT_PRESETS["16:9"];
 				const dataUrl = live.captureFramingPng(live.captureCurrentFraming(), output);
 				if (!dataUrl) throw new Error("The shot renderer is not ready");

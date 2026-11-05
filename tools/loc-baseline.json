@@ -6,7 +6,7 @@
 	"bin/agent/supervisor.mjs": 283,
 	"bin/agent/video-adapters.mjs": 334,
 	"bin/cozyclay.mjs": 313,
-	"bin/live/cli.mjs": 456,
+	"bin/live/cli.mjs": 459,
 	"mcp/live-hub.mjs": 529,
 	"mcp/tool-handlers.mjs": 1726,
 	"mcp/verify-live-batch.mjs": 485,

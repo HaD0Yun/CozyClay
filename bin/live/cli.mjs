@@ -9,6 +9,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
+import { captureFrames } from "./frames.mjs";
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
 import { admissionEnvelope, describeEditors, numberedPath, pngFromCaptureFrame, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
@@ -19,6 +20,7 @@ const USAGE = `cclay live - drive a running CozyClay studio from a terminal
   cclay live inspect --scope selection|scene|entities|shot|motion|catalogue
                                          [--ids a,b] [--query text]
   cclay live capture --out frame.png [--framing]
+  cclay live capture --frames 0-242 --out-dir frames/ [--step N]
   cclay live arrange-objects --op '<json>' | -f ops.json
   cclay live arrange-characters --op '<json>' | -f ops.json
   cclay live patch --target <kind>[:<id>] --set '<json>'
@@ -56,7 +58,7 @@ const VERBS = new Map([
 	["status", { flags: ["--wait"] }],
 	["describe", { flags: [] }],
 	["inspect", { flags: ["--scope", "--ids", "--query"] }],
-	["capture", { flags: ["--out", "--framing"] }],
+	["capture", { flags: ["--out", "--framing", "--frames", "--out-dir", "--step"] }],
 	["arrange-objects", { flags: ["--op", "-f", "--file"], command: "arrange_objects" }],
 	["arrange-characters", { flags: ["--op", "-f", "--file"], command: "arrange_characters" }],
 	["patch", { flags: ["--target", "--set"], command: "patch_elements" }],
@@ -399,6 +401,7 @@ async function runVerb({ client, verb, spec, name, flags }) {
 	}
 
 	if (verb === "capture") {
+		if (["--frames", "--out-dir", "--step"].some((key) => flags.has(key))) return captureFrames(flags, { command, progress, usage: (message) => new UsageError(message) });
 		const out = resolvePath(required(flags, "--out", verb));
 		if (flags.get("--framing") === true) {
 			const value = await command("capture_framing_png", {});
