@@ -10,14 +10,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
-import { admissionEnvelope, describeEditors, numberedPath, pngFromCaptureFrame, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
+import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromCaptureFrame, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
 
   cclay live status [--wait]             the hub, its editors, and the selected one
   cclay live describe                    read the live scene document
   cclay live inspect --scope selection|scene|entities|shot|motion|catalogue
-                                         [--ids a,b] [--query text]
+                                         [--ids a,b] [--query text] [--limit n] [--cursor c]
   cclay live capture --out frame.png [--framing]
   cclay live arrange-objects --op '<json>' | -f ops.json
   cclay live arrange-characters --op '<json>' | -f ops.json
@@ -55,7 +55,7 @@ const GLOBAL_FLAGS = ["--workspace", "--timeout", "--pretty", "--live-port"];
 const VERBS = new Map([
 	["status", { flags: ["--wait"] }],
 	["describe", { flags: [] }],
-	["inspect", { flags: ["--scope", "--ids", "--query"] }],
+	["inspect", { flags: ["--scope", "--ids", "--query", "--limit", "--cursor"] }],
 	["capture", { flags: ["--out", "--framing"] }],
 	["arrange-objects", { flags: ["--op", "-f", "--file"], command: "arrange_objects" }],
 	["arrange-characters", { flags: ["--op", "-f", "--file"], command: "arrange_characters" }],
@@ -393,9 +393,7 @@ async function runVerb({ client, verb, spec, name, flags }) {
 
 	if (verb === "inspect") {
 		const args = { scope: required(flags, "--scope", verb) };
-		if (flags.has("--ids")) args.ids = commaList(flags.get("--ids"));
-		if (flags.has("--query")) args.query = String(flags.get("--query"));
-		return command("inspect_studio", args);
+		return command("inspect_studio", { ...args, ...inspectArguments(flags, integerFlag) });
 	}
 
 	if (verb === "capture") {
