@@ -406,6 +406,9 @@ ffmpeg -framerate 24 -start_number 0 -i /tmp/shot-frames/%06d.png -pix_fmt yuv42
 Files keep their timeline frame number, so a range that starts later or skips
 frames with `--step` reads as a glob instead:
 `-pattern_type glob -i '/tmp/shot-frames/*.png'`.
+`--out-dir` overwrites existing frames silently, and a glob encode also picks
+up stale frames from an earlier run, so give each run an empty directory.
+One run takes at most 10000 frames.
 
 An editor tab from before this verb answers the playhead instead of the frame
 it was asked for; the CLI stops at the first such frame with `EDITOR_ERROR`

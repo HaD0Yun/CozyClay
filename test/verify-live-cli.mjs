@@ -383,6 +383,7 @@ try {
 		[["capture", "--frames", "5-2", "--out-dir", framesDir], /start <= end/],
 		[["capture", "--frames", "0:2", "--out-dir", framesDir], /start-end/],
 		[["capture", "--frames", "0-2", "--step", "0", "--out-dir", framesDir], /positive/],
+		[["capture", "--frames", "0-99999999", "--out-dir", framesDir], /at most 10000/],
 		[["capture", "--frames", "0-2", "--out-dir", framesDir, "--out", framePath], /not --out/],
 		[["capture", "--out", framePath, "--step", "2"], /go with --frames/],
 	]) {
