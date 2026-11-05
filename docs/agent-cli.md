@@ -383,6 +383,7 @@ state, never on a guess about what the dead hub saw.
 | `describe` | the full live scene document (scenes, objects, characters, camera, timeline) | no |
 | `inspect --scope selection\|scene\|entities\|shot\|motion\|catalogue` `[--ids a,b]` `[--query text]` `[--limit n]` `[--cursor c]` | the scene context: identity, revisions, entity tokens, shots, receipts — the source for admission envelopes | no |
 | `capture --out frame.png [--framing]` | the editor's 640×360 viewport PNG, or with `--framing` the full-resolution shot-camera PNG | no |
+| `capture --frames A-B --out-dir DIR [--step N] [--force]` | every Nth timeline frame from A to B (inclusive; `--frames N` for one) as the full-resolution shot-camera PNG the video export renders, written as `DIR/000000.png` (six-digit frame number) in one session; prints `{ok, dir, frames, first, last, bytes, width, height}` | no |
 | `arrange-objects --op '<json>'` \| `-f ops.json` | create / update / remove / group / ungroup set pieces, up to 100 ops, with relative placement and collision policy | yes |
 | `arrange-characters --op '<json>'` \| `-f ops.json` | create / update / remove cast, up to 8 ops | yes |
 | `patch --target <kind>[:<id>] --set '<json>'` | set declared authored fields by path on one `character` / `object` / `shot` / `stage` target; `inspect --scope catalogue` lists the patchable paths | yes |
@@ -392,6 +393,32 @@ state, never on a guess about what the dead hub saw.
 | `undo --receipt <id>` | restore the document through the editor's native history, one entry | yes |
 | `cmd <name> --args '<json>'` | any live-protocol command, raw (no admission, no auto-receipt) | per command |
 | `tool <name> --args '<json>'` | any registry tool the hub serves, e.g. `describe_shot` | no |
+
+`capture --frames` is the terminal route to a shot video: the confirmed
+`export.shotVideo` still needs its click in the Studio, but the frames are a
+read. The editor poses the cast and parks the shot camera at each frame the
+way the export does, then puts both back, so the playhead never moves and no
+`operate --frame` round trip is needed. The CLI process writes the files; the
+Studio writes nothing. Encode them yourself, at the timeline's fps:
+
+```sh
+cclay live capture --frames 0-242 --out-dir /tmp/shot-frames
+ffmpeg -framerate 24 -start_number 0 -i /tmp/shot-frames/%06d.png -pix_fmt yuv420p shot.mp4
+```
+
+Files keep their timeline frame number, so a range that starts later or skips
+frames with `--step` reads as a glob instead:
+`-pattern_type glob -i '/tmp/shot-frames/*.png'`.
+A glob encode reads every PNG in the folder, so a run refuses an `--out-dir`
+that already holds PNG files (`DIR_NOT_EMPTY`, exit 2) before it captures
+anything. `--force` deletes an earlier run's frame files (`000042.png`) first;
+any other PNG still refuses, and non-PNG files are left alone. One run takes
+at most 10000 frames.
+
+An editor tab from before this verb answers the playhead instead of the frame
+it was asked for; the CLI stops at the first such frame with `EDITOR_ERROR`
+(reload the tab). A failure names `details.frame` and how many files were
+already `written`.
 
 `patch` carries one target kind per command — its commit domain — because one
 receipt is one revision step and one undo entry; a `character` patch and a

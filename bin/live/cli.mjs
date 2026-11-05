@@ -9,8 +9,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
+import { captureVerb } from "./capture.mjs";
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
-import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromCaptureFrame, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
+import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
 
@@ -19,6 +20,7 @@ const USAGE = `cclay live - drive a running CozyClay studio from a terminal
   cclay live inspect --scope selection|scene|entities|shot|motion|catalogue
                                          [--ids a,b] [--query text] [--limit n] [--cursor c]
   cclay live capture --out frame.png [--framing]
+  cclay live capture --frames 0-242 --out-dir frames/ [--step N] [--force]
   cclay live arrange-objects --op '<json>' | -f ops.json
   cclay live arrange-characters --op '<json>' | -f ops.json
   cclay live patch --target <kind>[:<id>] --set '<json>'
@@ -50,13 +52,13 @@ Exit codes: 0 ok - 1 editor or receipt error - 2 usage - 3 no hub -
 
 class UsageError extends Error {}
 
-const BOOLEAN_FLAGS = new Set(["--pretty", "--wait", "--framing", "--play", "--pause", "--strict"]);
+const BOOLEAN_FLAGS = new Set(["--force", "--pretty", "--wait", "--framing", "--play", "--pause", "--strict"]);
 const GLOBAL_FLAGS = ["--workspace", "--timeout", "--pretty", "--live-port"];
 const VERBS = new Map([
 	["status", { flags: ["--wait"] }],
 	["describe", { flags: [] }],
 	["inspect", { flags: ["--scope", "--ids", "--query", "--limit", "--cursor"] }],
-	["capture", { flags: ["--out", "--framing"] }],
+	["capture", { flags: ["--out", "--framing", "--frames", "--out-dir", "--step", "--force"] }],
 	["arrange-objects", { flags: ["--op", "-f", "--file"], command: "arrange_objects" }],
 	["arrange-characters", { flags: ["--op", "-f", "--file"], command: "arrange_characters" }],
 	["patch", { flags: ["--target", "--set"], command: "patch_elements" }],
@@ -85,7 +87,7 @@ const RECOVERY = {
 	USAGE: { action: "none", hint: "run `cclay live --help`" },
 };
 const EXIT_CODES = new Map([
-	["USAGE", 2],
+	["USAGE", 2], ["DIR_NOT_EMPTY", 2],
 	["NO_SERVER", 3],
 	["NO_EDITOR", 4], ["AMBIGUOUS_WORKSPACE", 4], ["STALE_HANDLE", 4],
 	["TIMEOUT", 5], ["UNCERTAIN_APPLY", 5],
@@ -396,19 +398,7 @@ async function runVerb({ client, verb, spec, name, flags }) {
 		return command("inspect_studio", { ...args, ...inspectArguments(flags, integerFlag) });
 	}
 
-	if (verb === "capture") {
-		const out = resolvePath(required(flags, "--out", verb));
-		if (flags.get("--framing") === true) {
-			const value = await command("capture_framing_png", {});
-			const bytes = pngFromDataUrl(value?.dataUrl);
-			writeFileSync(out, bytes);
-			return { path: out, width: value.width, height: value.height, bytes: bytes.byteLength };
-		}
-		const value = await command("capture_frame", {});
-		const bytes = pngFromCaptureFrame(value);
-		writeFileSync(out, bytes);
-		return { path: out, width: value.width, height: value.height, bytes: bytes.byteLength, assertions: value.assertions };
-	}
+	if (verb === "capture") return captureVerb(flags, { command, progress, usage: (message) => new UsageError(message) });
 
 	if (verb === "arrange-objects" || verb === "arrange-characters") return admitted(spec.command, operationArguments(flags, verb));
 

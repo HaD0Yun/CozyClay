@@ -37,7 +37,7 @@ import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
-import { refuseHiddenCapture } from "./live-capture-guard.js";
+import { captureFrameAt, refuseHiddenCapture } from "./live-capture-guard.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -2368,6 +2368,9 @@ export default function App() {
 		activeShotId: activeShot?.id ?? null,
 		captureCurrentFraming,
 		captureFramingPng,
+		// One timeline frame through the recorder's own path (`cclay live
+		// capture --frames`, #1074): posed and parked, then put back.
+		captureShotFrame: (frame) => ({ dataUrl: captureShotFramePng(frame), width: shotOutput.width, height: shotOutput.height, shotId: shotAtFrame(shots, frame)?.id ?? null }),
 		// The Top View pull (verify_result visual "plan", capture_plan_png).
 		capturePlanPng,
 		captureShotMeta,
@@ -2443,6 +2446,8 @@ export default function App() {
 			capture_framing_png: (args = {}) => {
 				refuseHiddenCapture();
 				const live = appContext.live.state;
+				// A named frame (#1074) renders the way the video export draws it.
+				if (args.frame !== undefined) return captureFrameAt(live, args.frame);
 				const output = requestedCaptureOutput(args) ?? SHOT_ASPECT_PRESETS[live.stage.shotAspect] ?? SHOT_ASPECT_PRESETS["16:9"];
 				const dataUrl = live.captureFramingPng(live.captureCurrentFraming(), output);
 				if (!dataUrl) throw new Error("The shot renderer is not ready");
