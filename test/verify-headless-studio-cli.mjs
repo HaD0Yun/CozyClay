@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { openStudioProject, startChrome, waitFor } from "../tools/gt-render/browser.mjs";
+import { openStudioProject, startChrome, waitFor } from "../tools/headless-chrome.mjs";
 
 const tool = fileURLToPath(new URL("../tools/headless-studio.mjs", import.meta.url));
 const run = (...args) => spawnSync(process.execPath, [tool, ...args], { encoding: "utf8", timeout: 30000 });

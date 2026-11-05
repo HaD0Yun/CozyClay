@@ -6,7 +6,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnOwned } from "../process-supervisor.mjs";
+import { spawnOwned } from "./process-supervisor.mjs";
 
 const CHROME_CANDIDATES = [
 	process.env.CHROME_PATH,

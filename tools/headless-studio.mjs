@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnOwned, terminateOwned } from "./process-supervisor.mjs";
-import { openStudioProject, startChrome, waitFor } from "./gt-render/browser.mjs";
+import { openStudioProject, startChrome, waitFor } from "./headless-chrome.mjs";
 import { readProjectDocument } from "../src/project.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
