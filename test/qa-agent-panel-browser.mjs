@@ -87,14 +87,26 @@ async function open(state, params = {}) {
 	await loaded;
 	const ready = await waitFor("!!document.querySelector('.agent-panel')", 30000);
 	if (!ready) throw new Error(`agent panel never mounted for state=${state}`);
-	// The auth-dependent chrome (account strip, composer) mounts only after the
-	// transport reports a session, so wait for the state card this state owns
-	// rather than driving a half-rendered panel.
+	// The auth-dependent chrome (composer) mounts only after the transport
+	// reports a session, so wait for the state card this state owns rather than
+	// driving a half-rendered panel. The account strip lives in the overflow
+	// menu since #574, so it is no signal of readiness.
 	const settled = state === "signed-out" || state === "signing-in"
 		? `!!document.querySelector('[data-agent-card="${state}"]')`
-		: "!!document.querySelector('.agent-input') && !!document.querySelector('.agent-account')";
+		: "!!document.querySelector('.agent-input')";
 	if (!await waitFor(settled, 15000)) throw new Error(`agent panel never settled for state=${state}`);
 	return url.toString();
+}
+
+// The account strip is the first row of the overflow menu (#574): it exists
+// only while the menu is open and the session is signed in.
+async function openMenu() {
+	if (!await evaluate("!!document.querySelector('.agent-menu')")) await evaluate("document.querySelector('.agent-overflow-toggle').click()");
+	return waitFor("!!document.querySelector('.agent-menu')", 5000);
+}
+async function closeMenu() {
+	if (await evaluate("!!document.querySelector('.agent-menu')")) await evaluate("document.querySelector('.agent-overflow-toggle').click()");
+	return waitFor("!document.querySelector('.agent-menu')", 5000);
 }
 
 async function shot(name) {
@@ -116,7 +128,10 @@ expect("the transcript is an aria-live region", await evaluate("document.querySe
 expect("focus lands on the composer when the panel opens", await waitFor("document.activeElement?.classList.contains('agent-input') === true", 8000));
 expect("the ready state offers three suggestion chips", await evaluate("document.querySelectorAll('[data-agent-card=\"ready\"] .agent-chip').length === 3"));
 expect("the footer states the image cost", await evaluate("/about 3-5x a normal turn/.test(document.querySelector('.agent-footer-hint')?.textContent || '')"));
-expect("the account strip names the signed-in account", await evaluate("/@/.test(document.querySelector('.agent-account-email')?.textContent || '')"));
+expect("no standing account strip over the conversation", await evaluate("!document.querySelector('.agent-account')"));
+await openMenu();
+expect("the account strip names the signed-in account", await evaluate("/@/.test(document.querySelector('.agent-menu .agent-account-email')?.textContent || '')"));
+await closeMenu();
 shots.push(await shot("ready"));
 
 // a chip prefills the composer
@@ -166,7 +181,9 @@ await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, dev
 await open("signed-out");
 expect("signed-out shows the Sign in with ChatGPT card", await waitFor("!!document.querySelector('[data-agent-card=\"signed-out\"] .agent-signin')", 8000));
 expect("signed-out offers no composer at all", await evaluate("!document.querySelector('.agent-input') && !document.querySelector('.agent-footer-hint')"));
+await openMenu();
 expect("signed-out shows no account strip", await evaluate("!document.querySelector('.agent-account')"));
+await closeMenu();
 expect("the panel reports the signed-out state", await evaluate("document.querySelector('.agent-panel')?.dataset.agentState === 'signed-out'"));
 shots.push(await shot("signed-out"));
 
@@ -177,7 +194,9 @@ shots.push(await shot("signing-in"));
 
 await open("no-entitlement");
 expect("no-entitlement explains the missing image plan", await waitFor("!!document.querySelector('[data-agent-card=\"no-entitlement\"]')", 8000));
-expect("no-entitlement still shows the account strip", await evaluate("!!document.querySelector('.agent-account')"));
+await openMenu();
+expect("no-entitlement still shows the account strip", await evaluate("!!document.querySelector('.agent-menu .agent-account')"));
+await closeMenu();
 expect("no-entitlement keeps the composer usable for chat", await evaluate("document.querySelector('.agent-input')?.disabled === false"));
 expect("the panel reports the no-entitlement state", await evaluate("document.querySelector('.agent-panel')?.dataset.agentState === 'no-entitlement'"));
 shots.push(await shot("no-entitlement"));
@@ -203,7 +222,9 @@ expect("tool steps read as verb + target", await evaluate("document.querySelecto
 expect("a completed tool step shows its elapsed time", await waitFor("/\\d/.test(document.querySelector('[data-tool-name=\"render_from_frame\"] .agent-step-time')?.textContent || '')", 10000));
 expect("the image result card arrives", await waitFor("!!document.querySelector('.agent-image-card img')", 12000));
 expect("the turn finishes and Stop reverts to Send", await waitFor("!document.querySelector('.agent-send.stop')", 12000));
-expect("the account strip picks up the plan from the quota event", await evaluate("(document.querySelector('.agent-plan-badge')?.textContent || '').trim() === 'Plus'"));
+await openMenu();
+expect("the account strip picks up the plan from the quota event", await evaluate("(document.querySelector('.agent-menu .agent-plan-badge')?.textContent || '').trim() === 'Plus'"));
+await closeMenu();
 expect("the image card offers Use in scene / Download / Regenerate", await evaluate("['.agent-image-use', '.agent-image-download', '.agent-image-regenerate'].every((sel) => !!document.querySelector(sel))"));
 shots.push(await shot("turn-complete"));
 
@@ -265,102 +286,46 @@ await evaluate("document.querySelector('.agent-overflow-toggle').click()");
 expect("the overflow menu offers Clear context and Sign out", await waitFor("(() => { const items = [...document.querySelectorAll('.agent-menu button')].map((b) => b.textContent); return items.includes('Clear context') && items.includes('Sign out'); })()", 5000));
 shots.push(await shot("overflow-menu"));
 
-// --- provider keys (#379) --------------------------------------------------
-// The menu opens an INLINE section (no modal) that lists the API-key providers
-// the sidecar reports. A key is typed into a password field, saved through the
-// scripted sidecar, and the page is then searched for it: the panel manages
-// credentials without ever showing one.
-const providerRow = (id) => `document.querySelector('[data-provider="${id}"]')`;
-const typeKey = (id, value) => evaluate(`(() => { const input = document.querySelector('[data-provider="${id}"] .agent-key-input'); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-
-expect("the overflow menu offers Provider keys…", await waitFor("[...document.querySelectorAll('.agent-menu button')].some((b) => b.textContent.startsWith('Provider keys'))", 5000),
+// --- Connect a model (#102) -------------------------------------------------
+// The menu opens an INLINE section (no modal) where pi's own provider login
+// runs. It replaced the per-provider key forms #379 first drove here, so the
+// panel no longer stores a key itself and the mock has nothing to save one
+// into. What the page can still prove against any sidecar: the section opens in
+// place, names itself, offers a provider search, and closes back to the chat.
+expect("the overflow menu offers Connect a model…", await waitFor("[...document.querySelectorAll('.agent-menu button')].some((b) => b.textContent.startsWith('Connect a model'))", 5000),
 	await evaluate("[...document.querySelectorAll('.agent-menu button')].map((b) => b.textContent).join(',')"));
-await evaluate("[...document.querySelectorAll('.agent-menu button')].find((b) => b.textContent.startsWith('Provider keys')).click()");
+await evaluate("[...document.querySelectorAll('.agent-menu button')].find((b) => b.textContent.startsWith('Connect a model')).click()");
 expect("the menu item opens an inline section inside the panel, not a modal", await waitFor("!!document.querySelector('.agent-panel .agent-keys') && !document.querySelector('[role=\"dialog\"]')", 8000));
-expect("the section lists the five API-key providers and never ChatGPT", await waitFor("document.querySelectorAll('.agent-key-row').length === 5 && !document.querySelector('[data-provider=\"openai-codex\"]')", 8000),
-	await evaluate("[...document.querySelectorAll('.agent-key-row')].map((r) => r.dataset.provider).join(',')"));
-expect("every key field is a password field", await evaluate("[...document.querySelectorAll('.agent-key-input')].every((input) => input.type === 'password')"));
-expect("an env-backed provider is disabled and names the variable it is set by", await evaluate("(() => { const row = document.querySelector('[data-provider-source=\"env\"]'); if (!row) return false; const input = row.querySelector('.agent-key-input'); return input.disabled === true && /^set by [A-Z_]+( or [A-Z_]+)?$/.test(input.placeholder) && row.querySelector('.agent-key-source').textContent === 'environment'; })()"),
-	await evaluate("document.querySelector('[data-provider-source=\"env\"]')?.innerText"));
-expect("an unconfigured provider shows a grey dot and offers no Remove", await evaluate(`(() => { const row = ${providerRow("anthropic")}; return row.dataset.providerSignedIn === 'false' && !row.querySelector('.agent-status-dot.ok') && !row.querySelector('.agent-key-remove'); })()`));
-shots.push(await shot("provider-keys-open"));
+expect("the section is titled Connect a model and offers a provider search", await evaluate("document.querySelector('.agent-keys .agent-keys-title')?.textContent === 'Connect a model' && !!document.querySelector('.agent-keys input[aria-label=\"Search providers\"]')"));
+shots.push(await shot("connect-a-model-open"));
 
-// happy path: the scripted sidecar accepts the key
-await typeKey("anthropic", "sk-test-123");
-expect("typing a key enables Save", await waitFor("document.querySelector('[data-provider=\"anthropic\"] .agent-key-save').disabled === false", 5000));
-await evaluate("document.querySelector('[data-provider=\"anthropic\"] .agent-key-save').click()");
-expect("saving turns that provider's dot green and states where the key lives", await waitFor(`(() => { const row = ${providerRow("anthropic")}; return row.dataset.providerSignedIn === 'true' && !!row.querySelector('.agent-status-dot.ok') && /saved on this machine/.test(row.innerText); })()`, 8000),
-	await evaluate(`${providerRow("anthropic")}?.innerText`));
-expect("a stored key can be removed from the same row", await evaluate("!!document.querySelector('[data-provider=\"anthropic\"] .agent-key-remove')"));
-expect("the input is emptied the moment the key is stored", await evaluate("document.querySelector('[data-provider=\"anthropic\"] .agent-key-input').value === ''"));
-expect("no key material is anywhere in the page text", await evaluate("!document.body.innerText.includes('sk-test')"));
-expect("no key material survives anywhere in the DOM", await evaluate("!document.documentElement.outerHTML.includes('sk-test-123')"));
-shots.push(await shot("panel-provider-keys"));
-
-// failure path: the sidecar refuses the key with a 400
-await typeKey("openrouter", "sk-no");
-await evaluate("document.querySelector('[data-provider=\"openrouter\"] .agent-key-save').click()");
-expect("a refused key is explained under its own input and leaves the dot grey", await waitFor(`(() => { const row = ${providerRow("openrouter")}; return !!row.querySelector('.agent-key-error') && !row.querySelector('.agent-status-dot.ok') && row.dataset.providerSignedIn === 'false'; })()`, 8000),
-	await evaluate(`${providerRow("openrouter")}?.innerText`));
-expect("the refusal never quotes the key it refused", await evaluate("!document.body.innerText.includes('sk-no')"));
-expect("the provider that did save is untouched by the refusal", await evaluate(`${providerRow("anthropic")}.dataset.providerSignedIn === 'true'`));
-shots.push(await shot("provider-keys-refused"));
 
 // the section has to survive the narrow panel too
 await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
 expect("the section fits a phone-width panel", await waitFor("(() => { const section = document.querySelector('.agent-keys'); if (!section) return false; const box = section.getBoundingClientRect(); return box.width > 0 && box.left >= 0 && box.right <= innerWidth + 1; })()", 5000),
 	await evaluate("JSON.stringify(document.querySelector('.agent-keys')?.getBoundingClientRect())"));
 expect("nothing scrolls sideways at 390px", await evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
-shots.push(await shot("provider-keys-390"));
+shots.push(await shot("connect-a-model-390"));
 await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
 await evaluate("document.querySelector('.agent-keys-close').click()");
 expect("closing the section leaves the conversation where it was", await waitFor("!document.querySelector('.agent-keys') && !!document.querySelector('.agent-transcript')", 5000));
-await evaluate("document.querySelector('.agent-overflow-toggle').click()");
+await openMenu();
 await waitFor("[...document.querySelectorAll('.agent-menu button')].some((b) => b.textContent === 'Sign out')", 5000);
 await evaluate("[...document.querySelectorAll('.agent-menu button')].find((b) => b.textContent === 'Sign out').click()");
 // Signing out of ChatGPT drops the account and everything that account could
-// run. The provider key saved above is the OTHER way in and is untouched, so
-// this session keeps a composer — pointed at a model it can still reach (#379).
+// run; with no provider key behind the session the sign-in card returns.
+await waitFor("!document.querySelector('.agent-menu') || ![...document.querySelectorAll('.agent-menu button')].some((b) => b.textContent === 'Sign out')", 6000);
+await openMenu();
 expect("Sign out drops the ChatGPT account strip", await waitFor("!document.querySelector('.agent-account')", 6000),
 	await evaluate("document.querySelector('.agent-account')?.innerText || ''"));
-expect("Sign out takes every ChatGPT model out of reach", await waitFor("(() => { const options = [...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].filter((option) => option.value.startsWith('openai-codex/')); return options.length > 0 && options.every((option) => option.disabled); })()", 6000),
-	await evaluate("JSON.stringify([...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].map((option) => option.value + (option.disabled ? ' (disabled)' : '')))"));
-expect("the provider key that remains keeps the composer open on a model it can run", await evaluate("(() => { const select = document.querySelector('.agent-model-select:not(.agent-effort-select)'); return !!document.querySelector('.agent-composer') && select?.selectedOptions[0]?.disabled === false && !select.value.startsWith('openai-codex/'); })()"),
-	await evaluate("document.querySelector('.agent-model-select:not(.agent-effort-select)')?.value"));
+await closeMenu();
+expect("Sign out puts the sign-in card back and removes the composer", await waitFor("!document.querySelector('.agent-composer') && !!document.querySelector('[data-agent-card=\"signed-out\"]')", 6000));
 
-// --- a saved key is a way in, immediately (#379) ---------------------------
-// Readiness is `signedIn || providersConfigured > 0`. An author who never
-// signed in to ChatGPT and saves their first provider key must land in a
-// composer there and then, without reloading the page, and must be handed back
-// to the sign-in card when that key is removed. The scripted sidecar counts
-// the session reads it answers, so the count proves the panel asks once per
-// write instead of polling for it.
+// The sign-in and sign-out transitions below count the session reads the
+// scripted sidecar answers, so the count proves the panel asks once per write
+// instead of polling for it.
 const statusCalls = () => evaluate("localStorage.getItem('cozyclay.mock.agent.status-calls')");
-await open("signed-out");
-expect("a signed-out session offers no composer to begin with", await evaluate("!document.querySelector('.agent-composer') && !!document.querySelector('[data-agent-card=\"signed-out\"]')"));
-// A page-lifetime marker: if the composer only arrives with a new document,
-// this is gone and the assertion below says so.
-await evaluate("localStorage.setItem('cozyclay.mock.agent.status-calls', '0'); window.__readinessMark = 'kept';");
-await evaluate("document.querySelector('.agent-overflow-toggle').click()");
-await waitFor("!!document.querySelector('.agent-menu-keys')", 5000);
-await evaluate("document.querySelector('.agent-menu-keys').click()");
-expect("the keys section opens for a signed-out session too", await waitFor(`!!document.querySelector('[data-provider="anthropic"] .agent-key-input')`, 8000));
-await typeKey("anthropic", "sk-readiness-123");
-await waitFor(`document.querySelector('[data-provider="anthropic"] .agent-key-save').disabled === false`, 5000);
-await evaluate(`document.querySelector('[data-provider="anthropic"] .agent-key-save').click()`);
-expect("saving the first key brings the composer up without a reload", await waitFor("!!document.querySelector('.agent-composer') && document.querySelector('.agent-panel')?.dataset.agentState === 'ready'", 8000),
-	await evaluate("JSON.stringify({ state: document.querySelector('.agent-panel')?.dataset.agentState, composer: !!document.querySelector('.agent-composer') })"));
-expect("the sign-in card gives way to the session it now has", await evaluate("!document.querySelector('[data-agent-card=\"signed-out\"]')"));
-expect("the page was never reloaded", await evaluate("window.__readinessMark === 'kept'"));
-expect("the save re-read the session exactly once", await statusCalls() === "1", String(await statusCalls()));
-shots.push(await shot("panel-keys-readiness-after-save"));
-await evaluate(`document.querySelector('[data-provider="anthropic"] .agent-key-remove').click()`);
-expect("removing the last key puts the sign-in gate back, still without a reload", await waitFor("!document.querySelector('.agent-composer') && !!document.querySelector('[data-agent-card=\"signed-out\"]')", 8000),
-	await evaluate("JSON.stringify({ state: document.querySelector('.agent-panel')?.dataset.agentState, composer: !!document.querySelector('.agent-composer') })"));
-expect("the removal re-read the session exactly once too", await statusCalls() === "2", String(await statusCalls()));
-expect("the panel never reloaded to get there either", await evaluate("window.__readinessMark === 'kept'"));
-shots.push(await shot("panel-keys-readiness-after-remove"));
 
 /* ===================== provider-grouped models + steering (#379) ========= */
 
@@ -396,7 +361,9 @@ await evaluate("document.querySelector('.agent-signin').click()");
 expect("a successful sign-in brings the composer up without a reload", await waitFor("document.querySelector('.agent-panel')?.dataset.agentState === 'ready' && document.querySelector('.agent-input')?.disabled === false", 10000),
 	await evaluate("JSON.stringify({ state: document.querySelector('.agent-panel')?.dataset.agentState, composer: !!document.querySelector('.agent-composer'), inputDisabled: document.querySelector('.agent-input')?.disabled, model: document.querySelector('.agent-model-select')?.value })"));
 expect("the page was never reloaded to get there", await evaluate("window.__signInMark === 'kept'"));
-expect("the sign-in card gives way to the session it now has", await evaluate("!document.querySelector('[data-agent-card=\"signed-out\"]') && !!document.querySelector('.agent-account-email')"));
+await openMenu();
+expect("the sign-in card gives way to the session it now has", await evaluate("!document.querySelector('[data-agent-card=\"signed-out\"]') && !!document.querySelector('.agent-menu .agent-account-email')"));
+await closeMenu();
 // Three: the two static ChatGPT models and the live-only entry the sidecar can
 // only read with the credential it just got.
 expect("the whole ChatGPT group becomes pickable at the transition", await evaluate("(() => { const options = [...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].filter((option) => option.value.startsWith('openai-codex/')); return options.length === 3 && options.every((option) => !option.disabled && !/add key/.test(option.textContent)); })()"),
@@ -416,7 +383,7 @@ expect("the first turn after signing in is addressed to the ChatGPT model", awai
 await waitFor("!document.querySelector('.agent-send.stop')", 30000);
 // And back out again: with no provider key behind it, signing out of ChatGPT
 // closes the same gate it opened, in the same page.
-await evaluate("document.querySelector('.agent-overflow-toggle').click()");
+await openMenu();
 await waitFor("[...document.querySelectorAll('.agent-menu button')].some((b) => b.textContent === 'Sign out')", 5000);
 await evaluate("[...document.querySelectorAll('.agent-menu button')].find((b) => b.textContent === 'Sign out').click()");
 expect("signing out with no key behind it puts the sign-in card back, still without a reload",
@@ -440,8 +407,8 @@ const disabledOption = await evaluate("(() => { const option = [...document.quer
 expect("a provider without a key is still listed, disabled, and says what it needs", Boolean(disabledOption) && /\u2014 add key$/.test(disabledOption.text || ""), JSON.stringify(disabledOption));
 expect("the panel opens on a model whose provider holds a credential", await evaluate("document.querySelector('.agent-model-select').selectedOptions[0]?.disabled === false"),
 	await evaluate("document.querySelector('.agent-model-select').value"));
-expect("the effort select offers the selected model's levels, its default first", await evaluate("(() => { const effort = document.querySelector('.agent-effort-select'); return !!effort && effort.options.length >= 2 && / \u00b7 default$/.test(effort.options[0].textContent); })()"),
-	await evaluate("JSON.stringify([...document.querySelectorAll('.agent-effort-select option')].map((option) => option.textContent))"));
+expect("the effort select offers the selected model's levels, its default first", await evaluate("(() => { const effort = document.querySelector('.agent-effort-select'); return !!effort && effort.options.length >= 2 && effort.options[0].title === 'Default for this model' && [...effort.options].slice(1).every((option) => !option.title); })()"),
+	await evaluate("JSON.stringify([...document.querySelectorAll('.agent-effort-select option')].map((option) => [option.textContent, option.title]))"));
 // A native dropdown draws its list outside the page, so the grouped structure
 // is recorded here as well as screenshotted.
 console.log(`     model select: ${await evaluate("JSON.stringify([...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) optgroup')].map((group) => ({ provider: group.label, options: [...group.children].map((option) => option.value + (option.disabled ? ' (disabled: ' + option.textContent + ')' : '')) })))")}`);
@@ -465,98 +432,11 @@ await open("ready");
 expect("the panel reopens on the model that was picked", await waitFor(`document.querySelector('.agent-model-select')?.value === ${JSON.stringify(picked)}`, 10000),
 	await evaluate("document.querySelector('.agent-model-select')?.value"));
 
-// --- a selection whose provider is unavailable is dropped (#379) -----------
-// A key saved or removed in the section above changes WHICH models can run.
-// The selection has to follow that: the panel must never sit on a disabled
-// "add key" model, and Send must never submit one.
-const selection = () => evaluate("(() => { const select = document.querySelector('.agent-model-select:not(.agent-effort-select)'); const send = document.querySelector('.agent-send:not(.stop)'); return { value: select?.value ?? null, optionDisabled: select?.selectedOptions[0]?.disabled ?? null, sendDisabled: send ? send.disabled : null }; })()");
-const lastTurnModel = () => evaluate("(() => { try { return JSON.parse(localStorage.getItem('cozyclay.mock.agent.last-turn'))?.model ?? null; } catch { return null; } })()");
-const saveKey = async (id, key) => {
-	if (!await evaluate(`!!document.querySelector('[data-provider="${id}"] .agent-key-input')`)) {
-		await evaluate("document.querySelector('.agent-overflow-toggle').click()");
-		if (!await waitFor("!!document.querySelector('.agent-menu-keys')", 8000)) throw new Error("the overflow menu never opened");
-		await evaluate("document.querySelector('.agent-menu-keys').click()");
-		if (!await waitFor(`!!document.querySelector('[data-provider="${id}"] .agent-key-input')`, 8000)) throw new Error("the provider keys section never opened");
-	}
-	await typeKey(id, key);
-	await clickWhenEnabled(`[data-provider="${id}"] .agent-key-save`);
-	if (!await waitFor(`document.querySelector('[data-provider="${id}"]')?.dataset.providerSignedIn === 'true'`, 8000)) throw new Error(`the ${id} key was never stored`);
-};
-const sendTurn = async (text) => {
-	await setValue(".agent-input", text);
-	await clickWhenEnabled(".agent-send:not(.stop)");
-	if (!await waitFor("!document.querySelector('.agent-send.stop')", 30000)) throw new Error("the scripted turn never finished");
-};
-
-// The author who never signed in to ChatGPT, carrying a remembered ChatGPT
-// model into a session that cannot run one.
-await evaluate("localStorage.setItem('cozyclay.agent.model', 'openai-codex/gpt-6-astra')");
-await open("signed-out");
-expect("a signed-out session offers no composer to send that remembered model from", await evaluate("!document.querySelector('.agent-composer')"));
-await saveKey("anthropic", "sk-selection-123");
-expect("saving the first key brings up a composer", await waitFor("!!document.querySelector('.agent-composer')", 8000));
-const afterFirstKey = await selection();
-expect("the composer opens on a model the session can actually run, not the remembered ChatGPT one",
-	afterFirstKey.optionDisabled === false && afterFirstKey.value !== "openai-codex/gpt-6-astra", JSON.stringify(afterFirstKey));
-await sendTurn("Block a wide two-shot of this scene");
-expect("the first turn is addressed to that usable model", await lastTurnModel() === afterFirstKey.value, `${await lastTurnModel()} vs ${afterFirstKey.value}`);
-
-// The same rule the other way round: the key behind the CHOSEN model goes
-// away while the panel is mounted.
-await evaluate("localStorage.removeItem('cozyclay.agent.model')");
-await open("ready");
-await saveKey("anthropic", "sk-selection-123");
-expect("the saved key makes its models pickable", await waitFor("[...document.querySelectorAll('.agent-model-select option')].some((option) => option.value.startsWith('anthropic/') && !option.disabled)", 8000),
-	await evaluate("JSON.stringify([...document.querySelectorAll('.agent-model-select option')].map((option) => option.value + (option.disabled ? ' (disabled)' : '')))"));
-const anthropicModel = await evaluate("[...document.querySelectorAll('.agent-model-select option')].find((option) => option.value.startsWith('anthropic/') && !option.disabled)?.value ?? null");
-await setValue(".agent-model-select:not(.agent-effort-select)", anthropicModel);
-expect("the newly usable model can be chosen", await waitFor(`document.querySelector('.agent-model-select:not(.agent-effort-select)')?.value === ${JSON.stringify(anthropicModel)}`, 5000), String(anthropicModel));
-await sendTurn("Frame this on the character");
-expect("the turn goes to the model that was chosen", await lastTurnModel() === anthropicModel, `${await lastTurnModel()} vs ${anthropicModel}`);
-shots.push(await shot("panel-keys-select-after-save"));
-
-await clickWhenEnabled('[data-provider="anthropic"] .agent-key-remove');
-expect("removing that key takes its models back out of reach", await waitFor(`document.querySelector('[data-provider="anthropic"]')?.dataset.providerSignedIn === 'false'`, 8000));
-const afterRemove = await selection();
-expect("the panel drops a selection whose provider just lost its key",
-	afterRemove.value !== anthropicModel && afterRemove.optionDisabled === false, JSON.stringify(afterRemove));
-await sendTurn("And hold that frame");
-expect("the next turn is never addressed to the provider that lost its key", await lastTurnModel() === afterRemove.value && !String(await lastTurnModel()).startsWith("anthropic/"),
-	`${await lastTurnModel()} vs ${afterRemove.value}`);
-shots.push(await shot("panel-keys-select-after-remove"));
-await evaluate("localStorage.removeItem('cozyclay.agent.model')");
-
-// --- a sign-out that RETIRES the selected model (#379, F2 pass 7) ----------
-// A live-only ChatGPT model exists only while the credential that fetched it
-// does: signing out does not draw it disabled, it takes it out of the
-// catalogue. A <select> can only show an option it still has, so a panel that
-// kept the retired id would submit a model nobody is looking at. The selection
-// has to move with the catalogue, and the turn has to follow the selection.
-const liveOnlyModel = "openai-codex/gpt-6-live-preview";
-await open("ready");
-await saveKey("anthropic", "sk-signout-16t"); // the way in that survives the sign-out
-expect("the signed-in catalogue advertises a live-only ChatGPT model",
-	await evaluate(`[...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].some((option) => option.value === ${JSON.stringify(liveOnlyModel)} && !option.disabled)`),
-	await evaluate("JSON.stringify([...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].map((option) => option.value + (option.disabled ? ' (disabled)' : '')))"));
-await setValue(".agent-model-select:not(.agent-effort-select)", liveOnlyModel);
-expect("the live-only model is what the composer is pointed at", await waitFor(`document.querySelector('.agent-model-select:not(.agent-effort-select)')?.value === ${JSON.stringify(liveOnlyModel)}`, 5000),
-	await evaluate("document.querySelector('.agent-model-select:not(.agent-effort-select)')?.value"));
-await evaluate("document.querySelector('.agent-overflow-toggle').click()");
-await waitFor("[...document.querySelectorAll('.agent-menu button')].some((b) => b.textContent === 'Sign out')", 5000);
-await evaluate("[...document.querySelectorAll('.agent-menu button')].find((b) => b.textContent === 'Sign out').click()");
-expect("the sign-out takes the live-only model out of the catalogue altogether",
-	await waitFor(`![...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].some((option) => option.value === ${JSON.stringify(liveOnlyModel)})`, 8000),
-	await evaluate("JSON.stringify([...document.querySelectorAll('.agent-model-select:not(.agent-effort-select) option')].map((option) => option.value + (option.disabled ? ' (disabled)' : '')))"));
-expect("the provider key behind the session keeps the composer open", await waitFor("!!document.querySelector('.agent-composer') && document.querySelector('.agent-input')?.disabled === false", 8000));
-const afterSignOut = await selection();
-expect("the dropdown is left showing a model this session can still run",
-	afterSignOut.value !== liveOnlyModel && afterSignOut.optionDisabled === false && !String(afterSignOut.value).startsWith("openai-codex/"), JSON.stringify(afterSignOut));
-shots.push(await shot("panel-signout-selection"));
-await sendTurn("Hold the wider frame now that the live model is gone");
-expect("the turn after the sign-out is addressed to the option the DOM is showing", await lastTurnModel() === afterSignOut.value,
-	`${await lastTurnModel()} vs ${afterSignOut.value}`);
-expect("the retired live-only model is never submitted", await lastTurnModel() !== liveOnlyModel, String(await lastTurnModel()));
-await evaluate("localStorage.removeItem('cozyclay.agent.model')");
+// The key-driven transitions #379 also covered here (a saved key opening the
+// composer, a removed key dropping its models, a sign-out that retires the
+// selected model while a key remains) went with the key forms: Connect a model
+// (#102) stores credentials through the sidecar, which the scripted transport
+// does not stand in for.
 
 // --- the phone-width dock ---------------------------------------------------
 await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -651,6 +531,11 @@ async function openStudio(width, height) {
 	if (!await waitFor("!!document.querySelector('.live-workspace-handle')", 30000)) {
 		throw new Error("no live editor is connected; start the dev server with its live hub (COZYCLAY_LIVE_PORT)");
 	}
+	// A new project starts on an empty stage (#986), and the scripted Studio turn
+	// arranges char-a. Cast the Y Bot it names unless the scene already has one.
+	if (!await waitFor("Boolean(window.__cozyclay?.runStudioAction)", 30000)) throw new Error("Studio never exposed its actions");
+	const cast = await evaluate(`(async () => { if (window.__cozyclay.characters?.length) return null; return JSON.stringify(await window.__cozyclay.runStudioAction("character.add", { character: { id: "char-a", model: "y-bot-tpose" } })); })()`);
+	if (!await waitFor("!!document.querySelector('.hierarchy-row-wrap[data-node-id=\"characterA\"]')", 15000)) throw new Error(`the character the scripted turn arranges never joined the stage: ${cast} rows ${await evaluate("[...document.querySelectorAll('.hierarchy-row-wrap')].map((row) => row.dataset.nodeId).join(',')")}`);
 }
 
 const studioChips = () => evaluate("[...document.querySelectorAll('[data-agent-card=\"ready\"] .agent-chip')].map((chip) => chip.textContent.trim())");
