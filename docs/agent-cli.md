@@ -192,7 +192,7 @@ full admission envelope — which you build from one `inspect`:
 cclay live inspect --scope shot
 ```
 ```json
-{"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"shots":[{"id":"shot-mu3uybub-3","name":"Shot 1",…}]},"schema":{"shots":{…}}}
+{"revision":{"scene":5,"physics":4,"view":3},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"shots":[{"id":"shot-mu3uybub-3","name":"Shot 1",…}]},"schema":{"shots":{…}}}
 ```
 
 Build the envelope from that response — the four host identity fields and the
