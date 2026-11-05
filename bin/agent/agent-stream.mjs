@@ -32,11 +32,13 @@ const RETRY_DELAY_FIELD = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/;
 const RATE_LIMITED = /(?<![a-z0-9])429(?![a-z0-9])|rate.?limit|too many requests|resource.?exhausted|quota|usage limit/i;
 // The HTTP status a failed message leads with, as pi-ai and the SDKs fold it: "503 ...", "522: <body>",
 // "OpenAI API error (522): ...", Gemini's "got status: 503 ...". A number elsewhere in a body is never read.
-const LEADING_STATUS = /^(?:got status: |[^\n(:]{0,80}\()?([1-5]\d\d)(?=[\s:)]|$)/;
+// The bracketed form must be "(NNN):", so "Image too large (523 KB)" or "(512 tokens over)" is no status.
+const LEADING_STATUS = /^(?:got status: )?([1-5]\d\d)(?=[\s:)]|$)|^[^\n(:]{0,80}\(([1-5]\d\d)\):/;
 // The statuses the OpenAI and Anthropic SDKs retry (pi-ai's provider-retry.js) that its message word list can miss: a
 // request timeout and any 5xx but 501 (not implemented) and 505 (HTTP version). 429 stays with pi-ai, which tells
 // a billing refusal from a throttle.
 const TRANSIENT_STATUS = (status) => status === 408 || (status >= 500 && status <= 599 && status !== 501 && status !== 505);
+const leadingStatus = (text) => { const match = LEADING_STATUS.exec(text); return Number(match?.[1] ?? match?.[2]); };
 // The wait a failed HTTP answer asked for in its headers, per the SDKs' order: retry-after-ms, then Retry-After as
 // seconds or an HTTP date. Undefined when it named none.
 export function headerRetryAfterMs(headers) {
@@ -81,7 +83,7 @@ export function retryKind(ai, message) {
 	const wait = retryAfterMs(message);
 	// A rate limit whose provider asked for more than a minute: retrying sooner is refused again.
 	if (RATE_LIMITED.test(text) && wait > QUOTA_WAIT_MAX_MS) return null;
-	if (ai.isRetryableAssistantError(message) || TRANSIENT_STATUS(Number(LEADING_STATUS.exec(text)?.[1]))) return "transient";
+	if (ai.isRetryableAssistantError(message) || TRANSIENT_STATUS(leadingStatus(text))) return "transient";
 	if (RESAMPLE_STOP.test(text)) return "resample";
 	return RATE_LIMITED.test(text) && wait > 0 ? "quota_wait" : null;
 }

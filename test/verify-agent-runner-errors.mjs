@@ -233,7 +233,9 @@ function errorMessage(text) {
 	for (const text of ["522: <html>origin timed out</html>", "OpenAI API error (530): <html>", "got status: 521 Web Server Is Down.", "408 Request Timeout"]) {
 		assert.equal(kind(text), "transient", text);
 	}
-	for (const text of ["501 Not Implemented", "422: {\"error\":\"bad tool schema\"}", "Request body 523 bytes too large", "Claude Code turn failed (error_during_execution)"]) {
+	for (const text of ["501 Not Implemented", "422: {\"error\":\"bad tool schema\"}", "Request body 523 bytes too large", "Claude Code turn failed (error_during_execution)",
+		// a number inside an earlier parenthesis is no status
+		"400 requested 9000 tokens (512 in the messages, 8488 in the completion)", "Context window exceeded (512 tokens over)", "Image too large (523 KB)"]) {
 		assert.equal(kind(text), null, text);
 	}
 	// A failed response's own Retry-After header (kept by agent-stream's fetch) wins over the text.
