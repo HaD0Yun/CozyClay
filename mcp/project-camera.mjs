@@ -1,3 +1,5 @@
+import { createProjectDocument } from "../src/project.js";
+
 /**
  * The memory-only camera inside a saved project (#861).
  *
@@ -40,4 +42,13 @@ export function splitSavedCamera(document) {
 			}),
 		},
 	};
+}
+
+/** Shared project envelope and camera persistence for terminal saves. */
+export function serializeSavedProject({ document, camera = {}, name, workspaceLayout = null, customPoses = [], ...metadata }) {
+	return JSON.stringify(createProjectDocument({
+		...metadata,
+		scenesDocument: documentWithCamera(document, camera),
+		workspaceLayout, customPoses, name,
+	}), null, "\t");
 }

@@ -10,9 +10,11 @@
  * are asserted against what actually crossed the socket.
  */
 import assert from "node:assert/strict";
+import { readProjectDocument } from "../src/project.js";
+import { serializeSavedProject } from "../mcp/project-camera.mjs";
 import { dispatchLiveFrame } from "../src/live-control.js";
-import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -334,6 +336,53 @@ try {
 	assert.equal(described.sceneName, "CLI");
 	assert.equal(described.objects.length, 1);
 
+	/* -------------------------------- save --------------------------------- */
+	const projectPath = join(scratch, "saved.cclayproject");
+	const saved = ok(await run(["save", "--out", projectPath]));
+	assert.equal(saved.ok, true);
+	assert.equal(saved.path, projectPath);
+	const savedBytes = readFileSync(projectPath);
+	assert.equal(saved.bytes, savedBytes.byteLength);
+	const reopened = readProjectDocument(savedBytes.toString("utf8"));
+	assert.equal(reopened.ok, true);
+	assert.equal(reopened.project.name, "CLI");
+	assert.equal(reopened.project.scenesDocument.activeSceneId, described.document.activeSceneId);
+	assert.equal(reopened.project.scenesDocument.scenes[0].name, "CLI");
+	assert.deepEqual(reopened.project.scenesDocument.scenes[0].stage.authoringCamera, { x: 0, y: 1.6, z: 4.5, focalMm: 35 });
+	assert.equal(reopened.project.workspaceLayout, null);
+	assert.deepEqual(reopened.project.customPoses, []);
+	const refusedSave = await run(["save", "--out", projectPath]);
+	assert.equal(refusedSave.code, 1);
+	assert.equal(only(refusedSave).error.code, "FILE_EXISTS");
+	assert.deepEqual(readFileSync(projectPath), savedBytes);
+	writeFileSync(projectPath, "replace me");
+	ok(await run(["save", "--out", projectPath, "--force"]));
+	assert.equal(readProjectDocument(readFileSync(projectPath, "utf8")).ok, true);
+	assert.equal((await run(["save"])).code, 2);
+	assert.equal((await run(["save", "--out", join(scratch, "bad.json")])).code, 2);
+	const richer = { ...describeValue(), name: "Full project", previsMode: "storyboard", workspaceLayout: { panels: [] }, customPoses: [{ id: "pose-a", name: "Pose A", bones: {} }] };
+	const richProject = readProjectDocument(serializeSavedProject(richer));
+	assert.equal(richProject.ok, true);
+	assert.equal(richProject.project.previsMode, "storyboard");
+	assert.deepEqual(richProject.project.workspaceLayout, richer.workspaceLayout);
+	assert.deepEqual(richProject.project.customPoses, richer.customPoses);
+	// Installed CLI files have neither .git nor scene-model dependencies. They
+	// must use the existing staged runtime, without launching another hub.
+	const installed = join(scratch, "installed");
+	mkdirSync(join(installed, "mcp", "runtime"), { recursive: true });
+	cpSync(new URL("../bin/live", import.meta.url), join(installed, "bin", "live"), { recursive: true });
+	for (const file of ["mcp-runtime.mjs", "live-endpoint.mjs"]) cpSync(new URL(`../bin/${file}`, import.meta.url), join(installed, "bin", file));
+	cpSync(new URL("../package.json", import.meta.url), join(installed, "package.json"));
+	writeFileSync(join(installed, "mcp", "server.mjs"), "");
+	writeFileSync(join(installed, "mcp", "runtime", "package-lock.json"), "{}");
+	const installedOut = join(scratch, "installed.cclayproject");
+	const installedSave = spawnSync(process.execPath, ["--input-type=module", "-e",
+		`import { saveToFile } from './bin/live/files.mjs'; await saveToFile(async () => (${JSON.stringify(describeValue())}), ${JSON.stringify(installedOut)}, false);`],
+	{ cwd: installed, env: { ...process.env, COZYCLAY_MCP_RUNTIME_DIR: fileURLToPath(new URL("..", import.meta.url)) }, encoding: "utf8", timeout: 30000 });
+	assert.equal(installedSave.status, 0, installedSave.stderr);
+	assert.equal(readProjectDocument(readFileSync(installedOut, "utf8")).ok, true);
+
+
 	const inspected = ok(await run(["inspect", "--scope", "selection"]));
 	assert.equal(inspected.host.workspaceId, IDENTITY.workspaceId);
 	assert.equal(inspected.total, 2);
@@ -649,7 +698,10 @@ try {
 	const liveHelp = await run(["--help"]);
 	assert.equal(liveHelp.code, 0);
 	assert.match(liveHelp.stdout, /cclay live capture --out/);
+	assert.match(liveHelp.stdout, /cclay live save --out.*\[--force\]/);
+	assert.match(liveHelp.stdout, /omits workspace layout, custom poses/);
 	assert.match(liveHelp.stdout, /cclay live capture --frames 0-242 --out-dir/);
+	assert.match(liveHelp.stdout, /\[--limit n\] \[--cursor c\]/);
 } finally {
 	for (const socket of open) {
 		if (socket.readyState === WebSocket.OPEN) socket.close();
