@@ -21,7 +21,7 @@ import { holdStance } from "./fill-stance.js";
 /** Same contract as fill.js fillSpec ({ spec, gaps, calls, spans, ... }), the native policy. */
 const CLASSES = { overlap: /^(COLLIDE|BODY|SELF|FACE)$/, slide: /^SLIDE$/, pop: /^(POP|FLIP)$/, float: /^FLOAT$/, held: /^HELD_OBJECT_DRIFT$/, reach: /^(REACH|KEY|GOAL)$/, wrist: /^WRIST$/ };
 /** The problem classes whose frame count around a gap ([fa-6, fb+6]) grows from the compiler's curve (before) to the filled take (after). */
-export function worseKinds(before, after, fa, fb, pad = 6) {
+function worseKinds(before, after, fa, fb, pad = 6) {
 	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) { if (g.last < fa - pad || g.first > fb + pad) continue; for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); } return t; };
 	const a = tally(before), b = tally(after);
 	return Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
@@ -35,7 +35,7 @@ function keyMiss(baked, authored) {
 	return worst;
 }
 /** Problem classes (whole take) the filled compile has more of than the compiler's curve, plus "keys" when it misses a key further. */
-export function globalWorse(base, filled, authored, life = base.observations?.life) {
+function globalWorse(base, filled, authored, life = base.observations?.life) {
 	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); return t; };
 	const a = tally(base.qa), b = tally(filled.qa), out = Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
 	if (keyMiss(filled.out.baked, authored) > Math.max(0.05, keyMiss(base.out.baked, authored))) out.push("keys");
@@ -163,7 +163,7 @@ export async function fillSpecNative(spec, { sk, compile, run, reference }, { at
 			for (const share of [1, 1 / 2, 1 / 4, 1 / 8]) {
 				const n = Math.ceil(keptGaps.length * share);
 				if (share < 1 && n >= Math.ceil(keptGaps.length * share * 2)) continue;
-				const use = keptGaps.slice(0, n), drop = keptGaps.slice(n), ks = drop.reduce((acc, [fa, fb]) => acc.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb)), keys);
+				const drop = keptGaps.slice(n), ks = drop.reduce((acc, [fa, fb]) => acc.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb)), keys);
 				const worse = globalWorse(rb, await reference({ ...spec, keys: ks }), mine);
 				if (!worse.length) { keys = ks; for (const g of report.filter(g => drop.some(d => d === g.f))) g.dropped = ["install"]; ok = true; break; }
 				why = worse;

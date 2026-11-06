@@ -99,7 +99,7 @@ export function denseChannels(motion, fa, fb, baked, endBaked = baked) {
  * The foot's pitch and yaw come from the model's ankle and toe positions (forward.js), where a few millimetres of noise turn
  * into degrees: t2B3 f29-30 had fpitch_l jumping 19 deg/frame^2 (QA POP on the leg). Three [1,2,1] passes, ends kept. Mutates out.
  */
-export function smoothFootAngles(out, passes = 3) {
+function smoothFootAngles(out, passes = 3) {
 	const last = out.length - 1;
 	if (last < 3) return;
 	for (const ch of ["fpitch_l", "fpitch_r", "fyaw_l", "fyaw_r"]) {
@@ -118,7 +118,7 @@ const SEAM = 6;
  * forearm at the gap's last frame). Over SEAM frames at each end the channels ease from the compiled curve into the model's
  * motion (smoothstep), so position and speed carry on across the seam. Mutates out.
  */
-export function seamBlend(out, fa, fb, baked, endBaked = baked) {
+function seamBlend(out, fa, fb, baked, endBaked = baked) {
 	const last = out.length - 1, K = Math.min(SEAM, Math.floor(last / 4));
 	if (K < 2) return;
 	const mix = (m, c, w) => (Array.isArray(m) ? m.map((v, i) => c[i] + (v - c[i]) * w) : c + (m - c) * w);
