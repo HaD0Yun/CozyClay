@@ -47,6 +47,13 @@ const aimYaw = (pos) => Math.atan2(-(0 - pos.x), -(0 - pos.z));
 for (const sample of [first, last]) assert(Math.abs(sample.yaw - aimYaw(sample.pos)) < 0.05, `the head holds the aim point, not the subject at (9, 9): ${sample.yaw} vs ${aimYaw(sample.pos)}`);
 assert(Math.abs(first.pitch - Math.atan2(1 - 2, Math.hypot(first.pos.x, first.pos.z))) < 0.02, "and tilts to its height");
 assert(Math.abs(first.fovDeg - focalMmToFov(35, filmback.sensorId, filmback.aspectRatio) / DEG) < 1e-9, "the rail's lens rides each sample");
+const risingShot = { ...shot, camera: updateCameraBlock(shot.camera, { aim: { ids: ["prop"] } }) };
+const rising = buildShotCameraTracks({ shots: [risingShot], subjectTrack, fps: 24, aimAt: (_id, frame) => ({ x: 0, y: 0.3 + 1.3 * frame / (frames - 1), z: 0 }) });
+for (let i = 0; i < frames; i += 1) {
+ const sample = rising[i], y = 0.3 + 1.3 * i / (frames - 1);
+ assert(Math.abs(sample.pitch - Math.atan2(y - sample.pos.y, Math.hypot(sample.pos.x, sample.pos.z))) < 1e-9);
+}
+assert(rising.at(-1).pitch > rising[0].pitch);
 // Without an aim the rail still follows the subject, exactly as before.
 const followed = buildShotCameraTracks({ shots: [{ ...shot, camera: createCameraBlock({ mode: "rail", cameraRail: rail }) }], subjectTrack, fps: 24, filmback });
 assert(Math.abs(followed[0].yaw - Math.atan2(-(9 - followed[0].pos.x), -(9 - followed[0].pos.z))) < 0.05);
