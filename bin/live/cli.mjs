@@ -10,9 +10,8 @@ import { writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
 import { captureVerb } from "./capture.mjs";
-import { commandArguments, jsonFlag, UsageError } from "./args.mjs";
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
-import { operationArguments, saveToFile } from "./files.mjs";
+import { commandArguments, jsonFlag, operationArguments, saveToFile, UsageError } from "./files.mjs";
 import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
