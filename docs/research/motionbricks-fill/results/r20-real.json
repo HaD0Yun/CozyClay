@@ -1,0 +1,1077 @@
+[
+ {
+  "name": "t2A3",
+  "mode": "base",
+  "rep": 0,
+  "ms": 96928,
+  "fill": null,
+  "qaTotal": 20,
+  "groups": 5,
+  "overlap": 6,
+  "slide": 0,
+  "pop": 0,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 14,
+  "byKind": {
+   "REACH": 14,
+   "SELF": 4,
+   "COLLIDE": 2
+  },
+  "reachCm": 0.1,
+  "reachAt": "root@f114",
+  "sync": 0.8,
+  "jerkP95": 752.11,
+  "jerkSpikes": 1,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 4,
+  "flags": [
+   "sync"
+  ],
+  "frames": 392,
+  "inst": {
+   "qaTotal": 20,
+   "groups": 5,
+   "overlap": 6,
+   "slide": 0,
+   "pop": 0,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 14,
+   "byKind": {
+    "REACH": 14,
+    "SELF": 4,
+    "COLLIDE": 2
+   },
+   "reachCm": 0.1,
+   "reachAt": "root@f114",
+   "sync": 0.8,
+   "jerkP95": 752.11,
+   "jerkSpikes": 1,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 4,
+   "flags": [
+    "sync"
+   ],
+   "frames": 392
+  }
+ },
+ {
+  "name": "t2A3",
+  "mode": "candG",
+  "rep": 0,
+  "ms": 399546,
+  "fill": {
+   "gaps": 6,
+   "filled": 2,
+   "skipped": 4,
+   "dropped": 0,
+   "wants": [
+    [
+     34,
+     40
+    ],
+    [
+     16,
+     24
+    ]
+   ],
+   "fillKeys": 0,
+   "guides": null,
+   "fillMs": 343232,
+   "dropReasons": [
+    "hold",
+    "hold",
+    "hold",
+    "hold"
+   ]
+  },
+  "qaTotal": 33,
+  "groups": 9,
+  "overlap": 13,
+  "slide": 0,
+  "pop": 6,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 14,
+  "byKind": {
+   "REACH": 14,
+   "BODY": 7,
+   "POP": 6,
+   "SELF": 4,
+   "COLLIDE": 2
+  },
+  "reachCm": 0.1,
+  "reachAt": "root@f114",
+  "sync": 1,
+  "jerkP95": 855.49,
+  "jerkSpikes": 2,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 4,
+  "flags": [
+   "sync"
+  ],
+  "frames": 392,
+  "inst": {
+   "qaTotal": 33,
+   "groups": 9,
+   "overlap": 13,
+   "slide": 0,
+   "pop": 6,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 14,
+   "byKind": {
+    "REACH": 14,
+    "BODY": 7,
+    "POP": 6,
+    "SELF": 4,
+    "COLLIDE": 2
+   },
+   "reachCm": 0.1,
+   "reachAt": "root@f114",
+   "sync": 1,
+   "jerkP95": 855.49,
+   "jerkSpikes": 2,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 4,
+   "flags": [
+    "sync"
+   ],
+   "frames": 392
+  }
+ },
+ {
+  "name": "t2A4",
+  "mode": "base",
+  "rep": 0,
+  "ms": 46133,
+  "fill": null,
+  "qaTotal": 233,
+  "groups": 22,
+  "overlap": 51,
+  "slide": 35,
+  "pop": 10,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 137,
+  "byKind": {
+   "REACH": 65,
+   "WRIST": 63,
+   "BODY": 32,
+   "KNEE": 9,
+   "SLIDE": 35,
+   "POP": 10,
+   "SELF": 16,
+   "COLLIDE": 3
+  },
+  "reachCm": 0.2,
+  "reachAt": "root@f392",
+  "sync": 1,
+  "jerkP95": 727.49,
+  "jerkSpikes": 19,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [
+   "sync",
+   "jerk"
+  ],
+  "frames": 417,
+  "inst": {
+   "qaTotal": 228,
+   "groups": 22,
+   "overlap": 51,
+   "slide": 35,
+   "pop": 9,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 133,
+   "byKind": {
+    "REACH": 61,
+    "WRIST": 63,
+    "BODY": 32,
+    "KNEE": 9,
+    "SLIDE": 35,
+    "POP": 9,
+    "SELF": 16,
+    "COLLIDE": 3
+   },
+   "reachCm": 0.2,
+   "reachAt": "root@f392",
+   "sync": 1,
+   "jerkP95": 727.49,
+   "jerkSpikes": 16,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [
+    "sync"
+   ],
+   "frames": 417
+  }
+ },
+ {
+  "name": "t2A4",
+  "mode": "candG",
+  "rep": 0,
+  "ms": 425521,
+  "fill": {
+   "gaps": 8,
+   "filled": 0,
+   "skipped": 0,
+   "dropped": 8,
+   "wants": [
+    [
+     28,
+     37
+    ],
+    [
+     28,
+     37
+    ],
+    [
+     28,
+     37
+    ],
+    [
+     28,
+     30
+    ],
+    [
+     28,
+     30
+    ],
+    [
+     28,
+     30
+    ],
+    [
+     28,
+     37
+    ],
+    [
+     28,
+     37
+    ]
+   ],
+   "fillKeys": 0,
+   "guides": null,
+   "fillMs": 391629,
+   "dropReasons": [
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local"
+   ]
+  },
+  "qaTotal": 232,
+  "groups": 22,
+  "overlap": 51,
+  "slide": 35,
+  "pop": 10,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 136,
+  "byKind": {
+   "REACH": 64,
+   "WRIST": 63,
+   "BODY": 32,
+   "KNEE": 9,
+   "SLIDE": 35,
+   "POP": 10,
+   "SELF": 16,
+   "COLLIDE": 3
+  },
+  "reachCm": 0.2,
+  "reachAt": "root@f392",
+  "sync": 1,
+  "jerkP95": 727.49,
+  "jerkSpikes": 18,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [
+   "sync",
+   "jerk"
+  ],
+  "frames": 417,
+  "inst": {
+   "qaTotal": 227,
+   "groups": 22,
+   "overlap": 51,
+   "slide": 35,
+   "pop": 9,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 132,
+   "byKind": {
+    "REACH": 60,
+    "WRIST": 63,
+    "BODY": 32,
+    "KNEE": 9,
+    "SLIDE": 35,
+    "POP": 9,
+    "SELF": 16,
+    "COLLIDE": 3
+   },
+   "reachCm": 0.2,
+   "reachAt": "root@f392",
+   "sync": 1,
+   "jerkP95": 727.49,
+   "jerkSpikes": 14,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [
+    "sync",
+    "jerk"
+   ],
+   "frames": 417
+  }
+ },
+ {
+  "name": "t2F11",
+  "mode": "base",
+  "rep": 0,
+  "ms": 62500,
+  "fill": null,
+  "qaTotal": 106,
+  "groups": 9,
+  "overlap": 16,
+  "slide": 0,
+  "pop": 1,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 89,
+  "byKind": {
+   "REACH": 47,
+   "COLLIDE": 16,
+   "WRIST": 35,
+   "KNEE": 7,
+   "POP": 1
+  },
+  "reachCm": 2.8,
+  "reachAt": "foot_r@f138",
+  "sync": 0,
+  "jerkP95": 647.46,
+  "jerkSpikes": 10,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [
+   "jerk"
+  ],
+  "frames": 372,
+  "inst": {
+   "qaTotal": 106,
+   "groups": 9,
+   "overlap": 16,
+   "slide": 0,
+   "pop": 1,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 89,
+   "byKind": {
+    "REACH": 47,
+    "COLLIDE": 16,
+    "WRIST": 35,
+    "KNEE": 7,
+    "POP": 1
+   },
+   "reachCm": 2.8,
+   "reachAt": "foot_r@f138",
+   "sync": 0,
+   "jerkP95": 647.46,
+   "jerkSpikes": 10,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [
+    "jerk"
+   ],
+   "frames": 372
+  }
+ },
+ {
+  "name": "t2F11",
+  "mode": "candG",
+  "rep": 0,
+  "ms": 353501,
+  "fill": {
+   "gaps": 6,
+   "filled": 2,
+   "skipped": 3,
+   "dropped": 1,
+   "wants": [
+    [
+     34,
+     40
+    ],
+    [
+     28,
+     37
+    ],
+    [
+     33,
+     40
+    ]
+   ],
+   "fillKeys": 17,
+   "guides": null,
+   "fillMs": 308215,
+   "dropReasons": [
+    "hold",
+    "hold",
+    "hold",
+    "local"
+   ]
+  },
+  "qaTotal": 99,
+  "groups": 8,
+  "overlap": 16,
+  "slide": 0,
+  "pop": 1,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 82,
+  "byKind": {
+   "REACH": 47,
+   "COLLIDE": 16,
+   "WRIST": 35,
+   "POP": 1
+  },
+  "reachCm": 2.8,
+  "reachAt": "foot_r@f138",
+  "sync": 0,
+  "jerkP95": 668.09,
+  "jerkSpikes": 10,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [
+   "jerk"
+  ],
+  "frames": 372,
+  "inst": {
+   "qaTotal": 98,
+   "groups": 8,
+   "overlap": 16,
+   "slide": 0,
+   "pop": 1,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 81,
+   "byKind": {
+    "REACH": 46,
+    "COLLIDE": 16,
+    "WRIST": 35,
+    "POP": 1
+   },
+   "reachCm": 2.8,
+   "reachAt": "foot_r@f138",
+   "sync": 0,
+   "jerkP95": 668.09,
+   "jerkSpikes": 10,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [
+    "jerk"
+   ],
+   "frames": 372
+  }
+ },
+ {
+  "name": "t2F12",
+  "mode": "base",
+  "rep": 0,
+  "ms": 25850,
+  "fill": null,
+  "qaTotal": 0,
+  "groups": 0,
+  "overlap": 0,
+  "slide": 0,
+  "pop": 0,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 0,
+  "byKind": {},
+  "reachCm": 3.6,
+  "reachAt": "foot_r@f296",
+  "sync": 0,
+  "jerkP95": 1014.69,
+  "jerkSpikes": 1,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 1,
+  "flags": [],
+  "frames": 320,
+  "inst": {
+   "qaTotal": 0,
+   "groups": 0,
+   "overlap": 0,
+   "slide": 0,
+   "pop": 0,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 0,
+   "byKind": {},
+   "reachCm": 3.6,
+   "reachAt": "foot_r@f296",
+   "sync": 0,
+   "jerkP95": 1014.69,
+   "jerkSpikes": 1,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 1,
+   "flags": [],
+   "frames": 320
+  }
+ },
+ {
+  "name": "t2F12",
+  "mode": "candG",
+  "rep": 0,
+  "ms": 321024,
+  "fill": {
+   "gaps": 9,
+   "filled": 0,
+   "skipped": 0,
+   "dropped": 9,
+   "wants": [
+    [
+     28,
+     24
+    ],
+    [
+     27,
+     34
+    ],
+    [
+     28,
+     27
+    ],
+    [
+     27,
+     34
+    ],
+    [
+     18,
+     24
+    ],
+    [
+     25,
+     27
+    ],
+    [
+     24,
+     27
+    ],
+    [
+     25,
+     27
+    ],
+    [
+     24,
+     30
+    ]
+   ],
+   "fillKeys": 0,
+   "guides": null,
+   "fillMs": 292877,
+   "dropReasons": [
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local"
+   ]
+  },
+  "qaTotal": 3,
+  "groups": 3,
+  "overlap": 0,
+  "slide": 0,
+  "pop": 3,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 0,
+  "byKind": {
+   "POP": 3
+  },
+  "reachCm": 3.6,
+  "reachAt": "foot_r@f296",
+  "sync": 0,
+  "jerkP95": 1071.28,
+  "jerkSpikes": 2,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [],
+  "frames": 320,
+  "inst": {
+   "qaTotal": 3,
+   "groups": 3,
+   "overlap": 0,
+   "slide": 0,
+   "pop": 3,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 0,
+   "byKind": {
+    "POP": 3
+   },
+   "reachCm": 3.6,
+   "reachAt": "foot_r@f296",
+   "sync": 0,
+   "jerkP95": 1071.28,
+   "jerkSpikes": 2,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [],
+   "frames": 320
+  }
+ },
+ {
+  "name": "t2F13",
+  "mode": "base",
+  "rep": 0,
+  "ms": 20130,
+  "fill": null,
+  "qaTotal": 168,
+  "groups": 23,
+  "overlap": 85,
+  "slide": 0,
+  "pop": 12,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 6,
+  "other": 65,
+  "byKind": {
+   "GOAL": 6,
+   "REACH": 46,
+   "KNEE": 19,
+   "COLLIDE": 62,
+   "BODY": 13,
+   "POP": 10,
+   "SELF": 10,
+   "FLIP": 2
+  },
+  "reachCm": 8,
+  "reachAt": "foot_l@f146",
+  "sync": 0,
+  "jerkP95": 724.82,
+  "jerkSpikes": 14,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 1,
+  "flags": [
+   "jerk"
+  ],
+  "frames": 368,
+  "inst": {
+   "qaTotal": 168,
+   "groups": 23,
+   "overlap": 85,
+   "slide": 0,
+   "pop": 12,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 6,
+   "other": 65,
+   "byKind": {
+    "GOAL": 6,
+    "REACH": 46,
+    "KNEE": 19,
+    "COLLIDE": 62,
+    "BODY": 13,
+    "POP": 10,
+    "SELF": 10,
+    "FLIP": 2
+   },
+   "reachCm": 8,
+   "reachAt": "foot_l@f146",
+   "sync": 0,
+   "jerkP95": 724.82,
+   "jerkSpikes": 14,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 1,
+   "flags": [
+    "jerk"
+   ],
+   "frames": 368
+  }
+ },
+ {
+  "name": "t2F13",
+  "mode": "candG",
+  "rep": 0,
+  "ms": 79545,
+  "fill": {
+   "gaps": 10,
+   "filled": 0,
+   "skipped": 5,
+   "dropped": 5,
+   "wants": [
+    [
+     34,
+     34
+    ],
+    [
+     33,
+     34
+    ],
+    [
+     34,
+     34
+    ],
+    [
+     26,
+     27
+    ],
+    [
+     27,
+     34
+    ]
+   ],
+   "fillKeys": 0,
+   "guides": null,
+   "fillMs": 56225,
+   "dropReasons": [
+    "local",
+    "local",
+    "local",
+    "hold",
+    "hold",
+    "local",
+    "local",
+    "hold",
+    "hold",
+    "hold"
+   ]
+  },
+  "qaTotal": 161,
+  "groups": 23,
+  "overlap": 85,
+  "slide": 0,
+  "pop": 9,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 6,
+  "other": 61,
+  "byKind": {
+   "GOAL": 6,
+   "REACH": 42,
+   "KNEE": 19,
+   "COLLIDE": 62,
+   "BODY": 13,
+   "POP": 8,
+   "SELF": 10,
+   "FLIP": 1
+  },
+  "reachCm": 8,
+  "reachAt": "foot_l@f146",
+  "sync": 0,
+  "jerkP95": 721.49,
+  "jerkSpikes": 14,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [
+   "jerk"
+  ],
+  "frames": 368,
+  "inst": {
+   "qaTotal": 156,
+   "groups": 22,
+   "overlap": 83,
+   "slide": 0,
+   "pop": 10,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 6,
+   "other": 57,
+   "byKind": {
+    "GOAL": 6,
+    "REACH": 38,
+    "KNEE": 19,
+    "COLLIDE": 62,
+    "BODY": 11,
+    "POP": 9,
+    "SELF": 10,
+    "FLIP": 1
+   },
+   "reachCm": 8,
+   "reachAt": "foot_l@f146",
+   "sync": 0,
+   "jerkP95": 721.49,
+   "jerkSpikes": 15,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [
+    "jerk"
+   ],
+   "frames": 368
+  }
+ },
+ {
+  "name": "t2F14",
+  "mode": "base",
+  "rep": 0,
+  "ms": 33787,
+  "fill": null,
+  "qaTotal": 1466,
+  "groups": 34,
+  "overlap": 367,
+  "slide": 272,
+  "pop": 3,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 824,
+  "byKind": {
+   "FINGER_PEN": 480,
+   "SUPPORT": 160,
+   "REACH": 104,
+   "SLIDE": 272,
+   "BODY": 94,
+   "COLLIDE": 261,
+   "KNEE": 65,
+   "FINGER_GAP": 13,
+   "SELF": 12,
+   "POP": 3,
+   "FINGER_SELF": 2
+  },
+  "reachCm": 0,
+  "reachAt": null,
+  "sync": 0,
+  "jerkP95": 1074.9,
+  "jerkSpikes": 2,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 3,
+  "flags": [],
+  "frames": 314,
+  "inst": {
+   "qaTotal": 1411,
+   "groups": 34,
+   "overlap": 301,
+   "slide": 272,
+   "pop": 3,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 835,
+   "byKind": {
+    "FINGER_PEN": 480,
+    "SUPPORT": 160,
+    "REACH": 114,
+    "SLIDE": 272,
+    "COLLIDE": 259,
+    "KNEE": 65,
+    "BODY": 30,
+    "FINGER_GAP": 14,
+    "SELF": 12,
+    "POP": 3,
+    "FINGER_SELF": 2
+   },
+   "reachCm": 0,
+   "reachAt": null,
+   "sync": 0,
+   "jerkP95": 1023.15,
+   "jerkSpikes": 1,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 3,
+   "flags": [],
+   "frames": 314
+  }
+ },
+ {
+  "name": "t2F14",
+  "mode": "candG",
+  "rep": 0,
+  "ms": 394556,
+  "fill": {
+   "gaps": 11,
+   "filled": 0,
+   "skipped": 3,
+   "dropped": 8,
+   "wants": [
+    [
+     26,
+     21
+    ],
+    [
+     25,
+     27
+    ],
+    [
+     26,
+     27
+    ],
+    [
+     25,
+     30
+    ],
+    [
+     16,
+     24
+    ],
+    [
+     18,
+     24
+    ],
+    [
+     41,
+     46
+    ],
+    [
+     17,
+     24
+    ]
+   ],
+   "fillKeys": 0,
+   "guides": null,
+   "fillMs": 367156,
+   "dropReasons": [
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "local",
+    "hold",
+    "hold",
+    "hold",
+    "global"
+   ]
+  },
+  "qaTotal": 1472,
+  "groups": 38,
+  "overlap": 367,
+  "slide": 272,
+  "pop": 9,
+  "float": 0,
+  "held": 0,
+  "keyGoal": 0,
+  "other": 824,
+  "byKind": {
+   "FINGER_PEN": 480,
+   "SUPPORT": 160,
+   "REACH": 104,
+   "SLIDE": 272,
+   "BODY": 94,
+   "COLLIDE": 261,
+   "KNEE": 65,
+   "FINGER_GAP": 13,
+   "POP": 9,
+   "SELF": 12,
+   "FINGER_SELF": 2
+  },
+  "reachCm": 0,
+  "reachAt": null,
+  "sync": 0,
+  "jerkP95": 1106.26,
+  "jerkSpikes": 7,
+  "twinArms": 0,
+  "twinLegs": 0,
+  "dead": 0,
+  "lead": 0,
+  "flags": [
+   "jerk"
+  ],
+  "frames": 314,
+  "inst": {
+   "qaTotal": 1404,
+   "groups": 38,
+   "overlap": 291,
+   "slide": 272,
+   "pop": 9,
+   "float": 0,
+   "held": 0,
+   "keyGoal": 0,
+   "other": 832,
+   "byKind": {
+    "FINGER_PEN": 480,
+    "SUPPORT": 160,
+    "REACH": 112,
+    "SLIDE": 272,
+    "COLLIDE": 256,
+    "KNEE": 65,
+    "BODY": 23,
+    "FINGER_GAP": 13,
+    "POP": 9,
+    "SELF": 12,
+    "FINGER_SELF": 2
+   },
+   "reachCm": 0,
+   "reachAt": null,
+   "sync": 0,
+   "jerkP95": 1106.26,
+   "jerkSpikes": 7,
+   "twinArms": 0,
+   "twinLegs": 0,
+   "dead": 0,
+   "lead": 0,
+   "flags": [
+    "jerk"
+   ],
+   "frames": 314
+  }
+ }
+]
