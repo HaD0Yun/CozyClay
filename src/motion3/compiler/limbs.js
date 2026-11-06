@@ -212,11 +212,11 @@ const FINGER_PRESETS = {
 };
 // A ball's fingers fan out round it (#816): each finger turns about the palm normal at its knuckle, degrees toward the
 // thumb side (+), by preset weight; the index leads the thumb round one side, the little finger the other.
-const SPREAD = { spherical: { Index: 9, Middle: 2, Ring: -5, Pinky: -12 } };
+export const SPREAD = { spherical: { Index: 9, Middle: 2, Ring: -5, Pinky: -12 } };
 
 // Two presets keyed at 1 together (a reach's grip over a held fist) would add their curls: 137 deg at the PIP. Past a
 // sum of 1 the weights share it, so a blend never curls further than its strongest preset.
-function shares(weights) {
+export function shares(weights) {
 	const sum = Object.entries(weights ?? {}).reduce((acc, [p, w]) => acc + (p === "relaxed" ? 0 : w || 0), 0);
 	return sum > 1 ? Object.fromEntries(Object.entries(weights).map(([p, w]) => [p, p === "relaxed" ? w : (w || 0) / sum])) : weights;
 }
@@ -253,7 +253,7 @@ export function fingers(sk, s, side, given) {
 // palm and across it, then flexed at its two joints about their own axes (bone x palm normal). The fist's thumb lies over
 // the index and middle fingers' middle phalanges; the grip's closes around a handle against the index finger. Searched on
 // both rigs within the joints' ranges (thumb tip to the index's middle phalanx: fist 8.4 -> 3.7 cm Y Bot, 6.9 -> 2.4 X Bot).
-const THUMB_WRAP = { fist: [-70, -5, 5, 80], grip: [-30, -30, 30, 10], spherical: [-40, -20, 20, 10] };
+export const THUMB_WRAP = { fist: [-70, -5, 5, 80], grip: [-30, -30, 30, 10], spherical: [-40, -20, 20, 10] };
 function wrapThumb(sk, s, side, [oppose, across, flex2, flex3]) {
 	const sign = side === "Left" ? -1 : 1, J = k => sk.index[`${side}HandThumb${k}`];
 	if (J(1) === undefined) return;
