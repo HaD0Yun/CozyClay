@@ -1,0 +1,44 @@
+{
+	"version": 0,
+	"id": "10-push-crate",
+	"task": 10,
+	"title": {
+		"ko": "무거운 상자 밀기",
+		"en": "Push a heavy crate"
+	},
+	"request": {
+		"ko": "앞에 있는 100kg 나무 상자를 두 손으로 밀어서 3m 옮겨줘",
+		"en": "Push the 100 kg wooden crate in front of you 3 m with both hands."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "crate",
+			"name": "Wooden crate",
+			"shape": "box",
+			"center": [
+				0,
+				0.4,
+				1.9
+			],
+			"size": [
+				0.8,
+				0.8,
+				0.8
+			],
+			"mass": 100,
+			"color": "#a1887f"
+		}
+	]
+}
