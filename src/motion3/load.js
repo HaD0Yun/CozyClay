@@ -20,7 +20,10 @@ import { SETTLE, restOf } from "./seat.js";
 
 const REACH = 10, G = 9.81, LIGHT = 2, SAG_MAX = 0.06, SAG_PER_KG = 0.006, ONE_HAND = 25, SECOND = 0.5;
 // the left palm's axis sits a palm radius (qa/grasp-checks.js PALM) out of the face, so its skin is on it, not its bone;
-// on the 12 kg box at 0 the forearm grazed the edge (+X face: QA 42), at 0.022 none (QA 0); at most FACES candidates
+// on the 12 kg box at 0 the forearm grazed the edge (+X face: QA 42), at 0.022 none (QA 0); at most FACES candidates.
+// reachGrip's palm point is the skin's (vocab.js GRASP_POINTS), so the palm stands 2 cm off the face: the patch keeps
+// the relaxed fingers QA does not judge as a hold (qa/grasp-checks.js). Judged as one (a palm grasp closes flat, 2026-11-04)
+// no face of that box is clean: on the face the forearm meets the edge or the arm falls 11-13 cm short (QA 113-235)
 const STANDOFF = 0.022, FACES = 4;
 export const LOAD_UNITS = "load: what each hand carries, kg, and its most N m (mass x 9.81 x the shoulder-to-wrist distance across) at f; frames [first, last] held";
 
@@ -126,7 +129,7 @@ export const loadHints = {
 		// a big face takes the flat palm against it (a power grip's thumb would go into the box)
 		const ops = local => user => { const anchor = { kind: "object", object: id, local, grasp: "palm" };
 			return [user.anchors ? { op: "add", path: `/anchors/${name}`, value: anchor } : { op: "add", path: "/anchors", value: { [name]: anchor } },
-				{ op: "add", path: "/use/-", value: { skill: "reachGrip", f0: Math.max(0, grab - REACH), args: { anchor: name, side: "l", reach: Math.min(REACH, grab) || 1, hold: Math.max(1, spanOf(X.out, o)[1] - grab), release: 1 } } }]; };
+				{ op: "add", path: "/use/-", value: { skill: "reachGrip", f0: Math.max(0, grab - REACH), args: { anchor: name, side: "l", reach: Math.min(REACH, grab) || 1, hold: Math.max(1, spanOf(X.out, o)[1] - grab), release: 1, fingers: "relaxed" } } }]; };
 		return { ...plain, fix: { ops: ops(faces[0]), candidates: faces.map(ops) } };
 	},
 };

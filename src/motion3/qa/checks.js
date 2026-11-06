@@ -18,6 +18,8 @@ export const QA_LIMITS = { allow: 0.005, groundAllow: 0.01, reach: 0.01, slide: 
 	body: 0.005, skin: 0.015, hands: 0.01, object: 0.005, grab: 0.03, balance: 0.08 };
 /** FLIP reads a bend plane only where the limb is bent this far (deg) from straight and from folded flat. */
 const FLIP_BEND = 20;
+/** A throw's FLIP allowance starts this many frames before its release (throwSweeps). */
+const SWEEP_BEFORE = 4;
 /** KNEE (folds) and ELBOW: degrees past KNEE_STOP or ELBOW_STOP that count (the IK sits on the stop to rounding). */
 const STOP_TOL = 0.01;
 
@@ -98,7 +100,7 @@ export function generalChecks(sk, out, opts = {}) {
 		if (drift > 0.001) push("LENGTH", `${sk.names[p]}-${sk.names[j]}`, 0, drift, 0.001);
 	}
 	popChecks(sk, out, L, push);
-	flipChecks(sk, F, L, push);
+	flipChecks(sk, F, L, push, throwSweeps(sk, out), out.f0 ?? 0);
 	return issues;
 }
 
@@ -109,8 +111,24 @@ export function generalChecks(sk, out, opts = {}) {
  * way (session df6acdcc: the right elbow folded to 171 deg as the wrist passed the shoulder, and
  * its plane turned 71 deg in a frame while the elbow moved 3 cm). Across the frames between, the
  * turn is shared out per frame, so a pole that flips while the limb is straight still shows.
+ * `flips` ({ bone, from, to, limit }, throwSweeps) raises the limit on a throwing arm about its release.
  */
-function flipChecks(sk, F, L, push) {
+/** A carry let go with a fall velocity (a throw) sweeps its hand round the shoulder at about |v| / (shoulder to wrist) a
+ * frame, and the elbow's bend plane turns with it: at the baseball throw's 12.5 m/s that is 55 deg a frame at the release
+ * against L.flip 60, the throwObject spec 64 deg at f64. From SWEEP_BEFORE frames before the release to the frame after
+ * it, that arm's FLIP limit is twice the sweep. */
+function throwSweeps(sk, out) {
+	const objects = out.ctx?.spec?.objects ?? {}, props = out.ctx?.spec?.props ?? {}, f0 = out.f0 ?? 0, fps = out.ctx?.spec?.fps ?? 24, flips = [];
+	for (const o of Object.values(objects)) {
+		const v = o.fall?.v, side = props[o.prop]?.hand, rel = o.release, fr = out.frames[rel - f0];
+		if (!Array.isArray(v) || (side !== "l" && side !== "r") || !Number.isInteger(rel) || !fr) continue;
+		const S = side === "l" ? "Left" : "Right", r = dist(fr.s.P[sk.index[`${S}Hand`]], fr.s.P[sk.index[`${S}Arm`]]);
+		if (r > 0.05) flips.push({ bone: `${S}ForeArm`, from: rel - SWEEP_BEFORE, to: rel + 1, limit: (2 * len(v) * 180) / (fps * r * Math.PI) });
+	}
+	return flips;
+}
+
+function flipChecks(sk, F, L, push, flips, f0) {
 	const I = sk.index, bent = Math.sin(FLIP_BEND * Math.PI / 180);
 	for (const S of ["Left", "Right"]) for (const [a, b, c] of [[`${S}UpLeg`, `${S}Leg`, `${S}Foot`], [`${S}Arm`, `${S}ForeArm`, `${S}Hand`]]) {
 		let prev = null, at = 0;
@@ -118,7 +136,8 @@ function flipChecks(sk, F, L, push) {
 			const P = F[f].s.P, up = sub(P[I[b]], P[I[a]]), down = sub(P[I[c]], P[I[b]]), nv = cross(up, down);
 			if (len(nv) < bent * len(up) * len(down)) continue;
 			const u = norm(nv), turn = prev ? angle(u, prev) : 0, gap = f - at;
-			if (turn / gap > L.flip) push("FLIP", `${b} bend plane jumps ${turn.toFixed(0)}deg${gap > 1 ? ` over ${gap} frames` : ""}`, f, turn / gap, L.flip);
+			const lim = Math.max(L.flip, ...flips.filter(x => x.bone === b && f + f0 >= x.from && f + f0 <= x.to).map(x => x.limit));
+			if (turn / gap > lim) push("FLIP", `${b} bend plane jumps ${turn.toFixed(0)}deg${gap > 1 ? ` over ${gap} frames` : ""}`, f, turn / gap, lim);
 			prev = u; at = f;
 		}
 	}

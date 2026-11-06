@@ -25,9 +25,10 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // +80 for the gate's failing-QA guard (a stuck output whose take passes QA is no reason to ask): +80
 // +475 for the stop rule (QA 0 is done; 4 flat rounds with 4 or fewer problems, else 8; a closing ifClean compile of the best take): +475
 // +177 for in-reach staging (unless the user places or sizes it: a handled prop within 0.3 m of its user's edge; a shared table at most 0.6 m deep, #1066): +177
-check("the whole prompt is at most 16,311 characters", () => assert.ok(prompt.length <= 16311, `${prompt.length}`));
-check("the motion part is at most 3,720 characters", () => {
-	assert.ok(motion.length > 0 && motion.length <= 3720, `${motion.length}`);
+// +271 for a box in both hands, held by its sides (its path keyed against the chest, each hand by reachGrip on its own object anchor with grasp support and no local, a weight key alone is only the wrist): +273
+check("the whole prompt is at most 16,584 characters", () => assert.ok(prompt.length <= 16584, `${prompt.length}`));
+check("the motion part is at most 3,993 characters", () => {
+	assert.ok(motion.length > 0 && motion.length <= 3993, `${motion.length}`);
 });
 check("the prompt names describe, grab, goals, repair, base, beats and the 0.01 m scale floor", () => {
 	for (const word of ["motion.describe", "grab", "goals", "repair", "base", "\"beats\"", "0.01 m"]) assert.ok(prompt.includes(word), word);

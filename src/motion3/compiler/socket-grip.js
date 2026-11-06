@@ -10,10 +10,10 @@
 // frame against the forearm (diag.socket_<k>.rel, measured on the plain forearm before the turn): the object rides the
 // palm as it was taken (object-pose.js keeps the grab-frame offset), so neither the hand nor the object turns back. A
 // keyed carry's hand follows the keys (hold.js), whose grab offset is taken on that same grasp (object-keys.js attach).
-import { sub, norm, mul, T, axisRot } from "./math.js";
+import { sub, norm, mul, T, axisRot, apply, cross, dot, scale, len } from "./math.js";
 import { palmAxes, twoBone } from "./limbs.js";
 import { aimArm, orient } from "./hold.js";
-import { ELBOW_REST, swivel } from "./arm-orient.js";
+import { ELBOW_REST, WRIST_COMFORT, WRIST_LIMITS, swivel, wristNeed } from "./arm-orient.js";
 import { anchorSocket } from "./anchors.js";
 import { socketPalm } from "../sockets.js";
 import { partsOf } from "../object-pose.js";
@@ -67,7 +67,8 @@ export function socketCarry(ctx, k, f) {
 export function socketHand(ctx, sk, s, side, k, c, diag, on, effector, implicit = null, f = undefined) {
 	const I = sk.index, a = I[`${side}Arm`], fa = I[`${side}ForeArm`], h = I[`${side}Hand`], plain = s.R[fa];
 	const w = implicit?.w ?? anchorSocket(ctx, on.fit.anchor, s, diag, c, k), F = effector(s), fwd = norm(sub(s.P[h], s.P[fa]));
-	const type = implicit?.type ?? ctx.spec.anchors[on.fit.anchor].grasp, base = socketPalm(side, w, type, fwd, c.yaw);
+	// a support hold's arm is placed as a flat palm's, the fingers on the forearm's line (towardDown turns them after)
+	const type = implicit?.type ?? ctx.spec.anchors[on.fit.anchor].grasp, base = socketPalm(side, w, type === "support" ? "palm" : type, fwd, c.yaw);
 	const measure = st => ({ pos: effector(st), R: cols(palmAxes(sk, st, side)) }), now = measure(s);
 	// free to roll about its axis (no `from`): the roll the arm holds most easily, the Boltzmann mean of ROLLS rolls pulled
 	// lightly toward the fingers on the forearm's line, so the hand closes on the bar from the side the arm comes from
@@ -80,9 +81,19 @@ export function socketHand(ctx, sk, s, side, k, c, diag, on, effector, implicit 
 		const tilt = w.axis && type !== "palm" ? mean(TILTS.map(a => [a, strain(tilted(a)) + SLANT * (a / TILT) ** 2])) : 0;
 		return { R: tilted(tilt), roll, tilt };
 	};
-	const { R, roll, tilt } = plannedGrasp(ctx, on.fit.anchor, k, f, pick);
-	const { goal, plane, wristAt } = aimArm(sk, s, side, { pos: F, R }, now, on.w, "palm");
+	const planned = plannedGrasp(ctx, on.fit.anchor, k, f, pick), { roll, tilt } = planned;
+	let R = planned.R, { goal, plane, wristAt } = aimArm(sk, s, side, { pos: F, R }, now, on.w, "palm");
 	const arm = swivel(sk, s, side, goal, wristAt(goal), plane, ELBOW_REST, { w: on.w });
+	// a support hold: the elbow swivels as for that flat palm, then the fingers turn from the forearm's line down the face
+	// only as far as the wrist turns comfortably (towardDown). Swivelled for the fingers straight down instead, the elbow
+	// rose and the palm needed the forearm's whole twist to face the box: 84 deg on the T2 walk, 100-160 on the lift onto
+	// the shelf, past its 85 deg limit, so the palm tipped 17-76 deg off the face and the thumb went 7 cm into the box
+	if (type === "support") {
+		twoBone(sk, s, a, fa, h, wristAt(goal), arm.pole, ELBOW_REST, "elbow");
+		R = towardDown(sk, s, side, socketPalm(side, w, type, fwd, c.yaw), F, measure);
+		// the palm against the hand bone measured again on the arm just placed (aimArm reads the pair off the pose)
+		({ goal, wristAt } = aimArm(sk, s, side, { pos: F, R }, measure(s), on.w, "palm"));
+	}
 	let need = { twist: 0, flex: 0, dev: 0 };
 	for (let i = 0; i < ITER; i++) {
 		twoBone(sk, s, a, fa, h, wristAt(i ? s.R[h] : goal), arm.pole, ELBOW_REST, "elbow");
@@ -90,6 +101,30 @@ export function socketHand(ctx, sk, s, side, k, c, diag, on, effector, implicit 
 	}
 	diag[`grip_${k}`] = { w: on.w, socket: true, ...need, roll: roll * DEG, tilt };
 	diag[`socket_${k}`] = { rel: mul(T(plain), s.R[h]) };
+}
+
+/**
+ * A support hold's palm frame R (columns d down the face, l, n into it; sockets.js socketPalm) with its fingers turned
+ * from the forearm's line on the face toward straight down as far as the wrist turns comfortably: the ulnar/radial
+ * deviation within WRIST_COMFORT and the flex and twist within WRIST_LIMITS, read the way orient and QA WRIST read the
+ * wrist (arm-orient.js wristNeed on the arm just placed), by bisection on the turn. Asked straight down, the T2 support
+ * hold's wrist clamped at its 35 deg limit on every carried frame (QA WRIST, 62-73 deg asked); 45 deg off down still
+ * hooks the fingers under (the T2 recipe's walk, measured), and the palm stands low enough for it (anchors.js supportLow).
+ */
+function towardDown(sk, s, side, R, F, measure) {
+	const I = sk.index, h = I[`${side}Hand`], fa = I[`${side}ForeArm`], col = i => [R[0][i], R[1][i], R[2][i]], d = col(0), n = col(2);
+	const axT = norm(sub(s.P[h], s.P[fa])), f = sub(axT, scale(n, dot(axT, n))), ax = cross(f, d);
+	if (len(f) < 1e-6 || len(ax) < 1e-6) return R;
+	const fp = norm(f), full = Math.acos(Math.max(-1, Math.min(1, dot(fp, d)))) * DEG, axis = norm(ax);
+	const frame = deg => { const d2 = norm(apply(axisRot(axis, deg), fp)); return cols({ d: d2, l: cross(n, d2), n }); };
+	const now = measure(s), neutral = mul(s.R[fa], mul(T(sk.restWorldRot[fa]), sk.restWorldRot[h])), l = apply(mul(neutral, T(s.R[h])), palmAxes(sk, s, side).l);
+	const within = (v, [lo, hi]) => v >= lo && v <= hi;
+	const ok = deg => { const need = wristNeed(neutral, aimArm(sk, s, side, { pos: F, R: frame(deg) }, now, 1, "palm").goal, axT, l);
+		return within(need.dev, WRIST_COMFORT.dev) && within(need.flex, WRIST_LIMITS.flex) && within(need.twist, WRIST_LIMITS.twist); };
+	if (ok(full)) return R;
+	let lo = 0, hi = full;
+	for (let i = 0; i < 10; i++) { const mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
+	return frame(lo);
 }
 
 /**

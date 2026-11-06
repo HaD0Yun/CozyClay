@@ -28,26 +28,65 @@ function anchorFix(X, name, f, delta, k) {
 	return { path: path("local"), delta: apply(T(o.R), delta) };
 }
 
+/** True when `local` (+ delta), a point in body `id`'s axes from its base pivot, is inside that body (a group: never). */
+function insideBody(X, id, local, delta) {
+	const half = X.out.ctx.scene?.objects?.[id]?.half, a = local ?? [0, 0, 0];
+	if (!half) return false;
+	const q = a.map((v, i) => v + (delta?.[i] ?? 0));
+	return Math.abs(q[0]) < half[0] && q[1] > 0 && q[1] < 2 * half[1] && Math.abs(q[2]) < half[2];
+}
+
+/**
+ * The hint for a hand on an object anchor with no fit of that hand (its w_ weight keyed by hand): the weight puts only the
+ * wrist on the point and the hand keeps its own turn, so a grasp on the anchor turns nothing, and a goal or a collision on
+ * the hand led to moving the point until the wrist sat inside the box (A/B T2, 2026-11-03: anchors.boxL.local moved
+ * 10.8 cm into a 30 cm box, the left hand 0.147 m off it after 15 compiles). reachGrip puts the hand on with a fit (the
+ * grasp turns it, the fingers close, the hand may touch the object); the move stays as the second choice unless it puts
+ * the point inside the body, where its fix is dropped. Said when the anchor asks for a grasp or the move goes inside;
+ * null otherwise (a plain wrist point moved out stays the move), when the hand has a fit or is not on an object anchor,
+ * and on the carrying hand's own anchor on what it carries (its keyed carry leads it; a fit there fought the keys).
+ */
+function bareAnchorHint(X, d, k, f, move, why) {
+	const a = d.anchor ? X.spec.anchors?.[d.anchor] : null;
+	if (a?.kind !== "object" || d.fit !== null) return null;
+	const ids = [a.object, ...(X.out.ctx.scene?.objects?.[a.object]?.ancestors ?? [])];
+	if (ids.some(id => X.spec.props?.[X.spec.objects?.[id]?.prop]?.hand === k)) return null;
+	const inside = move.fix?.path === `/anchors/${d.anchor}/local` && insideBody(X, a.object, a.local, move.fix.delta);
+	if (!a.grasp && !inside) return null;
+	const bare = `anchor ${d.anchor} has no fit, so ${d.ch} puts only the ${k === "l" ? "left" : "right"} wrist on its point and the hand keeps its own turn${a.grasp ? ` (grasp ${a.grasp} turns the hand only through a fit)` : ""}`;
+	const grip = `put the hand on ${a.object} with reachGrip { anchor: "${d.anchor}", side: "${k}" } over that span (a fit that takes the grasp, closes the fingers and lets the hand touch ${a.object})`;
+	if (inside) return { cause: move.cause, hint: `${bare}: ${grip}; moving the point would put the wrist inside ${a.object}${why}` };
+	return { cause: move.cause, hint: `${bare}: ${grip}, or ${move.hint}`, ...(move.fix ? { fix: move.fix } : {}) };
+}
+
 /** cause + hint (+ fix, qa/patch.js) for moving a body part (capsule name, prop_<name>, hand_<k>) by `delta` at frame f. */
 export function moveHint(X, part, f, delta, why = "") {
 	const prop = /^prop_(.+)$/.exec(part);
 	const k = prop ? X.spec.props?.[prop[1]]?.hand : sideOf(part);
-	let label, cause, fix, shown = delta;
+	let label, cause, fix, shown = delta, driver = null;
 	if (/^(hand|farm|uarm)_/.test(part) || prop) {
 		const d = X.hand(k, f);
+		driver = d;
 		label = d.label;
 		fix = d.anchor ? anchorFix(X, d.anchor, f, delta, k) : d.ch === `hand_${k}` ? { channel: d.ch, f, delta } : undefined;
 		// an object anchor moves its point on the object (local, in the object's axes), never the object
 		const on = d.anchor && X.spec.anchors[d.anchor]?.kind === "object" ? X.spec.anchors[d.anchor].object : null;
 		if (on && fix) { label = `anchors.${d.anchor}.local (a point on ${on}, in ${on}'s axes; ${on} stays)`; shown = fix.delta; }
 		cause = d.anchor ? `anchor ${d.anchor}${d.fit !== null ? ` (fits[${d.fit}])` : ""} via ${X.cause(d.ch, f)}` : X.cause(d.ch, f);
+		// a support hold with no local is the compiler's to place (compiler/anchors.js supportAt), the hand riding its box: a
+		// local moved there pins the palm where it says, higher than the compiler's, the fingers off the bottom (TIPS_OFF)
+		const a = on ? X.spec.anchors[d.anchor] : null;
+		if (a?.grasp === "support" && a.local === undefined) {
+			return { cause, hint: `${part} needs ${vec(delta)} m at f${f}${why}; anchor ${d.anchor} is a support hold the compiler places on ${on} (the palm low on its side face, the fingers under it): keep it without local, which would pin the palm higher with the fingers off the bottom` };
+		}
 	} else if (/^(shin|foot|sole)_/.test(part)) { label = `foot_${k}`; cause = X.cause(label, f); fix = { channel: label, f, delta }; }
 	// a body held since its key (it breathes and sways there, compiler/idle.js): move what placed it (patch.js hold)
 	else { label = "root"; cause = X.cause("root", f); fix = { channel: "root", f, delta, ...(/^root held since /.test(cause) ? { hold: true } : {}) }; }
 	// a key the walk generator wrote: the agent changes the walk, not the key
 	const walk = / (walk|walkTo) /.test(` ${cause}`) && /step|start|end/.test(cause);
 	if (walk && !/^anchor/.test(label)) return { cause, hint: `walk path: ${label} needs ${vec(delta)} m at f${f}${why}; change that walk's heading/turnDistance/step (or give one a { range: [lo, hi] })` };
-	return { cause, hint: `${label}: move ${vec(shown)} m at f${f}${why}`, fix };
+	const move = { cause, hint: `${label}: move ${vec(shown)} m at f${f}${why}`, fix };
+	return (driver && bareAnchorHint(X, driver, k, f, move, why)) ?? move;
 }
 
 const capsule = name => CAPSULES.find(c => c[0] === name);

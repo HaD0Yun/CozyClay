@@ -27,6 +27,9 @@ expect("spherical is a grasp and closes the hand to the spherical preset", GRASP
 expect("a carry takes grasp spherical", refusal(ballPickupSpec({ entry: { grasp: "spherical" } })) === "", refusal(ballPickupSpec({ entry: { grasp: "spherical" } })));
 const sphere = refusal(ballPickupSpec({ entry: { grasp: "sphere" } }));
 expect("a carry's grasp \"sphere\" is refused with did-you-mean spherical", /grasp must be one of/.test(sphere) && /did you mean "spherical"/.test(sphere), sphere);
+// support holds a box in both hands on object anchors (compiler/anchors.js supportAt), never one hand's carry
+const carried = refusal(ballPickupSpec({ entry: { grasp: "support" } }));
+expect("a carry's grasp \"support\" is refused, naming the two-hand anchors it belongs to", /grasp must be one of power, pinch, hook, palm, spherical;/.test(carried) && /reachGrip each hand onto an object anchor with grasp support/.test(carried), carried);
 const heavy = refusal(ballPickupSpec({ entry: { mass: -1 } }));
 expect("mass -1 is refused naming 0.01..60", /mass must be kg in 0\.01\.\.60/.test(heavy), heavy);
 
