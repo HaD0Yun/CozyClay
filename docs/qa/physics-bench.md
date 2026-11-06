@@ -2,7 +2,7 @@
 
 `test/bench/physics/` compares CozyClay and Blender on ten hard physical motions built from scratch in an empty scene: muscle-up, handstand, two forward rolls, army crawl, wall climb, a trip while running, a backward fall off a roof, a barbell overhead, a rooftop gap jump and pushing a heavy crate. The same model and effort run on both sides. CozyClay runs through its Studio Agent panel. Blender runs through Claude Code (`claude -p`) with the official Blender Lab MCP server 1.0.3. Each run is measured on completion, time, cost, wasted effort and stability, and a human judges the results blind.
 
-It uses a real model, a live Studio and a local Blender, so it is not part of the default `node tools/run-tests.mjs` manifest. This page covers the parts that exist so far: the sets, the two scene builders and the shared result file.
+It uses a real model, a live Studio and a local Blender, so it is not part of the default `node tools/run-tests.mjs` manifest. This page covers the parts that exist so far: the sets, the two scene builders, the shared result file, and the run harness.
 
 ## Sets
 
@@ -72,3 +72,56 @@ node test/bench/physics/check-take.mjs [--out dir] [--blender path]
 ```
 
 The check installs a test-only spec (standIdle, a back tuck, a cartwheel) on set 10 and exports it from CozyClay. It gives the crate a made-up slide, yaw and tilt. Then it keys the take onto the .blend, exports it again, and compares every frame. Keyed in Blender, no bone below the hips may need a translation or a scale. A round trip alone would not catch a wrong bone map, but a wrong map shows up as stretch. Measured on the bench box (Blender 5.2.0): landmarks within 0.0032 mm, bone origins 0.0035 mm, crate 0.0002 mm, largest stretch below the hips 0.0020 mm, Blender rest heads vs the rig 0.0011 mm. Tolerance is 1 mm. It takes 6 s.
+
+## Setup (the bench machine)
+
+The harness expects one Linux machine with an X display and a GPU (the bench box: Ubuntu 24.04, RTX 3070). The paths below are its defaults, and the environment variables in parentheses override them.
+
+| Piece | Where |
+| --- | --- |
+| Blender 5.2.0 LTS | `/opt/blender-5.2.0-linux-x64/blender` (`BLENDER`) |
+| Claude Code (same version as the authoring machine) | `/opt/claude-code/bin/claude` (`BENCH_CLAUDE`) |
+| Blender Lab MCP server 1.0.3 (from the release's .mcpb) | `/opt/blender-mcp-1.0.3/venv/bin/blender-mcp` (`BENCH_BLENDER_MCP`); the bridge port comes from `BLENDER_MCP_PORT` |
+| Blender Lab MCP add-on 1.0.3 | Installed for the `bench` user: `blender -b --online-mode --command extension install-file -r user_default -e mcp-1.0.3.zip` |
+| Run user | `bench`, in the `video` and `render` groups, with `~/.cliproxy.env` (0600: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`). The harness user needs passwordless sudo to run as `bench`. |
+| Model access | CLIProxyAPI on `127.0.0.1:8317`. The Studio gets `CLIPROXY_API_KEY` from `~/.config/cliproxy/env`. The usage log `~/cliproxy-usage/YYYY-MM.jsonl` gives tokens and latency. |
+| X display | `:0`. The harness grants `bench` access with `xhost +SI:localuser:bench` (`BENCH_XAUTHORITY`, default `/run/user/1000/gdm/Xauthority`). |
+
+The Blender side runs as `bench` because the MCP server runs model-written Python with no guard. That user cannot read the harness user's home, so the harness builds the .blend itself and copies files in and out with sudo.
+
+Headless Chrome falls back to SwiftShader (software WebGL) unless it is told otherwise. `studio.mjs` passes `--use-gl=angle --use-angle=gl-egl --ignore-gpu-blocklist` (`QA_CHROME_FLAGS` overrides it), so the Studio renders on the GPU as Blender does.
+
+## Run harness
+
+```sh
+node test/bench/physics/run.mjs --sets 10 [--runs 3] [--tools cozyclay,blender] [--timeout-min 60] [--out ~/physics-bench/runs]
+```
+
+There is one queue per tool. The two queues run side by side, and each runs one run at a time. A run sends one request and gets no human input. The harness exports the result, appends one row to `<out>/physics-bench.jsonl`, and writes `<run>/row.json`. A run whose `row.json` exists is skipped, so the command resumes after a stop.
+
+| Tool | One run |
+| --- | --- |
+| CozyClay | A dev server with a fresh config home and live port, and headless Chrome with a fresh profile (`drive-cozyclay.mjs` under `tools/qa-browser.mjs`). It opens the set's document, opens the Agent panel, selects `cliproxy/<model>` and the effort, and sends the request. It waits until the agent and every task it dispatched are idle and no session file has been written for 20 s. Past the limit it presses Stop. The end time is the newest session write. Then it saves the document and the session files, and `export-cozyclay.mjs` writes take.json. |
+| Blender | `blender-run.mjs`: it builds the start .blend and opens it in a Blender window on `:0` as `bench`. The MCP add-on serves on port 19900 + lane. Then it runs `claude -p --model <model> --effort <effort> --mcp-config ... --strict-mcp-config --tools Read --allowedTools 'mcp__blender__*' Read --permission-mode bypassPermissions --setting-sources '' --output-format stream-json`, with an empty `CLAUDE_CONFIG_DIR` and a `timeout` at the limit. When it returns, the harness saves the live scene through the add-on's socket, closes Blender, and runs `export_take.py`. |
+
+Tokens, price and model time come from the CLIProxyAPI usage log for both tools (`usage.mjs`). A run's requests are the ones from 127.0.0.1 with that tool's user agent (`pi/` for the Studio Agent, `claude-cli/` for Claude Code) that ended inside its window. That is why each tool runs one run at a time. Price is the claude-opus-5-5 list price checked on 2026-11-07: $4 input, $20 output, $0.20 cache read, $5 / $8 for 5-minute / 1-hour cache writes per million tokens, and KRW at 1,500 per USD. These prices reproduce Claude Code's `total_cost_usd` and the Studio session's own cost. `modelBusyMs` is the union of request intervals, and `toolMs = wallMs - modelBusyMs`.
+
+`agent-logs.mjs` counts tool calls, failed calls, retries (CozyClay: compiles after the first; Blender: script runs right after a failed one), result checks, and banned-tool use (plan 1.2):
+
+| Tool | Banned (the run is disqualified) |
+| --- | --- |
+| CozyClay | A skill `flip`, `hitReaction`, `throwObject`, `catchObject`, `sitInSeat`, `exitCar` or `smokeCigarette`, `motion.fill`, `motion.primitive`, or `fill: true`. It is checked in every tool call of the main session and the task sessions, and in the installed take. |
+| Blender | `import_anim.bvh`, `import_scene.fbx`, `wm.append(`/`wm.link(`/`libraries.load(`/`bpy.ops.asset.`, or network calls (`urllib.request`, `urlopen(`, `requests.get/post(`, `http.client`, `socket.create_connection(`), in the code of any script run. |
+
+`ending` is one of the following, checked in this order:
+
+| Ending | When |
+| --- | --- |
+| `crash` | The request was never sent |
+| `disqualified` | A banned tool was used |
+| `timeout` | The run reached the limit; `wallMs` counts as the limit |
+| `finished` | The take moves: a landmark travels 1 cm or more from frame 0 |
+| `crash` | The harness failed to save or export the result |
+| `gave_up` | Otherwise: no take, or no motion |
+
+`--probe banned` sends a short request that uses a banned tool instead of the task: a flip skill take, and `bpy.ops.import_anim.bvh`. Its rows carry `probe` and are not counted. Measured on 2026-11-07: both probes ended `disqualified` (CozyClay `skill flip` in a run_action call and in the installed take, 54 s, $0.69; Blender `bvh import`, 6 s, $0.07).
