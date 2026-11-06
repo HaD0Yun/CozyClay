@@ -16,16 +16,21 @@ import { RIG, mat4, writeTake } from "./take.mjs";
 
 const apply = (R, v) => [0, 1, 2].map(i => R[i][0] * v[0] + R[i][1] * v[1] + R[i][2] * v[2]);
 const I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+// The turn build-cozyclay.mjs gives a cylinder along X (rotZ -90) or Z (rotX 90). The take keeps the set's axes as an
+// object's rest axes, so this turn comes off the body's pose.
+const ALIGN = { x: [[0, 1, 0], [-1, 0, 0], [0, 0, 1]], z: [[1, 0, 0], [0, 0, -1], [0, 1, 0]] };
+const mul = (A, B) => [0, 1, 2].map(i => [0, 1, 2].map(j => A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j]));
+const T = R => [0, 1, 2].map(i => [R[0][i], R[1][i], R[2][i]]);
 const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
 
 /** One object's matrices over the compiled frames; a still one keeps a single matrix. */
 function objectTrack(out, o, frames) {
-	const f0 = out.f0 ?? 0, still = mat4(I3, o.center);
+	const f0 = out.f0 ?? 0, still = mat4(I3, o.center), align = o.shape === "cylinder" ? ALIGN[o.axis] : null;
 	const ms = [];
 	for (let i = 0; i < frames; i++) {
 		if (o.shape === "group") { const r = rootPoseAt(out, o.id, f0 + i); ms.push(r ? mat4(r.R, r.pos) : still); continue; }
 		const box = objectBoxesAt(out, o.id, f0 + i)?.[0];
-		ms.push(box ? mat4(box.R, apply(box.R, [0, box.half[1], 0]).map((v, k) => v + box.pos[k])) : still);
+		ms.push(box ? mat4(align ? mul(box.R, T(align)) : box.R, apply(box.R, [0, box.half[1], 0]).map((v, k) => v + box.pos[k])) : still);
 	}
 	return ms.every(m => same(m, ms[0])) ? [ms[0]] : ms;
 }
