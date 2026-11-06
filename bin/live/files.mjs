@@ -36,8 +36,9 @@ export async function saveToFile(command, out, force) {
 	if (!out.endsWith(".cclayproject")) throw new LiveCliError("USAGE", "--out must end in .cclayproject");
 	const value = await command("describe", {});
 	if (!Array.isArray(value?.document?.scenes) || !value.document.scenes.length) throw new LiveCliError("EDITOR_ERROR", "Live editor returned no scene document to save.");
-	// A source checkout has mcp/ next to bin/; an installed package keeps it in the staged MCP runtime.
-	const module = existsSync(new URL("../../mcp/project-camera.mjs", import.meta.url))
+	// A source checkout (a .git at the package root, as bin/cozyclay.mjs decides) imports mcp/ directly. An installed
+	// package ships mcp/ too, but its src/ imports three, which installs do not carry, so it loads the staged MCP runtime.
+	const module = existsSync(new URL("../../.git", import.meta.url))
 		? await import("../../mcp/project-camera.mjs")
 		: await import(pathToFileURL(join(await ensureMcpRuntime(), "mcp", "project-camera.mjs")).href);
 	const serialized = module.serializeSavedProject({ ...value, name: value.name ?? value.sceneName });
