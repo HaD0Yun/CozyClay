@@ -125,6 +125,16 @@ Example: walking off past an open door. `turnDistance: { range: [0.2, 2.0] }` fo
 
 The compiler validates the spec strictly and lists every problem with an exact message, one per line, e.g. `keys[3] (f32) sets unknown channel "fpitch_left"; did you mean "fpitch_l"?` or `keys[6] (f54) knee_l = [0,0,-1] points backward; knees bend toward +z.` Unknown channels, wrong vector arity, frames out of range, `fps` other than 24, unknown anchors, bones, objects, fields and skills are all refused.
 
+## Left to the compiler (#1078)
+
+Write judgment; the compiler fills what follows from it (`src/motion3/auto-spec.js`, `src/motion3/compiler/auto.js`).
+
+- **Timing:** a key may give `after: "fast" | "normal" | "slow" | <frames>` instead of `f`; the gap comes from how far its channels move. A key may carry `name`, and any frame field (object keys, `use[].f0`, `when`) may say `"@name"` or `"@name+3"`. `frames` left out is `"auto"`.
+- **Hips:** `root: [x, z]` leaves the height to the compiler: the standing height, lowered by the reach fixes where the feet or a low target need it.
+- **Gaze:** `set.look: "object:<id>" | "anchor:<name>" | [x, y, z] | null` turns the head to the target each frame (an object where it moves); `null` hands the head back to its keys.
+- **Legs and free arms:** where no key (yours or a skill's) sets them, knee poles follow the foot's heading, a planted foot keeps its heading and a stepping foot turns to its landing's, and a free arm swings against its own leg while the hips travel. Foot pitch stays flat outside the walk: a heel roll on a keyed ankle path slid the ball. `spec.auto: false` (or `{ knee, foot, arms, look }`) turns them off.
+- **Measured:** `motion.compile` output `authored: { keys, values }` counts what you wrote before skills expand; `node tools/agent-time-stats.mjs` breaks a session's time into model, tools and compiles.
+
 ## Channels (keys: `[{ f, set: { channel: value }, step?: [channel] }]`)
 
 A channel is interpolated (monotone cubic) only through the keys that set it, so re-key a value to hold it. A `step` key jumps exactly on its frame; use it for visibility switches. Custom channels are hinge angles (`objects`), channels a check names, names ending in `_vis`, and names listed in `spec.channels`.

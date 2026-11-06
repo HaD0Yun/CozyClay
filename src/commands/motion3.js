@@ -145,7 +145,9 @@ export function register(registry, ports) {
 		const specIdValue = store.put(r.stored);
 		store.keepParts(specIdValue, { groups: r.qa.groups, timeline: r.timeline, probes: r.probes ?? {} });
 		return fitOutput({ ...head, specId: specIdValue, qa: r.qa, observations: r.observations, ...extra, ...(r.probes ? { probes: r.probes } : {}), timeline: r.timeline,
-			fixed: r.fixed, ...(r.search ? { search: r.search } : {}), ...(r.used.length ? { skills: r.used } : {}), ms: r.ms });
+			fixed: r.fixed, ...(r.search ? { search: r.search } : {}), ...(r.used.length ? { skills: r.used } : {}), ms: r.ms,
+			// what the agent wrote, keys and keyed values before skills expand (#1083; the per-channel counts stay in the job answer)
+			...(r.authored ? { authored: { keys: r.authored.keys, values: r.authored.values } } : {}) });
 	};
 	/**
 	 * A compiled take on the character, installed as one undo entry; put() keeps the timing edit of the take it replaces

@@ -174,14 +174,14 @@ expect("output budget: observations kept whole and right after qa when groups ar
 // 6. Strict validation, exact messages.
 const reject = (edit, scene = car) => { try { compile(broken(edit), scene); return ""; } catch (error) { return error.message; } };
 const msg = reject(s => {
-	s.fps = 30; s.keys[3].set.fpitch_left = 10; s.keys[4].set.root = [1, 2]; s.keys[5].f = 800; s.keys[6].set.knee_l = [0, 0, -1]; s.keys[7].set.w_handel_l = 1;
+	s.fps = 30; s.keys[3].set.fpitch_left = 10; s.keys[4].set.root = [1]; s.keys[5].f = 800; s.keys[6].set.knee_l = [0, 0, -1]; s.keys[7].set.w_handel_l = 1;
 	s.anchors.grip_l = { kind: "world", p: [0, 1, 0] }; s.generators[0].heading = [125]; s.keys[8].set.fpitch_r = 95;
 });
 console.log(msg.split("\n").map(l => `  | ${l}`).join("\n"));
 for (const line of [
 	"spec.fps must be 24, the timeline rate, got 30",
 	"corrected: keys[3] (f32) channel \"fpitch_left\" -> \"fpitch_l\"",
-	"keys[4] (f38) root must be [x, y, z] (3 finite numbers), got [1,2]",
+	"keys[4] (f38) root must be [x, y, z] (3 finite numbers), got [1]",
 	"keys[5].f = 800 is outside 0..729 (spec.frames 730); set frames >= 801 or frames: \"auto\"",
 	"keys[6] (f54) knee_l = [0,0,-1] points backward; knees bend toward +z.",
 	"keys[7] (f66) sets w_handel_l, but there is no anchor \"handel\"; did you mean \"w_handle_l\"?",

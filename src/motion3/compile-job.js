@@ -7,6 +7,7 @@
 // A refusal is an Error with a code (INVALID_ARGUMENT, MOTION_SPEC_INVALID turned into it), which the
 // client turns back into the Studio's protocol error.
 import { compileSpec, liftRequest } from "./pipeline.js";
+import { autoSpec, authoredOf } from "./auto-spec.js";
 import { prepareSpec } from "./correct.js";
 import { repairSpec } from "./repair.js";
 import { thinSpec } from "./thin.js";
@@ -46,6 +47,9 @@ const fresh = value => (Array.isArray(value) ? value.map(fresh) : value && typeo
  */
 export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, checks, lenient, repair, installing, thin, protect, bake, hintLimitMs, thinLimitMs }) {
 	const sk = skeletonFor(model);
+	// what the agent wrote (#1083), then the spec with what it left to the compiler filled in (auto-spec.js): repair and thinning patch that one
+	const authored = authoredOf(asked);
+	asked = autoSpec(asked, sk);
 	const opts = { ...(checks ? { checks } : {}), ...(lenient ? { lenient: true } : {}) };
 	// spec.probes and bare moved ids are lifted before fps is filled in, so the specId stays the spec's own
 	const once = s => {
@@ -81,7 +85,7 @@ export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, c
 	const people = take && keptPeople(scene, [r.expanded, r.stored], r.out);
 	if (people) take.people = people;
 	return { stored: r.stored, qa: r.qa, observations: r.observations, used: r.used, fixed: r.fixed, search: r.search, timeline: r.timeline,
-		...(r.probes ? { probes: r.probes } : {}), ...(r.notes || corrected.length ? { notes: [...corrected, ...(r.notes ?? [])] } : {}), ms, frameCount: r.out.frameCount, label,
+		...(r.probes ? { probes: r.probes } : {}), ...(r.notes || corrected.length ? { notes: [...corrected, ...(r.notes ?? [])] } : {}), ms, frameCount: r.out.frameCount, label, authored,
 		...(fixed.repair ? { repair: { ...fixed.repair, ms: repairMs } } : {}), ...(thinned ? { thinned: thinned.thinned } : {}), ...(take ? { take } : {}) };
 }
 

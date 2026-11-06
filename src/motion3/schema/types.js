@@ -58,6 +58,8 @@ export const SPEC_TYPES = {
 	goals: { type: "array", description: "topic goals" },
 	flow: { oneOf: [{ const: false }, { type: "object" }] },
 	idle: { const: false, description: "held poses do not breathe" },
+	look: { type: "array" },
+	auto: { oneOf: [{ const: false }, { type: "object" }] },
 	fill: { type: "boolean", description: "true: MotionBricks generates the transition between two poses (free spans) in the safe gaps (off by default)" },
 };
 
