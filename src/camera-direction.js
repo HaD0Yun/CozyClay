@@ -43,7 +43,7 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ai
 		const aim = camera.aim ? Array.from({ length }, (_, offset) => railAimPoint(camera.aim, from + offset, aimAt)) : null;
 		const aimed = aim?.every(Boolean) ? aim : null;
 		const track = aimed
-			? buildRailFollowTrack(aimed, fps, rail, { ...params, aimHeight: aimed.reduce((sum, point) => sum + point.y, 0) / length, distanceInfluence: 0, pitchOffsetDeg: 0 })
+			? buildRailFollowTrack(aimed, fps, rail, { ...params, aimPerFrame: true, distanceInfluence: 0, pitchOffsetDeg: 0 })
 			: buildRailFollowTrack(subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1), fps, rail, params);
 		const fovDeg = camera.focalMm ? focalMmToFov(camera.focalMm, filmback.sensorId, filmback.aspectRatio) / DEG : null;
 		track.forEach((sample, offset) => { combined[from + offset] = fovDeg ? { ...sample, fovDeg } : sample; });
