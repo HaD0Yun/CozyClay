@@ -72,3 +72,33 @@ export function supportGaps(ids, state, takes, boxOf) {
   }
   return { supportGapM, unsupportedIds: Object.keys(supportGapM).filter(id => supportGapM[id] > UNSUPPORTED_M) };
 }
+
+// A face lying in the deck plane z-fights with the deck (#1075): a floor slab
+// whose bottom is at y=0 flickers in captures and playback. Placement lifts a
+// solid object standing on the deck by DECK_LIFT_M when its bottom would land
+// within DECK_SNAP_M of the deck, the same 3 mm the agent prompt asks between
+// coplanar faces. Objects stacked on another object are never lifted.
+export const DECK_LIFT_M = 0.003;
+const DECK_SNAP_M = 1e-3;
+
+/**
+ * `entity`, lifted off the deck when it stands on it (`onDeck`: placed in world
+ * space or on floor support, never stacked) and its bottom (bottomOf(entity),
+ * lowest world y) is within DECK_SNAP_M of deckY. Only solid, free-standing
+ * objects: no empty, light, effect, route or attachment. `patch(entity, { y })`
+ * applies the lift; `lifted` (a Set of ids) records whether it happened.
+ */
+export function liftOffDeck(entity, onDeck, bottomOf, deckY, patch, lifted) {
+	const eligible = onDeck && entity.renderer && !entity.attach && !entity.path && !isEmptyObject(entity) && entity.renderer !== EFFECT_KIND;
+	const bottom = eligible ? bottomOf(entity) : NaN;
+	if (!(Math.abs(bottom - deckY) <= DECK_SNAP_M)) { lifted.delete(entity.id); return entity; }
+	lifted.add(entity.id);
+	return patch(entity, { y: entity.y + deckY + DECK_LIFT_M - bottom });
+}
+
+/** The receipt warning for the objects a batch lifted off the deck, or []. */
+export function floorLiftWarnings(ids, nameOf) {
+	if (!ids.length) return [];
+	const who = ids.length === 1 ? nameOf(ids[0]) : `${ids.length} objects`;
+	return [{ code: 'FLOOR_LIFT', ...(ids.length === 1 ? { id: ids[0] } : { count: ids.length }), message: [...`${who} lifted ${DECK_LIFT_M * 1000} mm off the deck so a bottom face does not z-fight with it`].slice(0, 120).join('') }];
+}

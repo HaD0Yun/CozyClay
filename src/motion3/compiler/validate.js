@@ -126,6 +126,23 @@ function validateFlow(flow, err, unknown) {
 	}
 }
 
+/** spec.look [{ f, at }] and spec.auto (compiler/auto.js, #1080 #1081). */
+function validateAuto(spec, err, unknown) {
+	const a = spec.auto;
+	if (a !== undefined && a !== false) {
+		if (!a || typeof a !== "object" || Array.isArray(a)) err(`spec.auto must be false or { knee?, foot?, arms?, look? } (each true or false), got ${fmt(a)}`);
+		else for (const [k, v] of Object.entries(a)) if (!["knee", "foot", "arms", "look"].includes(k)) unknown(`spec.auto has unknown field "${k}" (fields: knee, foot, arms, look)`); else if (typeof v !== "boolean") err(`spec.auto.${k} must be true or false, got ${fmt(v)}`);
+	}
+	if (spec.look === undefined) return;
+	if (!Array.isArray(spec.look)) return err(`spec.look must be [{ f, at }] (or set look in a key), got ${fmt(spec.look)}`);
+	spec.look.forEach((l, i) => {
+		if (!l || typeof l !== "object" || !Number.isInteger(l.f)) return err(`spec.look[${i}] must be { f: frame, at }, got ${fmt(l)}`);
+		const at = l.at, ok = at === null || isVec3(at) || (typeof at === "string" && /^(object|anchor):.+$/.test(at));
+		if (!ok) err(`spec.look[${i}].at must be "object:<id>", "anchor:<name>", [x, y, z] or null, got ${fmt(at)}`);
+		else if (typeof at === "string" && at.startsWith("anchor:") && !spec.anchors?.[at.slice(7)]) err(`spec.look[${i}].at names anchor "${at.slice(7)}", which spec.anchors does not have`);
+	});
+}
+
 export function validateSpec(spec, { sk, scene, lenient = false, problems = [] } = {}) {
 	const errors = [...problems], err = m => { if (errors.length < MAX_FOUND) errors.push(m); }, unknown = lenient ? () => {} : err;
 	if (!spec || typeof spec !== "object") throw new Error("MOTION_SPEC_INVALID: spec must be an object");
@@ -133,6 +150,7 @@ export function validateSpec(spec, { sk, scene, lenient = false, problems = [] }
 	for (const k of Object.keys(spec)) if (!SPEC_FIELDS.includes(k)) unknown(`spec.${k} is not a spec field${didYouMean(k, SPEC_FIELDS)} (fields: ${SPEC_FIELDS.join(", ")})`);
 	if (spec.fps !== undefined && spec.fps !== 24) err(`spec.fps must be 24, the timeline rate, got ${fmt(spec.fps)}`);
 	validateFlow(spec.flow, err, unknown);
+	validateAuto(spec, err, unknown);
 	if (spec.fill !== undefined && typeof spec.fill !== "boolean") err(`spec.fill must be true or false (false: motion.compile does not fill between key poses with MotionBricks), got ${fmt(spec.fill)}`);
 	const frames = spec.frames;
 	if (!Number.isInteger(frames) || frames < 1 || frames > 20000) err(`spec.frames must be an integer 1..20000 or "auto", got ${fmt(frames)}`);

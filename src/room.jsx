@@ -74,6 +74,13 @@ function makeDeckMaterial(light) {
 		color: light ? FLOOR_LIGHT : FLOOR,
 		emissive: light ? FLOOR_LIGHT : "#000000",
 		emissiveIntensity: light ? FLOOR_LIGHT_GLOW : 0,
+		// Push the deck's depth back a hair so an object face lying in its plane
+		// (a floor slab whose bottom is at y=0) wins the depth test instead of
+		// flickering against it (#1075). Depth only: the grid lines and the
+		// shadows the deck receives are untouched.
+		polygonOffset: true,
+		polygonOffsetFactor: 1,
+		polygonOffsetUnits: 1,
 	});
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms.gridInk = { value: new THREE.Vector2(ink.minor, ink.major) };

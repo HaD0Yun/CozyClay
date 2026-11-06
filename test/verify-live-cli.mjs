@@ -12,8 +12,9 @@
 import assert from "node:assert/strict";
 import { readProjectDocument } from "../src/project.js";
 import { serializeSavedProject } from "../mcp/project-camera.mjs";
+import { dispatchLiveFrame } from "../src/live-control.js";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -155,7 +156,9 @@ const connectEditor = async (url, workspaceId, meta, controls = { silent: new Se
 				byteSize: Buffer.from(PNG_BASE64, "base64").byteLength, data: PNG_BASE64,
 				assertions: { renderable: true, blackFrame: false, nonBlackPixels: 1, characters: [] },
 			};
-			case "capture_framing_png": return { dataUrl: `data:image/png;base64,${PNG_BASE64}`, width: 1920, height: 1080, frame: 0, shotId: "shot-1" };
+			// A named frame (#1074) answers that frame unless the fixture plays
+			// an editor from before batch capture, which answers the playhead.
+			case "capture_framing_png": return { dataUrl: `data:image/png;base64,${PNG_BASE64}`, width: 1920, height: 1080, frame: Number.isSafeInteger(payload.frame) && !controls.ignoreFrame ? payload.frame : 0, shotId: "shot-1" };
 			case "verify_result": return {
 				receiptId: args.receiptId ?? null, revision: state.revision,
 				checks: args.targets ? { coverage: "sampled-timeline-subject-bounds-projection", framing: { coverage: "sampled-timeline-subject-bounds-projection", evaluatedFrames: 2, sampledFrames: [0, 11], sampledChecks: [{ frame: 0, screenFraction: 0.4, clipped: false, behindCamera: false, occluded: false }, { frame: 11, screenFraction: 0.1, clipped: true, behindCamera: false, occluded: false }], issueFrames: [{ frame: 11, codes: ["CLIPPED"], screenFraction: 0.1 }] } } : (state.lastReceipt?.checks ?? { coverage: "unavailable" }), verification: null, semanticStatus: "unavailable",
@@ -198,6 +201,10 @@ const connectEditor = async (url, workspaceId, meta, controls = { silent: new Se
 		if (frame.type !== "cmd") return;
 		received.push(frame);
 		if (controls.silent?.has(frame.name)) return;
+		if (controls.hidden && frame.name.startsWith("capture_")) {
+			void dispatchLiveFrame(JSON.stringify(frame), { [frame.name]: () => { throw Object.assign(new Error("Bring the Studio tab to the front or run headless Chrome."), { code: "TAB_HIDDEN" }); } }).then(result => socket.send(JSON.stringify(result)));
+			return;
+		}
 		try {
 			socket.send(JSON.stringify({ type: "result", id: frame.id, ok: true, value: answer(frame) }));
 		} catch (error) {
@@ -386,6 +393,10 @@ try {
 	assert.ok(inspectedByIds.entities.length > 0);
 	assert.deepEqual(alpha.received.at(-1).args.ids, ["cube-1", "char-a"]);
 
+	ok(await run(["inspect", "--scope", "entities", "--limit", "2", "--cursor", "page-token"]));
+	assert.deepEqual(alpha.received.at(-1).args, { scope: "entities", limit: 2, cursor: "page-token" });
+	assert.equal((await run(["inspect", "--scope", "entities", "--limit", "1.5"])).code, 2);
+
 	/* -------------------------------- capture ------------------------------ */
 
 	const framePath = join(scratch, "frame.png");
@@ -403,7 +414,86 @@ try {
 	assert.equal(framingCaptured.height, 1080);
 	assert.equal(framingCaptured.assertions, undefined, "capture_framing_png carries no assertions");
 	assert.ok(readFileSync(framingPath).subarray(0, 8).equals(PNG_MAGIC));
+	alpha.controls.hidden = true;
+	for (const extra of [[], ["--framing"]]) {
+		const before = readFileSync(framePath);
+		const refused = await run(["capture", ...extra, "--out", framePath]);
+		assert.equal(refused.code, 1);
+		assert.equal(only(refused).error.code, "TAB_HIDDEN");
+		assert.match(only(refused).error.message, /front.*headless Chrome/);
+		assert.deepEqual(readFileSync(framePath), before, "refused capture never overwrites the output");
+	}
+	alpha.controls.hidden = false;
 	evidence.capture = { frame: captured, framing: framingCaptured };
+
+	/* ----------------------- batch capture (#1074) ------------------------- */
+
+	const framesDir = join(scratch, "frames");
+	const sentBefore = alpha.received.length;
+	const batch = ok(await run(["capture", "--frames", "10-20", "--step", "5", "--out-dir", framesDir]));
+	const batchFrames = alpha.received.slice(sentBefore);
+	assert.deepEqual(batchFrames.map((frame) => frame.name).filter((name) => name !== "ping"), ["capture_framing_png", "capture_framing_png", "capture_framing_png"],
+		"one session sends one capture per frame and nothing else: no seek, no inspect");
+	assert.deepEqual(batchFrames.filter((frame) => frame.name === "capture_framing_png").map((frame) => frame.args), [{ frame: 10 }, { frame: 15 }, { frame: 20 }]);
+	assert.equal(batch.ok, true);
+	assert.equal(batch.dir, framesDir);
+	assert.equal(batch.frames, 3);
+	assert.deepEqual([batch.first, batch.last, batch.width, batch.height], [10, 20, 1920, 1080]);
+	assert.deepEqual(readdirSync(framesDir).sort(), ["000010.png", "000015.png", "000020.png"], "each file is named for its timeline frame");
+	for (const name of readdirSync(framesDir)) assert.ok(readFileSync(join(framesDir, name)).subarray(0, 8).equals(PNG_MAGIC));
+	assert.equal(batch.bytes, 3 * Buffer.from(PNG_BASE64, "base64").byteLength);
+
+	// A reused --out-dir would hand an earlier run's frames to a glob encode:
+	// refused before any capture, and --force clears only frame files.
+	const sentBeforeReuse = alpha.received.length;
+	const reused = await run(["capture", "--frames", "7", "--out-dir", framesDir]);
+	assert.equal(reused.code, 2, `a folder holding PNGs is refused: ${reused.stdout}`);
+	const reusedBody = only(reused);
+	assert.equal(reusedBody.error.code, "DIR_NOT_EMPTY");
+	assert.match(reusedBody.error.recovery.hint, /empty --out-dir, or --force/);
+	assert.equal(alpha.received.slice(sentBeforeReuse).filter((frame) => frame.name === "capture_framing_png").length, 0, "nothing is captured into a refused folder");
+	assert.deepEqual(readdirSync(framesDir).sort(), ["000010.png", "000015.png", "000020.png"], "a refused run leaves the folder as it was");
+	writeFileSync(join(framesDir, "notes.txt"), "kept");
+	const single = ok(await run(["capture", "--frames", "7", "--out-dir", framesDir, "--framing", "--force"]));
+	assert.deepEqual([single.frames, single.first, single.last], [1, 7, 7], "one frame and an implied --framing are fine");
+	assert.deepEqual(readdirSync(framesDir).sort(), ["000007.png", "notes.txt"], "--force removes the earlier frames and keeps other files");
+	writeFileSync(join(framesDir, "cover.png"), "not a frame");
+	const foreign = await run(["capture", "--frames", "7", "--out-dir", framesDir, "--force"]);
+	assert.equal(foreign.code, 2);
+	assert.equal(only(foreign).error.code, "DIR_NOT_EMPTY");
+	assert.match(only(foreign).error.recovery.hint, /only removes frame files/);
+	assert.deepEqual(only(foreign).error.details.png, ["cover.png"]);
+	assert.deepEqual(readdirSync(framesDir).sort(), ["cover.png", "notes.txt"], "--force removed its own frame file, never the foreign PNG");
+
+	for (const [args, pattern] of [
+		[["capture", "--frames", "0-2"], /needs --out-dir/],
+		[["capture", "--out-dir", framesDir], /go with --frames/],
+		[["capture", "--frames", "5-2", "--out-dir", framesDir], /start <= end/],
+		[["capture", "--frames", "0:2", "--out-dir", framesDir], /start-end/],
+		[["capture", "--frames", "0-2", "--step", "0", "--out-dir", framesDir], /positive/],
+		[["capture", "--frames", "0-99999999", "--out-dir", framesDir], /at most 10000/],
+		[["capture", "--frames", "0-2", "--out-dir", framesDir, "--out", framePath], /not --out/],
+		[["capture", "--out", framePath, "--step", "2"], /go with --frames/],
+		[["capture", "--out", framePath, "--force"], /go with --frames/],
+	]) {
+		const refused = await run(args);
+		assert.equal(refused.code, 2, `${args.join(" ")} is a usage error: ${refused.stdout}`);
+		assert.match(only(refused).error.message, pattern);
+	}
+
+	// An editor that predates #1074 answers the playhead for every frame; the
+	// CLI stops at the first mismatch instead of writing the same picture N times.
+	alpha.controls.ignoreFrame = true;
+	const staleDir = join(scratch, "stale-frames");
+	const staleBatch = await run(["capture", "--frames", "3-5", "--out-dir", staleDir]);
+	alpha.controls.ignoreFrame = false;
+	assert.equal(staleBatch.code, 1, `a stale editor fails the batch: ${staleBatch.stdout}`);
+	const staleBatchBody = only(staleBatch);
+	assert.equal(staleBatchBody.error.code, "EDITOR_ERROR");
+	assert.match(staleBatchBody.error.message, /reload the Studio tab/);
+	assert.deepEqual([staleBatchBody.error.details.frame, staleBatchBody.error.details.written], [3, 0]);
+	assert.deepEqual(readdirSync(staleDir), []);
+	evidence.batchCapture = { batch, single, reused: reusedBody.error, stale: staleBatchBody.error };
 
 	/* ------------------------------- receipts ------------------------------ */
 
@@ -610,6 +700,8 @@ try {
 	assert.match(liveHelp.stdout, /cclay live capture --out/);
 	assert.match(liveHelp.stdout, /cclay live save --out.*\[--force\]/);
 	assert.match(liveHelp.stdout, /omits workspace layout, custom poses/);
+	assert.match(liveHelp.stdout, /cclay live capture --frames 0-242 --out-dir/);
+	assert.match(liveHelp.stdout, /\[--limit n\] \[--cursor c\]/);
 } finally {
 	for (const socket of open) {
 		if (socket.readyState === WebSocket.OPEN) socket.close();
@@ -621,4 +713,4 @@ try {
 }
 
 console.log(JSON.stringify(evidence));
-console.log("PASS verify-live-cli: discovery, workspace selection, receipts, capture PNGs, escape hatches, uncertain reconcile, exit codes 0/1/2/3/4/5/6");
+console.log("PASS verify-live-cli: discovery, workspace selection, receipts, capture PNGs, batch capture, escape hatches, uncertain reconcile, exit codes 0/1/2/3/4/5/6");

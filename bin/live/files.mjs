@@ -3,14 +3,6 @@ import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { ensureMcpRuntime } from "../mcp-runtime.mjs";
 import { LiveCliError } from "./client.mjs";
-import { pngFromCaptureFrame, pngFromDataUrl } from "./studio.mjs";
-
-export async function captureToFile(command, out, framing) {
-	const value = await command(framing ? "capture_framing_png" : "capture_frame", {});
-	const bytes = framing ? pngFromDataUrl(value?.dataUrl) : pngFromCaptureFrame(value);
-	writeFileSync(out, bytes);
-	return { path: out, width: value.width, height: value.height, bytes: bytes.byteLength, ...(!framing ? { assertions: value.assertions } : {}) };
-}
 
 export async function saveToFile(command, out, force) {
 	if (!out.endsWith(".cclayproject")) throw new LiveCliError("USAGE", "--out must end in .cclayproject");

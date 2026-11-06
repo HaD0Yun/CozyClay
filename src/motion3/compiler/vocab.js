@@ -10,13 +10,19 @@ export const NUM_CHANNELS = new Set(["yaw", "pitch", "roll", "spine_yaw", "spine
 export const MAP_CHANNELS = new Set(sided(["fingers"]));
 // Channels the skills key (standIdle, walks): valid in a spec, left out of motion.describe so a first spec need not read them.
 export const SKILL_CHANNELS = new Set(["arm_hang"]);
-export const FINGER_PRESETS = ["relaxed", "fist", "grip", "cigarette", "point", "spherical"];
-/** The grasps an object anchor takes a hand by (../sockets.js), and the finger preset each closes the hand to by default. */
-export const GRASPS = ["power", "pinch", "hook", "palm", "spherical"];
-export const GRASP_FINGERS = { power: "grip", pinch: "cigarette", hook: "grip", palm: "relaxed", spherical: "spherical" };
+export const FINGER_PRESETS = ["relaxed", "fist", "grip", "cigarette", "point", "spherical", "flat", "hook"];
+/** The grasps an object anchor takes a hand by (../sockets.js), and the finger preset each closes the hand to by default.
+ * support: a box held from below at its sides (a carried crate): the palm on a side face low, the fingers round the bottom
+ * edge; the compiler places it from the box's size and the rig's hand (sockets.js supportFace, anchors.js supportAt), no local needed. */
+export const GRASPS = ["power", "pinch", "hook", "palm", "spherical", "support"];
+export const GRASP_FINGERS = { power: "grip", pinch: "cigarette", hook: "grip", palm: "flat", spherical: "spherical", support: "hook" };
+/** The grasps a carry names (objects.<id>.grasp: one hand seats the thing, ../seat.js); support is two hands' on object anchors. */
+export const CARRY_GRASPS = GRASPS.filter(g => g !== "support");
+/** Grasps whose palm presses a face (no axis across it): the palm frame faces the face and the palm point is the palm's own. */
+export const PALM_GRASPS = new Set(["palm", "support"]);
 /** Where the held thing sits in the hand, [d, l, n] on the palm axes from the finger middles (n toward the palm; m): a bar in a
  * power grip or a hook lies across the palm under the finger middles, a pinch is held at the fingertips, a flat palm presses with its centre. */
-export const GRASP_POINTS = { power: [0, 0, 0.02], hook: [0, 0, 0.02], pinch: [0.025, 0, 0.01], palm: [-0.045, 0, 0.015], spherical: [-0.015, 0, 0.035] };
+export const GRASP_POINTS = { power: [0, 0, 0.02], hook: [0, 0, 0.02], pinch: [0.025, 0, 0.01], palm: [-0.045, 0, 0.015], spherical: [-0.015, 0, 0.035], support: [-0.045, 0, 0.015] };
 
 // [min, max, convention] for numeric channels whose values have a hard range.
 const RANGES = [

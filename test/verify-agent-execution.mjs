@@ -11,6 +11,7 @@ import { readStoredTaskMode } from "../src/workflow/task-board.js";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
 import { createCanvasCommands } from "../src/workflow/canvas-commands.js";
 import { noteTurnDraft } from "../src/workflow/agent-turn-telemetry.js";
+import { stagePrompt } from "../src/workflow/prompt-telemetry.js";
 import { sanitizeProps } from "../src/analytics.js";
 import { closePostTurnWindow, noteEditGesture } from "../src/post-turn-edits.js";
 
@@ -98,6 +99,25 @@ for (const [status, failureCode] of [[401, "auth"], [429, "rate_limited"], [503,
 	await transport.turn(request, () => {});
 	assert.deepEqual(names(captured), ["agent:turn_requested", "agent:turn_failed"]);
 	assert.equal(captured[1].props.failure_code, failureCode);
+}
+// #1043: a failed turn names its provider and, for openai-compatible only, the server address's class; never the address.
+for (const [model, endpoint, expected] of [
+	["openai-compatible/qwen", "local", { provider: "openai-compatible", endpoint: "local" }],
+	["openai-compatible/qwen", "http://192.168.0.7:1234/v1", { provider: "openai-compatible", endpoint: "unknown" }],
+	["google/gemini-flash", "hosted", { provider: "google" }],
+]) {
+	for (const status of [503, 200]) {
+		const captured = [];
+		stagePrompt("make the camera orbit", { model, endpoint });
+		const transport = createHttpTransport({ capture: (event, props) => keep(captured, event, props), fetchImpl: async (_url, init) => new Response(status === 200 ? encode(terminal(JSON.parse(init.body).turn_id)) + encode({ type: "done" }) : "private response", { status }) });
+		await transport.turn(request, () => {});
+		const end = captured.find(({ event }) => event.startsWith("agent:turn_") && event !== "agent:turn_requested");
+		const origin = { provider: end.props.provider, endpoint: end.props.endpoint };
+		if (status === 200) assert.deepEqual(origin, { provider: undefined, endpoint: undefined }, `${model}: a succeeded turn carries no origin`);
+		else assert.deepEqual(Object.fromEntries(Object.entries(origin).filter(([, value]) => value !== undefined)), expected, `${model} ${endpoint}`);
+		if (status !== 200) assert.deepEqual(sanitizeProps("agent:turn_failed", end.props), end.props, "the analytics schema keeps every property");
+		assert.ok(!JSON.stringify(captured).includes("192.168"), "never the address");
+	}
 }
 {
 	const captured = [];

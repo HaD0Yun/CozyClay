@@ -8,6 +8,7 @@ import { validateReceipt, validateStudioCommand } from '../src/studio-agent-prot
 import { physicsFingerprintInput } from '../src/studio-agent-context.js';
 import { arrangement, frameDraft, placementChecks, framingChecks, createStudioCommandJournal, studioObjectCatalogue } from '../src/studio-agent-commands.js';
 import { createShot } from '../src/cuts.js';
+import { DECK_LIFT_M } from '../src/studio-support-gap.js';
 
 // These are the shared domain planners now, not the retired agent executor.
 // Receipt/admission/replay/undo remain exercised through the real bus in the
@@ -52,7 +53,7 @@ test('geometry: bases, yaw, anisotropic extents, between and the scaled authored
   for (const [basis, x, yaw] of [['world', -1.25, 90], ['subject', 1.25, -90], ['shot_camera', -1.25, 90]]) {
     const f = fixture(), plan = f.apply('arrange_objects', { ops: [prop(basis)] });
     near(f.state.objects[0].x, x); near(f.state.objects[0].rot, yaw); near(plan.checks.actualGapM, 0.5);
-    assert.deepEqual({ x: f.state.objects[0].x, y: f.state.objects[0].y, z: f.state.objects[0].z }, { x, y: 0, z: 0 });
+    assert.deepEqual({ x: f.state.objects[0].x, y: f.state.objects[0].y, z: f.state.objects[0].z }, { x, y: DECK_LIFT_M, z: 0 });
   }
   for (const yaw of [90, 180]) {
     const f = fixture(); f.state.characters[0].rot = yaw;
@@ -62,7 +63,7 @@ test('geometry: bases, yaw, anisotropic extents, between and the scaled authored
   }
   const f = fixture(); f.apply('arrange_objects', { ops: [{ ...prop('world'), scale: { x: 2, y: 3, z: 4 }, facing: { yawDeg: 90 } }] });
   near(f.state.objects[0].x, -2.75); assert.equal(f.state.objects[0].scaleY, 3);
-  f.apply('arrange_objects', { ops: [{ op: 'create', source: { kind: 'cube' }, position: { onObject: 'cylinder' } }] }); near(f.state.objects[1].y, 3);
+  f.apply('arrange_objects', { ops: [{ op: 'create', source: { kind: 'cube' }, position: { onObject: 'cylinder' } }] }); near(f.state.objects[1].y, DECK_LIFT_M + 3);
   // An authored seat below the record's top (supportY) is what onObject lands on, scaled.
   const seat = fixture(); seat.state.objects.push({ ...createSceneObject('cylinder'), id: 'seat', height: 1.15, supportY: 0.495, scaleY: 3 });
   seat.apply('arrange_objects', { ops: [{ op: 'create', source: { kind: 'cube' }, position: { onObject: 'seat' } }] }); near(seat.state.objects[1].y, 1.485);
@@ -97,8 +98,31 @@ test('geometry: measured overlaps, bounded avoidance, and hidden-parent exclusio
   }
   const h = fixture(); seed(h, { x: -0.685, scaleX: 0.37, scaleZ: 0.4 }); const placed = h.apply('arrange_objects', { ops: [prop('shot_camera')] });
   const { coverage, overlapIds, maximumFootprintOverlapM } = placed.checks;
-  assert.deepEqual(placementChecks(['cylinder'], h.state, h.ports), { coverage, overlapIds, maximumFootprintOverlapM, supportGapM: { cylinder: 0 }, unsupportedIds: [] });
+  assert.deepEqual(placementChecks(['cylinder'], h.state, h.ports), { coverage, overlapIds, maximumFootprintOverlapM, supportGapM: { cylinder: DECK_LIFT_M }, unsupportedIds: [] });
   assert.deepEqual(placementChecks(['alex'], h.state, h.ports), { coverage, overlapIds: [], maximumFootprintOverlapM: 0, supportGapM: {}, unsupportedIds: [] }, 'a character has no support gap');
+});
+test('geometry: a floor-resting object is lifted off the deck plane; stacked and raised ones keep their y (#1075)', () => {
+  const f = fixture(), bottom = o => Math.min(...boxCorners(o).map(p => p.y));
+  const plan = f.apply('arrange_objects', { ops: [
+    { op: 'create', source: { kind: 'cube' }, name: 'Street', scale: { x: 20, y: 0.05, z: 20 }, position: { world: { x: 0, y: 0, z: 0 } } },
+    { op: 'create', source: { kind: 'cube' }, name: 'Near', position: { world: { x: 30, y: 0.0008, z: 0 } } },
+    { op: 'create', source: { kind: 'cube' }, name: 'Raised', position: { world: { x: 33, y: 0.002, z: 0 } } },
+    { op: 'create', source: { kind: 'cube' }, name: 'Crate', position: { world: { x: 36, y: 0, z: 0 } } },
+    { op: 'create', source: { kind: 'cube' }, name: 'Box', scale: { x: 0.5, y: 0.5, z: 0.5 }, position: { onObject: 'Crate' } },
+    { op: 'create', source: { kind: 'cylinder' }, name: 'Side', position: { relativeTo: 'Crate', basis: 'world', side: 'right', gapM: 0.2, support: 'floor' } },
+    { op: 'create', source: { kind: 'cube' }, name: 'Tilted', rotationDeg: { x: 0, y: 0, z: 20 }, position: { relativeTo: 'Crate', basis: 'world', side: 'left', gapM: 0.5, support: 'floor' } },
+    { op: 'create', source: { kind: 'empty' }, name: 'Rig', position: { world: { x: 40, y: 0, z: 0 } } },
+  ] });
+  const by = n => f.state.objects.find(o => o.name === n);
+  for (const name of ['Street', 'Near', 'Crate', 'Side', 'Tilted']) near(bottom(by(name)), DECK_LIFT_M);
+  near(by('Raised').y, 0.002); near(by('Rig').y, 0);
+  near(by('Box').y, by('Crate').y + by('Crate').supportY * by('Crate').scaleY);
+  assert.deepEqual(plan.warnings.filter(w => w.code === 'CLAMPED'), [], 'the lift is not a clamp of y');
+  assert.deepEqual(plan.warnings.filter(w => w.code === 'FLOOR_LIFT').map(w => w.count), [5]);
+  // Moving a lifted object again is idempotent, and one lift names its object.
+  assert.strictEqual(f.prepare('arrange_objects', { ops: [{ op: 'update', id: by('Crate').id, position: { world: { x: 36, y: 0, z: 0 } } }] }).draft, f.state.objects);
+  const one = fixture().apply('arrange_objects', { ops: [{ op: 'create', source: { kind: 'cube' }, name: 'Solo', position: { world: { x: 0, y: 0, z: 0 } } }] });
+  assert.match(one.warnings.find(w => w.code === 'FLOOR_LIFT').message, /^Solo lifted 3 mm off the deck/);
 });
 test('geometry: placement reports how far each object, a group as one unit, stands off its support', () => {
   const f = fixture(), part = (id, parent, patch) => seed(f, { id, parent, ...patch }), small = s => ({ scaleX: s, scaleY: s, scaleZ: s });

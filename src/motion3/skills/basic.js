@@ -1,16 +1,23 @@
 // Basic skills: stand, walk, reach-and-grip. Each reads the channel state the earlier keys
 // leave at its f0 and returns keys plus whatever anchors, props, fits and checks it needs.
-import { add, apply, ry } from "../compiler/math.js";
+import { add, apply, ry, matFromQuat } from "../compiler/math.js";
+import { gapUnder, bottomPoints } from "../sockets.js";
+import { partsOf } from "../object-pose.js";
 import { walk } from "../compiler/walk.js";
 import { keyBook, skillError } from "./book.js";
 import { walkEnd } from "./info.js";
 import { fitTo, walkEndAt, r2, xzText, REACH_TOL } from "./walk-fit.js";
-import { GRASP_FINGERS, GRASP_POINTS } from "../compiler/vocab.js";
+import { GRASP_FINGERS, GRASP_POINTS, PALM_GRASPS } from "../compiler/vocab.js";
+import { palmPoint } from "../compiler/limbs.js";
 import { clearStance, reachStance } from "./stance.js";
 import { CLOSE, GAZE, gazeAt, headKeyed, earlyTransport, holdsOpen, transportKeys } from "./reach-human.js";
 
 /** The fingers' point a reachGrip fits onto its anchor: the finger middles, or where a grasp holds the thing (the palm is -n on the right hand). */
 const graspPoint = (grasp, k) => (GRASP_POINTS[grasp] ? GRASP_POINTS[grasp].map((v, i) => (i === 2 && k === "r" ? -v : v)) : [0, 0, 0]);
+/** Frames after a reachGrip's release within which the spec's own armw key counts as taking the arm again (half a second). */
+const RETAKE = 12;
+/** A support hold's let-go: the share of the release that moves the hand off, and the share the weights stay on through. */
+const LETGO_OFF = 0.5, LETGO_HOLD = 0.5, LETGO_FALL = 1, LETGO_FMIN = 1;
 
 /**
  * standIdle({ at: [x, z], heading = 0, until }): a neutral standing pose, arms down (FK). Without `at` (and no root
@@ -82,6 +89,24 @@ function freeName(props = {}, base, k, mine) {
 	return name;
 }
 
+/**
+ * True when scene body `id` stands on the ground at frame f: nothing under its bottom but the floor (../sockets.js
+ * gapUnder), where its own spec.objects keys put it (linear between them, the last after them) or, unmoved, where the
+ * scene has it. False when it moves some other way (a fall, a hinge, a group's keys): not known here.
+ */
+function onGround(ctx, id, f) {
+	const o = ctx.scene?.objects?.[id], entry = ctx.objects?.[id];
+	if (!o?.half || (o.ancestors ?? []).some(g => ctx.objects?.[g])) return false;
+	const keys = (entry?.keys ?? []).filter(k => Number.isFinite(k?.f) && Array.isArray(k.pos)).sort((x, y) => x.f - y.f);
+	if (entry && (!keys.length || entry.fall !== undefined || Object.keys(entry).some(k => !["keys", "visible", "level"].includes(k)))) return false;
+	let pose = o;
+	if (keys.length) {
+		const k = keys.findLast(x => x.f <= f) ?? keys[0], n = keys.find(x => x.f > f), t = n && n.f > k.f ? Math.max(0, (f - k.f) / (n.f - k.f)) : 0;
+		pose = { pos: k.pos.map((v, i) => v + ((n ?? k).pos[i] - v) * t), R: k.rot ? matFromQuat(k.rot) : o.R };
+	}
+	return gapUnder(ctx.scene, new Set([id, ...partsOf(ctx.scene, id)]), bottomPoints(pose, o.half), ctx.scene.objects).on === null;
+}
+
 /** What a hand on `obj` may touch: the object, or for a group (an Empty, no body of its own) every part under it. */
 const touchable = (scene, obj) => {
 	const objects = scene?.objects ?? {};
@@ -126,10 +151,31 @@ export function reachGrip(ctx) {
 	if (look) b.at(Math.max(1, Math.round(GAZE * reach)), look);
 	b.at(reach, { [w]: 1, [fg]: { ...state[fg], [preset]: 1 }, [armw]: 1, ...(args.elbow ? { [el]: args.elbow } : {}) });
 	b.hold(held, w, fg, armw, el, ...(look ? ["head_yaw", "head_pitch"] : []));
-	if (!cut) b.at(end, { [w]: 0, [fg]: { ...state[fg], [preset]: 0 }, ...(wasFk ? { [armw]: 0 } : {}), ...(head ?? {}) });
+	// an arm the spec's own keys take by IK again just after the release (armw_<k> on within RETAKE frames of its end)
+	// keeps its IK weight through it: dropped to FK at the end and lifted by that key, the A/B T2 recipe's arms fell
+	// 35 cm, rose 33 cm at 3.9 m/s and fell again (2026-11-05)
+	const endF = ctx.f0 + end, retaken = (ctx.keys ?? []).some(key => key.src?.startsWith("keys[") && key.f > endF - release && key.f <= endF + RETAKE && (key.set?.[armw] ?? 0) > 0.5);
+	// a support hold lets go before the arm falls (compiler/anchors.js supportAt): letgo_<anchor>_<k> keyed 0 -> 1 over
+	// LETGO_OFF of the release moves its anchor off the face and off what the box was set on while the weights stay on to
+	// LETGO_HOLD of it, then they fall. A spec that takes the arm again keeps its own return keys (retaken)
+	let letGo = grasp === "support" && !cut && !retaken && !onGround(ctx, target?.object, endF) ? `letgo_${name}_${k}` : null, fin = end;
+	if (letGo) {
+		const off = Math.max(1, Math.round(LETGO_OFF * release)), keep = Math.min(off, Math.round(LETGO_HOLD * release));
+		fin = Math.min(held + keep + Math.max(Math.round(LETGO_FALL * release), LETGO_FMIN), last - ctx.f0);
+		b.at(held, { [letGo]: 0 });
+		b.at(held + Math.min(off, fin - held), { [letGo]: 1 });
+		if (keep > 0 && held + keep < fin) b.hold(held + keep, w, armw);
+	}
+	if (!cut) b.at(fin, { [w]: 0, [fg]: { ...state[fg], [preset]: 0 }, ...(wasFk && !retaken ? { [armw]: 0 } : {}), ...(head ?? {}), ...(letGo ? { [letGo]: 1 } : {}) });
+	// back on the face for the next reach onto it
+	if (letGo && ctx.f0 + fin + 1 <= last) b.at(fin + 1, { [letGo]: 0 });
 	// the fingers' prop is <anchor>Grip, unless the spec (or another skill) has a prop of that name of its own: its points
 	// would replace these (session 7f15b4ae: props.ballGrip for a carry broke reachGrip on anchor "ball")
-	const S = k === "l" ? "Left" : "Right", fingersProp = { hand: k, origin: [`${S}HandIndex2`, `${S}HandMiddle2`], points: { fingers: graspPoint(grasp, k) } };
+	// a grasp that presses a face (palm, support) puts the palm's own point on it, off the knuckles, so a curled finger
+	// preset does not lift the palm off the face (limbs.js palmPoint); every other grasp holds at the finger middles
+	const S = k === "l" ? "Left" : "Right", palm = PALM_GRASPS.has(grasp) && ctx.sk;
+	const fingersProp = palm ? { hand: k, origin: [`${S}HandIndex1`, `${S}HandMiddle1`], points: { fingers: palmPoint(ctx.sk, S, grasp) } }
+		: { hand: k, origin: [`${S}HandIndex2`, `${S}HandMiddle2`], points: { fingers: graspPoint(grasp, k) } };
 	const prop = freeName(ctx.props, `${name}Grip`, k, fingersProp);
 	const def = args.define ? { [name]: args.define } : {};
 	// the hand may touch what it grips: an object, or the other person (people.js) whose joint the anchor is on
@@ -138,7 +184,9 @@ export function reachGrip(ctx) {
 		keys: b.keys, end: cut ? last : ctx.f0 + reach + hold + release, ...(cut ? { cut: `${held < reach + hold ? "hold" : "release"} cut at f${last} (hold to the end)` } : {}), anchors: def,
 		props: { [prop]: fingersProp },
 		fits: [{ side: k, anchor: name, effector: { prop, point: "fingers" }, ...(args.orient === false ? { orient: false } : {}) }],
-		checks: { contacts: [{ name: `fingers on ${name}`, point: `prop:${prop}.fingers`, target: `anchor:${name}`, tol: 0.04, when: w }],
+		// a let-go moves the hand off on purpose with the weight still on: its contact is the hold's frames
+		checks: { contacts: [{ name: `fingers on ${name}`, point: `prop:${prop}.fingers`, target: `anchor:${name}`, tol: 0.04, when: letGo ? [ctx.f0 + reach, ctx.f0 + held] : w }],
 			allow: touchable(ctx.scene, obj).map(object => ({ part: "hand", object, depth: 0.04 })) },
+		...(letGo ? { channels: [letGo] } : {}),
 	};
 }

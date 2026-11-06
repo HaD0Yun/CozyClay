@@ -34,7 +34,9 @@ One process owns the hub; everything else just connects to it:
 
 2. **Open a browser tab** at the Studio URL (`http://127.0.0.1:5209/app/`).
    A headless Chromium with remote debugging is fine — the editor is the page,
-   not the window.
+   not the window. From a source checkout,
+   `node tools/headless-studio.mjs --project shot.cclayproject --live-port 5629`
+   does steps 1 and 2 in one owned process (dev server plus headless Chrome).
 
 3. **Gate on an editor** with `status --wait` (below).
 
@@ -99,7 +101,7 @@ ids and the layout:
 cclay live inspect --scope entities
 ```
 ```json
-{"context":{"schema":"studio-context-v1","host":{…},"revision":{"scene":3,"physics":3,"view":1},"units":{"distance":"m","angle":"deg","up":"+Y","yawZero":"+Z","yawPositiveToward":"+X","fps":24,"rangeEnd":"exclusive"},"scene":{"name":"SCENE 01","aspect":"16:9","floorY":0,"frameCount":432,"objectCount":0,"characterCount":1},"selection":{"kind":"character","id":"char-a","hierarchyId":"characterA"},"activeCharacterId":"char-a","view":{…},"shot":null,"camera":{…},"entities":[{"id":"char-a","kind":"character","token":"target-2","name":"a young woman in a tan coat",…}],"entityPage":{…},"shots":[],…,"recentReceipts":[…],"jobs":[],"capabilities":{…}},"entities":[{"id":"char-a","kind":"character","name":"a young woman in a tan coat","token":"target-2"}],"total":1,"nextCursor":null}
+{"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"entities":[{"id":"char-a","kind":"character","token":"target-2","name":"a young woman in a tan coat"}],"total":1,"nextCursor":null}
 ```
 
 Place a box next to her — `relativeTo` positions it in the subject's own
@@ -192,23 +194,23 @@ full admission envelope — which you build from one `inspect`:
 cclay live inspect --scope shot
 ```
 ```json
-{"context":{"schema":"studio-context-v1","host":{"surface":"studio","workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…","workspaceHandle":"8306b693-…"},"revision":{"scene":5,"physics":4,"view":3},"units":{…},"scene":{"name":"SCENE 01","aspect":"16:9","floorY":0,"frameCount":432,"objectCount":1,"characterCount":1},"selection":{"kind":"character","id":"char-a","hierarchyId":"characterA"},"activeCharacterId":"char-a","view":{…},"shot":{"id":"shot-mu3uybub-3","name":"Shot 1","range":{"startFrame":0,"endFrameExclusive":432},"mode":"keys"},"camera":{…},"entities":[{"id":"char-a","kind":"character","token":"target-2",…},{"id":"cube","kind":"object","token":"target-5",…}],"entityPage":{"returned":2,"total":2,"truncated":false,"nextCursor":null},"shots":[{"id":"shot-mu3uybub-3","name":"Shot 1","range":{"startFrame":0,"endFrameExclusive":432},"keyCount":1}],"shotsTruncated":false,"assets":[],"recentReceipts":[{"id":"receipt-mu3uybub-4","summary":"applied","canUndoDirect":true},{"id":"receipt-mu3uybgp-2","summary":"applied","canUndoDirect":false},…],"jobs":[],"capabilities":{…}},"entities":[{"id":"char-a","kind":"character","name":"a young woman in a tan coat","token":"target-2"},{"id":"cube","kind":"object","name":"Side box","token":"target-5"}],"total":2,"nextCursor":null}
+{"revision":{"scene":5,"physics":4,"view":3},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"shots":[{"id":"shot-mu3uybub-3","name":"Shot 1",…}]},"schema":{"shots":{…}}}
 ```
 
-Build the envelope from that context — the four host identity fields and the
+Build the envelope from that response — the four host identity fields and the
 scene revision you saw. Mint your own `commandId`; the editor journals it,
 which is what makes the command reconcilable later:
 
 ```sh
 cclay live inspect --scope shot > /tmp/329-doc/f-b-inspect.json
 node -e '
-const c = require("/tmp/329-doc/f-b-inspect.json").context;
+const c = require("/tmp/329-doc/f-b-inspect.json");
 const host = (({workspaceId, documentEpoch, sceneId, sceneEpoch}) => ({workspaceId, documentEpoch, sceneId, sceneEpoch}))(c.host);
 const envelope = {
   name: "frame_shot",
   args: {
     subjectIds: ["char-a"],
-    shotId: c.shot.id,
+    shotId: c.document.shots[0].id,
     keyAtFrame: 96,
     framing: { intent: { size: "medium shot", view: "front", level: "eye", side: "left" } },
   },
@@ -335,10 +337,11 @@ case above reconciles `applied` because there the page never reloaded).
 `not_applied` both mean the same next step — a fresh `inspect`, then choose:
 
 ```sh
-cclay live inspect --scope selection
+cclay live inspect --scope scene --ids cube > /tmp/329-doc/f-c-inspect2.json
+cat /tmp/329-doc/f-c-inspect2.json
 ```
 ```json
-{"context":{"schema":"studio-context-v1","host":{…},"revision":{"scene":3,"physics":3,"view":1},"units":{…},"scene":{"name":"SCENE 01","aspect":"16:9","floorY":0,"frameCount":432,"objectCount":1,"characterCount":1},"selection":{…},"activeCharacterId":"char-a","view":{…},"shot":null,"camera":{…},"entities":[{…},{"id":"cube","kind":"object","token":"target-1","name":"Stand-in box",…}],"entityPage":{…},"shots":[],…,"recentReceipts":[…],"jobs":[],"capabilities":{…}},"entities":[{"id":"char-a","kind":"character","name":"a young woman in a tan coat","token":"target-3"},{"id":"cube","kind":"object","name":"Stand-in box","token":"target-1"}],"total":2,"nextCursor":null}
+{"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"objects":[{"id":"cube","name":"Stand-in box",…}]},"schema":{"objects":{…}}}
 ```
 
 The reload reopened the same project and the box is still there, renamed
@@ -350,7 +353,7 @@ answered `noop` — also fine, just nothing to undo):
 
 ```sh
 node -e '
-const c = require("/tmp/329-doc/f-c-inspect2.json").context;
+const c = require("/tmp/329-doc/f-c-inspect2.json");
 const host = (({workspaceId, documentEpoch, sceneId, sceneEpoch}) => ({workspaceId, documentEpoch, sceneId, sceneEpoch}))(c.host);
 const envelope = {
   name: "arrange_objects",
@@ -379,8 +382,9 @@ state, never on a guess about what the dead hub saw.
 | `status [--wait]` | the hub, its editors, and the selected one; `--wait` blocks until a selectable editor connects | no |
 | `save --out file.cclayproject [--force]` | save the open scene document locally; `--force` permits replacing an existing file | no |
 | `describe` | the full live scene document (scenes, objects, characters, camera, timeline) | no |
-| `inspect --scope selection\|scene\|entities\|shot\|motion\|catalogue` `[--ids a,b]` `[--query text]` | the scene context: identity, revisions, entity tokens, shots, receipts — the source for admission envelopes | no |
+| `inspect --scope selection\|scene\|entities\|shot\|motion\|catalogue` `[--ids a,b]` `[--query text]` `[--limit n]` `[--cursor c]` | the scene context: identity, revisions, entity tokens, shots, receipts — the source for admission envelopes | no |
 | `capture --out frame.png [--framing]` | the editor's 640×360 viewport PNG, or with `--framing` the full-resolution shot-camera PNG | no |
+| `capture --frames A-B --out-dir DIR [--step N] [--force]` | every Nth timeline frame from A to B (inclusive; `--frames N` for one) as the full-resolution shot-camera PNG the video export renders, written as `DIR/000000.png` (six-digit frame number) in one session; prints `{ok, dir, frames, first, last, bytes, width, height}` | no |
 | `arrange-objects --op '<json>'` \| `-f ops.json` | create / update / remove / group / ungroup set pieces, up to 100 ops, with relative placement and collision policy | yes |
 | `arrange-characters --op '<json>'` \| `-f ops.json` | create / update / remove cast, up to 8 ops | yes |
 | `patch --target <kind>[:<id>] --set '<json>'` | set declared authored fields by path on one `character` / `object` / `shot` / `stage` target; `inspect --scope catalogue` lists the patchable paths | yes |
@@ -390,6 +394,32 @@ state, never on a guess about what the dead hub saw.
 | `undo --receipt <id>` | restore the document through the editor's native history, one entry | yes |
 | `cmd <name> --args '<json>'` | any live-protocol command, raw (no admission, no auto-receipt) | per command |
 | `tool <name> --args '<json>'` | any registry tool the hub serves, e.g. `describe_shot` | no |
+
+`capture --frames` is the terminal route to a shot video: the confirmed
+`export.shotVideo` still needs its click in the Studio, but the frames are a
+read. The editor poses the cast and parks the shot camera at each frame the
+way the export does, then puts both back, so the playhead never moves and no
+`operate --frame` round trip is needed. The CLI process writes the files; the
+Studio writes nothing. Encode them yourself, at the timeline's fps:
+
+```sh
+cclay live capture --frames 0-242 --out-dir /tmp/shot-frames
+ffmpeg -framerate 24 -start_number 0 -i /tmp/shot-frames/%06d.png -pix_fmt yuv420p shot.mp4
+```
+
+Files keep their timeline frame number, so a range that starts later or skips
+frames with `--step` reads as a glob instead:
+`-pattern_type glob -i '/tmp/shot-frames/*.png'`.
+A glob encode reads every PNG in the folder, so a run refuses an `--out-dir`
+that already holds PNG files (`DIR_NOT_EMPTY`, exit 2) before it captures
+anything. `--force` deletes an earlier run's frame files (`000042.png`) first;
+any other PNG still refuses, and non-PNG files are left alone. One run takes
+at most 10000 frames.
+
+An editor tab from before this verb answers the playhead instead of the frame
+it was asked for; the CLI stops at the first such frame with `EDITOR_ERROR`
+(reload the tab). A failure names `details.frame` and how many files were
+already `written`.
 
 `patch` carries one target kind per command — its commit domain — because one
 receipt is one revision step and one undo entry; a `character` patch and a
@@ -440,6 +470,14 @@ cclay live tool generate_motion --args '{"phases":["A person walks forward."]}'
 Nothing reached the editor. Select a rigged character and the same call goes to
 the editor's own motion readiness checks.
 
+Entity inspection pages default to 12 rows (maximum 32): use `--limit 32` and pass the returned `nextCursor` as `--cursor` until it is null; `total` is the matching entity count. Shot and selection scopes return `scope: "document"`, `document` and `schema`, while entities returns `entities`, `total` and `nextCursor`; all carry top-level `host` and `revision`.
+
+```sh
+cclay live arrange-objects --op '{"op":"create","source":{"kind":"cube"},"position":{"world":{"x":1,"y":0,"z":2}}}'
+```
+
+Other placement forms are `{relativeTo, basis, side, gapM, support}`, `{between, fraction, support}` and `{onObject, offsetXZ?}`.
+
 The op JSON for `arrange-*` is one operation, an array of them, or
 `{"ops":[…], "collisionPolicy":"report"|"avoid"}`. Placement is `world`
 coordinates or `relativeTo` an entity with `basis` (`world` / `subject` /
@@ -487,6 +525,8 @@ so piping through `jq` is always safe.
 | 4 | workspace problem (`NO_EDITOR`, `AMBIGUOUS_WORKSPACE`, `STALE_HANDLE`) | open a tab / name one with `--workspace` |
 | 5 | `TIMEOUT` or `UNCERTAIN_APPLY` | do not retry; reconcile or re-inspect |
 | 6 | `STALE_SCENE`, `STALE_TARGET`, `TARGET_BUSY` | `inspect` again and re-issue |
+
+`TAB_HIDDEN` (exit 1) means capture was refused because the Studio page is hidden: its animation-frame callbacks may not have applied the requested frame or camera. Bring the Studio tab to the front or use headless Chrome (whose pages report visible), then capture again. This applies to both preview and `--framing` captures.
 
 ### The two-editor rule
 

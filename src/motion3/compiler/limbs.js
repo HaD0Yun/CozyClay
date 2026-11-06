@@ -2,7 +2,8 @@
 // Every edit rotates a bone's subtree about that bone's own joint, so the result maps
 // exactly back to local quaternions (skeleton.js toLocal).
 import { add, sub, scale, dot, len, norm, cross, clamp, apply, T, align, axisRot, ry, rx } from "./math.js";
-import { rotateSubtree } from "./skeleton.js";
+import { rotateSubtree, restState } from "./skeleton.js";
+import { GRASP_POINTS } from "./vocab.js";
 
 /** Direction fixed to bone b that points along `restDir` in the rest pose. */
 export const carried = (sk, s, b, restDir) => apply(s.R[b], apply(T(sk.restWorldRot[b]), restDir));
@@ -131,6 +132,51 @@ export function palmAxes(sk, s, side) {
 	return { d, l, n: cross(d, l) };
 }
 
+/**
+ * The palm's own point for a grasp that presses a face (vocab.js PALM_GRASPS): [d, l, n] on the palm axes from the
+ * knuckles of the index and middle fingers, where GRASP_POINTS puts it from the finger middles with the fingers flat on
+ * the rig's rest pose. The finger middles move as the fingers curl: a grip on a palm grasp put the point 2.9 cm toward
+ * the palm and stood the palm 4 cm off the box (A/B T2 run t2h3, 2026-11-04), a fist 3.5 cm; the knuckles stay on the
+ * palm, so the point does too whatever the fingers do. Cached per rig and side.
+ */
+const PALM_POINTS = new WeakMap();
+export function palmPoint(sk, side, grasp) {
+	const key = `${side}:${grasp}`;
+	let m = PALM_POINTS.get(sk);
+	if (!m) PALM_POINTS.set(sk, (m = new Map()));
+	if (!m.has(key)) {
+		const s = restState(sk), P = j => s.P[sk.index[`${side}Hand${j}`]];
+		fingers(sk, s, side, { flat: 1 });
+		const ax = palmAxes(sk, s, side), g = GRASP_POINTS[grasp] ?? [0, 0, 0], n = side === "Right" ? -g[2] : g[2];
+		const p = add(scale(add(P("Index2"), P("Middle2")), 0.5), add(scale(ax.d, g[0]), add(scale(ax.l, g[1]), scale(ax.n, n))));
+		const v = sub(p, scale(add(P("Index1"), P("Middle1")), 0.5));
+		m.set(key, [dot(v, ax.d), dot(v, ax.l), dot(v, ax.n)]);
+	}
+	return m.get(key);
+}
+
+/**
+ * How far the flat fingers reach past a grasp's palm point (palmPoint) along the palm axis d, m: the farthest of the four
+ * fingertips on the rig's rest pose with the fingers flat (finger-close straightens a support hold's hooked fingers off
+ * the box once the palm leaves the bottom edge, compiler/anchors.js supportAt). Cached per rig, side and grasp.
+ */
+const FINGER_REACHES = new WeakMap();
+export function fingerReach(sk, side, grasp, preset = "flat") {
+	const key = `${side}:${grasp}:${preset}`;
+	let m = FINGER_REACHES.get(sk);
+	if (!m) FINGER_REACHES.set(sk, (m = new Map()));
+	if (!m.has(key)) {
+		const s = restState(sk), P = j => s.P[sk.index[`${side}Hand${j}`]], pp = palmPoint(sk, side, grasp);
+		fingers(sk, s, side, { [preset]: 1 });
+		const ax = palmAxes(sk, s, side), knuckles = scale(add(P("Index1"), P("Middle1")), 0.5);
+		const p = add(knuckles, add(scale(ax.d, pp[0]), add(scale(ax.l, pp[1]), scale(ax.n, pp[2]))));
+		// flat: along d (how far the straight fingers run down the face); curled: the whole distance, which way the curl
+		// points depends on the hand's turn (a hook set down with the fingers level points its tips down: 6.4-6.8 cm, T2)
+		m.set(key, Math.max(...["Index", "Middle", "Ring", "Pinky"].map(x => (preset === "flat" ? dot(sub(P(`${x}4`), p), ax.d) : len(sub(P(`${x}4`), p))))));
+	}
+	return m.get(key);
+}
+
 /** Turn the elbow `deg` about the shoulder-wrist line: the hand keeps its place and its world turn. */
 export function swivelElbow(sk, s, side, deg) {
 	const a = sk.index[`${side}Arm`], h = sk.index[`${side}Hand`], R = axisRot(sub(s.P[h], s.P[a]), deg);
@@ -159,14 +205,18 @@ const FINGER_PRESETS = {
 	cigarette: { Index: [8, 10, 6], Middle: [10, 12, 8], Ring: [60, 75, 45], Pinky: [65, 80, 45], Thumb: [35, 25, 20] },
 	point: { Index: [0, 0, 0], Middle: [80, 95, 60], Ring: [85, 95, 60], Pinky: [85, 95, 60], Thumb: [40, 30, 30] },
 	spherical: { Index: [35, 40, 25], Middle: [38, 42, 25], Ring: [40, 42, 25], Pinky: [42, 44, 25], Thumb: [15, 10, 8] },
+	// flat: the fingers lie on the face a palm presses (relaxed curls them 3 cm into it); hook: knuckles straight, the
+	// fingers bent at the middle joints round an edge or a handle (a box carried by its bottom edges, a bucket)
+	flat: { Index: [3, 4, 2], Middle: [3, 4, 2], Ring: [3, 4, 2], Pinky: [3, 4, 2], Thumb: [55, 3, 2] },
+	hook: { Index: [5, 85, 25], Middle: [5, 88, 25], Ring: [5, 88, 25], Pinky: [5, 85, 25], Thumb: [55, 5, 3] },
 };
 // A ball's fingers fan out round it (#816): each finger turns about the palm normal at its knuckle, degrees toward the
 // thumb side (+), by preset weight; the index leads the thumb round one side, the little finger the other.
-const SPREAD = { spherical: { Index: 9, Middle: 2, Ring: -5, Pinky: -12 } };
+export const SPREAD = { spherical: { Index: 9, Middle: 2, Ring: -5, Pinky: -12 } };
 
 // Two presets keyed at 1 together (a reach's grip over a held fist) would add their curls: 137 deg at the PIP. Past a
 // sum of 1 the weights share it, so a blend never curls further than its strongest preset.
-function shares(weights) {
+export function shares(weights) {
 	const sum = Object.entries(weights ?? {}).reduce((acc, [p, w]) => acc + (p === "relaxed" ? 0 : w || 0), 0);
 	return sum > 1 ? Object.fromEntries(Object.entries(weights).map(([p, w]) => [p, p === "relaxed" ? w : (w || 0) / sum])) : weights;
 }
@@ -203,7 +253,7 @@ export function fingers(sk, s, side, given) {
 // palm and across it, then flexed at its two joints about their own axes (bone x palm normal). The fist's thumb lies over
 // the index and middle fingers' middle phalanges; the grip's closes around a handle against the index finger. Searched on
 // both rigs within the joints' ranges (thumb tip to the index's middle phalanx: fist 8.4 -> 3.7 cm Y Bot, 6.9 -> 2.4 X Bot).
-const THUMB_WRAP = { fist: [-70, -5, 5, 80], grip: [-30, -30, 30, 10], spherical: [-40, -20, 20, 10] };
+export const THUMB_WRAP = { fist: [-70, -5, 5, 80], grip: [-30, -30, 30, 10], spherical: [-40, -20, 20, 10] };
 function wrapThumb(sk, s, side, [oppose, across, flex2, flex3]) {
 	const sign = side === "Left" ? -1 : 1, J = k => sk.index[`${side}HandThumb${k}`];
 	if (J(1) === undefined) return;

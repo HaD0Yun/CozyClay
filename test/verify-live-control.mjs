@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { captureFrameAt, refuseHiddenCapture } from "../src/live-capture-guard.js";
 import {
 	createLiveControl,
 	dispatchLiveFrame,
@@ -438,6 +439,29 @@ assert.equal(LIVE_WORKSPACE_ID_KEY, "cozyclay:live-workspace-id");
 	relabeled.setMeta({ project: "Example project", scene: "Scene 1" });
 	assert.deepEqual(sent.shift(), { type: "meta", meta: { project: "Example project", scene: "Scene 1" } });
 	relabeled.close();
+}
+
+{
+	// A live capture from a hidden tab is refused with a stable code; a visible page (or headless Chrome, which reports visible) passes.
+	assert.doesNotThrow(() => refuseHiddenCapture({ visibilityState: "visible" }));
+	assert.doesNotThrow(() => refuseHiddenCapture(undefined));
+	assert.throws(() => refuseHiddenCapture({ visibilityState: "hidden" }), (error) => error.code === "TAB_HIDDEN" && /front.*headless Chrome/.test(error.message));
+	const frame = JSON.stringify({ type: "cmd", id: "c1", name: "capture_framing_png", args: {} });
+	const result = await dispatchLiveFrame(frame, { capture_framing_png: () => refuseHiddenCapture({ visibilityState: "hidden" }) });
+	assert.equal(result.ok, false);
+	assert.equal(result.error.code, "TAB_HIDDEN", "the code survives the editor transport");
+}
+
+{
+	// #1074: a named frame renders through the export path and never seeks.
+	const asked = [];
+	const live = { timeline: { frameCount: 48 }, partColours: null,
+		captureShotFrame: (frame) => { asked.push(frame); return { dataUrl: frame === 47 ? null : "data:image/png;base64,AA==", width: 1920, height: 1080, shotId: "shot-1" }; },
+		captureShotMeta: (frame) => ({ frame }) };
+	assert.deepEqual(captureFrameAt(live, 12), { dataUrl: "data:image/png;base64,AA==", width: 1920, height: 1080, shotId: "shot-1", frame: 12, partColours: null, meta: { frame: 12 } });
+	for (const frame of [-1, 48, 1.5, "3"]) assert.throws(() => captureFrameAt(live, frame), /outside the timeline \(0-47\)/);
+	assert.throws(() => captureFrameAt(live, 47), /shot renderer is not ready/);
+	assert.deepEqual(asked, [12, 47], "an out-of-range frame never reaches the renderer");
 }
 
 console.log("all live control checks PASS");

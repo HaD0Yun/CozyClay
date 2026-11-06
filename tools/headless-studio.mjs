@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnOwned, terminateOwned } from "./process-supervisor.mjs";
-import { openStudioProject, startChrome, waitFor } from "./gt-render/browser.mjs";
+import { openStudioProject, startChrome, waitFor } from "./headless-chrome.mjs";
 import { readProjectDocument } from "../src/project.js";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -71,7 +71,7 @@ try {
 	children.push(dev);
 	await waitFor("Studio server", async () => (await fetch(`http://127.0.0.1:${studioPort}/app/`)).ok, { child: dev });
 	cdp = await startChrome({ port: cdpPort, children, cleanups });
-	await openStudioProject(cdp, `http://127.0.0.1:${studioPort}/app/`, parsed.project);
+	await openStudioProject(cdp, `http://127.0.0.1:${studioPort}/app/`, parsed.project, { raw: projectRaw });
 	console.log(JSON.stringify({ ok: true, studio: `http://127.0.0.1:${studioPort}/app/`, livePort, cdpPort, project: parsed.project.name, warnings: parsed.warnings }, null, 2));
 	await new Promise((resolve) => {
 		const done = () => resolve();

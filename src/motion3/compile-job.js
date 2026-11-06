@@ -7,6 +7,7 @@
 // A refusal is an Error with a code (INVALID_ARGUMENT, MOTION_SPEC_INVALID turned into it), which the
 // client turns back into the Studio's protocol error.
 import { compileSpec, liftRequest } from "./pipeline.js";
+import { autoSpec, authoredOf } from "./auto-spec.js";
 import { prepareSpec } from "./correct.js";
 import { repairSpec } from "./repair.js";
 import { thinSpec } from "./thin.js";
@@ -14,6 +15,7 @@ import { checkHints } from "./hint-check.js";
 import { bakeTake } from "./take.js";
 import { skeletonFor } from "./rigs/index.js";
 import { keptPeople } from "./people.js";
+import { installVerdict } from "./install-verdict.js";
 
 const TIMELINE_FPS = 24, HINT_LIMIT_MS = 20000;
 const refuse = (code, message) => { throw Object.assign(new Error(message), { code }); };
@@ -37,15 +39,20 @@ const fresh = value => (Array.isArray(value) ? value.map(fresh) : value && typeo
 	? Object.fromEntries(Object.keys(value).map(k => [k, fresh(value[k])])) : value);
 
 /**
- * runCompileJob({ model, scene, spec, probes?, checks?, lenient?, repair?, installing?, thin?, protect?, bake? }) -> { stored, qa,
+ * runCompileJob({ model, scene, spec, probes?, checks?, lenient?, repair?, installing?, ifCleanOver?, thin?, protect?, bake? }) -> { stored, qa,
  * observations, used, fixed, search, timeline, probes?, notes?, ms (+ repair: its wall ms), frameCount, label, repair?, thinned?, take? }
  * installing: the compile installs (motion3.js), so it thins its keys (thin.js) unless thin is false; protect: frames never thinned.
+ * ifCleanOver: install "ifClean": the installed take's { groups } (null when none is on); a repaired result that would not go on
+ * over it (install-verdict.js) is not thinned: its keys stay as repaired, and output.thinned is absent.
  * bake: { position, yaw, prompt? } bakes the final result's take (prompt: given, else the final spec's label).
  * hintLimitMs: the job's time after which hint patches are no longer compiled (default HINT_LIMIT_MS; tests pass 0).
  * thinLimitMs: the thinning's own time limit (default thin.js LIMIT_MS; tests pass more, so a loaded machine thins the same keys).
  */
-export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, checks, lenient, repair, installing, thin, protect, bake, hintLimitMs, thinLimitMs }) {
+export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, checks, lenient, repair, installing, ifCleanOver, thin, protect, bake, hintLimitMs, thinLimitMs }) {
 	const sk = skeletonFor(model);
+	// what the agent wrote (#1083), then the spec with what it left to the compiler filled in (auto-spec.js): repair and thinning patch that one
+	const authored = authoredOf(asked);
+	asked = autoSpec(asked, sk);
 	const opts = { ...(checks ? { checks } : {}), ...(lenient ? { lenient: true } : {}) };
 	// spec.probes and bare moved ids are lifted before fps is filled in, so the specId stays the spec's own
 	const once = s => {
@@ -63,7 +70,9 @@ export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, c
 	// repair.ms: the repair's own wall time (before thinning)
 	const repairMs = repair ? Math.round(performance.now() - t0) : 0;
 	// key thinning (thin.js): an installing compile drops the free-span keys QA does not miss; thin: false opts out
-	const thinned = installing && thin !== false && !lenient ? thinSpec(repaired.spec, repaired.result, measured, { protect: protect ?? [], ...(thinLimitMs === undefined ? {} : { limitMs: thinLimitMs }) }) : null;
+	// install "ifClean" over a take this one does not beat: it is not installed, so it is not thinned either
+	const staysOff = ifCleanOver !== undefined && !installVerdict(ifCleanOver, repaired.result.qa).wanted;
+	const thinned = installing && thin !== false && !lenient && !staysOff ? thinSpec(repaired.spec, repaired.result, measured, { protect: protect ?? [], ...(thinLimitMs === undefined ? {} : { limitMs: thinLimitMs }) }) : null;
 	const fixed = thinned ? { ...repaired, spec: thinned.spec, result: thinned.result } : repaired;
 	// a hint's patch is offered only when its compile helped (hint-check.js), and only by a compile that repairs: repair has
 	// compiled most of the patches already (seen), where a plain compile paid two more compiles for them (bench replay: first
@@ -81,7 +90,7 @@ export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, c
 	const people = take && keptPeople(scene, [r.expanded, r.stored], r.out);
 	if (people) take.people = people;
 	return { stored: r.stored, qa: r.qa, observations: r.observations, used: r.used, fixed: r.fixed, search: r.search, timeline: r.timeline,
-		...(r.probes ? { probes: r.probes } : {}), ...(r.notes || corrected.length ? { notes: [...corrected, ...(r.notes ?? [])] } : {}), ms, frameCount: r.out.frameCount, label,
+		...(r.probes ? { probes: r.probes } : {}), ...(r.notes || corrected.length ? { notes: [...corrected, ...(r.notes ?? [])] } : {}), ms, frameCount: r.out.frameCount, label, authored,
 		...(fixed.repair ? { repair: { ...fixed.repair, ms: repairMs } } : {}), ...(thinned ? { thinned: thinned.thinned } : {}), ...(take ? { take } : {}) };
 }
 

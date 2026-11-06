@@ -2,7 +2,7 @@ import { appVersion } from "./app-version.js";
 import { FIRST_EDIT_KINDS, FIRST_EDIT_VERSION } from "./semantic-edit.js";
 import { ERROR_TYPE_VALUES, EXPORT_FAILURE_CODES, UI_LOCALE_VALUES, exportPropAllowed, uiLocale } from "./analytics-values.js";
 import { bump as bumpFriction, observeLongTasks, snapshot as frictionSnapshot } from "./analytics-friction.js";
-import { STRICT_EVENT_KEYS, strictPropValidator } from "./analytics-strict.js";
+import { STRICT_EVENT_KEYS, strictPropValidator, turnOriginAllowed } from "./analytics-strict.js";
 export const MCP_TOOL_CATEGORIES = Object.freeze(["read", "camera", "scene_write", "prompt_authoring", "frame_capture", "motion_generate", "motion_apply", "project_io", "other"]);
 // The live MCP tools (mcp/tool-handlers.mjs liveWorkspaceTools) plus "other".
 // Any other name is sent as "other"; test/verify-analytics.mjs holds the two lists equal.
@@ -48,7 +48,7 @@ export const EXECUTION_TELEMETRY_PROPERTY_KEYS = Object.freeze({
 	"agent:turn_requested": ["surface", "turn_id"],
 	"agent:tool_executed": ["turn_id", "tool_category", "outcome", "duration_bucket"],
 	"agent:turn_succeeded": ["turn_id", "duration_bucket"],
-	"agent:turn_failed": ["turn_id", "duration_bucket", "failure_code"],
+	"agent:turn_failed": ["turn_id", "duration_bucket", "failure_code", "provider", "endpoint"],
 	"agent:turn_cancelled": ["turn_id", "duration_bucket", "failure_code"],
 	"agent:result_applied": ["turn_id"],
 	"mcp:tool_requested": ["tool_category", "tool_name", "request_id"],
@@ -287,10 +287,8 @@ export function sanitizeProps(event, props) {
 			} else if (key === "outcome") {
 				const outcomes = event === "mcp:tool_executed" ? ["succeeded", "failed", "uncertain", "cancelled"] : ["succeeded", "failed", "cancelled"];
 				if (!outcomes.includes(props[key])) continue;
-			} else if (key === "failure_code") {
-				const channel = event.startsWith("agent:") ? "agent" : "workflow";
-				if (!EXECUTION_FAILURE_CODES[channel].has(props[key])) continue;
-			}
+			} else if (key === "failure_code" && !EXECUTION_FAILURE_CODES[event.startsWith("agent:") ? "agent" : "workflow"].has(props[key])) continue;
+			else if ((key === "provider" || key === "endpoint") && !turnOriginAllowed(key, props[key])) continue;
 		}
 		if (event === "app:error") {
 			if (key === "error_file") {

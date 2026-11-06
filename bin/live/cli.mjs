@@ -9,10 +9,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
+import { captureVerb } from "./capture.mjs";
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
-import { admissionEnvelope, describeEditors, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
-
-import { captureToFile, saveToFile } from "./files.mjs";
+import { saveToFile } from "./files.mjs";
+import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
 
@@ -22,8 +22,9 @@ const USAGE = `cclay live - drive a running CozyClay studio from a terminal
                                          writes locally; omits workspace layout, custom poses,
                                          workflow and embedded assets absent from describe
   cclay live inspect --scope selection|scene|entities|shot|motion|catalogue
-                                         [--ids a,b] [--query text]
+                                         [--ids a,b] [--query text] [--limit n] [--cursor c]
   cclay live capture --out frame.png [--framing]
+  cclay live capture --frames 0-242 --out-dir frames/ [--step N] [--force]
   cclay live arrange-objects --op '<json>' | -f ops.json
   cclay live arrange-characters --op '<json>' | -f ops.json
   cclay live patch --target <kind>[:<id>] --set '<json>'
@@ -61,8 +62,8 @@ const VERBS = new Map([
 	["status", { flags: ["--wait"] }],
 	["describe", { flags: [] }],
 	["save", { flags: ["--out", "--force"] }],
-	["inspect", { flags: ["--scope", "--ids", "--query"] }],
-	["capture", { flags: ["--out", "--framing"] }],
+	["inspect", { flags: ["--scope", "--ids", "--query", "--limit", "--cursor"] }],
+	["capture", { flags: ["--out", "--framing", "--frames", "--out-dir", "--step", "--force"] }],
 	["arrange-objects", { flags: ["--op", "-f", "--file"], command: "arrange_objects" }],
 	["arrange-characters", { flags: ["--op", "-f", "--file"], command: "arrange_characters" }],
 	["patch", { flags: ["--target", "--set"], command: "patch_elements" }],
@@ -91,7 +92,7 @@ const RECOVERY = {
 	USAGE: { action: "none", hint: "run `cclay live --help`" },
 };
 const EXIT_CODES = new Map([
-	["USAGE", 2],
+	["USAGE", 2], ["DIR_NOT_EMPTY", 2],
 	["NO_SERVER", 3],
 	["NO_EDITOR", 4], ["AMBIGUOUS_WORKSPACE", 4], ["STALE_HANDLE", 4],
 	["TIMEOUT", 5], ["UNCERTAIN_APPLY", 5],
@@ -399,13 +400,11 @@ async function runVerb({ client, verb, spec, name, flags }) {
 
 	if (verb === "inspect") {
 		const args = { scope: required(flags, "--scope", verb) };
-		if (flags.has("--ids")) args.ids = commaList(flags.get("--ids"));
-		if (flags.has("--query")) args.query = String(flags.get("--query"));
-		return command("inspect_studio", args);
+		return command("inspect_studio", { ...args, ...inspectArguments(flags, integerFlag) });
 	}
 
 	if (verb === "save") return saveToFile(command, resolvePath(required(flags, "--out", verb)), flags.get("--force") === true);
-	if (verb === "capture") return captureToFile(command, resolvePath(required(flags, "--out", verb)), flags.get("--framing") === true);
+	if (verb === "capture") return captureVerb(flags, { command, progress, usage: (message) => new UsageError(message) });
 
 	if (verb === "arrange-objects" || verb === "arrange-characters") return admitted(spec.command, operationArguments(flags, verb));
 
