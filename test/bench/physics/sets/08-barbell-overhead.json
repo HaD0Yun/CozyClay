@@ -1,0 +1,92 @@
+{
+	"version": 0,
+	"id": "08-barbell-overhead",
+	"task": 8,
+	"title": {
+		"ko": "바벨 오버헤드",
+		"en": "Barbell overhead"
+	},
+	"request": {
+		"ko": "바닥의 60kg 바벨을 머리 위로 번쩍 들어 1초 버티고 다시 내려놔",
+		"en": "Lift the 60 kg barbell from the floor over your head, hold it for 1 second, then put it back down."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "barbell",
+			"name": "Barbell",
+			"shape": "group",
+			"center": [
+				0,
+				0.225,
+				0.35
+			],
+			"mass": 60
+		},
+		{
+			"id": "barbell-bar",
+			"name": "Barbell bar",
+			"shape": "cylinder",
+			"axis": "x",
+			"center": [
+				0,
+				0.225,
+				0.35
+			],
+			"size": [
+				2,
+				0.028,
+				0.028
+			],
+			"parent": "barbell",
+			"color": "#9e9e9e"
+		},
+		{
+			"id": "barbell-plate-l",
+			"name": "Barbell plate left",
+			"shape": "cylinder",
+			"axis": "x",
+			"center": [
+				0.8,
+				0.225,
+				0.35
+			],
+			"size": [
+				0.06,
+				0.45,
+				0.45
+			],
+			"parent": "barbell",
+			"color": "#263238"
+		},
+		{
+			"id": "barbell-plate-r",
+			"name": "Barbell plate right",
+			"shape": "cylinder",
+			"axis": "x",
+			"center": [
+				-0.8,
+				0.225,
+				0.35
+			],
+			"size": [
+				0.06,
+				0.45,
+				0.45
+			],
+			"parent": "barbell",
+			"color": "#263238"
+		}
+	]
+}

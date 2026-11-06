@@ -1,0 +1,26 @@
+{
+	"version": 0,
+	"id": "03-forward-rolls",
+	"task": 3,
+	"title": {
+		"ko": "앞구르기 두 번",
+		"en": "Two forward rolls"
+	},
+	"request": {
+		"ko": "앞구르기 두 번 하고 일어서줘",
+		"en": "Do two forward rolls, then stand up."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": []
+}
