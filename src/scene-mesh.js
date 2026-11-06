@@ -112,7 +112,6 @@ export function parseGlbBounds(bytes) {
 }
 
 const COMPRESSED_GLB_EXTENSIONS = new Set(["KHR_draco_mesh_compression", "EXT_meshopt_compression"]);
-const COMPRESSED_GLB_MESSAGE = "That model is compressed — export it uncompressed (no Draco / meshopt)";
 
 function glbExtensionNames(json) {
 	const names = new Set();
@@ -131,13 +130,12 @@ function glbExtensionNames(json) {
 	return names;
 }
 
-/** Draco / meshopt need a decoder we do not ship. Callers show this sentence
- * as a toast so the file is refused instead of standing up as a grey box. */
+/** Refuse compression that our three.js loader cannot decode. */
 export function compressedGlbReason(bytes) {
 	const json = glbJson(bytes);
 	if (!json) return null;
 	for (const name of glbExtensionNames(json)) {
-		if (COMPRESSED_GLB_EXTENSIONS.has(name)) return COMPRESSED_GLB_MESSAGE;
+		if (!COMPRESSED_GLB_EXTENSIONS.has(name) && /compression|basisu/i.test(name)) return `That model uses unsupported compression — export it uncompressed (${name})`;
 	}
 	return null;
 }

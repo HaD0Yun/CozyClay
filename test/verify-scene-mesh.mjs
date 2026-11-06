@@ -240,17 +240,17 @@ const dracoJson = {
 	meshes: [{ primitives: [{ attributes: { POSITION: 0 }, extensions: { KHR_draco_mesh_compression: { bufferView: 0 } } }] }],
 };
 const dracoBytes = glbFromJson(dracoJson);
-expect("Draco is named as compressed, not as unreadable geometry", /compress/i.test(compressedGlbReason(dracoBytes) ?? ""));
-await refuses(
-	"a Draco GLB is refused with a compression toast, not stood up as a grey box",
-	glbFile(dracoBytes, "draco-cube.glb", "model/gltf-binary"),
-	/compress/i,
-);
+expect("Draco is supported by the mesh loader", compressedGlbReason(dracoBytes) === null);
+const dracoImported = await importMeshFile(glbFile(dracoBytes, "draco-cube.glb", "model/gltf-binary"));
+expect("Draco import retains bytes and measures the declared POSITION box", dracoImported.height === 1 && dracoImported.asset.bytes.byteLength === dracoBytes.byteLength);
 const meshoptBytes = glbFromJson({ ...measurableGlbJson, extensionsRequired: ["EXT_meshopt_compression"] });
+const meshoptImported = await importMeshFile(glbFile(meshoptBytes, "meshopt-cube.glb", "model/gltf-binary"));
+expect("meshopt import retains bytes and measures the declared POSITION box", meshoptImported.height === 1 && meshoptImported.asset.bytes.byteLength === meshoptBytes.byteLength);
+const unsupportedBytes = glbFromJson({ ...measurableGlbJson, extensionsRequired: ["KHR_texture_basisu"] });
 await refuses(
-	"meshopt is refused the same way",
-	glbFile(meshoptBytes, "meshopt-cube.glb", "model/gltf-binary"),
-	/compress/i,
+	"compression without a configured decoder is still refused",
+	glbFile(unsupportedBytes, "basis.glb", "model/gltf-binary"),
+	/unsupported compression.*KHR_texture_basisu/i,
 );
 expect("an ordinary cube is not compressed", compressedGlbReason(unitBytes) === null);
 expect("OBJ bytes are not a compressed GLB", compressedGlbReason(unitObjBytes) === null);
