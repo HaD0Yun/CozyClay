@@ -504,7 +504,7 @@ export function buildRailFollowTrack(subject, fps, rail, params = {}) {
 		}
 		const rp = railPoint(rail, s);
 		const pos = { x: rp.x, y: py, z: rp.z };
-		const { yaw, pitch } = aimAngles(pos, { x: ax, y: p.aimHeight, z: az });
+		const { yaw, pitch } = aimAngles(pos, { x: ax, y: p.aimPerFrame ? (subject[f].y ?? p.aimHeight) : p.aimHeight, z: az });
 		track.push({ pos, yaw, pitch: offsetPitch(pitch, p.pitchOffsetDeg), s });
 	}
 	return track;
