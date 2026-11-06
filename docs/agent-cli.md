@@ -553,6 +553,10 @@ Metres (`x` right, `z` toward the default camera, `y` up), degrees of yaw,
 frames at 24 fps, frame ranges end-exclusive. Ids are the ids the scene
 document uses — take them from `inspect`, never from memory.
 
+A `shot.set` camera key's `framing` mixes units: `yaw` and `pitch` are
+**radians** (yaw 0 looks down -Z, positive turns left; pitch 0 is level,
+positive looks up), while `fovDeg` is degrees.
+
 ## Models and providers
 
 The other prompt surface, the Agent panel (Studio and Workflow), runs on the
