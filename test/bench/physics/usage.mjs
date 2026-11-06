@@ -35,6 +35,26 @@ function unionMs(spans) {
 	return total;
 }
 
+const header = (r, name) => Number(r.response_headers?.[name]?.[0]);
+
+/** The subscription's 7-day utilization the proxy last reported in [from, to], or null. */
+function last7d(dir, from, to) {
+	let u = null;
+	for (const r of records(dir, from, to)) { const t = Date.parse(r.timestamp), v = header(r, "Anthropic-Ratelimit-Unified-7d-Utilization"); if (t >= from && t <= to && Number.isFinite(v)) u = v; }
+	return u;
+}
+
+/** True when a request from this machine was refused for the rate limit in the last `ms` (429 or status rejected). */
+export function rateLimited(ms = 15 * 60_000, dir = join(homedir(), "cliproxy-usage")) {
+	const to = Date.now(), from = to - ms;
+	for (const r of records(dir, from, to)) {
+		const t = Date.parse(r.timestamp);
+		if (t < from || !LOCAL.has(r.client_ip)) continue;
+		if (r.fail?.status_code === 429 || r.response_headers?.["Anthropic-Ratelimit-Unified-Status"]?.[0] === "rejected") return true;
+	}
+	return false;
+}
+
 /** Tokens, price and model time of `tool`'s requests that ended in [from, to] (ms epoch). */
 export function usageOf(tool, from, to, dir = join(homedir(), "cliproxy-usage")) {
 	const t = { requests: 0, failed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, modelMs: 0, modelBusyMs: 0 };
@@ -55,6 +75,7 @@ export function usageOf(tool, from, to, dir = join(homedir(), "cliproxy-usage"))
 		spans.push([end - (r.latency_ms ?? 0), end]);
 	}
 	t.modelBusyMs = unionMs(spans);
+	t.utilization7d = last7d(dir, from, to);
 	const usd = (t.input * PRICE.input + t.output * PRICE.output + t.cacheRead * PRICE.cacheRead + t.cacheWrite5m * PRICE.cacheWrite5m + t.cacheWrite1h * PRICE.cacheWrite1h) / 1e6;
 	return { ...t, usd: Math.round(usd * 1e4) / 1e4, krw: Math.round(usd * PRICE.krwPerUsd), price: PRICE };
 }

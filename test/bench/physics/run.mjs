@@ -18,7 +18,7 @@ import { takeFromDoc } from "./export-cozyclay.mjs";
 import { loadSets, requestText } from "./sets.mjs";
 import { laneEnv, startStudio, underBrowser } from "./studio.mjs";
 import { landmarksAt, readTake, writeTake } from "./take.mjs";
-import { usageOf } from "./usage.mjs";
+import { rateLimited, usageOf } from "./usage.mjs";
 
 const HERE = new URL(".", import.meta.url).pathname, REPO = join(HERE, "../../..");
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : d; };
@@ -59,7 +59,12 @@ async function cozyclayRun(set, dir, request) {
 		spec = doc.scenes?.scenes?.find(s => s.id === doc.scenes.activeSceneId)?.stage?.characters?.find(c => c.id === "char-a")?.motionTake?.spec ?? null;
 	}
 	const files = (drive.sessionIds ?? []).map(id => join(dir, "sessions", `${id}.jsonl`));
-	return { ...out, stats: cozyclayLog(files, spec), version: { cozyclay: sh("git", ["-C", REPO, "rev-parse", "--short=8", "HEAD"]) } };
+	// the Studio Agent's own limit on one dispatched task (bin/agent/studio-tasks.mjs TASK_LIMITS.maxMs), recorded
+	// because the bench may run with it raised to the bench limit (docs/qa/physics-bench.md)
+	const taskMax = /maxMs:\s*([\d\s*_]+?)\s*,/.exec(readFileSync(join(REPO, "bin/agent/studio-tasks.mjs"), "utf8"))?.[1];
+	const version = { cozyclay: sh("git", ["-C", REPO, "rev-parse", "--short=8", "HEAD"]), taskMaxMin: taskMax ? Function(`return (${taskMax.replace(/_/g, "")}) / 60000`)() : null,
+		patched: sh("git", ["-C", REPO, "status", "--porcelain", "--", "bin", "src", "mcp"]) || null };
+	return { ...out, stats: cozyclayLog(files, spec), version };
 }
 
 async function blenderRun(set, dir, request) {
@@ -74,6 +79,11 @@ async function blenderRun(set, dir, request) {
 async function job(set, tool, run) {
 	const id = `${set.id}-${tool}-r${run}${PROBE ? `-probe-${PROBE}` : ""}`, dir = join(OUT, id);
 	if (existsSync(join(dir, "row.json"))) { log(id, "done before, skipped"); return; }
+	for (let waited = 0; rateLimited(); waited++) {
+		if (waited >= 48) { log(id, "rate limited for 12 h, stopping"); process.exit(3); }
+		log(id, "the proxy refused a request for the rate limit in the last 15 min, waiting 15 min");
+		await new Promise(r => setTimeout(r, 15 * 60_000));
+	}
 	mkdirSync(dir, { recursive: true });
 	log(id, "start");
 	const request = PROBE ? PROBES[tool] : requestText(set, tool);
@@ -92,7 +102,7 @@ async function job(set, tool, run) {
 		startedAt: res.sentAt ? new Date(res.sentAt).toISOString() : null, ending, wallMs: ending === "timeout" ? LIMIT * 60_000 : wallMs,
 		modelMs: usage?.modelMs ?? null, modelBusyMs: usage?.modelBusyMs ?? null, toolMs: wallMs && usage ? wallMs - usage.modelBusyMs : null,
 		tokens: usage && { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite5m: usage.cacheWrite5m, cacheWrite1h: usage.cacheWrite1h },
-		modelRequests: usage?.requests ?? null, failedRequests: usage?.failed ?? null, usd: usage?.usd ?? null, krw: usage?.krw ?? null, priceDate: usage?.price.date ?? null,
+		modelRequests: usage?.requests ?? null, failedRequests: usage?.failed ?? null, utilization7d: usage?.utilization7d ?? null, usd: usage?.usd ?? null, krw: usage?.krw ?? null, priceDate: usage?.price.date ?? null,
 		modelCalls: stats.modelCalls ?? null, toolCalls: stats.toolCalls ?? null, failedCalls: stats.failedCalls ?? null, retries: stats.retries ?? null,
 		resultChecks: stats.resultChecks ?? null, byTool: stats.byTool ?? null, banned: stats.banned ?? [], frames: take?.frames ?? null, travelM: Math.round(moved * 1000) / 1000,
 		take: take ? join(dir, "take.json") : null, error: res.error ?? res.exportError ?? res.saveError ?? null, reply: res.reply ? String(res.reply).slice(0, 600) : null,
