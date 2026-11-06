@@ -5,9 +5,7 @@
 // the current scene (as motion.qa measures an installed take) and its groups are kept in the store under its specId.
 import { specIdOf } from "../motion3/spec-store.js";
 import { qaProblems } from "../qa-label.js";
-
-const issues = groups => groups.reduce((n, g) => n + (g.count ?? 1), 0);
-const UNMEASURED = "the installed take's QA could not be measured (it carries no spec, or its spec no longer compiles), so install: \"ifClean\" installed this take";
+import { installVerdict } from "../motion3/install-verdict.js";
 
 /**
  * createInstalledQa({ store, owner, compile }) -> { measure, verdict, worse }
@@ -32,12 +30,7 @@ export function createInstalledQa({ store, owner, compile }) {
 			return lost();
 		}
 	};
-	const verdict = (on, qa) => {
-		if (qa.ok || !on) return { wanted: true };
-		if (!on.groups) return { wanted: true, note: UNMEASURED };
-		const was = on.groups;
-		return { wanted: qa.groups.length < was.length || (qa.groups.length === was.length && issues(qa.groups) < issues(was)) };
-	};
+	const verdict = installVerdict;
 	const worse = (on, qa) => {
 		if (!on?.groups) return null;
 		const before = qaProblems({ groups: on.groups, ok: on.groups.length === 0 }), now = qaProblems(qa);
