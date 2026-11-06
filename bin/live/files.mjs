@@ -1,8 +1,36 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { ensureMcpRuntime } from "../mcp-runtime.mjs";
 import { LiveCliError } from "./client.mjs";
+
+/** `--op` for one operation or a list of them, `-f` for a file holding either;
+ * `{ "ops": [...] }` additionally carries collisionPolicy. */
+export function operationArguments(flags, verb, UsageError) {
+	const file = flags.get("-f") ?? flags.get("--file");
+	const hasFile = file !== undefined;
+	const hasInline = flags.has("--op");
+	if (hasFile === hasInline) throw new UsageError(`${verb} needs exactly one of --op '<json>' or -f ops.json`);
+	let raw;
+	if (hasFile) {
+		try {
+			raw = readFileSync(String(file), "utf8");
+		} catch (error) {
+			throw new UsageError(`could not read ${file}: ${error.message}`);
+		}
+	} else {
+		raw = String(flags.get("--op"));
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (error) {
+		throw new UsageError(`${hasFile ? String(file) : "--op"} is not valid JSON: ${error.message}`);
+	}
+	if (Array.isArray(parsed)) return { ops: parsed };
+	if (parsed !== null && typeof parsed === "object") return Array.isArray(parsed.ops) ? parsed : { ops: [parsed] };
+	throw new UsageError(`${verb} expects one operation object, an array of them, or { "ops": [ … ] }`);
+}
 
 export async function saveToFile(command, out, force) {
 	if (!out.endsWith(".cclayproject")) throw new LiveCliError("USAGE", "--out must end in .cclayproject");
