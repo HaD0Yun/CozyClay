@@ -62,7 +62,7 @@ export async function connectPage(cdpPort = Number(process.env.CDP_PORT)) {
 	throw new Error(`no page on CDP ${cdpPort}`);
 }
 
-async function waitFor(ev, expr, ms) {
+export async function waitFor(ev, expr, ms) {
 	for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(500)) if (await ev(expr).catch(() => false)) return true;
 	return false;
 }
