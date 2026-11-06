@@ -220,7 +220,7 @@ import { buildShotPrompt } from "./shot-prompt.js";
 import { buildKeyframePack, keyframePackEntries, keyframePackName, slugifyTitle } from "./keyframe-pack.js";
 import { buildZip } from "./zip-store.js";
 import { composeStoryboard } from "./storyboard.js";
-import { DEPTH_RANGE_M, depthRangeFromFrames, passFileName, renderPass } from "./render-passes.js";
+import { DEPTH_RANGE_M, depthRangeFromFrames, depthRangeFromPixels, passFileName, renderPass } from "./render-passes.js";
 
 import { serializeOtio } from "./otio.js";
 import "./shell/mode.css";
@@ -3092,13 +3092,7 @@ export default function App() {
 					job.controller.signal.throwIfAborted();
 					const depth = withExportFrame(frame, () => renderPass(job.capture, job.capture.scene, shotCamRef.current, "depth"));
 					if (!depth) throw Object.assign(new Error("Depth capture failed"), { exportFailureCode: "render_failed" });
-					let minGrey = 255;
-					let maxGrey = 0;
-					for (let index = 0; index < depth.length; index += 256) {
-						minGrey = Math.min(minGrey, depth[index]);
-						maxGrey = Math.max(maxGrey, depth[index]);
-					}
-					samples.push({ min: DEPTH_RANGE_M * (1 - maxGrey / 255), max: DEPTH_RANGE_M * (1 - minGrey / 255) });
+					samples.push(depthRangeFromPixels(depth, shotCamRef.current.near, DEPTH_RANGE_M));
 					updateExportStatus(job, "preparing", { stage: "depth", completedFrames: frame - startFrame + 1,
 						frameCount: endFrame - startFrame + 1, cancellable: true });
 					await exportBoundary(job);

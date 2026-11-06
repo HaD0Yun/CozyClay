@@ -22,6 +22,24 @@ export const PASS_KINDS = Object.freeze(["depth", "normal"]);
 // under it spread across the full range instead of collapsing to black.
 export const DEPTH_RANGE_M = 40;
 
+/** Decode the sampled extrema of one depth pre-pass. */
+export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M) {
+	let minGrey = 255;
+	let maxGrey = 0;
+	for (let index = 0; index < depth.length; index += 256) {
+		minGrey = Math.min(minGrey, depth[index]);
+		maxGrey = Math.max(maxGrey, depth[index]);
+	}
+	// CaptureRig reads an sRGB target, not the shader's linear grey. Include
+	// the half-byte rounding interval so quantisation cannot clip a surface.
+	const distance = grey => {
+		const encoded = Math.max(0, Math.min(255, grey)) / 255;
+		const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
+		return near + (far - near) * (1 - linear);
+	};
+	return { min: distance(maxGrey + 0.5), max: distance(minGrey - 0.5) };
+}
+
 /** Return the shot-wide near/far range from per-frame extrema. */
 export function depthRangeFromFrames(frames, fallbackNear = 0.1, fallbackFar = DEPTH_RANGE_M) {
 	let near = Infinity;
