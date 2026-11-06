@@ -37,6 +37,9 @@ export function depthRangeFromPixels(depth, near = 0.1, far = DEPTH_RANGE_M) {
 		const linear = new THREE.Color().setRGB(encoded, encoded, encoded, THREE.SRGBColorSpace).r;
 		return near + (far - near) * (1 - linear);
 	};
+	// An all-black sample hit no surface (only sky, or geometry between the samples): it bounds no near distance, so a
+	// shot of such frames keeps depthRangeFromFrames' fallback range instead of a near plane at the far end.
+	if (maxGrey === 0) return { min: NaN, max: far };
 	return { min: distance(maxGrey + 0.5), max: distance(minGrey - 0.5) };
 }
 

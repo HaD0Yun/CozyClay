@@ -23,6 +23,8 @@ assert.ok(greys[0] > 20 && greys[1] > 0 && greys[0] > greys[1], "covered frames 
 pixels[256] = 0;
 const sky = depthRangeFromFrames([depthRangeFromPixels(pixels)]);
 assert.equal(sky.far, 40, "empty background still selects the fixed far distance");
+const unsampled = depthRangeFromFrames([depthRangeFromPixels(new Uint8Array(4096))], 0.25);
+assert.deepEqual(unsampled, { near: 0.25, far: 40 }, "a shot whose samples hit no surface keeps the fallback range, not a near plane at the far end");
 assert.equal(sky.near, covered.near, "sky does not change the sampled subject's near distance");
 console.log("PASS covered depth video decodes sRGB samples and sky retains the 40 m far distance");
 console.log("PASS depth video addresses an inclusive shot range and uses blocking-depth semantics");
