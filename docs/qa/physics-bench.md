@@ -2,7 +2,7 @@
 
 `test/bench/physics/` compares CozyClay and Blender on ten hard physical motions built from scratch in an empty scene: muscle-up, handstand, two forward rolls, army crawl, wall climb, a trip while running, a backward fall off a roof, a barbell overhead, a rooftop gap jump and pushing a heavy crate. The same model and effort run on both sides. CozyClay runs through its Studio Agent panel. Blender runs through Claude Code (`claude -p`) with the official Blender Lab MCP server 1.0.3. Each run is measured on completion, time, cost, wasted effort and stability, and a human judges the results blind.
 
-It uses a real model, a live Studio and a local Blender, so it is not part of the default `node tools/run-tests.mjs` manifest. This page covers the parts that exist so far: the sets, the two scene builders, the shared result file, and the run harness.
+It uses a real model, a live Studio and a local Blender, so it is not part of the default `node tools/run-tests.mjs` manifest. This page covers the parts that exist so far: the sets, the two scene builders, the shared result file, the run harness, and the rendering, blind judging and result tables.
 
 ## Sets
 
@@ -125,3 +125,28 @@ Tokens, price and model time come from the CLIProxyAPI usage log for both tools 
 | `gave_up` | Otherwise: no take, or no motion |
 
 `--probe banned` sends a short request that uses a banned tool instead of the task: a flip skill take, and `bpy.ops.import_anim.bvh`. Its rows carry `probe` and are not counted. Measured on 2026-11-07: both probes ended `disqualified` (CozyClay `skill flip` in a run_action call and in the installed take, 54 s, $0.69; Blender `bvh import`, 6 s, $0.07).
+
+## Rendering, blind judging and the result tables
+
+```sh
+node test/bench/physics/render.mjs --sets 10 [--runs-dir ~/physics-bench/runs] [--force]
+node test/bench/physics/judge/server.mjs [--port 8790] [--host 127.0.0.1]
+node test/bench/physics/judge/tables.mjs [--out results.md]
+```
+
+`render.mjs` renders every counted take of a task with `blender/render.py`. It keys the take onto the set's .blend, gives every body the same grey material, and adds one sun and a grey world. It renders EEVEE at 960x540, 24 fps, at real speed, from two fixed cameras: a side view from the character's left and a front 3/4 view. Both cameras frame the union of every take of the task (both tools, all runs) and the set's objects, so the framing gives no hint of the tool. Each run gets `side.mp4` and `front.mp4`.
+
+The judging page pairs run n of a task in both tools. Which tool sits left is drawn once per pair and kept in `<runs>/judge-pairs.json`. The page and the video URLs carry only the pair id and left/right. The four videos of a pair play together, and the choices are left, right, about the same and both unusable (keys 1 to 4). Verdicts go to `<runs>/judge-verdicts.json`. A run without videos shows as "no result".
+
+`tables.mjs` writes the plan 4.3 tables from `physics-bench.jsonl` and the verdicts, with no combined score:
+
+| Column | Per task | Winner |
+| --- | --- | --- |
+| Completion | Runs finished | More |
+| Speed | Median time, where an unfinished run counts as 60 min | Shorter, a tie within 10% |
+| Cost | Median USD | Cheaper, a tie within 10% |
+| Wasted effort | Median failed calls | Fewer |
+| Stability | Max − min time | Less, a tie within 10% |
+| Quality (human) | Picks from the blind pairs | More picks |
+
+The judging server listens on 127.0.0.1. To judge from another machine, forward the port (`ssh -L 8790:127.0.0.1:8790 box`) and open `http://127.0.0.1:8790/`. Measured on the bench box for task 10: rendering both views took 83 s for a 293-frame take and 29 s for a 100-frame take.
