@@ -6,17 +6,21 @@
  * command needs, forward JSON, and print exactly one JSON object. Progress
  * goes to stderr, so `cclay live … | jq` never sees anything but the result.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
 import { captureVerb } from "./capture.mjs";
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
+import { operationArguments, saveToFile } from "./files.mjs";
 import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
 
   cclay live status [--wait]             the hub, its editors, and the selected one
   cclay live describe                    read the live scene document
+  cclay live save --out file.cclayproject [--force]
+                                         writes locally; omits workspace layout, custom poses,
+                                         workflow and embedded assets absent from describe
   cclay live inspect --scope selection|scene|entities|shot|motion|catalogue
                                          [--ids a,b] [--query text] [--limit n] [--cursor c]
   cclay live capture --out frame.png [--framing]
@@ -57,6 +61,7 @@ const GLOBAL_FLAGS = ["--workspace", "--timeout", "--pretty", "--live-port"];
 const VERBS = new Map([
 	["status", { flags: ["--wait"] }],
 	["describe", { flags: [] }],
+	["save", { flags: ["--out", "--force"] }],
 	["inspect", { flags: ["--scope", "--ids", "--query", "--limit", "--cursor"] }],
 	["capture", { flags: ["--out", "--framing", "--frames", "--out-dir", "--step", "--force"] }],
 	["arrange-objects", { flags: ["--op", "-f", "--file"], command: "arrange_objects" }],
@@ -222,34 +227,6 @@ function livePortFlag(flags) {
 	return resolveLivePort(port);
 }
 
-/** `--op` for one operation or a list of them, `-f` for a file holding either;
- * `{ "ops": [...] }` additionally carries collisionPolicy. */
-function operationArguments(flags, verb) {
-	const file = flags.get("-f") ?? flags.get("--file");
-	const hasFile = file !== undefined;
-	const hasInline = flags.has("--op");
-	if (hasFile === hasInline) throw new UsageError(`${verb} needs exactly one of --op '<json>' or -f ops.json`);
-	let raw;
-	if (hasFile) {
-		try {
-			raw = readFileSync(String(file), "utf8");
-		} catch (error) {
-			throw new UsageError(`could not read ${file}: ${error.message}`);
-		}
-	} else {
-		raw = String(flags.get("--op"));
-	}
-	let parsed;
-	try {
-		parsed = JSON.parse(raw);
-	} catch (error) {
-		throw new UsageError(`${hasFile ? String(file) : "--op"} is not valid JSON: ${error.message}`);
-	}
-	if (Array.isArray(parsed)) return { ops: parsed };
-	if (parsed !== null && typeof parsed === "object") return Array.isArray(parsed.ops) ? parsed : { ops: [parsed] };
-	throw new UsageError(`${verb} expects one operation object, an array of them, or { "ops": [ … ] }`);
-}
-
 /** `--target kind[:id]` names one entity, `--set '<json>'` carries declared
  * element paths. One patch is one target kind, so one commit domain. */
 function patchArguments(flags, verb) {
@@ -398,9 +375,10 @@ async function runVerb({ client, verb, spec, name, flags }) {
 		return command("inspect_studio", { ...args, ...inspectArguments(flags, integerFlag) });
 	}
 
+	if (verb === "save") return saveToFile(command, resolvePath(required(flags, "--out", verb)), flags.get("--force") === true);
 	if (verb === "capture") return captureVerb(flags, { command, progress, usage: (message) => new UsageError(message) });
 
-	if (verb === "arrange-objects" || verb === "arrange-characters") return admitted(spec.command, operationArguments(flags, verb));
+	if (verb === "arrange-objects" || verb === "arrange-characters") return admitted(spec.command, operationArguments(flags, verb, UsageError));
 
 	if (verb === "patch") return admitted(spec.command, patchArguments(flags, verb));
 

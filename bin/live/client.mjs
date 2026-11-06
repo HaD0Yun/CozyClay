@@ -4,8 +4,8 @@
  * Discovery is the endpoint file the hub owner publishes; admission is the
  * token inside that mode-0600 file, which only a local process can read. The
  * transport is the global WebSocket Node ships from 22.13, so `cclay live`
- * adds no dependency, and nothing under bin/live/ imports src/ — the package
- * this CLI ships in carries bin/ and dist/, not the studio sources.
+ * adds no transport dependency. Project saves load scene-model dependencies
+ * from the existing staged MCP runtime in installed packages.
  */
 import { randomUUID } from "node:crypto";
 

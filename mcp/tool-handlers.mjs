@@ -70,9 +70,9 @@ import {
 	updateSceneObject,
 } from "../src/scene-objects.js";
 import { classifyMove, captureFraming, moveSlate } from "../src/camera-move.js";
-import { DEFAULT_PREVIS_MODE, PREVIS_MODES, createProjectDocument, readProjectDocument } from "../src/project.js";
+import { DEFAULT_PREVIS_MODE, PREVIS_MODES, readProjectDocument } from "../src/project.js";
 import { kindRefusal } from "../src/character-kind.js";
-import { documentWithCamera, splitSavedCamera } from "./project-camera.mjs";
+import { splitSavedCamera, serializeSavedProject } from "./project-camera.mjs";
 
 /** The authoring state. One scene document, one camera, one project name. */
 export const state = {
@@ -1750,10 +1750,8 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				} catch (error) {
 					return text(`Could not write project: ${error.message}`);
 				}
-				const project = createProjectDocument({
-					scenesDocument: documentWithCamera(state.doc, state.camera),
-					workspaceLayout: null,
-					customPoses: [],
+				const project = serializeSavedProject({
+					document: state.doc, camera: state.camera,
 					name: state.name,
 				});
 				try {
@@ -1777,7 +1775,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					);
 					try {
 						await requirePrivateProjectInode(file);
-						await file.writeFile(JSON.stringify(project, null, "\t"), "utf8");
+						await file.writeFile(project, "utf8");
 					} finally {
 						await file.close();
 					}
