@@ -38,6 +38,8 @@ assert.equal(depthRig.seen.length, 1, "the depth pass renders exactly once");
 assert.ok(depthRig.seen[0] instanceof THREE.ShaderMaterial, "the depth pass overrides with the depth-to-grey shader");
 assert.equal(depthRig.seen[0].uniforms.uNear.value, 0.25, "the ramp starts at the shot camera's near plane");
 assert.equal(depthRig.seen[0].uniforms.uRange.value, DEPTH_RANGE_M, "the ramp spans the stage's working depth");
+for (const chunk of ["common", "skinning_pars_vertex", "skinbase_vertex", "begin_vertex", "skinning_vertex"]) assert.ok(depthRig.seen[0].vertexShader.includes(`#include <${chunk}>`));
+assert.match(depthRig.seen[0].vertexShader, /vec4\(transformed, 1\.0\)/);
 assert.equal(depthRig.seen[0].fog, false, "the stage fog does not tint the depth plate");
 assert.match(depthRig.seen[0].fragmentShader, /1\.0 - normalized/, "near reads white, far reads black");
 assert.equal(scene.overrideMaterial, null, "the depth override is taken back off the scene");
