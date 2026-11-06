@@ -34,7 +34,7 @@ const IDENTITY = { workspaceId: "cli-tab", documentEpoch: "doc-1", sceneId: "sce
 const EDITOR_COMMANDS = [
 	"describe", "inspect_studio", "operate_studio", "arrange_objects", "arrange_characters", "patch_elements", "frame_shot",
 	"verify_result", "undo_edit", "resolve_studio_image", "reconcile_studio_command",
-	"capture_frame", "capture_framing_png", "place_object",
+	"capture_frame", "capture_framing_png", "place_object", "run_action",
 ];
 
 const evidence = {};
@@ -125,6 +125,7 @@ const connectEditor = async (url, workspaceId, meta, controls = { silent: new Se
 			case "inspect_studio": return { revision: context().revision, host: context().host, entities: entities(), total: 2, nextCursor: null };
 			case "arrange_objects":
 			case "arrange_characters":
+			case "run_action":
 			case "frame_shot": {
 				if (controls.failWith) return failureReceipt(payload.commandId, controls.failWith);
 				state.lastReceipt = appliedReceipt(payload.commandId, ["cube-1"]);
@@ -236,8 +237,9 @@ const childEnvironment = (extra = {}) => {
 	return environment;
 };
 
-const start = (args, extra = {}) => {
-	const child = spawn(process.execPath, [launcher, "live", ...args], { env: childEnvironment(extra), stdio: ["ignore", "pipe", "pipe"] });
+const start = (args, extra = {}, input) => {
+	const child = spawn(process.execPath, [launcher, "live", ...args], { env: childEnvironment(extra), stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
+	if (input !== undefined) child.stdin.end(input);
 	let stdout = "";
 	let stderr = "";
 	const watchers = new Set();
@@ -267,7 +269,7 @@ const start = (args, extra = {}) => {
 	};
 };
 
-const run = (args, extra = {}) => withTimeout(start(args, extra).done, `cclay live ${args.join(" ")}`, 30_000);
+const run = (args, extra = {}, input) => withTimeout(start(args, extra, input).done, `cclay live ${args.join(" ")}`, 30_000);
 
 /** stdout is exactly one JSON object, always. */
 const only = (result) => {
@@ -587,6 +589,31 @@ try {
 
 	const tooled = ok(await run(["tool", "describe_shot", "--args", "{}"]));
 	assert.match(tooled.content[0].text, /Shot for cli-tab/);
+
+	const argsFile = join(scratch, "args.json");
+	const largeArgs = { kind: "cube", source: "x".repeat(1_200_000) };
+	writeFileSync(argsFile, JSON.stringify(largeArgs));
+	for (const [verb, name] of [["run", "asset.import"], ["cmd", "place_object"], ["tool", "describe_shot"]]) {
+		const fromFile = ok(await run([verb, name, "--args-file", argsFile]));
+		assert.deepEqual(verb === "tool" ? fromFile.args : (verb === "run" ? alpha.received.at(-1).args.args.args : alpha.received.at(-1).args), largeArgs);
+		const stdinArgs = { kind: "cube", note: "from stdin" };
+		const fromStdin = ok(await run([verb, name, "--args", "-"], {}, JSON.stringify(stdinArgs)));
+		assert.deepEqual(verb === "tool" ? fromStdin.args : (verb === "run" ? alpha.received.at(-1).args.args.args : alpha.received.at(-1).args), stdinArgs);
+		const before = alpha.received.length;
+		for (const flags of [
+			["--args", "{}", "--args-file", argsFile],
+			["--args-file", join(scratch, "missing.json")],
+			["--args", "-"],
+		]) {
+			const refused = await run([verb, name, ...flags], {}, "[]");
+			assert.equal(refused.code, 2, refused.stdout);
+			assert.equal(only(refused).error.code, "USAGE");
+		}
+		assert.equal(alpha.received.length, before, "invalid args are refused before connecting");
+	}
+	writeFileSync(argsFile, "{broken");
+	assert.match(only(await run(["cmd", "place_object", "--args-file", argsFile])).error.message, /not valid JSON/);
+	evidence.argumentInputs = { verbs: ["run", "cmd", "tool"], fileBytes: JSON.stringify(largeArgs).length, stdin: true, usageExit: 2 };
 
 	const pretty = await run(["describe", "--pretty"]);
 	assert.equal(pretty.code, 0);

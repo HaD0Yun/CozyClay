@@ -11,7 +11,7 @@ import { resolve as resolvePath } from "node:path";
 
 import { captureVerb } from "./capture.mjs";
 import { connectController, discoverEndpoint, LiveCliError, resolveLivePort } from "./client.mjs";
-import { operationArguments, saveToFile } from "./files.mjs";
+import { commandArguments, jsonFlag, operationArguments, saveToFile, UsageError } from "./files.mjs";
 import { admissionEnvelope, describeEditors, inspectArguments, numberedPath, pngFromDataUrl, selectWorkspace } from "./studio.mjs";
 
 const USAGE = `cclay live - drive a running CozyClay studio from a terminal
@@ -40,10 +40,14 @@ const USAGE = `cclay live - drive a running CozyClay studio from a terminal
                                          [--visual frame|contact_sheet|plan|trace [--frames even|beats] --out check.png]
   cclay live undo --receipt <id>
   cclay live commands [--ids a,b]        the commands the editor registers; ids add schemas
-  cclay live run <id> [--args '<json>']  any command the editor registers, admitted like
+  cclay live run <id> [--args '<json>' | --args-file args.json]
+                                         any command the editor registers, admitted like
                                          the agent's run_action; waits its declared timeout
-  cclay live cmd <name> --args '<json>'   any live-protocol command
-  cclay live tool <name> --args '<json>'  any registry tool, e.g. describe_shot
+  cclay live cmd <name> [--args '<json>' | --args-file args.json]
+                                         any live-protocol command
+  cclay live tool <name> [--args '<json>' | --args-file args.json]
+                                         any registry tool, e.g. describe_shot
+  Use --args - to read a JSON object from stdin; omit both flags for {}.
 
 Global flags: --workspace <handle|project>  --timeout <ms>  --pretty  --live-port <port>
 
@@ -53,8 +57,6 @@ from the endpoint file its owner published; COZYCLAY_LIVE_TOKEN overrides it.
 Units are metres, degrees and +Y up; ids are the ids the editor uses.
 Exit codes: 0 ok - 1 editor or receipt error - 2 usage - 3 no hub -
 4 workspace - 5 timeout or uncertain apply - 6 stale scene or busy target.`;
-
-class UsageError extends Error {}
 
 const BOOLEAN_FLAGS = new Set(["--force", "--pretty", "--wait", "--framing", "--play", "--pause", "--strict"]);
 const GLOBAL_FLAGS = ["--workspace", "--timeout", "--pretty", "--live-port"];
@@ -72,9 +74,9 @@ const VERBS = new Map([
 	["verify", { flags: ["--receipt", "--targets", "--checks", "--range", "--strict", "--visual", "--frames", "--out"] }],
 	["undo", { flags: ["--receipt"] }],
 	["commands", { flags: ["--ids"] }],
-	["run", { flags: ["--args"], argument: "command id" }],
-	["cmd", { flags: ["--args"], argument: "command name" }],
-	["tool", { flags: ["--args"], argument: "tool name" }],
+	["run", { flags: ["--args", "--args-file"], argument: "command id" }],
+	["cmd", { flags: ["--args", "--args-file"], argument: "command name" }],
+	["tool", { flags: ["--args", "--args-file"], argument: "tool name" }],
 ]);
 
 /** One action and one sentence per stable code: a terminal that fails should
@@ -202,17 +204,6 @@ const frameRangeFlag = (flags, key) => {
 	if (!Number.isSafeInteger(startFrame) || !Number.isSafeInteger(endFrameExclusive) || endFrameExclusive <= startFrame) throw new UsageError(`${key} must have a nonempty start:end range`);
 	return { startFrame, endFrameExclusive };
 };
-const jsonFlag = (flags, key) => {
-	let parsed;
-	try {
-		parsed = JSON.parse(String(flags.get(key)));
-	} catch (error) {
-		throw new UsageError(`${key} is not valid JSON: ${error.message}`);
-	}
-	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new UsageError(`${key} must be a JSON object`);
-	return parsed;
-};
-
 function timeoutFlag(flags) {
 	if (!flags.has("--timeout")) return undefined;
 	const value = integerFlag(flags, "--timeout");
@@ -284,7 +275,7 @@ function operateArguments(flags) {
 	return args;
 }
 
-async function runVerb({ client, verb, spec, name, flags }) {
+async function runVerb({ client, verb, spec, name, flags, args }) {
 	const timeoutMs = timeoutFlag(flags);
 	const forwarded = timeoutMs === undefined ? {} : { timeoutMs };
 	let handle = null;
@@ -422,7 +413,6 @@ async function runVerb({ client, verb, spec, name, flags }) {
 	}
 
 	if (verb === "run") {
-		const args = flags.has("--args") ? jsonFlag(flags, "--args") : {};
 		// The editor declares the command: one read gives the context to admit
 		// at and the deadline it needs, which --timeout overrides.
 		const inspected = await command("inspect_studio", { scope: "actions", ids: [name] });
@@ -430,10 +420,9 @@ async function runVerb({ client, verb, spec, name, flags }) {
 		return admitted("run_action", { action: name, args }, { context: inspected, options: deadline === undefined ? {} : { timeoutMs: deadline } });
 	}
 
-	if (verb === "cmd") return raw(() => command(name, flags.has("--args") ? jsonFlag(flags, "--args") : {}));
+	if (verb === "cmd") return raw(() => command(name, args));
 
 	if (verb === "tool") {
-		const args = flags.has("--args") ? jsonFlag(flags, "--args") : {};
 		return raw(async () => unwrap(await client.request({ type: "tool", name, args, workspaceHandle: await workspace() })));
 	}
 
@@ -448,6 +437,7 @@ export async function runLiveCli(argv) {
 	let invocation;
 	try {
 		invocation = parseInvocation(argv);
+		if (invocation.spec.argument) invocation.args = commandArguments(invocation.flags);
 	} catch (error) {
 		await write(process.stderr, `${USAGE}\n`);
 		await emit(usageFailure(error.message), false);

@@ -65,6 +65,22 @@ restarts, and it is what `--workspace` takes. Note the exit code —
 
 ## The loop
 
+`run`, `cmd`, and `tool` accept an optional JSON object through exactly one
+input flag: `--args '<json>'`, `--args-file <path>`, or `--args -` to read
+stdin. Omitting both flags sends `{}`. Giving `--args` and `--args-file`
+together, unreadable input, malformed JSON, and non-object JSON exit with
+usage code 2.
+
+Use a file or stdin for large payloads such as GLB data URLs: base64 expands
+the model and can exceed the operating system's command-line argument limit.
+
+```sh
+cclay live run asset.import --args-file import.json
+cclay live run asset.import --args - < import.json
+cclay live cmd place_object --args-file object.json
+cclay live tool describe_shot --args - < shot.json
+```
+
 Every session is the same shape:
 
 ```text

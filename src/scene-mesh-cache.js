@@ -14,16 +14,22 @@
  */
 
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { getAsset, isMeshAssetId, isSupportedMeshType, openAssetDb } from "./scene-assets.js";
 import { decodeObjText } from "./scene-mesh.js";
 import { arrayBufferOf } from "./scene-fbx.js";
 
+// three.js owns the bundled decoder URLs, including the Vite-emitted WASM.
+// Reuse one Draco worker pool for every imported asset.
+const gltfLoader = new GLTFLoader().setDRACOLoader(new DRACOLoader()).setMeshoptDecoder(MeshoptDecoder);
+
 /** Build a cache with injectable seams for deterministic tests. */
 export function createMeshSceneCache({
 	getRecord = async (id) => getAsset(await db(), id),
-	parseGlb = (bytes) => new GLTFLoader().parseAsync(bytes, ""),
+	parseGlb = (bytes) => gltfLoader.parseAsync(arrayBufferOf(bytes), ""),
 	parseObj = (text) => new OBJLoader().parse(text),
 	parseFbx = (bytes) => new FBXLoader().parse(arrayBufferOf(bytes), ""),
 } = {}) {
