@@ -34,6 +34,11 @@ export function depthRangeFromFrames(frames, fallbackNear = 0.1, fallbackFar = D
 	return { near, far: Math.max(far, near + 0.0001) };
 }
 
+export function depthGrey(d, near, far, curve = "linear") {
+ if (curve === "inverse") return Math.max(0, Math.min(1, (1 / Math.max(d, near) - 1 / far) / (1 / near - 1 / far)));
+ return 1 - Math.max(0, Math.min(1, (d - near) / Math.max(far - near, 0.0001)));
+}
+
 /** File name for a downloaded pass: `blocking-frame-depth.png`. */
 export function passFileName(kind) {
 	if (!PASS_KINDS.includes(kind)) throw new Error(`Unknown render pass: ${kind}`);
@@ -71,21 +76,23 @@ const DEPTH_FRAGMENT = /* glsl */ `
 varying float vViewDepth;
 uniform float uNear;
 uniform float uRange;
+uniform bool uInverse;
 void main() {
 	float normalized = clamp((vViewDepth - uNear) / max(uRange - uNear, 0.0001), 0.0, 1.0);
-	float grey = 1.0 - normalized;
+	float grey = uInverse ? clamp((1.0 / max(vViewDepth, uNear) - 1.0 / uRange) / (1.0 / uNear - 1.0 / uRange), 0.0, 1.0) : 1.0 - normalized;
 	gl_FragColor = vec4(vec3(grey), 1.0);
 }
 `;
 
 const BACKGROUND_FAR = new THREE.Color(0x000000);
 
-function passMaterial(kind, camera, depthRange = null) {
+function passMaterial(kind, camera, depthRange = null, depthCurve = "linear") {
 	if (kind === "depth") {
 		return new THREE.ShaderMaterial({
 			vertexShader: DEPTH_VERTEX,
 			fragmentShader: DEPTH_FRAGMENT,
 			uniforms: {
+				uInverse: { value: depthCurve === "inverse" },
 				uNear: { value: Number.isFinite(depthRange?.near) ? depthRange.near : (Number.isFinite(camera?.near) ? camera.near : 0.1) },
 				uRange: { value: Number.isFinite(depthRange?.far) ? depthRange.far : DEPTH_RANGE_M },
 			},
@@ -112,7 +119,7 @@ function passMaterial(kind, camera, depthRange = null) {
  */
 export function renderPass(capture, scene, camera, kind, toDataUrl = null, options = {}) {
 	if (!capture || !scene || !camera) return null;
-	const material = passMaterial(kind, camera, options.depthRange);
+	const material = passMaterial(kind, camera, options.depthRange, options.depthCurve);
 	const previousMaterial = scene.overrideMaterial;
 	const previousBackground = scene.background;
 	let buffer = null;
