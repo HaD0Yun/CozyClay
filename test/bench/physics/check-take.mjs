@@ -29,6 +29,20 @@ const SPEC = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 132, use: [
 	{ skill: "flip", f0: 60, args: { kind: "cartwheel" } },
 ] };
 
+// rest axes: with nothing moving them, every exported object of every set is a pure translation to its set centre
+// (a turned cylinder must not carry its build turn into the take)
+const IDLE = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 4, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0], heading: 0 } }] };
+for (const s of loadSets()) {
+	const d = cozyclayDoc(s), c = s.character;
+	d.scenes.scenes[0].stage.characters[0].motionTake = { schema: "cozyclay.take.v3", rig: "y-bot-tpose", spec: { ...IDLE, use: [{ ...IDLE.use[0], args: { at: [c.position[0], c.position[2]], heading: 0 } }] } };
+	const t = takeFromDoc(d, s, { run: 0 });
+	for (const o of s.objects) {
+		const m = t.objects[o.id].matrix[0], want = mat4([[1, 0, 0], [0, 1, 0], [0, 0, 1]], o.center);
+		if (m.some((v, i) => Math.abs(v - want[i]) > 1e-6)) throw new Error(`${s.id} ${o.id}: rest matrix ${JSON.stringify(m)} is not the set centre with the set's axes`);
+	}
+}
+console.log("rest axes: every object of the ten sets exports as its set centre with the set's axes");
+
 const [set] = loadSets(["10-push-crate"]);
 const doc = cozyclayDoc(set);
 doc.scenes.scenes[0].stage.characters[0].motionTake = { schema: "cozyclay.take.v3", rig: "y-bot-tpose", spec: SPEC };
