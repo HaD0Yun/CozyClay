@@ -4,7 +4,7 @@
 // in skills/index.js; import those, never copy them here. See docs/motion-api-v3.1.md.
 
 /** Top-level spec fields. */
-export const SPEC_FIELDS = ["schema", "fps", "frames", "label", "keys", "anchors", "props", "fits", "objects", "generators", "checks", "fix", "use", "channels", "detourRadius", "search", "goals", "flow", "idle", "fill"];
+export const SPEC_FIELDS = ["schema", "fps", "frames", "label", "keys", "anchors", "props", "fits", "objects", "generators", "checks", "fix", "use", "channels", "detourRadius", "search", "goals", "flow", "idle", "fill", "look", "auto"];
 /** The spec field a MOTION_SPEC_INVALID message is about, as a schema path for telemetry (#1042): its first line
  * opens with spec.<field> or <field>[i] ("spec.frames must be ...", "keys[2].f must be ..."); the field must be one
  * of SPEC_FIELDS, so nothing the caller made up leaves. Else "$.args.spec". */

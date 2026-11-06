@@ -17,6 +17,7 @@
 // driver's frame, 15 cm off the rim, and they did not follow the truck). anchorSocket fixes that point once per hand.
 import { add, sub, scale, norm, cross, dot, len, apply, ry, T } from "./compiler/math.js";
 import { partsOf } from "./object-pose.js";
+import { sdBox } from "./qa/geometry.js";
 
 const THIN = 0.045, AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const flat = (v, n) => sub(v, scale(n, dot(v, n)));
@@ -78,6 +79,63 @@ export function faceFrom(boxes, p) {
 	return best?.n;
 }
 
+// A support hold (grasp "support"): a box carried from below at its sides, the palm flat on a side face low and the
+// fingers round its bottom edge (a crate against the chest; the A/B T2 recipe placed it by hand at [+-0.152, 0.04, -0.06]
+// and the agents' runs put it at 0.10-0.15 m, the fingers never under: 0/3). The compiler places it:
+//   face    of the four side faces (the body's own axes, its bottom on the base pivot) the one whose outward normal points
+//           most along the hand's side of the body, picked once per compile
+//   along   where the shoulder is along that face, kept SUPPORT_MARGIN inside its vertical edges
+//   height  low (anchors.js supportLow: the hooked fingers' middle joints just past the bottom edge) once the bottom clears
+//           what is under it by SUPPORT_SLIDE; pressing the side at mid height while it rests on a table, a shelf or the
+//           floor before the lift, sliding down between (smoothstep): the fingers stay out from under it until there is room
+//           (never lower than low + the depth still blocked, SUPPORT_CLEAR - gap). After the lift, setting it down, the palm
+//           rises only by that depth, SUPPORT_LEAD frames before it lands, so the fingers are out from under it in time:
+//           sliding up to mid height as the T2 box hovered over the shelf took the hands off it (the arm at its reach).
+//           From hanging arms (a floor set-down) the fingers point down the face and straighten off it, so the palm rises
+//           until their tips clear what the box rests on or lands on (compiler/anchors.js supportAt)
+//   frame   the palm against the face, the fingers down the face toward the bottom edge (socketPalm), as far as the
+//           wrist turns comfortably off the forearm (socket-grip.js towardDown)
+export const SUPPORT_CLEAR = 0.03, SUPPORT_SLIDE = 0.1, SUPPORT_LEAD = 6;
+const SUPPORT_MARGIN = 0.06, SUPPORT_SKIN = 0.002;
+
+/** The face of a support hold on a body of half sizes `half`: { axis, sign, at } with `at` its palm point but the height, in the body's axes; lateral and shoulder in those axes too. */
+export function supportFace(half, lateral, shoulder, margin = SUPPORT_MARGIN) {
+	let best = null;
+	for (const axis of [0, 2]) for (const sign of [1, -1]) if (!best || sign * lateral[axis] > best.score) best = { axis, sign, score: sign * lateral[axis] };
+	const t = 2 - best.axis, room = Math.max(0, half[t] - margin), at = [0, 0, 0];
+	at[best.axis] = best.sign * (half[best.axis] + SUPPORT_SKIN);
+	at[t] = Math.max(-room, Math.min(room, shoulder[t]));
+	return { axis: best.axis, sign: best.sign, at };
+}
+
+/** The palm's height above the bottom of a support hold whose bottom clears what is under it by `gap` m (see above). */
+export function supportHeight(low, press, gap) {
+	const t = Math.min(1, Math.max(0, gap / SUPPORT_SLIDE)), e = t * t * (3 - 2 * t);
+	return Math.max(low + Math.max(0, SUPPORT_CLEAR - gap), press + (low - press) * e);
+}
+
+/** Nine points across the bottom face of a body of half sizes `half` on pose { pos, R } (its base pivot, the bottom centre). */
+export const bottomPoints = (pose, half) => [-1, 0, 1].flatMap(x => [-1, 0, 1].map(z => add(pose.pos, apply(pose.R, [x * half[0], 0, z * half[2]]))));
+
+/**
+ * How far points `pts` (a body's bottom, bottomPoints) stand above what is under them: the ground (y 0) and every body of
+ * `bodies` ({ id: pose }, base pivots, half sizes in scene.objects) not in `own` whose top is at most 5 mm above their
+ * lowest, by the nearest point (so it changes smoothly as the body comes over a shelf's edge, not in a step). { gap (m,
+ * >= 0), on: that body's id, null: the ground }. The one measure of the compiler (compiler/anchors.js supportAt) and QA (TIPS_OFF).
+ */
+export function gapUnder(scene, own, pts, bodies) {
+	const bottom = Math.min(...pts.map(p => p[1]));
+	let best = { gap: bottom, on: null };
+	for (const [oid, b] of Object.entries(bodies ?? {})) {
+		const h = scene.objects[oid]?.half;
+		if (own.has(oid) || !h || !b?.R) continue;
+		const top = b.pos[1] + b.R[1][1] * h[1] + [0, 1, 2].reduce((m, i) => m + Math.abs(b.R[1][i]) * h[i], 0);
+		if (top > bottom + 0.005) continue;
+		for (const p of pts) { const d = sdBox(p, { pos: b.pos, R: b.R, half: h }); if (d < best.gap) best = { gap: d, on: oid }; }
+	}
+	return { gap: Math.max(0, best.gap), on: best.on };
+}
+
 /** How far world point q is from a world socket: from its rim, else its axis line through p, else from p. */
 export function socketDistance(w, q) {
 	const v = sub(q, w.p);
@@ -96,6 +154,12 @@ export function socketDistance(w, q) {
  */
 export function socketPalm(side, w, type, fwd, yawDeg = 0) {
 	const right = side === "Right", sign = v => (right ? v : scale(v, -1));
+	// a support hold: the palm against the face, the fingers down it toward the bottom edge they hook round, whatever the
+	// forearm's line (on it they lay along the face when the forearm came up level onto a shelf, 0-1 of 4 tips under)
+	if (type === "support" && w.from && w.down && len(flat(w.down, w.from)) > 1e-3) {
+		const n = sign(w.from), d = norm(flat(w.down, n));
+		return cols(d, cross(n, d), n);
+	}
 	// a side along the axis leaves no knuckle line across it: the palm then just faces against the side (below)
 	if (w.axis && type !== "palm" && !(w.from && len(flat(w.axis, w.from)) < 1e-3)) {
 		if (w.from) {

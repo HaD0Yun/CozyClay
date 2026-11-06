@@ -35,9 +35,9 @@ export const SKILL_INFO = {
 	reachGrip: {
 		args: { anchor: str("not ending in _l/_r"), side: side("the hand"), reach: int("frames to reach", { default: 20 }), hold: int("frames held", { default: 22 }),
 			release: int("frames to let go", { default: 12 }), elbow: ref("vec3", "pole"), fingers: { enum: FINGER_PRESETS, default: "grip" },
-			define: { type: "object", description: "defines anchor args.anchor" }, orient: { type: "boolean", description: "false: no grip turn" } },
+			define: { type: "object", description: "an inline anchor" }, orient: { type: "boolean", description: "false: no grip turn" } },
 		required: ["anchor", "side"], needs: "args.anchor in anchors or define", frames: "reach + hold + release (54)",
-		adds: ["props.<anchor>Grip (fingers point)", "fits: fingers on the anchor", "checks.contacts \"fingers on <anchor>\"", "checks.allow hand on its object",
+		adds: ["props.<anchor>Grip", "fits, checks.contacts: fingers on <anchor>", "checks.allow hand on its object",
 			"keys: w_<anchor>_<side>, fingers_<side>, armw_<side>"],
 		example: { f0: 10, args: { anchor: "bar", side: "r", define: { kind: "world", p: [-0.2, 1.2, 0.33] } } },
 		tune: { reach: 2, release: 2 },

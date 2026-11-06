@@ -32,6 +32,7 @@ import { resolveAnchor, measureProps, armReach } from "./anchors.js";
 import { expandGenerators } from "./walk.js";
 import { steadyHead } from "./head-steady.js";
 import { leadHead } from "./head-lead.js";
+import { autoLayer } from "./auto.js";
 import { fixOptions, applyFixes } from "../fix/index.js";
 import { fitWeight } from "../fix/self.js";
 import { holdHook } from "../object-keys.js";
@@ -217,11 +218,13 @@ export function compileMotion(spec, { sk, scene }, opts = {}) {
 			ctx.graspPlans = new Map();
 			steadyHead(out.baked, keys, frameCount);
 			leadHead(out.baked, keys, frameCount, flow.headLead);
-			// a held pose breathes and shifts its weight (idle.js): offsets solveFrame adds, contacts and out.baked stay as keyed
-			ctx.idle = idleLayer(out.baked, { spec, sk, frameCount });
 			ctx.busy = busyHands(out.baked, spec, frameCount, out.fps);
 			const tracks = objectTracks(spec, scene, out.baked, () => out.timeMap);
 			ctx.objectsAt = tracks.all;
+			// the walk's rules outside the walk and the gaze to spec.look (auto.js, #1080 #1081): before the idle layer reads the holds
+			out.auto = autoLayer(out, ctx);
+			// a held pose breathes and shifts its weight (idle.js): offsets solveFrame adds, contacts and out.baked stay as keyed
+			ctx.idle = idleLayer(out.baked, { spec, sk, frameCount });
 			out.objectsAt = a ? f => tracks.obstacles(f + a) : tracks.obstacles;
 		},
 		solve(frames) { for (const f of frames) if (f >= a && f <= b) out.frames[f - a] = solveFrame(ctx, channelsAt(out.baked, f), f); },

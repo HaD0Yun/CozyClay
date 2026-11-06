@@ -41,6 +41,7 @@ import { relaxSpec } from "./lenient.js";
 import { observeAsked } from "./qa/asked.js";
 import { prepareSpec } from "./correct.js";
 import { compareQa, noWorse } from "./qa/verdict.js";
+import { autoSpec } from "./auto-spec.js";
 
 const ms = t => Math.round(performance.now() - t);
 
@@ -91,6 +92,8 @@ export function liftRequest(spec, probes) {
 export function compileSpec(sent, { sk, scene }, opts = {}) {
 	const notes = [], refusals = [];
 	sent = expandPoses(sent, sk); // keys that name a pose (poses.js)
+	// tempo hints, @names, frames left out, root [x, z] and look keys (auto-spec.js, #1078)
+	sent = autoSpec(sent, sk);
 	try {
 		return compilePrepared(opts.lenient ? sent : prepareSpec(sent, { sk, scene }, notes, refusals), { sk, scene }, opts, notes, refusals);
 	} catch (error) {

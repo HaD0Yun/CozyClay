@@ -25,9 +25,10 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // +80 for the gate's failing-QA guard (a stuck output whose take passes QA is no reason to ask): +80
 // +475 for the stop rule (QA 0 is done; 4 flat rounds with 4 or fewer problems, else 8; a closing ifClean compile of the best take): +475
 // +177 for in-reach staging (unless the user places or sizes it: a handled prop within 0.3 m of its user's edge; a shared table at most 0.6 m deep, #1066): +177
-check("the whole prompt is at most 16,311 characters", () => assert.ok(prompt.length <= 16311, `${prompt.length}`));
-check("the motion part is at most 3,720 characters", () => {
-	assert.ok(motion.length > 0 && motion.length <= 3720, `${motion.length}`);
+// +271 for a box in both hands, held by its sides (its path keyed against the chest, each hand by reachGrip on its own object anchor with grasp support and no local, a weight key alone is only the wrist): +273
+check("the whole prompt is at most 16,584 characters", () => assert.ok(prompt.length <= 16584, `${prompt.length}`));
+check("the motion part is at most 3,993 characters", () => {
+	assert.ok(motion.length > 0 && motion.length <= 3993, `${motion.length}`);
 });
 check("the prompt names describe, grab, goals, repair, base, beats and the 0.01 m scale floor", () => {
 	for (const word of ["motion.describe", "grab", "goals", "repair", "base", "\"beats\"", "0.01 m"]) assert.ok(prompt.includes(word), word);
@@ -37,11 +38,11 @@ check("the motion part keeps the coordinate rules", () => {
 	for (const rule of [/metres/, /\+Y up/, /yaw 0 faces \+Z/, /positive yaw turns toward \+X/, /left is \+X/, /base pivot/]) assert.match(motion, rule);
 });
 check("the motion part states the procedure", () => {
-	for (const rule of [/The <motion-reference> block below is motion\.describe/, /read them there, not by a call/, /topics: \[\.\.\.\]/, /never probe the schema/, /reachGrip/, /grab\/release/, /frames: "auto"/,
+	for (const rule of [/The <motion-reference> block below is motion\.describe/, /read them there, not by a call/, /topics: \[\.\.\.\]/, /never probe the schema/, /reachGrip/, /grab\/release/, /after: "fast"\|"slow"/,
 		/group \(Empty\) is carried or hinged as one unit/, /at least one goals entry per motion request: first list its causes, contacts, effects and what must not happen/, /report the lines no goal measures \(Unmeasured/, /install: "ifClean" and repair: \{ rounds \}/, /topic: "essentials"/, /topic: "goals"/, /never sweep values by hand/, /loop in one script without repair \(tools\.run_action/, /then repair the pick until clean \(install: "ifClean"\)/, /independent calls in the same turn/,
 		/base .*plus patch addressed by frame or name/, /never by index; send a whole spec only to start over/, /Obey output\.stuck/, /probes and output\.timeline instead of .*motion\.sample/, /qa\.ok, which includes the goals\) installs in that call/,
 		/visual: "contact_sheet", frames: "beats"/, /visual: "trace"/, /Report qa\.problems, not qa\.total, the goals and output\.fixed/, /read output\.observations near and wrist and verify_result exportFraming/, /output\.observations, not QA/, /views, focus, trail/,
-		/Key the extremes .*never an even beat: vary the gaps/, /Lead with root, hands and feet; leave spine, head and arm swing to flow/, /a few frames off the pelvis/, /same pose on the same frame only when the action needs it/,
+		/Key the extremes .*never an even beat: vary the gaps/, /Key judgment only: root \[x,z\], hands, feet, set\.look/, /height, knees, foot turns, arm swing and head are computed/, /same pose on the same frame only when the action needs it/,
 		/fix the worst output\.observations\.life warning/]) assert.match(motion, rule);
 });
 check("the motion part states the stop rule and ends on an installed take", () => {

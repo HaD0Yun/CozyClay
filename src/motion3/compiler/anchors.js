@@ -18,6 +18,7 @@
 import { add, sub, scale, len, dot, norm, apply, ry, T } from "./math.js";
 import { bonePoint } from "./skeleton.js";
 import { palmAxes } from "./limbs.js";
+import { supportAt } from "./support-hold.js";
 import { SIDES } from "./pose.js";
 import { HAND_CLEAR, keepOut } from "../body.js";
 import { groupsOf } from "../scene.js";
@@ -141,6 +142,9 @@ function propOnCarry(ctx, a, name, f) {
  */
 export function anchorSocket(ctx, name, s, diag, c, side) {
 	const a = ctx.spec.anchors[name], now = { s, diag, c }, poseOf = id => objectFrame(ctx, { ...a, object: id }, name, now, side);
+	if (a.grasp === "support" && ctx.scene?.objects?.[a.object]?.half) {
+		return supportAt(ctx, name, a, s, diag, side, (id, frame) => objectFrame(ctx, { ...a, object: id }, name, { s, diag: { ...diag, frame }, c }, side), c);
+	}
 	const local = a.local && (o => add(o.pos, apply(o.R, a.local)))(poseOf(a.object));
 	ctx.sockets ??= new Map();
 	if (!ctx.sockets.has(name)) {

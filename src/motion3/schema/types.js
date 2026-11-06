@@ -3,7 +3,7 @@
 // looks each field up here, and throws when one is missing, so a new field needs a type here.
 // Shared shapes are $refs into DEFS (describe.js adds the ones an answer uses).
 import { REF_KINDS, OBJECT_KEY_FIELDS } from "./fields.js";
-import { CONVENTIONS, GRASPS } from "../compiler/vocab.js";
+import { CONVENTIONS, GRASPS, CARRY_GRASPS } from "../compiler/vocab.js";
 import { QA_LIMITS } from "../qa/checks.js";
 import { SPRING } from "../compiler/spring.js";
 import { CAPSULES } from "../qa/geometry.js";
@@ -58,6 +58,8 @@ export const SPEC_TYPES = {
 	goals: { type: "array", description: "topic goals" },
 	flow: { oneOf: [{ const: false }, { type: "object" }] },
 	idle: { const: false, description: "held poses do not breathe" },
+	look: { type: "array" },
+	auto: { oneOf: [{ const: false }, { type: "object" }] },
 	fill: { type: "boolean", description: "true: MotionBricks generates the transition between two poses (free spans) in the safe gaps (off by default)" },
 };
 
@@ -103,7 +105,7 @@ export const OBJECT_TYPES = {
 	keys: { type: "array", items: { type: "object", properties: Object.fromEntries(OBJECT_KEY_FIELDS.map(f => [f, OBJECT_KEY_TYPES[f]])), required: ["f", "pos"], additionalProperties: false },
 		description: "world pose; hand follows" },
 	fall: { ...FALL, description: "or a list" },
-	grasp: { enum: GRASPS }, mass: num("kg", { minimum: 0.01, maximum: 60 }), spring: SPRING_TYPE,
+	grasp: { enum: CARRY_GRASPS }, mass: num("kg", { minimum: 0.01, maximum: 60 }), spring: SPRING_TYPE,
 	follow: ref("ref"), offset: ref("vec3"), aim: { oneOf: [{ enum: ["face", "up"] }, { $ref: "#/$defs/vec3" }, { $ref: "#/$defs/ref" }], default: "up" },
 };
 
