@@ -55,9 +55,14 @@ export function passFileName(kind) {
 // An InstancedMesh (a sculpt's scatter) draws every instance through its
 // instanceMatrix; without it all of them would land on the mesh's origin.
 const DEPTH_VERTEX = /* glsl */ `
+#include <common>
+#include <skinning_pars_vertex>
 varying float vViewDepth;
 void main() {
-	vec4 local = vec4(position, 1.0);
+	#include <skinbase_vertex>
+	#include <begin_vertex>
+	#include <skinning_vertex>
+	vec4 local = vec4(transformed, 1.0);
 #ifdef USE_INSTANCING
 	local = instanceMatrix * local;
 #endif

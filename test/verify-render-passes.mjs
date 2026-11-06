@@ -43,6 +43,8 @@ assert.equal(depthRig.seen.length, 1, "the depth pass renders exactly once");
 assert.ok(depthRig.seen[0] instanceof THREE.ShaderMaterial, "the depth pass overrides with the depth-to-grey shader");
 assert.equal(depthRig.seen[0].uniforms.uNear.value, 0.25, "the ramp starts at the shot camera's near plane");
 assert.equal(depthRig.seen[0].uniforms.uRange.value, DEPTH_RANGE_M, "the ramp spans the stage's working depth");
+for (const chunk of ["common", "skinning_pars_vertex", "skinbase_vertex", "begin_vertex", "skinning_vertex"]) assert.ok(depthRig.seen[0].vertexShader.includes(`#include <${chunk}>`));
+assert.match(depthRig.seen[0].vertexShader, /vec4\(transformed, 1\.0\)/);
 const inverseRig = stubCapture(scene);
 renderPass(inverseRig, scene, camera, "depth", null, { depthCurve: "inverse" });
 assert.equal(inverseRig.seen[0].uniforms.uInverse.value, true);

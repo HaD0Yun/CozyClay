@@ -10,6 +10,7 @@ import { closeOnShape } from "./finger-close.js";
 import { clampWrist } from "./wrist-clamp.js";
 import { ELBOW_REST } from "./arm-orient.js";
 import { wristBody, bodyDistance } from "../body.js";
+import { poseWasm, poseWasmReady } from "./pose-wasm.js";
 
 export const SIDES = { l: "Left", r: "Right" };
 /** How much of an auto-fix elbow turn an arm at IK weight w takes (fix/self.js plans with the same). */
@@ -97,7 +98,13 @@ export function tiltFrame(yaw, pitch, roll) {
 	return { yaw, R: mul(ry(yaw), mul(rx(p * w), rz(r * w))) };
 }
 
+/** One frame: channels -> { s, diag }, on the WebAssembly module once it is ready (pose-wasm.js), the same bit for bit. */
 export function pose(sk, c, hooks = {}) {
+	return poseWasmReady() ? poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, turnWeight, KNEE_REST, SIDES }) : poseJs(sk, c, hooks);
+}
+
+/** pose() in JS: the reference the module matches, and the path until it loads. */
+export function poseJs(sk, c, hooks = {}) {
 	const s = restState(sk);
 	const diag = {};
 	// Base: arms down from the bind T-pose (body frame, before everything else).
