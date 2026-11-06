@@ -5,8 +5,13 @@
 // that restore, including on a render that throws.
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { passFileName, renderPass, PASS_KINDS, DEPTH_RANGE_M } from "../src/render-passes.js";
+import { passFileName, renderPass, PASS_KINDS, DEPTH_RANGE_M, depthGrey } from "../src/render-passes.js";
 
+assert.equal(depthGrey(0.1, 0.1, 40, "inverse"), 1);
+assert.equal(depthGrey(40, 0.1, 40, "inverse"), 0);
+assert.equal(depthGrey(80, 0.1, 40, "inverse"), 0);
+assert(depthGrey(0.2, 0.1, 40, "inverse") < depthGrey(0.2, 0.1, 40));
+assert.equal(depthGrey(20.05, 0.1, 40), 0.5);
 assert.equal(passFileName("depth"), "blocking-frame-depth.png");
 assert.equal(passFileName("normal"), "blocking-frame-normal.png");
 assert.throws(() => passFileName("albedo"), /Unknown render pass: albedo/, "an unknown pass is a hard error, not a mystery file name");
@@ -38,6 +43,10 @@ assert.equal(depthRig.seen.length, 1, "the depth pass renders exactly once");
 assert.ok(depthRig.seen[0] instanceof THREE.ShaderMaterial, "the depth pass overrides with the depth-to-grey shader");
 assert.equal(depthRig.seen[0].uniforms.uNear.value, 0.25, "the ramp starts at the shot camera's near plane");
 assert.equal(depthRig.seen[0].uniforms.uRange.value, DEPTH_RANGE_M, "the ramp spans the stage's working depth");
+const inverseRig = stubCapture(scene);
+renderPass(inverseRig, scene, camera, "depth", null, { depthCurve: "inverse" });
+assert.equal(inverseRig.seen[0].uniforms.uInverse.value, true);
+assert.equal(depthRig.seen[0].uniforms.uInverse.value, false);
 assert.equal(depthRig.seen[0].fog, false, "the stage fog does not tint the depth plate");
 assert.match(depthRig.seen[0].fragmentShader, /1\.0 - normalized/, "near reads white, far reads black");
 assert.equal(scene.overrideMaterial, null, "the depth override is taken back off the scene");
