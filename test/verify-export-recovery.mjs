@@ -10,7 +10,7 @@ import { exportFailureCode } from "../src/analytics.js";
 import { startExportAttempt } from "../src/export-attempt.js";
 import { keyframePackEntries, keyframePackName } from "../src/keyframe-pack.js";
 import { buildZip } from "../src/zip-store.js";
-import { depthRangeFromFrames } from "../src/render-passes.js";
+import { depthRangeFromFrames, depthRangeFromPixels } from "../src/render-passes.js";
 import { shotsFixture } from "./bus/shots-fixture.mjs";
 import { isProxyFigure } from "../src/scenes.js";
 import { placementAt } from "../src/root-path.js";
@@ -138,7 +138,7 @@ function fixture() {
 		keyLight: {}, shot: { focalMm: 35 }, fovDeg: 35, shotAspectKey: "16:9",
 		shotCaptureMeta: ({ shot, size }) => ({ title: shot.name, size }), buildShotPrompt: () => "fixture prompt",
 		keyframePackEntries, keyframePackName, buildZip,
-		renderPass: (capture) => capture.render(), depthRangeFromFrames, DEPTH_RANGE_M: 40,
+		renderPass: (capture) => capture.render(), depthRangeFromFrames, depthRangeFromPixels, DEPTH_RANGE_M: 40,
 		result: { frame: "data:image/png;base64,AA==", frameB: "data:image/png;base64,AQ==", partColours: { arm: "red" } },
 		setResult: (update) => { deps.result = update(deps.result); },
 		async exportOffscreenVideo(options) {
