@@ -65,10 +65,13 @@ expect("ifClean over a take with no spec: installed, with a note", nospecR.insta
 const timed = sitReg.run("motion.compile", { characterId: "c", spec: sit.spec, install: true, repair: { rounds: 1 } }).output;
 // thinning stops at its 10 s limit, so a loaded machine may thin nothing here: thinned.ms is checked when it thinned (verify-motion3-thin.mjs pins it)
 const thinMs = o => o.thinned === undefined || Number.isInteger(o.thinned.ms);
-expect("repair.ms and thinned.ms on a repaired, thinned compile (install true)", Number.isInteger(timed.repair?.ms) && thinMs(timed) && timed.ms.repair >= timed.repair.ms, JSON.stringify({ repair: timed.repair, thinned: timed.thinned }));
+// ms goes in after every group (report.js), and this sit's take has more groups since #1113 measures its hands and hips in the
+// floor (fingers 15 cm, hips 5 cm): ms.repair is checked when the answer has room for it, else the answer says what it cut
+const msOk = o => (o.ms ? o.ms.repair >= o.repair.ms : Boolean(o.more));
+expect("repair.ms and thinned.ms on a repaired, thinned compile (install true)", Number.isInteger(timed.repair?.ms) && thinMs(timed) && msOk(timed), JSON.stringify({ repair: timed.repair, thinned: timed.thinned }));
 sitTakes.clear();
 const timedIf = sitReg.run("motion.compile", { characterId: "c", spec: sit.spec, install: "ifClean", repair: { rounds: 1 } }).output;
-expect("ifClean that installs: repair.ms is the first job's, thinned.ms the thinning's", timedIf.installed === true && Number.isInteger(timedIf.repair?.ms) && thinMs(timedIf) && timedIf.ms.repair >= timedIf.repair.ms,
-	JSON.stringify({ repair: timedIf.repair, thinned: timedIf.thinned, ms: timedIf.ms.repair }));
+expect("ifClean that installs: repair.ms is the first job's, thinned.ms the thinning's", timedIf.installed === true && Number.isInteger(timedIf.repair?.ms) && thinMs(timedIf) && msOk(timedIf),
+	JSON.stringify({ repair: timedIf.repair, thinned: timedIf.thinned, ms: timedIf.ms?.repair }));
 if (failures) { console.error(`${failures} ifClean check(s) failed`); process.exit(1); }
 console.log("verify-motion3-ifclean: all checks passed");

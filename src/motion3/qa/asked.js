@@ -6,6 +6,8 @@
 //       body's heading there; a walkTo whose steps are given only aims at to (the steps set the distance)
 //   <contact name> f<a>-<b>: gap <cm> f<f> .. <cm> f<f> (tol <cm>)   checks.contacts (reachGrip adds "fingers
 //       on <anchor>"): the frames its when holds, the closest and the farthest gap; "never on" when it never holds
+//       [; palm centre <cm> .. <cm> (needs <= 4)]   on a power grip's anchor, the palm centre's gap on those frames too
+//       (grasp-checks.js PALM_GAP): the fingers' point sits on a bar while the palm stays 7 cm off it
 //   goal <name> f<f>: <ref> [x, y, z], <ref> [x, y, z][; best <m> f<f>]   the goal's points on the frame its
 //       result names (near and above; moved and still when they fail); best: the closest frame of a near goal
 //       held on every frame
@@ -14,6 +16,7 @@
 // a near goal is its surface. Frames are absolute and follow a retime (out.timeMap); metres to 3 decimals.
 import { refPoint, refDistance } from "../refs.js";
 import { active, contactGap } from "./spec-checks.js";
+import { palmGapAt } from "./grasp-checks.js";
 import { goalKinds, goalName, movedRef } from "./goals.js";
 import { m3 } from "./fmt.js";
 
@@ -61,19 +64,27 @@ function skillLine(out, u, i, use, map) {
 	return line;
 }
 
+/** The hand and the object of a power grip a contact's target anchor takes ({ k, id }), or null. */
+function powerGrip(out, k) {
+	const { spec } = out.ctx, a = spec.anchors?.[/^anchor:(.+)$/s.exec(k.target ?? "")?.[1]], hand = spec.props?.[/^prop:([^.]+)\./.exec(k.point ?? "")?.[1]]?.hand;
+	return a?.kind === "object" && a.grasp === "power" && (hand === "l" || hand === "r") ? { k: hand, id: a.object } : null;
+}
+
 function contactLine(out, k) {
-	const f0 = out.f0 ?? 0;
-	let lo = null, hi = null, first = null, lastOn = null;
+	const f0 = out.f0 ?? 0, grip = powerGrip(out, k);
+	let lo = null, hi = null, first = null, lastOn = null, palm = null;
 	for (let f = 0; f < out.frames.length; f++) {
 		if (!active(out, f, k.when)) continue;
 		first ??= f + f0; lastOn = f + f0;
+		const p = grip && palmGapAt(out, grip.k, grip.id, f + f0);
+		if (p !== null && p !== undefined) palm = [Math.min(palm?.[0] ?? p, p), Math.max(palm?.[1] ?? p, p)];
 		const e = contactGap(out, f, k);
 		if (e === null) continue;
 		if (!lo || e < lo[0]) lo = [e, f + f0];
 		if (!hi || e > hi[0]) hi = [e, f + f0];
 	}
 	if (first === null) return `${k.name}: never on${typeof k.when === "string" ? ` (${k.when} never > 0.99)` : ""}`;
-	return `${k.name} f${first}-${lastOn}: gap ${lo ? `${cm(lo[0])} cm f${lo[1]} .. ${cm(hi[0])} cm f${hi[1]}` : "unknown"} (tol ${cm(k.tol ?? 0.01)})`;
+	return `${k.name} f${first}-${lastOn}: gap ${lo ? `${cm(lo[0])} cm f${lo[1]} .. ${cm(hi[0])} cm f${hi[1]}` : "unknown"} (tol ${cm(k.tol ?? 0.01)})${palm ? `; palm centre ${cm(palm[0])} .. ${cm(palm[1])} cm (needs <= 4)` : ""}`;
 }
 
 function goalLine(out, g, i, result) {

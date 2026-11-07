@@ -105,7 +105,10 @@ const walkIn = stand({ frames: 240, use: [{ skill: "standIdle", args: { at: [0, 
 const walked = run(cupRegistry, "motion.compile", { characterId: CHARACTER.id, spec: walkIn, install: false });
 const sev = walked.qa.groups.map(g => g.severity);
 expect("motion.compile answers specId, a timeline array and groups ranked by severity", /^spec-[0-9a-f]{12}$/.test(walked.specId) && Array.isArray(walked.timeline)
-	&& walked.qa.groups.length > 1 && sev.every((s, i) => i === 0 || sev[i - 1] >= s) && walked.qa.groups.every(g => typeof g.excess === "number"), JSON.stringify(walked.qa.groups.map(g => [g.kind, g.subject, g.count, g.severity])));
+	// the groups past the first ones are one-liners when the answer is over its budget (report.js; the walk into the cup's table
+	// collides with the fingers too since #1113): every full group carries excess
+	&& walked.qa.groups.length > 1 && sev.every((s, i) => i === 0 || sev[i - 1] >= s) && walked.qa.groups.filter(g => "limit" in g).length >= Math.min(4, walked.qa.groups.length)
+	&& walked.qa.groups.every(g => !("limit" in g) || typeof g.excess === "number"), JSON.stringify(walked.qa.groups.map(g => [g.kind, g.subject, g.count, g.severity])));
 const ranked = rankGroups([{ kind: "COLLIDE", subject: "a", count: 9, worst: 0.03, limit: 0.005 }, { kind: "GOAL", subject: "g", count: 1, worst: 0.1, limit: 0 }, { kind: "ORIENT", subject: "o", count: 2, worst: 0.1, limit: 0.64 }]);
 expect("rankGroups: GOAL first, then severity; ORIENT counts low values as bad", ranked.map(g => g.kind).join() === "GOAL,COLLIDE,ORIENT" && ranked[2].excess === 0.54 && ranked[1].severity === 31.5 && ranked[2].severity === 3.69, JSON.stringify(ranked));
 expect("severityOf rounds the search weight", severityOf({ kind: "SPEED", count: 3, worst: 0.05, limit: 0.04 }) === Math.round(weightOf({ kind: "SPEED", count: 3, worst: 0.05, limit: 0.04 }) * 100) / 100 && excessOf({ kind: "BELOW", worst: 0.1, limit: 0.08 }) === 0);

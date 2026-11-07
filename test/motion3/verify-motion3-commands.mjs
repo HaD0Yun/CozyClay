@@ -102,7 +102,9 @@ expect("install takes only true, false, \"ifClean\" or \"never\" (and their spel
 const boardTakes = new Map();
 const boardOwner = { replace: (cid, take) => boardTakes.set(cid, take), motionFor: cid => boardTakes.get(cid) ?? null };
 const still = { id: "char-2", model: "x-bot-tpose", subject: "Still", x: 0, y: 0, z: 0, rot: 0, scale: 1 };
-const held = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 60, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0] } }],
+// the fingertips reach past the hand capsule into the board (QA measures them since #1113, finger-collide.js) and fix.penetration
+// pushes the hand and forearm capsules: the fingers' own allowance keeps this case the hand capsule's
+const held = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 60, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0] } }], checks: { allow: [{ part: "fingers", object: "board", depth: 0.03 }] },
 	keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] };
 const P30 = compileSpec(held, { sk, scene: { objects: {} } }).out.frames[30].s.P, front = Math.max(P30[I.RightHand][2], P30[I.RightHandMiddle3][2]) + 0.022;
 const board = [{ id: "board", name: "Board", renderer: "cube", x: -0.2, y: 0, z: front + 0.035, rot: 0, rotX: 0, rotZ: 0, scaleX: 0.6, scaleY: 1.6, scaleZ: 0.1, footprint: { width: 1, depth: 1 }, height: 1 }];
