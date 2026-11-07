@@ -62,7 +62,7 @@ test("motion.compile hints a hybrid project to propose capsules when the rig tak
 	assert.equal(hybridCapsuleHint("hybrid", { qa: failing("LIMIT") }), null, "a soft top group alone does not hint");
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "x", qa: { ok: true, groups: [] } }), null, "a clean take does not hint");
 	// The repair watch's polish note: another variant after a take with 0 blocking problems, which has none either.
-	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a has 0 blocking problems: done is that take with every visible criterion met and one look.", qa: { ok: true, groups: [{ kind: "COLLIDE" }] } }), null, "a stuck output whose take passes gets no hint");
+	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a has 0 blocking problems: done is that take with every visible criterion met and ONE look.", qa: { ok: true, groups: [{ kind: "COLLIDE" }] } }), null, "a stuck output whose take passes gets no hint");
 	// #1114: a try after a take with 0 blocking problems fixes what the look or a criterion showed, not a stuck rig
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a has 0 blocking problems: x", polish: true, qa: failing("COLLIDE") }), null, "a failing try after a passing take gets no hint");
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "x", qa: { groups: [{ kind: "COLLIDE" }] } }), null, "no hint without a failing QA verdict");

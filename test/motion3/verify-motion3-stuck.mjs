@@ -68,7 +68,7 @@ w = createRepairWatch();
 const pass = { ok: true, groups: [] };
 const polish = [next(fail2()), next(pass, "b"), next(fail2(), "b"), next(pass, "b")];
 const passed = `spec-${String(n - 2).padStart(12, "0")}`;
-const DONE = "done is that take with every visible criterion met and one look, verify_result { visual: \"contact_sheet\", frames: \"beats\" }, showing the action reads at a glance. Then stop at once: install that take and report its warnings in one line, no variants; fix only what the look or a criterion shows.";
+const DONE = "done is that take with every visible criterion met and ONE look: verify_result { visual: \"contact_sheet\", frames: \"beats\" } once, checking only that the action reads at a glance (the defining move is there, held poses are locked, contacts look like contacts, effort matches the load). If it does not read, fix that; else stop at once: install that take and report its warnings in one line. Warnings and verify_result physics findings are reported, never a reason to go on; after done, no variants or comparison scripts.";
 expect("the first pass gets no note", polish[1] === undefined);
 expect("a compile after a take with 0 blocking problems states the done rule: criteria, one look, then stop (#1114)", polish[2] === `${passed} has 0 blocking problems: ${DONE}` && polish[3] === polish[2], JSON.stringify(polish));
 // #1114: warnings never block. A take whose groups are all warnings passes; a stuck streak is the same blocking failures

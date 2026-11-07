@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // qa/blocking.js (#1114): which QA groups block a take (what a viewer sees at 960x540 or what breaks the request) and which
 // are warnings. The thresholds sit at their edges here: penetration 5 cm (DEEP), POP 25 cm/f^2, REACH 3 cm, a surface within
-// 5 cm (NEAR) for FLOAT and REACH. Then motion.compile through the registry: qa.blocking, each group flagged, the summary
+// 5 cm (NEAR) for FLOAT and REACH. fitFlagged: an answer cut to the receipt budget keeps every group's flag and says the
+// counts in its brief. Then motion.compile through the registry: qa.blocking, each group flagged, the summary and brief
 // counts, install "ifClean" on 0 blocking problems, INSTALL_WORSE and output.noImprovementRounds on blocking problems.
 import assert from "node:assert/strict";
-import { DEEP, NEAR, POP_HARD, REACH_GAP, blockingCount, blockingOf, blockingSay, isBlocking, markBlocking, measureGroup } from "../../src/motion3/qa/blocking.js";
+import { DEEP, NEAR, POP_HARD, REACH_GAP, blockingCount, blockingOf, blockingSay, fitFlagged, isBlocking, markBlocking, measureGroup } from "../../src/motion3/qa/blocking.js";
+import { MOTION_OUTPUT_BUDGET, fitOutput } from "../../src/motion3/report.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { createStudioAppActions } from "../../src/commands/index.js";
 import { specIdOf } from "../../src/motion3/spec-store.js";
@@ -92,6 +94,13 @@ check("measureGroup: every FLOAT run must rest on something; a hang beside a bar
 	assert.deepEqual(measureGroup(split(7), float), { rests: false }, "f0-f5 in the air, f7-f13 at the bar");
 	assert.deepEqual(measureGroup(split(0), float), { rests: true }, "both runs at the bar");
 });
+// REST_SHARE: one 14-frame float run, its first k frames 3 cm over the floor and the rest 1 m up
+const halfway = k => ({ ...posed(1), frames: Array.from({ length: 14 }, (_, i) => posed(i < k ? 0.03 : 1).frames[0]) });
+const run14 = g("FLOAT", "no foot on the ground f0-f13, hips fall at 0% of g", 1, { last: 13 });
+check("measureGroup: a float run rests when at least half its frames have a part within NEAR (REST_SHARE)", () => {
+	assert.deepEqual(measureGroup(halfway(7), run14), { rests: true }, "7 of 14");
+	assert.deepEqual(measureGroup(halfway(6), run14), { rests: false }, "6 of 14");
+});
 check("measureGroup: a sole within the miss + 5 cm of the floor may target it; a hand 1.4 m up does not", () => {
 	assert.deepEqual(measureGroup(posed(0.08), g("REACH", "leg_miss_l", 0.04, { worstFrame: 3 })), { onSurface: true });
 	assert.deepEqual(measureGroup(posed(0.2), g("REACH", "leg_miss_l", 0.04, { worstFrame: 3 })), { onSurface: false });
@@ -122,6 +131,38 @@ check("blockingOf reads the flags, blockingCount and blockingSay count a QA resu
 	assert.equal(blockingCount({ ok: false, problems: 3, groups: [] }), 3, "a failed result without groups is never clean");
 	assert.equal(blockingSay({ ok: false, groups: [g("GOAL", "x", 1), g("SLIDE", "s", 0.01), g("KNEE", "k", 90)] }), "1 blocking, 2 warnings");
 	assert.equal(blockingSay({ ok: true, groups: [] }), "0 blocking, 0 warnings");
+});
+
+// an answer past the receipt budget (review of #1114: v2's handstand r2 and r3 answers cut 6 of 10 groups to one-liners,
+// blocking SELF among them, and the brief still said "18 problems")
+const bytes = v => new TextEncoder().encode(JSON.stringify(v)).length;
+const answerOf = groups => ({ frames: 100, fps: 24, installed: false, specId: "spec-000000000000",
+	qa: { ok: false, problems: groups.length, total: groups.length * 3, goals: [], groups, blocking: blockingCount({ ok: false, groups }) } });
+const long = { cause: "x".repeat(400), hint: "y".repeat(300) };
+const mixed = markBlocking(Array.from({ length: 40 }, (_, i) => [g("SELF", "hands overlap", 0.09, long), g("SLIDE", `Left ball slides ${i}`, 0.02, long), g("POP", "LeftHand accel 9.00 cm/f^2 in one frame", 0.09, long)][i % 3]));
+check("fitFlagged: every group of an answer cut to the budget keeps its flag, the one-liners too, and it fits", () => {
+	const out = fitFlagged(answerOf(mixed)), lines = out.qa.groups.filter(x => !("worst" in x));
+	assert.ok(lines.length > 0 && out.more.groups > 0, JSON.stringify(out.more));
+	assert.deepEqual(out.qa.groups.map(x => x.blocking), mixed.slice(0, out.qa.groups.length).map(x => x.blocking));
+	assert.ok(lines.some(x => x.blocking) && lines.some(x => !x.blocking), "one-liners of both kinds");
+	assert.ok(bytes(out) <= MOTION_OUTPUT_BUDGET, `${bytes(out)} B`);
+	assert.ok(out.qa.groups.length < fitOutput(answerOf(mixed)).qa.groups.length, "the flags took the room of a one-liner: fitted again");
+	assert.equal(out.brief[0], "spec-000000000000 qa 14 blocking, 26 warnings (120 issues), not installed");
+});
+check("fitFlagged: over a head too big to fit, one-liners go from the end before a flag adds bytes", () => {
+	const answer = { ...answerOf(mixed), stuck: "z".repeat(5600) }, plain = fitOutput(answer), out = fitFlagged(answer);
+	assert.ok(bytes(plain) > MOTION_OUTPUT_BUDGET, `${bytes(plain)} B: fitOutput alone is over`);
+	assert.ok(bytes(out) <= bytes(plain) && out.qa.groups.length < plain.qa.groups.length && out.qa.groups.every(x => typeof x.blocking === "boolean"), `${bytes(out)} B, ${out.qa.groups.length} groups`);
+	assert.deepEqual(out.qa.groups.map(x => x.subject), plain.qa.groups.slice(0, out.qa.groups.length).map(x => x.subject), "the first ones stay");
+	assert.equal(out.more.groups, plain.more.groups);
+});
+check("fitFlagged: the brief of a take with warnings only says 0 blocking and marks its group lines warnings", () => {
+	const soft = markBlocking([g("SLIDE", "Left ball slides", 0.02), g("PALM_GAP", "palm_l off bar", 0.08)]), out = fitFlagged(answerOf(soft));
+	assert.deepEqual(out.brief, ["spec-000000000000 qa 0 blocking, 2 warnings (6 issues), not installed", "SLIDE Left ball slides x3 f0-7 (warning)", "PALM_GAP palm_l off bar x3 f0-7 (warning)"]);
+	assert.equal(Object.keys(out)[0], "brief");
+	assert.deepEqual(out.qa.groups, soft, "an answer that fits keeps its groups as they are");
+	const clean = fitFlagged({ specId: "spec-1", installed: true, qa: { ok: true, problems: 0, total: 0, goals: [], groups: [], blocking: 0 } });
+	assert.deepEqual(clean.brief, ["spec-1 qa ok, installed"]);
 });
 
 // ---- through the registry: the cup scene (stuck test's fixture) --------------------------------
@@ -158,6 +199,7 @@ check("install \"ifClean\" installs a take with 0 blocking problems, though QA r
 	assert.equal(near.qa.blocking, 0, JSON.stringify(near.qa.groups.map(x => [x.kind, x.subject, x.worst])));
 	assert.equal(near.installed, true);
 	assert.match(near.summary, /, 0 blocking, \d+ warnings?; installed\./);
+	assert.match(near.brief[0], new RegExp(`^${near.specId} qa 0 blocking, ${near.qa.groups.length} warnings? \\(\\d+ issues\\), installed$`), "the brief a script returns says it too");
 	assert.equal(specIdOf(takes.get(CHARACTER.id).spec), near.specId, "the character carries it");
 });
 const back = run({ base: far.specId, install: "ifClean", repair: false });

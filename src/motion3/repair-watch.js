@@ -124,8 +124,9 @@ export function createRepairWatch() {
 			: mine ? `Your installed take ${named(line.mine)} stays${past(line.mine)}.` : keeps ? `${named(held)} stays installed, ${POS}.`
 				: current !== null && pick.take !== undefined ? `The earlier take stays; to replace it, install the best take here, ${named(pick)}.`
 					: `Install the best take here, ${named(pick)}.`;
-		// the done rule (#1114), as the prompts state it: 0 blocking problems, every visible criterion met, one look
-		const asked = "done is that take with every visible criterion met and one look, verify_result { visual: \"contact_sheet\", frames: \"beats\" }, showing the action reads at a glance. Then stop at once: install that take and report its warnings in one line, no variants; fix only what the look or a criterion shows";
+		// the done rule (#1114) in the words of the system prompt and the task header: 0 blocking problems, every visible
+		// criterion met, one look (verify-task-text-intent.mjs holds the four texts to the same clauses)
+		const asked = "done is that take with every visible criterion met and ONE look: verify_result { visual: \"contact_sheet\", frames: \"beats\" } once, checking only that the action reads at a glance (the defining move is there, held poses are locked, contacts look like contacts, effort matches the load). If it does not read, fix that; else stop at once: install that take and report its warnings in one line. Warnings and verify_result physics findings are reported, never a reason to go on; after done, no variants or comparison scripts";
 		let say;
 		if (kind === "polish") say = !install ? `${passed} has 0 blocking problems: ${asked}.` : install.specId === passed ? `${passed} has 0 blocking problems and is now installed, ${POS}: ${asked}.`
 			: `${passed} has 0 blocking problems at another position; the best take here, ${named(pick)}, is installed, ${POS}. Report its problems; ${asked}.`;

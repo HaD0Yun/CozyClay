@@ -62,12 +62,17 @@ check("the system prompt, rule 8, the task header and the polish note state one 
 		for (const old of [/QA 0 alone is not done/, /no support, contact or skin penetration fault/, /INSTALL_WORSE is expected/, /nearest the criteria/, /counts QA only/])
 			assert.doesNotMatch(text, old, String(old));
 	}
-	for (const text of [studioRule, rule8, header]) {
+	// the polish note (output.stuck, read in a script's answer as well) states every clause the prompts state (review of #1114)
+	for (const text of [studioRule, rule8, header, POLISH]) {
 		assert.match(text, /ONE look/);
 		assert.match(text, /the defining move is there, held poses are locked, contacts look like contacts, effort matches the load/);
 		assert.match(text, /verify_result physics findings are reported, never a reason to go on/);
 		assert.match(text, /no variants or comparison scripts/);
 	}
+	// the system prompt, the task header and the polish note say it in the same words, from ONE look to the end of the rule
+	const said = text => text.slice(text.indexOf("ONE look: "), text.indexOf("comparison scripts") + "comparison scripts".length);
+	assert.ok(said(studioRule).length > 300, said(studioRule));
+	for (const text of [header, POLISH]) assert.equal(said(text), said(studioRule));
 	for (const text of [studioRule, rule8]) assert.match(text, /4 or fewer blocking problems/);
 	for (const text of [studio, main]) {
 		assert.match(text, /install: "ifClean"/);

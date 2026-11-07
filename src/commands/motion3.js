@@ -33,7 +33,7 @@ import { peopleOf } from "../motion3/people.js";
 import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
-import { blockingCount, blockingOf, blockingSay, markBlocking } from "../motion3/qa/blocking.js";
+import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
 import { takeOut } from "../motion3/physics-frames.js";
 
 const TIMELINE_FPS = 24;
@@ -148,10 +148,12 @@ export function register(registry, ports) {
 	const report = (r, head, extra = {}) => {
 		const specIdValue = store.put(r.stored);
 		store.keepParts(specIdValue, { groups: r.qa.groups, timeline: r.timeline, probes: r.probes ?? {} });
-		return fitOutput({ ...head, specId: specIdValue, qa: r.qa, observations: r.observations, ...extra, ...(r.probes ? { probes: r.probes } : {}), timeline: r.timeline,
+		const answer = { ...head, specId: specIdValue, qa: r.qa, observations: r.observations, ...extra, ...(r.probes ? { probes: r.probes } : {}), timeline: r.timeline,
 			fixed: r.fixed, ...(r.search ? { search: r.search } : {}), ...(r.used.length ? { skills: r.used } : {}), ms: r.ms,
 			// what the agent wrote, keys and keyed values before skills expand (#1083; the per-channel counts stay in the job answer)
-			...(r.authored ? { authored: { keys: r.authored.keys, values: r.authored.values } } : {}) });
+			...(r.authored ? { authored: { keys: r.authored.keys, values: r.authored.values } } : {}) };
+		// a flagged qa (flag) keeps each group's flag when cut and its counts in the brief (qa/blocking.js fitFlagged)
+		return typeof r.qa.blocking === "number" ? fitFlagged(answer) : fitOutput(answer);
 	};
 	/**
 	 * A compiled take on the character, installed as one undo entry; put() keeps the timing edit of the take it replaces
