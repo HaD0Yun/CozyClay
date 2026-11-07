@@ -62,7 +62,7 @@ test("motion.compile hints a hybrid project to propose capsules when the rig tak
 	assert.equal(hybridCapsuleHint("hybrid", { qa: failing("LIMIT") }), null, "a soft top group alone does not hint");
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "x", qa: { ok: true, groups: [] } }), null, "a clean take does not hint");
 	// The repair watch's polish note: another variant after a passing take is stuck, and passes QA too.
-	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a already passed QA: stop unless the user asked for a specific change.", qa: { ok: true, groups: [{ kind: "COLLIDE" }] } }), null, "a stuck output whose take passes QA gets no hint");
+	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a already passed QA: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance; else keep fixing up to the flat-round limit.", qa: { ok: true, groups: [{ kind: "COLLIDE" }] } }), null, "a stuck output whose take passes QA gets no hint");
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "x", qa: { groups: [{ kind: "COLLIDE" }] } }), null, "no hint without a failing QA verdict");
 	for (const style of ["rig", "capsule", undefined]) assert.equal(hybridCapsuleHint(style, { stuck: "x", qa: failing("COLLIDE") }), null, `no hint for ${style}`);
 	assert.ok(prompt.includes("qa.ok is false and whose output carries stuck or hint"), "the prompt tells the agent what the hint means, on a failing take only");

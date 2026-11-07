@@ -26,9 +26,10 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // +475 for the stop rule (QA 0 is done; 4 flat rounds with 4 or fewer problems, else 8; a closing ifClean compile of the best take): +475
 // +177 for in-reach staging (unless the user places or sizes it: a handled prop within 0.3 m of its user's edge; a shared table at most 0.6 m deep, #1066): +177
 // +271 for a box in both hands, held by its sides (its path keyed against the chest, each hand by reachGrip on its own object anchor with grasp support and no local, a weight key alone is only the wrist): +273
-check("the whole prompt is at most 16,584 characters", () => assert.ok(prompt.length <= 16584, `${prompt.length}`));
-check("the motion part is at most 3,993 characters", () => {
-	assert.ok(motion.length > 0 && motion.length <= 3993, `${motion.length}`);
+// +248 for the done rule (#1114: QA 0 plus every visible criterion met and verify_result's support, contact and skin penetration review; no variants only once done): +248
+check("the whole prompt is at most 16,832 characters", () => assert.ok(prompt.length <= 16832, `${prompt.length}`));
+check("the motion part is at most 4,241 characters", () => {
+	assert.ok(motion.length > 0 && motion.length <= 4241, `${motion.length}`);
 });
 check("the prompt names describe, grab, goals, repair, base, beats and the 0.01 m scale floor", () => {
 	for (const word of ["motion.describe", "grab", "goals", "repair", "base", "\"beats\"", "0.01 m"]) assert.ok(prompt.includes(word), word);
@@ -46,8 +47,14 @@ check("the motion part states the procedure", () => {
 		/fix the worst output\.observations\.life warning/]) assert.match(motion, rule);
 });
 check("the motion part states the stop rule and ends on an installed take", () => {
-	for (const rule of [/When QA reports 0 problems, you are done/, /With 4 or fewer problems, stop after 4 rounds without improvement; otherwise after 8 \(output\.noImprovementRounds\)/,
+	for (const rule of [/Done means QA reports 0 problems, every visible criterion of the request is met with its measured value, and verify_result checks \["motion"\] shows no support, contact or skin penetration fault \(hands, knees, body vs floor and objects\) past tolerance; QA 0 alone is not done: keep fixing with base \+ patch\./,
+		/With 4 or fewer problems, stop after 4 rounds without improvement; otherwise after 8 \(output\.noImprovementRounds\), with the best take installed and what is unmet reported\./,
+		/Once done, run no more variants or comparison scripts\./, /When you stop \(done, or the flat-round limit\)/,
 		/compile once more with install: "ifClean" on the best specId/, /never end a task without an installed take/]) assert.match(motion, rule);
+});
+// #1114: rolls r1 kept 0.105 m floor sinking ("the motion already passed QA, so by the rules I changed nothing more")
+check("QA 0 alone never stops the motion work, and no ban blocks fixing a QA-clean take", () => {
+	for (const ban of [/When QA reports 0 problems, you are done/, /do not explore variants/, /Never run comparison scripts after a clean compile/, /When you stop \(clean,/]) assert.doesNotMatch(prompt, ban);
 });
 check("no sentence describes objects only as hinged doors", () => {
 	assert.doesNotMatch(prompt, /\(doors\)/);

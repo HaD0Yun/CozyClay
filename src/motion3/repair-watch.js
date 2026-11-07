@@ -4,7 +4,8 @@
 // ~1,250 output tokens of model time, a turn compiles median 8 / p90 17 times, a failure that survives
 // two retries unchanged survives a third about a third of the time, and about a fifth of the
 // compiles after a take first passes QA failed QA again (re-tweaking what already passed).
-//   polish  an earlier compile of this character in this turn passed QA: say so, stop unless asked
+//   polish  an earlier compile of this character in this turn passed QA: say so; stop only when the visible criteria
+//           and verify_result's physics review pass too, else keep fixing (#1114)
 //   cap     REPAIR_CAP compiles after the first: report what still fails on the best take
 //   stuck   the same failing groups (or more) for STUCK_AFTER compiles in a row, neither fewer nor
 //           DELTA_STEP less severe: stop patching them (or re-applying their hints), start over,
@@ -117,7 +118,8 @@ export function createRepairWatch() {
 			: mine ? `Your installed take ${named(line.mine)} stays${past(line.mine)}.` : keeps ? `${named(held)} stays installed, ${POS}.`
 				: current !== null && pick.take !== undefined ? `The earlier take stays; to replace it, install the best take here, ${named(pick)}.`
 					: `Install the best take here, ${named(pick)}.`;
-		const asked = "stop unless the user asked for a specific change";
+		// QA 0 is not done (#1114): the visible criteria and verify_result's support/contact/penetration review decide too
+		const asked = "stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance; else keep fixing up to the flat-round limit";
 		let say;
 		if (kind === "polish") say = !install ? `${passed} already passed QA: ${asked}.` : install.specId === passed ? `${passed} passed QA and is now installed, ${POS}: ${asked}.`
 			: `${passed} passed QA at another position; the best take here, ${named(pick)}, is installed, ${POS}. Report its problems; ${asked}.`;
