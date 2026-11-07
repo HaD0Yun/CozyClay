@@ -4,8 +4,9 @@
 // to Korean users came back in English 9 times in 36, and the top-view plan image rode every turn of a staged scene.
 // Checked here: nothing shrinks while the view's estimate is under the limit; past it, one step shrinks every older
 // result and image (ids kept, the newest whole) and the next step waits for room, so the cached prefix holds between
-// steps (#1115: shrinking 8 results at a time cost 84 cache rewrites in 30 bench sessions); past the ceiling the oldest
-// turns leave the view; earlier turns' scripts shrink at a turn start, the running turn's calls never; the stored
+// steps (#1115: shrinking 8 results at a time cost 84 cache rewrites in 30 bench sessions); no view passes the ceiling:
+// past it the oldest turns leave the view, then the running turn's oldest calls, and the newest inspect result's context
+// counts; earlier turns' scripts shrink at a turn start, the running turn's calls never; the stored
 // history is untouched; each prompt carries its reply language; the plan comes on a staging request or once per
 // session; a restored transcript never shows an observation label as the user's words. Plus one Studio session through
 // the real runner and a scripted model.
@@ -76,7 +77,7 @@ check("only earlier turns' scripts shrink; the running turn's calls (next to sig
 		assert.ok(calls.every(m => m.content[0].type === "thinking" && m.content[0].thinkingSignature), "thinking blocks are kept as they are");
 	}
 });
-check("a newest prompt's studio context and a newest inspect result's context move no step: the diet drops both later", () => {
+check("under the ceiling a newest prompt's studio context and a newest inspect result's context move no step: the diet drops both later", () => {
 	const h = history(firstStep - 1, 12000), at = h.findLastIndex(m => m.role === "user");
 	h[at] = { role: "user", content: [{ type: "text", text: `<studio-context>\n${JSON.stringify({ pad: "s".repeat(100_000) })}\n</studio-context>\n이제 카메라를 레일로 바꿔줘` }] };
 	h.push({ role: "assistant", content: [{ type: "toolCall", id: "ci", name: "inspect_studio", arguments: {} }] }, { role: "toolResult", toolCallId: "ci", toolName: "inspect_studio", isError: false, content: [{ type: "text", text: JSON.stringify({ ok: true, context: { pad: "z".repeat(100_000) } }) }] });
@@ -107,6 +108,48 @@ check("past the ceiling the oldest turns leave the view, down to the limit, with
 	const changes = prefixChanges(views);
 	assert.ok(changes.length <= 8, `${changes.length} rewrites in ${views.length} requests`);
 	for (const k of changes) assert.ok(tokens(views[k]) < tokens(views[k - 1]), `request ${k} shrinks the view`);
+});
+// A view's calls all keep their results, and it starts with a prompt.
+const wellFormed = view => {
+	const ids = new Set(view.flatMap(m => m.role === "assistant" ? m.content.filter(p => p.type === "toolCall").map(p => p.id) : []));
+	assert.ok(view.every(m => m.role !== "toolResult" || ids.has(m.toolCallId)), "every result keeps its call");
+	assert.ok(view[0].role === "user" && view[0].content.some(p => p.text?.startsWith("<studio-context")), "the view starts with a prompt");
+};
+check("one long turn past the ceiling leaves its own oldest calls out, down to the limit, with a note on its prompt; no view passes 200k", () => {
+	// One turn of 90 calls, each next to 20k characters of thinking: no earlier turn is left to leave, so the turn's oldest calls go.
+	const h = [prompt("의자를 끌어와서 앉아줘")];
+	for (let i = 0; i < 90; i++) h.push(call(i, `return ${i};`, "x".repeat(20_000)), result(i));
+	const views = [...h.flatMap((m, k) => m.role === "assistant" ? [run(h.slice(0, k))] : []), run(h)];
+	assert.ok(views.every(view => tokens(view) <= 200_000), `largest view ${Math.round(Math.max(...views.map(tokens)))} tokens`);
+	views.forEach(wellFormed);
+	const last = views.at(-1), note = /^\[The (\d+) messages after this one, this turn's earlier calls and their results, are left out/.exec(last[0].content.at(-1).text);
+	assert.ok(note, "the prompt carries the note");
+	const left = Number(note[1]);
+	assert.ok(left >= 100 && left % 2 === 0, `${left} messages left out, whole calls with their results`);
+	assert.deepEqual(last.slice(1).map(m => m.toolCallId ?? m.content[1].id), h.slice(1 + left).map(m => m.toolCallId ?? m.content[1].id), "the rest of the turn follows, nothing else left out");
+	assert.deepEqual(last.at(-2), h.at(-2), "the newest call stays as it was, its signed thinking too");
+	const changes = prefixChanges(views);
+	assert.ok(changes.length >= 3 && changes.length <= 8, `rewrites at requests ${changes}`);
+	for (const k of changes) assert.ok(tokens(views[k]) < tokens(views[k - 1]) && tokens(views[k]) <= 121_000, `request ${k} takes the view down to the limit`);
+	for (let i = 1; i < changes.length; i++) assert.ok(changes[i] - changes[i - 1] >= 8, `steps at ${changes[i - 1]} and ${changes[i]}`);
+});
+check("the ceiling counts the newest inspect result's re-embedded context: no view passes 200k with it", () => {
+	const h = [];
+	for (let t = 0; t < 8; t++) {
+		h.push(prompt(`장면 ${t}`));
+		for (let i = 0; i < 10; i++) h.push(call(t * 10 + i, `return ${t * 10 + i};`, "x".repeat(20_000)), result(t * 10 + i));
+		h.push({ role: "assistant", content: [{ type: "text", text: "done" }] });
+	}
+	// At every request after a result, that newest result is an inspect_studio one carrying a 60k-character context.
+	const views = h.flatMap((m, k) => m.role === "assistant" && h[k - 1].role === "toolResult"
+		? [run([...h.slice(0, k - 1), { ...h[k - 1], toolName: "inspect_studio", content: [{ type: "text", text: JSON.stringify({ ok: true, context: { pad: "z".repeat(60_000) } }) }] }])] : []);
+	assert.ok(views.every(view => tokens(view) <= 200_000), `largest view ${Math.round(Math.max(...views.map(tokens)))} tokens`);
+	views.forEach(wellFormed);
+});
+check("a newest result too big for the ceiling on its own shrinks as well, its ids kept", () => {
+	const out = run([prompt("의자를 끌어와서 앉아줘"), call(0, "return 0;"), result(0, [], 900_000)]);
+	assert.ok(tokens(out) <= 200_000, `${Math.round(tokens(out))} tokens`);
+	assert.ok(isShort(out[2]) && text(out[2]).includes(uuid(0)) && text(out[2]).includes(spec(0)));
 });
 check("the stored history is never edited", () => {
 	const h = history(14), before = JSON.stringify(h);

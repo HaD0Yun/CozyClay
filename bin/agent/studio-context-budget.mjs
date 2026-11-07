@@ -7,8 +7,8 @@
 // after it is written to the prompt cache again. Shortening 8 results at a time cost the 2026-11-07 physics bench 84
 // such rewrites in 30 sessions, $39 of cache writes, to save $5.6 of cache reads (#1115). So the view stays as it is
 // until its estimate passes `limit`; then every older result and image shrinks in one step (the newest stay whole) if
-// that takes at least `room` off, and the next step waits until the view has grown by `room` again. Past `ceiling` a
-// step also leaves the oldest turns out.
+// that takes at least `room` off, and the next step waits until the view has grown by `room` again. No view passes
+// `ceiling`: a step past it takes the view down to `limit`, oldest turns first, then the running turn's oldest calls.
 // Estimate: text, thinking and call arguments at 3.6 characters a token, an image at 1600 tokens, messages only (the
 // system prompt and the tool schemas are fixed for the session).
 const BUDGET = Object.freeze({ limit: 120_000, room: 40_000, ceiling: 200_000, keepResults: 10, keepImages: 3, bulky: 1200, head: 480, codeHead: 360 });
@@ -62,40 +62,67 @@ const callSaving = part => (JSON.stringify(part.arguments).length - JSON.stringi
 const resultSaving = message => contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? part.text.length - shortResultText(part.text).length : 0), 0) / CHARS_PER_TOKEN;
 const IMAGE_SAVING = IMAGE_TOKENS - IMAGE_STAND_IN.length / CHARS_PER_TOKEN;
 const leftOutNote = count => `[The first ${count} messages of this session are left out of this request to save context.]`;
-const NOTE_TOKENS = leftOutNote(1e6).length / CHARS_PER_TOKEN;
+const gapNote = count => `[The ${count} messages after this one, this turn's earlier calls and their results, are left out of this request to save context.]`;
+const NOTE_TOKENS = leftOutNote(1e6).length / CHARS_PER_TOKEN, GAP_NOTE_TOKENS = gapNote(1e6).length / CHARS_PER_TOKEN;
+// What the diet sends of a message beyond its settled size: the newest prompt's studio context, the newest result's context.
+const liveTokens = message => contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? part.text.length - settledChars(message, part.text) : 0), 0) / CHARS_PER_TOKEN;
 
 /**
- * Which results, script calls and images the view shortens, and where it starts. The steps are replayed from the start
- * of the history with each message at its settled size, so a request reaches the same steps as the one before it plus
- * at most a new one at its end: between steps the view only grows at its end and the cached prefix holds.
+ * Which results, script calls and images the view shortens, where it starts, and which of the running turn's calls it
+ * leaves out (`gap`: the messages after `at`, the user message before the turn's first call, up to `end`, a later call).
+ * The steps are replayed from the start of the history
+ * with each message at its settled size, so a request reaches the same steps as the one before it plus at most a new one
+ * at its end: between steps the view only grows at its end and the cached prefix holds.
  */
 function shortenedParts(messages) {
 	const results = [], images = [], calls = [], prompts = [], size = [];
-	let total = 0, live = 0, next = BUDGET.limit, cutResults = 0, cutImages = 0, cutCalls = 0, from = 0;
-	const cut = item => { size[item.index] -= item.saving; if (item.index >= from) total -= item.saving; };
-	const pending = (items, done, keep) => items.slice(done, Math.max(done, items.length - keep)).reduce((sum, item) => sum + (item.index >= from ? item.saving : 0), 0);
+	let total = 0, live = 0, liveResult = 0, next = BUDGET.limit, cutResults = 0, cutImages = 0, cutCalls = 0, from = 0, gap = null, turn = [];
+	const inView = index => index >= from && !(gap && index > gap.at && index < gap.end);
+	const over = bound => total + live + liveResult > bound;
+	const cut = item => { size[item.index] -= item.saving; if (inView(item.index)) total -= item.saving; };
+	const pending = (items, done, keep) => items.slice(done, Math.max(done, items.length - keep)).reduce((sum, item) => sum + (inView(item.index) ? item.saving : 0), 0);
+	const cutAll = (keepResults, keepImages) => {
+		for (; cutResults < results.length - keepResults; cutResults += 1) cut(results[cutResults]);
+		for (; cutImages < images.length - keepImages; cutImages += 1) cut(images[cutImages]);
+	};
 	// One step: every older result and image shrinks, the newest stay whole, when that takes at least `room` off the view
 	// (a smaller step costs a rewrite and saves little). Shortened forms and thinking still add up over hundreds of requests,
-	// so past the ceiling the oldest whole turns leave the view as well, down to `limit` in the same step (a turn runs from
-	// its prompt to the next one, so every call keeps its result). Only the running turn can hold the view above the ceiling.
+	// so a step past the ceiling shrinks all it can and takes the view down to `limit`: the oldest whole turns leave first
+	// (a turn runs from its prompt to the next one), then the running turn's oldest calls with their results (its prompt
+	// and its newest call stay; a call is never split from its results). Only when the prompt and the newest call alone
+	// pass the ceiling do the newest results and images shrink as well.
 	const step = () => {
-		const leave = total + live > BUDGET.ceiling && prompts.at(-1) > from;
-		if (leave || pending(results, cutResults, BUDGET.keepResults) + pending(images, cutImages, BUDGET.keepImages) >= BUDGET.room) {
-			for (; cutResults < results.length - BUDGET.keepResults; cutResults += 1) cut(results[cutResults]);
-			for (; cutImages < images.length - BUDGET.keepImages; cutImages += 1) cut(images[cutImages]);
+		const ceiling = over(BUDGET.ceiling);
+		if (ceiling || pending(results, cutResults, BUDGET.keepResults) + pending(images, cutImages, BUDGET.keepImages) >= BUDGET.room) cutAll(BUDGET.keepResults, BUDGET.keepImages);
+		if (ceiling) {
+			for (const at of prompts) {
+				if (!over(BUDGET.limit)) break;
+				if (!from && at) total += NOTE_TOKENS;
+				for (; from < at; from += 1) if (inView(from)) total -= size[from];
+				if (gap && from > gap.at) { total -= GAP_NOTE_TOKENS; gap = null; }
+			}
+			for (const at of turn) {
+				if (!over(BUDGET.limit) || from !== prompts.at(-1)) break;
+				if (at <= (gap?.end ?? turn[0])) continue;
+				if (!gap) { gap = { at: turn[0] - 1, end: turn[0] }; total += GAP_NOTE_TOKENS; }
+				for (; gap.end < at; gap.end += 1) total -= size[gap.end];
+			}
+			if (over(BUDGET.ceiling)) cutAll(0, 0);
 		}
-		if (leave) for (const at of prompts) { if (total + live <= BUDGET.limit) break; if (!from && at) total += NOTE_TOKENS; for (; from < at; from += 1) total -= size[from]; }
-		next = total + live < BUDGET.ceiling ? Math.min(BUDGET.ceiling, Math.max(BUDGET.limit, total + BUDGET.room)) : total + BUDGET.room;
+		next = over(BUDGET.ceiling) ? total + BUDGET.room : Math.min(BUDGET.ceiling, Math.max(BUDGET.limit, total + BUDGET.room));
 	};
 	messages.forEach((message, index) => {
 		// An assistant message of the running turn may carry signed thinking next to its calls: only earlier turns' scripts
-		// shrink, all at once when a turn starts, where the diet moves the prefix anyway. The ceiling also counts the running
-		// prompt's studio context, which stays whole for its turn.
-		if (isPrompt(message)) {
+		// shrink, all at once when a turn starts, where the diet moves the prefix anyway. The ceiling also counts what the
+		// diet still sends whole: the running prompt's studio context, the newest result's re-embedded context.
+		if (isPrompt(message) || (!index && message?.role === "user")) {
 			prompts.push(index);
+			turn = [];
 			for (; cutCalls < calls.length; cutCalls += 1) cut(calls[cutCalls]);
-			live = contentOf(message).reduce((sum, part) => sum + (part?.type === "text" && typeof part.text === "string" ? part.text.length - settledChars(message, part.text) : 0), 0) / CHARS_PER_TOKEN;
+			live = liveTokens(message);
 		}
+		if (message?.role === "assistant") turn.push(index);
+		if (message?.role === "toolResult") liveResult = liveTokens(message);
 		size[index] = 0;
 		contentOf(message).forEach((part, j) => {
 			size[index] += partTokens(message, part);
@@ -104,17 +131,17 @@ function shortenedParts(messages) {
 		});
 		total += size[index];
 		if (message?.role === "toolResult") results.push({ index, saving: resultSaving(message) });
-		if (total > next || (total + live > BUDGET.ceiling && prompts.at(-1) > from)) step();
+		if (total > next || over(BUDGET.ceiling)) step();
 	});
 	const keys = (items, count) => new Set(items.slice(0, count).map(item => item.key ?? item.index));
-	return { from, results: keys(results, cutResults), calls: keys(calls, cutCalls), images: keys(images, cutImages) };
+	return { from, gap, results: keys(results, cutResults), calls: keys(calls, cutCalls), images: keys(images, cutImages) };
 }
 
 /** The messages a Studio request sends: older tool results, script calls and images shortened (new objects only), and
- * past the ceiling the oldest turns left out, with a note on the first prompt kept. */
+ * past the ceiling the oldest turns and the running turn's oldest calls left out, each with a note on the prompt kept. */
 function budgetStudioMessages(messages) {
 	const old = shortenedParts(messages);
-	if (!old.from && !old.results.size && !old.calls.size && !old.images.size) return messages;
+	if (!old.from && !old.gap && !old.results.size && !old.calls.size && !old.images.size) return messages;
 	const view = messages.map((message, index) => {
 		if (!Array.isArray(message?.content)) return message;
 		let changed = false;
@@ -127,9 +154,14 @@ function budgetStudioMessages(messages) {
 		});
 		return changed ? { ...message, content } : message;
 	});
-	if (!old.from) return view;
-	const [first, ...rest] = view.slice(old.from);
-	return [{ ...first, content: [{ type: "text", text: leftOutNote(old.from) }, ...first.content] }, ...rest];
+	if (!old.from && !old.gap) return view;
+	const parts = message => (typeof message.content === "string" ? [{ type: "text", text: message.content }] : contentOf(message));
+	return view.flatMap((message, index) => {
+		if (index < old.from || (old.gap && index > old.gap.at && index < old.gap.end)) return [];
+		if (old.from && index === old.from) message = { ...message, content: [{ type: "text", text: leftOutNote(old.from) }, ...parts(message)] };
+		if (old.gap && index === old.gap.at) message = { ...message, content: [...parts(message), { type: "text", text: gapNote(old.gap.end - old.gap.at - 1) }] };
+		return [message];
+	});
 }
 
 // Scripts that name a language unambiguously; Han alone (no kana) reads as Chinese.
