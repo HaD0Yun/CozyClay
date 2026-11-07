@@ -10,18 +10,23 @@
 // skinning, the surface verify_result measures; 7689 frames), each part's deepest point agrees within 4.1 mm, with no
 // part read over 1 cm in where the skin is under 0.5 cm and none read under 1 cm where it is over 1.5 cm; the joint
 // capsules (CAPSULES) are off by up to 10 cm (the torso 3 cm under the floor where the skin lies on it, the hips' 3 cm
-// missed). A rig without a fitted body is measured on the capsules.
+// missed). A rig without a fitted body is measured on the capsules. visitSkin walks the same skin a third as dense, for
+// what carries the body (support.js, #1125) and what a declared support touches (relaxed.js).
 import { len, scale, sub } from "../compiler/math.js";
 import { bodyFor } from "../body.js";
 import { regionOf } from "./body-checks.js";
-import { CAPSULES, fingerCapsules } from "./geometry.js";
+import { CAPSULES, fingerCapsules, segPoints } from "./geometry.js";
 
-const SPACING = 0.01, FEET = /(Foot|Toe)/;
+const SPACING = 0.01, COARSE = 0.03, FEET = /(Foot|Toe)/;
 const skins = new Map();
 
-/** Skin points of every fitted bone but the feet, in the bones' bind frames: [[bone, local point, part], ...]; null without a fitted body. */
-function bodySkin(sk) {
-	if (skins.has(sk.model)) return skins.get(sk.model);
+/**
+ * Skin points of every fitted bone but the feet, one per `spacing` cube, in the bones' bind frames: [[bone, local point,
+ * part], ...]; null without a fitted body.
+ */
+function bodySkin(sk, spacing = SPACING) {
+	const key = `${sk.model} ${spacing}`;
+	if (skins.has(key)) return skins.get(key);
 	const body = bodyFor(sk), out = body ? [] : null;
 	for (const g of body?.grids ?? []) {
 		if (FEET.test(sk.names[g.b])) continue;
@@ -31,11 +36,11 @@ function bodySkin(sk) {
 			if (Math.abs(d) > step / 2) continue;
 			const grad = [at(i + 1, j, k) - at(i - 1, j, k), at(i, j + 1, k) - at(i, j - 1, k), at(i, j, k + 1) - at(i, j, k - 1)], l = len(grad);
 			if (l < 1e-9) continue;
-			const q = sub([g.min[0] + i * step, g.min[1] + j * step, g.min[2] + k * step], scale(grad, d / l)), cell = q.map(v => Math.floor(v / SPACING)).join();
+			const q = sub([g.min[0] + i * step, g.min[1] + j * step, g.min[2] + k * step], scale(grad, d / l)), cell = q.map(v => Math.floor(v / spacing)).join();
 			if (!seen.has(cell)) { seen.add(cell); out.push([g.b, q, part]); }
 		}
 	}
-	skins.set(sk.model, out);
+	skins.set(key, out);
 	return out;
 }
 
@@ -51,6 +56,28 @@ export function floorParts(sk, s, allow) {
 	const worst = new Map();
 	for (const [part, d] of floorDepths(sk, s)) { const k = driverOf(part); if (d > allow && !(worst.get(k)?.[1] >= d)) worst.set(k, [part, d]); }
 	return [...worst.values()];
+}
+
+/**
+ * Visits the skin of the body but the feet at state s, in world space: visit(part, x, y, z, r) for each point of the fitted
+ * skin one per COARSE cube (r 0; 4205 points, a third of the 1 cm skin's: a part's lowest point reads 0.26 cm higher on
+ * average, at most 1.5 cm, p99 1.4 cm, on 15422 part-frames of 6 bench floor takes) and for points on the axis of the
+ * fingers' phalanx capsules (a rig without a fitted body: of the joint capsules) with their radius r. keep(part), when
+ * given, picks the parts visited. A visit that returns true stops it, and visitSkin returns true. What carries the body
+ * (support.js) and what a declared support touches (relaxed.js) read it.
+ */
+export function visitSkin(sk, s, visit, keep = null) {
+	const axis = (part, a, b, r) => (!keep || keep(part)) && segPoints(a, b, 3).some(p => visit(part, p[0], p[1], p[2], r));
+	const skin = bodySkin(sk, COARSE);
+	if (skin) {
+		for (const [b, q, part] of skin) {
+			if (keep && !keep(part)) continue;
+			const R = s.R[b], P = s.P[b];
+			if (visit(part, P[0] + R[0][0] * q[0] + R[0][1] * q[1] + R[0][2] * q[2], P[1] + R[1][0] * q[0] + R[1][1] * q[1] + R[1][2] * q[2],
+				P[2] + R[2][0] * q[0] + R[2][1] * q[1] + R[2][2] * q[2], 0)) return true;
+		}
+	} else if (CAPSULES.some(([part, a, b, r]) => axis(part, s.P[sk.index[a]], s.P[sk.index[b]], r))) return true;
+	return ["Left", "Right"].some(side => fingerCapsules(sk, s, side).some(c => axis(...c)));
 }
 
 /** How deep (m) each part's skin goes under the floor at state s: Map part -> depth (negative: its lowest point is above it). */
