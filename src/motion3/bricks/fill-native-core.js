@@ -87,10 +87,52 @@ export function denseChannels(motion, fa, fb, baked, endBaked = baked) {
 		});
 	}
 	const planted = out.map((_, i) => motion[Math.round(i / last * (n - 1))].contacts);
+	smoothFootAngles(out);
 	lockFeet(out, planted);
 	stepFeet(out);
+	seamBlend(out, fa, fb, baked, endBaked);
 	out.forEach(saneChannels);
 	return out;
+}
+
+/**
+ * The foot's pitch and yaw come from the model's ankle and toe positions (forward.js), where a few millimetres of noise turn
+ * into degrees: t2B3 f29-30 had fpitch_l jumping 19 deg/frame^2 (QA POP on the leg). Three [1,2,1] passes, ends kept. Mutates out.
+ */
+function smoothFootAngles(out, passes = 3) {
+	const last = out.length - 1;
+	if (last < 3) return;
+	for (const ch of ["fpitch_l", "fpitch_r", "fyaw_l", "fyaw_r"]) {
+		if (typeof out[0][ch] !== "number") continue;
+		for (let p = 0; p < passes; p++) {
+			const v = out.map(o => o[ch]);
+			for (let i = 1; i < last; i++) out[i][ch] = (v[i - 1] + 2 * v[i] + v[i + 1]) / 4;
+		}
+	}
+}
+
+const SEAM = 6;
+/**
+ * The endpoint correction puts the model's values on the compiled ones at both ends, but not its speed: a gap the model is rushed
+ * through (exact timing, 20 frames where it wants 24) arrives moving and the take stops dead at the key (gait/rules2: POP on the
+ * forearm at the gap's last frame). Over SEAM frames at each end the channels ease from the compiled curve into the model's
+ * motion (smoothstep), so position and speed carry on across the seam. Mutates out.
+ */
+function seamBlend(out, fa, fb, baked, endBaked = baked) {
+	const last = out.length - 1, K = Math.min(SEAM, Math.floor(last / 4));
+	if (K < 2) return;
+	const mix = (m, c, w) => (Array.isArray(m) ? m.map((v, i) => c[i] + (v - c[i]) * w) : c + (m - c) * w);
+	const ease = t => t * t * (3 - 2 * t);
+	for (const k of Object.keys(out[0])) {
+		const A = baked[k], B = endBaked[k];
+		if (!A || !B) continue;
+		for (let i = 0; i <= K; i++) {
+			const ws = ease(i / K), we = ease(i / K);
+			const c0 = A[fa + i], c1 = B[fb - i];
+			if (c0 !== undefined && typeof c0 === typeof out[i][k]) out[i][k] = mix(out[i][k], c0, ws);
+			if (c1 !== undefined && typeof c1 === typeof out[last - i][k]) out[last - i][k] = mix(out[last - i][k], c1, we);
+		}
+	}
 }
 
 const STEP_MIN_M = 0.02, STEP_FROM = 0.6, STEP_LIFT = 0.03;

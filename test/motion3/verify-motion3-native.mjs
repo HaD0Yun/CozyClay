@@ -61,14 +61,27 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
 // exact: authored frames stay, 4 targets at the middle key and 1 at the last, the model's longer length is a timing hint
+// (the stub's still pose is not a motion worth keeping, so the plumbing runs with the quality guard off; the guard has its own check below)
 {
+	process.env.COZYCLAY_MB_NOGUARD = "1";
 	const log = [], r = await fillSpecNative(demo, { sk, compile, run: stubRunner(log) }, { timing: "exact", gate: false });
+	delete process.env.COZYCLAY_MB_NOGUARD;
 	expect("exact: the authored key frames stay 0, 20, 42", JSON.stringify(authoredFrames(r.spec)) === "[0,20,42]", JSON.stringify(authoredFrames(r.spec)));
 	expect("exact: two gaps generated", r.calls === 2, `${r.calls}`);
 	expect("exact: 4 target poses at the pass-through key, 1 at the last", JSON.stringify(r.gaps.map(g => g.targets)) === "[4,1]", JSON.stringify(r.gaps.map(g => g.targets)));
 	expect("exact: fill keys between the authored keys", r.spec.keys.some(isFillKey));
 	expect("exact: a timing hint when the model wants longer", (r.warnings ?? []).some(w => w.startsWith("timing f0-f20")), JSON.stringify(r.warnings));
 	expect("exact: the filled spec compiles", compile(r.spec).out.frames.length === 43, `${compile(r.spec).out.frames.length}`);
+}
+
+// guard: a fill that makes the take worse than the compiler's own (the stub's still pose stops the sit dead) keeps no fill key and
+// says which gaps went; the authored keys and the frame count stay
+{
+	const r = await fillSpecNative(demo, { sk, compile, run: stubRunner() }, { timing: "exact", gate: false });
+	const base = compile({ ...demo, keys: demo.keys.filter(k => !isFillKey(k)) }), after = compile(r.spec);
+	expect("guard: the filled take is no worse than the compiler's (QA frame issues)", after.qa.total <= base.qa.total, `${after.qa.total} > ${base.qa.total}`);
+	expect("guard: gaps it did not keep are reported dropped", r.gaps.filter(g => g.keys !== undefined).every(g => !r.spec.keys.some(isFillKey) ? g.dropped : true), JSON.stringify(r.gaps.map(g => g.dropped ?? null)));
+	expect("guard: the authored key frames stay 0, 20, 42", JSON.stringify(authoredFrames(r.spec)) === "[0,20,42]", JSON.stringify(authoredFrames(r.spec)));
 }
 
 // retime: each gap takes the model's length, the later keys move by the difference

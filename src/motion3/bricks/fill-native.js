@@ -11,7 +11,7 @@ import { encodePoses, decodeMotion } from "./model-io.js";
 import { isFillKey, shortHash, editedFill } from "./fill-src.js";
 import { spanReason } from "./fill-spans.js";
 import { classifySpans, densityNotes } from "./fill-density.js";
-import { STEP, poseAt, fillGaps, pinHands, sparseKeys, merge, passThrough, safeGap, gapQa, gapCheck } from "./fill.js";
+import { STEP, poseAt, fillGaps, pinHands, sparseKeys, boundToGap, merge, passThrough, safeGap, gapQa, gapCheck } from "./fill.js";
 import { MIN_GAP, TOL_SCALE, correctMotion, denseChannels, gapTokens, groundSoles, relaxPops } from "./fill-native-core.js";
 import { fillRetime, fillPlayground } from "./fill-native-chain.js";
 import { carryHands } from "./fill-carry.js";
@@ -19,12 +19,50 @@ import { despikeAngles } from "./fill-despike.js";
 import { holdStance } from "./fill-stance.js";
 
 /** Same contract as fill.js fillSpec ({ spec, gaps, calls, spans, ... }), the native policy. */
-export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = "exact", gate = true } = {}) {
+const CLASSES = { overlap: /^(COLLIDE|BODY|SELF|FACE)$/, slide: /^SLIDE$/, pop: /^(POP|FLIP)$/, float: /^FLOAT$/, held: /^HELD_OBJECT_DRIFT$/, reach: /^(REACH|KEY|GOAL)$/, wrist: /^WRIST$/ };
+/** The problem classes whose frame count around a gap ([fa-6, fb+6]) grows from the compiler's curve (before) to the filled take (after). */
+function worseKinds(before, after, fa, fb, pad = 6) {
+	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) { if (g.last < fa - pad || g.first > fb + pad) continue; for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); } return t; };
+	const a = tally(before), b = tally(after);
+	return Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
+}
+
+const KEY_POINTS = ["root", "foot_l", "foot_r", "hand_l", "hand_r"];
+/** Largest distance (m) between an authored key's point channels and the compiled take at its frame. */
+function keyMiss(baked, authored) {
+	let worst = 0;
+	for (const k of authored) for (const ch of KEY_POINTS) { const w = k.set?.[ch], g = baked?.[ch]?.[k.f]; if (Array.isArray(w) && Array.isArray(g)) worst = Math.max(worst, Math.hypot(w[0] - g[0], w[1] - g[1], w[2] - g[2])); }
+	return worst;
+}
+/** Problem classes (whole take) the filled compile has more of than the compiler's curve, plus "keys" when it misses a key further. */
+function globalWorse(base, filled, authored, life = base.observations?.life) {
+	const tally = qa => { const t = {}; for (const g of qa?.groups ?? []) for (const [c, re] of Object.entries(CLASSES)) if (re.test(g.kind)) t[c] = (t[c] ?? 0) + (g.count ?? 1); return t; };
+	const a = tally(base.qa), b = tally(filled.qa), out = Object.keys(CLASSES).filter(c => (b[c] ?? 0) > (a[c] ?? 0));
+	if (keyMiss(filled.out.baked, authored) > Math.max(0.05, keyMiss(base.out.baked, authored))) out.push("keys");
+	// naturalness (qa/motion-life.js): the fill is there to make the take less mechanical, so it may not make parts start and stop
+	// together more often (sync share, 0.05 slack) or add acceleration seams (jerk spikes)
+	const la = life ?? {}, lb = filled.observations?.life ?? {};
+	if ((lb.sync?.[0] ?? 0) > (la.sync?.[0] ?? 0) + 0.05) out.push("sync");
+	if ((lb.jerk?.[2] ?? 0) > (la.jerk?.[2] ?? 0)) out.push("jerk");
+	return out;
+}
+
+export async function fillSpecNative(spec, { sk, compile, run, reference }, { at, timing = "exact", gate = true, receivedAt } = {}) {
+	// one deadline for the whole fill (COZYCLAY_MB_DEADLINE_MS, 45 s, from when the dev server got the request): the Studio waits 90 s for the answer (motion3-fill.js
+	// FILL_TIMEOUT_MS) and a gap or the last compiles can run past it; gaps not started by half of it keep the compiler's curve
+	const started = performance.now() - (Number.isFinite(receivedAt) ? Math.max(0, Date.now() - receivedAt) : 0), deadline = Number(process.env.COZYCLAY_MB_DEADLINE_MS ?? 45000), elapsed = () => performance.now() - started;
+	if (elapsed() > deadline) return { spec, mode: "native", gaps: [], calls: 0, warnings: ["this fill waited past its deadline behind another one; the compiler's take is kept"] };
 	const promoted = (spec.keys ?? []).filter(editedFill).length;
 	if (timing === "playground" && at === undefined) return fillPlayground({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
 	if (timing === "retime" && at === undefined) return fillRetime({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
 	spec = { ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) };
-	const passed = passThrough(spec, compile);
+	// a spec whose one compile takes over COZYCLAY_MB_MAX_COMPILE_MS (2 s: skills such as walkTo or reachGrab) cannot be filled and
+	// checked inside the deadline (t2A2: 6.7 s a compile, the pass-through poses alone 18 s), so it keeps the compiler's take at once
+	const probe0 = performance.now(); compile({ ...spec, keys: (spec.keys ?? []).filter(k => !isFillKey(k)) }); const baseMs = performance.now() - probe0;
+	if (baseMs > Number(process.env.COZYCLAY_MB_MAX_COMPILE_MS ?? 2000)) return { spec, mode: "native", gaps: [], calls: 0, warnings: [`one compile of this spec takes ${(baseMs / 1000).toFixed(1)} s; MotionBricks cannot fill and check it within the ${deadline / 1000} s deadline, so the compiler's take is kept`] };
+	// the agent's spec before pass-through keys: the install check measures against it (a pass key changes the take too: real agent
+	// take t2A3, QA 20 -> 33 with every fill key dropped and its pass keys left in)
+	const original = spec, passed = passThrough(spec, compile);
 	spec = passed.spec;
 	const authored = spec.keys.filter(k => !isFillKey(k)), authoredFs = [...new Set(authored.map(k => k.f))].sort((a, b) => a - b);
 	const gaps = fillGaps(spec.keys, at, MIN_GAP);
@@ -35,7 +73,10 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 	// the authored key moves it, and that pose would become the model's target
 	const base = compile({ ...spec, keys: spec.keys.filter(k => !isFillKey(k)) }), baseCache = new Map();
 	for (const [i, [fa, fb]] of gaps.entries()) {
-		const r = compile({ ...spec, keys }), cache = new Map();
+		// every gap reads its context from the authored keys' compile (not the take with the earlier gaps filled), so the gaps do not
+		// lean on each other and any subset of them can stay (the selection below); COZYCLAY_MB_CHAIN=1 keeps the old chaining
+		if (elapsed() > deadline * 0.5) { skipped.push({ f: [fa, fb], reason: "time" }); report.push({ f: [fa, fb], skipped: "time" }); continue; }
+		const r = process.env.COZYCLAY_MB_CHAIN === "1" ? compile({ ...spec, keys }) : base, cache = r === base ? baseCache : new Map();
 		const safe = safeGap(authored, r.out.baked, fa, fb);
 		const reason = spanReason(spec, authored, r.out.baked, fa, fb) ?? (safe === "hold" || (gate && safe) ? safe : null);
 		if (reason) { skipped.push({ f: [fa, fb], reason }); report.push({ f: [fa, fb], skipped: reason }); continue; }
@@ -56,14 +97,80 @@ export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = 
 		if (Math.abs(wants - (fb - fa)) >= 6) warnings.push(`timing f${fa}-f${fb}: ${fb - fa} frames, model wants ~${wants}${wants > fb - fa ? " (rushed)" : " (drags)"}`);
 		const motion = correctMotion(decodeMotion(res.out, res.tokens, align), poses[3], poses[4]);
 		const dense = carryHands(pinHands(holdStance(despikeAngles(denseChannels(motion, fa, fb, r.out.baked, base.out.baked), r.out.baked, fa), fa, fb, authored), fa, fb, authored, r.out.frames, sk), fa, fb, spec, authored, r.out.baked);
+		if (elapsed() > deadline * 0.7) { skipped.push({ f: [fa, fb], reason: "time" }); report.push({ f: [fa, fb], skipped: "time" }); continue; }
 		const grounded = groundSoles(dense, fa, { spec: { ...spec, fix: { ...(spec.fix ?? {}), slide: false } }, keys, compile, sk });
 		const relaxed = relaxPops(dense, fa, { spec, keys, compile, sk });
-		const fill = sparseKeys(dense, fa, ends[i], TOL_SCALE);
+		const fill = boundToGap(sparseKeys(dense, fa, ends[i], TOL_SCALE), authored, fa, fb);
 		const qaCurve = gapQa(r.qa, fa, fb);
-		keys = merge(keys, fill);
-		const qaModel = gapQa(compile({ ...spec, keys }).qa, fa, fb);
+		const withFill = merge(keys, fill), qaAfter = compile({ ...spec, keys: withFill }).qa;
+		const qaModel = gapQa(qaAfter, fa, fb);
+		// per-kind gate (exact/free): the gap keeps the model's keys only if no problem class gets worse on the frames around it
+		// the local reading is kept for the report; which gaps stay is decided on the whole take below (gaps interact)
+		const localWorse = worseKinds(r.qa, qaAfter, fa, fb);
+		keys = withFill;
 		const warp = +(((fb - fa) / STEP + 1) / (res.tokens * 4 - 6)).toFixed(2);
-		report.push({ f: [fa, fb], tokens: res.tokens, targets: nTarget, modelWants: wants, ...(warp === 1 ? {} : { warp }), keys: fill.length, ...(grounded ? { grounded } : {}), ...(relaxed ? { relaxed } : {}), qa: [qaCurve.groups, qaModel.groups], ms: Math.round(ms) });
+		report.push({ f: [fa, fb], tokens: res.tokens, targets: nTarget, modelWants: wants, ...(localWorse.length ? { localWorse } : {}), ...(warp === 1 ? {} : { warp }), keys: fill.length, ...(grounded ? { grounded } : {}), ...(relaxed ? { relaxed } : {}), qa: [qaCurve.groups, qaModel.groups], ms: Math.round(ms) });
+	}
+	// global back-off (exact/free): gaps interact (a pop one gap removed and the next one added; the compiler's ground fix moving a
+	// key's root after a far fill), so the whole take is checked against the compiler's own: while a problem class is worse or an
+	// authored key is missed by more than the curve misses it (5 cm floor), the filled gap whose removal helps most is dropped
+	if (process.env.COZYCLAY_MB_NOGUARD !== "1") {
+		const without = (ks, [fa, fb]) => ks.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb));
+		// a gap that already made a problem class worse on its own frames goes first (cheap: read during the fill); the search below
+		// only weighs the rest, until the fill's deadline: past it, the fill keys that are left go too,
+		// so the answer is never worse than the compiler's own curve
+		for (const g of report.filter(g => g.keys !== undefined && !g.dropped && g.localWorse?.length)) { keys = without(keys, g.f); g.dropped = ["local"]; }
+		const filledGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f);
+		const late = () => elapsed() > deadline, budget = Math.round(deadline);
+		// each compile is synchronous; the dev server's live hub shares this event loop (tools/dev-full.mjs), so yield before each one
+		// or the editor misses its heartbeat over a long selection (live-control.js: pong within 10 s)
+		const tick = () => new Promise(res => setImmediate(res));
+		const life = base.observations?.life;
+		const score = async ks => { await tick(); const r = compile({ ...spec, keys: ks }); return { r, worse: globalWorse(base, r, authored, life) }; };
+		let cur = await score(keys);
+		// few gaps: the largest set of filled gaps with nothing worse (fewest QA problems among equals); many: greedy removal below
+		if (cur.worse.length && filledGaps.length <= 6) {
+			const all = keys, n = filledGaps.length; let best = null;
+			for (let mask = (1 << n) - 2; mask >= 0 && !late(); mask--) {
+				const drop = filledGaps.filter((_, i) => !(mask & (1 << i))), kept = n - drop.length;
+				if (best && kept < best.kept) continue;
+				const ks = drop.reduce(without, all), sc = await score(ks);
+				if (sc.worse.length) continue;
+				if (!best || kept > best.kept || sc.r.qa.total < best.sc.r.qa.total) best = { kept, ks, sc, drop };
+			}
+			if (best) { keys = best.ks; cur = best.sc; for (const g of best.drop) { const row = report.find(x => x.f === g); if (row) row.dropped = ["global"]; filledGaps.splice(filledGaps.indexOf(g), 1); } }
+		}
+		while (cur.worse.length && filledGaps.length && !late()) {
+			let best = null;
+			for (const g of filledGaps) { const ks = without(keys, g), sc = await score(ks); if (!best || sc.worse.length < best.sc.worse.length) best = { g, ks, sc }; }
+			keys = best.ks; cur = best.sc; filledGaps.splice(filledGaps.indexOf(best.g), 1);
+			const row = report.find(x => x.f === best.g); if (row) row.dropped = ["global"];
+		}
+		if (cur.worse.length) { for (const g of filledGaps) { keys = without(keys, g); const row = report.find(x => x.f === g); if (row) row.dropped = ["budget"]; } warnings.push(`MotionBricks selection ran past ${budget} ms; the compiler's curve kept`); }
+	}
+	// install check: the user gets the take after motion.compile's repair, which can undo a gain or add a problem the raw compile did
+	// not have (bench rules2: sync share 0.71 raw both ways, 0.63 repaired without the fill, 0.75 with it). Both takes go through the
+	// same repair (reference(spec)); if the filled one is worse in any class or reading, every fill key goes
+	// It always runs (a check that ran only when time was left made the same spec come out filled on one run and plain on the next),
+	// and when the whole set fails it tries the earlier half of the kept gaps, then a quarter, then an eighth, before keeping none
+	// pass keys are there for the gaps the model fills: with no fill key kept the agent's own keys go back as sent (no check needed)
+	if (process.env.COZYCLAY_MB_NOGUARD !== "1" && !keys.some(isFillKey)) keys = original.keys;
+	if (process.env.COZYCLAY_MB_NOGUARD !== "1" && reference && keys.some(isFillKey)) {
+		const plain = original.keys.filter(k => !isFillKey(k)), mine = plain, keptGaps = report.filter(g => g.keys !== undefined && !g.dropped).map(g => g.f).sort((a, b) => a[0] - b[0]);
+		let ok = false, why = [];
+		try {
+			const rb = await reference({ ...original, keys: plain });
+			for (const share of [1, 1 / 2, 1 / 4, 1 / 8]) {
+				const n = Math.ceil(keptGaps.length * share);
+				if (share < 1 && n >= Math.ceil(keptGaps.length * share * 2)) continue;
+				const drop = keptGaps.slice(n), ks = drop.reduce((acc, [fa, fb]) => acc.filter(k => !(isFillKey(k) && k.f > fa && k.f < fb)), keys);
+				const worse = globalWorse(rb, await reference({ ...spec, keys: ks }), mine);
+				if (!worse.length) { keys = ks; for (const g of report.filter(g => drop.some(d => d === g.f))) g.dropped = ["install"]; ok = true; break; }
+				why = worse;
+				if (n <= 1) break;
+			}
+		} catch { why = ["repair failed"]; }
+		if (!ok) { keys = plain; for (const g of report.filter(g => g.keys !== undefined && !g.dropped)) g.dropped = ["install"]; warnings.push(`after repair the filled take was worse (${why.join(", ")}); the compiler's take is kept`); }
 	}
 	const baked = compile({ ...spec, keys }).out.baked, frames = baked.root?.length ?? (Number.isFinite(spec.frames) ? spec.frames : 0);
 	const { kind, spans } = classifySpans({ ...spec, keys }, baked, frames), notes = densityNotes(keys, kind, spans, baked);

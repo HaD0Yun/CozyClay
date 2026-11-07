@@ -122,6 +122,7 @@ export function pinHands(dense, fa, fb, authored, frames, sk) {
  * where the run starts, or where it ends when the run reaches the gap's end (the authored key there), or slide straight
  * between the two keys when the run spans the whole gap (then any slide is the author's).
  */
+const RELEASE = 4;
 export function lockFeet(out, planted) {
 	const last = out.length - 1;
 	out.holds = { l: [], r: [] };
@@ -137,6 +138,12 @@ export function lockFeet(out, planted) {
 				for (let f = i; f <= j; f++) {
 					const w = i === 0 && j === last ? f / last : j === last && i > 0 ? 1 : 0;
 					out[f][ch] = lerp(a, b, w);
+				}
+				// a run that ends inside the gap lets the foot go from where it was held, easing onto the model's foot over RELEASE
+				// frames: the model's foot drifts a little while planted and a release in one frame was a POP (t2B3 f31, f148)
+				if (j < last && !(i === 0 && j === last)) {
+					const held = out[j][ch];
+					for (let f = j + 1, n = 1; f <= Math.min(last - 1, j + RELEASE) && !on[f]; f++, n++) { const t = n / (RELEASE + 1); out[f][ch] = lerp(held, out[f][ch], t * t * (3 - 2 * t)); }
 				}
 			}
 			i = j;
@@ -157,6 +164,16 @@ export function sparseKeys(dense, fa, gap, tolScale = 1) {
 	return [...byF].sort((a, b) => a[0] - b[0]).map(([i, set]) => { const rounded = roundChannels(set); return { f: fa + i, set: rounded, src: fillSrc(rounded, gap) }; });
 }
 
+/**
+ * Fill keys only on the channels the author keyed at both ends of the gap: a channel keyed at one end or none (a skill's hands, the
+ * head, a foot angle) would hold the model's value past the gap and override the skill or the next authored key there (t2A2: one
+ * filled gap f176-196 left both hands 80 cm off the box at f373). Keys left with no channel are dropped.
+ */
+export function boundToGap(fill, authored, fa, fb) {
+	const at = f => new Set(authored.filter(k => k.f === f).flatMap(k => Object.keys(k.set ?? {})));
+	const a = at(fa), b = at(fb);
+	return fill.map(k => ({ ...k, set: Object.fromEntries(Object.entries(k.set).filter(([ch]) => a.has(ch) && b.has(ch))) })).filter(k => Object.keys(k.set).length);
+}
 export const merge = (keys, add) => [...keys, ...add].map((k, i) => [k, i]).sort((a, b) => a[0].f - b[0].f || a[1] - b[1]).map(([k]) => k);
 
 // 14: the shortest call is 6 tokens = 18 model frames = 13.6 spec frames; a shorter gap would compress time 1.13-1.7x
@@ -230,7 +247,7 @@ export async function fillSpec(spec, { sk, compile, run }, { at, auto = false, t
 		const { feed, align } = encodePoses(poses, [tokens]);
 		const t0 = performance.now(), res = await run(feed), ms = performance.now() - t0;
 		const dense = pinHands(spanChannels(decodeMotion(res.out, res.tokens, align), fa, fb, r.out.baked, footLock), fa, fb, keys.filter(k => !isFill(k)), r.out.frames, sk);
-		const fill = sparseKeys(dense, fa, ends[i]);
+		const fill = boundToGap(sparseKeys(dense, fa, ends[i]), keys.filter(k => !isFill(k)), fa, fb);
 		// QA gate: the model's keys stay only if the gap's QA (groups and frame issues whose worst frame lies in the gap) does not
 		// get worse than the compiler's own curve there (r: this gap unfilled); the 90-run bench saw the fill add problems
 		const withFill = merge(keys, fill), qaModel = gapQa(compile({ ...spec, keys: withFill }).qa, fa, fb), qaCurve = gapQa(r.qa, fa, fb);
