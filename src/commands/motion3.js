@@ -210,11 +210,11 @@ export function register(registry, ports) {
 			const delta = base === undefined ? {} : { delta: deltaOf(store.parts(base)?.groups ?? [], qa.groups, base) };
 			// the stop rule (repair-watch.js): a note, and the best take so far put on when the note would leave the take empty or worse
 			const own = specIdOf(r.stored), carried = owner().motionFor(characterId)?.spec, current = carried ? specIdOf(carried) : null;
-			const { say: stuck, install: best } = watch.note({ characterId, turnId: context?.turnId, callId: context?.callId, specId: own, base, qa, at, take, installed: Boolean(installs || kept), current });
+			const { say: stuck, install: best, polish } = watch.note({ characterId, turnId: context?.turnId, callId: context?.callId, specId: own, base, qa, at, take, installed: Boolean(installs || kept), current });
 			if (best) timing = put(character, best.take, context) ?? timing;
 			const self = best?.specId === own, how = kept ? "; already installed, unchanged" : self ? "; installed as the best take so far"
 				: best ? `; not installed; the best take so far, ${best.specId}, installed` : install === "ifClean" ? (installs ? "; installed" : "; not installed") : "";
-			const hint = hybridCapsuleHint(ports.storeDomain?.("scenes")?.metadata?.().castStyle, { stuck, qa });
+			const hint = hybridCapsuleHint(ports.storeDomain?.("scenes")?.metadata?.().castStyle, { stuck, qa, polish });
 			const flat = rounds(characterId, qa, base === undefined), broad = patchTooBroad(patch);
 			const output = report(r, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: r.repair } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
 			// agent-progress.js: viewport ghost, timeline beats, agent panel
@@ -222,7 +222,7 @@ export function register(registry, ports) {
 			noteDraftCompiled(draft, r, { installed: installs || kept || self, stuck, repaired: Boolean(r.repair), adjusted: notes.length > 0 });
 			// agent:turn_summary: this turn's drafts and their QA (agent-turn-telemetry.js)
 			noteTurnDraft(context?.turnId, { clean: Boolean(qa.ok), problems: qaProblems(qa), stuck: Boolean(stuck) });
-			return { affectedIds: installs || best ? [characterId] : [], summary: `${auto.fill?.calls ? `MotionBricks filled ${auto.fill.calls} gap${auto.fill.calls === 1 ? "" : "s"}. ` : ""}Compiled ${r.frameCount} frames; QA ${qaSay(qa)}${how}${adjustedSay(notes)}.${install !== false && qaProblems(qa) === 0 ? " QA clean — done (no further rounds)." : ""}${installs || kept || self ? ` Installed take: ${output.specId}.` : best ? ` Installed take: ${best.specId}.` : ""}${r.thinned ? ` Thinned ${r.thinned.removed.length} free-span key${r.thinned.removed.length === 1 ? "" : "s"} QA did not need (output.thinned).` : ""}`, output, ...workerWarning() };
+			return { affectedIds: installs || best ? [characterId] : [], summary: `${auto.fill?.calls ? `MotionBricks filled ${auto.fill.calls} gap${auto.fill.calls === 1 ? "" : "s"}. ` : ""}Compiled ${r.frameCount} frames; QA ${qaSay(qa)}${how}${adjustedSay(notes)}.${install !== false && qaProblems(qa) === 0 ? " QA clean; done only when the visible criteria are met and verify_result is clean." : ""}${installs || kept || self ? ` Installed take: ${output.specId}.` : best ? ` Installed take: ${best.specId}.` : ""}${r.thinned ? ` Thinned ${r.thinned.removed.length} free-span key${r.thinned.removed.length === 1 ? "" : "s"} QA did not need (output.thinned).` : ""}`, output, ...workerWarning() };
 		})));
 	} });
 	registry.register({ ...declarations[1], available: mounted, run({ characterId, checks }) {

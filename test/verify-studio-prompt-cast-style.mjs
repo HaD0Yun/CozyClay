@@ -24,7 +24,7 @@ test("the animation prompt states one rule per cast style", () => {
 	for (const signal of ["If a move is not one of the skills", "hands or feet must touch a vehicle, furniture or a prop in a way no skill covers (climbing onto a car, striking with a held bat",
 		"two or more rigs touch or pass something", "scale is not 1", "change nothing in the scene, end the turn with the proposal below in the user's language, and wait",
 		"After a compile whose qa.ok is false and whose output carries stuck or hint, or leaves a LOAD, COLLIDE, BODY, SELF or PERSON group: stop there, do not repair, recompile or install again",
-		"A stuck output whose take passes QA is no reason to ask.",
+		"This does not apply once a take of the character passed QA (output.stuck says so).",
 		"The user's next message is the answer.", "add the capsule figures as NEW characters (model proxy-figure; never convert a rig)",
 		"hide a rig only if the user agrees, and say that hiding applies to every shot", "On no, use the rig and do not ask again for that shot.", "Ask once per shot."])
 		assert.ok(prompt.includes(signal), signal);
@@ -63,6 +63,8 @@ test("motion.compile hints a hybrid project to propose capsules when the rig tak
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "x", qa: { ok: true, groups: [] } }), null, "a clean take does not hint");
 	// The repair watch's polish note: another variant after a passing take is stuck, and passes QA too.
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a already passed QA: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.", qa: { ok: true, groups: [{ kind: "COLLIDE" }] } }), null, "a stuck output whose take passes QA gets no hint");
+	// #1114: past QA 0 the worker keeps fixing with install: true, and a failing try after the pass is a fix, not a stuck rig
+	assert.equal(hybridCapsuleHint("hybrid", { stuck: "spec-a already passed QA: x", polish: true, qa: failing("COLLIDE") }), null, "a failing try after a passing take gets no hint");
 	assert.equal(hybridCapsuleHint("hybrid", { stuck: "x", qa: { groups: [{ kind: "COLLIDE" }] } }), null, "no hint without a failing QA verdict");
 	for (const style of ["rig", "capsule", undefined]) assert.equal(hybridCapsuleHint(style, { stuck: "x", qa: failing("COLLIDE") }), null, `no hint for ${style}`);
 	assert.ok(prompt.includes("qa.ok is false and whose output carries stuck or hint"), "the prompt tells the agent what the hint means, on a failing take only");

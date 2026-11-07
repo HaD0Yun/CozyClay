@@ -131,7 +131,7 @@ export function createRepairWatch() {
 			const codes = [...now.core], names = codes.slice(0, SAY_CODES).map(cut).join(", ") + (codes.length > SAY_CODES ? ` +${codes.length - SAY_CODES}` : "");
 			say = `${names} unchanged over ${now.streak} ${turnId && callId ? "calls" : "compiles"}. Stop patching it or re-applying its hint: start afresh or try another approach. ${status} If neither helps, report its problems.`;
 		}
-		return { say, ...(install ? { install } : {}) };
+		return { say, ...(kind === "polish" ? { polish: true } : {}), ...(install ? { install } : {}) };
 	}
 	return { note };
 }
