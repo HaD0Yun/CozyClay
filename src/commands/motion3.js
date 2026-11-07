@@ -219,7 +219,7 @@ export function register(registry, ports) {
 			const self = best?.specId === own, how = kept ? "; already installed, unchanged" : self ? "; installed as the best take so far"
 				: best ? `; not installed; the best take so far, ${best.specId}, installed` : install === "ifClean" ? (installs ? "; installed" : "; not installed") : "";
 			const hint = hybridCapsuleHint(ports.storeDomain?.("scenes")?.metadata?.().castStyle, { stuck, qa });
-			const flat = rounds(characterId, qa, context?.turnId ?? context?.taskId), broad = patchTooBroad(patch);
+			const flat = rounds(characterId, qa, base === undefined), broad = patchTooBroad(patch);
 			const output = report(r, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: repaired } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
 			// agent-progress.js: viewport ghost, timeline beats, agent panel
 			const draft = publishDraft(characterId, { take, installed: installs || kept || self, specId: output.specId, label: r.label, qa, timeline: r.timeline });

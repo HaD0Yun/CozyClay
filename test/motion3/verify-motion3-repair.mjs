@@ -284,11 +284,6 @@ expect("motion.compile: a default repair that applied nothing, then the same gro
 	&& /^skipped: /.test(again.repair?.skipped ?? "") && again.repair.compiles === 1 && again.specId === tried.specId && json(again.qa.groups.map(g => g.subject)) === json(tried.qa.groups.map(g => g.subject)), json([tried.repair, again.repair]));
 expect("motion.compile: an explicit repair { rounds } still runs; the next default repair of the same groups is skipped", !asked.repair.skipped && asked.repair.compiles > 1 && /^skipped: /.test(after.repair?.skipped ?? ""), json([asked.repair, after.repair]));
 expect("motion.compile: the answer's repair carries no faced keys", [tried, again, asked, after].every(o => o.repair && !("faced" in o.repair)), json(tried.repair));
-// output.noImprovementRounds: a whole spec that does not beat the best counts as a flat round (it used to start the count over);
-// a worker task's compiles carry its taskId (no turnId), and another task starts over
-const flatOf = taskId => unwrap(skipReg.run("motion.compile", { characterId: "char-9", spec: deep, install: false }, { taskId })).noImprovementRounds ?? 0;
-const flats = [flatOf("task-a"), flatOf("task-a"), flatOf("task-a"), flatOf("task-b")];
-expect("motion.compile: the same whole spec again is a flat round (1, 2), a new task starts over", json(flats) === "[0,1,2,0]", json(flats));
 // a repair that applied a patch keeps the next one on: the post scene of case 6, default repair twice
 const kept = [0, 1].map(() => unwrap(registry.run("motion.compile", { characterId: "char-1", spec: stand({ fix: { stance: false } }), thin: false })).repair);
 expect("motion.compile: after a repair that applied a patch the next default repair runs", kept.every(rep => rep && !rep.skipped && rep.applied.length >= 1), json(kept));

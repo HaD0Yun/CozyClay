@@ -142,17 +142,12 @@ expect("spans: a clearance check over the whole take (no frames, or over half of
 	expect("density: free keys 16 apart are KEYS_TOO_DENSE, 20 apart are fine", densityNotes(keysAt(0, 16), free, [], {}).length === 1 && densityNotes(keysAt(0, 20), free, [], {}).length === 0);
 }
 
-// stop rule: noImprovementRounds counts compiles in a row that did not beat the best QA. A whole new spec no longer starts over
-// unless it beats the best (#1116: the wall-climb workers sent a whole spec every few compiles at a 9-23 problem plateau, and
-// each reset the count, so the stop never fired); a new agent turn starts over.
+// stop rule: noImprovementRounds counts compiles in a row that did not beat the best QA; a new spec starts over
 {
 	const { createRoundWatch } = await import("../../src/commands/motion3-rounds.js");
 	const watch = createRoundWatch(), qa = problems => ({ problems });
-	// 7 and 6 stand for whole new specs: worse than the best (5), they count as flat rounds
-	const seq = [watch("c", qa(10)), watch("c", qa(8)), watch("c", qa(9)), watch("c", qa(8)), watch("c", qa(5)), watch("c", qa(7)), watch("c", qa(6)), watch("c", qa(4))];
-	expect("rounds: 0 on the first and on every improvement, +1 per flat or worse round, a whole spec included", JSON.stringify(seq) === "[0,0,1,2,0,1,2,0]", JSON.stringify(seq));
-	const turns = [watch("d", qa(5), "t1"), watch("d", qa(6), "t1"), watch("d", qa(9), "t2"), watch("d", qa(7), "t1"), watch("e", qa(9), "t1")];
-	expect("rounds: per character and agent turn, a new turn starts over", JSON.stringify(turns) === "[0,1,0,2,0]", JSON.stringify(turns));
+	const seq = [watch("c", qa(10), true), watch("c", qa(8), false), watch("c", qa(9), false), watch("c", qa(8), false), watch("c", qa(5), false), watch("c", qa(7), true)];
+	expect("rounds: 0 on the first and on every improvement, +1 per flat or worse round, reset by a new spec", JSON.stringify(seq) === "[0,0,1,2,0,0]", JSON.stringify(seq));
 }
 
 // CONTACT_UNKEYED only while a hand or foot moves (> 2 cm) in a contact gap over 8 frames; a still or anchored hand needs two keys
