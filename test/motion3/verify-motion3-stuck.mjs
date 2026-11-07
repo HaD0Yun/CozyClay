@@ -68,7 +68,7 @@ const pass = { ok: true, groups: [] };
 const polish = [next(fail2()), next(pass, "b"), next(fail2(), "b"), next(pass, "b")];
 const passed = `spec-${String(n - 2).padStart(12, "0")}`;
 expect("the first pass gets no note", polish[1] === undefined);
-expect("a compile after a pass says QA passed: stop unless asked", polish[2] === `${passed} already passed QA: stop unless the user asked for a specific change.` && polish[3] === polish[2], JSON.stringify(polish));
+expect("a compile after a pass says QA passed: stop only when the criteria and verify_result pass too (#1114)", polish[2] === `${passed} already passed QA: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.` && polish[3] === polish[2], JSON.stringify(polish));
 expect("other characters keep their own history", next(fail2(), "b", "t1", "other") === undefined);
 
 // ---- through the registry: the cup scene, base alone three times --------------------------
@@ -142,14 +142,14 @@ const capRun = Array.from({ length: 11 }, (_, i) => step(qaOf(9 - (i % 4))));
 expect("the cap without a stuck streak: the fewest problems so far goes on", capRun[10].install?.specId === capRun[3].specId && capRun[10].say === `10 repair compiles. Installed the best take here, ${capRun[3].specId} (6 problems), ${POS}. Report its problems; stop unless asked for more.` && capRun[10].say.length <= 180, JSON.stringify(capRun[10]));
 w = createRepairWatch(); k = 0;
 const draft = step({ ok: true, groups: [] }), after = step(qaOf(1));
-expect("a pass compiled with install false: the polish note puts the passing take on", after.install?.specId === draft.specId && after.say === `${draft.specId} passed QA and is now installed, ${POS}: stop unless the user asked for a specific change.`, JSON.stringify(after));
+expect("a pass compiled with install false: the polish note puts the passing take on", after.install?.specId === draft.specId && after.say === `${draft.specId} passed QA and is now installed, ${POS}: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.`, JSON.stringify(after));
 // replay merged r6 S8: the pass was at another position; the note names both
 w = createRepairWatch(); k = 0;
 const passA = step({ ok: true, groups: [] }, { at: "A" }), atOther = step(qaOf(2), { at: "B" });
 expect("a pass at another position: the polish note says so and installs the best take here", atOther.install?.specId === atOther.specId
-	&& atOther.say === `${passA.specId} passed QA at another position; the best take here, ${atOther.specId} (2 problems), is installed, ${POS}. Report its problems; stop unless the user asked for a specific change.`, JSON.stringify(atOther));
+	&& atOther.say === `${passA.specId} passed QA at another position; the best take here, ${atOther.specId} (2 problems), is installed, ${POS}. Report its problems; stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.`, JSON.stringify(atOther));
 const stillA = step(qaOf(3), { at: "A", current: atOther.specId });
-expect("back where it passed: the passing take goes on again", stillA.install?.specId === passA.specId && stillA.say === `${passA.specId} passed QA and is now installed, ${POS}: stop unless the user asked for a specific change.`, JSON.stringify(stillA));
+expect("back where it passed: the passing take goes on again", stillA.install?.specId === passA.specId && stillA.say === `${passA.specId} passed QA and is now installed, ${POS}: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.`, JSON.stringify(stillA));
 w = createRepairWatch();
 const lineNote = (characterId, i) => w.note({ characterId, turnId: "t", specId: `spec-${characterId}${String(i).padStart(10, "0")}`, base: i ? "b" : undefined, qa: qaOf(2), at: "here", take: `take ${characterId}` });
 for (const c of ["c1", "c2", "c3", "c4", "c5", "c6"]) lineNote(c, 0);

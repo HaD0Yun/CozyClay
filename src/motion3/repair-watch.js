@@ -4,7 +4,9 @@
 // ~1,250 output tokens of model time, a turn compiles median 8 / p90 17 times, a failure that survives
 // two retries unchanged survives a third about a third of the time, and about a fifth of the
 // compiles after a take first passes QA failed QA again (re-tweaking what already passed).
-//   polish  an earlier compile of this character in this turn passed QA: say so, stop unless asked
+//   polish  an earlier compile of this character in this turn passed QA: say so; stop only when the visible criteria
+//           and verify_result's physics review pass too, else keep fixing: past QA 0 a round improves when a fault
+//           shrinks (output.noImprovementRounds counts QA only), and the take nearest the criteria wins (#1114)
 //   cap     REPAIR_CAP compiles after the first: report what still fails on the best take
 //   stuck   the same failing groups (or more) for STUCK_AFTER compiles in a row, neither fewer nor
 //           DELTA_STEP less severe: stop patching them (or re-applying their hints), start over,
@@ -117,7 +119,10 @@ export function createRepairWatch() {
 			: mine ? `Your installed take ${named(line.mine)} stays${past(line.mine)}.` : keeps ? `${named(held)} stays installed, ${POS}.`
 				: current !== null && pick.take !== undefined ? `The earlier take stays; to replace it, install the best take here, ${named(pick)}.`
 					: `Install the best take here, ${named(pick)}.`;
-		const asked = "stop unless the user asked for a specific change";
+		// QA 0 is not done (#1114): the visible criteria and verify_result's support/contact/penetration review decide too;
+		// handstand r3 kept a QA-clean take with fingers 18 cm deep over a QA 1 variant at 4.3 cm, so a smaller fault is the
+		// improvement and a QA 1 take may be the best one (install: true)
+		const asked = "stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems";
 		let say;
 		if (kind === "polish") say = !install ? `${passed} already passed QA: ${asked}.` : install.specId === passed ? `${passed} passed QA and is now installed, ${POS}: ${asked}.`
 			: `${passed} passed QA at another position; the best take here, ${named(pick)}, is installed, ${POS}. Report its problems; ${asked}.`;
@@ -126,7 +131,7 @@ export function createRepairWatch() {
 			const codes = [...now.core], names = codes.slice(0, SAY_CODES).map(cut).join(", ") + (codes.length > SAY_CODES ? ` +${codes.length - SAY_CODES}` : "");
 			say = `${names} unchanged over ${now.streak} ${turnId && callId ? "calls" : "compiles"}. Stop patching it or re-applying its hint: start afresh or try another approach. ${status} If neither helps, report its problems.`;
 		}
-		return { say, ...(install ? { install } : {}) };
+		return { say, ...(kind === "polish" ? { polish: true } : {}), ...(install ? { install } : {}) };
 	}
 	return { note };
 }

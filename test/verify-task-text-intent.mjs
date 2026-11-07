@@ -7,12 +7,17 @@ import assert from "node:assert/strict";
 import { MAIN_SYSTEM_PROMPT as main } from "../bin/agent/main-prompt.mjs";
 import { STUDIO_SYSTEM_PROMPT as studio } from "../bin/agent/studio-prompt.mjs";
 import { taskHeader } from "../bin/agent/studio-tasks.mjs";
+import { createRepairWatch } from "../src/motion3/repair-watch.js";
 
 const check = (name, fn) => { fn(); console.log(`ok - ${name}`); };
 const REQUESTS = ["앞으로 달려가면서 장해물까지 지나가는거", "앞에 장해물 파쿠르 해서 넘어가는거", "pull up 하는거"];
 const BANNED = [/24\s*프레임/, /24[- ]frames?\b/i, /1\.1\s*m\b/, /key pose만으로는/i, /key poses? (alone|only)/i, /\bgrid\b/i];
 const rule7 = main.slice(main.indexOf("7. "), main.indexOf("8. "));
 const header = taskHeader({ taskId: "t", scope: ["character:c"], instructions: "" });
+// the compiler's polish note on a compile after a take passed QA (output.stuck)
+const watch = createRepairWatch(), pass = { ok: true, groups: [] }, fail = { ok: false, groups: [{ kind: "FLOAT", subject: "s", severity: 1 }] };
+watch.note({ characterId: "c", specId: "spec-pass", qa: pass });
+const POLISH = watch.note({ characterId: "c", specId: "spec-next", base: "spec-pass", qa: fail }).say ?? "";
 
 check("rule 7 starts the instructions with the request quoted word for word, then scene facts, then the job", () => {
 	assert.match(rule7, /Start with the user's request quoted word for word in their language, then the scene facts \(ids, positions, the character\), then the job/);
@@ -37,7 +42,34 @@ check("no dispatch-path prompt states a frame budget, a 1.1 m limit, a grid or t
 });
 check("the task report checks each visible criterion; a QA count is not done", () => {
 	assert.match(header, /check each visible criterion in the instructions \(the user's words\) and report it as met, unmet or not measurable by QA, with the measured value when there is one/);
-	assert.match(header, /A QA count alone never means done\./);
+	assert.match(header, /A QA count alone never means done: a motion is done when QA reports 0 problems, every criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance; the best take is the one nearest the criteria, then with the fewest QA problems\./);
+});
+// #1114: the four places that say when a motion is done agree (handstand r3 kept fingers 18 cm deep in the floor over a
+// 4.3 cm variant because the compiler said "already passed QA: stop")
+check("the system prompt, rule 8, the task header and the polish note state one done rule", () => {
+	const rule8 = main.slice(main.indexOf("8. "), main.indexOf("9. "));
+	const studioRule = studio.slice(studio.indexOf("Done means"), studio.indexOf("When you stop"));
+	for (const text of [studioRule, rule8, header, POLISH]) {
+		assert.match(text, /every visible criterion|every criterion/);
+		assert.match(text, /verify_result (checks \["motion"\] )?shows no support, contact or skin penetration fault[^.;]* past tolerance/);
+	}
+	for (const text of [studioRule, rule8]) {
+		assert.match(text, /QA 0 alone is not done/);
+		assert.match(text, /4 or fewer problems/);
+		assert.match(text, /[Oo]nce done,? (run|it runs) no more variants or comparison scripts/);
+	}
+	// handstand r3: output.noImprovementRounds (QA only) reached 4 while the fingers went 18 -> 4.3 cm, and ifClean could not
+	// install the 4.3 cm take (QA 1): every place says a smaller fault improves and the best take may fail QA
+	for (const text of [studioRule, rule8, POLISH]) {
+		assert.match(text, /noImprovementRounds counts QA only/);
+		assert.match(text, /a round improves when a fault or unmet criterion shrinks/);
+		assert.match(text, /install: true/);
+	}
+	for (const text of [studioRule, rule8, header, POLISH]) assert.match(text, /nearest the criteria, then (with )?(the )?fewest QA problems/);
+	for (const text of [studio, main]) assert.match(text, /install: "ifClean"[^.;]* \(true if it fails QA\)/);
+	assert.match(POLISH, /INSTALL_WORSE is expected/);
+	assert.doesNotMatch(POLISH, /up to the flat-round limit/);
+	for (const text of [studio, main, POLISH]) assert.doesNotMatch(text, /QA reports 0 problems, (you are|the task is) done|no variants\)|after a clean compile|stop unless the user asked/);
 });
 for (const request of REQUESTS) check(`the task text for "${request}" keeps the request verbatim and adds no constraint`, () => {
 	const instructions = `"${request}"\nVisible criteria:\n- ${request}`;
