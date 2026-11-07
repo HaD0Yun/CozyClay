@@ -3,7 +3,8 @@
 //   GROUND   "<part> below floor" (qa/floor.js): the fitted skin of every part above the soles, the fingers on their phalanx
 //            capsules, one part a frame for each arm below the elbow and one for the rest; deeper than groundAllow (1 cm)
 //   COLLIDE  "fingers_<k> x <id>" (qa/finger-collide.js): the phalanges in a scene body; the hand's allow covers them
-//   PALM_GAP "<side> palm centre off <id>" (qa/grasp-checks.js): a power grip's palm centre more than 4 cm off its bar
+//   PALM_GAP "<side> palm centre off <id>" (qa/grasp-checks.js): a hand fitted to a bar, any grasp or none (#1127; a power
+//            grip only before), with its palm centre more than 4 cm off it
 // Physics bench 2026-11-07 (main 7ddf97c9), two installed takes replayed (test/motion3/fixtures/bench-*-spec.json): handstand r3's
 // fingertips 18.3 cm under the floor (verify_result 0.183 m on the skinned mesh) and the muscle-up's palm centres 7.0-7.8 cm
 // off the bar with the fingers 0.6-1.5 cm from it, both QA 0 then.
@@ -32,7 +33,11 @@ const job = runCompileJob({ model: hs.model, scene: hsScene, spec: hs.spec, hint
 const fingers = side => job.qa.groups.find(g => g.kind === "GROUND" && g.subject === `fingers_${side} below floor`);
 expect("handstand r3: GROUND fingers_l and fingers_r below floor, 18 cm deep (verify_result 0.183 m), over the 167 frames the hands stand",
 	["l", "r"].every(k => fingers(k)?.worst > 0.175 && fingers(k).worst < 0.19 && fingers(k).count >= 150 && fingers(k).limit === 0.01), line(job));
-expect("handstand r3: nothing else (the take was QA 0)", job.qa.groups.every(g => g.kind === "GROUND"), line(job));
+// #1127 reads the knees on the leg itself (qa/checks.js kneeBack): on the kick-up and the come-down the support knee juts away
+// from the hands, the shin toward them (the hinge to the pelvis's right, 168-180 deg from the knee's front), which the toe test passed
+const kick = job.qa.groups.filter(g => g.kind === "KNEE");
+expect("handstand r3: nothing else (the take was QA 0), but the knees bent backward on the kick-up and the come-down (#1127)",
+	job.qa.groups.every(g => g.kind === "GROUND" || g.kind === "KNEE") && kick.length === 2 && kick.every(g => / knee bends backward$/.test(g.subject) && g.first >= 30 && g.last <= 195), line(job));
 // the hint turns the wrist (wflex) as far as it goes and says what is left; its patch takes the fingers most of the way out
 const yb = skeletonFor(hs.model), plain = compileSpec({ fps: 24, ...autoSpec(hs.spec, yb) }, { sk: yb, scene: hsScene });
 const fl = plain.qa.groups.find(g => g.subject === "fingers_l below floor");
@@ -46,6 +51,16 @@ const palm = side => muJob.qa.groups.find(g => g.kind === "PALM_GAP" && g.subjec
 expect("muscle-up r1: PALM_GAP on both hands, the palm centre 7.8 cm off the bar (needs <= 4)", ["left", "right"].every(s => palm(s)?.worst > 0.07 && palm(s).worst < 0.085 && palm(s).limit === 0.04), line(muJob));
 expect("muscle-up r1: nothing else (the take was QA 0)", muJob.qa.groups.every(g => g.kind === "PALM_GAP"), line(muJob));
 expect("its hint says the palm is off and that moving the anchor does not seat the bar (no patch)", ["left", "right"].every(s => /palm centre 7\.\d cm off it .*does not seat it in the palm/.test(palm(s).hint)), palm("left")?.hint);
+// #1127: in all 6 bar runs of bench v2 the agent switched to a hook grip or no grasp and PALM_GAP went quiet, the palm as far off;
+// every grasp and a plain fit (no grasp) are judged, and the hint reports the limit with no patch
+for (const grasp of ["hook", null]) {
+	const anchors = Object.fromEntries(Object.entries(mu.spec.anchors).map(([n, a]) => { if (a.kind !== "object") return [n, a]; const { socket, grasp: _, ...rest } = a; return [n, grasp ? { ...rest, grasp } : rest]; }));
+	const r = runCompileJob({ model: mu.model, scene: motionScene(mu.objects), spec: { ...mu.spec, anchors }, hintLimitMs: 0 }), gap = side => r.qa.groups.find(g => g.kind === "PALM_GAP" && g.subject === `${side} palm centre off bar`);
+	expect(`muscle-up r1 with ${grasp ? `grasp ${grasp}` : "no grasp"}: PALM_GAP on both hands, the palm centre 6-9 cm off the bar, reported with no patch`,
+		["left", "right"].every(s => gap(s)?.worst > 0.06 && gap(s).worst < 0.09 && gap(s).count > 60 && !gap(s).patch && new RegExp(`anchors\\.barLeft${grasp ? `\\.grasp ${grasp}` : " \\(no grasp\\)"}|anchors\\.barRight${grasp ? `\\.grasp ${grasp}` : " \\(no grasp\\)"}`).test(gap(s).cause) && /palm centre \d\.\d cm off it .*another grasp \(power, hook or none\) leaves the palm as far off.*report the palm off bar/.test(gap(s).hint)),
+		line(r));
+	if (!grasp) expect("muscle-up r1 with no grasp: a plain fit is judged on its palm only (no FINGER_*, THUMB_OFF, PALM_OFF or SUPPORT)", !r.qa.groups.some(g => /^(FINGER_|THUMB_OFF|PALM_OFF|SUPPORT)/.test(g.kind)), line(r));
+}
 const asked = muJob.observations.asked.find(l => l.startsWith("fingers on barLeft"));
 expect("observations.asked reports the fingers' gap and the palm centre's on the grip's frames", /gap 0\.\d cm f\d+ \.\. 1\.\d cm f\d+ \(tol 4\); palm centre 7(\.\d)? \.\. 7\.\d cm \(needs <= 4\)$/.test(asked ?? ""), asked);
 
