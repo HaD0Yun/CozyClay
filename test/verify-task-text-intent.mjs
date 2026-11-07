@@ -42,7 +42,7 @@ check("no dispatch-path prompt states a frame budget, a 1.1 m limit, a grid or t
 });
 check("the task report checks each visible criterion; a QA count is not done", () => {
 	assert.match(header, /check each visible criterion in the instructions \(the user's words\) and report it as met, unmet or not measurable by QA, with the measured value when there is one/);
-	assert.match(header, /A QA count alone never means done: a motion is done when QA reports 0 problems, every criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance\./);
+	assert.match(header, /A QA count alone never means done: a motion is done when QA reports 0 problems, every criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance; the best take is the one nearest the criteria, then with the fewest QA problems\./);
 });
 // #1114: the four places that say when a motion is done agree (handstand r3 kept fingers 18 cm deep in the floor over a
 // 4.3 cm variant because the compiler said "already passed QA: stop")
@@ -58,7 +58,17 @@ check("the system prompt, rule 8, the task header and the polish note state one 
 		assert.match(text, /4 or fewer problems/);
 		assert.match(text, /[Oo]nce done,? (run|it runs) no more variants or comparison scripts/);
 	}
-	assert.match(POLISH, /else keep fixing up to the flat-round limit\.$/);
+	// handstand r3: output.noImprovementRounds (QA only) reached 4 while the fingers went 18 -> 4.3 cm, and ifClean could not
+	// install the 4.3 cm take (QA 1): every place says a smaller fault improves and the best take may fail QA
+	for (const text of [studioRule, rule8, POLISH]) {
+		assert.match(text, /noImprovementRounds counts QA only/);
+		assert.match(text, /a round improves when a fault or unmet criterion shrinks/);
+		assert.match(text, /install: true/);
+	}
+	for (const text of [studioRule, rule8, header, POLISH]) assert.match(text, /nearest the criteria, then (with )?(the )?fewest QA problems/);
+	for (const text of [studio, main]) assert.match(text, /install: "ifClean"[^.;]* \(true if it fails QA\)/);
+	assert.match(POLISH, /INSTALL_WORSE is expected/);
+	assert.doesNotMatch(POLISH, /up to the flat-round limit/);
 	for (const text of [studio, main, POLISH]) assert.doesNotMatch(text, /QA reports 0 problems, (you are|the task is) done|no variants\)|after a clean compile|stop unless the user asked/);
 });
 for (const request of REQUESTS) check(`the task text for "${request}" keeps the request verbatim and adds no constraint`, () => {
