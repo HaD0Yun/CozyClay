@@ -5,6 +5,7 @@ import { StudioProtocolError, StudioSchemas, validateStudioSchema, validateRecei
 import { agentTurnControls, markAgentTurn, turnEditPoint, recordTurnEdit, undoTurnEdit } from './agent-turn-mark.js';
 import { createBusTasks, GESTURE_FREE_TASK_CONTROLS } from './bus-tasks.js'; import { uiTransactionOpen } from './studio-busy.js';
 import { createHistoryReceipts, noteRefusal, noteUndone } from './command-bus-telemetry.js';
+import { fitReceipt } from './receipt-fit.js';
 
 export { withCommandHistory } from './command-history.js';
 
@@ -194,20 +195,17 @@ export function createCommandBus({ registry, ports }) {
     const completed = entry.kind === 'job' || entry.kind === 'document' || (entry.kind === 'mutation' && changed && (turn || after.revision > before.revision + 1));
     const ids = completed || changed ? result.affectedIds : entry.kind === 'transient' ? [before.host.sceneId] : [];
     if (turn && changed) for (const id of ids) { turn.affectedIds.add(id); turn.mark?.since.add(id); }
-    const build = level => validateReceipt({ ok: true, commandId: request.commandId, receiptId: crypto.randomUUID(), host: before.host,
+    const build = (level, output = result.output, cut = []) => validateReceipt({ ok: true, commandId: request.commandId, receiptId: crypto.randomUUID(), host: before.host,
       action: entry.id, summary: result.summary, status: completed ? 'completed' : entry.kind === 'transient' ? 'transient' : changed ? 'applied' : 'noop',
-      authored: changed, ...(completed ? { kind: entry.kind, ...(result.output === undefined ? {} : { output: result.output }), ...(same(before.host, after.host) ? {} : { nextHost: after.host }) } : entry.kind === 'transient' ? { view: { before: before.viewRevision ?? 0, after: after.viewRevision ?? 0 } } : { mutated: changed }),
+      authored: changed, ...(completed ? { kind: entry.kind, ...(output === undefined ? {} : { output }), ...(same(before.host, after.host) ? {} : { nextHost: after.host }) } : entry.kind === 'transient' ? { view: { before: before.viewRevision ?? 0, after: after.viewRevision ?? 0 } } : { mutated: changed }),
       revision: { before: before.revision, after: after.revision }, affectedIds: ids,
       delta: ids.slice(0, 8).map(id => ({ id, after: ports.readback?.(id, after, level > 0) ?? { removed: true } })),
       // The command's own measurements (an arrangement's overlap evidence) ride beside the coverage tag.
-      checks: { coverage: `studio-action:${entry.id}`, ...result.checks }, warnings: receiptWarnings(result.warnings, toasts, Math.max(0, ids.length - 8), level > 1 ? 4 : 12),
+      checks: { coverage: `studio-action:${entry.id}`, ...result.checks }, warnings: receiptWarnings([...cut, ...(result.warnings ?? [])], toasts, Math.max(0, ids.length - 8), level > 1 ? 4 : 12),
       undo: retainedHistoryEntryId ? { historyEntryId: retainedHistoryEntryId, entries: 1, canUndoDirect: !turn } : null, ...(ids.length > 8 ? { detailCursor: request.commandId } : {}) });
-    // Full readback and warnings are richer than the 8 KiB receipt always allows; shed the extras
-    // (box and children, then all but the first warnings) rather than fail an edit that was applied.
-    for (let level = 0; ; level++) {
-      try { return build(level); }
-      catch (error) { if (level >= 2 || error?.code !== 'INVALID_RECEIPT' || !/8 KiB/.test(error.message)) throw error; }
-    }
+    // Full readback, warnings and a long output list are richer than the 8 KiB receipt always allows; shed the
+    // extras (box and children, all but the first warnings, then the list's end) rather than fail a command that ran.
+    return fitReceipt(build, result.output);
   }
   function run(id, args = {}, options = {}) {
     const request = { origin: 'ui', commandId: crypto.randomUUID(), ...options };
