@@ -17,6 +17,30 @@ export const CAPSULES = [
 
 export const segPoints = (a, b, n = 9) => Array.from({ length: n }, (_, i) => add(a, scale(sub(b, a), i / (n - 1))));
 
+/** A phalanx's skin radius (m); the skin ends this far past the fingertip joint (Hand<Finger>4). Measured on the X/Y Bot
+ * skin: 0.8-1.0 cm round the phalanges, 0-0.3 cm past the tip joint. */
+const PHALANX = 0.009, TIP_PAST = 0.002;
+const FINGER_NAMES = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
+
+/**
+ * The fingers of hand `side` at state s as capsules [part, a, b, radius]: each phalanx from its joint to the next
+ * (Hand<Finger>1-2-3-4), part "fingers_<k>". The hand capsule ends at HandMiddle3, so a fingertip was never measured
+ * (#1113: fingertips 9-18 cm under the floor with QA clean); the last phalanx's capsule stops TIP_PAST past the tip
+ * joint, where its skin ends. [] for a rig without finger joints.
+ */
+export function fingerCapsules(sk, s, side) {
+	const out = [], part = `fingers_${side === "Left" ? "l" : "r"}`;
+	for (const f of FINGER_NAMES) {
+		const J = [1, 2, 3, 4].map(i => sk.index[`${side}Hand${f}${i}`]);
+		if (J.some(j => j === undefined)) return [];
+		for (let i = 0; i < 3; i++) {
+			const a = s.P[J[i]], tip = s.P[J[i + 1]], ab = sub(tip, a), l = len(ab);
+			out.push([part, a, i === 2 && l > 1e-9 ? sub(tip, scale(ab, Math.min(0.9, (PHALANX - TIP_PAST) / l))) : tip, PHALANX]);
+		}
+	}
+	return out;
+}
+
 /** Signed distance from p to a box (negative inside). */
 export function sdBox(p, box) {
 	const q = apply(T(box.R), sub(p, box.pos));

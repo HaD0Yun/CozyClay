@@ -16,6 +16,13 @@
 //   PALM_OFF    "<side> palm off <id>": a palm or support hold (vocab.js PALM_GRASPS) whose palm (the PALM capsule) is
 //               farther than GAP from it, the fingertips on it or not (2026-11-04: a box held by its sides, the palms 2.2 cm
 //               off, only the tips on it)
+//   PALM_GAP    "<side> palm centre off <id>": a power grip on an object anchor on a bar (reachGrip on a pull-up bar, a
+//               barbell: a part BAR_LONG or longer and under BAR_THICK across, the thin bodies sockets.js grips) whose palm
+//               centre (the midpoint of the Hand and HandMiddle1 joints) is farther than PALM_REACH from the bar's surface:
+//               a bar is held across the palm, not on the finger middles. CONTACT measures the fingers' point, which a power
+//               grip puts on the bar 2 cm under the finger middles (vocab.js GRASP_POINTS): physics bench 2026-11-07, the
+//               muscle-up's fingers 0.6-1.5 cm from the bar (tol 4) with the palm centres 7.0-7.8 cm off it and QA clean.
+//               A short thick body (a can) is not judged: its power grip leaves the palm centre 6 cm off as well
 //   TIPS_OFF    "<side> fingertips not under <id>": a support hold with fewer than 3 of the 4 fingertips (the Index4..Pinky4
 //               joints) under its box's bottom face, from TIP_BELOW under it to TIP_IN into it and inside its footprint (a
 //               box pivots at its bottom centre), on a frame whose box stands SUPPORT_SLIDE clear of what is under it
@@ -32,10 +39,13 @@ import { isCarried } from "../carried.js";
 import { spanOf, partsOf, objectPoseAt } from "../object-pose.js";
 import { SUPPORT_SLIDE, SUPPORT_LEAD, gapUnder, bottomPoints } from "../sockets.js";
 import { SETTLE, seatsInHand } from "../seat.js";
-import { shapeOf, normalAt, closestPoint, capsuleDepth } from "../shapes.js";
+import { shapeOf, normalAt, closestPoint, capsuleDepth, signedDistance } from "../shapes.js";
 
 const PHALANX = 0.009, PALM = 0.022, PEN = 0.004, GAP = 0.008, HELD = 0.995, SUPPORT_TOL = 0.01, OPPOSE = 120, ENCLOSE = 150, BELOW = -0.3, ARRIVED = 0.03;
 const TIP_BELOW = 0.025, TIP_IN = 0.006;
+/** How far (m) a power grip's palm centre may be from the bar it grips (the bench's "hands reach the bar": 4 cm); a bar is a
+ * part at least BAR_LONG along and under BAR_THICK across (sockets.js THIN). */
+const PALM_REACH = 0.04, BAR_LONG = 0.15, BAR_THICK = 0.045;
 const FINGERS = ["Index", "Middle", "Ring", "Pinky"], SIDE = { l: "Left", r: "Right" };
 
 /** The grasp a held object takes when the spec names none: a sphere's hand cups it, a cylinder's wraps it. */
@@ -67,6 +77,22 @@ export function heldSpans(out) {
 }
 
 const entriesAt = (out, id, f) => partsOf(out.ctx.scene, id).map(p => ({ ...out.ctx.scene.objects[p], ...objectPoseAt(out, p, f) }));
+
+const isBar = e => { const h = [...(e.half ?? [])].sort((a, b) => a - b); return h.length === 3 && h[1] < BAR_THICK && 2 * h[2] >= BAR_LONG; };
+
+/** The palm centre of hand k (the Hand and HandMiddle1 joints' midpoint) from the nearest bar of `entries` at state s, m (0 inside); null without a bar. */
+function palmGap(sk, s, k, entries) {
+	const bars = entries.filter(isBar), P = j => s.P[sk.index[`${SIDE[k]}${j}`]];
+	if (!bars.length) return null;
+	const c = scale(add(P("Hand"), P("HandMiddle1")), 0.5);
+	return Math.max(0, Math.min(...bars.map(e => signedDistance(e, c))));
+}
+
+/** PALM_GAP's measure at absolute frame f: hand k's palm centre from held object `id`'s bar (m), or null outside the compile or without a bar. */
+export function palmGapAt(out, k, id, f) {
+	const s = out.frames[f - (out.f0 ?? 0)]?.s;
+	return s ? palmGap(out.ctx.sk, s, k, entriesAt(out, id, f)) : null;
+}
 
 function handCapsules(sk, s, k) {
 	const S = SIDE[k], P = j => s.P[sk.index[`${S}Hand${j}`]], out = [{ bone: `${S}Hand`, finger: "palm", a: s.P[sk.index[`${S}Hand`]], b: P("Middle1"), r: PALM }];
@@ -122,6 +148,8 @@ function frameIssues(sk, s, h, entries, push, f, clear) {
 	// the palm of an arrived palm or support hold, however far: CONTACT measures the fingers' point to the anchor, and an
 	// anchor off the face, or a fist's point, leaves the palm 4-6.5 cm off with CONTACT met (A/B T2 reruns t2h3, t2g1: QA 0)
 	if (PALM_GRASPS.has(h.grasp) && touch[0].depth < -GAP) push("PALM_OFF", `${side} palm off ${h.id}`, f, -touch[0].depth, GAP);
+	const gap = h.rests && h.grasp === "power" ? palmGap(sk, s, h.k, entries) : null;
+	if (gap !== null && gap > PALM_REACH) push("PALM_GAP", `${side} palm centre off ${h.id}`, f, gap, PALM_REACH);
 	// a reach whose hand never got there is REACH's and CONTACT's to report, not the fingers'
 	if (h.rests && touch[0].depth < -ARRIVED) return;
 	for (const c of touch) if (c.finger !== "palm" && c.depth > PEN) push("FINGER_PEN", `${c.bone} into ${h.id}`, f, c.depth, PEN);
@@ -148,7 +176,7 @@ function frameIssues(sk, s, h, entries, push, f, clear) {
 	if (!h.rests && !opposed && !enclosed && hullDistance(c0, under) > SUPPORT_TOL) push("SUPPORT", `${h.id} not supported`, f, Math.min(1, hullDistance(c0, under)), SUPPORT_TOL);
 }
 
-/** FINGER_PEN, FINGER_GAP, PALM_OFF, TIPS_OFF and SUPPORT issues of every held span (frames index out.frames, as every check's). */
+/** FINGER_PEN, FINGER_GAP, PALM_OFF, PALM_GAP, TIPS_OFF and SUPPORT issues of every held span (frames index out.frames, as every check's). */
 export function graspChecks(sk, out) {
 	// fix.grasp false is judged too: the hand that keeps its preset grip is what its hint turns grasp back on for
 	if (out.ctx.spec.fix === false) return [];
