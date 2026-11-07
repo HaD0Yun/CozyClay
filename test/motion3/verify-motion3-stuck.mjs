@@ -2,7 +2,8 @@
 // The stop rule (repair-watch.js): output.stuck says when more compiles stopped paying. The same
 // failing groups for 3 compiles in a row -> a stuck note naming them and the best take so far; failures
 // that improve -> no note; a whole spec after a note starts the streak again; 10 repair compiles -> the
-// cap note; a compile after a passing one -> the polish note. Through the real registry the note fits
+// cap note; a compile after one with 0 blocking problems -> the polish note (the done rule, #1114). Every rule reads the
+// blocking groups only (qa/blocking.js): the unit groups here are flagged as motion.compile flags them. Through the real registry the note fits
 // the output budget and never changes what is compiled. A note never leaves the take empty: on a compile
 // that did not install itself, the best take so far at the character's place goes on (no compile), once
 // per change; the agent's own install stays; a move of the character or the set starts the best again.
@@ -19,13 +20,13 @@ function expect(name, condition, detail = "") {
 }
 
 // ---- the rule on its own ----------------------------------------------------------------------
-const g = (kind, subject, severity) => ({ kind, subject, severity });
+const g = (kind, subject, severity, blocking = true) => ({ kind, subject, severity, blocking });
 const fail2 = (sev = 4) => ({ ok: false, groups: [g("REACH", "hand_l misses cupHandle by 3 cm", sev), g("COLLIDE", "hand_l x table", 2)] });
 let w = createRepairWatch(), n = 0;
 const next = (qa, base, turnId = "t1", characterId = "c") => w.note({ characterId, turnId, specId: `spec-${String(++n).padStart(12, "0")}`, base, qa }).say;
 const notes = [next(fail2(3)), next(fail2(), "b"), next(fail2(), "b"), next(fail2(), "b")];
 expect("no note for the first two compiles of a failure", notes[0] === undefined && notes[1] === undefined, JSON.stringify(notes));
-expect("the third compile with the same failures says stuck, names them and the best take", /^REACH hand_l misses cupHandle by # cm, COLLIDE hand_l x table unchanged over 3 compiles\. Stop patching it or re-applying its hint: start afresh or try another approach\. Install the best take here, spec-0+1 \(2 problems\)\. If neither helps, report its problems\.$/.test(notes[2] ?? ""), notes[2]);
+expect("the third compile with the same failures says stuck, names them and the best take", /^REACH hand_l misses cupHandle by # cm, COLLIDE hand_l x table unchanged over 3 compiles\. Stop patching it or re-applying its hint: start afresh or try another approach\. Install the best take here, spec-0+1 \(2 blocking problems\)\. If neither helps, report its problems\.$/.test(notes[2] ?? ""), notes[2]);
 expect("and keeps saying it while nothing moves", /unchanged over 4 compiles/.test(notes[3] ?? ""), notes[3]);
 expect("a whole spec after the note is the fresh start: no note", next(fail2()) === undefined);
 expect("the note is short", notes[2].length <= 280, `${notes[2].length}`);
@@ -41,7 +42,7 @@ w = createRepairWatch();
 const sev = k => ({ ok: false, groups: [g("GOAL", `goal ${k}`, 10 - k * 0.6)] });
 const capped = Array.from({ length: 12 }, (_, k) => next(sev(k), k ? "b" : undefined, "t2"));
 expect("no note before the cap while failures change", capped.slice(0, 10).every(x => x === undefined), JSON.stringify(capped));
-expect("the 11th compile of a turn (10 repairs) says install the best take and report", /^10 repair compiles\. Install the best take here, spec-\d+ \(1 problem\)\. Report its problems; stop unless asked for more\.$/.test(capped[10] ?? ""), capped[10]);
+expect("the 11th compile of a turn (10 repairs) says install the best take and report", /^10 repair compiles\. Install the best take here, spec-\d+ \(1 blocking problem\)\. Report its problems; stop unless asked for more\.$/.test(capped[10] ?? ""), capped[10]);
 expect("another turn of the same character starts again", next(sev(1), "b", "t3") === undefined);
 // in a turn the cap counts agent calls: a script's compiles (one callId) are one repair step
 w = createRepairWatch();
@@ -67,8 +68,21 @@ w = createRepairWatch();
 const pass = { ok: true, groups: [] };
 const polish = [next(fail2()), next(pass, "b"), next(fail2(), "b"), next(pass, "b")];
 const passed = `spec-${String(n - 2).padStart(12, "0")}`;
+const DONE = "done is that take with every visible criterion met and one look, verify_result { visual: \"contact_sheet\", frames: \"beats\" }, showing the action reads at a glance. Then stop at once: install that take and report its warnings in one line, no variants; fix only what the look or a criterion shows.";
 expect("the first pass gets no note", polish[1] === undefined);
-expect("a compile after a pass says QA passed: stop only when the criteria and verify_result pass too (#1114)", polish[2] === `${passed} already passed QA: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.` && polish[3] === polish[2], JSON.stringify(polish));
+expect("a compile after a take with 0 blocking problems states the done rule: criteria, one look, then stop (#1114)", polish[2] === `${passed} has 0 blocking problems: ${DONE}` && polish[3] === polish[2], JSON.stringify(polish));
+// #1114: warnings never block. A take whose groups are all warnings passes; a stuck streak is the same blocking failures
+w = createRepairWatch();
+const warned = { ok: false, groups: [g("POP", "LeftLeg accel 9.00 cm/f^2 in one frame", 3, false), g("FINGER_GAP", "left fingers off bar", 5, false)] };
+const soft = [next(fail2()), next(warned, "b"), next(fail2(), "b")];
+expect("a take with warnings only has 0 blocking problems: the next compile gets the polish note", soft[1] === undefined && soft[2] === `spec-${String(n - 1).padStart(12, "0")} has 0 blocking problems: ${DONE}`, JSON.stringify(soft));
+w = createRepairWatch();
+const churn = k => ({ ok: false, groups: [g("GOAL", "goal a", 4), g("POP", `warn ${k}`, 1 + k, false)] });
+const flat = [next(churn(0)), next(churn(1), "b"), next(churn(2), "b")];
+expect("the same blocking failure under changing warnings is stuck, named by the blocking group alone", /^GOAL goal a unchanged over 3 compiles\. /.test(flat[2] ?? ""), JSON.stringify(flat));
+w = createRepairWatch();
+const unflagged = [next({ ok: false, groups: [{ kind: "SLIDE", subject: "Left ball slides", severity: 2 }] }), next(fail2(), "b")];
+expect("groups without a flag are classified (SLIDE warns): that take passes", /has 0 blocking problems/.test(unflagged[1] ?? ""), JSON.stringify(unflagged));
 expect("other characters keep their own history", next(fail2(), "b", "t1", "other") === undefined);
 
 // ---- through the registry: the cup scene, base alone three times --------------------------
@@ -96,7 +110,7 @@ const bytes = JSON.stringify(third).length;
 expect("an answer with the note still fits the receipt budget", bytes <= MOTION_OUTPUT_BUDGET, `${bytes} B`);
 expect("the note changes nothing compiled: the same specId", third.specId === first.specId);
 expect("install: false at the note: the best take so far goes on (nothing else was installed)", takes.get(CHARACTER.id)?.spec && specIdOfSpec(takes.get(CHARACTER.id).spec) === first.specId
-	&& / Installed the best take here, spec-[0-9a-f]{12} \(\d+ problems\), bound to this position \(recompile after a move\)\. If neither helps, report its problems\.$/.test(third.stuck ?? ""), third.stuck);
+	&& / Installed the best take here, spec-[0-9a-f]{12} \(\d+ blocking problems?\), bound to this position \(recompile after a move\)\. If neither helps, report its problems\.$/.test(third.stuck ?? ""), third.stuck);
 const moved = run({ base: first.specId, patch: [{ op: "move", from: "/keys/@f=60", path: "/keys/@f=64" }, { op: "add", path: "/keys/@f=20/set/pitch", value: 5 }] });
 expect("a base + patch by frame compiles: the keys moved and added", moved.specId !== first.specId && moved.delta?.base === first.specId, JSON.stringify(moved.delta));
 
@@ -110,22 +124,23 @@ const step = (qa, extra = {}) => { const specId = `spec-b${String(++k).padStart(
 const s1 = step(qaOf(3)), s2 = step(qaOf(2)), s3 = step(qaOf(2)), s4 = step(qaOf(2, 2.5));
 expect("ifClean unclean until the stuck note: no install before it", !s1.install && !s2.install && !s3.install, JSON.stringify([s1, s2, s3]));
 expect("at the note the best take so far goes on, with its take and how many problems it keeps", s4.install?.specId === s2.specId && s4.install.take === `take ${s2.specId}`
-	&& s4.say.endsWith(`another approach. Installed the best take here, ${s2.specId} (2 problems), ${POS}. ${ELSE}`), JSON.stringify(s4));
+	&& s4.say.endsWith(`another approach. Installed the best take here, ${s2.specId} (2 blocking problems), ${POS}. ${ELSE}`), JSON.stringify(s4));
 const s5 = step(qaOf(2, 3), { current: s2.specId });
-expect("the next note while the character carries it: no second install, it says the take stays", !s5.install && s5.say.endsWith(`another approach. ${s2.specId} (2 problems) stays installed, ${POS}. ${ELSE}`), JSON.stringify(s5));
+expect("the next note while the character carries it: no second install, it says the take stays", !s5.install && s5.say.endsWith(`another approach. ${s2.specId} (2 blocking problems) stays installed, ${POS}. ${ELSE}`), JSON.stringify(s5));
 const s6 = step(qaOf(2, 3), { current: null });
 expect("a take rolled back or undone (the character carries none): the next note puts it on again", s6.install?.specId === s2.specId, JSON.stringify(s6));
 const s7 = step(qaOf(1), { current: s2.specId }), s8 = step(qaOf(1), { current: s2.specId }), s9 = step(qaOf(1, 2.2), { current: s2.specId });
-expect("a better compile after it: the note after it puts the better one on", !s7.install && s9.install?.specId === s7.specId && /Installed the best take here, spec-b0+7 \(1 problem\)/.test(s9.say), JSON.stringify([s7, s8, s9]));
+expect("a better compile after it: the note after it puts the better one on", !s7.install && s9.install?.specId === s7.specId && /Installed the best take here, spec-b0+7 \(1 blocking problem\)/.test(s9.say), JSON.stringify([s7, s8, s9]));
 const own = step(qaOf(1, 2.3), { installed: true });
-expect("a compile that installed itself keeps its take: no install, the note says so", !own.install && / This take is installed; best so far spec-b0+7 \(1 problem\)\. If neither helps, report its problems\.$/.test(own.say), JSON.stringify(own));
-// replay merged r3 S8: the agent's install: true take, then an install "never" measuring compile at the cap
-const after1 = step(qaOf(0, 0), { current: own.specId }), after2 = step(qaOf(1, 2.3), { current: own.specId });
+expect("a compile that installed itself keeps its take: no install, the note says so", !own.install && / This take is installed; best so far spec-b0+7 \(1 blocking problem\)\. If neither helps, report its problems\.$/.test(own.say), JSON.stringify(own));
+// replay merged r3 S8: the agent's install: true take, then an install "never" measuring compile at the cap (the better one
+// still blocks here: one with 0 blocking problems would be a pass, and the next note the polish note)
+const after1 = step(qaOf(1, 1), { current: own.specId }), after2 = step(qaOf(1, 2.3), { current: own.specId });
 expect("a take the agent installed is never swapped, not even for a better compile; the note says the agent's take stays", !after1.install && !after2.install
-	&& after2.say === `11 repair compiles. Your installed take ${own.specId} (1 problem) stays; best so far ${after1.specId} (0 problems). Report its problems; stop unless asked for more.`, JSON.stringify([after1, after2]));
+	&& after2.say === `11 repair compiles. Your installed take ${own.specId} (1 blocking problem) stays; best so far ${after1.specId} (1 blocking problem). Report its problems; stop unless asked for more.`, JSON.stringify([after1, after2]));
 w = createRepairWatch(); k = 0;
 const pre = [step(qaOf(2), { current: "spec-from-before" }), step(qaOf(2), { current: "spec-from-before" }), step(qaOf(2, 2.1), { current: "spec-from-before" })];
-expect("a take the character had before the line stays too: the note names the best take to install instead", !pre[2].install && pre[2].say.endsWith(`another approach. The earlier take stays; to replace it, install the best take here, ${pre[0].specId} (2 problems). ${ELSE}`), JSON.stringify(pre[2]));
+expect("a take the character had before the line stays too: the note names the best take to install instead", !pre[2].install && pre[2].say.endsWith(`another approach. The earlier take stays; to replace it, install the best take here, ${pre[0].specId} (2 blocking problems). ${ELSE}`), JSON.stringify(pre[2]));
 // replay merged r1 S8: the body moved 0.88 -> 0.94 -> 0.88 m; each place keeps its own best take
 w = createRepairWatch(); k = 0;
 const atA = [step(qaOf(2), { at: "A" }), step(qaOf(5), { at: "A" })];
@@ -139,22 +154,22 @@ const evicted = [step(qaOf(7), { at: "A", current: null }), step(qaOf(7), { at: 
 expect("only the last 3 places keep their best: a fourth drops the oldest", places.length === 3 && evicted[2].install?.specId === evicted[0].specId, JSON.stringify(evicted[2]));
 w = createRepairWatch(); k = 0;
 const capRun = Array.from({ length: 11 }, (_, i) => step(qaOf(9 - (i % 4))));
-expect("the cap without a stuck streak: the fewest problems so far goes on", capRun[10].install?.specId === capRun[3].specId && capRun[10].say === `10 repair compiles. Installed the best take here, ${capRun[3].specId} (6 problems), ${POS}. Report its problems; stop unless asked for more.` && capRun[10].say.length <= 180, JSON.stringify(capRun[10]));
+expect("the cap without a stuck streak: the fewest problems so far goes on", capRun[10].install?.specId === capRun[3].specId && capRun[10].say === `10 repair compiles. Installed the best take here, ${capRun[3].specId} (6 blocking problems), ${POS}. Report its problems; stop unless asked for more.` && capRun[10].say.length <= 190, JSON.stringify(capRun[10]));
 w = createRepairWatch(); k = 0;
 const draft = step({ ok: true, groups: [] }), after = step(qaOf(1));
-expect("a pass compiled with install false: the polish note puts the passing take on", after.install?.specId === draft.specId && after.say === `${draft.specId} passed QA and is now installed, ${POS}: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.`, JSON.stringify(after));
+expect("a pass compiled with install false: the polish note puts the passing take on", after.install?.specId === draft.specId && after.say === `${draft.specId} has 0 blocking problems and is now installed, ${POS}: ${DONE}`, JSON.stringify(after));
 // replay merged r6 S8: the pass was at another position; the note names both
 w = createRepairWatch(); k = 0;
 const passA = step({ ok: true, groups: [] }, { at: "A" }), atOther = step(qaOf(2), { at: "B" });
 expect("a pass at another position: the polish note says so and installs the best take here", atOther.install?.specId === atOther.specId
-	&& atOther.say === `${passA.specId} passed QA at another position; the best take here, ${atOther.specId} (2 problems), is installed, ${POS}. Report its problems; stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.`, JSON.stringify(atOther));
+	&& atOther.say === `${passA.specId} has 0 blocking problems at another position; the best take here, ${atOther.specId} (2 blocking problems), is installed, ${POS}. Report its problems; ${DONE}`, JSON.stringify(atOther));
 const stillA = step(qaOf(3), { at: "A", current: atOther.specId });
-expect("back where it passed: the passing take goes on again", stillA.install?.specId === passA.specId && stillA.say === `${passA.specId} passed QA and is now installed, ${POS}: stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems.`, JSON.stringify(stillA));
+expect("back where it passed: the passing take goes on again", stillA.install?.specId === passA.specId && stillA.say === `${passA.specId} has 0 blocking problems and is now installed, ${POS}: ${DONE}`, JSON.stringify(stillA));
 w = createRepairWatch();
 const lineNote = (characterId, i) => w.note({ characterId, turnId: "t", specId: `spec-${characterId}${String(i).padStart(10, "0")}`, base: i ? "b" : undefined, qa: qaOf(2), at: "here", take: `take ${characterId}` });
 for (const c of ["c1", "c2", "c3", "c4", "c5", "c6"]) lineNote(c, 0);
 const old = [1, 2].map(i => lineNote("c1", i)).at(-1), fresh = [1, 2].map(i => lineNote("c6", i)).at(-1);
-expect("only the 4 newest lines keep a take (memory): an older line's note asks for the install, a newer one installs", !old.install && / Install the best take here, spec-c1\d+ \(2 problems\)\. If neither helps, report its problems\.$/.test(old.say) && fresh.install?.take === "take c6", JSON.stringify([old, fresh]));
+expect("only the 4 newest lines keep a take (memory): an older line's note asks for the install, a newer one installs", !old.install && / Install the best take here, spec-c1\d+ \(2 blocking problems\)\. If neither helps, report its problems\.$/.test(old.say) && fresh.install?.take === "take c6", JSON.stringify([old, fresh]));
 const noTake = createRepairWatch().note({ characterId: "c", turnId: "t", specId: "spec-000000000001", qa: qaOf(1) });
 expect("no take kept (a caller without bake): never an install", noTake.install === undefined);
 
@@ -171,11 +186,13 @@ const worse = [inTurn({ base: t0.specId, patch: pitch })];
 while (!worse.at(-1).stuck && worse.length < 12) worse.push(inTurn({ base: worse[0].specId }));
 const noted = worse.at(-1);
 expect("never installed: nothing installed before the note", t0.installed === false && closer.installed === false && worse.slice(0, -1).every(x => x.installed === false && !x.affectedIds.length), JSON.stringify(worse.map(x => x.brief?.[0])));
-expect(`the note installs the compile with the fewest problems (${closer.qa.problems} of ${[t0, closer, ...worse].map(x => x.qa.problems).join(", ")}): the character carries it`, Boolean(noted.stuck) && heldId() === closer.specId
-	&& noted.affectedIds.includes(body.id) && /the best take so far, spec-[0-9a-f]{12}, installed/.test(noted.summary) && noted.stuck.includes(`Installed the best take here, ${closer.specId}`), JSON.stringify({ stuck: noted.stuck, summary: noted.summary, held: heldId() }));
+// closer's groups are warnings only (a hand grazing the cube, the upper arm at the torso, qa/blocking.js): it passes, so the
+// first note after it is the polish note, and it puts closer on
+expect(`the note installs the compile with 0 blocking problems (blocking ${[t0, closer, ...worse].map(x => x.qa.blocking).join(", ")}): the character carries it`, Boolean(noted.stuck) && closer.qa.blocking === 0 && heldId() === closer.specId
+	&& noted.affectedIds.includes(body.id) && /the best take so far, spec-[0-9a-f]{12}, installed/.test(noted.summary) && noted.stuck.startsWith(`${closer.specId} has 0 blocking problems and is now installed`), JSON.stringify({ stuck: noted.stuck, summary: noted.summary, held: heldId() }));
 expect("its brief still says this compile was not installed", noted.installed === false && /not installed$/.test(noted.brief[0]), noted.brief[0]);
 const again = inTurn({ base: worse[0].specId });
-expect("the next note: the take stays, no second install", Boolean(again.stuck) && !again.affectedIds.length && heldId() === closer.specId && again.stuck.includes(`${closer.specId} (${closer.qa.problems} problems) stays installed, bound to this position`), JSON.stringify(again.stuck));
+expect("the next note: the take stays, no second install", Boolean(again.stuck) && !again.affectedIds.length && heldId() === closer.specId && again.stuck.startsWith(`${closer.specId} has 0 blocking problems: done is`), JSON.stringify(again.stuck));
 body.z = 0.12;
 const there = [inTurn({ base: worse[0].specId }), inTurn({ base: worse[0].specId }), inTurn({ base: worse[0].specId })];
 expect("the character moved: the note installs a take baked where it now stands, not the earlier best", heldId() === there[0].specId && held.get(body.id).placement.position[2] === 0.12, JSON.stringify({ held: heldId(), there: there.map(x => [x.specId, x.stuck?.slice(0, 60)]) }));
@@ -187,8 +204,8 @@ const draft3 = inTurn({ base: t0.specId, patch: [{ op: "replace", path: "/use/0/
 const agent3 = inTurn({ base: t0.specId, patch: pitch, install: true }, "turn-3");
 const measure3 = [inTurn({ base: agent3.specId, install: "never" }, "turn-3")];
 while (!measure3.at(-1).stuck && measure3.length < 12) measure3.push(inTurn({ base: agent3.specId, install: "never" }, "turn-3"));
-expect(`the agent's install: true take (${agent3.qa.problems} problems) stays through "never" compiles and their note, though a draft had ${draft3.qa.problems}`, draft3.qa.problems < agent3.qa.problems && heldId() === agent3.specId
-	&& measure3.every(x => !x.affectedIds.length) && measure3.at(-1).stuck?.includes(`Your installed take ${agent3.specId}`), JSON.stringify({ held: heldId(), stuck: measure3.at(-1).stuck }));
+expect(`the agent's install: true take (${agent3.qa.blocking} blocking) stays through "never" compiles and their note, though a draft had ${draft3.qa.blocking}`, draft3.qa.blocking === 0 && agent3.qa.blocking > 0 && heldId() === agent3.specId
+	&& measure3.every(x => !x.affectedIds.length) && measure3.at(-1).stuck?.startsWith(`${draft3.specId} has 0 blocking problems: done is`), JSON.stringify({ held: heldId(), stuck: measure3.at(-1).stuck }));
 
 // through the registry: the bus hands motion.compile the agent's call id (command-bus.js context.callId)
 const steps = [];

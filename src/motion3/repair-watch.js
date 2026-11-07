@@ -4,13 +4,17 @@
 // ~1,250 output tokens of model time, a turn compiles median 8 / p90 17 times, a failure that survives
 // two retries unchanged survives a third about a third of the time, and about a fifth of the
 // compiles after a take first passes QA failed QA again (re-tweaking what already passed).
-//   polish  an earlier compile of this character in this turn passed QA: say so; stop only when the visible criteria
-//           and verify_result's physics review pass too, else keep fixing: past QA 0 a round improves when a fault
-//           shrinks (output.noImprovementRounds counts QA only), and the take nearest the criteria wins (#1114)
+//   polish  an earlier compile of this character in this turn had 0 blocking problems: say so and state the done rule
+//           (#1114): that take, every visible criterion met and one look at its contact sheet; then stop and report its warnings
 //   cap     REPAIR_CAP compiles after the first: report what still fails on the best take
 //   stuck   the same failing groups (or more) for STUCK_AFTER compiles in a row, neither fewer nor
 //           DELTA_STEP less severe: stop patching them (or re-applying their hints), start over,
 //           take another approach, or report what the best take still fails
+// Every rule reads the blocking groups only (qa/blocking.js: flagged by motion.compile, else classified here): a take with
+// warnings alone passes, the stuck streak is the same blocking failures, and the best take has the fewest blocking problems
+// (then the lower blocking severity, then fewer groups in all). Replay of v2's 30 bench runs: stopping at the first take with
+// 0 blocking problems and every goal met, plus 2 min to install and report, ends them 79 min sooner in all (the QA-0 rule 26),
+// and none of those takes blocks more than the delivered one; verify_result's physics review said "verified" in 1 of 139 calls.
 // History is per character and agent turn (context.turnId); without a turn (MCP, tests) per character,
 // with the cap counted along the base chain (a whole spec starts it again). In a turn the cap counts agent
 // steps: the compiles of one tool call (context.callId; a script's nested ones share the script's) are one
@@ -29,6 +33,7 @@
 // of the line, nor one the character had before it (replay of merged r3 S8: the agent's own take was
 // swapped for an earlier draft, so its report no longer named the character's take).
 import { groupKey } from "./qa/severity.js";
+import { blockingCount, blockingOf } from "./qa/blocking.js";
 
 const STUCK_AFTER = 3;
 const REPAIR_CAP = 10;
@@ -43,10 +48,10 @@ const SAY_CODES = 2;
 
 const severity = groups => groups.reduce((s, g) => s + (Number.isFinite(g.severity) ? g.severity : 0), 0);
 const superset = (a, b) => [...b].every(k => a.has(k));
-const better = (a, b) => (a.ok !== b.ok ? a.ok : a.n !== b.n ? a.n < b.n : a.sev < b.sev);
-const problems = n => `${n} problem${n === 1 ? "" : "s"}`;
+const better = (a, b) => (a.ok !== b.ok ? a.ok : a.n !== b.n ? a.n < b.n : a.sev !== b.sev ? a.sev < b.sev : a.all < b.all);
+const problems = n => `${n} blocking problem${n === 1 ? "" : "s"}`;
 const cut = s => (s.length > 40 ? `${s.slice(0, 39)}~` : s);
-const named = c => `${c.specId} (${c.ok ? "QA passes" : problems(c.n)})`;
+const named = c => `${c.specId} (${problems(c.n)})`;
 // a take plays in the character's placement frame: one the watch put on says so (a move misaligns it)
 const POS = "bound to this position (recompile after a move)";
 
@@ -72,8 +77,8 @@ export function createRepairWatch() {
 	 *   at?: string, take?: unknown, installed?: boolean, current?: string | null }} c
 	 */
 	function note({ characterId, turnId = null, callId = null, specId, base, qa, at = "", take, installed = false, current = null }) {
-		const line = lineOf(`${characterId}\u0000${turnId ?? ""}`), groups = qa.groups ?? [];
-		const now = { specId, at, ok: Boolean(qa.ok), fails: new Set(groups.map(groupKey)), n: groups.length, sev: severity(groups), streak: 1 };
+		const line = lineOf(`${characterId}\u0000${turnId ?? ""}`), groups = blockingOf(qa.groups ?? []), n = blockingCount(qa);
+		const now = { specId, at, ok: n === 0, fails: new Set(groups.map(groupKey)), n, sev: severity(groups), all: qa.groups?.length ?? 0, streak: 1 };
 		// core: the failures the whole streak shares (its first compile's; the later ones hold them all)
 		now.core = now.fails;
 		// a step: one agent call (its compiles share callId) or one compile; the streak compares with the last compile of the
@@ -114,18 +119,16 @@ export function createRepairWatch() {
 		const fills = !installed && !mine && !keeps && (current === null || watched) && pick.take !== undefined;
 		const install = fills ? { specId: pick.specId, take: pick.take } : undefined;
 		if (install) line.held = pick;
-		// what the character carries after the note, in one sentence; then what to do (a cap note at most ~180 characters)
+		// what the character carries after the note, in one sentence; then what to do (a cap note at most ~190 characters)
 		const status = installed ? `This take is installed${past(now)}.` : install ? `Installed the best take here, ${named(pick)}, ${POS}.`
 			: mine ? `Your installed take ${named(line.mine)} stays${past(line.mine)}.` : keeps ? `${named(held)} stays installed, ${POS}.`
 				: current !== null && pick.take !== undefined ? `The earlier take stays; to replace it, install the best take here, ${named(pick)}.`
 					: `Install the best take here, ${named(pick)}.`;
-		// QA 0 is not done (#1114): the visible criteria and verify_result's support/contact/penetration review decide too;
-		// handstand r3 kept a QA-clean take with fingers 18 cm deep over a QA 1 variant at 4.3 cm, so a smaller fault is the
-		// improvement and a QA 1 take may be the best one (install: true)
-		const asked = "stop only when every visible criterion is met and verify_result shows no support, contact or skin penetration fault past tolerance. Else keep fixing, install: true to verify each try (INSTALL_WORSE is expected): noImprovementRounds counts QA only, so a round improves when a fault or unmet criterion shrinks, and the best take is the one nearest the criteria, then with the fewest QA problems";
+		// the done rule (#1114), as the prompts state it: 0 blocking problems, every visible criterion met, one look
+		const asked = "done is that take with every visible criterion met and one look, verify_result { visual: \"contact_sheet\", frames: \"beats\" }, showing the action reads at a glance. Then stop at once: install that take and report its warnings in one line, no variants; fix only what the look or a criterion shows";
 		let say;
-		if (kind === "polish") say = !install ? `${passed} already passed QA: ${asked}.` : install.specId === passed ? `${passed} passed QA and is now installed, ${POS}: ${asked}.`
-			: `${passed} passed QA at another position; the best take here, ${named(pick)}, is installed, ${POS}. Report its problems; ${asked}.`;
+		if (kind === "polish") say = !install ? `${passed} has 0 blocking problems: ${asked}.` : install.specId === passed ? `${passed} has 0 blocking problems and is now installed, ${POS}: ${asked}.`
+			: `${passed} has 0 blocking problems at another position; the best take here, ${named(pick)}, is installed, ${POS}. Report its problems; ${asked}.`;
 		else if (kind === "cap") say = `${repairs} repair ${turnId && callId ? "calls" : "compiles"}. ${status} Report its problems; stop unless asked for more.`;
 		else {
 			const codes = [...now.core], names = codes.slice(0, SAY_CODES).map(cut).join(", ") + (codes.length > SAY_CODES ? ` +${codes.length - SAY_CODES}` : "");

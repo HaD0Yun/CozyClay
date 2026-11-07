@@ -1,6 +1,6 @@
 // CozyClay 3 motion: the agent writes a motion spec (keys, anchors, props, fits, generators,
 // checks, goals), the deterministic compiler bakes every frame, QA measures it, and the take is
-// installed on the character. Cheap enough to run in a loop until QA reports nothing. The words
+// installed on the character. Cheap enough to run in a loop until QA reports no blocking problem. The words
 // the agent reads live in motion3/docs.js; the contracts in docs/motion-api-v3.1.md.
 import { fail, characterOf } from "./shared.js";
 import { motionScene } from "../motion3/scene.js";
@@ -33,6 +33,8 @@ import { peopleOf } from "../motion3/people.js";
 import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
+import { blockingCount, blockingOf, blockingSay, markBlocking } from "../motion3/qa/blocking.js";
+import { takeOut } from "../motion3/physics-frames.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -131,6 +133,8 @@ export function register(registry, ports) {
 	// there): 0.14 ms for 860 bodies, where their JSON took 0.9 ms and 295 KB a key
 	// the installed take's QA for ifClean and INSTALL_WORSE: stored, or measured once from its spec (a reload empties the store)
 	const installedQa = createInstalledQa({ store, owner, compile });
+	// each group flagged blocking or warning (qa/blocking.js, #1114), blocking first; FLOAT, REACH and SELF legs read the take
+	const flag = (qa, take) => { const out = { ...qa, groups: markBlocking(qa.groups ?? [], () => takeOut(take, ports.state().objects ?? [])) }; return { ...out, blocking: blockingCount(out) }; };
 	const placeKey = (character, scene) => {
 		let h = 2166136261;
 		const mix = v => { h = Math.imul(h ^ Math.round(v * 1e4), 16777619); };
@@ -192,10 +196,10 @@ export function register(registry, ports) {
 		// the installed take's QA, measured before this compile when the store lost it (motion3-installed.js); under ifClean the
 		// job skips thinning a repaired take that will not go on over it (compile-job.js ifCleanOver: it would thin keys no take keeps)
 		return after(install === false ? null : installedQa.measure(character, scene), on => after(filled ? { spec: source, fill: filled } : keepFill ? { spec: source, fill: keepFill } : autoFill(ports, character, source), auto => after(compile(character, auto.spec, { probes, repair: repairWith, installing: install !== false, ...(install === "ifClean" ? { ifCleanOver: on && { groups: on.groups } } : {}), thin, protect }, {}, context?.taskId, scene), r => {
-			const { qa, take } = r, notes = [...patched, ...(r.notes ?? [])];
-			// ifClean: install a clean result (qa.ok includes the goals; after repair when asked), and one that beats the installed
-			// take's QA (fewer groups, then fewer frame issues) or the first when none is on (variant K: box ended with no take in 4 of
-			// 5 runs under ifClean / never); over a take whose QA cannot be measured, any take (with a note)
+			const { take } = r, qa = flag(r.qa, take), notes = [...patched, ...(r.notes ?? [])];
+			// ifClean: install a clean result (0 blocking problems, goals included; after repair when asked), and one that beats the
+			// installed take's blocking groups (fewer, then fewer frame issues) or the first when none is on (variant K: box ended with no
+			// take in 4 of 5 runs under ifClean / never); over a take whose QA cannot be measured, any take (with a note)
 			const verdict = install === "ifClean" ? installedQa.verdict(on, qa) : { wanted: install };
 			const wanted = verdict.wanted;
 			let installs = wanted, kept = false, timing;
@@ -214,21 +218,21 @@ export function register(registry, ports) {
 			if (best) timing = put(character, best.take, context) ?? timing;
 			const self = best?.specId === own, how = kept ? "; already installed, unchanged" : self ? "; installed as the best take so far"
 				: best ? `; not installed; the best take so far, ${best.specId}, installed` : install === "ifClean" ? (installs ? "; installed" : "; not installed") : "";
-			const hint = hybridCapsuleHint(ports.storeDomain?.("scenes")?.metadata?.().castStyle, { stuck, qa, polish });
+			const hint = hybridCapsuleHint(ports.storeDomain?.("scenes")?.metadata?.().castStyle, { stuck, qa: { ok: qa.blocking === 0, groups: blockingOf(qa.groups) }, polish });
 			const flat = rounds(characterId, qa, base === undefined), broad = patchTooBroad(patch);
-			const output = report(r, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: r.repair } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
+			const output = report({ ...r, qa }, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: r.repair } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
 			// agent-progress.js: viewport ghost, timeline beats, agent panel
 			const draft = publishDraft(characterId, { take, installed: installs || kept || self, specId: output.specId, label: r.label, qa, timeline: r.timeline });
 			noteDraftCompiled(draft, r, { installed: installs || kept || self, stuck, repaired: Boolean(r.repair), adjusted: notes.length > 0 });
 			// agent:turn_summary: this turn's drafts and their QA (agent-turn-telemetry.js)
 			noteTurnDraft(context?.turnId, { clean: Boolean(qa.ok), problems: qaProblems(qa), stuck: Boolean(stuck) });
-			return { affectedIds: installs || best ? [characterId] : [], summary: `${auto.fill?.calls ? `MotionBricks filled ${auto.fill.calls} gap${auto.fill.calls === 1 ? "" : "s"}. ` : ""}Compiled ${r.frameCount} frames; QA ${qaSay(qa)}${how}${adjustedSay(notes)}.${install !== false && qaProblems(qa) === 0 ? " QA clean; done only when the visible criteria are met and verify_result is clean." : ""}${installs || kept || self ? ` Installed take: ${output.specId}.` : best ? ` Installed take: ${best.specId}.` : ""}${r.thinned ? ` Thinned ${r.thinned.removed.length} free-span key${r.thinned.removed.length === 1 ? "" : "s"} QA did not need (output.thinned).` : ""}`, output, ...workerWarning() };
+			return { affectedIds: installs || best ? [characterId] : [], summary: `${auto.fill?.calls ? `MotionBricks filled ${auto.fill.calls} gap${auto.fill.calls === 1 ? "" : "s"}. ` : ""}Compiled ${r.frameCount} frames; QA ${qaSay(qa)}, ${blockingSay(qa)}${how}${adjustedSay(notes)}.${installs || kept || self ? ` Installed take: ${output.specId}.` : best ? ` Installed take: ${best.specId}.` : ""}${r.thinned ? ` Thinned ${r.thinned.removed.length} free-span key${r.thinned.removed.length === 1 ? "" : "s"} QA did not need (output.thinned).` : ""}`, output, ...workerWarning() };
 		})));
 	} });
 	registry.register({ ...declarations[1], available: mounted, run({ characterId, checks }) {
 		const character = characterOf(ports, characterId), take = installed(characterId);
-		return after(compile(character, take.spec, { checks }), r => ({ affectedIds: [], summary: `QA ${qaSay(r.qa)}${adjustedSay(r.notes ?? [])}.`,
-			output: report(r, adjustedOf(r.notes ?? [])), ...workerWarning() }));
+		return after(compile(character, take.spec, { checks }), r => { const qa = flag(r.qa, take); return { affectedIds: [], summary: `QA ${qaSay(qa)}, ${blockingSay(qa)}${adjustedSay(r.notes ?? [])}.`,
+			output: report({ ...r, qa }, adjustedOf(r.notes ?? [])), ...workerWarning() }; });
 	} });
 	registry.register({ ...declarations[2], available: mounted, run({ characterId, frames, bones = DEFAULT_BONES }) {
 		const character = characterOf(ports, characterId), take = installed(characterId), sk = rigOf(character);

@@ -29,9 +29,11 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // +377 for the done rule (#1114: QA 0 plus every visible criterion met and verify_result's support, contact and skin penetration review;
 // past QA 0 a smaller fault is the improvement and the take nearest the criteria the best, installed with install: true; no variants only once done;
 // the hybrid gate's stop does not apply once a take passed QA): +377
-check("the whole prompt is at most 16,953 characters", () => assert.ok(prompt.length <= 16953, `${prompt.length}`));
-check("the motion part is at most 4,336 characters", () => {
-	assert.ok(motion.length > 0 && motion.length <= 4336, `${motion.length}`);
+// -33 for the blocking done rule (#1114 round 2: 0 blocking problems, every visible criterion, ONE contact-sheet look, then stop
+// and report the warnings; the shot camera only for a camera or shot request; the gate reads qa.blocking): the cap stays
+check("the whole prompt is at most 16,920 characters", () => assert.ok(prompt.length <= 16920, `${prompt.length}`));
+check("the motion part is at most 4,272 characters", () => {
+	assert.ok(motion.length > 0 && motion.length <= 4272, `${motion.length}`);
 });
 check("the prompt names describe, grab, goals, repair, base, beats and the 0.01 m scale floor", () => {
 	for (const word of ["motion.describe", "grab", "goals", "repair", "base", "\"beats\"", "0.01 m"]) assert.ok(prompt.includes(word), word);
@@ -43,28 +45,29 @@ check("the motion part keeps the coordinate rules", () => {
 check("the motion part states the procedure", () => {
 	for (const rule of [/The <motion-reference> block below is motion\.describe/, /read them there, not by a call/, /topics: \[\.\.\.\]/, /never probe the schema/, /reachGrip/, /grab\/release/, /after: "fast"\|"slow"/,
 		/group \(Empty\) is carried or hinged as one unit/, /at least one goals entry per motion request: first list its causes, contacts, effects and what must not happen/, /report the lines no goal measures \(Unmeasured/, /install: "ifClean" and repair: \{ rounds \}/, /topic: "essentials"/, /topic: "goals"/, /never sweep values by hand/, /loop in one script without repair \(tools\.run_action/, /then repair the pick until clean \(install: "ifClean"\)/, /independent calls in the same turn/,
-		/base .*plus patch addressed by frame or name/, /never by index; send a whole spec only to start over/, /Obey output\.stuck/, /probes and output\.timeline instead of .*motion\.sample/, /qa\.ok, which includes the goals\) installs in that call/,
-		/visual: "contact_sheet", frames: "beats"/, /visual: "trace"/, /Report qa\.problems, not qa\.total, the goals and output\.fixed/, /read output\.observations near and wrist and verify_result exportFraming/, /output\.observations, not QA/, /views, focus, trail/,
+		/base .*plus patch addressed by frame or name/, /never by index; send a whole spec only to start over/, /Obey output\.stuck/, /probes and output\.timeline instead of .*motion\.sample/, /qa\.blocking 0, which includes the goals\) installs in that call/,
+		/visual: "contact_sheet", frames: "beats"/, /visual: "trace"/, /Report qa\.blocking, not qa\.total, the goals and output\.fixed/, /read output\.observations near and wrist/, /output\.observations, not QA/, /views, focus, trail/,
 		/Key the extremes .*never an even beat: vary the gaps/, /Key judgment only: root \[x,z\], hands, feet, set\.look/, /height, knees, foot turns, arm swing and head are computed/, /same pose on the same frame only when the action needs it/,
 		/fix the worst output\.observations\.life warning/]) assert.match(motion, rule);
 });
 check("the motion part states the stop rule and ends on an installed take", () => {
-	for (const rule of [/Done means QA reports 0 problems, every visible criterion is met with its measured value, and verify_result checks \["motion"\] shows no support, contact or skin penetration fault \(hands, knees, body vs floor and objects\) past tolerance; QA 0 alone is not done: keep fixing with base \+ patch, install: true to verify each try\./,
-		/With 4 or fewer problems, stop after 4 rounds without improvement; otherwise after 8 \(output\.noImprovementRounds counts QA only; past QA 0 a round improves when a fault or unmet criterion shrinks\), with the best take installed \(nearest the criteria, then fewest QA problems\) and what is unmet reported\./,
-		/Once done, run no more variants or comparison scripts\./, /When you stop, compile once more with install: "ifClean" on the best specId \(true if it fails QA\)/,
-		/never end a task without an installed take/]) assert.match(motion, rule);
+	for (const rule of [/Done = 0 blocking problems \(qa\.blocking: what a viewer sees\), every visible criterion met, and ONE look: verify_result \{ visual: "contact_sheet", frames: "beats" \} once, checking only that the action reads at a glance \(the defining move is there, held poses are locked, contacts look like contacts, effort matches the load\)\./,
+		/If it does not read, fix that; else stop at once: install that take and report its warnings in one line\./,
+		/Warnings and verify_result physics findings are reported, never a reason to go on; after done, no variants or comparison scripts\./,
+		/With 4 or fewer blocking problems, stop after 4 rounds without improvement \(output\.noImprovementRounds\), otherwise after 8, with the best take installed and what is unmet reported\./,
+		/When you stop, compile once more with install: "ifClean" on the best specId; never end a task without an installed take/]) assert.match(motion, rule);
 });
-// #1114: rolls r1 kept 0.105 m floor sinking ("the motion already passed QA, so by the rules I changed nothing more")
-check("QA 0 alone never stops the motion work, and no ban blocks fixing a QA-clean take", () => {
-	for (const ban of [/When QA reports 0 problems, you are done/, /do not explore variants/, /Never run comparison scripts after a clean compile/, /When you stop \(clean,/]) assert.doesNotMatch(prompt, ban);
+// #1114 round 2: on the v2 bench verify_result said "verified" in 1 of 139 calls, and the runs spent 84 min and 188 compiles past
+// their first QA 0 chasing it; QA 0 alone never stopped them either (fingers 18 cm in the floor): 0 blocking problems is the bar
+check("no rule waits for verify_result or for warnings, and no ban blocks fixing what the look shows", () => {
+	for (const ban of [/When QA reports 0 problems, you are done/, /do not explore variants/, /Never run comparison scripts after a clean compile/, /When you stop \(clean,/,
+		/QA 0 alone is not done/, /no support, contact or skin penetration fault/, /counts QA only/, /nearest the criteria/, /\(true if it fails QA\)/]) assert.doesNotMatch(prompt, ban, String(ban));
 });
-// #1114: handstand r3 stopped on output.noImprovementRounds 4 (it counts QA only, and the QA-clean take could not be beaten) and
-// kept fingers 18 cm deep: past QA 0 a smaller fault is the improvement, and a QA 1 take nearer the criteria goes on with install: true
-check("past QA 0 a smaller fault counts as improvement and the best take may fail QA", () => {
-	assert.match(motion, /output\.noImprovementRounds counts QA only; past QA 0 a round improves when a fault or unmet criterion shrinks/);
-	assert.match(motion, /nearest the criteria, then fewest QA problems/);
-	assert.match(motion, /install: "ifClean" on the best specId \(true if it fails QA\)/);
-	assert.doesNotMatch(motion, /so the take is installed and visible/);
+// v2 bench: the camera follow-up (exportFraming, then task.requestScope and a camera call) was refused SCOPE_DENIED in all 30 motion
+// runs (28 frame_shot, 2 shot.create)
+check("the shot camera is the motion task's work only when the request is about the camera or the shot", () => {
+	assert.match(motion, /the shot camera \(verify_result exportFraming, frame_shot\) is yours only when the request is about the camera or the shot/);
+	assert.doesNotMatch(prompt, /fix the shot camera when it shows a cut|asks for the scope with task\.requestScope/);
 });
 check("no sentence describes objects only as hinged doors", () => {
 	assert.doesNotMatch(prompt, /\(doors\)/);
