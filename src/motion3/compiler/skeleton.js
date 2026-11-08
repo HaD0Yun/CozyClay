@@ -32,11 +32,17 @@ export function createSkeleton(rigJson) {
 		headRadii: L.headEllipsoid.radii.map(v => v * CM),
 		// how far the skin's sole lies below the ToeBase / Toe_End joints at bind (m; qa/geometry.js solePoints)
 		sole: { ball: (L.sole?.ball ?? 0) * CM, tip: (L.sole?.tip ?? 0) * CM, ...(L.sole?.heel ? { heel: L.sole.heel.map(v => v * CM) } : {}) },
-		// an adapted rig's proportions to the X Bot (rigs/adapt-measure.js): { foot, hand, arm, hips }; absent on the X/Y Bot
+		// an adapted rig's proportions to the X Bot (rigs/adapt-measure.js): { foot, hand, arm, hips, girth }; absent on the X/Y Bot
 		...(L.scale ? { scale: { ...L.scale } } : {}),
 	};
 	return { model: rigJson.model, names, index, parent, children, subtree, restLocalPos, restLocalRot, restWorldPos, restWorldRot, landmarks };
 }
+
+/**
+ * Rig sk's size over the X Bot's for body part `part` (landmarks.scale, rigs/adapt-measure.js: foot, hand, arm, hips,
+ * girth), for the body sizes the compiler and QA hold in metres; 1 on the X/Y Bot, which carry none (x 1 is exact).
+ */
+export const rigScale = (sk, part) => sk?.landmarks?.scale?.[part] ?? 1;
 
 /** Rest pose as a mutable world-space state { P, R }. */
 export function restState(sk) {

@@ -1,9 +1,9 @@
 // Collision proxies for motion QA: body capsules on Mixamo joints, scene objects as oriented
 // boxes (base pivot = bottom centre, CozyClay convention), the head as the measured ellipsoid.
 import { add, sub, scale, dot, len, apply, T, clamp } from "../compiler/math.js";
-import { bonePoint } from "../compiler/skeleton.js";
+import { bonePoint, rigScale } from "../compiler/skeleton.js";
 
-// [part, from joint, to joint, radius m]. Radii are fitted to the X/Y Bot skin.
+// [part, from joint, to joint, radius m]. Radii are fitted to the X/Y Bot skin; capsulesFor scales them to a rig.
 export const CAPSULES = [
 	["torso_lo", "Spine", "Spine2", 0.12], ["torso_hi", "Spine2", "Neck", 0.105], ["hips", "LeftUpLeg", "RightUpLeg", 0.095],
 	["neck", "Neck", "Head", 0.055],
@@ -15,10 +15,29 @@ export const CAPSULES = [
 	}),
 ];
 
+const scaled = new WeakMap();
+/**
+ * CAPSULES on rig sk: the radii times its girth (rigScale "girth": the stature over the X Bot's, as the collision body's
+ * refit has it, body.js registerBody); CAPSULES itself on the X/Y Bot.
+ */
+export function capsulesFor(sk) {
+	const g = rigScale(sk, "girth");
+	if (g === 1) return CAPSULES;
+	if (!scaled.has(sk)) scaled.set(sk, CAPSULES.map(([part, a, b, r]) => [part, a, b, r * g]));
+	return scaled.get(sk);
+}
+
+/**
+ * SELF's leg limit (m) on rig sk for `subject` ("thighs overlap": UpLeg-Leg, else "shins touch": Leg-Foot): the two legs'
+ * segments closer than this touch. The X Bot's 0.135 and 0.1, scaled by the rig's hip width (rigScale "hips"): a rig with
+ * hips 0.82 of the X Bot's stood with its thighs 0.1346 m apart and read as overlapping on every frame.
+ */
+export const legGap = (sk, subject) => (subject === "thighs overlap" ? 0.135 : 0.1) * rigScale(sk, "hips");
+
 export const segPoints = (a, b, n = 9) => Array.from({ length: n }, (_, i) => add(a, scale(sub(b, a), i / (n - 1))));
 
 /** A phalanx's skin radius (m); the skin ends this far past the fingertip joint (Hand<Finger>4). Measured on the X/Y Bot
- * skin: 0.8-1.0 cm round the phalanges, 0-0.3 cm past the tip joint. */
+ * skin: 0.8-1.0 cm round the phalanges, 0-0.3 cm past the tip joint. Both scale with the rig's hand (rigScale "hand"). */
 const PHALANX = 0.009, TIP_PAST = 0.002;
 const FINGER_NAMES = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
 
@@ -29,13 +48,13 @@ const FINGER_NAMES = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
  * joint, where its skin ends. [] for a rig without finger joints.
  */
 export function fingerCapsules(sk, s, side) {
-	const out = [], part = `fingers_${side === "Left" ? "l" : "r"}`;
+	const out = [], part = `fingers_${side === "Left" ? "l" : "r"}`, k = rigScale(sk, "hand"), r = PHALANX * k, past = TIP_PAST * k;
 	for (const f of FINGER_NAMES) {
 		const J = [1, 2, 3, 4].map(i => sk.index[`${side}Hand${f}${i}`]);
 		if (J.some(j => j === undefined)) return [];
 		for (let i = 0; i < 3; i++) {
 			const a = s.P[J[i]], tip = s.P[J[i + 1]], ab = sub(tip, a), l = len(ab);
-			out.push([part, a, i === 2 && l > 1e-9 ? sub(tip, scale(ab, Math.min(0.9, (PHALANX - TIP_PAST) / l))) : tip, PHALANX]);
+			out.push([part, a, i === 2 && l > 1e-9 ? sub(tip, scale(ab, Math.min(0.9, (r - past) / l))) : tip, r]);
 		}
 	}
 	return out;

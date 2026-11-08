@@ -6,10 +6,11 @@
 //                         0.5 cm on the Y Bot, 0.7 cm on the X Bot).
 //   sole.heel             [back, up] of the heel point from the ankle at bind (cm; the X Bot's 4.5 and 0.5), back
 //                         scaled by the foot's length.
-//   scale                 { foot, hand, arm, hips }: the rig's foot (ankle to ball), hand (wrist to middle knuckle),
-//                         arm (shoulder to wrist) and hip width over the X Bot's, for the hand-size grasp offsets
-//                         (compiler/limbs.js palmPoint), the stance width (skills/basic.js standIdle, compiler/walk.js)
-//                         and the hanging arm (skills/stance.js).
+//   scale                 { foot, hand, arm, hips, girth }: the rig's foot (ankle to ball), hand (wrist to middle
+//                         knuckle), arm (shoulder to wrist), hip width and stature over the X Bot's, for the hand-size
+//                         grasp offsets and finger radii (compiler/limbs.js palmPoint, qa/geometry.js), the stance width
+//                         and the legs' SELF limits (skills/basic.js standIdle, compiler/walk.js, qa/geometry.js legGap),
+//                         the hanging arm (skills/stance.js) and the body capsules' radii (girth; qa/geometry.js).
 import { add, sub, scale, dist, apply, T } from "../compiler/math.js";
 
 const CM = 100, TIP_UP = 0.6;
@@ -36,7 +37,8 @@ export function measure(ref, J, r, extra) {
 /** The rig's proportions to the X Bot that the compiler reads (landmarks.scale; see the head of this file). */
 function proportions(ref, J, r) {
 	const refW = dist(ref.restWorldPos[ref.index.LeftUpLeg], ref.restWorldPos[ref.index.RightUpLeg]);
-	return { foot: r4(mean(S => r.foot[S])), hand: r4(mean(S => r.hand[S])), arm: r4(mean(S => r.arm[S])), hips: r4(dist(J.LeftUpLeg, J.RightUpLeg) / refW) };
+	const girth = J.HeadTop_End[1] / ref.restWorldPos[ref.index.HeadTop_End][1];
+	return { foot: r4(mean(S => r.foot[S])), hand: r4(mean(S => r.hand[S])), arm: r4(mean(S => r.arm[S])), hips: r4(dist(J.LeftUpLeg, J.RightUpLeg) / refW), girth: r4(girth) };
 }
 
 /**
