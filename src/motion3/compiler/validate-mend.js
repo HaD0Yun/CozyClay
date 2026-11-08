@@ -91,8 +91,9 @@ function renameSidedAnchors(spec, notes) {
 export function mendSpec(spec, notes) {
 	if (!plain(spec)) return;
 	const said = [];
-	mendKnees(spec, said);
+	// keys past the end move to the last frame first, so a knee is mended on the pose that frame really has
 	clampLastKeys(spec, said);
+	mendKnees(spec, said);
 	renameSidedAnchors(spec, said);
 	for (const line of mergeProblems(said)) if (!notes.includes(line)) notes.push(line);
 }

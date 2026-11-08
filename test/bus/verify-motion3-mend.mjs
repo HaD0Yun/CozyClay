@@ -42,6 +42,8 @@ expect("a key at the last frame setting the same channel: refused (the two would
 	/keys\[1\]\.f = 40 is outside 0\.\.39/.test(refused(() => compile(spec([{ f: 39, set: { pitch: 3 } }, { f: 40, set: { pitch: 5 } }])))));
 expect("an object key past the end too: refused (the take is short of the motion, not off by one)",
 	/keys\[0\]\.f = 40 is outside 0\.\.39/.test(refused(() => compile(spec([{ f: 40, set: { pitch: 5 } }], { objects: { "empty-2": { prop: "grip", grab: 0, keys: [{ f: 41, pos: [0.2, 0.8, 0.85] }] } }, props: { grip: { hand: "r", origin: ["RightHandIndex2"] } } })))));
+const late = compile(spec([{ f: 4, set: { pitch: 0 } }, { f: 40, set: { knee_l: [0, -0.6, -0.8] } }, { f: 41, set: { pitch: 150 } }]));
+expect("a backward pole past the end is mended on the last frame's pose (a tilt keyed past the end lands there too)", own(late, 1).f === 39 && own(late, 1).set.knee_l === undefined && own(late, 2).f === 39, json(late.notes));
 const beside = compile(spec([{ f: 39, set: { pitch: 3 } }, { f: 40, set: { spine_pitch: 5 } }]));
 expect("a key at the last frame with other channels: both kept on it", own(beside, 0).f === 39 && own(beside, 1).f === 39 && own(beside, 0).set.pitch === 3);
 
