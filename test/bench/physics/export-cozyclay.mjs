@@ -10,6 +10,7 @@ import { compileSpec } from "../../../src/motion3/pipeline.js";
 import { objectBoxesAt, rootPoseAt } from "../../../src/motion3/object-pose.js";
 import { skeletonFor } from "../../../src/motion3/rigs/index.js";
 import { motionScene } from "../../../src/motion3/scene.js";
+import { placedOut } from "../../../src/motion3/shot-framing.js";
 import { activeScene } from "../motion-track.mjs";
 import { loadSets } from "./sets.mjs";
 import { RIG, mat4, writeTake } from "./take.mjs";
@@ -44,6 +45,9 @@ export function takeFromDoc(doc, set, source = {}) {
 	const sk = skeletonFor(character.motionTake.rig ?? character.model);
 	if (sk?.model !== RIG.name) throw new Error(`${id} is ${character.model}, the bench needs ${RIG.name}`);
 	const r = compileSpec({ fps: 24, ...spec }, { sk, scene: motionScene(scene.objects ?? []) });
+	// The bones where the Studio shows them: the take moved from where it was made to where the character stands now
+	// (studio-motion-visual.js), as the Blender take carries the armature's placement.
+	const placed = placedOut(r.out, character.motionTake.placement, character);
 	const frames = r.out.frames.length;
 	const objects = {};
 	for (const o of set.objects) {
@@ -51,7 +55,7 @@ export function takeFromDoc(doc, set, source = {}) {
 	}
 	return {
 		version: 0, fps: 24, frames, rig: RIG,
-		characters: { [id]: { bones: r.out.frames.map(fr => fr.s.P.map((p, b) => mat4(fr.s.R[b], p))) } },
+		characters: { [id]: { bones: placed.frames.map(fr => fr.s.P.map((p, b) => mat4(fr.s.R[b], p))) } },
 		objects, source: { tool: "cozyclay", set: set.id, f0: r.out.f0 ?? 0, qa: { ok: r.qa.ok, total: r.qa.total }, ...source },
 	};
 }

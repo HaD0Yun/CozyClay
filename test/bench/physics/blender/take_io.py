@@ -125,6 +125,10 @@ def import_take(scene, arm, take):
             _key_bone(pb, f)
     for oid, o in take["objects"].items():
         obj = bpy.data.objects.get(oid)
+        if obj is not None and not o["matrix"]:
+            # an empty track: the take deleted this object, so the built scene drops it too
+            bpy.data.objects.remove(obj, do_unlink=True)
+            continue
         if obj is None or o.get("parent") or len(o["matrix"]) < 2:
             continue
         obj.rotation_mode = "QUATERNION"
