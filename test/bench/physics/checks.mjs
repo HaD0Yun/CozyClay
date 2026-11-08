@@ -135,7 +135,8 @@ function groundUnder(fr) {
 /** Standing: hips at the rig's standing height (± DEF.standTol) over the ground under the feet, both feet down. */
 export const standing = (m, f) => { const fr = m.frames[f]; return footDown(fr, "l") && footDown(fr, "r") && Math.abs(fr.s.P[sk.index.Hips][1] - groundUnder(fr) - STAND_HIPS) <= DEF.standTol; };
 
-/** Frames where the COM is still (speed < DEF.stillSpeed) and sits outside its support polygon by more than the margin. */
+/** Frames where the COM is still (speed < DEF.stillSpeed) and sits outside its support polygon by more than the margin,
+ * or has no support at all. */
 export function balanceFails(m, frames, com = f => m.frames[f].com, names) {
 	const out = [];
 	for (const f of frames) {
@@ -143,7 +144,8 @@ export function balanceFails(m, frames, com = f => m.frames[f].com, names) {
 		const v = dist(com(f + 1), com(f - 1)) / (2 * DT);
 		if (v >= DEF.stillSpeed) continue;
 		const pts = supportPoints(m.frames[f], names);
-		if (!pts.length) continue;
+		// a still body held up by nothing fails: both callers require support over the frames they pass
+		if (!pts.length) { out.push({ frame: f, margin: -Infinity, unsupported: true }); continue; }
 		const c = com(f), { margin } = supportMargin([c[0], c[2]], pts);
 		if (margin < -DEF.balanceMargin) out.push({ frame: f, margin });
 	}
@@ -168,7 +170,7 @@ export function shared(m) {
 	for (let b = 1; b < sk.names.length; b++) {
 		const p = sk.parent[b], rest = dist(sk.restWorldPos[b], sk.restWorldPos[p]);
 		if (rest < 0.01) continue;
-		for (let f = 0; f < m.F; f += 2) { const c = Math.abs(dist(m.frames[f].s.P[b], m.frames[f].s.P[p]) / rest - 1); if (c > bone.change) bone = { change: c, bone: sk.names[b], frame: f }; }
+		for (let f = 0; f < m.F; f++) { const c = Math.abs(dist(m.frames[f].s.P[b], m.frames[f].s.P[p]) / rest - 1); if (c > bone.change) bone = { change: c, bone: sk.names[b], frame: f }; }
 	}
 	const hover = airborneSpans(m).map(sp => gravityCheck(m, sp)).filter(g => !g.pass);
 	return { penetration: { depth: pen.depth, part: pen.part, surface: pen.surface, frame: pen.frame, frames: penFrames.length }, pops: pops.length,
