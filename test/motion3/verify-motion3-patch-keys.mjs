@@ -41,6 +41,19 @@ expect("remove at an unkeyed frame lists the nearest keyed frames", /keys has no
 s = applyPatch(spec(), [{ op: "replace", path: "/objects/cup/keys/@f=40/pos", value: [0, 1.1, 0] }]);
 expect("an object key by frame", json(s.objects.cup.keys[0].pos) === json([0, 1.1, 0]));
 
+// 2b. add on a keyed frame (#1126; trip-run v2: patch[13] add /keys/@f=44 refused a 28-op patch): with notes
+// (motion.compile) it merges into the key that wins the bake, set channel by channel, and says what it added and replaced
+const merged = [];
+s = applyPatch(spec(), [{ op: "add", path: "/keys/@f=24", value: { f: 24, set: { pitch: 30, elbow_l: [1, 0, 0] }, step: ["pitch"] } }], merged);
+expect("add on a keyed frame merges into its last key, the value winning", s.keys.length === 4 && json(keysAt(s, 24)) === json([{ f: 24, set: { hand_l: [0.2, 1, 0.3] } }, { f: 24, set: { pitch: 30, elbow_l: [1, 0, 0] }, step: ["pitch"] }])
+	&& json(merged) === json(["corrected: patch[0] (add /keys/@f=24): keys already had a key at f=24; merged into it, set adds elbow_l, set replaces pitch"]), json([s.keys, merged]));
+s = applyPatch(spec(), [{ op: "add", path: "/objects/cup/keys/@f=40", value: { pos: [0, 1.2, 0] } }], []);
+expect("an object key at a keyed frame merges the same way", json(s.objects.cup.keys) === json([{ f: 40, pos: [0, 1.2, 0] }]), json(s.objects.cup.keys));
+expect("without notes (repair) add on a keyed frame is refused as before", /patch\[0\] \(add \/keys\/@f=24\): keys already has an entry with f=24; replace its fields or remove it first/.test(refusal(() => applyPatch(spec(), [{ op: "add", path: "/keys/@f=24", value: { f: 24, set: { pitch: 30 } } }]))));
+// a move onto a keyed frame has two readings (push-crate v2: 374->377, 378->381, 381->385 meant a shift, a merge would put two keys at 385)
+expect("a move onto a keyed frame is refused even with notes", /patch\[0\] \(add \/keys\/@f=60\): keys already has an entry with f=60; replace its fields or remove it first/.test(refusal(() => applyPatch(spec(), [{ op: "move", from: "/keys/@f=24", path: "/keys/@f=60" }], []))));
+expect("add on a keyed goal name is refused (only frame selectors on keys merge)", /goals already has an entry with name=cup lifted/.test(refusal(() => applyPatch(spec(), [{ op: "add", path: "/goals/@name=cup lifted", value: { at: 75 } }], []))));
+
 // 3. by name: skills, goals; ambiguity names the field that tells them apart
 s = applyPatch(spec(), [{ op: "replace", path: "/use/@skill=reach&f0=40/args/at", value: [2, 0] }, { op: "replace", path: "/goals/@name=cup lifted/at", value: 72 }]);
 expect("a skill by name and f0, a goal by name", json(s.use[1].args.at) === json([2, 0]) && s.goals[0].at === 72 && json(s.use[0].args.at) === json([0, 0]));

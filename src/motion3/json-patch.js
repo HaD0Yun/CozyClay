@@ -3,7 +3,9 @@
 // MOTION_SPEC_INVALID (INVALID_ARGUMENT to the agent) and name the op and what is there:
 //   patch[1] (replace /keys/12/f): /keys/12 does not exist (keys has 9 entries; by frame: /keys/@f=<f>, f 0, 24, 40, ...)
 // With a notes list (motion.compile, lenient.js), replace on a member an existing object lacks adds it
-// and says so; repair (no notes) stays strict.
+// and says so, and add on a keys frame that is keyed already (/keys/@f=44, the agent's "set these at f44")
+// merges into that key, its set channel by channel, as the bake merges two keys at one frame; repair (no
+// notes) stays strict, and so does a move onto a keyed frame (a chain of moves can mean either order).
 //
 // Stable addressing: an array step may be a selector "@field=value" ("&" joins more), the element whose
 // field reads value, instead of an index. An index edit goes wrong silently when an earlier entry is
@@ -48,6 +50,10 @@ function what(container, name, want) {
 		? (Number.isFinite(target) ? [...all].sort((a, b) => Math.abs(a - target) - Math.abs(b - target)) : all).slice(0, 8).sort((a, b) => a - b) : all.slice(0, 8);
 	return `${name} has ${container.length} entries; by ${field}: /${name}/@${field}=<${field}>, ${field} ${values.join(", ")}${all.length > values.length ? ", ..." : ""}`;
 }
+
+/** Two keys at one frame as one, b winning (as in the bake): set (any map) merged field by field, step joined. */
+const mergeKey = (a, b) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(f => [f,
+	isMap(a[f]) && isMap(b[f]) ? { ...a[f], ...b[f] } : Array.isArray(a[f]) && Array.isArray(b[f]) && f === "step" ? [...new Set([...a[f], ...b[f]])] : Object.hasOwn(b, f) ? b[f] : a[f]]));
 
 /** Index (as a string) of the element of arr that step t selects; creates it when `create`, else -1 when none. */
 function select(arr, t, rest, tag, name, create) {
@@ -102,9 +108,16 @@ function parentOf(doc, parts, tag) {
 }
 
 /** The last step on an array, a selector: add appends (its fields set), remove drops every match, the rest take the one match. */
-function bySelector(node, last, op, value, tag, name) {
+function bySelector(node, last, op, value, tag, name, merge) {
 	const conds = conditions(last), hits = node.flatMap((el, i) => (matches(el, conds) ? [i] : []));
 	if (op === "add") {
+		if (hits.length && merge && name === "keys" && conds.length === 1 && conds[0][0] === "f" && isMap(value) && isMap(node[hits.at(-1)])) {
+			const at = hits.at(-1), was = node[at], set = isMap(value.set) && isMap(was.set) ? Object.keys(value.set) : [];
+			const replaced = set.filter(ch => Object.hasOwn(was.set, ch)), added = set.filter(ch => !Object.hasOwn(was.set, ch));
+			node[at] = mergeKey(was, { ...structuredClone(value), f: was.f });
+			merge.push(`corrected: ${tag}: ${name} already had a key at ${last.slice(1)}; merged into it${added.length ? `, set adds ${added.join(", ")}` : ""}${replaced.length ? `, set replaces ${replaced.join(", ")}` : ""}`);
+			return null;
+		}
 		if (hits.length) bad(`${tag}: ${name} already has an entry with ${last.slice(1)}; replace its fields or remove it first`);
 		if (value === null || typeof value !== "object" || Array.isArray(value)) bad(`${tag}: add through a selector takes an object value`);
 		node.push({ ...structuredClone(value), ...Object.fromEntries(conds.map(([k, v]) => [k, numeric(v)])) });
@@ -115,7 +128,7 @@ function bySelector(node, last, op, value, tag, name) {
 	return select(node, last, [], tag, name, false);
 }
 
-function applyOne(doc, op, i, notes) {
+function applyOne(doc, op, i, notes, merge = true) {
 	if (!op || typeof op !== "object" || !OPS.includes(op.op)) bad(`patch[${i}]: op must be ${OPS.join(", ")}, got ${JSON.stringify(op?.op)}`);
 	const tag = `patch[${i}] (${op.op} ${op.path})`;
 	if (typeof op.path !== "string" || (op.path !== "" && !op.path.startsWith("/"))) bad(`${tag}: path must be a JSON Pointer such as "/keys/0/f" or "/keys/@f=24/set/hand_l"`);
@@ -127,15 +140,14 @@ function applyOne(doc, op, i, notes) {
 			// every key at that frame moves, merged into one (later entries win, as in the bake)
 			const hits = node.flatMap((el, j) => (matches(el, conditions(last)) ? [j] : []));
 			if (!hits.length) bad(`${tag}: ${name} has no entry with ${last.slice(1)} (${what(node, name, conditions(last)[0])})`);
-			value = hits.map(j => node[j]).reduce((a, b) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(f => [f,
-				isMap(a[f]) && isMap(b[f]) ? { ...a[f], ...b[f] } : Array.isArray(a[f]) && Array.isArray(b[f]) && f === "step" ? [...new Set([...a[f], ...b[f]])] : Object.hasOwn(b, f) ? b[f] : a[f]])));
+			value = hits.map(j => node[j]).reduce(mergeKey);
 			for (const j of hits.reverse()) node.splice(j, 1);
 		} else {
 			if (!Object.hasOwn(node, Array.isArray(node) ? Number(last) : last)) bad(`${tag}: ${op.from} does not exist (${what(node, name)})`);
 			value = node[Array.isArray(node) ? Number(last) : last];
 			if (Array.isArray(node)) node.splice(Number(last), 1); else delete node[last];
 		}
-		return applyOne(doc, { op: "add", path: op.path, value }, i, notes);
+		return applyOne(doc, { op: "add", path: op.path, value }, i, notes, false);
 	}
 	if (op.op !== "remove" && !Object.hasOwn(op, "value")) bad(`${tag}: needs a value`);
 	if (op.path === "") {
@@ -149,7 +161,7 @@ function applyOne(doc, op, i, notes) {
 	const name = parts.length > 1 ? parts[parts.length - 2] : "the spec";
 	if (Array.isArray(node) && conditions(last)) {
 		if (op.op === "replace" && notes && !node.some(el => matches(el, conditions(last)))) { notes.push(`${tag}: nothing had ${last.slice(1)}; added`); return applyOne(doc, { ...op, op: "add" }, i); }
-		last = bySelector(node, last, op.op, op.value, tag, name);
+		last = bySelector(node, last, op.op, op.value, tag, name, merge ? notes : undefined);
 		if (last === null) return doc;
 	}
 	if (Array.isArray(node)) {

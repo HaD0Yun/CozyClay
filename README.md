@@ -11,7 +11,7 @@
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
   <a href="https://www.npmjs.com/package/cozyclay"><img alt="npm" src="https://img.shields.io/npm/v/cozyclay"></a>
   <img alt="Node 22.19+" src="https://img.shields.io/badge/node-22.19%2B-brightgreen">
-  <a href="https://github.com/NomaDamas/CozyClay/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NomaDamas/CozyClay?style=flat"></a>
+  <a href="https://github.com/HaD0Yun/CozyClay/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/HaD0Yun/CozyClay?style=flat"></a>
   <a href="https://discord.gg/Hp9V5wwgjF"><img alt="Discord" src="https://img.shields.io/badge/discord-join-5865F2?logo=discord&logoColor=white"></a>
 </p>
 
@@ -96,7 +96,7 @@ The same scene can be driven from three places, live, while you watch the viewpo
 ## From source
 
 ```bash
-git clone https://github.com/NomaDamas/CozyClay.git && cd CozyClay
+git clone https://github.com/HaD0Yun/CozyClay.git && cd CozyClay
 npm install
 npm run dev     # http://127.0.0.1:5180/app/
 npm test
@@ -123,7 +123,7 @@ npm test
 | [Seedance 2.5 camera control](https://cozyclay.org/seedance-camera-control/) | Getting the same camera on every take with a reference clip |
 | [Camera control for AI video](https://cozyclay.org/ai-camera-control/) | Why camera prompts drift and what the models actually accept |
 
-Found a bug or want a feature? [Open an issue](https://github.com/NomaDamas/CozyClay/issues).
+Found a bug or want a feature? [Open an issue](https://github.com/HaD0Yun/CozyClay/issues).
 
 ## License
 

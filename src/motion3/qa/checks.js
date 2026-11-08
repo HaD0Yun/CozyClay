@@ -1,4 +1,5 @@
-// General motion checks (every take): scene collisions, ground, IK reach, planted-foot slide,
+// General motion checks (every take): scene collisions (the fingers too: finger-collide.js), ground (the soles here,
+// the rest of the body's skin in floor.js), IK reach, planted-foot slide,
 // bone length, one-frame pops (style.js), knee and elbow flips, knees bending backward, knees and
 // elbows folded past their stop (KNEE: the shin in the thigh; ELBOW: the forearm in the upper arm,
 // compiler/limbs.js), self contact, hands and held props entering the head (and the torso,
@@ -11,7 +12,9 @@ import { bodyChecks } from "./body-checks.js";
 import { popChecks } from "./style.js";
 import { groundSole } from "./ground.js";
 import { footChecks } from "./foot-checks.js";
-import { ELBOW_STOP, KNEE_STOP } from "../compiler/limbs.js";
+import { fingerCollide } from "./finger-collide.js";
+import { floorParts } from "./floor.js";
+import { ELBOW_STOP, KNEE_STOP, carried } from "../compiler/limbs.js";
 
 export const QA_LIMITS = { allow: 0.005, groundAllow: 0.01, reach: 0.01, slide: 0.0015, plantH: 0.012,
 	speedCore: 0.04, speedLimb: 0.16, accCore: 0.015, accLimb: 0.05, flip: 60, knee: 150, headAllow: 0.003, self: 0,
@@ -22,6 +25,44 @@ const FLIP_BEND = 20;
 const SWEEP_BEFORE = 4;
 /** KNEE (folds) and ELBOW: degrees past KNEE_STOP or ELBOW_STOP that count (the IK sits on the stop to rounding). */
 const STOP_TOL = 0.01;
+/** KNEE (bends backward): a hinge more than this share of its length to the pelvis's right, and a bend more than acos of it (120 deg) from the knee's front (kneeBack). */
+const KNEE_BACK = -0.5;
+/** kneeFront reads no front for a thigh nearer than this (cos) to the opposite of its rest direction on the pelvis (26 deg). */
+const SWING_MIN = -0.9;
+
+/**
+ * The front of leg S's knee on pose s (unit, across `toward`): the pelvis's forward (the rig's rest +Z, carried by the
+ * hips) swung with the leg from its rest direction down the pelvis to `toward` (the hip to the knee; a hint passes the hip
+ * to the ankle). The hip turns the thigh a little about itself and the knee bends toward this front; the toe says nothing
+ * of it (a kneel's pointed foot runs back along the shin). Null for a leg within SWING_MIN of straight up the pelvis.
+ */
+export function kneeFront(sk, s, S, toward) {
+	const I = sk.index, rest = norm(sub(sk.restWorldPos[I[`${S}Leg`]], sk.restWorldPos[I[`${S}UpLeg`]]));
+	const u = norm(carried(sk, s, I.Hips, rest)), v = norm(toward), c = dot(u, v);
+	if (c < SWING_MIN) return null;
+	// the shortest turn from u to v (Rodrigues with w = u x v) applied to the pelvis's forward
+	const fw = carried(sk, s, I.Hips, [0, 0, 1]), w = cross(u, v);
+	const front = add(add(scale(fw, c), cross(w, fw)), scale(w, dot(w, fw) / (1 + c)));
+	return norm(sub(front, scale(v, dot(front, v))));
+}
+
+/**
+ * KNEE (bends backward), judged on leg S itself at pose s: its hinge (thigh x shin) points to the pelvis's left for a knee
+ * bent the right way (either leg), so a hinge more than KNEE_BACK of its length to the right is backward, and so is a bend
+ * more than 120 deg from the knee's front (kneeFront). A hip far out to the side or folded far up leaves the knee turned
+ * differently on the two readings (flexion then abduction, or the shortest swing), so a knee is backward when both say so;
+ * with the thigh straight up the pelvis (no front) the hinge alone. Bench v2, the agents' compiles replayed: the trip-run
+ * knee its agent keyed backward and handstand r1's shins folded onto the belly read -0.8 to -1 and 120-180 deg; the army
+ * crawl's frog legs turn to 105 deg, handstand r3's straddle reads 161 deg but +0.33, a wall climb's -0.52 but 92 deg.
+ * Before, the toe's heading was the front, and a kneel's pointed foot, its toe back along the shin, read as a knee bent
+ * backward (bench v2: 14 runs, 74 min open).
+ */
+function kneeBack(sk, s, S, bend) {
+	const I = sk.index, th = s.P[I[`${S}UpLeg`]], kn = s.P[I[`${S}Leg`]], an = s.P[I[`${S}Foot`]], thigh = sub(kn, th);
+	if (bend <= 3 || dot(norm(cross(thigh, sub(an, kn))), carried(sk, s, I.Hips, [1, 0, 0])) >= KNEE_BACK) return false;
+	const front = kneeFront(sk, s, S, thigh), mid = sub(kn, scale(add(th, an), 0.5)), v = norm(thigh);
+	return !front || dot(norm(sub(mid, scale(v, dot(mid, v)))), front) < KNEE_BACK;
+}
 
 export const allowance = (allow, part, obj) => {
 	for (const a of allow ?? []) if (part.startsWith(a.part) && (a.object === obj || (a.object.endsWith("*") && obj.startsWith(a.object.slice(0, -1))))) return a.depth;
@@ -48,10 +89,13 @@ export function generalChecks(sk, out, opts = {}) {
 			}
 		}
 		footChecks(sk, s, f, spheres, L, (part, id) => allowance(opts.allow, part, id), push);
+		fingerCollide(sk, s, f, spheres, L, (part, id) => allowance(opts.allow, part, id), push);
 		for (const side of ["Left", "Right"]) {
 			const sp = solePoints(sk, s, side), low = Math.min(sp.heel[1], sp.ball[1], sp.tip[1]);
 			if (low < -L.groundAllow) push("GROUND", `${side} sole below floor`, f, -low, L.groundAllow);
 		}
+		// the rest of the body under the floor: palms, fingers, arms, knees, hips, torso, head (floor.js)
+		for (const [part, depth] of floorParts(sk, s, L.groundAllow)) push("GROUND", `${part} below floor`, f, depth, L.groundAllow);
 		for (const [k, v] of Object.entries(diag)) if (/miss_[lr]$/.test(k) && v > L.reach) push("REACH", k, f, v, L.reach);
 		// hands, forearms and held props must stay out of the head
 		const probes = [];
@@ -60,17 +104,11 @@ export function generalChecks(sk, out, opts = {}) {
 		for (const [nm, p, r] of probes) { const d = headDepth(sk, s, p) + r; if (d > L.headAllow) push("FACE", `${nm} into head`, f, d, L.headAllow); }
 		if (segDist(s.P[I.LeftLeg], s.P[I.LeftFoot], s.P[I.RightLeg], s.P[I.RightFoot]) < 0.1 + L.self) push("SELF", "shins touch", f, 0.1, 0.1);
 		if (segDist(s.P[I.LeftUpLeg], s.P[I.LeftLeg], s.P[I.RightUpLeg], s.P[I.RightLeg]) < 0.135 + L.self) push("SELF", "thighs overlap", f, 0.135, 0.135);
-		const tilted = norm(sub(s.P[I.Spine], s.P[I.Hips]))[1] < 0.5;
 		for (const S of ["Left", "Right"]) {
 			const th = s.P[I[`${S}UpLeg`]], kn = s.P[I[`${S}Leg`]], an = s.P[I[`${S}Foot`]];
 			const bend = angle(sub(kn, th), sub(an, kn));
-			// the foot's heading on the ground; the toe sits below the ankle, which must not count. With the pelvis turned past
-			// 60 deg from upright (a flip, a cartwheel, lying) the ground says nothing about the leg: the foot's front is the toe
-			// across the shin, which an upright leg reads the same way
-			let toeDir = sub(s.P[I[`${S}ToeBase`]], an);
-			if (tilted) { const shin = norm(sub(an, kn)); toeDir = sub(toeDir, scale(shin, dot(toeDir, shin))); } else toeDir[1] = 0;
-			const mid = sub(kn, [(th[0] + an[0]) / 2, (th[1] + an[1]) / 2, (th[2] + an[2]) / 2]);
-			if (bend > 3 && dot(mid, toeDir) < -0.002) push("KNEE", `${S} knee bends backward`, f, bend, 0);
+			// the leg itself in any body orientation (a flip, lying), not the toe's heading (kneeBack)
+			if (kneeBack(sk, s, S, bend)) push("KNEE", `${S} knee bends backward`, f, bend, 0);
 			// a knee folded past its stop puts the shin in the thigh (the solver stops at KNEE_STOP)
 			if (bend > KNEE_STOP + STOP_TOL) push("KNEE", `${S} knee folds ${bend.toFixed(0)}deg`, f, bend, KNEE_STOP);
 			// an elbow folded past its stop puts the forearm in the upper arm (the solver stops at ELBOW_STOP)

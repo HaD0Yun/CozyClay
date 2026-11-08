@@ -5,22 +5,9 @@
 import { VEC_CHANNELS, POLE_CHANNELS, NUM_CHANNELS, MAP_CHANNELS, FINGER_PRESETS, rangeOf, CONVENTIONS, didYouMean, suggestField, isVec3, fmt } from "./vocab.js";
 import { validateParts } from "./validate-parts.js";
 import { SPEC_FIELDS, KEY_FIELDS } from "../schema/fields.js";
+import { mergeProblems } from "./validate-common.js";
+import { mendSpec } from "./validate-mend.js";
 const MAX_ERRORS = 12, MAX_FOUND = 60;
-
-/**
- * Problems that differ only in their first index (and its key frame) said once: "objects.box.keys[0].rot must be
- * ..." and keys[3] with the same words become "objects.box.keys[0,3].rot must be ...", so every problem fits one answer.
- */
-function mergeProblems(lines) {
-	const groups = new Map();
-	for (const line of lines) {
-		const m = /\[(\d+)\]( \(f(\d+)\))?/.exec(line), key = m ? `${line.slice(0, m.index)}[#]${m[2] ? " (f#)" : ""}${line.slice(m.index + m[0].length)}` : line;
-		if (!groups.has(key)) groups.set(key, { line, idx: [], fs: [] });
-		if (m) { groups.get(key).idx.push(m[1]); if (m[3]) groups.get(key).fs.push(`f${m[3]}`); }
-	}
-	return [...groups.entries()].map(([key, g]) => (g.idx.length > 1 ? key.replace("[#]", `[${g.idx.join(",")}]`).replace(" (f#)", ` (${g.fs.join(", ")})`) : g.line));
-}
-
 
 /** Channels other than the body's own: hinge channels, visible and level channels (C15), channels a check names, *_vis switches, spec.channels. */
 export function customChannels(spec) {
@@ -102,11 +89,6 @@ function validateKeys(spec, err, frames, unknown, past = "") {
 	});
 }
 
-/**
- * Throws MOTION_SPEC_INVALID listing every problem (problems: ones found before, listed first); scene objects are
- * checked when given.
- * lenient (a saved take compiled again, take-source.js) ignores unknown fields.
- */
 /** spec.flow: false, or { smooth?: boolean, lag?: false | 0..6 frames | { spine?, head?, arms? }, overlap?: boolean | 0..2, headLead?: boolean | 0..12 frames } (channels.js, overlap.js, head-lead.js). */
 function validateFlow(flow, err, unknown) {
 	if (flow === undefined || flow === false) return;
@@ -143,9 +125,17 @@ function validateAuto(spec, err, unknown) {
 	});
 }
 
-export function validateSpec(spec, { sk, scene, lenient = false, problems = [] } = {}) {
+/**
+ * Throws MOTION_SPEC_INVALID listing every problem (problems: ones found before, listed first); scene objects are
+ * checked when given.
+ * lenient (a saved take compiled again, take-source.js) ignores unknown fields.
+ * notes (an array, the compile's: pipeline.js) lets the slips with one reading be corrected in place on spec
+ * first (validate-mend.js), each one a line in notes; without it every slip is refused.
+ */
+export function validateSpec(spec, { sk, scene, lenient = false, problems = [], notes } = {}) {
 	const errors = [...problems], err = m => { if (errors.length < MAX_FOUND) errors.push(m); }, unknown = lenient ? () => {} : err;
 	if (!spec || typeof spec !== "object") throw new Error("MOTION_SPEC_INVALID: spec must be an object");
+	if (Array.isArray(notes)) mendSpec(spec, notes);
 	if (spec.schema !== "cozyclay.motion-spec.v1") err(`spec.schema must be "cozyclay.motion-spec.v1", got ${fmt(spec.schema)}`);
 	for (const k of Object.keys(spec)) if (!SPEC_FIELDS.includes(k)) unknown(`spec.${k} is not a spec field${didYouMean(k, SPEC_FIELDS)} (fields: ${SPEC_FIELDS.join(", ")})`);
 	if (spec.fps !== undefined && spec.fps !== 24) err(`spec.fps must be 24, the timeline rate, got ${fmt(spec.fps)}`);

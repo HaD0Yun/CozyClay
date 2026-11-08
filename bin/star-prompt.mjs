@@ -12,7 +12,7 @@ import { execFile } from "node:child_process";
 import { createInterface } from "node:readline";
 import { openBrowser } from "./open-browser.mjs";
 
-const REPO = "NomaDamas/CozyClay";
+const REPO = "HaD0Yun/CozyClay";
 const REPO_URL = `https://github.com/${REPO}`;
 const STARRED_PATH = `/user/starred/${REPO}`;
 const ANSWER_TIMEOUT_MS = 12_000;

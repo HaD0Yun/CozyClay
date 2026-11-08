@@ -80,7 +80,9 @@ const drift = rr => Math.abs(rr.out.frames[35].s.P[I.LeftToeBase][0] - rr.out.fr
 console.log(`  creeping foot: ball drifts ${(drift(slideOff) * 1000).toFixed(1)} mm without the lock, ${(drift(slideOn) * 1000).toFixed(2)} mm with it; fixed ${JSON.stringify(slideOn.fixed)}`);
 expect("slide fix (default): the planted ball stays within 0.5 mm and the lock is reported", drift(slideOff) > 0.005 && drift(slideOn) < 5e-4 && slideOn.fixed.slide?.plants >= 1, JSON.stringify(slideOn.fixed));
 // penetration: a held IK hand 1.5 cm into a board
-const held = fix => stand({ fix, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
+// the fingertips reach past the hand capsule into the board (QA measures them since #1113, finger-collide.js) and fix.penetration
+// pushes the hand and forearm capsules: the fingers' own allowance keeps this case the hand capsule's
+const held = fix => stand({ fix, checks: { allow: [{ part: "fingers", object: "Board", depth: 0.03 }] }, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
 const free = compile(held(undefined), empty).out.frames[30].s.P, front = Math.max(free[I.RightHand][2], free[I.RightHandMiddle3][2]) + 0.022;
 const board = { objects: { Board: { pos: [-0.2, 0, front - 0.015 + 0.05], R: I3(), half: [0.3, 0.8, 0.05] } } };
 const penOff = compile(held(undefined), board), penOn = compile(held({ penetration: 0.02 }), board);
@@ -183,9 +185,10 @@ for (const line of [
 	"corrected: keys[3] (f32) channel \"fpitch_left\" -> \"fpitch_l\"",
 	"keys[4] (f38) root must be [x, y, z] (3 finite numbers), got [1]",
 	"keys[5].f = 800 is outside 0..729 (spec.frames 730); set frames >= 801 or frames: \"auto\"",
-	"keys[6] (f54) knee_l = [0,0,-1] points backward; knees bend toward +z.",
+	// a backward knee pole and a sided anchor name are corrected and named (#1126), the rest refused as before
+	"corrected: keys[6] (f54) knee_l = [0,0,-1] points backward (knees bend toward +z): mirrored forward to [0,0,1]",
 	"keys[7] (f66) sets w_handel_l, but there is no anchor \"handel\"; did you mean \"w_handle_l\"?",
-	"anchors.grip_l: an anchor name may not end in _l or _r",
+	"corrected: anchors.grip_l -> anchors.grip_left, and every ref to it",
 	"generators[0].heading must be [h0, h1] in degrees (yaw 0 faces +Z and + turns toward +X), got [125]",
 	"fpitch_r = 95 is outside -60..90 (toe-down pitch, deg: + lifts the heel (toes flat), - lifts the toes)",
 ]) expect(`validator: ${line.slice(0, 60)}`, msg.includes(line), msg);

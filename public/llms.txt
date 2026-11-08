@@ -27,6 +27,6 @@ For source-checkout CI, start the same Studio in owned headless Chrome with `nod
 
 ## Source
 
-- GitHub: https://github.com/NomaDamas/CozyClay
-- Agent install guide: https://github.com/NomaDamas/CozyClay/blob/main/INSTALL_FOR_AGENTS.md
+- GitHub: https://github.com/HaD0Yun/CozyClay
+- Agent install guide: https://github.com/HaD0Yun/CozyClay/blob/main/INSTALL_FOR_AGENTS.md
 - npm: https://www.npmjs.com/package/cozyclay

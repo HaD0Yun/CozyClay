@@ -1,0 +1,26 @@
+{
+	"version": 0,
+	"id": "02-handstand",
+	"task": 2,
+	"title": {
+		"ko": "물구나무",
+		"en": "Handstand"
+	},
+	"request": {
+		"ko": "물구나무서서 3초 버틴 다음 다시 서줘",
+		"en": "Do a handstand, hold it for 3 seconds, then stand back up."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": []
+}

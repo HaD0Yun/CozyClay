@@ -26,7 +26,9 @@ test('keys that lead from the grab frame with a grip off the reach: the hand tur
 	const pops = r.qa.groups.filter(g => g.kind === 'POP' && /^Right(Hand|ForeArm)/.test(g.subject) && Math.abs(g.first - grab) <= 2);
 	assert.equal(pops.length, 0, pops.map(g => `${g.subject} f${g.first}`).join('; '));
 	// the cup still rides the keys from the grab: the hand meets it there instead of the cup meeting the hand
-	assert.ok(r.qa.total <= 101, `QA ${r.qa.total} (was 101)`);
+	// the fingers are measured against the table since #1113 (finger-collide.js): 17 frames of fingertips 2.9 cm in its top on the reach
+	const fingers = r.qa.groups.filter(g => /^fingers_[lr] x /.test(g.subject)).reduce((n, g) => n + g.count, 0);
+	assert.ok(r.qa.total - fingers <= 101 && fingers <= 17, `QA ${r.qa.total} with ${fingers} fingers issues (was 101, and 17)`);
 });
 
 test('a prop point on the hand that carries an object stays on that object before the grab and after the release', () => {
