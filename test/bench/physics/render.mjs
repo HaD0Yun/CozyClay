@@ -21,6 +21,10 @@ function takesOf(set, runsDir = RUNS) {
 	return readdirSync(runsDir).filter(d => re.test(d) && existsSync(join(runsDir, d, "take.json"))).map(d => join(runsDir, d));
 }
 
+// A body's eight corners about its centre, and a row-major m16 applied to a point.
+const corners = size => [-1, 1].flatMap(x => [-1, 1].flatMap(y => [-1, 1].map(z => [x * size[0] / 2, y * size[1] / 2, z * size[2] / 2])));
+const at = (m, p) => [0, 1, 2].map(r => m[r * 4] * p[0] + m[r * 4 + 1] * p[1] + m[r * 4 + 2] * p[2] + m[r * 4 + 3]);
+
 function viewBox(set, dirs) {
 	const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
 	const grow = p => p.forEach((v, i) => { lo[i] = Math.min(lo[i], v); hi[i] = Math.max(hi[i], v); });
@@ -30,7 +34,7 @@ function viewBox(set, dirs) {
 		const take = readTake(join(dir, "take.json"));
 		for (let f = 0; f < take.frames; f += 2) {
 			Object.values(landmarksAt(take, "char-a", f)).forEach(grow);
-			for (const id of Object.keys(take.objects)) if (take.objects[id].matrix.length > 1) { const m = objectMatrixAt(take, id, f); grow([m[3], m[7], m[11]]); }
+			for (const [id, o] of Object.entries(take.objects)) if (o.matrix.length > 1) { const m = objectMatrixAt(take, id, f); (o.size ? corners(o.size) : [[0, 0, 0]]).forEach(c => grow(at(m, c))); }
 		}
 	}
 	return { min: lo, max: hi };
