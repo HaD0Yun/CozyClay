@@ -36,6 +36,8 @@ export function loadSets(only = []) {
 	const files = readdirSync(SETS_DIR).filter(f => f.endsWith(".json")).sort();
 	const sets = files.map(f => checkSet(JSON.parse(readFileSync(join(SETS_DIR, f), "utf8")), f));
 	const want = only.map(String);
+	const unknown = want.filter(w => !sets.some(s => s.id === w || String(s.task) === w));
+	if (unknown.length) throw new Error(`no physics set matches: ${unknown.join(", ")}`);
 	return want.length ? sets.filter(s => want.includes(s.id) || want.includes(String(s.task))) : sets;
 }
 
