@@ -150,3 +150,19 @@ The judging page pairs run n of a task in both tools. Which tool sits left is dr
 | Quality (human) | Picks from the blind pairs | More picks |
 
 The judging server listens on 127.0.0.1. To judge from another machine, forward the port (`ssh -L 8790:127.0.0.1:8790 box`) and open `http://127.0.0.1:8790/`. Measured on the bench box for task 10: rendering both views took 83 s for a 293-frame take and 29 s for a 100-frame take.
+
+## Scorer (diagnostic)
+
+```sh
+node test/bench/physics/score.mjs <take.json> <set>        # one take: every condition, PASS or FAIL, with its value
+node test/bench/physics/score.mjs --runs-dir ~/physics-bench/runs   # every run: <run>/score.json
+node test/bench/physics/check-score.mjs                     # the synthetic checks
+```
+
+The scorer reads only take.json, so the same code measures both tools. Its results never decide a win (plan 4.1). They show why a human rated a result as bad. Every number is a starting value (plan 7).
+
+`checks.mjs` holds the shared definitions of plan 2.1. Contact means a landmark within 3 cm of a surface. A box or cylinder is measured as an exact signed distance in its own frame. Penetration means a CozyClay QA body capsule more than 2 cm inside an object or the floor. Slide means a point that moves more than 2 cm while planted on one surface, measured in that surface's frame. A foot counts as planted within QA's plant height (1.2 cm), so a swing foot that passes low over the floor does not count. The airborne check uses spans of 3 or more frames with no landmark in contact. The gravity check fits the COM height to `a + b·t − ½·9.81·t²` and allows at most 5 cm of error and a 0.3 m/s horizontal speed change. The COM uses QA's segment masses. Balance means that, in still frames, the COM is inside the convex hull of every supporting landmark, with an 8 cm margin. Standing means the hips are within ±3 cm of the rig's standing height over the ground under both feet. Pops are QA's one-frame pop test with `QA_LIMITS`. Bone length is checked to 1%.
+
+`tasks.mjs` holds the ten task conditions of plan 2.2. A landmark is a point on the bone axis (the palm sits about 2 cm under the skin), so a hand flat on a face measures about 2 cm. The two trial takes of task 10 show what the conditions read: the Blender take moves the crate 3.0 m with both palms 5.6 cm from the face (the skin about 3.4 cm off it); the CozyClay take leaves the crate where it was.
+
+`check-score.mjs` moves the rest-pose Y Bot as one rigid body, so each answer is known. A ballistic hop passes the gravity check, and a rise at constant speed fails it. A planted foot dragged 5 cm slides, and a still stand does not. A palm inside a bar is a penetration, and fails "hands never 1 cm inside the bar". The same bar 7 cm above the palm is neither. All 6 cases pass.
