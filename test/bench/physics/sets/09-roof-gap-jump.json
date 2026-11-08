@@ -1,0 +1,61 @@
+{
+	"version": 0,
+	"id": "09-roof-gap-jump",
+	"task": 9,
+	"title": {
+		"ko": "옥상 틈 뛰어넘기",
+		"en": "Rooftop gap jump"
+	},
+	"request": {
+		"ko": "옥상에서 달려가서 건너편 옥상으로 뛰어넘어 착지해줘",
+		"en": "Run along the roof and jump across the gap to the other roof, then land."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			3,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "roof-a",
+			"name": "Roof A",
+			"shape": "box",
+			"center": [
+				0,
+				1.5,
+				2.5
+			],
+			"size": [
+				4,
+				3,
+				7
+			],
+			"fixed": true,
+			"color": "#90a4ae"
+		},
+		{
+			"id": "roof-b",
+			"name": "Roof B",
+			"shape": "box",
+			"center": [
+				0,
+				1.5,
+				11
+			],
+			"size": [
+				4,
+				3,
+				6
+			],
+			"fixed": true,
+			"color": "#90a4ae"
+		}
+	]
+}

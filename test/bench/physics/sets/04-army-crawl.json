@@ -1,0 +1,44 @@
+{
+	"version": 0,
+	"id": "04-army-crawl",
+	"task": 4,
+	"title": {
+		"ko": "포복",
+		"en": "Army crawl"
+	},
+	"request": {
+		"ko": "낮은 그물 밑을 포복으로 기어서 통과해줘",
+		"en": "Crawl on your belly under the low net and come out the other side."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "net",
+			"name": "Low net",
+			"shape": "box",
+			"center": [
+				0,
+				0.51,
+				2.5
+			],
+			"size": [
+				2,
+				0.02,
+				3
+			],
+			"fixed": true,
+			"color": "#558b2f"
+		}
+	]
+}

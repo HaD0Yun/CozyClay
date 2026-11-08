@@ -1,0 +1,248 @@
+{
+	"version": 0,
+	"id": "05-wall-climb",
+	"task": 5,
+	"title": {
+		"ko": "벽 오르기",
+		"en": "Wall climb"
+	},
+	"request": {
+		"ko": "홀드를 잡고 벽을 기어올라가서 벽 위에 올라서줘",
+		"en": "Climb the wall using the holds, then stand up on top of it."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "wall",
+			"name": "Climbing wall",
+			"shape": "box",
+			"center": [
+				0,
+				1.5,
+				1.1
+			],
+			"size": [
+				2,
+				3,
+				1
+			],
+			"fixed": true,
+			"color": "#bcaaa4"
+		},
+		{
+			"id": "hold-1",
+			"name": "Hold 1",
+			"shape": "box",
+			"center": [
+				-0.3,
+				0.45,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-2",
+			"name": "Hold 2",
+			"shape": "box",
+			"center": [
+				0.25,
+				0.45,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-3",
+			"name": "Hold 3",
+			"shape": "box",
+			"center": [
+				-0.2,
+				0.95,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-4",
+			"name": "Hold 4",
+			"shape": "box",
+			"center": [
+				0.35,
+				0.95,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-5",
+			"name": "Hold 5",
+			"shape": "box",
+			"center": [
+				-0.35,
+				1.45,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-6",
+			"name": "Hold 6",
+			"shape": "box",
+			"center": [
+				0.2,
+				1.45,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-7",
+			"name": "Hold 7",
+			"shape": "box",
+			"center": [
+				-0.25,
+				1.95,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-8",
+			"name": "Hold 8",
+			"shape": "box",
+			"center": [
+				0.3,
+				1.95,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-9",
+			"name": "Hold 9",
+			"shape": "box",
+			"center": [
+				-0.3,
+				2.45,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-10",
+			"name": "Hold 10",
+			"shape": "box",
+			"center": [
+				0.25,
+				2.45,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-11",
+			"name": "Hold 11",
+			"shape": "box",
+			"center": [
+				-0.2,
+				2.9,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		},
+		{
+			"id": "hold-12",
+			"name": "Hold 12",
+			"shape": "box",
+			"center": [
+				0.2,
+				2.9,
+				0.57
+			],
+			"size": [
+				0.12,
+				0.05,
+				0.06
+			],
+			"fixed": true,
+			"color": "#ffb300"
+		}
+	]
+}

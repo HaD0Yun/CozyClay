@@ -1,0 +1,44 @@
+{
+	"version": 0,
+	"id": "06-trip-run",
+	"task": 6,
+	"title": {
+		"ko": "달리다 걸려 넘어지기",
+		"en": "Trip while running"
+	},
+	"request": {
+		"ko": "앞으로 달리다가 나무뿌리에 발이 걸려서 앞으로 넘어졌다가 일어나줘",
+		"en": "Run forward, catch your foot on the tree root, fall forward, then get back up."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "root",
+			"name": "Tree root",
+			"shape": "box",
+			"center": [
+				0,
+				0.05,
+				4
+			],
+			"size": [
+				3,
+				0.1,
+				0.12
+			],
+			"fixed": true,
+			"color": "#6d4c41"
+		}
+	]
+}
