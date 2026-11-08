@@ -254,5 +254,39 @@ const timed = compileSpec({ ...wing, fix: { ...wing.fix, retime: true } }, { sk,
 expect("retime: kept only when QA is no worse; here it is not, so the take compiles without it and says so", timed.fixed.retime?.kept === false && /not kept: QA was worse with it/.test(timed.fixed.retime.how)
 	&& json(timed.qa.groups.map(g => g.subject)) === json(compileSpec(wing, { sk, scene: car }).qa.groups.map(g => g.subject)), json(timed.fixed.retime));
 
+// 14. #1116: a repair that applied nothing tells the next one. The 2026-11-07 wall climb: every logged repair applied nothing
+// and spent the 20 s cap, 25-31 s a compile. repairSpec { unless } with the groups such a repair faced (repair.faced, code and
+// part) compiles once and says why (repair.skipped); other groups, fewer or more, repair as before.
+let counted = 0;
+const counting = s => { counted += 1; return compileSpec(s, { sk, scene: empty }); };
+const fruitless = repairSpec(deep, { rounds: 4 }, counting);
+counted = 0;
+const skipped = repairSpec(deep, { rounds: 4, unless: fruitless.repair.faced }, counting);
+const shape = qa => json(qa.groups.map(g => [g.kind, g.subject, g.severity, g.hint]));
+expect("skip: the groups a repair that applied nothing faced: one compile, nothing tried, the spec as sent, repair.skipped says why",
+	fruitless.repair.applied.length === 0 && fruitless.repair.faced.length > 0 && counted === 1 && skipped.spec === deep && skipped.repair.compiles === 1 && skipped.repair.rounds === 0
+	&& /^skipped: the last repair of this character applied nothing to these same \d+ problem groups? \(code and part\); send repair: \{ rounds \} to run it anyway$/.test(skipped.repair.skipped ?? "")
+	&& shape(skipped.result.qa) === shape(fruitless.result.qa) && json(skipped.repair.faced) === json(fruitless.repair.faced), json(skipped.repair));
+// the patches that repair refused are not compiled again by the hint check (compile-job.js) nor offered: the hint's words stay
+expect("skip: the skipped result's groups carry no patch, their hints stay", fruitless.result.qa.groups.some(g => g.patch) && skipped.result.qa.groups.every(g => !g.patch)
+	&& skipped.result.qa.groups.some(g => g.hint), json(skipped.result.qa.groups.map(g => [g.kind, Boolean(g.patch), Boolean(g.hint)])));
+counted = 0;
+const fewer = repairSpec(deep, { rounds: 4, unless: fruitless.repair.faced.slice(1) }, counting), fewerCompiles = counted;
+const more = repairSpec(deep, { rounds: 4, unless: [...fruitless.repair.faced, "COLLIDE hand_l x wall"] }, counting);
+expect("skip: other groups (one fewer, one more) repair as before", !fewer.repair.skipped && !more.repair.skipped && fewerCompiles > 1 && json(fewer.repair) === json(fruitless.repair), json([fewer.repair, more.repair]));
+// motion.compile keeps, per character, what its last repair faced when it applied nothing: the default repair of an installing
+// compile skips the same groups; an explicit repair { rounds } runs; the answer does not carry the kept keys (faced)
+const skipTakes = new Map(), skipOwner = { replace: (id, t) => skipTakes.set(id, t), motionFor: id => skipTakes.get(id) ?? null };
+const skipReg = createStudioAppActions({ state: () => ({ characters: [{ ...character, id: "char-9" }], objects: [], frameCount: 60 }), storeDomain: name => (name === "motion" ? skipOwner : null) });
+const compileDeep = extra => unwrap(skipReg.run("motion.compile", { characterId: "char-9", spec: deep, thin: false, ...extra }));
+const [tried, again, asked, after] = [compileDeep(), compileDeep(), compileDeep({ repair: { rounds: 1 } }), compileDeep()];
+expect("motion.compile: a default repair that applied nothing, then the same groups: repair skipped and says so, the same QA", tried.repair.applied.length === 0 && !tried.repair.skipped && tried.repair.rounds >= 1
+	&& /^skipped: /.test(again.repair?.skipped ?? "") && again.repair.compiles === 1 && again.specId === tried.specId && json(again.qa.groups.map(g => g.subject)) === json(tried.qa.groups.map(g => g.subject)), json([tried.repair, again.repair]));
+expect("motion.compile: an explicit repair { rounds } still runs; the next default repair of the same groups is skipped", !asked.repair.skipped && asked.repair.compiles > 1 && /^skipped: /.test(after.repair?.skipped ?? ""), json([asked.repair, after.repair]));
+expect("motion.compile: the answer's repair carries no faced keys", [tried, again, asked, after].every(o => o.repair && !("faced" in o.repair)), json(tried.repair));
+// a repair that applied a patch keeps the next one on: the post scene of case 6, default repair twice
+const kept = [0, 1].map(() => unwrap(registry.run("motion.compile", { characterId: "char-1", spec: stand({ fix: { stance: false } }), thin: false })).repair);
+expect("motion.compile: after a repair that applied a patch the next default repair runs", kept.every(rep => rep && !rep.skipped && rep.applied.length >= 1), json(kept));
+
 if (failures) { console.error(`${failures} motion3 repair check(s) failed`); process.exit(1); }
 console.log("motion3 repair: all checks passed");

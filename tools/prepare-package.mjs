@@ -37,7 +37,7 @@ if (process.argv.includes("--clean")) {
 		distribution: "npm",
 		package: "cozyclay",
 		version: packageMetadata.version,
-		repository: "NomaDamas/CozyClay",
+		repository: "HaD0Yun/CozyClay",
 		content_sha256: computePackageDigest(packageRoot),
 	});
 	const privateKey = createPrivateKey({

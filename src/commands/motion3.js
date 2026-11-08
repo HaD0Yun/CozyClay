@@ -103,6 +103,8 @@ export function register(registry, ports) {
 	// the stop rule: output.stuck when more compiles stopped paying (repair-watch.js)
 	const watch = createRepairWatch(), compiledOnce = new Set();
 	const rounds = createRoundWatch(); // output.noImprovementRounds (motion3-rounds.js)
+	// per character, the groups its last repair faced when it applied nothing: a default repair of the same groups is skipped (repair.js unless)
+	const fruitless = new Map();
 	const owner = () => ports.storeDomain("motion");
 	const mounted = () => Boolean(ports.storeDomain?.("motion")) || "The motion owner is not mounted.";
 	const always = () => true;
@@ -188,7 +190,8 @@ export function register(registry, ports) {
 		// the repair engine runs by default (2 rounds) on an installing compile; repair: false opts out (deep research 5: hand-keyed sessions
 		// repaired 93% of first compiles, ours 2-4%, and without it the hints carry no patch)
 		// rounds 2 on a character's first compile, 1 on the repeats (variant I: repair cost +20 s a step on 45% of the compiles)
-		const repairWith = repair === false ? undefined : repair ?? (install === false ? undefined : { rounds: compiledOnce.has(characterId) ? 1 : 2 });
+		// (#1116: skipped when the last repair applied nothing to the same groups; an explicit repair always runs)
+		const repairWith = repair === false ? undefined : repair ?? (install === false ? undefined : { rounds: compiledOnce.has(characterId) ? 1 : 2, ...(fruitless.has(characterId) ? { unless: fruitless.get(characterId) } : {}) });
 		compiledOnce.add(characterId);
 		// the frames this patch touched stay through key thinning (thin.js)
 		const before = base === undefined ? null : store.get(base) ?? installedSpec(), keysAt = (sp, f) => JSON.stringify((sp?.keys ?? []).filter(k => k.f === f));
@@ -198,7 +201,8 @@ export function register(registry, ports) {
 		// the installed take's QA, measured before this compile when the store lost it (motion3-installed.js); under ifClean the
 		// job skips thinning a repaired take that will not go on over it (compile-job.js ifCleanOver: it would thin keys no take keeps)
 		return after(install === false ? null : installedQa.measure(character, scene), on => after(filled ? { spec: source, fill: filled } : keepFill ? { spec: source, fill: keepFill } : autoFill(ports, character, source), auto => after(compile(character, auto.spec, { probes, repair: repairWith, installing: install !== false, ...(install === "ifClean" ? { ifCleanOver: on && { groups: on.groups } } : {}), thin, protect }, {}, context?.taskId, scene), r => {
-			const { take } = r, qa = flag(r.qa, take), notes = [...patched, ...(r.notes ?? [])];
+			const { take } = r, qa = flag(r.qa, take), notes = [...patched, ...(r.notes ?? [])], { faced, ...repaired } = r.repair ?? {};
+			if (r.repair) { if (!repaired.applied?.length && faced?.length) fruitless.set(characterId, faced); else fruitless.delete(characterId); }
 			// ifClean: install a clean result (0 blocking problems, goals included; after repair when asked), and one that beats the
 			// installed take's blocking groups (fewer, then fewer frame issues) or the first when none is on (variant K: box ended with no
 			// take in 4 of 5 runs under ifClean / never); over a take whose QA cannot be measured, any take (with a note)
@@ -222,10 +226,10 @@ export function register(registry, ports) {
 				: best ? `; not installed; the best take so far, ${best.specId}, installed` : install === "ifClean" ? (installs ? "; installed" : "; not installed") : "";
 			const hint = hybridCapsuleHint(ports.storeDomain?.("scenes")?.metadata?.().castStyle, { stuck, qa: { ok: qa.blocking === 0, groups: blockingOf(qa.groups) }, polish });
 			const flat = rounds(characterId, qa, base === undefined), broad = patchTooBroad(patch);
-			const output = report({ ...r, qa }, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: r.repair } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
+			const output = report({ ...r, qa }, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: repaired } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
 			// agent-progress.js: viewport ghost, timeline beats, agent panel
 			const draft = publishDraft(characterId, { take, installed: installs || kept || self, specId: output.specId, label: r.label, qa, timeline: r.timeline });
-			noteDraftCompiled(draft, r, { installed: installs || kept || self, stuck, repaired: Boolean(r.repair), adjusted: notes.length > 0 });
+			noteDraftCompiled(draft, r, { installed: installs || kept || self, stuck, repaired: Boolean(r.repair && !r.repair.skipped), adjusted: notes.length > 0 });
 			// agent:turn_summary: this turn's drafts and their QA (agent-turn-telemetry.js)
 			noteTurnDraft(context?.turnId, { clean: Boolean(qa.ok), problems: qaProblems(qa), stuck: Boolean(stuck) });
 			return { affectedIds: installs || best ? [characterId] : [], summary: `${auto.fill?.calls ? `MotionBricks filled ${auto.fill.calls} gap${auto.fill.calls === 1 ? "" : "s"}. ` : ""}Compiled ${r.frameCount} frames; QA ${qaSay(qa)}, ${blockingSay(qa)}${how}${adjustedSay(notes)}.${installs || kept || self ? ` Installed take: ${output.specId}.` : best ? ` Installed take: ${best.specId}.` : ""}${r.thinned ? ` Thinned ${r.thinned.removed.length} free-span key${r.thinned.removed.length === 1 ? "" : "s"} QA did not need (output.thinned).` : ""}`, output, ...workerWarning() };

@@ -4,14 +4,14 @@
 // the latest successful pages.yml run on main (or of RUN_ID). Only main runs
 // are full runs, so only they feed the file. A person runs this and commits
 // the result in a pull request; no workflow writes to main (#632).
-// GH_REPO overrides the repository (default NomaDamas/CozyClay).
+// GH_REPO overrides the repository (default HaD0Yun/CozyClay).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DURATIONS_PATH, readDurations, writeDurations } from "./test-shards.mjs";
 
-const repo = process.env.GH_REPO || "NomaDamas/CozyClay";
+const repo = process.env.GH_REPO || "HaD0Yun/CozyClay";
 const gh = (...arguments_) => execFileSync("gh", [...arguments_, "--repo", repo], { encoding: "utf8" });
 const latest = () => JSON.parse(gh("run", "list", "--workflow", "pages.yml", "--branch", "main", "--status", "success", "--limit", "1", "--json", "databaseId"))[0]?.databaseId;
 const runId = process.argv[2] ?? latest();
