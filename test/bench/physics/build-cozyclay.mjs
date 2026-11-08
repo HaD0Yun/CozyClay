@@ -52,7 +52,7 @@ export function cozyclayDoc(set) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const [which] = process.argv.slice(2), at = process.argv.indexOf("--out");
-	const [set] = loadSets([which]);
+	const [set] = which ? loadSets([which]) : [];
 	if (!set) { console.error("usage: build-cozyclay.mjs <set id or task number> [--out file]"); process.exit(2); }
 	const text = `${JSON.stringify(cozyclayDoc(set), null, "\t")}\n`;
 	if (at > 0) writeFileSync(process.argv[at + 1], text); else process.stdout.write(text);
