@@ -10,8 +10,8 @@
 //   SPIN  in a flight (flights: an air run of MIN_RUN frames or more, split where a hand is pinned, a frame on each
 //         side) the angular momentum about the centre of mass (inertia.js) must stay what the body left the ground with,
 //         read on the frames whose central difference stays in the air (the takeoff and landing frames carry the
-//         push). value = how far it drifts at that frame from the run's mean, as a share of the mean or of SPIN_FLOOR
-//         kg m^2/s, whichever is larger;
+//         push). value = how far it drifts at that frame from the run's mean along the mean's axis (deviations), as a
+//         share of the mean or of SPIN_FLOOR kg m^2/s, whichever is larger;
 //         SPIN_TOL is the share allowed. So a frame may drift 20% of the run's momentum, and never less than 16
 //         kg m^2/s (70 kg body): legs tucked in a straight hop swing it by about 14 with no turn to re-time, a
 //         standing back tuck carries about 60 and its keyed turn drifts 30-48. fix.spin (fix/spin.js) re-times the
@@ -71,12 +71,18 @@ function momenta(out, a, b) {
 	return Ls;
 }
 
-/** Per frame a..b: |L - mean| / max(|mean|, SPIN_FLOOR); null where the momentum cannot be read. */
+/**
+ * Per frame a..b: how far L along the flight's mean momentum axis u is from the mean, |L . u - |mean|| / max(|mean|,
+ * SPIN_FLOOR); null where the momentum cannot be read. The axis is the turn's: a keyed turn whose axis swings (the hit
+ * skill's yaw and pitch at once) or a spin about a non-principal axis moves L off it, which no re-timing of the turn can
+ * change, so SPIN leaves that out (the hit skill: L along u 27-31 kg m^2/s while its direction turns 40 deg).
+ */
 function deviations(out, a, b) {
 	const Ls = momenta(out, a, b);
 	if (!Ls) return null;
-	const m = [0, 1, 2].map(k => Ls.reduce((s, L) => s + L[k], 0) / Ls.length), ref = Math.max(Math.hypot(...m), SPIN_FLOOR);
-	return Ls.map(L => Math.hypot(L[0] - m[0], L[1] - m[1], L[2] - m[2]) / ref);
+	const m = [0, 1, 2].map(k => Ls.reduce((s, L) => s + L[k], 0) / Ls.length), size = Math.hypot(...m), ref = Math.max(size, SPIN_FLOOR);
+	if (size < 1e-9) return Ls.map(L => Math.hypot(...L) / ref);
+	return Ls.map(L => Math.abs((L[0] * m[0] + L[1] * m[1] + L[2] * m[2]) / size - size) / ref);
 }
 
 /** The worst SPIN deviation over flight [a, b] (indexes of out.frames): the frames whose central difference stays in the air, a + 1 .. b - 1. */
