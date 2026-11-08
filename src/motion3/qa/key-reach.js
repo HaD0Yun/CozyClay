@@ -20,7 +20,11 @@ export function keyReachIssues(sk, out, spec) {
 			const want = k.set?.[ch];
 			if (!Array.isArray(want) || !baked[ch]) continue;
 			let d = Infinity;
-			for (let f = k.f - RETIME_SLACK; f <= k.f + RETIME_SLACK; f++) { const got = baked[ch][f]; if (Array.isArray(got)) d = Math.min(d, Math.hypot(want[0] - got[0], want[1] - got[1], want[2] - got[2])); }
+			// the flight fixes move the body off its keys on purpose (fix/index.js flightFixes: fixed.ballistic, fixed.spin): the key is read before them
+			for (let f = k.f - RETIME_SLACK; f <= k.f + RETIME_SLACK; f++) {
+				const got = baked[ch][f], m = out.flightMoved?.[ch]?.get(f) ?? [0, 0, 0];
+				if (Array.isArray(got)) d = Math.min(d, Math.hypot(want[0] - got[0] + m[0], want[1] - got[1] + m[1], want[2] - got[2] + m[2]));
+			}
 			if (!Number.isFinite(d)) continue;
 			if (d > KEY_MISS) issues.push({ kind: "KEY", msg: `${ch} ${(d * 100).toFixed(1)} cm off its key at f${k.f}`, frame: k.f - f0, value: +d.toFixed(4), limit: KEY_MISS });
 		}

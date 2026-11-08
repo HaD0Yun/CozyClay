@@ -1,12 +1,13 @@
 // Motion QA entry: general checks on every take, the checks the spec declares, the objects it
-// moves (object-checks.js), the other people in the scene (people-checks.js, PERSON), its goals (goals.js) and the style checks it opted into by naming
+// moves (object-checks.js), gravity and spin in and around the air runs (flight-checks.js: DROP, SPIN), the other people in the scene (people-checks.js, PERSON), its goals (goals.js) and the style checks it opted into by naming
 // their limit (style.js; otherwise style is measured, not judged: observeMotion). Groups are
 // ranked by severity.js. total counts frame-level issues (a goal held on "all" frames adds one per failing frame); problems
 // counts the groups, which is what a person reads (src/qa-label.js). qa.warnings (arm-checks.js) reads an awkward
 // working arm and never fails a take.
 import { keyReachIssues } from "./key-reach.js";
 import { generalChecks, QA_LIMITS } from "./checks.js";
-import { styleChecks, floatChecks } from "./style.js";
+import { styleChecks, floatChecks, airRuns } from "./style.js";
+import { flightChecks, contactFrames } from "./flight-checks.js";
 import { specChecks } from "./spec-checks.js";
 import { objectChecks } from "./object-checks.js";
 import { graspChecks } from "./grasp-checks.js";
@@ -40,9 +41,11 @@ function summarizeIssues(issues) {
  * are absolute even when the compile was windowed (out.f0). qa.goals is there when spec.goals is.
  */
 export function runMotionQa(sk, out, spec, opts = {}) {
-	const checks = spec.checks ?? {}, goals = goalChecks(out, spec.goals ?? []);
-	const issues = [...generalChecks(sk, out, { allow: checks.allow, limits: checks.limits, mouthPoints: checks.mouthPoints }), ...specChecks(out, checks),
-		...objectChecks(sk, out, spec), ...graspChecks(sk, out), ...fingerChecks(sk, out), ...loadChecks(sk, out), ...floatChecks(out, checks),
+	const checks = spec.checks ?? {}, goals = goalChecks(out, spec.goals ?? []), runs = airRuns(out, checks.supports), contact = contactFrames(out, runs);
+	// a flight's push-off and impact are one-frame events, not pops (flight-checks.js contactFrames)
+	const general = generalChecks(sk, out, { allow: checks.allow, limits: checks.limits, mouthPoints: checks.mouthPoints }).filter(i => i.kind !== "POP" || !contact.has(i.frame));
+	const issues = [...general, ...specChecks(out, checks),
+		...objectChecks(sk, out, spec), ...graspChecks(sk, out), ...fingerChecks(sk, out), ...loadChecks(sk, out), ...floatChecks(out, checks, runs), ...flightChecks(out, checks, runs),
 		...styleChecks(sk, out, checks, { ...QA_LIMITS, ...checks.limits }), ...wristIssues(sk, out), ...peopleChecks(sk, out, checks), ...heldDriftIssues(sk, out), ...keyReachIssues(sk, out, spec), ...goals.issues];
 	if (out.f0) for (const i of issues) i.frame += out.f0;
 	const groups = summarizeIssues(issues);

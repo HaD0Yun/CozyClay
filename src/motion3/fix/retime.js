@@ -5,16 +5,34 @@
 // motion is style and keeps its speed. Interpolation between keys scales with their spacing, so
 // each interval is stretched by its own peak excess. The frame count and every key outside the
 // windows stay where they are; the time map is kept on out.timeMap so frame-range checks follow.
+// Flights (qa/flight-checks.js flights: air runs of 4 frames or more) are not retimed (#1124): their frames are fast because gravity makes them fast, and a
+// stretched fall is slower than gravity (bench v2, 07 roof fall back r1: f90-97 stretched 1.6-2.8x over an exact 1 g
+// parabola). An air frame is never too fast, and no window reaches into the key interval that holds a run: from the
+// last key at or before the frame before takeoff to the first key at or after the frame after landing (those two keys
+// stay where they are, so every frame between them keeps its timing).
 import { QA_LIMITS } from "../qa/checks.js";
 import { speedExcess } from "../qa/style.js";
 
 const HEADROOM = 1.1, MIN_RATE = 0.35, PASSES = 3;
 
-/** e[i] = how many times too fast frame i is (speed ratio, or sqrt of the acceleration ratio). */
-const excess = out => {
-	const own = out.ctx.spec?.checks?.limits;
-	return speedExcess(out.ctx.sk, out, own, { ...QA_LIMITS, ...own });
+/** e[i] = how many times too fast frame i is (speed ratio, or sqrt of the acceleration ratio); 0 in a flight. */
+const excess = (out, air) => {
+	const own = out.ctx.spec?.checks?.limits, e = speedExcess(out.ctx.sk, out, own, { ...QA_LIMITS, ...own });
+	for (const [a, b] of air) for (let f = a; f <= b; f++) e[f] = 0;
+	return e;
 };
+
+/** The key intervals [p, q] that hold each flight (frames of out): the last key at or before a - 1 to the first at or after b + 1. */
+const held = (air, keyFrames, n) => air.map(([a, b]) => [Math.max(0, ...keyFrames.filter(f => f <= a - 1)), Math.min(n - 1, ...keyFrames.filter(f => f >= b + 1))]);
+
+/** Windows cut where they reach into a held interval: the parts outside it that still hold a too-fast frame. */
+function outside(wins, holds, e) {
+	let out = wins;
+	for (const [p, q] of holds) {
+		out = out.flatMap(([a, b]) => (b <= p || a >= q ? [[a, b]] : [[a, Math.min(b, p)], [Math.max(a, q), b]]).filter(([x, y]) => y - x >= 2 && e.slice(x + 1, y + 1).some(v => v > 1)));
+	}
+	return out;
+}
 
 /** Windows [a, b] (key frames) around each run of too-fast frames, merged where they overlap. */
 function windows(e, keyFrames, n) {
@@ -46,12 +64,13 @@ function spread(e, cuts) {
 	return { T, stretch: Math.max(...dur.map((d, i) => (d * scale) / segs[i].len)) };
 }
 
-export function retime(out, engine) {
+/** air: the take's flights (qa/flight-checks.js flights), whose key intervals stay as keyed. */
+export function retime(out, engine, air = []) {
 	const n = out.frames.length, maps = [];
 	let segments = 0, stretch = 1;
 	for (let pass = 0; pass < PASSES; pass++) {
-		const e = excess(out), keyFrames = [...new Set(out.keys.map(k => k.f))].sort((p, q) => p - q);
-		const wins = windows(e, keyFrames, n);
+		const e = excess(out, air), keyFrames = [...new Set(out.keys.map(k => k.f))].sort((p, q) => p - q);
+		const wins = air.length ? outside(windows(e, keyFrames, n), held(air, keyFrames, n), e) : windows(e, keyFrames, n);
 		if (!wins.length) break;
 		const pieces = wins.map(([a, b]) => {
 			const cuts = [...new Set([a, ...keyFrames.filter(f => f > a && f < b), b])].sort((p, q) => p - q), r = spread(e, cuts);
@@ -74,6 +93,6 @@ export function retime(out, engine) {
 	}
 	if (!maps.length) return null;
 	out.timeMap = f => maps.reduce((x, m) => m(x), f);
-	const left = excess(out).filter(x => x > 1).length;
+	const left = excess(out, air).filter(x => x > 1).length;
 	return { windows: segments, maxStretch: Math.round(stretch * 100) / 100, stillFast: left, how: "key intervals around speed spikes stretched" };
 }

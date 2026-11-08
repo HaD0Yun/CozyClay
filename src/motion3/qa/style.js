@@ -22,7 +22,7 @@ const BENDS = [["knee_l", "LeftUpLeg", "LeftLeg", "LeftFoot"], ["knee_r", "Right
 /** A pop's acceleration is more than this many times the level around it (popLevel). */
 const POP_RATIO = 2;
 /** FLOAT: the share of gravity an airborne run may miss (0.75: the hips fall at a quarter of g). */
-const FLOAT_LIMIT = 0.75;
+export const FLOAT_LIMIT = 0.75;
 /** Peak speed (m/s) under which a joint counts as still and peaks leaves it out. */
 const STILL = 0.05;
 const r2 = x => Math.round(x * 100) / 100;
@@ -116,20 +116,25 @@ export function airRuns(out, supports = []) {
 	return runs;
 }
 
+/** The share of gravity the hips miss over air run [a, b] (indexes of out.frames): 1 - (speed in - speed out) / frames / g. */
+export function missingFall(out, a, b) {
+	const F = out.frames, n = F.length, I = out.ctx.sk.index, g = 9.81 / (out.fps ?? 24) ** 2;
+	const y = f => F[Math.max(0, Math.min(n - 1, f))].s.P[I.Hips][1];
+	const vin = a > 0 ? y(a) - y(a - 1) : y(a + 1) - y(a), vout = b < n - 1 ? y(b + 1) - y(b) : y(b) - y(b - 1);
+	return 1 - (vin - vout) / (b - a + 1) / g;
+}
+
 /**
  * Hard FLOAT issues: 4 or more frames off the ground (airRuns) in which the hips do not fall.
  * A jump or a drop is ballistic: over the run the hips' vertical speed drops by gravity (the
  * speed into the run minus the speed out of it, per frame, is g). A body held up by nothing
  * keeps it; under a quarter of g is a float. value = the share of g missing (1 = no fall).
  */
-export function floatChecks(out, checks = {}) {
-	const F = out.frames, n = F.length, I = out.ctx.sk.index, g = 9.81 / (out.fps ?? 24) ** 2, f0 = out.f0 ?? 0, issues = [];
-	const y = f => F[Math.max(0, Math.min(n - 1, f))].s.P[I.Hips][1];
-	for (const [a, b] of airRuns(out, checks.supports)) {
-		const frames = b - a + 1;
-		if (frames < 4) continue;
-		const vin = a > 0 ? y(a) - y(a - 1) : y(a + 1) - y(a), vout = b < n - 1 ? y(b + 1) - y(b) : y(b) - y(b - 1);
-		const missing = 1 - (vin - vout) / frames / g;
+export function floatChecks(out, checks = {}, runs = airRuns(out, checks.supports)) {
+	const f0 = out.f0 ?? 0, issues = [];
+	for (const [a, b] of runs) {
+		if (b - a + 1 < 4) continue;
+		const missing = missingFall(out, a, b);
 		if (missing <= FLOAT_LIMIT) continue;
 		for (let f = a; f <= b; f++) issues.push({ kind: "FLOAT", msg: `no foot on the ground f${a + f0}-f${b + f0}, hips fall at ${Math.round(Math.max(0, 1 - missing) * 100)}% of g`, frame: f, value: +missing.toFixed(4), limit: FLOAT_LIMIT });
 	}
