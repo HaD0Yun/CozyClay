@@ -1,6 +1,7 @@
 // Mechanical input mistakes are fixed, not refused, when the fix cannot change what was meant; each
 // fix is one short note the answer carries in output.adjusted (commands/motion3.js). Refused as before:
-// anything that changes timing or meaning (keys past the clip, tol on above, a window wholly past it).
+// anything that changes timing or meaning (keys more than 3 frames past the clip, tol on above, a window wholly
+// past it). The validator corrects the slips it would refuse that have one reading (compiler/validate-mend.js).
 //   relaxSpec        on the expanded spec before validation (pipeline.js): a goal window partly past the
 //                    clip is cut to it; an object key with only pos takes the turn of the key before it
 //                    (else after it, else its scene pose: rot for a free entry, aim for a carry so the

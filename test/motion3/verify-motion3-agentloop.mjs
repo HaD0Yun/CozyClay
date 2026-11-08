@@ -185,9 +185,10 @@ for (const line of [
 	"corrected: keys[3] (f32) channel \"fpitch_left\" -> \"fpitch_l\"",
 	"keys[4] (f38) root must be [x, y, z] (3 finite numbers), got [1]",
 	"keys[5].f = 800 is outside 0..729 (spec.frames 730); set frames >= 801 or frames: \"auto\"",
-	"keys[6] (f54) knee_l = [0,0,-1] points backward; knees bend toward +z.",
+	// a backward knee pole and a sided anchor name are corrected and named (#1126), the rest refused as before
+	"corrected: keys[6] (f54) knee_l = [0,0,-1] points backward (knees bend toward +z): mirrored forward to [0,0,1]",
 	"keys[7] (f66) sets w_handel_l, but there is no anchor \"handel\"; did you mean \"w_handle_l\"?",
-	"anchors.grip_l: an anchor name may not end in _l or _r",
+	"corrected: anchors.grip_l -> anchors.grip_left, and every ref to it",
 	"generators[0].heading must be [h0, h1] in degrees (yaw 0 faces +Z and + turns toward +X), got [125]",
 	"fpitch_r = 95 is outside -60..90 (toe-down pitch, deg: + lifts the heel (toes flat), - lifts the toes)",
 ]) expect(`validator: ${line.slice(0, 60)}`, msg.includes(line), msg);

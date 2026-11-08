@@ -76,7 +76,11 @@ const back = { ...base, frames: 40, use: [{ skill: "standIdle", f0: 0, args: { a
 const pole = compile(back);
 expect("at root yaw 180 a backward body-frame pole that points forward in the world is that world direction", json(pole.expanded.keys.find(k => k.src === "keys[0]").set.knee_l) === "[0.03,0.29,0.96]"
 	&& pole.notes?.[0] === "corrected: keys[0] (f10) knee_l [-0.03,0.29,-0.96] is a world direction at root yaw 180: body frame [0.03,0.29,0.96] (a pole is +z forward)", json(pole.notes));
-expect("facing +Z the same pole is still refused (it points backward either way)", /knee_l = \[-0.03,0.29,-0.96\] points backward/.test(refused(() => compile({ ...back, use: [stand] }))));
+// facing +Z it points backward either way: the validator mirrors it forward and says so (#1126; validate-mend.js)
+const facing = compile({ ...back, use: [stand] });
+expect("facing +Z the same pole is mirrored forward, named", json(facing.expanded.keys.find(k => k.src === "keys[0]").set.knee_l) === "[-0.03,0.29,0.96]"
+	&& facing.notes?.includes("corrected: keys[0] (f10) knee_l = [-0.03,0.29,-0.96] points backward (knees bend toward +z): mirrored forward to [-0.03,0.29,0.96]")
+	&& facing.spec.keys[0].set.knee_l[2] === -0.96, json(facing.notes));
 
 // 6. walkTo with to and steps (C21): the steps walked steps x stride wherever to was (386 of 561 such walks missed it by > 0.1 m)
 // in a natural gait (skills/basic.js fitTo): a stride fitted at a fixed cadence went to 0.87 m at 1.2 steps a second
