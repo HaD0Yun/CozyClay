@@ -4,13 +4,18 @@
 # Set points are CozyClay axes (+Y up, the character faces +Z); Blender is +Z up, so (x, y, z) -> (x, -z, y), and the
 # imported Y Bot already faces -Y. Objects are built with identity rotation and unit scale (transforms applied), named
 # by their set id, with custom properties "mass" (kg) and "fixed". bounds.json, when asked for, lists each object's
-# world bounds and the character root in set axes, for check-sets.mjs.
+# world bounds and the character root in set axes, for check-sets.mjs. The armature keeps its build-time bone rests
+# (take_io.store_rest) for the take exporter.
 import json
 import math
+import os
 import sys
 
 import bpy
 from mathutils import Vector
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import take_io  # noqa: E402
 
 ARGV = sys.argv[sys.argv.index("--") + 1:]
 SET_PATH, FBX_PATH, OUT_BLEND = ARGV[:3]
@@ -89,6 +94,12 @@ def build_character(spec):
     arm.location = to_blender(spec["position"])
     if arm.animation_data is not None:
         arm.animation_data_clear()
+    bpy.context.view_layer.update()
+    basis = arm.matrix_world.copy()
+    basis.translation = (0.0, 0.0, 0.0)
+    if max(abs(basis[i][j] - take_io.BASIS[i][j]) for i in range(4) for j in range(4)) > 1e-6:
+        raise RuntimeError("the Y Bot import is not turned 90 deg about X and scaled 0.01; take_io.BASIS no longer holds")
+    take_io.store_rest(arm)
     return arm
 
 
