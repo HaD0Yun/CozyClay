@@ -11,7 +11,7 @@
  * no body, 409 unless the install state is restart_needed.
  */
 const VERSION = /^\d+\.\d+\.\d+$/;
-const NOTES_URL = "https://github.com/NomaDamas/CozyClay/releases/tag/v";
+const NOTES_URL = "https://github.com/HaD0Yun/CozyClay/releases/tag/v";
 
 function sendJson(res, status, body, headers = {}) {
 	res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });

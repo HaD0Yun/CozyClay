@@ -80,7 +80,7 @@ export function verifyPackageMarker(
 		if (payload.distribution !== "npm") return false;
 		if (payload.package !== "cozyclay") return false;
 		if (payload.version !== packageMetadata.version) return false;
-		if (payload.repository !== "NomaDamas/CozyClay") return false;
+		if (payload.repository !== "HaD0Yun/CozyClay") return false;
 		if (payload.content_sha256 !== computePackageDigest(packageRoot)) return false;
 		const publicKey = createPublicKey({
 			key: Buffer.from(publicKeyBase64, "base64"),

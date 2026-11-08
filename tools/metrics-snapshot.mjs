@@ -18,7 +18,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-const REPO = process.env.METRICS_REPO || "NomaDamas/CozyClay";
+const REPO = process.env.METRICS_REPO || "HaD0Yun/CozyClay";
 const NPM_PACKAGE = process.env.METRICS_NPM_PACKAGE || "cozyclay";
 const outDir = process.argv[2];
 if (!outDir) {
