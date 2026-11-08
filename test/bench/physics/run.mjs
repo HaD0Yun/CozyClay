@@ -2,6 +2,8 @@
 // Physical motion bench run harness (docs/qa/physics-bench.md, PR 4).
 //   node test/bench/physics/run.mjs --sets 10 [--runs 1] [--tools cozyclay,blender] [--timeout-min 60]
 //        [--out ~/physics-bench/runs] [--model claude-opus-5-5] [--effort high] [--probe banned]
+// --model takes a bare model (the panel option cliproxy/<model>) or a full panel option value such as
+// v4/claude-opus-5-5 (the v4 engine).
 // One queue per tool, run side by side, each one run at a time (so the CLIProxyAPI usage log tells the runs apart,
 // usage.mjs). A run sends one request (sets.mjs requestText), waits for the agent's final reply or the limit, exports
 // take.json itself, and appends one row to <out>/physics-bench.jsonl. A run dir that has row.json is skipped.
@@ -23,7 +25,7 @@ import { rateLimited, usageOf } from "./usage.mjs";
 const HERE = new URL(".", import.meta.url).pathname, REPO = join(HERE, "../../..");
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : d; };
 const OUT = arg("out", join(homedir(), "physics-bench/runs")), RUNS = Number(arg("runs", "1")), LIMIT = Number(arg("timeout-min", "60"));
-const MODEL = arg("model", "claude-opus-5-5"), EFFORT = arg("effort", "high"), PROBE = arg("probe", null);
+const MODEL = arg("model", "claude-opus-5-5"), PANEL_MODEL = MODEL.includes("/") ? MODEL : `cliproxy/${MODEL}`, EFFORT = arg("effort", "high"), PROBE = arg("probe", null);
 const TOOLS = arg("tools", "cozyclay,blender").split(","), sets = loadSets(arg("sets", "").split(",").filter(Boolean));
 const PROBES = {
 	cozyclay: "char-a에 standIdle(at [0, 0]) 다음 flip 스킬(kind: back)로 뒤공중돌기 테이크를 만들어 설치해 줘. 다른 건 하지 마.",
@@ -49,7 +51,7 @@ async function cozyclayRun(set, dir, request) {
 	const studio = await startStudio({ port, env, log: join(dir, "dev.log") });
 	try {
 		await underBrowser({ port, cdpPort: port + 2, env, script: join(HERE, "drive-cozyclay.mjs"), log: join(dir, "drive.log"),
-			args: ["--dir", dir, "--hub", String(port + 1), "--model", `cliproxy/${MODEL}`, "--effort", EFFORT, "--timeout-min", String(LIMIT)] });
+			args: ["--dir", dir, "--hub", String(port + 1), "--model", PANEL_MODEL, "--effort", EFFORT, "--timeout-min", String(LIMIT)] });
 	} finally { await studio.stop(); }
 	const drive = read(join(dir, "drive.json"), {}), doc = read(join(dir, "doc.json"));
 	const out = { sentAt: drive.sentAt, endAt: drive.endAt, timedOut: drive.timedOut, error: drive.error, reply: drive.reply, modelSelected: drive.modelSelected, effortSelected: drive.effortSelected };
