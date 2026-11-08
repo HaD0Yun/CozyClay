@@ -26,9 +26,9 @@ function readFit(url) {
 }
 
 // Fits made in memory for registered rigs (rigs/index.js registerRig): model -> make(fileFit), called on first use with
-// a reader of the shipped fits (make reads the X Bot's to refit it).
+// a reader of the shipped fits (make reads the X Bot's to refit it; one already loaded is not read again).
 const made = new Map();
-const fileFit = model => readFit(BODIES[model]);
+const fileFit = model => (!made.has(model) && fits.get(model)) || readFit(BODIES[model]);
 
 function fitOf(model) {
 	if (!fits.has(model)) fits.set(model, made.has(model) ? made.get(model)(fileFit) : fileFit(model));
