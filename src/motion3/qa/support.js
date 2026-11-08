@@ -30,18 +30,21 @@ export function boxDist({ box: { pos, half }, RT }, x, y, z) {
 	return Math.hypot(Math.max(d0, 0), Math.max(d1, 0), Math.max(d2, 0)) + Math.min(Math.max(d0, d1, d2), 0);
 }
 
-/** The obstacle boxes at frame index f: { box, RT (box.R transposed), c (centre), r (bounding radius), top (an upright box's top height, else null) }. */
+/** The obstacle boxes at frame index f: { box, RT (box.R transposed), c (centre), r (bounding radius), top (an upright box's top centre, else null) }. */
 function boxesAt(out, f) {
 	return Object.values(out.objectsAt(f)).filter(b => b.half && !b.ignore).map(box => ({ box, RT: T(box.R), r: Math.hypot(...box.half),
 		c: [box.pos[0] + box.R[0][1] * box.half[1], box.pos[1] + box.R[1][1] * box.half[1], box.pos[2] + box.R[2][1] * box.half[1]],
-		top: box.R[1][1] > UPRIGHT ? box.pos[1] + 2 * box.half[1] * box.R[1][1] : null }));
+		top: box.R[1][1] > UPRIGHT ? [0, 1, 2].map(i => box.pos[i] + 2 * box.half[1] * box.R[i][1]) : null }));
 }
 
 /** How high (m) (x, low, z) stands over box b's top when the vertical through it meets the top, else null; ground.js topOver for any other turn. */
 function overTop(out, f, b, x, low, z) {
 	if (b.top === null) { const g = groundY(out, f, [x, low, z]); return g > 0 ? low - g : null; }
 	const { box: { pos, half }, RT } = b, px = x - pos[0], pz = z - pos[2];
-	return Math.abs(RT[0][0] * px + RT[0][2] * pz) <= half[0] && Math.abs(RT[2][0] * px + RT[2][2] * pz) <= half[2] ? low - b.top : null;
+	if (!(Math.abs(RT[0][0] * px + RT[0][2] * pz) <= half[0] && Math.abs(RT[2][0] * px + RT[2][2] * pz) <= half[2])) return null;
+	// the top's height over (x, z): a tilted top slopes along its own up (RT[1]), so it is read at the point, not at its centre
+	const n = RT[1], y = b.top[1] - (n[0] * (x - b.top[0]) + n[2] * (z - b.top[2])) / n[1];
+	return low - y;
 }
 
 /** True when the skin carries the body at frame index f of out: a part within NEAR of the ground under it, or a hand on a scene body. */
@@ -54,6 +57,6 @@ export function skinCarries(out, f) {
 	// a hand on a body (a bar, a hold, a crate's side), then any skin on a top: up to ground.js SINK in it is on it
 	const held = boxes.filter(b => HAND_JOINTS.some(j => Math.hypot(...[0, 1, 2].map(i => s.P[sk.index[j]][i] - b.c[i])) < b.r + HAND_REACH));
 	if (held.length && visitSkin(sk, s, (_, x, y, z, r) => held.some(b => boxDist(b, x, y, z) - r < NEAR), p => HAND.test(p))) return true;
-	const high = Math.max(...boxes.map(b => b.top ?? b.c[1] + b.r)) + NEAR;
+	const high = Math.max(...boxes.map(b => b.c[1] + b.r)) + NEAR;
 	return low < high && visitSkin(sk, s, (_, x, y, z, r) => y - r < high && boxes.some(b => { const h = overTop(out, f, b, x, y - r, z); return h !== null && h > -SINK && h < NEAR; }));
 }

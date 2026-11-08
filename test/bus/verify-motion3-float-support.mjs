@@ -47,6 +47,11 @@ for (const model of ["y-bot-tpose", "x-bot-tpose"]) {
 		/^(knee_[lr]: key \[[^\]]*\] at f\d+ \(now \[[^\]]*\](, held f\d+-\d+(: turn that hold)?)?\) \(shin_[lr] 0\.\d+ m under the floor\): the knee turns \d+ deg up off the floor|foot_[lr]: move \[.*\] m at f\d+ \(shin_[lr] 0\.\d+ m under the floor\): the knee (rides the foot|opens off the floor)), the hips stay/.test(knee?.hint ?? "")
 		&& knee.patch && (!kneeFixed || kneeFixed.worst < knee.worst / 2), `${knee?.hint} -> ${kneeFixed?.worst}`);
 	const air = compile(held(kneel(0.25))), fl = air.qa.groups.find(g => g.kind === "FLOAT");
+	// a long top tilted 6 deg (under the 8 deg a flat top allows): 1.5 m from its middle it lies 16 cm under the middle's
+	// height, so a kneel at the middle's height there is 16 cm over it and floats (one height for the whole top carried it)
+	const deck = motionScene([{ id: "deck", renderer: "box", x: 0, y: 0, z: 0, rotZ: 6, scaleX: 4, scaleY: 0.2, scaleZ: 2 }]);
+	const over = compile(held({ pose: "kneel", set: { root: [-1.5, 0.7, 0], foot_l: [-1.38, 0.4, -0.38], foot_r: [-1.62, 0.4, -0.38] } }), deck);
+	expect(`${model}: a kneel at a tilted top's middle height where the top lies 16 cm lower: FLOAT`, over.qa.groups.some(g => g.kind === "FLOAT"), line(over));
 	expect(`${model}: the same kneel 25 cm over the floor, hips still: FLOAT on every frame`, fl?.count === 40 && fl.first === 0 && fl.last === 39, line(air));
 
 	// 2. a leg lying along the floor with its knee pointed into it: its own foot lifts it, the hips stay
