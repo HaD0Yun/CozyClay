@@ -47,9 +47,13 @@ for (const model of ["y-bot-tpose", "x-bot-tpose"]) {
 	}
 	for (const side of ["l", "r"]) {
 		const r = compile(model, [{ skill: "flip", f0: 6, args: { kind: "cartwheel", side } }]), roll = r.out.baked.roll, sign = side === "l" ? -1 : 1;
-		const kinds = new Set(r.qa.groups.map(g => g.kind));
-		expect(`${model} cartwheel ${side}: only stray single-frame POPs at most (no FLOAT, REACH, BODY, SLIDE, GROUND, KNEE)`, [...kinds].every(k => k === "POP") && r.qa.groups.every(g => g.count <= 2) && r.qa.total <= 2,
+		// QA measures the fingers against the floor since #1113 (qa/floor.js): the planted hands put them 7 (X Bot) to 11 (Y Bot)
+		// cm into it for 5 frames, the fingers pointing down (skills/flip.js, open); pinned so they cannot grow
+		const plants = r.qa.groups.filter(g => g.kind === "GROUND" && /^fingers_[lr] below floor$/.test(g.subject)), rest = r.qa.groups.filter(g => !plants.includes(g));
+		const kinds = new Set(rest.map(g => g.kind));
+		expect(`${model} cartwheel ${side}: only stray single-frame POPs at most (no FLOAT, REACH, BODY, SLIDE, GROUND, KNEE)`, [...kinds].every(k => k === "POP") && rest.every(g => g.count <= 2) && rest.reduce((n, g) => n + g.count, 0) <= 2,
 			JSON.stringify(r.qa.groups.map(g => `${g.kind} ${g.subject} n${g.count}`)));
+		expect(`${model} cartwheel ${side}: the planted fingers go no deeper into the floor than at #1113 (11 cm, 5 frames)`, plants.every(g => g.worst <= 0.11 && g.count <= 5), JSON.stringify(plants.map(g => `${g.subject} ${g.worst} n${g.count}`)));
 		expect(`${model} cartwheel ${side}: the body rolls a full turn toward the ${side === "l" ? "left" : "right"}`, Math.max(...roll.map(v => v * sign)) > 359.9 && roll.at(-1) === 0);
 		const handLow = Math.min(...r.out.frames.flatMap(({ s }) => ["Left", "Right"].map(S => s.P[I[`${S}Hand`]][1])));
 		expect(`${model} cartwheel ${side}: the hands carry it on the floor`, handLow < 0.12, handLow.toFixed(3));

@@ -16,6 +16,11 @@
 // faces of a box a second hand can take, load.js) gets them all compiled, at most CANDIDATES, and the
 // one with the lowest summed severity stands for its patch: a hint compiles nothing, so only here
 // can the cheapest be found.
+// A repair that applied nothing tells the next one (#1116): opts.unless is the groups the character's last such repair faced
+// (repair.faced, by groupKey: code and part), and a spec whose own groups are the same is not repaired at all; repair.skipped
+// says why. The 2026-11-07 wall climb: every logged repair applied nothing and spent the 20 s cap, 25-31 s a compile; replayed,
+// the compile it skips in r1 and in r2 (each run's last) took 23.0 -> 8.1 s and 36.6 -> 18.4 s, the same take. An explicit repair
+// always runs (motion3.js).
 import { applyPatch } from "./json-patch.js";
 import { groupKey } from "./qa/severity.js";
 import { tuneCandidates } from "./repair-tune.js";
@@ -37,19 +42,31 @@ const armLocal = g => (g.kind === "REACH" && /^arm_miss_[lr]$/.test(g.subject)) 
 const movesBody = patch => patch.some(o => /^\/use\/\d+\/args(\/(at|step|firstStep|to))?$/.test(o.path) && (o.path.endsWith("/args") ? ["at", "step", "firstStep", "to"].some(k => o.value?.[k] !== undefined) : true)
 	|| /^\/keys\/\d+\/set\/root$/.test(o.path) || (o.path === "/keys/-" && o.value?.set?.root !== undefined));
 const MOVED = "the body moved: no change that keeps it in place fixed this arm's failure";
+/** True when two lists of group keys hold the same keys, as many times each. */
+const sameKeys = (a, b) => a.length === b.length && JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+const skippedSay = n => `skipped: the last repair of this character applied nothing to these same ${n} problem group${n === 1 ? "" : "s"} (code and part); send repair: { rounds } to run it anyway`;
 
 /**
- * repairSpec(spec, { rounds }, compile) -> { spec, result, repair }
+ * repairSpec(spec, { rounds, limitMs, unless }, compile) -> { spec, result, repair }
  * @param {object} spec  the agent's spec (patches address it)
- * @param {{ rounds?: number, limitMs?: number }} opts  rounds 1..8 (default 4); limitMs, the wall-clock stop (default 20 s)
+ * @param {{ rounds?: number, limitMs?: number, unless?: string[] }} opts  rounds 1..8 (default 4); limitMs, the wall-clock stop
+ *   (default 20 s); unless, the groupKeys a repair of this character that applied nothing faced: the same groups skip the repair
  * @param {(spec: object) => object} compile  spec -> pipeline.js compileSpec result (qa.groups[i].patch)
  * @returns {{ spec: object, result: object, repair: { rounds: number, compiles: number,
- *   applied: { kind: string, subject: string, patch: object[], severity: number[], movedBody?: string }[], rejected: number } }}
+ *   applied: { kind: string, subject: string, patch: object[], severity: number[], movedBody?: string }[], rejected: number,
+ *   faced: string[], skipped?: string } }}  faced: the groupKeys of the spec as sent (the first compile)
  */
 export function repairSpec(spec, opts, compile) {
 	const want = Math.min(8, Math.max(1, Math.round(Number(opts?.rounds ?? 4)) || 4)), t0 = performance.now();
 	const late = () => performance.now() - t0 >= (opts?.limitMs > 0 ? opts.limitMs : LIMIT_MS);
 	let current = spec, result = compile(spec), compiles = 1, rejected = 0, rounds = 0;
+	const faced = groupsOf(result).map(groupKey);
+	if (faced.length && Array.isArray(opts?.unless) && sameKeys(faced, opts.unless)) {
+		// the hints' patches are the ones that repair tried and refused: none is compiled again (compile-job.js checkHints) or
+		// offered, the hint's words stay (replay of wall climb r1's last compile: with them checked the skip saved 1.5 s of 28.9)
+		for (const g of groupsOf(result)) delete g.patch;
+		return { spec, result, repair: { rounds, compiles, applied: [], rejected, faced, skipped: skippedSay(faced.length) } };
+	}
 	const refused = new Set();
 	const applied = [];
 	/** Compiles current + patch; null (counted as rejected) when the patch or the spec fails. */
@@ -132,5 +149,5 @@ export function repairSpec(spec, opts, compile) {
 		}
 		if (!kept) break;
 	}
-	return { spec: current, result, repair: { rounds, compiles, applied, rejected } };
+	return { spec: current, result, repair: { rounds, compiles, applied, rejected, faced } };
 }

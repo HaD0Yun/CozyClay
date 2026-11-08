@@ -12,6 +12,8 @@ import { sub, len, dot, angle } from "../compiler/math.js";
 import { CAPSULES, segPoints, sdBox } from "./geometry.js";
 import { groundSole, groundY } from "./ground.js";
 import { balanceAt } from "./com.js";
+import { skinCarries } from "./support.js";
+import { relaxedChecks } from "./relaxed.js";
 
 const SPEED_JOINTS = ["Hips", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot", "LeftLeg", "RightLeg", "LeftForeArm", "RightForeArm"];
 const CORE = new Set(["Hips", "Head"]);
@@ -96,11 +98,14 @@ function handDown(out, f) {
 	return ["Left", "Right"].some(S => [`${S}Hand`, `${S}HandMiddle1`].some(j => I[j] !== undefined && P[I[j]][1] - groundY(out, f, P[I[j]]) < HAND_DOWN));
 }
 
-/** Runs [a, b] (indexes of out.frames) with both soles 2 cm or more above the ground (ground.js), no hand on it and no declared support. */
+/**
+ * Runs [a, b] (indexes of out.frames) with both soles 2 cm or more above the ground (ground.js), no hand on it, no
+ * declared support and no skin on a surface (support.js: a knee, the back or a forearm on the floor, a hand on a bar).
+ */
 export function airRuns(out, supports = []) {
 	const n = out.frames.length, runs = [];
-	const air = out.frames.map((_, f) => !supported(out, f, supports)
-		&& ["Left", "Right"].every(S => { const sp = groundSole(out, f, S); return Math.min(sp.heel[1], sp.ball[1]) >= 0.02; }) && !handDown(out, f));
+	const air = out.frames.map((_, f) => ["Left", "Right"].every(S => { const sp = groundSole(out, f, S); return Math.min(sp.heel[1], sp.ball[1]) >= 0.02; })
+		&& !handDown(out, f) && !supported(out, f, supports) && !skinCarries(out, f));
 	for (let a = 0; a < n; a++) {
 		if (!air[a]) continue;
 		let b = a;
@@ -166,7 +171,8 @@ export function styleChecks(sk, out, checks, L) {
  * output.observations: measurements, not verdicts. Frames are absolute (out.f0 added).
  * { units, peaks: { <joint>: { speed: [m/s, f], accel: [m/s^2, f] } } (joints that move: STILL),
  *   balance: { min: [m, f], outside?: [f0, f1], air?: [[f0, f1], ...] (at most 4 runs with both
- *   feet off the ground: the floor or an object's top) }, bend: { knee_l: [deg, f], ... } }
+ *   feet off the ground: the floor or an object's top) }, bend: { knee_l: [deg, f], ... },
+ *   relaxed?: [line] (relaxed.js: the limits raised past their defaults, the declared supports that carry nothing true) }
  */
 export function observeMotion(sk, out, checks = {}) {
 	const f0 = out.f0 ?? 0, fps = out.fps ?? 24, peak = (arr, k) => {
@@ -187,8 +193,9 @@ export function observeMotion(sk, out, checks = {}) {
 		out.frames.forEach(({ s }, f) => { const d = bendAt(sk, s, b); if (d > best[0]) best = [d, f + f0]; });
 		return [b[0], [Math.round(best[0]), best[1]]];
 	}));
+	const relaxed = relaxedChecks(out, checks);
 	return { units: "[value, frame]; speed m/s, accel m/s^2, balance m inside the feet (< 0 outside), bend deg (0 straight)",
-		peaks, balance: { min, ...(outside ? { outside } : {}), ...(air.length ? { air } : {}) }, bend };
+		peaks, balance: { min, ...(outside ? { outside } : {}), ...(air.length ? { air } : {}) }, bend, ...(relaxed.length ? { relaxed } : {}) };
 }
 
 /**

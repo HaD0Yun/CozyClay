@@ -22,7 +22,7 @@ const payload = JSON.stringify({
 	distribution: "npm",
 	package: "cozyclay",
 	version: "1.5.0",
-	repository: "NomaDamas/CozyClay",
+	repository: "HaD0Yun/CozyClay",
 	content_sha256: computePackageDigest(directory),
 });
 

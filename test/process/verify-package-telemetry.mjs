@@ -35,7 +35,7 @@ const markerPayload = JSON.stringify({
 	distribution: "npm",
 	package: "cozyclay",
 	version: packageMetadata.version,
-	repository: "NomaDamas/CozyClay",
+	repository: "HaD0Yun/CozyClay",
 	content_sha256: computePackageDigest(packageRoot),
 });
 writeFileSync(join(packageRoot, "dist", "cozyclay-package.json"), JSON.stringify({

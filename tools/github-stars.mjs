@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const REPO = "NomaDamas/CozyClay";
+const REPO = "HaD0Yun/CozyClay";
 const BADGE = '<span class="gh-stars" hidden></span>';
 
 export function formatStars(count) {
