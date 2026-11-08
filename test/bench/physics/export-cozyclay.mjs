@@ -13,6 +13,7 @@ import { motionScene } from "../../../src/motion3/scene.js";
 import { activeScene } from "../motion-track.mjs";
 import { loadSets } from "./sets.mjs";
 import { RIG, mat4, writeTake } from "./take.mjs";
+import { rawTakeJson } from "../../../src/motion-v4/track/take-json.js";
 
 const apply = (R, v) => [0, 1, 2].map(i => R[i][0] * v[0] + R[i][1] * v[1] + R[i][2] * v[2]);
 const I3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -39,6 +40,8 @@ function objectTrack(out, o, frames) {
 export function takeFromDoc(doc, set, source = {}) {
 	const scene = activeScene(doc), id = set.character.id;
 	const character = (scene?.stage?.characters ?? []).find(c => c.id === id);
+	// a v4 take carries its encoded raw track; recompiling its spec would give a rest pose
+	if (character?.motionTake?.spec?.raw) return rawTakeJson(doc, { characterId: id, objects: set.objects, source: { set: set.id, ...source } });
 	const spec = character?.motionTake?.schema === "cozyclay.take.v3" ? character.motionTake.spec : null;
 	if (!spec) throw new Error(`${id} has no installed take`);
 	const sk = skeletonFor(character.motionTake.rig ?? character.model);

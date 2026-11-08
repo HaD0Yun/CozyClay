@@ -419,7 +419,8 @@ const { listOnly, scope, jobs, shard, durationsOut, onlyFrom } = parseArguments(
 const durations = readDurations();
 const inventory = [...verificationFiles("test"), ...verificationFiles("mcp"), ...EXTRA_INVENTORY].sort();
 for (const file of inventory) {
-	if (/^test\/bus\/verify-.*\.mjs$/.test(file)) categories.set(file, { kind: "node", reason: "command bus contract verification" });
+	// test/v4: the v4 motion engine (design 4.2), on the bus line so the file does not grow (loc ratchet)
+	if (/^test\/(bus\/verify-.*|v4\/verify-v4-[a-z-]+)\.mjs$/.test(file)) categories.set(file, { kind: "node", reason: file.startsWith("test/v4/") ? "v4 motion engine" : "command bus contract verification" });
 }
 const unclassified = inventory.filter((file) => !categories.has(file));
 const stale = [...categories.keys()].filter((file) => !inventory.includes(file));

@@ -10,7 +10,8 @@ import { join } from "node:path";
 // USD per million tokens, claude-opus-5-5 public list price (checked 2026-11-07; it reproduces Claude Code's
 // total_cost_usd and the Studio Agent session cost to the cent fraction). KRW at 1,500 per USD (plan 4.1).
 const PRICE = { date: "2026-11-07", model: "claude-opus-5-5", input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20, krwPerUsd: 1500 };
-const AGENT = { cozyclay: /^pi\//, blender: /^claude-cli\// };
+// v4 turns run Claude Code too, but carry client-app/cozyclay-v4 in the user agent
+const AGENT = { cozyclay: /^pi\/|client-app\/cozyclay-v4\//, blender: /^claude-cli\/(?!.*client-app\/cozyclay-v4)/ };
 const LOCAL = new Set(["127.0.0.1", "::1"]);
 
 function* records(dir, from, to) {
