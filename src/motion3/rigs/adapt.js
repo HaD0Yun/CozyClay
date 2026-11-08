@@ -11,7 +11,9 @@
 // with the source's axes (report.axes: canonical = axes x source) and its rest pose already normalised.
 // The floor is the source's y 0 (z 0 in a Z-up source) when the ankles stand 2 cm or more and at most 15% of the
 // height above it; otherwise the ankle is put at 0.039 of the stature, the lateral malleolus height of the published
-// segment tables (Drillis & Contini 1966, as tabulated by Winter), and report.grounded says "estimated".
+// segment tables (Drillis & Contini 1966, as tabulated by Winter), and report.grounded says "estimated". The source's
+// horizontal placement is kept: an armature at x 3 m has its hips at x 3 m in the bind (skills place the body by their
+// own `at`, so the takes do not move with it).
 import xBot from "./x-bot-tpose.json" with { type: "json" };
 import { createSkeleton } from "../compiler/skeleton.js";
 import { add, sub, scale, mul, apply, T, quatFromMat } from "../compiler/math.js";
@@ -27,7 +29,7 @@ const r6 = v => Math.round(v * 1e6) / 1e6;
 
 function check(raw) {
 	if (!raw || !Array.isArray(raw.bones) || !raw.bones.length) throw new Error("adaptRig: raw.bones must be a non-empty array of { name, parent, localPos, localQuat }");
-	if (raw.units !== undefined && raw.units !== "cm" && raw.units !== "m") throw new Error(`adaptRig: raw.units must be "cm" or "m", got ${JSON.stringify(raw.units)}`);
+	if (raw.units !== "cm" && raw.units !== "m") throw new Error(`adaptRig: raw.units must be "cm" or "m", got ${JSON.stringify(raw.units)}`);
 }
 
 /** The source's own landmarks in canonical metres (see the head of this file), or null. */

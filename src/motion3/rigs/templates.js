@@ -1,7 +1,8 @@
 // Rig templates (templates/<id>.json): a skeleton naming convention's bone names for each canonical (Mixamo) bone the
 // motion3 compiler drives. A template lists, per canonical bone, the source names to try in order ("{Side}" in a key
 // and "{s}" / "{S}" in a name are the template's side tokens; a finger lists its joints 1..3 or 1..4, each a name or a
-// list of names). Names compare without a namespace ("mixamorig:", "Armature|") and, failing an exact match, in any
+// list of names). Names compare without a namespace ("mixamorig:", "Armature|") or a bare Mixamo prefix (three.js
+// GLTFLoader drops the colon: "mixamorigHips", "mixamorig_Hips", "mixamorig1Hips") and, failing an exact match, in any
 // case without spaces, underscores, dots or dashes. A source bone answers one canonical bone at most: Spine2 picks
 // before Spine1, so a two-bone spine (VRM's spine + chest) gives the chest to Spine2 and leaves Spine1 to adapt.js.
 import mixamo from "./templates/mixamo.json" with { type: "json" };
@@ -16,7 +17,7 @@ import genesis9 from "./templates/daz-genesis9.json" with { type: "json" };
 export const TEMPLATES = Object.fromEntries([mixamo, ue5, vrm, unity, rigify, cc4, genesis8, genesis9].map(t => [t.id, t]));
 
 const SIDES = ["Left", "Right"];
-const strip = name => String(name).replace(/^.*[:|]/, "");
+const strip = name => String(name).replace(/^.*[:|]/, "").replace(/^mixamorig\d*_?/, "");
 const squash = name => strip(name).toLowerCase().replace(/[\s_.-]+/g, "");
 const fill = (pattern, tokens) => pattern.replace(/\{(\w+)\}/g, (m, k) => tokens[k] ?? m);
 
@@ -33,8 +34,9 @@ function namesOf(t) {
 	for (const S of SIDES) for (const [finger, joints] of Object.entries(t.fingers ?? {})) {
 		joints.forEach((alts, i) => put(`${S}Hand${finger}${i + 1}`, [alts].flat().map(n => fill(n, t.sides[S]))));
 	}
-	// Spine2 before Spine1 (see the head of this file); otherwise the template's own order
-	const order = [...out.keys()].sort((a, b) => (a === "Spine2" && b === "Spine1" ? -1 : a === "Spine1" && b === "Spine2" ? 1 : 0));
+	// Spine2 before Spine1 (see the head of this file): the two swap places; otherwise the template's own order
+	const order = [...out.keys()], i1 = order.indexOf("Spine1"), i2 = order.indexOf("Spine2");
+	if (i1 >= 0 && i2 > i1) [order[i1], order[i2]] = [order[i2], order[i1]];
 	const list = order.map(canon => [canon, out.get(canon)]);
 	expanded.set(t.id, list);
 	return list;
