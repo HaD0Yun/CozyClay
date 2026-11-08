@@ -1,0 +1,45 @@
+{
+	"version": 0,
+	"id": "01-muscle-up",
+	"task": 1,
+	"title": {
+		"ko": "머슬업",
+		"en": "Muscle-up"
+	},
+	"request": {
+		"ko": "철봉에 뛰어올라 매달린 다음 머슬업으로 봉 위까지 올라가줘",
+		"en": "Jump up to the pull-up bar, hang from it, then do a muscle-up until you are above the bar."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			0,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "bar",
+			"name": "Pull-up bar",
+			"shape": "cylinder",
+			"axis": "x",
+			"center": [
+				0,
+				2.3,
+				0
+			],
+			"size": [
+				1.2,
+				0.04,
+				0.04
+			],
+			"fixed": true,
+			"color": "#9e9e9e"
+		}
+	]
+}

@@ -1,0 +1,44 @@
+{
+	"version": 0,
+	"id": "07-roof-fall-back",
+	"task": 7,
+	"title": {
+		"ko": "뒷걸음 낙하",
+		"en": "Backward fall off a roof"
+	},
+	"request": {
+		"ko": "옥상에서 뒷걸음질치다가 끝을 못 보고 아래로 떨어져서 바닥에 부딪혀줘",
+		"en": "Walk backward on the roof, miss the edge, fall to the ground and hit it."
+	},
+	"fps": 24,
+	"maxSeconds": 20,
+	"character": {
+		"id": "char-a",
+		"rig": "y-bot-tpose",
+		"position": [
+			0,
+			3,
+			0
+		],
+		"facing": "+Z"
+	},
+	"objects": [
+		{
+			"id": "building",
+			"name": "Building",
+			"shape": "box",
+			"center": [
+				0,
+				1.5,
+				1.5
+			],
+			"size": [
+				6,
+				3,
+				6
+			],
+			"fixed": true,
+			"color": "#90a4ae"
+		}
+	]
+}
