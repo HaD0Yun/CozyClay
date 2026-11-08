@@ -30,11 +30,12 @@
 /* The Body group is two rows, Body and IK keys (no Pins row): range pins keep their data and commands,
    only their band is not drawn here. IK-key dots, runs and ghost markers sit on row 2. */
 .v2-sequencer .tl-track.ik:not(#_) { height: calc(var(--tl-track-row-height, 38px) * 2); min-height: calc(var(--tl-track-row-height, 38px) * 2); }
-.v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(#_) { grid-template-rows: var(--tl-ruler-height, 24px) calc(var(--tl-track-row-height, 38px) * 2) var(--tl-track-row-height, 38px) var(--tl-track-group-height, 114px); }
+.v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(.prop-subject):not(#_) { grid-template-rows: var(--tl-ruler-height, 24px) calc(var(--tl-track-row-height, 38px) * 2) var(--tl-track-row-height, 38px) var(--tl-track-group-height, 114px); }
 .v2-sequencer .tl-track.ik :is(.tl-marker.ik, .tl-ik-run):not(#_) { top: calc(var(--tl-track-row-height, 38px) + (var(--tl-track-row-height, 38px) / 2)); }
 .v2-sequencer .tl-track.ik :is(.tl-pin-band, .tl-pin-pending) { display: none; }
+/* The prop strip keeps its own three-row grid (timeline.css .prop-subject). */
 /* The glass shell hides Root path, so its surface is the ruler, the two-row Body group and Camera Cuts. */
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer:not(#_) {
 	--tl-surface-height: calc(var(--tl-ruler-height) + var(--tl-track-row-height) * 2 + var(--tl-track-group-height));
 }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(#_):not(#_) { grid-template-rows: var(--tl-ruler-height) calc(var(--tl-track-row-height) * 2) var(--tl-track-group-height); }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(.prop-subject):not(#_):not(#_) { grid-template-rows: var(--tl-ruler-height) calc(var(--tl-track-row-height) * 2) var(--tl-track-group-height); }
