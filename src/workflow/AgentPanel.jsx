@@ -637,11 +637,11 @@ export default function AgentPanel({
 		// Annotation marks (Studio): one annotated picture of the view rides after the composer's pictures, the marks in the context; a message Send took clears them (right after send's synchronous start).
 		const idle = surface === "studio" && !store.getState().streaming, annotated = idle ? captureAnnotatedImage() : null, chipImages = idle ? [...(annotated ? [{ dataUrl: annotated, name: "annotated-view.jpg" }] : []), ...markStills()] : [];
 		if (idle) queueMicrotask(() => { if (store.getState().streaming) consumeMarks(); });
-		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
 		// The marks are consumed with this message, so their pictures go first: the author's own pictures fill what is left
 		// of the message's ATTACHMENT_MAX_COUNT, and any left out are named.
 		const pending = store.getState().pendingAttachments, room = Math.max(0, ATTACHMENT_MAX_COUNT - chipImages.length);
 		if (chipImages.length && pending.length > room) setAttachNotice(`${pending.length - room} attached image${pending.length - room === 1 ? "" : "s"} left out: the marked view takes ${Math.min(chipImages.length, ATTACHMENT_MAX_COUNT)} of the ${ATTACHMENT_MAX_COUNT} images a message holds`);
+		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
 		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, ...(chipImages.length ? { attachments: [...pending.slice(0, room), ...chipImages] } : {}) });
 	}, [attachFrame, effort, model, modelProviders, store, surface, taskMode]);
 	const taskStepLabel = useCallback((call) => stepLabel(call, presentation.toolLabels), [presentation.toolLabels]);
