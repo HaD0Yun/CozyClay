@@ -25,9 +25,21 @@ function readFit(url) {
 	return JSON.parse(xhr.responseText);
 }
 
+// Fits made in memory for registered rigs (rigs/index.js registerRig): model -> make(fileFit), called on first use with
+// a reader of the shipped fits (make reads the X Bot's to refit it).
+const made = new Map();
+const fileFit = model => readFit(BODIES[model]);
+
 function fitOf(model) {
-	if (!fits.has(model)) fits.set(model, readFit(BODIES[model]));
+	if (!fits.has(model)) fits.set(model, made.has(model) ? made.get(model)(fileFit) : fileFit(model));
 	return fits.get(model);
+}
+
+/** Gives character model `model` the fit make(fileFit) returns (body.js's shape), made on first use; replaces any it had. */
+export function registerBody(model, make) {
+	made.set(model, make);
+	fits.delete(model);
+	cache.delete(model);
 }
 
 /** Fetches every rig's fit in the background, so a compile on this thread never waits on one. */
@@ -37,7 +49,7 @@ export function preloadBodies() {
 		const response = await fetch(url);
 		if (!response.ok) throw new Error(`motion body fit ${url.pathname}: HTTP ${response.status}`);
 		const fit = await response.json();
-		if (!fits.has(model)) fits.set(model, fit);
+		if (!fits.has(model) && !made.has(model)) fits.set(model, fit);
 	}));
 }
 /** Distance read outside a grid: far enough that no probe counts it as touching. */
@@ -45,6 +57,7 @@ const FAR = 0.1;
 const cache = new Map();
 
 function decode(text) {
+	if (typeof text !== "string") return text;
 	const bytes = typeof Buffer !== "undefined" ? Buffer.from(text, "base64") : Uint8Array.from(atob(text), c => c.charCodeAt(0));
 	return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
@@ -60,7 +73,7 @@ function skipOf(sk, b) {
 
 /** The fitted body of skeleton sk, or null for a rig without one. */
 export function bodyFor(sk) {
-	if (!BODIES[sk.model]) return null;
+	if (!BODIES[sk.model] && !made.has(sk.model)) return null;
 	if (cache.has(sk.model)) return cache.get(sk.model);
 	const fit = fitOf(sk.model);
 	const grids = Object.entries(fit.grids).map(([name, g]) => {
