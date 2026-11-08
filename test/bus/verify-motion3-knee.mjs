@@ -6,6 +6,9 @@
 // onto a stop at 160 deg and leaves the rest as a REACH residual (the ankle under the hip, so GROUND too), with
 // a hint to bring the root up. QA calls a knee past the stop a hard KNEE issue; the opt-in style KNEE stays.
 // Takes whose knees stay within 150 deg bake bit for bit as before.
+// #1127: KNEE (bends backward) reads the leg itself (qa/checks.js kneeBack: the hinge against the pelvis's left, the bend
+// against the knee's front), not the toe: a kneel's pointed foot is not a knee bent backward, a knee turned out to the side
+// is not either, a knee mirrored or poled backward still is, and its hint keys a pole the validator takes.
 import { takeHash as hashOf } from "../motion3/fixtures/take-hash.mjs";
 import { compileSpec } from "../motion3/fixtures/legacy-compile.mjs";
 import { generalChecks } from "../../src/motion3/qa/checks.js";
@@ -19,7 +22,7 @@ import { buildKit } from "../../src/kits/index.js";
 import { pose } from "../../src/motion3/compiler/pose.js";
 import { rotateSubtree } from "../../src/motion3/compiler/skeleton.js";
 import { KNEE_FOLD, KNEE_STOP, flexionAt, reachAt, armReach, foldPoint } from "../../src/motion3/compiler/limbs.js";
-import { add, sub, dist, angle, axisRot, cross } from "../../src/motion3/compiler/math.js";
+import { add, sub, dist, angle, axisRot, cross, norm, dot, len } from "../../src/motion3/compiler/math.js";
 import { SCENE_OBJECTS as CAR, EXITCAR_SPEC } from "../motion3/fixtures/exitcar-scene.mjs";
 import * as G from "../motion3/fixtures/ground-sessions.mjs";
 
@@ -138,6 +141,69 @@ for (const [name, sk, spec, scene, before, h0, lips0] of TAKES) {
 	if (Math.abs(most - before) > 0.005 || most > KNEE_FOLD || hash !== h0 || lips !== lips0 || !r.qa.ok || r.qa.groups.some(x => x.kind === "KNEE")) wrong.push([name, most, hash, lips, kinds(r)]);
 }
 expect("every squat, the exit-car and the walk keep their knees within 150 deg and bake bit for bit as before (filter to lips unchanged, QA clean)", wrong.length === 0, JSON.stringify(wrong));
+
+// ---- 5. KNEE bends backward: the leg itself, not the toe (#1127) --------------------------------------------
+// Bench v2 (2026-11-07): kneels with the instep on the floor read as knees bent backward in 14 runs (74 min open), the toe
+// pointing back along the shin; the hint keyed the pole along the foot ([-0.172, +0.287, -0.942], trip-run r3), which the
+// validator refuses (a knee pole under -0.7 of its length in z points backward)
+const legs = (set, frames = 24) => ({ ...spec0, frames, keys: [{ f: 0, set: { root: [0, 0.9, 0], foot_l: [0.1, 0.105, 0], foot_r: [-0.1, 0.105, 0], ...set } }] });
+const backward = r => r.qa.groups.filter(x => x.kind === "KNEE" && / knee bends backward$/.test(x.subject));
+const poleTaken = v => Array.isArray(v) && v.length === 3 && v[2] >= -0.7 * len(v);
+const KNEEL = { root: [0, 0.6, 0], pitch: 10, spine_pitch: 5, foot_l: [0.11, 0.12, -0.45], foot_r: [-0.11, 0.12, -0.45], fpitch_l: 70, fpitch_r: 70 };
+for (const sk of [yb, xb]) {
+	const name = sk === yb ? "Y Bot" : "X Bot", J = sk.index, kneel = compileSpec(legs(KNEEL), { sk, scene: { objects: {} } }), s = kneel.out.frames[12].s;
+	// what the toe test read: the toe's heading on the ground behind the knee's bend
+	const toe = sub(s.P[J.LeftToeBase], s.P[J.LeftFoot]), bendDir = sub(s.P[J.LeftLeg], [0, 1, 2].map(i => (s.P[J.LeftUpLeg][i] + s.P[J.LeftFoot][i]) / 2));
+	expect(`${name}: a kneel with the foot pointed (knees ${kneeOf(sk, s, "Left").toFixed(0)} deg, the toe back along the shin, which the toe test read as backward) has no KNEE bends backward`,
+		kneeOf(sk, s, "Left") > 80 && toe[2] < 0 && bendDir[2] * toe[2] + bendDir[0] * toe[0] < 0 && !backward(kneel).length, kinds(kneel).join(" | "));
+	// a knee mirrored through its hip-ankle line on one kneeling frame bends backward: caught, and the hint's pole is one the validator takes
+	const F5 = 12, mirrored = { ...kneel.out, frames: kneel.out.frames.map((fr, f) => {
+		if (f !== F5) return fr;
+		const st = { P: fr.s.P.slice(), R: fr.s.R.slice() }, mid = [0, 1, 2].map(i => (st.P[J.LeftUpLeg][i] + st.P[J.LeftFoot][i]) / 2);
+		st.P[J.LeftLeg] = [0, 1, 2].map(i => 2 * mid[i] - st.P[J.LeftLeg][i]);
+		return { ...fr, s: st };
+	}) };
+	const mg = backward({ qa: runMotionQa(sk, mirrored, kneel.spec, { userSpec: legs(KNEEL) }) }), pole = mg[0]?.patch?.[0]?.value?.set?.knee_l;
+	let taken = false;
+	try { taken = Boolean(mg[0]?.patch && compileSpec(applyPatch(legs(KNEEL), mg[0].patch), { sk, scene: { objects: {} } })); } catch { /* refused */ }
+	expect(`${name}: the kneel's left knee mirrored backward at f${F5} reads as bending backward there; its hint keys the kneel's own pole (forward and down), which the validator takes`,
+		mg.length === 1 && mg[0].subject === "Left knee bends backward" && mg[0].first === F5 && mg[0].last === F5 && poleTaken(pole) && pole[2] > 0.5 && pole[1] < -0.5 && taken
+		&& /^knee_l: key \[.+\] \(body frame: the knee's front/.test(mg[0].hint), JSON.stringify(mg.map(x => [x.subject, x.first, x.last, x.hint, x.patch])));
+	// a standing knee keyed to bend out and back (127 deg from forward; the validator takes the pole) is backward, and the hint's patch clears it
+	const back = compileSpec(legs({ knee_l: [0.8, 0, -0.6] }), { sk, scene: { objects: {} } }), bg = backward(back), patched = bg[0]?.patch && compileSpec(applyPatch(back.spec, bg[0].patch), { sk, scene: { objects: {} } });
+	expect(`${name}: knee_l keyed [0.8, 0, -0.6] (out and back) reads as bending backward; the hint's pole, keyed, leaves no KNEE`,
+		bg.length === 1 && bg[0].subject === "Left knee bends backward" && poleTaken(bg[0].patch?.[0]?.value) && patched && !patched.qa.groups.some(x => x.kind === "KNEE"),
+		`${kinds(back).join(" | ")} -> ${patched ? kinds(patched).join(" | ") : "no patch"}`);
+	// a knee turned out to the side (100 deg from forward; the army crawl's frog legs turn to 105) is a hip turned out, not a knee backward
+	const out = compileSpec(legs({ knee_l: [1, 0, -0.18] }), { sk, scene: { objects: {} } }), lo = out.out.frames[12].s;
+	const side = dot(norm(sub(lo.P[J.LeftLeg], [0, 1, 2].map(i => (lo.P[J.LeftUpLeg][i] + lo.P[J.LeftFoot][i]) / 2))), [1, 0, 0]);
+	expect(`${name}: knee_l keyed [1, 0, -0.18] bends the knee out to the side (its bend ${side.toFixed(2)} along +x) with no KNEE bends backward`, side > 0.9 && !backward(out).length, kinds(out).join(" | "));
+}
+// every body orientation: the left foot placed in the pelvis's own frame (down, back, forward, out), the body turned by yaw,
+// pitch and roll (lying, inverted, on its side: the tilt frame the poles turn with), the knee mirrored on one frame. Every
+// knee bent backward so is caught, and every hint pole is one the validator takes and that, keyed, leaves the knee bent the
+// right way (before, the toe test caught 70 of these 96, its hint's pole was refused on 16 and cleared 50)
+const sweep = { cases: 0, caught: 0, refused: [], left: [] }, M = 3, Rh = yb.restWorldRot[I.Hips];
+for (const yaw of [0, 200]) for (const pitch of [0, 40, 80, 100, 140, 180]) for (const roll of [0, 70]) for (const foot of [[0.1, -0.85, 0], [0.1, -0.6, -0.4], [0.1, -0.6, 0.4], [0.3, -0.6, 0]]) {
+	const at = foot_l => legs({ root: [0, 2, 0], yaw, pitch, roll, foot_l, foot_r: [-0.1, 1.2, 0] }, 6), s0 = compileSpec(at([0.1, 1.2, 0]), { sk: yb, scene: { objects: {} } }).out.frames[0].s;
+	const R = s0.R[I.Hips], local = [0, 1, 2].map(i => Rh[0][i] * foot[0] + Rh[1][i] * foot[1] + Rh[2][i] * foot[2]);
+	const spec = at([0, 1, 2].map(i => +(s0.P[I.LeftUpLeg][i] + R[i][0] * local[0] + R[i][1] * local[1] + R[i][2] * local[2]).toFixed(4)));
+	if (spec.keys[0].set.foot_l[1] < 0.05) continue;
+	const r = compileSpec(spec, { sk: yb, scene: { objects: {} } }), out = { ...r.out, frames: r.out.frames.map((fr, f) => {
+		if (f !== M) return fr;
+		const st = { P: fr.s.P.slice(), R: fr.s.R.slice() }, mid = [0, 1, 2].map(i => (st.P[I.LeftUpLeg][i] + st.P[I.LeftFoot][i]) / 2);
+		st.P[I.LeftLeg] = [0, 1, 2].map(i => 2 * mid[i] - st.P[I.LeftLeg][i]);
+		return { ...fr, s: st };
+	}) };
+	const g = runMotionQa(yb, out, r.spec, { userSpec: spec }).groups.find(x => x.subject === "Left knee bends backward"), tag = `yaw ${yaw} pitch ${pitch} roll ${roll} foot ${foot}`;
+	sweep.cases++;
+	if (!g) continue;
+	sweep.caught++;
+	try { if (backward(compileSpec(applyPatch(spec, g.patch ?? []), { sk: yb, scene: { objects: {} } })).some(x => x.subject === g.subject) || !g.patch) sweep.left.push(tag); } catch { sweep.refused.push(tag); }
+}
+console.log(`  orientation sweep: ${sweep.caught} of ${sweep.cases} mirrored knees caught; poles refused ${sweep.refused.length}, still backward after the pole ${sweep.left.length}`);
+expect("in every body orientation a mirrored knee reads as backward (but where the leg is near straight), and the hint's pole is taken by the validator and clears it",
+	sweep.cases >= 90 && sweep.caught >= 0.9 * sweep.cases && !sweep.refused.length && !sweep.left.length, JSON.stringify(sweep));
 
 if (failures) { console.error(`${failures} motion3 knee check(s) failed`); process.exit(1); }
 console.log("motion3 knee fold limit: all checks passed");

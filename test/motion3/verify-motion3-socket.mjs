@@ -54,8 +54,8 @@ check("the other hand on the bar the right hand carries takes the same grasp", (
 		assert.ok(h.knuckle < 10, `f${f} ${JSON.stringify(h)}`);
 	}
 });
-// the same kinds on both sides: the grasp-quality kinds (FINGER_PEN, FINGER_GAP, SUPPORT, #816; PALM_GAP, a power grip's palm
-// centre off its bar, #1113) judge only a hand that takes a grasp
+// the same kinds on both sides: the grasp-quality kinds (FINGER_PEN, FINGER_GAP, SUPPORT, #816) judge only a hand that takes a
+// grasp, and PALM_GAP (a hand's palm centre off its bar, #1113) judges the two sides differently (a plain fit on its palm, #1127)
 const sameKinds = r => r.qa.groups.filter(g => !/^(FINGER_PEN|FINGER_GAP|SUPPORT|PALM_GAP)$/.test(g.kind)).length;
 check("the grasp leaves the take no worse: fewer QA problems than the same spec without it", () => assert.ok(sameKinds(after) <= sameKinds(before), `${sameKinds(before)} -> ${sameKinds(after)}`));
 
