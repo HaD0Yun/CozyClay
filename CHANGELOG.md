@@ -2,6 +2,85 @@
 
 ## Unreleased
 
+## 3.2.2 - 2026-11-07
+
+A patch for the motion compiler and the agent: faster compiles, holds and automatic legs, arms, gaze and tempo, steadier agent turns, and depth exports that read right.
+
+Export
+
+- A depth video whose frames show no empty background (a backdrop that fills
+  the frame, a closed corridor) keeps a readable range instead of going all
+  black. (#1090)
+- Rigged characters render in their current pose in depth frames and
+  `blocking-depth.mp4`, not in the T-pose. (#1094)
+- `export.shotVideo` takes `passKind: "depth"` and `depthCurve: "inverse"` for
+  an inverse-distance depth curve that keeps close-up relief. (#1096)
+
+Camera
+
+- A rail camera aimed at a rising or falling object follows its height each
+  frame instead of one shot-average height. (#1095)
+- Agents can hold camera framing. (#1027)
+
+Motion
+
+- Compiles run about 1.5x faster: `pose()`'s bone edits run in WebAssembly,
+  with takes the same bit for bit. (#1088)
+- Holds, and automatic tempo, knee poles, foot heading, free-arm swing and
+  gaze (`set.look`) where the keys leave them out. (#1080, #1081, #1082)
+- Two-hand carries hold a box from below at its sides; letting go and
+  throwing no longer jump.
+- Repair and retime run by default, with QA-guarded key thinning. (#1006)
+- MotionBricks transition fills (opt-in), a native mode and the Smart
+  Primitive runner, with named poses and fills that hold up in scenes with
+  objects. (#1008, #1017, #1023)
+- A grasp out of reach says so, instead of blaming the grip. (#1066)
+
+Agent
+
+- Provider failures retry gateway 5xx and honour Retry-After; usage limits
+  read as quota; sign-in waits say why they stopped. (#1043, #1044)
+- Refusals name the failing field. (#1042)
+- Tasks: a main turn that makes no progress ends, the watchdog waits on
+  running tools and names a model that did not answer, finished tasks undo
+  after a scene round trip, and paused tasks resume instead of refusing.
+  (#1002, #1004, #1010, #1051, #1056, #1058)
+- Every edited turn is checked, with pictures and relations given to the
+  model, and the panel shows the review and the context used. (#1000, #1030)
+- A handled prop is staged within reach. (#1066)
+- Camera, blocking and review previs workflow. (#1014)
+
+Studio
+
+- Contact sheets show a character behind scene bodies. (#1024)
+- An empty cast is allowed; cancelling the file picker no longer counts as a
+  refusal. (#1041)
+- Pose mode picks the one rigged character; the first-success guide starts
+  with Add a character. (#1047, #1048)
+- Fixed a playback update-depth loop (React #185) and crashes under page
+  translation. (#1045, #1046)
+- A slab resting on the deck no longer z-fights with it. (#1075)
+
+CLI
+
+- `cclay live save --out file.cclayproject [--force]` saves the open project
+  from the terminal. (#1072)
+- `cclay live capture --frames A-B --out-dir DIR` renders a run of frames in
+  one session. (#1074)
+- `live run`, `cmd` and `tool` take `--args-file <path>` or `--args -`
+  (stdin), so large payloads such as GLB data URLs fit. (#1092)
+- `asset.import` decodes meshopt and Draco compressed GLB. (#1092)
+- `inspect` pages entities with `--limit` and `--cursor`; live captures from
+  a hidden Studio tab are refused. (#1070, #1071)
+- `shot.set` camera keys document `framing.yaw` and `pitch` as radians.
+  (#1093)
+
+Other
+
+- three.js 0.187; MCP SDK 1.32.2.
+- Landing page: the shot and the way in on the first screen, a sharper hero
+  take, and a daily GitHub star count.
+
 ## 3.2.1 - 2026-10-28
 
 A patch that makes the numbers readable: hosted builds report their version, and the export funnel and agent failures can be split by cause; plus a script-driven tutorial recorder.

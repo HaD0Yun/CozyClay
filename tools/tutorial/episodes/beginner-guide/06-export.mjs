@@ -50,7 +50,7 @@ export default {
 			id: "closing",
 			card: {
 				title: t("끝", "That's the loop"),
-				subtitle: t("배치 → 모션 → 카메라 → 내보내기 · 문서: github.com/NomaDamas/CozyClay", "Stage → Motion → Camera → Export · Docs: github.com/NomaDamas/CozyClay"),
+				subtitle: t("배치 → 모션 → 카메라 → 내보내기 · 문서: github.com/HaD0Yun/CozyClay", "Stage → Motion → Camera → Export · Docs: github.com/HaD0Yun/CozyClay"),
 				chapters: true,
 			},
 			hold: 4000,

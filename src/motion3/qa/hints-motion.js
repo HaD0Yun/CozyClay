@@ -2,8 +2,10 @@
 // floating, opted-in speed and acceleration) and for the spec's own checks (contacts, orient,
 // below, appear). Orient and below try small changes of the wrist or elbow channels on the worst
 // frame and scale the best one to the needed amount.
-import { add, sub, scale, norm, len, dist, angle, apply, ry, clamp, dot } from "../compiler/math.js";
+import { add, sub, scale, norm, len, dist, angle, apply, ry, clamp, dot, T } from "../compiler/math.js";
 import { solveFrame } from "../compiler/compile.js";
+import { tiltFrame } from "../compiler/pose.js";
+import { kneeFront } from "./checks.js";
 import { channelsAt } from "../compiler/channels.js";
 import { resolveAnchor } from "../compiler/anchors.js";
 import { carried, reachAt, ELBOW_FOLD, ELBOW_STOP, KNEE_FOLD } from "../compiler/limbs.js";
@@ -93,6 +95,27 @@ function arcOps(X, userSpec, arc) {
 
 const hipOrShoulder = (X, k, f, limb) => X.fr(f).s.P[X.I[`${k === "l" ? "Left" : "Right"}${LIMB[limb][0]}`]];
 
+/** The validator refuses a knee pole whose z is under -0.7 of its length (compiler/validate.js); a hint's pole stays above this. */
+const POLE_BACK = -0.5;
+/**
+ * The knee pole (body frame, unit) that bends leg S toward its front at frame f: the knee's front on the hip-ankle line
+ * (checks.js kneeFront) in the frame pose.js reads the poles in (the root's yaw, or its tilt once the body turns well past
+ * upright). The IK reads a pole only across the hip-ankle line, so moving it along that line keeps the bend: a front that
+ * faces back in the body frame (the hip folded far up) moves along it until the validator takes it. Null when none does.
+ * Before, the pole followed the toe, and a kneel's pointed foot gave a backward pole the validator refused (bench v2).
+ */
+function kneePole(X, S, f) {
+	const { s, c } = X.fr(f), u = norm(sub(s.P[X.I[`${S}Foot`]], s.P[X.I[`${S}UpLeg`]])), front = kneeFront(X.sk, s, S, u);
+	if (!front) return null;
+	const body = T(tiltFrame(c.yaw ?? 0, c.pitch ?? 0, c.roll ?? 0)?.R ?? ry(c.yaw ?? 0)), p = apply(body, front), along = apply(body, u);
+	const up = Math.sign(along[2]) || 1;
+	for (const t of [0, 0.5, 1, 2, 4]) {
+		const q = add(p, scale(along, t * up));
+		if (q[2] >= POLE_BACK * len(q)) return norm(q);
+	}
+	return null;
+}
+
 export const motionHints = {
 	REACH(X, g) {
 		const [, limb, k] = /^(leg|arm)_miss_([lr])$/.exec(g.subject) ?? [], f = g.worstFrame, need = g.worst + 0.002;
@@ -125,11 +148,11 @@ export const motionHints = {
 		return { cause: r.cause, hint: `${r.hint} (out of reach by ${m3(g.worst)} m), or bring root ${vec(scale([dir[0], 0, dir[2]], need))} m closer`, fix: r.fix };
 	},
 	KNEE(X, g) {
-		const k = sideOf(g.subject), S = k === "l" ? "Left" : "Right", f = g.worstFrame, { s, c } = X.fr(f), P = s.P, I = X.I;
+		const k = sideOf(g.subject), S = k === "l" ? "Left" : "Right", f = g.worstFrame, P = X.fr(f).s.P, I = X.I;
 		if (/backward/.test(g.subject)) {
-			const toe = sub(P[I[`${S}ToeBase`]], P[I[`${S}Foot`]]); toe[1] = 0;
-			const pole = add(norm(apply(ry(-(c.yaw ?? 0)), toe)), [0, 0.3, 0]);
-			return { cause: X.cause(`knee_${k}`, f), hint: `knee_${k}: key ${vec(norm(pole))} (body frame, along the foot) at f${f}; a knee pole is +z forward, +x the character's left`, fix: { channel: `knee_${k}`, f, value: norm(pole) } };
+			const pole = kneePole(X, S, f), conv = "a knee pole is +z forward, +x the character's left";
+			if (!pole) return { cause: X.cause(`knee_${k}`, f), hint: `knee_${k}: the knee bends away from its front at f${f}; key a pole toward the front of the knee there (${conv})` };
+			return { cause: X.cause(`knee_${k}`, f), hint: `knee_${k}: key ${vec(pole)} (body frame: the knee's front, the hips' forward down the leg) at f${f}; ${conv}`, fix: { channel: `knee_${k}`, f, value: pole } };
 		}
 		// past the stop (the solver stops every knee at KNEE_STOP, so this pose came from outside it): the hips up off the foot
 		if (/ folds /.test(g.subject)) return kneeFoldHint(X, k, f, ` (the knee folds ${m3(g.worst)}deg, past its ${g.limit}deg stop; it bends freely to ${KNEE_FOLD}deg)`, P[I[`${S}Foot`]]);
