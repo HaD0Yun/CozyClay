@@ -31,7 +31,9 @@ export function createSkeleton(rigJson) {
 		headCentre: toHead(L.headEllipsoid.centre),
 		headRadii: L.headEllipsoid.radii.map(v => v * CM),
 		// how far the skin's sole lies below the ToeBase / Toe_End joints at bind (m; qa/geometry.js solePoints)
-		sole: { ball: (L.sole?.ball ?? 0) * CM, tip: (L.sole?.tip ?? 0) * CM },
+		sole: { ball: (L.sole?.ball ?? 0) * CM, tip: (L.sole?.tip ?? 0) * CM, ...(L.sole?.heel ? { heel: L.sole.heel.map(v => v * CM) } : {}) },
+		// an adapted rig's proportions to the X Bot (rigs/adapt-measure.js): { foot, hand, arm, hips }; absent on the X/Y Bot
+		...(L.scale ? { scale: { ...L.scale } } : {}),
 	};
 	return { model: rigJson.model, names, index, parent, children, subtree, restLocalPos, restLocalRot, restWorldPos, restWorldRot, landmarks };
 }

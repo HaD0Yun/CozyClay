@@ -78,12 +78,13 @@ const below = (sk, s, b, drop) => (drop ? bonePoint(s, b, apply(T(sk.restWorldRo
  * Sole points carried by a foot, on the skin's sole (the surface verify_result's floor measure
  * reads): heel 4.5 cm behind and 0.5 cm above the bottom of the ankle at bind; ball under the
  * ToeBase joint at the toe pad; tip at the front edge. The rig's sole landmark says how far the
- * skin lies below the joints (X Bot: on the ball joint; Y Bot: 3.3 cm under it).
+ * skin lies below the joints (X Bot: on the ball joint; Y Bot: 3.3 cm under it); its heel [back, up] moves the heel
+ * point (an adapted rig's, scaled by its foot: rigs/adapt-measure.js).
  */
 export function solePoints(sk, s, side) {
 	const I = sk.index, P = sk.restWorldPos, drop = sk.landmarks.sole ?? {};
 	const foot = I[`${side}Foot`], toe = I[`${side}ToeBase`], toeEnd = I[`${side}Toe_End`] ?? toe;
-	const heelRest = [P[foot][0], 0.005, P[foot][2] - 0.045];
+	const [back, up] = drop.heel ?? [0.045, 0.005], heelRest = [P[foot][0], up, P[foot][2] - back];
 	const heelLocal = apply(T(sk.restWorldRot[foot]), sub(heelRest, P[foot]));
 	return { heel: bonePoint(s, foot, heelLocal), ball: below(sk, s, toe, drop.ball), tip: below(sk, s, toeEnd, drop.tip) };
 }

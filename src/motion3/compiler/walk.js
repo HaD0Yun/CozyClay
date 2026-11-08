@@ -75,7 +75,8 @@ export function walk(gen, keys, sk, tag = "walk") {
 	// Pelvis heights from the leg length: straight-ish over the stance foot, low enough at
 	// double support that the trailing leg still reaches (2% knee slack).
 	const leg = len(sub(P[I.LeftLeg], P[I.LeftUpLeg])) + len(sub(P[I.LeftFoot], P[I.LeftLeg]));
-	const hipDrop = P[I.Hips][1] - P[I.LeftUpLeg][1], step0 = gen.step ?? 0.5, hw = gen.halfWidth ?? 0.08;
+	// the default half-width is the X Bot's: an adapted rig's follows its hip width (rigs/adapt-measure.js)
+	const hipDrop = P[I.Hips][1] - P[I.LeftUpLeg][1], step0 = gen.step ?? 0.5, hw = gen.halfWidth ?? 0.08 * (sk.landmarks?.scale?.hips ?? 1);
 	const hipsAt = horiz => Math.sqrt(Math.max(0, (0.98 * leg) ** 2 - horiz ** 2)) + ank + hipDrop - standY;
 	const W = { steps: 8, step: step0, period: 20, swing: 14, halfWidth: hw, lift: 0.08, turnDistance: 0.4, firstStep: 0.4,
 		pelvisHigh: Math.min(-0.005, hipsAt(Math.hypot(0.03, hw - 0.035))), pelvisLow: hipsAt(Math.hypot(step0 / 2, hw)), vary: 1, ...gen };

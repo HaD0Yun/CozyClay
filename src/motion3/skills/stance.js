@@ -23,7 +23,7 @@ const DIRS = [[0, -1], [1, 0], [-1, 0], [Math.SQRT1_2, -Math.SQRT1_2], [-Math.SQ
 function bodyPoints(sk, c, h) {
 	const I = sk.index, P = sk.restWorldPos, hip = P[I.Hips], R = ry(h), at = p => add([c[0], 0, c[1]], apply(R, [p[0] - hip[0], p[1], p[2] - hip[2]]));
 	const seg = (A, B, r) => [0, 0.25, 0.5, 0.75, 1].map(t => [add(A, sub(B, A).map(v => v * t)), r]);
-	const arms = ["Left", "Right"].flatMap(S => { const sh = P[I[`${S}Arm`]], side = Math.sign(sh[0] - hip[0]) * 0.04; return seg(at(sh), at([sh[0] + side, sh[1] - HANG, sh[2]]), 0.045); });
+	const arms = ["Left", "Right"].flatMap(S => { const sh = P[I[`${S}Arm`]], side = Math.sign(sh[0] - hip[0]) * 0.04; return seg(at(sh), at([sh[0] + side, sh[1] - HANG * (sk.landmarks?.scale?.arm ?? 1), sh[2]]), 0.045); });
 	return PARTS.filter(([a, b]) => I[a] !== undefined && I[b] !== undefined).flatMap(([a, b, r]) => seg(at(P[I[a]]), at(P[I[b]]), r)).concat(arms);
 }
 

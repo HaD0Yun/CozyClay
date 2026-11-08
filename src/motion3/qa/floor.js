@@ -18,15 +18,17 @@ import { regionOf } from "./body-checks.js";
 import { CAPSULES, fingerCapsules, segPoints } from "./geometry.js";
 
 const SPACING = 0.01, COARSE = 0.03, FEET = /(Foot|Toe)/;
-const skins = new Map();
+// per skeleton (a rig registered again under its id is a new skeleton: rigs/index.js registerRig), then per spacing
+const skins = new WeakMap();
 
 /**
  * Skin points of every fitted bone but the feet, one per `spacing` cube, in the bones' bind frames: [[bone, local point,
  * part], ...]; null without a fitted body.
  */
 function bodySkin(sk, spacing = SPACING) {
-	const key = `${sk.model} ${spacing}`;
-	if (skins.has(key)) return skins.get(key);
+	if (!skins.has(sk)) skins.set(sk, new Map());
+	const mine = skins.get(sk);
+	if (mine.has(spacing)) return mine.get(spacing);
 	const body = bodyFor(sk), out = body ? [] : null;
 	for (const g of body?.grids ?? []) {
 		if (FEET.test(sk.names[g.b])) continue;
@@ -40,7 +42,7 @@ function bodySkin(sk, spacing = SPACING) {
 			if (!seen.has(cell)) { seen.add(cell); out.push([g.b, q, part]); }
 		}
 	}
-	skins.set(key, out);
+	mine.set(spacing, out);
 	return out;
 }
 
