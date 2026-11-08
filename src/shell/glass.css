@@ -12,12 +12,28 @@
 		--surface-panel: transparent;
 		--outliner-header-height: var(--float-head, 48px);
 		--details-head-height: var(--float-head, 48px);
-		border-radius: var(--float-radius, 20px);
+		border-radius: var(--float-radius, 10px);
 		background: var(--glass-panel);
 		-webkit-backdrop-filter: var(--glass-blur);
 		backdrop-filter: var(--glass-blur);
 		box-shadow: var(--panel-shadow);
 	}
+	/* A folded Outliner has no surface: only its toggle shows, as a glass pill. */
+	.app[data-shell="glass"][data-left-collapsed]:not([data-embed-mode]) .studio-left-column {
+		background: none;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		box-shadow: none;
+	}
+	.app[data-shell="glass"][data-left-collapsed]:not([data-embed-mode]) .shell-left-toggle {
+		border-radius: 0 8px 8px 0;
+		background: var(--glass-capsule);
+		-webkit-backdrop-filter: var(--capsule-blur);
+		backdrop-filter: var(--capsule-blur);
+		box-shadow: var(--capsule-shadow);
+		color: var(--text-1, #1d1d1f);
+	}
+	.app[data-shell="glass"][data-left-collapsed]:not([data-embed-mode]) .shell-left-toggle svg { width: 10px; height: 10px; }
 	/* The right column holds two floating cards — Details and the Agent — so
 	   the column itself has no surface. */
 	.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column {
@@ -31,7 +47,7 @@
 	.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .inspector-pane,
 	.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .studio-agent-bar,
 	.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .studio-agent-inspector {
-		border-radius: var(--float-radius, 20px);
+		border-radius: var(--float-radius, 10px);
 		background: var(--glass-text-panel);
 		-webkit-backdrop-filter: var(--glass-blur);
 		backdrop-filter: var(--glass-blur);
@@ -205,24 +221,29 @@
 		pointer-events: none;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar > * { pointer-events: auto; }
+	/* File/Edit/Window/Help sit at the right end of the row, just left of the
+	   tool rail (30px wide, 8px inside the stage's right edge), so the row reads
+	   toggle, modes, menus, rail. */
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar { padding-right: calc(8px + 30px + 6px); }
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar { order: 2; }
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar,
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp,
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate {
 		box-sizing: border-box;
-		height: 40px;
-		padding: 0 4px;
-		border-radius: var(--capsule-radius, 20px);
+		height: var(--shell-bar-h, 32px);
+		padding: 0 3px;
+		border-radius: var(--capsule-radius, 16px);
 		background: var(--glass-capsule);
 		-webkit-backdrop-filter: var(--capsule-blur);
 		backdrop-filter: var(--capsule-blur);
 		box-shadow: var(--capsule-shadow);
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar-trigger {
-		height: 32px;
-		padding: 0 11px;
-		border-radius: 16px;
+		height: 26px;
+		padding: 0 9px;
+		border-radius: 13px;
 		color: var(--text-1);
-		font-size: 13px;
+		font-size: 12px;
 	}
 	/* MCP and Generate share one capsule: an icon button, a hairline, then
 	   the split button. */
@@ -351,15 +372,15 @@
 		pointer-events: auto;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-mode-toolbar {
-		top: var(--shell-gap);
+		top: var(--shell-row-top, 14px);
 		left: 50%;
 		display: flex;
 		align-items: center;
-		height: 40px;
+		height: var(--shell-bar-h, 32px);
 		margin: 0;
-		padding: 0 5px;
+		padding: 0 3px;
 		border: 0;
-		border-radius: 20px;
+		border-radius: 16px;
 		transform: translateX(-50%);
 	}
 	/* A quiet segmented switch: words only (the icons return when the names
@@ -371,10 +392,10 @@
 		align-items: center;
 		gap: 6px;
 		width: auto;
-		height: 30px;
-		padding: 0 14px;
+		height: 26px;
+		padding: 0 10px;
 		border: 0;
-		border-radius: 15px;
+		border-radius: 13px;
 		background: transparent;
 		color: var(--text-2);
 		font: 500 12px var(--sans);
@@ -394,7 +415,7 @@
 
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-left,
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-right {
-		top: calc(var(--shell-gap) * 2 + 40px + 12px);
+		top: calc(var(--shell-gap) * 2 + var(--shell-bar-h, 32px) + 10px);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -539,12 +560,97 @@
 		color: var(--label);
 		font: 500 9.5px var(--sans);
 	}
+	/* One compact rail on the right edge of the stage: the object tools (Add,
+	   W/E/R, snap) sit above the view tools (view cube, orbit, eye, speed) in a
+	   single capsule. The two groups keep their classes and markup; inside the
+	   rail they lose their own capsule and stack. */
+	/* Rail glyphs sit small inside their 24px cells. */
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-icon { width: 13px; height: 13px; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-snap-value .vp-icon { width: 12px; height: 12px; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail {
+		position: absolute;
+		top: var(--shell-row-top, 14px);
+		right: 8px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		width: 30px;
+		padding: 2px 0;
+		border-radius: 15px;
+		background: var(--glass-capsule);
+		-webkit-backdrop-filter: var(--capsule-blur);
+		backdrop-filter: var(--capsule-blur);
+		box-shadow: var(--capsule-shadow);
+		pointer-events: auto;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail > .vp-overlay-left,
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail > .vp-overlay-right {
+		position: static;
+		width: 100%;
+		padding: 0;
+		border-radius: 0;
+		background: none;
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+		box-shadow: none;
+		gap: 1px;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail > .vp-overlay-right {
+		margin-top: 3px;
+		padding-top: 3px;
+		border-top: 1px solid var(--row-divider, rgba(127, 127, 127, .2));
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail :is(.vp-pill:not(.vp-view-pill), .vp-tool-key, .vp-value, .vp-pill-segment) {
+		width: 24px;
+		min-width: 24px;
+		height: 24px;
+		min-height: 24px;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-toolbar-divider { width: 14px; margin: 2px 0; }
+	/* Compact: every cell is a 28px icon. Snap keeps its grid icon (the 5cm ·
+	   5° step stays in its title); speed keeps only its value; the eye menu
+	   drops the 36px pill it has elsewhere. */
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-overlay-right .view-menu-wrap > button,
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-overlay-right .vp-view-pill .vp-pill-segment {
+		width: 24px;
+		min-width: 24px;
+		height: 24px;
+		min-height: 24px;
+		padding: 0;
+	}
+	/* Flex, not grid: the hidden "5cm" text node made a second grid row and
+	   pushed the glyph up. A flex row centres the one visible glyph. */
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-snap-value {
+		display: flex;
+		flex-direction: row;
+		gap: 0;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		border-radius: 50%;
+		font-size: 0;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-snap-value .vp-value-part { display: contents; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-snap-value .vp-value-part + .vp-value-part { display: none; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-speed {
+		display: grid;
+		place-items: center;
+		width: 24px;
+		min-width: 24px;
+		height: 18px;
+		min-height: 18px;
+		padding: 0;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-speed .vp-icon { display: none; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-speed-value { font-size: 9.5px; line-height: 1; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-label,
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-tool-letter { display: none; }
 	/* Menus open beside their rail instead of under it. */
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-left .vp-menu,
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-left .vp-menu.add-object-menu {
 		top: -4px;
-		left: calc(100% + 10px);
-		right: auto;
+		left: auto;
+		right: calc(100% + 10px);
 		transform: none;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-right .vp-menu {
@@ -589,7 +695,7 @@
 
 	/* The Top-View inset keeps to the open stage under the overlay row. */
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-inset {
-		top: calc(var(--shell-gap) * 2 + 40px + 12px);
+		top: calc(var(--shell-gap) * 2 + var(--shell-bar-h, 32px) + 10px);
 		left: calc(var(--shell-center-left) + 56px);
 		/* Above the shell frame (shell.css, z 6): a board dragged into a gutter
 		   must stay visible, not become an invisible drag target under it. */
@@ -674,7 +780,7 @@
 		}
 	}
 	@media (max-width: 1280px) {
-		.app[data-shell="glass"]:not([data-embed-mode]) .vp-mode-toolbar { top: calc(var(--shell-gap) * 2 + 40px); }
+		.app[data-shell="glass"]:not([data-embed-mode]) .vp-mode-toolbar { top: calc(var(--shell-row-top, 14px) + var(--shell-bar-h, 32px) + var(--shell-gap)); }
 		.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate-full { display: none; }
 		.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate-short { display: inline; }
 		.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar-trigger { padding: 0 8px; }

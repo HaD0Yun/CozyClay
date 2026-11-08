@@ -601,11 +601,11 @@ async function idbGet(key) {
 	}
 }
 
-/** Record a project open/save in the recents list (most recent first). */
-export async function rememberRecentProject(handle, name) {
+/** Record a project open/save in the recents list (most recent first), with its projectSummary when known. */
+export async function rememberRecentProject(handle, name, summary = null) {
 	const list = (await idbGet(RECENTS_KEY)) ?? [];
 	const next = [
-		{ handle, name, openedAt: Date.now() },
+		{ handle, name, openedAt: Date.now(), ...summary },
 		...list.filter((entry) => entry.name !== name),
 	].slice(0, RECENTS_MAX);
 	await idbSet(RECENTS_KEY, next);

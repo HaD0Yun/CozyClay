@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { Line, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { aimAt } from "./controls.jsx";
-import { PLAN_LAYER } from "./dualview.jsx";
+import { PLAN_LAYER } from "./dualview.jsx"; import { createFloorRaycastTools, floorPointAt } from "./floor-raycast.js";
 import { EMPTY_MARKER_SIZE, isEmptyObject, objectSize } from "./scene-objects.js";
 import { displayObjectLabel } from "./object-catalog.jsx";
 import { ko } from "./locale.js";
@@ -519,15 +519,7 @@ export function PlanBoard({ hostRef, planCamRef, shotCamRef, look, fovDeg, chara
 	const dragRef = useRef(null);
 	// Numbered waypoints are direct-manipulation handles. Empty floor presses
 	// intentionally do nothing; root keyframes are authored in the timeline.
-	const tools = useMemo(
-		() => ({
-			raycaster: new THREE.Raycaster(),
-			plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
-			pointer: new THREE.Vector2(),
-			hit: new THREE.Vector3(),
-		}),
-		[],
-	);
+	const tools = useMemo(() => createFloorRaycastTools(), []);
 
 	// The overlay belongs to the plan camera alone. Without this the pucks would
 	// be drawn flat across the floor of the shot — and into exported frames.
@@ -599,18 +591,7 @@ export function PlanBoard({ hostRef, planCamRef, shotCamRef, look, fovDeg, chara
 		const snap = (v, limit) => THREE.MathUtils.clamp(Math.round(v / 0.05) * 0.05, -limit, limit);
 
 		/** pointer -> a point on the floor, seen through the plan camera */
-		const toFloor = (event) => {
-			const cam = planCamRef.current;
-			if (!cam) return null;
-			const r = host.getBoundingClientRect();
-			if (r.width < 2 || r.height < 2) return null;
-			tools.pointer.set(
-				((event.clientX - r.left) / r.width) * 2 - 1,
-				-((event.clientY - r.top) / r.height) * 2 + 1,
-			);
-			tools.raycaster.setFromCamera(tools.pointer, cam);
-			return tools.raycaster.ray.intersectPlane(tools.plane, tools.hit) ? tools.hit : null;
-		};
+		const toFloor = (event) => floorPointAt(event, host, planCamRef.current, tools);
 
 		// A generous nearest-point hit target makes the numbered roots draggable
 		// directly, without requiring a prior timeline selection/focus step.

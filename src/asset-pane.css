@@ -494,3 +494,21 @@
 		color: var(--danger, #e5484d);
 	}
 }
+/* "All" view (asset-all-grid.jsx): one scroll, a small heading per folder,
+   folders without tiles drop out, and the search note shows only when no
+   section has a match. */
+.content-browser .content-all { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 20px; }
+.content-browser .content-all .content-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.content-browser .content-all .content-tile { width: 56px; gap: 3px; }
+/* :not(#_) twice: the glass shell's tile and type-scale rules are id-boosted. */
+.content-browser .content-all .content-tile-thumb:not(#_):not(#_) { width: 56px; height: 44px; border-radius: 8px; }
+.content-browser .content-all .content-tile-thumb svg:not(#_):not(#_) { width: 18px; height: 18px; }
+.content-browser .content-all .content-tile-name:not(#_):not(#_) { font-size: var(--type-meta, 10px); }
+.content-browser .content-all-head { margin: 0 0 6px; color: var(--text-3, #8e8e96); font: 600 10px var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.content-browser .content-all-section:not(:has(.content-tile)) { display: none; }
+.content-browser .content-all:has(.content-tile) > .content-all-none,
+.content-browser .content-all-section .search-empty,
+.content-browser .content-all-section .content-empty { display: none; }
+.content-browser .content-storage-toggle { order: 2; margin-left: 6px; height: 24px; padding: 0 10px; border: 0; border-radius: 12px; background: none; color: var(--text-2, #a1a1aa); font: 500 11px var(--sans); cursor: pointer; }
+.content-browser .content-storage-toggle:hover, .content-browser .content-storage-toggle[aria-pressed="true"] { background: var(--chip-fill, rgba(255, 255, 255, .08)); color: var(--text-1, #e4e4e7); }
+.content-browser .content-head > .content-search { order: 1; margin-left: auto; }

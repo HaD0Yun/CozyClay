@@ -239,7 +239,7 @@ const contextSchema = object({
 	shots: array(shotSummary, 8), shotsTruncated: bool, assets: array(assetSummary, STUDIO_CONTEXT_LIMITS.assets),
 	recentReceipts: array(object({ id, summary: name, canUndoDirect: bool }), 3), jobs: array(jobSummary, 8),
 	capabilities: object({ profile: literal("studio-slice-1"), tools: array(choices(STUDIO_TOOLS), STUDIO_TOOLS.length, 0, true) }, { rigReady: bool, cameraReady: bool, bridgeReady: bool, storyboard: bool }),
-}, { entityIndex: array(indexRow, STUDIO_CONTEXT_LIMITS.entityIndex), actionIndex: array(actionIndexRow, 512) });
+}, { entityIndex: array(indexRow, STUDIO_CONTEXT_LIMITS.entityIndex), actionIndex: array(actionIndexRow, 512), marks: array(openObject, 12) }); // marks: the author's annotation marks (context-chips.js)
 const guardSchema = object({ ...identityFields, targetId: id, token: id });
 const efforts = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 // Pictures the author pasted or dropped into the composer (#367). Inline bytes

@@ -40,7 +40,11 @@ const semantic = [
 	mutation('cast.showExtras', 'Show extra subjects', input({ show: { type: 'boolean' } }), 'ui-only'),
 	mutation('cast.setLayer', 'Set character layer', input({ characterId: id, layer: record }), 'ui-only'),
 ];
-export const declarations = Object.freeze([...semantic, ...["character.addWaypoint", "character.moveWaypoint", "character.removeWaypoint", "character.clearWaypoints"].map(studioActionDeclaration)]);
+// "Apply as walk" on a route sketch chip (workflow/ContextChips.jsx): the character's whole root path in one
+// undo entry, written through the waypoint actions below (each pin is a nested character.addWaypoint).
+const walkPin = input({ frame: { type: 'integer', minimum: 1 }, x: { type: 'number' }, z: { type: 'number' } });
+const applyWalk = mutation('character.applyWalk', 'Apply route as walk', input({ characterId: id, pins: { type: 'array', items: walkPin, minItems: 1, maxItems: 32 } }), 'ui-only');
+export const declarations = Object.freeze([...semantic, ...["character.addWaypoint", "character.moveWaypoint", "character.removeWaypoint", "character.clearWaypoints"].map(studioActionDeclaration), applyWalk]);
 
 export function register(registry, ports) {
 	const owner = () => ports.storeDomain('cast');
@@ -147,4 +151,9 @@ export function register(registry, ports) {
 		const count = ports.clearCharacterWaypoints(characterId);
 		return count ? `Cleared ${name}'s root path (${count} waypoint${count === 1 ? "" : "s"}).` : `${name} has no root waypoints; nothing changed.`;
 	});
+	registry.register({ ...applyWalk, available: mounted, run({ characterId, pins }, context) {
+		context.run("character.clearWaypoints", { characterId });
+		for (const pin of pins) context.run("character.addWaypoint", { characterId, position: { x: pin.x, z: pin.z }, frame: pin.frame });
+		return { affectedIds: [characterId], summary: `Walked the sketched route: ${pins.length} root waypoint${pins.length === 1 ? "" : "s"} to frame ${pins.at(-1).frame}.` };
+	} });
 }

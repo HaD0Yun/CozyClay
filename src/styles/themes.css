@@ -7,8 +7,8 @@
 @layer shell {
 	:root[data-theme] {
 		/* Floating-panel geometry shared by both themes. */
-		--float-gap: 6px;
-		--float-radius: 20px;
+		--float-gap: 3px;
+		--float-radius: 10px;
 		--capsule-radius: 20px;
 		--float-head: 48px;
 		--sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "IBM Plex Sans", "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -25,30 +25,35 @@
 		--popover-shadow: 0 8px 24px rgba(0,0,0,.45);
 	}
 
-	/* Dark: the v2 surfaces with a deep clay-orange accent and shaded panels. */
+	/* Dark: deep shaded panels finished with a near-black edge. Clay orange
+	   is kept for selection itself (gizmos, focus, the playhead); inside the
+	   panels the active states are neutral light on dark. */
 	:root[data-theme="dark"] {
 		color-scheme: dark;
 		--select: #b8541d;
-		--select-tint: rgba(184,84,29,.18);
-		--select-text: #e08a55;
+		--select-tint: rgba(255,255,255,.08);
+		--select-text: #ececef;
 		--on-select: #fff;
-		--primary: #b8541d;
-		--primary-fill: linear-gradient(180deg, #c8622a, #a84a17);
+		--primary: #3a3a40;
+		--primary-fill: linear-gradient(180deg, #45454c, #333338);
 		--project-swatch: #b8541d;
 
-		--glass-panel: radial-gradient(140% 55% at 50% 0%, rgba(184,84,29,.07), rgba(184,84,29,0) 70%),
-			linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.018) 25%, rgba(255,255,255,0) 45%, rgba(0,0,0,.12) 70%, rgba(0,0,0,.38)),
-			#151517;
+		--glass-panel: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.012) 22%, rgba(255,255,255,0) 40%, rgba(0,0,0,.2) 68%, rgba(0,0,0,.52)),
+			#121214;
 		--glass-text-panel: var(--glass-panel);
 		/* The dock's flat fill: the columns' mid-tone, no top-to-bottom ramp. */
-		--glass-text-panel-flat: rgba(21,21,23,.96);
-		--glass-capsule: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.015) 50%, rgba(0,0,0,.32)), rgba(12,12,13,.78);
+		--glass-text-panel-flat: rgba(16,16,18,.97);
+		/* The gutters around the panels: the darkest tone, so every edge closes on it. */
+		--shell-frame: #0b0b0c;
+		/* Floating chrome (menu bar, mode switch, tool rail) is matte: one flat
+		   fill and a hairline, no gloss, no blur. */
+		--glass-capsule: #18181b;
 		--glass-blur: blur(40px) saturate(1.6);
-		--capsule-blur: blur(14px) saturate(1.3);
-		--panel-shadow-outer: 0 0 0 .5px rgba(255,255,255,.1), 0 1px 1px rgba(0,0,0,.25), 0 20px 50px -14px rgba(0,0,0,.55);
-		--panel-shadow-inset: inset 0 1px 0 rgba(255,255,255,.13), inset 0 0 0 1px rgba(255,255,255,.045), inset 0 -1px 0 rgba(0,0,0,.45), inset 0 -18px 30px -18px rgba(0,0,0,.4);
+		--capsule-blur: none;
+		--panel-shadow-outer: 0 0 0 1px #050506, 0 1px 1px rgba(0,0,0,.35), 0 20px 50px -14px rgba(0,0,0,.65);
+		--panel-shadow-inset: inset 0 1px 0 rgba(255,255,255,.07), inset 0 0 0 1px rgba(255,255,255,.025), inset 0 -1px 0 rgba(0,0,0,.6), inset 0 -24px 36px -18px rgba(0,0,0,.55);
 		--panel-shadow: var(--panel-shadow-outer), var(--panel-shadow-inset);
-		--capsule-shadow: 0 0 0 .5px rgba(255,255,255,.08), inset 0 1px 0 rgba(255,255,255,.12), inset 0 -1px 0 rgba(0,0,0,.4);
+		--capsule-shadow: 0 0 0 1px #050506, inset 0 1px 0 rgba(255,255,255,.04);
 		--grip: rgba(255,255,255,.14);
 		--grip-hover: rgba(255,255,255,.4);
 
@@ -57,23 +62,23 @@
 		--text-soft: #c9c9ce;
 		--field-fill: rgba(255,255,255,.05);
 		--card-fill: rgba(255,255,255,.05);
-		--card-ring: 0 0 0 .5px rgba(255,255,255,.08);
+		--card-ring: 0 0 0 1px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.03);
 		--chip-fill: rgba(255,255,255,.06);
 		--hairline: rgba(255,255,255,.07);
 		--seg-on: rgba(255,255,255,.14);
 		--seg-on-shadow: 0 1px 2px rgba(0,0,0,.45), 0 0 0 .5px rgba(255,255,255,.06);
-		--seg-on-text: #e08a55;
-		--row-sel-bg: rgba(184,84,29,.16);
+		--seg-on-text: #f2f2f4;
+		--row-sel-bg: rgba(255,255,255,.08);
 		--row-sel-text: #fff;
-		--row-sel-icon: #b8541d;
-		--row-sel-meta: #c98f70;
+		--row-sel-icon: #e4e4e7;
+		--row-sel-meta: #a1a1a8;
 		--tile-fill: rgba(255,255,255,.04);
-		--tile-sel-fill: rgba(184,84,29,.16);
-		--tile-sel-ring: inset 0 0 0 1.5px #b8541d;
+		--tile-sel-fill: rgba(255,255,255,.08);
+		--tile-sel-ring: inset 0 0 0 1.5px rgba(255,255,255,.5);
 		--tile-stroke: #c9c9ce;
 		--tile-label: #9b9ba1;
-		--snap-on-fill: rgba(184,84,29,.16);
-		--frame-well: #131315;
+		--snap-on-fill: rgba(255,255,255,.1);
+		--frame-well: #0e0e10;
 	}
 
 	/* Light: translucent glass over a neutral window, system-blue accent. */
@@ -133,15 +138,15 @@
 		--glass-panel: rgba(250,250,252,.74);
 		--glass-text-panel: rgba(250,250,252,.82);
 		--glass-text-panel-flat: rgba(250,250,252,.82);
-		--glass-capsule: rgba(252,252,253,.38);
+		--glass-capsule: #f3f3f5;
 		--glass-blur: blur(40px) saturate(1.6);
-		--capsule-blur: blur(14px) saturate(1.3);
+		--capsule-blur: none;
 		/* A crisp hairline and a short shadow: on the near-white frame a wide,
 		   faint shadow left every panel edge a blur. */
 		--panel-shadow-outer: 0 0 0 1px rgba(30,32,40,.09), 0 1px 2px rgba(30,32,40,.06), 0 6px 18px -10px rgba(30,32,40,.18);
 		--panel-shadow-inset: inset 0 .5px 0 rgba(255,255,255,.95);
 		--panel-shadow: var(--panel-shadow-outer), var(--panel-shadow-inset);
-		--capsule-shadow: 0 0 0 .5px rgba(30,32,40,.08), inset 0 .5px 0 rgba(255,255,255,.55);
+		--capsule-shadow: 0 0 0 1px rgba(30,32,40,.08);
 		--grip: rgba(30,32,40,.14);
 		--grip-hover: rgba(30,32,40,.4);
 
@@ -185,6 +190,14 @@
 		--lg-d2d2d2: #3a3a3c;
 		--lg-9a9a9a: #6e6e73;
 		--lg-c4c4c4: #48484a;
+	}
+
+	/* Dark: the Agent's own accents (send, primary buttons, the on toggles,
+	   the focus ring) are neutral too; clay orange stays with selection. */
+	:root[data-theme="dark"] .app[data-shell="glass"] .studio-agent-inspector {
+		--select: #4a4a52;
+		--select-tint: rgba(255,255,255,.08);
+		--on-select: #fff;
 	}
 
 	/* The Agent keeps its own palette (src/workflow/agent-panel.css); inside

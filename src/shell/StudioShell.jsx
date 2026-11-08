@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { installClickFriction } from "../click-friction.js";
+import { installWheelNumber } from "../wheel-number.js";
 import { ko } from "../locale.js";
 import { noteNavSwitch } from "../thrash-friction.js";
 import { useStudioShell } from "./studio-shell-context.js";
@@ -13,8 +14,18 @@ import "./shell.css";
 import "./glass.css";
 import "./glass-regions.css";
 import "./agent-glass.css";
+import "./type-scale.css";
 
 const DOCK_TAB_KEY = "cozyclay.dock.tab.v1";
+const LEFT_COLLAPSED_KEY = "cozyclay.shell.left-collapsed.v1";
+
+function readLeftCollapsed() {
+	try {
+		return globalThis.localStorage?.getItem(LEFT_COLLAPSED_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
 
 function readDockTab() {
 	try {
@@ -31,11 +42,25 @@ function readDockTab() {
 export default function StudioShell({ viewport, children, ...props }) {
 	const { beginWorkspaceResize } = useStudioShell();
 	const [dockTab, setDockTab] = useState(readDockTab);
+	// The Outliner column folds to a 44px rail (--shell-left in shell.css), and
+	// the viewport's overlays follow it because they all hang off that width.
+	const [leftCollapsed, setLeftCollapsed] = useState(readLeftCollapsed);
 	// Embeds (playview, playground) keep the Sequencer-only dock.
 	const embedded = Boolean(props["data-embed-mode"]);
 	const shownTab = embedded ? "animation" : dockTab;
 	// Rage and dead clicks on the primary controls (data-fid): one capture-phase listener for the whole shell.
 	useEffect(() => installClickFriction(), []);
+	useEffect(() => installWheelNumber(), []);
+	function toggleLeft() {
+		setLeftCollapsed((current) => {
+			try {
+				globalThis.localStorage?.setItem(LEFT_COLLAPSED_KEY, current ? "0" : "1");
+			} catch (error) {
+				console.warn(`[cozyclay] could not store ${LEFT_COLLAPSED_KEY}`, error);
+			}
+			return !current;
+		});
+	}
 	function changeDockTab(next) {
 		// A user's tab flip toward nav:thrash (thrash-friction.js).
 		if (next !== dockTab) noteNavSwitch("dock_tab");
@@ -47,14 +72,27 @@ export default function StudioShell({ viewport, children, ...props }) {
 		}
 	}
 	return (
-		<div {...props} data-shell="glass" data-dock-tab={shownTab}>
+		<div {...props} data-shell="glass" data-dock-tab={shownTab} data-left-collapsed={!embedded && leftCollapsed ? "" : undefined}>
 			<TopBar preferences={<PreferencesSlot />} />
 			<div className="main">
 				<div className="workspace">
 					{viewport}
 					<div className="studio-left-column">
-						<ProjectHead />
-						<OutlinerSlot />
+						<button
+							type="button"
+							className="shell-left-toggle"
+							data-testid="shell-left-toggle"
+							aria-expanded={!leftCollapsed}
+							aria-label={leftCollapsed ? ko("Expand Outliner", "아웃라이너 펼치기") : ko("Collapse Outliner", "아웃라이너 접기")}
+							title={leftCollapsed ? ko("Expand Outliner", "아웃라이너 펼치기") : ko("Collapse Outliner", "아웃라이너 접기")}
+							onClick={() => toggleLeft()}
+						>
+							<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+						</button>
+						<div className="shell-left-body" hidden={leftCollapsed}>
+							<ProjectHead />
+							<OutlinerSlot />
+						</div>
 					</div>
 					<div
 						className="workspace-splitter shell-splitter shell-left-splitter"

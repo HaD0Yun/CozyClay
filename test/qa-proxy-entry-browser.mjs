@@ -59,14 +59,10 @@ try {
 	// viewport (pre-existing), so the tab is activated on the element itself.
 	await b.change("document.querySelector('[data-testid=\"dock-tab-assets\"]').getAttribute('aria-selected') === 'true'",
 		() => b.evaluate("document.querySelector('[data-testid=\"dock-tab-assets\"]').click()"));
-	// The docked pane picks folders from its header select (the folder rail is
-	// hidden at dock height).
-	await b.change(`!!document.querySelector('${TILE}')`, () => b.evaluate(`(() => {
-		const select = document.querySelector('[data-testid="content-folder-picker"]');
-		Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, 'characters');
-		select.dispatchEvent(new Event('change', { bubbles: true }));
-	})()`));
-	const keys = await b.evaluate("[...document.querySelectorAll('[data-testid=\"content-asset\"]')].map(n => n.dataset.assetKey)");
+	// The docked pane shows every folder on one scroll ("All"); the
+	// Characters section lists the three casting tiles.
+	await b.change(`!!document.querySelector('${TILE}')`, () => b.evaluate("null"));
+	const keys = await b.evaluate("[...document.querySelectorAll('[data-folder=\"characters\"] [data-testid=\"content-asset\"]')].map(n => n.dataset.assetKey)");
 	assert.deepEqual(keys, ["character:y-bot-tpose", "character:x-bot-tpose", "character:proxy-figure"]);
 	console.log(`PASS Characters folder lists three tiles: ${keys.join(", ")}`);
 	console.log(`PASS proxy tile label: ${await b.evaluate(`document.querySelector('${TILE} .content-tile-name').textContent`)}`);

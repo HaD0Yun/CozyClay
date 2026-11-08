@@ -3,8 +3,8 @@
 // idempotency. Synchronous UI actions stay synchronous (including user gestures).
 import { StudioProtocolError, StudioSchemas, validateStudioSchema, validateReceipt, validateStudioIdentity, refusalCode } from './studio-agent-protocol.js';
 import { agentTurnControls, markAgentTurn, turnEditPoint, recordTurnEdit, undoTurnEdit } from './agent-turn-mark.js';
-import { createBusTasks, GESTURE_FREE_TASK_CONTROLS } from './bus-tasks.js'; import { uiTransactionOpen } from './studio-busy.js';
-import { createHistoryReceipts, noteRefusal, noteUndone } from './command-bus-telemetry.js';
+import { createBusTasks, GESTURE_FREE_TASK_CONTROLS } from './bus-tasks.js'; import { uiTransactionOpen } from './studio-busy.js'; import { holdRefusal } from './agent-turn-hold.js';
+import { createHistoryReceipts, noteRefusal, noteUndone } from './command-bus-telemetry.js'; import { checkNoteRange } from './note-range-guard.js';
 
 export { withCommandHistory } from './command-history.js';
 
@@ -75,11 +75,11 @@ export function createCommandBus({ registry, ports }) {
       return transactionReceipt(id, turn, request, turn.before);
     }
     // Every Studio turn opens a turn transaction (#715), so "undo the last thing" arrives inside one. Until the
-    // turn has authored (no session yet) history traversal is safe: the undo lands as its own entry (#735).
+    // turn has authored (no session yet) history traversal and the user's own edits are safe: each lands as its own entry (#735).
     // After that the turn owns the frontier: its own agent may undo its newest edit (agent-turn-mark.js).
     const traversal = id === 'edit.undo' || id === 'edit.redo', scoped = traversal && tasks.traversal(id, args, request, before, id === 'edit.undo' ? ports.history?.(false) : null);
     if (scoped) return scoped;
-    if (agentTurn && !id.startsWith('job.') && !(traversal && !agentTurn.session)) { if (id === 'edit.undo' && request.turnId === agentTurn.txId) return validateReceipt(undoTurnEdit(agentTurn, args, request, before, () => ports.read())); fail('TARGET_BUSY', 'Finish the agent turn before traversing history or opening another transaction.'); }
+    if (agentTurn && !id.startsWith('job.') && !((traversal || request.origin === 'ui') && !agentTurn.session)) { if (id === 'edit.undo' && request.turnId === agentTurn.txId) return validateReceipt(undoTurnEdit(agentTurn, args, request, before, () => ports.read())); fail('TARGET_BUSY', 'Finish the agent turn before traversing history or opening another transaction.'); }
     if (traversal) {
       const redo = id === 'edit.redo', historyEntryId = ports.history?.(redo);
       const previous = args.receiptId ? ports.receipt(args.receiptId) : historyReceipts.get(historyEntryId)
@@ -116,7 +116,7 @@ export function createCommandBus({ registry, ports }) {
     if (id === 'run.begin') {
       if (transactions.size) fail('TARGET_BUSY', 'Finish or cancel the open command transaction first.');
       const prepared = registry.prepare(args.id, args.args);
-      exposure(prepared.entry, prepared.args, request);
+      exposure(prepared.entry, prepared.args, request); checkNoteRange(prepared.entry.id, prepared.args, request);
       if (prepared.entry.kind !== 'mutation') fail('INVALID_ARGUMENT', 'Only mutations can open a transaction.');
       tx = { txId: crypto.randomUUID(), entry: prepared.entry, before, origin: request.origin, targetId: prepared.args.characterId ?? null, controller: new AbortController(),
         session: ports.beginAction(prepared.entry.undoDomain, prepared.args.characterId ?? null), affectedIds: new Set(), toasts: [] };
@@ -127,7 +127,7 @@ export function createCommandBus({ registry, ports }) {
       if (request.origin !== tx.origin) fail('TARGET_BUSY', 'This transaction belongs to another origin.');
       if (tx.updating && id !== 'run.cancel') fail('TARGET_BUSY', 'A transaction update is still running.');
       if (id === 'run.update') {
-        const prepared = registry.prepare(tx.entry.id, args.args);
+        const prepared = registry.prepare(tx.entry.id, args.args); checkNoteRange(tx.entry.id, prepared.args, request);
         if (tx.entry.undoDomain === 'motion' && prepared.args.characterId !== tx.targetId) fail('INVALID_ARGUMENT', 'A motion transaction keeps its original target.');
         const shown = [], release = ports.captureToasts?.(toast => shown.push(typeof toast === 'string' ? { message: toast } : toast));
         const context = { origin: request.origin, signal: tx.controller.signal, check() {
@@ -246,7 +246,7 @@ export function createCommandBus({ registry, ports }) {
       clearTimer();
       releaseToasts?.(); releaseToasts = null;
       if (!(error instanceof StudioProtocolError)) error = toastRefusal() ?? error;
-      if (request.origin === 'ui' && error.uiMessage) ports.showRefusal?.(error.uiMessage);
+      if (request.origin === 'ui' && holdRefusal(error, Boolean(agentTurn), request.origin).uiMessage) ports.showRefusal?.(error.uiMessage);
       const value = refusal(request, before, error, job ? applied : undefined);
       // Session friction and studio:refused, by who asked and what (command-bus-telemetry.js).
       // A bus control (job.await, edit.undo, agent.turn.*, task.*) is code-defined too, so it is reported by name (#1042).
@@ -272,9 +272,9 @@ export function createCommandBus({ registry, ports }) {
         if (!entry?.readOnly && before.busy && !turn && !transactions.has(validated.txId) && !id.startsWith('job.') && !GESTURE_FREE_TASK_CONTROLS.has(id)) fail('TARGET_BUSY', 'Finish the current editor gesture first.');
       }
       if (controls[id]) return mapResult(control(id, validated, request, before), remember, rejected);
-      if (transactions.size) fail('TARGET_BUSY', 'Finish or cancel the open command transaction first.');
+      if (transactions.size) fail('TARGET_BUSY', turn && uiTransactionOpen(transactions) ? 'Finish the current editor gesture first.' : 'Finish or cancel the open command transaction first.'); // a user's drag before the turn authored: the sidecar waits it out
       if (turn && entry.kind === 'document') fail('TARGET_BUSY', 'Finish the agent turn before changing documents.');
-      exposure(entry, validated, request); if (entry.kind === 'document') tasks.leavingScene(); // #1058: task.undo across scene switches
+      exposure(entry, validated, request); checkNoteRange(entry.id, validated, request); if (entry.kind === 'document') tasks.leavingScene(); // #1058: task.undo across scene switches; the note range guard (note-range-guard.js)
       const scoped = tasks.admit(task, entry, validated, request, before);
       releaseToasts = ports.captureToasts?.(toast => toasts.push(typeof toast === 'string' ? { message: toast } : toast));
       const domain = entry.domain ?? entry.undoDomain;
@@ -309,7 +309,7 @@ export function createCommandBus({ registry, ports }) {
         },
         run(nestedId, nestedArgs = {}) {
           if (job) context.check(); else controller.signal.throwIfAborted();
-          const nested = registry.prepare(nestedId, nestedArgs); exposure(nested.entry, nested.args, request);
+          const nested = registry.prepare(nestedId, nestedArgs); exposure(nested.entry, nested.args, request); checkNoteRange(nested.entry.id, nested.args, request);
           const invoke = () => registry.invoke(nested.entry, nested.args, context);
           const value = nested.entry.kind === 'mutation' ? recordAction(nested.entry.undoDomain, invoke, nested.args.characterId ?? null, true) : { result: invoke() };
           // Only the synchronous owned step may advance the fence. Never absorb

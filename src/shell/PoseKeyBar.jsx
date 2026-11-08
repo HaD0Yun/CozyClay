@@ -7,13 +7,15 @@ import { ko } from "../locale.js";
 import { placementOf, poseKeysSpec } from "../motion/pose-fill.js";
 import { applyBreakdownPose, breakdownNeighbors, breakdownPlacement, restoreLocalRig, snapshotLocalRig } from "../motion/pose-breakdown.js";
 import { useStudioShell } from "./studio-shell-context.js";
+import { registerPoseKeyer, setPoseGhosts, usePoseGhosts } from "../motion/pose-key-door.js";
 
 export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = [], characterId: activeId = null }) {
 	const app = useContext(AppContext);
 	// the field shows the timeline's length unless the user is typing a new one (null: not editing)
 	const [typed, setDraft] = useState(null), [busy, setBusy] = useState(false), [status, setStatus] = useState("");
 	const [breakdownWeight, setBreakdownWeight] = useState(0.5);
-	const { autoKey, setAutoKey, activeRig } = useStudioShell();
+	const { autoKey, setAutoKey, activeRig, setTlFrame } = useStudioShell();
+	const ghosts = usePoseGhosts();
 	const draft = typed ?? String(frameCount);
 	const say = text => { setStatus(text); app?.notify?.(text); };
 	const motion = () => app.storeDomain("motion"), characterId = () => activeId;
@@ -26,12 +28,14 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 		if (!Number.isFinite(value) || value === frameCount) return;
 		run("shot.setTimeline", { frameCount: Math.max(24, Math.min(28800, value)) }).catch(error => say(error.message));
 	};
-	const key = () => {
+	// The pose on screen, keyed at `at` (the playhead, or the frame pressed on the Body lane).
+	const key = (at = frame) => {
 		try {
 			const id = characterId(), keys = motion().layer(id).ikKeys;
-			motion().keyAll(id, frame, placementOf(entry(), keys, frame));
-			say(ko(`Pose and placement keyed at frame ${frame}`, `${frame}프레임에 포즈와 위치를 키로 저장했어요`));
-		} catch (error) { say(error.message); }
+			motion().keyAll(id, at, placementOf(entry(), keys, at));
+			say(ko(`Pose and placement keyed at frame ${at}`, `${at}프레임에 포즈와 위치를 키로 저장했어요`));
+			return true;
+		} catch (error) { say(error.message); return false; }
 	};
 	const unkey = () => {
 		if (!keyedFrames.includes(frame)) return;
@@ -70,6 +74,8 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 	};
 	const actions = useRef({});
 	useEffect(() => { actions.current = { key, unkey }; });
+	// A press on the Body lane's empty track keys the pose on screen there, then the playhead follows.
+	useEffect(() => (poseMode ? registerPoseKeyer((at) => { if (!keyedFrames.includes(at) && actions.current.key(at)) setTlFrame?.(at); }) : undefined), [poseMode, keyedFrames, setTlFrame]);
 	useEffect(() => {
 		if (!poseMode) return undefined;
 		// capture phase: in Pose mode K keys (the Sequencer's own K steps back otherwise)
@@ -84,14 +90,14 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 	}, [poseMode]);
 
 	return (
-		<div className="pose-key-bar" data-fid="pose_key_bar">
+		<div className={`pose-key-bar${poseMode ? " posing" : ""}`} data-fid="pose_key_bar">
 			<label title={ko("Timeline length in frames (24 fps)", "타임라인 길이(프레임, 24fps)")}>
 				{ko("Frames", "프레임")}
 				<input type="number" min={24} max={28800} value={draft} onChange={e => setDraft(e.target.value)} onBlur={setLength}
 					onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} data-fid="timeline_frames" />
 			</label>
 			{poseMode && <>
-				<button type="button" onClick={keyedFrames.includes(frame) ? unkey : key} data-fid="pose_key"
+				<button type="button" onClick={keyedFrames.includes(frame) ? unkey : () => key()} data-fid="pose_key"
 					title={ko("Key the whole pose and the character's spot at the playhead (K; Shift+K removes)", "재생 위치에 전신 포즈와 위치를 키로 저장 (K, Shift+K로 삭제)")}>
 					{keyedFrames.includes(frame) ? ko(`Unkey f${frame}`, `f${frame} 키 삭제`) : ko(`Key f${frame}`, `f${frame} 키`)}
 				</button>
@@ -105,6 +111,8 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 					title={ko("Transition between two poses (free spans): MotionBricks generates the motion between neighbouring keyed frames, then it compiles, checks and installs", "두 포즈 사이 전환 생성 (자유 구간용): MotionBricks가 이웃한 키 프레임 사이 동작을 만들고 컴파일·검사·설치")}>
 					{busy ? ko("Generating…", "생성 중…") : ko("Fill transition (free spans)", "전환 생성 (자유 구간용)")}
 				</button>
+				<button type="button" aria-pressed={ghosts} data-testid="pose-ghosts" onClick={() => setPoseGhosts(!ghosts)}
+					title={ko("Show every keyed pose as a faded ghost", "키로 저장한 포즈를 모두 흐린 고스트로 표시")}>{ko("Ghosts", "고스트")}</button>
 				<span className="pose-key-count">{ko(`${keyedFrames.length} keyed`, `키 ${keyedFrames.length}개`)}</span>
 			</>}
 			{status && <span className="pose-key-status" role="status">{status}</span>}

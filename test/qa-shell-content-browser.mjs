@@ -123,7 +123,7 @@ expect("folder list is 140 px", Math.abs((geometry.folders?.width ?? 0) - 140) <
 expect("search is 160 px", Math.abs((geometry.search?.width ?? 0) - 160) < 0.5, JSON.stringify(geometry.search));
 expect("asset grid has 6 columns", geometry.gridColumns === 6, String(geometry.gridColumns));
 expect("header tabs are Content | Log", JSON.stringify(geometry.tabs) === JSON.stringify(["Content", "Log"]), JSON.stringify(geometry.tabs));
-expect("folders are the v2 six plus Sculpts (#740)", JSON.stringify(geometry.folderNames) === JSON.stringify(["Basic Shapes", "Characters", "Props", "Cameras", "Motions", "Poses", "Sculpts"]), JSON.stringify(geometry.folderNames));
+expect("folders are All, then the v2 six plus Sculpts (#740)", JSON.stringify(geometry.folderNames) === JSON.stringify(["All", "Basic Shapes", "Characters", "Props", "Cameras", "Motions", "Poses", "Sculpts"]), JSON.stringify(geometry.folderNames));
 expect("pane uses the panel surface", geometry.background === "rgb(21, 21, 23)", geometry.background);
 
 // ---- Basic Shapes: select, then drop outside / inside the viewport ----

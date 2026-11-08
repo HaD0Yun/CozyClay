@@ -16,10 +16,12 @@ const color = (value, fallback) => (typeof value === "string" && HEX.test(value)
 const limits = (path) => elementByPath(path);
 const finite = (value, fallback, { min, max }) => (typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback);
 
-// The tuned rig: these values render the stage exactly as it looked before the
-// look was authorable, so a stage saved earlier (no lighting, no key colour)
-// renders unchanged.
-const DEFAULT_KEY_LIGHT = Object.freeze({ x: 6, y: 9, z: 4, intensity: 1.12, warmth: 0.5, color: null });
+// The key a new project opens with, and what Reset light and the studio look
+// return to: a bright neutral sun (brightness 3, warmth 0). Saved stages keep
+// their own key; only a record with no key at all picks this up. The 1.12
+// still used as a ratio elsewhere (dim, practical lights) is the old key's
+// brightness, kept as the scale those were tuned against.
+const DEFAULT_KEY_LIGHT = Object.freeze({ x: 6, y: 9, z: 4, intensity: 3, warmth: 0, color: null });
 // envLight and ao are 0 in the studio look: no environment map, no occlusion pass.
 // No look names an HDR environment (stage-hdr.js); the user or the agent picks one.
 const DEFAULT_LIGHTING = Object.freeze({ preset: "studio", sky: null, skyTop: null, ambient: 1, hemiSky: "#ffffff", hemiGround: "#5a5d64", fill: 1, fog: 0, exposure: 1, shadowSoftness: 0, envLight: 0, ao: 0, ...normalizeHdrFields() });

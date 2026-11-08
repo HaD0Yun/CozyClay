@@ -1205,17 +1205,17 @@ export function ShotPathPreview({ waypoints, start, activeWaypointId }) {
 				return (
 					<group key={waypoint.id} position={[waypoint.x, 0.03, waypoint.z]}>
 						<mesh rotation={[-Math.PI / 2, 0, 0]}>
-							<ringGeometry args={[0.13, 0.19, 28]} />
+							<ringGeometry args={[0.21, 0.25, 32]} />
 							<meshBasicMaterial color={color} depthWrite={false} />
 						</mesh>
 						<Text
-							position={[0, 0.02, 0.34]}
+							position={[0, 0.02, 0.36]}
 							rotation={[-Math.PI / 2, 0, 0]}
-							fontSize={0.24}
+							fontSize={0.12}
 							color={color}
 							anchorX="center"
 							anchorY="middle"
-							outlineWidth={0.03}
+							outlineWidth={0.01}
 							outlineColor="#1c1a17"
 							outlineOpacity={0.85}
 						>

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { normalizeBoneName, POSE_BONES, DEFAULT_POSE } from "../poses.js";
 import { resolveFingers } from "./fingers.js";
-import { findBone } from "./find-bone.js";
+import { findBone } from "./find-bone.js"; import { fixWeight } from "./fix-weight.js";
 export { findBone };
 
 /**
@@ -687,18 +687,17 @@ export function clampIkTargetToFloor(trackId, targetWorld, floorY = 0, contactHe
 	return targetWorld.clone().setY(Math.max(targetWorld.y, floorY + height));
 }
 
-/** Translate hips to an absolute drag target and keep the measured pelvis
- * extent on the safe side of the floor. The correction is applied in world Y
- * after the normal parent-space translation, so it also works on yawed rigs. */
-export function solveHipsTranslateToFloor(joint, worldDelta, startLocalPos, floorY = 0, contactHeights = null) {
+/** Translate hips to an absolute drag target and keep the torso's supports on the safe side of the floor: the pelvis by
+ * its measured extent below it, the shoulders and hip joints by their measured radius (contactRadii: a body lying on its
+ * side rests on a shoulder). Applied in world Y after the parent-space translation, so it also works on yawed rigs. */
+export function solveHipsTranslateToFloor(joint, worldDelta, startLocalPos, floorY = 0, contactHeights = null, contactRadii = null) {
 	solveHipsTranslate(joint, worldDelta, startLocalPos);
-	const height = contactHeights?.Hips;
-	if (!Number.isFinite(height)) return;
-	const root = joint.bone;
-	const y = root.getWorldPosition(new THREE.Vector3()).y;
-	if (y >= floorY + height) return;
+	if (!Number.isFinite(contactHeights?.Hips)) return;
+	const root = joint.bone, at = (name) => { let hit = null; root.traverse((node) => { if (!hit && node.isBone && node.name.endsWith(name)) hit = node; }); return hit; };
+	const lift = Math.max(0, ...[["Hips", contactHeights.Hips], ...["LeftArm", "RightArm", "LeftUpLeg", "RightUpLeg"].map((name) => [name, contactRadii?.[name]])].map(([name, r]) => { const bone = at(name); return bone && Number.isFinite(r) ? floorY + r - bone.getWorldPosition(new THREE.Vector3()).y : 0; }));
+	if (lift <= 0) return;
 	const parent = root.parent;
-	const localLift = new THREE.Vector3(0, floorY + height - y, 0)
+	const localLift = new THREE.Vector3(0, lift, 0)
 		.applyQuaternion(parent.getWorldQuaternion(new THREE.Quaternion()).invert())
 		.divideScalar(parent.getWorldScale(new THREE.Vector3()).x || 1);
 	root.position.add(localLift);
@@ -951,17 +950,17 @@ export function ikRemoveKeyframe(ikState, frame) {
 /** The two leg chains that get planted. */
 const LEG_IDS = ["leftFoot", "rightFoot"];
 
-/** Capture the current ankle world positions as the plant points. Called
- * once when a body (hips) drag starts, BEFORE the hips move — the feet
- * then stay exactly here for the whole drag (Cascadeur's always-active
- * ankle controllers / UE's foot-pin, over the existing two-bone solver). */
-export function ikPlantFeet(chains, ikState) {
+/** Capture the ankle world positions as plant points, once, when a body (hips) drag starts and BEFORE the hips move: the
+ * feet stay there for the drag (Cascadeur's ankle controllers / UE's foot-pin, over the two-bone solver). Only a foot under
+ * the body plants: on the floor (ankle at most maxY up, a step included) or half a leg below its hip (a box, a table). A
+ * foot level with the hips, as on a body turned to lie down, follows the hips instead of folding the leg. */
+export function ikPlantFeet(chains, ikState, maxY = 0.35) {
 	const pos = new THREE.Vector3();
 	for (const id of LEG_IDS) {
 		const chain = chains.get(id);
 		if (!chain) continue;
-		chain.bones[2].getWorldPosition(pos);
-		ikState.plants.set(id, pos.clone());
+		const [hip, knee] = [0, 1].map((i) => chain.bones[i].getWorldPosition(new THREE.Vector3())), leg = hip.distanceTo(knee) + knee.distanceTo(chain.bones[2].getWorldPosition(pos));
+		if (pos.y <= maxY || hip.y - pos.y >= leg / 2) ikState.plants.set(id, pos.clone()); else ikState.plants.delete(id);
 	}
 }
 
@@ -1072,7 +1071,7 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 		const sampled = sampleChain(ikState.keys, id, frame, chain);
 		if (!sampled) continue;
 		const joint = fkJoints?.get(id);
-		const w = blendWindow > 0 ? correctionWeight(ikState.keys, id, frame, blendWindow) : 1;
+		const w = blendWindow > 0 ? (fixWeight(ikState.keys, id, frame, ikState) ?? correctionWeight(ikState.keys, id, frame, blendWindow)) : 1;
 		if (w <= 0) continue;
 		if (chain) {
 			if (sampled.chainP) chain.bones.forEach((bone, i) => { if (sampled.chainP[i]) bone.position.lerp(sampled.chainP[i], w * (sampled.chainPWeight ?? 1)); });

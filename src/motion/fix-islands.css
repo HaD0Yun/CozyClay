@@ -1,0 +1,17 @@
+/* Fix islands on the IK keys row (TimelineFixIslands.jsx): a band behind the island's key dot. */
+.v2-sequencer .tl-fix-islands { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.v2-sequencer .tl-fix-island {
+	position: absolute;
+	top: calc(var(--tl-track-row-height, 38px) * 1.5 - 6px);
+	height: 12px;
+	min-width: 4px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--select, #0a6ee0) 16%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--select, #0a6ee0) 55%, transparent);
+	pointer-events: auto;
+}
+.v2-sequencer .tl-fix-island.dragging { background: color-mix(in srgb, var(--select, #0a6ee0) 28%, transparent); }
+.v2-sequencer .tl-fix-edge { position: absolute; top: -2px; bottom: -2px; width: 6px; cursor: ew-resize; }
+.v2-sequencer .tl-fix-edge.start { left: -3px; }
+.v2-sequencer .tl-fix-edge.end { right: -3px; }
+.v2-sequencer .tl-track.ik .tl-marker.ik { z-index: 3; }

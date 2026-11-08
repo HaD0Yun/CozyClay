@@ -273,7 +273,7 @@ export function applyRangePin({ chains, fkJoints = null, ikState, pin, applyRaw,
 			const plants = new Map();
 			if (offsets) {
 				for (const id of LEGS) plants.set(id, chains.get(id).bones[2].getWorldPosition(new THREE.Vector3()));
-				solveHipsTranslateToFloor(joint, offsets[frame - pin.startFrame], joint.bone.position.clone(), 0, chain.contactHeights);
+				solveHipsTranslateToFloor(joint, offsets[frame - pin.startFrame], joint.bone.position.clone(), 0, chain.contactHeights, chain.contactRadii);
 				for (const [id, plant] of plants) solveIk(chains.get(id), plant, { exactHinge: true });
 			}
 			solveIk(chain, target, { exactHinge: true });

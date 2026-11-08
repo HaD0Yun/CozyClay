@@ -1300,3 +1300,66 @@
 }
 .agent-supervisor-toggle.is-on { color: var(--agent-text, #ddd); border-color: var(--agent-border-focus, #6a9); }
 .agent-supervisor-toggle:focus-visible { outline: 2px solid var(--agent-border-focus, #6a9); outline-offset: 1px; }
+
+/* Annotation mark chips (ContextChips.jsx): one compact row, wrapping only when it must. */
+.agent-context-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.agent-context-chip {
+	display: inline-flex;
+	align-items: center;
+	position: relative;
+	gap: 3px;
+	max-width: 100%;
+	height: 20px;
+	padding: 0 6px;
+	border: 1px solid var(--agent-border-strong);
+	border-radius: 10px;
+	background: var(--agent-bg-sunken);
+	font-size: var(--type-meta, 10px);
+	line-height: 1;
+	cursor: default;
+}
+.agent-context-chip:hover { border-color: #f2a33a; }
+.agent-context-chip-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.agent-context-chip-action {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	border: 1px solid var(--agent-border-strong);
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+}
+/* The x shows on hover or focus, over the chip's end, so it never widens the row. */
+.agent-context-chip-remove {
+	position: absolute;
+	top: 1px;
+	right: 1px;
+	opacity: 0;
+	background: var(--agent-bg-sunken);
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	border: 0;
+	border-radius: 8px;
+	color: inherit;
+	cursor: pointer;
+}
+.agent-context-chip:is(:hover, :focus-within) .agent-context-chip-remove { opacity: 1; }
+/* Chips are state chips: the type scale's meta step (type-scale.css), lifted over its body rule the same way. */
+.app[data-shell="glass"] .agent-context-chip :is(.agent-context-chip-label):not(#_):not(#_) { font-size: var(--type-meta, 10px); }

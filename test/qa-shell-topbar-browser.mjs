@@ -106,7 +106,7 @@ const openFileExport = async () => {
 };
 const closeMenus = async () => {
 	if (!await evaluate("!!document.querySelector('.menubar-menu')")) return;
-	await click(".topbar-mcp");
+	await click("[data-testid=project-save-status]");
 	await waitFor("!document.querySelector('.menubar-menu')");
 };
 
@@ -164,7 +164,7 @@ const geometry = await evaluate(`(() => {
 	const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height, width: r.width }; };
 	return { top: box('.topbar'), status: !!document.querySelector('.v2-statusbar') };
 })()`);
-expect("the top bar is 40px tall", Math.abs(geometry.top.height - 40) < 0.5, JSON.stringify(geometry.top));
+expect("the top bar is 32px tall", Math.abs(geometry.top.height - 32) < 0.5, JSON.stringify(geometry.top));
 expect("with nothing to report there is no standing status bar", geometry.status === false);
 
 const buttons = await evaluate(`[...document.querySelectorAll('header.topbar button')].filter((b) => {
@@ -176,7 +176,7 @@ const menuTrigger = (b) => /^menu-(file|edit|window|help)$/.test(b.testid ?? "")
 expect("the only top-bar buttons are the menu triggers", buttons.length > 0 && buttons.every(menuTrigger), JSON.stringify(buttons));
 expect("the menu bar reads File, Edit, Window, Help", buttons.filter((b) => /^menu-/.test(b.testid ?? "")).map((b) => b.text).join(",") === "File,Edit,Window,Help");
 expect("the top bar has no Generate Motion", !await evaluate("!!document.querySelector('[data-testid=topbar-generate], [data-testid=topbar-generate-menu]')"));
-expect("the MCP state is shown", /MCP (connected|offline)/.test(await evaluate("document.querySelector('.topbar-mcp').textContent")));
+expect("the MCP state is not shown in the top bar", await evaluate("(() => { const node = document.querySelector('.topbar-mcp'); return !!node && node.hidden && node.getBoundingClientRect().width === 0; })()"));
 // #570: the save state sits under the project name, not in a status row.
 const save = await evaluate("document.querySelector('.studio-project-head [data-testid=project-save-status]')?.textContent ?? ''");
 expect("the project head shows the save state", save.trim().length > 0, JSON.stringify(save));

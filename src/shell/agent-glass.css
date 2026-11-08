@@ -236,7 +236,39 @@
 .app[data-shell="glass"] .studio-agent-inspector .agent-composer textarea::placeholder { color: var(--text-3); }
 /* A narrow dock wraps the controls to a second row instead of crushing the
    model name to its caret or pushing Send past the field's edge. */
-.app[data-shell="glass"] .studio-agent-inspector .agent-composer-controls { flex-wrap: wrap; gap: 4px 2px; margin: 4px 0 0 -6px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-composer-controls { flex-wrap: nowrap; gap: 2px; margin: 4px 0 0 -6px; }
+/* Task mode is a 26px icon chip like the attach chips, so the composer keeps
+   one row: a checklist glyph, on a solid selection-colour disc when on. The word stays in the button for
+   screen readers and the title explains it on hover. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-tasks-toggle {
+	position: relative;
+	flex: none;
+	order: 0;
+	width: 26px;
+	height: 26px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 13px;
+	background: none;
+	color: var(--text-2);
+	font-size: 0;
+}
+.app[data-shell="glass"] .studio-agent-inspector .agent-tasks-toggle::before {
+	content: "";
+	position: absolute;
+	inset: 6px;
+	background: currentColor;
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='%23000' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 3.5l1.2 1.2L5 2.4M1.5 9.5l1.2 1.2L5 8.4M7 3.5h5.5M7 9.5h5.5'/%3E%3C/svg%3E") center / contain no-repeat;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='%23000' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.5 3.5l1.2 1.2L5 2.4M1.5 9.5l1.2 1.2L5 8.4M7 3.5h5.5M7 9.5h5.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.app[data-shell="glass"] .studio-agent-inspector .agent-tasks-toggle:hover { background: var(--chip-fill); color: var(--text-1); }
+/* On is a solid disc (the selection colour, a white glyph): the old 8% tint read the same as off in the dark theme. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-tasks-toggle.is-on:is(*, :hover) { background: var(--select, #0a6ee0); color: var(--on-select, #fff); }
+/* Dark: the panel's active states are neutral light on dark (themes.css), and its grey --select barely shows on the panel. */
+:root[data-theme="dark"] .app[data-shell="glass"] .studio-agent-inspector .agent-tasks-toggle.is-on:is(*, :hover) { background: var(--text-1, #e4e4e7); color: var(--shell-frame, #0b0b0c); }
+.app[data-shell="glass"] .studio-agent-inspector .agent-composer-spacer { flex: 0 0 0; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-effort-select { flex: 0 1 auto; min-width: 0; padding: 0 16px 0 6px; background-position: right 4px center; }
 .app[data-shell="glass"] .studio-agent-inspector .agent-attach-chip {
 	display: grid;
 	place-items: center;
@@ -258,7 +290,7 @@
 	-webkit-appearance: none;
 	appearance: none;
 	flex: 1 1 96px;
-	min-width: 96px;
+	min-width: 0;
 	max-width: none;
 	height: 26px;
 	padding: 0 18px 0 8px;
@@ -307,3 +339,19 @@
 .app[data-shell="glass"] .studio-agent-inspector .agent-login { flex: 1 1 auto; min-height: 0; max-height: none; }
 .app[data-shell="glass"] .studio-agent-inspector .agent-login ~ .agent-transcript { display: none; }
 .app[data-shell="glass"] .studio-agent-inspector .agent-key-input { border: 0; border-radius: 8px; background: var(--field-fill); color: var(--text-1); }
+/* The run summary card stays a compact strip: smaller gaps, a 20px trend
+   sparkline, 30px sheet thumbnails, and each section label on the same row as
+   its content. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-card { gap: 5px; padding: 6px 9px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-section { flex-direction: row; align-items: center; gap: 6px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-section > h4 { flex: none; margin: 0; font-size: 10px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-trend { flex: 1 1 auto; min-width: 0; gap: 6px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-trend svg { flex: 1 1 auto; min-width: 0; height: 20px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-sheets { flex: 1 1 auto; min-width: 0; grid-auto-flow: column; grid-auto-columns: 54px; grid-template-columns: none; gap: 3px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-sheet { box-sizing: border-box; width: 54px; height: 30px; padding: 0; overflow: hidden; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-sheet img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-chip { padding: 0 6px; font-size: 10px; line-height: 16px; }
+/* Long labels (trend, sheets) keep their own line over the content. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-section:has(> :is(.agent-progress-trend, .agent-progress-sheets)) { flex-wrap: wrap; row-gap: 2px; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-section:has(> :is(.agent-progress-trend, .agent-progress-sheets)) > h4 { flex-basis: 100%; }
+.app[data-shell="glass"] .studio-agent-inspector .agent-progress-trend svg { width: 100%; max-width: 100%; }

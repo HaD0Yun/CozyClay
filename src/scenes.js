@@ -3,7 +3,7 @@
 // This module stores and copies those envelopes but never opens or validates them.
 
 import { DEFAULT_SENSOR_FORMAT, SENSOR_FORMATS } from "./shot.js";
-import { normalizeStableItems } from "./stable-items.js";
+import { normalizeStableItems } from "./stable-items.js"; import { noteLayerField } from "./timeline-notes.js";
 
 import { elementByPath } from "./studio-elements.js";
 import { wrapAngle } from "./scene-objects.js"; import { retireObjectKind } from "./retired-kinds.js";
@@ -177,7 +177,7 @@ function normalizeIkEdits(value) {
 function normalizeLayer(layer) {
 	const source = plainObject(layer) ? layer : {};
 	return {
-		waypoints: normalizeStableItems(cloneValue(source.waypoints), "waypoint"),
+		waypoints: normalizeStableItems(cloneValue(source.waypoints), "waypoint"), ...noteLayerField(source.notes), // timeline notes (timeline-notes.js)
 	};
 }
 
@@ -190,7 +190,7 @@ function normalizeStageLayers(stage) {
 			? source.characters.map((character) => ({
 				...character,
 				layer: {
-					waypoints: normalizeStableItems(cloneValue(character.layer?.waypoints), "waypoint", ids),
+					waypoints: normalizeStableItems(cloneValue(character.layer?.waypoints), "waypoint", ids), ...noteLayerField(character.layer?.notes),
 				},
 			}))
 			: source.characters,

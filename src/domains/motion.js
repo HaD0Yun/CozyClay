@@ -39,7 +39,7 @@ import { chooseIkEntryPose } from "../ik-camera.js";
 import { applyRangePin, captureRangePinTarget, normalizeRangePin, rangePinTargetWorld, rangePinTracks, removeRangePinKeys } from "../motion/range-pin.js";
 import { rangePinObjectMatrixAt } from "../range-pin-object-transform.js";
 import { PLACEMENT_TRACK, placementRows } from "../motion/placement-keys.js"; import { createPoseKeys } from "./motion/pose-keys.js";
-import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage } from "./motion/motion-range-pin-rules.js";
+import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
 
 import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js";
 import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys, cloneRangePin, encodeRangePins, decodeRangePins, encodeRangePinResiduals, decodeRangePinResiduals } from "./motion/motion-intent-codec.js";
@@ -114,9 +114,10 @@ export function createMotionDomain(appContext, characters) {
 			}
 		}
 		publishedIds = new Set(read().map(row => row.id));
-		const id = appContext.shared.loadedLayerCharRef.current;
-		// A character without a motion row keeps its live IK state in the map, so its first drag bakes.
-		appContext.shared.ikStateRef.current = states.get(id) ?? states.set(id, createIkState()).get(id);
+		// A first character added to an empty stage left no layer loaded (null): its own layer is the one on screen.
+		const id = appContext.shared.loadedLayerCharRef.current ?? (appContext.shared.loadedLayerCharRef.current = appContext.shared.activeChar?.id ?? null);
+		// A character without a motion row keeps its live IK state in the map, so its first drag bakes; a swapped-in state keeps the chains App resolved for the rig on screen (a re-projection, A/B, otherwise left every drag without a chain).
+		const live = appContext.shared.ikStateRef.current, next = states.get(id) ?? states.set(id, createIkState()).get(id); if (next !== live && !next.chains && live?.chains && live.rig === appContext.shared.activeRig) Object.assign(next, { chains: live.chains, fkJoints: live.fkJoints, rig: live.rig }); appContext.shared.ikStateRef.current = next;
 		appContext.shared.bufferRef.current = { ...appContext.shared.bufferRef.current, motion: visibleMotion(id), ik: appContext.shared.ikStateRef.current };
 		domain.onProject?.(); viewRevision++;
 	}
@@ -291,7 +292,7 @@ export function createMotionDomain(appContext, characters) {
 	}
 	const domain = { documentStore, read, write, layer, writeLayer, motionFor, fullMotionFor, visibleMotion, snapshotTake, project,
 		setKeys, setRangePinState, bakeRangePin, removePin, editKeys, setKey, ...poseKeys, replace, clear, run, edit, beginGesture, finishGesture, beginAction,
-		insideAction: () => running > 0, bakeCurrentKey, keyPose, moveKey,
+		insideAction: () => running > 0, bakeCurrentKey, keyPose, moveKey, liveIkStates: () => appContext.shared.ikStatesRef.current,
 		bindRender(context) { appContext = context; },
 		viewRevision: () => viewRevision, canUndo: id => documentStore.canUndo(id),
 		stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },
@@ -813,7 +814,7 @@ export function useMotion(appContext) {
 				appContext.shared.ikBodyDragRef.current = true;
 			}
 			if (targetWorld?.worldDelta && targetWorld?.startLocalPos) {
-				if (bodyContact) solveHipsTranslateToFloor(joint, targetWorld.worldDelta, targetWorld.startLocalPos, 0, ikChains?.get("leftHand")?.contactHeights);
+				if (bodyContact) solveHipsTranslateToFloor(joint, targetWorld.worldDelta, targetWorld.startLocalPos, 0, ikChains?.get("leftHand")?.contactHeights, ikChains?.get("leftHand")?.contactRadii);
 				else solveHipsTranslate(joint, targetWorld.worldDelta, targetWorld.startLocalPos);
 			} else if (targetWorld?.axis) solveSwingAngle(joint, targetWorld.axis, targetWorld.angle, targetWorld.startQuat, targetWorld.startParentQuat);
 			if (footSnap && ikChains) {
@@ -858,7 +859,7 @@ export function useMotion(appContext) {
 			setIkTick((n) => n + 1);
 			return;
 		}
-		if (!drag?.ids?.size) return void (ikPreDragRef.current = null);
+		if (!drag?.ids?.size || bakeFixIsland({ appContext, owner: domain, motion, drag, preimage: pre?.beforeRig })) return void (ikPreDragRef.current = null);
 		const state = appContext.shared.ikStateRef.current;
 		const raw = (rawRig, at) => appContext.shared.poseMemberAtFrame(rawRig, motion, null, at);
 		const keyed = bakeIkDragKey(state.chains, state.fkJoints, drag.frame, drag.ids, raw);

@@ -10,7 +10,7 @@ import { insertPathMark, pathMarks, pathMetrics, pathProgressAt, MAX_PATH_LEAN }
 import { NumberField } from "../ui.jsx";
 import { flatTiming, timingIsFlat, envelopeDrag, insertCut, removeCut, CUT_MIN_GAP } from "../speed-envelope.js";
 import { checkShotAgainstPreset, presetById } from "../model-presets.js";
-import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { BeatBoard } from "./beat-board.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
+import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { BeatBoard } from "./beat-board.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
 import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
 
@@ -737,7 +737,7 @@ function ObjectTravelTrack({ object, frame, frameCount, fps, pathDraw, onPathDra
 								: ko("No room for a dot here: the route is full, or the playhead is on a dot or an end", "여기엔 점을 추가할 수 없어요: 경로가 가득 찼거나, 재생 위치가 점이나 끝에 있어요")}
 							onClick={() => playheadMark && onMarkAdd?.(playheadMark.marks[playheadMark.index - 1].t)}
 						>
-							{ko("Add dot at playhead", "현재 위치에 점 추가")}
+							{ko("+ Dot", "+ 점")}
 						</button>
 						<span className="objmo-lean" data-testid="route-lean-fields" title={selectedMark ? undefined : ko("Ends are always level; select a dot between them to lean the prop there", "양 끝은 항상 수평이에요. 사이의 점을 선택하면 그 지점에서 기울일 수 있어요")}>
 							<NumberField
@@ -804,7 +804,7 @@ function CameraBlockEditor({
 	blocked,
 	previewing,
 	railDraw,
-	railLength,
+	railLength, fps = 24,
 	craneSelectedIndex = null,
 	// The Shot box draws the curve; this bar owns everything you DO to it.
 	curve = null,
@@ -825,7 +825,7 @@ function CameraBlockEditor({
 			? { points: [{ t: 0, height: follow.height }, { t: 1, height: follow.height }] }
 			: null);
 	const patchCamera = (patch) => onChange?.(patch);
-	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } });
+	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const railFrames = shot.camera?.railFollow?.mode === "range" ? shot.camera.railFollow.endFrame - shot.camera.railFollow.startFrame : shot.endFrame - shot.startFrame; const speedLimit = mode === "rail" && railLength != null && railFrames > 0 ? Math.max(0.2, Math.ceil((railLength / (railFrames / fps)) * 10) / 10) : 40; // the rail is ridden on the shot clock, so faster than length / time is never reached
 	const numberValue = (event) => Number(event.currentTarget.value);
 	const metric = (value, places = 1) => Number(value).toFixed(places);
 	return (
@@ -899,9 +899,9 @@ function CameraBlockEditor({
 						<output className="tl-camera-metric">{metric(follow.distance, 2)}</output>
 						<small>m</small>
 					</label>
-					<label title={ko("Cap dolly travel speed", "돌리의 최고 이동 속도를 제한합니다")}>
+					<label title={speedLimit < 40 ? ko(`Dolly speed cap, up to ${speedLimit} m/s: the rail is ridden in the shot's time, so it never goes faster. Shorten the shot to go faster.`, `돌리 최고 속도, 최대 ${speedLimit} m/s: 레일은 샷 시간 안에 지나가므로 이보다 빨라지지 않아요. 더 빠르게 하려면 샷을 줄이세요.`, `推轨速度上限，最高 ${speedLimit} m/s：轨道在镜头时长内走完，因此不会更快。要更快请缩短镜头。`) : ko("Cap dolly travel speed", "돌리의 최고 이동 속도를 제한합니다")}>
 						<span>{ko("Speed", "속도")}</span>
-						<input type="number" min="0.2" max="40" step="0.1" value={follow.maxDollySpeed} onChange={(event) => patchFollow({ maxDollySpeed: numberValue(event) })} />
+						<input type="number" min="0.2" max={speedLimit} step="0.1" value={Math.min(follow.maxDollySpeed, speedLimit)} onChange={(event) => patchFollow({ maxDollySpeed: Math.min(speedLimit, numberValue(event)) })} />{speedLimit < 40 && <em className="tl-camera-limit" data-testid="camera-speed-limit">/ {speedLimit}</em>}
 						<small>m/s</small>
 					</label>
 					{!(mode === "rail" && crane) && (
@@ -1645,7 +1645,7 @@ export default function Timeline({
 							</button>
 							<span className="tl-readout" data-testid="sequencer-frame-readout" aria-live="polite">
 								<b>{String(Math.max(0, frame)).padStart(4, "0")}</b><span> / {String(Math.max(0, frameCount)).padStart(4, "0")} · {fps}fps</span>
-							</span>
+							</span><NotePinButton />
 						</div>
 						<div className="tl-sequencer-actions" role="group" aria-label={ko("Sequencer actions", "시퀀서 작업")}>
 							{motionTools || workflowMode === "pose" || ikMode ? null : (<>
@@ -1778,7 +1778,7 @@ export default function Timeline({
 							blocked={waypointMode}
 							previewing={playing}
 							railDraw={railDraw}
-							railLength={cameraRailLength}
+							railLength={cameraRailLength} fps={fps}
 							craneSelectedIndex={craneSelectedIndex}
 							curve={cameraCurveActions}
 							onChange={(patch) => handlers.current.onCameraBlockChange?.(patch)}
@@ -1857,8 +1857,7 @@ export default function Timeline({
 									{name === IK_LANE ? (
 										<span className="tl-track-label-stack">
 											<span className="tl-track-subrow"><span className="tl-track-chip body" data-lane-label="Body">{ko("Body", "바디")}</span></span>
-											<span className="tl-track-subrow indent"><span className="tl-track-chip pins" data-lane-label="Pins">{ko("Pins", "핀")}</span></span>
-											<span className="tl-track-subrow indent"><span className="tl-track-chip ik" data-lane-label="IK keys">{ko("IK keys", "IK 키")}</span></span>
+											<span className="tl-track-subrow indent"><span className="tl-track-chip ik" data-lane-label="IK keys">{ko("IK keys", "IK 키")}</span>{ikMode && <FixTools />}</span>
 										</span>
 									) : name === SHOTS_LANE ? (
 										<span className="tl-track-label-stack">
@@ -1911,13 +1910,13 @@ export default function Timeline({
 												if (e.button !== 0 || e.target !== e.currentTarget) return;
 												handlers.current.onRootKeyframeAdd?.(rootFrameFromEvent(e));
 											}
-											: undefined
+											: name === IK_LANE ? (e) => ikLanePress(e, rootFrameFromEvent(e)) : undefined
 									}
 								>
 									{gridFrames.map((f) => (
 										<i key={f} className="tl-grid" style={{ "--tl-f": framePct(f, displayFrameCount) }} aria-hidden="true" />
 									))}
-									{name === IK_LANE && previewRanges.map((range, index) => {
+									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} />}{name === IK_LANE && previewRanges.map((range, index) => {
 										const startFrame = Number.isFinite(Number(range?.startFrame)) ? Number(range.startFrame) : Number(range?.start ?? 0);
 										const endFrame = Number.isFinite(Number(range?.endFrame)) ? Number(range.endFrame) : Number(range?.end ?? startFrame);
 										const start = Math.max(0, Math.min(displayFrameCount - 1, Math.round(startFrame)));

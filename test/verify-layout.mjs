@@ -371,7 +371,7 @@ expect(
 
 // Add > Camera toasts the shot it made (its name and start frame); a refusal leaves the toast to runStudioAction.
 const addCameraShot = readFileSync(new URL("../src/shell/add-camera-shot.js", import.meta.url), "utf8");
-expect("Add > Camera toasts the new shot from its receipt", addCameraShot.includes("affectedIds") && addCameraShot.includes("setToast(") && addCameraShot.includes("startFrame") && viewportToolbar.includes("onClick={() => { addCameraShot({ appContext, runStudioAction, setToast }); menu.close(); }}"));
+expect("Add > Camera toasts the new shot from its receipt", addCameraShot.includes("affectedIds") && addCameraShot.includes("setToast(") && addCameraShot.includes("startFrame") && readFileSync(new URL("../src/shell/AddSceneEntries.jsx", import.meta.url), "utf8").includes("onClick={() => { addCameraShot({ appContext, runStudioAction, setToast }); onDone?.(); }}") && viewportToolbar.includes("<AddSceneEntries onDone={menu.close} />"));
 
 if (failures) process.exit(1);
 console.log("all resizable workspace checks PASS");

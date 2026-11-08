@@ -4,6 +4,7 @@ import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_LIMIT_NOTICE, A
 import { isImeComposing } from "../ime.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
 import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
+import { ContextChips } from "./ContextChips.jsx"; import { captureAnnotatedImage, consumeMarks, markStills } from "../context-chips.js";
 import {
 	AGENT_PANEL_OVERLAY_BREAKPOINT,
 	AGENT_PANEL_RAIL_WIDTH,
@@ -633,9 +634,12 @@ export default function AgentPanel({
 		setAttachNotice(null); setSteerNotice("");
 		// An OpenAI-compatible server's address class (local, lan, hosted), never the address (#1043).
 		const endpoint = modelProviders.find((entry) => entry.id === String(model ?? "").split("/")[0])?.endpoint;
+		// Annotation marks (Studio): one annotated picture of the view rides after the composer's pictures, the marks in the context; a message Send took clears them (right after send's synchronous start).
+		const idle = surface === "studio" && !store.getState().streaming, annotated = idle ? captureAnnotatedImage() : null, chipImages = idle ? [...(annotated ? [{ dataUrl: annotated, name: "annotated-view.jpg" }] : []), ...markStills()] : [];
+		if (idle) queueMicrotask(() => { if (store.getState().streaming) consumeMarks(); });
 		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
-		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode });
-	}, [attachFrame, effort, model, modelProviders, store, taskMode]);
+		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, ...(chipImages.length ? { attachments: [...store.getState().pendingAttachments, ...chipImages] } : {}) });
+	}, [attachFrame, effort, model, modelProviders, store, surface, taskMode]);
 	const taskStepLabel = useCallback((call) => stepLabel(call, presentation.toolLabels), [presentation.toolLabels]);
 	const stopTurn = useCallback(() => store.stop(), [store]);
 	// Steering the turn that is already running: the composer's text joins THAT
@@ -926,6 +930,7 @@ export default function AgentPanel({
 			onDrop={composerDisabled ? undefined : onComposerDrop}
 			onPaste={composerDisabled ? undefined : onComposerPaste}
 		>
+			{surface === "studio" && <ContextChips />}
 			{pendingAttachments.length > 0 && <ul className="agent-attachments" aria-label="Attached images">
 				{pendingAttachments.map((attachment) => <li key={attachment.id} className="agent-attachment">
 					<img src={attachment.dataUrl} alt={attachment.name || "Attached image"} />

@@ -9,7 +9,7 @@ import { shotAtFrame } from "./cuts.js";
 import { isProxyFigure } from "./scenes.js";
 import { supportHeightForObject } from "./scene-objects.js";
 import { studioAssetList } from "./studio-asset-list.js";
-import { buildStudioContext, physicsFingerprintInput, studioEntityCursor, validateStudioCursor } from "./studio-agent-context.js";
+import { buildStudioContext, physicsFingerprintInput, studioEntityCursor, validateStudioCursor } from "./studio-agent-context.js"; import { marksForAgent } from "./context-chips.js";
 import { createStudioCommandJournal, framingChecks, localTransformReadback, placementChecks, sampledFramingResult, studioObjectCatalogue } from "./studio-agent-commands.js";
 import { verifyInstalledTake } from "./studio-agent-motion.js"; import { objectRowBounds } from "./studio-entity-bounds.js"; import { exportFramingInto } from "./studio-export-framing.js";
 import { shotGeometryFacts } from "./studio-geometry-facts.js"; import { KIT_CATALOGUE } from "./kits/index.js";
@@ -154,7 +154,7 @@ export function createStudioAppBinding(ports) {
 				rigReady: Boolean(s.targets.get(s.activeCharacterId)?.rig), cameraReady: Boolean(s.camera), bridgeReady: s.bridgeReady,
 				...(s.previsMode ? { storyboard: s.previsMode === "storyboard" } : {}) },
 			// Every registered command; buildStudioContext keeps only its id/label index.
-			...(registry ? { actions: registry.list() } : {}) });
+			...(registry ? { actions: registry.list() } : {}), ...marksForAgent() });
 	}
 	function readEnvironment() {
 		const s = refresh();

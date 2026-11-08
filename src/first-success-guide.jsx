@@ -9,9 +9,9 @@ const ANIMATION_STEPS = [
 		en: "Add a character.",
 		ko: "캐릭터를 추가하세요.",
 		zh: "添加一个角色。",
-		hintEn: "Click the lit Add button at the top left of the view, then Y Bot.",
-		hintKo: "장면 왼쪽 위에 빛나는 추가 버튼을 누르고 Y Bot을 고르세요.",
-		hintZh: "点击视图左上角高亮的“添加”按钮，然后选择 Y Bot。",
+		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Y Bot.",
+		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 Y Bot을 고르세요.",
+		hintZh: "点击右侧工具栏顶部高亮的“添加”按钮，然后选择 Y Bot。",
 	},
 	{
 		en: "Move it in the Scene view.",
@@ -106,9 +106,10 @@ export default function FirstSuccessGuide({ open, onDismiss, previsMode = "anima
 	const dismiss = () => { if (!complete) noteGuideDismissed(mode, step + 1); onDismiss(); };
 
 	return (
-		<aside className="v2-first-success-guide first-success-guide" role="dialog" aria-labelledby="first-success-guide-title" aria-describedby="first-success-guide-description">
+		<aside className="v2-first-success-guide first-success-guide" role="dialog" aria-labelledby="first-success-guide-kicker first-success-guide-title" aria-describedby="first-success-guide-description">
 			<div className="v2-first-success-guide-head first-success-guide-head">
 				<div>
+					<em className="v2-first-success-guide-kicker" id="first-success-guide-kicker" data-testid="first-success-guide-kicker">{ko("Tutorial", "튜토리얼")}</em>
 					<strong id="first-success-guide-title">{ko("Your first 60 seconds", "첫 60초")}</strong>
 					<span>{complete ? ko("Core loop complete", "핵심 흐름 완료", "核心流程完成") : ko(`Step ${step + 1} of ${STEPS.length}`, `${step + 1} / ${STEPS.length} 단계`, `第 ${step + 1} / ${STEPS.length} 步`)}</span>
 				</div>
