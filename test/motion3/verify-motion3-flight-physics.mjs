@@ -29,6 +29,7 @@ function expect(name, condition, detail = "") {
 	if (!condition) failures += 1;
 }
 const SPEC = "cozyclay.motion-spec.v1", G = 9.81 / 24 ** 2, r3 = x => Math.round(x * 1000) / 1000;
+const ease = u => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
 const stand = { skill: "standIdle", f0: 0, args: { at: [0, 0], heading: 0 } };
 const sk = skeletonFor("y-bot-tpose"), I = sk.index;
 /** The standing pose standIdle keys at the origin: root, ankles and the rest of its channels. */
@@ -54,8 +55,8 @@ function roofFall() {
 	for (;; f++) {
 		const t = f - A;
 		root = shift(base, [0, vy * t - G * t * t / 2, vz * t]);
-		if (root[1] + off.l[1] - 0.06 * Math.min(1, t / 3) <= ANKLE) break;
-		at(f, { root, ...feet(root, 0.06 * Math.min(1, t / 3)), fpitch_l: 30, fpitch_r: 30, aswing_l: 20 + 70 * Math.min(1, t / 12), aswing_r: 20 + 70 * Math.min(1, t / 12) });
+		if (root[1] + off.l[1] - 0.06 * ease(t / 4) <= ANKLE) break;
+		at(f, { root, ...feet(root, 0.06 * ease(t / 4)), fpitch_l: 30, fpitch_r: 30, aswing_l: 20 + 70 * ease(t / 14), aswing_r: 20 + 70 * ease(t / 14) });
 	}
 	const land = f, stop = shift([root[0], 0, root[2]], [0, 0.55, vz * 3]), down = { foot_l: [root[0] + off.l[0], ANKLE, root[2] + off.l[2]], foot_r: [root[0] + off.r[0], ANKLE, root[2] + off.r[2]] };
 	at(land, { root: [root[0], root[1], root[2]], ...down, fpitch_l: 0, fpitch_r: 0 });
@@ -89,13 +90,14 @@ function roofFall() {
 		keys.push({ f, set: { root: shift(pose0.root, [0, -Math.min(h, s), 0.3 * Math.min(h, s)]) } });
 	}
 	keys.push({ f: f + 20, set: { root: shift(pose0.root, [0, -h, 0.3 * h]) } });
-	const r = compileSpec({ schema: SPEC, fps: 24, frames: f + 22, keys, fix: { retime: false } }, { sk, scene: motionScene([]) }), g = r.qa.groups.find(x => x.kind === "DROP");
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: f + 22, keys }, { sk, scene: motionScene([]) }), g = r.qa.groups.find(x => x.kind === "DROP");
 	expect(`(b) hips falling at 2 g with the feet planted: DROP (worst ${g ? g.worst : "-"} g, limit ${DROP_LIMIT} g)`, g && g.count >= 2 && g.worst > 1.5, JSON.stringify(r.qa.groups.map(x => `${x.kind} ${x.subject}`)));
-	const need = Math.sqrt(2 * h / 9.81), m = /sqrt\(2h\/g\) = ([\d.]+) s \((\d+) frames\)/.exec(g?.hint ?? "");
-	expect(`(b) the DROP hint gives the time the drop needs at 1 g, sqrt(2h/g) = ${r3(need)} s, and an earlier hand brace`, m && Math.abs(+m[1] - need) < 0.02 && +m[2] === Math.ceil(need * 24) && /brace/.test(g.hint), g?.hint);
+	const need = Math.sqrt(2 * h / 9.81), m = /the hips drop ([\d.]+) m over (\d+) frames \(f(\d+)-f(\d+)\).*sqrt\(2h\/g\) = ([\d.]+) s \((\d+) frames\).*at f(\d+) or later/.exec(g?.hint ?? "");
+	expect(`(b) the DROP hint gives the drop (${h} m from f20), sqrt(2h/g) = ${r3(need)} s at 1 g, the frame its low point needs, and an earlier hand brace`,
+		m && Math.abs(+m[1] - h) < 0.02 && +m[3] === 20 && Math.abs(+m[5] - need) < 0.02 && +m[6] === Math.ceil(need * 24) && +m[7] === 20 + Math.ceil(need * 24) && /brace/.test(g.hint), g?.hint);
 	// the same drop over the frames a fall needs reads clean
 	const slow = keys.map(k => (k.f > 20 && k.f <= f ? { f: 20 + (k.f - 20) * 2, set: k.set } : k.f > f ? { f: k.f + f - 20, set: k.set } : k));
-	const ok = compileSpec({ schema: SPEC, fps: 24, frames: slow.at(-1).f + 2, keys: slow, fix: { retime: false } }, { sk, scene: motionScene([]) });
+	const ok = compileSpec({ schema: SPEC, fps: 24, frames: slow.at(-1).f + 2, keys: slow }, { sk, scene: motionScene([]) });
 	expect("(b) the same drop at half the acceleration: no DROP", !kinds(ok).has("DROP"), JSON.stringify(ok.qa.groups.map(x => `${x.kind} ${x.subject} ${x.worst}`)));
 }
 

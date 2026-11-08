@@ -9,8 +9,9 @@
 //         height is not a fall: DROP leaves those frames (the flip skill's cartwheel dips its hips at 1.5-3.3 g).
 //   SPIN  in a flight (flights: an air run of MIN_RUN frames or more, split where a hand is pinned, a frame on each
 //         side) the angular momentum about the centre of mass (inertia.js) must stay what the body left the ground with,
-//         read on the frames whose central difference stays in the air (the takeoff and landing frames carry the push). value = how far it drifts at
-//         that frame from the run's mean, as a share of the mean or of SPIN_FLOOR kg m^2/s, whichever is larger;
+//         read on the frames whose central difference stays in the air (the takeoff and landing frames carry the
+//         push). value = how far it drifts at that frame from the run's mean, as a share of the mean or of SPIN_FLOOR
+//         kg m^2/s, whichever is larger;
 //         SPIN_TOL is the share allowed. So a frame may drift 20% of the run's momentum, and never less than 16
 //         kg m^2/s (70 kg body): legs tucked in a straight hop swing it by about 14 with no turn to re-time, a
 //         standing back tuck carries about 60 and its keyed turn drifts 30-48. fix.spin (fix/spin.js) re-times the
@@ -136,12 +137,12 @@ export function flightChecks(out, checks = {}, runs = airRuns(out, checks.suppor
 
 const r2 = x => (Math.round(x * 100) / 100).toFixed(2);
 
-/** The descent around a DROP group: the frames where the hips start down and stop, and the height between. */
+/** The descent around a DROP group: the frames where the hips start down and stop (moving down 1 mm a frame or more), and the height between. */
 function descent(X, g) {
 	const y = f => X.fr(f).s.P[X.I.Hips][1], lo = X.out.f0 ?? 0, hi = lo + X.out.frames.length - 1;
 	let top = g.first, bottom = g.last;
-	while (top > lo && y(top - 1) >= y(top)) top--;
-	while (bottom < hi && y(bottom + 1) <= y(bottom)) bottom++;
+	while (top > lo && y(top - 1) - y(top) > 1e-3) top--;
+	while (bottom < hi && y(bottom) - y(bottom + 1) > 1e-3) bottom++;
 	return { top, bottom, h: y(top) - y(bottom) };
 }
 
