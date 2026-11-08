@@ -155,6 +155,15 @@ const TOL = 3, SOFT = new Set(["POP"]);
 	expect("  ... and its refitted collision body is the X Bot's, cell for cell", same);
 }
 
+// 1b. Mixamo names as three.js GLTFLoader writes them (the colon dropped: "mixamorigHips", src/poses.js) and with an underscore
+for (const pre of ["mixamorig", "mixamorig_", "mixamorig1"]) {
+	let out = null, err = "";
+	try { out = adaptRig({ units: "cm", bones: xBot.bones.map(b => ({ name: `${pre}${b.name}`, parent: b.parent, localPos: b.localPos, localQuat: b.localQuat })) }); } catch (e) { err = e.message; }
+	const dp = out ? Math.max(...out.rig.bones.flatMap((b, i) => b.worldPos.map((v, k) => Math.abs(v - xBot.bones[i].worldPos[k])))) : NaN;
+	expect(`X Bot named "${pre}Hips": detected mixamo, nothing missing or extra, the X Bot's joints (1e-5 cm)`,
+		out && out.report.detected.id === "mixamo" && out.report.detected.score === 1 && !out.report.missing.length && !out.report.extra.length && dp < 1e-5, err || JSON.stringify(out?.report.detected));
+}
+
 // 2. the X Bot's QA on the three motions (the bar for the adapted rigs)
 const xb = skeletonFor("x-bot-tpose"), base = Object.fromEntries(Object.keys(MOTIONS).map(m => [m, run(xb, m)]));
 for (const [m, r] of Object.entries(base)) expect(`X Bot ${m}: compiles, QA ${r.qa.total} (the bar for the adapted rigs) ${JSON.stringify(issues(r))}`, Number.isInteger(r.qa.total));
@@ -215,6 +224,31 @@ for (const c of CASES) {
 	for (const motion of Object.keys(MOTIONS)) {
 		const r = run(sk, motion, k), hard = r.qa.groups.filter(g => !SOFT.has(g.kind));
 		expect(`  ... ${motion} on its made-up fingers, toes and neck: QA ${r.qa.total} (X Bot ${base[motion].qa.total}, at most ${TOL} more pops)`, r.qa.total - base[motion].qa.total <= TOL && !hard.length, JSON.stringify(issues(r)));
+	}
+}
+
+// 4c. body size: the X Bot scaled to a stature of 0.8 and 0.65, and with hips 0.8 as wide. The QA limits held in metres
+// (the legs' SELF limits, the finger radius, the body capsules) scale with the rig (landmarks.scale), so these stand,
+// walk, grip and flip as the X Bot does. Before, the thighs read as overlapping on every frame (hips 0.82: standIdle QA 48;
+// stature 0.8: walk 165) and, from a stature of 0.7, the fingers as lying in each other (0.6: walk 1182).
+{
+	const idle = { schema: SPEC, fps: 24, frames: 48, use: [stand] }, idle0 = compileSpec(idle, { sk: xb, scene: motionScene([]) }).qa.total;
+	for (const [id, f, hips] of [["stature 0.8", 0.8, 1], ["stature 0.65", 0.65, 1], ["hips 0.8 as wide", 1, 0.8]]) {
+		const bones = xBot.bones.map(b => {
+			const p = b.localPos.map(v => v * f);
+			return { name: `mixamorig:${b.name}`, parent: b.parent, localPos: /UpLeg$/.test(b.name) ? [p[0] * hips, p[1], p[2]] : p, localQuat: b.localQuat };
+		});
+		const { rig } = adaptRig({ units: "cm", bones }), key = `test-size-${f}-${hips}`;
+		registerRig(key, rig);
+		const sk = skeletonFor(key), k = sk.restWorldPos[0][1] / xb.restWorldPos[0][1], s = rig.landmarks.scale;
+		expect(`X Bot at ${id}: landmarks.scale hips ${s.hips}, hand ${s.hand}, girth ${s.girth}`, Math.abs(s.hips - f * hips) < 1e-3 && Math.abs(s.hand - f) < 1e-3 && Math.abs(s.girth - f) < 1e-3, JSON.stringify(s));
+		const r0 = compileSpec(idle, { sk, scene: motionScene([]) });
+		expect(`  ... standIdle 48 f: QA ${r0.qa.total} (X Bot ${idle0})`, r0.qa.total <= idle0, JSON.stringify(issues(r0)));
+		for (const motion of Object.keys(MOTIONS)) {
+			const r = run(sk, motion, k), hard = r.qa.groups.filter(g => !SOFT.has(g.kind)), bar = base[motion].qa;
+			expect(`  ... ${motion}: QA ${r.qa.total} (X Bot ${bar.total}; no issue of another kind, at most ${TOL} more pop frames)`,
+				r.qa.total - bar.total <= TOL && hard.length <= bar.groups.filter(g => !SOFT.has(g.kind)).length, JSON.stringify(issues(r)));
+		}
 	}
 }
 
