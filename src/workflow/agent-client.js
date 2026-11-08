@@ -703,7 +703,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 					reader.releaseLock();
 				}
 			};
-			const body = studio
+			// A v4 model (the v4 motion engine) always takes /agent/turn: it is one agent, never the task coordinator.
+			const tasked = studio && tasks && !String(model ?? "").startsWith("v4/"), body = studio
 				? JSON.stringify({
 					surface: "studio", sessionId, turnId, text, context: turnRequest.context,
 					...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(attachFrame === undefined ? {} : { attachFrame: Boolean(attachFrame) }), ...(typeof supervisor === "boolean" ? { supervisor } : {}), ...attached,
@@ -711,9 +712,9 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 				: JSON.stringify({ sessionId, text, attachFrame, model, ...(effort ? { effort } : {}), ...attached, ...(telemetry.turnId ? { turn_id: telemetry.turnId } : {}) });
 			try {
 				// Task mode (the panel's Tasks switch): the turn goes to the main agent, which answers at once and runs tasks.
-				const response = await fetchImpl(sidecarUrl(studio && tasks ? "/agent/main" : "/agent/turn"), {
+				const response = await fetchImpl(sidecarUrl(tasked ? "/agent/main" : "/agent/turn"), {
 					method: "POST",
-					headers: { "content-type": "application/json", accept: "text/event-stream", ...(studio && tasks ? { "x-cozyclay-tasks": "on" } : {}) },
+					headers: { "content-type": "application/json", accept: "text/event-stream", ...(tasked ? { "x-cozyclay-tasks": "on" } : {}) },
 					body,
 					signal,
 				});
