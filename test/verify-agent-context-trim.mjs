@@ -151,6 +151,14 @@ check("a newest result too big for the ceiling on its own shrinks as well, its i
 	assert.ok(tokens(out) <= 200_000, `${Math.round(tokens(out))} tokens`);
 	assert.ok(isShort(out[2]) && text(out[2]).includes(uuid(0)) && text(out[2]).includes(spec(0)));
 });
+check("a newest inspect result too big on its own shrinks first; the turn's earlier calls stay", () => {
+	const h = [prompt("의자를 끌어와서 앉아줘")];
+	for (let i = 0; i < 20; i++) h.push(call(i, `return ${i};`, "x".repeat(20_000)), result(i));
+	h.push(call(20, "return 20;"), { ...result(20), toolName: "inspect_studio", content: [{ type: "text", text: JSON.stringify({ ok: true, context: { pad: "z".repeat(900_000) } }) }] });
+	const out = run(h);
+	assert.ok(tokens(out) <= 200_000, `${Math.round(tokens(out))} tokens`);
+	assert.equal(out.length, h.length, "no call is left out");
+});
 check("the stored history is never edited", () => {
 	const h = history(14), before = JSON.stringify(h);
 	run(h);

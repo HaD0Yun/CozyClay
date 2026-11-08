@@ -91,10 +91,16 @@ function shortenedParts(messages) {
 	// (a turn runs from its prompt to the next one), then the running turn's oldest calls with their results (its prompt
 	// and its newest call stay; a call is never split from its results). Only when the prompt and the newest call alone
 	// pass the ceiling do the newest results and images shrink as well.
-	const step = () => {
+	const step = last => {
 		const ceiling = over(BUDGET.ceiling);
 		if (ceiling || pending(results, cutResults, BUDGET.keepResults) + pending(images, cutImages, BUDGET.keepImages) >= BUDGET.room) cutAll(BUDGET.keepResults, BUDGET.keepImages);
 		if (ceiling) {
+			// The prompt and the newest call with its results pass the ceiling on their own: shrink the newest first, so no
+			// earlier turn or call leaves for a size the shrinking takes off anyway.
+			const newest = turn.at(-1) ?? prompts.at(-1);
+			let kept = live + liveResult + size[prompts.at(-1)];
+			for (let i = newest; i <= last; i += 1) if (i !== prompts.at(-1)) kept += size[i];
+			if (kept > BUDGET.ceiling) cutAll(0, 0);
 			for (const at of prompts) {
 				if (!over(BUDGET.limit)) break;
 				if (!from && at) total += NOTE_TOKENS;
@@ -131,7 +137,7 @@ function shortenedParts(messages) {
 		});
 		total += size[index];
 		if (message?.role === "toolResult") results.push({ index, saving: resultSaving(message) });
-		if (total > next || over(BUDGET.ceiling)) step();
+		if (total > next || over(BUDGET.ceiling)) step(index);
 	});
 	const keys = (items, count) => new Set(items.slice(0, count).map(item => item.key ?? item.index));
 	return { from, gap, results: keys(results, cutResults), calls: keys(calls, cutCalls), images: keys(images, cutImages) };
