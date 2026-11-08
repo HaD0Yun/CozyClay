@@ -74,7 +74,7 @@ function roofFall() {
 	expect(`(a) roof fall: the hips stay within 0.05 m of their exact 1 g keys over f${a}-f${b} (worst ${r3(keyErr)} m)`, keyErr < 0.05, r3(keyErr));
 	const m = { frames: r.out.frames.map(fr => ({ com: centerOfMass(sk, fr.s) })) }, grav = gravityCheck(m, [a - 1, b]);
 	expect(`(a) roof fall: the bench scorer's gravity error is under 0.05 m (${r3(grav.error)} m, speed change ${r3(grav.speedChange)} m/s)`, grav.error < 0.05, JSON.stringify(grav));
-	expect("(a) roof fall: retime leaves the flight's frames as keyed (no time map inside it)", !r.out.timeMap || Array.from({ length: b - a + 3 }, (_, i) => a - 1 + i).every(f => Math.abs(r.out.timeMap(f) - f) < 1e-9), JSON.stringify(r.fixed.retime));
+	expect(`(a) roof fall: retime leaves the air frames f${a}-f${b} as keyed (the time map is the identity there; it stretched ${r.fixed.retime?.maxStretch ?? 1}x elsewhere)`, !r.out.timeMap || Array.from({ length: b - a + 1 }, (_, i) => a + i).every(f => Math.abs(r.out.timeMap(f) - f) < 1e-9), JSON.stringify(r.fixed.retime));
 	expect("(a) roof fall: output.fixed.ballistic reports the run, its frames and the worst move", r.fixed.ballistic?.runs >= 1 && r.fixed.ballistic.frames >= b - a + 1 && r.fixed.ballistic.max >= 0 && Array.isArray(r.fixed.ballistic.at), JSON.stringify(r.fixed.ballistic));
 	const pen = new Set(["REACH", "COLLIDE", "GROUND", "BODY"]), added = [...kinds(r)].filter(k => pen.has(k) && !kinds(off).has(k));
 	expect("(a) roof fall: no new REACH or penetration (COLLIDE, GROUND, BODY) against the same take with the flight fixes off", added.length === 0, JSON.stringify(r.qa.groups.map(g => `${g.kind} ${g.subject}`)));

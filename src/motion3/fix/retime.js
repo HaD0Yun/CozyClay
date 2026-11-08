@@ -7,9 +7,9 @@
 // windows stay where they are; the time map is kept on out.timeMap so frame-range checks follow.
 // Flights (qa/flight-checks.js flights: air runs of 4 frames or more) are not retimed (#1124): their frames are fast because gravity makes them fast, and a
 // stretched fall is slower than gravity (bench v2, 07 roof fall back r1: f90-97 stretched 1.6-2.8x over an exact 1 g
-// parabola). An air frame is never too fast, and no window reaches into the key interval that holds a flight (held: a
-// frame past the takeoff and landing anchors, to the keys around them; those two keys stay where they are, so every
-// frame between them keeps its timing).
+// parabola). An air frame is never too fast, and no window reaches into the key interval that holds a flight (held:
+// from the last key at or before the frame before takeoff to the first at or after the frame after landing; those two
+// keys stay where they are, so every frame between them keeps its timing).
 import { QA_LIMITS } from "../qa/checks.js";
 import { speedExcess } from "../qa/style.js";
 
@@ -23,11 +23,12 @@ const excess = (out, air) => {
 };
 
 /**
- * The key intervals [p, q] that hold each flight (frames of out): the last key at or before a - 2 to the first at or after
- * b + 2. Retime reads the first solve, whose takeoff and landing the leg fixes can still move a frame (a toe-off sole 2 cm
- * up: the roof fall's flight read f32-f53 there and f31-f53 at the end), so a frame more on each side stays as keyed.
+ * The key intervals [p, q] that hold each flight (frames of out): the last key at or before a - 1 to the first at or after
+ * b + 1. Retime reads the first solve, whose takeoff the leg fixes can still move a frame earlier (a toe-off sole 2 cm up:
+ * the roof fall's flight read f32-f53 there and f31-f53 at the end); p stays at or before that frame, so the air frames
+ * keep their timing and only the frame before takeoff may move.
  */
-const held = (air, keyFrames, n) => air.map(([a, b]) => [Math.max(0, ...keyFrames.filter(f => f <= a - 2)), Math.min(n - 1, ...keyFrames.filter(f => f >= b + 2))]);
+const held = (air, keyFrames, n) => air.map(([a, b]) => [Math.max(0, ...keyFrames.filter(f => f <= a - 1)), Math.min(n - 1, ...keyFrames.filter(f => f >= b + 1))]);
 
 /** Windows cut where they reach into a held interval: the parts outside it that still hold a too-fast frame. */
 function outside(wins, holds, e) {
