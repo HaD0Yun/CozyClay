@@ -122,7 +122,7 @@ that is logged. Details: [`docs/agent-cli.md`](docs/agent-cli.md#models-and-prov
 ## 6. From source (only to change the code)
 
 ```sh
-git clone https://github.com/NomaDamas/CozyClay.git
+git clone https://github.com/HaD0Yun/CozyClay.git
 cd CozyClay
 npm install
 npm run dev        # studio, agent sidecar and live hub on http://127.0.0.1:5180/app/

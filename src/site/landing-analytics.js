@@ -13,7 +13,7 @@ function ctaTarget(element) {
 	const href = element.closest?.("a[href]")?.getAttribute("href") ?? "";
 	if (href === "/app/" || href.startsWith("/app/?")) return "app";
 	if (href.includes("INSTALL_FOR_AGENTS")) return "agent_install_doc";
-	if (href.startsWith("https://github.com/NomaDamas/CozyClay")) return "github";
+	if (href.startsWith("https://github.com/HaD0Yun/CozyClay")) return "github";
 	if (href.startsWith("https://discord.gg/")) return "discord";
 	if (href.startsWith("https://www.npmjs.com/package/cozyclay")) return "npm";
 	return null;
