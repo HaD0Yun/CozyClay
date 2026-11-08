@@ -1,0 +1,6 @@
+/* Fix tools on the IK keys row's header (FixTools.jsx): three 24px icon cells after the row's name. */
+.v2-sequencer .tl-track-subrow .pose-fix-tools { display: inline-flex; flex: none; align-items: center; gap: 2px; margin-left: auto; }
+.v2-sequencer .tl-track-subrow .pose-fix-tools > .pose-fix-icon:not(#_) { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-1, 4px);
+	background: var(--field-fill, var(--field, #fff)); color: var(--text-1, #202124); font: 600 10px/1 system-ui, sans-serif; cursor: pointer; }
+.v2-sequencer .tl-track-subrow .pose-fix-tools > .pose-fix-icon:disabled:not(#_) { opacity: 0.45; cursor: default; }
+.v2-sequencer .tl-track-subrow .pose-fix-tools > .pose-fix-icon[aria-pressed="true"]:not(#_) { background: var(--primary-fill, #0a6ee0); color: var(--on-primary, #fff); }

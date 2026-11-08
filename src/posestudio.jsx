@@ -1037,9 +1037,9 @@ const CLICK_PX = 4;
 		MID_TRACKS.find((t) => t.id === focus) ||
 		(focus === "hips" ? (fkJoints?.get("hips")?.track ?? null) : null);
 	const gizmoKind = IK_TRACKS.find((t) => t.id === focus) ? "chain" : MID_TRACKS.find((t) => t.id === focus) ? "mid" : focus === "hips" ? "body" : null;
-	// The focused hand/foot gets rotation rings beside its move arrows (the
-	// rings turn the hand/foot itself); a focused FK joint gets rings only.
-	const rotateTrack = IK_TRACKS.find((t) => t.id === focus) ?? (focus && focus !== "hips" ? fkJoints?.get(focus)?.track ?? null : null);
+	// The focused hand/foot gets rotation rings beside its move arrows (the rings turn the hand/foot itself); a focused
+	// FK joint gets rings only. Hips get rings too: they turn the whole body, feet with it, so it can lie down.
+	const rotateTrack = IK_TRACKS.find((t) => t.id === focus) ?? (focus ? fkJoints?.get(focus)?.track ?? null : null);
 	const rotateKind = IK_TRACKS.find((t) => t.id === focus) ? "swing" : "fk";
 
 	return (

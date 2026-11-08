@@ -177,6 +177,7 @@ const COMMAND_INPUTS = {
 	'cast.setLayer': { characterId: 'actor', layer: { waypoints: [] } },
 	'motion.clear': { characterId: 'actor' },
 	"character.addWaypoint": { characterId: "actor", position: { x: 0, z: 2 }, frame: 40 },
+	"character.applyWalk": { characterId: "actor", pins: [{ frame: 20, x: 0, z: 1.2 }, { frame: 40, x: 0, z: 2.4 }] },
 	"character.moveWaypoint": { characterId: "actor", position: { x: 0, z: 1.1 }, frame: 24 },
 	"character.removeWaypoint": { characterId: "actor", frame: 24 }, "character.clearWaypoints": { characterId: "actor" },
 	"character.setIkKey": { characterId: "actor", frame: 12, tracks: { head: { q: [unit] } } },
@@ -301,7 +302,9 @@ function commandFixture({ frame = 8, still = false } = {}) {
 	const journal = createStudioCommandJournal({ host });
 	const bus = registry => createCommandBus({ registry, ports: {
 		read: () => ({ host, revision, domainRevisions: {} }), journal: () => journal,
-		recordAction(domain, run) {
+		recordAction(domain, run, targetId, nested) {
+			// A nested action (character.applyWalk's waypoint steps) joins the open entry, as the document store's does.
+			if (nested && recording) return { result: run(), historyEntryId: null };
 			const entry = { domain, id: `entry-${entries.length + 1}` };
 			entries.push(entry);
 			recording = entry;
@@ -330,7 +333,7 @@ const cases = {
 	},
 	async "every command mutation writes inside one entry of its undo domain"() {
 		const mutations = Object.values(COMMAND_MODULES).flatMap(module => module.declarations).filter(entry => entry.kind === "mutation");
-		assert.equal(mutations.length, 82);
+		assert.equal(mutations.length, 83);
 		for (const declaration of mutations) {
 			// A new shot needs free room at the playhead; the others act inside shot-1.
 			const f = commandFixture({ frame: declaration.id === "shot.create" ? 24 : 8, still: ["shot.setHold", "shot.createStill"].includes(declaration.id) }), [name] = Object.entries(COMMAND_MODULES).find(([, module]) => module.declarations.includes(declaration));
@@ -356,6 +359,7 @@ const cases = {
 	"an unrelated cast undo cannot revert the light"() {
 		const f = castFixture(stageFixture());
 		try {
+			const startKeyLight = f.stage.read().keyLight;
 			const { txId } = f.run('run.begin', { id: 'stage.setKeyLight', args: {} });
 			for (const intensity of [2, 2.5]) assert.equal(f.run('run.update', { txId, args: { keyLight: { intensity } } }).ok, true);
 			assert.equal(f.stage.documentStore.depths().past, 0, 'stage preview is uncommitted until gesture end');
@@ -365,7 +369,7 @@ const cases = {
 			f.actual.undoScene();
 			assert.equal(f.cast.read()[0].x, 0, 'the cast edit undoes');
 			assert.equal(f.stage.read().keyLight.intensity, 2.5, 'cast undo preserves the earlier light edit');
-			f.actual.undoScene(); assert.deepEqual(f.stage.read().keyLight, createKeyLight(null));
+			f.actual.undoScene(); assert.deepEqual(f.stage.read().keyLight, startKeyLight);
 		} finally { f.dispose(); }
 	},
 	"every key-light surface records one entry per gesture"() {
@@ -407,13 +411,14 @@ const cases = {
 	},
 	"Reset light is one entry and undoes"() {
 		const f = fixture();
-		f.scope.changeKeyLight("intensity", { intensity: 3 });
+		// 2, not the default (3): Reset must have something to undo.
+		f.scope.changeKeyLight("intensity", { intensity: 2 });
 		f.scope.endGestureUndo();
 		f.scope.resetKeyLight();
 		assert.equal(f.depth(), 2);
 		assert.deepEqual(f.scope.keyLight, createKeyLight(null));
 		f.scope.undoScene();
-		assert.equal(f.scope.keyLight.intensity, 3, "Reset undoes back to the brightness that was set");
+		assert.equal(f.scope.keyLight.intensity, 2, "Reset undoes back to the brightness that was set");
 	},
 	"Inspector character rows record once per scrub and per typed commit"() {
 		for (const [axis, patch, read] of [

@@ -78,9 +78,11 @@ check("Look through draws into the open stage, not under the panels", () => {
 	assert.ok(rule.includes("--shot-look-x: calc(var(--shell-gap) * 2 + 44px)") && rule.includes("--shot-look-y:"), "rail and pill bands");
 	assert.ok(rule.includes("inset: calc(var(--shell-stage-top) + var(--shot-look-y)) calc(var(--shell-center-right) + var(--shot-look-x)) calc(var(--shell-center-bottom) + var(--shot-look-y)) calc(var(--shell-center-left) + var(--shot-look-x));"), "symmetric pane inset");
 	const glass = readFileSync(new URL("../src/shell/glass.css", import.meta.url), "utf8");
-	assert.match(glass, /\.vp-overlay-right \{[\s\S]*?width: 44px;/, "the rails stay 44px wide");
-	assert.match(glass, /\.vp-overlay-left \{ left: var\(--shell-gap\); \}/, "the left rail sits a gutter off the stage edge");
-	assert.match(css, /--shell-view-top: var\(--shell-stage-top\);/);
+	// One rail on the right edge holds both tool groups: 30px wide, a gutter off the stage edge
+	// (still inside the 44px band the shot-look inset keeps clear on each side).
+	assert.match(glass, /\.vp-overlay-rail \{[\s\S]*?right: 8px;[\s\S]*?width: 30px;/, "the merged rail is 30px wide, 8px inside the right edge");
+	// the stage frame opens to the top gap; the bar floats over it
+	assert.match(css, /--shell-view-top: var\(--shell-gap\);/);
 	const dual = readFileSync(new URL("../src/dualview.jsx", import.meta.url), "utf8");
 	assert.ok(dual.includes("draw(shotCam, shotPane, fitAspect(shotPane, shotAspect)") && dual.includes("draw(shotCam, previewRect, fitAspect(previewRect, shotAspect)"));
 });

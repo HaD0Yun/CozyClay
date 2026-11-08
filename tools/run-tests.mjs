@@ -34,7 +34,7 @@ const NODE_FILES = [
 	"test/ik/verify-physics-review.mjs",
 	"test/ik/verify-physics-support.mjs",
 	"test/ik/verify-physics-surface.mjs",
-	"test/ik/verify-ik.mjs",
+	"test/ik/verify-ik.mjs", "test/ik/verify-ik-lie-down.mjs",
 	"test/ik/verify-knee-side.mjs",
 	"test/ik/translation-step.mjs",
 	"test/ik/verify-ik-drag-delta.mjs",
@@ -206,12 +206,12 @@ const NODE_FILES = [
 	"test/verify-speed-envelope.mjs",
 	"test/verify-project-resources.mjs",
 	"test/verify-workflow-resources.mjs",
-	"test/verify-resource-status.mjs",
+	"test/verify-resource-status.mjs", "test/verify-route-sketch.mjs",
 ];
 
 const BROWSER_FILES = [
 	"test/qa-proxy-entry-browser.mjs", "test/qa-update-depth-browser.mjs", "test/qa-translate-guard-browser.mjs",
-	"test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs",
+	"test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs",
 	"test/qa-storyboard-board-browser.mjs", "test/qa-sculpt-shelf-browser.mjs",
 	"test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs",
 	"test/qa-proxy-figure-browser.mjs", "test/qa-click-friction-browser.mjs", "test/qa-update-notice-browser.mjs", "test/qa-export-menu-browser.mjs",
@@ -221,7 +221,6 @@ const BROWSER_FILES = [
 	"test/verify-camera-rail-browser.mjs",
 	"test/verify-cutout-browser.mjs",
 	"test/verify-mesh-browser.mjs",
-	"test/verify-first-success-guide-browser.mjs",
 	"test/verify-ik-browser.mjs",
 	"test/verify-motion-edit-browser.mjs",
 	"test/verify-number-field-scrub-browser.mjs",
@@ -261,7 +260,7 @@ EXTRA_INVENTORY.push("test/qa-proxy-figure-browser.mjs", "test/qa-click-friction
 EXTRA_INVENTORY.push("test/qa-proxy-entry-browser.mjs", "test/qa-export-menu-browser.mjs", "test/qa-update-depth-browser.mjs", "test/qa-translate-guard-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-storyboard-board-browser.mjs", "test/qa-sculpt-parts-browser.mjs", "test/qa-sculpt-shelf-browser.mjs");
-EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs");
+EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs");
 
 function verificationFiles(directory) {
 	return readdirSync(directory, { withFileTypes: true })

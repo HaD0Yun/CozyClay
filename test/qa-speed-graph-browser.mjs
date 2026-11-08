@@ -234,7 +234,9 @@ for (const theme of ["light", "dark"]) {
 
 	/* ---------------------------------------------------------------- 6. */
 	const marks = await Promise.all([".sg-scale-top", ".sg-scale-avg", ".sg-scale-zero"].map((s) => rect(`.objmo ${s}`)));
-	const lefts = marks.map((m) => m.x - body.x);
+	// The compact glass shell hides the average mark; the marks still shown share the edge.
+	const lefts = marks.filter((m) => m.width > 0).map((m) => m.x - body.x);
+	assert.ok(lefts.length >= 2, `the top and zero marks are shown: ${lefts.length}`);
 	assert.ok(lefts.every((l) => Math.abs(l - lefts[0]) < 1 && l < 12), `the scale marks share the left edge: ${lefts.map((l) => l.toFixed(1)).join(", ")}`);
 	assert.ok(marks.every((m) => m.width < 60), `the marks are labels, not full-width spans: ${marks.map((m) => m.width.toFixed(0)).join(", ")}`);
 	await stripShot(`speed-graph-${theme}-after`);

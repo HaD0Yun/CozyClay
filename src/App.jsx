@@ -30,7 +30,7 @@ import { applyTakeFrame } from "./motion3/playback.js";
 
 import { FlyControls, aimAt, forwardFrom } from "./controls.jsx";
 import { createCameraPerformance, framingFromCamera } from "./camera-performance.js";
-import ViewportMeasurement from "./viewport-measurement.jsx";
+import ViewportMeasurement from "./viewport-measurement.jsx"; import { ContextChipTools } from "./context-chip-tools.jsx"; import { PoseKeyGhosts } from "./pose-key-ghosts.jsx"; import { FixOriginalGhost } from "./fix-original-ghost.jsx";
 import ReviewOverlay from "./review-overlay.jsx";
 import "./previs.css";
 import { applyCameraOptics, focusDistance } from "./camera-optics.js";
@@ -54,6 +54,7 @@ import { browserSculptImages } from "./commands/sculpt-images.js";
 import { sculptAgentClient, sculptModelLabel } from "./sculpt-mode.js";
 import { useSculptMode } from "./use-sculpt-mode.js";
 import { useFirstSuccessPrompt } from "./use-first-success-prompt.js";
+import FirstSuccessGuide from "./first-success-guide.jsx";
 import { useEmbedBridge } from "./use-embed-bridge.js";
 import { useAssetShelf } from "./use-asset-shelf.js";
 import { StudioProtocolError } from "./studio-agent-protocol.js";
@@ -129,7 +130,6 @@ import {
 	WORKFLOW_STORAGE_KEY,
 } from "./project.js";
 import ProjectBrowser, { ProjectNameDialog } from "./project-browser.jsx";
-import FirstSuccessGuide from "./first-success-guide.jsx";
 import { usePoseEntry } from "./pose-entry.js";
 import { noteDeleteUndone, notePanelToggled } from "./studio-telemetry.js";
 import UseCaseQuestion from "./use-case-question.jsx";
@@ -310,6 +310,8 @@ const CHARACTER_SCALE_BOUNDS = elementByPath("character.scale");
 // never mistaken for selection. Paired with --agent-touch in styles.css, which
 // fades the same highlight out over the same two seconds.
 const AGENT_RECEIPT_HIGHLIGHT_MS = 2000;
+// The fly controls clamp pitch to the same 85° (controls.jsx), so the gizmo cannot flip the camera.
+const CAMERA_PITCH_LIMIT = THREE.MathUtils.degToRad(85);
 
 /**
  * Pose ONE cast member's rig at an absolute timeline frame: its own clip first,
@@ -730,7 +732,7 @@ export default function App() {
 			const dy = ev.clientY - startY;
 			setWorkspaceLayout((current) => {
 				if (kind === "left") {
-					return { ...current, shellLeftWidth: Math.max(200, Math.min(window.innerWidth * 0.3, leftWidth + dx)) };
+					return { ...current, shellLeftWidth: Math.max(150, Math.min(window.innerWidth * 0.3, leftWidth + dx)) };
 				}
 				if (kind === "agent") {
 					return { ...current, shellAgentHeight: Math.max(160, Math.min(rightHeight - 200, agentHeight - dy)) };
@@ -2650,6 +2652,8 @@ export default function App() {
 	 * mirrors the live camera, gizmo patches write straight back to it and
 	 * commit manual framing — the same contract as dragging its plan puck. */
 	const shotCameraSelected = selectedHierarchyId === "camera";
+	// Bumped when the gizmo turns the camera, so the proxy below shows the new angle.
+	const [cameraLookTick, setCameraLookTick] = useState(0);
 	const cameraGizmoObject = useMemo(() => {
 		if (lookThroughShot || ikMode || !shotCameraSelected) return null;
 		return {
@@ -2659,20 +2663,28 @@ export default function App() {
 			z: cameraPos.z,
 			height: 0.24,
 			footprint: { width: 0.34, depth: 0.34 },
-			rotY: THREE.MathUtils.radToDeg(look.current.yaw),
+			// The gizmo reads and writes the scene-object keys: rot (yaw), rotX (pitch).
+			rot: THREE.MathUtils.radToDeg(look.current.yaw),
+			// eslint-disable-next-line react-hooks/refs -- read with yaw above; cameraLookTick re-runs this memo when the gizmo turns the camera
+			rotX: THREE.MathUtils.radToDeg(look.current.pitch),
+			rotZ: 0,
 			scaleX: 1,
 			scaleY: 1,
 			scaleZ: 1,
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [cameraPos, lookThroughShot, ikMode, shotCameraSelected]);
-	function changeShotCameraFromGizmo(_id, patch) {
+	}, [cameraPos, cameraLookTick, lookThroughShot, ikMode, shotCameraSelected]);
+	// The gizmo's proxy stands 0.12 m under the lens; the Details Transform writes the lens height itself.
+	function changeShotCameraFromGizmo(_id, patch) { setShotCameraTransform(patch.y === undefined ? patch : { ...patch, y: patch.y + 0.12 }); }
+	function setShotCameraTransform(patch) {
 		const cam = shotCamRef.current;
 		if (!cam) return;
 		if (patch.x !== undefined) cam.position.x = THREE.MathUtils.clamp(patch.x, -30, 30);
-		if (patch.y !== undefined) cam.position.y = Math.max(0.12, patch.y + 0.12);
+		if (patch.y !== undefined) cam.position.y = Math.max(0.12, patch.y);
 		if (patch.z !== undefined) cam.position.z = THREE.MathUtils.clamp(patch.z, -30, 30);
-		if (patch.rotY !== undefined) look.current.yaw = THREE.MathUtils.degToRad(patch.rotY);
+		if (patch.rot !== undefined) look.current.yaw = THREE.MathUtils.degToRad(patch.rot);
+		if (patch.rotX !== undefined) look.current.pitch = THREE.MathUtils.clamp(THREE.MathUtils.degToRad(patch.rotX), -CAMERA_PITCH_LIMIT, CAMERA_PITCH_LIMIT);
+		if (patch.rot !== undefined || patch.rotX !== undefined) setCameraLookTick((tick) => tick + 1);
 		cam.rotation.order = "YXZ";
 		cam.rotation.set(look.current.pitch, look.current.yaw, 0);
 		commitManualCameraFraming();
@@ -4613,7 +4625,10 @@ export default function App() {
 		exportStatus: exportStatus && { ...exportStatus, cancel: stopShotRecording, retry: retryExport },
 		subscribeToasts: (listener) => { toastSinkRef.current.add(listener); return () => toastSinkRef.current.delete(listener); },
 		enterShotLook, startCameraPerformance, stopCameraPerformance, cameraPerformanceRecording,
-		lookThroughShot, exitShotLook: exitPreview,
+		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform,
+		// The shot camera's transform for Details › Transform; cameraLookTick keeps the angles fresh.
+		// eslint-disable-next-line react-hooks/refs -- the look ref is the camera's angle; cameraLookTick re-renders after every gizmo or Details edit
+		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), tick: cameraLookTick },
 	};
 
 	return (
@@ -4791,7 +4806,7 @@ export default function App() {
 									/>
 								</ObjectCarrier>
 							))}
-							<ViewGhosts rig={rigs[activeChar.id]} take={motion} frame={tlFrame} objects={sceneObjects} propTake={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }} /><DraftGhost rigs={rigs} objects={sceneObjects} /><SculptSketch objects={sceneObjects} /><PhysicsOverlayLayer rig={rigs[activeChar.id]} take={motion} objects={sceneObjects} />
+							<ViewGhosts rig={rigs[activeChar.id]} take={motion} frame={tlFrame} objects={sceneObjects} propTake={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }} /><PoseKeyGhosts app={appContext} rig={rigs[activeChar.id]} characterId={activeChar.id} frame={tlFrame} on={Boolean(ikMode)} hidden={lookThroughShot} /><FixOriginalGhost app={appContext} rig={rigs[activeChar.id]} characterId={activeChar.id} frame={tlFrame} on={Boolean(ikMode)} hidden={lookThroughShot} /><DraftGhost rigs={rigs} objects={sceneObjects} /><SculptSketch objects={sceneObjects} /><PhysicsOverlayLayer rig={rigs[activeChar.id]} take={motion} objects={sceneObjects} />
 
 							{/* Selection marker: XYZ tripod + ring on the picked cast
 							    member; the X/Z arrows drag it across the deck. */}
@@ -5088,7 +5103,7 @@ export default function App() {
 							/>
 							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} shotCamRef={shotCamRef} subject={charA} />
 							<CameraGlide glide={camGlide} camRef={editorCamRef} lookRef={editorLook} onDone={() => setCamGlide(null)} />
-							<ViewportMeasurement camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} />
+							<ViewportMeasurement camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} /><ContextChipTools camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} />
 							<ShotLookApplier camRef={shotCamRef} look={look} />
 							<ShotCameraGhost
 								camRef={shotCamRef}
@@ -5325,6 +5340,7 @@ export default function App() {
 					else newProject(name);
 				}}
 			/>
+			{/* The first-run tutorial no longer opens on Create (nothing sets it true); kept mounted for its telemetry wiring. */}
 			<FirstSuccessGuide open={firstSuccessGuideOpen} castCount={characters.length} previsMode={scenesDomain.previsMode} onDismiss={() => setFirstSuccessGuideOpen(false)} />
 			<UseCaseQuestion
 				open={useCaseAskOpen}

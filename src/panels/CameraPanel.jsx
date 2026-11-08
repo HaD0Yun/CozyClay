@@ -5,6 +5,7 @@ import { VIDEO_MODEL_PRESETS } from "../model-presets.js";
 import { useBus } from "../app-context.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
 import { focusDistance } from "../camera-optics.js";
+import CameraTransformPanel from "./CameraTransformPanel.jsx";
 
 export default function CameraPanel({ isCameraSelection, shot, moveSequence, cameraKeys, activeShot }) {
 	const { run } = useBus();
@@ -18,7 +19,9 @@ export default function CameraPanel({ isCameraSelection, shot, moveSequence, cam
 	const focusTarget = focusCharacter ? { x: focusCharacter.x, y: 1.3 * (focusCharacter.scale ?? 1), z: focusCharacter.z }
 		: focusObject ? { x: focusObject.x, y: (focusObject.y ?? 0) + (focusObject.height ?? 0) / 2, z: focusObject.z } : null;
 	const focusMeters = focusDistance(cameraPosition, focusTarget);
-	return (
+	// Transform first, as on every scene object, then the camera's own controls.
+	return (<>
+<CameraTransformPanel isCameraSelection={isCameraSelection} />
 <Foldout hidden={!isCameraSelection} title={ko("Camera", "카메라")}>
 						<div className="readout v2-details-readout">
 						<span title={ko("camera to subject", "카메라와 피사체 거리")}><small>{ko("Distance", "거리")}</small> {shot.distance.toFixed(2)} m</span>
@@ -91,5 +94,5 @@ export default function CameraPanel({ isCameraSelection, shot, moveSequence, cam
 							</select>
 						</Field>
 					</Foldout>
-	);
+	</>);
 }

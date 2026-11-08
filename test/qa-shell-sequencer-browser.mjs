@@ -135,7 +135,7 @@ const geometry = await evaluate(`(() => {
 expect("track tree is 190 px", Math.abs(geometry.treeWidth - 190) < 0.5, JSON.stringify(geometry));
 expect("track rows are 38 px", geometry.rowHeights.length >= 8 && geometry.rowHeights.every((height) => Math.abs(height - 38) < 0.5), JSON.stringify(geometry.rowHeights));
 expect("playhead is amber", geometry.playheadColor === "rgb(232, 163, 61)", geometry.playheadColor);
-expect("v2 lane labels are present", ["Body", "Pins", "IK keys", "Camera Cuts", "Rail", "Crane"].every((label) => geometry.labels.includes(label)), JSON.stringify(geometry.labels));
+expect("v2 lane labels are present", ["Body", "IK keys", "Camera Cuts", "Rail", "Crane"].every((label) => geometry.labels.includes(label)), JSON.stringify(geometry.labels));
 await screenshot("task-14-seq");
 
 // The ruler is a real pointer surface. Click its midpoint and wait on the

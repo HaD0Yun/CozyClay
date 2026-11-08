@@ -8,7 +8,7 @@ import { assetKind, formatAssetBytes } from "./asset-shelf.js";
 import { assetRecord } from "./scene-asset-cache.js";
 import ResourceStatus from "./resource-status.jsx";
 import { ContentTile, grabProps } from "./content-tile.jsx";
-import SculptShelf from "./sculpt-shelf-tiles.jsx";
+import SculptShelf from "./sculpt-shelf-tiles.jsx"; import { AllFolders } from "./asset-all-grid.jsx";
 import { logStore } from "./shell/log-store.js";
 import { SearchEmpty } from "./search-friction.js";
 import "./asset-pane.css";
@@ -54,7 +54,6 @@ const OBJECT_GLYPHS = {
 	plane: "M12 7.5 21 12l-9 4.5L3 12z",
 };
 
-const STORAGE_FOLDER = "__storage";
 
 function ObjectPreview({ kind }) {
 	const d = OBJECT_GLYPHS[kind] ?? "M5 5h14v14H5z";
@@ -336,8 +335,8 @@ function matchesQuery(label, query) {
 /** Folder ids in display order. Basic Shapes holds the object catalogue's
  * primitives; Props holds what the user imported. */
 const FOLDERS = [
-	{ id: "basic", label: () => ko("Basic Shapes", "기본 도형") },
-	{ id: "characters", label: () => ko("Characters", "인물") },
+	{ id: "all", label: () => ko("All", "전체") },
+	{ id: "basic", label: () => ko("Basic Shapes", "기본 도형") }, { id: "characters", label: () => ko("Characters", "인물") },
 	{ id: "props", label: () => ko("Props", "소품") },
 	{ id: "cameras", label: () => ko("Cameras", "카메라") },
 	{ id: "motions", label: () => ko("Motions", "모션") },
@@ -367,7 +366,7 @@ function catalogueTile(entry, props) {
 
 const EmptyNote = ({ children }) => <p className="content-empty">{children}</p>;
 
-export function FolderGrid({ folder, query, ...props }) {
+const FolderView = ({ folder, ...props }) => (folder === "all" ? <AllFolders folders={FOLDERS.slice(1)} Grid={FolderGrid} {...props} /> : <FolderGrid folder={folder} {...props} />); export function FolderGrid({ folder, query, ...props }) {
 	const { imageAssetIds, meshAssetIds, shots = [], takeVersions = [], poses = [], onShotOpen, onTakeOpen, selectedKey, onSelect } = props;
 	let tiles = [];
 	let empty = null;
@@ -540,11 +539,11 @@ export default function AssetPane({
 	collapsed, onCollapsedChange, onShelfVisibleChange,
 }) {
 	const [tab, setTab] = useState("content");
-	const [folder, setFolder] = useState("basic");
+	const [folder, setFolder] = useState("all");
 	const [search, setSearch] = useState("");
 	const [selectedKey, setSelectedKey] = useState(null);
 	const query = search.trim().toLowerCase();
-	const shelfVisible = !collapsed && tab === "content" && (folder === "props" || manageStorage);
+	const shelfVisible = !collapsed && tab === "content" && (folder === "props" || folder === "all" || manageStorage);
 	useEffect(() => {
 		onShelfVisibleChange?.(shelfVisible);
 	}, [shelfVisible, onShelfVisibleChange]);
@@ -572,23 +571,8 @@ export default function AssetPane({
 					<button type="button" role="tab" data-testid="content-tab-content" aria-selected={tab === "content"} onClick={() => { setTab("content"); if (collapsed) onCollapsedChange(false); }}>{ko("Content", "콘텐츠")}</button>
 					<button type="button" role="tab" data-testid="content-tab-log" aria-selected={tab === "log"} onClick={() => { setTab("log"); if (collapsed) onCollapsedChange(false); }}>{ko("Log", "로그")}</button>
 				</div>
-				{tab === "content" && !collapsed && (
-					<label className="content-folder-picker" title={ko("Folder", "폴더")}>
-						<select
-							data-testid="content-folder-picker"
-							aria-label={ko("Folder", "폴더")}
-							value={manageStorage ? STORAGE_FOLDER : folder}
-							onChange={(event) => {
-								if (event.target.value === STORAGE_FOLDER) { if (!manageStorage) onManageStorageToggle(); }
-								else openFolder(event.target.value);
-							}}
-						>
-							{FOLDERS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label()}</option>)}
-							<option value={STORAGE_FOLDER}>{ko("Manage storage", "저장 공간 관리")}</option>
-						</select>
-						<svg viewBox="0 0 10 10" aria-hidden="true"><path d="m2.5 4 2.5 2.5L7.5 4" /></svg>
-					</label>
-				)}
+				{/* No folder picker: Content shows every folder on one scroll (asset-all-grid.jsx). */}
+				{tab === "content" && !collapsed && <button type="button" className="content-storage-toggle" data-testid="content-storage-toggle" aria-pressed={!!manageStorage} onClick={() => { if (manageStorage) openFolder("all"); else onManageStorageToggle(); }}>{manageStorage ? ko("Back to content", "콘텐츠로") : ko("Manage storage", "저장 공간 관리")}</button>}
 				<nav className="content-breadcrumb" aria-label={ko("Location", "위치")}>
 					{tab === "content" ? <>
 						<span>{ko("Content", "콘텐츠")}</span><span aria-hidden="true">/</span><span className="is-leaf">{folderLabel}</span>
@@ -632,7 +616,7 @@ export default function AssetPane({
 						{manageStorage ? (
 							<StorageManager unusedAssetIds={unusedAssetIds} usedAssetIds={usedAssetIds} usageCounts={usageCounts} graphSignature={graphSignature} trashCount={trashCount} onDelete={onDeleteUnusedAsset} onUndo={onUndoDelete} deletingAssetId={deletingAssetId} />
 						) : (
-							<FolderGrid
+							<FolderView
 								folder={folder}
 								query={query}
 								onAssetGrab={onAssetGrab}

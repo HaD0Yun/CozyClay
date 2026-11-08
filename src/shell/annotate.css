@@ -1,0 +1,21 @@
+/* Annotate (AnnotateCell.jsx, context-chip-tools.jsx). */
+:root[data-viewport-sketch="pen"] .viewport canvas { cursor: crosshair; }
+:root[data-viewport-sketch="note"] .viewport canvas { cursor: cell; }
+.annotate-badge {
+	display: inline-grid;
+	place-items: center;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 3px;
+	border: 1px solid #1c1a17;
+	border-radius: 8px;
+	background: #f2a33a;
+	color: #1c1a17;
+	font: 600 10px/1 system-ui, sans-serif;
+	white-space: nowrap;
+	position: absolute;
+	top: 0;
+	left: 0;
+}
+.annotate-badges { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 3; }
+.annotate-badge.hot { background: #ff5a1f; color: #fff; }

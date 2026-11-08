@@ -491,7 +491,7 @@ export function Vector3Row({ label, fields }) {
 					scrubRange={field.scrubRange}
 					onChange={field.onChange}
 					onScrubStart={field.onScrubStart}
-					onScrubEnd={field.onScrubEnd}
+					onScrubEnd={field.onScrubEnd} disabled={field.disabled} title={field.title}
 				/>
 			))}
 		</div>

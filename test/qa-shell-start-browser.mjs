@@ -120,7 +120,7 @@ expect("the 2b start screen renders", await waitFor("!!document.querySelector('.
 expect("the left navigation is 232px", (await evaluate("Math.round(document.querySelector('.v2-start-nav')?.getBoundingClientRect().width || 0)")) === 232);
 expect("the right preview is 340px", (await evaluate("Math.round(document.querySelector('[data-testid=start-project-preview]')?.getBoundingClientRect().width || 0)")) === 340);
 expect("the center has the v2 template grid", await waitFor("!!document.querySelector('.v2-start-template-grid')"));
-expect("the preview exposes Name, Location, Frame rate, and Units", (await evaluate("[...document.querySelectorAll('.v2-start-field > span:not(.v2-start-select-wrap)')].map((node) => node.textContent.trim())")) .join("|") === "Name|Location|Frame rate|Units");
+expect("the preview exposes Name and Location", (await evaluate("[...document.querySelectorAll('.v2-start-field > span:not(.v2-start-select-wrap)')].map((node) => node.textContent.trim())")) .join("|") === "Name|Location");
 await screenshot("task-17-start.png");
 
 await setInput('[data-testid="start-project-name"]', "");
@@ -139,32 +139,9 @@ expect("Create opens the editor", await waitFor("!document.querySelector('.proje
 const editorName = await evaluate("document.querySelector('.project-menu-trigger')?.textContent || ''");
 expect("the editor shows alley_chase_v2", editorName.includes("alley_chase_v2"), editorName);
 
-// #551: the first-run guide names the Outliner and sits in the viewport's
-// bottom-left, above the Content dock, clear of the Outliner/Inspector column.
-// The guide's CSS still reserves the retired 24px status row above the dock,
-// so its gap is 32px, not 12px; the bound allows that.
-expect("the first-run guide opens after Create", await waitFor("!!document.querySelector('.v2-first-success-guide')"));
-const layout = await evaluate(`(() => {
-	const box = (selector) => {
-		const rect = document.querySelector(selector)?.getBoundingClientRect();
-		return rect ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } : null;
-	};
-	return {
-		guide: box('.v2-first-success-guide'),
-		viewport: box('.workspace > .viewport') || box('.viewport'),
-		side: box('.studio-right-column'),
-		dock: box('.studio-dock-slot'),
-		text: document.querySelector('.v2-first-success-guide')?.textContent || '',
-	};
-})()`);
-const { guide, viewport, side, dock } = layout;
-expect("the guide names the Outliner", /Outliner/.test(layout.text) && !/Hierarchy panel/.test(layout.text), layout.text);
-expect("the guide stays inside the viewport", !!(guide && viewport) && guide.left >= viewport.left && guide.right <= viewport.right && guide.top >= viewport.top && guide.bottom <= viewport.bottom, JSON.stringify(layout));
-expect("the guide leaves the Outliner/Inspector column uncovered", !!(guide && side) && guide.right <= side.left, JSON.stringify(layout));
-expect("the guide is anchored bottom-left above the Content dock", !!(guide && viewport && dock) && guide.left - viewport.left <= 16 && dock.top - guide.bottom >= 0 && dock.top - guide.bottom <= 40, JSON.stringify(layout));
-await screenshot("task-21-guide.png");
-await evaluate("document.querySelector('.v2-first-success-guide-close').click()");
-expect("the guide dismisses", await waitFor("!document.querySelector('.v2-first-success-guide')"));
+// The first-run tutorial no longer opens after Create.
+await new Promise((resolve) => setTimeout(resolve, 1200));
+expect("Create opens the studio without a tutorial pop-up", await evaluate("!document.querySelector('.v2-first-success-guide')"));
 
 // #551: File › New opens the same 2b start screen as first launch, not the
 // legacy Project name modal, and Create still asks before discarding work.

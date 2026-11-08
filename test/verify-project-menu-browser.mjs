@@ -145,7 +145,7 @@ expect("Escape closes the menu", (await menuGone()) === "closed");
 /* -------------------------------------- outside pointerdown closes --- */
 expect("the menu reopens after Escape", (await openMenu()) === "open");
 await armMenuGone();
-const outside = await rectCentre(".topbar .topbar-mcp");
+const outside = await rectCentre("[data-testid=project-save-status]");
 await mouse("mousePressed", outside.x, outside.y);
 expect("a pointerdown outside .project-menu-wrap closes the menu", (await menuGone()) === "closed");
 await mouse("mouseReleased", outside.x, outside.y);

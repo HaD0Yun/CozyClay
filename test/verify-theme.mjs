@@ -57,8 +57,8 @@ expect(
 		look.includes('hemiSky: "#ffffff", hemiGround: "#5a5d64"') &&
 		look.includes("(neutral ? 0.34 : lightTheme ? 0.32 : 0.18)") &&
 		// the key colour is now the user's warmth dial (or an explicit colour),
-		// defaulting to the tuned white — the default keyLight shape carries it
-		look.includes("{ x: 6, y: 9, z: 4, intensity: 1.12, warmth: 0.5, color: null }"),
+		// defaulting to the bright neutral key (brightness 3, warmth 0) the default keyLight shape carries
+		look.includes("{ x: 6, y: 9, z: 4, intensity: 3, warmth: 0, color: null }"),
 );
 
 // #650: the project-mode badge is quiet secondary text from the v2 text scale,

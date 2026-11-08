@@ -429,8 +429,9 @@
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer {
 	--tl-header-height: 48px;
 	--tl-ruler-height: 24px;
-	--tl-track-row-height: 22px;
-	--tl-track-group-height: 66px;
+	/* 28px rows: with Root path and Pins gone, five rows fill the dock. */
+	--tl-track-row-height: 28px;
+	--tl-track-group-height: 84px;
 	/* The surface is exactly its rows (ruler + 1 lane + 2 lane groups), so it
 	   never asks the body for more height than the dock gives it. */
 	--tl-surface-height: calc(var(--tl-ruler-height) + var(--tl-track-row-height) + var(--tl-track-group-height) * 2);
@@ -579,9 +580,9 @@
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-subrow.indent { padding-left: 30px; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-chip {
 	color: var(--text-1);
-	font: 500 12px var(--sans);
+	font: 500 11.5px var(--sans);
 }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-subrow.indent .tl-track-chip { color: var(--label); font-size: 11.5px; font-weight: 400; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-subrow.indent .tl-track-chip { color: var(--label); font-size: 11px; font-weight: 400; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-chip::before { width: 6px; height: 6px; border-radius: 3px; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-subrow.indent .tl-track-chip::before { display: none; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track-add {
@@ -731,8 +732,17 @@
 @container (max-width: 760px) {
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-badge { display: none; }
 }
-@container (max-width: 620px) {
+/* Measured (one-row head, compact buttons): with a shot selected the head
+   needs ~795px (Cut and Draw rail join +Track) and ~645px without the speed
+   and waypoint group; without a shot ~700px. */
+@container (max-width: 700px) {
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-view-tools { display: none; }
+}
+@container (max-width: 800px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head:has(.tl-seq-action.cut) .tl-view-tools { display: none; }
+}
+@container (max-width: 640px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head :is(.tl-seq-action.cut, .tl-seq-action.rail) { display: none; }
 }
 @container (max-width: 580px) {
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-sequencer-actions { display: none; }
@@ -741,6 +751,45 @@
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-readout span { display: none; }
 }
 .app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-ratios button { min-width: 0; padding: 0; font-size: 11px; }
+
+/* The head is one row at every dock width: a wrapped head (a selected shot
+   adds Cut and Draw rail) pushed the lanes under the dock's edge. Its
+   buttons are compact, and the groups drop from the right as it narrows. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head { flex-wrap: nowrap; column-gap: 6px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head :is(.tl-seq-action, .tl-btn) { padding: 0 8px; font-size: 11.5px; }
+
+/* The camera bar is one 28px row too: tighter fields, no scrollbar over the
+   lanes, and its descriptive extras (the move slate, the point count, then
+   the field names, which stay as tooltips) go first when it is short. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor { gap: 6px; scrollbar-width: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor::-webkit-scrollbar { display: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor .tl-camera-metric { width: 44px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor .tl-camera-tool { padding: 0 6px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor > label { display: inline-flex; align-items: center; gap: 3px; }
+/* Compact by default: the read-only Distance/Pitch readouts, unit suffixes,
+   the rail slate, point count and title stay as tooltips or move out; the
+   head drops the zoom reset (trackpad zoom over the ruler still works) and
+   the frame total. Everything left is a control the user acts on. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor :is(label:has(> output.tl-camera-metric), .tl-camera-slate, .tl-camera-count, .tl-camera-editor-title, label > small) { display: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor :is(.tl-camera-tool, .tl-camera-head, summary, label > span, input) { font-size: 10.5px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor :is(.tl-camera-tool, .tl-camera-head) { height: 20px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor input { width: auto; min-width: 24px; field-sizing: content; height: 20px; padding: 0 4px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head .tl-btn.zoom,
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-readout span { display: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-readout b { font-size: 13px; }
+@container (max-width: 1100px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor :is(.tl-camera-slate, .tl-camera-count, .tl-camera-editor-title) { display: none; }
+}
+@container (max-width: 760px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor > label > span { display: none; }
+}
+/* Still longer than the dock: it scrolls sideways under a fade, not a bar. */
+@container (max-width: 600px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor {
+		-webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+		mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+	}
+}
 
 /* Ruler labels thin out instead of running together. */
 /* The dock is sized to the lane grid (shell.css), so the body only ever
@@ -766,7 +815,9 @@
 	border: 0;
 	background: none;
 }
-@container (max-width: 900px) {
+/* Every other ruler label hides until the lane is wide enough for ~45px
+   between labels (measured: 30 labels on a 909px dock sat 25px apart). */
+@container (max-width: 1200px) {
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-tick:nth-child(2n of .tl-tick) { color: transparent; }
 }
 @container (max-width: 560px) {
@@ -883,17 +934,17 @@
 	text-shadow: none;
 	letter-spacing: 0;
 }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-label b { color: var(--text-1); font: 600 12px var(--sans); }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-label small { color: var(--text-2); font: 400 11px var(--sans); }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-camera-summary > b { color: var(--camera); font: 600 11px var(--sans); }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-camera-summary > small { color: var(--text-2); font: 400 11px var(--sans); text-transform: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-label b { color: var(--text-1); font: 600 11px var(--sans); }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-label small { color: var(--text-2); font: 400 10px var(--sans); }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-camera-summary > b { color: var(--camera); font: 600 10px var(--sans); }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-camera-summary > small { color: var(--text-2); font: 400 10px var(--sans); text-transform: none; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-block-state {
 	padding: 1px 6px;
 	border: 0;
 	border-radius: 7px;
 	background: var(--chip-fill);
 	color: var(--text-2);
-	font: 600 9.5px var(--sans);
+	font: 600 8.5px var(--sans);
 	letter-spacing: .02em;
 	text-shadow: none;
 }
@@ -1011,3 +1062,104 @@
    tools share a row, long actions take a row of their own. */
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .pose-details .pose-actions { display: flex; flex-wrap: wrap; }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .pose-details .pose-actions > .btn { flex: 1 1 auto; min-width: max-content; }
+/* Camera inspector: controls only. The explanatory hints, the "Follow cam"
+   pointer and the headings they sat under are gone; the controls keep their
+   labels. Half-width fields (Shift X / Shift Y) size the label to its text so
+   the number box keeps the rest of the column instead of 16px. */
+.app[data-shell="glass"]:not([data-embed-mode]) .foldout-body:has([data-testid="camera-performance-record"]) :is(.inspector-hint, .camera-editor-pointer, h3:has(+ :is(.inspector-hint, .camera-editor-pointer))) { display: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .foldout-body:has([data-testid="camera-performance-record"]) { gap: 6px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-details-grid-2 > .field.v2-details-field:not(#_) { --details-label-width: max-content; column-gap: 6px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-details-grid-2 > .field.v2-details-field:not(#_) > input { width: 100%; min-width: 0; }
+/* Prop path rows (tools, dots, speed graph): buttons keep their one-line
+   label instead of being squeezed into two lines; the speed slider and the
+   hint give up width first. The graph's scale numbers are meta-sized and
+   tight, and the average label goes (the orange line already shows it), so
+   it no longer lands on the top label in a short graph. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.objmo-tools, .objmo-dots > .tl-lane) { flex-wrap: nowrap; gap: 4px; overflow: hidden; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.objmo-tools, .objmo-dots > .tl-lane) > :is(button, .objmo-lean) { flex: none; white-space: nowrap; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed { flex: 1 1 auto; min-width: 0; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed input[type="range"] { flex: 1 1 auto; min-width: 40px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-dots .tl-path-hint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.sg-scale-top, .sg-scale-avg, .sg-scale-zero):not(#_):not(#_) { font-size: var(--type-meta, 10px); line-height: 1; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .sg-scale-avg { display: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed { min-width: 60px; overflow: hidden; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed > :not(input) { flex: none; }
+/* A narrow dock keeps the speed slider and drops its two words. */
+@container (max-width: 760px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed > :not(input) { display: none; }
+}
+/* Prop path, simplified: one tool row reads [Redraw] [speed] [Faces travel |
+   Keep going | Loop] ... [Delete]; the three toggles share one segmented
+   capsule, Delete sits quiet at the far end. The dots row shows just "+ Dot"
+   until a dot is selected, then its Bank/Pitch; the status hint moves to the
+   tooltips. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed ~ .tl-camera-tool:not(.objmo-end) { margin-left: -4px; border-radius: 0; background: var(--chip-fill); }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed + .tl-camera-tool { margin-left: 4px; border-radius: 12px 0 0 12px; padding-left: 10px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .tl-camera-tool:has(+ .objmo-end) { border-radius: 0 12px 12px 0; padding-right: 10px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-speed ~ .tl-camera-tool.active:not(.objmo-end) { background: var(--seg-on-fill, rgba(255, 255, 255, .14)); color: var(--text-1); }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-tools > .objmo-end { margin-left: auto; color: var(--text-3); background: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-dots .tl-path-hint,
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .objmo-dots .objmo-lean:has(input:disabled) { display: none; }
+/* Thin Outliner: 22px rows, a 24px search, a two-line project head, 12px row
+   glyphs, and no type column (the glyph already says camera/light/folder). */
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-project-head:not(#_) { padding: 8px 10px 6px; gap: 2px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-project-head .project-menu-trigger:not(#_) { height: 22px; padding: 0 6px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .hierarchy-heading:not(#_) { height: 22px; min-height: 22px; padding: 0 10px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .v2-outliner-search-wrap:not(#_) { height: 24px; margin: 0 8px 4px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .v2-outliner-search:not(#_) { height: 24px; padding-left: 24px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .v2-outliner-search-icon:not(#_) { left: 8px; width: 12px; height: 12px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .hierarchy-tree:not(#_) { padding: 0 4px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner :is(.hierarchy-row-wrap, .hierarchy-row, .hierarchy-toggle, .hierarchy-fold-space, .hierarchy-eye, .hierarchy-scene-pill, .hierarchy-scene-pill .dropdown):not(#_) { height: 22px; min-height: 22px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .v2-outliner-chip:not(#_) { width: 12px; height: 12px; flex: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .v2-outliner-type { display: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .hierarchy-eye { overflow: hidden; }
+/* Thin Outliner text: one step down from the shell body (10px), the project
+   name stays the one 11px line. */
+.app[data-shell="glass"]:not([data-embed-mode]) .shell-left-body :is(.hierarchy-label, .hierarchy-heading, .hierarchy-heading *, .v2-outliner-search, .hierarchy-scene-pill, .hierarchy-scene-pill *, .project-save-status, .topbar-previs-mode, .topbar-previs-mode *):not(#_):not(#_) { font-size: var(--type-meta, 10px); }
+.app[data-shell="glass"]:not([data-embed-mode]) .shell-left-body .project-menu-trigger:not(#_):not(#_) { font-size: var(--type-body, 11px); }
+/* The scene row heads the tree: a little air before the first item. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .hierarchy-row-wrap:has(.hierarchy-scene-pill) { margin-bottom: 6px; }
+/* Speed's ceiling, shown right after the value ("4 / 1.3"). */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-camera-editor .tl-camera-limit { color: var(--text-3); font: 400 10px var(--sans); font-style: normal; white-space: nowrap; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-outliner .v2-outliner-search-wrap:not(#_):not(#_) { margin-bottom: 10px; }
+/* Motion (posing) dock: the pose-key bar shares the tab row, so the
+   sequencer head below needs no tab offset; the head only reserves the
+   camera bar's height when a camera bar is actually shown. The pose-key bar
+   is compact and its Weight slider gives up width first. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .bottom-timeline:has(> .pose-key-bar.posing) .v2-sequencer .tl-head:not(#_) { padding-left: 16px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer:not(:has(.tl-camera-editor)) .tl-head:not(#_) { margin-bottom: 0; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .pose-key-bar.posing { gap: 6px; padding-right: 12px; overflow: hidden; font-size: var(--type-body, 11px); }
+/* Every control keeps its own width (no overlap); the room comes from a
+   56px Weight slider, a 48px Frames box and a Fill button that ellipsizes. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .pose-key-bar.posing > :is(label, button) { flex: none; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .pose-key-bar.posing input[type="range"] { width: 56px; min-width: 0; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .pose-key-bar.posing input[type="number"] { width: 48px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .pose-key-bar.posing > button:is([title*="transition" i], :nth-of-type(4)) { flex: 0 1 auto; min-width: 48px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .pose-key-bar.posing > .pose-key-status { flex: 0 100 auto; }
+/* The Body / IK keys lane takes clicks like Root path, so it shows the same
+   crosshair. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track.ik > .tl-lane { cursor: crosshair; }
+/* The Frames box sits in the ruler row's label cell; without a camera bar the
+   ruler starts right under the head (48px), so the box follows it. */
+.app:not([data-embed-mode]) .v2-dock .bottom-timeline:not(:has(.tl-camera-editor)) > .pose-key-bar:not(.posing) { top: 48px; }
+/* Animation UI without Root path: its track and its Waypoint (root path
+   mode, P) toggle are hidden; the data and the P key are untouched. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-track:has(> .tl-lane.root),
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head .tl-btn.wp { display: none; }
+/* Head groups emptied by the hidden zoom / Waypoint buttons (or with no
+   actions in this mode) leave no stray divider. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head .tl-view-tools,
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-head .tl-sequencer-actions:empty { display: none; }
+
+/* The shot bar used to hang above the block, on the IK keys row, covering its key dots. A block wide enough for
+   the bar (a container: inline-size) holds it in its free band, between the name and the camera key strip. */
+@container (min-width: 150px) {
+	.v2-sequencer .tl-shot-block .tl-shot-actions:not(#_) { top: 36px; bottom: auto; left: 6px; background: none; padding: 0; }
+}
+
+/* Subjects: one row per subject, stacked (side by side, four of them overflowed the inspector and hid the names):
+   name, its body letter (X / Y), then colour, pose and remove at the row's end. */
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subjects-row:not(#_) { flex-direction: column; gap: 4px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subject-box:not(#_) { flex: none; padding: 4px 4px 4px 10px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .subject-box-head:not(#_) { justify-content: flex-start; gap: 8px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .v2-details-section .sb-model { flex: none; margin-right: auto; min-width: 16px; padding: 1px 4px; border-radius: 5px; background: var(--chip-fill); color: var(--text-2); font-size: 10px; font-weight: 600; text-align: center; }

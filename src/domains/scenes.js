@@ -42,6 +42,8 @@ import {
 } from "../project.js";
 import { playgroundSceneUrl, fetchSceneProject } from "../playground.js";
 import { pickProjectToOpen } from "../project-open-file.js";
+import { projectSummary, serializedSummary } from "../project-summary.js";
+import { captureProjectThumb } from "../project-thumbs.js";
 import { openAssetDb, referencedAssetIds, getAsset } from "../scene-assets.js";
 import { restoreProjectAssets } from "../project-assets.js";
 import { internWorkflowOutputs, workflowOutputRefs, resolveWorkflowOutputs } from "../workflow/workflow-resources.js";
@@ -314,16 +316,19 @@ export function useScenes(appContext) {
 					handle = await pickProjectFileForSave(name);
 					appContext.shared.projectHandleRef.current = handle;
 					await writeProjectFile(handle, serialized);
-					await rememberRecentProject(handle, name);
+					await rememberRecentProject(handle, name, serializedSummary(serialized));
 				} else {
 					downloadProjectFallback(serialized, name);
 					downloaded = true;
 				}
 			} else {
 				await writeProjectFile(handle, serialized);
+				// the recent entry's counts were read when the project opened: an overwrite refreshes them
+				await rememberRecentProject(handle, name, serializedSummary(serialized));
 			}
 			context.check();
 			markProjectClean(name, checkpoint, currentName);
+			void captureProjectThumb(name);
 			setSaveBlockedReasons(null);
 			setProjectSaveState(domain.dirtyStore.read("projectDirty") ? "dirty" : "saved");
 			track("project:saved", {
@@ -359,7 +364,7 @@ export function useScenes(appContext) {
 				const handle = await pickProjectFileForSave(animation.name);
 				context.check();
 				await writeProjectFile(handle, serialized);
-				await rememberRecentProject(handle, animation.name);
+				await rememberRecentProject(handle, animation.name, projectSummary(animation));
 			} else {
 				downloadProjectFallback(serialized, animation.name);
 				downloaded = true;
@@ -441,10 +446,11 @@ export function useScenes(appContext) {
 			}
 			result.project.savedAt = result.project.savedAt ?? file.savedAt ?? null;
 			appContext.shared.projectHandleRef.current = handle;
-			if (handle) await rememberRecentProject(handle, result.project.name);
+			if (handle) await rememberRecentProject(handle, result.project.name, projectSummary(result.project));
 			await rehydrateProjectAssets(result.project, result.warnings);
 			context.check();
 			applyProject(result.project, true);
+			void captureProjectThumb(result.project.name, { settle: true });
 			setProjectStartupOpen(false);
 			appContext.notify(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems)}`);
 			return true;
@@ -476,10 +482,11 @@ export function useScenes(appContext) {
 			}
 			result.project.savedAt = result.project.savedAt ?? file.savedAt ?? null;
 			appContext.shared.projectHandleRef.current = handle;
-			await rememberRecentProject(handle, result.project.name);
+			await rememberRecentProject(handle, result.project.name, projectSummary(result.project));
 			await rehydrateProjectAssets(result.project, result.warnings);
 			context.check();
 			applyProject(result.project, true);
+			void captureProjectThumb(result.project.name, { settle: true });
 			setProjectBrowserOpen(false);
 			setProjectStartupOpen(false);
 			appContext.notify(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems)}`);
@@ -526,7 +533,6 @@ export function useScenes(appContext) {
 		storeProjectSession(name, { previsMode, castStyle });
 		track("scene:created", { scene_source: "new_project", previs_mode: previsMode, cast_style: castStyle });
 		setProjectStartupOpen(false);
-		appContext.shared.setFirstSuccessGuideOpen(true);
 		domain.pendingCheckpoint = { clock: appContext.undoClock, name };
 		appContext.notify(ko(`New project: ${name}`, `새 프로젝트: ${name}`, `新项目：${name}`));
 		return true;
@@ -545,6 +551,7 @@ export function useScenes(appContext) {
 			await rehydrateProjectAssets(result.project, result.warnings);
 			context.check();
 			applyProject(result.project, true);
+			void captureProjectThumb(result.project.name, { settle: true });
 			appContext.notify(`${ko(`Project restored: ${result.project.name}`, `프로젝트 복원됨: ${result.project.name}`, `项目已恢复：${result.project.name}`)}${projectProblemsNotice(result.problems)}`);
 			return true;
 		} catch (error) {

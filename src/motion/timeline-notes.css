@@ -1,0 +1,41 @@
+/* Timeline note pins on the Body lane (TimelineNotePins.jsx). */
+.v2-sequencer .tl-note-pins { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.v2-sequencer .tl-note-pin {
+	position: absolute;
+	top: 3px;
+	height: 10px;
+	min-width: 6px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--select, #e8a33d) 28%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--select, #e8a33d) 70%, transparent);
+	pointer-events: auto;
+}
+.v2-sequencer .tl-note-pin.dragging { background: color-mix(in srgb, var(--select, #e8a33d) 42%, transparent); }
+.v2-sequencer .tl-note-edge { position: absolute; top: -2px; bottom: -2px; width: 6px; cursor: ew-resize; }
+.v2-sequencer .tl-note-edge.start { left: -3px; }
+.v2-sequencer .tl-note-edge.end { right: -3px; }
+.v2-sequencer .tl-note-head {
+	position: absolute;
+	top: -1px;
+	width: 10px;
+	height: 12px;
+	padding: 0;
+	border: 0;
+	border-radius: 2px 2px 5px 5px;
+	background: var(--select, #e8a33d);
+	cursor: pointer;
+}
+.v2-sequencer .tl-note-pin-add { display: inline-grid; place-items: center; }
+
+/* The Body group is two rows, Body and IK keys (no Pins row): range pins keep their data and commands,
+   only their band is not drawn here. IK-key dots, runs and ghost markers sit on row 2. */
+.v2-sequencer .tl-track.ik:not(#_) { height: calc(var(--tl-track-row-height, 38px) * 2); min-height: calc(var(--tl-track-row-height, 38px) * 2); }
+.v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(.prop-subject):not(#_) { grid-template-rows: var(--tl-ruler-height, 24px) calc(var(--tl-track-row-height, 38px) * 2) var(--tl-track-row-height, 38px) var(--tl-track-group-height, 114px); }
+.v2-sequencer .tl-track.ik :is(.tl-marker.ik, .tl-ik-run):not(#_) { top: calc(var(--tl-track-row-height, 38px) + (var(--tl-track-row-height, 38px) / 2)); }
+.v2-sequencer .tl-track.ik :is(.tl-pin-band, .tl-pin-pending) { display: none; }
+/* The prop strip keeps its own three-row grid (timeline.css .prop-subject). */
+/* The glass shell hides Root path, so its surface is the ruler, the two-row Body group and Camera Cuts. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer:not(#_) {
+	--tl-surface-height: calc(var(--tl-ruler-height) + var(--tl-track-row-height) * 2 + var(--tl-track-group-height));
+}
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(.prop-subject):not(#_):not(#_) { grid-template-rows: var(--tl-ruler-height) calc(var(--tl-track-row-height) * 2) var(--tl-track-group-height); }

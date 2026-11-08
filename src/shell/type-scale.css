@@ -1,0 +1,29 @@
+/* One type scale for every glass-shell surface. Older sheets set 8.5 to 14px
+   per widget; this file loads last and snaps all of them to three steps:
+   title (panel subject, agent bar, timecode), body (every control, label and
+   hint) and meta (ticks, axis letters, sub-rows, units, state chips).
+   `:not(#_)` lifts the rules over the per-widget selectors without
+   !important. Elements that hide their text with font-size 0 (icon-only
+   buttons, mask chips) and single-glyph handles keep their own size. */
+.app[data-shell="glass"]:not([data-embed-mode]) {
+	--type-title: 13px;
+	--type-body: 11px;
+	--type-meta: 10px;
+}
+.app[data-shell="glass"]:not([data-embed-mode]) :is(.studio-left-column, .studio-right-column, .studio-dock-slot, .topbar, .viewport)
+	:is(button, label, input, select, textarea, summary, span, p, b, strong, small, em, output, li, a, h1, h2, h3, h4, h5, h6, dt, dd, th, td, legend, kbd, code, div):not(#_)
+	:not(:is(.vp-add-plus, .vp-snap-value, .v2-outliner-search-icon, .v2-outliner-chip, .hierarchy-toggle, .tl-track-add, .vp-shot-preview-tag, .tl-shot-edge, .tl-toggle, .agent-tasks-toggle), :is(.vp-add-plus, .vp-snap-value, .v2-outliner-search-icon, .v2-outliner-chip, .hierarchy-toggle, .tl-track-add, .dock-shot-look, .vp-shot-preview-tag) *) {
+	font-size: var(--type-body);
+}
+.app[data-shell="glass"]:not([data-embed-mode]) :is(
+	.tl-tick, .tl-frame-box, .tl-track-subrow, .tl-track-subrow *, .tl-shot-label small, .tl-shot-camera-summary *, .tl-camera-block-state,
+	.axis, .dock-shot-range, .vp-value:not(.vp-snap-value), .vp-speed-value, .vp-shot-preview-name, label > small, .readout > small
+):not(#_):not(#_) {
+	font-size: var(--type-meta);
+}
+.app[data-shell="glass"]:not([data-embed-mode]) :is(.details-selection-name, .studio-agent-bar-title, .tl-readout > b):not(#_):not(#_) {
+	font-size: var(--type-title);
+}
+@container (max-width: 240px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-look:not(#_):not(#_) { font-size: 0; }
+}

@@ -6,12 +6,11 @@ import { PRESETS, SHOT_ASPECT_PRESETS } from "../app-stage.jsx";
 import { CAMERA_PRESETS } from "../camera-move.js";
 import { PRIME_SET } from "../shot.js";
 import { CatalogueEntries } from "../object-catalog.jsx";
-import { elementByPath } from "../studio-elements.js";
 import { saveAutoColor } from "../auto-color.js";
 import { trackFeature } from "../analytics.js";
 import { GUIDE_LABELS, nextGuideMode } from "../shot-guides.js";
-import GhostsMenuGroup from "./GhostsMenuGroup.jsx"; import { addCameraShot } from "./add-camera-shot.js"; import { addCharacterEntries } from "./add-character-entries.js";
-import { toggleViewportTool, useViewportTools } from "../viewport-tools.js";
+import GhostsMenuGroup from "./GhostsMenuGroup.jsx"; import AddSceneEntries from "./AddSceneEntries.jsx";
+import { toggleViewportTool, useViewportTools } from "../viewport-tools.js"; import AnnotateCell from "./AnnotateCell.jsx";
 import "./viewport.css";
 
 // G1: the single mode+tool pill. Keys 1-5 and W/E/R are bound in App's
@@ -70,8 +69,6 @@ const FOV_MIN = 14, FOV_MAX = 90;
 
 // "+ Add › Character" stands the new body one metre along X per existing
 // character, inside the same stage clamp the Content drag applies.
-const CHARACTER_BOUNDS = elementByPath("character.position").gizmo;
-const characterSpawnX = (count) => Math.min(CHARACTER_BOUNDS.max.x, Math.max(CHARACTER_BOUNDS.min.x, count));
 
 const trimNumber = (value, digits = 2) => String(Number(value.toFixed(digits)));
 
@@ -120,9 +117,9 @@ export default function ViewportToolbar() {
 		setNonce, workspaceLayout, viewMenuTriggerRef, viewMenuOpen,
 		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode,
 		autoColor, setAutoColor, isCharacterSelection, partColoursChoice, embedMode,
-		agentCollapsed, addSceneObject, spawnCharacter, characters, flySpeed, frameAll, setAxisView,
+		agentCollapsed, addSceneObject, flySpeed, frameAll, setAxisView,
 		ikEditTool, setIkEditTool, motion, setRangePinPartPick,
-		previsMode, castStyle, sculptView, requestSculptView, sculptParts, appContext, setToast,
+		previsMode, sculptView, requestSculptView, sculptParts,
 	} = useStudioShell();
 	const menu = useOverlayMenu();
 	const viewportTools = useViewportTools();
@@ -259,76 +256,6 @@ export default function ViewportToolbar() {
 
 	return (
 		<div className="viewport-titlebar" data-testid="viewport-overlays">
-			<div className="vp-overlay-left">
-				<div className="vp-menu-wrap" data-vp-menu="add">
-					<button
-						type="button"
-						className="vp-pill vp-add-trigger add-object-trigger"
-						data-testid="viewport-add"
-						aria-haspopup="menu"
-						aria-expanded={menu.open === "add"}
-						title={ko("Add an object, a character or a camera", "오브젝트, 캐릭터, 카메라 추가")}
-						onClick={() => menu.toggle("add")}
-					>
-						<span className="vp-add-plus" aria-hidden="true"><RailIcon name="plus" /></span>
-						<span className="vp-label">{ko("Add", "추가")}</span>
-					</button>
-					{menu.open === "add" && (
-						<div className="vp-menu add-object-menu" role="menu" aria-label={ko("Add", "추가")}>
-							<CatalogueEntries onPick={(kind) => { addSceneObject(kind); menu.close(); }} />
-							<div className="add-object-group">
-								<span className="add-object-heading">{ko("Scene", "장면")}</span>
-								{addCharacterEntries(castStyle).map((entry) => (
-									<button key={entry.add} type="button" role="menuitem" className="add-object-item" data-add={entry.add}
-										onClick={() => { spawnCharacter(entry.model, characterSpawnX(characters.length), 0); menu.close(); }}
-									>
-										<span className="add-object-swatch vp-add-swatch-cast" aria-hidden="true" />
-										<span>{entry.label()}</span>
-									</button>
-								))}
-								<button
-									type="button"
-									role="menuitem"
-									className="add-object-item"
-									data-add="camera"
-									onClick={() => { addCameraShot({ appContext, runStudioAction, setToast }); menu.close(); }}
-								>
-									<span className="add-object-swatch vp-add-swatch-camera" aria-hidden="true" />
-									<span>{ko("Camera", "카메라")}</span>
-								</button>
-							</div>
-						</div>
-					)}
-				</div>
-
-				{tools.length > 0 && <span className="vp-toolbar-divider" aria-hidden="true" />}
-				<div className="vp-tool-keys" role="group" aria-label={ko("Tools", "도구")} data-transform-controls>
-					{tools.map((tool) => (
-						<button
-							type="button"
-							key={tool.key}
-							data-tool-key={tool.key}
-							data-tool={tool.id} data-fid={`tool_${tool.id}`}
-							className={"vp-tool-key" + (tool.active ? " active" : "")}
-							aria-pressed={tool.active}
-							aria-disabled={tool.refused ? true : undefined}
-							aria-label={tool.name}
-							title={tool.refused || `${tool.name} (${tool.key})`}
-							onClick={() => { if (!tool.refused) tool.pick(); }}
-						>
-							<RailIcon name={tool.id} />
-							<span className="vp-tool-letter">{tool.key}</span>
-						</button>
-					))}
-				</div>
-				{valueGroup && (
-					<>
-						<span className="vp-toolbar-divider" aria-hidden="true" />
-						<div className="vp-values">{valueGroup}</div>
-					</>
-				)}
-			</div>
-
 			<div className="vp-mode-toolbar" role="toolbar" data-testid="mode-toolbar" aria-label={ko("Mode and tools", "모드와 도구")}>
 				<div className="vp-mode-keys" role="tablist" aria-label={ko("Workflow", "작업 모드")}>
 					{modesFor(previsMode).map((mode) => {
@@ -356,6 +283,56 @@ export default function ViewportToolbar() {
 						);
 					})}
 				</div>
+			</div>
+
+			<div className="vp-overlay-rail"><div className="vp-overlay-left">
+				<div className="vp-menu-wrap" data-vp-menu="add">
+					<button
+						type="button"
+						className="vp-pill vp-add-trigger add-object-trigger"
+						data-testid="viewport-add"
+						aria-haspopup="menu"
+						aria-expanded={menu.open === "add"}
+						title={ko("Add an object, a character or a camera", "오브젝트, 캐릭터, 카메라 추가")}
+						onClick={() => menu.toggle("add")}
+					>
+						<span className="vp-add-plus" aria-hidden="true"><RailIcon name="plus" /></span>
+						<span className="vp-label">{ko("Add", "추가")}</span>
+					</button>
+					{menu.open === "add" && (
+						<div className="vp-menu add-object-menu" role="menu" aria-label={ko("Add", "추가")}>
+							<CatalogueEntries onPick={(kind) => { addSceneObject(kind); menu.close(); }} />
+							<AddSceneEntries onDone={menu.close} />
+						</div>
+					)}
+				</div>
+
+				{tools.length > 0 && <span className="vp-toolbar-divider" aria-hidden="true" />}
+				<div className="vp-tool-keys" role="group" aria-label={ko("Tools", "도구")} data-transform-controls>
+					{tools.map((tool) => (
+						<button
+							type="button"
+							key={tool.key}
+							data-tool-key={tool.key}
+							data-tool={tool.id} data-fid={`tool_${tool.id}`}
+							className={"vp-tool-key" + (tool.active ? " active" : "")}
+							aria-pressed={tool.active}
+							aria-disabled={tool.refused ? true : undefined}
+							aria-label={tool.name}
+							title={tool.refused || `${tool.name} (${tool.key})`}
+							onClick={() => { if (!tool.refused) tool.pick(); }}
+						>
+							<RailIcon name={tool.id} />
+							<span className="vp-tool-letter">{tool.key}</span>
+						</button>
+					))}
+				</div>
+				<AnnotateCell />{valueGroup && (
+					<>
+						<span className="vp-toolbar-divider" aria-hidden="true" />
+						<div className="vp-values">{valueGroup}</div>
+					</>
+				)}
 			</div>
 
 			<div className="vp-overlay-right">
@@ -599,7 +576,7 @@ export default function ViewportToolbar() {
 					<RailIcon name="speed" size={14} />
 					<span className="vp-speed-value">{trimNumber(flySpeed, 1)}×</span>
 				</span>
-			</div>
+			</div></div>
 
 			<ShotPreviewHeader name={activeShot?.name ?? ko("Shot", "샷")} lens={`${shot.focalMm}mm`} />
 		</div>

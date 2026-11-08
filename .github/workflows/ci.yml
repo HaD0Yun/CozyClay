@@ -314,6 +314,18 @@ jobs:
             tier: observation
           - suite: qa-previs-start-browser
             tier: observation
+          - suite: qa-recent-work-browser
+            tier: observation
+          - suite: qa-studio-polish-browser
+            tier: observation
+          - suite: qa-annotate-browser
+            tier: observation
+          - suite: qa-pose-keys-browser
+            tier: observation
+          - suite: qa-fix-islands-browser
+            tier: observation
+          - suite: qa-lie-down-browser
+            tier: observation
           - suite: qa-sculpt-mode-browser
             tier: observation
           - suite: qa-sculpt-parts-browser

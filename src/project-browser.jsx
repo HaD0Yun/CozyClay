@@ -16,7 +16,8 @@ import {
 	DEFAULT_CAST_STYLE,
 } from "./project.js";
 import { BrandMark, TemplateThumb } from "./project-browser-art.jsx";
-import { CAST_OPTIONS, StartChoiceGroup } from "./project-start-choices.jsx";
+import { RecentArt, RecentPreview, RecentWork, useRecentSummaries } from "./project-recent-work.jsx";
+import { captureProjectThumb, removeProjectThumb } from "./project-thumbs.js";
 import "./project-browser.css";
 
 const APP_VERSION = packageInfo.version;
@@ -24,33 +25,12 @@ const APP_VERSION = packageInfo.version;
 // starterId, so Create takes the blank path). Its preview is the blank-stage render.
 const NEW_PROJECT = Object.freeze({ id: "new-project", thumbId: "blank-stage", kind: "blank", defaultName: "Untitled Project", get name() { return ko("New project", "새 프로젝트"); }, get description() { return ko("Start from an empty stage.", "빈 무대에서 시작합니다."); } });
 
-// The two project modes the New view offers.
-// Storyboard starts from an empty stage only; Animation also offers the starters.
-const MODE_OPTIONS = [
-	{
-		id: "storyboard",
-		label: () => ko("Storyboard", "스토리보드"),
-		blurb: () => ko("Describe scenes in words and direct one panel at a time. Output: image references.", "말로 장면을 설명하면 한 장씩 패널을 연출합니다. 결과물: 이미지 레퍼런스."),
-	},
-	{
-		id: "animation",
-		label: () => ko("Animation", "애니메이션"),
-		blurb: () => ko("Block and shoot continuous motion. Output: clip references.", "연속 동작을 블로킹하고 촬영합니다. 결과물: 클립 레퍼런스."),
-	},
-];
-
 // App.jsx keeps the project mutation behind its named requestNewProject/newProject
 // path. The v2 chooser already has the name, so this short-lived handoff seeds
 // the existing ProjectNameDialog and lets its normal submit path commit it.
 let pendingProjectName = null;
 function stagePendingProjectName(name) {
 	pendingProjectName = name;
-}
-
-function formatDate(value) {
-	const date = new Date(value);
-	if (!Number.isFinite(date.getTime())) return ko("Recently", "최근");
-	return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 function sampleTemplate(scene) {
@@ -106,20 +86,19 @@ export function ProjectNameDialog({ open, initialName = "My Project", onCancel, 
  */
 export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew, onClose, startup = false, starters = [], onStarter }) {
 	const starterTemplates = useMemo(() => starters.map(sampleTemplate), [starters]);
-	const [previsMode, setPrevisMode] = useState(DEFAULT_PREVIS_MODE);
-	const [castStyle, setCastStyle] = useState(DEFAULT_CAST_STYLE);
-	const templates = previsMode === "storyboard" ? [] : starterTemplates;
+	// Every new project is an Animation project with the Hybrid cast; both
+	// bodies stay reachable from Add > Character.
+	const templates = starterTemplates;
 	const defaultTemplate = starterTemplates[0] ?? NEW_PROJECT;
 	const [activeNav, setActiveNav] = useState(startup ? "new" : "recent");
 	const [selectedTemplateId, setSelectedTemplateId] = useState(defaultTemplate.id);
 	const [name, setName] = useState(currentName || defaultTemplate.defaultName || defaultTemplate.name || "My Project");
-	const [frameRate, setFrameRate] = useState("24");
-	const [units, setUnits] = useState("Meters");
 	const [recents, setRecents] = useState([]);
 	const [folder, setFolder] = useState(null);
 	const [folderProjects, setFolderProjects] = useState([]);
 	const [folderDenied, setFolderDenied] = useState(false);
 	const [lostFolder, setLostFolder] = useState(null);
+	const [selectedRecentKey, setSelectedRecentKey] = useState(null);
 	const nameInputRef = useRef(null);
 
 	useEffect(() => {
@@ -148,6 +127,8 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 
 	useEffect(() => {
 		if (startup) nameInputRef.current?.focus();
+		// The open project's stage is still in the canvas under this screen.
+		else if (currentName) void captureProjectThumb(currentName);
 	}, [startup]);
 
 	// File › New reaches this screen with unsaved work, so Create can be refused
@@ -194,19 +175,10 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 	};
 
 	const selectTemplate = (template) => {
+		setSelectedRecentKey(null);
 		setSelectedTemplateId(template.id);
 		// A name the previous card (or the open project) filled in follows the new card; a typed one stays.
 		setName((current) => !current.trim() || [selectedTemplate?.name, selectedTemplate?.defaultName, currentName].includes(current.trim()) ? template.defaultName ?? template.name : current);
-	};
-
-	const choosePrevisMode = (mode) => {
-		setPrevisMode(mode);
-		// Storyboard offers the blank stage only, so a starter selection cannot
-		// survive the switch.
-		if (mode !== "storyboard" || !selectedTemplate?.starterId) return;
-		setSelectedTemplateId(NEW_PROJECT.id);
-		// A name the starter card filled in would now describe the wrong stage.
-		setName((current) => (current.trim() === selectedTemplate?.name ? NEW_PROJECT.defaultName : current));
 	};
 
 	const createProject = (event) => {
@@ -214,17 +186,25 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 		const projectName = name.trim();
 		if (!projectName) return;
 		if (selectedTemplate?.starterId) {
-			onStarter?.(selectedTemplate.starterId, projectName, { previsMode: "animation", castStyle });
+			onStarter?.(selectedTemplate.starterId, projectName, { previsMode: DEFAULT_PREVIS_MODE, castStyle: DEFAULT_CAST_STYLE });
 			return;
 		}
 		stagePendingProjectName(projectName);
-		onNew(projectName, { previsMode, castStyle });
+		onNew(projectName, { previsMode: DEFAULT_PREVIS_MODE, castStyle: DEFAULT_CAST_STYLE });
 	};
 
-	const recentEntries = [
+	const recentEntries = useRecentSummaries(useMemo(() => [
 		...recents.map((entry) => ({ ...entry, key: `recent-${entry.name}`, removable: true, date: entry.openedAt })),
 		...folderProjects.map((entry) => ({ ...entry, key: `folder-${entry.name}`, removable: false, date: entry.lastModified })),
-	];
+	], [recents, folderProjects]));
+	const selectedRecent = recentEntries.find((entry) => entry.key === selectedRecentKey) ?? null;
+	const forgetRecent = async (entry) => {
+		await removeRecentProject(entry.name);
+		await removeProjectThumb(entry.name);
+		if (entry.key === selectedRecentKey) setSelectedRecentKey(null);
+		setRecents(await loadRecentProjects());
+	};
+	const recentWork = <RecentWork entries={recentEntries} selectedKey={selectedRecentKey} currentName={currentName} onSelect={(entry) => setSelectedRecentKey(entry.key)} onOpen={onOpen} onRemove={forgetRecent} onOpenFile={onOpenFile} onRefresh={folder ? refreshFolder : null} />;
 
 	const navItems = [
 		{ id: "recent", label: ko("Recent", "최근") },
@@ -262,12 +242,6 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 							<h1>{activeNav === "recent" ? ko("Recent", "최근") : activeNav === "learn" ? ko("Learn", "배우기") : ko("New Project", "새 프로젝트")}</h1>
 							{activeNav !== "new" && <button type="button" className="v2-start-close x" onClick={onClose} aria-label={ko("Close", "닫기")}>×</button>}
 						</div>
-						{activeNav === "new" && (
-							<>
-								<StartChoiceGroup label={ko("Project mode", "프로젝트 모드")} testId="start-previs-mode" dataKey="previs-mode" options={MODE_OPTIONS} value={previsMode} onChange={choosePrevisMode} />
-								<StartChoiceGroup label={ko("Cast style", "캐스트 방식")} testId="start-cast-style" dataKey="cast-style" options={CAST_OPTIONS} value={castStyle} onChange={setCastStyle} className="cast" />
-							</>
-						)}
 					</div>
 
 					{activeNav === "learn" ? (
@@ -277,19 +251,7 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 							<button type="button" className="v2-start-learn-action" onClick={() => setActiveNav("new")}>{ko("Start a new project", "새 프로젝트 시작")}</button>
 						</div>
 					) : activeNav === "recent" ? (
-						<div className="v2-start-recent-page">
-							<div className="v2-start-recent-heading">
-								<span>{ko("Recent projects", "최근 프로젝트")}</span>
-								<div className="v2-start-recent-actions">
-									{folder && <button type="button" onClick={refreshFolder}>{ko("Refresh", "새로고침")}</button>}
-									<button type="button" onClick={onOpenFile}>{ko("Open project file…", "프로젝트 파일 열기…")}</button>
-								</div>
-							</div>
-							<RecentList entries={recentEntries} currentName={currentName} onOpen={onOpen} onOpenFile={onOpenFile} onRemove={async (entry) => {
-								await removeRecentProject(entry.name);
-								setRecents(await loadRecentProjects());
-							}} />
-						</div>
+						<div className="v2-start-recent-page">{recentWork}</div>
 					) : (
 						<>
 							<div className="v2-start-template-grid" role="list" aria-label={ko("Project templates", "프로젝트 템플릿")}>
@@ -310,7 +272,7 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 										</span>
 									</button>
 								))}
-								<button type="button" role="listitem" className={`v2-start-add-card${selectedTemplate?.id === NEW_PROJECT.id ? " selected" : ""}`} data-testid="start-new-project-card" onClick={() => { selectTemplate(NEW_PROJECT); requestAnimationFrame(() => nameInputRef.current?.select()); }}>
+								<button type="button" role="listitem" className={`v2-start-add-card${selectedTemplate?.id === NEW_PROJECT.id && !selectedRecent ? " selected" : ""}`} data-testid="start-new-project-card" onClick={() => { selectTemplate(NEW_PROJECT); requestAnimationFrame(() => nameInputRef.current?.select()); }}>
 									<span className="v2-start-add-art" aria-hidden="true"><svg viewBox="0 0 20 20" width="20" height="20"><path d="M10 3.5v13M3.5 10h13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></span>
 									<span className="v2-start-template-copy">
 										<strong>{ko("New project", "새 프로젝트")}</strong>
@@ -320,19 +282,14 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 								<button type="button" role="listitem" className="v2-start-add-card v2-start-open-card" data-testid="start-open-project-card" onClick={onOpenFile}><span className="v2-start-add-art" aria-hidden="true"><svg viewBox="0 0 20 20" width="20" height="20"><path d="M2.5 6.5V15a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H10L8.5 5H3.5a1 1 0 0 0-1 1.5Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg></span><span className="v2-start-template-copy"><strong>{ko("Open project", "프로젝트 열기")}</strong><span>{ko("A saved .cclayproject file", "저장한 .cclayproject 파일")}</span></span></button>
 							</div>
 
-							<div className="v2-start-recent-block">
-								<div className="v2-start-recent-heading"><span>{ko("Recent", "최근")}</span></div>
-								<RecentList entries={recents.map((entry) => ({ ...entry, key: `recent-${entry.name}`, removable: true, date: entry.openedAt }))} currentName={currentName} onOpen={onOpen} onOpenFile={onOpenFile} onRemove={async (entry) => {
-									await removeRecentProject(entry.name);
-									setRecents(await loadRecentProjects());
-								}} compact />
-							</div>
+							{recentWork}
 						</>
 					)}
 				</main>
 
 				<aside className="v2-start-preview" data-testid="start-project-preview" aria-label={ko("Project preview", "프로젝트 미리보기")}>
-					<div className={`v2-start-preview-art ${selectedTemplate?.kind || "blank"}`}><TemplateThumb id={selectedTemplate.starterId ?? selectedTemplate.thumbId} /></div>
+					<div className={`v2-start-preview-art ${selectedRecent ? "recent" : selectedTemplate?.kind || "blank"}`}>{selectedRecent ? <RecentArt entry={selectedRecent} /> : <TemplateThumb id={selectedTemplate.starterId ?? selectedTemplate.thumbId} />}</div>
+					{selectedRecent ? <RecentPreview entry={selectedRecent} onOpen={onOpen} onRemove={forgetRecent} onBack={() => selectTemplate(NEW_PROJECT)} /> : <>
 					<div className="v2-start-preview-copy">
 						<strong>{selectedTemplate?.name}</strong>
 						<span>{selectedTemplate?.description}</span>
@@ -348,24 +305,6 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 								<span>{locationLabel}</span><span aria-hidden="true">⌄</span>
 							</button>
 						</label>
-						<label className="v2-start-field">
-							<span>{ko("Frame rate", "프레임 레이트")}</span>
-							<span className="v2-start-select-wrap">
-								<select aria-label={ko("Frame rate", "프레임 레이트")} value={frameRate} onChange={(event) => setFrameRate(event.target.value)}>
-									<option value="24">24 fps</option>
-									<option value="30">30 fps</option>
-								</select>
-							</span>
-						</label>
-						<label className="v2-start-field">
-							<span>{ko("Units", "단위")}</span>
-							<span className="v2-start-select-wrap">
-								<select aria-label={ko("Units", "단위")} value={units} onChange={(event) => setUnits(event.target.value)}>
-									<option value="Meters">Meters</option>
-									<option value="Feet">Feet</option>
-								</select>
-							</span>
-						</label>
 						{folderDenied && (
 							<p className="v2-start-location-status" role="status">
 								{lostFolder ? ko("Folder access needs to be re-allowed.", "폴더 접근을 다시 허용해야 해요.") : ko("Using the browser project store.", "브라우저 프로젝트 저장소를 사용합니다.")}
@@ -377,28 +316,9 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 							<button type="submit" className="v2-start-create btn primary" data-testid="start-create" disabled={!canCreate} title={canCreate ? ko("Create project", "프로젝트 만들기") : createReason}>{ko("Create", "생성")}</button>
 						</div>
 					</form>
+					</>}
 				</aside>
 			</div>
-		</div>
-	);
-}
-
-// Recents live in this browser's storage for this address, so a project saved elsewhere opens from its file.
-function RecentList({ entries, currentName, onOpen, onOpenFile, onRemove, compact = false }) {
-	return entries.length === 0 ? (
-		<p className={`v2-start-empty${compact ? " compact" : ""}`}>{ko("No recent projects in this browser yet. ", "이 브라우저에 최근 프로젝트가 없습니다. ")}<button type="button" className="v2-start-empty-open" onClick={onOpenFile}>{ko("Open a project file…", "프로젝트 파일 열기…")}</button></p>
-	) : (
-		<div className={`v2-start-recent-list${compact ? " compact" : ""}`} role="list">
-			{entries.map((entry) => (
-				<div className={`v2-start-recent-row${entry.name === currentName ? " active" : ""}`} role="listitem" key={entry.key}>
-					<button type="button" className="v2-start-recent-open" onClick={() => onOpen(entry)}>
-						<strong>{entry.name}</strong>
-						<span>{formatDate(entry.date)}</span>
-						<small>{entry.shots ?? "—"}{ko(" shots", " 샷")}</small>
-					</button>
-					{entry.removable && <button type="button" className="v2-start-recent-remove" aria-label={ko(`Remove ${entry.name} from recent projects`, `최근 프로젝트에서 ${entry.name} 제거`, `从最近项目中移除 ${entry.name}`)} title={ko("Remove from list", "목록에서 제거")} onClick={() => onRemove(entry)}>×</button>}
-				</div>
-			))}
 		</div>
 	);
 }

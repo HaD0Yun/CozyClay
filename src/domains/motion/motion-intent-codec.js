@@ -12,6 +12,7 @@ function encodeMotionKeys(keys) {
 		...(key.correctionRange ? { correctionRange: { start: key.correctionRange.start, end: key.correctionRange.end } } : {}),
 		...(key.blend != null ? { blend: key.blend } : {}),
 		...(key.pin ? { pin: key.pin } : {}),
+		...(key.fix ? { fix: { ...key.fix } } : {}),
 	}])) }));
 }
 function decodeMotionKeys(rows) {
@@ -24,6 +25,7 @@ function decodeMotionKeys(rows) {
 		...(key.correctionRange ? { correctionRange: { start: key.correctionRange.start, end: key.correctionRange.end } } : {}),
 		...(key.blend != null ? { blend: key.blend } : {}),
 		...(key.pin ? { pin: key.pin } : {}),
+		...(key.fix ? { fix: { ...key.fix } } : {}),
 	}]))]));
 }
 function cloneRangePin(pin) {

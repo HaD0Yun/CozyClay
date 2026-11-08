@@ -67,6 +67,10 @@ function registerTests() {
 		try { globalThis.Buffer = undefined; const value = contextFixture(); value.scene.name = "한글 😀 <&>"; protocol.validateStudioContext(value); const encoded = contextTools.encodeStudioContext(value); assert.equal(JSON.parse(encoded).scene.name, value.scene.name); assert.equal(encoded.includes("<"), false); }
 		finally { globalThis.Buffer = saved; }
 	});
+	test("D1b a context carrying annotation marks validates (the server reads the same schema)", () => {
+		const value = { ...contextFixture(), marks: [{ n: 1, kind: "pin", hit: { type: "object", id: "cube", name: "Cube" }, points: [{ x: 0, y: 1, z: 0 }], frame: 0 }] };
+		assert.equal(protocol.validateStudioContext(value).marks[0].hit.id, "cube");
+	});
 	test("D2 HTTP uses turnId and rejects turn_id as a Studio identity alias", async () => {
 		protocol.validateStudioTurnEnvelope(envelopeFixture());
 		const alias = envelopeFixture(); alias.turn_id = alias.turnId; delete alias.turnId;

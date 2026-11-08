@@ -6,7 +6,9 @@ import { ko } from "../locale.js";
 import UpdateChip from "../update/UpdateChip.jsx";
 import "./topbar.css";
 
-// 2a top bar: File/Edit/Window/Help, then the MCP state. Motion is authored by the
+// 2a top bar: File/Edit/Window/Help. The MCP state is no longer shown; its
+// element stays hidden so the live workspace handle (data-live-workspace)
+// remains readable by the agent harness and QA. Motion is authored by the
 // agent (motion.compile), so there is no generate button. Save and Export live in File (G7). #570: the project name
 // and its save state head the left column (ProjectHead below).
 export default function TopBar({ preferences }) {
@@ -18,6 +20,8 @@ export default function TopBar({ preferences }) {
 			<div className="topbar-spacer" />
 			<UpdateChip />
 			<span
+				hidden
+				style={{ display: "none" }}
 				className={"topbar-mcp" + (liveWorkspaceHandle ? " live-workspace-handle" : "")}
 				data-state={connected ? "connected" : "disconnected"}
 				data-live-workspace={liveWorkspaceHandle || undefined}

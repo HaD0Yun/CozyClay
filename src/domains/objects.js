@@ -299,13 +299,10 @@ export function useObjects(appContext) {
 	const [snapEnabled, setSnapEnabled] = useState(true);
 
 	/** `at` overrides the floor point: the Assets-shelf drop already knows
-	 * where the pointer hit, everyone else gets in-front-of-camera. */
+	 * where the pointer hit. + Add puts everything at the world origin, so a
+	 * new object lands in the same known place whatever the view is looking at. */
 	function addSceneObject(kind, at) {
-		const camera = (appContext.shared.lookThroughShot ? appContext.shared.shotCamRef : appContext.shared.editorCamRef).current;
-		const paneYaw = (appContext.shared.lookThroughShot ? appContext.shared.look : appContext.shared.editorLook).current.yaw;
-		const placement = at ?? (camera
-			? placementInFront({ x: camera.position.x, z: camera.position.z }, paneYaw)
-			: {});
+		const placement = at ?? { x: 0, z: 0 };
 		const receipt = run("object.add", { kind, placement, first: true });
 		const object = domain.read().find(row => row.id === receipt.affectedIds[0]);
 		noteObjectCreated(object.id);

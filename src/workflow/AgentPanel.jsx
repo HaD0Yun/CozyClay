@@ -1,9 +1,10 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiPower, FiRotateCw, FiX } from "react-icons/fi";
-import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
+import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_MAX_COUNT, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
 import { isImeComposing } from "../ime.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
 import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
+import { ContextChips } from "./ContextChips.jsx"; import { captureAnnotatedImage, consumeMarks, markStills } from "../context-chips.js";
 import {
 	AGENT_PANEL_OVERLAY_BREAKPOINT,
 	AGENT_PANEL_RAIL_WIDTH,
@@ -633,9 +634,16 @@ export default function AgentPanel({
 		setAttachNotice(null); setSteerNotice("");
 		// An OpenAI-compatible server's address class (local, lan, hosted), never the address (#1043).
 		const endpoint = modelProviders.find((entry) => entry.id === String(model ?? "").split("/")[0])?.endpoint;
+		// Annotation marks (Studio): one annotated picture of the view rides after the composer's pictures, the marks in the context; a message Send took clears them (right after send's synchronous start).
+		const idle = surface === "studio" && !store.getState().streaming, annotated = idle ? captureAnnotatedImage() : null, chipImages = idle ? [...(annotated ? [{ dataUrl: annotated, name: "annotated-view.jpg" }] : []), ...markStills()] : [];
+		if (idle) queueMicrotask(() => { if (store.getState().streaming) consumeMarks(); });
+		// The marks are consumed with this message, so their pictures go first: the author's own pictures fill what is left
+		// of the message's ATTACHMENT_MAX_COUNT, and any left out are named.
+		const pending = store.getState().pendingAttachments, room = Math.max(0, ATTACHMENT_MAX_COUNT - chipImages.length);
+		if (chipImages.length && pending.length > room) setAttachNotice(`${pending.length - room} attached image${pending.length - room === 1 ? "" : "s"} left out: the marked view takes ${Math.min(chipImages.length, ATTACHMENT_MAX_COUNT)} of the ${ATTACHMENT_MAX_COUNT} images a message holds`);
 		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
-		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode });
-	}, [attachFrame, effort, model, modelProviders, store, taskMode]);
+		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, ...(chipImages.length ? { attachments: [...pending.slice(0, room), ...chipImages] } : {}) });
+	}, [attachFrame, effort, model, modelProviders, store, surface, taskMode]);
 	const taskStepLabel = useCallback((call) => stepLabel(call, presentation.toolLabels), [presentation.toolLabels]);
 	const stopTurn = useCallback(() => store.stop(), [store]);
 	// Steering the turn that is already running: the composer's text joins THAT
@@ -926,6 +934,7 @@ export default function AgentPanel({
 			onDrop={composerDisabled ? undefined : onComposerDrop}
 			onPaste={composerDisabled ? undefined : onComposerPaste}
 		>
+			{surface === "studio" && <ContextChips />}
 			{pendingAttachments.length > 0 && <ul className="agent-attachments" aria-label="Attached images">
 				{pendingAttachments.map((attachment) => <li key={attachment.id} className="agent-attachment">
 					<img src={attachment.dataUrl} alt={attachment.name || "Attached image"} />

@@ -994,7 +994,7 @@ export function createMockTransport(config = { state: "ready" }) {
 			const turnId = `mock-turn-${++turns}`;
 			liveTurn = turnId;
 			request?.onTurnId?.(turnId);
-			try { globalThis.localStorage?.setItem("cozyclay.mock.agent.last-turn", JSON.stringify({ turnId, model: request?.model ?? null, effort: request?.effort ?? null, text: request?.text ?? null })); } catch { /* mock proof state is best effort */ }
+			try { globalThis.localStorage?.setItem("cozyclay.mock.agent.last-turn", JSON.stringify({ turnId, model: request?.model ?? null, effort: request?.effort ?? null, text: request?.text ?? null, marks: request?.context?.marks ?? null, attachments: request?.attachments?.length ?? 0 })); } catch { /* mock proof state is best effort */ }
 			try { if (studio && request?.sessionId) globalThis.localStorage?.setItem("cozyclay.mock.agent.last-turn-session", request.sessionId); } catch { /* mock proof state is best effort */ }
 			let transcript = [];
 			const sessionKey = studio && request?.sessionId ? `cozyclay.mock.agent.session.${request.sessionId}` : null;

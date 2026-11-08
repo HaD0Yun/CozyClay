@@ -332,12 +332,18 @@
 }
 
 /* Sequencer key bar (PoseKeyBar.jsx): timeline length, and in Pose mode Key / Fill (MotionBricks). */
-.app:not([data-embed-mode]) .v2-dock > .bottom-timeline:has(> .pose-key-bar) { --timeline-height: calc(100% - 30px); }
-/* its own row above the transport, right of the Animation | Assets tabs that sit over the dock's top-left */
-.pose-key-bar { display: flex; align-items: center; gap: 8px; height: 30px; box-sizing: border-box; padding: 4px 12px 0 220px; font-size: 12px; color: var(--text-secondary, #6b6f76); }
+/* Pose mode's key tools need their own row above the transport (right of the
+   Animation | Assets tabs that sit over the dock's top-left). Outside Pose it
+   is only the Frames field, which sits in the lane-label column of the ruler
+   row (under the head and the camera bar, which a selected shot fills to the
+   left edge), so the Sequencer keeps the dock's full height and every lane shows. */
+.app:not([data-embed-mode]) .v2-dock > .bottom-timeline:has(> .pose-key-bar.posing) { --timeline-height: calc(100% - 30px); }
+.app:not([data-embed-mode]) .v2-dock .pose-key-bar:not(.posing) { position: absolute; z-index: 3; top: calc(48px + var(--tl-camera-bar-height, 28px)); left: 16px; max-width: 180px; height: 24px; padding: 0; }
+.pose-key-bar { display: flex; align-items: center; gap: 8px; height: 30px; box-sizing: border-box; padding: 4px 12px 0 220px; font-size: 12px; color: var(--label, var(--text-2, #6b6f76)); }
 .pose-key-bar label { display: inline-flex; align-items: center; gap: 6px; }
-.pose-key-bar input[type="number"] { width: 72px; font: inherit; color: var(--text-primary, #202124); background: var(--surface-panel, #fff); border: 1px solid currentColor; border-radius: 4px; padding: 1px 4px; }
-.pose-key-bar button { font: inherit; padding: 2px 8px; border-radius: 4px; border: 1px solid currentColor; background: var(--surface-panel, #fff); color: var(--text-primary, #202124); cursor: pointer; }
+/* Theme tokens, like the dock's other fields: the old fixed light colours read as dark-on-dark in the dark theme. */
+.pose-key-bar input[type="number"] { width: 64px; height: 22px; box-sizing: border-box; font: inherit; font-variant-numeric: tabular-nums; color: var(--text-1, #202124); background: var(--field-fill, var(--field, #fff)); border: 0; border-radius: var(--r-1, 4px); padding: 0 6px; }
+.pose-key-bar button { font: inherit; padding: 2px 8px; border-radius: var(--r-1, 4px); border: 0; background: var(--field-fill, var(--field, #fff)); color: var(--text-1, #202124); cursor: pointer; }
 .pose-key-bar button:disabled { opacity: 0.45; cursor: default; }
 .pose-key-bar > label, .pose-key-bar > button, .pose-key-bar .pose-key-count { flex-shrink: 0; white-space: nowrap; }
 .pose-key-bar .pose-key-status { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import AddSceneEntries from "./shell/AddSceneEntries.jsx"; import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ko } from "./locale.js";
 import { buildHierarchyNodes } from "./hierarchy-model.js";
@@ -290,7 +290,7 @@ function RowContextMenu({ menu, onClose, onAction, onAddObject }) {
 					)}
 				</>
 			) : (
-				<CatalogueEntries onPick={onAddObject} />
+				<><CatalogueEntries onPick={onAddObject} /><AddSceneEntries onDone={onClose} /></>
 			)}
 		</div></div>,
 		document.body,

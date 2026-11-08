@@ -6,7 +6,7 @@
 		--shell-gap: var(--float-gap, 12px);
 		--shell-left: var(--shell-left-width, var(--shell-left-default));
 		--shell-right: var(--shell-right-width, var(--shell-right-default));
-		--shell-left-default: 260px;
+		--shell-left-default: 206px;
 		--shell-right-default: 300px;
 		--shell-dock: var(--shell-dock-height, var(--shell-dock-default));
 		/* The sequencer's fixed grid: 48px head + 28px camera bar (always
@@ -26,7 +26,11 @@
 		--shell-center-bottom: calc(var(--shell-dock) + var(--shell-status-h) + var(--shell-dock-bottom) + var(--shell-gap));
 		/* Top edge of the open stage: the cut-out the frame mask leaves under the
 		   top bar (.workspace::after). */
-		--shell-stage-top: calc(var(--shell-gap) * 2 + 40px);
+		/* The floating bars' height: menu bar, mode switch, the folded Outliner toggle. */
+		--shell-bar-h: 32px;
+		--shell-stage-top: calc(var(--shell-gap) * 2 + var(--shell-bar-h));
+		/* The top row sits 8px inside the stage frame, not on its edge. */
+		--shell-row-top: calc(var(--shell-gap) + 8px);
 		/* The shot card's picture. The slot is the room the card leaves between
 		   its 48px head and the 84px of ratios + footer under it; the picture is
 		   the shot aspect fitted into that slot and centred in it, so the stage
@@ -48,10 +52,10 @@
 	}
 
 	@media (max-width: 1440px) {
-		.app:not([data-embed-mode]) { --shell-left-default: 236px; --shell-right-default: 272px; }
+		.app:not([data-embed-mode]) { --shell-left-default: 206px; --shell-right-default: 272px; }
 	}
 	@media (max-width: 1180px) {
-		.app:not([data-embed-mode]) { --shell-left-default: 212px; --shell-right-default: 248px; }
+		.app:not([data-embed-mode]) { --shell-left-default: 190px; --shell-right-default: 248px; }
 	}
 
 	.app:not([data-embed-mode]) > .main { display: contents; }
@@ -81,10 +85,10 @@
 	.app:not([data-embed-mode]) .topbar {
 		position: absolute;
 		z-index: 20;
-		top: var(--shell-gap);
+		top: var(--shell-row-top);
 		left: var(--shell-center-left);
 		right: var(--shell-center-right);
-		height: 40px;
+		height: var(--shell-bar-h);
 		padding: 0;
 		border: 0;
 		background: none;
@@ -125,9 +129,56 @@
 		overflow: hidden;
 		background: none;
 	}
-	.studio-left-column > .hierarchy-left {
+	.studio-left-column > .hierarchy-left,
+	.shell-left-body > .hierarchy-left {
 		flex: 1 1 auto;
 	}
+	/* The Outliner body; the toggle sits over its top-right corner. */
+	.shell-left-body {
+		flex: 1 1 auto;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.shell-left-body[hidden] { display: none; }
+	.shell-left-body > .panel {
+		width: 100%;
+		min-width: 0;
+		min-height: 0;
+		padding: 0;
+		border: 0;
+		overflow: hidden;
+		background: none;
+	}
+	.shell-left-toggle {
+		position: absolute;
+		z-index: 2;
+		top: 8px;
+		right: 8px;
+		width: 28px;
+		height: 28px;
+		display: grid;
+		place-items: center;
+		padding: 0;
+		border: 0;
+		border-radius: var(--r-1, 4px);
+		background: transparent;
+		color: var(--text-3, #636369);
+		cursor: pointer;
+	}
+	.shell-left-toggle:hover { background: var(--surface-raised, rgba(0, 0, 0, .06)); color: var(--text-1, #1d1d1f); }
+	/* Folded: no column at all. The viewport, its tools and the stage frame
+	   run to the left gap (--shell-left 0); only the menu bar steps right to
+	   make room for the toggle, a pill as tall as the bar (glass.css drops the
+	   column's surface). */
+	.app[data-left-collapsed]:not([data-embed-mode]) { --shell-left: 0px; --shell-center-left: var(--shell-gap); }
+	.app[data-left-collapsed]:not([data-embed-mode]) .studio-left-column { overflow: visible; pointer-events: none; }
+	/* Folded, the toggle is a slim tab on the stage's left edge, centred
+	   top to bottom, so the top row starts at the edge inset. */
+	.app[data-left-collapsed]:not([data-embed-mode]) .topbar { left: calc(var(--shell-gap) + 8px); }
+	.app[data-left-collapsed] .shell-left-toggle { top: 50%; right: auto; left: 0; width: 14px; height: 44px; transform: translateY(-50%); pointer-events: auto; }
+	.app[data-left-collapsed] .shell-left-toggle svg { transform: rotate(180deg); }
+	.app[data-left-collapsed] .shell-left-splitter { display: none; }
 	.studio-right-column > .inspector-sidebar {
 		flex: 1 1 auto;
 		display: flex;
@@ -245,15 +296,19 @@
 		   this frame through their glass, and on the darker --surface-0 they
 		   went a step darker than designed. */
 		background: var(--shell-frame, var(--surface-panel));
-		--shell-view-top: var(--shell-stage-top);
+		/* The stage opens right up to the top gap: the menu bar and the mode
+		   switch float over it like the tool rail, so no empty band sits
+		   between them and the stage. Overlays still start under the bar
+		   (--shell-stage-top). */
+		--shell-view-top: var(--shell-gap);
 		--shell-cut-w: calc(100% - var(--shell-center-left) - var(--shell-center-right));
 		--shell-view-h: max(0px, calc(100% - var(--shell-view-top) - var(--shell-center-bottom)));
 		--shell-shot-w: var(--shot-pic-w);
 		--shell-shot-h: var(--shot-pic-h);
 		/* An SVG without a viewBox keeps rx in CSS pixels at any mask-size, so
-		   the cut-outs stay 20px-round however the panels are resized. rx is the
+		   the cut-outs stay 10px-round however the panels are resized. rx is the
 		   panels' --float-radius (themes.css); a data URI cannot read the token. */
-		--shell-round-cut: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='20'/%3E%3C/svg%3E");
+		--shell-round-cut: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='10'/%3E%3C/svg%3E");
 		--shell-shot-cut: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='10'/%3E%3C/svg%3E");
 		-webkit-mask-image: linear-gradient(#000 0 0), var(--shell-round-cut), var(--shell-shot-cut);
 		mask-image: linear-gradient(#000 0 0), var(--shell-round-cut), var(--shell-shot-cut);

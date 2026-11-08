@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { AppContext } from "../app-context.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
 import Foldout from "./Foldout.jsx";
@@ -16,6 +16,11 @@ import { TEXT_KIND } from "../text/text-record.js";
 export default function ObjectLookPanel() {
 	const { selectedSceneObject: object, sceneObjects, beginSceneTransaction, endSceneTransaction } = useStudioShell();
 	const app = useContext(AppContext), session = useRef(null);
+	// The words box keeps its own draft while it is edited: the store refuses
+	// blank words (normalizeText falls back to "Text"), so feeding it an empty
+	// box would put "Text" straight back under the caret. Only non-blank words
+	// are sent; leaving the box blank restores the last stored words.
+	const [wordsDraft, setWordsDraft] = useState(null);
 	const run = (...args) => {
 		const receipt = app.bus.run(...args);
 		if (receipt && !receipt.ok) app.notify(receipt.message);
@@ -33,7 +38,7 @@ export default function ObjectLookPanel() {
 		run("run.update", { txId: session.current.txId, args: { id: object.id, patch } });
 	}
 	const set = (patch) => { commit(); run("object.update", { id: object.id, patch }); };
-	useEffect(() => () => commit(), [object?.id]);
+	useEffect(() => () => { commit(); setWordsDraft(null); }, [object?.id]);
 	if (!object) return null;
 	const light = object.renderer === LIGHT_KIND ? object.light : null;
 	const glow = object.glow ?? null;
@@ -48,7 +53,7 @@ export default function ObjectLookPanel() {
 			{text && (
 				<Foldout title={ko("Text", "텍스트")}>
 					<Field label={ko("Words", "글자")}>
-						<textarea rows={2} value={text.value} onChange={(event) => drag("text.value", { text: { value: event.target.value } })} onBlur={commit} />
+						<textarea rows={2} data-field="text-words" value={wordsDraft ?? text.value} onChange={(event) => { const value = event.target.value; setWordsDraft(value); if (value.trim()) drag("text.value", { text: { value } }); }} onBlur={() => { setWordsDraft(null); commit(); }} />
 					</Field>
 					<div {...ends}>
 						<Slider label={ko("Letter height", "글자 높이")} min={0.02} max={3} step={0.01} unit=" m" softMax value={text.size} onChange={(value) => drag("text.size", { text: { size: value } })} />

@@ -6,7 +6,7 @@ import { fitAspect } from "./shot-frame.js";
 import { HANDLE_PROXY_FLAG, claimsPress } from "./gizmo-claim.js";
 import { CUTOUT_KIND, rotatePatch, scalePatch, screenRotatePatch, translatePatch, wrapAngle } from "./scene-objects.js";
 import { dragTravel, dragTurn } from "./held-object-pose.js";
-import { viewportTools } from "./viewport-tools.js";
+import { viewportTools } from "./viewport-tools.js"; import { viewportSketch } from "./viewport-sketch.js";
 import { HeldTrail } from "./held-object-edit.jsx";
 import { ACTIVE_COLOR, ARROW_LEN, AXES, AXIS_VECTORS, BOX_SIZE, CARD_CORNERS, CENTRE_BOX, CORNER_BOX, FAR_HALF_ALPHA, GROUND, PICK_CENTRE_R, PICK_CORNER_R, PICK_SHAFT_R, PICK_TUBE_R,
 	PLANES, PLANE_OFFSET, PLANE_SIZE, RING_R, RING_TUBE, SCREEN_RING_R, SCREEN_SCALE, SHAFT_R, TIP_LEN, TIP_R, gizmoOrigin, gizmoTurn, handleKey } from "./object-gizmo-parts.js";
@@ -494,10 +494,10 @@ export default function ObjectGizmo({ object, objects = [], mode = "move", snap 
 			// is inert because the token is retired first (§5.2).
 			// A held-object drag edits the motion, not the record: no scene transaction.
 			const heldDrag = Boolean(heldEdit?.editable && (kind === "rotate" || (!heldEdit.hinge && (kind === "move" || kind === "plane"))) && heldEdit.begin());
-			const token = heldDrag ? undefined : stateRef.current.onDragStart?.({
+			let token; try { token = heldDrag ? undefined : stateRef.current.onDragStart?.({
 				owner: "gizmo",
 				cancel: teardownDrag,
-			});
+			}); } catch (error) { if (error?.code === "TARGET_BUSY") return true; throw error; } // refused (an agent turn holds the scene; the bus toasts why): claim the press, start no drag
 			const corner = kind === "corner" ? dir : null;
 			dragRef.current = { ...drag, id: live.id, axis, plane, corner, start: { ...live }, token, held: heldDrag };
 			// the grabbed handle turns yellow now and stays yellow after
@@ -541,7 +541,7 @@ export default function ObjectGizmo({ object, objects = [], mode = "move", snap 
 		const onDown = (event) => {
 			// Plain left only. Alt+left orbits, middle pans, right flies — those
 			// belong to the camera and must pass straight through.
-			if (event.button !== 0 || event.altKey || event.target !== gl.domElement) return;
+			if (event.button !== 0 || event.altKey || event.target !== gl.domElement || viewportSketch().tool) return; // the Annotate pen owns the press (context-chip-tools.jsx)
 			// A mode that owns this press outranks selection entirely. This
 			// window-capture listener runs BEFORE any listener below the window
 			// (capture descends root-first), so without this yield the line-edit
