@@ -9,7 +9,15 @@ import { join } from "node:path";
 
 // USD per million tokens, claude-opus-5-5 public list price (checked 2026-11-07; it reproduces Claude Code's
 // total_cost_usd and the Studio Agent session cost to the cent fraction). KRW at 1,500 per USD (plan 4.1).
-const PRICE = { date: "2026-11-07", model: "claude-opus-5-5", input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20, krwPerUsd: 1500 };
+// A run prices its usage at the selected model's rate; a model with no rate here is refused (run.mjs), never priced as another.
+const PRICES = { "claude-opus-5-5": { date: "2026-11-07", model: "claude-opus-5-5", input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20, krwPerUsd: 1500 } };
+
+/** The price table for `model`; throws for a model with no rate. */
+export function priceFor(model) {
+	const price = PRICES[model];
+	if (!price) throw new Error(`no price for model ${model}; add its rate to usage.mjs PRICES (known: ${Object.keys(PRICES).join(", ")})`);
+	return price;
+}
 const AGENT = { cozyclay: /^pi\//, blender: /^claude-cli\// };
 const LOCAL = new Set(["127.0.0.1", "::1"]);
 
@@ -55,8 +63,9 @@ export function rateLimited(ms = 15 * 60_000, dir = join(homedir(), "cliproxy-us
 	return false;
 }
 
-/** Tokens, price and model time of `tool`'s requests that ended in [from, to] (ms epoch). */
-export function usageOf(tool, from, to, dir = join(homedir(), "cliproxy-usage")) {
+/** Tokens, price (at `model`'s rate) and model time of `tool`'s requests that ended in [from, to] (ms epoch). */
+export function usageOf(tool, from, to, model, dir = join(homedir(), "cliproxy-usage")) {
+	const PRICE = priceFor(model);
 	const t = { requests: 0, failed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, modelMs: 0, modelBusyMs: 0 };
 	const spans = [];
 	for (const r of records(dir, from, to)) {

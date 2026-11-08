@@ -18,12 +18,16 @@ import { takeFromDoc } from "./export-cozyclay.mjs";
 import { loadSets, requestText } from "./sets.mjs";
 import { laneEnv, startStudio, underBrowser } from "./studio.mjs";
 import { landmarksAt, readTake, writeTake } from "./take.mjs";
-import { rateLimited, usageOf } from "./usage.mjs";
+import { priceFor, rateLimited, usageOf } from "./usage.mjs";
 
 const HERE = new URL(".", import.meta.url).pathname, REPO = join(HERE, "../../..");
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : d; };
 const OUT = arg("out", join(homedir(), "physics-bench/runs")), RUNS = Number(arg("runs", "1")), LIMIT = Number(arg("timeout-min", "60"));
 const MODEL = arg("model", "claude-opus-5-5"), EFFORT = arg("effort", "high"), PROBE = arg("probe", null);
+const USAGE = "usage: run.mjs --sets 10[,3] [--runs n] [--tools cozyclay,blender] [--model claude-opus-5-5]";
+// A bare run would start every set in both model-backed queues: --sets is required.
+if (!arg("sets")) { console.error(USAGE); process.exit(2); }
+priceFor(MODEL);
 const TOOLS = arg("tools", "cozyclay,blender").split(","), sets = loadSets(arg("sets", "").split(",").filter(Boolean));
 const PROBES = {
 	cozyclay: "char-a에 standIdle(at [0, 0]) 다음 flip 스킬(kind: back)로 뒤공중돌기 테이크를 만들어 설치해 줘. 다른 건 하지 마.",
@@ -96,7 +100,7 @@ async function job(set, tool, run) {
 	const harness = res.error ?? (res.saved === false ? res.saveError : null) ?? (/no installed take/.test(res.exportError ?? "") ? null : res.exportError);
 	const ending = !res.sentAt ? "crash" : stats.banned?.length ? "disqualified" : res.timedOut ? "timeout" : take && moved >= 0.01 ? "finished" : harness ? "crash" : "gave_up";
 	const wallMs = res.sentAt && res.endAt ? res.endAt - res.sentAt : null;
-	const usage = wallMs ? usageOf(tool, res.sentAt, res.endAt + 2000) : null;
+	const usage = wallMs ? usageOf(tool, res.sentAt, res.endAt + 2000, MODEL) : null;
 	const row = {
 		id, set: set.id, task: set.task, tool, run, probe: PROBE, model: MODEL, effort: EFFORT, version: res.version ?? null,
 		startedAt: res.sentAt ? new Date(res.sentAt).toISOString() : null, ending, wallMs: ending === "timeout" ? LIMIT * 60_000 : wallMs,
@@ -114,7 +118,7 @@ async function job(set, tool, run) {
 }
 
 mkdirSync(OUT, { recursive: true });
-if (!sets.length || TOOLS.some(t => !["cozyclay", "blender"].includes(t))) { console.error("usage: run.mjs --sets 10[,3] [--runs n] [--tools cozyclay,blender]"); process.exit(2); }
+if (!sets.length || TOOLS.some(t => !["cozyclay", "blender"].includes(t))) { console.error(USAGE); process.exit(2); }
 log(`sets ${sets.map(s => s.task).join(",")} x ${RUNS} runs, tools ${TOOLS.join(",")}, ${MODEL} ${EFFORT}, limit ${LIMIT} min${PROBE ? `, probe ${PROBE}` : ""} (${readdirSync(OUT).length} entries in ${OUT})`);
 await Promise.all(TOOLS.map(async tool => { for (let run = 1; run <= RUNS; run++) for (const set of sets) await job(set, tool, run); }));
 log("all done");
