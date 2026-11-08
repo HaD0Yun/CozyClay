@@ -277,7 +277,7 @@ const v4Root = join(tmp, "v4");
 	const listed = withV4Models(listing), provider = listed.providers.at(-1);
 	expect("6 withV4Models appends the v4 provider after the others", provider.id === "v4" && provider.label === "CozyClay v4 motion" && provider.models[0].key === V4_MODEL_KEY && provider.models[0].id === "claude-opus-5-5" && provider.models[0].defaultEffort === "high" && provider.models[0].efforts[0] === "high", JSON.stringify(provider));
 	expect("6 signedIn and authSource follow cliproxy", provider.signedIn === true && provider.authSource === "file");
-	expect("6 the flat list carries v4/claude-opus-5-5 last; roles kept", listed.models.at(-1).id === V4_MODEL_KEY && listed.models.length === 2 && listed.roles === listing.roles);
+	expect("6 the flat list carries v4 then v4pi last; roles kept", listed.models.at(-2).id === V4_MODEL_KEY && listed.models.at(-1).id === "v4pi/claude-opus-5-5" && listed.models.length === 3 && listed.roles === listing.roles);
 	const signedOut = { ...listing, providers: listing.providers.map(p => (p.id === "cliproxy" ? { ...p, signedIn: false, authSource: null } : p)) };
 	expect("6 cliproxy signed out: the listing is unchanged (no v4 entry)", withV4Models(signedOut) === signedOut && !withV4Models({ models: [] }).providers);
 	expect("6 isV4Model matches only the v4 key", isV4Model(V4_MODEL_KEY) && !isV4Model("cliproxy/claude-opus-5-5") && !isV4Model(undefined));

@@ -35,7 +35,7 @@ function retire(sessionId) {
 const sameSubject = (a, b) => a.id === b.id && a.model === b.model && a.yaw === b.yaw && a.scale === b.scale && a.position.every((value, i) => value === b.position[i]);
 
 /** The conversation's context and tool set: reused while the subject stays the same, else built again. */
-async function conversationFor(sessionId, turn, loadToolSet) {
+export async function conversationFor(sessionId, turn, loadToolSet = defaultLoadToolSet) {
 	const existing = conversations.get(sessionId);
 	if (existing && sameSubject(existing.ctx.character, subjectOf(turn.describe))) {
 		clearTimeout(existing.idle);
@@ -73,14 +73,24 @@ function trackLine(ctx) {
 
 const imagesOf = attachments => (Array.isArray(attachments) ? attachments : []).map(entry => /^data:([^;]+);base64,(.*)$/.exec(entry?.dataUrl ?? "")).filter(Boolean).map(match => ({ mimeType: match[1], data: match[2] }));
 
-/** What the model reads this turn (`text`) and what the session store keeps (`stored`). */
-function promptOf({ value, ctx, describe, first, restarted }) {
+/** What the model reads this turn (`text`), what the session store keeps (`stored`) and the bare brief or state line (`context`). */
+export function promptOf({ value, ctx, describe, first, restarted }) {
 	if (first) {
 		const brief = sceneBrief({ character: ctx.character, sk: ctx.sk, records: Array.isArray(describe?.objects) ? describe.objects : [], installed: installedOf(describe, ctx.character.id), frameCount: value.context?.scene?.frameCount });
-		return { text: `${brief}\n\n${value.text}`, stored: `<studio-context>\n${brief}\n</studio-context>\n${value.text}` };
+		return { text: `${brief}\n\n${value.text}`, stored: `<studio-context>\n${brief}\n</studio-context>\n${value.text}`, context: brief };
 	}
 	const state = [trackLine(ctx), ...(restarted ? [RESTARTED] : [])].join("\n");
-	return { text: `${value.text}\n\n${state}`, stored: `<studio-context>\n${state}\n</studio-context>\n${value.text}` };
+	return { text: `${value.text}\n\n${state}`, stored: `<studio-context>\n${state}\n</studio-context>\n${value.text}`, context: state };
+}
+
+/** An idle conversation closes its tool set (the js session's worker) after IDLE_MS. */
+export function scheduleRetire(sessionId) {
+	const conversation = conversations.get(sessionId);
+	if (conversation) {
+		clearTimeout(conversation.idle);
+		conversation.idle = setTimeout(() => retire(sessionId), IDLE_MS);
+		conversation.idle.unref?.();
+	}
 }
 
 /** pi-shaped history, appended as messages complete; the SDK's one-block assistant messages of one response are merged. */
@@ -204,13 +214,7 @@ export async function runV4StudioTurn({ value, session, send, close, res, contro
 	} catch (error) {
 		if (!signal.aborted) report(typeof error?.code === "string" && error.code ? error.code : "upstream", String(error?.message ?? error));
 	}
-	// An idle conversation closes its tool set (the js session's worker) after IDLE_MS.
-	const conversation = conversations.get(value.sessionId);
-	if (conversation) {
-		clearTimeout(conversation.idle);
-		conversation.idle = setTimeout(() => retire(value.sessionId), IDLE_MS);
-		conversation.idle.unref?.();
-	}
+	scheduleRetire(value.sessionId);
 	if (signal.aborted) report("aborted", "The turn was stopped.");
 	frames.finish();
 	close?.();
