@@ -120,10 +120,20 @@ Example: walking off past an open door. `turnDistance: { range: [0.2, 2.0] }` fo
 - `aswing` + swings the arm forward; `abend` + bends the elbow.
 - `wtwist`/`wflex` are clamped to ±85 and ±70. A mirrored pose negates them.
 - A hinge angle turns about its axis by the right-hand rule: about `[0, 1, 0]`, + turns +Z toward +X.
-- `root` is the hips joint. Standing hips height is about 1.03 m on the X Bot and 0.99 m on the Y Bot. **`foot_*` is the ankle**: it stands 0.087 m (X Bot) or 0.105 m (Y Bot) above the floor, not 0.
+- `root` is the hips joint. Standing hips height is about 1.03 m on the X Bot and 0.99 m on the Y Bot (an adapted rig: its `report.measured.hipsHeightM`). **`foot_*` is the ankle**: it stands 0.087 m (X Bot) or 0.105 m (Y Bot) above the floor, not 0 (an adapted rig: `ankleHeightM`).
 - Anchor names must not end in `_l` or `_r`: the side goes on the weight channel (`w_handle_l`).
 
 The compiler validates the spec strictly and lists every problem with an exact message, one per line, e.g. `keys[3] (f32) sets unknown channel "fpitch_left"; did you mean "fpitch_l"?` or `keys[6] (f54) knee_l = [0,0,-1] points backward; knees bend toward +z.` Unknown channels, wrong vector arity, frames out of range, `fps` other than 24, unknown anchors, bones, objects, fields and skills are all refused.
+
+## Rig templates
+
+A character whose skeleton is not the X Bot's or Y Bot's compiles once it is adapted: `adaptRig(raw, { template? })` (`src/motion3/rigs/adapt.js`) turns `{ units: "cm" | "m", bones: [{ name, parent, localPos, localQuat }] }` into a rig with the canonical Mixamo bones, and `registerRig(id, rig)` (`rigs/index.js`) makes `skeletonFor(id)` answer it. Every skill, pose and spec then compiles on it; write `root` and `foot_*` heights from its `report.measured` (`hipsHeightM`, `ankleHeightM`), not the X Bot's.
+
+- Templates (`rigs/templates/<id>.json`): `mixamo`, `ue5` (Manny/Quinn, and the UE4 mannequin), `vrm` (VRM 1.0 humanoid names, and `J_Bip_` nodes), `unity-humanoid`, `rigify` (`DEF-`), `cc4` (`CC_Base_`), `daz-genesis8`, `daz-genesis9`. The template is detected from the bone names (`report.detected = { id, score }`); `opts.template` forces it.
+- Rest pose: an A-pose's arms (and every arm, leg and foot) go onto the X Bot's T-pose bind; the spine and head keep the source's posture. A Z-up source stands up; twist, roll, IK, metacarpal, face and root bones are skipped (`report.extra`). Bones the source lacks (fingertips, toe ends, a head top, a spine or neck joint, whole fingers) are made up at the X Bot's proportions (`report.missing`).
+- The floor is the source's y 0 when its ankles stand 2 cm to 15% of the height above it, else the ankle is put at 0.039 of the stature (`report.grounded: "estimated"`).
+- Measured from the rig: hips and ankle height, the sole (ball and toe-tip height, the heel point scaled by the foot), the stance width (`standIdle`, the walk's default `halfWidth`, scaled by the hip width), the palm grasp offsets (scaled by the hand), the hanging arm of the stance search (scaled by the arm), and the head landmarks (mouth, head ellipsoid; scaled by the head). The collision body is the X Bot's fitted body refitted to the rig's bone lengths at its height's girth; the body capsules of the object and floor checks (`qa/geometry.js CAPSULES`) keep the X Bot's radii.
+- QA on an adapted rig reads as on the X Bot. Proportions change timing a little: longer arms move the hands farther a frame, so a reach or a flip that is clean on the X Bot can show a single-frame `POP` on them; retime as its hint says.
 
 ## Left to the compiler (#1078)
 
