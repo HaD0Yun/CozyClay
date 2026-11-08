@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiPower, FiRotateCw, FiX } from "react-icons/fi";
-import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
+import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_MAX_COUNT, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
 import { isImeComposing } from "../ime.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
 import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
@@ -638,7 +638,11 @@ export default function AgentPanel({
 		const idle = surface === "studio" && !store.getState().streaming, annotated = idle ? captureAnnotatedImage() : null, chipImages = idle ? [...(annotated ? [{ dataUrl: annotated, name: "annotated-view.jpg" }] : []), ...markStills()] : [];
 		if (idle) queueMicrotask(() => { if (store.getState().streaming) consumeMarks(); });
 		stagePrompt(text, { via, model, endpoint, attached: attachFrame || store.getState().pendingAttachments.length > 0, taskMode });
-		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, ...(chipImages.length ? { attachments: [...store.getState().pendingAttachments, ...chipImages] } : {}) });
+		// The marks are consumed with this message, so their pictures go first: the author's own pictures fill what is left
+		// of the message's ATTACHMENT_MAX_COUNT, and any left out are named.
+		const pending = store.getState().pendingAttachments, room = Math.max(0, ATTACHMENT_MAX_COUNT - chipImages.length);
+		if (chipImages.length && pending.length > room) setAttachNotice(`${pending.length - room} attached image${pending.length - room === 1 ? "" : "s"} left out: the marked view takes ${Math.min(chipImages.length, ATTACHMENT_MAX_COUNT)} of the ${ATTACHMENT_MAX_COUNT} images a message holds`);
+		return store.send(text, { attachFrame, model, effort: effort ?? undefined, tasks: taskMode, ...(chipImages.length ? { attachments: [...pending.slice(0, room), ...chipImages] } : {}) });
 	}, [attachFrame, effort, model, modelProviders, store, surface, taskMode]);
 	const taskStepLabel = useCallback((call) => stepLabel(call, presentation.toolLabels), [presentation.toolLabels]);
 	const stopTurn = useCallback(() => store.stop(), [store]);

@@ -323,6 +323,8 @@ export function useScenes(appContext) {
 				}
 			} else {
 				await writeProjectFile(handle, serialized);
+				// the recent entry's counts were read when the project opened: an overwrite refreshes them
+				await rememberRecentProject(handle, name, serializedSummary(serialized));
 			}
 			context.check();
 			markProjectClean(name, checkpoint, currentName);

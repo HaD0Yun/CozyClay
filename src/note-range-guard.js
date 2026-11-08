@@ -35,7 +35,8 @@ export function checkNoteRange(id, args, request) {
 	const mine = args ? armed.filter((range) => range.characterId === args.characterId) : [];
 	if (!mine.length || !request || request.origin === "ui") return;
 	const { frameStart, frameEnd } = mine[0], allowed = `frames ${mine.map((range) => `${range.frameStart}-${range.frameEnd}`).join(", ")}`;
-	if (WHOLE_TAKE.has(id)) {
+	// character.setPose with clearMotion clears the whole take and its IK keys (commands/cast.js applyPose)
+	if (WHOLE_TAKE.has(id) || (id === "character.setPose" && args.clearMotion === true)) {
 		throw new StudioProtocolError("INVALID_RANGE", `Refused by the timeline note: ${id} rewrites the whole take, but this message is about ${allowed} only. Key or correct the pose inside ${allowed} (character.setIkKey) instead.`, { noteRange: { frameStart, frameEnd } });
 	}
 	const outside = (FRAMES[id]?.(args) ?? []).filter((frame) => Number.isFinite(frame) && !mine.some((range) => frame >= range.frameStart && frame <= range.frameEnd));

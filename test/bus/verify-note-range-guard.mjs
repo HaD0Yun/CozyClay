@@ -11,7 +11,7 @@ import { noteRangeGuard } from '../../src/note-range-guard.js';
 const f = fixture();
 let runs = 0;
 const edit = () => { runs++; f.edit(f.state.value + 1, 'motion'); return result(['char-1']); };
-for (const id of ['character.setIkKey', 'character.removeIkKey', 'character.clearIkKeys', 'motion.cut', 'motion.trim', 'motion.setSegmentSpeed', 'motion.compile']) {
+for (const id of ['character.setIkKey', 'character.removeIkKey', 'character.clearIkKeys', 'character.setPose', 'motion.cut', 'motion.trim', 'motion.setSegmentSpeed', 'motion.compile']) {
 	f.registry.register({ id, label: id, description: id, kind: 'mutation', undoDomain: 'motion', exposure: 'open',
 		input: { type: 'object', properties: {}, required: [], additionalProperties: true }, available: () => true, run: edit });
 }
@@ -43,6 +43,9 @@ for (const id of ['character.clearIkKeys', 'motion.trim', 'motion.setSegmentSpee
 	assert.equal(refused.code, 'INVALID_RANGE', `${id} rewrites the whole take: ${JSON.stringify(refused)}`);
 	assert.match(refused.message, /whole take/);
 }
+const clearing = await f.bus.run('character.setPose', { characterId: 'char-1', pose: null, clearMotion: true }, f.request('agent'));
+assert.equal(clearing.code, 'INVALID_RANGE', `a pose that clears the take rewrites the whole take: ${JSON.stringify(clearing)}`);
+assert.equal((await f.bus.run('character.setPose', { characterId: 'char-1', pose: null }, f.request('agent'))).ok, true, 'a pose that keeps the take passes');
 assert.equal((await f.bus.run('character.setIkKey', { ...ik(80), characterId: 'char-2' }, f.request('agent'))).ok, true, "another character's motion is not the note's");
 assert.equal((await f.bus.run('character.setIkKey', ik(80), f.request('ui'))).ok, true, "the author's own edit is never guarded");
 
