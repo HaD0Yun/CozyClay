@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // install: "ifClean" (variant K, deep research 20): installs a clean result, the first take when none is on, and one whose QA
-// beats the installed take's (fewer groups, then fewer frame issues); "never" never installs. A hand pushed into a board by
-// 3.5 / 4.0 / 3.6 / 3.8 cm gives one COLLIDE group of a different length each.
+// beats the installed take's (fewer blocking groups, then fewer of their frame issues: qa/blocking.js, #1114); "never" never
+// installs. A hand pushed into a board by 3.5 / 4.0 / 3.6 / 3.8 cm gives one COLLIDE group of a different length each (a
+// warning: a palm in a body) and one GOAL group (the hand holds its place within 2.5 cm) that blocks, longer the deeper it goes.
 import { readFileSync } from "node:fs";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
@@ -11,7 +12,8 @@ let failures = 0;
 const expect = (name, ok, detail = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : ` — ${detail}`}`); if (!ok) failures++; };
 const sk = skeletonFor("x-bot-tpose"), I = sk.index;
 const held = z => ({ schema: "cozyclay.motion-spec.v1", fps: 24, frames: 60, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0] } }],
-	keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, z] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
+	keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, z] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }],
+	goals: [{ name: "hand holds its place", still: "joint:RightHand", tol: 0.025, at: [0, 59] }] });
 const P30 = compileSpec(held(0.36), { sk, scene: { objects: {} } }).out.frames[30].s.P, front = Math.max(P30[I.RightHand][2], P30[I.RightHandMiddle3][2]) + 0.022;
 const board = [{ id: "board", name: "Board", renderer: "cube", x: -0.2, y: 0, z: front + 0.035, rot: 0, rotX: 0, rotZ: 0, scaleX: 0.6, scaleY: 1.6, scaleZ: 0.1, footprint: { width: 1, depth: 1 }, height: 1 }];
 const takes = new Map(), owner = { replace: (cid, take) => takes.set(cid, take), motionFor: cid => takes.get(cid) ?? null };
@@ -34,12 +36,12 @@ expect("ifClean: a clean take is installed", e.qa.ok && e.installed === true);
 const sit = JSON.parse(readFileSync(new URL("./fixtures/h-sit-spec.json", import.meta.url), "utf8"));
 const sitTakes = new Map(), sitOwner = { replace: (cid, take) => sitTakes.set(cid, take), motionFor: cid => sitTakes.get(cid) ?? null };
 const sitReg = createStudioAppActions({ state: () => ({ characters: [{ ...actor, model: sit.model }], objects: sit.objects, frameCount: 240 }), storeDomain: name => (name === "motion" ? sitOwner : null) });
-// INSTALL_WORSE (variant M): install: true over an installed take with fewer QA problems still installs and says so (the installed
-// specId, its problems and the new ones); over a worse take there is no note; a take never measured here gets none either
+// INSTALL_WORSE (variant M): install: true over an installed take with fewer blocking problems still installs and says so (the
+// installed specId, its blocking problems and the new ones); over a worse take there is no note; a take never measured here gets none either
 const clean = JSON.stringify(on()), cleanId = e.specId;
 const f = run(0.4, true), worseNote = (f.notes ?? []).find(n => n.startsWith("INSTALL_WORSE"));
 expect("INSTALL_WORSE: install true over a better installed take installs and notes it", f.installed === true && JSON.stringify(on()) !== clean && Boolean(worseNote)
-	&& worseNote.includes(cleanId) && worseNote.includes("(0 QA problems)") && worseNote.includes(`(${f.qa.groups.length})`), JSON.stringify({ installed: f.installed, notes: f.notes }));
+	&& worseNote.includes(cleanId) && worseNote.includes("(0 blocking problems)") && worseNote.includes(`(${f.qa.blocking})`), JSON.stringify({ installed: f.installed, notes: f.notes }));
 const g = run(0.3, true);
 expect("INSTALL_WORSE: install true over a worse installed take: no note", g.installed === true && !(g.notes ?? []).some(n => n.startsWith("INSTALL_WORSE")), JSON.stringify(g.notes));
 // after a document reload the spec store is empty (a new registry here) while the take stays on: the installed take's QA is
@@ -47,7 +49,7 @@ expect("INSTALL_WORSE: install true over a worse installed take: no note", g.ins
 const unmeasured = new Map([["c", { schema: "cozyclay.take.v3", spec: held(0.31) }]]), fresh = createStudioAppActions({ state: () => ({ characters: [actor], objects: board, frameCount: 60 }),
 	storeDomain: name => (name === "motion" ? { replace: (cid, take) => unmeasured.set(cid, take), motionFor: cid => unmeasured.get(cid) ?? null } : null) });
 const h = fresh.run("motion.compile", { characterId: "c", spec: held(0.4), install: true, repair: false, thin: false }).output;
-expect("INSTALL_WORSE after a reload: the installed take is measured, and replacing it with a worse one is noted", h.installed === true && (h.notes ?? []).some(n => n.startsWith("INSTALL_WORSE") && n.includes("(0 QA problems)")), JSON.stringify(h.notes));
+expect("INSTALL_WORSE after a reload: the installed take is measured, and replacing it with a worse one is noted", h.installed === true && (h.notes ?? []).some(n => n.startsWith("INSTALL_WORSE") && n.includes("(0 blocking problems)")), JSON.stringify(h.notes));
 const reloaded = () => createStudioAppActions({ state: () => ({ characters: [actor], objects: board, frameCount: 60 }), storeDomain: name => (name === "motion" ? owner : null) });
 takes.clear(); run(0.38, "ifClean"); run(0.4, "ifClean");
 const before = JSON.stringify(on()), afterReload = reloaded(), runR = (z, reg2 = afterReload) => reg2.run("motion.compile", { characterId: "c", spec: held(z), install: "ifClean", repair: false, thin: false }).output;
