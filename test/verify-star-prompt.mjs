@@ -16,7 +16,7 @@ function pass(message) {
 	console.log(`PASS ${message}`);
 }
 
-const STARRED = "/user/starred/NomaDamas/CozyClay";
+const STARRED = "/user/starred/HaD0Yun/CozyClay";
 const VERSION = "9.9.9";
 
 /** One run of the prompt with fakes; returns everything it touched. */
@@ -58,7 +58,7 @@ const starPut = `api --method PUT ${STARRED} --silent`;
 	assert.match(calls.ask[0], /\[y\/N\]/);
 	assert.match(calls.ask[0], /42 so far/);
 	assert.deepEqual(calls.open, []);
-	assert.match(calls.log.at(-1), /^Starred NomaDamas\/CozyClay/);
+	assert.match(calls.log.at(-1), /^Starred HaD0Yun\/CozyClay/);
 	assert.ok(store.starredAt);
 	assert.equal(store.starPromptedVersion, VERSION);
 	pass("signed-in gh: y stars the repo through gh and opens no browser");
@@ -82,7 +82,7 @@ pass("signed-in gh: anything but y/yes (Enter included) stars nothing and opens 
 {
 	const { calls } = await run({ ghResults: signedIn, answer: "yes" });
 	assert.ok(calls.gh.includes(starPut));
-	assert.deepEqual(calls.open, ["https://github.com/NomaDamas/CozyClay"]);
+	assert.deepEqual(calls.open, ["https://github.com/HaD0Yun/CozyClay"]);
 	pass("a star gh refuses falls back to opening the repo");
 }
 
@@ -90,7 +90,7 @@ pass("signed-in gh: anything but y/yes (Enter included) stars nothing and opens 
 	const { calls } = await run({ answer: "" });
 	assert.deepEqual(calls.gh, ["auth status"]);
 	assert.match(calls.ask[0], /Open GitHub\? \[Y\/n\]/);
-	assert.deepEqual(calls.open, ["https://github.com/NomaDamas/CozyClay"]);
+	assert.deepEqual(calls.open, ["https://github.com/HaD0Yun/CozyClay"]);
 	const declined = await run({ answer: "n" });
 	assert.deepEqual(declined.calls.open, []);
 	pass("without a signed-in gh the browser prompt is unchanged");

