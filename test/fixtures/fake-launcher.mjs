@@ -28,7 +28,7 @@ if (process.env.FAKE_LAUNCHER_MODE === "nobind") {
 		res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
 		res.end(JSON.stringify({
 			enabled: true, current, latest: current, status: "latest", kind: "global", canSelfUpdate: true, phase: "idle",
-			errorClass: null, durationMs: null, notesUrl: `https://github.com/NomaDamas/CozyClay/releases/tag/v${current}`, command: "npm install -g cozyclay@latest",
+			errorClass: null, durationMs: null, notesUrl: `https://github.com/HaD0Yun/CozyClay/releases/tag/v${current}`, command: "npm install -g cozyclay@latest",
 		}));
 	});
 	setTimeout(() => server.listen({ port, host: "127.0.0.1" }, () => console.log(`fake launcher ${current} on ${port}`)), Number(process.env.FAKE_LAUNCHER_DELAY_MS ?? 0));

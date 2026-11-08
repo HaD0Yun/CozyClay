@@ -154,7 +154,7 @@ try {
 		errorClass: null,
 		durationMs: null,
 		installed: null,
-		notesUrl: "https://github.com/NomaDamas/CozyClay/releases/tag/v3.9.9",
+		notesUrl: "https://github.com/HaD0Yun/CozyClay/releases/tag/v3.9.9",
 		command: "npm install -g cozyclay@latest",
 	});
 	assert.equal((await route.get({ origin: route.origin })).status, 200);
@@ -176,7 +176,7 @@ try {
 		registry.requests = 0;
 		res = await route.get();
 		assert.equal(existsSync(join(readOnlyHome, "cozyclay")), false, "the state dir could not be created");
-		assert.deepEqual([res.body.latest, res.body.status, res.body.notesUrl], ["3.9.9", "outdated", "https://github.com/NomaDamas/CozyClay/releases/tag/v3.9.9"], "a good fetch is not lost to a failed cache write");
+		assert.deepEqual([res.body.latest, res.body.status, res.body.notesUrl], ["3.9.9", "outdated", "https://github.com/HaD0Yun/CozyClay/releases/tag/v3.9.9"], "a good fetch is not lost to a failed cache write");
 		await route.get();
 		assert.equal(registry.requests, 1, "the in-memory answer serves the TTL, so polls do not refetch");
 	} finally {
