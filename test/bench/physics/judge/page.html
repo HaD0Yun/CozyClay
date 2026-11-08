@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion Blind Judging</title>
+<style>
+	:root { --bg: #f5f5f4; --panel: #ffffff; --ink: #1c1917; --muted: #78716c; --line: #e7e5e4; --accent: #2563eb; --done: #16a34a; }
+	@media (prefers-color-scheme: dark) { :root { --bg: #1c1917; --panel: #292524; --ink: #f5f5f4; --muted: #a8a29e; --line: #44403c; --accent: #60a5fa; --done: #4ade80; } }
+	* { box-sizing: border-box; }
+	body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+	main { display: grid; grid-template-columns: 220px 1fr; gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto; }
+	nav { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; height: calc(100vh - 32px); overflow: auto; position: sticky; top: 16px; }
+	nav button { display: flex; justify-content: space-between; width: 100%; border: 0; background: none; color: var(--ink); text-align: left; padding: 6px 8px; border-radius: 6px; cursor: pointer; font: inherit; }
+	nav button.on { background: var(--line); }
+	nav .mark { color: var(--done); }
+	header h1 { margin: 0 0 4px; font-size: 18px; }
+	header p { margin: 0 0 12px; color: var(--muted); }
+	.sides { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+	.side { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+	.side h2 { margin: 0 0 8px; font-size: 15px; }
+	video { width: 100%; display: block; border-radius: 6px; background: #000; margin-bottom: 6px; }
+	.none { aspect-ratio: 16 / 9; display: grid; place-items: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; margin-bottom: 6px; }
+	.bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; align-items: center; }
+	.bar button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+	.bar button.pick { border-color: var(--accent); }
+	.bar button.chosen { background: var(--accent); color: #fff; }
+	.hint { color: var(--muted); font-size: 13px; }
+	@media (max-width: 800px) { main { grid-template-columns: 1fr; padding: 16px; } nav { height: auto; position: static; } .sides { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+	<nav id="list"></nav>
+	<section>
+		<header><h1 id="title">불러오는 중</h1><p id="request"></p></header>
+		<div class="bar">
+			<button id="play">재생 / 정지 (Space)</button><button id="restart">처음부터 (R)</button>
+			<span class="hint">네 영상이 함께 재생된다. 실제 속도, 같은 카메라, 같은 회색 재질.</span>
+		</div>
+		<div class="sides">
+			<div class="side"><h2>왼쪽</h2><div id="left"></div></div>
+			<div class="side"><h2>오른쪽</h2><div id="right"></div></div>
+		</div>
+		<div class="bar">
+			<button class="pick" data-c="left">왼쪽이 낫다 (1)</button>
+			<button class="pick" data-c="right">오른쪽이 낫다 (2)</button>
+			<button class="pick" data-c="same">비슷하다 (3)</button>
+			<button class="pick" data-c="both_unusable">둘 다 못 쓴다 (4)</button>
+			<span class="hint" id="progress"></span>
+		</div>
+	</section>
+</main>
+<script>
+let pairs = [], at = 0;
+const $ = id => document.getElementById(id);
+const videos = () => [...document.querySelectorAll("video")];
+function slot(el, pair, side) {
+	el.innerHTML = "";
+	if (!pair[side]) { el.innerHTML = '<div class="none">결과 없음 (사용 불가)</div><div class="none">결과 없음 (사용 불가)</div>'; return; }
+	for (const view of ["side", "front"]) {
+		const v = document.createElement("video");
+		v.src = `/video/${pair.id}/${side}/${view}`; v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
+		el.appendChild(v);
+	}
+}
+function show(i) {
+	at = i;
+	const p = pairs[i];
+	$("title").textContent = `과제 ${p.task} · ${p.title} · ${p.run}회차`;
+	$("request").textContent = p.request;
+	slot($("left"), p, "left"); slot($("right"), p, "right");
+	document.querySelectorAll(".pick").forEach(b => b.classList.toggle("chosen", b.dataset.c === p.verdict));
+	renderList();
+	Promise.all(videos().map(v => new Promise(r => v.addEventListener("canplay", r, { once: true })))).then(() => videos().forEach(v => v.play()));
+}
+function renderList() {
+	$("list").innerHTML = "";
+	pairs.forEach((p, i) => {
+		const b = document.createElement("button");
+		b.className = i === at ? "on" : "";
+		b.innerHTML = `<span>${p.task}-${p.run} ${p.title}</span><span class="mark">${p.verdict ? "✓" : ""}</span>`;
+		b.onclick = () => show(i);
+		$("list").appendChild(b);
+	});
+	$("progress").textContent = `${pairs.filter(p => p.verdict).length} / ${pairs.length} 판정`;
+}
+async function choose(c) {
+	const p = pairs[at];
+	const r = await fetch("/api/verdict", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id, choice: c }) });
+	if (!r.ok) { alert("저장 실패"); return; }
+	p.verdict = c;
+	const next = pairs.findIndex((q, i) => i > at && !q.verdict);
+	show(next >= 0 ? next : at);
+}
+$("play").onclick = () => { const v = videos(); const paused = v.some(x => x.paused); v.forEach(x => paused ? x.play() : x.pause()); };
+$("restart").onclick = () => videos().forEach(v => { v.currentTime = 0; v.play(); });
+document.querySelectorAll(".pick").forEach(b => b.onclick = () => choose(b.dataset.c));
+document.addEventListener("keydown", e => {
+	if (e.key === " ") { e.preventDefault(); $("play").click(); }
+	if (e.key === "r") $("restart").click();
+	const c = { 1: "left", 2: "right", 3: "same", 4: "both_unusable" }[e.key];
+	if (c) choose(c);
+});
+fetch("/api/pairs").then(r => r.json()).then(list => {
+	pairs = list;
+	if (!pairs.length) { $("title").textContent = "판정할 쌍이 없다"; return; }
+	const first = pairs.findIndex(p => !p.verdict);
+	show(first >= 0 ? first : 0);
+});
+</script>
+</body>
+</html>
