@@ -56,7 +56,9 @@ expect("standIdle cause: replace /use/0/args/at, moved away from the post", hips
 expect("applying it clears the hips hit", !compile(applyPatch(unplaced(), hips.patch), post).qa.groups.some(g => g.subject === "hips x Post"));
 
 // 4. A hand 1.5 cm into a board: the hint's fix.penetration suggestion is the patch.
-const held = fix => stand({ fix, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
+// the fingertips reach past the hand capsule into the board (QA measures them since #1113, finger-collide.js) and fix.penetration
+// pushes the hand and forearm capsules: the fingers' own allowance keeps this case the hand capsule's
+const held = fix => stand({ fix, checks: { allow: [{ part: "fingers", object: "Board", depth: 0.03 }] }, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
 const free = compile(held(undefined), empty).out.frames[30].s.P, front = Math.max(free[I.RightHand][2], free[I.RightHandMiddle3][2]) + 0.022;
 const board = { objects: { Board: { pos: [-0.2, 0, front - 0.015 + 0.05], R: I3(), half: [0.3, 0.8, 0.05] } } };
 r = compile(held(undefined), board);

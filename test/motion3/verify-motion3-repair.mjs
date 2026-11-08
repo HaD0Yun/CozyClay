@@ -38,7 +38,9 @@ const repair = (spec, scene = car, rounds = 4, limitMs) => {
 const stand = (extra = {}) => ({ schema: "cozyclay.motion-spec.v1", fps: 24, frames: 60, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0] } }], ...extra });
 
 // 1. A hand 1.5 cm into a board: repair { rounds: 4 } reaches qa.ok.
-const held = stand({ keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
+// the fingertips reach past the hand capsule into the board (QA measures them since #1113, finger-collide.js) and fix.penetration
+// pushes the hand and forearm capsules: the fingers' own allowance keeps this case the hand capsule's
+const held = stand({ checks: { allow: [{ part: "fingers", object: "Board", depth: 0.03 }] }, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
 const free = compileSpec(held, { sk, scene: empty }).out.frames[30].s.P, front = Math.max(free[I.RightHand][2], free[I.RightHandMiddle3][2]) + 0.022;
 const board = { objects: { Board: { pos: [-0.2, 0, front - 0.015 + 0.05], R: I3(), half: [0.3, 0.8, 0.05] } } };
 const sent = json(held);
@@ -183,11 +185,16 @@ for (const [name, spec, f, leak, value] of [["f275", atRecording(f275), 114, "w_
 	expect(`${name}: the GOAL hint names the stray weight and its patch keys it 0 at f${f}`, new RegExp(`^${leak} is [\\d.]+ at f${f}, so anchor \\w+ takes \\d+% of the hand target from anchor handle: key ${leak} 0 at f${f} `).test(g.hint)
 		&& json(g.patch) === json([{ op: "add", path: "/keys/-", value: { f, set: { [leak]: 0 } } }]), `${g.hint} ${json(g.patch)}`);
 	r = cupRepair(spec);
-	expect(`${name}: repair { rounds: 4 } reaches qa.ok with every goal met, in one round, under 10 s`, r.result.qa.ok && r.result.qa.goals.every(x => x.ok) && r.repair.rounds === 1 && r.ms < budgetMs(10000)
+	// c8f2: the patch that meets the grab puts the left fingertips 1.0 cm into the table top under the cup (the posed skin 1.15 cm;
+	// QA measures the fingers since #1113, finger-collide.js), so it no longer reaches qa.ok: repair keeps a better take instead
+	const tableTop = name === "c8f2";
+	expect(tableTop ? `${name}: repair { rounds: 4 } keeps a better take than its input (the grab's patch is worse: the fingertips in the table), under 10 s`
+		: `${name}: repair { rounds: 4 } reaches qa.ok with every goal met, in one round, under 10 s`,
+	(tableTop ? compareQa(r.result.qa, c.qa).better : r.result.qa.ok && r.result.qa.goals.every(x => x.ok) && r.repair.rounds === 1) && r.ms < budgetMs(10000)
 		&& r.repair.compiles === 1 + r.repair.applied.length + r.repair.rejected, json(r.repair));
 	const again = cupRepair(spec);
 	expect(`${name}: twice the same answer`, json(again.spec) === json(r.spec) && json(again.repair) === json(r.repair) && json(again.result.qa) === json(r.result.qa));
-	expect(`${name}: rounds 3, as the agent sent it, is enough`, cupRepair(spec, 3).result.qa.ok);
+	expect(tableTop ? `${name}: rounds 3, as the agent sent it, keeps a better take too` : `${name}: rounds 3, as the agent sent it, is enough`, tableTop ? compareQa(cupRepair(spec, 3).result.qa, c.qa).better : cupRepair(spec, 3).result.qa.ok);
 }
 const stuckGoal = cupCompile(f275).qa.groups[0];
 expect("tune: a GOAL group gets the body placement (walkTo firstStep, 3 cm) and the lean of the keys around it (5 deg), 1 then 2 steps",

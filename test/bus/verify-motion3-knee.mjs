@@ -71,8 +71,11 @@ for (const sk of [yb, xb]) {
 const deep = compileSpec(squatDown(0.22, { fz: 0.02, fx: 0.16, pitch: 22 }), { sk: yb, scene: { objects: {} } }), deepMax = maxKnee(deep.out, yb);
 const capped = compileSpec(squatDown(0.22, { fz: 0.02, fx: 0.16, pitch: 22, limits: { knee: 150 } }), { sk: yb, scene: { objects: {} } });
 console.log(`  deep squat (feet forward, pitch 22): knee ${deepMax.toFixed(2)} deg, asked ${deep.out.frames[48].diag.leg_fold_l.toFixed(2)}, ankle ${(deep.out.frames[48].diag.leg_miss_l * 1000).toFixed(1)} mm short; QA ${deep.qa.total}; with checks.limits.knee 150: ${kinds(capped).join(" | ")}`);
-expect("a deep squat asking 154 deg folds within 1 deg of it with no QA issue; checks.limits.knee 150 still makes it a style KNEE (bent), never a stop (folds)",
-	deep.qa.ok && deepMax > KNEE_FOLD && deepMax < KNEE_STOP && deep.out.frames[48].diag.leg_fold_l - deepMax < 1
+// the arms are not keyed and hang: at hips 0.22 m the fingertips touch the floor, 1.1 cm in on 3 frames, which QA measures since
+// #1113 (qa/floor.js); the knees are what this checks
+const hanging = g => g.kind === "GROUND" && /^fingers_[lr] below floor$/.test(g.subject) && g.worst < 0.015;
+expect("a deep squat asking 154 deg folds within 1 deg of it with no QA issue (the hanging fingertips aside); checks.limits.knee 150 still makes it a style KNEE (bent), never a stop (folds)",
+	deep.qa.groups.every(hanging) && deepMax > KNEE_FOLD && deepMax < KNEE_STOP && deep.out.frames[48].diag.leg_fold_l - deepMax < 1
 	&& capped.qa.groups.some(g => g.kind === "KNEE" && / knee bent 15\ddeg$/.test(g.subject)) && !capped.qa.groups.some(g => / folds /.test(g.subject)), kinds(capped).join(" | "));
 
 // ---- 3. QA: a knee past its stop is a hard KNEE issue ----------------------------------------------------

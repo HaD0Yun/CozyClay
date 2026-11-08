@@ -1,4 +1,5 @@
-// General motion checks (every take): scene collisions, ground, IK reach, planted-foot slide,
+// General motion checks (every take): scene collisions (the fingers too: finger-collide.js), ground (the soles here,
+// the rest of the body's skin in floor.js), IK reach, planted-foot slide,
 // bone length, one-frame pops (style.js), knee and elbow flips, knees bending backward, knees and
 // elbows folded past their stop (KNEE: the shin in the thigh; ELBOW: the forearm in the upper arm,
 // compiler/limbs.js), self contact, hands and held props entering the head (and the torso,
@@ -11,6 +12,8 @@ import { bodyChecks } from "./body-checks.js";
 import { popChecks } from "./style.js";
 import { groundSole } from "./ground.js";
 import { footChecks } from "./foot-checks.js";
+import { fingerCollide } from "./finger-collide.js";
+import { floorParts } from "./floor.js";
 import { ELBOW_STOP, KNEE_STOP } from "../compiler/limbs.js";
 
 export const QA_LIMITS = { allow: 0.005, groundAllow: 0.01, reach: 0.01, slide: 0.0015, plantH: 0.012,
@@ -48,10 +51,13 @@ export function generalChecks(sk, out, opts = {}) {
 			}
 		}
 		footChecks(sk, s, f, spheres, L, (part, id) => allowance(opts.allow, part, id), push);
+		fingerCollide(sk, s, f, spheres, L, (part, id) => allowance(opts.allow, part, id), push);
 		for (const side of ["Left", "Right"]) {
 			const sp = solePoints(sk, s, side), low = Math.min(sp.heel[1], sp.ball[1], sp.tip[1]);
 			if (low < -L.groundAllow) push("GROUND", `${side} sole below floor`, f, -low, L.groundAllow);
 		}
+		// the rest of the body under the floor: palms, fingers, arms, knees, hips, torso, head (floor.js)
+		for (const [part, depth] of floorParts(sk, s, L.groundAllow)) push("GROUND", `${part} below floor`, f, depth, L.groundAllow);
 		for (const [k, v] of Object.entries(diag)) if (/miss_[lr]$/.test(k) && v > L.reach) push("REACH", k, f, v, L.reach);
 		// hands, forearms and held props must stay out of the head
 		const probes = [];

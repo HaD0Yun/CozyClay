@@ -80,7 +80,9 @@ const drift = rr => Math.abs(rr.out.frames[35].s.P[I.LeftToeBase][0] - rr.out.fr
 console.log(`  creeping foot: ball drifts ${(drift(slideOff) * 1000).toFixed(1)} mm without the lock, ${(drift(slideOn) * 1000).toFixed(2)} mm with it; fixed ${JSON.stringify(slideOn.fixed)}`);
 expect("slide fix (default): the planted ball stays within 0.5 mm and the lock is reported", drift(slideOff) > 0.005 && drift(slideOn) < 5e-4 && slideOn.fixed.slide?.plants >= 1, JSON.stringify(slideOn.fixed));
 // penetration: a held IK hand 1.5 cm into a board
-const held = fix => stand({ fix, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
+// the fingertips reach past the hand capsule into the board (QA measures them since #1113, finger-collide.js) and fix.penetration
+// pushes the hand and forearm capsules: the fingers' own allowance keeps this case the hand capsule's
+const held = fix => stand({ fix, checks: { allow: [{ part: "fingers", object: "Board", depth: 0.03 }] }, keys: [{ f: 0, set: { armw_r: 1, hand_r: [-0.22, 1.1, 0.32], elbow_r: [-0.5, -1, -0.3] } }, { f: 30, set: { hand_r: [-0.22, 1.1, 0.36] } }, { f: 59, set: { hand_r: [-0.22, 1.1, 0.32] } }] });
 const free = compile(held(undefined), empty).out.frames[30].s.P, front = Math.max(free[I.RightHand][2], free[I.RightHandMiddle3][2]) + 0.022;
 const board = { objects: { Board: { pos: [-0.2, 0, front - 0.015 + 0.05], R: I3(), half: [0.3, 0.8, 0.05] } } };
 const penOff = compile(held(undefined), board), penOn = compile(held({ penetration: 0.02 }), board);

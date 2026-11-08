@@ -1,6 +1,10 @@
 // Hints for the grasp kinds (#816, qa/grasp-checks.js, skills/catch.js): { cause, hint, fix? } as the other hints-*.js.
 //   FINGER_GAP  fix.grasp false: the fingers stopped at the preset; fix /fix/grasp true. Else the hand toward the object
 //   PALM_OFF    the hand toward the object until the palm is on it (a palm hold presses the palm, not the fingertips)
+//   PALM_GAP    no move: a power grip seats the bar on its fingers' point, 2 cm under the finger middles (vocab.js
+//               GRASP_POINTS), so the palm centre stays 7-8 cm off a bar whatever the anchor; moving anchors.<name>.local
+//               turned the hand round the bar instead (bench muscle-up r1: 4 rounds of that move, 7.8 -> 9.3 cm, 2 -> 18
+//               problems). The hint says so, and that the palm is off, with no patch
 //   FINGER_PEN  fix.grasp false: the same fix. Else the hand out of it along its surface normal at the phalanx
 //   THUMB_OFF   the fingers channel: a grip preset held on while the hand holds it (or the object nearer the palm)
 //   TIPS_OFF    a support hold's hand is the compiler's (sockets.js), so never a hand move: an anchor local pins the palm
@@ -76,6 +80,13 @@ export const graspHints = {
 	// the palm's bones sit about 2 cm under its skin: the palm centre that far from the face presses it
 	PALM_OFF(X, g) {
 		return handToward(X, g, /^(left|right) palm off (\S+)$/, 0.02, id => ` (the palm onto ${id}: a palm hold presses the palm, not only the fingertips)`);
+	},
+	PALM_GAP(X, g) {
+		const [, side, id] = /^(left|right) palm centre off (\S+)$/.exec(g.subject) ?? [];
+		if (!id) return null;
+		const d = X.hand(side === "left" ? "l" : "r", g.worstFrame), name = d.anchor ?? "its anchor";
+		return { cause: `anchors.${name}.grasp power (reachGrip holds ${id} on the fingers' point)`,
+			hint: `${id} sits on the ${side} finger middles, the palm centre ${(g.worst * 100).toFixed(1)} cm off it at f${g.worstFrame} (a hand on a bar has it within ${(g.limit * 100).toFixed(0)} cm): the power grip's point is the compiler's; moving anchors.${name}.local turns the hand round ${id} and does not seat it in the palm, so report the palm off ${id}` };
 	},
 	FINGER_PEN(X, g) {
 		if (graspOff(X)) return turnOn;
