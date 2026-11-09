@@ -261,7 +261,7 @@ EXTRA_INVENTORY.push("test/qa-proxy-figure-browser.mjs", "test/qa-click-friction
 EXTRA_INVENTORY.push("test/qa-proxy-entry-browser.mjs", "test/qa-export-menu-browser.mjs", "test/qa-update-depth-browser.mjs", "test/qa-translate-guard-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-storyboard-board-browser.mjs", "test/qa-sculpt-parts-browser.mjs", "test/qa-sculpt-shelf-browser.mjs");
-EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs");
+EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs", "test/qa-imported-character-browser.mjs");
 
 function verificationFiles(directory) {
 	return readdirSync(directory, { withFileTypes: true })
