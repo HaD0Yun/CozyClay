@@ -54,7 +54,7 @@ const waitFor = async (expression, ms = 60_000) => {
 await send("Runtime.enable");
 await send("Page.enable");
 
-const ready = "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclayProject?.export)";
+const ready = "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclayProject?.export && document.querySelector('.app'))";
 // a cold dev server bundles its dependencies first and reloads the page once
 assert.ok(await waitFor(ready, 180_000), "Studio never exposed its QA hooks");
 const characters = async () => {
@@ -64,7 +64,9 @@ const characters = async () => {
 		for (const v of Object.values(node)) { const hit = find(v); if (hit) return hit; } return null; };
 	return find(doc) ?? [];
 };
-const act = (id, args) => evaluate(`(async () => { const r = await window.__cozyclay.runStudioAction(${JSON.stringify(id)}, ${JSON.stringify(args)}); return r && { ok: r.ok, message: r.message ?? r.error?.message ?? null, code: r.code ?? r.error?.code ?? null }; })()`);
+// the mounted AppContext's command bus, as a UI action runs (origin "ui"): a refusal answers its code and message
+const busOf = "(() => { const el = document.querySelector('.app'); let f = el[Object.keys(el).find(k => k.startsWith('__reactFiber'))]; while (f && !f.memoizedProps?.value?.bus) f = f.return; return f.memoizedProps.value.bus; })()";
+const act = (id, args) => evaluate(`(async () => { try { const r = await ${busOf}.run(${JSON.stringify(id)}, ${JSON.stringify(args)}, { origin: "ui" }); return { ok: Boolean(r?.ok), message: r?.message ?? null }; } catch (e) { return { ok: false, code: e.code ?? null, message: e.message }; } })()`);
 const select = id => act("view.select", { selection: { kind: "character", id } });
 const hasTake = rig => `window.__cozyclay.motion?.schema === 'cozyclay.take.v3' && window.__cozyclay.motion.rig === ${JSON.stringify(rig)}`;
 const SPEC = "cozyclay.motion-spec.v1";
