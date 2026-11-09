@@ -217,7 +217,7 @@ function spline(xs, ys, d0, dn) {
 // the swing foot keeps the ankle near neutral, as a person's does: its pitch follows the shank (SWING_DORSI deg toes-up
 // of it), eased in from the toe-off's pitch over FOLLOW_IN of the swing and out into the strike's over FOLLOW_OUT, the
 // ball held BALL_CLEAR m over its flat height away from the ends, the pitch no more than PITCH_MAX (a foot kept level would flap at the ankle as the shank swings)
-const SWING_DORSI = 3, FOLLOW_IN = 0.35, FOLLOW_OUT = 0.2, BALL_CLEAR = 0.03, HEEL_FREE = 0.04, HEEL_LOW = 0.025, deg = r => (r * 180) / Math.PI;
+const SWING_DORSI = 3, FOLLOW_IN = 0.35, FOLLOW_OUT = 0.2, BALL_CLEAR = 0.03, HEEL_FREE = 0.04, HEEL_LOW = 0.025, HOVER = 0.001, deg = r => (r * 180) / Math.PI;
 const ease = x => { const t = Math.min(1, Math.max(0, x)); return t * t * (3 - 2 * t); };
 
 /** The shank's tilt (deg, + with the ankle behind the knee) of a leg from hip H to ankle A, thigh a, shank b, knee forward fw. */
@@ -253,6 +253,7 @@ export function fitSwing(out, { end, ground, sk }) {
 			const yawAt = f => ch[`fyaw_${k}`]?.[f] ?? 0, pitchAt = f => ch[`fpitch_${k}`]?.[f] ?? 0;
 			const follow = (f, p) => shankTilt(hipAt(ch, f, hipOff), p, apply(ry(yawAt(f)), [0, 0, 1]), a, b) - SWING_DORSI;
 			const span = h.a - g.b, off0 = sk && pitchAt(g.b) - follow(g.b, at(g.b)), off1 = sk && pitchAt(h.a) - follow(h.a, at(h.a));
+			let prevP = pitchAt(g.b), heelPrev = Infinity;
 			for (let f = g.b + 1; f < h.a; f++) {
 				const p = axes.map(e => e(f)), set = { [`foot_${k}`]: p };
 				if (sk) {
@@ -265,6 +266,11 @@ export function fitSwing(out, { end, ground, sk }) {
 					// lands when it did and the heel never skims the floor
 					const was = pitchAt(f), heelAt = d => p[1] + apply(rx(d), heel)[1], low = Math.min(HEEL_FREE, Math.max(heelAt(was), HEEL_LOW));
 					if (pitch < was && heelAt(pitch) < low) { let lo = pitch, hi = was; for (let it = 0; it < 20; it++) { const m = (lo + hi) / 2; if (heelAt(m) < low) lo = m; else hi = m; } pitch = hi; }
+					// the heel comes down onto the floor, not along it: in the last two frames, a low heel that would drop less than
+					// HOVER since the frame before (the ball floor above can tip the toes down here, more so the longer the foot)
+					// runs its pitch monotonically into the strike's
+					if (f > h.a - 3 && heelAt(pitch) < HEEL_LOW && heelPrev - heelAt(pitch) < HOVER) { const pa = pitchAt(h.a); pitch = Math.min(Math.max(pitch, Math.min(prevP, pa)), Math.max(prevP, pa)); }
+					prevP = pitch; heelPrev = heelAt(pitch);
 					set[`fpitch_${k}`] = pitch;
 				}
 				const key = { f, set, src: srcAt.get(f) };
