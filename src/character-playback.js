@@ -61,7 +61,7 @@ export function playTakeFrame(rig, take, frame) {
 	const hit = rig && isTakeV3(take) ? planFor(take.rig) : null;
 	if (!hit) return applyTakeFrame(rig, take, frame);
 	const { sk, plan, data } = hit, B = take.bones.length, f = Math.max(0, Math.min(take.frameCount - 1, Math.round(frame) || 0));
-	if (hit.order?.key !== take.bones.join()) hit.order = { key: take.bones.join(), at: sk.names.map(name => take.bones.indexOf(name)) };
+	if (hit.order?.bones !== take.bones) hit.order = { bones: take.bones, at: sk.names.map(name => take.bones.indexOf(name)) };
 	const r = take.rot, h = take.hips, quats = hit.order.at.map(b => { const i = (f * B + b) * 4; return b < 0 ? [0, 0, 0, 1] : [r[i], r[i + 1], r[i + 2], r[i + 3]]; });
 	const pose = retargetPose(plan, fk(sk, quats, [h[f * 3], h[f * 3 + 1], h[f * 3 + 2]]));
 	bonesOf(rig, take.rig, data.sources).forEach((bone, i) => {

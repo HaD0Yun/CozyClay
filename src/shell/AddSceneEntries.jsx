@@ -28,9 +28,9 @@ export default function AddSceneEntries({ onDone }) {
 					<span>{entry.label()}</span>
 				</button>
 			))}
-			{/* A character file of the user's own (.glb or .fbx with a skeleton): it plays takes on its own bones. */}
+			{/* A character file of the user's own (.glb, .vrm or .fbx with a skeleton): it plays takes on its own bones. */}
 			<label role="menuitem" className="add-object-item" data-add="import-character">
-				<input type="file" accept=".glb,.fbx,model/gltf-binary" hidden data-import-character
+				<input type="file" accept=".glb,.vrm,.fbx,model/gltf-binary" hidden data-import-character
 					onChange={(event) => {
 						const file = event.target.files?.[0];
 						event.target.value = "";
