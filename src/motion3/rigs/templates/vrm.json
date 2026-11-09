@@ -9,7 +9,7 @@
 		"{Side}UpLeg": ["{s}UpperLeg", "J_Bip_{S}_UpperLeg"], "{Side}Leg": ["{s}LowerLeg", "J_Bip_{S}_LowerLeg"], "{Side}Foot": ["{s}Foot", "J_Bip_{S}_Foot"], "{Side}ToeBase": ["{s}Toes", "J_Bip_{S}_ToeBase"]
 	},
 	"fingers": {
-		"Thumb": [["{s}ThumbMetacarpal", "J_Bip_{S}_Thumb1"], ["{s}ThumbProximal", "J_Bip_{S}_Thumb2"], ["{s}ThumbDistal", "J_Bip_{S}_Thumb3"]],
+		"Thumb": [["{s}ThumbMetacarpal", "J_Bip_{S}_Thumb1", "{s}ThumbProximal"], ["{s}ThumbProximal", "J_Bip_{S}_Thumb2", "{s}ThumbIntermediate"], ["{s}ThumbDistal", "J_Bip_{S}_Thumb3"]],
 		"Index": [["{s}IndexProximal", "J_Bip_{S}_Index1"], ["{s}IndexIntermediate", "J_Bip_{S}_Index2"], ["{s}IndexDistal", "J_Bip_{S}_Index3"]],
 		"Middle": [["{s}MiddleProximal", "J_Bip_{S}_Middle1"], ["{s}MiddleIntermediate", "J_Bip_{S}_Middle2"], ["{s}MiddleDistal", "J_Bip_{S}_Middle3"]],
 		"Ring": [["{s}RingProximal", "J_Bip_{S}_Ring1"], ["{s}RingIntermediate", "J_Bip_{S}_Ring2"], ["{s}RingDistal", "J_Bip_{S}_Ring3"]],

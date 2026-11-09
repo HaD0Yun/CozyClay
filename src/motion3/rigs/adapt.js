@@ -41,7 +41,7 @@ function ownLandmarks(raw, B, dy) {
 	if (!L) return null;
 	const point = p => (Array.isArray(p) ? add(apply(B, scale(p, k)), [0, dy, 0]) : undefined);
 	const e = L.headEllipsoid;
-	return { mouth: point(L.mouth), headEllipsoid: e?.centre && e?.radii ? { centre: point(e.centre), radii: scale(e.radii, k) } : undefined,
+	return { mouth: point(L.mouth), headEllipsoid: e?.centre && e?.radii ? { centre: point(e.centre), radii: apply(B, scale(e.radii, k)).map(Math.abs) } : undefined,
 		sole: L.sole && { ball: Number.isFinite(L.sole.ball) ? L.sole.ball * k : undefined, tip: Number.isFinite(L.sole.tip) ? L.sole.tip * k : undefined } };
 }
 
@@ -85,8 +85,13 @@ export function adaptRig(raw, opts = {}) {
 	const { dy, grounded } = ground(pose.J, ankle0), J = pose.J;
 	const stature = J.HeadTop_End[1];
 	if (!(stature >= MIN_STATURE && stature <= MAX_STATURE)) throw new Error(`adaptRig: the skeleton stands ${r6(stature)} m read as raw.units "${raw.units}", outside ${MIN_STATURE} to ${MAX_STATURE} m: check raw.units`);
-	// a made-up toe stands on the floor as the X Bot's does (its ball and tip at the X Bot's height, scaled by the foot)
-	for (const S of SIDES) if (idx[`${S}ToeBase`] === undefined) for (const n of [`${S}ToeBase`, `${S}Toe_End`]) J[n][1] = REF.restWorldPos[REF.index[n]][1] * r.foot[S];
+	// a made-up ball stands on the floor as the X Bot's does; every toe segment lies as level as the X Bot's, because toe-off
+	// (limbs.js orientFoot) flattens it in one frame and a sloped one would drag the heel. The source's own toe stays in report.retarget.
+	for (const S of SIDES) {
+		const ball = `${S}ToeBase`, tip = `${S}Toe_End`, y = n => REF.restWorldPos[REF.index[n]][1];
+		if (idx[ball] === undefined) J[ball][1] = y(ball) * r.foot[S];
+		J[tip][1] = J[ball][1] + (y(tip) - y(ball)) * r.foot[S];
+	}
 	const R = canonicalFrames(REF, J);
 	const model = raw.model ?? `${id}-rig`;
 	const rig = { model, units: "cm", mesh: raw.mesh ?? null, bones: bonesOf(J, R), landmarks: landmarksFor(REF, xBot.landmarks, J, R, r, ownLandmarks(raw, B, dy)) };

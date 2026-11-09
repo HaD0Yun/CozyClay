@@ -3,11 +3,12 @@
 //   sourcePose      forward kinematics of the raw bones (any bone axis convention, any root above the hips).
 //   facingAxes      the source's up (feet to head) and left (right hip to left hip) as the canonical +Y and +X, +Z
 //                   forward; each snapped to the nearest world axis when within 25 deg, so a Z-up export turns upright
-//                   and a slight lean is kept, not straightened.
+//                   and a slight lean or turn is kept, not straightened: a source yawed under 25 deg keeps its trunk
+//                   yawed while normalise puts its arms and feet on the X Bot's directions.
 //   normalise       each arm, leg and foot turned at its root joint onto the X Bot's bind direction: the upper arm,
 //                   forearm and hand (an A-pose's arms go up to the T-pose's horizontal; the palm turns to the X Bot's
-//                   by its knuckle line), the thigh and shin, and the foot's heading. The spine, neck and head keep the
-//                   source's posture.
+//                   by its knuckle line), the thigh and shin, and the foot's heading. A foot keeps its own pitch through
+//                   the leg's turns, so a flat foot stays flat. The spine, neck and head keep the source's posture.
 //   fillMissing     canonical bones the source lacks: a missing spine or neck joint on the line between its neighbours
 //                   at the X Bot's spacing; a collarbone, toe, head top or finger at the X Bot's offset from its parent,
 //                   scaled by its region (hand, foot, head, shoulder width); a fingertip (joint 4) past joint 3 along
@@ -90,13 +91,15 @@ function alignHand(ref, pose, S) {
 export function normalise(ref, pose) {
 	const J = pose.J, down = SIDES.map(S => { const d = sub(J[`${S}ForeArm`], J[`${S}Arm`]); return Math.atan2(-d[1], Math.hypot(d[0], d[2])) * 180 / Math.PI; });
 	for (const S of SIDES) {
+		const f = `${S}Foot`, t = `${S}ToeBase`, sourceFoot = J[t] && sub(J[t], J[f]);
 		alignBone(ref, pose, `${S}Arm`, `${S}ForeArm`);
 		alignBone(ref, pose, `${S}ForeArm`, `${S}Hand`);
 		alignHand(ref, pose, S);
 		alignBone(ref, pose, `${S}UpLeg`, `${S}Leg`);
 		alignBone(ref, pose, `${S}Leg`, `${S}Foot`);
-		const f = `${S}Foot`, t = `${S}ToeBase`;
-		if (J[t]) turnSubtree(ref, pose, f, swing(flat(sub(J[t], J[f])), flat(sub(at(ref, t), at(ref, f)))));
+		if (!J[t]) continue;
+		turnSubtree(ref, pose, f, swing(sub(J[t], J[f]), sourceFoot));
+		turnSubtree(ref, pose, f, swing(flat(sub(J[t], J[f])), flat(sub(at(ref, t), at(ref, f)))));
 	}
 	return (down[0] + down[1]) / 2;
 }
