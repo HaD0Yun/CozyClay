@@ -8,6 +8,7 @@ import { ko } from "../locale.js";
 import { elementByPath } from "../studio-elements.js";
 import { addCameraShot } from "./add-camera-shot.js";
 import { addCharacterEntries } from "./add-character-entries.js";
+import { addImportedCharacter } from "../character-import.js";
 
 const CHARACTER_BOUNDS = elementByPath("character.position").gizmo;
 const characterSpawnX = (count) => Math.min(CHARACTER_BOUNDS.max.x, Math.max(CHARACTER_BOUNDS.min.x, count));
@@ -27,6 +28,19 @@ export default function AddSceneEntries({ onDone }) {
 					<span>{entry.label()}</span>
 				</button>
 			))}
+			{/* A character file of the user's own (.glb or .fbx with a skeleton): it plays takes on its own bones. */}
+			<label role="menuitem" className="add-object-item" data-add="import-character">
+				<input type="file" accept=".glb,.fbx,model/gltf-binary" hidden data-import-character
+					onChange={(event) => {
+						const file = event.target.files?.[0];
+						event.target.value = "";
+						onDone?.();
+						if (file) void addImportedCharacter(appContext, file, characterSpawnX(characters.length));
+					}}
+				/>
+				<span className="add-object-swatch vp-add-swatch-cast" aria-hidden="true" />
+				<span>{ko("Import character…", "캐릭터 가져오기…", "导入角色…")}</span>
+			</label>
 			<button type="button" role="menuitem" className="add-object-item" data-add="camera"
 				onClick={() => { addCameraShot({ appContext, runStudioAction, setToast }); onDone?.(); }}
 			>

@@ -3,7 +3,7 @@
 import * as THREE from "three";
 import { REST_BONES } from "../../app-stage.jsx";
 import { createIkState, ikBakeKeyframe, ikEvaluate, resolveIkRig } from "../../motion/ik.js";
-import { applyTakeFrame } from "../../motion3/playback.js";
+import { playTakeFrame as applyTakeFrame } from "../../character-playback.js";
 import { DEFAULT_POSE, restoreBindPositions, applyPose, applyHipsOffset } from "../../poses.js";
 import { restFingers } from "../../motion/fingers.js";
 import { StudioProtocolError } from "../../studio-agent-protocol.js";

@@ -26,7 +26,7 @@ import {
 import * as THREE from "three";
 
 import { restorePlaybackBones, snapshotPlaybackBones } from "./motion/rig-snapshot.js";
-import { applyTakeFrame } from "./motion3/playback.js";
+import { playTakeFrame as applyTakeFrame } from "./character-playback.js";
 
 import { FlyControls, aimAt, forwardFrom } from "./controls.jsx";
 import { createCameraPerformance, framingFromCamera } from "./camera-performance.js";
