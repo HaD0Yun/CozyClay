@@ -14,6 +14,8 @@
 //       keeps its frames and fixed.ballistic.skipped says how far off, what it entered and the frames it fits; the same
 //       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor, or a carried bar's into a post, gets the same; a re-time
 //       into a slab overhead is left under fixed.spin.left
+//       (a6) a 104-frame run with a trip whose short air runs read worse on QA held: retime re-times them as at 28ad5074 and says why
+//       (a7) a lunge hop whose 3-frame flight starts and ends a frame after and before the feet left and met the floor: the arc leaves it
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
 //       rise at about 1.8 g with the feet planted (a support cannot pull the body down): DROP, its hint gives v/g
@@ -25,6 +27,7 @@
 //       has no turn to re-time; h-parkour's keyed pitch turns back in the air and reads SPIN, fix.spin.left and the hint say so
 //   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open; keyed
 //       at an even rate (fix { spin: false }) QA says SPIN and its hint that fix.spin is off. Cut before it lands, fix.spin has no landing and QA still says SPIN
+//       (d2) a spin jump leaning -8 deg whose vector re-time reads SPIN past the limit: fix.spin keeps the axis re-time (fixed.spin.axis)
 //   (e) the flip and float-fix tests still pass
 // Prints PASS/FAIL lines; exits non-zero on a failure.
 import { spawnSync } from "node:child_process";
@@ -147,13 +150,15 @@ for (const cut of [40, 45, 50]) {
 // (stretch 1.6). The fixes start again with that run's key interval kept as keyed. Retime does not count the frames whose
 // acceleration reads a held velocity (f32 and f33 read the landing): counting them left 2 frames too fast and stretched f32-f52
 // until a planted foot missed its f45 key by 17 cm (KEY). The take as sent keeps its keyed air timing on both rigs, with QA no
-// worse than at 28ad5074 (Y Bot 368, X Bot 371), and so does the X Bot with checks.limits.accCore 0.03
+// worse than at 28ad5074 (Y Bot 368, X Bot 371). The hold stands only where QA is no worse than without it (fix/index.js
+// applyFixes): the X Bot with checks.limits.accCore 0.03 reads worse with it, so its runs are re-timed
 {
 	const raw = JSON.parse(readFileSync(fileURLToPath(new URL("fixtures/bench-handstand-r3-spec.json", import.meta.url)), "utf8")), spec = raw.spec ?? raw;
 	const runsOf = r => airRuns(r.out, r.expanded.checks?.supports ?? []).filter(([a, b]) => b - a >= 3);
 	const held = compileSpec({ ...structuredClone(spec), checks: { ...spec.checks, limits: { ...spec.checks?.limits, accCore: 0.03 } } }, { sk: skeletonFor("x-bot-tpose"), scene: motionScene([]) });
 	const runs = runsOf(held);
-	expect(`(a) bench-handstand-r3 (X Bot, accCore 0.03): retime leaves every air run of the final take as keyed (${JSON.stringify(runs)}; ${held.fixed.retime?.air})`, runs.length === 2 && runs.every(([a, b]) => untimed(held, a - 1, b + 1)) && /^kept the key intervals of f23-f29, f196-f202/.test(held.fixed.retime?.air ?? ""), JSON.stringify({ runs, retime: held.fixed.retime }));
+	// holding f23-f29 and f196-f202 there reads worse on QA (summed severity 1443.14 -> 1477.39, 7 problems each), so retime re-times them and says so
+	expect(`(a) bench-handstand-r3 (X Bot, accCore 0.03): holding the final take's air runs reads worse on QA, so retime re-times them and fixed.retime.air says why (${held.fixed.retime?.air})`, runs.length === 2 && !runs.every(([a, b]) => untimed(held, a - 1, b + 1)) && /^re-timed f23-f29, f196-f202 as well: holding their key intervals as keyed read worse on QA/.test(held.fixed.retime?.air ?? ""), JSON.stringify({ runs, retime: held.fixed.retime }));
 	for (const [rig, from, total] of [["y-bot-tpose", "f22-f29", 368], ["x-bot-tpose", "f21-f29", 371]]) {
 		const r = compileSpec(structuredClone(spec), { sk: skeletonFor(rig), scene: motionScene([]) }), rr = runsOf(r);
 		expect(`(a) bench-handstand-r3 as sent (${rig}): every air run of the final take keeps its keyed timing (${JSON.stringify(rr)}; ${r.fixed.retime?.air}), no KEY, QA ${r.qa.total} <= ${total}`, rr.length === 2 && rr.every(([a, b]) => untimed(r, a - 1, b + 1)) && new RegExp(`^kept the key intervals of ${from} as keyed`).test(r.fixed.retime?.air ?? "") && r.fixed.retime?.stillFast === 0 && !kinds(r).has("KEY") && r.qa.total <= total, JSON.stringify({ rr, retime: r.fixed.retime }));
@@ -288,7 +293,56 @@ function runGait(stance, fix) {
 	const err = r => Math.max(...airRuns(r.out, []).filter(([, q]) => q < r.out.frames.length - 2).map(([p, q]) => fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], p, q)));
 	const on = runGait(5), off = runGait(5, { ballistic: false, spin: false }), four = runGait(4), lens = airRuns(on.out, []).map(([p, q]) => q - p + 1);
 	expect(`(a5) a run whose flights are 3 frames, hips keyed level: the arc moves all ${on.fixed.ballistic?.runs} (centre of mass ${r3(err(off))} g off 1 g keyed, ${r3(err(on))} g after), no FLOAT`, lens.every(n => n === 3) && on.fixed.ballistic?.runs === lens.length && err(off) > 0.9 && err(on) < 0.01 && !kinds(on).has("FLOAT"), JSON.stringify({ lens, b: on.fixed.ballistic }));
-	expect(`(a5) the same run with 4-frame flights: FLOAT reads them, its hint stages the fall, and the fixes leave them`, kinds(four).has("FLOAT") && !four.fixed.ballistic, JSON.stringify({ b: four.fixed.ballistic, kinds: [...kinds(four)] }));
+	// retime is kept here (13 problems against 15 without it), as at 28ad5074: its two 3-frame flights ride the arc, its 4-frame ones stay
+	const moved = (four.fixed.ballistic?.at ?? []).map(at => at.match(/f(\d+)-f(\d+)/).slice(1)).map(([p, q]) => q - p + 1);
+	expect(`(a5) the same run with 4-frame flights: FLOAT reads them, its hint stages the fall, and the fixes leave every flight of 4 frames or more (moved: ${JSON.stringify(four.fixed.ballistic?.at ?? [])})`, kinds(four).has("FLOAT") && moved.every(n => n < 4), JSON.stringify({ b: four.fixed.ballistic, kinds: [...kinds(four)] }));
+	// holding f24-f28 and f55-f59 there read 18 problems against 13 without (fe38741c then dropped retime altogether: 15 problems)
+	expect(`(a5) the same run with 4-frame flights: retime re-times the runs whose hold reads worse on QA and is kept (${four.fixed.retime?.air})`, /^re-timed f24-f28, f55-f59 as well: holding their key intervals as keyed read worse on QA/.test(four.fixed.retime?.air ?? "") && four.fixed.retime.kept !== false && four.qa.groups.length <= 13, JSON.stringify(four.fixed.retime));
+}
+
+// (a6) a 104-frame run with a trip, keyed every 3 frames (every 2 over the stumble): 10-frame steps, 3 frames between stances, the
+// hips dipping 0.3 m and pitching 40 deg over f34-f51 while the hands reach down. Its air runs are 1 to 4 frames. Holding the key
+// intervals of its 3-frame runs and of the run a later fix made at f13-f18 read worse on QA (fe38741c: 94 issues, 18 problems;
+// 28ad5074: 81). Retime holds them only where QA is no worse (fix/index.js applyFixes), so it re-times them as at 28ad5074 and says why
+{
+	const S = 10, C = 7, v = 0.1, T0 = 20, ah = (C * v) / 2, at = 34, len = 18, keys = [{ f: 0, set: { ...pose0 } }], W = Math.abs(pose0.foot_l[0]);
+	const zAt = f => (f <= T0 ? (v * f * f) / (2 * T0) : (v * T0) / 2 + v * (f - T0)), trip = f => (f >= at && f < at + len ? Math.sin((Math.PI * (f - at)) / len) : 0);
+	const plants = { l: [{ f: -99, z: 0, lift: C }], r: [{ f: -99, z: 0, lift: S + C }] }, sm = u => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
+	for (let k = 0; T0 + k * S < 104 + 2 * S; k++) plants[k % 2 ? "r" : "l"].push({ f: T0 + k * S, z: zAt(T0 + k * S) + ah });
+	const pos = f => {
+		const tr = trip(f), t = (((f - T0) % S) + S) % S, bob = f < T0 ? -0.02 * (f / T0) : t >= C ? 0.015 * Math.sin((Math.PI * (t - C + 1)) / (S - C + 1)) : -0.05 * Math.sin((Math.PI * (t + 1)) / (C + 1));
+		const z = zAt(f) - 0.1 * tr, set = { root: [0, HIPS - 0.02 + bob - 0.3 * tr, z], yaw: 0, pitch: 8 + 40 * tr, spine_pitch: 6 + 20 * tr };
+		for (const k of ["l", "r"]) {
+			const list = plants[k], i = list.findLastIndex(q => q.f <= f), last = list[i], next = list[i + 1], off = last.lift ?? last.f + C, x = k === "l" ? W : -W;
+			if (f < off || !next) { Object.assign(set, { [`foot_${k}`]: [x, ANKLE, last.z], [`fpitch_${k}`]: 0 }); continue; }
+			const u = (f - off) / Math.max(1, next.f - off), catching = at >= off && at < next.f && f >= at, arc = Math.sin(Math.PI * Math.min(1, Math.max(0, u)));
+			Object.assign(set, { [`foot_${k}`]: [x, ANKLE + (catching ? 0.004 : 0.04 + 0.12 * arc), last.z + (next.z - last.z) * sm(u)], [`fpitch_${k}`]: catching ? 30 : 10 * arc });
+		}
+		const swing = Math.sin((Math.PI * (f - T0)) / S), hy = Math.max(0.04, 0.9 - 0.95 * tr);
+		return Object.assign(set, { aswing_l: 30 * swing * (1 - tr), aswing_r: -30 * swing * (1 - tr), abend_l: 60, abend_r: 60 },
+			tr > 0.15 ? { armw_l: 1, armw_r: 1, hand_l: [0.22, hy, z + 0.6], hand_r: [-0.22, hy, z + 0.6] } : { armw_l: 0, armw_r: 0 });
+	};
+	for (let f = 1; f < 104; f++) if (f % 3 === 0 || (f >= at && f <= at + 10 && f % 2 === 0) || f === 103) keys.push({ f, set: pos(f) });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 104, keys }, { sk, scene: motionScene([]) }), rt = r.fixed.retime;
+	expect(`(a6) trip run: holding its short air runs reads worse on QA, so retime re-times them as at 28ad5074 (${rt?.air}; QA ${r.qa.total} <= 81)`, /^re-timed f13-f18, f47-f49 as well: holding their key intervals as keyed read worse on QA/.test(rt?.air ?? "") && rt.windows === 8 && rt.stillFast === 12 && rt.kept !== false && r.qa.total <= 81, JSON.stringify({ rt, total: r.qa.total }));
+}
+
+// (a7) a lunge hop on the Y Bot (retime off): the trailing knee passes 2 to 5 cm over the floor on f20-f21 and f25-f26, so QA's air
+// run (no skin within 5 cm) is f22-f24 while no sole or hand point is within 2 cm of the floor over f20-f26. Anchored on f21 and f25,
+// which are in the air, the arc moved f22-f24 (fe38741c) and the centre of mass's vertical acceleration over f20-f26 went 4.26 ->
+// 5.08 m/s^2 RMS off g. A 3-frame flight whose frame before or after touches nothing keeps its frames (fixed.ballistic.skipped)
+{
+	const low = 0.55, back = 0.55, N = 7, T = 20, fl = pose0.foot_l, fr = pose0.foot_r, keys = [{ f: 0, set: { ...pose0 } }, { f: 8, set: { root: pose0.root, foot_l: fl, foot_r: fr } }];
+	const lunge = z => ({ root: shift(pose0.root, [0, -low, z + 0.1]), foot_l: shift(fl, [0, 0, z + 0.35]), foot_r: shift(fr, [0, 0.02, z - back]), fpitch_r: 30, pitch: 10 });
+	keys.push({ f: T - 6, set: lunge(0) }, { f: T - 1, set: lunge(0) });
+	[0.03, 0.035, 0.08, 0.1, 0.08, 0.035, 0.03].forEach((lift, i) => {
+		const u = (i + 1) / (N + 1), z = 0.5 * u;
+		keys.push({ f: T + i, set: { root: shift(pose0.root, [0, -low + 0.4 * u * (1 - u), z + 0.1]), foot_l: shift(fl, [0, lift, z + 0.35]), foot_r: shift(fr, [0, lift + 0.02, z - back]), fpitch_r: 0, pitch: 10 } });
+	});
+	keys.push({ f: T + N, set: lunge(0.5) }, { f: T + N + 10, set: { root: shift(pose0.root, [0, 0, 0.7]), foot_l: shift(fl, [0, 0, 0.85]), foot_r: shift(fr, [0, 0, 0.6]), fpitch_r: 0, pitch: 0 } });
+	const q = fix => compileSpec({ schema: SPEC, fps: 24, frames: T + N + 14, keys: structuredClone(keys), fix }, { sk, scene: motionScene([]) }), on = q({ retime: false }), off = q({ retime: false, ballistic: false });
+	const skip = on.fixed.ballistic?.skipped?.find(s => s.at === "f22-f24"), same = Array.from({ length: 7 }, (_, i) => T + i).every(f => on.out.frames[f].s.P.every((p, j) => p.every((x, k) => Math.abs(x - off.out.frames[f].s.P[j][k]) < 1e-9)));
+	expect(`(a7) lunge hop: the 3-frame flight f22-f24 keeps its frames, its takeoff f21 touching nothing (${skip?.contact})`, flightOf(off).some(([a, b]) => a === 22 && b === 24) && /^f21 before it touches no support/.test(skip?.contact ?? "") && !on.fixed.ballistic?.at?.length && same, JSON.stringify({ b: on.fixed.ballistic, fl: flightOf(off) }));
 }
 
 // (b) a trip's fall (bench set 06): the feet stay planted while the hips drop 0.35 m at 2 g, then stop at 2 g
