@@ -500,11 +500,14 @@ function retargetOff(raw, out, n) {
 	});
 	registerRig("test-long-reach", adaptRig(raw).rig);
 	const sk = skeletonFor("test-long-reach"), flat = soleHeel(sk)[1];
-	for (const to of [[1, 2], [-2, 1], [2.23, 1.63], [3, 3]]) {
+	for (const to of [[-1.68, 3.31], [1.94, 3.33], [-2, 1], [1, 2]]) {
 		const r = compileSpec({ schema: SPEC, fps: 24, frames: "auto", use: [stand, { skill: "walkTo", f0: 10, args: { to } }] }, { sk, scene: motionScene([]) });
-		const low = Math.min(...r.out.frames.flatMap(({ s }) => SIDES.map(S => solePoints(sk, s, S).heel[1])));
-		expect(`ball 0.16 m ahead of the ankle at 1.9 m, walk to ${JSON.stringify(to)}: QA ${r.qa.total}, the heel no lower than its flat height (${(low * 1000).toFixed(2)} mm, flat ${(flat * 1000).toFixed(2)} mm)`,
-			r.qa.total === 0 && low > flat - 2e-4, JSON.stringify(issues(r)));
+		const heels = SIDES.map(S => r.out.frames.map(({ s }) => solePoints(sk, s, S).heel[1])), low = Math.min(...heels.flat());
+		// the frame before each strike (the heel lands on its flat height) drops a heel under QA's plant height by 1 mm or more (walk-pelvis.js HOVER)
+		const drops = heels.flatMap(y => y.flatMap((v, f) => (f > 1 && Math.abs(v - flat) < 1e-4 && y[f - 1] > flat + 1e-4 && y[f - 1] < 0.012 ? [y[f - 2] - y[f - 1]] : [])));
+		const drop = Math.min(Infinity, ...drops);
+		expect(`ball 0.16 m ahead of the ankle at 1.9 m, walk to ${JSON.stringify(to)}: QA ${r.qa.total}, the heel no lower than its flat height (${(low * 1000).toFixed(2)} mm, flat ${(flat * 1000).toFixed(2)} mm), coming down ${(drop * 1000).toFixed(2)} mm or more the frame before a strike`,
+			r.qa.total === 0 && low > flat - 2e-4 && drop >= 1e-3, JSON.stringify(issues(r)));
 	}
 }
 
