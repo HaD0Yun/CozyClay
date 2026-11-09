@@ -9,7 +9,10 @@
 // the turn at A and at B stays as keyed. A body symmetric about n (a flip) has J n along n: L_n = h_n + I_n w holds one
 // value. One that leans off n also carries momentum across n in proportion to w (J n off n): holding L_n alone scaled that
 // with the turn rate, so |L| drifted more than keyed (a 360 deg spin jump leaning 16 deg, arms pulled in: 29.1% keyed, 29.2%
-// held along n, 2.7% held as a vector; (max - min) / mean of |L| over the air run). The world targets that ride the
+// held along n, 2.7% held as a vector; (max - min) / mean of |L| over the air run). QA SPIN reads L along its mean axis,
+// which the vector can drift more on: where the vector re-time reads over SAME there, the round 4 re-time about n alone
+// (axisRates) is solved too, and the vector stands only where it reads no more than SAME over that and stays under SPIN_TOL
+// wherever that does (keepVector); else the axis re-time is kept (fixed.spin.axis). The world targets that ride the
 // body (the ankle and wrist targets, ballistic.js RIDERS) and the knee and elbow poles turn with the root, so the limbs
 // keep their pose in the body; a foot's fyaw turns with the root's yaw. Three passes: measure, re-time, solve.
 // A flight whose keyed turn turns back by more than BACK_SHARE of its total, whose limbs would turn the root backward
@@ -27,6 +30,14 @@ import { hitSays } from "./flight-gate.js";
 
 /** The share of the total turn a keyed turn may run backward and still be one turn. */
 const BACK_SHARE = 0.02;
+/**
+ * QA SPIN's reading (runDrift) by which the vector re-time may read over the round 4 axis re-time (axisRates) of the same
+ * flight: a tenth of SPIN_TOL. Holding the vector lowers |L|'s drift for a lean but can raise SPIN, which reads L along the
+ * mean axis (a 360 deg spin jump leaning -8 deg, arms pulled in over its second half: 0.176 axis, 0.207 vector).
+ */
+const SAME = 0.02;
+/** True when the vector re-time reading d (runDrift) may stand against `ref`, what the axis re-time (else the keyed flight) reads: at most SAME over it, and under SPIN_TOL wherever ref is. */
+const keepVector = (d, ref) => d <= ref + SAME && (d <= SPIN_TOL || ref > SPIN_TOL);
 const PASSES = 3, POLES = ["knee_l", "knee_r", "elbow_l", "elbow_r"], deg = r => (r * 180) / Math.PI;
 
 /** The root's world turn at frame f from Euler channels e = { yaw, pitch, roll } (arrays of degrees). */
@@ -105,6 +116,16 @@ function rates(rows, wt, target) {
 }
 
 /**
+ * The round 4 re-time (28ad5074): L_n = h_n + I_n w held at one value L0 about the keyed axis n alone, sum wt w = target
+ * (h_n = h . n, I_n = u . n). spinFix keeps it where the vector re-time (rates) reads worse on QA SPIN.
+ */
+function axisRates(rows, wt, target, n) {
+	const hn = rows.map(r => dot(r.h, n)), I = rows.map(r => dot(r.u, n));
+	const L0 = (target + rows.reduce((s, _, i) => s + wt[i] * hn[i] / I[i], 0)) / rows.reduce((s, _, i) => s + wt[i] / I[i], 0);
+	return rows.map((_, i) => (L0 - hn[i]) / I[i]);
+}
+
+/**
  * A foot's [fyaw, fpitch] once the body turns by D from Euler `was` to `now`: its keyed toe direction (limbs.js orientFoot:
  * ry(fyaw) rx(fpitch) toe, turned by the tilt frame past upright) turned by D and read back in the new tilt frame, as
  * skills/flip.js footAim aims a foot. Shifting fyaw by the yaw alone kept fpitch against the old tilt, which is not the
@@ -144,7 +165,7 @@ function retimeFrame(baked, orig, f, u, toes) {
  * says what a re-time entered.
  */
 export function spinFix(out, engine, runs, gate) {
-	const f0 = out.f0 ?? 0, fps = out.fps ?? 24, B0 = out.baked, at = [], left = [], { index: I, restWorldPos: P } = out.ctx.sk;
+	const f0 = out.f0 ?? 0, fps = out.fps ?? 24, B0 = out.baked, at = [], left = [], axis = [], { index: I, restWorldPos: P } = out.ctx.sk;
 	const toes = Object.fromEntries(Object.entries({ l: "Left", r: "Right" }).map(([k, S]) => [k, I[`${S}ToeBase`] !== undefined && I[`${S}Foot`] !== undefined ? sub(P[I[`${S}ToeBase`]], P[I[`${S}Foot`]]) : null]));
 	if (!["yaw", "pitch", "roll"].some(ch => B0[ch])) return null;
 	const len = out.frames.length + f0, zero = () => new Array(len).fill(0);
@@ -156,38 +177,57 @@ export function spinFix(out, engine, runs, gate) {
 		if (turn.back) { left.push({ at: `f${a + f0}-f${b + f0}`, why: "the keyed turn turns back inside the flight: left as keyed" }); continue; }
 		const orig = Object.fromEntries(["yaw", "pitch", "roll", ...RIDERS, ...POLES, "fyaw_l", "fyaw_r", "fpitch_l", "fpitch_r"].map(ch => [ch, B0[ch] ? B0[ch].slice() : ch === "root" ? null : e[ch]?.slice()]));
 		if (!orig.root) continue;
-		const d0 = runDrift(out, a, b), solve = () => engine.solve(Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i));
-		let moved = 0, why = null;
-		for (let pass = 0; pass < PASSES && !why; pass++) {
-			const rows = measure(out, a, b, turn.n, e);
-			if (!rows) { why = "the rig has no bone for a body segment, so its momentum cannot be read: left as keyed"; break; }
-			const wt = rows.map((_, i) => (i === 0 || i === rows.length - 1 ? 1.5 : 1));
-			const w = rates(rows, wt, turn.total * fps).map(v => v / fps);
-			if (w.some(v => !(v > 0))) { why = "the limbs alone would turn the root backward: left as keyed"; break; }
-			const ext = [w[0], ...w, w[w.length - 1]];
-			let th = 0;
-			for (let i = 1; i < ext.length - 1; i++) {
-				th += (ext[i - 1] + ext[i]) / 2;
-				const f = A + i, u = A + frameAtTurn(turn.theta, th);
-				moved = Math.max(moved, Math.abs(deg(th - turn.theta[i])));
-				retimeFrame(B0, orig, f, u, toes);
+		const d0 = runDrift(out, a, b), solve = () => engine.solve(Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i)), span = `f${a + f0}-f${b + f0}`;
+		// back to the keyed values: every channel this run wrote
+		const restore = () => { for (const [ch, v] of Object.entries(orig)) if (B0[ch] && v) for (let f = a + f0; f <= b + f0; f++) B0[ch][f] = v[f]; solve(); };
+		const attempt = rateOf => {
+			let moved = 0, why = null;
+			for (let pass = 0; pass < PASSES && !why; pass++) {
+				const rows = measure(out, a, b, turn.n, e);
+				if (!rows) { why = "the rig has no bone for a body segment, so its momentum cannot be read: left as keyed"; break; }
+				const wt = rows.map((_, i) => (i === 0 || i === rows.length - 1 ? 1.5 : 1));
+				const w = rateOf(rows, wt, turn.total * fps).map(v => v / fps);
+				if (w.some(v => !(v > 0))) { why = "the limbs alone would turn the root backward: left as keyed"; break; }
+				const ext = [w[0], ...w, w[w.length - 1]];
+				let th = 0;
+				for (let i = 1; i < ext.length - 1; i++) {
+					th += (ext[i - 1] + ext[i]) / 2;
+					const f = A + i, u = A + frameAtTurn(turn.theta, th);
+					moved = Math.max(moved, Math.abs(deg(th - turn.theta[i])));
+					retimeFrame(B0, orig, f, u, toes);
+				}
+				solve();
 			}
-			solve();
+			const hit = why ? null : gate(a, b), d1 = why ? 0 : runDrift(out, a, b);
+			if (hit) why = `re-timed, it would ${hitSays(hit)} where the flight did not: left as it was`;
+			else if (d1 > d0 && d1 > SPIN_TOL) why = `re-timed, it would drift more (${d0.toFixed(3)} -> ${d1.toFixed(3)}): left as it was`;
+			return { why, moved, d1 };
+		};
+		// the vector re-time; where it reads over SAME on QA SPIN, the round 4 axis re-time too (keepVector)
+		const vec = attempt(rates);
+		let pick = vec;
+		if (vec.why || vec.d1 > SAME) {
+			const kept = vec.why ? null : { ch: Object.fromEntries(Object.entries(orig).filter(([ch, v]) => B0[ch] && v).map(([ch]) => [ch, B0[ch].slice(a + f0, b + f0 + 1)])), frames: out.frames.slice(a, b + 1) };
+			restore();
+			const ax = attempt((rows, wt, target) => axisRates(rows, wt, target, turn.n));
+			if (kept && keepVector(vec.d1, ax.why ? d0 : ax.d1)) {
+				for (const [ch, v] of Object.entries(kept.ch)) for (let i = 0; i < v.length; i++) B0[ch][a + f0 + i] = v[i];
+				kept.frames.forEach((fr, i) => { out.frames[a + i] = fr; });
+			} else {
+				pick = ax;
+				if (!ax.why) axis.push(span);
+			}
 		}
-		const hit = why ? null : gate(a, b), d1 = why ? 0 : runDrift(out, a, b);
-		if (hit) why = `re-timed, it would ${hitSays(hit)} where the flight did not: left as it was`;
-		else if (d1 > d0 && d1 > SPIN_TOL) why = `re-timed, it would drift more (${d0.toFixed(3)} -> ${d1.toFixed(3)}): left as it was`;
+		const { why, moved, d1 } = pick;
 		if (why) {
-			// as it was: every channel this run wrote goes back to its own values
-			for (const [ch, v] of Object.entries(orig)) if (B0[ch] && v) for (let f = a + f0; f <= b + f0; f++) B0[ch][f] = v[f];
-			solve();
-			left.push({ at: `f${a + f0}-f${b + f0}`, why });
+			restore();
+			left.push({ at: span, why });
 			continue;
 		}
 		before = Math.max(before, d0); after = Math.max(after, d1);
-		at.push(`f${a + f0}-f${b + f0}`); frames += b - a + 1; max = Math.max(max, moved);
+		at.push(span); frames += b - a + 1; max = Math.max(max, moved);
 	}
 	if (!at.length && !left.length) return null;
-	return { runs: at.length, frames, max: Math.round(max * 10) / 10, drift: [Math.round(before * 1000) / 1000, Math.round(after * 1000) / 1000], at, ...(left.length ? { left } : {}),
-		how: "the root's turn re-timed in the air so the angular momentum about the centre of mass stays constant (faster tucked, slower open), the keyed total turn kept" };
+	return { runs: at.length, frames, max: Math.round(max * 10) / 10, drift: [Math.round(before * 1000) / 1000, Math.round(after * 1000) / 1000], at, ...(axis.length ? { axis } : {}), ...(left.length ? { left } : {}),
+		how: `the root's turn re-timed in the air so the angular momentum about the centre of mass stays constant (faster tucked, slower open), the keyed total turn kept${axis.length ? "; axis: flights held along the turn's axis alone, where holding the whole vector read worse on SPIN" : ""}` };
 }

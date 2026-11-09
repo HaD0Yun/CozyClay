@@ -512,6 +512,24 @@ function spinJump(lean = 0) {
 	expect(`(d) spin jump cut at f${cut}, its air run reaching the end: no fix.spin, and QA says SPIN and that the take cuts it`, run?.[1] === cut && !r.fixed.spin && kinds(r).has("SPIN") && /take cuts this flight/.test(r.qa.groups.find(g => g.kind === "SPIN")?.hint ?? ""), JSON.stringify({ run, spin: r.fixed.spin, kinds: [...kinds(r)], hint: r.qa.groups.find(g => g.kind === "SPIN")?.hint }));
 }
 
+// (d2) a 360 deg spin jump on the X Bot leaning -8 deg, keyed at an even rate on a 1 g arc (f16-f32), the arms pulled in and bent
+// over its second half. Holding the momentum vector (43247d38) read 0.207 on SPIN, over its limit; the round 4 re-time about the
+// turn's axis reads 0.176 (28ad5074, QA without SPIN). fix.spin keeps the axis re-time there and says so (fixed.spin.axis)
+{
+	const xs = skeletonFor("x-bot-tpose"), p0 = compileSpec({ schema: SPEC, fps: 24, frames: 4, use: [stand] }, { sk: xs, scene: motionScene([]) }).out.keys.find(k => k.set.root).set;
+	const A = 16, B = 32, N = B - A, keys = [{ f: 0, set: { ...p0 } }], off = l => [p0[`foot_${l}`][0], p0[`foot_${l}`][1] - p0.root[1], p0[`foot_${l}`][2]];
+	const feet = (root, yaw, dy) => ({ foot_l: add(root, apply(ry(yaw), shift(off("l"), [0, dy, 0]))), foot_r: add(root, apply(ry(yaw), shift(off("r"), [0, dy, 0]))), fyaw_l: yaw, fyaw_r: yaw });
+	keys.push({ f: A - 8, set: { root: p0.root, ...feet(p0.root, 0, 0), arm_rest: 72, abend_l: 0, abend_r: 0 } }, { f: A - 2, set: { root: shift(p0.root, [0, -0.12, 0]), ...feet(p0.root, 0, 0), arm_rest: 30 } });
+	for (let f = A; f <= B; f++) {
+		const t = f - A, u = t / N, root = shift(p0.root, [0, G * N * t / 2 - G * t * t / 2, 0]), end = f === A || f === B;
+		const k = u < 0.35 ? 0 : u < 0.5 ? (u - 0.35) / 0.15 : u <= 0.9 ? 1 : 1 - (u - 0.9) / 0.15;
+		keys.push({ f, set: { root, ...feet(root, 360 * u, end ? 0 : 0.05), yaw: 360 * u, pitch: -8, arm_rest: end ? 5 : 5 + 80 * k, abend_l: end ? 0 : 60 * k, abend_r: end ? 0 : 60 * k } });
+	}
+	keys.push({ f: B + 6, set: { root: shift(p0.root, [0, -0.1, 0]), arm_rest: 60, abend_l: 0, abend_r: 0 } }, { f: B + 20, set: { root: p0.root, arm_rest: 72 } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 58, keys }, { sk: xs, scene: motionScene([]) }), fl = flightOf(r)[0], d = fl && runDrift(r.out, fl[0], fl[1]);
+	expect(`(d2) spin jump leaning -8 deg (X Bot): fix.spin keeps the axis re-time (${JSON.stringify(r.fixed.spin?.axis)}), SPIN reads ${r3(d)} as at 28ad5074 (0.176), QA has no SPIN`, r.fixed.spin?.axis?.includes("f17-f31") && Math.abs(d - 0.176) < 0.002 && !kinds(r).has("SPIN"), JSON.stringify({ spin: r.fixed.spin, fl, kinds: [...kinds(r)] }));
+}
+
 // (e) the existing flight tests
 for (const name of ["verify-motion3-flip.mjs", "verify-motion3-float-fix.mjs"]) {
 	const res = spawnSync(process.execPath, [fileURLToPath(new URL(name, import.meta.url))], { encoding: "utf8" });
