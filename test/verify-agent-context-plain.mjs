@@ -4,7 +4,7 @@
 // a two-turn plain session keeps the first context whole, adds no marker, stand-in or reply reminder, sends the caller's
 // system prompt exactly and runs the ready tool; a control session without the flag still gets the diet.
 import assert from "node:assert/strict";
-import { Type } from "typebox";
+import { Type } from "@earendil-works/pi-ai";
 import { createAgentRunner } from "../bin/agent/agent-runner.mjs";
 import { toAgentTools } from "../bin/agent/pi-tools.mjs";
 import { createFakeModel } from "./fixtures/fake-model.mjs";

@@ -38,7 +38,6 @@ import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
 import { captureFrameAt, refuseHiddenCapture } from "./live-capture-guard.js";
-import { renderV4Sheet } from "./motion-v4/render/editor-render.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -2391,7 +2390,8 @@ export default function App() {
 	});
 	const liveQueries = {
 		ping: () => ({ pong: true }),
-		v4_render: (args = {}) => { refuseHiddenCapture(); return renderV4Sheet(args, appContext.ports); },
+		// the v4 render sheet loads on its first use: only a v4 turn asks for it
+		v4_render: async (args = {}) => { refuseHiddenCapture(); return (await import("./motion-v4/render/editor-render.js")).renderV4Sheet(args, appContext.ports); },
 		describe: () => {
 			const live = appContext.live.state;
 			return {

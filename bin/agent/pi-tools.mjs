@@ -50,6 +50,13 @@ function formatToolError(error) {
 	return `${code}: ${message}${recoveryHint(error)}`;
 }
 
+/** Throws INVALID_ARGUMENT, naming the first failed rule, when `params` do not match the TypeBox `parameters`. */
+export function assertToolArguments(name, parameters, params) {
+	if (Value.Check(parameters, params)) return;
+	const first = [...Value.Errors(parameters, params)][0];
+	throw Object.assign(new Error(`Invalid arguments for ${name}${first ? `: ${first.keyword}: ${first.message}` : "."}`), { code: "INVALID_ARGUMENT" });
+}
+
 /** Convert CozyClay's handler catalogue into pi AgentTools; ready AgentTools pass through unchanged. */
 export function toAgentTools(tools, { emit, signal, labels = STUDIO_TOOL_LABELS } = {}) {
 	return (Array.isArray(tools) ? tools : []).map((tool) => {
@@ -68,10 +75,7 @@ export function toAgentTools(tools, { emit, signal, labels = STUDIO_TOOL_LABELS 
 			// passes none gets the adapter's own fallback signal.
 			execute: async (toolCallId, params, runSignal) => {
 				const executeSignal = runSignal ?? signal;
-				if (!Value.Check(parameters, params)) {
-					const first = [...Value.Errors(parameters, params)][0];
-					throw Object.assign(new Error(`Invalid arguments for ${tool.name}${first ? `: ${first.keyword}: ${first.message}` : "."}`), { code: "INVALID_ARGUMENT" });
-				}
+				assertToolArguments(tool.name, parameters, params);
 				try {
 					const result = await untilAborted(Promise.resolve(tool.handler(params, { signal: executeSignal, toolCallId, emit })), executeSignal);
 					const details = publicResult(result);
