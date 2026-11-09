@@ -5,6 +5,7 @@
 import { fail, characterOf } from "./shared.js";
 import { motionScene } from "../motion3/scene.js";
 import { skeletonFor } from "../motion3/rigs/index.js";
+import { ensureRig } from "../motion3/rigs/posted.js";
 import { expandPoses } from "../motion3/poses.js";
 import { fk } from "../motion3/compiler/skeleton.js";
 import { add, apply, ry } from "../motion3/compiler/math.js";
@@ -109,7 +110,8 @@ export function register(registry, ports) {
 	const mounted = () => Boolean(ports.storeDomain?.("motion")) || "The motion owner is not mounted.";
 	const always = () => true;
 	const rigOf = character => {
-		const sk = skeletonFor(character.model);
+		// an adapted character carries its rig (rigs/posted.js): registered here, and sent with each compile job to the worker
+		const sk = character.adaptedRig ? ensureRig(character.model, character.adaptedRig) : skeletonFor(character.model);
 		if (!sk) fail("TARGET_NOT_READY", `${character.subject || character.id} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
 		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before compiling motion.");
 		return sk;
@@ -129,7 +131,7 @@ export function register(registry, ports) {
 	const compile = (character, spec, opts = {}, bake, taskId = null, scene = sceneFor(character)) => {
 		rigOf(character);
 		const placed = bake && { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0, ...bake };
-		return runner.run({ model: character.model, scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
+		return runner.run({ model: character.model, ...(character.adaptedRig ? { rig: character.adaptedRig } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
 	};
 	// where a take was baked: the body's place and a hash of the scene's bodies (a take kept for the stop rule fits only
 	// there): 0.14 ms for 860 bodies, where their JSON took 0.9 ms and 295 KB a key
