@@ -424,7 +424,7 @@ function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 }
 
 // (d) a 360 deg spin jump: the arms out at takeoff, pulled in over the middle of the flight, out again to land
-function spinJump() {
+function spinJump(lean = 0) {
 	const A = 22, B = 37, T0 = B - A, v0 = G * T0 / 2, keys = [{ f: 0, set: { ...pose0 } }];
 	const off = { l: [pose0.foot_l[0], ANKLE - HIPS, pose0.foot_l[2]], r: [pose0.foot_r[0], ANKLE - HIPS, pose0.foot_r[2]] };
 	const feet = (root, yaw, dy) => ({ foot_l: add(root, apply(ry(yaw), shift(off.l, [0, dy, 0]))), foot_r: add(root, apply(ry(yaw), shift(off.r, [0, dy, 0]))), fyaw_l: yaw, fyaw_r: yaw });
@@ -435,7 +435,7 @@ function spinJump() {
 		const t = f - A, root = shift(pose0.root, [0, v0 * t - G * t * t / 2, 0]), yaw = 360 * t / T0, u = t / T0;
 		const inn = u > 0.3 && u < 0.7, arm = f === A || f === B ? 5 : u < 0.3 ? 5 + 80 * Math.max(0, (u - 0.15) / 0.15) : u < 0.7 ? 85 : 85 - 80 * Math.min(1, (u - 0.7) / 0.15);
 		if (inn) tuck.add(f);
-		keys.push({ f, set: { root, ...feet(root, yaw, f === A || f === B ? 0 : 0.05), yaw, arm_rest: arm, abend_l: inn ? 110 : 0, abend_r: inn ? 110 : 0 } });
+		keys.push({ f, set: { root, ...feet(root, yaw, f === A || f === B ? 0 : 0.05), yaw, ...(lean ? { pitch: lean } : {}), arm_rest: arm, abend_l: inn ? 110 : 0, abend_r: inn ? 110 : 0 } });
 	}
 	keys.push({ f: B + 6, set: { root: shift(pose0.root, [0, -0.1, 0]), arm_rest: 60, abend_l: 0, abend_r: 0 } }, { f: B + 20, set: { root: pose0.root, arm_rest: 72 } });
 	return { spec: { schema: SPEC, fps: 24, frames: B + 22, keys }, tuck, A, B };
@@ -451,6 +451,13 @@ function spinJump() {
 	const dOn = fl ? runDrift(on.out, fl[0], fl[1]) : 1, dOff = fl ? runDrift(off.out, fl[0], fl[1]) : 0;
 	expect(`(d) spin jump: the angular momentum drift falls with fix.spin (${r3(dOff)} -> ${r3(dOn)})`, dOn < dOff && dOn < SPIN_TOL, JSON.stringify({ dOn, dOff, fl }));
 	expect(`(d) spin jump keyed at an even rate (fix { spin: false }): QA says SPIN (drift ${r3(dOff)} over SPIN_TOL); with fix.spin no SPIN`, dOff > SPIN_TOL && kinds(off).has("SPIN") && !kinds(on).has("SPIN"), JSON.stringify({ off: off.qa.groups.map(g => g.kind), on: on.qa.groups.map(g => g.kind) }));
+	// |L| over the air run, (max - min) / mean: a body leaning off its turn axis carries momentum across the axis in proportion to the
+	// turn rate (a product of inertia), so holding L along the axis alone made |L| drift more (lean -16 deg: 29.1% keyed, 29.2% re-timed)
+	const magDrift = (r, [a, b]) => { const m = Array.from({ length: b - a + 1 }, (_, i) => Math.hypot(...momentumOf(sk, r.out.frames, a + i, 24).L)); return (Math.max(...m) - Math.min(...m)) / (m.reduce((s, x) => s + x, 0) / m.length); };
+	for (const lean of [0, -16]) {
+		const s = spinJump(lean).spec, q = fix => compileSpec({ ...structuredClone(s), ...(fix ? { fix } : {}) }, { sk, scene: motionScene([]) }), [r, k] = [q(), q({ spin: false, ballistic: false })], run = airRuns(k.out, []).at(-1);
+		expect(`(d) spin jump${lean ? `, leaning ${lean} deg` : ""}: |L| about the centre of mass drifts ${r3(magDrift(k, run) * 100)}% keyed and ${r3(magDrift(r, run) * 100)}% with fix.spin (f${run[0]}-f${run[1]})`, magDrift(r, run) < 0.5 * magDrift(k, run) && magDrift(r, run) < 0.1, JSON.stringify(r.fixed.spin));
+	}
 	expect("(d) spin jump with fix { spin: false }: SPIN's hint says fix.spin is off for the take", /fix\.spin is off for this take/.test(off.qa.groups.find(g => g.kind === "SPIN")?.hint ?? ""), off.qa.groups.find(g => g.kind === "SPIN")?.hint);
 	// cut after the arms have opened again, so the run holds the swing of L
 	const cut = B - 1, r = compileSpec({ ...structuredClone(spec), frames: cut + 1, keys: spec.keys.filter(k => k.f <= cut) }, { sk, scene: motionScene([]) }), run = airRuns(r.out, []).at(-1);

@@ -2,11 +2,14 @@
 // what it left the ground with: a body that tucks spins faster, one that opens out slows (L = I w). Per flight
 // (qa/flight-checks.js flights) whose keyed root turns MIN_TURN or more between the anchors A (the frame before takeoff) and
 // B (the frame after landing), the root's turn (yaw, pitch, roll) is re-timed along its own path, the limbs keeping their
-// own timing, so that about the turn's axis n
-//   L_n(f) = h(f) + I_n(f) w(f)  stays one value L0,
-// where I_n is the whole-body moment of inertia about n through the centre of mass (qa/inertia.js), h the momentum the
-// limbs carry against the root and w the root's turning speed. L0 is the one value that keeps the keyed total turn from
-// A to B: sum (L0 - h) / I = the keyed angle; the turn at A and at B stays as keyed. The world targets that ride the
+// own timing, so that the momentum
+//   L(f) = h(f) + J(f) n w(f)  stays as near one vector c as a turn about the keyed axis n can (least squares, rates),
+// where J is the whole-body inertia tensor about the centre of mass (qa/inertia.js), h the momentum the limbs carry
+// against the root and w the root's turning speed; the keyed total turn from A to B is kept (sum w = the keyed angle) and
+// the turn at A and at B stays as keyed. A body symmetric about n (a flip) has J n along n: L_n = h_n + I_n w holds one
+// value. One that leans off n also carries momentum across n in proportion to w (J n off n): holding L_n alone scaled that
+// with the turn rate, so |L| drifted more than keyed (a 360 deg spin jump leaning 16 deg, arms pulled in: 29.1% keyed, 29.2%
+// held along n, 2.7% held as a vector; (max - min) / mean of |L| over the air run). The world targets that ride the
 // body (the ankle and wrist targets, ballistic.js RIDERS) and the knee and elbow poles turn with the root, so the limbs
 // keep their pose in the body; a foot's fyaw turns with the root's yaw. Three passes: measure, re-time, solve.
 // A flight whose keyed turn turns back by more than BACK_SHARE of its total, whose limbs would turn the root backward
@@ -15,7 +18,7 @@
 // is left and reported (fixed.spin.left); QA SPIN still reads it. A run whose hips do not fall (FLOAT) is a staging error
 // and stays for QA's arc hint, as in ballistic.js. A smaller reversal (a flip's overshoot before it lands) re-times along
 // the turn's monotone envelope.
-import { add, sub, apply, dot, mul, rx, ry, rz, T } from "../compiler/math.js";
+import { add, sub, scale, apply, dot, mul, rx, ry, rz, T } from "../compiler/math.js";
 import { tiltFrame } from "../compiler/pose.js";
 import { momentumOf, rotationVector } from "../qa/inertia.js";
 import { runDrift, SPIN_TOL, MIN_TURN } from "../qa/flight-checks.js";
@@ -60,10 +63,46 @@ function measure(out, a, b, n, e) {
 	for (let i = a; i <= b; i++) {
 		const m = momentumOf(out.ctx.sk, out.frames, i, fps), f = i + f0;
 		if (!m) return null;
-		const w = dot(rotationVector(mul(turnOf(e, f + 1), T(turnOf(e, f - 1)))), n) * fps / 2, I = dot(apply(m.J, n), n), L = dot(m.L, n);
-		rows.push({ h: L - I * w, I, L });
+		const w = dot(rotationVector(mul(turnOf(e, f + 1), T(turnOf(e, f - 1)))), n) * fps / 2, u = apply(m.J, n);
+		rows.push({ h: sub(m.L, scale(u, w)), u });
 	}
 	return rows;
+}
+
+/** x of the n x n system M x = y (Gaussian elimination, partial pivoting). */
+function solveLinear(M, y) {
+	const A = M.map((row, i) => [...row, y[i]]), n = y.length;
+	for (let c = 0; c < n; c++) {
+		const p = A.slice(c).reduce((best, row, i) => (Math.abs(row[c]) > Math.abs(A[best][c]) ? c + i : best), c);
+		[A[c], A[p]] = [A[p], A[c]];
+		for (let r = c + 1; r < n; r++) { const k = A[r][c] / A[c][c]; for (let j = c; j <= n; j++) A[r][j] -= k * A[c][j]; }
+	}
+	const x = new Array(n).fill(0);
+	for (let r = n - 1; r >= 0; r--) x[r] = (A[r][n] - A[r].slice(r + 1, n).reduce((s, v, j) => s + v * x[r + 1 + j], 0)) / A[r][r];
+	return x;
+}
+
+/**
+ * The root's turning speed per air frame (rad/s) that keeps L(f) = h(f) + w(f) u(f) nearest one vector c in least squares
+ * (weights wt), with sum wt w = total * fps (the keyed turn): w = (u . (c - h) + lambda) / |u|^2, c and lambda from the
+ * 4 x 4 normal equations. u = J n: about n alone (u along n) this is L_n = h_n + I w held at one value; a body whose
+ * inertia is not symmetric about n (a lean) also carries momentum across n in proportion to w, which this weighs too.
+ */
+function rates(rows, wt, target) {
+	const M = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], y = [0, 0, 0, target];
+	rows.forEach(({ h, u }, f) => {
+		const q = dot(u, u), uh = dot(u, h);
+		for (let i = 0; i < 3; i++) {
+			for (let j = 0; j < 3; j++) M[i][j] += wt[f] * ((i === j ? 1 : 0) - (u[i] * u[j]) / q);
+			M[i][3] -= (wt[f] * u[i]) / q;
+			M[3][i] += (wt[f] * u[i]) / q;
+			y[i] += wt[f] * (h[i] - (u[i] * uh) / q);
+		}
+		M[3][3] += wt[f] / q;
+		y[3] += (wt[f] * uh) / q;
+	});
+	const [c0, c1, c2, lambda] = solveLinear(M, y);
+	return rows.map(({ h, u }) => (dot(u, sub([c0, c1, c2], h)) + lambda) / dot(u, u));
 }
 
 /** Writes the re-timed turn at frame f (absolute): Euler at fractional frame u of the original track `orig`, riders and poles turned with it. */
@@ -103,8 +142,7 @@ export function spinFix(out, engine, runs, gate) {
 			const rows = measure(out, a, b, turn.n, e);
 			if (!rows) { why = "the rig has no bone for a body segment, so its momentum cannot be read: left as keyed"; break; }
 			const wt = rows.map((_, i) => (i === 0 || i === rows.length - 1 ? 1.5 : 1));
-			const L0 = (turn.total * fps + rows.reduce((s, r, i) => s + wt[i] * r.h / r.I, 0)) / rows.reduce((s, r, i) => s + wt[i] / r.I, 0);
-			const w = rows.map(r => (L0 - r.h) / r.I / fps);
+			const w = rates(rows, wt, turn.total * fps).map(v => v / fps);
 			if (w.some(v => !(v > 0))) { why = "the limbs alone would turn the root backward: left as keyed"; break; }
 			const ext = [w[0], ...w, w[w.length - 1]];
 			let th = 0;
