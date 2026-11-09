@@ -55,7 +55,8 @@ await send("Runtime.enable");
 await send("Page.enable");
 
 const ready = "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclayProject?.export)";
-assert.ok(await waitFor(ready), "Studio never exposed its QA hooks");
+// a cold dev server bundles its dependencies first and reloads the page once
+assert.ok(await waitFor(ready, 180_000), "Studio never exposed its QA hooks");
 const characters = async () => {
 	let doc = await evaluate("window.__cozyclayProject.export('imported-character')");
 	while (typeof doc === "string") doc = JSON.parse(doc);
