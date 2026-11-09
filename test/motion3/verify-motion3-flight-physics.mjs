@@ -16,6 +16,8 @@
 //       into a slab overhead is left under fixed.spin.left
 //       (a6) a 104-frame run with a trip whose short air runs read worse on QA held: retime re-times them as at 28ad5074 and says why
 //       (a7) a lunge hop whose 3-frame flight starts and ends a frame after and before the feet left and met the floor: the arc leaves it
+//       (a8) a standing hop with the default fixes: retime holds its 3-frame flight, which the arc moves (fe38741c's gain kept)
+//       (a9) the cost of weighing the holds: hops with a second character compile under 2x their compile with retime off
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
 //       rise at about 1.8 g with the feet planted (a support cannot pull the body down): DROP, its hint gives v/g
@@ -343,6 +345,51 @@ function runGait(stance, fix) {
 	const q = fix => compileSpec({ schema: SPEC, fps: 24, frames: T + N + 14, keys: structuredClone(keys), fix }, { sk, scene: motionScene([]) }), on = q({ retime: false }), off = q({ retime: false, ballistic: false });
 	const skip = on.fixed.ballistic?.skipped?.find(s => s.at === "f22-f24"), same = Array.from({ length: 7 }, (_, i) => T + i).every(f => on.out.frames[f].s.P.every((p, j) => p.every((x, k) => Math.abs(x - off.out.frames[f].s.P[j][k]) < 1e-9)));
 	expect(`(a7) lunge hop: the 3-frame flight f22-f24 keeps its frames, its takeoff f21 touching nothing (${skip?.contact})`, flightOf(off).some(([a, b]) => a === 22 && b === 24) && /^f21 before it touches no support/.test(skip?.contact ?? "") && !on.fixed.ballistic?.at?.length && same, JSON.stringify({ b: on.fixed.ballistic, fl: flightOf(off) }));
+}
+
+// Standing hops forward: 3 flight frames keyed on 1 g, the hips 0.1 m down and the soles flat on the floor the 5 frames before and after.
+// hop(keys, z, A, d) keys one from z at frame A (takeoff), landing d further at A + 4, the feet riding the hips 5 cm up; -> z + d
+function hop(keys, z, A, d = 0.4) {
+	const at = (s, y) => ({ root: [pose0.root[0], HIPS - 0.1 + y, pose0.root[2] + s], foot_l: [pose0.foot_l[0], ANKLE, pose0.foot_l[2] + s], foot_r: [pose0.foot_r[0], ANKLE, pose0.foot_r[2] + s], fpitch_l: 0, fpitch_r: 0 });
+	keys.push({ f: A - 5, set: at(z, 0) }, { f: A, set: at(z, 0) });
+	for (let i = 1; i <= 3; i++) {
+		const up = 0.5 * G * i * (4 - i), p = at(z + (d * i) / 4, up);
+		keys.push({ f: A + i, set: { ...p, foot_l: shift(p.foot_l, [0, 0.05 + up, 0]), foot_r: shift(p.foot_r, [0, 0.05 + up, 0]) } });
+	}
+	keys.push({ f: A + 4, set: at(z + d, 0) }, { f: A + 9, set: at(z + d, 0) });
+	return z + d;
+}
+
+// (a8) one standing hop with the default fixes. Re-timed without its hold, the hop is a 2-frame air run the arc does not reach
+// (a794f2d0: 17.0 m/s^2 RMS off g, as at 28ad5074); QA reads that take better (7 problems against 12), but the take without the
+// hold has no short flight the arc moves, so the hold stands (fix/index.js applyFixes) and the 3-frame flight rides the arc (fe38741c)
+{
+	const keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r } }], z = hop(keys, 0, 24);
+	keys.push({ f: 46, set: { root: shift(pose0.root, [0, 0, z + 0.05]), foot_l: shift(pose0.foot_l, [0, 0, z + 0.05]), foot_r: shift(pose0.foot_r, [0, 0, z + 0.05]) } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 48, keys }, { sk, scene: motionScene([]) }), fl = flightOf(r).filter(([a, b]) => b - a + 1 === 3);
+	const err = fl.length ? fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], fl[0][0], fl[0][1]) : Infinity;
+	expect(`(a8) standing hop, default fixes: its 3-frame flight rides the arc (${JSON.stringify(r.fixed.ballistic?.at)}, centre of mass ${r3(err)} g off 1 g)`, fl.length === 1 && (r.fixed.ballistic?.at ?? []).includes(`f${fl[0][0]}-f${fl[0][1]}`) && err < 0.01, JSON.stringify({ rt: r.fixed.retime, b: r.fixed.ballistic, fl: flightOf(r) }));
+}
+
+// (a9) the cost of weighing the holds: 2 standing hops 140 frames apart and a second character. Against its compile with retime
+// off (Mac): fe38741c 1.0x (retime holds the hops and finds nothing else to do), a794f2d0 3.7x (QA twice, the take without the
+// holds, then the kept take solved again), now 1.3x: the take without the holds loses the hops' arcs, so the held pass is put
+// back with no QA and no second solve
+{
+	const n = 2, frames = 160 + 140 * n, keys = [{ f: 0, set: { ...pose0 } }];
+	let z = 0;
+	for (let h = 0; h < n; h++) {
+		const A = 100 + 140 * h, still = s => ({ root: shift(pose0.root, [0, 0, s]), foot_l: shift(pose0.foot_l, [0, 0, s]), foot_r: shift(pose0.foot_r, [0, 0, s]) });
+		keys.push({ f: A - 30, set: still(z) });
+		z = hop(keys, z, A, 0.35);
+		keys.push({ f: A + 30, set: still(z) });
+	}
+	const other = { schema: SPEC, fps: 24, frames, use: [{ skill: "standIdle", f0: 0, args: { at: [1.2, 1], heading: 0, until: frames - 1 } }] };
+	const take = bakeTake(sk, compileSpec(other, { sk, scene: motionScene([]) }).out, { position: [0, 0, 0], yaw: 0 }, { spec: other });
+	const people = peopleOf([{ id: "b", subject: "B", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0 }, { id: "a", model: "y-bot-tpose" }], "a", id => (id === "b" ? take : null));
+	const run = fix => { let best = Infinity, r; for (let i = 0; i < 3; i++) { const t0 = performance.now(); r = compileSpec({ schema: SPEC, fps: 24, frames, keys: structuredClone(keys), ...(fix ? { fix } : {}) }, { sk, scene: { ...motionScene([]), people } }); best = Math.min(best, performance.now() - t0); } return { r, best }; };
+	const on = run(), off = run({ retime: false }), ratio = on.best / off.best, moved = (on.r.fixed.ballistic?.at ?? []).filter(at => { const [a, b] = at.slice(1).split("-f").map(Number); return b - a + 1 === 3; });
+	expect(`(a9) 2 hops and a second character: both flights ride the arc, and the compile takes ${r3(ratio)}x its compile with retime off (under 2x)`, moved.length === n && ratio < 2, JSON.stringify({ on: Math.round(on.best), off: Math.round(off.best), rt: on.r.fixed.retime, b: on.r.fixed.ballistic }));
 }
 
 // (b) a trip's fall (bench set 06): the feet stay planted while the hips drop 0.35 m at 2 g, then stop at 2 g
