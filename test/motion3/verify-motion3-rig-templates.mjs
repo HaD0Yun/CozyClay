@@ -247,8 +247,9 @@ for (const c of CASES) {
 
 // 4a. detection counts the exact spelling: the same bones in VRM's and Unity Humanoid's names differ only in case
 {
-	const ids = ["vrm", "unity-humanoid"], got = ids.map(id => detectTemplate(Object.values(namesFor(TEMPLATES[id]))).id);
-	expect(`names differing only in case read as their own convention: ${ids.join(", ")} -> ${got.join(", ")}`, got.join() === ids.join());
+	const ids = ["vrm", "unity-humanoid"], [a, b] = ids.map(id => namesFor(TEMPLATES[id])), core = Object.keys(a).filter(n => a[n]?.toLowerCase() === b[n]?.toLowerCase());
+	const got = [a, b].map(names => detectTemplate(core.map(n => names[n])).id);
+	expect(`${core.length} bones whose names differ only in case read as their own convention: ${ids.join(", ")} -> ${got.join(", ")}`, core.length > 20 && got.join() === ids.join());
 }
 
 // 4a'. a stature no body has is a wrong raw.units (the collision body's refit grows with its cube), refused by name
