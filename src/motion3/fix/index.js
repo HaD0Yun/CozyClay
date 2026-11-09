@@ -71,8 +71,8 @@ const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), e
  * run of the final frames whose frames retime moved (retimedAir) starts the fixes again from the keys, retime keeping
  * that run's key interval as keyed too: once, so a run the second pass makes is reported (fixed.retime.air), not chased.
  * Holding an interval takes frames retime would borrow: when it leaves more frames too fast than the first pass did, the
- * first pass's timing comes back (the handstand: f20-f32 held left 2 frames too fast by f45 and its planted foot 17 cm off
- * the key there, KEY), and fixed.retime.air says so.
+ * first pass's timing comes back, and fixed.retime.air says so. (The handstand as sent holds: retime does not count the
+ * landing frames that read a held velocity, retime.js excess.)
  */
 export function applyFixes(out, fix, engine, opts = {}) {
 	const keys = out.keys, first = runFixes(out, fix, engine, opts, []), missed = first.retime ? retimedAir(out) : [], at = r => r.map(([a, b]) => `f${a}-f${b}`).join(", ");
