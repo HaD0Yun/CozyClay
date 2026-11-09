@@ -568,33 +568,6 @@
 	overflow: hidden;
 }
 
-.agent-tool-card summary {
-	display: flex;
-	align-items: center;
-	gap: var(--agent-space-3);
-	padding: var(--agent-space-3) var(--agent-space-4);
-	color: var(--agent-text-soft, #ccd1e2);
-	font-size: var(--agent-font-md);
-	cursor: pointer;
-	list-style: none;
-}
-
-.agent-tool-card summary::-webkit-details-marker { display: none; }
-.agent-tool-label { flex: 1; }
-.agent-tool-badge { color: #aeb7ff; border: 1px solid #6975d8; border-radius: 999px; padding: 1px 5px; font-size: 10px; line-height: 1.2; }
-.agent-tool-elapsed { color: var(--agent-text-dim); font: var(--agent-font-sm) ui-monospace, monospace; }
-
-.agent-tool-detail {
-	margin: 0;
-	padding: var(--agent-space-3) var(--agent-space-4);
-	border-top: 1px solid var(--agent-border, #2c3140);
-	background: var(--agent-bg-sunken);
-	color: var(--agent-text-muted, #98a0b8);
-	font: var(--agent-font-sm) ui-monospace, monospace;
-	white-space: pre-wrap;
-	word-break: break-all;
-}
-
 .agent-card.failed { border-color: #6d3a52; }
 
 .agent-error {
@@ -1210,8 +1183,6 @@
 	color: var(--agent-text-dim);
 	font-size: var(--agent-font-sm);
 }
-
-.agent-composer-picks { margin-bottom: var(--agent-space-2); }
 .agent-effort-select { flex: 0 0 auto; width: auto; max-width: 42%; }
 .agent-composer-spacer { flex: 1; }
 

@@ -95,20 +95,6 @@
 		font: 500 var(--ui-size) var(--sans);
 		cursor: pointer;
 	}
-	.v2-topbar .topbar-generate-main {
-		padding: 0 var(--topbar-primary-pad);
-		border-radius: var(--r-1, 4px) 0 0 var(--r-1, 4px);
-		white-space: nowrap;
-	}
-	.v2-topbar .topbar-generate-caret {
-		display: grid;
-		place-items: center;
-		width: var(--topbar-caret-width);
-		padding: 0;
-		border-radius: 0 var(--r-1, 4px) var(--r-1, 4px) 0;
-		box-shadow: inset 1px 0 0 var(--surface-bar, #121214);
-	}
-	.v2-topbar .topbar-generate-caret svg,
 	.menubar-dialog-close svg {
 		width: 12px;
 		height: 12px;
@@ -118,17 +104,14 @@
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}
-	.v2-topbar .topbar-generate button:hover,
-	.v2-topbar .topbar-generate-caret[aria-expanded="true"] {
+	.v2-topbar .topbar-generate button:hover {
 		background: color-mix(in srgb, var(--primary, #7258a0) 86%, var(--text-selected, #fff));
 	}
-	.v2-topbar .topbar-generate-main[aria-disabled="true"] { color: color-mix(in srgb, var(--text-selected, #fff) 62%, transparent); }
 	.v2-topbar .topbar-generate button:focus-visible,
 	.v2-topbar .menubar-trigger:focus-visible {
 		outline: 1px solid var(--select, #e8a33d);
 		outline-offset: 1px;
 	}
-	.v2-topbar .topbar-generate-short { display: none; }
 
 	/* ---------------------------------------------------------- menu bar */
 	.v2-topbar .menubar {
@@ -225,13 +208,6 @@
 		margin-left: auto;
 		color: var(--text-3, #636369);
 		font: 400 var(--secondary-size) var(--mono);
-	}
-	.menubar-menu .menubar-item-reason {
-		flex: 1 0 100%;
-		padding-bottom: 4px;
-		color: var(--text-3, #636369);
-		font-size: var(--secondary-size);
-		white-space: normal;
 	}
 	.menubar-menu [role="menuitemcheckbox"]::before {
 		content: "";
@@ -426,8 +402,6 @@
 		.app:not([data-embed-mode]) .v2-topbar { padding: 0 var(--sp-1, 8px); }
 		.v2-topbar .project-menu-wrap,
 		.v2-topbar .topbar-mcp { display: none; }
-		.v2-topbar .topbar-generate-full { display: none; }
-		.v2-topbar .topbar-generate-short { display: inline; }
 		.v2-statusbar .source-offer,
 		.v2-statusbar .export-status progress { display: none; }
 		.app:not([data-embed-mode]) .v2-statusbar { gap: var(--sp-1, 8px); padding: 0 var(--sp-1, 8px); }

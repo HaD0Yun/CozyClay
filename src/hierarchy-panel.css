@@ -30,11 +30,6 @@
 	letter-spacing: 0;
 }
 
-.v2-outliner .hierarchy-kicker,
-.v2-outliner .hierarchy-frame-status {
-	display: none;
-}
-
 .v2-outliner .v2-outliner-count {
 	color: var(--text-3, #636369);
 	font-family: var(--mono, 'JetBrains Mono');

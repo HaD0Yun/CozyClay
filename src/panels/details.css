@@ -125,8 +125,7 @@
 
 .v2-details-section.v2-details-section .inspector-hint,
 .v2-details-section.v2-details-section .hint,
-.v2-details-section.v2-details-section .camera-editor-pointer,
-.v2-details-section.v2-details-section .multimodel-note {
+.v2-details-section.v2-details-section .camera-editor-pointer {
 	box-sizing: border-box;
 	margin: 0;
 	color: var(--text-3, #636369);
@@ -779,68 +778,8 @@
 	margin-top: var(--sp-1, 8px);
 }
 
-.v2-details-section.v2-details-section .multimodel-card,
-.v2-details-section.v2-details-section .v2-details-video-card {
-	box-sizing: border-box;
-	width: 100%;
-	padding: var(--sp-1, 8px);
-	border: 0;
-	border-radius: var(--r-1, 4px);
-	background: var(--field, #0f0f11);
-}
-
-.v2-details-section.v2-details-section .multimodel-card-head,
-.v2-details-section.v2-details-section .multimodel-input-label,
-.v2-details-section.v2-details-section .multimodel-source-row,
-.v2-details-section.v2-details-section .multimodel-url-actions {
-	gap: var(--sp-1, 8px);
-}
-
-.v2-details-section.v2-details-section .multimodel-card-head strong,
-.v2-details-section.v2-details-section .multimodel-input-label strong {
-	color: var(--text-1, #e4e4e7);
-	font-size: var(--details-ui-size, 12px);
-	font-weight: 500;
-}
-
-.v2-details-section.v2-details-section :is(.multimodel-card-head span, .multimodel-input-label span, .multimodel-file-name) {
-	color: var(--text-3, #636369);
-	font-size: var(--details-meta-size, 10px);
-}
-
-.v2-details-section.v2-details-section .multimodel-url-input {
-	box-sizing: border-box;
-	width: 100%;
-	height: var(--h-row, 24px);
-	padding: 0 var(--sp-1, 8px);
-	border: 0;
-	border-radius: var(--r-1, 4px);
-	background: var(--field-deep, #0c0c0d);
-	color: var(--text-1, #e4e4e7);
-	font-size: var(--details-ui-size, 12px);
-}
-
-.v2-details-section.v2-details-section .multimodel-url-input:focus {
-	outline: none;
-	box-shadow: inset 0 0 0 var(--details-focus-width, 1px) var(--select, #e8a33d);
-}
-
-.v2-details-section.v2-details-section .multimodel-status.ready {
-	color: var(--ok, #4fbf7a);
-}
-
-.v2-details-section.v2-details-section .multimodel-status.error,
-.v2-details-section.v2-details-section .multimodel-error,
 .v2-details-section.v2-details-section .reference-slot-error {
 	color: var(--danger, #e5484d);
-}
-
-.v2-details-section.v2-details-section .multimodel-progress-track {
-	background: var(--surface-active, #26262a);
-}
-
-.v2-details-section.v2-details-section .multimodel-progress-bar {
-	background: var(--primary, #7258a0);
 }
 
 /* Readouts and camera subcategories stay in the same compact row grammar. */
@@ -894,14 +833,6 @@
 }
 
 /* Props keeps the catalogue route until the viewport Add route lands. */
-.v2-details-section.v2-details-section .add-object {
-	box-sizing: border-box;
-	position: relative;
-	display: block;
-	width: 100%;
-	margin: 0;
-}
-
 .v2-details-section.v2-details-section .add-object-trigger {
 	box-sizing: border-box;
 	display: flex;
@@ -1127,33 +1058,7 @@
 	color: var(--text-1, #e4e4e7);
 }
 
-.inspector-sidebar.inspector-sidebar .details-panel-head .details-panel-tab {
-	height: var(--h-row, 24px);
-	margin: 0;
-	padding: 0;
-	border: 0;
-	border-radius: 0;
-	background: transparent;
-	color: var(--text-3, #636369);
-	font-family: inherit;
-	font-size: var(--details-ui-size, 12px);
-	font-weight: 400;
-	cursor: pointer;
-}
-
-.inspector-sidebar.inspector-sidebar .details-panel-head .details-panel-tab:hover {
-	background: transparent;
-	color: var(--text-2, #9b9ba1);
-}
-
-.inspector-sidebar.inspector-sidebar .details-panel-head .details-panel-tab[aria-selected="true"] {
-	color: var(--text-1, #e4e4e7);
-	font-weight: 500;
-	cursor: default;
-}
-
-.inspector-sidebar.inspector-sidebar .details-panel-head .inspector-agent-switch:focus-visible,
-.inspector-sidebar.inspector-sidebar .details-panel-head .details-panel-tab:focus-visible {
+.inspector-sidebar.inspector-sidebar .details-panel-head .inspector-agent-switch:focus-visible {
 	outline: var(--details-focus-width, 1px) solid var(--select, #e8a33d);
 	outline-offset: var(--details-focus-offset, 1px);
 }
