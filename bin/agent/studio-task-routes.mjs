@@ -9,10 +9,13 @@
 //   POST /agent/task/<taskId>/steer       { text }: add to a running task
 // A task's run is an ordinary Studio turn (handleStudioTurn) in a child session the main session's owner owns, so its
 // frames replay on GET /agent/turn/<turnId>/events like any turn's.
+// While the motion engine is available (motionModel() answers its model key), the coordinator has the motion rules and a
+// motion task's run goes to that key: the v4 tools on the pi loop, inside the same task transaction (motion-tasks.mjs).
 import { randomUUID } from "node:crypto";
 import { createTaskBoard, taskHeader, TASK_LIMITS } from "./studio-tasks.mjs";
 import { createMainTools, doneClaimCorrection, mainContextText } from "./main-agent.mjs";
 import { MAIN_SYSTEM_PROMPT } from "./main-prompt.mjs";
+import { motionHeader, motionMainPrompt, motionScope, motionSubject } from "./motion-tasks.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
 import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
 
@@ -27,15 +30,22 @@ const EVENT_TURN_TEXT = "(Task events arrived while the user waited. Tell the us
 const fakeResponse = () => ({ headersSent: false, writableEnded: false, destroyed: false, setHeader() {}, writeHead() {}, flushHeaders() {}, write: () => true, once() {}, end() { this.writableEnded = true; } });
 const ownerRequest = owner => ({ headers: { cookie: `studio_owner=${encodeURIComponent(owner)}` } });
 
-export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, newRecord, readContext, inspect, parseCookies, json, readBody, validateEnvelope, limits, eventTurnDelayMs = 400 }) {
+export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, newRecord, readContext, inspect, parseCookies, json, readBody, validateEnvelope, limits, eventTurnDelayMs = 400, motionModel = async () => null }) {
 	const mains = new Map();
 	const ownerOf = sessionId => studioSessions.get(sessionId)?.owner;
+	// The motion engine's model key now, or null. The server log says when it comes on or goes off, and a failed check.
+	let motionSaid = null;
+	const motionNow = async () => {
+		const key = await motionModel().catch(error => { console.warn(`[agent] motion engine check failed: ${error?.message ?? error}`); return null; });
+		if (key !== motionSaid) console.log(key ? `[agent] motion tasks on: body motion of rig characters runs on ${key}` : "[agent] motion tasks off: every task runs on the Studio engine");
+		return (motionSaid = key);
+	};
 
 	function mainOf(sessionId) {
 		let main = mains.get(sessionId);
 		if (main) return main;
 		const feedId = `main:${sessionId}`;
-		main = { sessionId, feedId, feed: newRecord(), events: [], host: null, model: undefined, effort: undefined, eventTimer: null };
+		main = { sessionId, feedId, feed: newRecord(), events: [], host: null, model: undefined, effort: undefined, eventTimer: null, designs: new Map() };
 		studioEvents.set(feedId, main.feed);
 		main.notify = event => {
 			main.events.push(event);
@@ -83,15 +93,16 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		main.events.unshift(...turn.told.splice(0));
 	}
 
-	function runMain(main, req, res, value, eventTurn = null) {
+	async function runMain(main, req, res, value, eventTurn = null) {
 		main.host = value.context.host; main.model = value.model; main.effort = value.effort;
+		const motion = Boolean(await motionNow());
 		main.board.reconnect(value.context.host.sceneId);
 		const userText = value.text, guard = watchMain(main, value.turnId);
 		// hidden: the main agent reporting on its own is no user message (a panel that reattaches to it shows no prompt)
 		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
-			systemPrompt: MAIN_SYSTEM_PROMPT,
+			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : MAIN_SYSTEM_PROMPT,
 			// The live host, not this turn's: a reload mid-turn moves the Studio to a new handle (POST .../reconnect).
-			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle }),
+			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, designs: main.designs }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
 			check: reply => (guard.tell() ? "" : doneClaimCorrection(reply, main.board.board(), userText)),
 		}, observe: guard.observe }, "/agent/turn").finally(guard.stop);
@@ -131,6 +142,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		let context;
 		try { context = await readContext(main.host); }
 		catch (error) { if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: main.host?.sceneId }; throw error; }
+		// A motion task: its character (named, or the one its dependencies made) joins its scope, and its run goes to the
+		// motion engine. Without the engine it runs as an ordinary task on that character.
+		let engine = null;
+		if (task.motion) {
+			const subject = motionSubject(task.motion, context, deps);
+			engine = await motionNow();
+			if (subject.id) { task.motion.characterId = subject.id; task.scope = motionScope(task.scope, subject.id); }
+			else if (engine || !task.scope.length) return { status: "failed", error: { message: subject.reason } };
+		}
 		// A resume after Studio came back (case 14): the scope must still read as the task last saw it. Autosave may have
 		// missed its newest edit before the reload, or the user changed it meanwhile: then the task re-reads its scope, and
 		// one that was mid-command fails, since it cannot know whether that command landed.
@@ -173,11 +193,11 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			else if (frame.type === "error") { out.error = { code: frame.code, message: frame.message }; if (frame.code === "SCOPE_BUSY") out.busy = true; if (LOST_STUDIO.has(frame.code)) out.lost = true; }
 			else if (frame.type === "done" && frame.usage) out.usage = { ...frame.usage, cost: frame.cost ?? 0 };
 			// How the bus closed the task: a stop that came after the run already finished keeps its edits (task.finish).
-			else if (frame.type === "receipt" && /^task\.(cancel|finish)$/.test(frame.receipt?.action ?? "")) out.ended = frame.receipt.action;
+			else if (frame.type === "receipt" && /^task\.(cancel|finish)$/.test(frame.receipt?.action ?? "")) { out.ended = frame.receipt.action; if (engine && out.ended === "task.finish" && !out.receipts.length && frame.receipt.affectedIds?.length) out.receipts.push({ receiptId: frame.receipt.receiptId, action: "motion.v4.install", affectedIds: frame.receipt.affectedIds.slice(0, 6) }); } // the engine's tools carry no receipts: what it changed is in the task's own
 		};
 		try {
-			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: taskHeader(task, { deps, resume }), context: withTaskActions(context), model: main.model, effort: main.effort, observe,
-				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
+			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: (engine ? motionHeader : taskHeader)(task, { deps, resume }), context: withTaskActions(context), model: engine ?? main.model, effort: engine ? undefined : main.effort, observe,
+				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, ...(engine ? { motion: { characterId: task.motion.characterId } } : {}), get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
 			return { status: "failed", error, usage: out.usage };

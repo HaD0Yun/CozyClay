@@ -16,6 +16,16 @@ const V4_MODEL = { id: "claude-opus-5-5", key: V4_MODEL_KEY, label: "Opus 5.5 (v
 const V4_PI_MODEL = { id: "claude-opus-5-5", key: V4_PI_MODEL_KEY, label: "Opus 5.5 (v4 motion, pi loop)", efforts: ["high", "xhigh", "max", "medium", "low"], defaultEffort: "high", input: ["text", "image"] };
 
 /**
+ * The model key a motion task runs on (bin/agent/motion-tasks.mjs): the v4 pi-loop key, while CLIProxyAPI is signed in
+ * and lists Opus 5.5. null otherwise, or with COZYCLAY_MOTION_TASKS=off: task mode then runs as it did before v4.
+ */
+export function motionTaskModel(listing, env = process.env) {
+	if (env?.COZYCLAY_MOTION_TASKS === "off") return null;
+	const cliproxy = Array.isArray(listing?.providers) ? listing.providers.find(provider => provider?.id === "cliproxy") : null;
+	return cliproxy?.signedIn && cliproxy.models?.some(model => model?.id === V4_PI_MODEL.id) ? V4_PI_MODEL_KEY : null;
+}
+
+/**
  * /agent/models with the v4 provider added after the others.
  * v4 runs on the CLIProxyAPI sign-in, so it is listed only while that provider is signed in,
  * with its sign-in state and source. A listing without a signed-in cliproxy comes back as it was.

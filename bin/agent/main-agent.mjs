@@ -4,6 +4,8 @@
 // board's events, which reach it in its context; a reply that calls a task finished without that task's done event is
 // corrected before the turn ends (case 15).
 import { randomUUID } from "node:crypto";
+import { MOTION_FIELD, MOTION_SCOPE_HELP, rigIds } from "./motion-tasks.mjs";
+import { createDesigns, DESIGN_TOOL } from "./motion-design.mjs";
 
 const QUICK_TOOLS = ["arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "run_action"];
 // No compile, no task or turn control, no document action: a quick edit is one small authored change.
@@ -37,8 +39,12 @@ const verify = { type: "boolean", description: "end in review, not done: its dep
 const bare = ({ timing: _timing, ...view }) => view;
 const fn = (name, description, properties, required) => ({ type: "function", name, description, parameters: { type: "object", properties, required, additionalProperties: false } });
 
-/** The main agent's tools: inspect_studio from the run's own Studio tools, the board's, and quick_edit. */
-export function createMainTools({ board, studio, hub, admission, workspaceHandle, liveHandle = () => null }) {
+/**
+ * The main agent's tools: inspect_studio from the run's own Studio tools, the board's, and quick_edit.
+ * motion: the motion engine is available, so there is design_motion and a dispatch takes motion: { designId,
+ * characterId } (motion-tasks.mjs, motion-design.mjs). designs: the main session's Map of designId -> design text.
+ */
+export function createMainTools({ board, studio, hub, admission, workspaceHandle, liveHandle = () => null, motion = false, designs }) {
 	const studioInspect = studio.find(tool => tool.name === "inspect_studio");
 	const fail = (code, message) => { throw Object.assign(new Error(`${code}: ${message}`), { code }); };
 	const handle = () => liveHandle() || workspaceHandle;
@@ -54,22 +60,35 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 	} };
 	// Ids are checked against the scene as it is now: a made-up id holds nothing, and its task's every write is refused.
 	const checkIds = async steps => {
-		const context = admission.snapshot ? await admission.snapshot().catch(() => null) : null, refusal = unknownScopeIds(steps, context);
+		const named = steps.map(step => (step.motion?.characterId ? { ...step, scope: [...(step.scope ?? []), `character:${step.motion.characterId}`] } : step));
+		const context = admission.snapshot ? await admission.snapshot().catch(() => null) : null, refusal = unknownScopeIds(named, context);
 		if (refusal) fail("INVALID_ARGUMENT", refusal);
+		return context;
 	};
+	// A motion task that names no character remembers the rig characters there are now: the one made later is its own.
+	// It also carries its design, which must exist: the coordinator designs a motion before it hands it over (rule M10).
+	const designed = createDesigns(designs);
+	const known = (step, context) => {
+		if (!step.motion) return step;
+		const design = designed.text(step.motion.designId);
+		if (!design) fail("INVALID_ARGUMENT", `motion.designId${step.motion.designId ? ` ${step.motion.designId}` : ""}: no such design. Design the motion first: call design_motion (rule M10), then dispatch with the designId it answers.`);
+		return { ...step, motion: { ...(step.motion.characterId ? { characterId: step.motion.characterId } : { known: rigIds(context) }), design } };
+	};
+	const scope = motion ? { ...keys, minItems: 0, description: `${KEYS_HELP}${MOTION_SCOPE_HELP}` } : keys, more = motion ? { motion: MOTION_FIELD } : {};
 	return [
 		inspect,
+		...(motion ? [{ ...fn(DESIGN_TOOL.name, DESIGN_TOOL.description, DESIGN_TOOL.properties, DESIGN_TOOL.required), handler: async args => designed.add(args) }] : []),
 		{ ...fn("dispatch_task", "Start a task: a Studio agent that does the work inside its scope while you keep talking. Answers its taskId and status (queued, waiting with the reason, or duplicateOf an equal task).",
-			{ title: { type: "string", maxLength: 120 }, instructions: { type: "string", maxLength: 6000, description: "what to do, self-contained" }, scope: keys,
-				reads: { ...keys, minItems: 0, description: "keys the task reads but does not change (it hears when they change)" }, dependsOn: { type: "array", items: { type: "string" }, maxItems: 8 }, verify },
+			{ title: { type: "string", maxLength: 120 }, instructions: { type: "string", maxLength: 6000, description: "what to do, self-contained" }, scope,
+				reads: { ...keys, minItems: 0, description: "keys the task reads but does not change (it hears when they change)" }, dependsOn: { type: "array", items: { type: "string" }, maxItems: 8 }, verify, ...more },
 			["title", "instructions", "scope"]),
-		handler: async args => { await checkIds([args]); return bare(board.dispatch(args)); } },
+		handler: async args => bare(board.dispatch(known(args, await checkIds([args])))) },
 		{ ...fn("dispatch_plan", "Queue several tasks that depend on each other in one call: each has a local ref, and dependsOn names refs of this plan or taskIds of earlier tasks. A cycle or an unknown ref refuses the whole plan. Answers every task with its ref, taskId and status.",
 			{ tasks: { type: "array", minItems: 1, maxItems: 12, items: { type: "object", additionalProperties: false, required: ["ref", "title", "instructions", "scope"], properties: {
-				ref: { type: "string", maxLength: 40 }, title: { type: "string", maxLength: 120 }, instructions: { type: "string", maxLength: 6000, description: "what to do, self-contained" }, scope: keys,
-				reads: { ...keys, minItems: 0, description: "keys the task reads but does not change (it hears when they change)" }, dependsOn: { type: "array", items: { type: "string" }, maxItems: 8, description: "refs of this plan or earlier taskIds" }, verify } } } },
+				ref: { type: "string", maxLength: 40 }, title: { type: "string", maxLength: 120 }, instructions: { type: "string", maxLength: 6000, description: "what to do, self-contained" }, scope,
+				reads: { ...keys, minItems: 0, description: "keys the task reads but does not change (it hears when they change)" }, dependsOn: { type: "array", items: { type: "string" }, maxItems: 8, description: "refs of this plan or earlier taskIds" }, verify, ...more } } } },
 			["tasks"]),
-		handler: async args => { await checkIds(args.tasks ?? []); return { tasks: board.dispatchPlan(args).tasks.map(bare) }; } },
+		handler: async args => { const context = await checkIds(args.tasks ?? []); return { tasks: board.dispatchPlan({ ...args, tasks: args.tasks?.map(step => known(step, context)) }).tasks.map(bare) }; } },
 		{ ...fn("steer_task", "Add to a running task's instructions (the user changed their mind about its work).", { taskId: { type: "string" }, text: { type: "string", maxLength: 4000 } }, ["taskId", "text"]),
 			handler: async ({ taskId, text }) => {
 				const task = board.get(taskId) ?? fail("STALE_TARGET", `No task ${taskId}.`);
