@@ -54,8 +54,8 @@ const waitFor = async (expression, ms = 60_000) => {
 await send("Runtime.enable");
 await send("Page.enable");
 
-const ready = "Boolean(window.__cozyclay?.rigA && window.__cozyclay.runStudioAction && window.__cozyclayProject?.export)";
-assert.ok(await waitFor(ready), "Studio never exposed a rig");
+const ready = "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclayProject?.export)";
+assert.ok(await waitFor(ready), "Studio never exposed its QA hooks");
 const characters = async () => {
 	let doc = await evaluate("window.__cozyclayProject.export('imported-character')");
 	while (typeof doc === "string") doc = JSON.parse(doc);
@@ -102,12 +102,13 @@ async function check(sk, take, sourceOf, label) {
 }
 
 // --- 1. an X Bot plays as before ------------------------------------------------------------------------------------
-const cast0 = await characters();
-const xbot = cast0.find(c => c.model === "x-bot-tpose" || c.model === "y-bot-tpose");
-assert.ok(xbot, "no X Bot or Y Bot character in the open scene");
+// a QA session opens on an empty stage: cast an X Bot as an agent would
+assert.ok((await act("character.add", { character: { id: "qa-xbot", model: "x-bot-tpose", x: -1, z: 0, rot: 0, subject: "a person" } }))?.ok, "character.add refused the X Bot");
+const xbot = (await characters()).find(c => c.id === "qa-xbot");
+assert.ok(xbot, "the X Bot is not in the cast");
 assert.ok((await select(xbot.id))?.ok, "could not select the built-in character");
 assert.ok((await act("motion.compile", { characterId: xbot.id, spec: walkSpec(xbot) }))?.ok, "motion.compile refused on the built-in character");
-assert.ok(await waitFor(hasTake(xbot.model), 60_000), "the built-in character's take never became visible");
+assert.ok(await waitFor(`${hasTake(xbot.model)} && Boolean(window.__cozyclay.rigA?.getObjectByName?.("mixamorigHips"))`, 60_000), "the built-in character's take never became visible on its rig");
 const xTake = await takeNow(), xWorst = await check(skeletonFor(xbot.model), xTake, n => `mixamorig${n}`, xbot.model);
 assert.ok(xWorst.hips < 1 && xWorst.limbs < 2, `the ${xbot.model} no longer plays its take on its bones (${JSON.stringify(xWorst)})`);
 
