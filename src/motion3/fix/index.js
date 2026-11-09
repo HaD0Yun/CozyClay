@@ -61,9 +61,6 @@ export function fixOptions(fix) {
 const withTurns = (turns, slide) => (turns ? { ...(slide ?? { frames: 0, how: "planted heel/ball held in place" }), turns, how: `${slide?.how ?? "planted heel/ball held in place"}; a flat planted foot keeps its heading until it lifts` } : slide);
 const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), eased: Math.max(a.eased, b.eased), max: Math.max(a.max, b.max), how: a.how } : a ?? b);
 
-/** The ballistic report of two passes (before and after spin) as one: the second pass's runs join the first's. */
-const mergeArc = (a, b) => (a && b ? { ...a, runs: new Set([...a.at, ...b.at]).size, frames: Math.max(a.frames, b.frames), max: Math.max(a.max, b.max), at: [...new Set([...a.at, ...b.at])] } : a ?? b);
-
 /** Runs the enabled fixes in order (retime first: it moves keys; the flight last: ballistic, spin) and returns their reports. */
 export function applyFixes(out, fix, engine, { whole = true } = {}) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
@@ -95,7 +92,12 @@ function flightFixes(out, engine, fix, runs) {
 	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()]));
 	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs));
 	if (fix.spin) put("spin", spinFix(out, engine, runs));
-	if (fix.ballistic && fixed.spin) put("ballistic", mergeArc(fixed.ballistic, ballisticFix(out, engine, runs)));
+	// the second pass's report joins the first's (ballisticFix prev); null: nothing moved or skipped in either
+	if (fix.ballistic && fixed.spin) {
+		const arc = ballisticFix(out, engine, runs, fixed.ballistic);
+		if (arc) fixed.ballistic = arc;
+		else delete fixed.ballistic;
+	}
 	out.flightMoved = Object.fromEntries(MOVED.filter(ch => before[ch]).map(ch => [ch, new Map(before[ch].flatMap((v, f) => {
 		const w = out.baked[ch][f];
 		return w !== v && Array.isArray(v) && Array.isArray(w) ? [[f, [w[0] - v[0], w[1] - v[1], w[2] - v[2]]]] : [];

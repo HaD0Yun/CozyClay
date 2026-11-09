@@ -5,10 +5,13 @@
 //       alone and the ballistic fix keeps the centre of mass on the arc, so the hips stay within 0.05 m of their keys and
 //       the bench scorer's gravity error (test/bench/physics/checks.mjs gravityCheck) is under 0.05 m; no new REACH or
 //       penetration against the same take with the flight fixes off
-//   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g)
+//   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
+//       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
+//       rise at about 1.8 g with the feet planted (a support cannot pull the body down): DROP, its hint gives v/g
 //   (c) the flip skill's back tuck: the angular momentum drift is under SPIN_TOL with fix.spin and over it without; the
 //       total turn between takeoff and landing within 10 deg of the keyed turn; the landing clean (QA 0)
-//   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open
+//   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open; keyed
+//       at an even rate (fix { spin: false }) QA says SPIN
 //   (e) the flip and float-fix tests still pass
 // Prints PASS/FAIL lines; exits non-zero on a failure.
 import { spawnSync } from "node:child_process";
@@ -99,6 +102,21 @@ function roofFall() {
 	const slow = keys.map(k => (k.f > 20 && k.f <= f ? { f: 20 + (k.f - 20) * 2, set: k.set } : k.f > f ? { f: k.f + f - 20, set: k.set } : k));
 	const ok = compileSpec({ schema: SPEC, fps: 24, frames: slow.at(-1).f + 2, keys: slow }, { sk, scene: motionScene([]) });
 	expect("(b) the same drop at half the acceleration: no DROP", !kinds(ok).has("DROP"), JSON.stringify(ok.qa.groups.map(x => `${x.kind} ${x.subject} ${x.worst}`)));
+	// the same fall while the body turns about the vertical 30 deg a frame: its hips' up axis stays up, no turn over
+	const spun = keys.map(k => (k.f > 20 && k.f <= f ? { f: k.f, set: { ...k.set, yaw: 30 * (k.f - 20) } } : k.f > f ? { f: k.f, set: { ...k.set, yaw: 30 * (f - 20) } } : k));
+	const pir = compileSpec({ schema: SPEC, fps: 24, frames: f + 22, keys: spun }, { sk, scene: motionScene([]) });
+	expect("(b) the same fall turning 30 deg a frame about the vertical: DROP (a pirouette is no turn over)", kinds(pir).has("DROP"), JSON.stringify(pir.qa.groups.map(x => `${x.kind} ${x.subject} ${x.worst}`)));
+}
+
+// (b) a stand-up from a 0.3 m squat rising at 0.06 m a frame that stops on its top in two frames, the feet planted
+{
+	const low = shift(pose0.root, [0, -0.3, 0.05]), keys = [{ f: 0, set: { ...pose0, root: low } }, { f: 20, set: { root: low } }];
+	[-0.3, -0.27, -0.21, -0.15, -0.09, -0.03, 0, 0, 0, 0].forEach((y, i) => keys.push({ f: 21 + i, set: { root: shift(pose0.root, [0, y, 0.05]) } }));
+	keys.push({ f: 60, set: { root: pose0.root } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 62, keys }, { sk, scene: motionScene([]) }), g = r.qa.groups.find(x => x.kind === "DROP");
+	expect(`(b) a rise braked at about 1.8 g with the feet planted: DROP (worst ${g ? g.worst : "-"} g)`, g && g.count >= 2 && g.worst > 1.5 && /stop rising/.test(g.subject), JSON.stringify(r.qa.groups.map(x => `${x.kind} ${x.subject} ${x.worst}`)));
+	const m = /stop a rise of ([\d.]+) m\/s .*v\/g = ([\d.]+) s \((\d+) frames\)/.exec(g?.hint ?? ""), v = 0.06 * 24;
+	expect(`(b) the rise's DROP hint gives the speed (${v} m/s) and v/g = ${r3(v / 9.81)} s at 1 g`, m && Math.abs(+m[1] - v) < 0.05 && Math.abs(+m[2] - v / 9.81) < 0.01 && +m[3] === Math.ceil(v / 9.81 * 24), g?.hint);
 }
 
 // (c) the flip skill's back tuck, on and off fix.spin
@@ -114,6 +132,9 @@ function roofFall() {
 	expect(`(c) back tuck: the total turn from takeoff to landing (${r3(got)} deg) is within 10 deg of the keyed turn (${r3(keyedTurn)} deg)`, Math.abs(got - keyedTurn) < 10, `${got} vs ${keyedTurn}`);
 	expect("(c) back tuck: the landing is clean (QA 0) and output.fixed.spin reports frames, the worst re-time and the drift", on.qa.total === 0 && on.fixed.spin?.frames >= b - a + 1 && on.fixed.spin.max > 0 && on.fixed.spin.drift?.[1] < on.fixed.spin.drift?.[0],
 		JSON.stringify({ groups: on.qa.groups.map(g => `${g.kind} ${g.subject}`), spin: on.fixed.spin }));
+	// the landing's one-frame POP goes unread only on a flight the ballistic fix moved
+	const kept = flip({ ballistic: false });
+	expect("(c) back tuck with fix { ballistic: false }: the landing reads POP (only a flight the ballistic fix moved is exempt)", kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
 }
 
 // (d) a 360 deg spin jump: the arms out at takeoff, pulled in over the middle of the flight, out again to land
@@ -143,6 +164,7 @@ function spinJump() {
 	expect("(d) spin jump: the keyed full turn is kept (360 deg from takeoff to landing)", Math.abs(on.out.baked.yaw[B] - on.out.baked.yaw[A] - 360) < 1e-6);
 	const dOn = fl ? runDrift(on.out, fl[0], fl[1]) : 1, dOff = fl ? runDrift(off.out, fl[0], fl[1]) : 0;
 	expect(`(d) spin jump: the angular momentum drift falls with fix.spin (${r3(dOff)} -> ${r3(dOn)})`, dOn < dOff && dOn < SPIN_TOL, JSON.stringify({ dOn, dOff, fl }));
+	expect(`(d) spin jump keyed at an even rate (fix { spin: false }): QA says SPIN (drift ${r3(dOff)} over SPIN_TOL); with fix.spin no SPIN`, dOff > SPIN_TOL && kinds(off).has("SPIN") && !kinds(on).has("SPIN"), JSON.stringify({ off: off.qa.groups.map(g => g.kind), on: on.qa.groups.map(g => g.kind) }));
 }
 
 // (e) the existing flight tests

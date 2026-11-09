@@ -1,35 +1,38 @@
 // Flight physics QA (#1124): what gravity and the conservation of angular momentum say about a body.
-//   DROP  supported (not in an air run: a foot, a hand, a declared support or the skin on a surface carries it) and
-//         going down, the hips accelerate down faster than DROP_LIMIT g for 2 frames or more. A support can only
+//   DROP  supported (not in an air run: a foot, a hand, a declared support or the skin on a surface carries it), the
+//         hips accelerate down faster than DROP_LIMIT g for 2 frames or more, going down or up. A support can only
 //         push: with the ground under it a body falls at 1 g at most (the hips a little more as the legs fold), so a
-//         faster drop is a keyed fall the support should have slowed. Bench v2 (2026-11-07, 06 trip run r1: the hips
-//         fell at 1.5-2.3 g). value = the downward acceleration in g. The hint gives the time the drop needs at 1 g,
-//         sqrt(2 h / g), or an earlier hand brace. A body turning over (the hips turn more than OVER deg in one go,
-//         TURNING deg a frame or more: a cartwheel, a flip, a roll) swings its hips round what carries it, so their
-//         height is not a fall: DROP leaves those frames (the flip skill's cartwheel dips its hips at 1.5-3.3 g).
+//         faster drop is a keyed fall the support should have slowed, and a rise that stops faster than 1 g is a body
+//         the support would have had to pull down. Bench v2 (2026-11-07, 06 trip run r1: the hips fell at 1.5-2.3 g).
+//         value = the downward acceleration in g. The hint gives the time the drop needs at 1 g, sqrt(2 h / g), or an
+//         earlier hand brace; for a rise, the time stopping it needs at 1 g, v / g. A body turning over (the hips' up
+//         axis tilts more than OVER deg in one go, TURNING deg a frame or more: a cartwheel, a flip, a roll; a turn about
+//         the vertical, a pirouette, is none) swings its hips round what carries it, so their height is not a fall: DROP
+//         leaves those frames (the flip skill's cartwheel dips its hips at 1.5-3.3 g).
 //   SPIN  in a flight (flights: an air run of MIN_RUN frames or more, split where a hand is pinned, a frame on each
 //         side) the angular momentum about the centre of mass (inertia.js) must stay what the body left the ground with,
 //         read on the frames whose central difference stays in the air (the takeoff and landing frames carry the
-//         push). value = how far it drifts at that frame from the run's mean along the mean's axis (deviations), as a
-//         share of the mean or of SPIN_FLOOR kg m^2/s, whichever is larger;
-//         SPIN_TOL is the share allowed. So a frame may drift 20% of the run's momentum, and never less than 16
-//         kg m^2/s (70 kg body): legs tucked in a straight hop swing it by about 14 with no turn to re-time, a
-//         standing back tuck carries about 60 and its keyed turn drifts 30-48. fix.spin (fix/spin.js) re-times the
-//         root's turn so it holds (about 8 left after it).
-//   POP   is left out on a flight's push-off and impact frames (contactFrames; qa/index.js drops them).
+//         push). value = how far it drifts at that frame from the run's mean along the mean's axis u (deviations), as a
+//         share of the larger of |mean| and I_u * SPIN_OMEGA, I_u the run's mean whole-body inertia about u; SPIN_TOL
+//         is the share allowed. As turn rates (L / I_u): a frame may turn 20% faster or slower than the run's momentum
+//         allows, and never less than 20% of SPIN_OMEGA (2.5 rad/s) off it when the body turns slower than that. A
+//         twisting spin jump (I_u about 1.8 kg m^2) keyed at an even rate with its arms pulled in drifts 5.6 kg m^2/s
+//         (0.245); a back tuck about 60 kg m^2/s, its keyed turn 35 (0.40), about 7 after fix.spin (fix/spin.js re-times
+//         the root's turn so it holds); legs tucked in a hop with no turn swing it by up to 11 (0.19, nothing to re-time).
+//   POP   is left out on the push-off and impact frames of a flight fix.ballistic moved (contactFrames; qa/index.js drops them).
 import { airRuns } from "./style.js";
-import { momentumOf, rotationVector } from "./inertia.js";
-import { mul, T } from "../compiler/math.js";
+import { momentumOf } from "./inertia.js";
+import { apply, dot, T } from "../compiler/math.js";
 
 /** DROP: the hips' downward acceleration (g) a supported body may reach. */
 export const DROP_LIMIT = 1.1;
 /** SPIN: the share of the run's mean angular momentum one air frame may drift from it. */
 export const SPIN_TOL = 0.2;
-/** SPIN: kg m^2/s, the momentum a drift is measured against at least (SPIN_TOL of it: 16 kg m^2/s). */
-const SPIN_FLOOR = 80;
+/** SPIN: rad/s (two turns a second, a flip's rate): a drift is measured against at least the momentum I_u * SPIN_OMEGA. */
+const SPIN_OMEGA = 4 * Math.PI;
 /** Flights have at least this many frames (FLOAT's runs; fix/ballistic.js and fix/spin.js work on the same). */
 const MIN_RUN = 4;
-/** DROP: a body whose hips turn more than OVER deg in one go, TURNING deg a frame or more, is turning over. */
+/** DROP: a body whose hips' up axis tilts more than OVER deg in one go, TURNING deg a frame or more, is turning over. */
 const OVER = 180, TURNING = 2;
 
 /** A hand still in the world moves less than this (m) over two frames: it is planted on something. */
@@ -63,26 +66,32 @@ export function flights(out, runs) {
 	return keep;
 }
 
-/** Angular momentum about the centre of mass per frame a..b of out (kg m^2/s vectors), or null at either end of the take. */
+/** The momentum about the centre of mass per frame a..b of out ({ L kg m^2/s, J kg m^2 }), or null at either end of the take. */
 function momenta(out, a, b) {
 	if (a < 1 || b > out.frames.length - 2) return null;
-	const fps = out.fps ?? 24, Ls = [];
-	for (let f = a; f <= b; f++) { const m = momentumOf(out.ctx.sk, out.frames, f, fps); if (!m) return null; Ls.push(m.L); }
-	return Ls;
+	const fps = out.fps ?? 24, Ms = [];
+	for (let f = a; f <= b; f++) { const m = momentumOf(out.ctx.sk, out.frames, f, fps); if (!m) return null; Ms.push(m); }
+	return Ms;
 }
+
+/** u . J . u: the inertia of J about unit axis u. */
+const about = (J, u) => [0, 1, 2].reduce((s, i) => s + u[i] * (J[i][0] * u[0] + J[i][1] * u[1] + J[i][2] * u[2]), 0);
 
 /**
  * Per frame a..b: how far L along the flight's mean momentum axis u is from the mean, |L . u - |mean|| / max(|mean|,
- * SPIN_FLOOR); null where the momentum cannot be read. The axis is the turn's: a keyed turn whose axis swings (the hit
- * skill's yaw and pitch at once) or a spin about a non-principal axis moves L off it, which no re-timing of the turn can
- * change, so SPIN leaves that out (the hit skill: L along u 27-31 kg m^2/s while its direction turns 40 deg).
+ * I_u SPIN_OMEGA), I_u the mean inertia about u (a third of the trace when the mean is 0: no axis); null where the
+ * momentum cannot be read. The axis is the turn's: a keyed turn whose axis swings (the hit skill's yaw and pitch at once)
+ * or a spin about a non-principal axis moves L off it, which no re-timing of the turn can change, so SPIN leaves that
+ * out (the hit skill: L along u 27-31 kg m^2/s while its direction turns 40 deg).
  */
 function deviations(out, a, b) {
-	const Ls = momenta(out, a, b);
-	if (!Ls) return null;
-	const m = [0, 1, 2].map(k => Ls.reduce((s, L) => s + L[k], 0) / Ls.length), size = Math.hypot(...m), ref = Math.max(size, SPIN_FLOOR);
-	if (size < 1e-9) return Ls.map(L => Math.hypot(...L) / ref);
-	return Ls.map(L => Math.abs((L[0] * m[0] + L[1] * m[1] + L[2] * m[2]) / size - size) / ref);
+	const Ms = momenta(out, a, b);
+	if (!Ms) return null;
+	const m = [0, 1, 2].map(k => Ms.reduce((s, { L }) => s + L[k], 0) / Ms.length), size = Math.hypot(...m), u = m.map(x => x / (size || 1));
+	const Iu = Ms.reduce((s, { J }) => s + (size < 1e-9 ? (J[0][0] + J[1][1] + J[2][2]) / 3 : about(J, u)), 0) / Ms.length;
+	const ref = Math.max(size, Iu * SPIN_OMEGA, 1e-9);
+	if (size < 1e-9) return Ms.map(({ L }) => Math.hypot(...L) / ref);
+	return Ms.map(({ L }) => Math.abs(L[0] * u[0] + L[1] * u[1] + L[2] * u[2] - size) / ref);
 }
 
 /** The worst SPIN deviation over flight [a, b] (indexes of out.frames): the frames whose central difference stays in the air, a + 1 .. b - 1. */
@@ -97,18 +106,22 @@ export function runDrift(out, a, b) {
  * meeting the ground changes speed in a frame (an ankle stops on the floor, the knees take the landing), so a one-frame
  * acceleration there is contact, not an artifact; with the air frames on their arc (fix.ballistic) it stands out from
  * them (the flip skill's landing knee: 8 cm/f^2, read against 7 cm/f^2 of keyed air frames before the fix and 2 after).
- * The flights of `runs` (flights); frames index out.frames.
+ * Only the flights fix.ballistic moved (out.flightMoved.root, fix/index.js): a flight left as keyed reads POP as any take
+ * does. The flights of `runs` (flights); frames index out.frames.
  */
 export function contactFrames(out, runs) {
-	const at = new Set();
-	for (const [a, b] of flights(out, runs)) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
+	const at = new Set(), moved = out.flightMoved?.root, f0 = out.f0 ?? 0;
+	if (!moved) return at;
+	for (const [a, b] of flights(out, runs)) if (moved.has(a + f0)) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
 	return at;
 }
 
-/** 1 on every frame of a turn over: a span the hips turn TURNING deg a frame or more in, OVER deg or more in all. */
+/** 1 on every frame of a turn over: a span the hips' up axis tilts TURNING deg a frame or more in, OVER deg or more in all. */
 function turningOver(out) {
 	const F = out.frames, n = F.length, h = out.ctx.sk.index.Hips, over = new Uint8Array(n), step = new Float64Array(n);
-	for (let f = 1; f < n; f++) step[f] = (Math.hypot(...rotationVector(mul(F[f].s.R[h], T(F[f - 1].s.R[h])))) * 180) / Math.PI;
+	// the hips' up axis in the world: the rest pose's world up carried by the hips' turn from rest
+	const rest = apply(T(out.ctx.sk.restWorldRot[h]), [0, 1, 0]), up = f => apply(F[f].s.R[h], rest);
+	for (let f = 1; f < n; f++) step[f] = (Math.acos(Math.max(-1, Math.min(1, dot(up(f), up(f - 1))))) * 180) / Math.PI;
 	for (let f = 1; f < n; f++) {
 		if (step[f] < TURNING) continue;
 		let e = f, sum = 0;
@@ -125,12 +138,12 @@ export function flightChecks(out, checks = {}, runs = airRuns(out, checks.suppor
 	const skip = turningOver(out);
 	for (const [a, b] of runs) skip.fill(1, a, b + 1);
 	const y = f => F[f].s.P[I.Hips][1], down = new Float64Array(n);
-	for (let f = 1; f < n - 1; f++) down[f] = skip[f] || y(f + 1) >= y(f - 1) ? 0 : -(y(f + 1) - 2 * y(f) + y(f - 1)) / g;
+	for (let f = 1; f < n - 1; f++) down[f] = skip[f] ? 0 : -(y(f + 1) - 2 * y(f) + y(f - 1)) / g;
 	for (let f = 1; f < n - 1; f++) {
 		if (!(down[f] > DROP_LIMIT)) continue;
 		let e = f;
 		while (e + 1 < n - 1 && down[e + 1] > DROP_LIMIT) e++;
-		if (e > f) for (let q = f; q <= e; q++) issues.push({ kind: "DROP", msg: `hips fall at ${down[q].toFixed(1)} g with support`, frame: q, value: +down[q].toFixed(4), limit: DROP_LIMIT });
+		if (e > f) for (let q = f; q <= e; q++) issues.push({ kind: "DROP", msg: `hips ${y(q + 1) > y(q - 1) ? "stop rising" : "fall"} at ${down[q].toFixed(1)} g with support`, frame: q, value: +down[q].toFixed(4), limit: DROP_LIMIT });
 		f = e;
 	}
 	for (const [a, b] of flights(out, runs)) {
@@ -152,9 +165,23 @@ function descent(X, g) {
 	return { top, bottom, h: y(top) - y(bottom) };
 }
 
+/** The rise a DROP group brakes: the frame the hips stop rising (1 mm a frame), their fastest rise before it (m/frame). */
+function rise(X, g) {
+	const y = f => X.fr(f).s.P[X.I.Hips][1], lo = X.out.f0 ?? 0, hi = lo + X.out.frames.length - 1;
+	let top = g.first, v = 0;
+	while (top < hi && y(top + 1) - y(top) > 1e-3) top++;
+	for (let f = g.first; f > lo && y(f) - y(f - 1) > 1e-3; f--) v = Math.max(v, y(f) - y(f - 1));
+	return { top, v };
+}
+
 export const flightHints = {
 	DROP(X, g) {
-		const { top, bottom, h } = descent(X, g), fps = X.out.fps ?? 24, t = Math.sqrt(2 * Math.max(0, h) / 9.81), need = Math.ceil(t * fps);
+		const fps = X.out.fps ?? 24, y = f => X.fr(f).s.P[X.I.Hips][1], w = g.worstFrame ?? g.first;
+		if (y(w + 1) > y(w - 1)) {
+			const { top, v } = rise(X, g), t = (v * fps) / 9.81, need = Math.ceil(t * fps);
+			return { cause: X.cause("root", w), hint: `the hips stop a rise of ${r2(v * fps)} m/s by f${top} at up to ${r2(g.worst)} g while a foot or the body is supported; a support only pushes, so stopping v m/s takes v/g = ${r2(t)} s (${need} frames) even at 1 g: ease the root into its top over ${need} frames or more, or let the feet leave the ground (a hop)` };
+		}
+		const { top, bottom, h } = descent(X, g), t = Math.sqrt(2 * Math.max(0, h) / 9.81), need = Math.ceil(t * fps);
 		return { cause: X.cause("root", g.worstFrame), hint: `the hips drop ${r2(h)} m over ${bottom - top} frames (f${top}-f${bottom}) at up to ${r2(g.worst)} g while a foot or the body is supported; a drop of h m takes sqrt(2h/g) = ${r2(t)} s (${need} frames) even at 1 g: key the root's low point at f${top + need} or later, or brace earlier: put a hand on the ground or an object before f${g.first} so the arms take the fall` };
 	},
 	SPIN(X, g) {

@@ -43,25 +43,32 @@ function arcShift(out, a, b) {
 
 /**
  * Puts the centre of mass of each flight in `runs` (qa/flight-checks.js flights) on its parabola. -> { runs, frames, max (m, the
- * largest move), at, skipped?, how } | null when nothing moved and nothing was too far.
+ * largest move), at, skipped?, how } | null when nothing moved and nothing was too far. `prev`, the report of an earlier
+ * pass over the same runs (before fix.spin), joins this one: its runs count as moved, its worst move stands; skipped is
+ * this pass's (a run the earlier pass skipped and this one fixed is no longer skipped).
  */
-export function ballisticFix(out, engine, runs) {
-	const f0 = out.f0 ?? 0, g = 9.81 / (out.fps ?? 24) ** 2, at = [], skipped = [];
-	let frames = 0, max = 0;
-	for (const [a, b] of runs) {
-		if (missingFall(out, a, b) > FLOAT_LIMIT) continue;
+export function ballisticFix(out, engine, runs, prev = null) {
+	const f0 = out.f0 ?? 0, g = 9.81 / (out.fps ?? 24) ** 2, done = new Set(prev?.at ?? []), at = [], skipped = [];
+	let frames = 0, max = prev?.max ?? 0;
+	const move = (a, b) => {
+		if (missingFall(out, a, b) > FLOAT_LIMIT) return 0;
 		const d = arcShift(out, a, b);
-		if (!d) continue;
+		if (!d) return 0;
 		const worst = Math.max(...d.map(v => Math.hypot(...v)));
 		if (worst > MAX_FIX) {
 			const N = b - a + 2, c = out.frames.slice(a - 1, b + 2).map(fr => bodyCentre(out.ctx.sk, fr.s)[1]), h = Math.max(...c) - c[0];
 			skipped.push({ at: `f${a + f0}-f${b + f0}`, off: round4(worst), apex: round4(g * N * N / 8), fits: h > 0 ? Math.round(Math.sqrt(8 * h / g)) : 0 });
-			continue;
+			return 0;
 		}
-		if (worst < 1e-4) continue;
+		if (worst < 1e-4) return 0;
 		d.forEach((v, i) => shiftFrame(out.baked, a + f0 + i, v));
 		engine.solve(Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i));
-		at.push(`f${a + f0}-f${b + f0}`);
+		return worst;
+	};
+	for (const [a, b] of runs) {
+		const label = `f${a + f0}-f${b + f0}`, worst = move(a, b);
+		if (!worst && !done.has(label)) continue;
+		at.push(label);
 		frames += b - a + 1;
 		max = Math.max(max, worst);
 	}
