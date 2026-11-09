@@ -1,6 +1,6 @@
 // Ballistic fix (spec.fix.ballistic, #1124): off the ground nothing but gravity acts on the body, so its centre of mass
 // rides a parabola between takeoff and landing and its horizontal speed stays the same. Per flight (qa/flight-checks.js
-// flights: an air run of 4 frames or more, split where a hand is pinned), anchored at the frame just before takeoff (A) and the frame just after
+// flights: an air run of 3 frames or more, split where a hand is pinned), anchored at the frame just before takeoff (A) and the frame just after
 // landing (B), the whole body moves by the difference each frame:
 //   vertical    the gravity parabola through the centre of mass at A and at B (qa/ballistic.js ballisticArc, g fixed);
 //   horizontal  the straight line from the centre of mass at A to B at constant speed.
