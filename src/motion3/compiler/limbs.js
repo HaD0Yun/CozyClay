@@ -2,7 +2,7 @@
 // Every edit rotates a bone's subtree about that bone's own joint, so the result maps
 // exactly back to local quaternions (skeleton.js toLocal).
 import { add, sub, scale, dot, len, norm, cross, clamp, apply, T, align, axisRot, ry, rx } from "./math.js";
-import { rotateSubtree, restState } from "./skeleton.js";
+import { rotateSubtree, restState, rigScale } from "./skeleton.js";
 import { GRASP_POINTS } from "./vocab.js";
 
 /** Direction fixed to bone b that points along `restDir` in the rest pose. */
@@ -148,7 +148,7 @@ export function palmPoint(sk, side, grasp) {
 		const s = restState(sk), P = j => s.P[sk.index[`${side}Hand${j}`]];
 		fingers(sk, s, side, { flat: 1 });
 		// the grasp offsets are the X Bot hand's: an adapted rig scales them by its hand (rigs/adapt-measure.js)
-		const ax = palmAxes(sk, s, side), k = sk.landmarks?.scale?.hand ?? 1, g = (GRASP_POINTS[grasp] ?? [0, 0, 0]).map(v => v * k), n = side === "Right" ? -g[2] : g[2];
+		const ax = palmAxes(sk, s, side), k = rigScale(sk, "hand"), g = (GRASP_POINTS[grasp] ?? [0, 0, 0]).map(v => v * k), n = side === "Right" ? -g[2] : g[2];
 		const p = add(scale(add(P("Index2"), P("Middle2")), 0.5), add(scale(ax.d, g[0]), add(scale(ax.l, g[1]), scale(ax.n, n))));
 		const v = sub(p, scale(add(P("Index1"), P("Middle1")), 0.5));
 		m.set(key, [dot(v, ax.d), dot(v, ax.l), dot(v, ax.n)]);

@@ -6,14 +6,9 @@
 // the smaller of the across ratios; the limb skin radii by the girth. Without a mesh the girth is an estimate: a
 // slender or heavy character reads the X Bot's build at its own height.
 import { sub, len, dot, norm, scale, apply, T, dist } from "../compiler/math.js";
+import { decode } from "../body.js";
 
 const TRUNK = /^(Spine\d?|Neck|Head)$/, MAX = 127;
-
-function decode(text) {
-	if (typeof text !== "string") return text;
-	const bytes = typeof Buffer !== "undefined" ? Buffer.from(text, "base64") : Uint8Array.from(atob(text), c => c.charCodeAt(0));
-	return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-}
 
 /** body.js's bone axis: the trunk child, a hand's middle knuckle, else the first child. */
 const axisOf = (sk, b) => sk.children[b].find(j => TRUNK.test(sk.names[j])) ?? (/Hand$/.test(sk.names[b]) ? sk.index[`${sk.names[b]}Middle1`] : sk.children[b][0]);

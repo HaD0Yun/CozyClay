@@ -6,16 +6,22 @@
 // children first, every bone in an axis convention of its own), is detected as its template, adapted to the canonical
 // rig, registered (rigs/index.js registerRig) and compiled: standIdle + walkTo, a reachGrip and the flip skill's back
 // tuck with QA no worse than the X Bot's plus TOL pop frames (and no issue of any other kind). The X Bot and
-// Y Bot takes stay byte-identical to the takes before rig templates (sha256 pinned at 3804b63b).
+// Y Bot takes stay byte-identical to the takes before rig templates (sha256 pinned at 3804b63b). A walkTo with arrive plans per
+// skeleton: one rig's take never depends on which rig compiled that spec first (fresh processes, the plan cache lives in one).
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { adaptRig } from "../../src/motion3/rigs/adapt.js";
-import { TEMPLATES } from "../../src/motion3/rigs/templates.js";
+import { TEMPLATES, detectTemplate } from "../../src/motion3/rigs/templates.js";
+import { sourcePose } from "../../src/motion3/rigs/adapt-pose.js";
 import { skeletonFor, registerRig } from "../../src/motion3/rigs/index.js";
 import { createSkeleton } from "../../src/motion3/compiler/skeleton.js";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { bodyFor } from "../../src/motion3/body.js";
+import { CAPSULES, capsulesFor } from "../../src/motion3/qa/geometry.js";
+import { palmPoint } from "../../src/motion3/compiler/limbs.js";
 import { add, sub, scale, mul, apply, T, rx, rz, angle, dist, matFromQuat, quatFromMat } from "../../src/motion3/compiler/math.js";
 
 let failures = 0;
@@ -132,6 +138,27 @@ const MOTIONS = {
 };
 const run = (sk, motion, k = 1) => compileSpec(MOTIONS[motion](k), { sk, scene: motionScene([]) });
 const issues = r => r.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}-${g.last} n${g.count}`);
+const digest = r => createHash("sha256").update(JSON.stringify(r.out.frames.map(({ s }) => [s.P, s.R]))).update(JSON.stringify(r.qa.groups)).digest("hex").slice(0, 16);
+
+// --- takes in a fresh process (child mode of this file): the walk plan cache lives as long as the process ----------------
+/** The X Bot rescaled through the adapter: `all` the whole body, `leg` the legs on top of it. */
+const rescaled = (all, leg = 1) => adaptRig({ units: "cm", bones: xBot.bones.map(b => {
+	const f = all * (/(UpLeg|Leg|Foot)$/.test(b.name) ? leg : 1);
+	return { name: `mixamorig:${b.name}`, parent: b.parent, localPos: b.localPos.map(v => v * f), localQuat: b.localQuat };
+}) }).rig;
+if (process.argv[2] === "--takes") {
+	// steps: "x" the X Bot; "hero-x", "hero-tall" registers id hero as the X Bot through the adapter or a tall rig
+	const [steps, to, arrive] = JSON.parse(process.argv[3]), HERO = { "hero-x": [1], "hero-tall": [1.1, 1.2] };
+	const spec = { schema: SPEC, fps: 24, frames: "auto", use: [stand, { skill: "walkTo", f0: 10, args: { to, arrive } }] };
+	for (const step of steps) {
+		if (HERO[step]) registerRig("hero", rescaled(...HERO[step]));
+		const r = compileSpec(spec, { sk: skeletonFor(HERO[step] ? "hero" : "x-bot-tpose"), scene: motionScene([]) });
+		console.log(JSON.stringify({ digest: digest(r), plan: r.observations.planned[0].replace(/ \(\d+ checked\)$/, ""), frames: r.out.frames.length, qa: r.qa.total }));
+	}
+	process.exit(0);
+}
+/** The last step's take of `steps` run in that order in a fresh process. */
+const takeAfter = (steps, to, arrive) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--takes", JSON.stringify([steps, to, arrive])], { encoding: "utf8" }).trim().split("\n").at(-1));
 // TOL: how many more issue frames than the X Bot an adapted rig may have, all of them single-frame acceleration pops
 // (POP); any other kind (a collision, a float, a reach miss, a slide, the ground) is never tolerated. The pops are the
 // compiler's answer to the proportions, not the adapter's: a reach or a flip on longer arms moves the hands farther a
@@ -180,6 +207,12 @@ for (const c of CASES) {
 		report.extra.includes("root") && c.extras.every(e => report.extra.includes(e.name)) && JSON.stringify(report.missing) === JSON.stringify(want.missing), JSON.stringify({ extra: report.extra, missing: report.missing, want: want.missing }));
 	expect(`${c.id}: measured legs ${m.legLengthM} m, arms ${m.armLengthM} m, ankle ${m.ankleHeightM} m as built (1 mm)`,
 		Math.abs(m.legLengthM - want.leg) < 1e-3 && Math.abs(m.armLengthM - want.arm) < 1e-3 && Math.abs(m.ankleHeightM - want.ankle) < 1e-3 && report.grounded === "source", JSON.stringify({ m, want }));
+	const srcPose = sourcePose(raw), retargetOff = ["Hips", "Spine", "Head"].map(n => {
+		const e = report.retarget[n], R = mul(matFromQuat(rig.bones[REF.index[n]].worldQuat), matFromQuat(e.offset)), Rs = mul(report.axes, srcPose.R[srcPose.names.indexOf(e.source)]);
+		return e.source === report.mapped[n] ? Math.max(...[[1, 0, 0], [0, 1, 0]].map(v => angle(apply(R, v), apply(Rs, v)))) : Infinity;
+	});
+	expect(`${c.id}: report.retarget names every mapped bone's source, and bind x offset is the source's own frame (hips, spine, head; 0.01 deg)`,
+		Object.keys(report.retarget).sort().join() === Object.keys(report.mapped).sort().join() && Object.entries(report.retarget).every(([n, e]) => e.source === report.mapped[n]) && Math.max(...retargetOff) < 0.01, retargetOff.join());
 	const sk = createSkeleton(rig), I = sk.index;
 	const armDir = sub(sk.restWorldPos[I.LeftForeArm], sk.restWorldPos[I.LeftArm]), xDir = sub(REF.restWorldPos[REF.index.LeftForeArm], REF.restWorldPos[REF.index.LeftArm]);
 	expect(`${c.id}: the canonical bind is the X Bot's T-pose (upper arm within 0.5 deg of it)`, angle(armDir, xDir) < 0.5 && sk.names.join() === REF.names.join(), angle(armDir, xDir).toFixed(3));
@@ -208,7 +241,20 @@ for (const c of CASES) {
 	registerRig("test-again", b);
 	const second = skeletonFor("test-again");
 	expect("registerRig again under the same id: a new skeleton with the new rig's hips and a new body", second !== first && Math.abs(second.restWorldPos[0][1] - b.bones[0].worldPos[1] / 100) < 1e-9 && bodyFor(second) !== firstBody);
+	expect("  ... and the retired skeleton keeps the body it had (a compile in flight on it reads its own rig)", bodyFor(first) === firstBody && bodyFor(first) !== bodyFor(second));
 	expect("opts.template forces the template (a UE5 skeleton read as Mixamo finds no hips)", /finds no Hips/.test((() => { try { adaptRig(synth(CASES[1]).raw, { template: "mixamo" }); return ""; } catch (e) { return e.message; } })()));
+}
+
+// 4a. detection counts the exact spelling: the same bones in VRM's and Unity Humanoid's names differ only in case
+{
+	const ids = ["vrm", "unity-humanoid"], got = ids.map(id => detectTemplate(Object.values(namesFor(TEMPLATES[id]))).id);
+	expect(`names differing only in case read as their own convention: ${ids.join(", ")} -> ${got.join(", ")}`, got.join() === ids.join());
+}
+
+// 4a'. a stature no body has is a wrong raw.units (the collision body's refit grows with its cube), refused by name
+for (const [what, units, f] of [["a cm skeleton declared m", "m", 1], ["a m skeleton declared cm", "cm", 0.01]]) {
+	const refused = (() => { try { adaptRig({ units, bones: xBot.bones.map(b => ({ name: b.name, parent: b.parent, localPos: b.localPos.map(v => v * f), localQuat: b.localQuat })) }); return ""; } catch (e) { return e.message; } })();
+	expect(`${what}: refused, naming raw.units`, /stands .* m read as raw\.units/.test(refused), refused);
 }
 
 // 4b. a bare skeleton: no fingers, toes, collarbones, neck or chest, an A-pose, the hips at the origin (no floor)
@@ -219,6 +265,8 @@ for (const c of CASES) {
 	const { rig, report } = adaptRig(raw), m = report.measured;
 	expect("a bare UE5 skeleton (hips at the origin): detected, an A-pose, the floor estimated (ankle 0.039 of the stature), the toes on it",
 		report.template === "ue5" && report.restPose === "A" && report.grounded === "estimated" && Math.abs(m.ankleHeightM / m.heightM - 0.039) < 1e-3 && Math.abs(m.ballHeightM) < 1e-3, JSON.stringify(m));
+	const J = n => rig.bones[REF.index[n]].worldPos.map(v => v / 100), at = n => REF.restWorldPos[REF.index[n]], width = dist(J("LeftArm"), J("RightArm")) / dist(at("LeftArm"), at("RightArm")), collar = dist(J("LeftShoulder"), J("LeftArm")) / dist(at("LeftShoulder"), at("LeftArm"));
+	expect(`  ... its made-up collarbone follows its shoulder width: x ${collar.toFixed(3)} of the X Bot's, the width x ${width.toFixed(3)}`, Math.abs(collar - width) < 1e-3 && Math.abs(width - 1) > 0.01, `${collar} ${width}`);
 	registerRig("test-bare", rig);
 	const sk = skeletonFor("test-bare"), k = sk.restWorldPos[0][1] / xb.restWorldPos[0][1];
 	for (const motion of Object.keys(MOTIONS)) {
@@ -242,6 +290,10 @@ for (const c of CASES) {
 		registerRig(key, rig);
 		const sk = skeletonFor(key), k = sk.restWorldPos[0][1] / xb.restWorldPos[0][1], s = rig.landmarks.scale;
 		expect(`X Bot at ${id}: landmarks.scale hips ${s.hips}, hand ${s.hand}, girth ${s.girth}`, Math.abs(s.hips - f * hips) < 1e-3 && Math.abs(s.hand - f) < 1e-3 && Math.abs(s.girth - f) < 1e-3, JSON.stringify(s));
+		const capsuleOff = Math.max(...capsulesFor(sk).map((c, i) => Math.abs(c[3] - CAPSULES[i][3] * f))), palmOff = dist(palmPoint(sk, "Right", "palm"), scale(palmPoint(xb, "Right", "palm"), f));
+		const head = q => sub(q, rig.landmarks.headJoint), refHead = q => sub(q, xBot.landmarks.headJoint), L0 = xBot.landmarks, L = rig.landmarks;
+		const headOff = Math.max(dist(head(L.mouth), scale(refHead(L0.mouth), f)), dist(head(L.headEllipsoid.centre), scale(refHead(L0.headEllipsoid.centre), f)), dist(L.headEllipsoid.radii, scale(L0.headEllipsoid.radii, f)));
+		expect(`  ... body capsules, the palm grasp point and the head landmarks scale with it (off by ${capsuleOff.toFixed(5)} m, ${palmOff.toFixed(5)} m, ${headOff.toFixed(4)} cm)`, capsuleOff < 1e-3 && palmOff < 1e-3 && headOff < 0.01, JSON.stringify({ capsuleOff, palmOff, headOff }));
 		const r0 = compileSpec(idle, { sk, scene: motionScene([]) });
 		expect(`  ... standIdle 48 f: QA ${r0.qa.total} (X Bot ${idle0})`, r0.qa.total <= idle0, JSON.stringify(issues(r0)));
 		for (const motion of Object.keys(MOTIONS)) {
@@ -252,11 +304,33 @@ for (const c of CASES) {
 	}
 }
 
+// 4d. the walk's default half-width follows the hip width (feet at mid-walk, a straight walk at x 0)
+{
+	const straight = { schema: SPEC, fps: 24, frames: "auto", use: [stand, { skill: "walkTo", f0: 10, args: { to: [0, 3] } }] };
+	const gap = sk => {
+		const { frames } = compileSpec(straight, { sk, scene: motionScene([]) }).out, I = sk.index, mid = frames.slice(frames.length * 0.4 | 0, frames.length * 0.6 | 0);
+		return mid.reduce((n, { s }) => n + Math.abs(s.P[I.LeftFoot][0] - s.P[I.RightFoot][0]), 0) / mid.length;
+	};
+	registerRig("test-narrow", adaptRig({ units: "cm", bones: xBot.bones.map(b => ({ name: `mixamorig:${b.name}`, parent: b.parent, localPos: /UpLeg$/.test(b.name) ? [b.localPos[0] * 0.8, b.localPos[1], b.localPos[2]] : b.localPos, localQuat: b.localQuat })) }).rig);
+	const ratio = gap(skeletonFor("test-narrow")) / gap(xb);
+	expect(`hips 0.8 as wide: the feet walk ${ratio.toFixed(3)} as far apart as the X Bot's`, Math.abs(ratio - 0.8) < 0.03, String(ratio));
+}
+
+// 4e. a walkTo with arrive plans per skeleton: which cadence walks clean depends on the rig. Each take here is the last of
+// its order in a fresh process, against that rig's cold take. On this long-legged rig the plans differ from the X Bot's.
+for (const [to, arrive] of [[[1, 1], 45], [[0, 3], 90]]) {
+	const tag = `to ${JSON.stringify(to)}, arrive ${arrive}`, x = takeAfter(["x"], to, arrive), tall = takeAfter(["hero-tall"], to, arrive);
+	expect(`${tag}: the X Bot's cold plan (${x.frames} f, QA ${x.qa}) and the tall rig's (${tall.frames} f, QA ${tall.qa}) differ, both clean`, x.plan !== tall.plan && !x.qa && !tall.qa, JSON.stringify({ x, tall }));
+	expect("  ... tall rig first, then the X Bot: the X Bot's cold take", takeAfter(["hero-tall", "x"], to, arrive).digest === x.digest);
+	expect("  ... the X Bot first, then the tall rig: the tall rig's cold take", takeAfter(["x", "hero-tall"], to, arrive).digest === tall.digest);
+	expect("  ... an id re-registered to the tall rig: the new rig's cold take", takeAfter(["hero-x", "hero-tall"], to, arrive).digest === tall.digest);
+	expect("  ... the X Bot twice: the plan cache gives the same take", takeAfter(["x", "x"], to, arrive).digest === x.digest);
+}
+
 // 5. the X Bot and Y Bot takes are byte-identical to before rig templates (3804b63b)
 // digests of the same three motions compiled at 3804b63b (the commit before rig templates)
 const PINNED = { "x-bot-tpose walk": "7a63905bbd0640bf", "x-bot-tpose grip": "66e0ee21f64977ab", "x-bot-tpose tuck": "05dae3e107ff3052",
 	"y-bot-tpose walk": "b03908164e463983", "y-bot-tpose grip": "f5f571583d9062e7", "y-bot-tpose tuck": "e4ab0f3dc4898aef" };
-const digest = r => createHash("sha256").update(JSON.stringify(r.out.frames.map(({ s }) => [s.P, s.R]))).update(JSON.stringify(r.qa.groups)).digest("hex").slice(0, 16);
 for (const model of ["x-bot-tpose", "y-bot-tpose"]) for (const motion of Object.keys(MOTIONS)) {
 	const d = digest(model === "x-bot-tpose" ? base[motion] : run(skeletonFor(model), motion)), key = `${model} ${motion}`;
 	expect(`${key}: take byte-identical to before (${d})`, PINNED[key] === d, `pinned ${PINNED[key]}`);

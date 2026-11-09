@@ -25,6 +25,9 @@ const REF = createSkeleton(xBot);
 const SIDES = ["Left", "Right"], CM = 100;
 const REQUIRED = ["Hips", "Head", ...SIDES.flatMap(S => ["Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot"].map(p => `${S}${p}`))];
 const ANKLE_RATIO = 0.039, MIN_ANKLE = 0.02, MAX_ANKLE = 0.15;
+// A stature outside these is a wrong raw.units, not a body. The collision body's refit grid grows with the cube of the size
+// (X Bot rescaled, measured: 10 m 2.6e7 cells 1 s, 20 m 2e8 cells 7 s; 181 m, a cm skeleton declared m, did not finish in 90 s).
+const MIN_STATURE = 0.1, MAX_STATURE = 10;
 const r6 = v => Math.round(v * 1e6) / 1e6;
 
 function check(raw) {
@@ -80,6 +83,8 @@ export function adaptRig(raw, opts = {}) {
 	const r = ratios(REF, pose.J, mappedSet);
 	fillMissing(REF, pose.J, r);
 	const { dy, grounded } = ground(pose.J, ankle0), J = pose.J;
+	const stature = J.HeadTop_End[1];
+	if (!(stature >= MIN_STATURE && stature <= MAX_STATURE)) throw new Error(`adaptRig: the skeleton stands ${r6(stature)} m read as raw.units "${raw.units}", outside ${MIN_STATURE} to ${MAX_STATURE} m: check raw.units`);
 	// a made-up toe stands on the floor as the X Bot's does (its ball and tip at the X Bot's height, scaled by the foot)
 	for (const S of SIDES) if (idx[`${S}ToeBase`] === undefined) for (const n of [`${S}ToeBase`, `${S}Toe_End`]) J[n][1] = REF.restWorldPos[REF.index[n]][1] * r.foot[S];
 	const R = canonicalFrames(REF, J);
@@ -92,7 +97,7 @@ export function adaptRig(raw, opts = {}) {
 		mapped: Object.fromEntries(REF.names.filter(n => idx[n] !== undefined).map(n => [n, src.names[idx[n]]])),
 		missing: REF.names.filter(n => idx[n] === undefined), extra: src.names.filter((_, i) => !used.has(i)),
 		restPose: armDown > 20 ? "A" : "T", grounded, axes: B.map(row => row.map(r6)),
-		measured: measure(REF, J, r, { upperArmDownDeg: Math.round(armDown * 10) / 10, girthScale: Math.round((J.HeadTop_End[1] / REF.restWorldPos[REF.index.HeadTop_End][1]) * 1e4) / 1e4 }),
+		measured: measure(REF, J, r, { upperArmDownDeg: Math.round(armDown * 10) / 10, girthScale: rig.landmarks.scale.girth }),
 		retarget,
 	};
 	return { rig, template: id, report };

@@ -39,7 +39,6 @@ function fitOf(model) {
 export function registerBody(model, make) {
 	made.set(model, make);
 	fits.delete(model);
-	cache.delete(model);
 }
 
 /** Fetches every rig's fit in the background, so a compile on this thread never waits on one. */
@@ -54,9 +53,10 @@ export function preloadBodies() {
 }
 /** Distance read outside a grid: far enough that no probe counts it as touching. */
 const FAR = 0.1;
-const cache = new Map();
+const cache = new WeakMap();
 
-function decode(text) {
+/** A fit's grid data: base64 text as signed bytes (a refitted fit already holds them). */
+export function decode(text) {
 	if (typeof text !== "string") return text;
 	const bytes = typeof Buffer !== "undefined" ? Buffer.from(text, "base64") : Uint8Array.from(atob(text), c => c.charCodeAt(0));
 	return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -74,7 +74,7 @@ function skipOf(sk, b) {
 /** The fitted body of skeleton sk, or null for a rig without one. */
 export function bodyFor(sk) {
 	if (!BODIES[sk.model] && !made.has(sk.model)) return null;
-	if (cache.has(sk.model)) return cache.get(sk.model);
+	if (cache.has(sk)) return cache.get(sk);
 	const fit = fitOf(sk.model);
 	const grids = Object.entries(fit.grids).map(([name, g]) => {
 		const half = g.dims.map(d => ((d - 1) * fit.step) / 2), centre = g.min.map((m, k) => m + half[k]);
@@ -82,7 +82,7 @@ export function bodyFor(sk) {
 	});
 	const radii = Object.fromEntries(Object.entries(fit.radii).map(([name, r]) => [sk.index[name], r]));
 	const body = { step: fit.step, grids, radii, skip: new Map(Object.keys(radii).map(b => [+b, skipOf(sk, +b)])) };
-	cache.set(sk.model, body);
+	cache.set(sk, body);
 	return body;
 }
 
