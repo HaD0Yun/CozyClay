@@ -8,6 +8,7 @@
 // tuck with QA no worse than the X Bot's plus TOL pop frames (and no issue of any other kind). The X Bot and
 // Y Bot takes stay byte-identical to the takes before rig templates (sha256 pinned at 3804b63b). A walkTo with arrive plans per
 // skeleton: one rig's take never depends on which rig compiled that spec first (fresh processes, the plan cache lives in one).
+// Skeletons posed away from the X Bot's bind (bent limbs, turned feet, rolled palms, sloped toes) go onto its directions.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -16,13 +17,13 @@ import { adaptRig } from "../../src/motion3/rigs/adapt.js";
 import { TEMPLATES, detectTemplate } from "../../src/motion3/rigs/templates.js";
 import { sourcePose } from "../../src/motion3/rigs/adapt-pose.js";
 import { skeletonFor, registerRig } from "../../src/motion3/rigs/index.js";
-import { createSkeleton } from "../../src/motion3/compiler/skeleton.js";
+import { createSkeleton, restState } from "../../src/motion3/compiler/skeleton.js";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
-import { bodyFor } from "../../src/motion3/body.js";
-import { CAPSULES, capsulesFor } from "../../src/motion3/qa/geometry.js";
+import { bodyFor, bodyDistance } from "../../src/motion3/body.js";
+import { CAPSULES, capsulesFor, solePoints } from "../../src/motion3/qa/geometry.js";
 import { palmPoint } from "../../src/motion3/compiler/limbs.js";
-import { add, sub, scale, mul, apply, T, rx, rz, angle, dist, matFromQuat, quatFromMat } from "../../src/motion3/compiler/math.js";
+import { add, sub, scale, dot, len, mul, apply, T, rx, ry, rz, angle, dist, matFromQuat, quatFromMat } from "../../src/motion3/compiler/math.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -295,6 +296,11 @@ for (const [what, units, f] of [["a cm skeleton declared m", "m", 1], ["a m skel
 		const head = q => sub(q, rig.landmarks.headJoint), refHead = q => sub(q, xBot.landmarks.headJoint), L0 = xBot.landmarks, L = rig.landmarks;
 		const headOff = Math.max(dist(head(L.mouth), scale(refHead(L0.mouth), f)), dist(head(L.headEllipsoid.centre), scale(refHead(L0.headEllipsoid.centre), f)), dist(L.headEllipsoid.radii, scale(L0.headEllipsoid.radii, f)));
 		expect(`  ... body capsules, the palm grasp point and the head landmarks scale with it (off by ${capsuleOff.toFixed(5)} m, ${palmOff.toFixed(5)} m, ${headOff.toFixed(4)} cm)`, capsuleOff < 1e-3 && palmOff < 1e-3 && headOff < 0.01, JSON.stringify({ capsuleOff, palmOff, headOff }));
+		if (hips === 1) {
+			const probes = [[0, 1.3, 0.17], [0, 1.1, 0.16], [0, 1, -0.16]], sd = (body, skel, q) => bodyDistance(body, restState(skel), q).d;
+			const refitOff = Math.max(...probes.map(q => Math.abs(sd(bodyFor(sk), sk, scale(q, f)) - f * sd(bodyFor(xb), xb, q))));
+			expect(`  ... its refitted body's distances scale with it (off by ${refitOff.toFixed(4)} m at ${probes.map(q => sd(bodyFor(xb), xb, q).toFixed(3)).join(", ")} m off the X Bot's trunk)`, refitOff < 0.004, String(refitOff));
+		}
 		const r0 = compileSpec(idle, { sk, scene: motionScene([]) });
 		expect(`  ... standIdle 48 f: QA ${r0.qa.total} (X Bot ${idle0})`, r0.qa.total <= idle0, JSON.stringify(issues(r0)));
 		for (const motion of Object.keys(MOTIONS)) {
@@ -319,13 +325,160 @@ for (const [what, units, f] of [["a cm skeleton declared m", "m", 1], ["a m skel
 
 // 4e. a walkTo with arrive plans per skeleton: which cadence walks clean depends on the rig. Each take here is the last of
 // its order in a fresh process, against that rig's cold take. On this long-legged rig the plans differ from the X Bot's.
-for (const [to, arrive] of [[[1, 1], 45], [[0, 3], 90]]) {
+for (const [to, arrive] of [[[2, 2], 70], [[0, 3], 90]]) {
 	const tag = `to ${JSON.stringify(to)}, arrive ${arrive}`, x = takeAfter(["x"], to, arrive), tall = takeAfter(["hero-tall"], to, arrive);
 	expect(`${tag}: the X Bot's cold plan (${x.frames} f, QA ${x.qa}) and the tall rig's (${tall.frames} f, QA ${tall.qa}) differ, both clean`, x.plan !== tall.plan && !x.qa && !tall.qa, JSON.stringify({ x, tall }));
 	expect("  ... tall rig first, then the X Bot: the X Bot's cold take", takeAfter(["hero-tall", "x"], to, arrive).digest === x.digest);
 	expect("  ... the X Bot first, then the tall rig: the tall rig's cold take", takeAfter(["x", "hero-tall"], to, arrive).digest === tall.digest);
 	expect("  ... an id re-registered to the tall rig: the new rig's cold take", takeAfter(["hero-x", "hero-tall"], to, arrive).digest === tall.digest);
 	expect("  ... the X Bot twice: the plan cache gives the same take", takeAfter(["x", "x"], to, arrive).digest === x.digest);
+}
+
+// --- skeletons posed away from the X Bot's bind, joint by joint ---------------------------------------------------------
+/**
+ * A raw skeleton from the X Bot's bind after edit({ P, turn }): turn(bone, Rm) turns a subtree about its joint; P is in
+ * metres. name(canonical) gives the source name (none: the bone is left out and its children hang from its parent).
+ */
+function posed(edit, name = n => `mixamorig:${n}`) {
+	const P = {}, R = {}, keep = REF.names.filter(name);
+	REF.names.forEach((n, j) => { P[n] = REF.restWorldPos[j].slice(); R[n] = REF.restWorldRot[j]; });
+	const turn = (n, Rm) => { const pivot = P[n]; for (const j of REF.subtree[REF.index[n]]) { const c = REF.names[j]; P[c] = add(pivot, apply(Rm, sub(P[c], pivot))); R[c] = mul(Rm, R[c]); } };
+	edit({ P, turn });
+	const upOf = n => { let p = REF.parent[REF.index[n]]; while (p >= 0 && !keep.includes(REF.names[p])) p = REF.parent[p]; return p < 0 ? null : REF.names[p]; };
+	return { P, raw: { units: "cm", bones: keep.map(n => {
+		const up = upOf(n);
+		return { name: name(n), parent: up ? keep.indexOf(up) : -1, localPos: scale(up ? apply(T(R[up]), sub(P[n], P[up])) : P[n], 100), localQuat: quatFromMat(up ? mul(T(R[up]), R[n]) : R[n]) };
+	}) } };
+}
+const jointOf = (rig, n) => rig.bones[REF.index[n]].worldPos.map(v => v / 100), frameOf = (rig, n) => matFromQuat(rig.bones[REF.index[n]].worldQuat);
+const refAt = n => REF.restWorldPos[REF.index[n]], flatXZ = v => [v[0], 0, v[2]];
+const dirOff = (rig, a, b) => angle(sub(jointOf(rig, b), jointOf(rig, a)), sub(refAt(b), refAt(a)));
+/** v's part across direction d. */
+const acrossDir = (v, d) => { const u = scale(d, 1 / len(d)); return sub(v, scale(u, dot(v, u))); };
+/** Off (deg) of the rig's bind x retarget offset from the source's own frame of bone n, in canonical axes. */
+function retargetOff(raw, out, n) {
+	const src = sourcePose(raw), e = out.report.retarget[n], Rs = mul(out.report.axes, src.R[src.names.indexOf(e.source)]), Rb = mul(frameOf(out.rig, n), matFromQuat(e.offset));
+	return Math.max(...[[1, 0, 0], [0, 1, 0]].map(v => angle(apply(Rb, v), apply(Rs, v))));
+}
+
+// 4f. a toe segment that slopes in the source (ball 2.5 cm up, tip 1 cm lower) lies level in the rig, as the X Bot's does: toe-off
+// flattens it in one frame (limbs.js orientFoot), and a sloped one dragged the heel past the SLIDE limit
+{
+	const { P, raw } = posed(({ P }) => {
+		for (const n of REF.names) P[n] = scale(P[n], 1.75 / 1.8197);
+		for (const S of SIDES) { P[`${S}ToeBase`][1] = 0.025; P[`${S}Toe_End`][1] = 0.015; }
+	}), out = adaptRig(raw), { rig, report } = out;
+	const slope = Math.max(...SIDES.map(S => Math.abs(jointOf(rig, `${S}Toe_End`)[1] - jointOf(rig, `${S}ToeBase`)[1])));
+	expect(`a sloped toe at 1.75 m: its segment level in the rig (${slope.toFixed(5)} m), its ball where the source has it (${report.measured.ballHeightM} m)`, slope < 1e-4 && Math.abs(report.measured.ballHeightM - 0.025) < 1e-3 && report.grounded === "source", JSON.stringify({ slope, m: report.measured }));
+	const toeOff = Math.max(...SIDES.map(S => retargetOff(raw, out, `${S}ToeBase`)));
+	expect(`  ... report.retarget keeps the source's toe frame (${toeOff.toFixed(4)} deg), and the tip keeps its place on the floor plan`, toeOff < 0.01 && dist(flatXZ(jointOf(rig, "LeftToe_End")), flatXZ(P.LeftToe_End)) < 2e-3, String(toeOff));
+	registerRig("test-sloped-toe", rig);
+	const sk = skeletonFor("test-sloped-toe");
+	for (const to of [[1, 2], [3, 3]]) {
+		const r = compileSpec({ schema: SPEC, fps: 24, frames: "auto", use: [stand, { skill: "walkTo", f0: 10, args: { to } }] }, { sk, scene: motionScene([]) });
+		expect(`  ... walk to ${JSON.stringify(to)}: QA ${r.qa.total}`, r.qa.total === 0, JSON.stringify(issues(r)));
+	}
+}
+
+// 4g. a skeleton bent everywhere the normalise steps straighten: an A-pose, bent elbows and wrists, palms turned in, curled
+// fingers, splayed legs, bent knees, flat feet turned out, its pelvis turned on its spine
+{
+	const bent = ({ turn }) => {
+		turn("Hips", ry(10));
+		turn("Spine", ry(-10));
+		for (const [S, sg] of [["Left", 1], ["Right", -1]]) {
+			const thigh = rz(sg * 8), shin = rx(12);
+			turn(`${S}Arm`, rz(-sg * 40));
+			turn(`${S}ForeArm`, ry(-sg * 25));
+			turn(`${S}Hand`, rz(-sg * 10));
+			turn(`${S}Hand`, rx(sg * 60));
+			for (const f of ["Index", "Middle", "Ring", "Pinky"]) for (const i of [1, 2, 3]) turn(`${S}Hand${f}${i}`, rz(-sg * 15));
+			turn(`${S}UpLeg`, thigh);
+			turn(`${S}Leg`, shin);
+			turn(`${S}Foot`, mul(ry(sg * 15), T(mul(shin, mul(thigh, ry(10))))));
+		}
+	};
+	const { P, raw } = posed(bent), out = adaptRig(raw), { rig, report } = out, m = report.measured;
+	const pairs = SIDES.flatMap(S => [[`${S}Arm`, `${S}ForeArm`], [`${S}ForeArm`, `${S}Hand`], [`${S}Hand`, `${S}HandMiddle1`], [`${S}UpLeg`, `${S}Leg`], [`${S}Leg`, `${S}Foot`]]);
+	const off = Math.max(...pairs.map(([a, b]) => dirOff(rig, a, b)));
+	expect(`bent everywhere: upper arm, forearm, hand, thigh and shin on the X Bot's directions (worst ${off.toFixed(3)} deg), read as an A-pose`, off < 0.5 && report.restPose === "A", pairs.map(([a, b]) => `${a} ${dirOff(rig, a, b).toFixed(2)}`).join());
+	const palm = Math.max(...SIDES.map(S => {
+		const axis = sub(refAt(`${S}HandMiddle1`), refAt(`${S}Hand`));
+		return angle(acrossDir(sub(jointOf(rig, `${S}HandIndex1`), jointOf(rig, `${S}HandPinky1`)), axis), acrossDir(sub(refAt(`${S}HandIndex1`), refAt(`${S}HandPinky1`)), axis));
+	}));
+	const heading = Math.max(...SIDES.map(S => angle(flatXZ(sub(jointOf(rig, `${S}ToeBase`), jointOf(rig, `${S}Foot`))), flatXZ(sub(refAt(`${S}ToeBase`), refAt(`${S}Foot`))))));
+	expect(`  ... the palm's knuckle line on the X Bot's (${palm.toFixed(3)} deg), the foot's heading on it (${heading.toFixed(3)} deg)`, palm < 0.5 && heading < 0.5, `${palm} ${heading}`);
+	const ballSrc = (P.LeftToeBase[1] + P.RightToeBase[1]) / 2, footOff = Math.max(...SIDES.map(S => Math.abs(jointOf(rig, `${S}ToeBase`)[1] - jointOf(rig, `${S}Foot`)[1] - (P[`${S}ToeBase`][1] - P[`${S}Foot`][1]))));
+	expect(`  ... the foot keeps its pitch through the leg's turns: ball ${m.ballHeightM} m where the source has it (${ballSrc.toFixed(4)} m), ankle to ball height off by ${footOff.toFixed(5)} m`, Math.abs(m.ballHeightM - ballSrc) < 1e-3 && footOff < 1e-4 && report.grounded === "source", JSON.stringify({ m, ballSrc, footOff }));
+	const src = sourcePose(raw), footFrame = Math.max(...SIDES.map(S => {
+		// the source foot's own vector to its ball, carried by bind x offset (report.retarget), lands on the rig's foot
+		const e = report.retarget[`${S}Foot`], i = src.names.indexOf(e.source), own = apply(T(src.R[i]), sub(src.P[src.names.indexOf(report.mapped[`${S}ToeBase`])], src.P[i]));
+		return angle(apply(mul(frameOf(rig, `${S}Foot`), matFromQuat(e.offset)), own), sub(jointOf(rig, `${S}ToeBase`), jointOf(rig, `${S}Foot`)));
+	}));
+	expect(`  ... and report.retarget's foot frame carries the source's foot onto the rig's (${footFrame.toFixed(4)} deg)`, footFrame < 0.01, String(footFrame));
+	const hipLine = sub(jointOf(rig, "LeftUpLeg"), jointOf(rig, "RightUpLeg")), carriedLine = apply(mul(frameOf(rig, "Hips"), T(REF.restWorldRot[0])), sub(refAt("LeftUpLeg"), refAt("RightUpLeg")));
+	expect(`  ... the pelvis turned 10 deg on its spine: the hips' frame follows the hip line (${angle(hipLine, carriedLine).toFixed(3)} deg)`, angle(hipLine, carriedLine) < 0.5 && angle(flatXZ(hipLine), [1, 0, 0]) > 5, String(angle(hipLine, carriedLine)));
+	registerRig("test-bent", rig);
+	const sk = skeletonFor("test-bent"), k = sk.restWorldPos[0][1] / xb.restWorldPos[0][1];
+	for (const motion of ["walk", "grip"]) {
+		const r = run(sk, motion, k), hard = r.qa.groups.filter(g => !SOFT.has(g.kind));
+		expect(`  ... ${motion}: QA ${r.qa.total} (X Bot ${base[motion].qa.total}, at most ${TOL} more pops)`, r.qa.total - base[motion].qa.total <= TOL && !hard.length, JSON.stringify(issues(r)));
+	}
+
+	// the same pose in VRM's names: three joints a finger, so the tip is made up past the curled last phalanx
+	const vrm = namesFor(TEMPLATES.vrm), v = adaptRig(posed(bent, n => vrm[n]).raw), J = n => jointOf(v.rig, n);
+	const tip = angle(sub(J("LeftHandIndex4"), J("LeftHandIndex3")), sub(J("LeftHandIndex3"), J("LeftHandIndex2")));
+	const ratio = dist(J("LeftHandIndex4"), J("LeftHandIndex3")) / dist(J("LeftHandIndex3"), J("LeftHandIndex2")), want = dist(refAt("LeftHandIndex4"), refAt("LeftHandIndex3")) / dist(refAt("LeftHandIndex3"), refAt("LeftHandIndex2"));
+	expect(`  ... in VRM's names: a made-up fingertip continues the last phalanx (${tip.toFixed(3)} deg, length ${ratio.toFixed(3)} of it, X Bot ${want.toFixed(3)})`, v.template === "vrm" && v.report.missing.includes("LeftHandIndex4") && tip < 0.5 && Math.abs(ratio - want) < 1e-3, JSON.stringify({ tip, ratio, want }));
+
+	// no middle finger: alignHand has no axis, so the hand keeps its roll and its frame reads it off the knuckles it has
+	const three = adaptRig(posed(bent, n => (/Middle/.test(n) ? null : `mixamorig:${n}`)).raw).rig, axis = sub(jointOf(three, "LeftHandMiddle1"), jointOf(three, "LeftHand"));
+	const knuckles = acrossDir(sub(jointOf(three, "LeftHandIndex1"), jointOf(three, "LeftHandPinky1")), axis);
+	const frameLine = acrossDir(apply(mul(frameOf(three, "LeftHand"), T(REF.restWorldRot[REF.index.LeftHand])), sub(refAt("LeftHandIndex1"), refAt("LeftHandPinky1"))), axis);
+	expect(`  ... without a middle finger: the hand's frame follows its knuckle line (${angle(knuckles, frameLine).toFixed(3)} deg)`, angle(knuckles, frameLine) < 1, String(angle(knuckles, frameLine)));
+}
+
+// 4h. names in another case, with spaces: the same bones
+{
+	const spaced = n => n.toLowerCase().replace(/^(left|right)/, "$1 ");
+	const { rig, report } = adaptRig({ units: "cm", bones: xBot.bones.map(b => ({ name: `mixamorig:${spaced(b.name)}`, parent: b.parent, localPos: b.localPos, localQuat: b.localQuat })) });
+	const dp = Math.max(...rig.bones.flatMap((b, i) => b.worldPos.map((v, k) => Math.abs(v - xBot.bones[i].worldPos[k]))));
+	expect(`names as "mixamorig:left arm": detected mixamo (score ${report.detected.score}), nothing missing, the X Bot's joints`, report.template === "mixamo" && !report.missing.length && dp < 1e-5, JSON.stringify({ dp, missing: report.missing.slice(0, 5) }));
+}
+
+// 4i. the source's own landmarks, in its own axes and units: a Z-up skeleton's head radii turn with it (height and depth swap)
+{
+	const { raw } = posed(() => {}), Z = rx(90), hips = raw.bones[0];
+	hips.localPos = apply(Z, hips.localPos);
+	hips.localQuat = quatFromMat(mul(Z, matFromQuat(hips.localQuat)));
+	const mouth = [1, 8, 160], centre = [0, 2, 165];
+	const { rig, report } = adaptRig({ ...raw, landmarks: { mouth, headEllipsoid: { centre, radii: [8, 12, 13] }, sole: { ball: 1.5, tip: 0.5 } } }), L = rig.landmarks;
+	const off = Math.max(dist(L.mouth, apply(report.axes, mouth)), dist(L.headEllipsoid.centre, apply(report.axes, centre)));
+	expect(`a Z-up source's raw.landmarks: mouth and head centre in canonical axes (off ${off.toFixed(4)} cm), head radii ${JSON.stringify(L.headEllipsoid.radii)}, its sole ${JSON.stringify([L.sole.ball, L.sole.tip])}`,
+		off < 1e-3 && L.headEllipsoid.radii.join() === "8,13,12" && L.sole.ball === 1.5 && L.sole.tip === 0.5, JSON.stringify(L));
+}
+
+// 4j. thumbs: VRM 1.0 names metacarpal, proximal, distal; the older VRM 0.x names proximal, intermediate, distal
+{
+	const vrm1 = namesFor(TEMPLATES.vrm), vrm0 = { ...vrm1 };
+	for (const [S, s] of [["Left", "left"], ["Right", "right"]]) { vrm0[`${S}HandThumb1`] = `${s}ThumbProximal`; vrm0[`${S}HandThumb2`] = `${s}ThumbIntermediate`; }
+	const thumb = names => { const { mapped } = adaptRig(posed(() => {}, n => names[n]).raw).report; return [1, 2, 3].map(i => mapped[`LeftHandThumb${i}`]).join(); };
+	expect(`VRM 1.0 thumb: ${thumb(vrm1)}`, thumb(vrm1) === "leftThumbMetacarpal,leftThumbProximal,leftThumbDistal");
+	expect(`VRM 0.x thumb: ${thumb(vrm0)}`, thumb(vrm0) === "leftThumbProximal,leftThumbIntermediate,leftThumbDistal");
+}
+
+// 4k. the heel point follows the foot's length on an adapted rig (qa/geometry.js solePoints and the walk's pivot read the same landmark)
+{
+	const { rig } = adaptRig(posed(({ P }) => {
+		for (const S of SIDES) {
+			const a = P[`${S}Foot`], t = P[`${S}ToeBase`], tip = P[`${S}Toe_End`];
+			P[`${S}ToeBase`] = add(a, scale(sub(t, a), 1.2));
+			P[`${S}Toe_End`] = add(P[`${S}ToeBase`], sub(tip, t));
+		}
+	}).raw);
+	registerRig("test-long-foot", rig);
+	const sk = skeletonFor("test-long-foot"), s = restState(sk), back = s.P[sk.index.LeftFoot][2] - solePoints(sk, s, "Left").heel[2];
+	expect(`a foot 1.2 as long: the heel point ${back.toFixed(4)} m behind the ankle (0.045 x ${sk.landmarks.scale.foot})`, Math.abs(back - 0.045 * sk.landmarks.scale.foot) < 1e-4 && sk.landmarks.scale.foot > 1.15, JSON.stringify(sk.landmarks.sole));
 }
 
 // 5. the X Bot and Y Bot takes are byte-identical to before rig templates (3804b63b)
