@@ -276,7 +276,7 @@ function runGait(stance, fix) {
 	return compileSpec({ schema: SPEC, fps: 24, frames: end + 2, keys, ...(fix ? { fix } : {}) }, { sk, scene: motionScene([]) });
 }
 {
-	const err = r => Math.max(...airRuns(r.out, []).filter(([p, q]) => q < r.out.frames.length - 2).map(([p, q]) => fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], p, q)));
+	const err = r => Math.max(...airRuns(r.out, []).filter(([, q]) => q < r.out.frames.length - 2).map(([p, q]) => fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], p, q)));
 	const on = runGait(5), off = runGait(5, { ballistic: false, spin: false }), four = runGait(4), lens = airRuns(on.out, []).map(([p, q]) => q - p + 1);
 	expect(`(a5) a run whose flights are 3 frames, hips keyed level: the arc moves all ${on.fixed.ballistic?.runs} (centre of mass ${r3(err(off))} g off 1 g keyed, ${r3(err(on))} g after), no FLOAT`, lens.every(n => n === 3) && on.fixed.ballistic?.runs === lens.length && err(off) > 0.9 && err(on) < 0.01 && !kinds(on).has("FLOAT"), JSON.stringify({ lens, b: on.fixed.ballistic }));
 	expect(`(a5) the same run with 4-frame flights: FLOAT reads them, its hint stages the fall, and the fixes leave them`, kinds(four).has("FLOAT") && !four.fixed.ballistic, JSON.stringify({ b: four.fixed.ballistic, kinds: [...kinds(four)] }));
