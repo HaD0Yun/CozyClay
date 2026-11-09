@@ -17,7 +17,8 @@
 //   self         arms out of the rest of the body on its fitted skin: the elbow turns about the
 //                shoulder-wrist line, the hand is pushed out along the skin (self.js)
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
-//                4 frames or more that falls (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124)
+//                4 frames or more that falls (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
+//                one a later fix makes starts the fixes again with its key interval kept (applyFixes, fixed.retime.air)
 //   ballistic    in each air run of 4 frames or more the whole body moves so the centre of mass follows the gravity
 //                parabola between takeoff and landing at constant horizontal speed; past 0.5 m, or where the arc enters
 //                what the keyed flight did not (flight-gate.js), it is reported, not fixed (ballistic.js, #1124)
@@ -63,12 +64,40 @@ export function fixOptions(fix) {
 const withTurns = (turns, slide) => (turns ? { ...(slide ?? { frames: 0, how: "planted heel/ball held in place" }), turns, how: `${slide?.how ?? "planted heel/ball held in place"}; a flat planted foot keeps its heading until it lifts` } : slide);
 const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), eased: Math.max(a.eased, b.eased), max: Math.max(a.max, b.max), how: a.how } : a ?? b);
 
-/** Runs the enabled fixes in order (retime first: it moves keys; the flight last: ballistic, spin) and returns their reports. */
-export function applyFixes(out, fix, engine, { whole = true } = {}) {
+/**
+ * Runs the enabled fixes in order (retime first: it moves keys; the flight last: ballistic, spin) and returns their reports.
+ * Retime reads the air runs of the first solve, and a later fix can make one where the first solve had a foot or a hand
+ * down (bench-handstand-r3: none on the first solve, f21-f27 at the end, all 7 frames re-timed, stretch 1.6). A falling
+ * run of the final frames whose frames retime moved (retimedAir) starts the fixes again from the keys, retime keeping
+ * that run's key interval as keyed too: once, so a run the second pass makes is reported (fixed.retime.air), not chased.
+ */
+export function applyFixes(out, fix, engine, opts = {}) {
+	const keys = out.keys, first = runFixes(out, fix, engine, opts, []), missed = first.retime ? retimedAir(out) : [];
+	if (!missed.length) return first;
+	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns"]) delete out[k];
+	for (const m of ["push", "swivel", "skinPush"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
+	engine.rebake(keys);
+	engine.solve(engine.all());
+	const again = runFixes(out, fix, engine, opts, missed), left = again.retime ? retimedAir(out) : [], at = r => r.map(([a, b]) => `f${a}-f${b}`).join(", ");
+	if (again.retime) again.retime = { ...again.retime, air: `kept the key intervals of ${at(missed)} as keyed: a later fix made an air run there${left.length ? `; ${at(left)} still re-timed` : ""}` };
+	return again;
+}
+
+/** The final take's falling air runs (qa/flight-checks.js fallingRuns) whose frames retime moved, as frames before the retime. */
+function retimedAir(out) {
+	const map = out.timeMap, n = out.frames.length, runs = fallingRuns(out, airRuns(out, out.ctx.spec?.checks?.supports ?? []));
+	if (!map) return [];
+	// the frame before the retime that frame g of the take shows (map is increasing)
+	const from = g => { let lo = 0, hi = n - 1; for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (map(mid) < g) lo = mid; else hi = mid; } return lo; };
+	return runs.filter(([a, b]) => Array.from({ length: b - a + 3 }, (_, i) => a - 1 + i).some(f => f >= 0 && f < n && Math.abs(map(f) - f) > 1e-9))
+		.map(([a, b]) => [Math.max(0, Math.floor(from(a))), Math.min(n - 1, Math.ceil(from(b)))]);
+}
+
+function runFixes(out, fix, engine, { whole = true } = {}, air) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	const supports = out.ctx.spec?.checks?.supports ?? [];
 	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 4 frames or more; a walk's one-frame lift is none)
-	if (fix.retime && whole) put("retime", retime(out, engine, fallingRuns(out, airRuns(out, supports))));
+	if (fix.retime && whole) put("retime", retime(out, engine, [...fallingRuns(out, airRuns(out, supports)), ...air]));
 	if (fix.slide) put("ground", liftSoles(out, engine));
 	if (fix.reach) put("reachLegs", lowerHips(out, engine));
 	if (fix.reach) put("reachBody", reachBody(out, engine));

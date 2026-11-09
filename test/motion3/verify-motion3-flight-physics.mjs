@@ -142,6 +142,14 @@ for (const cut of [40, 45, 50]) {
 	expect(`(a) roof fall cut at f${cut}: retime leaves the air frames as keyed and the hips keep their keyed 1 g`, untimed(r, A + 1, cut) && err < 0.01, JSON.stringify({ retime: r.fixed.retime, err }));
 }
 
+// (a) bench-handstand-r3: the first solve has no air run there, a later fix makes one (f23-f28 with retime off); retime moved all of
+// its frames (stretch 1.6) until the fixes started again keeping that key interval: every falling air run of the final take is as keyed
+{
+	const raw = JSON.parse(readFileSync(fileURLToPath(new URL("fixtures/bench-handstand-r3-spec.json", import.meta.url)), "utf8"));
+	const r = compileSpec(raw.spec ?? raw, { sk, scene: motionScene([]) }), runs = airRuns(r.out, r.expanded.checks?.supports ?? []).filter(([a, b]) => b - a >= 3);
+	expect(`(a) bench-handstand-r3: retime leaves every air run of the final take as keyed (${JSON.stringify(runs)}; ${r.fixed.retime?.air})`, runs.length >= 1 && runs.every(([a, b]) => untimed(r, a - 1, b + 1)) && /f22-f29/.test(r.fixed.retime?.air ?? ""), JSON.stringify({ runs, retime: r.fixed.retime }));
+}
+
 // (a2) a keyed flight past the apex limit: a 0.9 m hop held high from takeoff to landing, 0.77 m off its parabola
 {
 	const A = 30, B = 58, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - pose0.root[1], pose0[`foot_${l}`][2]], keys = [{ f: 0, set: { ...pose0 } }, { f: A - 8, set: { root: pose0.root } }];
