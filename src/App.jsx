@@ -2637,7 +2637,7 @@ export default function App() {
 
 	const shotCamRef = useRef(null);
 	const captureRef = useRef(null);
-	const look = useRef({ yaw: 0, pitch: 0 });
+	const look = useRef({ yaw: 0, pitch: 0, roll: 0 });
 	// The poser camera is the IK-mode working view: orbit/dolly/WASD freely
 	// while posing WITHOUT touching the shot camera, which stays frozen on
 	// the framing and shows in the inset. Two separate screens by design.
@@ -2933,9 +2933,9 @@ export default function App() {
 		if (cam && framing) {
 			cam.position.set(framing.pos.x, framing.pos.y, framing.pos.z);
 			cam.rotation.order = "YXZ";
-			cam.rotation.set(framing.pitch, framing.yaw, 0);
+			cam.rotation.set(framing.pitch, framing.yaw, ((framing.rollDeg ?? 0) * Math.PI) / 180);
 			look.current.yaw = framing.yaw;
-			look.current.pitch = framing.pitch;
+			look.current.pitch = framing.pitch; look.current.roll = cam.rotation.z;
 			cam.fov = framing.fovDeg;
 			applyCameraOptics(cam, shotForFrame?.optics);
 		}
@@ -2963,7 +2963,7 @@ export default function App() {
 		const cam = shotCamRef.current;
 		if (!cam) throw Object.assign(new Error("The shot renderer is not ready"), { exportFailureCode: "render_failed" });
 		const cameraSnapshot = { position: cam.position.clone(), quaternion: cam.quaternion.clone(),
-			rotationOrder: cam.rotation.order, fov: cam.fov, view: cam.view?.enabled ? structuredClone(cam.view) : null, yaw: look.current.yaw, pitch: look.current.pitch };
+			rotationOrder: cam.rotation.order, fov: cam.fov, view: cam.view?.enabled ? structuredClone(cam.view) : null, yaw: look.current.yaw, pitch: look.current.pitch, roll: look.current.roll };
 		const rigSnapshots = Object.values(rigs).filter(Boolean).map(snapshotExportRig);
 		const proxySnapshots = [];
 		const context = recRef.current?.request.context;
@@ -3009,7 +3009,7 @@ export default function App() {
 			if (cameraSnapshot.view) cam.view = cameraSnapshot.view; else cam.clearViewOffset();
 			cam.updateProjectionMatrix();
 			look.current.yaw = cameraSnapshot.yaw;
-			look.current.pitch = cameraSnapshot.pitch;
+			look.current.pitch = cameraSnapshot.pitch; look.current.roll = cameraSnapshot.roll;
 			propFrameRef.current = propFrame;
 			syncCarriers();
 			propSyncRef.current?.(); syncPhysicsOverlays();
@@ -3558,7 +3558,7 @@ export default function App() {
 	function captureCurrentFraming() {
 		const cam = shotCamRef.current;
 		const pos = cam ? cam.position : cameraPos;
-		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg });
+		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg, rollDeg: ((look.current.roll ?? 0) * 180) / Math.PI });
 	}
 
 	// What a framing capture says about the shot it came from: lens, delivery
@@ -3993,10 +3993,10 @@ export default function App() {
 	function captureFramingPng(framing, output = shotOutput) {
 		const cam = shotCamRef.current;
 		if (!cam || !captureRef.current) return null;
-		const prev = { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: look.current.yaw, pitch: look.current.pitch, fov: cam.fov };
+		const prev = { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: look.current.yaw, pitch: look.current.pitch, roll: look.current.roll ?? 0, fov: cam.fov };
 		cam.position.set(framing.pos.x, framing.pos.y, framing.pos.z);
 		cam.rotation.order = "YXZ";
-		cam.rotation.set(framing.pitch, framing.yaw, 0);
+		cam.rotation.set(framing.pitch, framing.yaw, ((framing.rollDeg ?? 0) * Math.PI) / 180);
 		cam.fov = framing.fovDeg;
 		const prevAspect = cam.aspect;
 		const offset = framing.viewOffset;
@@ -4015,7 +4015,7 @@ export default function App() {
 		} finally {
 			if (needsOwnTarget) capture.dispose?.();
 			cam.position.set(prev.x, prev.y, prev.z);
-			cam.rotation.set(prev.pitch, prev.yaw, 0);
+			cam.rotation.set(prev.pitch, prev.yaw, prev.roll);
 			look.current.yaw = prev.yaw;
 			look.current.pitch = prev.pitch;
 			cam.fov = prev.fov;

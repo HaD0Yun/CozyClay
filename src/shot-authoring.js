@@ -6,7 +6,7 @@
 
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
 import { createShot } from "./cuts.js";
-import { railShotFields } from "./camera-block.js";
+import { cameraRoll, railShotFields } from "./camera-block.js";
 import { normalizeStableItems } from "./stable-items.js";
 import { VIDEO_MODEL_PRESETS } from "./model-presets.js";
 import { elementByPath } from "./studio-elements.js";
@@ -155,7 +155,7 @@ function repairKeys(entries, minFrame, maxFrame, ids = new Set()) {
 				pos: { x: key.framing.pos.x, y: key.framing.pos.y, z: key.framing.pos.z },
 				yaw: key.framing.yaw,
 				pitch: key.framing.pitch,
-				fovDeg: key.framing.fovDeg,
+				fovDeg: key.framing.fovDeg, ...(cameraRoll(key.framing.rollDeg) ? { rollDeg: cameraRoll(key.framing.rollDeg) } : {}),
 			},
 		});
 	}
