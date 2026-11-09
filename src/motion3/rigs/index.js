@@ -25,8 +25,10 @@ export function skeletonFor(model) {
 export function registerRig(id, rig) {
 	if (typeof id !== "string" || !id) throw new Error("registerRig: id must be a non-empty string");
 	if (!Array.isArray(rig?.bones) || !rig.landmarks) throw new Error(`registerRig: rig "${id}" needs bones and landmarks (x-bot-tpose.json's shape)`);
-	RIGS[id] = { ...rig, model: id };
-	cache.delete(id);
+	const entry = { ...rig, model: id }, sk = createSkeleton(entry);
+	RIGS[id] = entry;
+	cache.set(id, sk);
 	reference ??= createSkeleton(xBot);
-	registerBody(id, fileFit => refitBody(skeletonFor(id), reference, fileFit("x-bot-tpose")));
+	// the body belongs to this skeleton: one retired by a later registerRig keeps its own (body.js registerBody)
+	registerBody(sk, fileFit => refitBody(sk, reference, fileFit("x-bot-tpose")));
 }

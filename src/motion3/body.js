@@ -25,20 +25,24 @@ function readFit(url) {
 	return JSON.parse(xhr.responseText);
 }
 
-// Fits made in memory for registered rigs (rigs/index.js registerRig): model -> make(fileFit), called on first use with
-// a reader of the shipped fits (make reads the X Bot's to refit it; one already loaded is not read again).
-const made = new Map();
-const fileFit = model => (!made.has(model) && fits.get(model)) || readFit(BODIES[model]);
-
-function fitOf(model) {
-	if (!fits.has(model)) fits.set(model, made.has(model) ? made.get(model)(fileFit) : fileFit(model));
+// Fits made in memory for registered rigs (rigs/index.js registerRig), per skeleton: a skeleton registerRig retires keeps
+// its own (a compile in flight on it reads its own rig, as the floor, foot and pose caches do). sk -> make(fileFit), called on
+// first use with a reader of the shipped fits (make reads the X Bot's to refit it; one already loaded is not read again).
+const made = new WeakMap(), madeFits = new WeakMap();
+const fileFit = model => {
+	if (!fits.has(model)) fits.set(model, readFit(BODIES[model]));
 	return fits.get(model);
+};
+
+function fitOf(sk) {
+	if (!made.has(sk)) return fileFit(sk.model);
+	if (!madeFits.has(sk)) madeFits.set(sk, made.get(sk)(fileFit));
+	return madeFits.get(sk);
 }
 
-/** Gives character model `model` the fit make(fileFit) returns (body.js's shape), made on first use; replaces any it had. */
-export function registerBody(model, make) {
-	made.set(model, make);
-	fits.delete(model);
+/** Gives skeleton sk the fit make(fileFit) returns (body.js's shape), made on first use. */
+export function registerBody(sk, make) {
+	made.set(sk, make);
 }
 
 /** Fetches every rig's fit in the background, so a compile on this thread never waits on one. */
@@ -73,9 +77,9 @@ function skipOf(sk, b) {
 
 /** The fitted body of skeleton sk, or null for a rig without one. */
 export function bodyFor(sk) {
-	if (!BODIES[sk.model] && !made.has(sk.model)) return null;
+	if (!BODIES[sk.model] && !made.has(sk)) return null;
 	if (cache.has(sk)) return cache.get(sk);
-	const fit = fitOf(sk.model);
+	const fit = fitOf(sk);
 	const grids = Object.entries(fit.grids).map(([name, g]) => {
 		const half = g.dims.map(d => ((d - 1) * fit.step) / 2), centre = g.min.map((m, k) => m + half[k]);
 		return { b: sk.index[name], min: g.min, dims: g.dims, data: decode(g.data), centre, reach: len(half) };
