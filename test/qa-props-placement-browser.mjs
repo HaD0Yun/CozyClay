@@ -10,7 +10,7 @@
 // in one shell, then
 // `QA_URL=http://127.0.0.1:5811/app/ CDP_PORT=9511 node tools/qa-browser.mjs -- node test/qa-props-placement-browser.mjs`
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 
 const cdpPort = Number(process.env.CDP_PORT || 9498);
 const out = process.env.QA_OUT || "/tmp/empty-object-qa";
@@ -48,21 +48,9 @@ const waitFor = async (label, probe, timeoutMs = 30000) => {
 	}
 	throw new Error(`Timed out waiting for ${label}`);
 };
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const near = (a, b, tol = 1e-3) => Math.abs(a - b) <= tol;
-let failures = 0;
-const expect = (label, value, detail = "") => {
-	console.log(`${value ? "PASS" : "FAIL"} ${label}${value || !detail ? "" : ` - ${detail}`}`);
-	if (!value) failures += 1;
-};
 
 await send("Runtime.enable");
 await mkdir(out, { recursive: true });
-const shot = async (name) => {
-	const image = await send("Page.captureScreenshot", { format: "png" });
-	await writeFile(`${out}/${name}.png`, Buffer.from(image.data, "base64"));
-	return image.data;
-};
 const mouse = (type, x, y, extra = {}) => send("Input.dispatchMouseEvent", { type, x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1, buttons: type === "mouseReleased" ? 0 : 1, ...extra });
 const click = async (x, y) => { await mouse("mouseMoved", x, y, { buttons: 0 }); await mouse("mousePressed", x, y); await mouse("mouseReleased", x, y); };
 const rightClick = async (x, y) => {
@@ -88,7 +76,6 @@ const centerOf = (selector, textPattern = null) => evaluate(`(() => {
 	return null;
 })()`);
 const objects = () => evaluate("window.__cozyclay.objects.map((o) => ({ id: o.id, name: o.name, renderer: o.renderer, x: o.x, y: o.y ?? 0, z: o.z, parent: o.parent ?? null, color: o.color }))");
-const selectedRow = () => evaluate(`document.querySelector(".v2-outliner .hierarchy-row-wrap.selected")?.dataset.nodeId ?? null`);
 const pressUndo = async () => {
 	const key = { key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 };
 	await send("Input.dispatchKeyEvent", { type: "keyDown", ...key });
@@ -115,8 +102,6 @@ await waitFor("editor view is the main view", () => evaluate("window.__cozyclay.
 const cubeId = await evaluate(`window.__cozyclay.sceneObject.place({ kind: "cube", name: "Probe Cube", x: 1, z: 1 }).id`);
 await rowFor(`object:${cubeId}`);
 
-const renameOpenOn = (rowId) => evaluate(`(() => { const el = document.activeElement; return el?.tagName === "INPUT" && !!el.closest('[data-node-id="${rowId}"]'); })()`);
-const pressKey = async (key, code, vk) => { for (const type of ["rawKeyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: vk }); };
 
 await waitFor("hook", () => evaluate("Boolean(window.__cozyclay?.sceneObject && window.__cozyclay?.editorCam)"));
 // The user's shape: Props → "Environment" plane (with a child), then a car.
@@ -136,7 +121,6 @@ const realDrag = async (src, dst) => { const a = await rowPt(src), b = await row
 	await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: b.x, y: b.y, button: "left", clickCount: 1 }); return "ok"; };
 // group the house under the Environment plane, like the agent did
 await realDrag(`object:${house}`, `object:${env}`); await new Promise((r) => setTimeout(r, 400));
-const tree = () => evaluate(`[...document.querySelectorAll('.v2-outliner [data-node-id]')].map((n) => { let d = 0, p = n.parentElement; while (p && !p.classList.contains('v2-outliner')) { if (p.matches('[data-node-id]')) d++; p = p.parentElement; } return '  '.repeat(d) + n.getAttribute('data-node-id') + ' ' + ((n.querySelector('.hierarchy-label, .v2-outliner-label, .hierarchy-row')?.textContent) ?? '').trim().slice(0, 30); }).join('\\n')`);
 // focus Props, then create an Empty from Props' right-click menu
 const pr = await rowPt("props"); await click(pr.x, pr.y); await new Promise((r) => setTimeout(r, 200));
 await rightClick(pr.x, pr.y);

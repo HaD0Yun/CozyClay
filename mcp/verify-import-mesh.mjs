@@ -98,7 +98,7 @@ assert.equal("x" in heightCmd.args, false);
 assert.equal("z" in heightCmd.args, false);
 
 commands.length = 0;
-const clayFalse = await importMesh.handler({ path: glbPath, clay: false });
+await importMesh.handler({ path: glbPath, clay: false });
 assert.equal("clay" in imports()[0].args, false);
 
 commands.length = 0;

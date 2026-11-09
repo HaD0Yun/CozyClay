@@ -51,5 +51,3 @@ for (const [name, height] of cubes) {
 	writeFileSync(join(here, name), text);
 	console.log(`wrote ${name} (${Buffer.byteLength(text)} bytes, height ${height} m)`);
 }
-
-export { cubeObj };

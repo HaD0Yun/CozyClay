@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import * as motion from '../../src/studio-agent-motion.js';
 
-export function sourceFiles(directory) {
+function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     if (entry.name === 'node_modules') return [];
     const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory);

@@ -614,7 +614,7 @@ expect(
 // case 3: pagehide flushes INSIDE the debounce window. This is the live-store
 // regression detector (plan §8.4): a flush that captured sceneObjects in a
 // []-deps closure would write startup state instead of this edit.
-const beforeHide = await transform();
+await transform();
 const hideArrows = await evaluate("window.__gizmoHandles()");
 const hideXArrow = hideArrows.find((handle) => handle.axis === "x");
 await drag(hideXArrow, { x: hideXArrow.x + 60, y: hideXArrow.y });

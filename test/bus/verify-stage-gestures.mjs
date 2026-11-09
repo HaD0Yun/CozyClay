@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { stageFixture } from './stage-fixture.mjs';
-export function elements(tree) {
+function elements(tree) {
   if (!tree || typeof tree !== 'object') return [];
   return [tree, ...[tree.props?.children].flat(Infinity).flatMap(elements)];
 }

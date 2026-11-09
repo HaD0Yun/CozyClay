@@ -24,7 +24,6 @@ import fs from "node:fs";
 // `QA_URL=http://127.0.0.1:5832/app/ CDP_PORT=9832 node tools/qa-browser.mjs -- node test/qa-rail-lean-browser.mjs`
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { Matrix4, Quaternion, Vector3 } from "three";
 
 const doc = readFileSync(process.env.SEED_DOC || new URL("./fixtures/vintage-car-scene.json", import.meta.url), "utf8");
 const cdpPort = Number(process.env.CDP_PORT || 9832);
@@ -42,13 +41,6 @@ const navigate = async (url) => { await send("Page.enable"); const loaded = new 
 const mouse = (type, x, y) => send("Input.dispatchMouseEvent", { type, x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1, buttons: type === "mouseReleased" ? 0 : 1 });
 const click = async (x, y) => { await mouse("mousePressed", x, y); await mouse("mouseReleased", x, y); };
 const center = (selector) => evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
-const shot = async (name) => {
-	if (!process.env.QA_OUT) return;
-	const fs = await import("node:fs");
-	const s = await send("Page.captureScreenshot", { format: "png" });
-	fs.writeFileSync(`${process.env.QA_OUT}/${name}.png`, Buffer.from(s.data, "base64"));
-};
-
 const base = new URL(page.url);
 await navigate(`${base.origin}/favicon.ico`);
 await evaluate(`(() => { localStorage.clear(); localStorage.setItem('cozyclay.locale','en'); localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'Rail Lean QA', updatedAt: Date.now() })); localStorage.setItem('cozyclay.scenes.v4', ${JSON.stringify(doc)}); return true; })()`);

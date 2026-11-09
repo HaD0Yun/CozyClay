@@ -28,7 +28,7 @@ try {
   // every key); the wire keeps it for MCP's update_object and the CLI, and names the
   // unknown key instead of ignoring it.
   const [crateA, crateB] = [first.affectedIds[0], second.affectedIds[0]];
-  const revision = f.binding.refresh().revision;
+  f.binding.refresh();
   assert.ok(!f.binding.context().actionIndex.some(row => row.id === 'object.update'), 'the agent index omits object.update');
   const unknown = f.run('object.update', { id: crateB, patch: { scale: 2, foo: 1, x: 7 } }, 'agent');
   assert.equal(unknown.ok, false, JSON.stringify(unknown));

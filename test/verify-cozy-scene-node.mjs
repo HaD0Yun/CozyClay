@@ -13,7 +13,6 @@ import {
 	sceneCharacterIdFromHandle,
 	sceneInputSpecs,
 	sceneInputsFromEdges,
-	sceneConnectionAllowed,
 	sceneTimelinePatch,
 	SCENE_TIMELINE_MESSAGE,
 	toCozySceneRunRequest,

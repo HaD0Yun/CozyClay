@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 // same resolution tools/run-tests.mjs probes before running the MCP suites.
 const mcpRequire = createRequire(fileURLToPath(new URL("../mcp/package.json", import.meta.url)));
 const { WebSocket } = mcpRequire("ws");
-const { LiveHub, startLiveHub } = await import("../mcp/live-hub.mjs");
+const { startLiveHub } = await import("../mcp/live-hub.mjs");
 const { dispatchLiveFrame, liveControlUrl } = await import("../src/live-control.js");
 
 const reservePort = () => new Promise((resolve, reject) => {

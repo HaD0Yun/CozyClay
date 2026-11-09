@@ -60,7 +60,7 @@ export function createFakeModel({ models = createModels(), provider = "faux", mo
 	// context is exactly what pi handed to the provider for each request.
 	const originalSet = faux.setResponses.bind(faux);
 	const install = (messages) => {
-		const wrapped = messages.map((message) => async (context, options, state, model) => {
+		const wrapped = messages.map((message) => async (context) => {
 			calls.push(context);
 			return message;
 		});
@@ -79,6 +79,3 @@ export function createFakeModel({ models = createModels(), provider = "faux", mo
 	if (models?.setProvider) models.setProvider(faux.provider);
 	return fixture;
 }
-
-export const createFauxModel = createFakeModel;
-export const fakeModel = createFakeModel;

@@ -24,7 +24,7 @@ const server = await createServer({ configFile: false, root: fileURLToPath(new U
 }] });
 let useObjects, AppContext, assetDb;
 export let createObjectsDomain;
-export const objectPanels = {};
+const objectPanels = {};
 try {
   assetDb = await server.ssrLoadModule('/test/bus/objects-asset-db.mjs');
   ({ useObjects, createObjectsDomain } = await server.ssrLoadModule('/src/domains/objects.js'));

@@ -241,7 +241,6 @@ for (let i = 0; i <= 20; i += 1) {
 check("no elbow flip jump through the sweep", maxFlip < 0.15, `maxStep=${maxFlip.toFixed(4)}`);
 
 /* --- quat keys: bake stores b0/b1 local rotations, sparse ---------------- */
-const charPos = new THREE.Vector3(1, 0, -2); // kept for API symmetry; unused
 solveIk(arm, target);
 ikTouch(ik, "leftHand");
 ikBakeKeyframe(chains, ik, 10, fkJoints);

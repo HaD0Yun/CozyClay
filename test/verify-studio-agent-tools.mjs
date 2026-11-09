@@ -4,7 +4,6 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
-import { createHttpTransport } from "../src/workflow/agent-client.js";
 import { startLiveHub } from "../mcp/live-hub.mjs";
 import { STUDIO_TOOL_FAMILIES, STUDIO_TOOLS } from "../src/studio-agent-protocol.js";
 import { studioToolSchemas, studioToolResult } from "../bin/agent/studio-tools.mjs";

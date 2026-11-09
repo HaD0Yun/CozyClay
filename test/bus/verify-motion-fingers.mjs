@@ -57,7 +57,7 @@ test('fingers: a finger gesture keys its three joints and one Undo restores the 
 
 test('fingers: clearing the IK keys or resetting the pose straightens a keyed finger', () => {
   for (const reset of ['clearIkKeys', 'setPose']) {
-    const { f, hook, state } = setup();
+    const { f, hook } = setup();
     try {
       if (reset === 'setPose') f.run('character.setPose', { characterId: 'actor-a', pose: { ...DEFAULT_POSE, id: 'arms-up', label: 'Arms up', bones: { lArm: [0.4, 0, 0] } } });
       hook.ikSolve('finger', 'leftIndex', { curl: 1 });
