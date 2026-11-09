@@ -14,9 +14,15 @@ const MIN_FRAMES = 4;
 
 const runsCache = new WeakMap();
 
-/** The air runs of out ([a, b] indexes of out.frames, style.js airRuns with the spec's supports), cached per out. */
+/**
+ * The air runs of out ([a, b] indexes of out.frames, style.js airRuns with the spec's supports), cached per out.
+ * Without the skin support (#1125): a run is the whole flight from the frame the soles leave the ground to the last
+ * frame before they come back, which is what the fall in g (runG) and the landing frames (impact.js) are read against.
+ * With it, a hand still within 5 cm of a box on the first and last frame of a jump cut the run by a frame at each end,
+ * and the landing two frames later no longer counted as its impact.
+ */
 export function runsOf(out) {
-	if (!runsCache.has(out)) runsCache.set(out, airRuns(out, out.ctx.spec?.checks?.supports));
+	if (!runsCache.has(out)) runsCache.set(out, airRuns(out, out.ctx.spec?.checks?.supports, { skin: false }));
 	return runsCache.get(out);
 }
 
