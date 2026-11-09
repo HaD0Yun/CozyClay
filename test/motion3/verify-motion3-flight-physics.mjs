@@ -344,6 +344,12 @@ function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 		inWorld = Math.max(inWorld, angle(world(on), world(off)));
 	}
 	expect(`(c) back tuck: the knee poles turn with the root (in the body ${inBody.toExponential(1)} deg off keyed, in the world up to ${r3(inWorld)} deg)`, inBody < 1e-3 && inWorld > 5, JSON.stringify({ inBody, inWorld }));
+	// the feet keep their aim in the body: each ankle's bend against the rest pose as keyed, frame by frame (a toe the tilt frame reads
+	// past straight down rolls the foot over, near 180 deg, on the keyed frames as well: those frames are left out)
+	const ankle = (q, f, S) => { const L = I[`${S}Leg`], F = I[`${S}Foot`], R0 = sk.restWorldRot, s = q.out.frames[f].s; return (Math.hypot(...rotationVector(mul(mul(T(s.R[L]), s.R[F]), T(mul(T(R0[L]), R0[F]))))) * 180) / Math.PI; };
+	let flick = 0;
+	for (const S of ["Left", "Right"]) for (let f = a - 1; f <= b + 1; f++) if (Math.max(ankle(on, f, S), ankle(off, f, S)) < 90) flick = Math.max(flick, Math.abs(ankle(on, f, S) - ankle(off, f, S)));
+	expect(`(c) back tuck: the ankles bend as keyed in the air (worst ${r3(flick)} deg off; fpitch read against the old tilt: 33 deg)`, flick < 3, flick);
 	// fix.spin turns the body about its hips, which moves the centre of mass: the second arc puts it back on the parabola
 	const comFall = fallError(f => centerOfMass(sk, on.out.frames[f].s)[1], a + 1, b - 1);
 	expect(`(c) back tuck: after fix.spin the centre of mass still falls at 1 g (off by ${r3(comFall)} g)`, comFall < 0.01, comFall);

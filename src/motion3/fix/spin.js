@@ -105,8 +105,23 @@ function rates(rows, wt, target) {
 	return rows.map(({ h, u }) => (dot(u, sub([c0, c1, c2], h)) + lambda) / dot(u, u));
 }
 
-/** Writes the re-timed turn at frame f (absolute): Euler at fractional frame u of the original track `orig`, riders and poles turned with it. */
-function retimeFrame(baked, orig, f, u) {
+/**
+ * A foot's [fyaw, fpitch] once the body turns by D from Euler `was` to `now`: its keyed toe direction (limbs.js orientFoot:
+ * ry(fyaw) rx(fpitch) toe, turned by the tilt frame past upright) turned by D and read back in the new tilt frame, as
+ * skills/flip.js footAim aims a foot. Shifting fyaw by the yaw alone kept fpitch against the old tilt, which is not the
+ * body's frame while the tilt eases in: a one-frame ankle flick in the tuck (back tuck 79, 30, 60 deg against 75, 66, 66
+ * keyed). `toe` is the rest ankle-to-toe vector (its sagittal part: the reading is exact when D changes nothing); `near`
+ * the fyaw the turn of the whole circle is taken nearest to.
+ */
+function footTurned(toe, was, now, D, fy, fp, near) {
+	const r0 = [0, toe[1], toe[2]], phi = Math.atan2(-toe[1], toe[2]), Tw = tiltFrame(was.yaw, was.pitch, was.roll), Tn = tiltFrame(now.yaw, now.pitch, now.roll);
+	const x = apply(rx(fp), r0), want = Tw ? apply(Tw.R, apply(ry(fy - Tw.yaw), x)) : apply(ry(fy), x), d = Tn ? apply(T(Tn.R), apply(D, want)) : apply(D, want);
+	const yaw = (Tn ? Tn.yaw : 0) + deg(Math.atan2(d[0], d[2]));
+	return [yaw + 360 * Math.round((near - yaw) / 360), Math.max(-60, Math.min(90, deg(Math.atan2(-d[1], Math.hypot(d[0], d[2])) - phi)))];
+}
+
+/** Writes the re-timed turn at frame f (absolute): Euler at fractional frame u of the original track `orig`, riders, poles and feet turned with it. */
+function retimeFrame(baked, orig, f, u, toes) {
 	const lo = Math.floor(u), hi = Math.min(lo + 1, orig.yaw.length - 1), t = u - lo, lerp = ch => orig[ch][lo] + (orig[ch][hi] - orig[ch][lo]) * t;
 	const e = { yaw: lerp("yaw"), pitch: lerp("pitch"), roll: lerp("roll") }, was = { yaw: orig.yaw[f], pitch: orig.pitch[f], roll: orig.roll[f] };
 	const D = mul(mul(ry(e.yaw), mul(rx(e.pitch), rz(e.roll))), T(mul(ry(was.yaw), mul(rx(was.pitch), rz(was.roll)))));
@@ -115,7 +130,12 @@ function retimeFrame(baked, orig, f, u) {
 	for (const ch of RIDERS.slice(1)) if (Array.isArray(orig[ch]?.[f])) baked[ch][f] = add(root, apply(D, sub(orig[ch][f], root)));
 	const Pw = poleFrame(was.yaw, was.pitch, was.roll), Pn = poleFrame(e.yaw, e.pitch, e.roll);
 	for (const ch of POLES) if (Array.isArray(orig[ch]?.[f])) baked[ch][f] = apply(T(Pn), apply(D, apply(Pw, orig[ch][f])));
-	for (const ch of ["fyaw_l", "fyaw_r"]) if (typeof orig[ch]?.[f] === "number") baked[ch][f] = orig[ch][f] + e.yaw - was.yaw;
+	for (const k of ["l", "r"]) {
+		if (typeof orig[`fyaw_${k}`]?.[f] !== "number") continue;
+		if (typeof orig[`fpitch_${k}`]?.[f] !== "number" || !toes[k]) { baked[`fyaw_${k}`][f] = orig[`fyaw_${k}`][f] + e.yaw - was.yaw; continue; }
+		const fy = orig[`fyaw_${k}`][f];
+		[baked[`fyaw_${k}`][f], baked[`fpitch_${k}`][f]] = footTurned(toes[k], was, e, D, fy, orig[`fpitch_${k}`][f], fy + e.yaw - was.yaw);
+	}
 }
 
 /**
@@ -125,7 +145,8 @@ function retimeFrame(baked, orig, f, u) {
  * says what a re-time entered.
  */
 export function spinFix(out, engine, runs, gate) {
-	const f0 = out.f0 ?? 0, fps = out.fps ?? 24, B0 = out.baked, at = [], left = [];
+	const f0 = out.f0 ?? 0, fps = out.fps ?? 24, B0 = out.baked, at = [], left = [], { index: I, restWorldPos: P } = out.ctx.sk;
+	const toes = Object.fromEntries(Object.entries({ l: "Left", r: "Right" }).map(([k, S]) => [k, I[`${S}ToeBase`] !== undefined && I[`${S}Foot`] !== undefined ? sub(P[I[`${S}ToeBase`]], P[I[`${S}Foot`]]) : null]));
 	if (!["yaw", "pitch", "roll"].some(ch => B0[ch])) return null;
 	const len = out.frames.length + f0, zero = () => new Array(len).fill(0);
 	const e = { yaw: B0.yaw ?? zero(), pitch: B0.pitch ?? zero(), roll: B0.roll ?? zero() };
@@ -134,7 +155,7 @@ export function spinFix(out, engine, runs, gate) {
 		const A = a - 1 + f0, B = b + 1 + f0, turn = keyedTurn(e, A, B);
 		if (!turn || missingFall(out, a, b) > FLOAT_LIMIT) continue;
 		if (turn.back) { left.push({ at: `f${a + f0}-f${b + f0}`, why: "the keyed turn turns back inside the flight: left as keyed" }); continue; }
-		const orig = Object.fromEntries(["yaw", "pitch", "roll", ...RIDERS, ...POLES, "fyaw_l", "fyaw_r"].map(ch => [ch, B0[ch] ? B0[ch].slice() : ch === "root" ? null : e[ch]?.slice()]));
+		const orig = Object.fromEntries(["yaw", "pitch", "roll", ...RIDERS, ...POLES, "fyaw_l", "fyaw_r", "fpitch_l", "fpitch_r"].map(ch => [ch, B0[ch] ? B0[ch].slice() : ch === "root" ? null : e[ch]?.slice()]));
 		if (!orig.root) continue;
 		const d0 = runDrift(out, a, b), solve = () => engine.solve(Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i));
 		let moved = 0, why = null;
@@ -150,7 +171,7 @@ export function spinFix(out, engine, runs, gate) {
 				th += (ext[i - 1] + ext[i]) / 2;
 				const f = A + i, u = A + frameAtTurn(turn.theta, th);
 				moved = Math.max(moved, Math.abs(deg(th - turn.theta[i])));
-				retimeFrame(B0, orig, f, u);
+				retimeFrame(B0, orig, f, u, toes);
 			}
 			solve();
 		}
