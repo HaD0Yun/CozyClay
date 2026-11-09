@@ -7,6 +7,11 @@ import { renderV4Sheet } from "./motion-v4/render/editor-render.js";
  * so a capture from a background tab would return the previous frame with no
  * error. Refuse it instead. The video export does not come through here: it
  * writes each frame's bones and camera itself before rendering.
+ * The agent's own looks do not come through here either (#1138): an author who
+ * works in another window while the agent runs hides the tab most of the time,
+ * and an agent that cannot look cannot check its work. They take the export's
+ * way instead, which needs no animation frame: the v4 render sheet
+ * (captureV4Sheet) and, in a hidden tab, the shot frame (captureHiddenFraming).
  */
 export function refuseHiddenCapture(doc = globalThis.document) {
 	if (doc?.visibilityState !== "hidden") return;
@@ -27,11 +32,24 @@ export function captureFrameAt(live, frame) {
 	return { ...shot, frame, partColours: live.partColours, meta: live.captureShotMeta(frame) };
 }
 
+/** True in a tab the browser does not show: animation-frame callbacks are throttled there. */
+export const tabHidden = (doc = globalThis.document) => doc?.visibilityState === "hidden";
+
 /**
- * The v4 render sheet for the v4_render live query (motion-v4/render/editor-render.js), refused from a hidden tab
- * like the other live captures.
+ * The shot frame at the playhead for a capture asked from a hidden tab, drawn the way the video export draws it
+ * (captureFrameAt), with the references the visible capture carries. The frame is the playhead's, whole and inside
+ * the timeline; the output is the shot's own size (a size the caller asked for applies to the visible capture only).
+ */
+export function captureHiddenFraming(live) {
+	const last = Math.max(1, live.timeline.frameCount) - 1, at = Math.round(Number(live.timeline.currentFrame) || 0);
+	return { ...captureFrameAt(live, Math.min(last, Math.max(0, at))), references: live.captureShotReferences?.() };
+}
+
+/**
+ * The v4 render sheet for the v4_render live query (motion-v4/render/editor-render.js). Every cell is drawn through
+ * renderFrameBuffer, the export's way (it writes that frame's bones and its own camera before it renders), so a
+ * hidden tab draws the same sheet as a visible one and is not refused.
  */
 export function captureV4Sheet(args, ports) {
-	refuseHiddenCapture();
 	return renderV4Sheet(args, ports);
 }

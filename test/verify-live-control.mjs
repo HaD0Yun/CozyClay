@@ -464,4 +464,31 @@ assert.equal(LIVE_WORKSPACE_ID_KEY, "cozyclay:live-workspace-id");
 	assert.deepEqual(asked, [12, 47], "an out-of-range frame never reaches the renderer");
 }
 
+{
+	// #1138: the agent's own looks are not refused in a hidden tab; they take the export's way, which needs no animation frame.
+	const { captureHiddenFraming, captureV4Sheet, tabHidden } = await import("../src/live-capture-guard.js");
+	assert.equal(tabHidden({ visibilityState: "hidden" }), true); assert.equal(tabHidden({ visibilityState: "visible" }), false); assert.equal(tabHidden(undefined), false);
+	const asked = [];
+	const live = (currentFrame, frameCount = 48) => ({ timeline: { frameCount, currentFrame }, partColours: null,
+		captureShotFrame: (frame) => { asked.push(frame); return { dataUrl: "data:image/png;base64,AA==", width: 1920, height: 1080, shotId: "shot-1" }; },
+		captureShotMeta: (frame) => ({ frame }), captureShotReferences: () => ["sheet"] });
+	// the shot frame at the playhead, in the visible capture's shape (the references ride along)
+	assert.deepEqual(captureHiddenFraming(live(12)), { dataUrl: "data:image/png;base64,AA==", width: 1920, height: 1080, shotId: "shot-1", frame: 12, partColours: null, meta: { frame: 12 }, references: ["sheet"] });
+	for (const playhead of [12.6, 99, undefined, -3]) captureHiddenFraming(live(playhead));
+	assert.deepEqual(asked, [12, 13, 47, 0, 0], "the playhead's frame, whole and inside the timeline");
+	// the v4 render sheet: every cell goes through renderFrameBuffer, in a hidden tab as in a visible one
+	const before = globalThis.document, rendered = [];
+	const ports = { renderFrameBuffer: (frame, view) => { rendered.push([frame, view.output.width]); return { data: new Uint8Array(view.output.width * view.output.height * 4).fill(128), width: view.output.width, height: view.output.height }; }, encodePng: (data, sheet) => `png:${sheet.width}x${sheet.height}` };
+	const args = { tile: { width: 64, height: 48 }, columns: 2, cells: [{ frame: 3, eye: [0, 1, 3], quaternion: [0, 0, 0, 1], fovDeg: 40 }, { frame: 9, eye: [3, 1, 0], quaternion: [0, 0.7071, 0, 0.7071], fovDeg: 40 }] };
+	try {
+		globalThis.document = { visibilityState: "visible" };
+		const shown = captureV4Sheet(args, ports);
+		globalThis.document = { visibilityState: "hidden" };
+		const hidden = captureV4Sheet(args, ports);
+		assert.equal(hidden.dataUrl, "png:128x48"); assert.equal(hidden.cells, 2);
+		assert.deepEqual({ ...hidden, ms: 0 }, { ...shown, ms: 0 }, "a hidden tab draws the same sheet");
+		assert.deepEqual(rendered, [[3, 64], [9, 64], [3, 64], [9, 64]]);
+	} finally { globalThis.document = before; }
+}
+
 console.log("all live control checks PASS");
