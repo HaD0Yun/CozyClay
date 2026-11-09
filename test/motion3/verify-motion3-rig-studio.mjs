@@ -13,7 +13,8 @@
 //       (the take's quaternions too); without the bind offsets it does not.
 //   (c, d) compile-worker.js driven in a fresh process with fs closed (as in a browser): a job carrying an adapted rig
 //       answers the same take as a main-thread compile, with the body fits fetched by the preload and no synchronous
-//       XHR; with the preload failing it falls back to XHR and still answers the same take.
+//       XHR; with the preload failing it falls back to XHR and still answers the same take. An X Bot reaching for the
+//       shoulder of a person on an adapted rig compiles in the worker once the job carries that person's rig.
 //   (e) the MotionBricks fill refuses an adapted rig and passes the X Bot and the Y Bot.
 import * as THREE from "three";
 import { execFileSync } from "node:child_process";
@@ -31,6 +32,7 @@ import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { bakeTake, takeQuat, takeHips } from "../../src/motion3/take.js";
 import { runCompileJob } from "../../src/motion3/compile-job.js";
+import { peopleOf } from "../../src/motion3/people.js";
 import { fillSpec } from "../../src/motion3/bricks/fill.js";
 import { fillSpecNative } from "../../src/motion3/bricks/fill-native.js";
 import { add, sub, scale, apply, mul, T, rx, rz, dist, quatFromMat } from "../../src/motion3/compiler/math.js";
@@ -46,7 +48,8 @@ const nano = v => Math.round(v * 1e9) / 1e9;
 // --- (c, d) the worker in a fresh process -----------------------------------------------------------------------------
 /** Runs compile-worker.js as a browser worker would: fs closed, fetch and XHR stubbed and counted. mode "nofetch": the preload fails. */
 async function workerChild(mode) {
-	const job = JSON.parse(readFileSync(0, "utf8")), counts = { fetch: 0, xhr: 0 }, answers = [];
+	const { jobs } = JSON.parse(readFileSync(0, "utf8")), counts = { fetch: 0, xhr: 0 }, answers = [];
+	for (const job of jobs) for (const p of Object.values(job.scene.people ?? {})) p.P = Float64Array.from(p.P);
 	globalThis.self = { postMessage: message => answers.push(message) };
 	globalThis.fetch = async url => {
 		counts.fetch += 1;
@@ -60,9 +63,9 @@ async function workerChild(mode) {
 	await import("../../src/motion3/compile-worker.js");
 	const builtin = process.getBuiltinModule.bind(process);
 	process.getBuiltinModule = name => (/^(node:)?fs$/.test(name) ? undefined : builtin(name));
-	await Promise.all([self.onmessage({ data: { id: 1, job } }), self.onmessage({ data: { id: 2, job } }), self.onmessage({ data: { id: 3, job: { ...job, model: "x-bot-tpose" } } })]);
-	const takeOf = v => v && { frameCount: v.frameCount, qaTotal: v.qa?.total ?? null, rot: Array.from(v.take.rot, nano), hips: Array.from(v.take.hips, nano) };
-	console.log(JSON.stringify({ counts, ids: answers.map(a => a.id), takes: answers.map(a => takeOf(a.value)), errors: answers.map(a => a.error ?? null) }));
+	await Promise.all(jobs.map((job, i) => self.onmessage({ data: { id: i + 1, job } })));
+	const take = v => v && { frameCount: v.frameCount, rot: Array.from(v.take.rot, nano), hips: Array.from(v.take.hips, nano) };
+	console.log(JSON.stringify({ counts, ids: answers.map(a => a.id), takes: answers.map(a => take(a.value)), errors: answers.map(a => a.error ?? null) }));
 }
 
 // --- synthetic source skeletons -----------------------------------------------------------------------------------------
@@ -269,21 +272,36 @@ function retargets() {
 	return rows;
 }
 
-// --- (c, d) the worker ------------------------------------------------------------------------------------------------
+// --- (c, d) the worker ----------------------------------------------------------------------------------------------
+const childRun = (mode, jobs) => JSON.parse(execFileSync(process.execPath, [SELF, "--worker-child", mode], {
+	input: JSON.stringify({ jobs }, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)), maxBuffer: 1 << 28 }).toString());
+const takeOf = take => ({ rot: Array.from(take.rot, nano), hips: Array.from(take.hips, nano) });
+const sameTake = (a, b) => Boolean(a && b) && a.rot.length === b.rot.length && a.rot.every((v, i) => v === b.rot[i]) && a.hips.every((v, i) => v === b.hips[i]);
+
 function worker() {
 	const raw = synth(CASES[2]), { rig } = adaptRig({ ...raw, model: "studio-worker" });
-	const job = { model: "studio-worker", rig, scene: motionScene([]), spec: MOTIONS.walk, bake: { position: [0, 0, 0], yaw: 0 } };
-	const main = runCompileJob(structuredClone(job)).take, mainTake = { rot: Array.from(main.rot, nano), hips: Array.from(main.hips, nano) };
-	const same = t => t && t.rot.length === mainTake.rot.length && t.rot.every((v, i) => v === mainTake.rot[i]) && t.hips.every((v, i) => v === mainTake.hips[i]);
+	const job = { model: "studio-worker", rigs: { "studio-worker": rig }, scene: motionScene([]), spec: MOTIONS.walk, bake: { position: [0, 0, 0], yaw: 0 } };
+	const main = runCompileJob(structuredClone(job)).take, mainTake = takeOf(main);
 	for (const mode of ["preload", "nofetch"]) {
-		const got = JSON.parse(execFileSync(process.execPath, [SELF, "--worker-child", mode], { input: JSON.stringify(job), maxBuffer: 1 << 28 }).toString());
+		const got = childRun(mode, [job, job, { ...job, model: "x-bot-tpose", rigs: { "x-bot-tpose": rig } }]);
 		const label = mode === "preload" ? "(c, d) worker, fits preloaded" : "(c, d) worker, preload failing";
 		expect(`${label}: answers in arrival order`, got.ids.join() === "1,2,3", got.ids.join());
-		expect(`${label}: the posted rig's take (${main.frameCount} frames) equals the main thread's, twice`, same(got.takes[0]) && same(got.takes[1]) && got.takes[0].frameCount === main.frameCount);
+		expect(`${label}: the posted rig's take (${main.frameCount} frames) equals the main thread's, twice`, sameTake(got.takes[0], mainTake) && sameTake(got.takes[1], mainTake) && got.takes[0].frameCount === main.frameCount);
 		expect(`${label}: a rig posted for the X Bot is refused (INVALID_ARGUMENT)`, got.errors[2]?.code === "INVALID_ARGUMENT", JSON.stringify(got.errors[2]));
 		if (mode === "preload") expect(`${label}: body fits fetched ${got.counts.fetch}, synchronous XHR ${got.counts.xhr}`, got.counts.fetch >= 1 && got.counts.xhr === 0, JSON.stringify(got.counts));
 		else expect(`${label}: the compile still reads the fit, by synchronous XHR (${got.counts.xhr}), so the XHR count above is live`, got.counts.xhr >= 1, JSON.stringify(got.counts));
 	}
+	// a person on the adapted rig (people.js): her take baked on it, an X Bot puts a hand on her shoulder
+	const sk = skeletonFor("studio-worker"), bSpec = { schema: SPEC, fps: 24, frames: 120, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 2], heading: 180, until: 119 } }] };
+	const takeB = bakeTake(sk, compileSpec(bSpec, { sk, scene: motionScene([]) }).out, { position: [0, 0, 2], yaw: 180 }, { spec: bSpec });
+	const people = peopleOf([{ id: "char-b", subject: "Jiwoo", model: "studio-worker", z: 2, rot: 180 }], "char-a", () => takeB);
+	const reach = { schema: SPEC, fps: 24, frames: 90, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 1.52], heading: 0 } },
+		{ skill: "reachGrip", f0: 10, args: { anchor: "shoulder", side: "r", define: { kind: "person", person: "char-b", bone: "LeftArm" }, hold: 30 } }] };
+	const pJob = { model: "x-bot-tpose", scene: { ...motionScene([]), people }, spec: reach, bake: { position: [0, 0, 0], yaw: 0 } };
+	const pMain = runCompileJob({ ...pJob, rigs: { "studio-worker": rig } });
+	const got = childRun("preload", [pJob, { ...pJob, rigs: { "studio-worker": rig } }]);
+	expect(`(c) a person on an adapted rig: the worker needs her rig (without: ${got.errors[0]?.name ?? "no error"}), with it the take equals the main thread's (QA ${pMain.qa.total})`,
+		Object.keys(people).join() === "char-b" && got.errors[0] !== null && got.errors[1] === null && sameTake(got.takes[1], takeOf(pMain.take)), JSON.stringify(got.errors));
 	// ensureRig registers a rig once per JSON
 	const a = ensureRig("studio-once", rig), b = ensureRig("studio-once", structuredClone(rig)), moved = structuredClone(rig);
 	moved.bones[0].worldPos[1] += 1;

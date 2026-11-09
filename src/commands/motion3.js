@@ -110,7 +110,7 @@ export function register(registry, ports) {
 	const mounted = () => Boolean(ports.storeDomain?.("motion")) || "The motion owner is not mounted.";
 	const always = () => true;
 	const rigOf = character => {
-		// an adapted character carries its rig (rigs/posted.js): registered here, and sent with each compile job to the worker
+		// an adapted character carries its rig (rigs/posted.js): registered here, and sent with each compile job to the worker (rigsOf)
 		const sk = character.adaptedRig ? ensureRig(character.model, character.adaptedRig) : skeletonFor(character.model);
 		if (!sk) fail("TARGET_NOT_READY", `${character.subject || character.id} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
 		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before compiling motion.");
@@ -118,8 +118,16 @@ export function register(registry, ports) {
 	};
 	// the scene a compile sees: the objects, and the other characters' installed takes as moving bodies (people.js)
 	const sceneFor = character => {
-		const state = ports.state(), people = peopleOf(state.characters, character.id, id => owner().motionFor(id));
+		const state = ports.state();
+		// the other characters' adapted rigs first, so their takes count as people (people.js reads skeletonFor(take.rig))
+		for (const c of state.characters ?? []) if (c?.adaptedRig && c.id !== character.id) ensureRig(c.model, c.adaptedRig);
+		const people = peopleOf(state.characters, character.id, id => owner().motionFor(id));
 		return { ...motionScene(state.objects), ...(Object.keys(people).length ? { people } : {}) };
+	};
+	// the adapted rigs a compile job reads, for the worker: the character's and those of the people in its scene (people.js)
+	const rigsOf = (character, scene) => {
+		const want = new Set([character.model, ...Object.values(scene.people ?? {}).map(p => p.rig)]);
+		return Object.fromEntries((ports.state().characters ?? []).filter(c => c?.adaptedRig && want.has(c.model)).map(c => [c.model, c.adaptedRig]));
 	};
 	// one compile worker per editor in the browser, the calling thread elsewhere (motion3-compile.js)
 	const runner = createCompileRunner();
@@ -131,7 +139,8 @@ export function register(registry, ports) {
 	const compile = (character, spec, opts = {}, bake, taskId = null, scene = sceneFor(character)) => {
 		rigOf(character);
 		const placed = bake && { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0, ...bake };
-		return runner.run({ model: character.model, ...(character.adaptedRig ? { rig: character.adaptedRig } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
+		const rigs = rigsOf(character, scene);
+		return runner.run({ model: character.model, ...(Object.keys(rigs).length ? { rigs } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
 	};
 	// where a take was baked: the body's place and a hash of the scene's bodies (a take kept for the stop rule fits only
 	// there): 0.14 ms for 860 bodies, where their JSON took 0.9 ms and 295 KB a key
