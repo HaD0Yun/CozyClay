@@ -8,17 +8,19 @@
 //       the body carries changes none of it; a hand on a world point, a person or a resting object takes the arc off and
 //       still keeps retime out. Cut mid-fall the take has no landing: retime still leaves the air frames as keyed, the arc stays 1 g
 //       (a2) a keyed flight past the apex limit: fixed.ballistic.skipped reports it and the hips stay as keyed
-//       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, its keyed pops there stand, no blocking group
+//       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, its keyed pops there stand, no blocking group;
+//       a hop whose keyed arm snap lands on the impact frames still reads it (POP, blocking) at its keyed size, and the same hop without it is clean
 //       (a4) a hop keyed over a hurdle higher than its frames can carry it: the arc would enter the hurdle, so the flight
 //       keeps its frames and fixed.ballistic.skipped says how far off, what it entered and the frames it fits; the same
-//       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor gets the same; a re-time
+//       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor, or a carried bar's into a post, gets the same; a re-time
 //       into a slab overhead is left under fixed.spin.left
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
 //       rise at about 1.8 g with the feet planted (a support cannot pull the body down): DROP, its hint gives v/g
 //   (c) the flip skill's back tuck: the angular momentum drift is under SPIN_TOL with fix.spin and over it without; the
 //       total turn between takeoff and landing within 10 deg of the keyed turn; the landing clean (QA 0); all of it with a
-//       hand on the hip too. A 2 deg overshoot before landing is still re-timed. A rig
+//       hand on the hip too. The re-timed turn follows the rate the takeoff momentum predicts, (L0 - h) / I, the keyed one does not; the
+//       knee poles turn with the root (the same in the body as keyed). A 2 deg overshoot before landing is still re-timed. A rig
 //       missing a segment bone is reported under fixed.spin.left, not thrown on
 //   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open; keyed
 //       at an even rate (fix { spin: false }) QA says SPIN. Cut before it lands, fix.spin has no landing and QA still says SPIN
@@ -36,9 +38,10 @@ import { airRuns } from "../../src/motion3/qa/style.js";
 import { flights, runDrift, SPIN_TOL, DROP_LIMIT } from "../../src/motion3/qa/flight-checks.js";
 import { isBlocking } from "../../src/motion3/qa/blocking.js";
 import { spinFix } from "../../src/motion3/fix/spin.js";
-import { rotationVector } from "../../src/motion3/qa/inertia.js";
+import { rotationVector, momentumOf } from "../../src/motion3/qa/inertia.js";
 import { centerOfMass } from "../../src/motion3/qa/com.js";
-import { mul, T, ry, apply, add } from "../../src/motion3/compiler/math.js";
+import { mul, T, rx, ry, rz, apply, add, dot } from "../../src/motion3/compiler/math.js";
+import { tiltFrame } from "../../src/motion3/compiler/pose.js";
 import { gravityCheck } from "../bench/physics/checks.mjs";
 
 let failures = 0;
@@ -164,16 +167,33 @@ for (const cut of [40, 45, 50]) {
 	expect("(a3) parkour vault: the POPs are the keyed take's (its push-off knees at their keyed size), no blocking group, no more issues than the 13 of the baseline", pops(r) === pops(keyed) && blocking.length === 0 && r.qa.total <= 13, JSON.stringify({ total: r.qa.total, blocking: list(blocking), all: list(r.qa.groups), keyed: pops(keyed) }));
 }
 
+// (a3) a 0.3 m hop, f30-f44, its arms keyed to snap 100 deg in one frame at f39: the overlap layer lands the hands' pop on f44-f45,
+// the frames after landing the fix leaves to its impact. The snap is keyed, not the fix's: POP still reads it, blocking, at its keyed size
+{
+	const A = 30, N = 14, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]], on = () => ({ root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r });
+	const up = y => { const root = shift(pose0.root, [0, y, 0]); return { root, foot_l: shift(root, shift(off("l"), [0, 0.02, 0])), foot_r: shift(root, shift(off("r"), [0, 0.02, 0])) }; };
+	const hop = (snap, fix) => {
+		const keys = [{ f: 0, set: { ...pose0 } }, { f: 20, set: on() }, { f: 26, set: { ...on(), root: shift(pose0.root, [0, -0.12, 0]) } }, { f: A, set: on() }, { f: A + 7, set: up(0.3) }, { f: A + N, set: on() }, { f: A + N + 6, set: { ...on(), root: shift(pose0.root, [0, -0.1, 0]) } }, { f: A + N + 16, set: on() }];
+		if (snap) keys.push({ f: 39, set: { aswing_l: 0, aswing_r: 0 } }, { f: 40, set: { aswing_l: 100, aswing_r: 100 } }, { f: 41, set: { aswing_l: 100, aswing_r: 100 } });
+		return compileSpec({ schema: SPEC, fps: 24, frames: A + N + 20, keys: keys.sort((p, q) => p.f - q.f), fix }, { sk, scene: motionScene([]) });
+	};
+	const r = hop(true, { retime: false }), keyed = hop(true, { retime: false, ballistic: false, spin: false }), plain = hop(false, { retime: false });
+	const hand = q => q.qa.groups.find(g => g.kind === "POP" && /^LeftHand /.test(g.subject)), [, b] = r.out.flightRuns?.[0] ?? [0, 0], g = hand(r);
+	expect(`(a3) a keyed arm snap on the impact frames f${b + 1}-f${b + 3} of a moved flight: POP LeftHand still reads it, blocking, at its keyed size (${g?.worst} at f${g?.first}-f${g?.last}, keyed ${hand(keyed)?.worst})`,
+		r.out.flightRuns?.length === 1 && g && isBlocking(g) && g.worst === hand(keyed)?.worst && g.first > b && g.last <= b + 3 && !r.qa.ok, JSON.stringify({ runs: r.out.flightRuns, groups: r.qa.groups.map(x => `${x.kind} ${x.subject} f${x.first}-${x.last}`) }));
+	expect("(a3) the same hop without the snap: moved by the arc and QA clean (its push-off and impact read no POP)", plain.out.flightRuns?.length === 1 && plain.qa.total === 0, JSON.stringify(plain.qa.groups.map(x => `${x.kind} ${x.subject} f${x.first}`)));
+}
+
 // (a4) a hop over a 0.1 m thick hurdle, sparse keys, the feet riding the hips: keyed over a clean 0.6 m apex in 14 frames, whose arc allows 0.417 m
 const HOP_A = 30;
-function hurdleHop(apex, N, H, fix, checks, people) {
+function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 	const span = 1, z0 = -span / 2, z1 = span / 2, B = HOP_A + N, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]];
 	const on = z => { const root = shift(pose0.root, [0, 0, z]); return { root, foot_l: shift(pose0.foot_l, [0, 0, z]), foot_r: shift(pose0.foot_r, [0, 0, z]) }; };
 	const up = (y, z) => { const root = shift(pose0.root, [0, y, z]); return { root, foot_l: shift(root, shift(off("l"), [0, 0.02, 0])), foot_r: shift(root, shift(off("r"), [0, 0.02, 0])) }; };
 	const low = (z, y) => ({ ...on(z), root: shift(pose0.root, [0, y, z]) });
 	const keys = [{ f: 0, set: { ...pose0, ...on(z0) } }, { f: 20, set: on(z0) }, { f: 26, set: low(z0, -0.12) }, { f: HOP_A, set: on(z0) }, { f: HOP_A + Math.round(N / 2), set: up(apex, (z0 + z1) / 2) }, { f: B, set: on(z1) }, { f: B + 6, set: low(z1, -0.1) }, { f: B + 20, set: on(z1) }];
 	const box = H > 0 ? [{ id: "hurdle", name: "Hurdle", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, rotX: 0, rotZ: 0, scaleX: 1.2, scaleY: H, scaleZ: 0.1, footprint: { width: 1, depth: 1 }, height: 1 }] : [];
-	return compileSpec({ schema: SPEC, fps: 24, frames: B + 22, keys, ...(fix ? { fix } : {}), ...(checks ? { checks } : {}) }, { sk, scene: { ...motionScene(box), ...(people ? { people } : {}) } });
+	return compileSpec({ schema: SPEC, fps: 24, frames: B + 22, keys, ...(fix ? { fix } : {}), ...(checks ? { checks } : {}), ...more.spec }, { sk, scene: { ...motionScene([...box, ...(more.boxes ?? [])]), ...(people ? { people } : {}) } });
 }
 {
 	const keyed = hurdleHop(0.6, 14, 0.5, { ballistic: false, spin: false }), r = hurdleHop(0.6, 14, 0.5), past = r.fixed.ballistic?.skipped?.[0], list = q => q.qa.groups.map(g => `${g.kind} ${g.subject} ${g.worst}`), y = (q, f) => q.out.frames[f].s.P[I.Hips][1];
@@ -192,6 +212,18 @@ function hurdleHop(apex, N, H, fix, checks, people) {
 	const people = peopleOf([{ id: "b", subject: "B", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0 }, { id: "a", model: "y-bot-tpose" }], "a", id => (id === "b" ? take : null));
 	const r = hurdleHop(0.6, 14, 0, null, null, people), keyed = hurdleHop(0.6, 14, 0, { ballistic: false, spin: false }, null, people), past = r.fixed.ballistic?.skipped?.[0];
 	expect(`(a4) an arc deeper into a character keeps its frames (${past?.into?.[0]}, ${past?.depth} m; QA ${keyed.qa.total} -> ${r.qa.total})`, /x person:b/.test(past?.into?.join() ?? "") && r.qa.total === keyed.qa.total, JSON.stringify({ b: r.fixed.ballistic, on: r.qa.total, off: keyed.qa.total }));
+}
+
+// (a4) the hop carrying a 0.8 m bar in the right hand over a 0.8 m post: the keyed bar clears it, the arc (0.19 m lower) puts it in,
+// which only the gate's carried-object reading (qa/object-checks.js) sees: the flight keeps its frames; with no post it moves
+{
+	const cube = (id, x, y, z, sx, sy, sz) => ({ id, name: id, renderer: "cube", x, y, z, rot: 0, rotX: 0, rotZ: 0, scaleX: sx, scaleY: sy, scaleZ: sz, footprint: { width: 1, depth: 1 }, height: 1 });
+	const bar = cube("bar", -0.3, 0.8, -0.5, 0.8, 0.05, 0.05), post = cube("post", -0.29, 0, -0.05, 0.1, 0.8, 0.3);
+	const spec = { props: { p: { hand: "r", origin: ["RightHandIndex2", "RightHandMiddle2"], points: {} } }, objects: { bar: { prop: "p" } } };
+	const keyed = hurdleHop(0.6, 14, 0, { ballistic: false, spin: false }, null, null, { spec, boxes: [bar, post] }), r = hurdleHop(0.6, 14, 0, null, null, null, { spec, boxes: [bar, post] });
+	const free = hurdleHop(0.6, 14, 0, null, null, null, { spec, boxes: [bar] }), past = r.fixed.ballistic?.skipped?.[0];
+	expect(`(a4) a carried bar the arc would put into a post: the flight keeps its frames (${past?.into}, ${past?.depth} m; QA ${keyed.qa.total} -> ${r.qa.total}); with no post it moves`,
+		JSON.stringify(past?.into) === '["bar x post"]' && r.fixed.ballistic.runs === 0 && keyed.qa.total === 0 && r.qa.total === 0 && free.fixed.ballistic?.runs === 1 && !free.fixed.ballistic.skipped, JSON.stringify({ b: r.fixed.ballistic, free: free.fixed.ballistic, on: r.qa.groups.map(g => g.subject) }));
 }
 
 // (a4) legs reaching down from a body keyed high: the arc would put the soles through the floor
@@ -276,6 +308,25 @@ function hurdleHop(apex, N, H, fix, checks, people) {
 	expect(`(c) back tuck: the total turn from takeoff to landing (${r3(got)} deg) is within 10 deg of the keyed turn (${r3(keyedTurn)} deg)`, Math.abs(got - keyedTurn) < 10, `${got} vs ${keyedTurn}`);
 	expect("(c) back tuck: the landing is clean (QA 0) and output.fixed.spin reports frames, the worst re-time and the drift", on.qa.total === 0 && on.fixed.spin?.frames >= b - a + 1 && on.fixed.spin.max > 0 && on.fixed.spin.drift?.[1] < on.fixed.spin.drift?.[0],
 		JSON.stringify({ groups: on.qa.groups.map(g => `${g.kind} ${g.subject}`), spin: on.fixed.spin }));
+	// the takeoff momentum predicts the turn: about the keyed turn's axis n, L_n = h + I w stays the value of the first air frame, so w = (L_n - h) / I
+	const turnOf = (q, f) => mul(ry(q.out.baked.yaw?.[f] ?? 0), mul(rx(q.out.baked.pitch?.[f] ?? 0), rz(q.out.baked.roll?.[f] ?? 0)));
+	const n = (v => v.map(x => x / Math.hypot(...v)))(Array.from({ length: b - a + 2 }, (_, i) => rotationVector(mul(turnOf(off, a + i), T(turnOf(off, a + i - 1))))).reduce((s, v) => add(s, v), [0, 0, 0]));
+	const predicted = q => {
+		const rows = Array.from({ length: b - a - 1 }, (_, i) => { const f = a + 1 + i, m = momentumOf(sk, q.out.frames, f, 24), In = dot(apply(m.J, n), n), w = dot(rotationVector(mul(turnOf(q, f + 1), T(turnOf(q, f - 1)))), n) * 12; return { L: dot(m.L, n), In, w }; });
+		return Math.max(...rows.map(({ L, In, w }) => { const p = (rows[0].L - (L - In * w)) / In; return Math.abs(w - p) / Math.abs(p); }));
+	};
+	const [pOn, pOff] = [predicted(on), predicted(off)];
+	expect(`(c) back tuck: the re-timed turn rate is within 20% of what the takeoff momentum predicts every air frame (worst ${r3(pOn)}), the keyed one is not (${r3(pOff)})`, pOn < 0.2 && pOff > 0.4, JSON.stringify({ pOn, pOff }));
+	// the knee poles turn with the root: in the body's frame (the root's turn, pose.js's pole frame) they stay as keyed while their world direction moves
+	const poleFrame = (q, f) => tiltFrame(q.out.baked.yaw?.[f] ?? 0, q.out.baked.pitch?.[f] ?? 0, q.out.baked.roll?.[f] ?? 0)?.R ?? ry(q.out.baked.yaw?.[f] ?? 0);
+	const angle = (u, v) => (Math.acos(Math.max(-1, Math.min(1, dot(u, v) / Math.hypot(...u) / Math.hypot(...v)))) * 180) / Math.PI;
+	let inBody = 0, inWorld = 0;
+	for (const ch of ["knee_l", "knee_r"]) for (let f = a; f <= b; f++) {
+		const world = q => apply(poleFrame(q, f), q.out.baked[ch][f]);
+		inBody = Math.max(inBody, angle(apply(T(turnOf(on, f)), world(on)), apply(T(turnOf(off, f)), world(off))));
+		inWorld = Math.max(inWorld, angle(world(on), world(off)));
+	}
+	expect(`(c) back tuck: the knee poles turn with the root (in the body ${inBody.toExponential(1)} deg off keyed, in the world up to ${r3(inWorld)} deg)`, inBody < 1e-3 && inWorld > 5, JSON.stringify({ inBody, inWorld }));
 	// fix.spin turns the body about its hips, which moves the centre of mass: the second arc puts it back on the parabola
 	const comFall = fallError(f => centerOfMass(sk, on.out.frames[f].s)[1], a + 1, b - 1);
 	expect(`(c) back tuck: after fix.spin the centre of mass still falls at 1 g (off by ${r3(comFall)} g)`, comFall < 0.01, comFall);
