@@ -36,7 +36,7 @@ export function adaptCharacterScene(scene, { assetId, name = "", template = null
 }
 
 /** Stores the file and reads its skeleton: the new character's fields, its rig registered (character-rig.js). */
-export async function importCharacterFile(file) {
+async function importCharacterFile(file) {
 	const { asset } = await importMeshFile(file);
 	const db = await openAssetDb();
 	try {

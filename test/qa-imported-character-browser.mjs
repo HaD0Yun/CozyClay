@@ -185,6 +185,14 @@ assert.ok(await waitFor(`${hasTake(imported.model)} && Boolean(window.__cozyclay
 const reWorst = await check(sk, await takeNow(), sourceOf, "reloaded");
 assert.ok(reWorst.hips < 1 && reWorst.limbs < 2, `the reloaded character does not play its take on its bones (${JSON.stringify(reWorst)})`);
 
+// --- 6. forcing a naming convention adapts the file again, as a rig of its own ---------------------------------------
+await evaluate(`(() => { const select = document.querySelector('select[data-rig-template]'); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; set.call(select, 'ue5'); select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+const forcedModel = imported.model.replace(/-auto$/, "-ue5");
+assert.ok(await waitFor(`Boolean(document.querySelector('[data-rig-report=${JSON.stringify(forcedModel)}]'))`, 30_000), "forcing ue5 did not re-adapt the character");
+const forced = (await characters()).find(c => c.id === imported.id);
+console.log(`forced: ${forced.model}, template ${forced.rigImport.template}; panel ${JSON.stringify(await evaluate("document.querySelector('[data-rig-detected]')?.innerText ?? null"))}`);
+assert.equal(forced.rigImport.template, "ue5");
+
 assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 console.log(`PASS imported ue5 character plays on its own bones (hips ${worst.hips.toFixed(3)} cm, limbs ${worst.limbs.toFixed(3)} cm; reloaded ${reWorst.hips.toFixed(3)} / ${reWorst.limbs.toFixed(3)} cm); ${xbot.model} hips ${xWorst.hips.toFixed(3)} cm, limbs ${xWorst.limbs.toFixed(3)} cm; page errors 0; screenshot ${out}/imported-walk.png`);
 ws.close();
