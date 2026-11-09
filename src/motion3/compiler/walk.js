@@ -23,7 +23,7 @@
 // little flexed (WRIST). The pelvis and chest turns, the side sway and the dip each peak at their own phase of the step
 // (the constants below). All of it fades in over the first steps and back out on the closing one.
 import { add, sub, scale, len, apply, ry, clamp } from "./math.js";
-import { rigScale } from "./skeleton.js";
+import { rigScale, soleHeel } from "./skeleton.js";
 import { walkRhythm } from "./gait-rhythm.js";
 import { fitPelvis, fitTrail, fitSwing, pivot, brisk } from "./walk-pelvis.js";
 
@@ -71,7 +71,7 @@ export function walk(gen, keys, sk, tag = "walk") {
 	const ank = P[I.LeftFoot][1], standY = P[I.Hips][1];
 	const footRest = { l: sub(P[I.LeftToeBase], P[I.LeftFoot]), r: sub(P[I.RightToeBase], P[I.RightFoot]) };
 	// QA's heel point from the ankle of a flat foot at yaw 0; a foot pitched `deg` about a point on the ground
-	const heelOff = [0, 0.005 - ank, -0.045];
+	const [heelBack, heelUp] = soleHeel(sk), heelOff = [0, heelUp - ank, -heelBack];
 	const flatAt = { l: -Infinity, r: -Infinity };
 	// Pelvis heights from the leg length: straight-ish over the stance foot, low enough at
 	// double support that the trailing leg still reaches (2% knee slack).

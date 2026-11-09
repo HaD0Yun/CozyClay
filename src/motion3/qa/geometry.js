@@ -1,7 +1,7 @@
 // Collision proxies for motion QA: body capsules on Mixamo joints, scene objects as oriented
 // boxes (base pivot = bottom centre, CozyClay convention), the head as the measured ellipsoid.
 import { add, sub, scale, dot, len, apply, T, clamp } from "../compiler/math.js";
-import { bonePoint, rigScale } from "../compiler/skeleton.js";
+import { bonePoint, rigScale, soleHeel } from "../compiler/skeleton.js";
 
 // [part, from joint, to joint, radius m]. Radii are fitted to the X/Y Bot skin; capsulesFor scales them to a rig.
 export const CAPSULES = [
@@ -103,7 +103,7 @@ const below = (sk, s, b, drop) => (drop ? bonePoint(s, b, apply(T(sk.restWorldRo
 export function solePoints(sk, s, side) {
 	const I = sk.index, P = sk.restWorldPos, drop = sk.landmarks.sole ?? {};
 	const foot = I[`${side}Foot`], toe = I[`${side}ToeBase`], toeEnd = I[`${side}Toe_End`] ?? toe;
-	const [back, up] = drop.heel ?? [0.045, 0.005], heelRest = [P[foot][0], up, P[foot][2] - back];
+	const [back, up] = soleHeel(sk), heelRest = [P[foot][0], up, P[foot][2] - back];
 	const heelLocal = apply(T(sk.restWorldRot[foot]), sub(heelRest, P[foot]));
 	return { heel: bonePoint(s, foot, heelLocal), ball: below(sk, s, toe, drop.ball), tip: below(sk, s, toeEnd, drop.tip) };
 }

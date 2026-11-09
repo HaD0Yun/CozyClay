@@ -44,6 +44,9 @@ export function createSkeleton(rigJson) {
  */
 export const rigScale = (sk, part) => sk?.landmarks?.scale?.[part] ?? 1;
 
+/** [back, up] of the heel point from the ankle at bind (m): landmarks.sole.heel on an adapted rig, else the X/Y Bot's. */
+export const soleHeel = sk => sk.landmarks?.sole?.heel ?? [0.045, 0.005];
+
 /** Rest pose as a mutable world-space state { P, R }. */
 export function restState(sk) {
 	return { P: sk.restWorldPos.map(p => p.slice()), R: sk.restWorldRot.map(r => r.map(row => row.slice())) };
