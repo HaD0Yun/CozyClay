@@ -2,7 +2,9 @@
 // The bytes go to the asset store, as an imported prop's do (scene-mesh.js importMeshFile, putAsset). The skeleton is
 // read from the parsed three.js scene (rigs/read-skeleton.js) and adapted (rigs/adapt.js); the entry keeps the rig and
 // the adapter's report (character-rig.js). A file the player could not drive is refused with a sentence for a toast:
-// no bones, two bones of one name, or a node that is not a bone between two bones.
+// no bones, two bones of one name, or a node that is not a bone between two bones. three's FBXLoader nests a copy of
+// each bone that two skinned meshes share under the bone, with its name and an identity transform: that copy is not a
+// joint (sharedBoneCopy), so the copy follows the bone it sits under.
 import { importMeshFile } from "./scene-mesh.js";
 import { openAssetDb, putAsset } from "./scene-assets.js";
 import { loadMeshScene } from "./scene-mesh-cache.js";
@@ -13,13 +15,18 @@ import { nextCharacterId } from "./stage-startup-defaults.js";
 import { ko } from "./locale.js";
 
 const refuse = message => { throw Object.assign(new Error(message), { code: "INVALID_ARGUMENT" }); };
+const IDENTITY = 1e-9;
+
+/** A bone under a bone of its own name, at the parent's place and turn (FBXLoader's copy for a second skinned mesh). */
+const sharedBoneCopy = o => o.parent?.isBone && o.parent.name === o.name && o.position.lengthSq() < IDENTITY
+	&& Math.abs(Math.abs(o.quaternion.w) - 1) < IDENTITY;
 
 /** The character fields of the skeleton in a parsed scene: { model, adaptedRig, rigImport } (character-rig.js). */
 export function adaptCharacterScene(scene, { assetId, name = "", template = null }) {
 	const bones = [];
-	scene.traverse(o => { if (o.isBone) bones.push(o); });
+	scene.traverse(o => { if (o.isBone && !sharedBoneCopy(o)) bones.push(o); });
 	if (!bones.length) refuse("That file has no skeleton: import it as a prop instead");
-	const read = readThreeSkeleton(scene), names = new Set(read.sources);
+	const read = readThreeSkeleton(scene, { bones }), names = new Set(read.sources);
 	if (names.size !== read.sources.length) refuse("That skeleton has two bones with the same name");
 	read.raw.bones.forEach((b, i) => {
 		if (b.parent >= 0 && bones[i].parent !== bones[b.parent]) refuse(`The bone ${read.sources[i]} hangs under a node that is not a bone`);
