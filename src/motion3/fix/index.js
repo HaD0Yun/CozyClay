@@ -82,33 +82,64 @@ const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), e
  * trip whose 2- and 3-frame flights were held slid its planted feet more. So the take with them is kept only when QA
  * (runMotionQa, as pipeline.js reads it) is no worse than the take that holds only the runs of MIN_RUN frames or more,
  * by pipeline.js keptRetime's rule (qa/verdict.js noWorse); else that take stands, and fixed.retime.air says which.
+ * One exception: where the take without them has fewer flights of under MIN_RUN frames that the arc moves (ballistic.js:
+ * between real contacts), the holds stand (fixed.retime.held says so). A standing hop's 3-frame flight re-timed is a
+ * 2-frame air run the arc does not reach (12.4 m/s^2 RMS off g, 0 held); QA read the re-timed hop 7 problems, held 12.
+ * Cost: the take without the holds is solved only where retime read different windows or times without them (retime.js
+ * note.same), and the pass that stands is put back (restore), not solved again.
  */
 export function applyFixes(out, fix, engine, opts = {}) {
 	const keys = out.keys, short = fix.retime && opts.whole !== false ? fallingRuns(out, airRuns(out, out.ctx.spec?.checks?.supports ?? [])).filter(([a, b]) => b - a + 1 < MIN_RUN) : [];
-	const first = runFixes(out, fix, engine, opts, [], true), missed = first.retime ? retimedAir(out) : [], at = r => r.map(([a, b]) => `f${a}-f${b}`).join(", ");
+	const note = {}, first = runFixes(out, fix, engine, opts, [], short, note), missed = first.retime ? retimedAir(out) : [], at = r => r.map(([a, b]) => `f${a}-f${b}`).join(", ");
 	if (!missed.length && !short.length) return first;
 	let held = first, air = [];
 	if (missed.length) {
-		const again = fromKeys(out, fix, engine, opts, keys, missed), fast = r => r.retime?.stillFast ?? 0;
+		const prev = [snapshot(out), note.same], again = fromKeys(out, fix, engine, opts, keys, missed, short, note), fast = r => r.retime?.stillFast ?? 0;
 		if (fast(again) <= fast(first)) {
 			const left = again.retime ? retimedAir(out) : [];
 			if (again.retime) again.retime = { ...again.retime, air: `kept the key intervals of ${at(missed)} as keyed: a later fix made an air run there${left.length ? `; ${at(left)} still re-timed` : ""}` };
 			[held, air] = [again, missed];
 		} else {
-			held = fromKeys(out, fix, engine, opts, keys, []);
+			restore(out, prev[0]);
+			note.same = prev[1];
 			held.retime = { ...held.retime, air: `re-timed ${at(missed)}, an air run a later fix made: keeping its key interval as keyed left ${fast(again)} frames too fast against ${fast(first)}` };
 		}
+		if (!air.length && !short.length) return held;
 	}
-	const withHold = qaOf(out), plain = fromKeys(out, fix, engine, opts, keys, [], false), without = qaOf(out), runs = at([...short, ...air].sort((p, q) => p[0] - q[0]));
+	const runs = at([...short, ...air].sort((p, q) => p[0] - q[0]));
+	// retime read the same windows and times without those holds (retime.js note.same): the take without them is this one
+	if (note.same) return held;
+	const was = snapshot(out), plain = fromKeys(out, fix, engine, opts, keys, [], []);
 	if (!plain.retime && !held.retime) return plain;
-	if (!noWorse(withHold, without)) {
-		const v = compareQa(withHold, without);
-		if (plain.retime) plain.retime = { ...plain.retime, air: `re-timed ${runs} as well: holding their key intervals as keyed read worse on QA (summed severity ${v.sev[1]} -> ${v.sev[0]}, problems ${v.problems[1]} -> ${v.problems[0]})` };
-		return plain;
+	const keep = why => { restore(out, was); if (held.retime) held.retime = { ...held.retime, held: `kept the key intervals of ${runs} as keyed: ${why}` }; return held; };
+	// a 3-frame flight the arc moves (ballistic.js: between real contacts) that the re-time without the holds takes away
+	const arcs = r => (r.ballistic?.at ?? []).filter(s => { const [a, b] = s.slice(1).split("-f").map(Number); return b - a + 1 < MIN_RUN; }).length;
+	if (arcs(plain) < arcs(held)) return keep(`without them the arc moves ${arcs(plain)} flights of under ${MIN_RUN} frames against ${arcs(held)}`);
+	const without = qaOf(out), mine = snapshot(out);
+	restore(out, was);
+	const withHold = qaOf(out);
+	if (noWorse(withHold, without)) return keep("QA no worse than without (pipeline.js keptRetime's rule)");
+	restore(out, mine);
+	const v = compareQa(withHold, without);
+	if (plain.retime) plain.retime = { ...plain.retime, air: `re-timed ${runs} as well: holding their key intervals as keyed read worse on QA (summed severity ${v.sev[1]} -> ${v.sev[0]}, problems ${v.problems[1]} -> ${v.problems[0]})` };
+	return plain;
+}
+
+/** What a fix pass leaves in out and out.ctx (their fields, the frames, the entries of the maps the passes share), for restore. */
+function snapshot(out) {
+	const { ctx } = out, maps = [...["push", "swivel", "skinPush"].flatMap(m => Object.values(ctx[m] ?? {})), ...["sockets", "rims", "supports"].map(m => ctx[m]).filter(Boolean)];
+	return { out: { ...out }, ctx: { ...ctx }, frames: out.frames.slice(), maps: maps.map(m => [m, [...m]]) };
+}
+
+/** Puts back what snapshot read, instead of solving that pass again: a later fromKeys bakes new channels and frames, so the saved ones stand untouched. */
+function restore(out, s) {
+	for (const [o, saved] of [[out, s.out], [out.ctx, s.ctx]]) {
+		for (const k of Object.keys(o)) if (!(k in saved)) delete o[k];
+		Object.assign(o, saved);
 	}
-	const kept = fromKeys(out, fix, engine, opts, keys, air);
-	if (kept.retime) kept.retime = { ...kept.retime, ...(held.retime?.air ? { air: held.retime.air } : {}), held: `kept the key intervals of ${runs} as keyed: QA no worse than without (pipeline.js keptRetime's rule)` };
-	return kept;
+	s.frames.forEach((fr, i) => { out.frames[i] = fr; });
+	out.frames.length = s.frames.length;
+	for (const [m, entries] of s.maps) { m.clear(); for (const [k, v] of entries) m.set(k, v); }
 }
 
 /** QA of out as pipeline.js reads it (frame-range checks following the time map), unexplained. */
@@ -119,13 +150,13 @@ function qaOf(out) {
 	return runMotionQa(out.ctx.sk, out, { ...spec, checks: c }, { explain: false });
 }
 
-/** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` too, and of 3-frame runs when `short` (applyFixes). */
-function fromKeys(out, fix, engine, opts, keys, air, short = true) {
+/** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` and of the 3-frame runs `short` too (applyFixes). */
+function fromKeys(out, fix, engine, opts, keys, air, short, note) {
 	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns"]) delete out[k];
 	for (const m of ["push", "swivel", "skinPush"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
 	engine.rebake(keys);
 	engine.solve(engine.all());
-	return runFixes(out, fix, engine, opts, air, short);
+	return runFixes(out, fix, engine, opts, air, short, note);
 }
 
 /** The final take's falling air runs (qa/flight-checks.js fallingRuns) whose frames retime moved, as frames before the retime. */
@@ -138,14 +169,14 @@ function retimedAir(out) {
 		.map(([a, b]) => [Math.max(0, Math.floor(from(a))), Math.min(n - 1, Math.ceil(from(b)))]);
 }
 
-function runFixes(out, fix, engine, { whole = true } = {}, air, short) {
+function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	const supports = out.ctx.spec?.checks?.supports ?? [];
 	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 3 frames or more; a walk's one-frame lift is none)
 	if (fix.retime && whole) {
-		// the holds round 5 added (a 3-frame run when `short`, a run a later fix made: `air`) are read as held by retime's excess too
-		const falling = fallingRuns(out, airRuns(out, supports)), few = ([a, b]) => b - a + 1 < MIN_RUN;
-		put("retime", retime(out, engine, [...falling.filter(r => short || !few(r)), ...air], [...(short ? falling.filter(few) : []), ...air]));
+		// the holds round 5 added (the 3-frame runs `short` of the first solve, a run a later fix made: `air`) are read as held by retime's excess too
+		const long = fallingRuns(out, airRuns(out, supports)).filter(([a, b]) => b - a + 1 >= MIN_RUN);
+		put("retime", retime(out, engine, [...long, ...short, ...air], [...short, ...air], short.length || air.length ? long : null, note));
 	}
 	if (fix.slide) put("ground", liftSoles(out, engine));
 	if (fix.reach) put("reachLegs", lowerHips(out, engine));

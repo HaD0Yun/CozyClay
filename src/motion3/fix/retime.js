@@ -23,12 +23,15 @@ const keysOf = out => [...new Set(out.keys.map(k => k.f))].sort((p, q) => p - q)
  * moved the key at f45 to f49.3, a planted foot 17 cm off it). `own` are the holds fix/index.js applyFixes weighs on QA
  * (3-frame runs, runs a later fix made); a falling run of 4 frames or more is held as at 28ad5074, its landing counted.
  */
-const excess = (out, air, keyFrames, own) => {
-	const lim = out.ctx.spec?.checks?.limits, e = speedExcess(out.ctx.sk, out, lim, { ...QA_LIMITS, ...lim }), n = e.length;
+const excess = (out, air, keyFrames, own, raw = rawExcess(out)) => {
+	const e = raw.slice(), n = e.length;
 	for (const [a, b] of air) for (let f = a; f <= b; f++) e[f] = 0;
 	for (const [p, q] of held(own, keyFrames, n)) for (let f = p + 1; f <= Math.min(n - 1, q + 1); f++) e[f] = 0;
 	return e;
 };
+
+/** QA's too-fast reading of each frame (qa/style.js speedExcess, the spec's limits over QA's). */
+const rawExcess = out => { const lim = out.ctx.spec?.checks?.limits; return speedExcess(out.ctx.sk, out, lim, { ...QA_LIMITS, ...lim }); };
 
 /**
  * The key intervals [p, q] that hold each air run (frames of out): the last key at or before a - 1 to the first at or after
@@ -77,20 +80,30 @@ function spread(e, cuts) {
 	return { T, stretch: Math.max(...dur.map((d, i) => (d * scale) / segs[i].len)) };
 }
 
-/** air: the take's falling air runs (qa/flight-checks.js fallingRuns), whose key intervals stay as keyed; own: those of them excess reads as held (excess). */
-export function retime(out, engine, air = [], own = []) {
+/** The windows' breakpoints (cuts) and their new times (T, stretch) for excess e, no window reaching into a held interval of air. */
+function piecesOf(e, air, keyFrames, n) {
+	const wins = air.length ? outside(windows(e, keyFrames, n), held(air, keyFrames, n), e) : windows(e, keyFrames, n);
+	return wins.map(([a, b]) => {
+		const cuts = [...new Set([a, ...keyFrames.filter(f => f > a && f < b), b])].sort((p, q) => p - q);
+		return { cuts, ...spread(e, cuts) };
+	});
+}
+
+/**
+ * air: the take's falling air runs (qa/flight-checks.js fallingRuns), whose key intervals stay as keyed; own: those of them
+ * excess reads as held (excess). With `bare` (air without own), note.same says whether every pass re-timed as it would
+ * holding bare alone: then the take is the same without the holds own adds (fix/index.js applyFixes weighs those).
+ */
+export function retime(out, engine, air = [], own = [], bare = null, note = {}) {
 	const n = out.frames.length, maps = [];
 	let segments = 0, stretch = 1;
+	note.same = true;
 	for (let pass = 0; pass < PASSES; pass++) {
-		const keyFrames = keysOf(out), e = excess(out, air, keyFrames, own);
-		const wins = air.length ? outside(windows(e, keyFrames, n), held(air, keyFrames, n), e) : windows(e, keyFrames, n);
-		if (!wins.length) break;
-		const pieces = wins.map(([a, b]) => {
-			const cuts = [...new Set([a, ...keyFrames.filter(f => f > a && f < b), b])].sort((p, q) => p - q), r = spread(e, cuts);
-			stretch = Math.max(stretch, r.stretch);
-			return { cuts, T: r.T };
-		});
-		segments += wins.length;
+		const keyFrames = keysOf(out), raw = rawExcess(out), e = excess(out, air, keyFrames, own, raw), pieces = piecesOf(e, air, keyFrames, n);
+		if (bare && note.same) note.same = JSON.stringify(piecesOf(excess(out, bare, keyFrames, [], raw), bare, keyFrames, n)) === JSON.stringify(pieces);
+		if (!pieces.length) break;
+		for (const r of pieces) stretch = Math.max(stretch, r.stretch);
+		segments += pieces.length;
 		const map = f => {
 			for (const { cuts, T } of pieces) {
 				if (f < cuts[0] || f > cuts[cuts.length - 1]) continue;
