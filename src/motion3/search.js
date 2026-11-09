@@ -8,6 +8,7 @@ import { compileMotion } from "./compiler/compile.js";
 import { bakeChannels, flowOptions } from "./compiler/channels.js";
 import { expandGenerators } from "./compiler/walk.js";
 import { runMotionQa } from "./qa/index.js";
+import { airRuns } from "./qa/style.js";
 import { weightOf } from "./qa/severity.js";
 
 const INT_FIELDS = new Set(["f", "f0", "steps", "period", "swing", "until", "reach", "hold", "release"]);
@@ -61,6 +62,26 @@ function dirtyWindow(spec, params, mid, prepare, sk) {
 	return a > b ? null : [Math.max(0, a - 8), Math.min(spec.frames - 1, b + 8)];
 }
 
+/**
+ * The window widened to hold, 8 frames past each end, every air run of 4 frames or more it reaches (style.js airRuns of the
+ * middle spec's first solve). A window that cuts a flight compiles another take: the flight fixes leave a run with no
+ * takeoff or landing, and QA reads that run against no arc (a back tuck compiled as f26-f43: hips 0.308 m off the whole
+ * compile, SPIN at f33). The middle spec's first solve stands for every trial (no fixes: air runs a fix makes are not seen).
+ */
+function holdFlights(window, exp, { sk, scene }) {
+	if (!window) return window;
+	const out = compileMotion({ fps: 24, ...exp }, { sk, scene }, { fixes: false }), runs = airRuns(out, exp.checks?.supports ?? []).filter(([p, q]) => q - p >= 3);
+	let [a, b] = window, grew = true;
+	while (grew) {
+		grew = false;
+		for (const [p, q] of runs) {
+			const na = Math.max(0, Math.min(a, p - 8)), nb = Math.min(exp.frames - 1, Math.max(b, q + 8));
+			if (p <= b && q >= a && (na !== a || nb !== b)) { [a, b, grew] = [na, nb, true]; }
+		}
+	}
+	return [a, b];
+}
+
 /** Halton point i (1-based) in [0, 1]^k. */
 const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29];
 const halton = (i, k) => Array.from({ length: k }, (_, d) => { let f = 1, r = 0, n = i; const p = PRIMES[d % PRIMES.length]; while (n > 0) { f /= p; r += f * (n % p); n = Math.floor(n / p); } return r; });
@@ -72,7 +93,7 @@ const halton = (i, k) => Array.from({ length: k }, (_, d) => { let f = 1, r = 0,
 export function searchParams(spec, params, { sk, scene }, prepare) {
 	const t0 = performance.now(), budget = Math.max(1, Math.min(64, Math.round(spec.search?.budget ?? 32)));
 	const mid = params.map(p => snap(p, (p.lo + p.hi) / 2));
-	const window = dirtyWindow(spec, params, mid, prepare, sk);
+	const window = holdFlights(dirtyWindow(spec, params, mid, prepare, sk), prepare(resolveParams(spec, params, mid)), { sk, scene });
 	const cache = new Map();
 	let evals = 0, best = null;
 	const evaluate = values => {

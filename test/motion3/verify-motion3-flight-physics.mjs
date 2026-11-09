@@ -31,6 +31,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileSpec } from "../../src/motion3/pipeline.js";
+import { compileMotion } from "../../src/motion3/compiler/compile.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { bakeTake } from "../../src/motion3/take.js";
@@ -356,6 +357,17 @@ function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 	// the landing's one-frame POP goes unread only on a flight the ballistic fix moved
 	const kept = flip({ ballistic: false });
 	expect("(c) back tuck with fix { ballistic: false }: the landing reads POP (only a flight the ballistic fix moved is exempt)", kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
+}
+
+// (c) the back tuck with an open head_pitch keyed f36-f43, after the flight: search compiles only the frames a parameter changes, and
+// that window (f25-f51) cut the flight f22-f35, a take with no takeoff, hips 0.308 m off and SPIN, so search spent 21 compiles on a
+// cost the whole take does not have. The window holds every air run it reaches, 8 frames past each end
+{
+	const spec = { schema: SPEC, fps: 24, frames: "auto", use: [stand, { skill: "flip", f0: 6, args: { kind: "back" } }], keys: [{ f: 36, set: { head_pitch: 0 } }, { f: 38, set: { head_pitch: { range: [-10, 10] } } }, { f: 43, set: { head_pitch: 0 } }] };
+	const r = compileSpec(structuredClone(spec), { sk, scene: motionScene([]) }), w = r.search?.window ?? [0, 0], [a, b] = flightOf(r)[0] ?? [0, 0];
+	const out = compileMotion({ fps: 24, ...r.expanded }, { sk, scene: motionScene([]) }, { window: w }), off = Math.max(...out.frames.map((q, i) => Math.hypot(...[0, 1, 2].map(k => q.s.P[I.Hips][k] - r.out.frames[w[0] + i].s.P[I.Hips][k]))));
+	expect(`(c) back tuck with an open head_pitch after the flight: search's window f${w[0]}-f${w[1]} holds the flight f${a}-f${b}, its trial reads the whole take's hips (${off.toExponential(1)} m off) and costs ${r.search?.cost} in ${r.search?.evals} compile`,
+		w[0] <= a - 8 && w[1] >= b + 8 && off < 1e-9 && r.search?.cost === 0 && r.search.evals === 1 && r.qa.total === 0, JSON.stringify({ search: r.search, flight: [a, b] }));
 }
 
 // (c) the same back tuck with the right hand on its own hip: the hand rides the body, so the flight and SPIN stay
