@@ -17,12 +17,13 @@ import { adaptRig } from "../../src/motion3/rigs/adapt.js";
 import { TEMPLATES, detectTemplate } from "../../src/motion3/rigs/templates.js";
 import { sourcePose } from "../../src/motion3/rigs/adapt-pose.js";
 import { skeletonFor, registerRig } from "../../src/motion3/rigs/index.js";
-import { createSkeleton, restState } from "../../src/motion3/compiler/skeleton.js";
+import { createSkeleton, restState, soleHeel } from "../../src/motion3/compiler/skeleton.js";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { bodyFor, bodyDistance } from "../../src/motion3/body.js";
 import { CAPSULES, capsulesFor, solePoints } from "../../src/motion3/qa/geometry.js";
 import { palmPoint } from "../../src/motion3/compiler/limbs.js";
+import { standClearance } from "../../src/motion3/skills/stance.js";
 import { add, sub, scale, dot, len, mul, apply, T, rx, ry, rz, angle, dist, matFromQuat, quatFromMat } from "../../src/motion3/compiler/math.js";
 
 let failures = 0;
@@ -482,6 +483,68 @@ function retargetOff(raw, out, n) {
 	registerRig("test-long-foot", rig);
 	const sk = skeletonFor("test-long-foot"), s = restState(sk), back = s.P[sk.index.LeftFoot][2] - solePoints(sk, s, "Left").heel[2];
 	expect(`a foot 1.2 as long: the heel point ${back.toFixed(4)} m behind the ankle (0.045 x ${sk.landmarks.scale.foot})`, Math.abs(back - 0.045 * sk.landmarks.scale.foot) < 1e-4 && sk.landmarks.scale.foot > 1.15, JSON.stringify(sk.landmarks.sole));
+}
+
+// 4l. a long ankle-to-ball reach (1.9 m tall, the ball 0.16 m ahead of the ankle, about a tall person's): the swing heel
+// comes down onto the floor, not along it. Before, the foot's pitch stepped back on the last swing frame and held the heel
+// level 2-3 mm over the floor while the foot moved 1.3 cm: QA read a planted heel sliding (SLIDE 1.2-1.7 cm, 7 of 12 targets
+// on a rig like this one). The heel point the strike pivots on is QA's (soleHeel): pivoting on the X Bot's, 1.5 cm forward of
+// this rig's, the toes-up strike dipped the heel 1.6 mm under its flat height.
+{
+	const H = 1.9, { raw } = posed(({ P }) => {
+		for (const n of REF.names) P[n] = scale(P[n], H / 1.8197);
+		for (const S of SIDES) {
+			const dz = 0.16 - (P[`${S}ToeBase`][2] - P[`${S}Foot`][2]);
+			for (const t of ["ToeBase", "Toe_End"]) P[`${S}${t}`] = add(P[`${S}${t}`], [0, 0, dz]);
+		}
+	});
+	registerRig("test-long-reach", adaptRig(raw).rig);
+	const sk = skeletonFor("test-long-reach"), flat = soleHeel(sk)[1];
+	for (const to of [[1, 2], [-2, 1], [2.23, 1.63], [3, 3]]) {
+		const r = compileSpec({ schema: SPEC, fps: 24, frames: "auto", use: [stand, { skill: "walkTo", f0: 10, args: { to } }] }, { sk, scene: motionScene([]) });
+		const low = Math.min(...r.out.frames.flatMap(({ s }) => SIDES.map(S => solePoints(sk, s, S).heel[1])));
+		expect(`ball 0.16 m ahead of the ankle at 1.9 m, walk to ${JSON.stringify(to)}: QA ${r.qa.total}, the heel no lower than its flat height (${(low * 1000).toFixed(2)} mm, flat ${(flat * 1000).toFixed(2)} mm)`,
+			r.qa.total === 0 && low > flat - 2e-4, JSON.stringify(issues(r)));
+	}
+}
+
+// 4m. the stance search's hanging arm (skills/stance.js) is the rig's own: arms 1.25 as long hang 1.25 as far, so a low box
+// just under the hand stands as close to it as one just under the X Bot's hand does to the X Bot's
+{
+	const { raw } = posed(({ P }) => {
+		for (const S of SIDES) {
+			const sh = P[`${S}Arm`];
+			for (const j of REF.subtree[REF.index[`${S}ForeArm`]]) P[REF.names[j]] = add(sh, scale(sub(P[REF.names[j]], sh), 1.25));
+		}
+	});
+	registerRig("test-long-arms", adaptRig(raw).rig);
+	const near = sk => {
+		const P = sk.restWorldPos, I = sk.index, sh = P[I.RightArm], hip = P[I.Hips], x = sh[0] - 0.04 - hip[0], hand = sh[1] - 0.62 * (sk.landmarks.scale?.arm ?? 1);
+		const box = motionScene([{ id: "box", name: "Box", renderer: "cube", x, y: 0, z: sh[2] - hip[2], rot: 0, rotX: 0, rotZ: 0, scaleX: 0.03, scaleY: hand - 0.03, scaleZ: 0.03, footprint: { width: 1, depth: 1 }, height: 1 }]);
+		return standClearance(sk, box, [0, 0], 0);
+	};
+	const long = skeletonFor("test-long-arms"), a = near(long), b = near(xb);
+	expect(`arms ${long.landmarks.scale.arm} as long: a box 3 cm under the hanging hand clears it by ${a.toFixed(4)} m, as the X Bot's (${b.toFixed(4)} m)`, Math.abs(long.landmarks.scale.arm - 1.25) < 0.01 && Math.abs(a - b) < 1e-3, `${a} ${b}`);
+}
+
+// 4n. a non-finite bone value is refused by name (before, a finger with localPos [NaN, 0, 0] adapted with NaN joints and
+// compiled a walk of NaN frames)
+for (const [field, at, v] of [["localPos", "mixamorig:LeftHandIndex2", [NaN, 0, 0]], ["localQuat", "mixamorig:Spine1", [0, 0, Infinity, 1]]]) {
+	const bones = xBot.bones.map(b => ({ name: `mixamorig:${b.name}`, parent: b.parent, localPos: b.localPos, localQuat: b.localQuat }));
+	bones.find(b => b.name === at)[field] = v;
+	const refused = (() => { try { adaptRig({ units: "cm", bones }); return ""; } catch (e) { return e.message; } })();
+	expect(`${field} ${v.join(", ")} on ${at}: refused, naming the bone`, refused.includes(at) && refused.includes(field), refused);
+}
+
+// 4o. a skeleton retired by registerRig before anything asked for its body still gets its own rig's body, not the new rig's
+{
+	const a = adaptRig(synth(CASES[1]).raw).rig, b = adaptRig(synth(CASES[7]).raw).rig;
+	registerRig("test-retired", a);
+	const first = skeletonFor("test-retired");
+	registerRig("test-retired", b);
+	registerRig("test-retired-a", a);
+	const mins = sk => bodyFor(sk).grids.map(g => g.min.join()).join(";");
+	expect("a retired skeleton never asked for its body: its body is its own rig's, not the new one's", mins(first) === mins(skeletonFor("test-retired-a")) && mins(first) !== mins(skeletonFor("test-retired")));
 }
 
 // 5. the X Bot and Y Bot takes are identical to before rig templates, to 1e-9 (3804b63b)
