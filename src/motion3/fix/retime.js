@@ -14,11 +14,18 @@ import { QA_LIMITS } from "../qa/checks.js";
 import { speedExcess } from "../qa/style.js";
 
 const HEADROOM = 1.1, MIN_RATE = 0.35, PASSES = 3;
+const keysOf = out => [...new Set(out.keys.map(k => k.f))].sort((p, q) => p - q);
 
-/** e[i] = how many times too fast frame i is (speed ratio, or sqrt of the acceleration ratio); 0 in an air run. */
-const excess = (out, air) => {
-	const own = out.ctx.spec?.checks?.limits, e = speedExcess(out.ctx.sk, out, own, { ...QA_LIMITS, ...own });
+/**
+ * e[i] = how many times too fast frame i is (speed ratio, or sqrt of the acceleration ratio); 0 in an air run, and 0 where
+ * the acceleration (frames i-2..i, qa/style.js) reads a velocity a held interval [p, q] keeps: p+1..q+1. Retime cannot
+ * change those (bench-handstand-r3 held f20-f32: f32 and f33 read the landing, and stretching f32-f52 for them moved the
+ * key at f45 to f49.3, a planted foot 17 cm off it).
+ */
+const excess = (out, air, keyFrames) => {
+	const own = out.ctx.spec?.checks?.limits, e = speedExcess(out.ctx.sk, out, own, { ...QA_LIMITS, ...own }), n = e.length;
 	for (const [a, b] of air) for (let f = a; f <= b; f++) e[f] = 0;
+	for (const [p, q] of held(air, keyFrames, n)) for (let f = p + 1; f <= Math.min(n - 1, q + 1); f++) e[f] = 0;
 	return e;
 };
 
@@ -74,7 +81,7 @@ export function retime(out, engine, air = []) {
 	const n = out.frames.length, maps = [];
 	let segments = 0, stretch = 1;
 	for (let pass = 0; pass < PASSES; pass++) {
-		const e = excess(out, air), keyFrames = [...new Set(out.keys.map(k => k.f))].sort((p, q) => p - q);
+		const keyFrames = keysOf(out), e = excess(out, air, keyFrames);
 		const wins = air.length ? outside(windows(e, keyFrames, n), held(air, keyFrames, n), e) : windows(e, keyFrames, n);
 		if (!wins.length) break;
 		const pieces = wins.map(([a, b]) => {
@@ -98,6 +105,6 @@ export function retime(out, engine, air = []) {
 	}
 	if (!maps.length) return null;
 	out.timeMap = f => maps.reduce((x, m) => m(x), f);
-	const left = excess(out, air).filter(x => x > 1).length;
+	const left = excess(out, air, keysOf(out)).filter(x => x > 1).length;
 	return { windows: segments, maxStretch: Math.round(stretch * 100) / 100, stillFast: left, how: "key intervals around speed spikes stretched" };
 }

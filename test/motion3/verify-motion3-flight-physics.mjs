@@ -144,17 +144,20 @@ for (const cut of [40, 45, 50]) {
 }
 
 // (a) bench-handstand-r3: the first solve has no air run at f21-f27, a later fix makes one, and retime moved all of its frames
-// (stretch 1.6). The fixes start again with that run's key interval kept as keyed; the timing stays where holding it leaves retime
-// no more frames too fast. On the X Bot with checks.limits.accCore 0.03 both final air runs keep their keyed timing; on the
-// Y Bot as sent, holding f20-f32 left 2 frames too fast by f45 (a planted foot 17 cm off its key there), so the take keeps the
-// first pass's timing and fixed.retime.air says why
+// (stretch 1.6). The fixes start again with that run's key interval kept as keyed. Retime does not count the frames whose
+// acceleration reads a held velocity (f32 and f33 read the landing): counting them left 2 frames too fast and stretched f32-f52
+// until a planted foot missed its f45 key by 17 cm (KEY). The take as sent keeps its keyed air timing on both rigs, with QA no
+// worse than at 28ad5074 (Y Bot 368, X Bot 371), and so does the X Bot with checks.limits.accCore 0.03
 {
 	const raw = JSON.parse(readFileSync(fileURLToPath(new URL("fixtures/bench-handstand-r3-spec.json", import.meta.url)), "utf8")), spec = raw.spec ?? raw;
+	const runsOf = r => airRuns(r.out, r.expanded.checks?.supports ?? []).filter(([a, b]) => b - a >= 3);
 	const held = compileSpec({ ...structuredClone(spec), checks: { ...spec.checks, limits: { ...spec.checks?.limits, accCore: 0.03 } } }, { sk: skeletonFor("x-bot-tpose"), scene: motionScene([]) });
-	const runs = airRuns(held.out, held.expanded.checks?.supports ?? []).filter(([a, b]) => b - a >= 3);
+	const runs = runsOf(held);
 	expect(`(a) bench-handstand-r3 (X Bot, accCore 0.03): retime leaves every air run of the final take as keyed (${JSON.stringify(runs)}; ${held.fixed.retime?.air})`, runs.length === 2 && runs.every(([a, b]) => untimed(held, a - 1, b + 1)) && /^kept the key intervals of f23-f29, f196-f202/.test(held.fixed.retime?.air ?? ""), JSON.stringify({ runs, retime: held.fixed.retime }));
-	const r = compileSpec(structuredClone(spec), { sk, scene: motionScene([]) });
-	expect(`(a) bench-handstand-r3 (Y Bot): holding the run would leave retime more frames too fast, so it keeps the first timing and says so (${r.fixed.retime?.air}); no KEY`, /re-timed f22-f29.* left 2 frames too fast against 0/.test(r.fixed.retime?.air ?? "") && !kinds(r).has("KEY"), JSON.stringify(r.fixed.retime));
+	for (const [rig, from, total] of [["y-bot-tpose", "f22-f29", 368], ["x-bot-tpose", "f21-f29", 371]]) {
+		const r = compileSpec(structuredClone(spec), { sk: skeletonFor(rig), scene: motionScene([]) }), rr = runsOf(r);
+		expect(`(a) bench-handstand-r3 as sent (${rig}): every air run of the final take keeps its keyed timing (${JSON.stringify(rr)}; ${r.fixed.retime?.air}), no KEY, QA ${r.qa.total} <= ${total}`, rr.length === 2 && rr.every(([a, b]) => untimed(r, a - 1, b + 1)) && new RegExp(`^kept the key intervals of ${from} as keyed`).test(r.fixed.retime?.air ?? "") && r.fixed.retime?.stillFast === 0 && !kinds(r).has("KEY") && r.qa.total <= total, JSON.stringify({ rr, retime: r.fixed.retime }));
+	}
 }
 
 // (a2) a keyed flight past the apex limit: a 0.9 m hop held high from takeoff to landing, 0.77 m off its parabola
