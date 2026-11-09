@@ -101,11 +101,12 @@ function handDown(out, f) {
 /**
  * Runs [a, b] (indexes of out.frames) with both soles 2 cm or more above the ground (ground.js), no hand on it, no
  * declared support and no skin on a surface (support.js: a knee, the back or a forearm on the floor, a hand on a bar).
+ * skin: false leaves the skin out: a hand within 5 cm of a box then does not end a flight (the v4 qa's ballistic runs, air.js).
  */
-export function airRuns(out, supports = []) {
+export function airRuns(out, supports = [], { skin = true } = {}) {
 	const n = out.frames.length, runs = [];
 	const air = out.frames.map((_, f) => ["Left", "Right"].every(S => { const sp = groundSole(out, f, S); return Math.min(sp.heel[1], sp.ball[1]) >= 0.02; })
-		&& !handDown(out, f) && !supported(out, f, supports) && !skinCarries(out, f));
+		&& !handDown(out, f) && !supported(out, f, supports) && !(skin && skinCarries(out, f)));
 	for (let a = 0; a < n; a++) {
 		if (!air[a]) continue;
 		let b = a;

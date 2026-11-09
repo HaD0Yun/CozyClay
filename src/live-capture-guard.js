@@ -1,3 +1,5 @@
+import { renderV4Sheet } from "./motion-v4/render/editor-render.js";
+
 /**
  * Live captures (`cclay live capture`, the MCP frame capture) render whatever
  * the scene graph holds right now. `operate --frame` reaches the rigs and the
@@ -23,4 +25,13 @@ export function captureFrameAt(live, frame) {
 	const shot = live.captureShotFrame(frame);
 	if (!shot.dataUrl) throw new Error("The shot renderer is not ready");
 	return { ...shot, frame, partColours: live.partColours, meta: live.captureShotMeta(frame) };
+}
+
+/**
+ * The v4 render sheet for the v4_render live query (motion-v4/render/editor-render.js), refused from a hidden tab
+ * like the other live captures.
+ */
+export function captureV4Sheet(args, ports) {
+	refuseHiddenCapture();
+	return renderV4Sheet(args, ports);
 }

@@ -63,7 +63,7 @@ const NODE_FILES = [
 	"test/verify-cliproxy-live-model.mjs",
 	"test/verify-schema-to-typebox.mjs",
 	"test/verify-agent-sse-golden.mjs",
-	"test/verify-agent-context-budget.mjs", "test/verify-agent-context-trim.mjs", "test/verify-agent-context-meter.mjs",
+	"test/verify-agent-context-budget.mjs", "test/verify-agent-context-trim.mjs", "test/verify-agent-context-plain.mjs", "test/verify-agent-context-meter.mjs",
 	"test/verify-agent-supervisor.mjs", "test/verify-studio-tasks.mjs", "test/verify-task-board.mjs", "test/verify-studio-task-dispatch.mjs", "test/verify-main-turn-idle.mjs", "test/verify-agent-panel-reload.mjs",
 	"test/verify-studio-agent-protocol.mjs", "test/verify-studio-prompt-cast-style.mjs", "test/verify-task-text-intent.mjs",
 	"test/verify-studio-agent-sampled-framing.mjs", "test/verify-headless-studio-cli.mjs",
@@ -418,7 +418,8 @@ const { listOnly, scope, jobs, shard, durationsOut, onlyFrom } = parseArguments(
 const durations = readDurations();
 const inventory = [...verificationFiles("test"), ...verificationFiles("mcp"), ...EXTRA_INVENTORY].sort();
 for (const file of inventory) {
-	if (/^test\/bus\/verify-.*\.mjs$/.test(file)) categories.set(file, { kind: "node", reason: "command bus contract verification" });
+	// test/v4: the v4 motion engine (design 4.2), on the bus line so the file does not grow (loc ratchet)
+	if (/^test\/(bus\/verify-.*|v4\/verify-v4-[a-z-]+)\.mjs$/.test(file)) categories.set(file, { kind: "node", reason: file.startsWith("test/v4/") ? "v4 motion engine" : "command bus contract verification" });
 }
 const unclassified = inventory.filter((file) => !categories.has(file));
 const stale = [...categories.keys()].filter((file) => !inventory.includes(file));

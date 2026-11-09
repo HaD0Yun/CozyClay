@@ -9,6 +9,7 @@ import { motionScene } from "../../motion3/scene.js";
 import { skeletonFor } from "../../motion3/rigs/index.js";
 import { isTakeV3 } from "../../motion3/playback.js";
 import { normalizeTakeEdit } from "../../motion3/take-edit.js";
+import { compileRawSource } from "../../motion-v4/track/literal.js";
 export { renderTakeEdit } from "../../motion3/take-edit.js";
 
 const TAKE_SCHEMA = "cozyclay.take.v3";
@@ -45,6 +46,7 @@ export const savedTakeSource = descriptor => descriptor?.source ? { ...descripto
 /** Compile a source back into the installed take (with `frames`, as motion.compile installs it).
  * Leniently: a field a later, stricter validator does not know never blocks loading a saved take. */
 export function compileTakeSource(source) {
+	if (source?.spec?.raw) return compileRawSource(source);
 	const sk = skeletonFor(source?.rig);
 	if (!sk || !plain(source.spec)) return null;
 	const { out } = compileSpec({ fps: TIMELINE_FPS, ...source.spec }, { sk, scene: source.scene ?? { objects: {} } }, { lenient: true });

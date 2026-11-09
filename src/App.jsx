@@ -37,7 +37,7 @@ import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
-import { captureFrameAt, refuseHiddenCapture } from "./live-capture-guard.js";
+import { captureFrameAt, captureV4Sheet, refuseHiddenCapture } from "./live-capture-guard.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -2390,6 +2390,7 @@ export default function App() {
 	});
 	const liveQueries = {
 		ping: () => ({ pong: true }),
+		v4_render: (args = {}) => captureV4Sheet(args, appContext.ports),
 		describe: () => {
 			const live = appContext.live.state;
 			return {
