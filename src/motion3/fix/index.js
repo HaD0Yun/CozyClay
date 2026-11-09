@@ -17,9 +17,9 @@
 //   self         arms out of the rest of the body on its fitted skin: the elbow turns about the
 //                shoulder-wrist line, the hand is pushed out along the skin (self.js)
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
-//                4 frames or more that falls (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
+//                4 frames or more that falls, or of 3 (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
 //                one a later fix makes starts the fixes again with its key interval kept (applyFixes, fixed.retime.air)
-//   ballistic    in each air run of 4 frames or more the whole body moves so the centre of mass follows the gravity
+//   ballistic    in each air run of 3 frames or more the whole body moves so the centre of mass follows the gravity
 //                parabola between takeoff and landing at constant horizontal speed; past 0.5 m, or where the arc enters
 //                what the keyed flight did not (flight-gate.js), it is reported, not fixed (ballistic.js, #1124)
 //   spin         in each air run the root's turn is re-timed so the angular momentum about the centre of mass stays
@@ -96,7 +96,7 @@ function retimedAir(out) {
 function runFixes(out, fix, engine, { whole = true } = {}, air) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	const supports = out.ctx.spec?.checks?.supports ?? [];
-	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 4 frames or more; a walk's one-frame lift is none)
+	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 3 frames or more; a walk's one-frame lift is none)
 	if (fix.retime && whole) put("retime", retime(out, engine, [...fallingRuns(out, airRuns(out, supports)), ...air]));
 	if (fix.slide) put("ground", liftSoles(out, engine));
 	if (fix.reach) put("reachLegs", lowerHips(out, engine));

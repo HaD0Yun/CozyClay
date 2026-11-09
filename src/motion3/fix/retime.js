@@ -5,7 +5,7 @@
 // motion is style and keeps its speed. Interpolation between keys scales with their spacing, so
 // each interval is stretched by its own peak excess. The frame count and every key outside the
 // windows stay where they are; the time map is kept on out.timeMap so frame-range checks follow.
-// Air runs of 4 frames or more that fall (qa/flight-checks.js fallingRuns; one the take cuts as well) are not retimed (#1124): their frames are fast because gravity makes them fast, and a
+// Air runs of 4 frames or more that fall, and of 3 (qa/flight-checks.js fallingRuns; one the take cuts as well) are not retimed (#1124): their frames are fast because gravity makes them fast, and a
 // stretched fall is slower than gravity (bench v2, 07 roof fall back r1: f90-97 stretched 1.6-2.8x over an exact 1 g
 // parabola). An air frame is never too fast, and no window reaches into the key interval that holds a run (held:
 // from the last key at or before the frame before takeoff to the first at or after the frame after landing; those two
