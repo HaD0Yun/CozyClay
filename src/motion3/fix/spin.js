@@ -22,8 +22,7 @@ import { add, sub, scale, apply, dot, mul, rx, ry, rz, T } from "../compiler/mat
 import { tiltFrame } from "../compiler/pose.js";
 import { momentumOf, rotationVector } from "../qa/inertia.js";
 import { runDrift, SPIN_TOL, MIN_TURN } from "../qa/flight-checks.js";
-import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
-import { RIDERS } from "./ballistic.js";
+import { RIDERS, floats } from "./ballistic.js";
 import { hitSays } from "./flight-gate.js";
 
 /** The share of the total turn a keyed turn may run backward and still be one turn. */
@@ -153,7 +152,7 @@ export function spinFix(out, engine, runs, gate) {
 	let frames = 0, max = 0, before = 0, after = 0;
 	for (const [a, b] of runs) {
 		const A = a - 1 + f0, B = b + 1 + f0, turn = keyedTurn(e, A, B);
-		if (!turn || missingFall(out, a, b) > FLOAT_LIMIT) continue;
+		if (!turn || floats(out, a, b)) continue;
 		if (turn.back) { left.push({ at: `f${a + f0}-f${b + f0}`, why: "the keyed turn turns back inside the flight: left as keyed" }); continue; }
 		const orig = Object.fromEntries(["yaw", "pitch", "roll", ...RIDERS, ...POLES, "fyaw_l", "fyaw_r", "fpitch_l", "fpitch_r"].map(ch => [ch, B0[ch] ? B0[ch].slice() : ch === "root" ? null : e[ch]?.slice()]));
 		if (!orig.root) continue;

@@ -261,6 +261,27 @@ function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 	expect(`(a4) a re-time into a slab is left and reported: ${why}`, /enter .*x slab/.test(why) && on.fixed.spin.runs === 0 && on.qa.total === off.qa.total, JSON.stringify({ spin: on.fixed.spin, on: on.qa.total, off: off.qa.total }));
 }
 
+// (a5) a run (bench set 06's trip run: flights of 3 to 4 frames) keyed every frame with its hips level, 3.2 m/s, each foot 5 frames down of 16:
+// 3-frame flights FLOAT does not read; the arc moves them (g N^2 / 8: 3.4 cm at most), the centre of mass then falls at 1 g. With the
+// feet 4 frames down the flights are 4 frames: FLOAT reads them and its hint stages the fall, so the fixes leave them
+function runGait(stance, fix) {
+	const step = 8, c0 = 12, v = 3.2 / 24, keys = [{ f: 0, set: { ...pose0 } }], end = c0 + 6 * step + 4, z = f => v * (f - 6) + 0.1;
+	const foot = (k, f) => {
+		const first = k === "l" ? c0 : c0 + step, x = pose0[`foot_${k}`][0];
+		if (f < first) return [x, ANKLE, pose0[`foot_${k}`][2] + v * Math.max(0, f - 6)];
+		const c = first + 2 * step * Math.floor((f - first) / (2 * step)), t = (f - c - stance + 1) / (2 * step - stance + 1);
+		return f - c < stance ? [x, ANKLE, z(c + stance / 2)] : [x, ANKLE + 0.03 + 0.12 * Math.sin(Math.PI * t), z(c + stance / 2) + (z(c + 2 * step + stance / 2) - z(c + stance / 2)) * t];
+	};
+	for (let f = 6; f <= end; f++) keys.push({ f, set: { root: [pose0.root[0], HIPS - 0.05, pose0.root[2] + z(f)], foot_l: foot("l", f), foot_r: foot("r", f) } });
+	return compileSpec({ schema: SPEC, fps: 24, frames: end + 2, keys, ...(fix ? { fix } : {}) }, { sk, scene: motionScene([]) });
+}
+{
+	const err = r => Math.max(...airRuns(r.out, []).filter(([p, q]) => q < r.out.frames.length - 2).map(([p, q]) => fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], p, q)));
+	const on = runGait(5), off = runGait(5, { ballistic: false, spin: false }), four = runGait(4), lens = airRuns(on.out, []).map(([p, q]) => q - p + 1);
+	expect(`(a5) a run whose flights are 3 frames, hips keyed level: the arc moves all ${on.fixed.ballistic?.runs} (centre of mass ${r3(err(off))} g off 1 g keyed, ${r3(err(on))} g after), no FLOAT`, lens.every(n => n === 3) && on.fixed.ballistic?.runs === lens.length && err(off) > 0.9 && err(on) < 0.01 && !kinds(on).has("FLOAT"), JSON.stringify({ lens, b: on.fixed.ballistic }));
+	expect(`(a5) the same run with 4-frame flights: FLOAT reads them, its hint stages the fall, and the fixes leave them`, kinds(four).has("FLOAT") && !four.fixed.ballistic, JSON.stringify({ b: four.fixed.ballistic, kinds: [...kinds(four)] }));
+}
+
 // (b) a trip's fall (bench set 06): the feet stay planted while the hips drop 0.35 m at 2 g, then stop at 2 g
 {
 	const keys = [{ f: 0, set: { ...pose0 } }, { f: 20, set: { root: pose0.root } }], h = 0.35, acc = 2 * G, half = Math.sqrt(h / acc);

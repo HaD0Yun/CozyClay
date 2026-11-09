@@ -35,8 +35,8 @@ export const SPIN_TOL = 0.2;
 export const MIN_TURN = 30;
 /** SPIN: rad/s (two turns a second, a flip's rate): a drift is measured against at least the momentum I_u * SPIN_OMEGA. */
 const SPIN_OMEGA = 4 * Math.PI;
-/** Flights have at least this many frames (FLOAT's runs; fix/ballistic.js and fix/spin.js work on the same). */
-const MIN_RUN = 4;
+/** FLOAT and SPIN read air runs of MIN_RUN frames or more; the flight fixes (fix/ballistic.js, fix/spin.js) and retime's guard from MIN_FLIGHT. */
+export const MIN_RUN = 4, MIN_FLIGHT = 3;
 /** DROP: a body whose hips' up axis tilts more than OVER deg in one go, TURNING deg a frame or more, is turning over. */
 const OVER = 180, TURNING = 2;
 
@@ -73,24 +73,24 @@ function pinned(out, i) {
 	});
 }
 
-/** MIN_RUN frames or more: a walk's one-frame lift is no flight. */
-const longRuns = runs => runs.filter(([a, b]) => b - a + 1 >= MIN_RUN);
+/** min frames or more: a walk's one-frame lift is no flight. */
+const longRuns = (runs, min = MIN_RUN) => runs.filter(([a, b]) => b - a + 1 >= min);
 
 /**
- * The air runs retime leaves alone (fix/retime.js): MIN_RUN frames or more whose hips fall, whatever a hand holds and
- * wherever the take ends. Retime reads the first solve, where a body the leg fixes will put back on the ground reads as a
+ * The air runs retime leaves alone (fix/retime.js): MIN_FLIGHT frames or more whose hips fall, or under MIN_RUN (no FLOAT reads them, the arc moves them), whatever a hand
+ * holds and wherever the take ends. Retime reads the first solve, where a body the leg fixes will put back on the ground reads as a
  * run with its hips held up (bench-box2 f44-f140: 99% of g missing, no air run in the final frames), which is no fall to protect.
  */
-export const fallingRuns = (out, runs) => longRuns(runs).filter(([a, b]) => missingFall(out, a, b) <= FLOAT_LIMIT);
+export const fallingRuns = (out, runs) => longRuns(runs, MIN_FLIGHT).filter(([a, b]) => b - a + 1 < MIN_RUN || missingFall(out, a, b) <= FLOAT_LIMIT);
 
 /**
  * The spans of air runs `runs` (style.js airRuns, indexes of out.frames) no hand carries the body in (pinned: a vault's
- * hands on a world point or an anchor, which style.js airRuns cannot see without a scene body), MIN_RUN frames or more.
- * SPIN reads these: a span the take's start or end cuts still holds its momentum.
+ * hands on a world point or an anchor, which style.js airRuns cannot see without a scene body), min frames or more.
+ * SPIN reads these (MIN_RUN): a span the take's start or end cuts still holds its momentum.
  */
-function freeSpans(out, runs) {
-	const keep = [], add = (a, b) => { if (b - a + 1 >= MIN_RUN) keep.push([a, b]); };
-	for (const [a, b] of longRuns(runs)) {
+function freeSpans(out, runs, min = MIN_RUN) {
+	const keep = [], add = (a, b) => { if (b - a + 1 >= min) keep.push([a, b]); };
+	for (const [a, b] of longRuns(runs, min)) {
 		let from = a;
 		for (let i = a; i <= b; i++) if (pinned(out, i)) { add(from, i - 1); from = i + 1; }
 		add(from, b);
@@ -99,11 +99,11 @@ function freeSpans(out, runs) {
 }
 
 /**
- * The flights in air runs `runs`: the free spans with a frame on each side, the takeoff and landing the flight fixes
- * (fix/ballistic.js, fix/spin.js) anchor on. A span the take cuts has no such frame, so the fixes leave it.
+ * The flights in air runs `runs`: the free spans of MIN_FLIGHT frames or more with a frame on each side, the takeoff and landing
+ * the flight fixes (fix/ballistic.js, fix/spin.js) anchor on. A span the take cuts has no such frame, so the fixes leave it.
  */
 export function flights(out, runs) {
-	return freeSpans(out, runs).filter(([a, b]) => a >= 1 && b <= out.frames.length - 2);
+	return freeSpans(out, runs, MIN_FLIGHT).filter(([a, b]) => a >= 1 && b <= out.frames.length - 2);
 }
 
 /** The momentum about the centre of mass per frame a..b of out ({ L kg m^2/s, J kg m^2 }), or null at either end of the take or on a rig missing a segment bone. */

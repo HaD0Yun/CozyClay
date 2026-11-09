@@ -17,7 +17,15 @@
 import { bodyCentre } from "../qa/com.js";
 import { ballisticArc, MAX_FIX } from "../qa/ballistic.js";
 import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
+import { MIN_RUN } from "../qa/flight-checks.js";
 import { round4 } from "./ease.js";
+
+/**
+ * True when flight [a, b] is a FLOAT the fixes leave for QA's arc hint: MIN_RUN frames or more whose hips miss more than
+ * FLOAT_LIMIT of g. A shorter run has no FLOAT to read it, and its arc is small (g N^2 / 8: 3.4 cm over a 3-frame
+ * run), so the arc moves it however the hips were keyed (a run's 3-frame flights keyed level: 9.6 m/s^2 off g, 0 after).
+ */
+export const floats = (out, a, b) => b - a + 1 >= MIN_RUN && missingFall(out, a, b) > FLOAT_LIMIT;
 
 /** The channels that are world points riding the body: moved with the root. */
 export const RIDERS = ["root", "foot_l", "foot_r", "hand_l", "hand_r"];
@@ -59,7 +67,7 @@ export function ballisticFix(out, engine, runs, gate, prev = null) {
 		return 0;
 	};
 	const move = (a, b) => {
-		if (missingFall(out, a, b) > FLOAT_LIMIT) return 0;
+		if (floats(out, a, b)) return 0;
 		const d = arcShift(out, a, b);
 		if (!d) return 0;
 		const worst = Math.max(...d.map(v => Math.hypot(...v))), heights = () => out.frames.slice(a - 1, b + 2).map(fr => bodyCentre(out.ctx.sk, fr.s)[1]);
