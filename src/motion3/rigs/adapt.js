@@ -33,6 +33,11 @@ const r6 = v => Math.round(v * 1e6) / 1e6;
 function check(raw) {
 	if (!raw || !Array.isArray(raw.bones) || !raw.bones.length) throw new Error("adaptRig: raw.bones must be a non-empty array of { name, parent, localPos, localQuat }");
 	if (raw.units !== "cm" && raw.units !== "m") throw new Error(`adaptRig: raw.units must be "cm" or "m", got ${JSON.stringify(raw.units)}`);
+	// a non-finite value would carry NaN into every joint below the bone and through every take compiled on the rig
+	for (const [i, b] of raw.bones.entries()) for (const [field, n] of [["localPos", 3], ["localQuat", 4]]) {
+		const v = b?.[field];
+		if (v !== undefined && !(Array.isArray(v) && v.length === n && v.every(Number.isFinite))) throw new Error(`adaptRig: bone ${JSON.stringify(b?.name ?? i)} ${field} must be ${n} finite numbers, got ${Array.isArray(v) ? `[${v.join(", ")}]` : JSON.stringify(v)}`);
+	}
 }
 
 /** The source's own landmarks in canonical metres (see the head of this file), or null. */
