@@ -398,7 +398,8 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 		// Studio only, on the provider view (studioContextDiet, then studio-context-budget.mjs): the stored transcript and the
 		// persisted history keep every context, result, script and image whole. The prompt is the leading system message.
 		const studioView = async (messages) => {
-			if (state.lastInput?.surface !== "studio") return messages;
+			// input.contextView "plain": an append-only view, no diet and no budget, for a caller that keeps its own context (the v4 pi turn).
+			if (state.lastInput?.surface !== "studio" || state.lastInput?.contextView === "plain") return messages;
 			const head = messages[0]?.role === "system" ? messages[0] : null;
 			const prompt = typeof head?.content === "string" ? head.content : (head?.content ?? []).map((part) => part?.text ?? "").join("");
 			const view = budgetStudioRequest(studioContextDiet({ messages: head ? messages.slice(1) : messages, systemPrompt: prompt }));

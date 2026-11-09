@@ -506,6 +506,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			},
 		};
 		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, previsMode: value.context.scene?.previsMode, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
+		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner. Every other model goes on below.
+		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
 		const modelTools = tools.map(tool => ({
 			...tool,
 			handler: async (args, call) => {
@@ -729,8 +731,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		if (path === "/agent/models" && req.method === "GET") {
 			try {
-				const { listAgentModels } = await import("./providers.mjs");
-				json(res, 200, await listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }));
+				// withV4Models: the v4 motion engine's picker entry (bin/agent/v4/models.mjs), listed while CLIProxyAPI is signed in.
+				const [{ listAgentModels }, { withV4Models }] = await Promise.all([import("./providers.mjs"), import("./v4/models.mjs")]); json(res, 200, withV4Models(await listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env })));
 			} catch (error) { json(res, error.status === 401 ? 401 : 502, { error: errorInfo(error) }); }
 			return true;
 		}
