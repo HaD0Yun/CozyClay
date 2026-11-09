@@ -139,7 +139,10 @@ const MOTIONS = {
 };
 const run = (sk, motion, k = 1) => compileSpec(MOTIONS[motion](k), { sk, scene: motionScene([]) });
 const issues = r => r.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}-${g.last} n${g.count}`);
-const digest = r => createHash("sha256").update(JSON.stringify(r.out.frames.map(({ s }) => [s.P, s.R]))).update(JSON.stringify(r.qa.groups)).digest("hex").slice(0, 16);
+// Every joint position and rotation to 1e-9: arm64 and x86_64 differ in the last bit of a few positions (8.9e-16 m at most on
+// these takes), so a digest of the raw doubles holds on one of them only.
+const nano = v => (typeof v === "number" ? Math.round(v * 1e9) / 1e9 : v.map(nano));
+const digest = r => createHash("sha256").update(JSON.stringify(r.out.frames.map(({ s }) => nano([s.P, s.R])))).update(JSON.stringify(r.qa.groups)).digest("hex").slice(0, 16);
 
 // --- takes in a fresh process (child mode of this file): the walk plan cache lives as long as the process ----------------
 /** The X Bot rescaled through the adapter: `all` the whole body, `leg` the legs on top of it. */
@@ -481,10 +484,11 @@ function retargetOff(raw, out, n) {
 	expect(`a foot 1.2 as long: the heel point ${back.toFixed(4)} m behind the ankle (0.045 x ${sk.landmarks.scale.foot})`, Math.abs(back - 0.045 * sk.landmarks.scale.foot) < 1e-4 && sk.landmarks.scale.foot > 1.15, JSON.stringify(sk.landmarks.sole));
 }
 
-// 5. the X Bot and Y Bot takes are byte-identical to before rig templates (3804b63b)
-// digests of the same three motions compiled at 3804b63b (the commit before rig templates)
-const PINNED = { "x-bot-tpose walk": "7a63905bbd0640bf", "x-bot-tpose grip": "66e0ee21f64977ab", "x-bot-tpose tuck": "05dae3e107ff3052",
-	"y-bot-tpose walk": "b03908164e463983", "y-bot-tpose grip": "f5f571583d9062e7", "y-bot-tpose tuck": "e4ab0f3dc4898aef" };
+// 5. the X Bot and Y Bot takes are identical to before rig templates, to 1e-9 (3804b63b)
+// digests of the same three motions compiled at 3804b63b, the commit before rig templates. The same six values come out
+// on macOS arm64 and Linux x86_64.
+const PINNED = { "x-bot-tpose walk": "bcf9308774af68ad", "x-bot-tpose grip": "fcc1c4a0856efe4b", "x-bot-tpose tuck": "ce9e13c5ed0f2cb7",
+	"y-bot-tpose walk": "4d0d119607ec6f25", "y-bot-tpose grip": "85ef0c945146d32d", "y-bot-tpose tuck": "403270dcf32aa928" };
 for (const model of ["x-bot-tpose", "y-bot-tpose"]) for (const motion of Object.keys(MOTIONS)) {
 	const d = digest(model === "x-bot-tpose" ? base[motion] : run(skeletonFor(model), motion)), key = `${model} ${motion}`;
 	expect(`${key}: take byte-identical to before (${d})`, PINNED[key] === d, `pinned ${PINNED[key]}`);
