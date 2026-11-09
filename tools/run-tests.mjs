@@ -64,7 +64,7 @@ const NODE_FILES = [
 	"test/verify-schema-to-typebox.mjs",
 	"test/verify-agent-sse-golden.mjs",
 	"test/verify-agent-context-budget.mjs", "test/verify-agent-context-trim.mjs", "test/verify-agent-context-plain.mjs", "test/verify-agent-context-meter.mjs",
-	"test/verify-agent-supervisor.mjs", "test/verify-studio-tasks.mjs", "test/verify-task-board.mjs", "test/verify-studio-task-dispatch.mjs", "test/verify-main-turn-idle.mjs", "test/verify-agent-panel-reload.mjs",
+	"test/verify-agent-supervisor.mjs", "test/verify-studio-tasks.mjs", "test/verify-task-board.mjs", "test/verify-studio-task-dispatch.mjs", "test/verify-motion-tasks.mjs", "test/verify-main-turn-idle.mjs", "test/verify-agent-panel-reload.mjs",
 	"test/verify-studio-agent-protocol.mjs", "test/verify-studio-prompt-cast-style.mjs", "test/verify-task-text-intent.mjs",
 	"test/verify-studio-agent-sampled-framing.mjs", "test/verify-headless-studio-cli.mjs",
 	"test/verify-studio-agent-tokens.mjs",

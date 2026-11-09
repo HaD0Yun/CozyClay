@@ -37,7 +37,7 @@ import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
-import { captureFrameAt, captureV4Sheet, refuseHiddenCapture } from "./live-capture-guard.js";
+import { captureFrameAt, captureHiddenFraming, captureV4Sheet, refuseHiddenCapture, tabHidden } from "./live-capture-guard.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -2447,10 +2447,9 @@ export default function App() {
 			// The full-resolution shot-camera pull the editor's own exports use —
 		// not capture_frame's 640x360 preview, which stays exactly as it is.
 			capture_framing_png: (args = {}) => {
-				refuseHiddenCapture();
 				const live = appContext.live.state;
-				// A named frame (#1074) renders the way the video export draws it.
-				if (args.frame !== undefined) return captureFrameAt(live, args.frame);
+				// A named frame (#1074) renders the way the video export draws it; so does the playhead's frame in a hidden tab (live-capture-guard.js).
+				if (args.frame !== undefined || tabHidden()) return args.frame !== undefined ? captureFrameAt(live, args.frame) : captureHiddenFraming(live);
 				const output = requestedCaptureOutput(args) ?? SHOT_ASPECT_PRESETS[live.stage.shotAspect] ?? SHOT_ASPECT_PRESETS["16:9"];
 				const dataUrl = live.captureFramingPng(live.captureCurrentFraming(), output);
 				if (!dataUrl) throw new Error("The shot renderer is not ready");

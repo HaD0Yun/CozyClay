@@ -31,6 +31,8 @@ export function createCommandBus({ registry, ports }) {
     confirmations.delete(request.confirmationToken);
   }
   const emit = event => { for (const listener of listeners) listener(event); ports.emit?.(event); };
+  // An agent turn closed (finished or cancelled): its drafts end (agent-progress.js). A listener never fails the close itself.
+  const turnClosed = turn => { try { emit({ type: 'agent.turn.closed', turnId: turn.txId }); } catch { /* the close stands */ } };
   const identifier = StudioSchemas.TargetGuard.properties.targetId;
   const object = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
   const argsSchema = { type: 'object', properties: {}, required: [], additionalProperties: true };
@@ -69,10 +71,10 @@ export function createCommandBus({ registry, ports }) {
       // A script's mark, and the rollback to it that keeps the turn open (agent-turn-mark.js).
       if (id === 'agent.turn.mark' || id === 'agent.turn.rollback') return transactionReceipt(id, markAgentTurn(id, turn), request, before);
       // A rolled-back turn restores every owner it touched and leaves no entry.
-      if (id === 'agent.turn.cancel') { agentTurn = null; turn.session?.cancel(); return transactionReceipt(id, turn, request, before); }
+      if (id === 'agent.turn.cancel') { agentTurn = null; turn.session?.cancel(); turnClosed(turn); return transactionReceipt(id, turn, request, before); }
       try { turn.historyEntryId = turn.session?.commit().historyEntryId; }
       catch (error) { turn.session?.cancel(); throw error; }
-      finally { agentTurn = null; }
+      finally { agentTurn = null; turnClosed(turn); }
       return transactionReceipt(id, turn, request, turn.before);
     }
     // Every Studio turn opens a turn transaction (#715), so "undo the last thing" arrives inside one. Until the

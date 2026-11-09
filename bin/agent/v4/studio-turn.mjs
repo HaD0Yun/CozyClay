@@ -35,10 +35,10 @@ function retire(sessionId) {
 
 const sameSubject = (a, b) => a.id === b.id && a.model === b.model && a.yaw === b.yaw && a.scale === b.scale && a.position.every((value, i) => value === b.position[i]);
 
-/** The conversation's context and tool set: reused while the subject stays the same, else built again. */
+/** The conversation's context and tool set: reused while the subject (turn.subjectId, or the scene's) stays the same, else built again. */
 export async function conversationFor(sessionId, turn, loadToolSet = defaultLoadToolSet) {
 	const existing = conversations.get(sessionId);
-	if (existing && sameSubject(existing.ctx.character, subjectOf(turn.describe))) {
+	if (existing && sameSubject(existing.ctx.character, subjectOf(turn.describe, turn.subjectId))) {
 		clearTimeout(existing.idle);
 		bindTurn(existing.ctx, turn);
 		return { conversation: existing, fresh: false, sceneChanged: Boolean(await existing.toolSet.refresh?.()) };
