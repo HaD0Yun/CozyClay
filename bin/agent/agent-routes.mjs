@@ -421,8 +421,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	};
 	const handleStudioTurn = async (req, res, value, path) => {
 		const { StudioProtocolError, validateStudioContextFreshness } = await import("../../src/studio-agent-protocol.js");
-		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }, { isV4Model, isV4PiModel }] = await Promise.all([
-			import("./studio-tools.mjs"), import("../../src/studio-agent-context.js"), import("./script-tool.mjs"), import("./supervisor.mjs"), import("./plan-tool.mjs"), import("./studio-review.mjs"), import("./supervisor-followup.mjs"), import("./v4/models.mjs"),
+		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
+			import("./studio-tools.mjs"), import("../../src/studio-agent-context.js"), import("./script-tool.mjs"), import("./supervisor.mjs"), import("./plan-tool.mjs"), import("./studio-review.mjs"), import("./supervisor-followup.mjs"),
 		]);
 		const hubDeps = await runtime; const hub = hubDeps.liveHub || liveHub;
 		if (path === "/agent/stop") {
@@ -506,7 +506,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			},
 		};
 		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, previsMode: value.context.scene?.previsMode, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
-		if (isV4Model(value.model)) /* the v4 motion engine (bin/agent/v4): one Claude Code agent with its own tools, or (v4pi) the same tools on the pi runner; every other model goes on below, unchanged */ return (await import("./v4/studio-turn.mjs")).runV4StudioTurn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission }); if (isV4PiModel(value.model)) return (await import("./v4/pi-turn.mjs")).runV4PiStudioTurn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, env, clock, studioIdentity, admission, runnerFor: async sessionId => { let runner = studioRunners.get(sessionId); if (!runner) { runner = createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }); studioRunners.set(sessionId, runner); } return runner; } });
+		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner. Every other model goes on below.
+		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
 		const modelTools = tools.map(tool => ({
 			...tool,
 			handler: async (args, call) => {
