@@ -13,15 +13,15 @@
  */
 
 import { createTiming, timingIsFlat, timingProgress } from "./speed-envelope.js";
-import { monotoneCubicAt } from "./monotone-cubic.js";
+import { monotoneCubicAt } from "./monotone-cubic.js"; import { WORLD } from "./world-scale.js";
 
 const MAX_PATH_POINTS = 64;
 // The camera rail's crane marks, mirrored: the two ends are always marks, up to
 // MAX_PATH_MARKS in all, never closer than MARK_GAP of the route's length.
 const MAX_PATH_MARKS = 8;
 const MARK_GAP = 0.03;
-const ROOM_LIMIT = 240;
-const MAX_HEIGHT = 60;
+const ROOM_LIMIT = WORLD.position;
+const MAX_HEIGHT = WORLD.pathHeight;
 // A mark's lean (bank / pitch) is a body tilt, not a flip: ±90° is a vehicle on
 // its side, past that it is a different (and unreachable-by-slider) gesture.
 const MAX_LEAN = 90;

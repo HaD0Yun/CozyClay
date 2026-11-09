@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ko, LOCALE, setLocale } from "../locale.js";
 import { readTheme, saveTheme } from "../theme.js";
+import { WORLD_SCALE, setWorldScale } from "../world-scale.js";
 
 const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "") ? "⌘" : "Ctrl ";
 
@@ -95,6 +96,29 @@ export function LanguageControls() {
 					onClick={() => setLocale(language.id)}
 				>
 					{language.label}
+				</button>
+			))}
+		</div>
+	);
+}
+
+export function WorldScaleControls() {
+	const options = [
+		{ id: "room", label: ko("Room", "방", "房间") },
+		{ id: "large", label: ko("Large", "대형", "大场景") },
+	];
+	return (
+		<div className="v2-preferences__language-controls" role="group" aria-label={ko("World scale", "월드 크기", "世界尺度")}>
+			{options.map((option) => (
+				<button
+					type="button"
+					key={option.id}
+					className={"v2-preferences__language" + (WORLD_SCALE === option.id ? " is-selected" : "")}
+					data-testid={`settings-world-${option.id}`}
+					aria-pressed={WORLD_SCALE === option.id}
+					onClick={() => setWorldScale(option.id)}
+				>
+					{option.label}
 				</button>
 			))}
 		</div>

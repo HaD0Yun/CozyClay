@@ -9,7 +9,7 @@ import { createShot } from "./cuts.js";
 import { railShotFields } from "./camera-block.js";
 import { normalizeStableItems } from "./stable-items.js";
 import { VIDEO_MODEL_PRESETS } from "./model-presets.js";
-import { elementByPath } from "./studio-elements.js";
+import { elementByPath } from "./studio-elements.js"; import { WORLD } from "./world-scale.js";
 import { isImageAssetId } from "./scene-assets.js";
 import { createCharacterEntry } from "./scenes.js";
 import { repairOptics } from "./camera-optics.js";
@@ -114,7 +114,7 @@ const FOLLOW_BOUNDS = {
 	height: [0.2, Number.POSITIVE_INFINITY],
 	response: [0.1, 3],
 	lead: [0, 1],
-	maxDollySpeed: [0.2, 40],
+	maxDollySpeed: [0.2, WORLD.dollySpeed],
 	pitchOffsetDeg: [-170, 170],
 	orbitOffsetDeg: [-180, 180],
 };

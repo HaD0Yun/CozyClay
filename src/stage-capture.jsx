@@ -3,6 +3,7 @@ import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { withFaded } from "./capture-fade.js";
+import { WORLD } from "./world-scale.js";
 
 export const CAPTURE_W = 1920;
 export const CAPTURE_H = 1080;
@@ -14,11 +15,11 @@ export const MCP_CAPTURE_SAMPLE_STEP = 32;
 // to survive, so the falloff starts later and ends further away, letting the
 // floor resolve into a horizon instead of dissolving into the background.
 //
-// Both values must stay inside the shot camera's far plane (100 m) — geometry
-// past it is clipped outright, so a fog range that ended beyond it would cut
-// the deck off mid-fade and take the horizon with it.
-export const CAPTURE_FOG_NEAR = 55;
-export const CAPTURE_FOG_FAR = 95;
+// Both values must stay inside the shot camera's far plane (WORLD.cameraFar) —
+// geometry past it is clipped outright, so a fog range that ended beyond it
+// would cut the deck off mid-fade and take the horizon with it.
+export const CAPTURE_FOG_NEAR = WORLD.horizon.near;
+export const CAPTURE_FOG_FAR = WORLD.horizon.far;
 
 /** Offscreen aspect-aware read-back, always from the shot camera. */
 export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE_H }) {
