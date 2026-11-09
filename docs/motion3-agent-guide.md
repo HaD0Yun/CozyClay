@@ -137,6 +137,9 @@ A character whose skeleton is not the X Bot's or Y Bot's compiles once it is ada
 - QA on an adapted rig holds the X Bot's limits, scaled as above. Proportions change timing a little: longer arms move the hands farther a frame, so a reach or a flip that is clean on the X Bot can show a single-frame `POP` on them; retime as its hint says.
 - Skills fitted to a scene or a body do not all carry over. The car skills (`exitCar`), `cartwheel` and `catchObject` can report contact issues (`COLLIDE`, `REACH`, `FLOAT`, `SUPPORT`) on other proportions, so read their QA on the rig itself.
 - `adaptRig` refuses a stature outside 0.1 to 10 m and names `raw.units`: that is a skeleton in cm declared m, or the reverse.
+- `adaptRig` refuses a bone whose `localPos` or `localQuat` holds a non-finite value (NaN, Infinity) or the wrong count, and names the bone.
+- `registerRig` under an id already registered gives `skeletonFor(id)` a new skeleton and body; a skeleton taken before keeps its own rig's body, whether or not anything asked for it yet.
+- Reaches into a scene are not size-similar yet: a table placed at the X Bot's height and distance is a different task for a rig 0.9 or 1.1 its size. Scale the scene and the anchor with the rig (`report.measured.heightM` over the X Bot's 1.82 m) when comparing rigs.
 
 ## Left to the compiler (#1078)
 
