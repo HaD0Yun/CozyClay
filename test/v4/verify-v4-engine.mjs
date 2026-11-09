@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { z } from "zod";
 import { createSessionStore } from "../../bin/agent/session-store.mjs";
-import { isV4Model, V4_MODEL_KEY, withV4Models } from "../../bin/agent/v4/models.mjs";
+import { isV4Model, V4_MODEL_KEY, V4_PI_MODEL_KEY, withV4Models } from "../../bin/agent/v4/models.mjs";
 import { zodShape } from "../../bin/agent/v4/zod-shape.mjs";
 import { createV4McpServer, toCallToolResult } from "../../bin/agent/v4/mcp-server.mjs";
 import { childEnv, proxyAuth, queryOptions } from "../../bin/agent/v4/runner.mjs";
@@ -290,8 +290,10 @@ const v4Root = join(tmp, "v4");
 	const studioTurn = { sessionId: "s", text: "squat", surface: "studio", turnId: "turn-v4", context: {}, tasks: true };
 	await transport.turn({ ...studioTurn, model: V4_MODEL_KEY }, () => {});
 	await transport.turn({ ...studioTurn, model: "cliproxy/claude-opus-5-5" }, () => {});
+	await transport.turn({ ...studioTurn, model: V4_PI_MODEL_KEY }, () => {});
 	expect("7 tasks on + v4 model: /agent/turn without the tasks header", sent[0].url.endsWith("/agent/turn") && sent[0].tasks === undefined && sent[0].body.model === V4_MODEL_KEY, JSON.stringify(sent[0]));
 	expect("7 tasks on + another model: still /agent/main with the header", sent[1].url.endsWith("/agent/main") && sent[1].tasks === "on", JSON.stringify(sent[1]));
+	expect("7 tasks on + v4pi model: /agent/turn without the tasks header", sent[2].url.endsWith("/agent/turn") && sent[2].tasks === undefined && sent[2].body.model === V4_PI_MODEL_KEY, JSON.stringify(sent[2]));
 }
 
 // 8: the first request's model-facing text stays small.

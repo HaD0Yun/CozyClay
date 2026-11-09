@@ -703,8 +703,8 @@ export function createHttpTransport({ fetchImpl = globalThis.fetch?.bind(globalT
 					reader.releaseLock();
 				}
 			};
-			// A v4 model (the v4 motion engine) always takes /agent/turn: it is one agent, never the task coordinator.
-			const tasked = studio && tasks && !String(model ?? "").startsWith("v4/"), body = studio
+			// A v4 model (the v4 motion engine, on either loop: v4/ or v4pi/) always takes /agent/turn: it is one agent, never the task coordinator.
+			const tasked = studio && tasks && !/^v4(pi)?\//.test(String(model ?? "")), body = studio
 				? JSON.stringify({
 					surface: "studio", sessionId, turnId, text, context: turnRequest.context,
 					...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(attachFrame === undefined ? {} : { attachFrame: Boolean(attachFrame) }), ...(typeof supervisor === "boolean" ? { supervisor } : {}), ...attached,
