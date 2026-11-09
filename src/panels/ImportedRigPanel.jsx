@@ -1,7 +1,8 @@
 // The Rig panel of an imported character (character-import.js): what the skeleton adapter found, so a user can see a
 // wrong guess and fix it. It shows the detected naming convention and its score, the bones the adapter had to make
-// up, an estimated floor, the units and any scaled bones, and offers to force a convention (the file is adapted
-// again; the new rig gets its own model id, so a take already compiled keeps playing on the rig it was compiled on).
+// up, an estimated floor, the units and any scaled bones, and offers to force a convention. The file is adapted again
+// and the new rig gets its own model id; the character's take was compiled on the old rig, which a reopened project no
+// longer registers, so it is cleared (one more undo step) and the user compiles again.
 import { useState } from "react";
 import Foldout from "./Foldout.jsx";
 import { ko } from "../locale.js";
@@ -18,6 +19,7 @@ export default function ImportedRigPanel({ isCharacterSelection, activeChar }) {
 		try {
 			const fields = await readaptCharacter(activeChar, value || null);
 			run("character.update", { characterId: activeChar.id, patch: fields });
+			run("motion.clear", { characterId: activeChar.id });
 		} catch (failure) {
 			setError(failure.message);
 		}
@@ -51,6 +53,7 @@ export default function ImportedRigPanel({ isCharacterSelection, activeChar }) {
 						{RIG_TEMPLATE_IDS.map((id) => <option key={id} value={id}>{id}</option>)}
 					</select>
 				</label>
+				<p className="inspector-hint">{ko("Changing it clears the character's take: compile the motion again.", "바꾸면 캐릭터의 테이크가 지워져요: 모션을 다시 컴파일하세요.", "更改后会清除角色的动作片段：请重新编译动作。")}</p>
 				{error && <p className="inspector-hint" role="alert">{error}</p>}
 			</div>
 		</Foldout>
