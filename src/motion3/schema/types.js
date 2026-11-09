@@ -152,7 +152,7 @@ export const FIX_TYPES = {
 	stance: bool("a standIdle stance in a scene body slides out of it (observations.placed)", { default: true }),
 	grasp: bool("fingers close on what the hand holds; it rests in the hand", { default: true }),
 	person: bool("arms kept out of the other characters (QA PERSON)", { default: true }),
-	ballistic: bool("in a flight the whole body moves so the centre of mass rides the gravity parabola between takeoff and landing (past 0.5 m: reported)", { default: true }),
+	ballistic: bool("in a flight the whole body moves so the centre of mass rides the gravity parabola between takeoff and landing (past 0.5 m, or into what the keyed flight stayed out of: reported)", { default: true }),
 	spin: bool("in a flight the root's turn is re-timed so the angular momentum stays constant: faster tucked, slower open, the keyed total turn kept", { default: true }),
 };
 

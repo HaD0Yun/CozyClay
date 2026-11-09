@@ -9,6 +9,10 @@
 //       still keeps retime out. Cut mid-fall the take has no landing: retime still leaves the air frames as keyed, the arc stays 1 g
 //       (a2) a keyed flight past the apex limit: fixed.ballistic.skipped reports it and the hips stay as keyed
 //       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, no blocking group
+//       (a4) a hop keyed over a hurdle higher than its frames can carry it: the arc would enter the hurdle, so the flight
+//       keeps its frames and fixed.ballistic.skipped says how far off, what it entered and the frames it fits; the same
+//       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor gets the same; a re-time
+//       into a slab overhead is left under fixed.spin.left
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
 //       rise at about 1.8 g with the feet planted (a support cannot pull the body down): DROP, its hint gives v/g
@@ -87,12 +91,12 @@ function roofFall() {
 	const keyErr = Math.max(...Array.from({ length: b - a + 1 }, (_, i) => Math.abs(hips(a + i) - keyed[a + i][1])));
 	expect(`(a) roof fall: the hips stay within 0.05 m of their exact 1 g keys over f${a}-f${b} (worst ${r3(keyErr)} m)`, keyErr < 0.05, r3(keyErr));
 	const m = { frames: r.out.frames.map(fr => ({ com: centerOfMass(sk, fr.s) })) }, grav = gravityCheck(m, [a - 1, b]);
-	expect(`(a) roof fall: the bench scorer's gravity error is under 0.05 m (${r3(grav.error)} m, speed change ${r3(grav.speedChange)} m/s)`, grav.error < 0.05, JSON.stringify(grav));
+	expect(`(a) roof fall: the bench scorer's gravity error is under 0.05 m and the horizontal speed stays (${r3(grav.error)} m, speed change ${r3(grav.speedChange)} m/s)`, grav.error < 0.05 && Math.abs(grav.speedChange) < 0.05, JSON.stringify(grav));
 	expect(`(a) roof fall: retime leaves the air frames f${a}-f${b} as keyed (the time map is the identity there; it stretched ${r.fixed.retime?.maxStretch ?? 1}x elsewhere)`, !r.out.timeMap || Array.from({ length: b - a + 1 }, (_, i) => a + i).every(f => Math.abs(r.out.timeMap(f) - f) < 1e-9), JSON.stringify(r.fixed.retime));
 	expect("(a) roof fall: output.fixed.ballistic reports the run, its frames and the worst move", r.fixed.ballistic?.runs >= 1 && r.fixed.ballistic.frames >= b - a + 1 && r.fixed.ballistic.max >= 0 && Array.isArray(r.fixed.ballistic.at), JSON.stringify(r.fixed.ballistic));
 	const pen = new Set(["REACH", "COLLIDE", "GROUND", "BODY"]), added = [...kinds(r)].filter(k => pen.has(k) && !kinds(off).has(k));
 	expect("(a) roof fall: no new REACH or penetration (COLLIDE, GROUND, BODY) against the same take with the flight fixes off", added.length === 0, JSON.stringify(r.qa.groups.map(g => `${g.kind} ${g.subject}`)));
-	expect("(a) roof fall: no DROP or SPIN on the fall", !kinds(r).has("DROP") && !kinds(r).has("SPIN"), JSON.stringify(r.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}-${g.last}`)));
+	expect("(a) roof fall: no DROP or SPIN on the fall, no KEY for the keys the fix moved it off", !kinds(r).has("DROP") && !kinds(r).has("SPIN") && !kinds(r).has("KEY"), JSON.stringify(r.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}-${g.last}`)));
 }
 
 /** The worst distance from 1 g (in g) of a point's fall (y per frame) over frames from..to of a compiled take. */
@@ -158,6 +162,53 @@ for (const cut of [40, 45, 50]) {
 	expect("(a3) parkour vault: no POP on its push-off and impact frames, no blocking group, no more issues than the 13 of the baseline", r.qa.groups.every(g => g.kind !== "POP" || g.last < 35) && blocking.length === 0 && r.qa.total <= 13, JSON.stringify({ total: r.qa.total, blocking: list(blocking), all: list(r.qa.groups) }));
 }
 
+// (a4) a hop over a 0.1 m thick hurdle, sparse keys, the feet riding the hips: keyed over a clean 0.6 m apex in 14 frames, whose arc allows 0.417 m
+const HOP_A = 30;
+function hurdleHop(apex, N, H, fix, checks, people) {
+	const span = 1, z0 = -span / 2, z1 = span / 2, B = HOP_A + N, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]];
+	const on = z => { const root = shift(pose0.root, [0, 0, z]); return { root, foot_l: shift(pose0.foot_l, [0, 0, z]), foot_r: shift(pose0.foot_r, [0, 0, z]) }; };
+	const up = (y, z) => { const root = shift(pose0.root, [0, y, z]); return { root, foot_l: shift(root, shift(off("l"), [0, 0.02, 0])), foot_r: shift(root, shift(off("r"), [0, 0.02, 0])) }; };
+	const low = (z, y) => ({ ...on(z), root: shift(pose0.root, [0, y, z]) });
+	const keys = [{ f: 0, set: { ...pose0, ...on(z0) } }, { f: 20, set: on(z0) }, { f: 26, set: low(z0, -0.12) }, { f: HOP_A, set: on(z0) }, { f: HOP_A + Math.round(N / 2), set: up(apex, (z0 + z1) / 2) }, { f: B, set: on(z1) }, { f: B + 6, set: low(z1, -0.1) }, { f: B + 20, set: on(z1) }];
+	const box = H > 0 ? [{ id: "hurdle", name: "Hurdle", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, rotX: 0, rotZ: 0, scaleX: 1.2, scaleY: H, scaleZ: 0.1, footprint: { width: 1, depth: 1 }, height: 1 }] : [];
+	return compileSpec({ schema: SPEC, fps: 24, frames: B + 22, keys, ...(fix ? { fix } : {}), ...(checks ? { checks } : {}) }, { sk, scene: { ...motionScene(box), ...(people ? { people } : {}) } });
+}
+{
+	const keyed = hurdleHop(0.6, 14, 0.5, { ballistic: false, spin: false }), r = hurdleHop(0.6, 14, 0.5), past = r.fixed.ballistic?.skipped?.[0], list = q => q.qa.groups.map(g => `${g.kind} ${g.subject} ${g.worst}`), y = (q, f) => q.out.frames[f].s.P[I.Hips][1];
+	const moved = Math.max(...r.out.frames.map((_, f) => Math.abs(y(r, f) - y(keyed, f))));
+	expect(`(a4) a hop over a hurdle, keyed clean: the arc would enter it, so the flight keeps its frames (hips moved ${moved} m, QA ${keyed.qa.total} -> ${r.qa.total}, no COLLIDE)`, keyed.qa.total === 0 && r.qa.total === 0 && moved < 1e-9 && r.fixed.ballistic?.runs === 0 && !r.out.flightRuns?.length, JSON.stringify({ moved, b: r.fixed.ballistic, on: list(r), off: list(keyed) }));
+	expect(`(a4) fixed.ballistic.skipped says what the arc entered (${past?.into}, ${past?.depth} m), how far off (${past?.off} m), the apex (${past?.apex} m) and the frames it fits (${past?.fits})`, past?.into?.includes("foot_l x hurdle") && past.depth > 0.01 && past.off > 0.1 && Math.abs(past.apex - 0.417) < 0.001 && past.fits > 14 && past.at === "f31-f43", JSON.stringify(past));
+	const longer = hurdleHop(0.55, 22, 0.5), bare = hurdleHop(0.6, 14, 0), allowed = hurdleHop(0.6, 14, 0.5, null, { allow: ["foot", "shin", "thigh"].map(part => ({ part, object: "hurdle", depth: 0.5 })) });
+	expect(`(a4) the same hurdle with the frames its apex needs: the arc clears it (moved ${longer.fixed.ballistic?.max} m, QA ${longer.qa.total})`, longer.fixed.ballistic?.runs === 1 && !longer.fixed.ballistic.skipped && longer.qa.total === 0, JSON.stringify({ b: longer.fixed.ballistic, qa: list(longer) }));
+	expect("(a4) the same hop with no hurdle, or with checks.allow for it: the arc moves it, the gate reads what QA reads", bare.fixed.ballistic?.runs === 1 && !bare.fixed.ballistic.skipped && allowed.fixed.ballistic?.runs === 1 && !allowed.fixed.ballistic.skipped, JSON.stringify({ bare: bare.fixed.ballistic, allowed: allowed.fixed.ballistic }));
+}
+
+// (a4) a character standing under the hop: the arc would take the body deeper into them, so the flight keeps its frames
+{
+	const spec = { schema: SPEC, fps: 24, frames: 80, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0], heading: 0, until: 79 } }] };
+	const take = bakeTake(sk, compileSpec(spec, { sk, scene: motionScene([]) }).out, { position: [0, 0, 0], yaw: 0 }, { spec });
+	const people = peopleOf([{ id: "b", subject: "B", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0 }, { id: "a", model: "y-bot-tpose" }], "a", id => (id === "b" ? take : null));
+	const r = hurdleHop(0.6, 14, 0, null, null, people), keyed = hurdleHop(0.6, 14, 0, { ballistic: false, spin: false }, null, people), past = r.fixed.ballistic?.skipped?.[0];
+	expect(`(a4) an arc deeper into a character keeps its frames (${past?.into?.[0]}, ${past?.depth} m; QA ${keyed.qa.total} -> ${r.qa.total})`, /x person:b/.test(past?.into?.join() ?? "") && r.qa.total === keyed.qa.total, JSON.stringify({ b: r.fixed.ballistic, on: r.qa.total, off: keyed.qa.total }));
+}
+
+// (a4) legs reaching down from a body keyed high: the arc would put the soles through the floor
+{
+	const A = 30, N = 8, low = shift(pose0.root, [0, -0.3, 0.05]), keys = [{ f: 0, set: { ...pose0 } }, { f: 20, set: { root: low } }, { f: A, set: { root: low, foot_l: pose0.foot_l, foot_r: pose0.foot_r } }];
+	for (let f = A + 1; f < A + N; f++) keys.push({ f, set: { root: shift(low, [0, 0.3 * Math.sin(Math.PI * (f - A) / N), 0]), foot_l: shift(pose0.foot_l, [0, 0.04, 0]), foot_r: shift(pose0.foot_r, [0, 0.04, 0]) } });
+	keys.push({ f: A + N, set: { root: low, foot_l: pose0.foot_l, foot_r: pose0.foot_r } }, { f: A + 30, set: { root: pose0.root } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: A + 32, keys }, { sk, scene: motionScene([]) }), past = r.fixed.ballistic?.skipped?.[0];
+	expect(`(a4) an arc through the floor keeps its frames, no GROUND (${past?.into})`, /sole below floor/.test(past?.into?.join() ?? "") && !kinds(r).has("GROUND"), JSON.stringify({ b: r.fixed.ballistic, kinds: [...kinds(r)] }));
+}
+
+// (a4) a back tuck under a slab, the arc off: the re-timed arms would go into the slab the keyed turn stays clear of
+{
+	const slab = { id: "slab", name: "Slab", renderer: "cube", x: 0, y: 2.36, z: 0, rot: 0, rotX: 0, rotZ: 0, scaleX: 4, scaleY: 0.1, scaleZ: 4, footprint: { width: 1, depth: 1 }, height: 1 };
+	const flip = fix => compileSpec({ schema: SPEC, fps: 24, frames: "auto", fix, use: [stand, { skill: "flip", f0: 6, args: { kind: "back" } }] }, { sk, scene: motionScene([slab]) });
+	const on = flip({ ballistic: false }), off = flip({ ballistic: false, spin: false }), why = on.fixed.spin?.left?.[0]?.why ?? "";
+	expect(`(a4) a re-time into a slab is left and reported: ${why}`, /enter .*x slab/.test(why) && on.fixed.spin.runs === 0 && on.qa.total === off.qa.total, JSON.stringify({ spin: on.fixed.spin, on: on.qa.total, off: off.qa.total }));
+}
+
 // (b) a trip's fall (bench set 06): the feet stay planted while the hips drop 0.35 m at 2 g, then stop at 2 g
 {
 	const keys = [{ f: 0, set: { ...pose0 } }, { f: 20, set: { root: pose0.root } }], h = 0.35, acc = 2 * G, half = Math.sqrt(h / acc);
@@ -171,7 +222,7 @@ for (const cut of [40, 45, 50]) {
 	expect(`(b) hips falling at 2 g with the feet planted: DROP (worst ${g ? g.worst : "-"} g, limit ${DROP_LIMIT} g)`, g && g.count >= 2 && g.worst > 1.5, JSON.stringify(r.qa.groups.map(x => `${x.kind} ${x.subject}`)));
 	const need = Math.sqrt(2 * h / 9.81), m = /the hips drop ([\d.]+) m over (\d+) frames \(f(\d+)-f(\d+)\).*sqrt\(2h\/g\) = ([\d.]+) s \((\d+) frames\).*at f(\d+) or later/.exec(g?.hint ?? "");
 	expect(`(b) the DROP hint gives the drop (${h} m from f20), sqrt(2h/g) = ${r3(need)} s at 1 g, the frame its low point needs, and an earlier hand brace`,
-		m && Math.abs(+m[1] - h) < 0.02 && +m[3] === 20 && Math.abs(+m[5] - need) < 0.02 && +m[6] === Math.ceil(need * 24) && +m[7] === 20 + Math.ceil(need * 24) && /brace/.test(g.hint), g?.hint);
+		m && Math.abs(+m[1] - h) < 0.02 && +m[3] === 20 && Math.abs(+m[5] - need) < 0.02 && +m[6] === Math.ceil(need * 24) && +m[7] >= 20 + Math.ceil(need * 24) && /brace/.test(g.hint), g?.hint);
 	// the same drop over the frames a fall needs reads clean
 	const slow = keys.map(k => (k.f > 20 && k.f <= f ? { f: 20 + (k.f - 20) * 2, set: k.set } : k.f > f ? { f: k.f + f - 20, set: k.set } : k));
 	const ok = compileSpec({ schema: SPEC, fps: 24, frames: slow.at(-1).f + 2, keys: slow }, { sk, scene: motionScene([]) });
@@ -180,6 +231,23 @@ for (const cut of [40, 45, 50]) {
 	const spun = keys.map(k => (k.f > 20 && k.f <= f ? { f: k.f, set: { ...k.set, yaw: 30 * (k.f - 20) } } : k.f > f ? { f: k.f, set: { ...k.set, yaw: 30 * (f - 20) } } : k));
 	const pir = compileSpec({ schema: SPEC, fps: 24, frames: f + 22, keys: spun }, { sk, scene: motionScene([]) });
 	expect("(b) the same fall turning 30 deg a frame about the vertical: DROP (a pirouette is no turn over)", kinds(pir).has("DROP"), JSON.stringify(pir.qa.groups.map(x => `${x.kind} ${x.subject} ${x.worst}`)));
+}
+
+// (b) one key pair's fall: the curve peaks near twice its mean, so the hint's low point is past the keyed one and following it ends DROP
+{
+	const low = shift(pose0.root, [0, -0.5, 0.1]), fall = at => compileSpec({ schema: SPEC, fps: 24, frames: 70, keys: [{ f: 0, set: { ...pose0 } }, { f: 20, set: { root: pose0.root } }, { f: at, set: { root: low } }, { f: 68, set: { root: low } }] }, { sk, scene: motionScene([]) });
+	const g = fall(28).qa.groups.find(x => x.kind === "DROP"), at = +(/at f(\d+) or later/.exec(g?.hint ?? "")?.[1] ?? 0), next = at ? fall(at) : null;
+	expect(`(b) a 0.5 m fall keyed over 8 frames: DROP's hint asks for a low point past f28 (f${at}), and keyed there the DROP is gone`, at > 28 && next && !kinds(next).has("DROP"), JSON.stringify({ hint: g?.hint, next: next && [...kinds(next)] }));
+}
+
+// (b) a single frame's step in the hips is one frame over the limit: no DROP (2 frames or more)
+{
+	const keys = [{ f: 0, set: { ...pose0 } }];
+	for (let f = 16; f <= 26; f++) keys.push({ f, set: { root: shift(pose0.root, [0, f <= 20 ? 0 : -0.03, 0]) } });
+	keys.push({ f: 40, set: { root: shift(pose0.root, [0, -0.03, 0]) } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 42, keys, fix: { retime: false } }, { sk, scene: motionScene([]) }), acc = f => -(r.out.frames[f + 1].s.P[I.Hips][1] - 2 * r.out.frames[f].s.P[I.Hips][1] + r.out.frames[f - 1].s.P[I.Hips][1]) / G;
+	const over = r.out.frames.slice(1, -1).map((_, i) => i + 1).filter(f => acc(f) > DROP_LIMIT);
+	expect(`(b) hips over ${DROP_LIMIT} g on one frame only (${over}): no DROP`, over.length === 1 && !kinds(r).has("DROP"), JSON.stringify({ over, kinds: [...kinds(r)] }));
 }
 
 // (b) a stand-up from a 0.3 m squat rising at 0.06 m a frame that stops on its top in two frames, the feet planted
@@ -206,6 +274,9 @@ for (const cut of [40, 45, 50]) {
 	expect(`(c) back tuck: the total turn from takeoff to landing (${r3(got)} deg) is within 10 deg of the keyed turn (${r3(keyedTurn)} deg)`, Math.abs(got - keyedTurn) < 10, `${got} vs ${keyedTurn}`);
 	expect("(c) back tuck: the landing is clean (QA 0) and output.fixed.spin reports frames, the worst re-time and the drift", on.qa.total === 0 && on.fixed.spin?.frames >= b - a + 1 && on.fixed.spin.max > 0 && on.fixed.spin.drift?.[1] < on.fixed.spin.drift?.[0],
 		JSON.stringify({ groups: on.qa.groups.map(g => `${g.kind} ${g.subject}`), spin: on.fixed.spin }));
+	// fix.spin turns the body about its hips, which moves the centre of mass: the second arc puts it back on the parabola
+	const comFall = fallError(f => centerOfMass(sk, on.out.frames[f].s)[1], a + 1, b - 1);
+	expect(`(c) back tuck: after fix.spin the centre of mass still falls at 1 g (off by ${r3(comFall)} g)`, comFall < 0.01, comFall);
 	// the landing's one-frame POP goes unread only on a flight the ballistic fix moved
 	const kept = flip({ ballistic: false });
 	expect("(c) back tuck with fix { ballistic: false }: the landing reads POP (only a flight the ballistic fix moved is exempt)", kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
@@ -233,8 +304,28 @@ for (const cut of [40, 45, 50]) {
 	const noSpine = { ...sk, index: { ...sk.index } };
 	delete noSpine.index.Spine1;
 	const off = compileSpec({ ...structuredClone(spec), fix: { spin: false } }, { sk, scene: motionScene([]) }), run = flightOf(off);
-	const rep = spinFix({ ...off.out, ctx: { ...off.out.ctx, sk: noSpine } }, { solve() {} }, run);
+	const rep = spinFix({ ...off.out, ctx: { ...off.out.ctx, sk: noSpine } }, { solve() {} }, run, () => null);
 	expect("(c) a rig missing a segment bone: fix.spin reports it under fixed.spin.left", rep?.runs === 0 && /no bone/.test(rep.left?.[0]?.why ?? ""), JSON.stringify(rep));
+}
+
+// (c) a turn too fast for the momentum to read (1080 deg in 12 frames): re-timing would drift more than keyed, so it stays keyed and SPIN's hint says why
+{
+	const T0 = 12, A = 22, B = A + T0, v0 = G * T0 / 2, keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root } }, { f: 18, set: { root: shift(pose0.root, [0, -0.1, 0]) } }];
+	for (let f = A; f <= B; f++) { const t = f - A; keys.push({ f, set: { root: shift(pose0.root, [0, v0 * t - G * t * t / 2, 0]), yaw: -1080 * t / T0 } }); }
+	keys.push({ f: B + 8, set: { root: shift(pose0.root, [0, -0.08, 0]), yaw: -1080 } }, { f: B + 22, set: { root: pose0.root, yaw: -1080 } });
+	const compile = fix => compileSpec({ schema: SPEC, fps: 24, frames: B + 24, keys: structuredClone(keys), ...(fix ? { fix } : {}) }, { sk, scene: motionScene([]) });
+	const r = compile(), off = compile({ spin: false }), [a, b] = flightOf(r)[0] ?? [0, 0], g = r.qa.groups.find(x => x.kind === "SPIN");
+	expect(`(c) 1080 deg in 12 frames: fix.spin keeps no worse a drift than keyed (${r3(runDrift(r.out, a, b))} vs ${r3(runDrift(off.out, a, b))}), left and reported`, runDrift(r.out, a, b) <= runDrift(off.out, a, b) + 1e-9 && /drift more/.test(r.fixed.spin?.left?.[0]?.why ?? ""), JSON.stringify(r.fixed.spin));
+	expect("(c) SPIN's hint on a flight fix.spin left names the reason, not the fix", g && /fix\.spin left this flight/.test(g.hint) && !/on by default/.test(g.hint), JSON.stringify(r.qa.groups.map(x => x.kind)));
+}
+
+// (c) a hover turning 180 deg: no fall, no flight to re-time; FLOAT's hint is the staging's fix, and neither flight fix touches it
+{
+	const up = shift(pose0.root, [0, 0.4, 0]), rides = l => shift(up, [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]]), keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root } }];
+	for (let f = 14; f <= 40; f += 2) keys.push({ f, set: { root: up, foot_l: rides("l"), foot_r: rides("r"), yaw: 180 * (f - 14) / 26 } });
+	keys.push({ f: 44, set: { root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r, yaw: 180 } }, { f: 60, set: { root: pose0.root } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 62, keys }, { sk, scene: motionScene([]) });
+	expect("(c) a hover turning 180 deg: FLOAT, and neither fix.ballistic nor fix.spin moves it", kinds(r).has("FLOAT") && !r.fixed.ballistic && !r.fixed.spin, JSON.stringify({ b: r.fixed.ballistic, s: r.fixed.spin, kinds: [...kinds(r)] }));
 }
 
 // (d) a 360 deg spin jump: the arms out at takeoff, pulled in over the middle of the flight, out again to land
@@ -267,7 +358,7 @@ function spinJump() {
 	expect(`(d) spin jump keyed at an even rate (fix { spin: false }): QA says SPIN (drift ${r3(dOff)} over SPIN_TOL); with fix.spin no SPIN`, dOff > SPIN_TOL && kinds(off).has("SPIN") && !kinds(on).has("SPIN"), JSON.stringify({ off: off.qa.groups.map(g => g.kind), on: on.qa.groups.map(g => g.kind) }));
 	// cut after the arms have opened again, so the run holds the swing of L
 	const cut = B - 1, r = compileSpec({ ...structuredClone(spec), frames: cut + 1, keys: spec.keys.filter(k => k.f <= cut) }, { sk, scene: motionScene([]) }), run = airRuns(r.out, []).at(-1);
-	expect(`(d) spin jump cut at f${cut}, its air run reaching the end: no fix.spin, and QA says SPIN`, run?.[1] === cut && !r.fixed.spin && kinds(r).has("SPIN"), JSON.stringify({ run, spin: r.fixed.spin, kinds: [...kinds(r)] }));
+	expect(`(d) spin jump cut at f${cut}, its air run reaching the end: no fix.spin, and QA says SPIN and that the take cuts it`, run?.[1] === cut && !r.fixed.spin && kinds(r).has("SPIN") && /take cuts this flight/.test(r.qa.groups.find(g => g.kind === "SPIN")?.hint ?? ""), JSON.stringify({ run, spin: r.fixed.spin, kinds: [...kinds(r)], hint: r.qa.groups.find(g => g.kind === "SPIN")?.hint }));
 }
 
 // (e) the existing flight tests

@@ -219,10 +219,15 @@ export const flightHints = {
 			return { cause: X.cause("root", w), hint: `the hips stop a rise of ${r2(v * fps)} m/s by f${top} at up to ${r2(g.worst)} g while a foot or the body is supported; a support only pushes, so stopping v m/s takes v/g = ${r2(t)} s (${need} frames) even at 1 g: ease the root into its top over ${need} frames or more, or let the feet leave the ground (a hop)` };
 		}
 		const { top, bottom, h } = descent(X, g), t = Math.sqrt(2 * Math.max(0, h) / 9.81), need = Math.ceil(t * fps);
-		return { cause: X.cause("root", g.worstFrame), hint: `the hips drop ${r2(h)} m over ${bottom - top} frames (f${top}-f${bottom}) at up to ${r2(g.worst)} g while a foot or the body is supported; a drop of h m takes sqrt(2h/g) = ${r2(t)} s (${need} frames) even at 1 g: key the root's low point at f${top + need} or later, or brace earlier: put a hand on the ground or an object before f${g.first} so the arms take the fall` };
+		// the keys' curve peaks near twice its mean: its peak falls with the square of its span, so the low point also has to reach what brings this peak under the limit
+		const low = Math.max(need, Math.ceil((bottom - top) * Math.sqrt(g.worst / DROP_LIMIT)));
+		return { cause: X.cause("root", g.worstFrame), hint: `the hips drop ${r2(h)} m over ${bottom - top} frames (f${top}-f${bottom}) at up to ${r2(g.worst)} g while a foot or the body is supported; a drop of h m takes sqrt(2h/g) = ${r2(t)} s (${need} frames) even at 1 g: key the root's low point at f${top + low} or later, or brace earlier: put a hand on the ground or an object before f${g.first} so the arms take the fall` };
 	},
 	SPIN(X, g) {
-		const ch = ["pitch", "roll", "yaw"].find(c => X.keys(c).length) ?? "pitch";
-		return { cause: X.cause(ch, g.worstFrame), hint: `in the air the angular momentum about the centre of mass drifts ${Math.round(g.worst * 100)}% from its mean over f${g.first}-f${g.last} (limit ${Math.round(SPIN_TOL * 100)}%): a body turns faster tucked and slower open (I w stays constant). fix.spin (on by default) re-times the root's ${ch} so it holds; with it off, key the ${ch} so the turn is fastest where the limbs are pulled in` };
+		const ch = ["pitch", "roll", "yaw"].find(c => X.keys(c).length) ?? "pitch", key = `key the ${ch} so the turn is fastest where the limbs are pulled in`;
+		// the flight is the end of the subject (flightChecks); fix.spin lists it under left when it would not re-time it, and a span at the take's edge has no takeoff or landing to anchor on
+		const [, from, to] = /f(\d+)-f(\d+)$/.exec(g.subject) ?? [], lo = X.out.f0 ?? 0, left = X.out.fixed?.spin?.left?.find(l => l.at === `f${from}-f${to}`);
+		const next = left ? `fix.spin left this flight (${left.why}): ${key}` : +from === lo || +to === lo + X.out.frames.length - 1 ? `the take cuts this flight, so fix.spin has no takeoff or landing to keep: give it a frame on each side, or ${key}` : `fix.spin (on by default) re-times the root's ${ch} so it holds; with it off, ${key}`;
+		return { cause: X.cause(ch, g.worstFrame), hint: `in the air the angular momentum about the centre of mass drifts ${Math.round(g.worst * 100)}% from its mean over f${g.first}-f${g.last} (limit ${Math.round(SPIN_TOL * 100)}%): a body turns faster tucked and slower open (I w stays constant). ${next}` };
 	},
 };

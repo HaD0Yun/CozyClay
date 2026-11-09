@@ -19,10 +19,11 @@
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
 //                4 frames or more that falls (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124)
 //   ballistic    in each air run of 4 frames or more the whole body moves so the centre of mass follows the gravity
-//                parabola between takeoff and landing at constant horizontal speed; past 0.5 m it is reported, not
-//                fixed (ballistic.js, #1124)
+//                parabola between takeoff and landing at constant horizontal speed; past 0.5 m, or where the arc enters
+//                what the keyed flight did not (flight-gate.js), it is reported, not fixed (ballistic.js, #1124)
 //   spin         in each air run the root's turn is re-timed so the angular momentum about the centre of mass stays
-//                constant (faster tucked, slower open), the keyed total turn kept (spin.js)
+//                constant (faster tucked, slower open), the keyed total turn kept; left where it would enter what the
+//                keyed flight did not (flight-gate.js) or read SPIN worse than keyed (spin.js)
 //   stance       a standIdle stance whose legs, feet or hips are in a scene body slides out of it, the least
 //                distance (skills/stance.js; applied when the skills expand, reported in observations.placed)
 //   person       arms out of the other characters (scene.people, their installed takes; QA PERSON): the wrist
@@ -42,6 +43,7 @@ import { selfClear } from "./self.js";
 import { personOut } from "./person.js";
 import { ballisticFix } from "./ballistic.js";
 import { spinFix } from "./spin.js";
+import { flightGate } from "./flight-gate.js";
 import { airRuns } from "../qa/style.js";
 import { flights, fallingRuns } from "../qa/flight-checks.js";
 
@@ -93,12 +95,12 @@ export function applyFixes(out, fix, engine, { whole = true } = {}) {
 function flightFixes(out, engine, fix, runs) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	if (!runs.length) return fixed;
-	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()]));
-	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs));
-	if (fix.spin) put("spin", spinFix(out, engine, runs));
+	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()])), gate = flightGate(out, runs);
+	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs, gate));
+	if (fix.spin) put("spin", spinFix(out, engine, runs, gate));
 	// the second pass's report joins the first's (ballisticFix prev); null: nothing moved or skipped in either
 	if (fix.ballistic && fixed.spin) {
-		const arc = ballisticFix(out, engine, runs, fixed.ballistic);
+		const arc = ballisticFix(out, engine, runs, gate, fixed.ballistic);
 		if (arc) fixed.ballistic = arc;
 		else delete fixed.ballistic;
 	}

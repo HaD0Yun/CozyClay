@@ -10,12 +10,16 @@
 // body (the ankle and wrist targets, ballistic.js RIDERS) and the knee and elbow poles turn with the root, so the limbs
 // keep their pose in the body; a foot's fyaw turns with the root's yaw. Three passes: measure, re-time, solve.
 // A flight whose keyed turn turns back by more than BACK_SHARE of its total, whose limbs would turn the root backward
-// (w <= 0 somewhere), or on a rig missing a segment bone is left as keyed and reported (fixed.spin.left); QA SPIN still
-// reads the first two. A smaller reversal (a flip's overshoot before it lands) re-times along the turn's monotone envelope.
+// (w <= 0 somewhere), on a rig missing a segment bone, that the re-time would put into what the keyed flight stayed out of
+// (flight-gate.js) or leave drifting more than before and over SPIN_TOL (a turn too fast to read: 1080 deg in 12 frames)
+// is left and reported (fixed.spin.left); QA SPIN still reads it. A run whose hips do not fall (FLOAT) is a staging error
+// and stays for QA's arc hint, as in ballistic.js. A smaller reversal (a flip's overshoot before it lands) re-times along
+// the turn's monotone envelope.
 import { add, sub, apply, dot, mul, rx, ry, rz, T } from "../compiler/math.js";
 import { tiltFrame } from "../compiler/pose.js";
 import { momentumOf, rotationVector } from "../qa/inertia.js";
-import { runDrift } from "../qa/flight-checks.js";
+import { runDrift, SPIN_TOL } from "../qa/flight-checks.js";
+import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
 import { RIDERS } from "./ballistic.js";
 
 /** Degrees: a run whose root turns less than this between takeoff and landing has no spin to re-time. */
@@ -79,9 +83,10 @@ function retimeFrame(baked, orig, f, u) {
 /**
  * Re-times the root's turn in each flight of `runs` (qa/flight-checks.js flights) so the angular momentum about the centre of mass stays
  * constant. -> { runs, frames, max (deg the turn moved at most), drift: [before, after] (the worst run, flight-checks.js
- * runDrift: what QA SPIN reads), at, left? ([{ at, why }]: flights it could not re-time), how } | null.
+ * runDrift: what QA SPIN reads), at, left? ([{ at, why }]: flights it could not re-time), how } | null. `gate`, flight-gate.js,
+ * says what a re-time entered.
  */
-export function spinFix(out, engine, runs) {
+export function spinFix(out, engine, runs, gate) {
 	const f0 = out.f0 ?? 0, fps = out.fps ?? 24, B0 = out.baked, at = [], left = [];
 	if (!["yaw", "pitch", "roll"].some(ch => B0[ch])) return null;
 	const len = out.frames.length + f0, zero = () => new Array(len).fill(0);
@@ -89,7 +94,7 @@ export function spinFix(out, engine, runs) {
 	let frames = 0, max = 0, before = 0, after = 0;
 	for (const [a, b] of runs) {
 		const A = a - 1 + f0, B = b + 1 + f0, turn = keyedTurn(e, A, B);
-		if (!turn) continue;
+		if (!turn || missingFall(out, a, b) > FLOAT_LIMIT) continue;
 		if (turn.back) { left.push({ at: `f${a + f0}-f${b + f0}`, why: "the keyed turn turns back inside the flight: left as keyed" }); continue; }
 		const orig = Object.fromEntries(["yaw", "pitch", "roll", ...RIDERS, ...POLES, "fyaw_l", "fyaw_r"].map(ch => [ch, B0[ch] ? B0[ch].slice() : ch === "root" ? null : e[ch]?.slice()]));
 		if (!orig.root) continue;
@@ -112,14 +117,16 @@ export function spinFix(out, engine, runs) {
 			}
 			solve();
 		}
+		const hit = why ? null : gate(a, b), d1 = why ? 0 : runDrift(out, a, b);
+		if (hit) why = `re-timed, it would enter ${hit.into.join(", ")} by ${hit.depth} m where the flight did not: left as it was`;
+		else if (d1 > d0 && d1 > SPIN_TOL) why = `re-timed, it would drift more (${d0.toFixed(3)} -> ${d1.toFixed(3)}): left as it was`;
 		if (why) {
-			// as keyed: every channel this run wrote goes back to its own values
+			// as it was: every channel this run wrote goes back to its own values
 			for (const [ch, v] of Object.entries(orig)) if (B0[ch] && v) for (let f = a + f0; f <= b + f0; f++) B0[ch][f] = v[f];
 			solve();
 			left.push({ at: `f${a + f0}-f${b + f0}`, why });
 			continue;
 		}
-		const d1 = runDrift(out, a, b);
 		before = Math.max(before, d0); after = Math.max(after, d1);
 		at.push(`f${a + f0}-f${b + f0}`); frames += b - a + 1; max = Math.max(max, moved);
 	}

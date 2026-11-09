@@ -9,9 +9,11 @@
 // arc's speed in one frame, a push-off and an impact (QA POP leaves those frames: qa/flight-checks.js contactFrames; an
 // ease of the root over the supported frames around them moved the planted legs into pops of their own and the hips
 // after landing off their keys). A run whose hips do not fall (FLOAT: under a quarter of g) is a staging error and stays
-// for QA's arc hint; a run that needs more than MAX_FIX (0.5 m) is reported instead of fixed (skipped: the
-// apex an N-frame flight has, g N^2 / 8, and the frames the hips' own apex fits, sqrt(8 h / g)). Bench v2 (2026-11-07,
-// 07 roof fall back r1): the agent's exact 1 g parabola came out 0.27 m off at f106 after retime stretched its frames.
+// for QA's arc hint; a run that needs more than MAX_FIX (0.5 m), or whose arc enters what the frames before the flight
+// fixes stayed out of (flight-gate.js: a hop keyed over a hurdle higher than its frames can carry it), keeps its frames
+// and is reported instead (skipped: the apex an N-frame flight has, g N^2 / 8, and the frames the hips' own apex fits,
+// sqrt(8 h / g)). Bench v2 (2026-11-07, 07 roof fall back r1): the agent's exact 1 g parabola came out 0.27 m off at f106
+// after retime stretched its frames.
 import { bodyCentre } from "../qa/com.js";
 import { ballisticArc, MAX_FIX } from "../qa/ballistic.js";
 import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
@@ -43,27 +45,35 @@ function arcShift(out, a, b) {
 
 /**
  * Puts the centre of mass of each flight in `runs` (qa/flight-checks.js flights) on its parabola. -> { runs, frames, max (m, the
- * largest move), at, skipped?, how } | null when nothing moved and nothing was too far. `prev`, the report of an earlier
- * pass over the same runs (before fix.spin), joins this one: its runs count as moved, its worst move stands; skipped is
- * this pass's (a run the earlier pass skipped and this one fixed is no longer skipped).
+ * largest move), at, skipped?, how } | null when nothing moved and nothing was too far. `gate`, flight-gate.js, says what a
+ * move entered (skipped: into, depth); the run gets its frames back. `prev`, the report of an earlier pass over the same
+ * runs (before fix.spin), joins this one: its runs count as moved, its worst move stands; skipped is this pass's (a run the
+ * earlier pass skipped and this one fixed is no longer skipped).
  */
-export function ballisticFix(out, engine, runs, prev = null) {
+export function ballisticFix(out, engine, runs, gate, prev = null) {
 	const f0 = out.f0 ?? 0, g = 9.81 / (out.fps ?? 24) ** 2, done = new Set(prev?.at ?? []), at = [], skipped = [];
 	let frames = 0, max = prev?.max ?? 0;
+	const skip = (a, b, worst, c, why) => {
+		const N = b - a + 2, h = Math.max(...c) - c[0];
+		skipped.push({ at: `f${a + f0}-f${b + f0}`, off: round4(worst), apex: round4(g * N * N / 8), fits: h > 0 ? Math.round(Math.sqrt(8 * h / g)) : 0, ...why });
+		return 0;
+	};
 	const move = (a, b) => {
 		if (missingFall(out, a, b) > FLOAT_LIMIT) return 0;
 		const d = arcShift(out, a, b);
 		if (!d) return 0;
-		const worst = Math.max(...d.map(v => Math.hypot(...v)));
-		if (worst > MAX_FIX) {
-			const N = b - a + 2, c = out.frames.slice(a - 1, b + 2).map(fr => bodyCentre(out.ctx.sk, fr.s)[1]), h = Math.max(...c) - c[0];
-			skipped.push({ at: `f${a + f0}-f${b + f0}`, off: round4(worst), apex: round4(g * N * N / 8), fits: h > 0 ? Math.round(Math.sqrt(8 * h / g)) : 0 });
-			return 0;
-		}
+		const worst = Math.max(...d.map(v => Math.hypot(...v))), heights = () => out.frames.slice(a - 1, b + 2).map(fr => bodyCentre(out.ctx.sk, fr.s)[1]);
+		if (worst > MAX_FIX) return skip(a, b, worst, heights());
 		if (worst < 1e-4) return 0;
-		d.forEach((v, i) => shiftFrame(out.baked, a + f0 + i, v));
-		engine.solve(Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i));
-		return worst;
+		const frames = Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i), was = frames.map(f => RIDERS.map(ch => out.baked[ch]?.[f]));
+		d.forEach((v, i) => shiftFrame(out.baked, frames[i], v));
+		engine.solve(frames);
+		const hit = gate(a, b);
+		if (!hit) return worst;
+		// the very values go back: fix/index.js reads a moved frame by a changed reference
+		frames.forEach((f, i) => RIDERS.forEach((ch, k) => { if (Array.isArray(was[i][k])) out.baked[ch][f] = was[i][k]; }));
+		engine.solve(frames);
+		return skip(a, b, worst, heights(), hit);
 	};
 	for (const [a, b] of runs) {
 		const label = `f${a + f0}-f${b + f0}`, worst = move(a, b);
@@ -74,5 +84,5 @@ export function ballisticFix(out, engine, runs, prev = null) {
 	}
 	if (!at.length && !skipped.length) return null;
 	return { runs: at.length, frames, max: round4(max), at, ...(skipped.length ? { skipped } : {}),
-		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m are reported, not fixed (apex g N^2 / 8 for N frames; fits: the frames the hips' apex needs)` : ""}` };
+		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
 }
