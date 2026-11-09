@@ -9,8 +9,9 @@
 // A to B: sum (L0 - h) / I = the keyed angle; the turn at A and at B stays as keyed. The world targets that ride the
 // body (the ankle and wrist targets, ballistic.js RIDERS) and the knee and elbow poles turn with the root, so the limbs
 // keep their pose in the body; a foot's fyaw turns with the root's yaw. Three passes: measure, re-time, solve.
-// A flight whose keyed turn turns back, or whose limbs would turn the root backward (w <= 0 somewhere), is left as
-// keyed and reported (fixed.spin.left); QA SPIN still reads it.
+// A flight whose keyed turn turns back by more than BACK_SHARE of its total, whose limbs would turn the root backward
+// (w <= 0 somewhere), or on a rig missing a segment bone is left as keyed and reported (fixed.spin.left); QA SPIN still
+// reads the first two. A smaller reversal (a flip's overshoot before it lands) re-times along the turn's monotone envelope.
 import { add, sub, apply, dot, mul, rx, ry, rz, T } from "../compiler/math.js";
 import { tiltFrame } from "../compiler/pose.js";
 import { momentumOf, rotationVector } from "../qa/inertia.js";
@@ -19,6 +20,8 @@ import { RIDERS } from "./ballistic.js";
 
 /** Degrees: a run whose root turns less than this between takeoff and landing has no spin to re-time. */
 const MIN_TURN = 30;
+/** The share of the total turn a keyed turn may run backward and still be one turn. */
+const BACK_SHARE = 0.02;
 const PASSES = 3, POLES = ["knee_l", "knee_r", "elbow_l", "elbow_r"], deg = r => (r * 180) / Math.PI;
 
 /** The root's world turn at frame f from Euler channels e = { yaw, pitch, roll } (arrays of degrees). */
@@ -34,10 +37,13 @@ function keyedTurn(e, A, B) {
 	if (deg(size) < MIN_TURN) return null;
 	const n = sum.map(v => v / size), theta = [0];
 	for (const v of steps) theta.push(theta[theta.length - 1] + dot(v, n));
-	return theta.every((t, i) => i === 0 || t >= theta[i - 1] - 1e-9) ? { n, theta, total: theta[theta.length - 1] } : { back: true };
+	const total = theta[theta.length - 1];
+	let top = 0, back = 0;
+	const envelope = theta.map(t => { top = Math.max(top, t); back = Math.max(back, top - t); return Math.min(top, total); });
+	return back > BACK_SHARE * total ? { back: true } : { n, theta: envelope, total };
 }
 
-/** The fractional frame (A-based) where the keyed turn reaches angle t (theta monotone). */
+/** The fractional frame (A-based) where the keyed turn reaches angle t (theta the monotone envelope). */
 function frameAtTurn(theta, t) {
 	let i = 1;
 	while (i < theta.length - 1 && theta[i] < t) i++;
@@ -45,11 +51,12 @@ function frameAtTurn(theta, t) {
 	return i - 1 + (span > 1e-12 ? Math.min(1, Math.max(0, (t - theta[i - 1]) / span)) : 0);
 }
 
-/** Per air frame a..b: the momentum the limbs carry (h) and the moment of inertia about n (I), and L_n, from the solved frames. */
+/** Per air frame a..b: the momentum the limbs carry (h) and the moment of inertia about n (I), and L_n, from the solved frames; null on a rig missing a segment bone. */
 function measure(out, a, b, n, e) {
 	const fps = out.fps ?? 24, f0 = out.f0 ?? 0, rows = [];
 	for (let i = a; i <= b; i++) {
 		const m = momentumOf(out.ctx.sk, out.frames, i, fps), f = i + f0;
+		if (!m) return null;
 		const w = dot(rotationVector(mul(turnOf(e, f + 1), T(turnOf(e, f - 1)))), n) * fps / 2, I = dot(apply(m.J, n), n), L = dot(m.L, n);
 		rows.push({ h: L - I * w, I, L });
 	}
@@ -87,12 +94,14 @@ export function spinFix(out, engine, runs) {
 		const orig = Object.fromEntries(["yaw", "pitch", "roll", ...RIDERS, ...POLES, "fyaw_l", "fyaw_r"].map(ch => [ch, B0[ch] ? B0[ch].slice() : ch === "root" ? null : e[ch]?.slice()]));
 		if (!orig.root) continue;
 		const d0 = runDrift(out, a, b), solve = () => engine.solve(Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i));
-		let moved = 0, ok = true;
-		for (let pass = 0; pass < PASSES && ok; pass++) {
-			const rows = measure(out, a, b, turn.n, e), wt = rows.map((_, i) => (i === 0 || i === rows.length - 1 ? 1.5 : 1));
+		let moved = 0, why = null;
+		for (let pass = 0; pass < PASSES && !why; pass++) {
+			const rows = measure(out, a, b, turn.n, e);
+			if (!rows) { why = "the rig has no bone for a body segment, so its momentum cannot be read: left as keyed"; break; }
+			const wt = rows.map((_, i) => (i === 0 || i === rows.length - 1 ? 1.5 : 1));
 			const L0 = (turn.total * fps + rows.reduce((s, r, i) => s + wt[i] * r.h / r.I, 0)) / rows.reduce((s, r, i) => s + wt[i] / r.I, 0);
 			const w = rows.map(r => (L0 - r.h) / r.I / fps);
-			if (w.some(v => !(v > 0))) { ok = false; break; }
+			if (w.some(v => !(v > 0))) { why = "the limbs alone would turn the root backward: left as keyed"; break; }
 			const ext = [w[0], ...w, w[w.length - 1]];
 			let th = 0;
 			for (let i = 1; i < ext.length - 1; i++) {
@@ -103,11 +112,11 @@ export function spinFix(out, engine, runs) {
 			}
 			solve();
 		}
-		if (!ok) {
+		if (why) {
 			// as keyed: every channel this run wrote goes back to its own values
 			for (const [ch, v] of Object.entries(orig)) if (B0[ch] && v) for (let f = a + f0; f <= b + f0; f++) B0[ch][f] = v[f];
 			solve();
-			left.push({ at: `f${a + f0}-f${b + f0}`, why: "the limbs alone would turn the root backward: left as keyed" });
+			left.push({ at: `f${a + f0}-f${b + f0}`, why });
 			continue;
 		}
 		const d1 = runDrift(out, a, b);

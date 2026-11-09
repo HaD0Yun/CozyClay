@@ -5,9 +5,9 @@
 // motion is style and keeps its speed. Interpolation between keys scales with their spacing, so
 // each interval is stretched by its own peak excess. The frame count and every key outside the
 // windows stay where they are; the time map is kept on out.timeMap so frame-range checks follow.
-// Flights (qa/flight-checks.js flights: air runs of 4 frames or more) are not retimed (#1124): their frames are fast because gravity makes them fast, and a
+// Air runs of 4 frames or more that fall (qa/flight-checks.js fallingRuns; one the take cuts as well) are not retimed (#1124): their frames are fast because gravity makes them fast, and a
 // stretched fall is slower than gravity (bench v2, 07 roof fall back r1: f90-97 stretched 1.6-2.8x over an exact 1 g
-// parabola). An air frame is never too fast, and no window reaches into the key interval that holds a flight (held:
+// parabola). An air frame is never too fast, and no window reaches into the key interval that holds a run (held:
 // from the last key at or before the frame before takeoff to the first at or after the frame after landing; those two
 // keys stay where they are, so every frame between them keeps its timing).
 import { QA_LIMITS } from "../qa/checks.js";
@@ -15,7 +15,7 @@ import { speedExcess } from "../qa/style.js";
 
 const HEADROOM = 1.1, MIN_RATE = 0.35, PASSES = 3;
 
-/** e[i] = how many times too fast frame i is (speed ratio, or sqrt of the acceleration ratio); 0 in a flight. */
+/** e[i] = how many times too fast frame i is (speed ratio, or sqrt of the acceleration ratio); 0 in an air run. */
 const excess = (out, air) => {
 	const own = out.ctx.spec?.checks?.limits, e = speedExcess(out.ctx.sk, out, own, { ...QA_LIMITS, ...own });
 	for (const [a, b] of air) for (let f = a; f <= b; f++) e[f] = 0;
@@ -23,8 +23,8 @@ const excess = (out, air) => {
 };
 
 /**
- * The key intervals [p, q] that hold each flight (frames of out): the last key at or before a - 1 to the first at or after
- * b + 1. Retime reads the first solve, whose takeoff the leg fixes can still move a frame earlier (a toe-off sole 2 cm up:
+ * The key intervals [p, q] that hold each air run (frames of out): the last key at or before a - 1 to the first at or after
+ * b + 1, or the take's end where it cuts the run. Retime reads the first solve, whose takeoff the leg fixes can still move a frame earlier (a toe-off sole 2 cm up:
  * the roof fall's flight read f32-f53 there and f31-f53 at the end); p stays at or before that frame, so the air frames
  * keep their timing and only the frame before takeoff may move.
  */
@@ -69,7 +69,7 @@ function spread(e, cuts) {
 	return { T, stretch: Math.max(...dur.map((d, i) => (d * scale) / segs[i].len)) };
 }
 
-/** air: the take's flights (qa/flight-checks.js flights), whose key intervals stay as keyed. */
+/** air: the take's falling air runs (qa/flight-checks.js fallingRuns), whose key intervals stay as keyed. */
 export function retime(out, engine, air = []) {
 	const n = out.frames.length, maps = [];
 	let segments = 0, stretch = 1;

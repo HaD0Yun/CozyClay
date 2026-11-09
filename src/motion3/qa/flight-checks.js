@@ -9,10 +9,10 @@
 //         axis tilts more than OVER deg in one go, TURNING deg a frame or more: a cartwheel, a flip, a roll; a turn about
 //         the vertical, a pirouette, is none) swings its hips round what carries it, so their height is not a fall: DROP
 //         leaves those frames (the flip skill's cartwheel dips its hips at 1.5-3.3 g).
-//   SPIN  in a flight (flights: an air run of MIN_RUN frames or more, split where a hand is pinned, a frame on each
-//         side) the angular momentum about the centre of mass (inertia.js) must stay what the body left the ground with,
-//         read on the frames whose central difference stays in the air (the takeoff and landing frames carry the
-//         push). value = how far it drifts at that frame from the run's mean along the mean's axis u (deviations), as a
+//   SPIN  in a free span of an air run (freeSpans: MIN_RUN frames or more, split where a hand carries the body; a flight, or
+//         one the take's start or end cuts) the angular momentum about the centre of mass (inertia.js) must stay what the
+//         body left the ground with, read on the frames whose central difference stays in the air (the takeoff and landing
+//         frames carry the push). value = how far it drifts at that frame from the run's mean along the mean's axis u (deviations), as a
 //         share of the larger of |mean| and I_u * SPIN_OMEGA, I_u the run's mean whole-body inertia about u; SPIN_TOL
 //         is the share allowed. As turn rates (L / I_u): a frame may turn 20% faster or slower than the run's momentum
 //         allows, and never less than 20% of SPIN_OMEGA (2.5 rad/s) off it when the body turns slower than that. A
@@ -20,9 +20,11 @@
 //         (0.245); a back tuck about 60 kg m^2/s, its keyed turn 35 (0.40), about 7 after fix.spin (fix/spin.js re-times
 //         the root's turn so it holds); legs tucked in a hop with no turn swing it by up to 11 (0.19, nothing to re-time).
 //   POP   is left out on the push-off and impact frames of a flight fix.ballistic moved (contactFrames; qa/index.js drops them).
-import { airRuns } from "./style.js";
+import { airRuns, missingFall, FLOAT_LIMIT } from "./style.js";
 import { momentumOf } from "./inertia.js";
 import { apply, dot, T } from "../compiler/math.js";
+import { isFollow } from "../carried.js";
+import { handOf, moverOf } from "../object-pose.js";
 
 /** DROP: the hips' downward acceleration (g) a supported body may reach. */
 export const DROP_LIMIT = 1.1;
@@ -37,28 +39,55 @@ const OVER = 180, TURNING = 2;
 
 /** A hand still in the world moves less than this (m) over two frames: it is planted on something. */
 const STILL = 0.01;
-/** True when a hand carries the body at frame index i: on its IK with its target held on an anchor or still in the world. */
+
+/**
+ * True when anchor `name` can carry the body at absolute frame f: a world point, another character, or a scene object
+ * this body does not take along. A body, bone, segment, landmark or prop anchor rides the body, and so does an object in
+ * the hand or following a bone: a hand on them carries nothing.
+ */
+function anchorCarries(out, name, f) {
+	const { spec, scene } = out.ctx, a = spec?.anchors?.[name];
+	if (a?.kind === "world" || a?.kind === "person") return true;
+	return a?.kind === "object" && !isFollow(spec.objects?.[moverOf(spec, scene, a.object)]) && handOf(out, a.object, f) === null;
+}
+
+/** True when a hand carries the body at frame index i: on its IK, its target held on a carrying anchor, or (off its anchors) still in the world. */
 function pinned(out, i) {
 	const { c } = out.frames[i], f = i + (out.f0 ?? 0), n = out.frames.length + (out.f0 ?? 0);
 	return ["l", "r"].some(k => {
 		if (!(c[`armw_${k}`] >= 0.5)) return false;
-		const w = Object.entries(c).reduce((s, [ch, v]) => (ch.startsWith("w_") && ch.endsWith(`_${k}`) && typeof v === "number" ? s + v : s), 0);
-		if (w >= 0.5) return true;
+		let on = 0, carrying = 0;
+		for (const [ch, v] of Object.entries(c)) {
+			if (!ch.startsWith("w_") || !ch.endsWith(`_${k}`) || typeof v !== "number") continue;
+			on += v;
+			if (anchorCarries(out, ch.slice(2, -2), f)) carrying += v;
+		}
+		if (carrying >= 0.5) return true;
+		// the hand follows an anchor that rides the body: whatever its unused world target does says nothing
+		if (on >= 0.5) return false;
 		const h = out.baked?.[`hand_${k}`], p = h?.[Math.max(0, f - 1)], q = h?.[Math.min(n - 1, f + 1)];
 		return Array.isArray(p) && Array.isArray(q) && Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]) < STILL;
 	});
 }
 
+/** MIN_RUN frames or more: a walk's one-frame lift is no flight. */
+const longRuns = runs => runs.filter(([a, b]) => b - a + 1 >= MIN_RUN);
+
 /**
- * The flights in air runs `runs` (style.js airRuns, indexes of out.frames): the runs split where a hand carries the
- * body (pinned: a vault's hands on a world point or an anchor, which style.js airRuns cannot see without a scene body),
- * kept when MIN_RUN frames or more with a frame on each side. SPIN, the push-off and impact frames and the flight fixes
- * (fix/ballistic.js, fix/spin.js) read these.
+ * The air runs retime leaves alone (fix/retime.js): MIN_RUN frames or more whose hips fall, whatever a hand holds and
+ * wherever the take ends. Retime reads the first solve, where a body the leg fixes will put back on the ground reads as a
+ * run with its hips held up (bench-box2 f44-f140: 99% of g missing, no air run in the final frames), which is no fall to protect.
  */
-export function flights(out, runs) {
-	const n = out.frames.length, keep = [], add = (a, b) => { if (b - a + 1 >= MIN_RUN && a >= 1 && b <= n - 2) keep.push([a, b]); };
-	for (const [a, b] of runs) {
-		if (b - a + 1 < MIN_RUN) continue;
+export const fallingRuns = (out, runs) => longRuns(runs).filter(([a, b]) => missingFall(out, a, b) <= FLOAT_LIMIT);
+
+/**
+ * The spans of air runs `runs` (style.js airRuns, indexes of out.frames) no hand carries the body in (pinned: a vault's
+ * hands on a world point or an anchor, which style.js airRuns cannot see without a scene body), MIN_RUN frames or more.
+ * SPIN reads these: a span the take's start or end cuts still holds its momentum.
+ */
+function freeSpans(out, runs) {
+	const keep = [], add = (a, b) => { if (b - a + 1 >= MIN_RUN) keep.push([a, b]); };
+	for (const [a, b] of longRuns(runs)) {
 		let from = a;
 		for (let i = a; i <= b; i++) if (pinned(out, i)) { add(from, i - 1); from = i + 1; }
 		add(from, b);
@@ -66,7 +95,15 @@ export function flights(out, runs) {
 	return keep;
 }
 
-/** The momentum about the centre of mass per frame a..b of out ({ L kg m^2/s, J kg m^2 }), or null at either end of the take. */
+/**
+ * The flights in air runs `runs`: the free spans with a frame on each side, the takeoff and landing the flight fixes
+ * (fix/ballistic.js, fix/spin.js) anchor on. A span the take cuts has no such frame, so the fixes leave it.
+ */
+export function flights(out, runs) {
+	return freeSpans(out, runs).filter(([a, b]) => a >= 1 && b <= out.frames.length - 2);
+}
+
+/** The momentum about the centre of mass per frame a..b of out ({ L kg m^2/s, J kg m^2 }), or null at either end of the take or on a rig missing a segment bone. */
 function momenta(out, a, b) {
 	if (a < 1 || b > out.frames.length - 2) return null;
 	const fps = out.fps ?? 24, Ms = [];
@@ -94,7 +131,7 @@ function deviations(out, a, b) {
 	return Ms.map(({ L }) => Math.abs(L[0] * u[0] + L[1] * u[1] + L[2] * u[2] - size) / ref);
 }
 
-/** The worst SPIN deviation over flight [a, b] (indexes of out.frames): the frames whose central difference stays in the air, a + 1 .. b - 1. */
+/** The worst SPIN deviation over free span [a, b] (indexes of out.frames): the frames whose central difference stays in the air, a + 1 .. b - 1. */
 export function runDrift(out, a, b) {
 	const d = deviations(out, a + 1, b - 1);
 	return d ? Math.max(...d) : 0;
@@ -106,13 +143,13 @@ export function runDrift(out, a, b) {
  * meeting the ground changes speed in a frame (an ankle stops on the floor, the knees take the landing), so a one-frame
  * acceleration there is contact, not an artifact; with the air frames on their arc (fix.ballistic) it stands out from
  * them (the flip skill's landing knee: 8 cm/f^2, read against 7 cm/f^2 of keyed air frames before the fix and 2 after).
- * Only the flights fix.ballistic moved (out.flightMoved.root, fix/index.js): a flight left as keyed reads POP as any take
- * does. The flights of `runs` (flights); frames index out.frames.
+ * Only the flights fix.ballistic moved (out.flightRuns, fix/index.js flightFixes), at the frames it moved them: the speed
+ * step is where the move ends, and QA's own reading of the same air frames can differ by a frame once the body has moved
+ * (a hand that was still on its plant no longer is). A flight left as keyed reads POP as any take does. Frames index out.frames.
  */
-export function contactFrames(out, runs) {
-	const at = new Set(), moved = out.flightMoved?.root, f0 = out.f0 ?? 0;
-	if (!moved) return at;
-	for (const [a, b] of flights(out, runs)) if (moved.has(a + f0)) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
+export function contactFrames(out) {
+	const at = new Set();
+	for (const [a, b] of out.flightRuns ?? []) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
 	return at;
 }
 
@@ -146,7 +183,7 @@ export function flightChecks(out, checks = {}, runs = airRuns(out, checks.suppor
 		if (e > f) for (let q = f; q <= e; q++) issues.push({ kind: "DROP", msg: `hips ${y(q + 1) > y(q - 1) ? "stop rising" : "fall"} at ${down[q].toFixed(1)} g with support`, frame: q, value: +down[q].toFixed(4), limit: DROP_LIMIT });
 		f = e;
 	}
-	for (const [a, b] of flights(out, runs)) {
+	for (const [a, b] of freeSpans(out, runs)) {
 		// the takeoff and the landing frame read the ground's push through their central difference: the frames between
 		const d = deviations(out, a + 1, b - 1);
 		if (d) d.forEach((v, i) => { if (v > SPIN_TOL) issues.push({ kind: "SPIN", msg: `angular momentum drifts in the air f${a + f0}-f${b + f0}`, frame: a + 1 + i, value: +v.toFixed(4), limit: SPIN_TOL }); });

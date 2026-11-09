@@ -41,7 +41,7 @@ function summarizeIssues(issues) {
  * are absolute even when the compile was windowed (out.f0). qa.goals is there when spec.goals is.
  */
 export function runMotionQa(sk, out, spec, opts = {}) {
-	const checks = spec.checks ?? {}, goals = goalChecks(out, spec.goals ?? []), runs = airRuns(out, checks.supports), contact = contactFrames(out, runs);
+	const checks = spec.checks ?? {}, goals = goalChecks(out, spec.goals ?? []), runs = airRuns(out, checks.supports), contact = contactFrames(out);
 	// a flight's push-off and impact are one-frame events, not pops (flight-checks.js contactFrames)
 	const general = generalChecks(sk, out, { allow: checks.allow, limits: checks.limits, mouthPoints: checks.mouthPoints }).filter(i => i.kind !== "POP" || !contact.has(i.frame));
 	const issues = [...general, ...specChecks(out, checks),

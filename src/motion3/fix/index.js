@@ -16,8 +16,8 @@
 //                allowance is at most this many metres (true = 0.02), eased in and out
 //   self         arms out of the rest of the body on its fitted skin: the elbow turns about the
 //                shoulder-wrist line, the hand is pushed out along the skin (self.js)
-//   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of a flight
-//                (qa/flight-checks.js flights) are left as keyed: a fall is fast because gravity makes it so (#1124)
+//   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
+//                4 frames or more that falls (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124)
 //   ballistic    in each air run of 4 frames or more the whole body moves so the centre of mass follows the gravity
 //                parabola between takeoff and landing at constant horizontal speed; past 0.5 m it is reported, not
 //                fixed (ballistic.js, #1124)
@@ -43,7 +43,7 @@ import { personOut } from "./person.js";
 import { ballisticFix } from "./ballistic.js";
 import { spinFix } from "./spin.js";
 import { airRuns } from "../qa/style.js";
-import { flights } from "../qa/flight-checks.js";
+import { flights, fallingRuns } from "../qa/flight-checks.js";
 
 /** The keyed channels a flight fix moves that QA KEY compares with the keys. */
 const MOVED = ["root", "foot_l", "foot_r"];
@@ -65,8 +65,8 @@ const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), e
 export function applyFixes(out, fix, engine, { whole = true } = {}) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	const supports = out.ctx.spec?.checks?.supports ?? [];
-	// retime leaves the flights alone (qa/flight-checks.js flights: 4 frames or more; a walk's one-frame lift is no flight)
-	if (fix.retime && whole) put("retime", retime(out, engine, flights(out, airRuns(out, supports))));
+	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 4 frames or more; a walk's one-frame lift is none)
+	if (fix.retime && whole) put("retime", retime(out, engine, fallingRuns(out, airRuns(out, supports))));
 	if (fix.slide) put("ground", liftSoles(out, engine));
 	if (fix.reach) put("reachLegs", lowerHips(out, engine));
 	if (fix.reach) put("reachBody", reachBody(out, engine));
@@ -85,7 +85,11 @@ export function applyFixes(out, fix, engine, { whole = true } = {}) {
 	return fixed;
 }
 
-/** The ballistic and spin fixes over `runs` (flights); out.flightMoved[ch] = Map(frame -> [dx, dy, dz]) is how far they moved root and the ankles (qa/key-reach.js reads the keys before them). */
+/**
+ * The ballistic and spin fixes over `runs` (flights). out.flightMoved[ch] = Map(frame -> [dx, dy, dz]) is how far they moved
+ * root and the ankles (qa/key-reach.js reads the keys before them); out.flightRuns the runs whose root they moved (QA's POP
+ * exemption, qa/flight-checks.js contactFrames: only fix.ballistic moves the root).
+ */
 function flightFixes(out, engine, fix, runs) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	if (!runs.length) return fixed;
@@ -102,5 +106,7 @@ function flightFixes(out, engine, fix, runs) {
 		const w = out.baked[ch][f];
 		return w !== v && Array.isArray(v) && Array.isArray(w) ? [[f, [w[0] - v[0], w[1] - v[1], w[2] - v[2]]]] : [];
 	}))]));
+	const root = out.flightMoved.root, f0 = out.f0 ?? 0;
+	out.flightRuns = runs.filter(([a, b]) => root && Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i).some(f => root.has(f)));
 	return fixed;
 }
