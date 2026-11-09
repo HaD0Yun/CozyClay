@@ -75,6 +75,18 @@ const characters = async () => {
 const busOf = "(() => { const el = document.querySelector('.app'); let f = el[Object.keys(el).find(k => k.startsWith('__reactFiber'))]; while (f && !f.memoizedProps?.value?.bus) f = f.return; return f.memoizedProps.value.bus; })()";
 const act = (id, args) => evaluate(`(async () => { try { const r = await ${busOf}.run(${JSON.stringify(id)}, ${JSON.stringify(args)}, { origin: "ui" }); return { ok: Boolean(r?.ok), message: r?.message ?? null }; } catch (e) { return { ok: false, code: e.code ?? null, message: e.message }; } })()`);
 const select = id => act("view.select", { selection: { kind: "character", id } });
+/** motion.compile once the character's rig is on stage; a job overtaken by a late write to the character is run again. */
+async function compileOn(c, rigBone) {
+	assert.ok(await waitFor(`Boolean(window.__cozyclay.rigA?.getObjectByName?.(${JSON.stringify(rigBone)}))`, 60_000), `${c.id}'s rig never became the active rig`);
+	await sleep(1500);
+	let r = null;
+	for (let tries = 0; tries < 3; tries++) {
+		r = await act("motion.compile", { characterId: c.id, spec: walkSpec(c), install: true });
+		if (r?.ok || !/changed while/.test(r?.message ?? "")) break;
+		await sleep(1000);
+	}
+	assert.ok(r?.ok, `motion.compile refused on ${c.id}: ${JSON.stringify(r)}`);
+}
 const hasTake = rig => `window.__cozyclay.motion?.schema === 'cozyclay.take.v3' && window.__cozyclay.motion.rig === ${JSON.stringify(rig)}`;
 const SPEC = "cozyclay.motion-spec.v1";
 const walkSpec = c => ({ schema: SPEC, fps: 24, frames: 150, use: [{ skill: "standIdle", f0: 0, args: { at: [c.x ?? 0, c.z ?? 0], heading: 0 } }, { skill: "walkTo", f0: 10, args: { to: [(c.x ?? 0) + 0.5, (c.z ?? 0) + 1.5] } }] });
@@ -117,8 +129,7 @@ assert.ok((await act("character.add", { character: { id: "qa-xbot", model: "x-bo
 const xbot = (await characters()).find(c => c.id === "qa-xbot");
 assert.ok(xbot, "the X Bot is not in the cast");
 assert.ok((await select(xbot.id))?.ok, "could not select the built-in character");
-const xCompiled = await act("motion.compile", { characterId: xbot.id, spec: walkSpec(xbot), install: true });
-assert.ok(xCompiled?.ok, `motion.compile refused on the built-in character: ${JSON.stringify(xCompiled)}`);
+await compileOn(xbot, "mixamorigHips");
 assert.ok(await waitFor(`${hasTake(xbot.model)} && Boolean(window.__cozyclay.rigA?.getObjectByName?.("mixamorigHips"))`, 60_000), "the built-in character's take never became visible on its rig");
 const xTake = await takeNow(), xWorst = await check(skeletonFor(xbot.model), xTake, n => `mixamorig${n}`, xbot.model);
 assert.ok(xWorst.hips < 1 && xWorst.limbs < 2, `the ${xbot.model} no longer plays its take on its bones (${JSON.stringify(xWorst)})`);
@@ -149,8 +160,7 @@ assert.ok(panel, "the Rig panel does not show the adapter's report and template 
 const sourceOf = canonical => imported.rigImport.report.retarget[canonical].source;
 assert.equal(sourceOf("Hips"), names.Hips, "Hips maps to the file's pelvis");
 assert.ok(await waitFor(`Boolean(window.__cozyclay.rigA?.getObjectByName?.(${JSON.stringify(sourceOf("Hips"))}))`, 30_000), "the imported character's bones never appeared as the active rig");
-const compiledImport = await act("motion.compile", { characterId: imported.id, spec: walkSpec(imported), install: true });
-assert.ok(compiledImport?.ok, `motion.compile refused on the imported character: ${JSON.stringify(compiledImport)}`);
+await compileOn(imported, sourceOf("Hips"));
 assert.ok(await waitFor(hasTake(imported.model), 60_000), "the imported character's take never became visible");
 const sk = ensureRig(imported.model, imported.adaptedRig), take = await takeNow();
 assert.equal(take.rig, imported.model);
