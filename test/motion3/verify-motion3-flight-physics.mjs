@@ -17,7 +17,7 @@
 //       (a6) a 104-frame run with a trip whose short air runs read worse on QA held: retime re-times them as at 28ad5074 and says why
 //       (a7) a lunge hop whose 3-frame flight starts and ends a frame after and before the feet left and met the floor: the arc leaves it
 //       (a8) a standing hop with the default fixes: retime holds its 3-frame flight, which the arc moves (fe38741c's gain kept)
-//       (a9) the cost of weighing the holds: hops with a second character compile under 2x their compile with retime off
+//       (a9) the cost of weighing the holds: hops with a second character bake at most 3 times as often as with retime off
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
 //       rise at about 1.8 g with the feet planted (a support cannot pull the body down): DROP, its hint gives v/g
@@ -371,10 +371,12 @@ function hop(keys, z, A, d = 0.4) {
 	expect(`(a8) standing hop, default fixes: its 3-frame flight rides the arc (${JSON.stringify(r.fixed.ballistic?.at)}, centre of mass ${r3(err)} g off 1 g)`, fl.length === 1 && (r.fixed.ballistic?.at ?? []).includes(`f${fl[0][0]}-f${fl[0][1]}`) && err < 0.01, JSON.stringify({ rt: r.fixed.retime, b: r.fixed.ballistic, fl: flightOf(r) }));
 }
 
-// (a9) the cost of weighing the holds: 2 standing hops 140 frames apart and a second character. Against its compile with retime
-// off (Mac): fe38741c 1.0x (retime holds the hops and finds nothing else to do), a794f2d0 3.7x (QA twice, the take without the
-// holds, then the kept take solved again), now 1.3x: the take without the holds loses the hops' arcs, so the held pass is put
-// back with no QA and no second solve
+// (a9) the cost of weighing the holds: 2 standing hops 140 frames apart and a second character. The work is counted, not timed (a
+// timed ratio read 1.3x idle and 2.0x under the suite's load): the compile reads the scene's object list a fixed number of times per
+// frame of each pass (441 reads with retime off), so its reads count the work. Against retime off: fe38741c 1x (retime holds the
+// hops and finds nothing else to do), a794f2d0 4x (the take without the holds, QA twice, then the kept take solved again), now 3x:
+// the take without the holds loses the hops' arcs, so the held pass is put back with no QA and no second solve.
+// Box, the 960-frame take of 6 hops: fe38741c 1.49-1.56 s, a794f2d0 3.0 s, now 1.80-1.86 s (1.20-1.22x)
 {
 	const n = 2, frames = 160 + 140 * n, keys = [{ f: 0, set: { ...pose0 } }];
 	let z = 0;
@@ -387,9 +389,13 @@ function hop(keys, z, A, d = 0.4) {
 	const other = { schema: SPEC, fps: 24, frames, use: [{ skill: "standIdle", f0: 0, args: { at: [1.2, 1], heading: 0, until: frames - 1 } }] };
 	const take = bakeTake(sk, compileSpec(other, { sk, scene: motionScene([]) }).out, { position: [0, 0, 0], yaw: 0 }, { spec: other });
 	const people = peopleOf([{ id: "b", subject: "B", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0 }, { id: "a", model: "y-bot-tpose" }], "a", id => (id === "b" ? take : null));
-	const run = fix => { let best = Infinity, r; for (let i = 0; i < 3; i++) { const t0 = performance.now(); r = compileSpec({ schema: SPEC, fps: 24, frames, keys: structuredClone(keys), ...(fix ? { fix } : {}) }, { sk, scene: { ...motionScene([]), people } }); best = Math.min(best, performance.now() - t0); } return { r, best }; };
-	const on = run(), off = run({ retime: false }), ratio = on.best / off.best, moved = (on.r.fixed.ballistic?.at ?? []).filter(at => { const [a, b] = at.slice(1).split("-f").map(Number); return b - a + 1 === 3; });
-	expect(`(a9) 2 hops and a second character: both flights ride the arc, and the compile takes ${r3(ratio)}x its compile with retime off (under 2x)`, moved.length === n && ratio < 2, JSON.stringify({ on: Math.round(on.best), off: Math.round(off.best), rt: on.r.fixed.retime, b: on.r.fixed.ballistic }));
+	const run = fix => {
+		let reads = 0;
+		const scene = new Proxy({ ...motionScene([]), people }, { get: (t, k, rcv) => { if (k === "objects") reads += 1; return Reflect.get(t, k, rcv); } });
+		return { r: compileSpec({ schema: SPEC, fps: 24, frames, keys: structuredClone(keys), ...(fix ? { fix } : {}) }, { sk, scene }), reads };
+	};
+	const on = run(), off = run({ retime: false }), ratio = on.reads / off.reads, moved = (on.r.fixed.ballistic?.at ?? []).filter(at => { const [a, b] = at.slice(1).split("-f").map(Number); return b - a + 1 === 3; });
+	expect(`(a9) 2 hops and a second character: both flights ride the arc, and the compile bakes the take ${r3(ratio)} times as often as with retime off (at most 3)`, moved.length === n && ratio <= 3, JSON.stringify({ on: on.reads, off: off.reads, rt: on.r.fixed.retime, b: on.r.fixed.ballistic }));
 }
 
 // (b) a trip's fall (bench set 06): the feet stay planted while the hips drop 0.35 m at 2 g, then stop at 2 g
