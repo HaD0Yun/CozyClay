@@ -17,6 +17,7 @@
 import { bodyCentre } from "../qa/com.js";
 import { ballisticArc, MAX_FIX } from "../qa/ballistic.js";
 import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
+import { groundSole, groundY } from "../qa/ground.js";
 import { MIN_RUN } from "../qa/flight-checks.js";
 import { round4 } from "./ease.js";
 
@@ -26,6 +27,31 @@ import { round4 } from "./ease.js";
  * run), so the arc moves it however the hips were keyed (a run's 3-frame flights keyed level: 9.6 m/s^2 off g, 0 after).
  */
 export const floats = (out, a, b) => b - a + 1 >= MIN_RUN && missingFall(out, a, b) > FLOAT_LIMIT;
+
+/** Metres: a sole point (heel, ball, toe tip) or a hand bone this near a support top (qa/ground.js groundY) touches it. */
+const TOUCH = 0.02;
+/** True when a sole or hand point of frame index i is within TOUCH of the support top under it. */
+function touches(out, i) {
+	const { P } = out.frames[i].s, I = out.ctx.sk.index;
+	if (["Left", "Right"].some(S => { const sp = groundSole(out, i, S); return ["heel", "ball", "tip"].some(k => sp[k][1] < TOUCH); })) return true;
+	return Object.keys(I).some(j => /^(Left|Right)Hand/.test(j) && P[I[j]][1] - groundY(out, i, P[I[j]]) < TOUCH);
+}
+
+/**
+ * Why a flight of under MIN_RUN frames [a, b] has no takeoff or landing the arc may anchor on, or null when it has: the frame
+ * before and the frame after touch a support (touches) and its own frames do not. QA's air run (style.js airRuns) reads the
+ * heel and ball at 2 cm, a hand at 6 cm and any skin at 5 cm (support.js skinCarries), so its 3-frame flight can start
+ * where the body has left the ground already or hold a fingertip on it. A lunge hop whose trailing knee passes 2 to 5 cm
+ * over the floor reads f22-f24 in the air while nothing touches over f20-f26: anchored on f21 and f25 the arc moved f22-f24
+ * and the centre of mass fell at 5.08 m/s^2 RMS off g over f20-f26, 4.26 keyed. A flight of MIN_RUN frames or more is not read here.
+ */
+function notAnchored(out, a, b) {
+	if (b - a + 1 >= MIN_RUN) return null;
+	const f0 = out.f0 ?? 0, on = Array.from({ length: b - a + 1 }, (_, i) => a + i).filter(f => touches(out, f));
+	if (!touches(out, a - 1)) return `f${a - 1 + f0} before it touches no support (a sole or hand point within ${TOUCH} m of its top): the body is in the air already`;
+	if (!touches(out, b + 1)) return `f${b + 1 + f0} after it touches no support (a sole or hand point within ${TOUCH} m of its top): the body is still in the air`;
+	return on.length ? `a sole or hand point is within ${TOUCH} m of a support top on ${on.map(f => `f${f + f0}`).join(", ")} inside it` : null;
+}
 
 /** The channels that are world points riding the body: moved with the root. */
 export const RIDERS = ["root", "foot_l", "foot_r", "hand_l", "hand_r"];
@@ -72,6 +98,8 @@ export function ballisticFix(out, engine, runs, gate, prev = null) {
 		if (!d) return 0;
 		const worst = Math.max(...d.map(v => Math.hypot(...v))), heights = () => out.frames.slice(a - 1, b + 2).map(fr => bodyCentre(out.ctx.sk, fr.s)[1]);
 		if (worst > MAX_FIX) return skip(a, b, worst, heights());
+		const loose = worst < 1e-4 ? null : notAnchored(out, a, b);
+		if (loose) return skip(a, b, worst, heights(), { contact: loose });
 		if (worst < 1e-4) return 0;
 		const frames = Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i), was = frames.map(f => RIDERS.map(ch => out.baked[ch]?.[f]));
 		d.forEach((v, i) => shiftFrame(out.baked, frames[i], v));
@@ -92,5 +120,5 @@ export function ballisticFix(out, engine, runs, gate, prev = null) {
 	}
 	if (!at.length && !skipped.length) return null;
 	return { runs: at.length, frames, max: round4(max), at, ...(skipped.length ? { skipped } : {}),
-		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into) or loses a goal it met (lost), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
+		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into) or loses a goal it met (lost), or a flight under 4 frames whose frame before or after touches no support or whose own frames touch one (contact), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
 }
