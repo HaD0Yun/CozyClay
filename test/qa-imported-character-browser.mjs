@@ -117,9 +117,14 @@ async function check(sk, take, sourceOf, label) {
 	for (const f of frames) {
 		const want = compiled(sk, take, f, LIMBS), got = await rendered(f, ["Hips", ...LIMBS].map(sourceOf)), hips = add(at, apply(R, take.hips.slice(f * 3, f * 3 + 3)));
 		const dh = cm(got[sourceOf("Hips")], hips), dl = Math.max(...LIMBS.map(n => cm(got[sourceOf(n)], want[n])));
-		console.log(`${label} f${f}: hips ${dh.toFixed(3)} cm, worst foot/hand ${dl.toFixed(3)} cm`);
+		console.log(`${label} f${f}: pelvis at [${got[sourceOf("Hips")].map(v => v.toFixed(3))}] m, ${(dh * 10).toFixed(4)} mm off the take's hips; worst foot/hand ${(dl * 10).toFixed(4)} mm off its joint`);
+		worst.path = [...(worst.path ?? []), got[sourceOf("Hips")]];
 		worst.hips = Math.max(worst.hips, dh); worst.limbs = Math.max(worst.limbs, dl);
 	}
+	// not a standing check: the walk carries the pelvis
+	worst.travel = cm(worst.path[0], worst.path[worst.path.length - 1]);
+	assert.ok(worst.travel > 50, `${label}: the pelvis travelled only ${worst.travel.toFixed(1)} cm`);
+	delete worst.path;
 	return worst;
 }
 
