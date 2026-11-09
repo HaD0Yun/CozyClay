@@ -6,7 +6,7 @@
 //   horizontal  the straight line from the centre of mass at A to B at constant speed.
 // The whole body is the root and every world target that rides it (the ankle and wrist targets), so the limbs keep their
 // pose and the frames are solved again. The frames on the ground keep their keys: the body leaves A and meets B at the
-// arc's speed in one frame, a push-off and an impact (QA POP leaves those frames: qa/flight-checks.js contactFrames; an
+// arc's speed in one frame, a push-off and an impact (QA POP reads there only what was keyed: qa/flight-checks.js contactPops; an
 // ease of the root over the supported frames around them moved the planted legs into pops of their own and the hips
 // after landing off their keys). A run whose hips do not fall (FLOAT: under a quarter of g) is a staging error and stays
 // for QA's arc hint; a run that needs more than MAX_FIX (0.5 m), or whose arc enters what the frames before the flight

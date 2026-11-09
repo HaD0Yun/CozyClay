@@ -19,8 +19,9 @@
 //         twisting spin jump (I_u about 1.8 kg m^2) keyed at an even rate with its arms pulled in drifts 5.6 kg m^2/s
 //         (0.245); a back tuck about 60 kg m^2/s, its keyed turn 35 (0.40), about 7 after fix.spin (fix/spin.js re-times
 //         the root's turn so it holds); legs tucked in a hop with no turn swing it by up to 11 (0.19, nothing to re-time).
-//   POP   is left out on the push-off and impact frames of a flight fix.ballistic moved (contactFrames; qa/index.js drops them).
-import { airRuns, missingFall, FLOAT_LIMIT } from "./style.js";
+//   POP   on a moved flight's push-off and impact frames stands only where it read before the flight fixes (contactPops, qa/index.js).
+import { airRuns, missingFall, popChecks, FLOAT_LIMIT } from "./style.js";
+import { QA_LIMITS } from "./checks.js";
 import { momentumOf } from "./inertia.js";
 import { apply, dot, T } from "../compiler/math.js";
 import { isFollow } from "../carried.js";
@@ -137,20 +138,30 @@ export function runDrift(out, a, b) {
 	return d ? Math.max(...d) : 0;
 }
 
-/**
- * The POP frames (style.js popChecks: the acceleration over f-2..f) of each flight's push-off and impact: the frame
- * before takeoff A, the first air frame and the next, the frame after landing B and the two after it. A body leaving or
- * meeting the ground changes speed in a frame (an ankle stops on the floor, the knees take the landing), so a one-frame
- * acceleration there is contact, not an artifact; with the air frames on their arc (fix.ballistic) it stands out from
- * them (the flip skill's landing knee: 8 cm/f^2, read against 7 cm/f^2 of keyed air frames before the fix and 2 after).
- * Only the flights fix.ballistic moved (out.flightRuns, fix/index.js flightFixes), at the frames it moved them: the speed
- * step is where the move ends, and QA's own reading of the same air frames can differ by a frame once the body has moved
- * (a hand that was still on its plant no longer is). A flight left as keyed reads POP as any take does. Frames index out.frames.
- */
-export function contactFrames(out) {
-	const at = new Set();
-	for (const [a, b] of out.flightRuns ?? []) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
+/** Map(`${joint} ${frame}` -> POP issue) of out's frames (style.js popChecks, QA's limits): fix/index.js keeps it as out.flightPops before the flight fixes. */
+export function popsOf(out) {
+	const at = new Map();
+	popChecks(out.ctx.sk, out, { ...QA_LIMITS, ...out.ctx.spec?.checks?.limits }, (kind, msg, f, value, limit) => at.set(`${msg.split(" ")[0]} ${f}`, { kind, msg, frame: f, value: +value.toFixed(4), limit }));
 	return at;
+}
+
+/**
+ * QA's POP on the push-off and impact of each flight fix.ballistic moved (out.flightRuns): issue -> the issue to report,
+ * or null. The frames: the one before takeoff A, the first air frame and the next, the one after landing B and the two
+ * after it (indexes of out.frames). There the arc's speed meets the keyed ground frames in one frame, a contact, and
+ * fix.spin's re-time changes the air frames a landing is read against (the flip skill's landing knee: 8 cm/f^2 against 7
+ * of keyed air frames, 2 after). So a POP there stands only when the joint read POP on that frame before the flight
+ * fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the overlap layer lands on the impact is the
+ * agent's (a hop's 59 cm/f^2 hand), and what the fixes added to a keyed pop (a vault's 22 cm/f^2 knee read 25) is not.
+ */
+export function contactPops(out) {
+	const at = new Set(), was = out.flightPops ?? new Map();
+	for (const [a, b] of out.flightRuns ?? []) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
+	return i => {
+		if (i.kind !== "POP" || !at.has(i.frame)) return i;
+		const p = was.get(`${i.msg.split(" ")[0]} ${i.frame}`);
+		return p && p.value < i.value ? p : p && i;
+	};
 }
 
 /** 1 on every frame of a turn over: a span the hips' up axis tilts TURNING deg a frame or more in, OVER deg or more in all. */

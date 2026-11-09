@@ -8,7 +8,7 @@
 //       the body carries changes none of it; a hand on a world point, a person or a resting object takes the arc off and
 //       still keeps retime out. Cut mid-fall the take has no landing: retime still leaves the air frames as keyed, the arc stays 1 g
 //       (a2) a keyed flight past the apex limit: fixed.ballistic.skipped reports it and the hips stay as keyed
-//       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, no blocking group
+//       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, its keyed pops there stand, no blocking group
 //       (a4) a hop keyed over a hurdle higher than its frames can carry it: the arc would enter the hurdle, so the flight
 //       keeps its frames and fixed.ballistic.skipped says how far off, what it entered and the frames it fits; the same
 //       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor gets the same; a re-time
@@ -159,7 +159,9 @@ for (const cut of [40, 45, 50]) {
 	const r = compileSpec(vault, { sk, scene: motionScene([]) }), moved = r.out.flightRuns ?? [], list = gs => gs.map(g => `${g.kind} ${g.subject} ${g.worst}`);
 	const blocking = r.qa.groups.filter(g => isBlocking(g));
 	expect("(a3) parkour vault: flightFixes records the run it moved, whatever QA reads there afterwards", JSON.stringify(moved) === "[[36,46]]" && flightOf(r)[0]?.[0] !== 36, JSON.stringify({ moved, read: flightOf(r) }));
-	expect("(a3) parkour vault: no POP on its push-off and impact frames, no blocking group, no more issues than the 13 of the baseline", r.qa.groups.every(g => g.kind !== "POP" || g.last < 35) && blocking.length === 0 && r.qa.total <= 13, JSON.stringify({ total: r.qa.total, blocking: list(blocking), all: list(r.qa.groups) }));
+	// its keyed knee pops at the push-off (22 cm/f^2 at f36) stand at their keyed size, not the 25 cm/f^2 (blocking) the arc's push-off adds to them
+	const keyed = compileSpec({ ...vault, fix: { ...vault.fix, ballistic: false, spin: false } }, { sk, scene: motionScene([]) }), pops = q => JSON.stringify(list(q.qa.groups.filter(g => g.kind === "POP")));
+	expect("(a3) parkour vault: the POPs are the keyed take's (its push-off knees at their keyed size), no blocking group, no more issues than the 13 of the baseline", pops(r) === pops(keyed) && blocking.length === 0 && r.qa.total <= 13, JSON.stringify({ total: r.qa.total, blocking: list(blocking), all: list(r.qa.groups), keyed: pops(keyed) }));
 }
 
 // (a4) a hop over a 0.1 m thick hurdle, sparse keys, the feet riding the hips: keyed over a clean 0.6 m apex in 14 frames, whose arc allows 0.417 m

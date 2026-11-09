@@ -7,7 +7,7 @@
 import { keyReachIssues } from "./key-reach.js";
 import { generalChecks, QA_LIMITS } from "./checks.js";
 import { styleChecks, floatChecks, airRuns } from "./style.js";
-import { flightChecks, contactFrames } from "./flight-checks.js";
+import { flightChecks, contactPops } from "./flight-checks.js";
 import { specChecks } from "./spec-checks.js";
 import { objectChecks } from "./object-checks.js";
 import { graspChecks } from "./grasp-checks.js";
@@ -41,9 +41,9 @@ function summarizeIssues(issues) {
  * are absolute even when the compile was windowed (out.f0). qa.goals is there when spec.goals is.
  */
 export function runMotionQa(sk, out, spec, opts = {}) {
-	const checks = spec.checks ?? {}, goals = goalChecks(out, spec.goals ?? []), runs = airRuns(out, checks.supports), contact = contactFrames(out);
-	// a flight's push-off and impact are one-frame events, not pops (flight-checks.js contactFrames)
-	const general = generalChecks(sk, out, { allow: checks.allow, limits: checks.limits, mouthPoints: checks.mouthPoints }).filter(i => i.kind !== "POP" || !contact.has(i.frame));
+	const checks = spec.checks ?? {}, goals = goalChecks(out, spec.goals ?? []), runs = airRuns(out, checks.supports), contact = contactPops(out);
+	// the ballistic fix's push-off and impact are contacts, not pops; a pop keyed there stays (flight-checks.js contactPops)
+	const general = generalChecks(sk, out, { allow: checks.allow, limits: checks.limits, mouthPoints: checks.mouthPoints }).map(contact).filter(Boolean);
 	const issues = [...general, ...specChecks(out, checks),
 		...objectChecks(sk, out, spec), ...graspChecks(sk, out), ...fingerChecks(sk, out), ...loadChecks(sk, out), ...floatChecks(out, checks, runs), ...flightChecks(out, checks, runs),
 		...styleChecks(sk, out, checks, { ...QA_LIMITS, ...checks.limits }), ...wristIssues(sk, out), ...peopleChecks(sk, out, checks), ...heldDriftIssues(sk, out), ...keyReachIssues(sk, out, spec), ...goals.issues];

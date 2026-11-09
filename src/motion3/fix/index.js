@@ -45,7 +45,7 @@ import { ballisticFix } from "./ballistic.js";
 import { spinFix } from "./spin.js";
 import { flightGate } from "./flight-gate.js";
 import { airRuns } from "../qa/style.js";
-import { flights, fallingRuns } from "../qa/flight-checks.js";
+import { flights, fallingRuns, popsOf } from "../qa/flight-checks.js";
 
 /** The keyed channels a flight fix moves that QA KEY compares with the keys. */
 const MOVED = ["root", "foot_l", "foot_r"];
@@ -89,13 +89,14 @@ export function applyFixes(out, fix, engine, { whole = true } = {}) {
 
 /**
  * The ballistic and spin fixes over `runs` (flights). out.flightMoved[ch] = Map(frame -> [dx, dy, dz]) is how far they moved
- * root and the ankles (qa/key-reach.js reads the keys before them); out.flightRuns the runs whose root they moved (QA's POP
- * exemption, qa/flight-checks.js contactFrames: only fix.ballistic moves the root).
+ * root and the ankles (qa/key-reach.js reads the keys before them); out.flightRuns the runs whose root they moved and
+ * out.flightPops the POPs before them (QA's POP on their contact frames, qa/flight-checks.js contactPops: only fix.ballistic moves the root).
  */
 function flightFixes(out, engine, fix, runs) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	if (!runs.length) return fixed;
 	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()])), gate = flightGate(out, runs);
+	out.flightPops = popsOf(out);
 	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs, gate));
 	if (fix.spin) put("spin", spinFix(out, engine, runs, gate));
 	// the second pass's report joins the first's (ballisticFix prev); null: nothing moved or skipped in either
