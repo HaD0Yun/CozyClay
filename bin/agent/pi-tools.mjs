@@ -50,9 +50,11 @@ function formatToolError(error) {
 	return `${code}: ${message}${recoveryHint(error)}`;
 }
 
-/** Convert CozyClay's handler catalogue into pi AgentTools. */
+/** Convert CozyClay's handler catalogue into pi AgentTools; ready AgentTools pass through unchanged. */
 export function toAgentTools(tools, { emit, signal, labels = STUDIO_TOOL_LABELS } = {}) {
 	return (Array.isArray(tools) ? tools : []).map((tool) => {
+		// A ready pi AgentTool (it has its own execute) passes through as the same object.
+		if (typeof tool?.execute === "function") return tool;
 		const schema = tool.parameters || { type: "object", properties: {}, additionalProperties: false }, parameters = toTypeBox(schema);
 		return {
 			name: tool.name,
