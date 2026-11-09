@@ -57,6 +57,13 @@ await send("Page.enable");
 const ready = "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclayProject?.export && document.querySelector('.app'))";
 // a cold dev server bundles its dependencies first and reloads the page once
 assert.ok(await waitFor(ready, 180_000), "Studio never exposed its QA hooks");
+// stable: the same document for 8 s (a dev server that re-bundled reloads it)
+for (let tries = 0; tries < 10; tries++) {
+	await evaluate("window.__qaStable = true");
+	await sleep(8000);
+	if (await evaluate("window.__qaStable === true").catch(() => false)) break;
+	assert.ok(await waitFor(ready, 180_000), "Studio never came back after a reload");
+}
 const characters = async () => {
 	let doc = await evaluate("window.__cozyclayProject.export('imported-character')");
 	while (typeof doc === "string") doc = JSON.parse(doc);
