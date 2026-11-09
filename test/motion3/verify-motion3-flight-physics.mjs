@@ -21,9 +21,10 @@
 //       total turn between takeoff and landing within 10 deg of the keyed turn; the landing clean (QA 0); all of it with a
 //       hand on the hip too. The re-timed turn follows the rate the takeoff momentum predicts, (L0 - h) / I, the keyed one does not; the
 //       knee poles turn with the root (the same in the body as keyed). A 2 deg overshoot before landing is still re-timed. A rig
-//       missing a segment bone is reported under fixed.spin.left, not thrown on
+//       missing a segment bone is reported under fixed.spin.left, not thrown on. A tucked hop with no turn reads SPIN and the hint says fix.spin
+//       has no turn to re-time; h-parkour's keyed pitch turns back in the air and reads SPIN, fix.spin.left and the hint say so
 //   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open; keyed
-//       at an even rate (fix { spin: false }) QA says SPIN. Cut before it lands, fix.spin has no landing and QA still says SPIN
+//       at an even rate (fix { spin: false }) QA says SPIN and its hint that fix.spin is off. Cut before it lands, fix.spin has no landing and QA still says SPIN
 //   (e) the flip and float-fix tests still pass
 // Prints PASS/FAIL lines; exits non-zero on a failure.
 import { spawnSync } from "node:child_process";
@@ -372,6 +373,31 @@ function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 	expect("(c) SPIN's hint on a flight fix.spin left names the reason, not the fix", g && /fix\.spin left this flight/.test(g.hint) && !/on by default/.test(g.hint), JSON.stringify(r.qa.groups.map(x => x.kind)));
 }
 
+// (c) a hop with no root turn whose feet tuck 0.45 m (the legs swing the body by themselves): SPIN, and fix.spin has no turn of 30 deg or
+// more to re-time, so its hint says that instead of promising the fix
+{
+	const A = 22, T0 = 14, B = A + T0, v0 = G * T0 / 2, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]], end = shift(pose0.root, [0, 0, 0.25]);
+	const keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r } }, { f: 18, set: { root: shift(pose0.root, [0, -0.12, 0]), foot_l: pose0.foot_l, foot_r: pose0.foot_r } }];
+	for (let f = A; f <= B; f++) {
+		const t = f - A, root = shift(pose0.root, [0, v0 * t - G * t * t / 2, 0.25 * t / T0]), s = Math.sin(Math.PI * t / T0) ** 2, lift = (f === A || f === B ? 0 : 0.03) + 0.45 * s;
+		keys.push({ f, set: { root, foot_l: shift(root, shift(off("l"), [0, lift, 0.225 * s])), foot_r: shift(root, shift(off("r"), [0, lift, 0.225 * s])) } });
+	}
+	keys.push({ f: B + 6, set: { root: shift(end, [0, -0.1, 0]), foot_l: shift(pose0.foot_l, [0, 0, 0.25]), foot_r: shift(pose0.foot_r, [0, 0, 0.25]) } }, { f: B + 22, set: { root: end, foot_l: shift(pose0.foot_l, [0, 0, 0.25]), foot_r: shift(pose0.foot_r, [0, 0, 0.25]) } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: B + 24, keys }, { sk, scene: motionScene([]) }), g = r.qa.groups.find(x => x.kind === "SPIN");
+	expect(`(c) a tucked hop with no turn: SPIN (worst ${g?.worst}), no fixed.spin, and the hint says the root turns under 30 deg, not that fix.spin re-times it`, g && !r.fixed.spin && /turns less than 30 deg/.test(g.hint) && !/on by default|re-timed/.test(g.hint), JSON.stringify({ spin: r.fixed.spin, hint: g?.hint }));
+}
+
+// (c) h-parkour (QA clean at 3804b63b): its flight f54-f64 keys a pitch that turns back in the air (70 -> 10 -> 15 deg), so the angular
+// momentum about the centre of mass changes sign with nothing to push on (about -21 to +15 kg m^2/s): SPIN is right there. fix.spin
+// leaves a turn back as keyed, and the hint names that (fix.spin's f54-f64 against QA's free span f55-f64)
+{
+	const hp = JSON.parse(readFileSync(new URL("./fixtures/h-parkour-spec.json", import.meta.url), "utf8")), xsk = skeletonFor(hp.model);
+	const r = compileSpec(hp.spec, { sk: xsk, scene: motionScene(hp.objects) }), g = r.qa.groups.find(x => x.kind === "SPIN"), L = f => momentumOf(xsk, r.out.frames, f - (r.out.f0 ?? 0), 24).L[0];
+	const Ls = Array.from({ length: 9 }, (_, i) => L(55 + i)), [lo, hi] = [Math.min(...Ls), Math.max(...Ls)];
+	expect(`(c) h-parkour: the keyed pitch turns back in the air, L_x runs ${r3(lo)} to ${r3(hi)} kg m^2/s; SPIN (${g?.subject}, worst ${g?.worst}) is its only issue, fix.spin left the turn back and the hint says so`,
+		g && /f55-f64$/.test(g.subject) && r.qa.total === g.count && lo < -10 && hi > 10 && /turns back/.test(r.fixed.spin?.left?.[0]?.why ?? "") && /fix\.spin left this flight .*turns back/.test(g.hint), JSON.stringify({ total: r.qa.total, groups: r.qa.groups.map(x => `${x.kind} ${x.subject}`), spin: r.fixed.spin, hint: g?.hint }));
+}
+
 // (c) a hover turning 180 deg: no fall, no flight to re-time; FLOAT's hint is the staging's fix, and neither flight fix touches it
 {
 	const up = shift(pose0.root, [0, 0.4, 0]), rides = l => shift(up, [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]]), keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root } }];
@@ -409,6 +435,7 @@ function spinJump() {
 	const dOn = fl ? runDrift(on.out, fl[0], fl[1]) : 1, dOff = fl ? runDrift(off.out, fl[0], fl[1]) : 0;
 	expect(`(d) spin jump: the angular momentum drift falls with fix.spin (${r3(dOff)} -> ${r3(dOn)})`, dOn < dOff && dOn < SPIN_TOL, JSON.stringify({ dOn, dOff, fl }));
 	expect(`(d) spin jump keyed at an even rate (fix { spin: false }): QA says SPIN (drift ${r3(dOff)} over SPIN_TOL); with fix.spin no SPIN`, dOff > SPIN_TOL && kinds(off).has("SPIN") && !kinds(on).has("SPIN"), JSON.stringify({ off: off.qa.groups.map(g => g.kind), on: on.qa.groups.map(g => g.kind) }));
+	expect("(d) spin jump with fix { spin: false }: SPIN's hint says fix.spin is off for the take", /fix\.spin is off for this take/.test(off.qa.groups.find(g => g.kind === "SPIN")?.hint ?? ""), off.qa.groups.find(g => g.kind === "SPIN")?.hint);
 	// cut after the arms have opened again, so the run holds the swing of L
 	const cut = B - 1, r = compileSpec({ ...structuredClone(spec), frames: cut + 1, keys: spec.keys.filter(k => k.f <= cut) }, { sk, scene: motionScene([]) }), run = airRuns(r.out, []).at(-1);
 	expect(`(d) spin jump cut at f${cut}, its air run reaching the end: no fix.spin, and QA says SPIN and that the take cuts it`, run?.[1] === cut && !r.fixed.spin && kinds(r).has("SPIN") && /take cuts this flight/.test(r.qa.groups.find(g => g.kind === "SPIN")?.hint ?? ""), JSON.stringify({ run, spin: r.fixed.spin, kinds: [...kinds(r)], hint: r.qa.groups.find(g => g.kind === "SPIN")?.hint }));

@@ -31,6 +31,8 @@ import { handOf, moverOf } from "../object-pose.js";
 export const DROP_LIMIT = 1.1;
 /** SPIN: the share of the run's mean angular momentum one air frame may drift from it. */
 export const SPIN_TOL = 0.2;
+/** fix/spin.js: degrees a flight's keyed root turns from takeoff to landing, at least, for a turn to re-time. */
+export const MIN_TURN = 30;
 /** SPIN: rad/s (two turns a second, a flip's rate): a drift is measured against at least the momentum I_u * SPIN_OMEGA. */
 const SPIN_OMEGA = 4 * Math.PI;
 /** Flights have at least this many frames (FLOAT's runs; fix/ballistic.js and fix/spin.js work on the same). */
@@ -236,9 +238,13 @@ export const flightHints = {
 	},
 	SPIN(X, g) {
 		const ch = ["pitch", "roll", "yaw"].find(c => X.keys(c).length) ?? "pitch", key = `key the ${ch} so the turn is fastest where the limbs are pulled in`;
-		// the flight is the end of the subject (flightChecks); fix.spin lists it under left when it would not re-time it, and a span at the take's edge has no takeoff or landing to anchor on
-		const [, from, to] = /f(\d+)-f(\d+)$/.exec(g.subject) ?? [], lo = X.out.f0 ?? 0, left = X.out.fixed?.spin?.left?.find(l => l.at === `f${from}-f${to}`);
-		const next = left ? `fix.spin left this flight (${left.why}): ${key}` : +from === lo || +to === lo + X.out.frames.length - 1 ? `the take cuts this flight, so fix.spin has no takeoff or landing to keep: give it a frame on each side, or ${key}` : `fix.spin (on by default) re-times the root's ${ch} so it holds; with it off, ${key}`;
+		// the flight is the end of the subject (flightChecks); fix.spin names a flight by its own frames, which can start a frame off QA's free span
+		const [, from, to] = /f(\d+)-f(\d+)$/.exec(g.subject) ?? [], lo = X.out.f0 ?? 0, hi = lo + X.out.frames.length - 1, spin = X.out.fixed?.spin, fix = X.spec?.fix;
+		const over = at => { const [, p, q] = /f(\d+)-f(\d+)/.exec(at) ?? []; return +p <= +to && +q >= +from; }, left = spin?.left?.find(l => over(l.at));
+		const next = left ? `fix.spin left this flight (${left.why}): ${key}` : +from === lo || +to === hi ? `the take cuts this flight, so fix.spin has no takeoff or landing to keep: give it a frame on each side, or ${key}`
+			: spin?.at?.some(over) ? `fix.spin re-timed the root's ${ch} here and this drift stays: ${key}` : fix === false || fix?.spin === false ? `fix.spin is off for this take: turn it on, or ${key}`
+				: missingFall(X.out, +from - lo, +to - lo) > FLOAT_LIMIT ? "the hips do not fall here (FLOAT), so fix.spin leaves it: stage the fall first (FLOAT's hint)"
+					: `the root turns less than ${MIN_TURN} deg from takeoff to landing, so fix.spin has no turn to re-time and the limbs alone swing the body (a tuck in a hop with no turn): key a counter-turn of the root against the swing, or a smaller tuck`;
 		return { cause: X.cause(ch, g.worstFrame), hint: `in the air the angular momentum about the centre of mass drifts ${Math.round(g.worst * 100)}% from its mean over f${g.first}-f${g.last} (limit ${Math.round(SPIN_TOL * 100)}%): a body turns faster tucked and slower open (I w stays constant). ${next}` };
 	},
 };

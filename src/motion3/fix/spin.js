@@ -18,12 +18,10 @@
 import { add, sub, apply, dot, mul, rx, ry, rz, T } from "../compiler/math.js";
 import { tiltFrame } from "../compiler/pose.js";
 import { momentumOf, rotationVector } from "../qa/inertia.js";
-import { runDrift, SPIN_TOL } from "../qa/flight-checks.js";
+import { runDrift, SPIN_TOL, MIN_TURN } from "../qa/flight-checks.js";
 import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
 import { RIDERS } from "./ballistic.js";
 
-/** Degrees: a run whose root turns less than this between takeoff and landing has no spin to re-time. */
-const MIN_TURN = 30;
 /** The share of the total turn a keyed turn may run backward and still be one turn. */
 const BACK_SHARE = 0.02;
 const PASSES = 3, POLES = ["knee_l", "knee_r", "elbow_l", "elbow_r"], deg = r => (r * 180) / Math.PI;
