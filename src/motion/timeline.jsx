@@ -351,7 +351,6 @@ function SpeedGraph({
 	frameCount,
 	averageSpeed = 1,
 	speedUnit = "m/s",
-	conserve = true,
 	onChange,
 	onGestureStart,
 	onGestureEnd,
@@ -787,7 +786,6 @@ function ObjectTravelTrack({ object, frame, frameCount, fps, pathDraw, onPathDra
 							frame={frame}
 							frameCount={frameCount}
 							averageSpeed={metrics && span ? metrics.length / Math.max(1 / fps, (span.end - span.start) / fps) : 1}
-							conserve
 							onChange={(timing) => onPathChange?.({ ...path, timing: timingIsFlat(timing) ? null : timing })}
 							onGestureStart={onTimingGestureStart}
 							onGestureEnd={onTimingGestureEnd}
@@ -2069,7 +2067,6 @@ export default function Timeline({
 														frame={Math.min(Math.max(0, localProgress), Math.max(0, durationFrames - 1))}
 														frameCount={durationFrames}
 														averageSpeed={railLengthByShot.get(shot.id) / Math.max(1 / fps, (railRange.end - railRange.start) / fps)}
-														conserve
 														onChange={(timing) => {
 															selectUnifiedShotBlock(index);
 															dollyDraftRef.current = { shotId: shot.id, timing };

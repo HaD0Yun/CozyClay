@@ -788,7 +788,7 @@ export function useScenes(appContext) {
 	return {
 		...domain, applyExternalScene, loadLiveScenes, refreshProjectDirty,
 		scenes, activeSceneId, sceneSaveError, snapshotActiveScene, persistScenes, projectName, previsMode, castStyle,
-		projectDirty, setProjectDirty: domain.setDirty, projectSaveState, setProjectSaveState, projectMenuOpen,
+		projectDirty, projectSaveState, projectMenuOpen,
 		setProjectMenuOpen, projectBrowserOpen, setProjectBrowserOpen, projectNameDialog, setProjectNameDialog,
 		projectStartupOpen, setProjectStartupOpen, projectManifest, setProjectManifest, saveBlockedReasons,
 		setSaveBlockedReasons, workflowRevision, setWorkflowRevision, collectProjectSnapshot,

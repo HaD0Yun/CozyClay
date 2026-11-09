@@ -14,6 +14,7 @@ import { isImageAssetId } from "./scene-assets.js";
 import { createCharacterEntry } from "./scenes.js";
 import { repairOptics } from "./camera-optics.js";
 import { repairReview } from "./shot-review.js";
+import { toTimelineFrame } from "./timeline-fps.js";
 
 const VIDEO_MODEL_IDS = new Set(VIDEO_MODEL_PRESETS.map((preset) => preset.id));
 const CAMERA_KEY_LIMITS = elementByPath("shot.cameraKeys");
@@ -76,9 +77,6 @@ const finite = Number.isFinite;
  * on the 24 fps production clock. Every frame-bearing number is multiplied so
  * a saved roll keeps its DURATION: a 300-frame clip was 15 s and stays 15 s as
  * 360 frames. Reinterpreting instead would silently shorten it to 12.5 s. */
-const LEGACY_FRAME_FPS = 20;
-const TIMELINE_FRAME_FPS = 24;
-const toTimelineFrame = (frame) => Math.round((frame * TIMELINE_FRAME_FPS) / LEGACY_FRAME_FPS);
 const rescaleFrame = (value) => (finite(value) ? toTimelineFrame(value) : value);
 const rescaleKeys = (entries) => (Array.isArray(entries)
 	? entries.map((key) => (key && typeof key === "object" ? { ...key, frame: rescaleFrame(key.frame) } : key))

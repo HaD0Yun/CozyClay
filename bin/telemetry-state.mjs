@@ -8,14 +8,6 @@ const POSTHOG_API_HOST = "https://t.cozyclay.org";
 // landing page's copy commands carry (#466). Mirrors analytics HEARD_FROM_SOURCES.
 export const FIRST_LAUNCH_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground"]);
 
-const DEFAULT_STATE = Object.freeze({
-	installationId: null,
-	telemetryEnabled: true,
-	internalQa: false,
-	firstLaunchedAt: null,
-	noticeVersion: 0,
-	firstLaunchHeardFrom: null,
-});
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function rawState(stateFile) {
@@ -103,7 +95,6 @@ export function takeRuntimeTelemetryConfig(
 		officialPackage = true,
 		installKind = null,
 		env = process.env,
-		now = () => new Date().toISOString(),
 		randomUUID = nodeRandomUUID,
 	} = {},
 ) {

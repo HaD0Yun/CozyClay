@@ -481,7 +481,7 @@ export default function App() {
 	}));
 	const {
 		preset, shotAspectKey, environmentImage, cameraPresetId, sensorId, keyLight, lighting, changeKeyLight,
-		resetKeyLight, changeEnvironmentImage, hasEnvSheet, environment, style, publishStudioStage,
+		resetKeyLight, hasEnvSheet, environment, style, publishStudioStage,
 	} = stageDomain;
 	const shotsDomain = useShots(appContext.forRender({
 		get cameraPreviewEndRef() { return cameraPreviewEndRef; },
@@ -531,8 +531,8 @@ export default function App() {
 		setTlFrame, tlFrameCount, setTlFrameCount, tlFps, setTlFps, activeShotIdx, activeShot, cameraKeys,
 		activeCamera, craneActive, cameraRail, activeShotDuration, hasCameraKeys, changeActiveCamera,
 		changeShotTargetModel, addActiveCranePoint, deleteSelectedCranePoint, syncActiveCameraFraming,
-		commitManualCameraFraming, beginCameraFramingGesture, beginTimelineEditGesture, setShotCameraRail,
-		clearShotCameraRail, changeCameraRail, toggleCameraRailDraw, deleteCameraRail, previewCameraShot,
+		commitManualCameraFraming, beginCameraFramingGesture, setShotCameraRail,
+		clearShotCameraRail, toggleCameraRailDraw, deleteCameraRail, previewCameraShot,
 		addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe, addTimelineShot, splitTimelineShot,
 		selectTimelineShot, duplicateTimelineShot, moveTimelineShot, setTimelineShotRange, removeTimelineShot,
 	} = shotsDomain;
@@ -960,7 +960,7 @@ export default function App() {
 		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig, ghostLayers,
 		snapshotCast, changeInspectorCharacter, hasCharSheet, setHasCharSheet,
 		waypointMode, setWaypointMode, waypoints, setWaypoints,
-		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, setPosed, rootStart, commitPosedPose,
+		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
 		queueRootWaypointFrame, castMemberOf, addCharacterWaypoint, moveCharacterWaypoint,
 		removeCharacterWaypoint, clearCharacterWaypoints, addFloorWaypoint, moveWaypoint, removeWaypoint,
 		toggleWaypointMode, openStudio, closeStudio, saveCurrentPose, savePose, removePose,
@@ -1222,7 +1222,7 @@ export default function App() {
 		setMatteStats, matteBusy, gizmoMode, setGizmoMode, snapEnabled, setSnapEnabled, addSceneObject,
 		importCutout, importCutouts, spawnCutoutAt, persistMeshAsset, importMesh, importMeshes, spawnMeshAt,
 		applyMatte, duplicateSelectedSceneObject, frameSelection, groupObjectUnderNewEmpty, renameRequest, renameSceneObject, sceneObjectWorldMatrix,
-		attachTargetForRow, attachTargetLabel, attachSceneObject,
+		attachTargetLabel, attachSceneObject,
 	} = objectsDomain;
 
 	const { sculptMode, sculptCamRef, sculptView, sculptReference, setSculptReference, sculptRun, setSculptRun, sculptRunRef, sculptAgentStatus, sculptChatgpt, sculptModels, sculptModelPick, chooseSculptModel, sculptTransport, sculptTap, sculptTarget, setSculptTargetId, requestSculptView, sculptBlueprint, setSculptBlueprint, generateSculptBlueprint, cancelSculptBlueprint, sculptParts } = useSculptMode({ workflowMode, sceneObjects, selectedSceneObjectId, appContext });
@@ -1352,10 +1352,10 @@ export default function App() {
 	}));
 	const {
 		scenes, activeSceneId, sceneSaveError, snapshotActiveScene, persistScenes, projectName, previsMode, projectDirty,
-		setProjectDirty, projectSaveState, setProjectSaveState, projectMenuOpen, setProjectMenuOpen,
+		projectSaveState, projectMenuOpen, setProjectMenuOpen,
 		projectBrowserOpen, setProjectBrowserOpen, projectNameDialog, setProjectNameDialog, projectStartupOpen,
 		setProjectStartupOpen, projectManifest, setProjectManifest, saveBlockedReasons, setSaveBlockedReasons,
-		workflowRevision, setWorkflowRevision, collectProjectSnapshot, collectProjectSerialized,
+		workflowRevision, setWorkflowRevision, collectProjectSerialized,
 		projectProblemsNotice, rehydrateProjectAssets, saveProject, applyProject, openStarterScene, openProject,
 		openProjectByHandle, requestNewProject, newProject, restoreOffer, setRestoreOffer, restoreStoredProject,
 		flushScenes, openScene, selectSceneDocument, createSceneDocumentFromUi, duplicateSceneDocumentFromUi,
@@ -1557,8 +1557,6 @@ export default function App() {
 	}
 	// Viewport/plan camera framing would otherwise push an entry per pointermove.
 	const framingSessionRef = useRef(null);
-	// A colour picker streams values for as long as its dialog is open.
-	const tintSessionRef = useRef(null);
 	/* One Ctrl+Z entry per GESTURE for the surfaces that write cast-snapshot
 	 * state without a store transaction of their own: the key light (foldout
 	 * sliders, sun puck, move gizmo) and the character Transform rows. Every
@@ -1566,7 +1564,7 @@ export default function App() {
 	 * still the newest one, and the pointer/key release below closes it, so the
 	 * next gesture starts a fresh entry instead of extending the last one. */
 	const gestureUndoRef = useRef(null);
-	function beginGestureUndo(key) {
+	function beginGestureUndo() {
 		// NumberField hands this token back on every tick of a scrub. These edits
 		// are not store transactions, so the scrub runs with a null token.
 		return null;
@@ -2323,7 +2321,7 @@ export default function App() {
 	useEffect(() => subscribeToScenePlayback((command) => {
 		if (command?.activeSceneId && command.activeSceneId !== activeSceneIdRef.current) return;
 		if (Number.isFinite(Number(command?.frame))) {
-			setTlFrame((frame) => Math.max(0, Math.min(Math.round(Number(command.frame)), Math.max(0, frameCountRef.current - 1))));
+			setTlFrame(() => Math.max(0, Math.min(Math.round(Number(command.frame)), Math.max(0, frameCountRef.current - 1))));
 		}
 		if (typeof command?.playing === "boolean") {
 			cameraPreviewEndRef.current = null;
@@ -2753,11 +2751,6 @@ export default function App() {
 			spanS: Math.round(((cameraKeys[cameraKeys.length - 1].frame - cameraKeys[0].frame) / tlFps) * 10) / 10,
 		};
 	}, [cameraKeys, charA, filmback, tlFps]);
-	// With Follow armed, Preview means "watch the shot": it plays the timeline
-	// from frame 0 so character motion and the camera move share one clock.
-	// Follow off keeps the camera-only preview on its own clock.
-	const followPreviewArmed = moveFollow && hasCameraKeys && !ikMode && !waypointMode && !posing;
-	const previewActive = movePlaying || (followPreviewArmed && tlPlaying);
 
 	/* --------------------------- shot video export --------------------------- */
 	// Record is an offline frame-addressed export. It never starts playback and
@@ -4562,7 +4555,7 @@ export default function App() {
 		exportMenuAnchor, resultOpen, exportFeedback, shots, exportKeyframePacks,
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
-		capturePanelThumbnail, packMetaForShot, previsMode: scenesDomain.previsMode, sceneRevision: sceneRevisionRef.current,
+		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,
 		downloadOtioCutList, projectStatus, liveWorkspaceHandle, selectedHierarchyId, selectHierarchy,
 		aimEditorAtKeyLight, characters, showB, ikFrames, ikMode,
 		rowIdForCharIndex, activeCharIndex, waypoints, sceneObjects, scenes,
@@ -5101,7 +5094,7 @@ export default function App() {
 								onChangePoints={shotsDomain.changeCranePoints}
 								onChangeRail={shotsDomain.changeCraneRail}
 							/>
-							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} shotCamRef={shotCamRef} subject={charA} />
+							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} subject={charA} />
 							<CameraGlide glide={camGlide} camRef={editorCamRef} lookRef={editorLook} onDone={() => setCamGlide(null)} />
 							<ViewportMeasurement camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} /><ContextChipTools camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} />
 							<ShotLookApplier camRef={shotCamRef} look={look} />

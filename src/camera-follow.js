@@ -49,7 +49,7 @@ function offsetPitch(pitch, offsetDeg) {
 	return Math.max(-PITCH_LIMIT, Math.min(pitch + (safeOffset * Math.PI) / 180, PITCH_LIMIT));
 }
 
-function aimAngles(position, target) {
+export function aimAngles(position, target) {
 	const dx = target.x - position.x;
 	const dy = target.y - position.y;
 	const dz = target.z - position.z;
@@ -423,7 +423,6 @@ export function buildRailFollowTrack(subject, fps, rail, params = {}) {
 	const omega = omegaFor(p.response);
 	const aimOmega = omegaFor(p.aimResponse);
 	const step = Math.max(rail.length / Math.max(rail.points.length - 1, 1), 1e-3);
-	const authoredSpeed = subject.length > 1 ? rail.length / ((subject.length - 1) * dt) : 0;
 	// A critically damped spring trails a constant-speed target by 2v/omega —
 	// which is exactly a 2/omega-second head start. Leading in TIME instead of
 	// metres keeps the compensation honest under a speed envelope: where the

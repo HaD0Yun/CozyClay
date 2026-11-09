@@ -396,7 +396,7 @@ export function opaqueBounds({ data, width, height }, threshold = 8) {
  * is a card that is wider than the thing it shows and stands the subject off
  * the floor.
  */
-export function cropPixels({ data, width, height }, box) {
+export function cropPixels({ data, width }, box) {
 	const out = new Uint8ClampedArray(box.width * box.height * 4);
 	for (let y = 0; y < box.height; y++) {
 		const from = ((box.y + y) * width + box.x) * 4;

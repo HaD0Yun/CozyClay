@@ -547,7 +547,6 @@ export default function HierarchyPanel({
 	onSelect,
 	showB,
 	characters = null,
-	motionFrames,
 	ikMode,
 	// The ACTIVE character's row id (#76): IK badges and the IK-mode
 	// auto-expand follow whichever cast member owns the session.

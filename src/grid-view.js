@@ -21,7 +21,7 @@ export const STAGE_BACKGROUND = "#232428";
 // dark hole in it.
 // Matched to the lit deck's far tone (room.jsx FLOOR_LIGHT after tone
 // mapping), so fog blends floor into sky without a step.
-export const STAGE_BACKGROUND_LIGHT = "#e7e8eb";
+const STAGE_BACKGROUND_LIGHT = "#e7e8eb";
 export const stageBackground = (theme) => (theme === "light" ? STAGE_BACKGROUND_LIGHT : STAGE_BACKGROUND);
 export const GRID_BACKGROUND = STAGE_BACKGROUND;
 export const GRID_FOG = Object.freeze({ color: GRID_BACKGROUND, near: 30, far: 54 });

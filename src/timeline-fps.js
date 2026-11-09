@@ -7,7 +7,7 @@
  * them on the 24 fps production clock. The numbers are MULTIPLIED, never
  * reinterpreted: a waypoint at frame 40 meant 2.0 s and must still mean 2.0 s,
  * which is frame 48 — reinterpreting it would silently speed the scene up. */
-export const LEGACY_FRAME_FPS = 20;
+const LEGACY_FRAME_FPS = 20;
 export const TIMELINE_FRAME_FPS = 24;
 export const toTimelineFrame = (frame) =>
 	Math.round((frame * TIMELINE_FRAME_FPS) / LEGACY_FRAME_FPS);

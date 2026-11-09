@@ -12,7 +12,6 @@ const COMFY_DEFAULT_HEIGHT = 576;
 const MAX_INLINE_VIDEO = 24 * 1024 * 1024;
 
 import { DEFAULT_FAL_VIDEO_MODEL, falVideoContract } from "./fal-contract.mjs";
-export { falVideoContract } from "./fal-contract.mjs";
 
 export function validateFalVideoRequest({ model, durationSeconds, aspect }) {
 	const contract = falVideoContract(model);
@@ -273,7 +272,7 @@ function createComfy(env, fetchImpl) {
 	return {
 		id: "comfy", name: "ComfyUI",
 		configured: () => Boolean(base && workflowPath),
-		async generate({ prompt, imageDataUrl, durationSeconds, aspect, fps = 24, signal }) {
+		async generate({ prompt, imageDataUrl, durationSeconds, aspect, signal }) {
 			// Read the graph for every request. Comfy users commonly save a new
 			// H3 graph (for example, after adding the compositor lock) while this
 			// server stays alive; caching would silently keep submitting the old

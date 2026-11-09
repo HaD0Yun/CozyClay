@@ -37,7 +37,7 @@ export function summariseCanvasResult(result) {
 	return strip(rest);
 }
 
-export function createAgentTools({ liveHub, handlers = [], session, emit }) {
+export function createAgentTools({ liveHub, handlers = [], session }) {
 	const registry = new Map(handlers.map((tool) => [tool.name, tool]));
 	const workspace = (kind = "scene") => {
 		const key = kind === "workflow" ? "workflowHandle" : "workspaceHandle";
@@ -82,44 +82,6 @@ export function createAgentTools({ liveHub, handlers = [], session, emit }) {
 			session.images.set(imageId, result.dataUrl);
 			session.latestCaptureId = imageId;
 			return { imageId, width: result.width, height: result.height };
-		},
-	};
-	const render = {
-		name: "render_from_frame", description: "Render an edited image from a captured frame.",
-		parameters: objectSchema({ prompt: { type: "string" }, imageId: { type: "string" }, quality: { type: "string", enum: ["auto", "low", "medium", "high"] }, addAsNode: { type: "boolean" } }, ["prompt"]),
-		handler: async ({ prompt, imageId, quality, addAsNode = false }) => {
-			if (typeof prompt !== "string" || !prompt.trim()) throw new Error("A render prompt is required.");
-			if (quality !== undefined && !["auto", "low", "medium", "high"].includes(quality)) throw new Error("Invalid image quality.");
-			const source = session.images.get(imageId || session.latestCaptureId);
-			if (!source) throw new Error("Capture a frame before rendering.");
-			const guidance = registry.has("render_prompt") ? await registered("render_prompt", { mode: "image", environment: prompt }) : null;
-			const suffix = typeof guidance === "string" ? guidance : (guidance?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n");
-			const fullPrompt = `${prompt}${suffix ? `\n${suffix}` : ""}`;
-			let result;
-			try {
-				session.signal.throwIfAborted();
-				result = await session.codex.editImage({ prompt: fullPrompt, imageDataUrl: source, quality, signal: session.signal });
-			} catch (error) {
-				if (/entitlement|plan/i.test(error.message)) error.code = "entitlement";
-				throw error;
-			}
-			session.signal.throwIfAborted();
-			const newId = randomUUID();
-			const dataUrl = `data:image/png;base64,${result.pngBase64}`;
-			session.images.set(newId, dataUrl);
-			emit({ type: "image", imageId: newId, dataUrl, width: result.width, height: result.height, prompt: fullPrompt });
-			if (addAsNode) await live("add_node", { type: "image", model: "image-passthrough", data: { image_url: dataUrl, outputs: [{ value: dataUrl }] } }, "workflow");
-			return { imageId: newId, width: result.width, height: result.height, ...(addAsNode ? { addedAsNode: true } : {}) };
-		},
-	};
-	const place = {
-		name: "place_image_in_scene", description: "Place a rendered image in the scene.",
-		parameters: objectSchema({ imageId: { type: "string" }, placeAs: { type: "string", enum: ["cutout", "backdrop"] } }, ["imageId"]),
-		handler: async ({ imageId, placeAs = "cutout" }) => {
-			const dataUrl = session.images.get(imageId);
-			if (!dataUrl) throw new Error("Unknown image.");
-			if (!["cutout", "backdrop"].includes(placeAs)) throw new Error("Invalid image placement.");
-			return live("import_asset", { name: `${imageId}.png`, mimeType: "image/png", dataUrl, placeAs });
 		},
 	};
 	const reference = {

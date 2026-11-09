@@ -619,7 +619,7 @@ export default function WorkflowBuilder() {
 			if (window.__cozyclayWorkflow === store) delete window.__cozyclayWorkflow;
 		};
 	}, [nodeSchemas, setEdges, setNodes]);
-	const runScene = useCallback(async ({ id, data }) => {
+	const runScene = useCallback(async ({ id }) => {
 		const execution = startWorkflowExecution({ node_count_bucket: "1-3" }, { capture: track, durationBucket: bucketMs });
 		updateScene({ id, patch: { status: "running", statusMessage: "Capturing framing PNG" } });
 		try { const frame = await captureSceneFrame(id); updateScene({ id, patch: { status: "complete", statusMessage: "Captured framing PNG", preview: "render", lastOutput: { renderUrl: frame.dataUrl, sceneUrl: "/app/", jobId: null, meta: frame.meta ?? null, references: Array.isArray(frame.references) ? frame.references : [] }, outputs: [{ value: frame.dataUrl }], resultUrl: frame.dataUrl } }); execution.apply(); execution.succeed(); toast.success("Scene frame captured"); }

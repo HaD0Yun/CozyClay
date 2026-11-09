@@ -1017,7 +1017,7 @@ export function useObjects(appContext) {
 		setMatteMode, matteStats, setMatteStats, matteBusy, gizmoMode, setGizmoMode, snapEnabled, setSnapEnabled,
 		addSceneObject, importCutout, importCutouts, spawnCutoutAt, persistMeshAsset, importMesh, importMeshes,
 		spawnMeshAt, applyMatte, duplicateSelectedSceneObject, frameSelection, groupObjectUnderNewEmpty, renameRequest, renameSceneObject,
-		sceneObjectWorldMatrix, attachTargetForRow, attachTargetLabel, attachSceneObject,
+		sceneObjectWorldMatrix, attachTargetLabel, attachSceneObject,
 		placeSculptInScene, storeSculptReference,
 	};
 }

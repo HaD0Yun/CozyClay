@@ -11,7 +11,7 @@ import { normalizeTakeSource } from "./domains/motion/take-source.js";
 import { createKeyLight, normalizeLighting } from "./stage-lighting.js";
 // The timeline clock lives in timeline-fps.js (three-free, so the agent
 // sidecar can import it); re-exported here for every scene-side caller.
-import { LEGACY_FRAME_FPS, TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js";
+import { TIMELINE_FRAME_FPS, toTimelineFrame } from "./timeline-fps.js";
 
 const CHARACTER_POSITION_LIMITS = elementByPath("character.position");
 const CHARACTER_SCALE_LIMITS = elementByPath("character.scale");
@@ -33,7 +33,7 @@ export const LEGACY_SCENES_STORAGE_KEYS = Object.freeze([
 	V1_SCENES_STORAGE_KEY,
 ]);
 
-export { LEGACY_FRAME_FPS, TIMELINE_FRAME_FPS, toTimelineFrame };
+export { TIMELINE_FRAME_FPS };
 
 /** Rigged character models shipped in public/models. The id is both the FBX
  * file stem and the wire `source.rig` value sent to ARDY. */

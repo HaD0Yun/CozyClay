@@ -317,7 +317,7 @@ export function CameraGlide({ glide, camRef, lookRef, onDone }) {
 	return null;
 }
 
-export function EditorCamSeed({ camRef, lookRef, shotCamRef, subject }) {
+export function EditorCamSeed({ camRef, lookRef, subject }) {
 	const seeded = useRef(false);
 	const invalidate = useThree((state) => state.invalidate);
 	useEffect(() => {

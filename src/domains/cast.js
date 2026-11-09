@@ -403,10 +403,6 @@ export function useCast(appContext) {
 
 	const posedRig = () => rigs[posing] ?? null;
 
-	const setPosed = (pose) => {
-		if (posingIndex >= 0) updateCharacterAt(posingIndex, entry => ({ pose: typeof pose === "function" ? pose(entry.pose ?? DEFAULT_POSE) : pose }));
-	};
-
 	// A walking pace turns clicked distance into clip time, so pins land at
 	// frames the character can actually reach without ice-skating.
 	const WALK_SPEED_MPS = 1.4;
@@ -841,7 +837,7 @@ export function useCast(appContext) {
 		setHasCharSheet, waypointMode,
 		setWaypointMode, waypoints, setWaypoints, activeWaypointId, setActiveWaypointId, pendingWaypointFrame,
 		setPendingWaypointFrame, allPoses, selectablePoses,
-		posingIndex, posingChar, posedRig, setPosed, rootStart, queueRootWaypointFrame, castMemberOf,
+		posingIndex, posingChar, posedRig, rootStart, queueRootWaypointFrame, castMemberOf,
 		addCharacterWaypoint, moveCharacterWaypoint, removeCharacterWaypoint, clearCharacterWaypoints,
 		addFloorWaypoint, moveWaypoint, removeWaypoint, toggleWaypointMode, openStudio, closeStudio,
 		saveCurrentPose, savePose, removePose,

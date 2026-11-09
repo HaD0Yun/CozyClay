@@ -271,11 +271,6 @@ export function useShots(appContext) {
   }
   function commitManualCameraFraming() { trackFeature('orbit'); return syncActiveCameraFraming(); }
   function beginCameraFramingGesture() { if (!appContext.shared.ikMode && !appContext.shared.playMode) domain.beginGesture(); }
-  function beginTimelineEditGesture(kind, id) {
-    if (kind === 'ik-key') return appContext.storeDomain('motion').beginGesture();
-    if (['camera-key', 'rail', 'shot-boundary'].includes(kind)) return domain.beginGesture();
-    if (['prompt-move', 'prompt-resize', 'prompt-text'].includes(kind)) return appContext.storeDomain('cast').beginGesture();
-  }
   function setShotCameraRail(shotId, points) { return appContext.storeDomain('shot').run('shot.setCameraRail', { shotId, points }); }
   function clearShotCameraRail(shotId) { return appContext.storeDomain('shot').run('shot.clearCameraRail', { shotId }); }
   function changeCameraRail(points) { const shotId = selectedShotId(); if (shotId) return setShotCameraRail(shotId, points.map(({ x, z }) => ({ x, z }))); }
@@ -421,8 +416,8 @@ export function useShots(appContext) {
     movePlaying, setMovePlaying, moveFollow, railDraw, setRailDraw, craneSelectedIndex, setCraneSelectedIndex,
     tlFrame, setTlFrame, commitPlaybackFrame, tlFrameCount, setTlFrameCount, tlFps, setTlFps, activeShotIdx, activeShot, cameraKeys,
     activeCamera, craneActive, cameraRail, activeShotDuration, hasCameraKeys, changeActiveCamera, changeShotTargetModel,
-    syncActiveCameraFraming, commitManualCameraFraming, beginCameraFramingGesture, beginTimelineEditGesture,
-    setShotCameraRail, clearShotCameraRail, changeCameraRail, addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe, clearMove,
+    syncActiveCameraFraming, commitManualCameraFraming, beginCameraFramingGesture,
+    setShotCameraRail, clearShotCameraRail, addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe, clearMove,
     addTimelineShot, splitTimelineShot, duplicateTimelineShot, removeTimelineShot, moveTimelineShot, setTimelineShotRange,
     resizeTimelineShot, renameTimelineShot, selectTimelineShot, previewCameraShot, addActiveCranePoint, deleteSelectedCranePoint,
     changeCranePoints, changeCraneRail, toggleCameraRailDraw, deleteCameraRail, drawCameraRail,
