@@ -134,6 +134,27 @@ test('the bus says when an agent turn closes, finished or cancelled', () => {
 	} finally { f.dispose(); }
 });
 
+test('the bus says when a task ends, also one cancelled before it edited anything', () => {
+	const f = objectsFixture(), events = [], id = f.store.current.objects[0].id;
+	try {
+		f.binding.bus.subscribe(event => events.push(event));
+		const task = taskId => (action, args = {}) => f.run(action, args, 'agent', { taskId, expectedRevision: 0 });
+		const ends = () => events.filter(event => ['task.finished', 'task.cancelled'].includes(event.type)).map(event => `${event.type} ${event.taskId}`);
+		// a task that only compiled drafts wrote nothing: its cancel has nothing to put back, and is still heard
+		assert.equal(task('t-empty')('task.begin', { taskId: 't-empty', scope: [`object:${id}`] }).ok, true);
+		assert.equal(task('t-empty')('task.cancel', { taskId: 't-empty' }).ok, true);
+		assert.deepEqual(ends(), ['task.cancelled t-empty']);
+		assert.deepEqual(events.find(event => event.type === 'task.cancelled'), { type: 'task.cancelled', taskId: 't-empty', keys: [] }, 'no key was put back');
+		// a task that edited and was cancelled says it once (restore's event), and a finished one says finished
+		assert.equal(task('t-edit')('task.begin', { taskId: 't-edit', scope: [`object:${id}`] }).ok, true);
+		assert.equal(task('t-edit')('object.set', { id, set: { position: { x: 2, y: 0, z: 0 } } }).ok, true);
+		assert.equal(task('t-edit')('task.cancel', { taskId: 't-edit' }).ok, true);
+		assert.equal(task('t-done')('task.begin', { taskId: 't-done', scope: [`object:${id}`] }).ok, true);
+		assert.equal(task('t-done')('task.finish', { taskId: 't-done' }).ok, true);
+		assert.deepEqual(ends(), ['task.cancelled t-empty', 'task.cancelled t-edit', 'task.finished t-done']);
+	} finally { f.dispose(); }
+});
+
 test('the viewer switch is on by default and toggles', () => {
 	assert.equal(draftGhostShown(), true);
 	assert.equal(setDraftGhostShown(false), false);

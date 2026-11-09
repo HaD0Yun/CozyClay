@@ -83,6 +83,7 @@ export function endDrafts(owner) {
 }
 
 // The bus says when a task or an agent turn closes (command-bus.js; App hands every bus event to the window).
+// Every end of a task or turn: finished, cancelled (with or without an edit to put back), an orphan released, a turn closed.
 const WORK_CLOSED = new Set(["task.finished", "task.cancelled", "task.released", "agent.turn.closed"]);
 if (typeof window !== "undefined" && window.addEventListener) {
 	window.addEventListener("cozyclay:command", event => {

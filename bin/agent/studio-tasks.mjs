@@ -87,9 +87,9 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		check({ instructions, scope, motion });
 		const unknown = dependsOn.find(id => !tasks.has(id));
 		if (unknown) throw invalid(`dependsOn: no task ${unknown}.`);
-		const same = list().find(task => ACTIVE.has(task.status) && norm(task.instructions) === norm(instructions) && Boolean(task.motion) === Boolean(motion) && [...task.declared].sort().join() === [...scope].sort().join());
+		const motionKey = motion ? `${motion.characterId ?? ""}|${motion.design ?? ""}` : null, same = list().find(task => ACTIVE.has(task.status) && norm(task.instructions) === norm(instructions) && task.motionKey === motionKey && [...task.declared].sort().join() === [...scope].sort().join());
 		if (same) return { duplicateOf: same.taskId, ...view(same) };
-		const task = { taskId: randomUUID(), title: clip(String(title || instructions).trim(), 120), instructions, scope: [...new Set(scope)], declared: [...new Set(scope)], reads, dependsOn, verify: verify === true, ...(motion ? { motion: { characterId: typeof motion.characterId === "string" && motion.characterId ? motion.characterId : null, known: Array.isArray(motion.known) ? motion.known : null, design: typeof motion.design === "string" && motion.design ? motion.design : null } } : {}),
+		const task = { taskId: randomUUID(), title: clip(String(title || instructions).trim(), 120), instructions, scope: [...new Set(scope)], declared: [...new Set(scope)], motionKey, reads, dependsOn, verify: verify === true, ...(motion ? { motion: { characterId: typeof motion.characterId === "string" && motion.characterId ? motion.characterId : null, known: Array.isArray(motion.known) ? motion.known : null, design: typeof motion.design === "string" && motion.design ? motion.design : null } } : {}),
 			status: "queued", tools: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, requests: 0 }, createdAt: now(), warm: false, waited: { scope: 0, deps: 0, cap: 0 }, wait: null };
 		tasks.set(task.taskId, task);
 		tell("task.queued", task);

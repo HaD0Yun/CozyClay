@@ -126,6 +126,16 @@ function boardFixture(limits = {}) {
 	console.log("PASS (b) the board queues a motion task with no scope key, marks it, and stops it at its own time limit");
 }
 {
+	const { board } = boardFixture();
+	// the same words for another character, or from another design, are other work (a motion task's scope may be empty)
+	const forA = board.dispatch({ title: "a bows", instructions: "bow once", scope: [], motion: { characterId: "a", design: "design one" } });
+	const forB = board.dispatch({ title: "b bows", instructions: "bow once", scope: [], motion: { characterId: "b", design: "design one" } });
+	const forA2 = board.dispatch({ title: "a bows deeper", instructions: "bow once", scope: [], motion: { characterId: "a", design: "design two" } });
+	assert.ok(!forA.duplicateOf && !forB.duplicateOf && !forA2.duplicateOf && new Set([forA.taskId, forB.taskId, forA2.taskId]).size === 3, "three motion tasks, not one");
+	assert.equal(board.dispatch({ title: "a bows again", instructions: "bow once", scope: [], motion: { characterId: "a", design: "design one" } }).duplicateOf, forA.taskId, "the same character and design is the same work");
+	console.log("PASS (b) motion tasks with the same words are the same work only for the same character and design");
+}
+{
 	const { board, runs } = boardFixture();
 	board.dispatch({ title: "plain", instructions: "a", scope: ["object:a"] }); board.dispatch({ title: "motion", instructions: "b", scope: [], motion: { characterId: "c" } });
 	await tick();

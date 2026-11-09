@@ -150,7 +150,10 @@ export function createBusTasks({ ports, emit }) {
 			}
 			open.delete(task.taskId);
 			if (id === 'task.cancel') {
-				const historyEntryId = restore(task, [...task.pre.values()], 'cancelled');
+				const pre = [...task.pre.values()], historyEntryId = restore(task, pre, 'cancelled');
+				// restore says task.cancelled only when it put something back: a task cancelled before it edited anything says so here,
+				// so every cancel is heard (the panel's scope marks, the drafts the task compiled: agent-progress.js)
+				if (!pre.some(entry => entry.value !== null)) emit?.({ type: 'task.cancelled', taskId: task.taskId, keys: [] });
 				return receipt(id, task, request, before, { historyEntryId, affectedIds: task.affectedIds });
 			}
 			task.final = finalOf(task); task.sceneId = sceneNow();
