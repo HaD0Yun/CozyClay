@@ -204,6 +204,14 @@ function hurdleHop(apex, N, H, fix, checks, people, more = {}) {
 	const longer = hurdleHop(0.55, 22, 0.5), bare = hurdleHop(0.6, 14, 0), allowed = hurdleHop(0.6, 14, 0.5, null, { allow: ["foot", "shin", "thigh"].map(part => ({ part, object: "hurdle", depth: 0.5 })) });
 	expect(`(a4) the same hurdle with the frames its apex needs: the arc clears it (moved ${longer.fixed.ballistic?.max} m, QA ${longer.qa.total})`, longer.fixed.ballistic?.runs === 1 && !longer.fixed.ballistic.skipped && longer.qa.total === 0, JSON.stringify({ b: longer.fixed.ballistic, qa: list(longer) }));
 	expect("(a4) the same hop with no hurdle, or with checks.allow for it: the arc moves it, the gate reads what QA reads", bare.fixed.ballistic?.runs === 1 && !bare.fixed.ballistic.skipped && allowed.fixed.ballistic?.runs === 1 && !allowed.fixed.ballistic.skipped, JSON.stringify({ bare: bare.fixed.ballistic, allowed: allowed.fixed.ballistic }));
+	// the same hop with no hurdle and a goal at its keyed apex: the arc (0.19 m lower) would miss it, so the flight keeps its frames (pipeline.js keptRetime's rule)
+	const mark = { id: "mark", name: "Mark", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, rotX: 0, rotZ: 0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1, footprint: { width: 1, depth: 1 }, height: 1 };
+	const goal = need => ({ spec: { goals: [{ name: "high", above: ["joint:Hips", "object:mark"], by: need, at: [HOP_A + 7, HOP_A + 7] }] }, boxes: [mark] });
+	const kept = hurdleHop(0.6, 14, 0, null, null, null, goal(1.45)), keyedGoal = hurdleHop(0.6, 14, 0, { ballistic: false, spin: false }, null, null, goal(1.45)), low = hurdleHop(0.6, 14, 0, null, null, null, goal(1.2));
+	const g = q => q.qa.goals?.[0], lost = kept.fixed.ballistic?.skipped?.[0];
+	expect(`(a4) a goal the keyed apex meets (hips ${g(keyedGoal)?.value} m over the mark, needs 1.45): the arc would lose it, so the flight keeps its frames (${g(kept)?.value} m, met ${g(kept)?.ok}, QA ${kept.qa.total}; skipped lost ${lost?.lost})`,
+		g(keyedGoal)?.ok && g(kept)?.ok && g(kept).value === g(keyedGoal).value && kept.qa.total === 0 && kept.fixed.ballistic?.runs === 0 && JSON.stringify(lost?.lost) === '["high"]', JSON.stringify({ b: kept.fixed.ballistic, goals: kept.qa.goals }));
+	expect(`(a4) a goal the arc still meets (needs 1.2): the flight rides the arc (${g(low)?.value} m, met ${g(low)?.ok})`, low.fixed.ballistic?.runs === 1 && !low.fixed.ballistic.skipped && g(low)?.ok && low.qa.total === 0, JSON.stringify({ b: low.fixed.ballistic, goals: low.qa.goals }));
 }
 
 // (a4) a character standing under the hop: the arc would take the body deeper into them, so the flight keeps its frames

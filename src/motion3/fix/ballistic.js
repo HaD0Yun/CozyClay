@@ -10,7 +10,7 @@
 // ease of the root over the supported frames around them moved the planted legs into pops of their own and the hips
 // after landing off their keys). A run whose hips do not fall (FLOAT: under a quarter of g) is a staging error and stays
 // for QA's arc hint; a run that needs more than MAX_FIX (0.5 m), or whose arc enters what the frames before the flight
-// fixes stayed out of (flight-gate.js: a hop keyed over a hurdle higher than its frames can carry it), keeps its frames
+// fixes stayed out of or misses a goal they met (flight-gate.js: a hop keyed over a hurdle higher than its frames can carry it), keeps its frames
 // and is reported instead (skipped: the apex an N-frame flight has, g N^2 / 8, and the frames the hips' own apex fits,
 // sqrt(8 h / g)). Bench v2 (2026-11-07, 07 roof fall back r1): the agent's exact 1 g parabola came out 0.27 m off at f106
 // after retime stretched its frames.
@@ -84,5 +84,5 @@ export function ballisticFix(out, engine, runs, gate, prev = null) {
 	}
 	if (!at.length && !skipped.length) return null;
 	return { runs: at.length, frames, max: round4(max), at, ...(skipped.length ? { skipped } : {}),
-		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
+		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into) or loses a goal it met (lost), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
 }

@@ -21,6 +21,7 @@ import { momentumOf, rotationVector } from "../qa/inertia.js";
 import { runDrift, SPIN_TOL, MIN_TURN } from "../qa/flight-checks.js";
 import { missingFall, FLOAT_LIMIT } from "../qa/style.js";
 import { RIDERS } from "./ballistic.js";
+import { hitSays } from "./flight-gate.js";
 
 /** The share of the total turn a keyed turn may run backward and still be one turn. */
 const BACK_SHARE = 0.02;
@@ -116,7 +117,7 @@ export function spinFix(out, engine, runs, gate) {
 			solve();
 		}
 		const hit = why ? null : gate(a, b), d1 = why ? 0 : runDrift(out, a, b);
-		if (hit) why = `re-timed, it would enter ${hit.into.join(", ")} by ${hit.depth} m where the flight did not: left as it was`;
+		if (hit) why = `re-timed, it would ${hitSays(hit)} where the flight did not: left as it was`;
 		else if (d1 > d0 && d1 > SPIN_TOL) why = `re-timed, it would drift more (${d0.toFixed(3)} -> ${d1.toFixed(3)}): left as it was`;
 		if (why) {
 			// as it was: every channel this run wrote goes back to its own values
