@@ -13,5 +13,6 @@ export async function createV4ToolSet(ctx) {
 	// ctx.signal is read at call time: it is replaced every turn.
 	const host = Object.fromEntries(others.map(tool => [tool.name, args => tool.run(args ?? {}, { signal: ctx.signal, from: "js" })]));
 	const js = createJsTool({ facts: rigFacts(ctx.sk, ctx.character, await ctx.records()), host });
-	return { tools: [js, ...others], close: () => js.close() };
+	// refresh(): a later turn of the conversation; the js session's rig.scene takes that turn's records. True when they changed.
+	return { tools: [js, ...others], close: () => js.close(), refresh: async () => js.setScene(rigFacts(ctx.sk, ctx.character, await ctx.records()).scene) };
 }

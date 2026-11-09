@@ -17,6 +17,7 @@ const IDLE_MS = 60 * 60_000;
 const STOP_GRACE_MS = 5000;
 const MISSING = /no conversation found/i;
 const RESTARTED = "Note: the CozyClay tools restarted since the last turn. The js session and the track store are empty (rig and the host functions are back); the installed take is still on the character.";
+const SCENE_CHANGED = "Note: the scene's objects changed since your last turn. rig.scene holds the current ones; names you kept from the old scene are not updated.";
 
 // Studio sessionId -> { ctx, toolSet, turns, idle }
 const conversations = new Map();
@@ -40,7 +41,7 @@ export async function conversationFor(sessionId, turn, loadToolSet = defaultLoad
 	if (existing && sameSubject(existing.ctx.character, subjectOf(turn.describe))) {
 		clearTimeout(existing.idle);
 		bindTurn(existing.ctx, turn);
-		return { conversation: existing, fresh: false };
+		return { conversation: existing, fresh: false, sceneChanged: Boolean(await existing.toolSet.refresh?.()) };
 	}
 	retire(sessionId);
 	const ctx = createV4Context(turn);
@@ -74,12 +75,12 @@ function trackLine(ctx) {
 const imagesOf = attachments => (Array.isArray(attachments) ? attachments : []).map(entry => /^data:([^;]+);base64,(.*)$/.exec(entry?.dataUrl ?? "")).filter(Boolean).map(match => ({ mimeType: match[1], data: match[2] }));
 
 /** What the model reads this turn (`text`), what the session store keeps (`stored`) and the bare brief or state line (`context`). */
-export function promptOf({ value, ctx, describe, first, restarted }) {
+export function promptOf({ value, ctx, describe, first, restarted, sceneChanged }) {
 	if (first) {
 		const brief = sceneBrief({ character: ctx.character, sk: ctx.sk, records: Array.isArray(describe?.objects) ? describe.objects : [], installed: installedOf(describe, ctx.character.id), frameCount: value.context?.scene?.frameCount });
 		return { text: `${brief}\n\n${value.text}`, stored: `<studio-context>\n${brief}\n</studio-context>\n${value.text}`, context: brief };
 	}
-	const state = [trackLine(ctx), ...(restarted ? [RESTARTED] : [])].join("\n");
+	const state = [trackLine(ctx), ...(restarted ? [RESTARTED] : []), ...(sceneChanged ? [SCENE_CHANGED] : [])].join("\n");
 	return { text: `${value.text}\n\n${state}`, stored: `<studio-context>\n${state}\n</studio-context>\n${value.text}`, context: state };
 }
 
@@ -180,7 +181,7 @@ export async function runV4StudioTurn({ value, session, send, close, res, contro
 		// models: the pi registry, or the route's function that builds it (a failure there is this turn's error frame).
 		const auth = await proxyAuth(typeof models === "function" ? await models() : models, { env });
 		const describe = await hub.command("describe", {}, workspaceHandle);
-		const { conversation, fresh } = await conversationFor(value.sessionId, { describe, studioTools, hub, workspaceHandle, signal }, loadToolSet);
+		const { conversation, fresh, sceneChanged } = await conversationFor(value.sessionId, { describe, studioTools, hub, workspaceHandle, signal }, loadToolSet);
 		const root = v4Root(sessionStore), marker = readMarker(root, value.sessionId);
 		for (const dir of ["claude", "work", "sessions"]) mkdirSync(join(root, dir), { recursive: true });
 		const sdk = await loadSdk();
@@ -193,7 +194,7 @@ export async function runV4StudioTurn({ value, session, send, close, res, contro
 		const writeMarker = (sdkSessionId, turns) => writeFileSync(markerPath(root, value.sessionId), `${JSON.stringify({ sdkSessionId, turns, createdAt: saved.createdAt })}\n`, { mode: 0o600 });
 		for (let attempt = 0; attempt < 2 && !signal.aborted; attempt += 1) {
 			const sdkSessionId = resume ?? (attempt ? randomUUID() : value.sessionId);
-			const prompt = promptOf({ value, ctx, describe, first: !resume, restarted: fresh && Boolean(resume) });
+			const prompt = promptOf({ value, ctx, describe, first: !resume, restarted: fresh && Boolean(resume), sceneChanged });
 			if (attempt === 0) history.user(prompt.stored, images);
 			// A new SDK session is marked before it starts, so a turn that dies half way is resumed next time.
 			if (!resume) { saved = { turns: 0, createdAt: new Date(clock()).toISOString() }; writeMarker(sdkSessionId, 0); }

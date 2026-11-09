@@ -92,15 +92,16 @@ const errorText = (name, message) => ({ name, message, line: null, column: null,
 
 /**
  * createJsSession({ prelude, host, memoryLimitBytes, loadSandbox })
- *   prelude: JS source run once per VM (the js tool assigns the rig library to globalThis.rig)
+ *   prelude: JS source run once per VM (the js tool assigns the rig library to globalThis.rig), or a function that
+ *            answers it, read at each VM start (the rig's scene may change between turns)
  *   host:    { [name]: (args) => Promise<V4Result> } exposed as top-level async globals; they return result.data
- * -> { run(code, { timeoutMs, signal }) -> Promise<CellResult>, reset(reason), close() }
+ * -> { run(code, { timeoutMs, signal }) -> Promise<CellResult>, reset(reason), close(), live (a VM is running) }
  */
 export function createJsSession({ prelude = "", host = {}, memoryLimitBytes = 512 * 1024 * 1024, loadSandbox = () => import("@earendil-works/pi-codemode") } = {}) {
 	for (const name of Object.keys(host)) {
 		if (!IDENTIFIER.test(name) || ["__next", "__done", "console", "text", "image", "exit", "store", "load", "tools", "ALL_TOOLS"].includes(name)) throw new Error(`js session: bad host function name "${name}"`);
 	}
-	const source = `${prelude}\n;await (${replMain.toString()})(${JSON.stringify(RESERVED)}, ${JSON.stringify(LIMITS)});\n`;
+	const source = () => `${typeof prelude === "function" ? prelude() : prelude}\n;await (${replMain.toString()})(${JSON.stringify(RESERVED)}, ${JSON.stringify(LIMITS)});\n`;
 	let vm = null, chain = Promise.resolve(), closed = false, nextId = 0, pendingReset = null, current = null;
 
 	async function callHost(name, fn, args) {
@@ -127,7 +128,7 @@ export function createJsSession({ prelude = "", host = {}, memoryLimitBytes = 51
 			...Object.entries(host).map(([name, fn]) => ({ name, execute: args => callHost(name, fn, args) })),
 		];
 		const sandbox = new CodemodeSandbox({ timeoutMs: Infinity, memoryLimitBytes, globals });
-		v.ended = sandbox.execute(source, { timeoutMs: Infinity, signal: v.controller.signal }).then(result => {
+		v.ended = sandbox.execute(source(), { timeoutMs: Infinity, signal: v.controller.signal }).then(result => {
 			v.dead = result.ok ? errorText("SessionEnded", "The js session ended (exit() or the REPL returned).")
 				: errorText(result.error.kind === "script" ? "SessionStart" : "SessionEnded", `The js session stopped (${result.error.kind}): ${result.error.message}`);
 			for (const cb of v.cells.values()) cb(null);
@@ -172,6 +173,8 @@ export function createJsSession({ prelude = "", host = {}, memoryLimitBytes = 51
 	}
 
 	return {
+		/** True while a VM is running: a prelude change reaches it only through a cell. */
+		get live() { return Boolean(vm && !vm.dead); },
 		/** Run one cell; parallel calls queue in order. */
 		run(code, options) {
 			const p = chain.then(() => runCell(code, options));

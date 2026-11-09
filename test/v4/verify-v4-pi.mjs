@@ -58,13 +58,13 @@ expect("a throw from run propagates", thrown?.message === "bad", String(thrown?.
 const hub = { command: async name => (name === "describe" ? { characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, y: 0, z: 0, rot: 0, scale: 1 }], activeCharacterId: "char-a", objects: [] } : {}) };
 const studioTools = { internal: { invoke: async () => ({}) } };
 const loadToolSet = async () => ({ tools: [fakeRender, { name: "js", description: "j", inputSchema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] }, run: async () => ({ text: "ok" }) }], close() {} });
-function turn({ sessionId, sessionStore = { read: () => null }, runnerFor }) {
+function turn({ sessionId, sessionStore = { read: () => null }, runnerFor, refresh }) {
 	const captured = [], frames = [];
 	runnerFor ??= async () => ({ openSession: async () => ({ start: async function* (input) { captured.push(input); yield { type: "text.delta", text: "hi" }; yield { type: "done" }; } }) });
 	const session = {};
 	const res = { writableEnded: false, end() { this.writableEnded = true; } };
 	const value = { sessionId, text: "jump", context: { host: { workspaceHandle: "w", workspaceId: "ws" }, scene: { name: "Scene", frameCount: 120 } } };
-	const run = runV4PiStudioTurn({ value, session, send: frame => frames.push(frame), close: () => {}, res, controller: new AbortController(), studioTools, hub, sessionStore, runnerFor, studioIdentity: host => host, admission: { host: { workspaceId: "ws" } }, loadToolSet });
+	const run = runV4PiStudioTurn({ value, session, send: frame => frames.push(frame), close: () => {}, res, controller: new AbortController(), studioTools, hub, sessionStore, runnerFor, studioIdentity: host => host, admission: { host: { workspaceId: "ws" } }, loadToolSet: refresh ? async () => ({ ...(await loadToolSet()), refresh }) : loadToolSet });
 	return { run, captured, frames, session, res };
 }
 
@@ -88,6 +88,14 @@ expect("session host set", same(t1.session.host, { workspaceHandle: "w", workspa
 const t2 = turn({ sessionId: "s2", sessionStore: { read: () => ({ history: [{ role: "user" }] }) } });
 await t2.run;
 expect("later turn: studioContextText is the state line", /^<studio-context>\nTrack: /.test(t2.captured[0]?.studioContextText ?? ""), show(t2.captured[0]?.studioContextText));
+
+expect("later turn of a new conversation: no scene note", !/objects changed/.test(t2.captured[0]?.studioContextText ?? ""), show(t2.captured[0]?.studioContextText));
+
+// The same conversation again, and its tool set says the scene changed (tool-set.mjs refresh): the state line tells the model.
+await turn({ sessionId: "s4", refresh: async () => true }).run;
+const t4 = turn({ sessionId: "s4", sessionStore: { read: () => ({ history: [{ role: "user" }] }) }, refresh: async () => true });
+await t4.run;
+expect("later turn after a scene change: the state line says rig.scene is current", /^<studio-context>\nTrack: /.test(t4.captured[0]?.studioContextText ?? "") && /the scene's objects changed since your last turn/.test(t4.captured[0].studioContextText), show(t4.captured[0]?.studioContextText));
 
 const t3 = turn({ sessionId: "s3", runnerFor: async () => { throw new Error("no proxy"); } });
 await t3.run;

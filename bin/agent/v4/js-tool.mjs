@@ -73,10 +73,11 @@ function cellText(r, dropped) {
 	return text.length > TEXT_BUDGET ? `${text.slice(0, TEXT_BUDGET - 40)}\n... [text cut at ${TEXT_BUDGET} chars]` : text;
 }
 
-/** createJsTool({ facts, host, timeoutMs, loadSandbox }) -> V4Tool & { close() } */
+/** createJsTool({ facts, host, timeoutMs, loadSandbox }) -> V4Tool & { close(), setScene(scene) } */
 export function createJsTool({ facts, host = {}, timeoutMs = 120000, loadSandbox } = {}) {
 	if (!facts?.names) throw new Error("createJsTool: rig facts are required");
-	const session = createJsSession({ prelude: `globalThis.rig = ${rigLibrarySource(facts)};`, host, ...(loadSandbox ? { loadSandbox } : {}) });
+	let current = facts;
+	const session = createJsSession({ prelude: () => `globalThis.rig = ${rigLibrarySource(current)};`, host, ...(loadSandbox ? { loadSandbox } : {}) });
 	return {
 		name: "js",
 		description: DESCRIPTION,
@@ -89,6 +90,16 @@ export function createJsTool({ facts, host = {}, timeoutMs = 120000, loadSandbox
 			const r = await session.run(code, { timeoutMs: limit, signal: call?.signal });
 			const { images, ...data } = r, shown = images.slice(0, MAX_IMAGES);
 			return { data, text: cellText(r, images.length - shown.length), ...(shown.length ? { images: shown } : {}), ...(r.ok ? {} : { isError: true }) };
+		},
+		/**
+		 * The scene facts (rigFacts().scene) of a later turn: rig.scene follows them in the running session, where the kept
+		 * names stay, and in any session started later. Answers true when the scene differs from the one rig.scene had.
+		 */
+		async setScene(scene) {
+			if (JSON.stringify(scene) === JSON.stringify(current.scene)) return false;
+			current = { ...current, scene };
+			if (session.live) await session.run(`rig.scene = ${JSON.stringify(scene)};`);
+			return true;
 		},
 		close: () => session.close(),
 	};

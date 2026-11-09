@@ -22,10 +22,10 @@ export async function runV4PiStudioTurn({ value, session, send, close, res, cont
 		try {
 			const workspaceHandle = value.context.host.workspaceHandle;
 			const describe = await hub.command("describe", {}, workspaceHandle);
-			const { conversation, fresh } = await conversationFor(value.sessionId, { describe, studioTools, hub, workspaceHandle, signal }, loadToolSet);
+			const { conversation, fresh, sceneChanged } = await conversationFor(value.sessionId, { describe, studioTools, hub, workspaceHandle, signal }, loadToolSet);
 			// First turn of this Studio conversation when pi has no stored history for it.
 			const first = !(sessionStore?.read?.(value.sessionId)?.history?.length > 0);
-			const prompt = promptOf({ value, ctx: conversation.ctx, describe, first, restarted: fresh && !first });
+			const prompt = promptOf({ value, ctx: conversation.ctx, describe, first, restarted: fresh && !first, sceneChanged });
 			const studioContextText = `<studio-context>\n${prompt.context}\n</studio-context>`;
 			const tools = toV4AgentTools(conversation.toolSet.tools, { signal });
 			const runner = await runnerFor(value.sessionId);

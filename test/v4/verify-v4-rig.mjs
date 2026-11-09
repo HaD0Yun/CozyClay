@@ -292,6 +292,23 @@ const js = createJsTool({ facts, host });
 	expect("the description's pattern runs (a 48-frame squat sent to track)", r.data.ok && r.data.calls.some(c => c.name === "track" && c.ok), r.text);
 }
 {
+	// A later turn's scene: rig.scene follows it in the running session (kept names stay) and in a session started later.
+	const run = (code, extra = {}) => js.run({ code, ...extra }, { from: "model" });
+	const moved = rigFacts(sk, character, [...RECORDS.filter(record => record.id !== "crate"), { ...RECORDS.find(record => record.id === "crate"), x: 2.4 },
+		{ ...base, id: "step", name: "Step", renderer: "cube", x: 1.2, y: 0, z: 2.6, scaleX: 0.4, scaleY: 0.2, scaleZ: 0.4, parent: null }]).scene;
+	let r = await run("const before = rig.scene.objects.crate.pos.slice();\nconst mark = 7;\nreturn { ids: Object.keys(rig.scene.objects) };");
+	const idsBefore = r.data.value?.ids ?? [];
+	expect("setScene with the same scene answers false", await js.setScene(facts.scene) === false);
+	expect("setScene with a changed scene answers true", await js.setScene(moved) === true);
+	r = await run("return { ids: Object.keys(rig.scene.objects), crate: rig.scene.objects.crate.pos, before, mark };");
+	expect("the running session reads the new scene and keeps its names", r.data.ok && !idsBefore.includes("step") && r.data.value.ids.includes("step") && JSON.stringify(r.data.value.crate) === JSON.stringify(moved.objects.crate.pos)
+		&& JSON.stringify(r.data.value.crate) !== JSON.stringify(r.data.value.before) && r.data.value.mark === 7, r.text);
+	r = await run("while (true) {}", { timeoutMs: 1000 });
+	expect("a cell past its timeout resets the session", !r.data.ok && r.data.reset !== undefined, r.text);
+	r = await run("return { ids: Object.keys(rig.scene.objects), mark: typeof mark };");
+	expect("a session started later has the new scene too", r.data.ok && r.data.value.ids.includes("step") && r.data.value.mark === "undefined", r.text);
+}
+{
 	// The session alone: reset(reason) and close().
 	const s = createJsSession({ prelude: "globalThis.seed = 7;" });
 	let r = await s.run("const kept = seed * 2;\nreturn kept;");
