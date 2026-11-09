@@ -70,17 +70,31 @@ const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), e
  * down (bench-handstand-r3: none on the first solve, f21-f27 at the end, all 7 frames re-timed, stretch 1.6). A falling
  * run of the final frames whose frames retime moved (retimedAir) starts the fixes again from the keys, retime keeping
  * that run's key interval as keyed too: once, so a run the second pass makes is reported (fixed.retime.air), not chased.
+ * Holding an interval takes frames retime would borrow: when it leaves more frames too fast than the first pass did, the
+ * first pass's timing comes back (the handstand: f20-f32 held left 2 frames too fast by f45 and its planted foot 17 cm off
+ * the key there, KEY), and fixed.retime.air says so.
  */
 export function applyFixes(out, fix, engine, opts = {}) {
-	const keys = out.keys, first = runFixes(out, fix, engine, opts, []), missed = first.retime ? retimedAir(out) : [];
+	const keys = out.keys, first = runFixes(out, fix, engine, opts, []), missed = first.retime ? retimedAir(out) : [], at = r => r.map(([a, b]) => `f${a}-f${b}`).join(", ");
 	if (!missed.length) return first;
+	const again = fromKeys(out, fix, engine, opts, keys, missed), fast = r => r.retime?.stillFast ?? 0;
+	if (fast(again) <= fast(first)) {
+		const left = again.retime ? retimedAir(out) : [];
+		if (again.retime) again.retime = { ...again.retime, air: `kept the key intervals of ${at(missed)} as keyed: a later fix made an air run there${left.length ? `; ${at(left)} still re-timed` : ""}` };
+		return again;
+	}
+	const back = fromKeys(out, fix, engine, opts, keys, []);
+	back.retime = { ...back.retime, air: `re-timed ${at(missed)}, an air run a later fix made: keeping its key interval as keyed left ${fast(again)} frames too fast against ${fast(first)}` };
+	return back;
+}
+
+/** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` too (applyFixes). */
+function fromKeys(out, fix, engine, opts, keys, air) {
 	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns"]) delete out[k];
 	for (const m of ["push", "swivel", "skinPush"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
 	engine.rebake(keys);
 	engine.solve(engine.all());
-	const again = runFixes(out, fix, engine, opts, missed), left = again.retime ? retimedAir(out) : [], at = r => r.map(([a, b]) => `f${a}-f${b}`).join(", ");
-	if (again.retime) again.retime = { ...again.retime, air: `kept the key intervals of ${at(missed)} as keyed: a later fix made an air run there${left.length ? `; ${at(left)} still re-timed` : ""}` };
-	return again;
+	return runFixes(out, fix, engine, opts, air);
 }
 
 /** The final take's falling air runs (qa/flight-checks.js fallingRuns) whose frames retime moved, as frames before the retime. */
