@@ -114,6 +114,8 @@ function bestMove(out, engine, body, k, i, h, hits, known) {
 		if (!(r.gain[0] >= GAIN || r.gain[1] >= GAIN)) continue;
 		const better = !best || (r.clean !== best.clean ? r.clean : r.clear !== best.clear ? r.clear : r.clear ? r.size < best.size : r.gain[0] - best.gain[0] || r.gain[1] - best.gain[1]) > 0;
 		if (better) best = r;
+		// movesFor sorts the moves that clear the frame by size: none after a clean one that clears it can win
+		if (best.clean && best.clear) break;
 	}
 	return best;
 }
