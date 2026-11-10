@@ -551,10 +551,11 @@ for (const [field, at, v] of [["localPos", "mixamorig:LeftHandIndex2", [NaN, 0, 
 }
 
 // 5. the X Bot and Y Bot takes are identical to before rig templates, to 1e-9 (3804b63b)
-// digests of the same three motions compiled at 3804b63b, the commit before rig templates. The same six values come out
-// on macOS arm64 and Linux x86_64.
-const PINNED = { "x-bot-tpose walk": "bcf9308774af68ad", "x-bot-tpose grip": "fcc1c4a0856efe4b", "x-bot-tpose tuck": "ce9e13c5ed0f2cb7",
-	"y-bot-tpose walk": "4d0d119607ec6f25", "y-bot-tpose grip": "85ef0c945146d32d", "y-bot-tpose tuck": "403270dcf32aa928" };
+// digests of the same three motions compiled without rig templates: walk and grip at 3804b63b; the tuck has a flight, so its
+// digest is the one of the flight fixes alone (ballistic and spin, no rig templates; at 3804b63b it was ce9e13c5ed0f2cb7 on
+// the X Bot and 403270dcf32aa928 on the Y Bot). The same six values come out on macOS arm64 and Linux x86_64.
+const PINNED = { "x-bot-tpose walk": "bcf9308774af68ad", "x-bot-tpose grip": "fcc1c4a0856efe4b", "x-bot-tpose tuck": "95444f520b567ca0",
+	"y-bot-tpose walk": "4d0d119607ec6f25", "y-bot-tpose grip": "85ef0c945146d32d", "y-bot-tpose tuck": "e20b96dfc774f6b2" };
 for (const model of ["x-bot-tpose", "y-bot-tpose"]) for (const motion of Object.keys(MOTIONS)) {
 	const d = digest(model === "x-bot-tpose" ? base[motion] : run(skeletonFor(model), motion)), key = `${model} ${motion}`;
 	expect(`${key}: take byte-identical to before (${d})`, PINNED[key] === d, `pinned ${PINNED[key]}`);
