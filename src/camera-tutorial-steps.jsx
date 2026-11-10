@@ -8,7 +8,7 @@ export const WALK_KEYS = ["w", "a", "s", "d", "q", "e"];
 export const CAMERA_TUTORIAL_STEPS = [
 	{
 		kind: "fly",
-		label: ko("Look", "보기"),
+		label: ko("Look", "보기", "环顾"), // the dictionary's "Look" is an appearance
 		how: () => ko("Right-drag in the viewport to look around.",
 			"뷰포트에서 오른쪽 버튼을 끌어 주위를 둘러보세요.",
 			"在视口中按住右键拖动，环顾四周。",
