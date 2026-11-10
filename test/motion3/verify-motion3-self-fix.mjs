@@ -146,7 +146,7 @@ expect("(b) the move guard reads a 10 cm wrist pop on one frame as a pop, and th
 
 // (i) hands keyed onto the hips by hand targets (no anchor), elbows out, held f16-f32: the hands sit in the thighs. The
 // repair clears it, and on the frames the keys hold an arm still (its channels as the frame before) that arm moves no
-// faster than without the repair (1 mm a frame): a held pose takes one constant move, not a wave of eased ones
+// faster than without the repair (1 mm a frame): a hand held on the body takes one constant move, not a wave of eased ones
 const akimbo = (() => {
 	const P = Y.restWorldPos, I = Y.index, H = P[I.Hips][1], st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0], armw_r: 1, armw_l: 1 };
 	const y = s => +(H * s).toFixed(3), hx = P[I.LeftUpLeg][0] + 0.09, out = { hand_l: [0.4, y(0.95), 0.2], hand_r: [-0.4, y(0.95), 0.2] };

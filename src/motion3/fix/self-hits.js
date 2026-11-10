@@ -14,7 +14,7 @@
 // A wrist push spread onto a frame where the take holds the hand in part (an anchor weight easing in) is scaled by
 // what is left free (handHold held), so a held hand never leaves its target.
 //   fk        an arm with almost no IK weight (armw): the IK levers do not reach it
-import { limbDepth } from "../body.js";
+import { limbDepth, bodyDistance, axisEnd } from "../body.js";
 import { turnWeight } from "../compiler/pose.js";
 import { allowance, QA_LIMITS } from "../qa/checks.js";
 import { regionOf } from "../qa/body-checks.js";
@@ -32,6 +32,8 @@ const ON = 0.05;
 const IK_MIN = 0.05;
 /** FACE's hand probes: 5 points wrist to middle finger, this radius (m) (qa/checks.js generalChecks). */
 const FACE_R = 0.022;
+/** A hand whose wrist or middle knuckle is this near (m) the skin is on it (the hand's half thickness, and a little). */
+const ON_SKIN = 0.04;
 
 /** QA's BODY limit (m) for arm part `part` in body part `into` under spec (its checks.limits.skin and checks.allow). */
 function limitOf(spec, part, into) {
@@ -59,6 +61,13 @@ export function handHold(spec, { c, diag }, f, k) {
 	const held = Math.min(1, Math.max(fit, anchored, diag[`hold_${k}`]?.w ?? 0, contact));
 	const hold = body ? "body" : turnWeight(c[`armw_${k}`] ?? 0) < IK_MIN ? "fk" : held >= ON ? "pinned" : null;
 	return { hold, held };
+}
+
+/** Whether hand k is on or in the character's own torso, hips, neck, head or thigh on frame index i (a hand keyed onto
+ * the hip): its wrist or its middle knuckle within ON_SKIN of that skin. */
+export function handOnBody(out, body, i, k) {
+	const { sk } = out.ctx, s = out.frames[i].s, b = sk.index[`${SIDES[k]}Hand`];
+	return [b, axisEnd(sk, b)].some(j => { const h = bodyDistance(body, s, s.P[j], body.skip.get(b)); return h.bone >= 0 && h.d < ON_SKIN && TARGET.test(regionOf(sk, h.bone)); });
 }
 
 /** FACE's reading of hand k in the head on pose s: { depth, past, p } at its deepest probe (null without a head). */

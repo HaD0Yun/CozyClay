@@ -6,7 +6,8 @@
 //    when it would go farther, so the elbow bends instead of the arm locking straight), or the elbow turned about the
 //    shoulder-wrist line (ctx.swivel, TURNS deg either way). Each is tried on that frame alone; the TRIES best are then
 //    tried spread over the frames within EASE of it (smootherstep down to 0 at the window's edge, so nothing pops; frames
-//    the keys hold the arm still on count as one, so a held pose takes one constant move, clockOf), and
+//    the keys hold the arm still on with its hand on the body count as one, so hands keyed onto the hips take one
+//    constant move, clockOf), and
 //    the one that clears the frame with the smaller move of the elbow and wrist wins, provided the window's summed depth
 //    past the limit does not rise; with none clearing it, the one that takes the most off the window, at least GAIN.
 //    A turn stays within TURN_MAX deg in all, a push within PUSH_MAX m, the elbow no higher over the shoulder than it
@@ -31,7 +32,7 @@ import { round4 } from "./ease.js";
 import { qaOf } from "./qa-of.js";
 import { noWorse, compareQa } from "../qa/verdict.js";
 import { groupKey } from "../qa/severity.js";
-import { armHit, handHold, SIDES } from "./self-hits.js";
+import { armHit, handHold, handOnBody, SIDES } from "./self-hits.js";
 import { armMotion, moveWorse, popsOutside } from "./self-guard.js";
 
 const EASE = 10, MAX_IT = 48, MARGIN = 0.004, GAIN = 0.002, PUSH_MAX = 0.2, TURN_MAX = 180, TRIES = 6;
@@ -44,14 +45,15 @@ const easeAt = d => { const t = Math.min(1, d / (EASE + 1)); return 1 - t * t * 
 
 /** Equal channel values (numbers or vectors) to 1e-9. */
 const same = (a, b) => (Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((x, i) => same(x, b[i])) : a === b || (typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= 1e-9));
-/** Side k's clock over the take's frame indices: it stops where the keys hold the arm still (every channel but the other
- * arm's the same as the frame before: a hand keyed on the hip, a held pose), so a held run is one instant to the ease and
- * a move eased onto it is one constant move over the run, not a wave across a pose keyed to hold still. */
-function clockOf(out, k) {
+/** Side k's clock over the take's frame indices: it stops where the keys hold the arm still with its hand on the body
+ * (every channel but the other arm's the same as the frame before, the hand's skin on the torso, hips or a thigh: hands
+ * keyed onto the hips), so that held run is one instant to the ease and a move eased onto it is one constant move over
+ * the run, not a wave across a pose keyed to hold still. `on`: handOnBody of side k per frame index, before the repair. */
+function clockOf(out, k, on) {
 	const F = out.frames, other = new RegExp(`_${k === "l" ? "r" : "l"}$`), t = new Float64Array(F.length);
 	for (let j = 1; j < F.length; j++) {
 		const a = F[j - 1].c, b = F[j].c, names = new Set([...Object.keys(a), ...Object.keys(b)].filter(nm => !other.test(nm)));
-		t[j] = t[j - 1] + ([...names].every(nm => same(a[nm], b[nm])) ? 0 : 1);
+		t[j] = t[j - 1] + (on(j - 1) && on(j) && [...names].every(nm => same(a[nm], b[nm])) ? 0 : 1);
 	}
 	return t;
 }
@@ -170,7 +172,7 @@ export function selfRepair(out, engine) {
 	const open = (k, j) => hits[k][j] !== null && hits[k][j].past > 0;
 	const deepIn = (a, b) => Math.max(0, ...KS.flatMap(k => hits[k].slice(a, b + 1).map((h, j) => (open(k, a + j) ? h.depth : 0))));
 	if (!KS.some(k => hits[k].some((_, j) => open(k, j)))) return null;
-	const clock = { l: clockOf(out, "l"), r: clockOf(out, "r") };
+	const clock = Object.fromEntries(KS.map(k => [k, clockOf(out, k, j => handOnBody(out, body, j, k))]));
 	const worst0 = deepIn(0, n - 1), movable = (k, j) => open(k, j) && hits[k][j].hold !== "fk", any = KS.some(k => hits[k].some((_, j) => movable(k, j)));
 	// the BODY and FACE subjects of the arms QA reports before the repair (armHit seen, every frame): a move should not add
 	// another (it would count as a new problem)
