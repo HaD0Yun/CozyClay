@@ -30,7 +30,7 @@ import { groupKey } from "../qa/severity.js";
 import { armHit, handHold, SIDES } from "./self-hits.js";
 import { armMotion, moveWorse } from "./self-guard.js";
 
-const EASE = 10, MAX_IT = 64, MARGIN = 0.004, GAIN = 0.002, PUSH_MAX = 0.2, TURN_MAX = 180, TRIES = 6;
+const EASE = 10, MAX_IT = 48, MARGIN = 0.004, GAIN = 0.002, PUSH_MAX = 0.2, TURN_MAX = 180, TRIES = 6;
 const REACH = [0.95, 0.85, 0.75], PUSHES = [1, 1.75, 2.5], TURNS = [15, 30, 45, 60, 90];
 /** The kinds this repair is about; every other group must not get worse. */
 const OWN = new Set(["BODY", "FACE"]);
@@ -152,8 +152,10 @@ export function selfRepair(out, engine) {
 	known = new Set((qa0?.groups ?? []).filter(g => OWN.has(g.kind)).map(g => `${g.kind} ${g.subject}`));
 	// before: the levers and solved frame of every frame index the repair moves, as they were
 	const before = new Map(), done = new Set();
+	// the move cap: MAX_IT for each run of frames with a hit QA reads
+	const cap = MAX_IT * KS.reduce((c, k) => c + runsOf(hits[k].flatMap((_, j) => (movable(k, j) ? [[j, ""]] : []))).length, 0);
 	let it = 0;
-	while (qa0 && it < MAX_IT) {
+	while (qa0 && it < cap) {
 		let pick = null;
 		for (const k of KS) hits[k].forEach((h, j) => { if (movable(k, j) && !done.has(`${k}${j}`) && (!pick || h.past > pick.h.past)) pick = { k, j, h }; });
 		if (!pick) break;
@@ -172,22 +174,20 @@ export function selfRepair(out, engine) {
 	};
 	const spans = runsOf([...before.keys()].sort((p, q) => p - q).map(x => [x, ""])).map(s => ({ a: s.a, b: s.b, depth: [0, deepIn(s.a, s.b)] }));
 	for (const s of spans) { put(s, before); s.depth[0] = deepIn(s.a, s.b); put(s, after); }
-	let kept = spans;
-	if (spans.length) {
-		const why = spans.some(s => s.depth[1] >= s.depth[0]) ? "the span's deepest hit did not drop" : worseWhy(qaOf(out), qa0);
-		if (why) {
-			// one span at a time on top of the ones kept, deepest first
-			for (const s of spans) put(s, before);
-			let base = qa0;
-			kept = [];
-			for (const s of [...spans].sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a)) {
-				put(s, after);
-				const q = s.depth[1] < s.depth[0] ? qaOf(out) : null, no = q ? worseWhy(q, base) : "the span's deepest hit did not drop";
-				if (no) { put(s, before); s.undone = no; } else { base = q; kept.push(s); }
-			}
-			kept.sort((p, q) => p.a - q.a);
-		}
-	}
+	// a span whose deepest hit did not drop goes back without asking QA; the rest stand together where QA is no worse
+	// with them, else they are tried in halves on top of what stood, down to one span (deepest first)
+	const kept = [], drop = spans.filter(s => s.depth[1] >= s.depth[0]), rest = spans.filter(s => s.depth[1] < s.depth[0]).sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a);
+	for (const s of drop) { put(s, before); s.undone = "the span's deepest hit did not drop"; }
+	const settle = (group, base) => {
+		for (const s of group) put(s, after);
+		const q = qaOf(out), no = worseWhy(q, base);
+		if (!no) { kept.push(...group); return q; }
+		for (const s of group) put(s, before);
+		if (group.length === 1) { group[0].undone = no; return base; }
+		return settle(group.slice(group.length >> 1), settle(group.slice(0, group.length >> 1), base));
+	};
+	if (rest.length) { for (const s of rest) put(s, before); settle(rest, qa0); }
+	kept.sort((p, q) => p.a - q.a);
 	// what is still past the limit, and why
 	const left = [];
 	for (const k of KS) {
@@ -195,7 +195,7 @@ export function selfRepair(out, engine) {
 			const h = hits[k][j], u = spans.find(s => s.undone && j >= s.a && j <= s.b);
 			if (u) return `undone: ${u.undone}`;
 			if (h.hold === "fk") return "FK arm (armw near 0): no IK to move";
-			if (!done.has(`${k}${j}`)) return `the ${MAX_IT}-move cap`;
+			if (!done.has(`${k}${j}`)) return `the move cap (${MAX_IT} for each run of frames with a hit)`;
 			return h.hold ? "the hand stays on its target and no elbow turn clears it" : "no IK move clears it within the limits";
 		};
 		for (const r of runsOf(hits[k].flatMap((h, j) => (open(k, j) ? [[j, why(j)]] : [])))) left.push({ at: `f${f0 + r.a}-f${f0 + r.b}`, side: k, why: r.why });
