@@ -95,15 +95,18 @@ export function movesFor(out, engine, body, k, i, h, known, wider = false) {
 	}
 	// a hand the take holds (on the body, on an anchor, a grasp or a contact) keeps its place: no FK move
 	if (fkAt(out, k, i) >= FK_MIN && (h.hold === null || h.hold === "fk")) moves.push(...fkMoves(out, k, i, h, P0, a, e, was));
+	// why none helps: the nearest of those that keep the elbow down (its hit then), and whether one that would help lifts it
+	let nearest = null, lifts = false;
 	const tried = list => list.flatMap(mv => {
 		const undo = apply(out, engine, k, mv, [[i, 1]]), P = out.frames[i].s.P, hit = armHit(out, body, i, k, known), past = hit ? hit.past : -Infinity;
 		const size = len(sub(P[e], P0[e])) + len(sub(P[w], P0[w])), gain = h.past - past, high = P[e][1] - P[a][1] > rise0 + 1e-9;
 		undo();
+		if (high) lifts ||= past <= 0 || gain >= GAIN; else if (hit && (!nearest || past < nearest.past)) nearest = { part: hit.part, into: hit.into, past };
 		return !high && (past <= 0 || gain >= GAIN) ? [{ mv, clear: past <= 0, size, gain }] : [];
 	});
 	let ok = tried(moves);
 	if (wider && !ok.some(m => m.clear)) ok = ok.concat(tried(wide));
 	ok.forEach((m, n) => { m.n = n; });
 	// ties keep the order tried (deterministic)
-	return ok.sort((p, q) => q.clear - p.clear || (p.clear ? p.size - q.size : q.gain - p.gain || p.size - q.size) || p.n - q.n);
+	return Object.assign(ok.sort((p, q) => q.clear - p.clear || (p.clear ? p.size - q.size : q.gain - p.gain || p.size - q.size) || p.n - q.n), { nearest, lifts });
 }

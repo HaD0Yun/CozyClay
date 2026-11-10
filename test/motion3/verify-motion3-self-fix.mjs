@@ -21,13 +21,16 @@
 //   (j) the move guard: on fast reaches to the face the depth guard and the pop guard decide a move, and the repair still
 //       clears; a wrist pop that gets harder while the elbow's eases is a pop; FACE is read as QA reads it (no checks.allow)
 //   (k) bodyDistance on a state that changed in place after its grid centres were read prunes as before (body.js)
-//   (l) FK arms move by their angles (the arm out from the body, the elbow bent): a swing with the arms hanging close
-//       and a walk with armSwing 45 at arm_rest 98 clear with each hand's swing amplitude and timing kept; an arm half on
+//   (l) FK arms move by their angles (the arm out from the body, the elbow bent): a swing with the arms hanging close,
+//       a slow one and a walk with armSwing 45 at arm_rest 98 clear with each hand's swing amplitude and timing kept and
+//       no sideways wave (one angle held over the run of hits: each hand's path no longer than 12% more); an arm half on
 //       its IK takes both kinds; a clean FK swing is untouched
 //   (m) crossed arms (hand targets on the opposite shoulders inside the chest): both arms repaired, taking turns, the
-//       hands not into each other
+//       hands not into each other; on the Y Bot, where the gate takes every span back, the search again with only moves
+//       that add no subject keeps what helps
 //   (n) the wider moves on what the first leave: a hand swept into the far thigh, a forearm across the belly to the far
-//       hip, the hand through the back of the X Bot's head (undone in round 1)
+//       hip, the hand through the back of the X Bot's head (undone in round 1); where a goal takes the wider moves back
+//       the first moves alone stand; a hand held on the other arm through a keyed hold takes one constant move there
 // Prints PASS/FAIL lines; exits non-zero on a failure.
 import { createHash } from "node:crypto";
 import { compileSpec } from "../../src/motion3/pipeline.js";
@@ -232,10 +235,16 @@ function fkTakes(sk) {
 		half: { keys: F.map((f, i) => sw(f, i, { armw_r: 0.5, hand_r: [-P[I.LeftUpLeg][0] - 0.01, +(H * 0.62).toFixed(3), 0] })) },
 		walk: { frames: 110, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0], heading: 0 } }, { skill: "walkTo", f0: 0, args: { heading: 0, steps: 4, armSwing: 45 } }], keys: [{ f: 0, set: { arm_rest: 98 } }] },
 		clean: { keys: F.map((f, i) => ({ f, set: { ...st, armw_l: 0, armw_r: 0, arm_hang: 1, aswing_l: [-25, 0, 25, 0, -25][i], aswing_r: [25, 0, -25, 0, 25][i] } })) },
+		slow: { frames: 120, keys: [0, 30, 60, 90, 119].map((f, i) => ({ f, set: { ...(i ? {} : { ...st, armw_l: 0, armw_r: 0, arm_hang: 1 }), arm_rest: 100, aswing_l: (i % 2 ? 1 : -1) * 20, aswing_r: (i % 2 ? -1 : 1) * 20, abend_l: 15, abend_r: 15 } })) },
 	};
 }
 /** Hand n's forward offset from the hips along the facing, per frame. */
 const forward = (o, sk, n) => o.frames.map(fr => { const y = ((fr.c.yaw ?? 0) * Math.PI) / 180, P = fr.s.P, a = P[sk.index[n]], h = P[sk.index.Hips]; return (a[0] - h[0]) * Math.sin(y) + (a[2] - h[2]) * Math.cos(y); });
+/** Hand n's path length (m) from the hips over the take. */
+const pathOf = (o, sk, n) => o.frames.slice(1).reduce((d, fr, f) => {
+	const [a, h, b, g] = [fr.s.P[sk.index[n]], fr.s.P[sk.index.Hips], o.frames[f].s.P[sk.index[n]], o.frames[f].s.P[sk.index.Hips]];
+	return d + Math.hypot(a[0] - h[0] - b[0] + g[0], a[1] - h[1] - b[1] + g[1], a[2] - h[2] - b[2] + g[2]);
+}, 0);
 /** { amp: after / before amplitude, lag: frames (the shift of the best correlation, within 3) } of series a -> b. */
 function swingOf(a, b) {
 	const amp = x => Math.max(...x) - Math.min(...x), m = x => x.reduce((s, v) => s + v, 0) / x.length, ma = m(a), mb = m(b);
@@ -246,14 +255,16 @@ function swingOf(a, b) {
 const fk = {};
 for (const [rig, sk] of [["x-bot", X], ["y-bot", Y]]) {
 	const T = fkTakes(sk);
-	for (const name of rig === "x-bot" ? ["swing", "walk", "half"] : ["swing", "walk"]) {
+	for (const name of rig === "x-bot" ? ["swing", "walk", "half", "slow"] : ["swing", "walk"]) {
 		const c = fk[`${rig} ${name}`] = run(sk, specOf(T[name])), { r, qa0, self, before } = c;
-		const sws = ["LeftHand", "RightHand"].map(n => swingOf(forward(before, sk, n), forward(r.out, sk, n)));
+		const sws = ["LeftHand", "RightHand"].map(n => swingOf(forward(before, sk, n), forward(r.out, sk, n))), paths = ["LeftHand", "RightHand"].map(n => +(pathOf(r.out, sk, n) / pathOf(before, sk, n)).toFixed(3));
 		const was = groupsOf(qa0, ["POP", "FLIP"]), now = groupsOf(r.qa, ["POP", "FLIP"]), fkFrames = ["l", "r"].reduce((n, k) => n + r.out.ctx.fkArm[k].size, 0);
-		console.log(`  ${rig} FK ${name}: BODY/FACE ${cm(worstOwn(qa0))} -> ${cm(worstOwn(r.qa))} cm, QA ${qa0.total} -> ${r.qa.total}, swing ${JSON.stringify(sws.map(x => [+x.amp.toFixed(3), x.lag]))}, FK levers on ${fkFrames} frame-arms, spans ${JSON.stringify(self?.spans)}`);
+		console.log(`  ${rig} FK ${name}: BODY/FACE ${cm(worstOwn(qa0))} -> ${cm(worstOwn(r.qa))} cm, QA ${qa0.total} -> ${r.qa.total}, swing ${JSON.stringify(sws.map(x => [+x.amp.toFixed(3), x.lag]))}, path ${JSON.stringify(paths)}, FK levers on ${fkFrames} frame-arms, spans ${JSON.stringify(self?.spans)}`);
 		expect(`(l) ${rig} FK ${name}: the arms read 5 cm or more in the body before and the repair clears them with FK moves`, worstOwn(qa0) >= 0.05 && own(r.qa).length === 0 && fkFrames > 0 && self?.spans?.length > 0, JSON.stringify(own(r.qa).map(g => [g.subject, g.worst])));
 		expect(`(l) ${rig} FK ${name}: no POP or FLIP added or worse`, [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([[...was], [...now]]));
 		if (name !== "half") expect(`(l) ${rig} FK ${name}: each hand's swing keeps its amplitude (10%) and its timing (2 frames)`, sws.every(x => Math.abs(x.amp - 1) <= 0.1 && Math.abs(x.lag) <= 2), JSON.stringify(sws));
+		// the arm hangs wider by one angle over the run of hits rather than waving in and out (a sideways path on top of the swing)
+		if (name !== "half") expect(`(l) ${rig} FK ${name}: no sideways wave: each hand's path from the hips is at most 12% longer than before`, paths.every(x => x <= 1.12), JSON.stringify(paths));
 	}
 	const c = run(sk, specOf(T.clean));
 	expect(`(l) ${rig} clean FK swing (arm_rest 72): identical to the take without the repair (1e-9), no repair fields`, digest(c.r.out) === digest(c.before) && !("spans" in (c.self ?? {})), JSON.stringify(c.self));
@@ -275,11 +286,12 @@ expect("(l) x-bot FK swing with the right arm half on its IK: the right arm take
 // (m) both arms at once: the hands crossed onto the opposite shoulders, their targets inside the chest. Each arm reads
 // the other's upper arm and forearm too, so the arms take turns, the deeper first, and stack on the chest instead of
 // undoing; no move takes the hands into each other
-const cross = (() => {
-	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0] };
+const crossOf = sk => {
+	const P = sk.restWorldPos, I = sk.index, H = P[I.Hips][1], st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0] };
 	const y = v => +(H * v).toFixed(3), down = { hand_l: [0.3, y(0.95), 0.25], hand_r: [-0.3, y(0.95), 0.25] }, on = { hand_l: [-0.14, y(1.36), -0.08], hand_r: [0.14, y(1.36), -0.08] };
 	return { keys: [{ f: 0, set: { ...st, armw_l: 1, armw_r: 1, ...down } }, { f: 18, set: on }, { f: 30, set: on }, { f: 47, set: down }] };
-})();
+};
+const cross = crossOf(X);
 const cr = run(X, specOf(cross)), crSelf = q => q.groups.filter(g => g.kind === "SELF").map(g => g.subject);
 console.log(`  x-bot crossed arms: BODY/FACE ${cm(worstOwn(cr.qa0))} -> ${cm(worstOwn(cr.r.qa))} cm, QA ${cr.qa0.total} -> ${cr.r.qa.total}, SELF ${JSON.stringify([crSelf(cr.qa0), crSelf(cr.r.qa)])}, fixed.self ${JSON.stringify({ spans: cr.self?.spans, left: cr.self?.left })}`);
 const crMoved = ["l", "r"].map(k => ["skinPush", "swivel"].reduce((n, m) => n + cr.r.out.ctx[m][k].size, 0) - ["skinPush", "swivel"].reduce((n, m) => n + cr.before.ctx[m][k].size, 0));
@@ -287,6 +299,11 @@ expect("(m) x-bot crossed arms: 10 cm or more before; both arms moved, the deepe
 	&& cr.self?.spans?.length > 0 && crMoved.every(n => n > 0), JSON.stringify([worstOwn(cr.r.qa), cr.r.qa.total, crMoved, cr.self?.spans]));
 const crWas = groupsOf(cr.qa0, ["POP", "FLIP", "SELF"]), crNow = groupsOf(cr.r.qa, ["POP", "FLIP", "SELF"]);
 expect("(m) ... the hands do not go into each other (no SELF hands overlap) and no POP or FLIP is added or worse", !crSelf(cr.r.qa).includes("hands overlap") && [...crNow].every(([key, sev]) => crWas.has(key) && sev <= crWas.get(key) + 1e-9), JSON.stringify([[...crWas], [...crNow]]));
+// the same on the Y Bot: every move that helps adds a subject QA did not report, so the gate takes every span back
+// (problems 16 -> 18); the search again with only moves that add none keeps what helps
+const crY = run(Y, specOf(crossOf(Y)));
+console.log(`  y-bot crossed arms: BODY/FACE ${cm(worstOwn(crY.qa0))} -> ${cm(worstOwn(crY.r.qa))} cm, QA ${crY.qa0.total} -> ${crY.r.qa.total}, fixed.self ${JSON.stringify({ spans: crY.self?.spans, left: crY.self?.left?.slice(0, 2) })}`);
+expect("(m) y-bot crossed arms: where the gate takes every span back, the moves that add no subject stand (QA and the deepest lower, no SELF hands overlap)", crY.self?.spans?.length > 0 && crY.r.qa.total < crY.qa0.total && worstOwn(crY.r.qa) < worstOwn(crY.qa0) && !crSelf(crY.r.qa).includes("hands overlap"), JSON.stringify([crY.self?.spans, crY.r.qa.total, crY.qa0.total]));
 
 // (n) where the first moves leave a hit, the wider set: the wrist over the skin (forward, up, out to the arm's side, as
 // well as along the normal) by the depth times the lever from the shoulder, up to 0.3 m, and the elbow turned 120-150
@@ -305,11 +322,30 @@ for (const [rig, sk, name, t, most] of [["x-bot", X, "far thigh", WX.far2, 0.04]
 		&& [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), [...was], [...now]]));
 }
 
+// a goal on the hand at the far thigh reach (16 cm): the wider moves take the hand off it, so the gate takes them back; the
+// first moves alone stand
+{
+	const t = WX.far2, hand = run(X, specOf(t)).before.frames[24].s.P[X.index.RightHand];
+	const c = run(X, specOf(t, { anchors: { mark: { kind: "world", p: hand } }, goals: [{ name: "hand near the mark", near: ["joint:RightHand", "anchor:mark"], tol: 0.16, at: [23, 25] }] }));
+	console.log(`  x-bot far thigh with a goal: BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, fixed.self ${JSON.stringify({ spans: c.self?.spans, iterations: c.self?.iterations })}`);
+	expect("(n) x-bot far thigh with a goal the wider moves break: the first moves alone stand (2 cm or more off), the goal holds", c.self?.spans?.length > 0 && worstOwn(c.r.qa) <= worstOwn(c.qa0) - 0.02 && c.r.qa.goals[0].ok, JSON.stringify([c.self?.spans, c.r.qa.goals]));
+}
+// the right hand to the far hip, held there f20-f30 (keyed still) against the hanging left arm: the hold is one instant to
+// the ease, so the elbow takes one constant move there and no harder acceleration than the take had
+{
+	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], rest = [-0.3, +(H * 0.95).toFixed(3), 0.25], at = [P[I.LeftUpLeg][0] + 0.05, +(H * 0.98).toFixed(3), 0];
+	const st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0], armw_l: 0, armw_r: 1 };
+	const c = run(X, specOf({ keys: [{ f: 0, set: { ...st, hand_r: rest } }, { f: 20, set: { hand_r: at } }, { f: 30, set: { hand_r: at } }, { f: 47, set: { hand_r: rest } }] }));
+	const acc = o => Math.max(...o.frames.slice(1, -1).map((fr, f) => { const [a, b, d] = [o.frames[f], fr, o.frames[f + 2]].map(x => x.s.P[I.RightForeArm]); return Math.hypot(d[0] - 2 * b[0] + a[0], d[1] - 2 * b[1] + a[1], d[2] - 2 * b[2] + a[2]); }));
+	console.log(`  x-bot hand to the far hip: BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, elbow's largest second difference ${cm(acc(c.before))} -> ${cm(acc(c.r.out))} cm/f^2`);
+	expect("(n) x-bot hand held at the far hip on the other arm: repaired (10 cm or more before), and the elbow accelerates no harder than before", worstOwn(c.qa0) >= 0.1 && own(c.r.qa).length === 0 && acc(c.r.out) <= acc(c.before) + 1e-9, JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), acc(c.before), acc(c.r.out)]));
+}
+
 // (h) deterministic
 const again = run(X, specOf(TX.belly));
 expect("(h) the same spec twice: the same take", digest(again.r.out) === digest(belly.r.out));
 // computed on macOS arm64; the box run checks them on Linux x86_64
-const PINS = { "x-bot belly": "e9e5cf191f768bc5", "y-bot head": "6744752ee95fae1d", "x-bot FK walk": "83caef65278b4240" };
+const PINS = { "x-bot belly": "e9e5cf191f768bc5", "y-bot head": "6744752ee95fae1d", "x-bot FK walk": "c27f477f5f2168c8" };
 const takesPinned = { ...Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, v.r.out])), "x-bot FK walk": fk["x-bot walk"].r.out };
 for (const key of Object.keys(PINS)) {
 	const d = digest(takesPinned[key]);

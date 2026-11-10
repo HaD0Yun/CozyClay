@@ -65,10 +65,10 @@ export function handHold(spec, { c, diag }, f, k) {
 }
 
 /** Whether hand k is on or in the character's own torso, hips, neck, head or thigh on frame index i (a hand keyed onto
- * the hip): its wrist or its middle knuckle within ON_SKIN of that skin. */
-export function handOnBody(out, body, i, k) {
-	const { sk } = out.ctx, s = out.frames[i].s, b = sk.index[`${SIDES[k]}Hand`];
-	return [b, axisEnd(sk, b)].some(j => { const h = bodyDistance(body, s, s.P[j], body.skip.get(b)); return h.bone >= 0 && h.d < ON_SKIN && TARGET.test(regionOf(sk, h.bone)); });
+ * the hip), or with `arm` its other arm's upper arm or forearm: its wrist or its middle knuckle within ON_SKIN of that skin. */
+export function handOnBody(out, body, i, k, arm = false) {
+	const { sk } = out.ctx, s = out.frames[i].s, b = sk.index[`${SIDES[k]}Hand`], on = r => TARGET.test(r) || (arm && OTHER[k].test(r));
+	return [b, axisEnd(sk, b)].some(j => { const h = bodyDistance(body, s, s.P[j], body.skip.get(b)); return h.bone >= 0 && h.d < ON_SKIN && on(regionOf(sk, h.bone)); });
 }
 
 /** FACE's reading of hand k in the head on pose s: { depth, past, p } at its deepest probe (null without a head). */
