@@ -5,12 +5,13 @@
 //    (ctx.skinPush, PUSHES times the depth past the limit, slid back toward the shoulder onto REACH of the arm's length
 //    when it would go farther, so the elbow bends instead of the arm locking straight), or the elbow turned about the
 //    shoulder-wrist line (ctx.swivel, TURNS deg either way). Each is tried on that frame alone; the TRIES best are then
-//    tried spread over the frames within EASE of it (smootherstep down to 0 at the window's edge, so nothing pops), and
+//    tried spread over the frames within EASE of it (smootherstep down to 0 at the window's edge, so nothing pops; frames
+//    the keys hold the arm still on count as one, so a held pose takes one constant move, clockOf), and
 //    the one that clears the frame with the smaller move of the elbow and wrist wins, provided the window's summed depth
 //    past the limit does not rise; with none clearing it, the one that takes the most off the window, at least GAIN.
 //    A turn stays within TURN_MAX deg in all, a push within PUSH_MAX m, the elbow no higher over the shoulder than it
-//    was; the IK keeps the elbow's fold and the wrist's limits. A move that adds a POP or a FLIP to the arm is not made
-//    (self-guard.js);
+//    was; the IK keeps the elbow's fold and the wrist's limits. A move that adds a POP or a FLIP to the arm, or makes the
+//    elbow's or the wrist's POP worse as QA would group it, is not made (self-guard.js);
 //  - again, until no hit is past the limit or MAX_IT moves are tried for each run of frames with a hit. A hand held on
 //    its target (self-hits.js "pinned") or on the body keeps it: only the elbow turns, and a wrist push spread toward it
 //    fades with the weight that holds it. An FK arm is not moved.
@@ -31,7 +32,7 @@ import { qaOf } from "./qa-of.js";
 import { noWorse, compareQa } from "../qa/verdict.js";
 import { groupKey } from "../qa/severity.js";
 import { armHit, handHold, SIDES } from "./self-hits.js";
-import { armMotion, moveWorse } from "./self-guard.js";
+import { armMotion, moveWorse, popsOutside } from "./self-guard.js";
 
 const EASE = 10, MAX_IT = 48, MARGIN = 0.004, GAIN = 0.002, PUSH_MAX = 0.2, TURN_MAX = 180, TRIES = 6;
 const REACH = [0.95, 0.85, 0.75], PUSHES = [1, 1.75, 2.5], TURNS = [15, 30, 45, 60, 90];
@@ -40,6 +41,20 @@ const OWN = new Set(["BODY", "FACE"]);
 const KS = ["r", "l"];
 /** 1 at the moved frame, 0 at EASE + 1 frames away (smootherstep). */
 const easeAt = d => { const t = Math.min(1, d / (EASE + 1)); return 1 - t * t * t * (t * (6 * t - 15) + 10); };
+
+/** Equal channel values (numbers or vectors) to 1e-9. */
+const same = (a, b) => (Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((x, i) => same(x, b[i])) : a === b || (typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= 1e-9));
+/** Side k's clock over the take's frame indices: it stops where the keys hold the arm still (every channel but the other
+ * arm's the same as the frame before: a hand keyed on the hip, a held pose), so a held run is one instant to the ease and
+ * a move eased onto it is one constant move over the run, not a wave across a pose keyed to hold still. */
+function clockOf(out, k) {
+	const F = out.frames, other = new RegExp(`_${k === "l" ? "r" : "l"}$`), t = new Float64Array(F.length);
+	for (let j = 1; j < F.length; j++) {
+		const a = F[j - 1].c, b = F[j].c, names = new Set([...Object.keys(a), ...Object.keys(b)].filter(nm => !other.test(nm)));
+		t[j] = t[j - 1] + ([...names].every(nm => same(a[nm], b[nm])) ? 0 : 1);
+	}
+	return t;
+}
 
 /** The IK levers of side k at absolute frame f: its wrist target offset and its elbow turn. */
 const leverAt = (out, k, f) => ({ push: out.ctx.skinPush[k].get(f), turn: out.ctx.swivel[k].get(f) });
@@ -91,21 +106,25 @@ function movesFor(out, engine, body, k, i, h, known) {
 	return ok.sort((p, q) => q.clear - p.clear || (p.clear ? p.size - q.size : q.gain - p.gain || p.size - q.size) || p.n - q.n);
 }
 
-/** The move for side k's hit h on frame index i, spread over its window: { mv, at } or null (movesFor's TRIES best, tried
- * in place). A move must take GAIN off the window's deepest hit, or off its summed depth past the limit without
- * deepening that hit; one that clears frame i that way wins by the smaller move, else the larger gain. */
-function bestMove(out, engine, body, k, i, h, hits, known) {
-	const n = out.frames.length, lo = Math.max(0, i - EASE), hi = Math.min(n - 1, i + EASE), at = [];
-	for (let j = lo; j <= hi; j++) at.push([j, easeAt(Math.abs(j - i))]);
+/** The move for side k's hit h on frame index i, spread over its window (the frames within EASE of it on side k's
+ * clock): { mv, at } or null (movesFor's TRIES best, tried in place). A move must take GAIN off the window's deepest hit,
+ * or off its summed depth past the limit without deepening that hit; one that clears frame i that way wins by the
+ * smaller move, else the larger gain. */
+function bestMove(out, engine, body, k, i, h, hits, known, clock) {
+	const at = [];
+	for (let j = 0; j < out.frames.length; j++) if (Math.abs(clock[j] - clock[i]) <= EASE) at.push([j, easeAt(Math.abs(clock[j] - clock[i]))]);
+	const lo = at[0][0], hi = at[at.length - 1][0];
 	const measure = hit => {
 		let max = 0, sum = 0, fresh = 0;
 		for (let j = lo; j <= hi; j++) { const x = hit(j), p = Math.max(0, x?.past ?? 0); max = Math.max(max, p); sum += p; fresh += (x?.seen ?? []).filter(t => !known.has(t)).length; }
 		return { max, sum, fresh };
 	};
-	const base = measure(j => hits[k][j]), prev = armMotion(out, k, lo - 3, hi + 3);
+	// the guard reads the frames whose pops the move can change (popLevel looks 3 either side of a frame whose
+	// acceleration, 2 frames back, moved), against the arm's hardest pops elsewhere in the take
+	const base = measure(j => hits[k][j]), prev = armMotion(out, k, lo - 3, hi + 5), rest = popsOutside(armMotion(out, k, 0, out.frames.length - 1), prev.lo, prev.hi);
 	let best = null;
 	for (const c of movesFor(out, engine, body, k, i, h, known).slice(0, TRIES)) {
-		const undo = apply(out, engine, k, c.mv, at), worse = moveWorse(prev, armMotion(out, k, lo - 3, hi + 3));
+		const undo = apply(out, engine, k, c.mv, at), worse = moveWorse(prev, armMotion(out, k, lo - 3, hi + 5), rest);
 		const now = worse ? null : measure(j => armHit(out, body, j, k, known)), clearI = !worse && (armHit(out, body, i, k, known)?.past ?? -1) <= 0;
 		undo();
 		// a move that deepens the window's deepest hit is not made; one that adds a BODY or FACE subject QA did not report
@@ -151,6 +170,7 @@ export function selfRepair(out, engine) {
 	const open = (k, j) => hits[k][j] !== null && hits[k][j].past > 0;
 	const deepIn = (a, b) => Math.max(0, ...KS.flatMap(k => hits[k].slice(a, b + 1).map((h, j) => (open(k, a + j) ? h.depth : 0))));
 	if (!KS.some(k => hits[k].some((_, j) => open(k, j)))) return null;
+	const clock = { l: clockOf(out, "l"), r: clockOf(out, "r") };
 	const worst0 = deepIn(0, n - 1), movable = (k, j) => open(k, j) && hits[k][j].hold !== "fk", any = KS.some(k => hits[k].some((_, j) => movable(k, j)));
 	// the BODY and FACE subjects of the arms QA reports before the repair (armHit seen, every frame): a move should not add
 	// another (it would count as a new problem)
@@ -165,7 +185,7 @@ export function selfRepair(out, engine) {
 		for (const k of KS) hits[k].forEach((h, j) => { if (movable(k, j) && !done.has(`${k}${j}`) && (!pick || h.past > pick.h.past)) pick = { k, j, h }; });
 		if (!pick) break;
 		it++;
-		const { k, j, h } = pick, best = bestMove(out, engine, body, k, j, h, hits, known);
+		const { k, j, h } = pick, best = bestMove(out, engine, body, k, j, h, hits, known, clock[k]);
 		if (!best) { done.add(`${k}${j}`); continue; }
 		for (const [x] of best.at) if (!before.has(x)) before.set(x, { fr: out.frames[x], v: Object.fromEntries(KS.map(s => [s, leverAt(out, s, f0 + x)])) });
 		apply(out, engine, k, best.mv, best.at);

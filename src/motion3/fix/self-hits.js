@@ -3,7 +3,7 @@
 //   BODY  body.js limbDepth on the fitted skin (qa/body-checks.js): the deepest skin the part is in, past the larger of
 //         L.skin and checks.allow
 //   FACE  a hand's probe points in the head ellipsoid (qa/checks.js generalChecks: headDepth plus the probe radius),
-//         past L.headAllow; a declared checks.allow of that hand into the head is a meant touch and is not read
+//         past L.headAllow (QA's FACE has no checks.allow: a hand meant at the face is on an anchor or a fit, below)
 // A part in its own neighbours (the upper arm in the chest at the shoulder: body.js skipOf) never reads. A hand the take
 // keeps on something on purpose is the take's to keep:
 //   body      a hand on an anchor on the body (kind body, bone, segment or landmark: a hand on the hip, a pocket, the
@@ -61,10 +61,10 @@ export function handHold(spec, { c, diag }, f, k) {
 	return { hold, held };
 }
 
-/** FACE's reading of hand k in the head on pose s: { depth, past, p } at its deepest probe, or null when it is allowed. */
+/** FACE's reading of hand k in the head on pose s: { depth, past, p } at its deepest probe (null without a head). */
 function faceHit(sk, spec, s, k) {
-	const part = `hand_${k}`, I = sk.index, end = I[`${SIDES[k]}HandMiddle3`];
-	if (end === undefined || !sk.landmarks?.headRadii || allowance(spec.checks?.allow, part, "head") !== null) return null;
+	const I = sk.index, end = I[`${SIDES[k]}HandMiddle3`];
+	if (end === undefined || !sk.landmarks?.headRadii) return null;
 	let best = null;
 	for (const p of segPoints(s.P[I[`${SIDES[k]}Hand`]], s.P[end], 5)) {
 		const depth = headDepth(sk, s, p) + FACE_R;
