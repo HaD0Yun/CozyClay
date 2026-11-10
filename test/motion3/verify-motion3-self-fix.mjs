@@ -16,6 +16,10 @@
 //   (f) fix.self false turns it off; the BODY and FACE hints say repaired, left (why) or off
 //   (g) the report: spans [{ at, depth }], depth [before, after], iterations, left [{ at, side, why }]
 //   (h) deterministic: the same spec twice gives the same take; two repaired takes pinned to 1e-9 (arm64 and x86_64)
+//   (i) hands keyed onto the hips (hand targets into the thighs): repaired, and the frames the keys hold still stay still
+//   (j) the move guard: on fast reaches to the face the depth guard and the pop guard decide a move, and the repair still
+//       clears; a wrist pop that gets harder while the elbow's eases is a pop; FACE is read as QA reads it (no checks.allow)
+//   (k) bodyDistance on a state that changed in place after its grid centres were read prunes as before (body.js)
 // Prints PASS/FAIL lines; exits non-zero on a failure.
 import { createHash } from "node:crypto";
 import { compileSpec } from "../../src/motion3/pipeline.js";
@@ -23,6 +27,7 @@ import { compileMotion } from "../../src/motion3/compiler/compile.js";
 import { runMotionQa } from "../../src/motion3/qa/index.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { armMotion, moveWorse } from "../../src/motion3/fix/self-guard.js";
+import { bodyFor, bodyDistance } from "../../src/motion3/body.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -138,6 +143,68 @@ expect("(f) a FACE whose repair QA read worse: its hint says fix.self left it, u
 // (b) the guard each move passes (fix/self-guard.js): a wrist pop on one frame of a repaired take reads as one
 const popped = { ...belly.r.out, frames: belly.r.out.frames.map((fr, f) => (f === 24 ? { ...fr, s: { ...fr.s, P: fr.s.P.map((p, j) => (j === X.index.RightHand ? [p[0], p[1] + 0.1, p[2]] : p)) } } : fr)) };
 expect("(b) the move guard reads a 10 cm wrist pop on one frame as a pop, and the take itself as none", moveWorse(armMotion(belly.r.out, "r", 14, 34), armMotion(popped, "r", 14, 34)) === "a pop" && moveWorse(armMotion(belly.r.out, "r", 0, 47), armMotion(belly.r.out, "r", 0, 47)) === "");
+
+// (i) hands keyed onto the hips by hand targets (no anchor), elbows out, held f16-f32: the hands sit in the thighs. The
+// repair clears it, and on the frames the keys hold an arm still (its channels as the frame before) that arm moves no
+// faster than without the repair (1 mm a frame): a held pose takes one constant move, not a wave of eased ones
+const akimbo = (() => {
+	const P = Y.restWorldPos, I = Y.index, H = P[I.Hips][1], st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0], armw_r: 1, armw_l: 1 };
+	const y = s => +(H * s).toFixed(3), hx = P[I.LeftUpLeg][0] + 0.09, out = { hand_l: [0.4, y(0.95), 0.2], hand_r: [-0.4, y(0.95), 0.2] };
+	const on = { hand_l: [hx, y(1.02), 0], hand_r: [-hx, y(1.02), 0], elbow_l: [1, 0, -0.3], elbow_r: [-1, 0, -0.3] };
+	return { keys: [[0, out], [16, on], [32, on], [47, out]].map(([f, set]) => ({ f, set: { ...st, ...set } })) };
+})();
+const ak = run(Y, specOf(akimbo)), thighs = own(ak.qa0).filter(g => /^hand_[lr] into thigh_[lr]$/.test(g.subject));
+const speed = (o, j, f) => { const a = o.frames[f - 1].s.P[j], b = o.frames[f].s.P[j]; return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); };
+let drift = 0;
+for (const [k, S] of [["l", "Left"], ["r", "Right"]]) for (let f = 1; f < 48; f++) {
+	const a = ak.r.out.frames[f - 1].c, b = ak.r.out.frames[f].c, still = Object.keys(b).filter(nm => !nm.endsWith(k === "l" ? "_r" : "_l")).every(nm => JSON.stringify(a[nm]) === JSON.stringify(b[nm]));
+	if (still) for (const j of [`${S}ForeArm`, `${S}Hand`]) drift = Math.max(drift, speed(ak.r.out, Y.index[j], f) - speed(ak.before, Y.index[j], f));
+}
+console.log(`  y-bot hands on the hips: thighs ${JSON.stringify(thighs.map(g => [g.subject, cm(g.worst)]))} -> BODY/FACE ${cm(worstOwn(ak.r.qa))} cm; held frames move up to ${cm(drift)} cm a frame faster; fixed.self ${JSON.stringify({ spans: ak.self?.spans, left: ak.self?.left })}`);
+expect("(i) y-bot hands keyed on the hips: the hands read 3 cm or more in the thighs before, and the repair clears them", thighs.some(g => g.worst >= 0.03) && ak.self?.spans?.length > 0 && worstOwn(ak.r.qa) === 0, JSON.stringify([thighs.map(g => g.worst), own(ak.r.qa).map(g => [g.subject, g.worst])]));
+expect("(i) ... and on the frames the keys hold an arm still, it moves no faster than without the repair (1 mm a frame)", drift <= 0.001, `${cm(drift)} cm a frame`);
+
+// (j) fast 24-frame reaches to the face (keys f0, f12, f23): on the first a move that would deepen the window's deepest hit
+// is turned down, on the second one that would make the wrist's POP harder; each still clears with no new POP or FLIP
+for (const [what, mid] of [["the depth guard", [-0.02, 1.5, -0.04]], ["the pop guard", [0.02, 1.5, -0.04]]]) {
+	const H = X.restWorldPos[X.index.Hips][1], rest = [-0.4, +(H * 1.0).toFixed(3), 0.25], to = [mid[0], +(H * mid[1]).toFixed(3), mid[2]];
+	const st = TX.head.keys[0].set, c = run(X, specOf({ keys: [[0, rest], [12, to], [23, rest]].map(([f, p]) => ({ f, set: { ...st, hand_r: p } })) }, { frames: 24 }));
+	const was = groupsOf(c.qa0, ["POP", "FLIP"]), now = groupsOf(c.r.qa, ["POP", "FLIP"]);
+	console.log(`  x-bot fast face reach (${what}): BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, QA ${c.qa0.total} -> ${c.r.qa.total}, fixed.self ${JSON.stringify({ spans: c.self?.spans, left: c.self?.left })}`);
+	expect(`(j) x-bot fast face reach (${what} decides a move): repaired, no BODY or FACE left, no POP or FLIP added or worse`, worstOwn(c.qa0) > 0.03 && c.self?.spans?.length > 0 && own(c.r.qa).length === 0
+		&& [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), [...was], [...now]]));
+}
+// the guard per joint: an elbow pop that eases does not hide a wrist pop that gets harder on the same frame
+const spike = (dE, dW) => ({ ...belly.r.out, frames: belly.r.out.frames.map((fr, f) => (f === 24 ? { ...fr, s: { ...fr.s, P: fr.s.P.map((p, j) => (j === X.index.RightForeArm ? [p[0], p[1] + dE, p[2]] : j === X.index.RightHand ? [p[0], p[1] + dW, p[2]] : p)) } } : fr)) });
+expect("(j) the move guard reads each joint: an elbow pop 10 -> 0 cm with a wrist pop 5 -> 8 cm on that frame is a pop", moveWorse(armMotion(spike(0.1, 0.05), "r", 14, 34), armMotion(spike(0, 0.08), "r", 14, 34)) === "a pop");
+// QA's FACE has no checks.allow (qa/checks.js generalChecks; a hand meant at the face is on an anchor or a fit): with a
+// checks.allow of the hand in the head (which BODY honours) QA still reads FACE, and the repair reads and clears it
+const faceAllow = run(X, specOf(TX.head, { checks: { allow: [{ part: "hand_r", object: "head", depth: 0.2 }] } }));
+expect("(j) a checks.allow of the hand in the head: QA still reads FACE before, and the repair clears it (it reads what QA reads)",
+	faceAllow.qa0.groups.some(g => g.kind === "FACE") && faceAllow.self?.spans?.length > 0 && !faceAllow.r.qa.groups.some(g => g.kind === "FACE"), JSON.stringify([faceAllow.self, faceAllow.r.qa.groups.map(g => [g.kind, g.subject])]));
+
+// (k) body.js caches a state's grid centres the first time it is read; a solver then changes the state in place. A grid is
+// pruned only where its cached centre is farther than the best reading so far: each grid read alone on a fresh copy of the
+// state, pruned that way, is the same reading (a prune at the skin instead loses grids that hold the point, de7a4776)
+{
+	const body = bodyFor(X), I = X.index, copy = st => ({ P: st.P.map(p => [...p]), R: st.R.map(R => R.map(r => [...r])) });
+	const s = copy(belly.before.frames[0].s), s0 = copy(s), b = I.RightForeArm, A = s.P[b], ax = s.P[I.RightHand].map((v, c) => v - A[c]), L = Math.hypot(...ax);
+	bodyDistance(body, s, s.P[I.Hips]);
+	s.P[b] = A.map((v, c) => v + (ax[c] / L) * 0.12);
+	const centre = g => [0, 1, 2].map(i => s0.P[g.b][i] + s0.R[g.b][i][0] * g.centre[0] + s0.R[g.b][i][1] * g.centre[1] + s0.R[g.b][i][2] * g.centre[2]);
+	const ref = p => body.grids.reduce((best, g) => {
+		const c = centre(g);
+		if (Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) - g.reach > best.d) return best;
+		const d = bodyDistance({ ...body, grids: [g] }, copy(s), p).d;
+		return d < best.d ? { d, bone: g.b } : best;
+	}, { d: 0.1, bone: -1 });
+	let n = 0, bad = 0;
+	for (let i = 0; i <= 40; i++) for (const off of [[0, 0.03, 0], [0, -0.03, 0], [0, 0, 0.03], [0, 0, -0.03], [0, 0, 0]]) {
+		const p = s.P[b].map((v, c) => v + (ax[c] / L) * (L * (i / 40) * 1.1 - 0.02) + off[c]), a = bodyDistance(body, s, p), z = ref(p);
+		n++; if (Math.abs(a.d - z.d) > 1e-12 || a.bone !== z.bone) bad++;
+	}
+	expect(`(k) bodyDistance on a state changed in place after its centres were read: the base prune's reading on ${n} points along the forearm`, bad === 0, `${bad} of ${n} differ`);
+}
 
 // (h) deterministic
 const again = run(X, specOf(TX.belly));
