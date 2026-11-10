@@ -107,8 +107,8 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 	while (!(hits[k][rb]?.past > 0)) rb--;
 	const here = frame(windowOf(out, clock, i, i)), run = ra < rb ? frame(windowOf(out, clock, ra, rb)) : null;
 	let best = null;
-	const found = movesFor(out, engine, body, k, i, h, known, wide), no = new Set();
-	for (const c of found.slice(0, TRIES)) {
+	const found = movesFor(out, engine, body, k, i, h, known, wide), no = new Set(), tries = found.slice(0, TRIES), fk = run && tries.some(c => c.mv.out || c.mv.bend);
+	for (const c of tries) {
 		for (const w of c.mv.out || c.mv.bend ? [run, here].filter(Boolean) : [here]) {
 			const undo = apply(out, engine, k, c.mv, w.at), worse = moveWorse(w.prev, armMotion(out, k, w.lo - 3, w.hi + 5), w.rest) || (handsWorse(w) ? "the hands into each other" : "");
 			const now = worse ? null : measure(w, j => armHit(out, body, j, k, known)), clearI = !worse && (armHit(out, body, i, k, known)?.past ?? -1) <= 0;
@@ -125,8 +125,8 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 				: r.clear ? (r.held !== best.held ? r.held : plain(r) !== plain(best) ? plain(r) : r.size < best.size) : r.gain[0] - best.gain[0] || r.gain[1] - best.gain[1]) > 0;
 			if (better) best = r;
 			// movesFor sorts the moves that clear the frame by size: none after a clean one that clears it (held and out
-			// only, where it could be) can win
-			if (best.clean && best.clear && (plain(best) || !run)) return best;
+			// only, where an FK move could be) can win
+			if (best.clean && best.clear && (plain(best) || !fk)) return best;
 		}
 	}
 	// none: why, for fixed.self.left (the nearest move on the frame alone, or what the ones that help there do around it)
