@@ -11,6 +11,8 @@ Studio
   the Studio itself, controls first (look, walk, dolly, orbit), then a shot,
   its length, a rail, and playing it through the shot camera. The character
   walks, so the camera has something to follow. (#1161)
+- Before it starts, that visit asks for a language: English, 한국어 or 简体中文.
+  The tutorial's steps are written in all three. (#1161)
 
 Motion
 

@@ -30,6 +30,14 @@ expect("it creates a named project through project.new, then one character", sou
 expect("the character gets a sample walk, so the camera steps have somebody moving", source.includes('sampleMotionSpec("walk", character)') && source.includes("install: true"));
 expect("the walk waits for the character and retries until the rig can take it, instead of giving up after a second", source.includes("tries < 120 && !character") && source.includes("if (walk?.ok) return;") && source.includes("await pause(1500);") && source.includes("the sample walk did not install"));
 expect("the camera tutorial opens with the guest start and closes for good", source.includes("useState(() => guestStart())") && source.includes("<StudioCameraTutorial onClose={() => setTutorial(false)} />"));
+// The language comes before the project: another language reloads the page, and a reload after the project exists
+// would resume it without the tutorial.
+const language = readFileSync(new URL("../src/camera-tutorial-language.jsx", import.meta.url), "utf8");
+expect("a visitor who never chose a language is asked first, and the guest project waits for the answer", source.includes("useState(localeChosen)") && source.includes("if (!language || started.current || !guestStart()) return;") && source.includes("<TutorialLanguage onChosen={() => setLanguage(true)} />"));
+expect("the three languages are offered in their own names", ["English", "한국어", "简体中文"].every((name) => language.includes(`label: "${name}"`)));
+expect("keeping the page's language saves the choice without a reload; another one reloads into it", language.includes("if (language.id === LOCALE) { keepLocale(); onChosen?.(); } else setLocale(language.id);"));
+const stepsText = readFileSync(new URL("../src/camera-tutorial-steps.jsx", import.meta.url), "utf8");
+expect("every step's instruction is written in Chinese too", (stepsText.match(/how: /g) ?? []).length === 8 && ["环顾四周", "各按一次", "推近和拉远", "绕着角色转", "添加镜头", "向右拖动", "绘制轨道", "镜头视角"].every((words) => stepsText.includes(words)));
 
 // The tutorial itself: seven steps in the order a camera is learnt, each finished by doing it in the Studio.
 const stepsSource = readFileSync(new URL("../src/camera-tutorial-steps.jsx", import.meta.url), "utf8");

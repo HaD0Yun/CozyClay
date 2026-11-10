@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TutorialBeacon } from "./camera-tutorial-beacon.jsx";
 import { GestureCue } from "./camera-tutorial-cue.jsx";
+import { useViewportHost } from "./camera-tutorial-language.jsx";
 import { CAMERA_TUTORIAL_STEPS, NAV_KINDS, SIGNAL_KINDS, TUTORIAL_BEACONS, WALK_KEYS } from "./camera-tutorial-steps.jsx";
 import { noteGuideDismissed, noteGuideOpened, noteGuideStep } from "./guide-telemetry.js";
 import { ko } from "./locale.js";
@@ -136,10 +137,11 @@ function CameraTutorial({ previsMode, previewing = false, playing = false, shotC
 			<div className="camera-tutorial-card" data-testid="camera-tutorial-card" role="status">
 				{complete ? (
 					<>
-						<span className="camera-tutorial-count done">{ko("Done", "완료")}</span>
+						<span className="camera-tutorial-count done">{ko("Done", "완료", "完成")}</span>
 						<p>{ko(
 							"That is the whole camera: look, walk, dolly, orbit, cut, length, rail, play. Next, open the Motion tab and press a sample motion to change how the character moves.",
 							"카메라의 전부입니다: 보기, 걷기, 돌리, 궤도, 컷, 길이, 레일, 재생. 다음은 Motion 탭에서 샘플 동작을 눌러 캐릭터의 움직임을 바꿔 보세요.",
+							"这就是摄影机的全部：环顾、行走、推拉、环绕、镜头、时长、轨道、播放。接下来打开 Motion 标签页，点一个示例动作，改变角色的动作。",
 						)}</p>
 					</>
 				) : (
@@ -193,12 +195,7 @@ function CameraTutorial({ previsMode, previewing = false, playing = false, shotC
  */
 export default function StudioCameraTutorial({ onClose }) {
 	const shell = useStudioShell();
-	const [host, setHost] = useState(() => document.querySelector(".viewport"));
-	useEffect(() => {
-		if (host) return undefined;
-		const frame = requestAnimationFrame(() => setHost(document.querySelector(".viewport")));
-		return () => cancelAnimationFrame(frame);
-	}, [host]);
+	const host = useViewportHost();
 	const looking = Boolean(shell?.lookThroughShot);
 	useEffect(() => {
 		const app = document.querySelector(".app");

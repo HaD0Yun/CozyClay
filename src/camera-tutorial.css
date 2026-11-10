@@ -533,3 +533,19 @@
 
 /* The Length step is about the shot block's end handle, which the sequencer hides until hover. */
 .app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block .tl-shot-edge.end { opacity: 1; }
+
+/* The language choice that comes before the tutorial: the same card, three buttons that do take the pointer. */
+.camera-tutorial-language { width: auto; }
+.camera-tutorial-languages { display: flex; gap: 6px; pointer-events: auto; }
+.camera-tutorial-languages button {
+	padding: 6px 14px;
+	border: 1px solid var(--line, rgba(127, 127, 127, .35));
+	border-radius: 999px;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 12.5px;
+	cursor: pointer;
+}
+.camera-tutorial-languages button:hover,
+.camera-tutorial-languages button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }

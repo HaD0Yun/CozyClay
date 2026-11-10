@@ -12,6 +12,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			"Right-drag in the viewport to look around.",
 			"뷰포트에서 오른쪽 버튼을 끌어 주위를 둘러보세요.",
+			"在视口中按住右键拖动，环顾四周。",
 		),
 	},
 	{
@@ -28,6 +29,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 			return ko(
 				<>Hold the right button and press each key once: {keys} W A S D walk, Q E crane.</>,
 				<>오른쪽 버튼을 누른 채 각 키를 한 번씩 누르세요: {keys} W A S D 이동, Q E 크레인.</>,
+				<>按住右键，把每个键各按一次：{keys} W A S D 移动，Q E 升降。</>,
 			);
 		},
 	},
@@ -37,6 +39,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			"Scroll in the viewport to push in and pull out.",
 			"뷰포트에서 스크롤해 앞뒤로 밀고 당겨 보세요.",
+			"在视口中滚动滚轮，推近和拉远。",
 		),
 	},
 	{
@@ -45,6 +48,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			<>Hold <kbd>Alt</kbd> (<kbd>⌥ Option</kbd> on Mac) and left-drag to circle the character.</>,
 			<><kbd>Alt</kbd>(맥은 <kbd>⌥ Option</kbd>)을 누른 채 왼쪽 버튼을 끌어 캐릭터 주위를 도세요.</>,
+			<>按住 <kbd>Alt</kbd>（Mac 上是 <kbd>⌥ Option</kbd>），用左键拖动，绕着角色转。</>,
 		),
 	},
 	{
@@ -56,6 +60,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			<>In the timeline's Camera Cuts lane click <b>+ Add shot</b>. That is your cut.</>,
 			<>타임라인의 Camera Cuts 레인에서 <b>+ 샷 추가</b>를 누르세요. 그게 컷입니다.</>,
+			<>在时间线的“摄影机剪辑”轨道上点击 <b>+ 添加镜头</b>。这就是一个镜头。</>,
 		),
 	},
 	{
@@ -65,6 +70,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			<>Drag the right edge of the shot block to the right. The shot now lasts as long as the walk.</>,
 			<>샷 블록의 오른쪽 끝을 오른쪽으로 끌어 늘리세요. 샷이 걷는 동작만큼 길어집니다.</>,
+			<>把镜头块的右端向右拖动。镜头就和行走动作一样长了。</>,
 		),
 	},
 	{
@@ -74,6 +80,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			<>Select the shot, click <b>Draw rail</b> in the camera bar, and drag a line across the top view. That line is the dolly move.</>,
 			<>샷을 선택하고 카메라 바의 <b>레일 그리기</b>를 누른 뒤, 탑뷰에 선을 그으세요. 그 선이 돌리 이동입니다.</>,
+			<>选中镜头，点击摄影机栏里的 <b>绘制轨道</b>，然后在顶视图中拖出一条线。这条线就是推轨移动。</>,
 		),
 	},
 	{
@@ -83,6 +90,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 		how: () => ko(
 			<>Click <b>Look through</b> in the Shot monitor, then press <b>▶</b>. The camera rides the rail while the character walks. <kbd>Esc</kbd> returns to the free camera.</>,
 			<>Shot Camera 모니터의 <b>샷 시점</b>을 누른 다음 <b>▶</b>를 누르세요. 캐릭터가 걷는 동안 카메라가 레일을 탑니다. <kbd>Esc</kbd>로 자유 카메라로 돌아옵니다.</>,
+			<>在镜头监视器里点击 <b>镜头视角</b>，再按 <b>▶</b>。角色行走时，摄影机沿轨道移动。按 <kbd>Esc</kbd> 回到自由摄影机。</>,
 		),
 	},
 ];
