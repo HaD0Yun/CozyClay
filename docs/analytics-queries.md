@@ -1302,9 +1302,9 @@ Exclude `internal_qa = true` with
 | | `max_catchup` | `1`, `2`, `3-5`, `gte6` | The most frames one tick caught up | |
 | | `fps`, `speed` | `12`, `24`, `30`, `60`, `other`; `0.5`, `1`, `2`, `other` | The take's frame rate and the playback speed | |
 | | `measured_fps` | `device:profile.frame_rate_bucket` set: `lt20`, `20-40`, `40-55`, `gte55`, `unknown` | rAF frames counted during the same run | |
-| `guide:opened` | `mode` | `animation`, `storyboard` | `src/first-success-guide.jsx` (`STEPS_BY_MODE` keys) | 1 per session |
-| `guide:step` | `mode`, `step`, `step_ms` | `step` `1`-`4`; `step_ms` the `duration` set | "I did this" / "Mark complete"; `step_ms` since opening or the previous step | 1 per step per session |
-| `guide:dismissed` | `mode`, `reached` | `reached` `1`-`4`: the step showing | Close or Skip before the last step. Closing the completed guide is not a dismissal | 1 per session |
+| `guide:opened` | `mode` | `animation`, `storyboard`, `camera` | `src/first-success-guide.jsx` (`STEPS_BY_MODE` keys); `camera` is the camera tutorial (`src/camera-tutorial.jsx`, seven steps) | 1 per session |
+| `guide:step` | `mode`, `step`, `step_ms` | `step` `1`-`4` (`1`-`7` in `camera`); `step_ms` the `duration` set | "I did this" / "Mark complete"; in `camera`, the studio reporting the step done; `step_ms` since opening or the previous step | 1 per step per session |
+| `guide:dismissed` | `mode`, `reached` | `reached` `1`-`4` (`1`-`7` in `camera`): the step showing | Close or Skip before the last step. Closing the completed guide is not a dismissal | 1 per session |
 | `guide:completed` | `mode` | | The last step marked done | 1 per session |
 | `agent:panel_toggled` | `open`, `via` | bool; `key` (Cmd/Ctrl+B), `button` (toolbar or Workflow control) | The studio's agent-panel toggle (`src/App.jsx`) | 10 per session |
 | `object:deleted_soon` | `age` | `lt2s`, `2-10s`, `10-60s`, `gte60s` | A delete (`src/domains/objects.js`) of an id the user added this session. Ids are slugs a re-created object reuses, so the age is an **estimate** | 10 per session |

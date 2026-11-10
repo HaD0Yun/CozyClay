@@ -25,6 +25,20 @@ const scenes = readFileSync(new URL("../src/domains/scenes.js", import.meta.url)
 expect("the chooser's first state leaves a guest start alone", scenes.includes("&& !loadProjectSession()?.name && !guestStart());"));
 const panel = readFileSync(new URL("../src/panels/ProjectPanel.jsx", import.meta.url), "utf8");
 expect("the project panel mounts the guest start", panel.includes("<GuestStart />"));
-const source = readFileSync(new URL("../src/guest-start.js", import.meta.url), "utf8");
+const source = readFileSync(new URL("../src/guest-start-mount.jsx", import.meta.url), "utf8");
 expect("it creates a named project through project.new, then one character", source.includes('run("project.new", { name:') && source.includes("spawnCharacter?.(CHARACTER_MODEL_IDS[0], 0, 0)"));
+expect("the character gets a sample walk, so the camera steps have somebody moving", source.includes('sampleMotionSpec("walk", character)') && source.includes("install: true"));
+expect("the camera tutorial opens with the guest start and closes for good", source.includes("useState(() => guestStart())") && source.includes("<StudioCameraTutorial onClose={() => setTutorial(false)} />"));
+
+// The tutorial itself: seven steps in the order a camera is learnt, each finished by doing it in the Studio.
+const stepsSource = readFileSync(new URL("../src/camera-tutorial-steps.jsx", import.meta.url), "utf8");
+const kinds = [...stepsSource.matchAll(/kind: "([a-z]+)"/g)].map((match) => match[1]);
+expect("seven steps: controls first, then the camera work", kinds.join(",") === "fly,walk,dolly,orbit,shot,rail,play", kinds.join(","));
+const tutorial = readFileSync(new URL("../src/camera-tutorial.jsx", import.meta.url), "utf8");
+expect("no next button: steps are finished by the studio's own signals", !/Next step|I did this|Mark complete/.test(tutorial) && tutorial.includes('addEventListener("cozyclay:nav"'));
+const controls = readFileSync(new URL("../src/controls.jsx", import.meta.url), "utf8");
+expect("the fly camera reports look, walk, dolly and orbit", controls.includes('announceNav("walk", key)') && controls.includes("announceNav(kind)") && controls.includes('announceNav("dolly")'));
+for (const selector of [".tl-track.shots .tl-track-add", ".tl-rail-draw", ".vp-inset", ".dock-shot-look"]) expect(`a beacon's target is named in the tutorial: ${selector}`, stepsSource.includes(selector));
+const telemetry = readFileSync(new URL("../src/guide-telemetry.js", import.meta.url), "utf8");
+expect("guide telemetry knows the camera tutorial and its seven steps", telemetry.includes('["animation", "storyboard", "camera"]') && telemetry.includes('["1", "2", "3", "4", "5", "6", "7"]'));
 process.exit(failures ? 1 : 0);

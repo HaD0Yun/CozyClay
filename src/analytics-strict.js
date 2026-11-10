@@ -81,10 +81,10 @@ const SCHEMAS = Object.freeze({
 		measured_fps: oneOf("lt20", "20-40", "40-55", "gte55", "unknown"),
 	},
 	// mode and step: first-success-guide.jsx's STEPS_BY_MODE keys and its 4 steps per mode.
-	"guide:opened": { mode: oneOf("animation", "storyboard") },
-	"guide:step": { mode: oneOf("animation", "storyboard"), step: oneOf("1", "2", "3", "4"), step_ms: long },
-	"guide:dismissed": { mode: oneOf("animation", "storyboard"), reached: oneOf("1", "2", "3", "4") },
-	"guide:completed": { mode: oneOf("animation", "storyboard") },
+	"guide:opened": { mode: oneOf("animation", "storyboard", "camera") },
+	"guide:step": { mode: oneOf("animation", "storyboard", "camera"), step: oneOf("1", "2", "3", "4", "5", "6", "7"), step_ms: long },
+	"guide:dismissed": { mode: oneOf("animation", "storyboard", "camera"), reached: oneOf("1", "2", "3", "4", "5", "6", "7") },
+	"guide:completed": { mode: oneOf("animation", "storyboard", "camera") },
 	"agent:panel_toggled": { open: bool, via: oneOf("key", "button") },
 	// The Export flyout opening (export-menu-telemetry.js); shots is analytics.js bucketCount.
 	"export:menu_opened": {

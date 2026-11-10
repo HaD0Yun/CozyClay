@@ -4,7 +4,7 @@ import { ko } from "../locale.js";
 import { usePopover } from "../popover.js";
 import ResourceStatus from "../resource-status.jsx";
 import { useBus } from "../app-context.js";
-import GuestStart from "../guest-start.js";
+import GuestStart from "../guest-start-mount.jsx";
 import "./details.css";
 
 export default function ProjectPanel({
