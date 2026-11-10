@@ -18,12 +18,13 @@ import { limbDepth, bodyDistance, axisEnd } from "../body.js";
 import { turnWeight } from "../compiler/pose.js";
 import { allowance, QA_LIMITS } from "../qa/checks.js";
 import { regionOf } from "../qa/body-checks.js";
-import { headDepth, segPoints } from "../qa/geometry.js";
+import { headDepth, segPoints, segDist, capsulesFor } from "../qa/geometry.js";
 import { fitWeight } from "./self.js";
 
 export const SIDES = { l: "Left", r: "Right" };
-/** The parts the arm must stay out of (QA part names, qa/body-checks.js regionOf). */
-const TARGET = /^(torso_lo|torso_hi|shoulder_[lr]|hips|neck|head|thigh_[lr])$/;
+/** The parts the arm must stay out of (QA part names, qa/body-checks.js regionOf), and of the other arm its upper arm
+ * and forearm (crossed arms: a hand on the other hand is QA's SELF, handsPast). */
+const TARGET = /^(torso_lo|torso_hi|shoulder_[lr]|hips|neck|head|thigh_[lr])$/, OTHER = { l: /^(uarm|farm)_r$/, r: /^(uarm|farm)_l$/ };
 /** The anchors that put a hand on the body itself (compiler/anchors.js). */
 const ON_BODY = new Set(["body", "bone", "segment", "landmark"]);
 /** An anchor weight, a fit or a carry at least this much is the take's contact. */
@@ -99,8 +100,23 @@ export function armHit(out, body, i, k, known = null) {
 		if (past > 0) seen.push(`BODY ${part} into ${into}`);
 		if (face?.past > 0) seen.push(`FACE ${part} into head`);
 		if (hold === "body" && n === "Hand") continue;
-		if ((TARGET.test(into ?? "") || (known && past > 0 && !known.has(`BODY ${part} into ${into}`))) && (!best || past > best.past)) best = { b, part, into, depth: h.depth, past, p: h.p, hold };
+		if ((TARGET.test(into ?? "") || OTHER[k].test(into ?? "") || (known && past > 0 && !known.has(`BODY ${part} into ${into}`))) && (!best || past > best.past)) best = { b, part, into, depth: h.depth, past, p: h.p, hold };
 		if (face && face.depth > 0 && (!best || face.past > best.past)) best = { b, part, into: "head", ...face, hold, face: true };
 	}
 	return best ? { ...best, seen } : seen.length ? { past: -Infinity, depth: 0, hold, seen } : null;
+}
+
+/** How far (m) the two hands go into each other on frame index i past QA's SELF "hands overlap" limit (qa/contact-checks.js:
+ * the hands' capsules wrist to middle fingertip, L.hands or a checks.allow of hand_l into hand_r); > 0 is a SELF QA reads. */
+export function handsPast(out, i) {
+	const { sk, spec } = out.ctx, I = sk.index, P = out.frames[i].s.P, r = capsulesFor(sk).find(c => c[0] === "hand_l")[3];
+	const lim = Math.max(allowance(spec.checks?.allow, "hand_l", "hand_r") ?? 0, spec.checks?.limits?.hands ?? QA_LIMITS.hands);
+	return 2 * r - segDist(P[I.LeftHand], P[I.LeftHandMiddle3], P[I.RightHand], P[I.RightHandMiddle3]) - lim;
+}
+
+/** Whether the two forearms (elbow to wrist) come within NEAR of each other on frame index i: where a move of one arm can take the other deeper. */
+const NEAR = 0.25;
+export function near(out, i) {
+	const I = out.ctx.sk.index, P = out.frames[i].s.P;
+	return segDist(P[I.LeftForeArm], P[I.LeftHand], P[I.RightForeArm], P[I.RightHand]) < NEAR;
 }
