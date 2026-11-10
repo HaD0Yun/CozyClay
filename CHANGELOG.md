@@ -7,10 +7,10 @@ Studio
 - A first visit to the hosted Studio opens on a ready stage with a character
   on it. The project chooser no longer comes first there; File > New and Open
   still reach it, and `npx cozyclay` keeps it.
-- That first visit opens with the camera tutorial from 2.x: seven steps done in
-  the Studio itself, controls first (look, walk, dolly, orbit), then a shot, a
-  rail and looking through it. The character walks, so the camera has
-  something to follow. (#1161)
+- That first visit opens with the camera tutorial from 2.x: eight steps done in
+  the Studio itself, controls first (look, walk, dolly, orbit), then a shot,
+  its length, a rail, and playing it through the shot camera. The character
+  walks, so the camera has something to follow. (#1161)
 
 Motion
 

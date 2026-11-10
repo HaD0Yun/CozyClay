@@ -10,8 +10,10 @@
 .app[data-tutorial-step="shot"] .tl-track.shots .tl-track-add,
 .app[data-tutorial-step="rail"] .tl-track.shots .tl-shot-block:not(.selected),
 .app[data-tutorial-step="rail"] .tl-rail-draw,
-.app[data-tutorial-step="play"] .vp-look-through,
-.app[data-tutorial-step="play"] .dock-shot-look {
+.app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block,
+.app[data-tutorial-step="play"]:not([data-tutorial-looking]) .vp-look-through,
+.app[data-tutorial-step="play"]:not([data-tutorial-looking]) .dock-shot-look,
+.app[data-tutorial-step="play"][data-tutorial-looking] .tl-transport .tl-btn.play {
 	animation: tutorial-spotlight 1.5s var(--ease) infinite;
 	box-shadow: 0 0 0 3px var(--accent);
 }
@@ -511,7 +513,9 @@
 	.app[data-tutorial-step="shot"] .tl-track.shots .tl-track-add,
 	.app[data-tutorial-step="rail"] .tl-track.shots .tl-shot-block:not(.selected),
 	.app[data-tutorial-step="rail"] .tl-rail-draw,
-	.app[data-tutorial-step="play"] .vp-look-through {
+	.app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block,
+	.app[data-tutorial-step="play"] .vp-look-through,
+	.app[data-tutorial-step="play"] .tl-transport .tl-btn.play {
 		animation: none;
 		box-shadow: 0 0 0 3px var(--accent);
 	}
@@ -526,3 +530,6 @@
 	}
 	.tutorial-cue { transition: none; }
 }
+
+/* The Length step is about the shot block's end handle, which the sequencer hides until hover. */
+.app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block .tl-shot-edge.end { opacity: 1; }

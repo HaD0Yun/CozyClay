@@ -10,7 +10,7 @@ import "./camera-tutorial.css";
 
 const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
-// The camera tutorial: seven steps the operator finishes by doing them in the real Studio. It ran in the 2.x Studio
+// The camera tutorial: eight steps the operator finishes by doing them in the real Studio. It ran in the 2.x Studio
 // (#206, #211), left with the 3.0 start screen, and is back for a first visit to the hosted Studio (guest-start.js),
 // where it opens with the stage instead of the project chooser.
 //
@@ -23,23 +23,28 @@ const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: re
 // with, which is the whole point of teaching a camera by flying it.
 
 /**
- * The overlay itself: a seven-chip strip plus one hint card for the step the
+ * The overlay itself: a chip strip plus one hint card for the step the
  * operator is on. It sits at the top of the viewport pane, left of the
  * Top-View inset, and never takes the pointer except on its own close button
  * — every step is completed by working the studio underneath it.
  */
-function CameraTutorial({ previsMode, previewing = false, shotCount = 0, railReady = false, onStepChange, onClose }) {
+function CameraTutorial({ previsMode, previewing = false, playing = false, shotCount = 0, shotFrames = 0, railReady = false, onStepChange, onClose }) {
 	const [done, setDone] = useState(() => new Set());
 	const [walked, setWalked] = useState(() => new Set());
 	const [cue, setCue] = useState(null);
 	const reported = useRef(new Set());
+	// the length the first shot was made with: the Length step is done once a shot is longer than that
+	const [firstFrames, setFirstFrames] = useState(0);
+	if (!firstFrames && shotFrames > 0) setFirstFrames(shotFrames);
 	const effectiveDone = useMemo(() => {
 		const next = new Set(done);
 		if (shotCount > 0) next.add("shot");
+		if (firstFrames && shotFrames > firstFrames) next.add("length");
 		if (railReady) next.add("rail");
-		if (previewing && next.has("rail")) next.add("play");
+		// Play is playback seen through the shot camera, once there is a rail to ride.
+		if (previewing && playing && next.has("rail")) next.add("play");
 		return next;
-	}, [done, previewing, railReady, shotCount]);
+	}, [done, firstFrames, playing, previewing, railReady, shotCount, shotFrames]);
 
 	useEffect(() => {
 		const complete = (kind) => setDone((current) => (current.has(kind) ? current : new Set(current).add(kind)));
@@ -133,8 +138,8 @@ function CameraTutorial({ previsMode, previewing = false, shotCount = 0, railRea
 					<>
 						<span className="camera-tutorial-count done">{ko("Done", "완료")}</span>
 						<p>{ko(
-							"That is the whole camera: look, walk, dolly, orbit, cut, rail, play. Next, open the Motion tab and press a sample motion to change how the character moves.",
-							"카메라의 전부입니다: 보기, 걷기, 돌리, 궤도, 컷, 레일, 재생. 다음은 Motion 탭에서 샘플 동작을 눌러 캐릭터의 움직임을 바꿔 보세요.",
+							"That is the whole camera: look, walk, dolly, orbit, cut, length, rail, play. Next, open the Motion tab and press a sample motion to change how the character moves.",
+							"카메라의 전부입니다: 보기, 걷기, 돌리, 궤도, 컷, 길이, 레일, 재생. 다음은 Motion 탭에서 샘플 동작을 눌러 캐릭터의 움직임을 바꿔 보세요.",
 						)}</p>
 					</>
 				) : (
@@ -194,6 +199,13 @@ export default function StudioCameraTutorial({ onClose }) {
 		const frame = requestAnimationFrame(() => setHost(document.querySelector(".viewport")));
 		return () => cancelAnimationFrame(frame);
 	}, [host]);
+	const looking = Boolean(shell?.lookThroughShot);
+	useEffect(() => {
+		const app = document.querySelector(".app");
+		if (!app) return undefined;
+		if (looking) app.dataset.tutorialLooking = "1"; else delete app.dataset.tutorialLooking;
+		return () => { delete app.dataset.tutorialLooking; };
+	}, [looking]);
 	const publish = useCallback((kind) => {
 		const app = document.querySelector(".app");
 		if (!app) return;
@@ -204,8 +216,10 @@ export default function StudioCameraTutorial({ onClose }) {
 	return createPortal(
 		<CameraTutorial
 			previsMode={shell.previsMode}
-			previewing={Boolean(shell.lookThroughShot)}
+			previewing={looking}
+			playing={Boolean(shell.tlPlaying)}
 			shotCount={shots.length}
+			shotFrames={Math.max(0, ...shots.map((shot) => shot.endFrame - shot.startFrame + 1))}
 			railReady={shots.some((shot) => Array.isArray(shot.camera?.cameraRail) && shot.camera.cameraRail.length >= 2)}
 			onStepChange={publish}
 			onClose={onClose}

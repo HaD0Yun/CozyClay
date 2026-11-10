@@ -1,4 +1,4 @@
-// The camera tutorial's content (camera-tutorial.jsx): the seven steps, and where the last three point.
+// The camera tutorial's content (camera-tutorial.jsx): the eight steps, and where the last four point.
 import { ko } from "./locale.js";
 
 /** Right-button + these six keys is one gesture, so the walk step only counts
@@ -59,6 +59,15 @@ export const CAMERA_TUTORIAL_STEPS = [
 		),
 	},
 	{
+		kind: "length",
+		label: ko("Length", "길이"),
+		where: ko("↓ Timeline, Camera Cuts", "↓ 타임라인 Camera Cuts"),
+		how: () => ko(
+			<>Drag the right edge of the shot block to the right. The shot now lasts as long as the walk.</>,
+			<>샷 블록의 오른쪽 끝을 오른쪽으로 끌어 늘리세요. 샷이 걷는 동작만큼 길어집니다.</>,
+		),
+	},
+	{
 		kind: "rail",
 		label: ko("Rail", "레일"),
 		where: ko("↓ Timeline, Camera Cuts", "↓ 타임라인 Camera Cuts"),
@@ -72,8 +81,8 @@ export const CAMERA_TUTORIAL_STEPS = [
 		label: ko("Play", "재생"),
 		where: ko("↘ Shot Camera monitor", "↘ Shot Camera 모니터"),
 		how: () => ko(
-			<>Click <b>Look through</b> in the Shot monitor to fly the shot camera; <b>▶</b> rides the rail, <kbd>Esc</kbd> returns to the free camera.</>,
-			<>Shot Camera 모니터의 <b>샷 시점</b>을 눌러 샷 카메라를 조종하세요. <b>▶</b>는 레일을 타고, <kbd>Esc</kbd>로 자유 카메라로 돌아옵니다.</>,
+			<>Click <b>Look through</b> in the Shot monitor, then press <b>▶</b>. The camera rides the rail while the character walks. <kbd>Esc</kbd> returns to the free camera.</>,
+			<>Shot Camera 모니터의 <b>샷 시점</b>을 누른 다음 <b>▶</b>를 누르세요. 캐릭터가 걷는 동안 카메라가 레일을 탑니다. <kbd>Esc</kbd>로 자유 카메라로 돌아옵니다.</>,
 		),
 	},
 ];
@@ -81,7 +90,7 @@ export const CAMERA_TUTORIAL_STEPS = [
 export const NAV_KINDS = new Set(["fly", "walk", "dolly", "orbit"]);
 export const SIGNAL_KINDS = new Set(["shot", "rail"]);
 
-// Where each of the last three steps actually happens (#211). The card names
+// Where each of the last four steps actually happens (#211). The card names
 // the gesture; these pin a numbered circle and a caption onto the control
 // itself, so "click + Add shot" stops being a treasure hunt across two panes.
 //
@@ -91,6 +100,10 @@ export const SIGNAL_KINDS = new Set(["shot", "rail"]);
 export const TUTORIAL_BEACONS = {
 	shot: [
 		{ role: "add-shot", selector: ".tl-track.shots .tl-track-add", label: () => ko("Click here", "여기를 클릭") },
+	],
+	length: [
+		// the edge handle only shows on hover, so the beacon stands on the block's right end
+		{ role: "shot-edge", selector: ".tl-track.shots .tl-shot-block .tl-shot-edge.end", label: () => ko("Drag this edge to the right", "이 끝을 오른쪽으로 끌기") },
 	],
 	rail: [
 		{
@@ -104,8 +117,9 @@ export const TUTORIAL_BEACONS = {
 		{ role: "top-view", selector: ".vp-inset", requires: '[data-rail-draw="1"]', label: () => ko("Drag a line here", "여기에 선을 그으세요") },
 	],
 	play: [
-		// The glass shell keeps the same action in the bottom dock while the
-		// compact viewport card owns it in the classic shell.
-		{ role: "look-through", selector: ".dock-shot-look, .vp-look-through", label: () => ko("Click to fly the shot camera", "클릭해 샷 카메라를 조종") },
+		// The glass shell keeps Look through in the bottom dock; the classic shell has it on the viewport card.
+		// data-tutorial-looking is on the .app root while the shot camera is the view (camera-tutorial.jsx).
+		{ role: "look-through", selector: ".dock-shot-look, .vp-look-through", absent: ".app[data-tutorial-looking]", label: () => ko("1. Look through the shot camera", "1. 샷 카메라로 보기") },
+		{ role: "press-play", selector: ".tl-transport .tl-btn.play", requires: ".app[data-tutorial-looking]", label: () => ko("2. Press play", "2. 재생 누르기") },
 	],
 };

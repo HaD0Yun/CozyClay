@@ -33,12 +33,14 @@ expect("the camera tutorial opens with the guest start and closes for good", sou
 // The tutorial itself: seven steps in the order a camera is learnt, each finished by doing it in the Studio.
 const stepsSource = readFileSync(new URL("../src/camera-tutorial-steps.jsx", import.meta.url), "utf8");
 const kinds = [...stepsSource.matchAll(/kind: "([a-z]+)"/g)].map((match) => match[1]);
-expect("seven steps: controls first, then the camera work", kinds.join(",") === "fly,walk,dolly,orbit,shot,rail,play", kinds.join(","));
+expect("eight steps: controls first, then the camera work", kinds.join(",") === "fly,walk,dolly,orbit,shot,length,rail,play", kinds.join(","));
 const tutorial = readFileSync(new URL("../src/camera-tutorial.jsx", import.meta.url), "utf8");
 expect("no next button: steps are finished by the studio's own signals", !/Next step|I did this|Mark complete/.test(tutorial) && tutorial.includes('addEventListener("cozyclay:nav"'));
 const controls = readFileSync(new URL("../src/controls.jsx", import.meta.url), "utf8");
 expect("the fly camera reports look, walk, dolly and orbit", controls.includes('announceNav("walk", key)') && controls.includes("announceNav(kind)") && controls.includes('announceNav("dolly")'));
-for (const selector of [".tl-track.shots .tl-track-add", ".tl-rail-draw", ".vp-inset", ".dock-shot-look"]) expect(`a beacon's target is named in the tutorial: ${selector}`, stepsSource.includes(selector));
+for (const selector of [".tl-track.shots .tl-track-add", ".tl-shot-edge.end", ".tl-rail-draw", ".vp-inset", ".dock-shot-look", ".tl-transport .tl-btn.play"]) expect(`a beacon's target is named in the tutorial: ${selector}`, stepsSource.includes(selector));
 const telemetry = readFileSync(new URL("../src/guide-telemetry.js", import.meta.url), "utf8");
-expect("guide telemetry knows the camera tutorial and its seven steps", telemetry.includes('["animation", "storyboard", "camera"]') && telemetry.includes('["1", "2", "3", "4", "5", "6", "7"]'));
+expect("guide telemetry knows the camera tutorial and its eight steps", telemetry.includes('["animation", "storyboard", "camera"]') && telemetry.includes('["1", "2", "3", "4", "5", "6", "7", "8"]'));
+expect("Play needs playback seen through the shot camera, not look-through alone", tutorial.includes('if (previewing && playing && next.has("rail")) next.add("play");'));
+expect("Length is done once a shot is longer than it was made", tutorial.includes('if (firstFrames && shotFrames > firstFrames) next.add("length");'));
 process.exit(failures ? 1 : 0);

@@ -82,8 +82,8 @@ const SCHEMAS = Object.freeze({
 	},
 	// mode and step: first-success-guide.jsx's STEPS_BY_MODE keys and its 4 steps per mode.
 	"guide:opened": { mode: oneOf("animation", "storyboard", "camera") },
-	"guide:step": { mode: oneOf("animation", "storyboard", "camera"), step: oneOf("1", "2", "3", "4", "5", "6", "7"), step_ms: long },
-	"guide:dismissed": { mode: oneOf("animation", "storyboard", "camera"), reached: oneOf("1", "2", "3", "4", "5", "6", "7") },
+	"guide:step": { mode: oneOf("animation", "storyboard", "camera"), step: oneOf("1", "2", "3", "4", "5", "6", "7", "8"), step_ms: long },
+	"guide:dismissed": { mode: oneOf("animation", "storyboard", "camera"), reached: oneOf("1", "2", "3", "4", "5", "6", "7", "8") },
 	"guide:completed": { mode: oneOf("animation", "storyboard", "camera") },
 	"agent:panel_toggled": { open: bool, via: oneOf("key", "button") },
 	// The Export flyout opening (export-menu-telemetry.js); shots is analytics.js bucketCount.
