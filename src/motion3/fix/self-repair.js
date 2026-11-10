@@ -161,12 +161,15 @@ export function selfRepair(out, engine) {
 	let it = 0;
 	for (const wide of [false, true]) {
 		done.clear();
+		// the wider moves are larger: every run of frames the keys hold an arm still on is one instant to their ease, the
+		// hand on the body or not (a hand held still in the air with a carry on a spring takes one constant move, no wave)
+		const tick = wide ? Object.fromEntries(KS.map(k => [k, clockOf(out, k, () => true)])) : clock;
 		for (let tries = 0; tries < cap; tries++) {
 			let pick = null;
 			for (const k of KS) hits[k].forEach((h, j) => { if (open(k, j) && !done.has(`${k}${j}`) && (!pick || h.past > pick.h.past)) pick = { k, j, h }; });
 			if (!pick) break;
 			it++;
-			const { k, j, h } = pick, best = bestMove(out, engine, body, k, j, h, hits, known, clock[k], wide);
+			const { k, j, h } = pick, best = bestMove(out, engine, body, k, j, h, hits, known, tick[k], wide);
 			if (!best) { done.add(`${k}${j}`); continue; }
 			for (const [x] of best.at) if (!before.has(x)) before.set(x, { fr: out.frames[x], v: Object.fromEntries(KS.map(s => [s, leverAt(out, s, f0 + x)])) });
 			apply(out, engine, k, best.mv, best.at);

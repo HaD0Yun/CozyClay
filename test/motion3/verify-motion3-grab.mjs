@@ -143,7 +143,9 @@ expect("carried-object groups keep the group id: distinct keys from the table le
 const bump = cupSpec();
 bump.keys.push({ f: 66, set: { armw_r: 0 } }, { f: 70, set: { armw_r: 1, hand_r: [0.2, 1.27, 0.84] } }, { f: 74, set: { armw_r: 0 } });
 bump.keys.sort((a, b) => a.f - b.f);
-const bumped = compileSpec(bump, { sk, scene });
+// fix.self off: its repair moves that FK-to-IK bump out of the body (7.6 cm in the torso, 7.9 in the hips) and so out of
+// the cup too; the check is QA's, on the bump as keyed
+const bumped = compileSpec({ ...bump, fix: { ...(bump.fix ?? {}), self: false } }, { sk, scene });
 expect("the other hand in the held cup: COLLIDE \"hand_r x empty-2\"; the holding hand is never reported", groups(bumped).some(s => /^COLLIDE (hand|farm)_r x empty-2$/.test(s)) && !groups(bumped).some(s => /^COLLIDE (hand|farm)_l x empty-2$/.test(s)), groups(bumped).join(" | "));
 
 // A group hinge turns the whole group about the root: one track, every part box turned.
