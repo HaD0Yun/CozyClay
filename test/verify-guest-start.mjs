@@ -28,6 +28,7 @@ expect("the project panel mounts the guest start", panel.includes("<GuestStart /
 const source = readFileSync(new URL("../src/guest-start-mount.jsx", import.meta.url), "utf8");
 expect("it creates a named project through project.new, then one character", source.includes('run("project.new", { name:') && source.includes("spawnCharacter?.(CHARACTER_MODEL_IDS[0], 0, 0)"));
 expect("the character gets a sample walk, so the camera steps have somebody moving", source.includes('sampleMotionSpec("walk", character)') && source.includes("install: true"));
+expect("the walk waits for the character and retries until the rig can take it, instead of giving up after a second", source.includes("tries < 120 && !character") && source.includes("if (walk?.ok) return;") && source.includes("await pause(1500);") && source.includes("the sample walk did not install"));
 expect("the camera tutorial opens with the guest start and closes for good", source.includes("useState(() => guestStart())") && source.includes("<StudioCameraTutorial onClose={() => setTutorial(false)} />"));
 
 // The tutorial itself: seven steps in the order a camera is learnt, each finished by doing it in the Studio.
