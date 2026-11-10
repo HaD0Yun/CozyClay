@@ -50,7 +50,7 @@ import { spinFix } from "./spin.js";
 import { flightGate } from "./flight-gate.js";
 import { airRuns } from "../qa/style.js";
 import { flights, fallingRuns, popsOf, MIN_RUN } from "../qa/flight-checks.js";
-import { runMotionQa } from "../qa/index.js";
+import { qaOf } from "./qa-of.js";
 import { noWorse, compareQa } from "../qa/verdict.js";
 
 /** The keyed channels a flight fix moves that QA KEY compares with the keys. */
@@ -140,14 +140,6 @@ function restore(out, s) {
 	s.frames.forEach((fr, i) => { out.frames[i] = fr; });
 	out.frames.length = s.frames.length;
 	for (const [m, entries] of s.maps) { m.clear(); for (const [k, v] of entries) m.set(k, v); }
-}
-
-/** QA of out as pipeline.js reads it (frame-range checks following the time map), unexplained. */
-function qaOf(out) {
-	const spec = out.ctx.spec, map = out.timeMap, c = structuredClone(spec.checks ?? {}), w = r => (map && Array.isArray(r) ? [Math.round(map(r[0])), Math.round(map(r[1]))] : r);
-	for (const name of ["contacts", "orient", "below"]) for (const k of c[name] ?? []) k.when = w(k.when);
-	for (const k of c.clearance ?? []) k.frames = w(k.frames);
-	return runMotionQa(out.ctx.sk, out, { ...spec, checks: c }, { explain: false });
 }
 
 /** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` and of the 3-frame runs `short` too (applyFixes). */
