@@ -659,6 +659,14 @@ npm run dev</code></pre>
           install.showModal();
           if (!asked) { asked = true; void newestLts(); }
         }));
+        // cozyclay.org/#install opens the steps directly: the hosted Studio's Agent panel links here.
+        const openFromHash = () => {
+          if (location.hash !== "#install" || install.open) return;
+          install.showModal();
+          if (!asked) { asked = true; void newestLts(); }
+        };
+        openFromHash();
+        window.addEventListener("hashchange", openFromHash);
         install.querySelector("[data-install-close]").addEventListener("click", () => install.close());
         install.addEventListener("click", (event) => { if (event.target === install) install.close(); });
 
