@@ -16,7 +16,14 @@
 //                allowance is at most this many metres (true = 0.02), eased in and out
 //   self         arms out of the rest of the body on its fitted skin: the elbow turns about the
 //                shoulder-wrist line, the hand is pushed out along the skin (self.js)
-//   retime       speed spikes get more frames, borrowed from the neighbouring keys
+//   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
+//                4 frames or more that falls (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124)
+//   ballistic    in each air run of 4 frames or more the whole body moves so the centre of mass follows the gravity
+//                parabola between takeoff and landing at constant horizontal speed; past 0.5 m, or where the arc enters
+//                what the keyed flight did not (flight-gate.js), it is reported, not fixed (ballistic.js, #1124)
+//   spin         in each air run the root's turn is re-timed so the angular momentum about the centre of mass stays
+//                constant (faster tucked, slower open), the keyed total turn kept; left where it would enter what the
+//                keyed flight did not (flight-gate.js) or read SPIN worse than keyed (spin.js)
 //   stance       a standIdle stance whose legs, feet or hips are in a scene body slides out of it, the least
 //                distance (skills/stance.js; applied when the skills expand, reported in observations.placed)
 //   person       arms out of the other characters (scene.people, their installed takes; QA PERSON): the wrist
@@ -34,25 +41,34 @@ import { pushOut } from "./push.js";
 import { retime } from "./retime.js";
 import { selfClear } from "./self.js";
 import { personOut } from "./person.js";
+import { ballisticFix } from "./ballistic.js";
+import { spinFix } from "./spin.js";
+import { flightGate } from "./flight-gate.js";
+import { airRuns } from "../qa/style.js";
+import { flights, fallingRuns } from "../qa/flight-checks.js";
 
-const FIX_KEYS = ["reach", "slide", "clear", "penetration", "self", "retime", "stance", "grasp", "person"];
+/** The keyed channels a flight fix moves that QA KEY compares with the keys. */
+const MOVED = ["root", "foot_l", "foot_r"];
+const FIX_KEYS = ["reach", "slide", "clear", "penetration", "self", "retime", "stance", "grasp", "person", "ballistic", "spin"];
 export { FIX_KEYS };
 
 export function fixOptions(fix) {
-	if (fix === false) return { reach: false, slide: false, clear: false, penetration: 0, self: false, retime: false, stance: false, grasp: false, person: false };
+	if (fix === false) return { reach: false, slide: false, clear: false, penetration: 0, self: false, retime: false, stance: false, grasp: false, person: false, ballistic: false, spin: false };
 	const f = fix ?? {};
 	const pen = f.penetration === true ? 0.02 : Math.min(0.05, Math.max(0, Number(f.penetration) || 0));
-	return { reach: f.reach !== false, slide: f.slide !== false, clear: f.clear !== false, penetration: pen, self: f.self !== false, retime: f.retime !== false, stance: f.stance !== false, grasp: f.grasp !== false, person: f.person !== false };
+	return { reach: f.reach !== false, slide: f.slide !== false, clear: f.clear !== false, penetration: pen, self: f.self !== false, retime: f.retime !== false, stance: f.stance !== false, grasp: f.grasp !== false, person: f.person !== false, ballistic: f.ballistic !== false, spin: f.spin !== false };
 }
 
 /** The slide report with the flat feet whose turn waited (turn.js): turns { frames, max deg }. */
 const withTurns = (turns, slide) => (turns ? { ...(slide ?? { frames: 0, how: "planted heel/ball held in place" }), turns, how: `${slide?.how ?? "planted heel/ball held in place"}; a flat planted foot keeps its heading until it lifts` } : slide);
 const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), eased: Math.max(a.eased, b.eased), max: Math.max(a.max, b.max), how: a.how } : a ?? b);
 
-/** Runs the enabled fixes in order (retime first: it moves keys) and returns their reports. */
+/** Runs the enabled fixes in order (retime first: it moves keys; the flight last: ballistic, spin) and returns their reports. */
 export function applyFixes(out, fix, engine, { whole = true } = {}) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
-	if (fix.retime && whole) put("retime", retime(out, engine));
+	const supports = out.ctx.spec?.checks?.supports ?? [];
+	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 4 frames or more; a walk's one-frame lift is none)
+	if (fix.retime && whole) put("retime", retime(out, engine, fallingRuns(out, airRuns(out, supports))));
 	if (fix.slide) put("ground", liftSoles(out, engine));
 	if (fix.reach) put("reachLegs", lowerHips(out, engine));
 	if (fix.reach) put("reachBody", reachBody(out, engine));
@@ -65,5 +81,34 @@ export function applyFixes(out, fix, engine, { whole = true } = {}) {
 	if (fix.self) put("self", selfClear(out, engine));
 	if (fix.person) put("person", personOut(out, engine));
 	if (fix.reach) put("reachArms", armReach(out));
+	// the flight last, on the frames QA reads (an air run of the first solve that the leg fixes put back on the ground
+	// is no flight): the arc, the spin, and the arc again (a spin turns the body about its hips, so the centre of mass moves)
+	if (fix.ballistic || fix.spin) Object.assign(fixed, flightFixes(out, engine, fix, flights(out, airRuns(out, supports))));
+	return fixed;
+}
+
+/**
+ * The ballistic and spin fixes over `runs` (flights). out.flightMoved[ch] = Map(frame -> [dx, dy, dz]) is how far they moved
+ * root and the ankles (qa/key-reach.js reads the keys before them); out.flightRuns the runs whose root they moved (QA's POP
+ * exemption, qa/flight-checks.js contactFrames: only fix.ballistic moves the root).
+ */
+function flightFixes(out, engine, fix, runs) {
+	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
+	if (!runs.length) return fixed;
+	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()])), gate = flightGate(out, runs);
+	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs, gate));
+	if (fix.spin) put("spin", spinFix(out, engine, runs, gate));
+	// the second pass's report joins the first's (ballisticFix prev); null: nothing moved or skipped in either
+	if (fix.ballistic && fixed.spin) {
+		const arc = ballisticFix(out, engine, runs, gate, fixed.ballistic);
+		if (arc) fixed.ballistic = arc;
+		else delete fixed.ballistic;
+	}
+	out.flightMoved = Object.fromEntries(MOVED.filter(ch => before[ch]).map(ch => [ch, new Map(before[ch].flatMap((v, f) => {
+		const w = out.baked[ch][f];
+		return w !== v && Array.isArray(v) && Array.isArray(w) ? [[f, [w[0] - v[0], w[1] - v[1], w[2] - v[2]]]] : [];
+	}))]));
+	const root = out.flightMoved.root, f0 = out.f0 ?? 0;
+	out.flightRuns = runs.filter(([a, b]) => root && Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i).some(f => root.has(f)));
 	return fixed;
 }
