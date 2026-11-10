@@ -6,8 +6,9 @@ Motion
 
 - Sample motions in the Motion tab: one click installs a walk or a flip on the
   selected character and plays it, with no agent. On the hosted Studio, where
-  no agent server runs, the Agent panel shows an Install button and points
-  at the sample motions instead of showing a server error.
+  no agent server runs, the Agent panel shows three ready-made requests to
+  press (a walk, a street of buildings around the character, a back flip) and
+  an Install button, instead of a server error.
 
 ## 3.2.2 - 2026-11-07
 
