@@ -1,5 +1,6 @@
 import { FiDownload, FiPower, FiRotateCw } from "react-icons/fi";
 import { ko } from "../locale.js";
+import AgentHostedDemos from "./AgentHostedDemos.jsx";
 
 // A page served over https is the hosted Studio (cozyclay.org/app/): a static build with no agent server to start,
 // so Retry could only fail. `npx cozyclay` and a checkout serve http on loopback or the LAN; `?try` asks for the
@@ -8,14 +9,16 @@ const hostedPage = () => globalThis.location?.protocol === "https:" || new URLSe
 // the landing page opens its install steps (the Node.js download, then the one command) on this hash
 const INSTALL_URL = "https://cozyclay.org/#install";
 
-// No agent server answered. Self-served: say how to start it. Hosted: the agent needs CozyClay on the visitor's
-// computer, so the card is the way to get it (one Install button), and one line on what moves without it.
+// No agent server answered. Self-served: say how to start it. Hosted: show what the agent does (three requests
+// as buttons, AgentHostedDemos.jsx), then the way to use it for real: the agent needs CozyClay on the visitor's
+// computer, so the card ends in one Install button.
 export function OfflineCard({ probing, onRetry }) {
 	if (hostedPage()) return <div className="agent-state-card agent-offline-card" data-agent-card="offline" data-agent-offline="hosted" role="status" aria-live="polite">
-		<h3>{ko("The agent runs on your computer", "에이전트는 내 컴퓨터에서 실행돼요", "智能体在你的电脑上运行")}</h3>
-		<p>{ko("Install CozyClay and it builds scenes and motion from your words.", "CozyClay를 설치하면 말로 장면과 동작을 만들어 줍니다.", "安装 CozyClay 后，它会按你的描述搭建场景和动作。")}</p>
+		<h3>{ko("See what the agent does", "에이전트가 하는 일 보기", "看看智能体能做什么")}</h3>
+		<p>{ko("Press a request. These three are ready-made results.", "요청을 눌러 보세요. 이 세 가지는 미리 만들어 둔 결과입니다.", "点一个请求试试。这三个是预先做好的结果。")}</p>
+		<AgentHostedDemos />
+		<p className="agent-offline-note">{ko("To direct it in your own words, install CozyClay. The agent runs on your computer.", "내 말로 직접 시키려면 CozyClay를 설치하세요. 에이전트는 내 컴퓨터에서 실행됩니다.", "想用自己的话指挥它，请安装 CozyClay。智能体在你的电脑上运行。")}</p>
 		<a className="agent-primary-button agent-offline-install" href={INSTALL_URL} target="_blank" rel="noreferrer"><FiDownload size={13} aria-hidden="true" /> {ko("Install CozyClay", "CozyClay 설치", "安装 CozyClay")}</a>
-		<p className="agent-offline-note">{ko("Without it: select the character, open the Motion tab and pick a sample motion.", "설치 없이: 캐릭터를 고르고 Motion 탭에서 샘플 동작을 누르세요.", "不安装也可以：选中角色，打开 Motion 标签页，点一个示例动作。")}</p>
 	</div>;
 	return <div className="agent-state-card agent-offline-card" data-agent-card="offline" role="status" aria-live="polite">
 		<FiPower className="agent-offline-icon" size={18} aria-hidden="true" />

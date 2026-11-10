@@ -1132,7 +1132,7 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	// The card lives in its own module; hosted (an https page, no agent server to start) reads differently from self-served.
 	const cardFile = readFileSync(new URL("../src/workflow/AgentOfflineCard.jsx", import.meta.url), "utf8");
 	const build = (koImpl, hosted) => {
-		const scope = { React, FiDownload, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#install" };
+		const scope = { React, FiDownload, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#install", AgentHostedDemos: () => React.createElement("div", { "data-fid": "agent_demos" }) };
 		const source = parseSync("AgentOfflineCard.jsx", cardFile).program.body.map((node) => node.declaration ?? node).find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
 		return { scope, source: cardFile.slice(source.start, source.end) };
 	};
@@ -1153,11 +1153,21 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	expect("offline: the card reads in Korean under the Korean locale", korean.includes("에이전트 서버가 실행 중이 아니에요") && korean.includes("다시 확인"), korean);
 	expect("the panel imports the card, and the card decides hosted by the page's protocol or ?try", panel.includes('import { OfflineCard } from "./AgentOfflineCard.jsx";') && cardFile.includes('globalThis.location?.protocol === "https:" || new URLSearchParams(globalThis.location?.search ?? "").has("try")'));
 	const hosted = await render((english) => english, { probing: false, onRetry() {} }, true);
-	expect("hosted: the title says where the agent runs, not that a server is down", hosted.includes("<h3>The agent runs on your computer</h3>") && !hosted.includes("not running"), hosted);
+	expect("hosted: the title offers a look at the agent, not a server that is down", hosted.includes("<h3>See what the agent does</h3>") && !hosted.includes("not running"), hosted);
+	expect("hosted: the ready-made requests come before the way to use it for real", hosted.indexOf('data-fid="agent_demos"') > 0 && hosted.indexOf('data-fid="agent_demos"') < hosted.indexOf("Install CozyClay</a>") && hosted.includes("These three are ready-made results"), hosted);
 	expect("hosted: one Install button that opens the landing page's install steps, with no Retry that could only fail", hosted.includes('href="https://cozyclay.org/#install"') && hosted.includes("Install CozyClay</a>") && hosted.includes("agent-primary-button") && !hosted.includes("Retry") && !hosted.includes("<code>") && hosted.includes('data-agent-offline="hosted"'), hosted);
-	expect("hosted: it points at the sample motions for moving a character without it", hosted.includes("open the Motion tab and pick a sample motion"), hosted);
 	const hostedKo = await render((_english, koText) => koText, { probing: false, onRetry() {} }, true);
-	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트는 내 컴퓨터에서 실행돼요") && hostedKo.includes("샘플 동작") && hostedKo.includes("CozyClay 설치"), hostedKo);
+	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트가 하는 일 보기") && hostedKo.includes("CozyClay 설치"), hostedKo);
+	// The demos: a walk and a flip from the sample motions, and a street of eight buildings around the character.
+	const demos = readFileSync(new URL("../src/workflow/AgentHostedDemos.jsx", import.meta.url), "utf8");
+	expect("the demos run the same commands the agent would: motion.compile, object.add, object.update", demos.includes('app.bus.run("motion.compile"') && demos.includes('app.bus.run("object.add", { kind: "cube"') && demos.includes('app.bus.run("object.update"') && demos.includes('sampleMotionSpec(id, who)'));
+	expect("a second press does not build the street twice", demos.includes("if (have.has(name)) continue;"));
+	const { demoStreet } = await import("../src/workflow/agent-demo-set.js");
+	const street = demoStreet({ x: 0, z: 0, rot: 0 });
+	expect("the street is eight buildings with distinct names, four a side", street.length === 8 && new Set(street.map((b) => b.name)).size === 8 && street.filter((b) => b.x > 0).length === 4 && street.filter((b) => b.x < 0).length === 4, JSON.stringify(street));
+	expect("the way the character walks in stays clear: no building within 4 m of the centre line, none in front of it", street.every((b) => Math.abs(b.x) - b.scaleX / 2 >= 4 && b.z <= 0), JSON.stringify(street));
+	const turned = demoStreet({ x: 2, z: 1, rot: 90 });
+	expect("the street turns and moves with the character", turned.every((b, i) => Math.abs((b.x - 2) - street[i].z) < 0.01 && Math.abs((b.z - 1) + street[i].x) < 0.01 && b.rot === 90), JSON.stringify(turned));
 }
 
 // The model-connect funnel (PR E): one attempt is one connect_started and one connect_finished, the
