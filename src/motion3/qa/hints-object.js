@@ -10,7 +10,7 @@
 import { contactHints, moveHint } from "./hints-contact.js";
 import { motionHints } from "./hints-motion.js";
 import { keyHint } from "./key-checks.js";
-import { CAPSULES, segPoints, sdBox, boxNormal } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox, boxNormal } from "./geometry.js";
 import { grabGap, boxOverlap } from "./object-checks.js";
 import { isCarried, propOrigin } from "../carried.js";
 import { objectBoxesAt, partsOf, spanOf } from "../object-pose.js";
@@ -72,7 +72,7 @@ export const objectHints = {
 		const o = objects[id], k = X.spec.props[o.prop].hand, [grab, release] = spanOf(X.out, o), need = g.worst - g.limit + MARGIN;
 		const f = g.worstFrame, held = f >= grab && f <= release, at = Math.min(f, release), boxes = objectBoxesAt(X.out, id, f) ?? [];
 		if (id === b) {
-			const cap = CAPSULES.find(c => c[0] === a), { s } = X.fr(f);
+			const cap = capsulesFor(X.sk).find(c => c[0] === a), { s } = X.fr(f);
 			if (!cap || !boxes.length) return null;
 			const pts = segPoints(s.P[X.I[cap[1]]], s.P[X.I[cap[2]]]);
 			const [box, p] = boxes.flatMap(bx => pts.map(q => [bx, q])).reduce((m, x) => (sdBox(x[1], x[0]) < sdBox(m[1], m[0]) ? x : m));

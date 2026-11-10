@@ -33,7 +33,7 @@
 //   REST_SHARE  .5: a float run's share of frames within NEAR (24 sampled) is >= .8 in 85 % of the runs and < .4 in 7 %; .5
 //               splits the band between (42 runs: the wall climb r1 hang at .44-.47, 8 runs at .50); .4 / .6 rest 539 / 509
 //               of the 582 runs against 517.
-import { CAPSULES, sdBox, segDist, segPoints, solePoints } from "./geometry.js";
+import { capsulesFor, sdBox, segDist, segPoints, solePoints, legGap } from "./geometry.js";
 import { groundY } from "./ground.js";
 import { floatChecks } from "./style.js";
 import { MOTION_OUTPUT_BUDGET, fitOutput } from "../report.js";
@@ -82,7 +82,7 @@ export function isBlocking(g, seen = {}) {
 /** Body points and their skin radius for a surface test: the capsules, the head, the soles and the fingertips. */
 function bodyPoints(sk, s) {
 	const P = s.P, I = sk.index, pts = [];
-	for (const [, a, b, r] of CAPSULES) for (const p of segPoints(P[I[a]], P[I[b]], 3)) pts.push([p, r]);
+	for (const [, a, b, r] of capsulesFor(sk)) for (const p of segPoints(P[I[a]], P[I[b]], 3)) pts.push([p, r]);
 	if (I.HeadTop_End !== undefined) for (const p of segPoints(P[I.Head], P[I.HeadTop_End], 3)) pts.push([p, HEAD_R]);
 	for (const S of ["Left", "Right"]) pts.push(...limbPoints(sk, s, "arm", S), ...limbPoints(sk, s, "leg", S));
 	return pts;
@@ -131,7 +131,7 @@ export function measureGroup(out, g) {
 	}
 	const legs = g.kind === "SELF" && LEGS[g.subject];
 	if (legs) {
-		const [a, b] = legs, touch = Number.isFinite(g.limit) ? g.limit : g.subject === "thighs overlap" ? 0.135 : 0.1;
+		const [a, b] = legs, touch = Number.isFinite(g.limit) ? g.limit : legGap(sk, g.subject);
 		const depth = Math.max(...spread(range()).map(i => { const P = out.frames[i].s.P, I = sk.index;
 			return touch - segDist(P[I[`Left${a}`]], P[I[`Left${b}`]], P[I[`Right${a}`]], P[I[`Right${b}`]]); }));
 		return { depth };

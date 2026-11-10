@@ -18,6 +18,7 @@
 //   the foot's pitch follows the shank on the way.
 // The knee schedule eases with the walk's pace (brisk): a stroll strikes, loads and pushes off with straighter knees.
 import { bakeChannels } from "./channels.js";
+import { soleHeel } from "./skeleton.js";
 import { add, sub, scale, len, dot, apply, rx, ry, rz } from "./math.js";
 
 // knee flexion (deg): at the strike, the loading peak, mid-stance, and at lift-off (TRAIL_POW shapes the push-off:
@@ -241,8 +242,7 @@ export function fitSwing(out, { end, ground, sk }) {
 	for (const k of ["l", "r"]) {
 		const spans = ground[k], side = k === "l" ? "Left" : "Right";
 		const hipOff = sk && sub(P[I[`${side}UpLeg`]], P[I.Hips]), ball = sk && sub(P[I[`${side}ToeBase`]], P[I[`${side}Foot`]]), ballY = sk && P[I[`${side}ToeBase`]][1];
-		// QA's heel point from the ankle (qa/geometry.js solePoints)
-		const heel = sk && [0, 0.005 - P[I[`${side}Foot`]][1], -0.045];
+		const heel = sk && [0, soleHeel(sk)[1] - P[I[`${side}Foot`]][1], -soleHeel(sk)[0]]; // QA's heel point from the ankle
 		for (let n = 0; n + 1 < spans.length; n++) {
 			const g = spans[n], h = spans[n + 1];
 			if (!Number.isFinite(g.b) || !h.strike || h.a > end || h.a - g.b < 3) continue;

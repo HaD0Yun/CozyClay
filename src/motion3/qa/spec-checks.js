@@ -10,7 +10,7 @@
 import { sub, dot, norm, len } from "../compiler/math.js";
 import { carried } from "../compiler/limbs.js";
 import { resolveAnchor } from "../compiler/anchors.js";
-import { CAPSULES, segPoints, sdBox } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox } from "./geometry.js";
 import { refDistance } from "../refs.js";
 import { seatsInHand } from "../seat.js";
 import { handOf } from "../object-pose.js";
@@ -75,7 +75,7 @@ export function specChecks(out, checks = {}) {
 			if (drop < (k.min ?? 0.08)) push("BELOW", `${k.name}: ${k.joint} only ${(drop * 100).toFixed(1)} cm below ${k.ref}`, f, drop, k.min ?? 0.08);
 		}
 		for (const k of checks.clearance ?? []) if (active(out, f, k.frames)) {
-			const box = out.objectsAt(f)[k.object], cap = CAPSULES.find(c => c[0] === k.part);
+			const box = out.objectsAt(f)[k.object], cap = capsulesFor(out.ctx.sk).find(c => c[0] === k.part);
 			if (!box || !cap) continue;
 			const { P } = out.frames[f].s, d = Math.min(...segPoints(P[I[cap[1]]], P[I[cap[2]]]).map(p => sdBox(p, box))) - cap[3];
 			if (d < k.min) push("CLEARANCE", `${k.name}: ${(d * 100).toFixed(1)} cm`, f, d, k.min);
