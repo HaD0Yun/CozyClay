@@ -114,9 +114,3 @@ export function handsPast(out, i) {
 	return 2 * r - segDist(P[I.LeftHand], P[I.LeftHandMiddle3], P[I.RightHand], P[I.RightHandMiddle3]) - lim;
 }
 
-/** Whether the two forearms (elbow to wrist) come within NEAR of each other on frame index i: where a move of one arm can take the other deeper. */
-const NEAR = 0.25;
-export function near(out, i) {
-	const I = out.ctx.sk.index, P = out.frames[i].s.P;
-	return segDist(P[I.LeftForeArm], P[I.LeftHand], P[I.RightForeArm], P[I.RightHand]) < NEAR;
-}

@@ -30,8 +30,8 @@ import { round4 } from "./ease.js";
 import { qaOf } from "./qa-of.js";
 import { noWorse, compareQa } from "../qa/verdict.js";
 import { groupKey } from "../qa/severity.js";
-import { armHit, handOnBody, handsPast, near } from "./self-hits.js";
-import { leverAt, setLever, apply, movesFor, missOf, missWorse, GAIN } from "./self-moves.js";
+import { armHit, handOnBody, handsPast } from "./self-hits.js";
+import { leverAt, setLever, apply, movesFor, GAIN } from "./self-moves.js";
 import { armMotion, moveWorse, popsOutside } from "./self-guard.js";
 
 const EASE = 10, MAX_IT = 48, TRIES = 6;
@@ -80,12 +80,9 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, wide) {
 		for (let j = w.lo; j <= w.hi; j++) { const x = hit(j), p = Math.max(0, x?.past ?? 0); max = Math.max(max, p); sum += p; fresh += (x?.seen ?? []).filter(t => !known.has(t)).length; }
 		return { max, sum, fresh };
 	};
-	const whole = armMotion(out, k, 0, out.frames.length - 1), o = k === "l" ? "r" : "l", span = (w, f) => Array.from({ length: w.hi - w.lo + 1 }, (_, n) => f(w.lo + n));
-	// the other arm, where the forearms come near (crossed arms): a move must not take the hands into each other, nor the
-	// other arm deeper than the deepest hit of either arm there was (it may take this arm's place: the two then take
-	// turns, the deeper first, and stack on the chest instead of both pushing out into each other)
-	const crossWorse = w => span(w, j => handsPast(out, j)).some((p, n) => p > 0 && p > w.hands[n] + 1e-9)
-		|| span(w, j => (near(out, j) ? Math.max(0, armHit(out, body, j, o, known)?.past ?? 0) : 0)).some(p => p > Math.max(w.base.max, ...w.other) + 1e-12);
+	const whole = armMotion(out, k, 0, out.frames.length - 1), span = (w, f) => Array.from({ length: w.hi - w.lo + 1 }, (_, n) => f(w.lo + n));
+	// a move must not take the hands into each other (QA's SELF), nor deeper where they are (crossed arms)
+	const handsWorse = w => span(w, j => handsPast(out, j)).some((p, n) => p > 0 && p > w.hands[n] + 1e-9);
 	// the guard reads the frames whose pops the move can change (popLevel looks 3 either side of a frame whose
 	// acceleration, 2 frames back, moved), against the arm's hardest pops elsewhere in the take
 	const frame = at => {
@@ -93,9 +90,7 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, wide) {
 		w.prev = armMotion(out, k, w.lo - 3, w.hi + 5);
 		w.rest = popsOutside(whole, w.prev.lo, w.prev.hi);
 		w.base = measure(w, j => hits[k][j]);
-		w.miss = missOf(out, k, w.lo, w.hi);
 		w.hands = span(w, j => handsPast(out, j));
-		w.other = span(w, j => (near(out, j) ? Math.max(0, hits[o][j]?.past ?? 0) : 0));
 		return w;
 	};
 	let ra = i, rb = i;
@@ -105,7 +100,7 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, wide) {
 	let best = null;
 	for (const c of movesFor(out, engine, body, k, i, h, known, wide).slice(0, TRIES)) {
 		for (const w of c.mv.out || c.mv.bend ? [here, run].filter(Boolean) : [here]) {
-			const undo = apply(out, engine, k, c.mv, w.at), worse = moveWorse(w.prev, armMotion(out, k, w.lo - 3, w.hi + 5), w.rest) || (c.wide && missWorse(out, w.miss, missOf(out, k, w.lo, w.hi))) || crossWorse(w);
+			const undo = apply(out, engine, k, c.mv, w.at), worse = moveWorse(w.prev, armMotion(out, k, w.lo - 3, w.hi + 5), w.rest) || handsWorse(w);
 			const now = worse ? null : measure(w, j => armHit(out, body, j, k, known)), clearI = !worse && (armHit(out, body, i, k, known)?.past ?? -1) <= 0;
 			undo();
 			// a move that deepens the window's deepest hit is not made; one that adds a BODY or FACE subject QA did not report
@@ -179,31 +174,19 @@ export function selfRepair(out, engine) {
 			for (const [x] of best.at) { read(x); done.delete(`${k}${x}`); }
 		}
 	}
-	// the spans of frames the repair moved, per arm, each kept only where QA is no worse with it: a span puts back or
-	// sets its arm's levers, and a frame whose levers are then all as before (or all as after) takes that solved frame
-	// back exactly; one with an arm of each is solved again
-	const levers = x => Object.fromEntries(KS.map(s => [s, leverAt(out, s, f0 + x)])), key = v => JSON.stringify(v);
-	const after = new Map([...before.keys()].map(x => [x, { fr: out.frames[x], v: levers(x) }]));
+	// the spans of frames the repair moved (both arms), each kept only where QA is no worse with it
+	const after = new Map([...before.keys()].map(x => [x, { fr: out.frames[x], v: Object.fromEntries(KS.map(s => [s, leverAt(out, s, f0 + x)])) }]));
 	const put = (s, from) => {
-		const solve = [];
-		for (let x = s.a; x <= s.b; x++) {
-			setLever(out, s.k, f0 + x, from.get(x).v[s.k]);
-			const now = key(levers(x)), m = [before, after].find(t => key(t.get(x).v) === now);
-			if (m) out.frames[x] = m.get(x).fr; else solve.push(x);
-		}
-		engine.solve(solve.map(x => f0 + x));
-		for (let x = s.a; x <= s.b; x++) read(x);
+		for (let x = s.a; x <= s.b; x++) { const m = from.get(x); out.frames[x] = m.fr; for (const k of KS) setLever(out, k, f0 + x, m.v[k]); read(x); }
 	};
-	const deepOf = (a, b, k) => Math.max(0, ...hits[k].slice(a, b + 1).map((h, j) => (open(k, a + j) ? h.depth : 0)));
-	const openOf = (a, b, k) => hits[k].slice(a, b + 1).filter((_, j) => open(k, a + j)).length;
-	const xs = [...before.keys()].sort((p, q) => p - q);
-	const spans = KS.flatMap(k => runsOf(xs.filter(x => key(before.get(x).v[k]) !== key(after.get(x).v[k])).map(x => [x, ""])).map(s => ({ ...s, k, depth: [0, deepOf(s.a, s.b, k)], open: [0, openOf(s.a, s.b, k)] })));
-	for (const s of spans) { put(s, before); s.depth[0] = deepOf(s.a, s.b, s.k); s.open[0] = openOf(s.a, s.b, s.k); put(s, after); }
+	const openIn = (a, b) => KS.reduce((c, k) => c + hits[k].slice(a, b + 1).filter((_, j) => open(k, a + j)).length, 0);
+	const spans = runsOf([...before.keys()].sort((p, q) => p - q).map(x => [x, ""])).map(s => ({ a: s.a, b: s.b, depth: [0, deepIn(s.a, s.b)], open: [0, openIn(s.a, s.b)] }));
+	for (const s of spans) { put(s, before); s.depth[0] = deepIn(s.a, s.b); s.open[0] = openIn(s.a, s.b); put(s, after); }
 	// a span that neither takes GAIN off its deepest hit nor clears a frame of a hit goes back without asking QA (a take
 	// changed for nothing); the rest stand together where QA is no worse with them, else they are tried in halves on top
 	// of what stood, down to one span (deepest first)
 	const gains = s => s.depth[0] - s.depth[1] >= GAIN || s.open[1] < s.open[0];
-	const kept = [], rest = spans.filter(gains).sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a || (p.k < q.k ? -1 : 1));
+	const kept = [], rest = spans.filter(gains).sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a);
 	for (const s of spans.filter(s => !gains(s))) { put(s, before); s.undone = `the span's deepest hit did not drop ${GAIN * 1000} mm and no frame cleared`; }
 	const settle = (group, base) => {
 		for (const s of group) put(s, after);
@@ -215,18 +198,18 @@ export function selfRepair(out, engine) {
 	};
 	// QA of the take before the repair is read only when a span may stand
 	if (rest.length) { for (const s of rest) put(s, before); settle(rest, qaOf(out)); }
-	kept.sort((p, q) => p.a - q.a || (p.k < q.k ? -1 : 1));
+	kept.sort((p, q) => p.a - q.a);
 	// what is still past the limit, and why
 	const left = [];
 	for (const k of KS) {
 		const why = j => {
-			const h = hits[k][j], u = spans.find(s => s.undone && s.k === k && j >= s.a && j <= s.b);
+			const h = hits[k][j], u = spans.find(s => s.undone && j >= s.a && j <= s.b);
 			if (u) return `undone: ${u.undone}`;
 			if (!done.has(`${k}${j}`)) return `the move cap (${MAX_IT} for each run of frames with a hit)`;
 			return h.hold === "fk" ? "no FK move (the arm out, the elbow bent) clears it within the limits" : h.hold ? "the hand stays on its target and no elbow turn clears it" : "no move clears it within the limits";
 		};
 		for (const r of runsOf(hits[k].flatMap((h, j) => (open(k, j) ? [[j, why(j)]] : [])))) left.push({ at: `f${f0 + r.a}-f${f0 + r.b}`, side: k, why: r.why });
 	}
-	return { spans: kept.map(s => ({ at: `f${f0 + s.a}-f${f0 + s.b}`, side: s.k, depth: s.depth.map(round4) })), depth: [round4(worst0), round4(deepIn(0, n - 1))], iterations: it, ...(left.length ? { left } : {}),
+	return { spans: kept.map(s => ({ at: `f${f0 + s.a}-f${f0 + s.b}`, depth: s.depth.map(round4) })), depth: [round4(worst0), round4(deepIn(0, n - 1))], iterations: it, ...(left.length ? { left } : {}),
 		how: "an arm left in the torso, hips, head or thigh moved out, deepest first: on its IK the wrist target out along the skin or the elbow turned, on FK the arm raised out from the body or the elbow bent; eased over the frames around; a span QA reads worse with gets its frames back" };
 }

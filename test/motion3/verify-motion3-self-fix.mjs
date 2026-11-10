@@ -259,12 +259,22 @@ for (const [rig, sk] of [["x-bot", X], ["y-bot", Y]]) {
 	expect(`(l) ${rig} clean FK swing (arm_rest 72): identical to the take without the repair (1e-9), no repair fields`, digest(c.r.out) === digest(c.before) && !("spans" in (c.self ?? {})), JSON.stringify(c.self));
 }
 // the half-IK arm moves both ways: its FK angles and its IK levers, each as far as the arm is on them
+// ... and a half-IK arm whose hand eases onto a world anchor in the thigh (from f16, held from f24) keeps it there: FK
+// moves on its free frames fade with the anchor's weight (they would move the FK hand its target blends from)
+{
+	const T = fkTakes(X), H = X.restWorldPos[X.index.Hips][1], spot = [-X.restWorldPos[X.index.LeftUpLeg][0] - 0.01, +(H * 0.62).toFixed(3), 0];
+	const w = f => (f <= 16 ? 0 : f >= 24 ? 1 : null), keys = T.half.keys.map(k => ({ f: k.f, set: { ...k.set, ...(w(k.f) === null ? {} : { w_spot_r: w(k.f) }) } }));
+	const c = run(X, specOf({ anchors: { spot: { kind: "world", p: spot } }, keys: [...keys, { f: 16, set: { w_spot_r: 0 } }].sort((a, b) => a.f - b.f) }));
+	const d = moved(c.r.out, c.before, 24, 47, [X.index.RightHand]), early = [...c.r.out.ctx.fkArm.r.keys()].filter(f => f < 24).length;
+	console.log(`  x-bot FK swing, right arm half on its IK onto an anchor from f16: wrist moved ${d.toExponential(2)} m on f24-f47; FK levers on the right before f24 on ${early} frames; fixed.self ${JSON.stringify({ spans: c.self?.spans })}`);
+	expect("(l) x-bot half-IK arm easing onto an anchor: FK moves on its free frames, and the wrist keeps the anchor where it is held (1e-6 m)", early > 0 && d < 1e-6, String(d));
+}
 const half = fk["x-bot half"].r.out.ctx;
 expect("(l) x-bot FK swing with the right arm half on its IK: the right arm takes FK angles and IK levers", half.fkArm.r.size > 0 && half.skinPush.r.size + half.swivel.r.size > 0, JSON.stringify([half.fkArm.r.size, half.skinPush.r.size, half.swivel.r.size]));
 
-// (m) both arms at once: the hands crossed onto the opposite shoulders, their targets inside the chest. The arms take
-// turns (a move may take the other arm as deep as the deepest hit was there, never deeper, and never the hands into
-// each other), so the forearms stack on the chest instead of both undoing
+// (m) both arms at once: the hands crossed onto the opposite shoulders, their targets inside the chest. Each arm reads
+// the other's upper arm and forearm too, so the arms take turns, the deeper first, and stack on the chest instead of
+// undoing; no move takes the hands into each other
 const cross = (() => {
 	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0] };
 	const y = v => +(H * v).toFixed(3), down = { hand_l: [0.3, y(0.95), 0.25], hand_r: [-0.3, y(0.95), 0.25] }, on = { hand_l: [-0.14, y(1.36), -0.08], hand_r: [0.14, y(1.36), -0.08] };
@@ -272,8 +282,9 @@ const cross = (() => {
 })();
 const cr = run(X, specOf(cross)), crSelf = q => q.groups.filter(g => g.kind === "SELF").map(g => g.subject);
 console.log(`  x-bot crossed arms: BODY/FACE ${cm(worstOwn(cr.qa0))} -> ${cm(worstOwn(cr.r.qa))} cm, QA ${cr.qa0.total} -> ${cr.r.qa.total}, SELF ${JSON.stringify([crSelf(cr.qa0), crSelf(cr.r.qa)])}, fixed.self ${JSON.stringify({ spans: cr.self?.spans, left: cr.self?.left })}`);
-expect("(m) x-bot crossed arms: 10 cm or more before; both arms repaired (a span each), the deepest under 7 cm and QA under half", worstOwn(cr.qa0) >= 0.1 && worstOwn(cr.r.qa) < 0.07 && cr.r.qa.total * 2 < cr.qa0.total
-	&& ["l", "r"].every(k => cr.self?.spans?.some(s => s.side === k)), JSON.stringify([worstOwn(cr.r.qa), cr.r.qa.total, cr.self?.spans]));
+const crMoved = ["l", "r"].map(k => ["skinPush", "swivel"].reduce((n, m) => n + cr.r.out.ctx[m][k].size, 0) - ["skinPush", "swivel"].reduce((n, m) => n + cr.before.ctx[m][k].size, 0));
+expect("(m) x-bot crossed arms: 10 cm or more before; both arms moved, the deepest under 7 cm and QA under half", worstOwn(cr.qa0) >= 0.1 && worstOwn(cr.r.qa) < 0.07 && cr.r.qa.total * 2 < cr.qa0.total
+	&& cr.self?.spans?.length > 0 && crMoved.every(n => n > 0), JSON.stringify([worstOwn(cr.r.qa), cr.r.qa.total, crMoved, cr.self?.spans]));
 const crWas = groupsOf(cr.qa0, ["POP", "FLIP", "SELF"]), crNow = groupsOf(cr.r.qa, ["POP", "FLIP", "SELF"]);
 expect("(m) ... the hands do not go into each other (no SELF hands overlap) and no POP or FLIP is added or worse", !crSelf(cr.r.qa).includes("hands overlap") && [...crNow].every(([key, sev]) => crWas.has(key) && sev <= crWas.get(key) + 1e-9), JSON.stringify([[...crWas], [...crNow]]));
 

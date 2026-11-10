@@ -9,7 +9,6 @@ import { bodyNormal } from "../body.js";
 import { add, sub, scale, len, norm } from "../compiler/math.js";
 import { turnWeight } from "../compiler/pose.js";
 import { armHit, handHold, SIDES } from "./self-hits.js";
-import { QA_LIMITS } from "../qa/checks.js";
 
 export const MARGIN = 0.004, GAIN = 0.002;
 const PUSH_MAX = 0.2, WIDE_MAX = 0.3, TURN_MAX = 180, OUT_MAX = 45, BEND_MAX = 60, FK_MIN = 0.05;
@@ -31,14 +30,6 @@ const added = (v, mv, tp, ti, tf) => ({ push: mv.push ? add(v.push ?? [0, 0, 0],
 export const weightAt = (out, k, j) => turnWeight(out.frames[j].c[`armw_${k}`] ?? 0);
 const fkAt = (out, k, j) => 1 - Math.min(1, Math.max(0, out.frames[j].c[`armw_${k}`] ?? 0));
 const isFk = mv => Boolean(mv.out || mv.bend);
-/** Side k's IK miss (pose.js arm_miss: the wrist short of its target) on frame indices lo..hi. */
-export const missOf = (out, k, lo, hi) => out.frames.slice(lo, hi + 1).map(fr => fr.diag[`arm_miss_${k}`] ?? 0);
-/** Whether misses `now` read a REACH (QA's arm_miss past checks.limits.reach) that `was` did not, or a harder one. */
-export function missWorse(out, was, now) {
-	const lim = out.ctx.spec.checks?.limits?.reach ?? QA_LIMITS.reach;
-	return now.some((m, j) => m > lim && m > was[j] + 1e-9);
-}
-
 /** Sets move mv on side k at frame indices `at` ([j, share]) and solves them; -> undo (puts back the levers and the solved frames as they were). */
 export function apply(out, engine, k, mv, at) {
 	const f0 = out.f0 ?? 0, was = [];
@@ -87,28 +78,30 @@ export function movesFor(out, engine, body, k, i, h, known, wider = false) {
 	if (tw >= 0.05 && !h.hold) {
 		const nrm = bodyNormal(body, fr.s, h.p, body.skip.get(h.b));
 		if (nrm) for (const m of PUSHES) for (const r of REACH) push(moves, inReach(scale(nrm, m * (h.past + MARGIN)), r));
-		// the wider set, tried only where none of the above clears the frame: the wrist over the skin rather than into it
-		// (forward, up, out to the arm's side and between, as well as along the normal), by the depth times the lever from
-		// the shoulder to the hit (an upper arm across the belly moves its wrist that much more)
-		const yaw = ((fr.c.yaw ?? 0) * Math.PI) / 180, fwd = [Math.sin(yaw), 0, Math.cos(yaw)], side = scale([Math.cos(yaw), 0, -Math.sin(yaw)], k === "l" ? 1 : -1);
+	}
+	// the wider set (`wider`: on what the moves above left, self-repair.js), tried where none of those clears the frame:
+	// the wrist over the skin rather than into it (forward, up, out to the arm's side and between, as well as along the
+	// normal), by the depth times the lever from the shoulder to the hit (an upper arm across the belly moves its wrist
+	// that much more), up to WIDE_MAX in all, and the elbow turned farther
+	if (wider && tw >= 0.05 && !h.hold) {
+		const nrm = bodyNormal(body, fr.s, h.p, body.skip.get(h.b)), yaw = ((fr.c.yaw ?? 0) * Math.PI) / 180, fwd = [Math.sin(yaw), 0, Math.cos(yaw)], side = scale([Math.cos(yaw), 0, -Math.sin(yaw)], k === "l" ? 1 : -1);
 		const lever = Math.min(3, L / Math.max(0.1, len(sub(h.p, P0[a])))), dirs = [nrm, fwd, [0, 1, 0], side, norm(add(fwd, [0, 1, 0])), norm(add(fwd, side))].filter(Boolean);
 		for (const m of WIDE) for (const d of dirs) for (const r of REACH) push(wide, inReach(scale(d, m * lever * (h.past + MARGIN)), r), WIDE_MAX);
 	}
 	if (tw >= 0.05) {
 		for (const d of TURNS) for (const sg of [1, -1]) if (Math.abs((was.turn ?? 0) * tw + sg * d) <= TURN_MAX) moves.push({ turn: sg * d });
-		for (const d of WIDE_TURNS) for (const sg of [1, -1]) if (Math.abs((was.turn ?? 0) * tw + sg * d) <= TURN_MAX) wide.push({ turn: sg * d });
+		if (wider) for (const d of WIDE_TURNS) for (const sg of [1, -1]) if (Math.abs((was.turn ?? 0) * tw + sg * d) <= TURN_MAX) wide.push({ turn: sg * d });
 	}
 	// a hand the take holds (on the body, on an anchor, a grasp or a contact) keeps its place: no FK move
 	if (fkAt(out, k, i) >= FK_MIN && (h.hold === null || h.hold === "fk")) moves.push(...fkMoves(out, k, i, h, P0, a, e, was));
-	// a move of the wider set that leaves the wrist short of its target past QA's REACH limit is not made
-	const miss0 = missOf(out, k, i, i), tried = (list, wider = false) => list.flatMap(mv => {
+	const tried = list => list.flatMap(mv => {
 		const undo = apply(out, engine, k, mv, [[i, 1]]), P = out.frames[i].s.P, hit = armHit(out, body, i, k, known), past = hit ? hit.past : -Infinity;
-		const size = len(sub(P[e], P0[e])) + len(sub(P[w], P0[w])), gain = h.past - past, high = P[e][1] - P[a][1] > rise0 + 1e-9 || (wider && missWorse(out, miss0, missOf(out, k, i, i)));
+		const size = len(sub(P[e], P0[e])) + len(sub(P[w], P0[w])), gain = h.past - past, high = P[e][1] - P[a][1] > rise0 + 1e-9;
 		undo();
-		return !high && (past <= 0 || gain >= GAIN) ? [{ mv, clear: past <= 0, size, gain, wide: wider }] : [];
+		return !high && (past <= 0 || gain >= GAIN) ? [{ mv, clear: past <= 0, size, gain }] : [];
 	});
 	let ok = tried(moves);
-	if (wider && !ok.some(m => m.clear)) ok = ok.concat(tried(wide, true));
+	if (wider && !ok.some(m => m.clear)) ok = ok.concat(tried(wide));
 	ok.forEach((m, n) => { m.n = n; });
 	// ties keep the order tried (deterministic)
 	return ok.sort((p, q) => q.clear - p.clear || (p.clear ? p.size - q.size : q.gain - p.gain || p.size - q.size) || p.n - q.n);
