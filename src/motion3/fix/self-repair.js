@@ -14,8 +14,9 @@
 //  - again, until no hit is past the limit or MAX_IT moves are tried for each run of frames with a hit. A hand held on
 //    its target (self-hits.js "pinned") or on the body keeps it: only the elbow turns, and a wrist push spread toward it
 //    fades with the weight that holds it. An FK arm is not moved.
-// Never worse: a span whose deepest hit did not drop gets its frames back; the others stand together where QA (qa-of.js,
-// as pipeline.js reads it) is no worse with them, else they are tried in halves on top of what stood, down to one span.
+// Never worse: a span that neither takes GAIN off its deepest hit nor clears a frame gets its frames back; the others
+// stand together where QA (qa-of.js, as pipeline.js reads it) is no worse with them, else they are tried in halves on
+// top of what stood, down to one span.
 // A group stands where QA is no worse by keptRetime's rule (qa/verdict.js noWorse: problems, summed severity, goals
 // held), no goal that held is lost, and no group but BODY and FACE got worse or new (a contact, a grasp, a support, a
 // planted foot, a carried object, a collision with an object or a person, a reach, a pop or a flip); else its spans get
@@ -176,12 +177,15 @@ export function selfRepair(out, engine) {
 	const put = (s, from) => {
 		for (let x = s.a; x <= s.b; x++) { const m = from.get(x); out.frames[x] = m.fr; for (const k of KS) setLever(out, k, f0 + x, m.v[k]); read(x); }
 	};
-	const spans = runsOf([...before.keys()].sort((p, q) => p - q).map(x => [x, ""])).map(s => ({ a: s.a, b: s.b, depth: [0, deepIn(s.a, s.b)] }));
-	for (const s of spans) { put(s, before); s.depth[0] = deepIn(s.a, s.b); put(s, after); }
-	// a span whose deepest hit did not drop goes back without asking QA; the rest stand together where QA is no worse
-	// with them, else they are tried in halves on top of what stood, down to one span (deepest first)
-	const kept = [], drop = spans.filter(s => s.depth[1] >= s.depth[0]), rest = spans.filter(s => s.depth[1] < s.depth[0]).sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a);
-	for (const s of drop) { put(s, before); s.undone = "the span's deepest hit did not drop"; }
+	const openIn = (a, b) => KS.reduce((c, k) => c + hits[k].slice(a, b + 1).filter((_, j) => open(k, a + j)).length, 0);
+	const spans = runsOf([...before.keys()].sort((p, q) => p - q).map(x => [x, ""])).map(s => ({ a: s.a, b: s.b, depth: [0, deepIn(s.a, s.b)], open: [0, openIn(s.a, s.b)] }));
+	for (const s of spans) { put(s, before); s.depth[0] = deepIn(s.a, s.b); s.open[0] = openIn(s.a, s.b); put(s, after); }
+	// a span that neither takes GAIN off its deepest hit nor clears a frame of a hit goes back without asking QA (a take
+	// changed for nothing); the rest stand together where QA is no worse with them, else they are tried in halves on top
+	// of what stood, down to one span (deepest first)
+	const gains = s => s.depth[0] - s.depth[1] >= GAIN || s.open[1] < s.open[0];
+	const kept = [], rest = spans.filter(gains).sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a);
+	for (const s of spans.filter(s => !gains(s))) { put(s, before); s.undone = `the span's deepest hit did not drop ${GAIN * 1000} mm and no frame cleared`; }
 	const settle = (group, base) => {
 		for (const s of group) put(s, after);
 		const q = qaOf(out), no = worseWhy(q, base);
