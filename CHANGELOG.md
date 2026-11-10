@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Motion
+
+- Sample motions in the Motion tab: one click installs a walk or a flip on the
+  selected character and plays it, with no agent. On the hosted Studio, where
+  no agent server runs, the Agent panel says what works on the page and points
+  there instead of showing a server error.
+
 ## 3.2.2 - 2026-11-07
 
 A patch for the motion compiler and the agent: faster compiles, holds and automatic legs, arms, gaze and tempo, steadier agent turns, and depth exports that read right.

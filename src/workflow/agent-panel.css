@@ -880,6 +880,7 @@
 	font-size: var(--agent-font-sm);
 }
 .agent-offline-retry { align-self: center; display: inline-flex; align-items: center; gap: var(--agent-space-2); }
+a.agent-offline-retry { text-decoration: none; }
 .agent-signin-error { align-self: center; max-width: 32ch; }
 
 .agent-primary-button {
