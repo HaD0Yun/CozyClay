@@ -1,0 +1,20 @@
+// Simplified Chinese for the camera tutorial (camera-tutorial*.jsx).
+export const ZH_TUTORIAL = Object.freeze({
+	"Camera tutorial": "摄影机教程",
+	"Close tutorial": "关闭教程",
+	"Walk": "行走",
+	"Dolly": "推拉",
+	"Orbit": "环绕",
+	"Play": "播放",
+	"↓ Timeline, Camera Cuts": "↓ 时间线，摄影机剪辑",
+	"↘ Shot Camera monitor": "↘ 镜头摄影机监视器",
+	"Click here": "点击这里",
+	"1. Select the shot": "1. 选中镜头",
+	"2. Draw rail, then drag across the top view": "2. 点击绘制轨道，然后在顶视图中拖动",
+	"Drag a line here": "在这里拖出一条线",
+	"Click to fly the shot camera": "点击以操控镜头摄影机",
+	"Right-drag to look": "右键拖动环顾",
+	"Hold right, press keys": "按住右键并按键",
+	"Scroll to push in": "滚动推近",
+	"Alt + left-drag to circle": "Alt + 左键拖动环绕",
+});
