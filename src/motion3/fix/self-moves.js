@@ -10,7 +10,8 @@ import { add, sub, scale, len, norm } from "../compiler/math.js";
 import { turnWeight } from "../compiler/pose.js";
 import { armHit, handHold, SIDES } from "./self-hits.js";
 
-export const MARGIN = 0.004, GAIN = 0.002;
+const MARGIN = 0.004;
+export const GAIN = 0.002;
 const PUSH_MAX = 0.2, WIDE_MAX = 0.3, TURN_MAX = 180, OUT_MAX = 45, BEND_MAX = 60, FK_MIN = 0.05;
 const REACH = [0.95, 0.85, 0.75], PUSHES = [1, 1.75, 2.5], TURNS = [15, 30, 45, 60, 90], WIDE = [1, 1.75, 2.5], WIDE_TURNS = [120, 150], OUTS = [1, 1.75, 2.5, 4], BENDS = [1, 2, 3];
 const DEG = 180 / Math.PI;
@@ -27,7 +28,7 @@ export function setLever(out, k, f, v) {
 const added = (v, mv, tp, ti, tf) => ({ push: mv.push ? add(v.push ?? [0, 0, 0], scale(mv.push, tp)) : v.push, turn: mv.turn ? (v.turn ?? 0) + mv.turn * ti : v.turn,
 	out: mv.out ? (v.out ?? 0) + mv.out * tf : v.out, bend: mv.bend ? (v.bend ?? 0) + mv.bend * tf : v.bend });
 /** How far side k's arm is on its IK on frame index j (pose.js turnWeight of armw), and on FK (1 - armw: the FK hand's share of its target). */
-export const weightAt = (out, k, j) => turnWeight(out.frames[j].c[`armw_${k}`] ?? 0);
+const weightAt = (out, k, j) => turnWeight(out.frames[j].c[`armw_${k}`] ?? 0);
 const fkAt = (out, k, j) => 1 - Math.min(1, Math.max(0, out.frames[j].c[`armw_${k}`] ?? 0));
 const isFk = mv => Boolean(mv.out || mv.bend);
 /** Sets move mv on side k at frame indices `at` ([j, share]) and solves them; -> undo (puts back the levers and the solved frames as they were). */
