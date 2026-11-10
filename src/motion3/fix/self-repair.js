@@ -11,15 +11,17 @@
 //    A turn stays within TURN_MAX deg in all, a push within PUSH_MAX m, the elbow no higher over the shoulder than it
 //    was; the IK keeps the elbow's fold and the wrist's limits. A move that adds a POP or a FLIP to the arm is not made
 //    (self-guard.js);
-//  - again, until no hit is past the limit or MAX_IT moves are tried. A hand held on its target (self-hits.js "pinned")
-//    keeps it: only the elbow turns. A hand on the body or a fit, and an FK arm, are not moved.
-// Never worse: each span of frames the repair moved stands only where QA (qa-of.js, as pipeline.js reads it) is no worse
-// with it by keptRetime's rule (qa/verdict.js noWorse: problems, summed severity, goals held), no goal that held is lost,
-// no group but BODY and FACE got worse or new (a contact, a grasp, a support, a planted foot, a carried object, a
-// collision with an object or a person, a reach, a pop or a flip), and the span's deepest hit got shallower; else that
-// span gets its frames back exactly (the solved frames are kept, not solved again). Takes with no hit past the limit
-// are not touched. Reported in fixed.self: spans [{ at, depth: [before, after] }], depth [before, after] (m, the
-// deepest hit), iterations, and left [{ at, side, why }]: the frames still past the limit, with why.
+//  - again, until no hit is past the limit or MAX_IT moves are tried for each run of frames with a hit. A hand held on
+//    its target (self-hits.js "pinned") or on the body keeps it: only the elbow turns, and a wrist push spread toward it
+//    fades with the weight that holds it. An FK arm is not moved.
+// Never worse: a span whose deepest hit did not drop gets its frames back; the others stand together where QA (qa-of.js,
+// as pipeline.js reads it) is no worse with them, else they are tried in halves on top of what stood, down to one span.
+// A group stands where QA is no worse by keptRetime's rule (qa/verdict.js noWorse: problems, summed severity, goals
+// held), no goal that held is lost, and no group but BODY and FACE got worse or new (a contact, a grasp, a support, a
+// planted foot, a carried object, a collision with an object or a person, a reach, a pop or a flip); else its spans get
+// their frames back exactly (the solved frames are kept, not solved again). Takes with no hit past the limit are not
+// touched. Reported in fixed.self: spans [{ at, depth: [before, after] }], depth [before, after] (m, the deepest hit),
+// iterations, and left [{ at, side, why }]: the frames still past the limit, with why.
 import { bodyFor, bodyNormal } from "../body.js";
 import { add, sub, scale, len } from "../compiler/math.js";
 import { turnWeight } from "../compiler/pose.js";
