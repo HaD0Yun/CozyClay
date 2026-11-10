@@ -1128,11 +1128,11 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	const { transformWithOxc } = await import("vite");
 	const React = await import("react");
 	const { renderToStaticMarkup } = await import("react-dom/server");
-	const { FiPower, FiRotateCw } = await import("react-icons/fi");
+	const { FiDownload, FiPower, FiRotateCw } = await import("react-icons/fi");
 	// The card lives in its own module; hosted (an https page, no agent server to start) reads differently from self-served.
 	const cardFile = readFileSync(new URL("../src/workflow/AgentOfflineCard.jsx", import.meta.url), "utf8");
 	const build = (koImpl, hosted) => {
-		const scope = { React, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#start" };
+		const scope = { React, FiDownload, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#install" };
 		const source = parseSync("AgentOfflineCard.jsx", cardFile).program.body.map((node) => node.declaration ?? node).find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
 		return { scope, source: cardFile.slice(source.start, source.end) };
 	};
@@ -1151,13 +1151,13 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	expect("offline: Retry is busy while it re-probes", busy.includes("disabled") && busy.includes('aria-busy="true"') && busy.includes("Checking…"), busy);
 	const korean = await render((_english, koText) => koText, { probing: false, onRetry() {} });
 	expect("offline: the card reads in Korean under the Korean locale", korean.includes("에이전트 서버가 실행 중이 아니에요") && korean.includes("다시 확인"), korean);
-	expect("the panel imports the card, and the card decides hosted by the page's protocol", panel.includes('import { OfflineCard } from "./AgentOfflineCard.jsx";') && cardFile.includes('const hostedPage = () => globalThis.location?.protocol === "https:";'));
+	expect("the panel imports the card, and the card decides hosted by the page's protocol or ?try", panel.includes('import { OfflineCard } from "./AgentOfflineCard.jsx";') && cardFile.includes('globalThis.location?.protocol === "https:" || new URLSearchParams(globalThis.location?.search ?? "").has("try")'));
 	const hosted = await render((english) => english, { probing: false, onRetry() {} }, true);
 	expect("hosted: the title says where the agent runs, not that a server is down", hosted.includes("<h3>The agent runs on your computer</h3>") && !hosted.includes("not running"), hosted);
-	expect("hosted: it says what works on the page and points at the sample motions", hosted.includes("stage the scene, pose characters and set the camera") && hosted.includes("open the Motion tab and pick a sample motion"), hosted);
-	expect("hosted: it names the command and links the install steps, with no Retry that could only fail", hosted.includes("<code>npx cozyclay</code>") && hosted.includes('href="https://cozyclay.org/#start"') && hosted.includes(">How to install</a>") && !hosted.includes("Retry") && hosted.includes('data-agent-offline="hosted"'), hosted);
+	expect("hosted: one Install button that opens the landing page's install steps, with no Retry that could only fail", hosted.includes('href="https://cozyclay.org/#install"') && hosted.includes("Install CozyClay</a>") && hosted.includes("agent-primary-button") && !hosted.includes("Retry") && !hosted.includes("<code>") && hosted.includes('data-agent-offline="hosted"'), hosted);
+	expect("hosted: it points at the sample motions for moving a character without it", hosted.includes("open the Motion tab and pick a sample motion"), hosted);
 	const hostedKo = await render((_english, koText) => koText, { probing: false, onRetry() {} }, true);
-	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트는 내 컴퓨터에서 실행돼요") && hostedKo.includes("샘플 동작") && hostedKo.includes("설치 방법"), hostedKo);
+	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트는 내 컴퓨터에서 실행돼요") && hostedKo.includes("샘플 동작") && hostedKo.includes("CozyClay 설치"), hostedKo);
 }
 
 // The model-connect funnel (PR E): one attempt is one connect_started and one connect_finished, the
