@@ -1129,13 +1129,15 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	const React = await import("react");
 	const { renderToStaticMarkup } = await import("react-dom/server");
 	const { FiPower, FiRotateCw } = await import("react-icons/fi");
-	const build = (koImpl) => {
-		const scope = { React, FiPower, FiRotateCw, ko: koImpl };
-		const source = parseSync("AgentPanel.jsx", panel).program.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
-		return { scope, source: panel.slice(source.start, source.end) };
+	// The card lives in its own module; hosted (an https page, no agent server to start) reads differently from self-served.
+	const cardFile = readFileSync(new URL("../src/workflow/AgentOfflineCard.jsx", import.meta.url), "utf8");
+	const build = (koImpl, hosted) => {
+		const scope = { React, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#start" };
+		const source = parseSync("AgentOfflineCard.jsx", cardFile).program.body.map((node) => node.declaration ?? node).find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
+		return { scope, source: cardFile.slice(source.start, source.end) };
 	};
-	const render = async (koImpl, props) => {
-		const { scope, source } = build(koImpl);
+	const render = async (koImpl, props, hosted = false) => {
+		const { scope, source } = build(koImpl, hosted);
 		const { code } = await transformWithOxc(`function card() {\n${source}\nreturn OfflineCard;\n}`, "card.jsx", { lang: "jsx", jsx: { runtime: "classic" } });
 		const OfflineCard = new Function(...Object.keys(scope), `${code}\nreturn card();`)(...Object.values(scope));
 		return renderToStaticMarkup(React.createElement(OfflineCard, props));
@@ -1149,6 +1151,13 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	expect("offline: Retry is busy while it re-probes", busy.includes("disabled") && busy.includes('aria-busy="true"') && busy.includes("Checking…"), busy);
 	const korean = await render((_english, koText) => koText, { probing: false, onRetry() {} });
 	expect("offline: the card reads in Korean under the Korean locale", korean.includes("에이전트 서버가 실행 중이 아니에요") && korean.includes("다시 확인"), korean);
+	expect("the panel imports the card, and the card decides hosted by the page's protocol", panel.includes('import { OfflineCard } from "./AgentOfflineCard.jsx";') && cardFile.includes('const hostedPage = () => globalThis.location?.protocol === "https:";'));
+	const hosted = await render((english) => english, { probing: false, onRetry() {} }, true);
+	expect("hosted: the title says where the agent runs, not that a server is down", hosted.includes("<h3>The agent runs on your computer</h3>") && !hosted.includes("not running"), hosted);
+	expect("hosted: it says what works on the page and points at the sample motions", hosted.includes("stage the scene, pose characters and set the camera") && hosted.includes("open the Motion tab and pick a sample motion"), hosted);
+	expect("hosted: it names the command and links the install steps, with no Retry that could only fail", hosted.includes("<code>npx cozyclay</code>") && hosted.includes('href="https://cozyclay.org/#start"') && hosted.includes(">How to install</a>") && !hosted.includes("Retry") && hosted.includes('data-agent-offline="hosted"'), hosted);
+	const hostedKo = await render((_english, koText) => koText, { probing: false, onRetry() {} }, true);
+	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트는 내 컴퓨터에서 실행돼요") && hostedKo.includes("샘플 동작") && hostedKo.includes("설치 방법"), hostedKo);
 }
 
 // The model-connect funnel (PR E): one attempt is one connect_started and one connect_finished, the

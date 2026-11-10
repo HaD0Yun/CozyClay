@@ -7,6 +7,17 @@ Studio
 - A first visit to the hosted Studio opens on a ready stage with a character
   on it. The project chooser no longer comes first there; File > New and Open
   still reach it, and `npx cozyclay` keeps it.
+- That first visit opens with the camera tutorial from 2.x: seven steps done in
+  the Studio itself, controls first (look, walk, dolly, orbit), then a shot, a
+  rail and looking through it. The character walks, so the camera has
+  something to follow. (#1161)
+
+Motion
+
+- Sample motions in the Motion tab: one click installs a walk or a flip on the
+  selected character and plays it, with no agent. On the hosted Studio, where
+  no agent server runs, the Agent panel says what works on the page and points
+  there instead of showing a server error.
 
 ## 3.2.2 - 2026-11-07
 
