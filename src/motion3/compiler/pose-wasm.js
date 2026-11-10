@@ -85,11 +85,11 @@ export function poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, 
 	const down = num(c.arm_rest, 72), hang = num(c.arm_hang) && num(c.arm_hang) * hangOf(sk, down);
 	for (const [name, sg, k] of [["Left", -1, "l"], ["Right", 1, "r"]]) {
 		const h = hang * (1 - Math.min(1, Math.max(0, num(c[`armw_${k}`]) + num(c[`hangoff_${k}`]))));
-		X.rot1(sk.index[`${name}Arm`], 2, sg * down);
+		X.rot1(sk.index[`${name}Arm`], 2, sg * (down - (hooks.fkArm?.(k)?.out ?? 0)));
 		if (h) X.rot1(sk.index[`${name}ForeArm`], 2, sg * h);
 	}
 	for (const [k, name] of Object.entries(SIDES)) {
-		const bd = num(c[`abend_${k}`]), sw = num(c[`aswing_${k}`]);
+		const bd = num(c[`abend_${k}`]) + (hooks.fkArm?.(k)?.bend ?? 0), sw = num(c[`aswing_${k}`]);
 		if (bd) { X.rot1(sk.index[`${name}ForeArm`], 0, -bd); X.limit_fold(side[k]); }
 		if (sw) X.rot1(sk.index[`${name}Arm`], 0, -sw);
 	}

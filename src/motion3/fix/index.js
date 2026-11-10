@@ -133,7 +133,7 @@ export function applyFixes(out, fix, engine, opts = {}) {
 
 /** What a fix pass leaves in out and out.ctx (their fields, the frames, the entries of the maps the passes share), for restore. */
 function snapshot(out) {
-	const { ctx } = out, maps = [...["push", "swivel", "skinPush"].flatMap(m => Object.values(ctx[m] ?? {})), ...["sockets", "rims", "supports"].map(m => ctx[m]).filter(Boolean)];
+	const { ctx } = out, maps = [...["push", "swivel", "skinPush", "fkArm"].flatMap(m => Object.values(ctx[m] ?? {})), ...["sockets", "rims", "supports"].map(m => ctx[m]).filter(Boolean)];
 	return { out: { ...out }, ctx: { ...ctx }, frames: out.frames.slice(), maps: maps.map(m => [m, [...m]]) };
 }
 
@@ -151,7 +151,7 @@ function restore(out, s) {
 /** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` and of the 3-frame runs `short` too (applyFixes). */
 function fromKeys(out, fix, engine, opts, keys, air, short, note) {
 	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns"]) delete out[k];
-	for (const m of ["push", "swivel", "skinPush"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
+	for (const m of ["push", "swivel", "skinPush", "fkArm"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
 	engine.rebake(keys);
 	engine.solve(engine.all());
 	return runFixes(out, fix, engine, opts, air, short, note);

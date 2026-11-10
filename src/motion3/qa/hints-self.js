@@ -11,7 +11,7 @@ const overlaps = (at, first, last) => { const [, a, b] = /f(\d+)-f(\d+)/.exec(at
 export function selfNote(X, g, part) {
 	const side = /_([lr])$/.exec(part ?? "")?.[1];
 	if (!side || !/^(hand|farm|uarm)_/.test(part)) return "";
-	if (X.spec?.fix === false || X.spec?.fix?.self === false) return "; fix.self is off for this take: turn it on to move the arm out with its IK";
+	if (X.spec?.fix === false || X.spec?.fix?.self === false) return "; fix.self is off for this take: turn it on to move the arm out (with its IK, or its FK angles)";
 	const self = X.out?.fixed?.self, left = self?.left?.find(l => l.side === side && overlaps(l.at, g.first, g.last));
 	if (left) return `; fix.self left ${left.at} (${left.why})`;
 	const span = self?.spans?.find(s => overlaps(s.at, g.first, g.last));
