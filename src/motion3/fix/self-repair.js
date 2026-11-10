@@ -151,16 +151,16 @@ export function selfRepair(out, engine) {
 	const open = (k, j) => hits[k][j] !== null && hits[k][j].past > 0;
 	const deepIn = (a, b) => Math.max(0, ...KS.flatMap(k => hits[k].slice(a, b + 1).map((h, j) => (open(k, a + j) ? h.depth : 0))));
 	if (!KS.some(k => hits[k].some((_, j) => open(k, j)))) return null;
-	const worst0 = deepIn(0, n - 1), movable = (k, j) => open(k, j) && hits[k][j].hold !== "fk";
-	const qa0 = KS.some(k => hits[k].some((_, j) => movable(k, j))) ? qaOf(out) : null;
-	// the BODY and FACE subjects QA reports before the repair: a move must not add another (it would count as a new problem)
-	known = new Set((qa0?.groups ?? []).filter(g => OWN.has(g.kind)).map(g => `${g.kind} ${g.subject}`));
+	const worst0 = deepIn(0, n - 1), movable = (k, j) => open(k, j) && hits[k][j].hold !== "fk", any = KS.some(k => hits[k].some((_, j) => movable(k, j)));
+	// the BODY and FACE subjects of the arms QA reports before the repair (armHit seen, every frame): a move should not add
+	// another (it would count as a new problem)
+	known = new Set(KS.flatMap(k => hits[k].flatMap(h => h?.seen ?? [])));
 	// before: the levers and solved frame of every frame index the repair moves, as they were
 	const before = new Map(), done = new Set();
 	// the move cap: MAX_IT for each run of frames with a hit QA reads
 	const cap = MAX_IT * KS.reduce((c, k) => c + runsOf(hits[k].flatMap((_, j) => (movable(k, j) ? [[j, ""]] : []))).length, 0);
 	let it = 0;
-	while (qa0 && it < cap) {
+	while (any && it < cap) {
 		let pick = null;
 		for (const k of KS) hits[k].forEach((h, j) => { if (movable(k, j) && !done.has(`${k}${j}`) && (!pick || h.past > pick.h.past)) pick = { k, j, h }; });
 		if (!pick) break;
@@ -194,7 +194,8 @@ export function selfRepair(out, engine) {
 		if (group.length === 1) { group[0].undone = no; return base; }
 		return settle(group.slice(group.length >> 1), settle(group.slice(0, group.length >> 1), base));
 	};
-	if (rest.length) { for (const s of rest) put(s, before); settle(rest, qa0); }
+	// QA of the take before the repair is read only when a span may stand
+	if (rest.length) { for (const s of rest) put(s, before); settle(rest, qaOf(out)); }
 	kept.sort((p, q) => p.a - q.a);
 	// what is still past the limit, and why
 	const left = [];
