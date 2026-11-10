@@ -15,7 +15,10 @@
 //   penetration  hands pushed out of scene boxes along the box normal when the depth past the
 //                allowance is at most this many metres (true = 0.02), eased in and out
 //   self         arms out of the rest of the body on its fitted skin: the elbow turns about the
-//                shoulder-wrist line, the hand is pushed out along the skin (self.js)
+//                shoulder-wrist line, the hand is pushed out along the skin (self.js); then an arm still in the torso,
+//                hips, head or a thigh past QA's BODY or FACE limit moves out with its IK, deepest first, spread over a
+//                window of frames, each span kept only where QA is no worse (self-repair.js: fixed.self spans, depth,
+//                iterations, left)
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
 //                4 frames or more that falls, or of 3 (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
 //                one a later fix makes starts the fixes again with its key interval kept (applyFixes, fixed.retime.air); the
@@ -44,6 +47,7 @@ import { otherHandHold } from "./other-hand.js";
 import { pushOut } from "./push.js";
 import { retime } from "./retime.js";
 import { selfClear } from "./self.js";
+import { selfRepair } from "./self-repair.js";
 import { personOut } from "./person.js";
 import { ballisticFix } from "./ballistic.js";
 import { spinFix } from "./spin.js";
@@ -67,6 +71,8 @@ export function fixOptions(fix) {
 
 /** The slide report with the flat feet whose turn waited (turn.js): turns { frames, max deg }. */
 const withTurns = (turns, slide) => (turns ? { ...(slide ?? { frames: 0, how: "planted heel/ball held in place" }), turns, how: `${slide?.how ?? "planted heel/ball held in place"}; a flat planted foot keeps its heading until it lifts` } : slide);
+/** The self fix's report: the elbow plan and skin pushes (self.js), then the repair of what they left (self-repair.js). */
+const withRepair = (clear, repair) => (repair ? { ...clear, ...repair, how: clear ? `${clear.how}; then ${repair.how}` : repair.how } : clear);
 const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), eased: Math.max(a.eased, b.eased), max: Math.max(a.max, b.max), how: a.how } : a ?? b);
 
 /**
@@ -161,7 +167,7 @@ function retimedAir(out) {
 		.map(([a, b]) => [Math.max(0, Math.floor(from(a))), Math.min(n - 1, Math.ceil(from(b)))]);
 }
 
-function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}) {
+function runFixes(out, fix, engine, { whole = true, repair = true } = {}, air, short, note = {}) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	const supports = out.ctx.spec?.checks?.supports ?? [];
 	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 3 frames or more; a walk's one-frame lift is none)
@@ -179,7 +185,7 @@ function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}
 	if (fix.reach && fixed.slide?.pivots) put("reachLegs", mergeReach(fixed.reachLegs, lowerHips(out, engine)));
 	if (fix.grasp) put("otherHand", otherHandHold(out, engine));
 	if (fix.penetration > 0) put("penetration", pushOut(out, engine, fix.penetration));
-	if (fix.self) put("self", selfClear(out, engine));
+	if (fix.self) { const clear = selfClear(out, engine); put("self", repair ? withRepair(clear, selfRepair(out, engine)) : clear); }
 	if (fix.person) put("person", personOut(out, engine));
 	if (fix.reach) put("reachArms", armReach(out));
 	// the flight last, on the frames QA reads (an air run of the first solve that the leg fixes put back on the ground

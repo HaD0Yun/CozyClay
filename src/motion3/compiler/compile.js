@@ -188,7 +188,8 @@ export function solveFrame(ctx, c0, f, lead = true) {
 
 /**
  * opts.window = [a, b] solves only frames a..b (out.f0 = a, out.frames[i] is frame a + i);
- * opts.keys replaces the generator expansion; opts.fixes = false skips the auto-fix pass.
+ * opts.keys replaces the generator expansion; opts.fixes = false skips the auto-fix pass; opts.selfRepair = false runs
+ * fix.self without its repair pass (fix/self-repair.js), the take that pass starts from.
  */
 export function compileMotion(spec, { sk, scene }, opts = {}) {
 	if (spec?.schema !== "cozyclay.motion-spec.v1") throw new Error("MOTION_SPEC_INVALID: schema must be cozyclay.motion-spec.v1");
@@ -233,7 +234,7 @@ export function compileMotion(spec, { sk, scene }, opts = {}) {
 	ctx.hold = holdHook(ctx, out, f => solveFrame(ctx, channelsAt(out.baked, f), f, false), f => solveFrame(ctx, channelsAt(out.baked, f), f));
 	engine.rebake(opts.keys ?? expandGenerators(spec, sk));
 	engine.solve(engine.all());
-	out.fixed = opts.fixes === false ? {} : applyFixes(out, fix, engine, { whole: !opts.window });
+	out.fixed = opts.fixes === false ? {} : applyFixes(out, fix, engine, { whole: !opts.window, repair: opts.selfRepair !== false });
 	// a retime maps the key frames only once it is done: solve the keyed frames again on the final map
 	if (ctx.hold && out.timeMap) engine.solve(engine.all());
 	return out;
