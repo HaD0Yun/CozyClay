@@ -9,13 +9,13 @@ const hostedPage = () => globalThis.location?.protocol === "https:" || new URLSe
 // the landing page opens its install steps (the Node.js download, then the one command) on this hash
 const INSTALL_URL = "https://cozyclay.org/#install";
 
-// No agent server answered. Self-served: say how to start it. Hosted: show what the agent does (three requests
+// No agent server answered. Self-served: say how to start it. Hosted: show what the agent does (a few requests
 // as buttons, AgentHostedDemos.jsx), then the way to use it for real: the agent needs CozyClay on the visitor's
 // computer, so the card ends in one Install button.
 export function OfflineCard({ probing, onRetry }) {
 	if (hostedPage()) return <div className="agent-state-card agent-offline-card" data-agent-card="offline" data-agent-offline="hosted" role="status" aria-live="polite">
 		<h3>{ko("See what the agent does", "에이전트가 하는 일 보기", "看看智能体能做什么")}</h3>
-		<p>{ko("Press a request. These three are ready-made results.", "요청을 눌러 보세요. 이 세 가지는 미리 만들어 둔 결과입니다.", "点一个请求试试。这三个是预先做好的结果。")}</p>
+		<p>{ko("Press a request. These are ready-made results.", "요청을 눌러 보세요. 미리 만들어 둔 결과입니다.", "点一个请求试试。这些是预先做好的结果。")}</p>
 		<AgentHostedDemos />
 		<p className="agent-offline-note">{ko("To direct it in your own words, install CozyClay. The agent runs on your computer.", "내 말로 직접 시키려면 CozyClay를 설치하세요. 에이전트는 내 컴퓨터에서 실행됩니다.", "想用自己的话指挥它，请安装 CozyClay。智能体在你的电脑上运行。")}</p>
 		<a className="agent-primary-button agent-offline-install" href={INSTALL_URL} target="_blank" rel="noreferrer"><FiDownload size={13} aria-hidden="true" /> {ko("Install CozyClay", "CozyClay 설치", "安装 CozyClay")}</a>
