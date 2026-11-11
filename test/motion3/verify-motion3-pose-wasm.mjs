@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // pose() on the WebAssembly module (src/motion3/compiler/pose-wasm.js, native/pose-rs) is the JS pose bit for bit: random
-// channels and hooks on both rigs give the same bone positions, rotations and diag as poseJs, and a compiled take is the
+// channels and hooks (the self repair's FK arm angles among them) on both rigs give the same bone positions, rotations and diag as poseJs, and a compiled take is the
 // same whichever path ran (a child process with CCLAY_POSE_WASM=0 compiles the JS reference).
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -66,12 +66,15 @@ function hooks(sk) {
 	if (rnd() < 0.25) return {};
 	const reach = Object.fromEntries(["l", "r"].map(k => [k, vec([0, 0, 0], 0.7)]));
 	const turns = Object.fromEntries(["l", "r"].map(k => [k, maybe(0.4, () => range(-60, 60))]));
+	// the self repair's FK angles (fix/self-moves.js): the arm out from its arm_rest and the elbow bent, deg
+	const fk = Object.fromEntries(["l", "r"].map(k => [k, maybe(0.5, () => ({ out: range(-10, 45), bend: range(-60, 60) }))]));
 	return {
 		armOrder: rnd() < 0.5 ? ["l", "r"] : undefined,
 		handTarget: (k, s) => { const a = s.P[sk.index[`${k === "l" ? "Left" : "Right"}Arm`]]; return [a[0] + reach[k][0], a[1] + reach[k][1], a[2] + reach[k][2]]; },
 		push: maybe(0.3, () => k => (k === "l" ? [0.01, -0.02, 0.03] : undefined)),
 		softReach: rnd() < 0.5, foldFree: rnd() < 0.2,
 		swivel: k => turns[k],
+		fkArm: k => fk[k],
 		fingerWeights: maybe(0.3, () => k => (k === "r" ? { fist: 0.7, grip: 0.6 } : undefined)),
 		afterArm: (k, s, diag) => { diag[`hand_${k}`] = s.P[sk.index[`${k === "l" ? "Left" : "Right"}Hand`]].slice(); },
 	};
@@ -91,7 +94,7 @@ for (const rig of ["x-bot-tpose", "y-bot-tpose"]) {
 		});
 		assert.deepEqual(a.diag, b.diag, `${rig} case ${t}: diag`);
 	}
-	console.log(`PASS ${rig}: 400 random poses (channels, hand targets, soft reach, swivels, finger presets) are bit for bit the JS pose`);
+	console.log(`PASS ${rig}: 400 random poses (channels, hand targets, soft reach, swivels, FK arm angles, finger presets) are bit for bit the JS pose`);
 }
 
 const takes = Object.fromEntries(FIXTURES.map(name => [name, takeHash(name)]));

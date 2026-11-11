@@ -15,7 +15,10 @@
 //   penetration  hands pushed out of scene boxes along the box normal when the depth past the
 //                allowance is at most this many metres (true = 0.02), eased in and out
 //   self         arms out of the rest of the body on its fitted skin: the elbow turns about the
-//                shoulder-wrist line, the hand is pushed out along the skin (self.js)
+//                shoulder-wrist line, the hand is pushed out along the skin (self.js); then an arm still in the torso,
+//                hips, head or a thigh past QA's BODY or FACE limit moves out with its IK, deepest first, spread over a
+//                window of frames, each span kept only where QA is no worse (self-repair.js: fixed.self spans, depth,
+//                iterations, left)
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
 //                4 frames or more that falls, or of 3 (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
 //                one a later fix makes starts the fixes again with its key interval kept (applyFixes, fixed.retime.air); the
@@ -46,13 +49,14 @@ import { otherHandHold } from "./other-hand.js";
 import { pushOut } from "./push.js";
 import { retime } from "./retime.js";
 import { selfClear } from "./self.js";
+import { selfRepair } from "./self-repair.js";
 import { personOut } from "./person.js";
 import { ballisticFix } from "./ballistic.js";
 import { spinFix } from "./spin.js";
 import { flightGate } from "./flight-gate.js";
 import { airRuns } from "../qa/style.js";
 import { flights, fallingRuns, popsOf, MIN_RUN } from "../qa/flight-checks.js";
-import { runMotionQa } from "../qa/index.js";
+import { qaOf } from "./qa-of.js";
 import { noWorse, compareQa } from "../qa/verdict.js";
 
 /** The keyed channels a flight fix moves that QA KEY compares with the keys. */
@@ -69,6 +73,8 @@ export function fixOptions(fix) {
 
 /** The slide report with the flat feet whose turn waited (turn.js): turns { frames, max deg }. */
 const withTurns = (turns, slide) => (turns ? { ...(slide ?? { frames: 0, how: "planted heel/ball held in place" }), turns, how: `${slide?.how ?? "planted heel/ball held in place"}; a flat planted foot keeps its heading until it lifts` } : slide);
+/** The self fix's report: the elbow plan and skin pushes (self.js), then the repair of what they left (self-repair.js). */
+const withRepair = (clear, repair) => (repair ? { ...clear, ...repair, how: clear ? `${clear.how}; then ${repair.how}` : repair.how } : clear);
 const mergeReach = (a, b) => (a && b ? { frames: Math.max(a.frames, b.frames), eased: Math.max(a.eased, b.eased), max: Math.max(a.max, b.max), how: a.how } : a ?? b);
 
 /**
@@ -129,7 +135,7 @@ export function applyFixes(out, fix, engine, opts = {}) {
 
 /** What a fix pass leaves in out and out.ctx (their fields, the frames, the entries of the maps the passes share), for restore. */
 function snapshot(out) {
-	const { ctx } = out, maps = [...["push", "swivel", "skinPush"].flatMap(m => Object.values(ctx[m] ?? {})), ...["sockets", "rims", "supports"].map(m => ctx[m]).filter(Boolean)];
+	const { ctx } = out, maps = [...["push", "swivel", "skinPush", "fkArm"].flatMap(m => Object.values(ctx[m] ?? {})), ...["sockets", "rims", "supports"].map(m => ctx[m]).filter(Boolean)];
 	return { out: { ...out }, ctx: { ...ctx }, frames: out.frames.slice(), maps: maps.map(m => [m, [...m]]) };
 }
 
@@ -144,18 +150,10 @@ function restore(out, s) {
 	for (const [m, entries] of s.maps) { m.clear(); for (const [k, v] of entries) m.set(k, v); }
 }
 
-/** QA of out as pipeline.js reads it (frame-range checks following the time map), unexplained. */
-function qaOf(out) {
-	const spec = out.ctx.spec, map = out.timeMap, c = structuredClone(spec.checks ?? {}), w = r => (map && Array.isArray(r) ? [Math.round(map(r[0])), Math.round(map(r[1]))] : r);
-	for (const name of ["contacts", "orient", "below"]) for (const k of c[name] ?? []) k.when = w(k.when);
-	for (const k of c.clearance ?? []) k.frames = w(k.frames);
-	return runMotionQa(out.ctx.sk, out, { ...spec, checks: c }, { explain: false });
-}
-
 /** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` and of the 3-frame runs `short` too (applyFixes). */
 function fromKeys(out, fix, engine, opts, keys, air, short, note) {
-	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns"]) delete out[k];
-	for (const m of ["push", "swivel", "skinPush"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
+	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns", "selfKeys"]) delete out[k];
+	for (const m of ["push", "swivel", "skinPush", "fkArm"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
 	engine.rebake(keys);
 	engine.solve(engine.all());
 	return runFixes(out, fix, engine, opts, air, short, note);
@@ -171,7 +169,7 @@ function retimedAir(out) {
 		.map(([a, b]) => [Math.max(0, Math.floor(from(a))), Math.min(n - 1, Math.ceil(from(b)))]);
 }
 
-function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}) {
+function runFixes(out, fix, engine, { whole = true, repair = true } = {}, air, short, note = {}) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	const supports = out.ctx.spec?.checks?.supports ?? [];
 	// retime leaves a fall alone, a run the take cuts or a hand holds too (qa/flight-checks.js fallingRuns: 3 frames or more; a walk's one-frame lift is none)
@@ -189,7 +187,7 @@ function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}
 	if (fix.reach && fixed.slide?.pivots) put("reachLegs", mergeReach(fixed.reachLegs, lowerHips(out, engine)));
 	if (fix.grasp) put("otherHand", otherHandHold(out, engine));
 	if (fix.penetration > 0) put("penetration", pushOut(out, engine, fix.penetration));
-	if (fix.self) put("self", selfClear(out, engine));
+	if (fix.self) { const clear = selfClear(out, engine); put("self", repair ? withRepair(clear, selfRepair(out, engine)) : clear); }
 	if (fix.person) put("person", personOut(out, engine));
 	if (fix.reach) put("reachArms", armReach(out));
 	// the flight last, on the frames QA reads (an air run of the first solve that the leg fixes put back on the ground
