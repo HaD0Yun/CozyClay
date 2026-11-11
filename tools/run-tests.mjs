@@ -18,7 +18,7 @@ const NODE_FILES = [
 	"test/verify-proxy-figure-bounds.mjs", "test/verify-sample-motions.mjs", "test/verify-guest-start.mjs",
 	"test/verify-character-capabilities.mjs", "test/verify-pose-entry.mjs", "test/verify-test-shards.mjs", "test/verify-select-tests.mjs",
 	"test/verify-root-path.mjs", "test/verify-tutorial-recorder.mjs", "test/motion3/verify-motion3-bricks.mjs", "test/motion3/verify-motion3-autofill.mjs", "test/motion3/verify-motion3-native.mjs", "test/verify-studio-task-scene-host.mjs", "test/motion3/verify-motion3-poses.mjs",
-	"test/verify-studio-elements.mjs",
+	"test/verify-studio-elements.mjs", "test/verify-camera-roll.mjs",
 	"test/bus/verify-view-mode-pose.mjs",
 	"test/verify-studio-actions.mjs",
 	"test/ardy/verify-collision-blockers.mjs",

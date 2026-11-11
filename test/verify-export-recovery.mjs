@@ -93,7 +93,7 @@ function fixture() {
 		ikStatesRef: { current: new Map() }, snapshotIkKeys: (state) => new Map(state.keys),
 		captureCurrentFraming: () => ({ pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z }, yaw: 0.2, pitch: 0.1, fovDeg: camera.fov }),
 		shotCamRef: { current: camera }, rigs: { cast: rig },
-		look: { current: { yaw: 0.2, pitch: 0.1 } }, propFrameRef: { current: 42 }, propSyncRef: { current() {} }, syncCarriers() {}, syncPhysicsOverlays() {},
+		look: { current: { yaw: 0.2, pitch: 0.1, roll: 0 } }, propFrameRef: { current: 42 }, propSyncRef: { current() {} }, syncCarriers() {}, syncPhysicsOverlays() {},
 		captureRef: { current: { createExportCapture(output) {
 			const target = { output: { ...output }, disposed: false, scene: {}, render() {
 				const state = { camera: camera.position.toArray(), fov: camera.fov, scale: rig.scale.toArray(), placement: parent.position.toArray(), bone: bone.position.toArray() };

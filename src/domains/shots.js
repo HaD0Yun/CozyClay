@@ -51,7 +51,7 @@ function createShotsDomain(appContext, initial = {}) {
   const write = update => writeState(before => ({ ...before, shots: typeof update === 'function' ? update(before.shots) : update }));
   function renderCamera(camera, manual, fovDeg) {
     const angles = aimAt(camera.position, camera.lookAt), shared = appContext.shared;
-    Object.assign(shared.look.current, angles);
+    Object.assign(shared.look.current, angles, { roll: 0 });
     shared.shotCameraPosRef.current = { ...camera.position };
     const mounted = shared.shotCamRef.current;
     if (mounted) {
