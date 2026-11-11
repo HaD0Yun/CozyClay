@@ -9,21 +9,15 @@
 import { applyTakeFrame, isTakeV3 } from "./motion3/playback.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
 import { fk } from "./motion3/compiler/skeleton.js";
-import { retargetPlan, retargetPose } from "./motion3/rigs/retarget.js";
-import { importedRigData } from "./character-rig.js";
+import { retargetPose } from "./motion3/rigs/retarget.js";
+import { importedRigData, isImportedModel } from "./character-rig.js";
 
-const plans = new Map(), bonesByRig = new WeakMap();
+const orders = new WeakMap(), bonesByRig = new WeakMap();
 
-/** The retarget plan of a registered imported model (rebuilt when its data or skeleton changes), else null. */
+/** The registered data of an imported model with its retarget plan (registerCastRigs builds it), else null. */
 function planFor(model) {
-	const data = importedRigData(model), sk = data && skeletonFor(model);
-	if (!sk) return null;
-	let hit = plans.get(model);
-	if (!hit || hit.data !== data || hit.sk !== sk) {
-		hit = { data, sk, plan: retargetPlan(data.raw, data.report, sk), order: null };
-		plans.set(model, hit);
-	}
-	return hit;
+	const data = importedRigData(model);
+	return data && data.sk === skeletonFor(model) ? data : null;
 }
 
 /** The file's top joint's parent space in the placement frame: { axes (3x3 rows), k (metres per raw unit), shift (m) }. */
@@ -56,18 +50,22 @@ export function restoreImportedBind(rig, model) {
 	return true;
 }
 
-/** applyTakeFrame for any character: frame `frame` of `take` onto `rig` (see the head of this file). */
+/**
+ * applyTakeFrame for any character: frame `frame` of `take` onto `rig` (see the head of this file). A take of an
+ * imported rig that is not registered (its entry was refused) leaves the bones as they are and answers null.
+ */
 export function playTakeFrame(rig, take, frame) {
 	const hit = rig && isTakeV3(take) ? planFor(take.rig) : null;
-	if (!hit) return applyTakeFrame(rig, take, frame);
-	const { sk, plan, data } = hit, B = take.bones.length, f = Math.max(0, Math.min(take.frameCount - 1, Math.round(frame) || 0));
-	if (hit.order?.bones !== take.bones) hit.order = { bones: take.bones, at: sk.names.map(name => take.bones.indexOf(name)) };
-	const r = take.rot, h = take.hips, quats = hit.order.at.map(b => { const i = (f * B + b) * 4; return b < 0 ? [0, 0, 0, 1] : [r[i], r[i + 1], r[i + 2], r[i + 3]]; });
+	if (!hit) return isImportedModel(take?.rig) ? null : applyTakeFrame(rig, take, frame);
+	const { sk, plan } = hit, B = take.bones.length, f = Math.max(0, Math.min(take.frameCount - 1, Math.round(frame) || 0));
+	let order = orders.get(hit);
+	if (order?.bones !== take.bones) orders.set(hit, order = { bones: take.bones, at: sk.names.map(name => take.bones.indexOf(name)) });
+	const r = take.rot, h = take.hips, quats = order.at.map(b => { const i = (f * B + b) * 4; return b < 0 ? [0, 0, 0, 1] : [r[i], r[i + 1], r[i + 2], r[i + 3]]; });
 	const pose = retargetPose(plan, fk(sk, quats, [h[f * 3], h[f * 3 + 1], h[f * 3 + 2]]));
-	bonesOf(rig, take.rig, data.sources).forEach((bone, i) => {
+	bonesOf(rig, take.rig, hit.sources).forEach((bone, i) => {
 		if (!bone) return;
-		bone.quaternion.fromArray(pose.quats[i] ?? data.raw.bones[i].localQuat);
-		bone.position.fromArray(i === pose.hips.bone ? pose.hips.position : data.raw.bones[i].localPos);
+		bone.quaternion.fromArray(pose.quats[i] ?? hit.raw.bones[i].localQuat);
+		bone.position.fromArray(i === pose.hips.bone ? pose.hips.position : hit.raw.bones[i].localPos);
 	});
 	rig.updateMatrixWorld(true);
 }

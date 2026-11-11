@@ -9,11 +9,14 @@
 //   (c) playback: a standIdle + walkTo compiled on the adapted rig and baked at a placement, played with
 //       playTakeFrame onto the rig root, puts the file's pelvis, feet, hands and head on the compiled joints in world
 //       space; restoreImportedBind puts the bones back; a built-in take still goes to applyTakeFrame's Mixamo bones.
+//   (d) a malformed entry (a project file, load_scenes, an agent patch): a report without Hips, a bone without its
+//       localQuat, a rig without landmarks is dropped to the default body, registers nothing, and builds and plays
+//       nothing without throwing; the compile path registers the cast through registerCastRigs.
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildUe5Glb } from "./fixtures/ue5-character-glb.mjs";
 import { adaptCharacterScene } from "../src/character-import.js";
-import { registerCastRigs, isImportedCharacter } from "../src/character-rig.js";
+import { registerCastRigs, isImportedCharacter, importedRigData } from "../src/character-rig.js";
 import { playTakeFrame, restoreImportedBind } from "../src/character-playback.js";
 import { buildImportedRig } from "../src/imported-rig-root.js";
 import { createCharacterEntry } from "../src/scenes.js";
@@ -21,6 +24,7 @@ import { referencedAssetIds } from "../src/scene-assets.js";
 import { skeletonFor } from "../src/motion3/rigs/index.js";
 import { compileSpec } from "../src/motion3/pipeline.js";
 import { bakeTake } from "../src/motion3/take.js";
+import { createStudioAppActions } from "../src/commands/index.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -89,6 +93,41 @@ xRig.add(xHips);
 const xSk = skeletonFor("x-bot-tpose"), xTake = bakeTake(xSk, compileSpec({ ...spec, frames: 30, use: [spec.use[0]] }, { sk: xSk, scene: { objects: {} } }).out, placement);
 playTakeFrame(xRig, xTake, 10);
 expect("a built-in take still plays on the Mixamo bones (applyTakeFrame)", Math.abs(xHips.position.y - xTake.hips[10 * 3 + 1] * 100) < 1e-3, xHips.position.y);
+
+// --- (d) malformed entries -------------------------------------------------------------------------------------------------
+const quiet = console.warn;
+console.warn = () => {};
+const BREAKS = { "a report without Hips": e => delete e.rigImport.report.retarget.Hips, "a bone without its localQuat": e => delete e.rigImport.raw.bones[3].localQuat,
+	"a rig without landmarks": e => delete e.adaptedRig.landmarks };
+Object.entries(BREAKS).forEach(([label, damage], n) => {
+	const bad = structuredClone(fields), model = `rig-${String(n + 1).repeat(16)}-auto`;
+	bad.model = model;
+	damage(bad);
+	const kept = createCharacterEntry({ id: "char-6", ...bad }, 0);
+	expect(`${label}: dropped to the default body`, kept.model === "y-bot-tpose" && !("rigImport" in kept) && !isImportedCharacter(bad), kept.model);
+	const built = refusal(() => expect(`${label}: buildImportedRig answers null`, buildImportedRig(source, bad) === null));
+	expect(`${label}: buildImportedRig does not throw`, built === null, built);
+	registerCastRigs([bad]);
+	expect(`${label}: registers nothing`, importedRigData(model) === null && skeletonFor(model) === null);
+	const played = refusal(() => expect(`${label}: its take plays nothing`, playTakeFrame(rig, { ...take, rig: model }, 3) === null));
+	expect(`${label}: playTakeFrame does not throw`, played === null, played);
+});
+console.warn = quiet;
+expect("a valid entry still registers and plays", isImportedCharacter(entry) && importedRigData(entry.model) && playTakeFrame(rig, take, 3) === undefined);
+// a malformed imported character in the scene state (not normalized): the X Bot beside it still compiles, it is refused
+const noLandmarks = structuredClone(fields), xBot = { id: "char-x", model: "x-bot-tpose", subject: "X", x: 0, y: 0, z: 0, rot: 0, scale: 1 };
+noLandmarks.model = `rig-${"7".repeat(16)}-auto`;
+delete noLandmarks.adaptedRig.landmarks;
+const castState = { characters: [xBot, { id: "char-bad", subject: "Bad", x: 2, y: 0, z: 0, rot: 0, scale: 1, ...noLandmarks }], objects: [], frameCount: 400 };
+const compiled = new Map(), motionOwner = { replace: (cid, t) => compiled.set(cid, t), motionFor: cid => compiled.get(cid) ?? null };
+const actions = createStudioAppActions({ state: () => castState, storeDomain: name => (name === "motion" ? motionOwner : null) });
+const idle = { ...spec, frames: 30, use: [{ skill: "standIdle", f0: 0, args: { at: [0, 0], heading: 0 } }] };
+console.warn = () => {};
+const xRun = refusal(() => actions.run("motion.compile", { characterId: "char-x", spec: idle, install: false }));
+expect("an X Bot compiles beside a malformed imported character", xRun === null, xRun);
+const badRun = refusal(() => actions.run("motion.compile", { characterId: "char-bad", spec: idle, install: false }));
+expect("the malformed imported character's compile is refused with a sentence", /imported skeleton is incomplete/.test(badRun ?? ""), badRun);
+console.warn = quiet;
 
 console.log(failures ? `FAIL ${failures}` : "PASS all");
 process.exit(failures ? 1 : 0);
