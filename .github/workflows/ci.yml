@@ -151,8 +151,10 @@ jobs:
   # test step pages.yml runs before deploying: green here means the merge
   # cannot break the deploy. Each shard has its own runner, so wall-clock time
   # follows the slowest quarter of the suite instead of the whole suite (#666):
-  # minutes are free on this public repository, and ten jobs per run stay
-  # under the free plan's 20 concurrent jobs with two pull requests in flight.
+  # minutes are free on this public repository. One run starts 19 jobs (ten
+  # of them the browser matrix below), just under the free plan's 20
+  # concurrent jobs: a second pull request in flight queues, so every job
+  # added here costs wall-clock time on all of them (#1173).
   test-shard:
     if: needs.changes.outputs.source == 'true'
     needs: changes
@@ -278,10 +280,12 @@ jobs:
           exit "$failed"
 
   # Real-browser rendering regressions via the CDP QA wrapper. The suites
-  # proven green on the hosted runner gate pull requests; the motion3 suites
-  # that still fail are tracked in browser-observation.yml. The previs-mode
-  # suites (#654) run here as observation: a failure is a warning in the step
-  # summary, not a red check.
+  # proven green on the hosted runner gate pull requests. The observation
+  # suites here pass on the hosted runner too: a failure is a warning in the
+  # step summary, not a red check. A suite that fails on the hosted runner
+  # belongs in browser-observation.yml, not here: `gate` waits for every job
+  # in this matrix, and a failing suite waits out its timeouts on every pull
+  # request (qa-annotate-browser alone took 7-11 min, #1173).
   browser:
     if: needs.changes.outputs.source == 'true'
     needs: changes
@@ -302,33 +306,13 @@ jobs:
             tier: gating
           - suite: motion3/qa-motion3-objects-browser
             tier: gating
-          - suite: motion3/qa-motion3-grab-browser
-            tier: observation
-          - suite: motion3/qa-motion3-held-gizmo-browser
-            tier: observation
-          - suite: qa-proxy-figure-browser
-            tier: observation
-          - suite: qa-storyboard-board-browser
-            tier: observation
-          - suite: qa-storyboard-export-browser
-            tier: observation
-          - suite: qa-previs-start-browser
-            tier: observation
           - suite: qa-recent-work-browser
             tier: observation
-          - suite: qa-studio-polish-browser
-            tier: observation
-          - suite: qa-annotate-browser
-            tier: observation
           - suite: qa-pose-keys-browser
-            tier: observation
-          - suite: qa-fix-islands-browser
             tier: observation
           - suite: qa-lie-down-browser
             tier: observation
           - suite: qa-sculpt-mode-browser
-            tier: observation
-          - suite: qa-sculpt-parts-browser
             tier: observation
           - suite: qa-sculpt-shelf-browser
             tier: observation

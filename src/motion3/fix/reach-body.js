@@ -18,7 +18,7 @@ import { sub, len, norm, dot } from "../compiler/math.js";
 import { SIDES } from "../compiler/pose.js";
 import { resolveAnchor, armReach } from "../compiler/anchors.js";
 import { round4 } from "./ease.js";
-import { CAPSULES, segPoints, sdBox } from "../qa/geometry.js";
+import { capsulesFor, segPoints, sdBox } from "../qa/geometry.js";
 import { QA_LIMITS } from "../qa/checks.js";
 import { popChecks } from "../qa/style.js";
 
@@ -51,7 +51,7 @@ function depthIn(out, f, k, object) {
 	const boxes = Object.entries(out.objectsAt(f - out.f0) ?? {}).filter(([, b]) => b.half && !b.ignore);
 	const target = id => object !== undefined && (id === object || scene[id]?.ancestors?.includes(object));
 	let sum = 0;
-	for (const [part, a, b, r] of CAPSULES) {
+	for (const [part, a, b, r] of capsulesFor(out.ctx.sk)) {
 		if (I[a] === undefined || I[b] === undefined) continue;
 		const pts = segPoints(s.P[I[a]], s.P[I[b]], 5);
 		for (const [id, box] of boxes) if (!(part === `hand_${k}` && target(id))) sum += Math.max(0, r - Math.min(...pts.map(p => sdBox(p, box))));

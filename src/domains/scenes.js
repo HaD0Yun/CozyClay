@@ -40,7 +40,7 @@ import {
 	normalizeCastStyle,
 	buildAnimationProjectFromStoryboard,
 } from "../project.js";
-import { playgroundSceneUrl, fetchSceneProject } from "../playground.js";
+import { playgroundSceneUrl, fetchSceneProject } from "../playground.js"; import { guestStart } from "../guest-start.js";
 import { pickProjectToOpen } from "../project-open-file.js";
 import { projectSummary, serializedSummary } from "../project-summary.js";
 import { captureProjectThumb } from "../project-thumbs.js";
@@ -218,7 +218,8 @@ export function useScenes(appContext) {
 	// local draft). Keep this as a light startup sheet so the studio remains
 	// inspectable while the choice is pending; it never traps the topbar.
 	// A ?scene= launch opens its starter instead of the chooser.
-	const [projectStartupOpen, setProjectStartupOpen] = useState(() => !appContext.shared.playgroundMode && !playgroundSceneUrl(globalThis.location?.search) && !loadProjectSession()?.name);
+	// A guest start (guest-start.js: a first visit to the hosted Studio) opens a ready project instead.
+	const [projectStartupOpen, setProjectStartupOpen] = useState(() => !appContext.shared.playgroundMode && !playgroundSceneUrl(globalThis.location?.search) && !loadProjectSession()?.name && !guestStart());
 
 	const [projectManifest, setProjectManifest] = useState({ items: [], totals: { embedded: 0, external: 0, missing: 0, bytes: 0 }, missing: [] });
 

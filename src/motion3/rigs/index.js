@@ -1,14 +1,35 @@
-// Bind skeletons of the bodies a take can be compiled for (tools/motion3/extract-rig.mjs).
+// Bind skeletons of the bodies a take can be compiled for (tools/motion3/extract-rig.mjs), and rigs registered at run
+// time (an adapted skeleton: adapt.js adaptRig).
 import xBot from "./x-bot-tpose.json" with { type: "json" };
 import yBot from "./y-bot-tpose.json" with { type: "json" };
 import { createSkeleton } from "../compiler/skeleton.js";
+import { registerBody } from "../body.js";
+import { refitBody } from "./adapt-body.js";
 
-const RIGS = { "x-bot-tpose": xBot, "y-bot-tpose": yBot };
+const RIGS = { "x-bot-tpose": xBot, "y-bot-tpose": yBot }, SHIPPED = new Set(Object.keys(RIGS));
 const cache = new Map();
+let reference = null;
 
 /** Skeleton for a character model id, or null for a body motion3 cannot drive. */
 export function skeletonFor(model) {
 	if (!RIGS[model]) return null;
 	if (!cache.has(model)) cache.set(model, createSkeleton(RIGS[model]));
 	return cache.get(model);
+}
+
+/**
+ * Makes rig JSON `rig` (x-bot-tpose.json's shape, e.g. adaptRig's rig) character model `id`: skeletonFor(id) answers its
+ * skeleton (model `id`) from now on, and its collision body is the X Bot's fitted body refitted to its bones
+ * (adapt-body.js). Registering an id again replaces the rig, its skeleton and its body; a shipped rig's id is refused.
+ */
+export function registerRig(id, rig) {
+	if (typeof id !== "string" || !id) throw new Error("registerRig: id must be a non-empty string");
+	if (SHIPPED.has(id)) throw new Error(`registerRig: "${id}" is a shipped rig (${[...SHIPPED].join(", ")}); register the adapted rig under an id of its own`);
+	if (!Array.isArray(rig?.bones) || !rig.landmarks) throw new Error(`registerRig: rig "${id}" needs bones and landmarks (x-bot-tpose.json's shape)`);
+	const entry = { ...rig, model: id }, sk = createSkeleton(entry);
+	RIGS[id] = entry;
+	cache.set(id, sk);
+	reference ??= createSkeleton(xBot);
+	// the body belongs to this skeleton: one retired by a later registerRig keeps its own (body.js registerBody)
+	registerBody(sk, fileFit => refitBody(sk, reference, fileFit("x-bot-tpose")));
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { noteCameraGesture } from "./thrash-friction.js";
+import { noteCameraGesture } from "./thrash-friction.js"; import { announceNav } from "./nav-signal.js";
 
 const MOVE_SPEED = 2.6; // metres per second
 const CRANE_SPEED = 1.3; // Q/E up/down runs at half walk speed — fine
@@ -129,7 +129,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 			if (gesture.current?.kind !== "fly") return;
 			const key = KEY_BY_CODE[e.code];
 			if (key) {
-				keys.current.add(key);
+				if (!keys.current.has(key) && key !== "shift") announceNav("walk", key); keys.current.add(key);
 				e.preventDefault();
 			}
 		};
@@ -212,7 +212,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 			lockAttempts = 0;
 			if (e.pointerType !== "touch" && e.pointerType !== "pen") requestNavLock();
 			if (kind === "fly") flyStateRef.current?.(true);
-			scheduleInvalidate();
+			announceNav(kind); scheduleInvalidate();
 		};
 
 		/** the point Alt-drag turns around: the caller's selection, or a point
@@ -300,7 +300,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 				return;
 			}
 			cam.position.addScaledVector(forwardFrom(look.current.yaw, look.current.pitch), -e.deltaY * DOLLY_STEP);
-			cameraChangeRef.current?.();
+			announceNav("dolly"); cameraChangeRef.current?.();
 		};
 
 		// A right-drag is navigation, so the browser menu must not interrupt it.

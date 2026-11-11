@@ -107,7 +107,7 @@ export function createStudioAppBinding(ports) {
 	}
 	function guard(id) {
 		const raw = refresh(), token = tokens.get(id)?.token;
-		if (!token) fail("STALE_TARGET", "The exact target no longer exists.");
+		if (!token) fail("STALE_TARGET", `The exact target ${id} no longer exists (or never did): inspect_studio lists the ids.`);
 		return { ...raw.host, targetId: id, token };
 	}
 	function readCommand() {
@@ -223,7 +223,7 @@ export function createStudioAppBinding(ports) {
 			}, recordAction: (...args) => ports.recordAction(...args), beginAction: (...args) => ports.beginAction(...args),
 			readback: actionReadback, remember, receipt: id => receipts.get(id), isRetained: receipt => ports.isRetained(receipt),
 			canUndo: receipt => ports.canUndo(receipt), undo: () => ports.undo(), redo: () => ports.redo(),
-			history: redo => ports.history?.(redo), finishHistoryGesture: () => ports.finishHistoryGesture?.(), readTarget: id => { refresh(); return tokens.get(id)?.token; }, ...taskTargetPorts(ports),
+			history: redo => ports.history?.(redo), finishHistoryGesture: () => ports.finishHistoryGesture?.(), readTarget: (id, read = true) => { if (read) refresh(); return tokens.get(id)?.token; }, ...taskTargetPorts(ports),
 			captureToasts: listener => ports.captureToasts?.(listener), showRefusal: message => ports.showRefusal?.(message), emit: event => ports.emitCommandEvent?.(event),
 		} });
 		return actionBus;

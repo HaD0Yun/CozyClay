@@ -1,0 +1,17 @@
+{
+	"id": "daz-genesis8",
+	"name": "Daz Genesis 8 (and Genesis 3)",
+	"sides": { "Left": { "s": "l" }, "Right": { "s": "r" } },
+	"bones": {
+		"Hips": ["hip"], "Spine": ["abdomenLower"], "Spine1": ["abdomenUpper"], "Spine2": ["chestUpper", "chestLower"], "Neck": ["neckLower"], "Head": ["head"],
+		"{Side}Shoulder": ["{s}Collar"], "{Side}Arm": ["{s}ShldrBend"], "{Side}ForeArm": ["{s}ForearmBend"], "{Side}Hand": ["{s}Hand"],
+		"{Side}UpLeg": ["{s}ThighBend"], "{Side}Leg": ["{s}Shin"], "{Side}Foot": ["{s}Foot"], "{Side}ToeBase": ["{s}Toe"]
+	},
+	"fingers": {
+		"Thumb": ["{s}Thumb1", "{s}Thumb2", "{s}Thumb3"],
+		"Index": ["{s}Index1", "{s}Index2", "{s}Index3"],
+		"Middle": ["{s}Mid1", "{s}Mid2", "{s}Mid3"],
+		"Ring": ["{s}Ring1", "{s}Ring2", "{s}Ring3"],
+		"Pinky": ["{s}Pinky1", "{s}Pinky2", "{s}Pinky3"]
+	}
+}
