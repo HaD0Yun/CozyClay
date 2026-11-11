@@ -400,7 +400,7 @@ export function useShots(appContext) {
   // "shot" records one shot (shotId, or the one under the playhead). Without a
   // scope the old rule stands: a named shot, or the playhead's shot when there
   // is no motion, else the whole record.
-  async function exportShotVideo({ download = true, shotId = null, scope = null, passKind = null, depthCurve = "linear" } = {}, commandContext = null) {
+  async function exportShotVideo({ download = true, shotId = null, scope = null, passKind = null, depthCurve = "linear", output = null } = {}, commandContext = null) {
     if (appContext.shared.recRef.current) return null;
     const atPlayhead = shotIndexAtFrame(shots, tlFrame);
     const target = shotId ? shots.find(entry => entry.id === shotId) : shots[atPlayhead >= 0 ? atPlayhead : 0] ?? null;
@@ -418,7 +418,7 @@ export function useShots(appContext) {
       commandContext?.signal.addEventListener('abort', abort, { once: true });
       try { commandContext?.signal.throwIfAborted(); return await appContext.shared.runShotExport({ ...range, download, passKind, depthCurve, ...(passKind === 'depth' ? { fileName: 'blocking-depth.mp4' } : {}) }, job); }
       finally { commandContext?.signal.removeEventListener('abort', abort); }
-    }, { exportShots, download }));
+    }, { exportShots, download, output: output && { width: output.width & ~1, height: output.height & ~1 } }));
   }
   return { ...domain, shots, setShots, editShots, fovDeg, setFovDeg, cameraMove, customMove, startupShotState,
     movePlaying, setMovePlaying, moveFollow, railDraw, setRailDraw, craneSelectedIndex, setCraneSelectedIndex,

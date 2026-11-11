@@ -2792,13 +2792,13 @@ export default function App() {
 	useEffect(() => () => cameraPerformanceRef.current?.cancel(), []);
 	// Snapshot authored inputs once, not when Retry is pressed. Runtime render
 	// resources are acquired per attempt; they are never part of the snapshot.
-	function exportRequest(kind, run, { exportShots = shots, external = false, download = true } = {}) {
+	function exportRequest(kind, run, { exportShots = shots, external = false, download = true, output = null } = {}) {
 		// IK's cached chains contain live Three bones/functions, not cloneable
 		// authored data. Retain that binding and copy only the evaluated keys.
 		const copyIk = (state) => state ? { ...state, keys: snapshotIkKeys(state), tracked: new Set(state.tracked) } : state;
 		const context = kind === "frame" ? null : {
 			...structuredClone({ shots: exportShots, playbackScene, characters, activeId: activeChar.id, motion,
-				framing: captureCurrentFraming(), output: shotOutput }),
+				framing: captureCurrentFraming(), output: output ?? shotOutput }),
 			ikState: copyIk(ikStateRef.current),
 			ikStates: new Map([...ikStatesRef.current].map(([id, state]) => [id, copyIk(state)])),
 			rigStates: Object.values(rigs).filter(Boolean).map(snapshotExportRig),
