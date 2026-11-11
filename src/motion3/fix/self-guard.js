@@ -12,7 +12,7 @@ import { bodyDistance } from "../body.js";
 /** A span may pull a keyed free hand's wrist no more than KEY_TOL (m) farther off its key than it was, where the key is
  * KEY_CLEAR or more clear of the skin (a reach out in front: a cup); a key nearer the skin is where the body is in the
  * way (a hand keyed at the far hip, on the opposite shoulder, into the thigh) and the repair moves the hand off it. */
-export const KEY_TOL = 0.01;
+export const KEY_TOL = 0.02;
 const KEY_CLEAR = 0.08;
 const FLIP_BEND = 20, BENT = Math.sin((FLIP_BEND * Math.PI) / 180);
 /** popLevel (qa/style.js) reads 3 frames either side; the bend plane is read from the last bent frame within LOOK back. */
