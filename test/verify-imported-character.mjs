@@ -12,10 +12,11 @@
 //   (d) a malformed entry (a project file, load_scenes, an agent patch): a report without Hips, a bone without its
 //       localQuat, a rig without landmarks is dropped to the default body, registers nothing, and builds and plays
 //       nothing without throwing; the compile path registers the cast through registerCastRigs.
+//   (e) the Add menu's import reads the skeleton before it opens the asset store: a refused file is never stored.
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildUe5Glb } from "./fixtures/ue5-character-glb.mjs";
-import { adaptCharacterScene } from "../src/character-import.js";
+import { adaptCharacterScene, addImportedCharacter } from "../src/character-import.js";
 import { registerCastRigs, isImportedCharacter, importedRigData } from "../src/character-rig.js";
 import { playTakeFrame, restoreImportedBind } from "../src/character-playback.js";
 import { buildImportedRig } from "../src/imported-rig-root.js";
@@ -134,6 +135,33 @@ expect("an X Bot compiles beside a malformed imported character", xRun === null,
 const badRun = refusal(() => actions.run("motion.compile", { characterId: "char-bad", spec: idle, install: false }));
 expect("the malformed imported character's compile is refused with a sentence", /imported skeleton is incomplete/.test(badRun ?? ""), badRun);
 console.warn = quiet;
+
+// --- (e) a refused file is not stored ---------------------------------------------------------------------------------------
+/** The .glb with its JSON chunk edited by `edit(json)`. */
+function editGlb(glb, edit) {
+	const view = Buffer.from(glb.buffer, glb.byteOffset, glb.length), size = view.readUInt32LE(12), json = JSON.parse(view.subarray(20, 20 + size).toString());
+	edit(json);
+	let text = JSON.stringify(json);
+	text += " ".repeat((4 - (text.length % 4)) % 4);
+	const head = Buffer.alloc(20), rest = view.subarray(20 + size);
+	head.write("glTF", 0);
+	head.writeUInt32LE(2, 4);
+	head.writeUInt32LE(20 + text.length + rest.length, 8);
+	head.writeUInt32LE(text.length, 12);
+	head.writeUInt32LE(0x4e4f534a, 16);
+	return new Uint8Array(Buffer.concat([head, Buffer.from(text), rest]));
+}
+let opened = 0;
+globalThis.indexedDB = { open() { opened += 1; const req = {}; queueMicrotask(() => { req.error = new Error("stub store"); req.onerror?.(); }); return req; } };
+const notes = [], app = { notify: note => notes.push(String(note)), storeDomain: () => null };
+const scaledGlb = editGlb(bytes, json => { json.nodes.find(n => n.name === names.LeftLeg).scale = [1.5, 1.5, 1.5]; });
+console.warn = () => {};
+const refusedId = await addImportedCharacter(app, new File([scaledGlb], "scaled.glb"));
+expect("a refused file is not stored (the asset store is not opened)", refusedId === null && opened === 0 && /has a scale/.test(notes.at(-1) ?? ""), `${opened} opens, ${notes.at(-1)}`);
+await addImportedCharacter(app, new File([bytes], "good.glb"));
+console.warn = quiet;
+expect("a file that adapts opens the asset store to store it", opened === 1, `${opened} opens`);
+delete globalThis.indexedDB;
 
 console.log(failures ? `FAIL ${failures}` : "PASS all");
 process.exit(failures ? 1 : 0);

@@ -1,10 +1,10 @@
 // Import a character file (a .glb or an .fbx with a skeleton) as a cast member that plays takes on its own bones.
-// The bytes go to the asset store, as an imported prop's do (scene-mesh.js importMeshFile, putAsset). The skeleton is
-// read from the parsed three.js scene (rigs/read-skeleton.js) and adapted (rigs/adapt.js); the entry keeps the rig and
-// the adapter's report (character-rig.js). A file the player could not drive is refused with a sentence for a toast:
-// no bones, two bones of one name, a node that is not a bone between two bones, or a joint with a scale. three's FBXLoader nests a copy of
-// each bone that two skinned meshes share under the bone, with its name and an identity transform: that copy is not a
-// joint (sharedBoneCopy), so the copy follows the bone it sits under.
+// The skeleton is read from the parsed three.js scene (rigs/read-skeleton.js) and adapted (rigs/adapt.js); only then do
+// the bytes go to the asset store, as an imported prop's do (scene-mesh.js importMeshFile, putAsset). The entry keeps
+// the rig and the adapter's report (character-rig.js). A file the player could not drive is refused with a sentence for
+// a toast, and is not stored: no bones, two bones of one name, a node that is not a bone between two bones, or a joint
+// with a scale. three's FBXLoader nests a copy of each bone that two skinned meshes share under the bone, with its name
+// and an identity transform: that copy is not a joint (sharedBoneCopy), so the copy follows the bone it sits under.
 import { importMeshFile } from "./scene-mesh.js";
 import { openAssetDb, putAsset } from "./scene-assets.js";
 import { loadMeshScene } from "./scene-mesh-cache.js";
@@ -44,18 +44,18 @@ export function adaptCharacterScene(scene, { assetId, name = "", template = null
 		report: adapted.report, unitsDetected: read.unitsDetected } };
 }
 
-/** Stores the file and reads its skeleton: the new character's fields, its rig registered (character-rig.js). */
+/** Reads the file's skeleton, then stores the file (a refused file is not stored): the new character's fields, its rig registered. */
 async function importCharacterFile(file) {
 	const { asset } = await importMeshFile(file);
+	const scene = await loadMeshScene(asset.id, asset);
+	if (!scene) refuse("That model could not be read");
+	const fields = adaptCharacterScene(scene, { assetId: asset.id, name: String(asset.name ?? "").replace(/\.[^.]+$/, "") });
 	const db = await openAssetDb();
 	try {
 		await putAsset(db, asset);
 	} finally {
 		db.close?.();
 	}
-	const scene = await loadMeshScene(asset.id);
-	if (!scene) refuse("That model could not be read");
-	const fields = adaptCharacterScene(scene, { assetId: asset.id, name: String(asset.name ?? "").replace(/\.[^.]+$/, "") });
 	registerCastRigs([fields]);
 	return fields;
 }
