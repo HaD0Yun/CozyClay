@@ -559,6 +559,12 @@ for (const [label, edit] of [["parent as a name", b => { b.parent = "mixamorig:H
 	expect(`${label} on mixamorig:LeftLeg: refused, naming the bone`, why.includes("mixamorig:LeftLeg") && why.includes("parent"), why);
 }
 
+// 4r. a shipped rig's id is refused (before: registerRig("x-bot-tpose", ...) changed every X Bot character)
+{
+	const xSk = skeletonFor("x-bot-tpose"), shipped = (() => { try { registerRig("x-bot-tpose", rescaled(0.7)); return ""; } catch (e) { return e.message; } })();
+	expect(`registerRig("x-bot-tpose", ...): refused, the X Bot's skeleton kept`, /shipped/.test(shipped) && skeletonFor("x-bot-tpose") === xSk, shipped);
+}
+
 // 5. the X Bot and Y Bot takes are identical to before rig templates, to 1e-9 (3804b63b)
 // digests of the same three motions compiled at 3804b63b, the commit before rig templates. The same six values come out
 // on macOS arm64 and Linux x86_64.
