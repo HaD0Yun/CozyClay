@@ -38,7 +38,7 @@ import { armHit, handOnBody, handsPast } from "./self-hits.js";
 import { leverAt, setLever, apply, movesFor, GAIN } from "./self-moves.js";
 import { armMotion, moveWorse, popsOutside, keyedHands, keyOff, KEY_TOL } from "./self-guard.js";
 
-const EASE = 10, MAX_IT = 48, TRIES = 6;
+const EASE = 10, MAX_IT = 48, TRIES = 6, LEFT_MAX = 6;
 /** The take's budget, whatever its length or its runs of hits: IT_TAKE moves tried and SOLVE_TAKE frames solved over
  * every search (counts, not time, so a take compiles the same everywhere). */
 const IT_TAKE = 160, SOLVE_TAKE = 40000;
@@ -162,6 +162,24 @@ function runsOf(list) {
 		if (r && r.b === x - 1 && r.why === why) r.b = x; else runs.push({ a: x, b: x, why });
 	}
 	return runs;
+}
+
+/** fixed.self.left from [{ f, side, why }] (a frame still past the limit): grouped by side and why, { at: first-last frame,
+ * side, why, frames }, a why's "N cm past the limit" read as the most over its frames; past LEFT_MAX groups a side the
+ * rest are one ("other reasons"), so the report stays the same size however long the take. */
+function leftOf(list) {
+	const groups = new Map();
+	for (const { f, side, why } of list) {
+		const cm = / (\d+\.\d) cm past the limit/.exec(why), key = `${side} ${why.replace(/ \d+\.\d cm past the limit/, " past the limit")}`;
+		if (!groups.has(key)) groups.set(key, { side, why: key.slice(2), frames: 0, a: f, b: f, cm: 0 });
+		const g = groups.get(key);
+		g.frames++; g.b = f; g.cm = Math.max(g.cm, cm ? +cm[1] : 0);
+	}
+	return KS.flatMap(side => {
+		const mine = [...groups.values()].filter(g => g.side === side).sort((p, q) => q.frames - p.frames || p.a - q.a), rest = mine.splice(LEFT_MAX);
+		if (rest.length) mine.push({ side, why: `other reasons (${rest.length} more)`, frames: rest.reduce((x, g) => x + g.frames, 0), a: Math.min(...rest.map(g => g.a)), b: Math.max(...rest.map(g => g.b)), cm: 0 });
+		return mine.map(g => ({ at: `f${g.a}-f${g.b}`, side, why: g.cm ? `${g.why} (up to ${g.cm.toFixed(1)} cm)` : g.why, frames: g.frames }));
+	});
 }
 
 export function selfRepair(out, engine) {
@@ -290,7 +308,7 @@ export function selfRepair(out, engine) {
 	const { spans, kept } = chosen;
 	kept.sort((p, q) => p.a - q.a);
 	// what is still past the limit, and why
-	const left = [];
+	const still = [];
 	for (const k of KS) {
 		const why = j => {
 			const h = hits[k][j], u = spans.findLast(s => s.undone && j >= s.a && j <= s.b);
@@ -299,8 +317,9 @@ export function selfRepair(out, engine) {
 			const more = whyOf.has(`${k}${j}`) ? `: ${whyOf.get(`${k}${j}`)}` : "";
 			return `${h.hold === "fk" ? "no FK move (the arm out, the elbow bent) clears it within the limits" : h.hold ? "the hand stays on its target and no elbow turn clears it" : "no move clears it within the limits"}${more}`;
 		};
-		for (const r of runsOf(hits[k].flatMap((h, j) => (open(k, j) ? [[j, why(j)]] : [])))) left.push({ at: `f${f0 + r.a}-f${f0 + r.b}`, side: k, why: r.why });
+		for (let j = 0; j < n; j++) if (open(k, j)) still.push({ f: f0 + j, side: k, why: why(j) });
 	}
+	const left = leftOf(still);
 	return { spans: kept.map(s => ({ at: `f${f0 + s.a}-f${f0 + s.b}`, depth: s.depth.map(round4), ...(s.key ? { key: [s.key.d0, s.key.d].map(round4) } : {}) })), depth: [round4(worst0), round4(deepIn(0, n - 1))], iterations: it, ...(left.length ? { left } : {}),
 		how: "an arm left in the torso, hips, head or thigh moved out, deepest first: on its IK the wrist target out along the skin or the elbow turned, on FK the arm raised out from the body or the elbow bent; eased over the frames around; a span QA reads worse with gets its frames back" };
 }

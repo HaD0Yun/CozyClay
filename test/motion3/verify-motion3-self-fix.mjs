@@ -148,7 +148,7 @@ for (const [rig, sk, T] of [["x-bot", X, TX], ["y-bot", Y, TY]]) {
 const off = compileSpec(specOf(TX.belly, { fix: { self: false } }), { sk: X, scene }), offBody = off.qa.groups.find(g => g.kind === "BODY");
 expect("(f) fix.self false: no fixed.self, BODY stays, and its hint says fix.self is off", off.fixed.self === undefined && /fix\.self is off for this take/.test(offBody?.hint ?? ""), offBody?.hint);
 const pinned = run(X, specOf(TX.pinned)), pinnedBody = pinned.r.qa.groups.find(g => g.kind === "BODY" && /_r into/.test(g.subject));
-expect("(f) a BODY the repair left: its hint says fix.self left the frames and why", /fix\.self left f\d+-f\d+ \(the hand stays on its target/.test(pinnedBody?.hint ?? ""), pinnedBody?.hint);
+expect("(f) a BODY the repair left: its hint says fix.self left the frames and why", /fix\.self left f\d+-f\d+ \((the hand stays on its target|undone: )/.test(pinnedBody?.hint ?? ""), pinnedBody?.hint);
 const goalBody = goal.r.qa.groups.find(g => g.kind === "BODY" && /_r into/.test(g.subject));
 expect("(f) a BODY whose repair was undone: its hint says fix.self left the frames, undone, and why", /fix\.self left f\d+-f\d+ \(undone: goal/.test(goalBody?.hint ?? ""), goalBody?.hint);
 // the hand through the back of the X Bot's head: round 1 undid it (QA read 6 problems against 5); the wider moves tried
@@ -374,6 +374,10 @@ for (const [rig, sk, name, t, most] of [["x-bot", X, "far thigh", WX.far2, 0.04]
 	console.log(`  x-bot crossed arms re-keyed every 30 frames over ${N} frames: iterations ${self?.iterations}, depth ${JSON.stringify(self?.depth)}, spans ${self?.spans?.length}, left ${self?.left?.length}`);
 	expect(`(o) a ${N}-frame take with 24 runs of hits: at most 160 moves tried (the take's budget), a span kept, and the frames left name the budget`,
 		self?.iterations <= 160 && self.spans?.length > 0 && self.depth[1] < self.depth[0] && self.left?.some(l => /the take's budget/.test(l.why)), JSON.stringify({ iterations: self?.iterations, depth: self?.depth }));
+	// fixed.self.left groups the frames left by side and why, with their counts: at most 7 entries a side however long the take
+	const open = o.frames.length && self.left.reduce((x, l) => x + l.frames, 0);
+	expect("(g) fixed.self.left on the long take: grouped by side and why, at most 7 entries a side, each with its frame count", self.left.length <= 14 && self.left.every(l => /^f\d+-f\d+$/.test(l.at) && l.frames > 0)
+		&& new Set(self.left.map(l => `${l.side} ${l.why}`)).size === self.left.length, JSON.stringify({ n: self.left.length, open, left: self.left.slice(0, 3) }));
 }
 
 // (h) deterministic

@@ -1,7 +1,7 @@
 // What fix.self (fix/self.js, fix/self-repair.js) did about an arm in the body, for the BODY and FACE hints
 // (hints-contact.js): repaired here and this much stays, left here (with why), or off for the take. The repair names its
-// spans and what it left with absolute frames (fixed.self.spans[].at, fixed.self.left[].at "f<a>-f<b>", side l/r), as
-// QA's groups do (g.first..g.last).
+// spans and what it left with absolute frames (fixed.self.spans[].at, fixed.self.left[].at "f<a>-f<b>", side l/r: the
+// first and last of a group of frames one side left for one reason, its frames counted), as QA's groups do (g.first..g.last).
 import { m3 } from "./fmt.js";
 
 /** Whether "f<a>-f<b>" overlaps frames first..last. */
