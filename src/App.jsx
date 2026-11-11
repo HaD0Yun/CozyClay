@@ -1819,9 +1819,7 @@ export default function App() {
 	const [bottomTab, setBottomTab] = useState("timeline");
 	const { shelfImageIds, setShelfImageIds, shelfMeshIds, setShelfMeshIds, manageAssetStorage, setManageAssetStorage, unusedAssetIds, setUnusedAssetIds, usedAssetIds, setUsedAssetIds, usageCounts, setUsageCounts, assetShelfScanTokenRef, legacyDerivedIdsRef, assetTrash, setAssetTrash, assetUndoOffered, setAssetUndoOffered, deletingAssetId, setDeletingAssetId, cutoutLineage, meshLineage, projectCutoutLineage, projectAssetGraphSignature } = useAssetShelf({ scenes, activeSceneId, sceneObjects });
 	useEffect(() => {
-		const { scenes: latestScenes, activeSceneId: latestActiveSceneId, sceneObjects: latestObjects } = projectStateRef.current;
-		const allScenes = latestScenes.map((scene) => (scene.id === latestActiveSceneId ? { ...scene, objects: latestObjects } : scene));
-		const ids = derivedAssetIds(allScenes);
+		const ids = derivedAssetIds(snapshotActiveScene(projectStateRef.current.scenes));
 		for (const id of ids) legacyDerivedIdsRef.current.add(id);
 		if (ids.size === 0) return;
 		let db = null;
@@ -1853,10 +1851,9 @@ export default function App() {
 				...legacyDerivedIdsRef.current,
 				...records.filter((record) => record?.role === "derived").map((record) => record.id),
 			]);
-			// The active scene's live objects override its saved snapshot. That
-			// includes an unsaved matte or cutout edit in the reachability closure.
-			const { scenes: latestScenes, activeSceneId: latestActiveSceneId, sceneObjects: latestObjects } = projectStateRef.current;
-			const allScenes = latestScenes.map((scene) => (scene.id === latestActiveSceneId ? { ...scene, objects: latestObjects } : scene));
+			// The active scene's live objects, shots and stage override its saved snapshot. That includes an unsaved matte
+			// or cutout edit, and a character imported this session, in the reachability closure.
+			const allScenes = snapshotActiveScene(projectStateRef.current.scenes);
 			const latestUsageCounts = assetUsageCounts(allScenes);
 			const latestUsedAssetIds = stored.filter((id) => latestUsageCounts.has(id));
 			if (!current()) return;
@@ -1906,8 +1903,7 @@ export default function App() {
 			}
 			// Rebuild this at the destructive boundary rather than trusting the
 			// displayed list: a just-created cutout can make its image reachable.
-			const { scenes: latestScenes, activeSceneId: latestActiveSceneId, sceneObjects: latestObjects } = projectStateRef.current;
-			const allScenes = latestScenes.map((scene) => (scene.id === latestActiveSceneId ? { ...scene, objects: latestObjects } : scene));
+			const allScenes = snapshotActiveScene(projectStateRef.current.scenes);
 			const currentUsageCount = assetUsageCounts(allScenes).get(id) ?? 0;
 			const currentGraphSignature = assetGraphSignature(allScenes);
 			if (expectedUsageCount !== undefined && (!Number.isInteger(expectedUsageCount) || expectedUsageCount !== currentUsageCount)) {
@@ -1932,9 +1928,7 @@ export default function App() {
 				deleteRecord: () => deleteAsset(db, id),
 				restoreRecord: () => putAsset(db, record),
 				readGraphSignature: () => {
-					const { scenes: afterScenes, activeSceneId: afterActiveSceneId, sceneObjects: afterObjects } = projectStateRef.current;
-					const afterAllScenes = afterScenes.map((scene) => (scene.id === afterActiveSceneId ? { ...scene, objects: afterObjects } : scene));
-					return assetGraphSignature(afterAllScenes);
+					return assetGraphSignature(snapshotActiveScene(projectStateRef.current.scenes));
 				},
 			});
 			if (!committed) {
