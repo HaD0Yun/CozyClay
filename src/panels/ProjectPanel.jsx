@@ -4,6 +4,7 @@ import { ko } from "../locale.js";
 import { usePopover } from "../popover.js";
 import ResourceStatus from "../resource-status.jsx";
 import { useBus } from "../app-context.js";
+import GuestStart from "../guest-start.js";
 import "./details.css";
 
 export default function ProjectPanel({
@@ -49,6 +50,7 @@ export default function ProjectPanel({
 				<span className="caret">▾</span>
 			</button>
 			{menu && (globalThis.document ? createPortal(menu, globalThis.document.body) : menu)}
+			<GuestStart />
 		</div>
 	);
 }

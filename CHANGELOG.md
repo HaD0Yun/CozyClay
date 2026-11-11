@@ -20,6 +20,9 @@ Studio
 
 - The Studio starts in the dark theme. A theme already chosen in Preferences
   is kept. (#1163)
+- A first visit to the hosted Studio opens on a ready stage with a character
+  on it. The project chooser no longer comes first there; File > New and Open
+  still reach it, and `npx cozyclay` keeps it.
 
 ## 3.2.2 - 2026-11-07
 
