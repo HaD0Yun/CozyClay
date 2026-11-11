@@ -8,6 +8,11 @@ Site
   opens three steps: the official Node.js installer, how to open a terminal,
   and the command to paste. The bare command stays in Quick start.
 
+Studio
+
+- The Studio starts in the dark theme. A theme already chosen in Preferences
+  is kept. (#1163)
+
 ## 3.2.2 - 2026-11-07
 
 A patch for the motion compiler and the agent: faster compiles, holds and automatic legs, arms, gaze and tempo, steadier agent turns, and depth exports that read right.

@@ -14,6 +14,7 @@ import { isFillKey, shortHash, fillSrc, editedFill, fillGapOf } from "./fill-src
 import { spanReason, floorAnkle } from "./fill-spans.js";
 import { classifySpans, densityNotes } from "./fill-density.js";
 import { quatFromMat, matFromQuat } from "../compiler/math.js";
+import { fillRig } from "./fill-rig.js";
 
 export const STEP = 24 / 30; // one model frame in spec frames
 const isFill = isFillKey;
@@ -200,6 +201,7 @@ export function gapCheck(baked, fa, fb, flightKeyed = false) {
  * refusing the call. Returns { spec, gaps: [{ f: [fa, fb], tokens, frames, keys, ms } | { f, skipped }], calls, warnings }.
  */
 export async function fillSpec(spec, { sk, compile, run }, { at, auto = false, targets = 1, footLock = "channel" } = {}) {
+	fillRig(sk);
 	// a fill key someone edited is the author's from now on: it stays, and the gaps beside it fill again around it
 	const promoted = (spec.keys ?? []).filter(editedFill).length;
 	spec = { ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([field]) => field !== "src")) : k)) };

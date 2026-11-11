@@ -3,7 +3,7 @@
 // outside positive, metres) and, for the limbs, the skin radius along the bone. A limb collides as
 // spheres on its bone axis (limbProbes); bodyDistance is the nearest skin of every other bone but
 // the limb's own neighbours (SKIP), so an arm reads the torso, the head, the legs and the other arm.
-import { add, sub, scale, apply, T, len, dot, clamp } from "./compiler/math.js";
+import { add, sub, scale, apply, len, dot, clamp } from "./compiler/math.js";
 
 // The fits are ~0.5 MB of base64 grids, most of the editor's first-load JavaScript were they imported: each
 // is an asset file instead, read the first time a compile needs it. Node reads it from disk; a worker (or the
@@ -25,9 +25,24 @@ function readFit(url) {
 	return JSON.parse(xhr.responseText);
 }
 
-function fitOf(model) {
+// Fits made in memory for registered rigs (rigs/index.js registerRig), per skeleton: a skeleton registerRig retires keeps
+// its own (a compile in flight on it reads its own rig, as the floor, foot and pose caches do). sk -> make(fileFit), called on
+// first use with a reader of the shipped fits (make reads the X Bot's to refit it; one already loaded is not read again).
+const made = new WeakMap(), madeFits = new WeakMap();
+const fileFit = model => {
 	if (!fits.has(model)) fits.set(model, readFit(BODIES[model]));
 	return fits.get(model);
+};
+
+function fitOf(sk) {
+	if (!made.has(sk)) return fileFit(sk.model);
+	if (!madeFits.has(sk)) madeFits.set(sk, made.get(sk)(fileFit));
+	return madeFits.get(sk);
+}
+
+/** Gives skeleton sk the fit make(fileFit) returns (body.js's shape), made on first use. */
+export function registerBody(sk, make) {
+	made.set(sk, make);
 }
 
 /** Fetches every rig's fit in the background, so a compile on this thread never waits on one. */
@@ -42,9 +57,11 @@ export function preloadBodies() {
 }
 /** Distance read outside a grid: far enough that no probe counts it as touching. */
 const FAR = 0.1;
-const cache = new Map();
+const cache = new WeakMap();
 
-function decode(text) {
+/** A fit's grid data: base64 text as signed bytes (a refitted fit already holds them). */
+export function decode(text) {
+	if (typeof text !== "string") return text;
 	const bytes = typeof Buffer !== "undefined" ? Buffer.from(text, "base64") : Uint8Array.from(atob(text), c => c.charCodeAt(0));
 	return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
@@ -60,16 +77,16 @@ function skipOf(sk, b) {
 
 /** The fitted body of skeleton sk, or null for a rig without one. */
 export function bodyFor(sk) {
-	if (!BODIES[sk.model]) return null;
-	if (cache.has(sk.model)) return cache.get(sk.model);
-	const fit = fitOf(sk.model);
+	if (!BODIES[sk.model] && !made.has(sk)) return null;
+	if (cache.has(sk)) return cache.get(sk);
+	const fit = fitOf(sk);
 	const grids = Object.entries(fit.grids).map(([name, g]) => {
 		const half = g.dims.map(d => ((d - 1) * fit.step) / 2), centre = g.min.map((m, k) => m + half[k]);
 		return { b: sk.index[name], min: g.min, dims: g.dims, data: decode(g.data), centre, reach: len(half) };
 	});
 	const radii = Object.fromEntries(Object.entries(fit.radii).map(([name, r]) => [sk.index[name], r]));
 	const body = { step: fit.step, grids, radii, skip: new Map(Object.keys(radii).map(b => [+b, skipOf(sk, +b)])) };
-	cache.set(sk.model, body);
+	cache.set(sk, body);
 	return body;
 }
 
@@ -93,15 +110,22 @@ function centresAt(body, s) {
 	return c;
 }
 
+/** Drops the grid centres cached for state s: a solver that moves s in place after a bodyDistance read (pose.js: the
+ * wrist target's keepOut reads the body before the arms' IK moves them) calls it, so later reads see where the bones are. */
+export const forgetCentres = s => { centres.delete(s); };
+
 /** Signed distance (m) from p to the skin of every bone not in `skip`, with the bone it came from. */
 export function bodyDistance(body, s, p, skip = null) {
 	let best = FAR, bone = -1;
-	const c = centresAt(body, s);
-	body.grids.forEach((g, i) => {
-		if (skip?.has(g.b) || len(sub(p, c[i])) - g.reach > best) return;
-		const d = sample(body, g, apply(T(s.R[g.b]), sub(p, s.P[g.b])));
+	const c = centresAt(body, s), grids = body.grids;
+	// written out (no arrays per grid): the same arithmetic as len(sub(p, c)) and apply(T(R), sub(p, P)), so the same doubles
+	for (let i = 0; i < grids.length; i++) {
+		const g = grids[i], q = c[i];
+		if (skip?.has(g.b) || Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) - g.reach > best) continue;
+		const R = s.R[g.b], o = s.P[g.b], v0 = p[0] - o[0], v1 = p[1] - o[1], v2 = p[2] - o[2];
+		const d = sample(body, g, [R[0][0] * v0 + R[1][0] * v1 + R[2][0] * v2, R[0][1] * v0 + R[1][1] * v1 + R[2][1] * v2, R[0][2] * v0 + R[1][2] * v1 + R[2][2] * v2]);
 		if (d < best) { best = d; bone = g.b; }
-	});
+	}
 	return { d: best, bone };
 }
 

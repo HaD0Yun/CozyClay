@@ -10,6 +10,7 @@ import { holdHand } from "./hold.js";
 import { closeOnShape } from "./finger-close.js";
 import { clampWrist } from "./wrist-clamp.js";
 import { ELBOW_REST } from "./arm-orient.js";
+import { forgetCentres } from "../body.js";
 
 const K = 27, MAXN = 128, FINGERS = ["Index", "Middle", "Ring", "Pinky", "Thumb"];
 // the bone table per side, in the order native/pose-rs/src/lib.rs reads it (ARM .. THUMB4)
@@ -85,11 +86,11 @@ export function poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, 
 	const down = num(c.arm_rest, 72), hang = num(c.arm_hang) && num(c.arm_hang) * hangOf(sk, down);
 	for (const [name, sg, k] of [["Left", -1, "l"], ["Right", 1, "r"]]) {
 		const h = hang * (1 - Math.min(1, Math.max(0, num(c[`armw_${k}`]) + num(c[`hangoff_${k}`]))));
-		X.rot1(sk.index[`${name}Arm`], 2, sg * down);
+		X.rot1(sk.index[`${name}Arm`], 2, sg * (down - (hooks.fkArm?.(k)?.out ?? 0)));
 		if (h) X.rot1(sk.index[`${name}ForeArm`], 2, sg * h);
 	}
 	for (const [k, name] of Object.entries(SIDES)) {
-		const bd = num(c[`abend_${k}`]), sw = num(c[`aswing_${k}`]);
+		const bd = num(c[`abend_${k}`]) + (hooks.fkArm?.(k)?.bend ?? 0), sw = num(c[`aswing_${k}`]);
 		if (bd) { X.rot1(sk.index[`${name}ForeArm`], 0, -bd); X.limit_fold(side[k]); }
 		if (sw) X.rot1(sk.index[`${name}Arm`], 0, -sw);
 	}
@@ -137,6 +138,7 @@ export function poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, 
 			toWasm(s);
 			setIO(0, target); setIO(3, pole); setIO(6, ELBOW_REST);
 			diag[`arm_miss_${k}`] = X.two_bone(a, fa, h, hooks.foldFree ? 0 : 1);
+			forgetCentres(s);
 			setIO(0, target);
 			const fold = X.asked_fold(side[k], 0);
 			if (fold > ELBOW_FOLD && !hooks.foldFree) diag[`arm_fold_${k}`] = fold;
@@ -157,6 +159,7 @@ export function poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, 
 		const grasped = hooks.heldShapes?.(k, s);
 		if (grasped) diag[`closed_${k}`] = closeOnShape(sk, s, name, grasped).touched;
 		hooks.afterArm?.(k, s, diag);
+		forgetCentres(s);
 		toWasm(s);
 	}
 	return { s: toJS(s), diag };

@@ -79,7 +79,8 @@ await check("a recipe that cannot be drawn is refused with the reason, never cla
 	refused({ version: 2, parts: [blob("a")] }, /only version 1/);
 	refused({ parts: [blob("a")], scale: 2 }, /recipe\.scale: unknown key/);
 	refused({ parts: [blob("a", { wobble: 1 })] }, /parts\[0\]\.wobble: unknown key/);
-	refused({ parts: [blob("A")] }, /parts\[0\]\.id/);
+	// capitals and _ are kept as written (models write camelCase ids); a space is still refused
+	refused({ parts: [blob("a b")] }, /parts\[0\]\.id/);
 	refused({ parts: [blob("a", { shape: "teapot" })] }, /parts\[a\]\.shape: must be one of blob, box, cylinder, torus, frame/);
 	refused({ parts: [blob("a", { size: [0.4, 40, 0.4] })] }, /parts\[a\]\.size\[1\]: extent must be/);
 	refused({ parts: [blob("a", { size: [0.4, 0.4] })] }, /three numbers/);

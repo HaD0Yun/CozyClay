@@ -19,7 +19,8 @@
 //               22 probes, 33-57 s of one compile on the Mac, ~1.6x that on the box).
 // When no walk ends by arrive (the distance is too far for the frames), the earliest clean one is
 // taken and the note says the speed the request needs and the frame it ends. The spec keeps arrive (a
-// recompile plans the same walk again, cached); observations.planned reads what was chosen.
+// recompile plans the same walk again, cached per skeleton: which candidate walks clean depends on the rig's
+// proportions, so one rig's plan is never another's); observations.planned reads what was chosen.
 import { expandUse } from "./skills/index.js";
 import { stateAt } from "./compiler/walk.js";
 
@@ -27,7 +28,7 @@ const WALK_RATIO = 9.7, STRIDE_MIN = 0.25, STRIDE_MAX = 0.75, SWING = 0.88, SLOW
 const PERIODS = Array.from({ length: 16 }, (_, i) => 9 + i);
 const PLANNED = ["steps", "period", "step", "swing"];
 const WALK_KINDS = new Set(["POP", "REACH", "SLIDE", "FLOAT", "FLIP", "KNEE"]);
-const cache = new Map();
+const caches = new WeakMap();
 const r2 = x => Math.round(x * 100) / 100;
 /** An object the body carries: keyed along a path or gripped as a prop (a door on its pivot is not). */
 const carries = spec => Object.values(spec?.objects ?? {}).some(o => (Array.isArray(o?.keys) && o.keys.length > 0) || Boolean(o?.prop));
@@ -82,7 +83,8 @@ const walkIssues = (qa, f0, end) => qa.groups.filter(g => WALK_KINDS.has(g.kind)
 export function planWalks(spec, { sk, scene, trial }) {
 	const plans = [], trials = carries(spec) ? CARRY_TRIALS : TRIALS;
 	for (const { i, u } of toPlan(spec)) {
-		const key = JSON.stringify([spec.keys, spec.use.slice(0, i + 1), spec.anchors, spec.props, spec.fits, spec.fix, scene?.objects ?? null, trials]);
+		if (!caches.has(sk)) caches.set(sk, new Map());
+		const cache = caches.get(sk), key = JSON.stringify([spec.keys, spec.use.slice(0, i + 1), spec.anchors, spec.props, spec.fits, spec.fix, scene?.objects ?? null, trials]);
 		if (cache.has(key)) { plans.push(cache.get(key)); continue; }
 		const before = spec.use.slice(0, i).filter(x => x.f0 < u.f0);
 		let state, ends = [];

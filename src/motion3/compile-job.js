@@ -1,6 +1,6 @@
 // One motion compile as a job of plain data, the same in the compile worker (compile-worker.js) and on
 // the calling thread (commands/motion3-compile.js, where no worker runs: Node, tests): the rig by model
-// name, the motion scene (scene.js motionScene of the editor's objects: oriented boxes; shapes.js reads a sphere or a cylinder round from them), the spec as sent, and
+// name (an adapted rig's JSON rides along and is registered first: rigs/posted.js), the motion scene (scene.js motionScene of the editor's objects: oriented boxes; shapes.js reads a sphere or a cylinder round from them), the spec as sent, and
 // what to do with it (probes, checks, lenient, repair, bake). The answer is plain data and typed arrays
 // only (the compiler's out holds closures), so it crosses a worker boundary: QA, observations, the stored
 // spec, and the baked take when asked. The hint patches QA offers are compiled first (hint-check.js).
@@ -14,6 +14,7 @@ import { thinSpec } from "./thin.js";
 import { checkHints } from "./hint-check.js";
 import { bakeTake } from "./take.js";
 import { skeletonFor } from "./rigs/index.js";
+import { ensureRig } from "./rigs/posted.js";
 import { keptPeople } from "./people.js";
 import { installVerdict } from "./install-verdict.js";
 
@@ -39,8 +40,10 @@ const fresh = value => (Array.isArray(value) ? value.map(fresh) : value && typeo
 	? Object.fromEntries(Object.keys(value).map(k => [k, fresh(value[k])])) : value);
 
 /**
- * runCompileJob({ model, scene, spec, probes?, checks?, lenient?, repair?, installing?, ifCleanOver?, thin?, protect?, bake? }) -> { stored, qa,
+ * runCompileJob({ model, rigs?, scene, spec, probes?, checks?, lenient?, repair?, installing?, ifCleanOver?, thin?, protect?, bake? }) -> { stored, qa,
  * observations, used, fixed, search, timeline, probes?, notes?, ms (+ repair: its wall ms), frameCount, label, repair?, thinned?, take? }
+ * rigs: { model: rig JSON } of every adapted rig the job reads: the character's, and the rigs of scene.people (people.js
+ * looks a person up by its take's rig), registered first (rigs/posted.js ensureRig: unless they already are).
  * installing: the compile installs (motion3.js), so it thins its keys (thin.js) unless thin is false; protect: frames never thinned.
  * ifCleanOver: install "ifClean": the installed take's { groups } (null when none is on); a repaired result that would not go on
  * over it (install-verdict.js) is not thinned: its keys stay as repaired, and output.thinned is absent.
@@ -48,7 +51,8 @@ const fresh = value => (Array.isArray(value) ? value.map(fresh) : value && typeo
  * hintLimitMs: the job's time after which hint patches are no longer compiled (default HINT_LIMIT_MS; tests pass 0).
  * thinLimitMs: the thinning's own time limit (default thin.js LIMIT_MS; tests pass more, so a loaded machine thins the same keys).
  */
-export function runCompileJob({ model, scene, spec: asked, probes: sentProbes, checks, lenient, repair, installing, ifCleanOver, thin, protect, bake, hintLimitMs, thinLimitMs }) {
+export function runCompileJob({ model, rigs, scene, spec: asked, probes: sentProbes, checks, lenient, repair, installing, ifCleanOver, thin, protect, bake, hintLimitMs, thinLimitMs }) {
+	for (const [id, rig] of Object.entries(rigs ?? {})) ensureRig(id, rig);
 	const sk = skeletonFor(model);
 	// what the agent wrote (#1083), then the spec with what it left to the compiler filled in (auto-spec.js): repair and thinning patch that one
 	const authored = authoredOf(asked);
@@ -102,11 +106,26 @@ function buffersOf(value, found = new Set()) {
 }
 
 /** The worker's answer to { id, job }: { message: { id, value }, transfer } or { message: { id, error: { message, code, name } }, transfer: [] }. */
+const failed = (id, error) => ({ id, error: { message: String(error?.message ?? error), code: error?.code ?? null, name: error?.name ?? "Error" } });
+
 export function answerOf({ id, job }) {
 	try {
 		const value = runCompileJob(fresh(job));
 		return { message: { id, value }, transfer: buffersOf(value) };
 	} catch (error) {
-		return { message: { id, error: { message: String(error?.message ?? error), code: error?.code ?? null, name: error?.name ?? "Error" } }, transfer: [] };
+		return { message: failed(id, error), transfer: [] };
 	}
+}
+
+/**
+ * The compile worker's message handler (compile-worker.js): jobServer(post, ready) -> handle(data) -> a promise of the
+ * answer posted. Answers go out one at a time in arrival order, the first after `ready` settles (the worker's preload of
+ * the collision body fits, body.js preloadBodies: then no compile reads a fit by synchronous XHR; a failed preload leaves
+ * that fallback). post(message, transfer) sends an answerOf answer; when it throws (an answer that does not clone), the
+ * job is answered with that error instead, and the queue goes on serving the jobs after it.
+ */
+export function jobServer(post, ready = Promise.resolve()) {
+	let queue = Promise.resolve(ready).catch(() => {});
+	return data => (queue = queue.then(() => { const { message, transfer } = answerOf(data); post(message, transfer); })
+		.catch(error => post(failed(data?.id, error), [])).catch(() => {}));
 }

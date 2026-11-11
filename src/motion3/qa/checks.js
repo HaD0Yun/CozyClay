@@ -6,7 +6,7 @@
 // contact-checks.js; arms into any other body part on the fitted skin, body-checks.js). Speed, acceleration, knee bend and balance are style: style.js measures them
 // and checks them only when the spec names their limit (checks.limits).
 import { add, sub, scale, apply, len, dist, cross, norm, dot, angle } from "../compiler/math.js";
-import { CAPSULES, segPoints, sdBox, segDist, headDepth, solePoints } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox, segDist, headDepth, solePoints, legGap } from "./geometry.js";
 import { contactChecks } from "./contact-checks.js";
 import { bodyChecks } from "./body-checks.js";
 import { popChecks } from "./style.js";
@@ -69,41 +69,52 @@ export const allowance = (allow, part, obj) => {
 	return null;
 };
 
+/**
+ * What the world says of the body at frame f: COLLIDE (capsules, feet and fingers in the scene bodies `objs`, out.objectsAt),
+ * GROUND (soles and skin under the floor) and REACH. fix/flight-gate.js reads the same before and after a flight fix.
+ */
+export function worldChecks(sk, { s, diag }, f, objs, L, allow, push) {
+	const I = sk.index;
+	// bounding spheres of the boxes: a capsule farther away than its own reach cannot touch one
+	const spheres = Object.entries(objs).filter(([, box]) => box.half && !box.ignore)
+		.map(([id, box]) => [id, box, add(box.pos, apply(box.R, [0, box.half[1], 0])), len(box.half)]);
+	for (const [part, a, b, r] of capsulesFor(sk)) {
+		const A = s.P[I[a]], B = s.P[I[b]], mid = scale(add(A, B), 0.5), reach = r + dist(A, B) / 2;
+		let pts = null;
+		for (const [id, box, c, rb] of spheres) {
+			const lim = allowance(allow, part, id) ?? L.allow;
+			if (reach - (dist(mid, c) - rb) <= lim) continue;
+			pts ??= segPoints(A, B);
+			const pen = r - Math.min(...pts.map(p => sdBox(p, box)));
+			if (pen > lim) push("COLLIDE", `${part} x ${id}`, f, pen, lim);
+		}
+	}
+	footChecks(sk, s, f, spheres, L, (part, id) => allowance(allow, part, id), push);
+	fingerCollide(sk, s, f, spheres, L, (part, id) => allowance(allow, part, id), push);
+	for (const side of ["Left", "Right"]) {
+		const sp = solePoints(sk, s, side), low = Math.min(sp.heel[1], sp.ball[1], sp.tip[1]);
+		if (low < -L.groundAllow) push("GROUND", `${side} sole below floor`, f, -low, L.groundAllow);
+	}
+	// the rest of the body under the floor: palms, fingers, arms, knees, hips, torso, head (floor.js)
+	for (const [part, depth] of floorParts(sk, s, L.groundAllow)) push("GROUND", `${part} below floor`, f, depth, L.groundAllow);
+	for (const [k, v] of Object.entries(diag)) if (/miss_[lr]$/.test(k) && v > L.reach) push("REACH", k, f, v, L.reach);
+}
+
 export function generalChecks(sk, out, opts = {}) {
 	const L = { ...QA_LIMITS, ...opts.limits }, issues = [], I = sk.index, F = out.frames, n = F.length;
 	const push = (kind, msg, f, value, limit) => issues.push({ kind, msg, frame: f, value: +value.toFixed(4), limit });
+	const shins = legGap(sk, "shins touch"), thighs = legGap(sk, "thighs overlap");
 	for (let f = 0; f < n; f++) {
-		const { s, diag } = F[f], objs = out.objectsAt(f);
-		// bounding spheres of the boxes: a capsule farther away than its own reach cannot touch one
-		const spheres = Object.entries(objs).filter(([, box]) => box.half && !box.ignore)
-			.map(([id, box]) => [id, box, add(box.pos, apply(box.R, [0, box.half[1], 0])), len(box.half)]);
-		for (const [part, a, b, r] of CAPSULES) {
-			const A = s.P[I[a]], B = s.P[I[b]], mid = scale(add(A, B), 0.5), reach = r + dist(A, B) / 2;
-			let pts = null;
-			for (const [id, box, c, rb] of spheres) {
-				const lim = allowance(opts.allow, part, id) ?? L.allow;
-				if (reach - (dist(mid, c) - rb) <= lim) continue;
-				pts ??= segPoints(A, B);
-				const pen = r - Math.min(...pts.map(p => sdBox(p, box)));
-				if (pen > lim) push("COLLIDE", `${part} x ${id}`, f, pen, lim);
-			}
-		}
-		footChecks(sk, s, f, spheres, L, (part, id) => allowance(opts.allow, part, id), push);
-		fingerCollide(sk, s, f, spheres, L, (part, id) => allowance(opts.allow, part, id), push);
-		for (const side of ["Left", "Right"]) {
-			const sp = solePoints(sk, s, side), low = Math.min(sp.heel[1], sp.ball[1], sp.tip[1]);
-			if (low < -L.groundAllow) push("GROUND", `${side} sole below floor`, f, -low, L.groundAllow);
-		}
-		// the rest of the body under the floor: palms, fingers, arms, knees, hips, torso, head (floor.js)
-		for (const [part, depth] of floorParts(sk, s, L.groundAllow)) push("GROUND", `${part} below floor`, f, depth, L.groundAllow);
-		for (const [k, v] of Object.entries(diag)) if (/miss_[lr]$/.test(k) && v > L.reach) push("REACH", k, f, v, L.reach);
+		const { s, diag } = F[f];
+		worldChecks(sk, F[f], f, out.objectsAt(f), L, opts.allow, push);
 		// hands, forearms and held props must stay out of the head
 		const probes = [];
 		for (const S of ["Left", "Right"]) probes.push(...segPoints(s.P[I[`${S}Hand`]], s.P[I[`${S}HandMiddle3`]], 5).map(p => [`hand_${S[0].toLowerCase()}`, p, 0.022]));
 		for (const [pn, pts] of Object.entries(diag.props ?? {})) for (const [k, p] of Object.entries(pts)) if (Array.isArray(p) && k !== "origin" && !(opts.mouthPoints ?? []).includes(`${pn}.${k}`)) probes.push([`prop_${pn}`, p, 0.004]);
 		for (const [nm, p, r] of probes) { const d = headDepth(sk, s, p) + r; if (d > L.headAllow) push("FACE", `${nm} into head`, f, d, L.headAllow); }
-		if (segDist(s.P[I.LeftLeg], s.P[I.LeftFoot], s.P[I.RightLeg], s.P[I.RightFoot]) < 0.1 + L.self) push("SELF", "shins touch", f, 0.1, 0.1);
-		if (segDist(s.P[I.LeftUpLeg], s.P[I.LeftLeg], s.P[I.RightUpLeg], s.P[I.RightLeg]) < 0.135 + L.self) push("SELF", "thighs overlap", f, 0.135, 0.135);
+		// the legs' limits scale with the rig's hip width (geometry.js legGap)
+		if (segDist(s.P[I.LeftLeg], s.P[I.LeftFoot], s.P[I.RightLeg], s.P[I.RightFoot]) < shins + L.self) push("SELF", "shins touch", f, shins, shins);
+		if (segDist(s.P[I.LeftUpLeg], s.P[I.LeftLeg], s.P[I.RightUpLeg], s.P[I.RightLeg]) < thighs + L.self) push("SELF", "thighs overlap", f, thighs, thighs);
 		for (const S of ["Left", "Right"]) {
 			const th = s.P[I[`${S}UpLeg`]], kn = s.P[I[`${S}Leg`]], an = s.P[I[`${S}Foot`]];
 			const bend = angle(sub(kn, th), sub(an, kn));
