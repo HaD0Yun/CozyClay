@@ -1,0 +1,17 @@
+{
+	"id": "mixamo",
+	"name": "Mixamo (mixamorig:)",
+	"sides": { "Left": { "s": "Left" }, "Right": { "s": "Right" } },
+	"bones": {
+		"Hips": ["Hips"], "Spine": ["Spine"], "Spine1": ["Spine1"], "Spine2": ["Spine2"], "Neck": ["Neck"], "Head": ["Head"], "HeadTop_End": ["HeadTop_End"],
+		"{Side}Shoulder": ["{s}Shoulder"], "{Side}Arm": ["{s}Arm"], "{Side}ForeArm": ["{s}ForeArm"], "{Side}Hand": ["{s}Hand"],
+		"{Side}UpLeg": ["{s}UpLeg"], "{Side}Leg": ["{s}Leg"], "{Side}Foot": ["{s}Foot"], "{Side}ToeBase": ["{s}ToeBase"], "{Side}Toe_End": ["{s}Toe_End"]
+	},
+	"fingers": {
+		"Thumb": ["{s}HandThumb1", "{s}HandThumb2", "{s}HandThumb3", "{s}HandThumb4"],
+		"Index": ["{s}HandIndex1", "{s}HandIndex2", "{s}HandIndex3", "{s}HandIndex4"],
+		"Middle": ["{s}HandMiddle1", "{s}HandMiddle2", "{s}HandMiddle3", "{s}HandMiddle4"],
+		"Ring": ["{s}HandRing1", "{s}HandRing2", "{s}HandRing3", "{s}HandRing4"],
+		"Pinky": ["{s}HandPinky1", "{s}HandPinky2", "{s}HandPinky3", "{s}HandPinky4"]
+	}
+}

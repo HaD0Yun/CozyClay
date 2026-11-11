@@ -2,7 +2,7 @@
 // other limb. Each answers a world move (direction x amount) for whatever drives that part.
 import { add, sub, scale, norm, dot, len, clamp, apply, ry, T } from "../compiler/math.js";
 import { bonePoint } from "../compiler/skeleton.js";
-import { CAPSULES, segPoints, sdBox, boxNormal, headDepth, segDist, ankleY } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox, boxNormal, headDepth, segDist, ankleY, legGap } from "./geometry.js";
 import { balanceAt, offsetWords } from "./com.js";
 import { vec, m3 } from "./fmt.js";
 import { kneeFoldHint, kneeWhy } from "./hints-knee.js";
@@ -10,6 +10,7 @@ import { objectFrame } from "../compiler/anchors.js";
 import { bodyFor, bodyNormal, limbDepth } from "../body.js";
 import { footProbes, footDepths } from "./foot-checks.js";
 import { personCapsules } from "./people-checks.js";
+import { selfNote } from "./hints-self.js";
 
 const MARGIN = 0.003;
 /** The most a foot hint lifts a foot over a body it went into through a side (a stair riser); higher, it backs out. */
@@ -89,18 +90,18 @@ export function moveHint(X, part, f, delta, why = "") {
 	return (driver && bareAnchorHint(X, driver, k, f, move, why)) ?? move;
 }
 
-const capsule = name => CAPSULES.find(c => c[0] === name);
+const capsule = (X, name) => capsulesFor(X.sk).find(c => c[0] === name);
 
 /** Deepest point of a capsule in a box at frame f and the box's outward normal there. */
 function deepest(X, f, part, box) {
-	const [, a, b] = capsule(part), { s } = X.fr(f);
+	const [, a, b] = capsule(X, part), { s } = X.fr(f);
 	const pts = segPoints(s.P[X.I[a]], s.P[X.I[b]]), ds = pts.map(p => sdBox(p, box)), m = Math.min(...ds);
 	return { p: pts[ds.indexOf(m)], n: boxNormal(pts[ds.indexOf(m)], box), d: m };
 }
 
 function boxHint(X, g, part, id, need) {
 	const f = g.worstFrame, box = X.out.objectsAt(X.rel(f))[id];
-	if (!box || !capsule(part)) return null;
+	if (!box || !capsule(X, part)) return null;
 	const { n } = deepest(X, f, part, box);
 	return moveHint(X, part, f, scale(n, need), ` (out of ${id})`);
 }
@@ -145,6 +146,29 @@ function gripLift(X, g, part, id, need) {
 	return deepest(X, f, part, box).n[1] > 0.5 ? moveHint(X, part, f, [0, need, 0], ` (over ${id}'s top)`) : null;
 }
 
+/** BODY's move: an arm out along the fitted skin where it goes deepest, else a part out of the torso capsule. */
+function bodyHint(X, g) {
+	const [, nm, part] = /^(\S+) into (\S+)$/.exec(g.subject) ?? [];
+	const cap = capsule(X, part), f = g.worstFrame, { s } = X.fr(f);
+	// an arm on the fitted skin (body-checks.js): the hand target moves out along the skin where it goes deepest;
+	// an upper arm or forearm says so, since turning its elbow (elbow_<k>) away from the body may do instead
+	const limb = /^(hand|farm|uarm)_([lr])$/.exec(nm ?? ""), body = limb && bodyFor(X.sk);
+	if (body) {
+		const bone = X.I[`${limb[2] === "l" ? "Left" : "Right"}${{ hand: "Hand", farm: "ForeArm", uarm: "Arm" }[limb[1]]}`], hit = limbDepth(body, X.sk, s, bone);
+		const out = hit.p && bodyNormal(body, s, hit.p, body.skip.get(bone));
+		if (out) {
+			const r = moveHint(X, nm, f, scale(out, g.worst - g.limit + MARGIN), ` (out of the ${part})`);
+			if (limb[1] !== "hand") r.hint += `; or turn elbow_${limb[2]} away from the ${part}`;
+			return r;
+		}
+	}
+	if (!cap) return null;
+	const A = s.P[X.I[cap[1]]], B = s.P[X.I[cap[2]]], ab = sub(B, A);
+	const axis = p => add(A, scale(ab, clamp(dot(sub(p, A), ab) / dot(ab, ab), 0, 1)));
+	const p = probes(X, f, nm).reduce((best, q) => (len(sub(q, axis(q))) < len(sub(best, axis(best))) ? q : best));
+	return towardFrom(X, g, nm, sub(p, axis(p)), g.worst - g.limit + MARGIN, "torso");
+}
+
 export const contactHints = {
 	COLLIDE(X, g) {
 		const [, part, id] = /^(\S+) x (.+)$/.exec(g.subject) ?? [];
@@ -160,7 +184,7 @@ export const contactHints = {
 	},
 	/** PERSON "<part> x person:<id>": the part moves out of the other person's deepest capsule, along the line between their nearest points. */
 	PERSON(X, g) {
-		const [, part, id] = /^(\S+) x person:(.+)$/.exec(g.subject) ?? [], mine = capsule(part), p0 = X.out?.ctx?.scene?.people?.[id];
+		const [, part, id] = /^(\S+) x person:(.+)$/.exec(g.subject) ?? [], mine = capsule(X, part), p0 = X.out?.ctx?.scene?.people?.[id];
 		if (!mine || !p0) return null;
 		const f = g.worstFrame, { s } = X.fr(f), pts = segPoints(s.P[X.I[mine[1]]], s.P[X.I[mine[2]]]);
 		const near = ([other, C, D, q]) => {
@@ -189,28 +213,15 @@ export const contactHints = {
 		const nm = g.subject.replace(/ into head$/, ""), f = g.worstFrame, { s } = X.fr(f);
 		const c = bonePoint(s, X.I.Head, X.sk.landmarks.headCentre);
 		const p = probes(X, f, nm).reduce((best, q) => (headDepth(X.sk, s, q) > headDepth(X.sk, s, best) ? q : best));
-		return towardFrom(X, g, nm, sub(p, c), g.worst - g.limit + MARGIN, "head");
+		const r = towardFrom(X, g, nm, sub(p, c), g.worst - g.limit + MARGIN, "head");
+		if (r) r.hint += selfNote(X, g, nm);
+		return r;
 	},
+	/** BODY: the hint below, and what fix.self did about it (hints-self.js). */
 	BODY(X, g) {
-		const [, nm, part] = /^(\S+) into (\S+)$/.exec(g.subject) ?? [];
-		const cap = capsule(part), f = g.worstFrame, { s } = X.fr(f);
-		// an arm on the fitted skin (body-checks.js): the hand target moves out along the skin where it goes deepest;
-		// an upper arm or forearm says so, since turning its elbow (elbow_<k>) away from the body may do instead
-		const limb = /^(hand|farm|uarm)_([lr])$/.exec(nm ?? ""), body = limb && bodyFor(X.sk);
-		if (body) {
-			const bone = X.I[`${limb[2] === "l" ? "Left" : "Right"}${{ hand: "Hand", farm: "ForeArm", uarm: "Arm" }[limb[1]]}`], hit = limbDepth(body, X.sk, s, bone);
-			const out = hit.p && bodyNormal(body, s, hit.p, body.skip.get(bone));
-			if (out) {
-				const r = moveHint(X, nm, f, scale(out, g.worst - g.limit + MARGIN), ` (out of the ${part})`);
-				if (limb[1] !== "hand") r.hint += `; or turn elbow_${limb[2]} away from the ${part}`;
-				return r;
-			}
-		}
-		if (!cap) return null;
-		const A = s.P[X.I[cap[1]]], B = s.P[X.I[cap[2]]], ab = sub(B, A);
-		const axis = p => add(A, scale(ab, clamp(dot(sub(p, A), ab) / dot(ab, ab), 0, 1)));
-		const p = probes(X, f, nm).reduce((best, q) => (len(sub(q, axis(q))) < len(sub(best, axis(best))) ? q : best));
-		return towardFrom(X, g, nm, sub(p, axis(p)), g.worst - g.limit + MARGIN, "torso");
+		const r = bodyHint(X, g);
+		if (r) r.hint += selfNote(X, g, /^(\S+) into /.exec(g.subject)?.[1]);
+		return r;
 	},
 	SELF(X, g) {
 		const f = g.worstFrame, { s } = X.fr(f), P = s.P, I = X.I;
@@ -219,7 +230,7 @@ export const contactHints = {
 			const r = moveHint(X, "hand_l", f, scale(d, need));
 			return { cause: r.cause, hint: `${r.hint}; and ${moveHint(X, "hand_r", f, scale(d, -need)).hint}`, fix: moveHint(X, "hand_l", f, scale(d, 2 * need)).fix };
 		}
-		const shins = g.subject === "shins touch", min = shins ? 0.1 : 0.135;
+		const shins = g.subject === "shins touch", min = legGap(X.sk, g.subject);
 		const [a, b] = shins ? ["Leg", "Foot"] : ["UpLeg", "Leg"];
 		const gap = segDist(P[I[`Left${a}`]], P[I[`Left${b}`]], P[I[`Right${a}`]], P[I[`Right${b}`]]);
 		const d = sub(P[I[`Left${b}`]], P[I[`Right${b}`]]); d[1] = 0;

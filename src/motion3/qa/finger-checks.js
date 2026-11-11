@@ -6,10 +6,12 @@
 //                phalanx against the one before (the first against the palm's finger axis), outside its band in degrees
 //                (MCP, PIP, DIP; active ranges of motion: flexion 85-90 / 100-115 / 80-90, extension 30-45 / 0 / 20)
 //   FINGER_SELF  "<Bone> into <Bone>": two phalanges of different fingers (the thumb aside: it lies on the index by
-//                design) closer than two phalanx radii less PEN, as FINGER_PEN measures a phalanx in a held thing
+//                design) closer than two phalanx radii less PEN, as FINGER_PEN measures a phalanx in a held thing; the
+//                radius and PEN scale with the rig's hand (rigScale "hand"), so a hand of 0.7 the X Bot's is judged as its own
 // A rig without finger joints is not judged.
 import { add, sub, scale, dot, cross, norm } from "../compiler/math.js";
 import { palmAxes } from "../compiler/limbs.js";
+import { rigScale } from "../compiler/skeleton.js";
 
 const PHALANX = 0.009, PEN = 0.004, SIDES = ["Left", "Right"], FINGERS = ["Index", "Middle", "Ring", "Pinky"];
 // degrees per joint (1 MCP, 2 PIP, 3 DIP): [most extension, most flexion]
@@ -49,14 +51,14 @@ function handIssues(sk, s, S, push, frame) {
 			else if (a > hi) push("FINGER_ROM", `${bone} curled past range`, frame, a, hi);
 		});
 	}
-	const P = name => s.P[sk.index[`${S}Hand${name}`]];
+	const P = name => s.P[sk.index[`${S}Hand${name}`]], k = rigScale(sk, "hand"), touch = 2 * PHALANX * k, pen = PEN * k;
 	for (let i = 0; i < FINGERS.length; i++) for (let j = i + 1; j < FINGERS.length; j++) {
 		let worst = null;
 		for (let a = 1; a <= 3; a++) for (let b = 1; b <= 3; b++) {
-			const overlap = 2 * PHALANX - segmentGap(P(`${FINGERS[i]}${a}`), P(`${FINGERS[i]}${a + 1}`), P(`${FINGERS[j]}${b}`), P(`${FINGERS[j]}${b + 1}`));
-			if (overlap > PEN && (!worst || overlap > worst.overlap)) worst = { overlap, a, b };
+			const overlap = touch - segmentGap(P(`${FINGERS[i]}${a}`), P(`${FINGERS[i]}${a + 1}`), P(`${FINGERS[j]}${b}`), P(`${FINGERS[j]}${b + 1}`));
+			if (overlap > pen && (!worst || overlap > worst.overlap)) worst = { overlap, a, b };
 		}
-		if (worst) push("FINGER_SELF", `${S}Hand${FINGERS[i]}${worst.a} into ${S}Hand${FINGERS[j]}${worst.b}`, frame, worst.overlap, PEN);
+		if (worst) push("FINGER_SELF", `${S}Hand${FINGERS[i]}${worst.a} into ${S}Hand${FINGERS[j]}${worst.b}`, frame, worst.overlap, pen);
 	}
 }
 
