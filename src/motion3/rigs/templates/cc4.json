@@ -1,0 +1,17 @@
+{
+	"id": "cc4",
+	"name": "Character Creator 3/4 (CC_Base_)",
+	"sides": { "Left": { "s": "L" }, "Right": { "s": "R" } },
+	"bones": {
+		"Hips": ["CC_Base_Hip", "CC_Base_Pelvis"], "Spine": ["CC_Base_Waist"], "Spine1": ["CC_Base_Spine01"], "Spine2": ["CC_Base_Spine02"], "Neck": ["CC_Base_NeckTwist01"], "Head": ["CC_Base_Head"],
+		"{Side}Shoulder": ["CC_Base_{s}_Clavicle"], "{Side}Arm": ["CC_Base_{s}_Upperarm"], "{Side}ForeArm": ["CC_Base_{s}_Forearm"], "{Side}Hand": ["CC_Base_{s}_Hand"],
+		"{Side}UpLeg": ["CC_Base_{s}_Thigh"], "{Side}Leg": ["CC_Base_{s}_Calf"], "{Side}Foot": ["CC_Base_{s}_Foot"], "{Side}ToeBase": ["CC_Base_{s}_ToeBase"]
+	},
+	"fingers": {
+		"Thumb": ["CC_Base_{s}_Thumb1", "CC_Base_{s}_Thumb2", "CC_Base_{s}_Thumb3"],
+		"Index": ["CC_Base_{s}_Index1", "CC_Base_{s}_Index2", "CC_Base_{s}_Index3"],
+		"Middle": ["CC_Base_{s}_Mid1", "CC_Base_{s}_Mid2", "CC_Base_{s}_Mid3"],
+		"Ring": ["CC_Base_{s}_Ring1", "CC_Base_{s}_Ring2", "CC_Base_{s}_Ring3"],
+		"Pinky": ["CC_Base_{s}_Pinky1", "CC_Base_{s}_Pinky2", "CC_Base_{s}_Pinky3"]
+	}
+}

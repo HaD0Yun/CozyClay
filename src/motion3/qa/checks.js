@@ -6,7 +6,7 @@
 // contact-checks.js; arms into any other body part on the fitted skin, body-checks.js). Speed, acceleration, knee bend and balance are style: style.js measures them
 // and checks them only when the spec names their limit (checks.limits).
 import { add, sub, scale, apply, len, dist, cross, norm, dot, angle } from "../compiler/math.js";
-import { CAPSULES, segPoints, sdBox, segDist, headDepth, solePoints } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox, segDist, headDepth, solePoints, legGap } from "./geometry.js";
 import { contactChecks } from "./contact-checks.js";
 import { bodyChecks } from "./body-checks.js";
 import { popChecks } from "./style.js";
@@ -72,12 +72,13 @@ export const allowance = (allow, part, obj) => {
 export function generalChecks(sk, out, opts = {}) {
 	const L = { ...QA_LIMITS, ...opts.limits }, issues = [], I = sk.index, F = out.frames, n = F.length;
 	const push = (kind, msg, f, value, limit) => issues.push({ kind, msg, frame: f, value: +value.toFixed(4), limit });
+	const shins = legGap(sk, "shins touch"), thighs = legGap(sk, "thighs overlap"), caps = capsulesFor(sk);
 	for (let f = 0; f < n; f++) {
 		const { s, diag } = F[f], objs = out.objectsAt(f);
 		// bounding spheres of the boxes: a capsule farther away than its own reach cannot touch one
 		const spheres = Object.entries(objs).filter(([, box]) => box.half && !box.ignore)
 			.map(([id, box]) => [id, box, add(box.pos, apply(box.R, [0, box.half[1], 0])), len(box.half)]);
-		for (const [part, a, b, r] of CAPSULES) {
+		for (const [part, a, b, r] of caps) {
 			const A = s.P[I[a]], B = s.P[I[b]], mid = scale(add(A, B), 0.5), reach = r + dist(A, B) / 2;
 			let pts = null;
 			for (const [id, box, c, rb] of spheres) {
@@ -102,8 +103,9 @@ export function generalChecks(sk, out, opts = {}) {
 		for (const S of ["Left", "Right"]) probes.push(...segPoints(s.P[I[`${S}Hand`]], s.P[I[`${S}HandMiddle3`]], 5).map(p => [`hand_${S[0].toLowerCase()}`, p, 0.022]));
 		for (const [pn, pts] of Object.entries(diag.props ?? {})) for (const [k, p] of Object.entries(pts)) if (Array.isArray(p) && k !== "origin" && !(opts.mouthPoints ?? []).includes(`${pn}.${k}`)) probes.push([`prop_${pn}`, p, 0.004]);
 		for (const [nm, p, r] of probes) { const d = headDepth(sk, s, p) + r; if (d > L.headAllow) push("FACE", `${nm} into head`, f, d, L.headAllow); }
-		if (segDist(s.P[I.LeftLeg], s.P[I.LeftFoot], s.P[I.RightLeg], s.P[I.RightFoot]) < 0.1 + L.self) push("SELF", "shins touch", f, 0.1, 0.1);
-		if (segDist(s.P[I.LeftUpLeg], s.P[I.LeftLeg], s.P[I.RightUpLeg], s.P[I.RightLeg]) < 0.135 + L.self) push("SELF", "thighs overlap", f, 0.135, 0.135);
+		// the legs' limits scale with the rig's hip width (geometry.js legGap)
+		if (segDist(s.P[I.LeftLeg], s.P[I.LeftFoot], s.P[I.RightLeg], s.P[I.RightFoot]) < shins + L.self) push("SELF", "shins touch", f, shins, shins);
+		if (segDist(s.P[I.LeftUpLeg], s.P[I.LeftLeg], s.P[I.RightUpLeg], s.P[I.RightLeg]) < thighs + L.self) push("SELF", "thighs overlap", f, thighs, thighs);
 		for (const S of ["Left", "Right"]) {
 			const th = s.P[I[`${S}UpLeg`]], kn = s.P[I[`${S}Leg`]], an = s.P[I[`${S}Foot`]];
 			const bend = angle(sub(kn, th), sub(an, kn));

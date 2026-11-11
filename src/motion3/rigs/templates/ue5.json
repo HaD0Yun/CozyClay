@@ -1,0 +1,17 @@
+{
+	"id": "ue5",
+	"name": "Unreal Engine 5 Manny / Quinn (also the UE4 mannequin's spine_01..03)",
+	"sides": { "Left": { "s": "l" }, "Right": { "s": "r" } },
+	"bones": {
+		"Hips": ["pelvis"], "Spine": ["spine_01"], "Spine1": ["spine_03", "spine_02"], "Spine2": ["spine_05", "spine_04", "spine_03"], "Neck": ["neck_01"], "Head": ["head"],
+		"{Side}Shoulder": ["clavicle_{s}"], "{Side}Arm": ["upperarm_{s}"], "{Side}ForeArm": ["lowerarm_{s}"], "{Side}Hand": ["hand_{s}"],
+		"{Side}UpLeg": ["thigh_{s}"], "{Side}Leg": ["calf_{s}"], "{Side}Foot": ["foot_{s}"], "{Side}ToeBase": ["ball_{s}"]
+	},
+	"fingers": {
+		"Thumb": ["thumb_01_{s}", "thumb_02_{s}", "thumb_03_{s}"],
+		"Index": ["index_01_{s}", "index_02_{s}", "index_03_{s}"],
+		"Middle": ["middle_01_{s}", "middle_02_{s}", "middle_03_{s}"],
+		"Ring": ["ring_01_{s}", "ring_02_{s}", "ring_03_{s}"],
+		"Pinky": ["pinky_01_{s}", "pinky_02_{s}", "pinky_03_{s}"]
+	}
+}
