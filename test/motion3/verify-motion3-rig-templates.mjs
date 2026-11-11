@@ -178,13 +178,21 @@ const TOL = 3, SOFT = new Set(["POP"]);
 	const dq = Math.max(...rig.bones.map((b, i) => angle(apply(matFromQuat(b.worldQuat), [1, 2, 3]), apply(matFromQuat(xBot.bones[i].worldQuat), [1, 2, 3]))));
 	expect("X Bot as a raw mixamorig: skeleton: detected mixamo, nothing missing or extra, a T-pose on the source's floor",
 		report.detected.id === "mixamo" && report.detected.score === 1 && !report.missing.length && !report.extra.length && report.restPose === "T" && report.grounded === "source", JSON.stringify(report).slice(0, 300));
-	expect("  ... and adapted it is the X Bot rig: joints within 1e-5 cm, bone frames within 1e-5 deg", dp < 1e-5 && dq < 1e-5, `${dp} cm, ${dq} deg`);
+	// the X Bot's own hip and shoulder lines face about 1.4e-5 deg off +X, and the adapter takes that turn out (facingAxes)
+	expect("  ... and adapted it is the X Bot rig: joints within 1e-5 cm, bone frames within 1e-4 deg", dp < 1e-5 && dq < 1e-4, `${dp} cm, ${dq} deg`);
 	expect("  ... with the X Bot's measurements (height 1.82 m, legs 0.889 m, arms 0.562 m, ankle 0.087 m)",
 		Math.abs(report.measured.heightM - 1.8197) < 1e-3 && Math.abs(report.measured.legLengthM - 0.889) < 1e-3 && Math.abs(report.measured.armLengthM - 0.5617) < 1e-3 && Math.abs(report.measured.ankleHeightM - 0.0873) < 1e-3, JSON.stringify(report.measured));
 	registerRig("test-xbot-adapted", rig);
 	const a = bodyFor(skeletonFor("test-xbot-adapted")), b = bodyFor(skeletonFor("x-bot-tpose"));
-	const same = a.grids.length === b.grids.length && a.grids.every((g, i) => g.b === b.grids[i].b && g.dims.join() === b.grids[i].dims.join() && g.data.every((v, k) => v === b.grids[i].data[k]));
-	expect("  ... and its refitted collision body is the X Bot's, cell for cell", same);
+	// skin distance on a 3 cm lattice, wherever the X Bot's skin is within 1 cm (that 1e-5 deg turn can add a grid row far
+	// out, where only FAR is read)
+	const sa = restState(skeletonFor("test-xbot-adapted")), sb = restState(skeletonFor("x-bot-tpose"));
+	let skinOff = 0, near = 0;
+	for (let x = -0.9; x <= 0.9; x += 0.03) for (let y = 0; y <= 1.85; y += 0.03) for (let z = -0.25; z <= 0.3; z += 0.03) {
+		const db = bodyDistance(b, sb, [x, y, z]).d;
+		if (Math.abs(db) < 0.01) { near += 1; skinOff = Math.max(skinOff, Math.abs(bodyDistance(a, sa, [x, y, z]).d - db)); }
+	}
+	expect(`  ... and its refitted collision body is the X Bot's: skin distance within 1e-6 m at ${near} points near the skin (${skinOff.toExponential(1)} m)`, a.grids.length === b.grids.length && near > 1000 && skinOff < 1e-6, String(skinOff));
 }
 
 // 1b. Mixamo names as three.js GLTFLoader writes them (the colon dropped: "mixamorigHips", src/poses.js) and with an underscore
@@ -421,7 +429,10 @@ function retargetOff(raw, out, n) {
 	}));
 	expect(`  ... and report.retarget's foot frame carries the source's foot onto the rig's (${footFrame.toFixed(4)} deg)`, footFrame < 0.01, String(footFrame));
 	const hipLine = sub(jointOf(rig, "LeftUpLeg"), jointOf(rig, "RightUpLeg")), carriedLine = apply(mul(frameOf(rig, "Hips"), T(REF.restWorldRot[0])), sub(refAt("LeftUpLeg"), refAt("RightUpLeg")));
-	expect(`  ... the pelvis turned 10 deg on its spine: the hips' frame follows the hip line (${angle(hipLine, carriedLine).toFixed(3)} deg)`, angle(hipLine, carriedLine) < 0.5 && angle(flatXZ(hipLine), [1, 0, 0]) > 5, String(angle(hipLine, carriedLine)));
+	// the facing is the mean of the hip and shoulder lines, so the twist splits: the hip line 5 deg one way, the shoulders 5 the other
+	const hipTurn = angle(flatXZ(hipLine), [1, 0, 0]), shoulderTurn = angle(flatXZ(sub(jointOf(rig, "LeftArm"), jointOf(rig, "RightArm"))), [1, 0, 0]);
+	expect(`  ... the pelvis turned 10 deg on its spine: the twist kept (hip line ${hipTurn.toFixed(3)} deg, shoulders ${shoulderTurn.toFixed(3)} deg off +X), the hips' frame following the hip line (${angle(hipLine, carriedLine).toFixed(3)} deg)`,
+		angle(hipLine, carriedLine) < 0.5 && Math.abs(hipTurn - 5) < 0.1 && Math.abs(shoulderTurn - 5) < 0.1, `${angle(hipLine, carriedLine)} ${hipTurn} ${shoulderTurn}`);
 	registerRig("test-bent", rig);
 	const sk = skeletonFor("test-bent"), k = sk.restWorldPos[0][1] / xb.restWorldPos[0][1];
 	for (const motion of ["walk", "grip"]) {
@@ -548,6 +559,36 @@ for (const [field, at, v] of [["localPos", "mixamorig:LeftHandIndex2", [NaN, 0, 
 	registerRig("test-retired-a", a);
 	const mins = sk => bodyFor(sk).grids.map(g => g.min.join()).join(";");
 	expect("a retired skeleton never asked for its body: its body is its own rig's, not the new one's", mins(first) === mins(skeletonFor("test-retired-a")) && mins(first) !== mins(skeletonFor("test-retired")));
+}
+
+// 4p. a whole-body turn about up, of any angle, goes away (before: under 25 deg the hips and shoulders stayed turned while the
+// arms and feet went onto the X Bot's directions, every take walked with its trunk turned, and at 25 deg the rig jumped)
+{
+	const raw = () => ({ units: "cm", bones: xBot.bones.map(b => ({ name: `mixamorig:${b.name}`, parent: b.parent, localPos: b.localPos.slice(), localQuat: b.localQuat.slice() })) });
+	const turned = yaw => {
+		const r = raw(), hips = r.bones[0];
+		hips.localPos = apply(ry(yaw), hips.localPos);
+		hips.localQuat = quatFromMat(mul(ry(yaw), matFromQuat(hips.localQuat)));
+		return adaptRig(r).rig;
+	};
+	const still = turned(0);
+	registerRig("test-yaw-0", still);
+	const walk = run(skeletonFor("test-yaw-0"), "walk"), qa = JSON.stringify(walk.qa.groups);
+	// joint positions (m) and rotation entries, worst over every frame. The rig stores positions to 1e-6 cm, so a turned
+	// source's bind can land a rounding step (1e-8 m) away, which a take carries as about 1.3e-7 m: compared to 1e-6 m
+	const off = r => (r.out.frames.length !== walk.out.frames.length ? Infinity : r.out.frames.reduce((worst, { s }, f) => {
+		const w = walk.out.frames[f].s, a = [s.P, s.R].flat(3), b = [w.P, w.R].flat(3);
+		return a.reduce((m, v, k) => Math.max(m, Math.abs(v - b[k])), worst);
+	}, 0));
+	for (const yaw of [10, 20, 24, 26, 90, -150]) {
+		const rig = turned(yaw);
+		const dp = Math.max(...rig.bones.flatMap((b, i) => b.worldPos.map((v, k) => Math.abs(v - still.bones[i].worldPos[k]))));
+		const dq = Math.max(...rig.bones.map((b, i) => angle(apply(matFromQuat(b.worldQuat), [1, 2, 3]), apply(matFromQuat(still.bones[i].worldQuat), [1, 2, 3]))));
+		registerRig(`test-yaw-${yaw}`, rig);
+		const r = run(skeletonFor(`test-yaw-${yaw}`), "walk"), d = off(r);
+		expect(`X Bot turned ${yaw} deg about up: the unturned rig (joints ${dp.toExponential(1)} cm, frames ${dq.toExponential(1)} deg off) and its walk (${d.toExponential(1)} off, QA ${r.qa.total})`,
+			dp < 2e-6 && dq < 1e-5 && d < 1e-6 && JSON.stringify(r.qa.groups) === qa, `${dp} ${dq} ${d} ${JSON.stringify(issues(r))}`);
+	}
 }
 
 // 4q. a parent that is not an index into the bones, or the bone itself, is refused by name (before: a name or a fraction

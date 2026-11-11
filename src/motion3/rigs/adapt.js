@@ -50,8 +50,9 @@ function ownLandmarks(raw, B, dy) {
 	const L = raw.landmarks, k = raw.units === "m" ? 1 : 0.01;
 	if (!L) return null;
 	const point = p => (Array.isArray(p) ? add(apply(B, scale(p, k)), [0, dy, 0]) : undefined);
-	const e = L.headEllipsoid;
-	return { mouth: point(L.mouth), headEllipsoid: e?.centre && e?.radii ? { centre: point(e.centre), radii: apply(B, scale(e.radii, k)).map(Math.abs) } : undefined,
+	// each canonical radius is the source's along the source axis nearest it: an axis convention (Z-up) swaps them, a turn does not mix them
+	const e = L.headEllipsoid, nearest = row => row.reduce((m, v, i) => (Math.abs(v) > Math.abs(row[m]) ? i : m), 0);
+	return { mouth: point(L.mouth), headEllipsoid: e?.centre && e?.radii ? { centre: point(e.centre), radii: B.map(row => e.radii[nearest(row)] * k) } : undefined,
 		sole: L.sole && { ball: Number.isFinite(L.sole.ball) ? L.sole.ball * k : undefined, tip: Number.isFinite(L.sole.tip) ? L.sole.tip * k : undefined } };
 }
 
