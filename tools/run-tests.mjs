@@ -137,7 +137,7 @@ const NODE_FILES = [
 	"test/verify-package-signature.mjs",
 	"test/verify-resilience.mjs",
 	"test/verify-sample-at.mjs",
-	"test/verify-scene-asset-cache.mjs",
+	"test/verify-scene-asset-cache.mjs", "test/verify-scene-mesh-cache-exports.mjs",
 	"test/verify-scene-assets.mjs",
 	"test/verify-scene-mesh.mjs",
 	"test/verify-mesh-sniff.mjs",

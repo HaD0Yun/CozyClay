@@ -136,5 +136,6 @@ function db() {
 }
 
 const cache = createMeshSceneCache();
+export const loadMeshScene = cache.loadMeshScene;
 export const subscribeToMeshScene = cache.subscribeToMeshScene;
 export const evictMeshScene = cache.evictMeshScene;
