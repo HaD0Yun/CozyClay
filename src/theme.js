@@ -2,7 +2,7 @@
 // shell, its regions and body-level popovers all read the same token set.
 export const THEMES = ["dark", "light"];
 export const THEME_KEY = "cozyclay.theme.v1";
-export const DEFAULT_THEME = "light";
+export const DEFAULT_THEME = "dark";
 
 import { useEffect, useState } from "react";
 

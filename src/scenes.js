@@ -7,7 +7,7 @@ import { normalizeStableItems } from "./stable-items.js"; import { noteLayerFiel
 
 import { elementByPath } from "./studio-elements.js";
 import { wrapAngle } from "./scene-objects.js"; import { retireObjectKind } from "./retired-kinds.js";
-import { normalizeTakeSource } from "./domains/motion/take-source.js";
+import { normalizeTakeSource } from "./domains/motion/take-source.js"; import { importedRigOf, isImportedCharacter } from "./character-rig.js";
 import { createKeyLight, normalizeLighting } from "./stage-lighting.js";
 // The timeline clock lives in timeline-fps.js (three-free, so the agent
 // sidecar can import it); re-exported here for every scene-side caller.
@@ -128,7 +128,8 @@ export function createCharacterEntry(source = null, index = 0) {
 	const s = plainObject(source) ? source : {};
 	return {
 		id: typeof s.id === "string" && s.id ? s.id : `char-${index + 1}`,
-		model: CHARACTER_KIND_IDS.includes(s.model) ? s.model : DEFAULT_CHARACTER_MODEL,
+		// an imported character (character-rig.js) keeps its own model id with its rig
+		model: CHARACTER_KIND_IDS.includes(s.model) || isImportedCharacter(s) ? s.model : DEFAULT_CHARACTER_MODEL,
 		posture: POSTURES.includes(s.posture) ? s.posture : "stand",
 		x: Math.max(CHARACTER_POSITION_LIMITS.min.x, Math.min(CHARACTER_POSITION_LIMITS.max.x, finiteOr(s.x, 0))),
 		// Lift is bounded by the deck and the shared room headroom, so every
@@ -161,7 +162,7 @@ export function createCharacterEntry(source = null, index = 0) {
 		// is open; this is what the saved scene carries so a reload keeps them.
 		ikEdits: normalizeIkEdits(s.ikEdits),
 		// A compiled take v3 saves its source; the motion layer compiles it again on load.
-		motionTake: normalizeTakeSource(s.motionTake),
+		motionTake: normalizeTakeSource(s.motionTake), ...importedRigOf(s),
 	};
 }
 

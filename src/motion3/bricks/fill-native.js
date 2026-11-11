@@ -17,9 +17,11 @@ import { fillRetime, fillPlayground } from "./fill-native-chain.js";
 import { carryHands } from "./fill-carry.js";
 import { despikeAngles } from "./fill-despike.js";
 import { holdStance } from "./fill-stance.js";
+import { fillRig } from "./fill-rig.js";
 
 /** Same contract as fill.js fillSpec ({ spec, gaps, calls, spans, ... }), the native policy. */
 export async function fillSpecNative(spec, { sk, compile, run }, { at, timing = "exact", gate = true } = {}) {
+	fillRig(sk);
 	const promoted = (spec.keys ?? []).filter(editedFill).length;
 	if (timing === "playground" && at === undefined) return fillPlayground({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });
 	if (timing === "retime" && at === undefined) return fillRetime({ ...spec, keys: (spec.keys ?? []).map(k => (editedFill(k) ? Object.fromEntries(Object.entries(k).filter(([f]) => f !== "src")) : k)) }, { sk, compile, run });

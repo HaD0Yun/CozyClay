@@ -264,6 +264,19 @@ assert.equal(staticShot.deps.shotWrites, 1, "static-shot preflight is not repeat
 assert.equal(staticShot.deps.undoCount, 1);
 assertPaired(staticShot, 2);
 
+// A named output size renders and encodes at that size; odd sides round down to even for H.264.
+const sized = fixture();
+await sized.api.exportShotVideo({ output: { width: 737, height: 416 } });
+assert.equal(sized.status.phase, "completed");
+assert.deepEqual([sized.encodes[0].width, sized.encodes[0].height], [736, 416]);
+assert.deepEqual(sized.targets.map((target) => target.output), [{ width: 736, height: 416 }]);
+await sized.api.retryExport();
+assert.deepEqual([sized.encodes[1].width, sized.encodes[1].height], [736, 416], "Retry keeps the requested size");
+const preset = fixture();
+await preset.api.exportShotVideo();
+assert.deepEqual([preset.encodes[0].width, preset.encodes[0].height], [2, 2], "without a size the shot aspect's preset still decides");
+console.log("PASS a video export renders at a requested output size, else at the shot preset");
+
 const depth = fixture();
 const beforeDepth = editor(depth);
 const depthFrame = depth.signal("status", (status) => status.stage === "depth");
