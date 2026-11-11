@@ -28,6 +28,7 @@
 //   (m) crossed arms (hand targets on the opposite shoulders inside the chest): both arms repaired, taking turns, the
 //       hands not into each other; on the Y Bot, where the gate takes every span back, the search again with only moves
 //       that add no subject keeps what helps
+//   (o) the take's budget: a long take with many runs of hits tries at most 160 moves
 //   (n) the wider moves on what the first leave: a hand swept into the far thigh, a forearm across the belly to the far
 //       hip, the hand through the back of the X Bot's head (undone in round 1); where a goal takes the wider moves back
 //       the first moves alone stand; a hand held on the other arm through a keyed hold takes one constant move there
@@ -346,6 +347,21 @@ for (const [rig, sk, name, t, most] of [["x-bot", X, "far thigh", WX.far2, 0.04]
 	const acc = o => Math.max(...o.frames.slice(1, -1).map((fr, f) => { const [a, b, d] = [o.frames[f], fr, o.frames[f + 2]].map(x => x.s.P[I.RightForeArm]); return Math.hypot(d[0] - 2 * b[0] + a[0], d[1] - 2 * b[1] + a[1], d[2] - 2 * b[2] + a[2]); }));
 	console.log(`  x-bot hand to the far hip: BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, elbow's largest second difference ${cm(acc(c.before))} -> ${cm(acc(c.r.out))} cm/f^2`);
 	expect("(n) x-bot hand held at the far hip on the other arm: repaired (10 cm or more before), and the elbow accelerates no harder than before", worstOwn(c.qa0) >= 0.1 && own(c.r.qa).length === 0 && acc(c.r.out) <= acc(c.before) + 1e-9, JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), acc(c.before), acc(c.r.out)]));
+}
+
+// (o) the take's budget: crossed arms re-keyed every 30 frames over 360 frames (12 runs of hits an arm): the moves tried
+// stop at the take's 160 whatever its runs (the cap of 48 a run alone let this take try about 900), and the frames left
+// say so
+{
+	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], y = v => +(H * v).toFixed(3), N = 360;
+	const st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0] };
+	const down = { hand_l: [0.3, y(0.95), 0.25], hand_r: [-0.3, y(0.95), 0.25] }, keys = [{ f: 0, set: { ...st, armw_l: 1, armw_r: 1, ...down } }];
+	for (let f = 18, i = 0; f < N - 18; f += 30, i++) keys.push({ f, set: { hand_l: [-0.14 + (i % 2) * 0.02, y(1.36), -0.08], hand_r: [0.14 - (i % 2) * 0.02, y(1.36), -0.08] } });
+	keys.push({ f: N - 1, set: down });
+	const o = compileMotion({ schema: SPEC, fps: 24, frames: N, keys, fix: { retime: false } }, { sk: X, scene }), self = o.fixed.self;
+	console.log(`  x-bot crossed arms re-keyed every 30 frames over ${N} frames: iterations ${self?.iterations}, depth ${JSON.stringify(self?.depth)}, spans ${self?.spans?.length}, left ${self?.left?.length}`);
+	expect(`(o) a ${N}-frame take with 24 runs of hits: at most 160 moves tried (the take's budget), a span kept, and the frames left name the budget`,
+		self?.iterations <= 160 && self.spans?.length > 0 && self.depth[1] < self.depth[0] && self.left?.some(l => /the take's budget/.test(l.why)), JSON.stringify({ iterations: self?.iterations, depth: self?.depth }));
 }
 
 // (h) deterministic

@@ -39,6 +39,9 @@ import { leverAt, setLever, apply, movesFor, GAIN } from "./self-moves.js";
 import { armMotion, moveWorse, popsOutside } from "./self-guard.js";
 
 const EASE = 10, MAX_IT = 48, TRIES = 6;
+/** The take's budget, whatever its length or its runs of hits: IT_TAKE moves tried and SOLVE_TAKE frames solved over
+ * every search (counts, not time, so a take compiles the same everywhere). */
+const IT_TAKE = 160, SOLVE_TAKE = 40000;
 /** The kinds this repair is about; every other group must not get worse. */
 const OWN = new Set(["BODY", "FACE"]);
 const KS = ["r", "l"];
@@ -79,13 +82,13 @@ function windowOf(out, clock, ra, rb) {
  * window's deepest hit, or off its summed depth past the limit without deepening that hit; of those that clear frame i
  * one held over the run wins, the arm raised out over the elbow bent, then the smaller move, else the larger gain.
  * `strict`: a move that adds a BODY or FACE subject QA did not report is not made at all. */
-function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict }) {
+function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict, whole, spent }) {
 	const measure = (w, hit) => {
 		let max = 0, sum = 0, fresh = 0;
 		for (let j = w.lo; j <= w.hi; j++) { const x = hit(j), p = Math.max(0, x?.past ?? 0); max = Math.max(max, p); sum += p; fresh += (x?.seen ?? []).filter(t => !known.has(t)).length; }
 		return { max, sum, fresh };
 	};
-	const whole = armMotion(out, k, 0, out.frames.length - 1), span = (w, f) => Array.from({ length: w.hi - w.lo + 1 }, (_, n) => f(w.lo + n));
+	const span = (w, f) => Array.from({ length: w.hi - w.lo + 1 }, (_, n) => f(w.lo + n));
 	// a move must not take the hands into each other (QA's SELF), nor deeper where they are (crossed arms)
 	const handsWorse = w => span(w, j => handsPast(out, j)).some((p, n) => p > 0 && p > w.hands[n] + 1e-9);
 	// the guard reads the frames whose pops the move can change (popLevel looks 3 either side of a frame whose
@@ -105,11 +108,13 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 	while (rb < out.frames.length - 1 && hitNear(rb, 1)) rb++;
 	while (!(hits[k][ra]?.past > 0)) ra++;
 	while (!(hits[k][rb]?.past > 0)) rb--;
-	const here = frame(windowOf(out, clock, i, i)), run = ra < rb ? frame(windowOf(out, clock, ra, rb)) : null;
 	let best = null;
-	const found = movesFor(out, engine, body, k, i, h, known, wide), no = new Set(), tries = found.slice(0, TRIES), fk = run && tries.some(c => c.mv.out || c.mv.bend);
+	const found = movesFor(out, engine, body, k, i, h, known, wide), no = new Set(), tries = found.slice(0, TRIES), fk = ra < rb && tries.some(c => c.mv.out || c.mv.bend);
+	// the run's window is read only for an FK move to hold over it (its frames can span the take)
+	const here = frame(windowOf(out, clock, i, i)), run = fk ? frame(windowOf(out, clock, ra, rb)) : null;
 	for (const c of tries) {
 		for (const w of c.mv.out || c.mv.bend ? [run, here].filter(Boolean) : [here]) {
+			if (spent()) return best ?? { why: null };
 			const undo = apply(out, engine, k, c.mv, w.at), worse = moveWorse(w.prev, armMotion(out, k, w.lo - 3, w.hi + 5), w.rest) || (handsWorse(w) ? "the hands into each other" : "");
 			const now = worse ? null : measure(w, j => armHit(out, body, j, k, known)), clearI = !worse && (armHit(out, body, i, k, known)?.past ?? -1) <= 0;
 			undo();
@@ -175,29 +180,37 @@ export function selfRepair(out, engine) {
 	const cap = MAX_IT * KS.reduce((c, k) => c + runsOf(hits[k].flatMap((_, j) => (open(k, j) ? [[j, ""]] : []))).length, 0);
 	const openIn = (a, b) => KS.reduce((c, k) => c + hits[k].slice(a, b + 1).filter((_, j) => open(k, a + j)).length, 0);
 	const levers = x => Object.fromEntries(KS.map(s => [s, leverAt(out, s, f0 + x)]));
-	let it = 0;
+	let it = 0, solved = 0, broke = false;
+	// every frame the repair solves counts against the take's budget
+	const eng = { solve: fs => { solved += fs.length; engine.solve(fs); } }, spent = () => it >= IT_TAKE || solved >= SOLVE_TAKE;
 	/** Moves deepest first until no hit is left or each is tried (or the cap); `before` gets the levers and solved frame
 	 * of every frame index moved, as they were. -> how many moves it made. */
 	const search = (wide, strict, before) => {
 		let moves = 0;
+		// each arm's motion over the take for the move guard, read once and kept up to date where a move solved frames
+		const whole = Object.fromEntries(KS.map(k => [k, armMotion(out, k, 0, n - 1)]));
+		const touch = (lo, hi) => { for (const k of KS) { const m = armMotion(out, k, lo - 3, hi + 5); m.pops.forEach((p, q) => whole[k].pops[q].set(p.subarray(m.lo, m.hi + 1), m.lo)); } };
 		done.clear();
 		// the wider moves are larger: every run of frames the keys hold an arm still on is one instant to their ease, the
 		// hand on the body or not (a hand held still in the air with a carry on a spring takes one constant move, no wave)
 		const tick = wide ? Object.fromEntries(KS.map(k => [k, clockOf(out, k, () => true)])) : clock;
-		for (let tries = 0; tries < cap; tries++) {
+		for (let tries = 0; ; tries++) {
 			let pick = null;
 			for (const k of KS) hits[k].forEach((h, j) => { if (open(k, j) && !done.has(`${k}${j}`) && (!pick || h.past > pick.h.past)) pick = { k, j, h }; });
 			if (!pick) return moves;
+			// out of moves with hits still open: the cap, or the take's budget
+			if (tries >= cap || spent()) { broke = true; return moves; }
 			it++;
-			const { k, j, h } = pick, best = bestMove(out, engine, body, k, j, h, hits, known, tick[k], { wide, strict });
+			const { k, j, h } = pick, best = bestMove(out, eng, body, k, j, h, hits, known, tick[k], { wide, strict, whole: whole[k], spent });
+			if (!best.mv && best.why === null) { broke = true; return moves; }
 			if (!best.mv) { done.add(`${k}${j}`); whyOf.set(`${k}${j}`, best.why); continue; }
 			for (const [x] of best.at) if (!before.has(x)) before.set(x, { fr: out.frames[x], v: levers(x) });
-			apply(out, engine, k, best.mv, best.at);
+			apply(out, eng, k, best.mv, best.at);
+			touch(best.at[0][0], best.at[best.at.length - 1][0]);
 			moves++;
 			// the window changed: its frames may take a move again
 			for (const [x] of best.at) { read(x); done.delete(`${k}${x}`); }
 		}
-		return moves;
 	};
 	/** The spans of frames moved since `before` (both arms), each kept only where QA is no worse with it: { spans, kept, qa }. */
 	const gate = before => {
@@ -232,13 +245,14 @@ export function selfRepair(out, engine) {
 	// first the moves round the hit (self-moves.js); then, on what they leave, the wider set as well (a cap of its own).
 	// The two stand together where QA is no worse with them; where the gate takes a span of them back, the first moves
 	// alone are gated too, and the take keeps whichever of the two QA reads no worse (so the wider moves never cost what
-	// the first ones would have kept). `strict`: only moves that add no BODY or FACE subject QA did not report
+	// the first ones would have kept; not where a search ran out of moves: the cap or the take's budget). `strict`: only
+	// moves that add no BODY or FACE subject QA did not report
 	const attempt = strict => {
 		const before = new Map();
 		search(false, strict, before);
 		const first = snap(), firstBefore = new Map(before), wider = KS.some(k => hits[k].some((_, j) => open(k, j))) && search(true, strict, before) > 0;
 		let got = gate(before);
-		if (wider && got.spans.some(s => s.undone)) {
+		if (wider && !broke && got.spans.some(s => s.undone)) {
 			const both = snap();
 			back(first);
 			const alone = gate(firstBefore);
@@ -247,10 +261,11 @@ export function selfRepair(out, engine) {
 		return got;
 	};
 	// where the gate takes every span back, the search again with only moves that add no subject (crossed arms: a forearm
-	// moved off the other arm with its hand into the head, or onto the other hand, is a new problem QA counts)
+	// moved off the other arm with its hand into the head, or onto the other hand, is a new problem QA counts), unless a
+	// search ran out of moves
 	const start = snap();
 	let chosen = attempt(false);
-	if (!chosen.kept.length && chosen.spans.some(s => s.undone)) {
+	if (!broke && !chosen.kept.length && chosen.spans.some(s => s.undone)) {
 		back(start);
 		const strict = attempt(true);
 		if (strict.kept.length) chosen = strict; else back(start);
@@ -263,7 +278,7 @@ export function selfRepair(out, engine) {
 		const why = j => {
 			const h = hits[k][j], u = spans.findLast(s => s.undone && j >= s.a && j <= s.b);
 			if (u) return `undone: ${u.undone}`;
-			if (!done.has(`${k}${j}`)) return `the move cap (${MAX_IT} for each run of frames with a hit)`;
+			if (!done.has(`${k}${j}`)) return spent() ? `the take's budget (${IT_TAKE} moves tried or ${SOLVE_TAKE} frames solved)` : `the move cap (${MAX_IT} for each run of frames with a hit)`;
 			const more = whyOf.has(`${k}${j}`) ? `: ${whyOf.get(`${k}${j}`)}` : "";
 			return `${h.hold === "fk" ? "no FK move (the arm out, the elbow bent) clears it within the limits" : h.hold ? "the hand stays on its target and no elbow turn clears it" : "no move clears it within the limits"}${more}`;
 		};
