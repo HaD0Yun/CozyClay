@@ -10,12 +10,14 @@ import { bodyFor } from "../body.js";
 import { sdBox, boxNormal, solePoints } from "./geometry.js";
 
 const UP = [0, 1, 0], TOP = 0.7, SPACING = 0.025;
-const skins = new Map();
+// per skeleton (a rig registered again under its id is a new skeleton: rigs/index.js registerRig), then per side
+const skins = new WeakMap();
 
 /** Skin points of a foot in its bones' bind frames: [[bone index, local point], ...] (null for a rig without a fitted body). */
 function footSkin(sk, side) {
-	const key = `${sk.model}:${side}`;
-	if (skins.has(key)) return skins.get(key);
+	if (!skins.has(sk)) skins.set(sk, new Map());
+	const mine = skins.get(sk);
+	if (mine.has(side)) return mine.get(side);
 	const body = bodyFor(sk), out = body ? [] : null;
 	for (const g of body?.grids ?? []) {
 		if (g.b !== sk.index[`${side}Foot`] && g.b !== sk.index[`${side}ToeBase`]) continue;
@@ -26,7 +28,7 @@ function footSkin(sk, side) {
 			if (!seen.has(cell)) { seen.add(cell); out.push([g.b, q]); }
 		}
 	}
-	skins.set(key, out);
+	mine.set(side, out);
 	return out;
 }
 

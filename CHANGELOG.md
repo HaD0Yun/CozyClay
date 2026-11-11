@@ -10,6 +10,17 @@ Motion
   press (a walk, a street of buildings around the character, a chair to sit
   on, a back flip) and an Install button, instead of a server error.
 
+Site
+
+- The landing page has an Install button named for the visitor's system. It
+  opens three steps: the official Node.js installer, how to open a terminal,
+  and the command to paste. The bare command stays in Quick start.
+
+Studio
+
+- The Studio starts in the dark theme. A theme already chosen in Preferences
+  is kept. (#1163)
+
 ## 3.2.2 - 2026-11-07
 
 A patch for the motion compiler and the agent: faster compiles, holds and automatic legs, arms, gaze and tempo, steadier agent turns, and depth exports that read right.

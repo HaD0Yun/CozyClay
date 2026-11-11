@@ -1,6 +1,7 @@
 import { validateStudioCommand, validateStudioIdentity, STUDIO_TOOL_SCHEMAS, STUDIO_TOOLS, StudioProtocolError } from "../../src/studio-agent-protocol.js";
 import { MAX_COMMAND_TIMEOUT_MS } from "../../mcp/live-hub.mjs";
 import { createRebaser } from "./studio-rebase.mjs";
+import { withSculptLook } from "./sculpt-look.mjs";
 
 const STUDIO_TOOL_RECEIPT_NOTE = " The result may be a receipt with status \"partial\": ops[].droppedPaths names exactly which authored path each op refused, and delta[].after carries the value actually landed for that target -- quote both the requested and the landed value when you report this, never say only that some paths were not applied. The sidecar re-sends a command once, by itself, when the scene revision moved but every target is unchanged, when it moved right after your own edit with nothing else changed, or when the editor was briefly mid-gesture; such a receipt carries autoRebased: true and an AUTO_REBASED warning -- mention it. A STALE_SCENE error that still reaches you lists what changed (ids and fields) and the admission is already refreshed: adapt the operation to that and resubmit it; call inspect_studio again only for ids the list does not cover; it is not a permanent failure. A TARGET_BUSY error means the user is mid-gesture; do not loop on it.";
 const STUDIO_INSPECT_NOTE = ' The per-turn context contains entityIndex and actionIndex, and relations (ON, OCCLUDED_BY, IN_FRAME, LEFT_OF, NEAR rows; scope "relations" reads them again). Read authored state and its set schemas with scope "document", optionally selecting kinds or ids; a take answers its specId (compile with base: specId), and its spec only for a character named in ids; kinds that do not fit one read are listed in omitted. Legacy scene/shot/motion/selection scopes are document projections too; runtime facts remain in context. Scope "entities" pages entity detail by ids or query. Pass nextCursor as cursor for the next page; on STALE_CURSOR restart without it. Scope "catalogue" lists placeable kinds and patchable paths.';
@@ -65,7 +66,8 @@ export function createStudioTools({ liveHub, workspaceHandle, session, resolveIm
     return result;
   };
 	const availableTools = STUDIO_TOOLS;
-	const tools = availableTools.map(name => ({ ...schema(name), handler: (args, call = {}) => rebaser.run(name, args, call.callId ?? call.toolCallId) }));
+	// A sculpt the model ran itself answers with a closeup of it attached (sculpt-look.mjs).
+	const tools = availableTools.map(name => ({ ...schema(name), handler: async (args, call = {}) => withSculptLook(name, args, call, await rebaser.run(name, args, call.callId ?? call.toolCallId), { invoke: rebaser.run, resolveImage: tools.resolveImage }) }));
   tools.resolveImage = async (imageId, correlation = {}) => {
     if (typeof resolveImage !== "function") return { visualStatus: "unavailable", reason: "image resolver unavailable" };
     try {
