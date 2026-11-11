@@ -1,5 +1,5 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiPower, FiRotateCw, FiX } from "react-icons/fi";
+import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiRotateCw, FiX } from "react-icons/fi";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_MAX_COUNT, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
 import { isImeComposing } from "../ime.js";
 import { useStudioShell } from "../shell/studio-shell-context.js";
@@ -40,6 +40,7 @@ const TaskBoard = lazy(() => import("./TaskBoard.jsx"));
 import { AgentProgressCard } from "./AgentProgressCard.jsx";
 import { LoginPanel } from "./LoginPanel.jsx";
 import { PausedCard, SigningInCard } from "./AgentWaitCards.jsx";
+import { OfflineCard } from "./AgentOfflineCard.jsx";
 import { SIGN_IN_FAILURE_COPY, otherProviderModel, providerLabel } from "./agent-provider-help.js";
 import { TurnSteps } from "./AgentTurnSteps.jsx";
 import { PlanCard } from "./AgentPlanCard.jsx";
@@ -82,20 +83,6 @@ function ImageResultCard({ image, onUse, onUndo, onRegenerate, onOpen }) {
 		{/* The card states what the editor actually did: an unacknowledged or
 		    refused action is never drawn as a placement. */}
 		{failed && <p className="agent-image-error" role="alert">{image.apply.error}</p>}
-	</div>;
-}
-
-// Plain `vite` serves the Studio without the agent server, so there is nothing to sign in to. The card says
-// so and how to start it, in place of sign-in buttons that could only fail.
-function OfflineCard({ probing, onRetry }) {
-	return <div className="agent-state-card agent-offline-card" data-agent-card="offline" role="status" aria-live="polite">
-		<FiPower className="agent-offline-icon" size={18} aria-hidden="true" />
-		<h3>{ko("Agent server is not running", "에이전트 서버가 실행 중이 아니에요")}</h3>
-		<p>{ko(<>Start CozyClay with <code>npx cozyclay</code> (or <code>npm run dev</code> in a checkout) to sign in.</>,
-			<>로그인하려면 <code>npx cozyclay</code>(체크아웃에서는 <code>npm run dev</code>)로 CozyClay를 시작하세요.</>, <>使用 <code>npx cozyclay</code> 启动 CozyClay（在代码检出中使用 <code>npm run dev</code>）即可登录。</>)}</p>
-		<button type="button" className="agent-ghost-button agent-offline-retry" onClick={onRetry} disabled={probing} aria-busy={probing}>
-			<FiRotateCw size={11} aria-hidden="true" /> {probing ? ko("Checking…", "확인 중…") : ko("Retry", "다시 확인", "重新检查")}
-		</button>
 	</div>;
 }
 

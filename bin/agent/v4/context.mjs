@@ -6,15 +6,16 @@ const notReady = message => Object.assign(new Error(message), { code: "TARGET_NO
 
 /**
  * The motion subject from the editor's describe answer: the active character when it has a
- * Y Bot or X Bot rig, else the only such character. Throws TARGET_NOT_READY otherwise.
+ * Y Bot or X Bot rig, else the only such character; with `id` (a motion task names its character), that one.
+ * Throws TARGET_NOT_READY otherwise.
  * -> { id, model, position: [x, y, z], yaw, scale }
  */
-export function subjectOf(describe) {
+export function subjectOf(describe, id = null) {
 	const characters = Array.isArray(describe?.characters) ? describe.characters : [];
 	const rigged = characters.filter(entry => entry && typeof entry.id === "string" && skeletonFor(entry.model));
-	const pick = rigged.find(entry => entry.id === describe?.activeCharacterId) ?? (rigged.length === 1 ? rigged[0] : null);
+	const pick = id ? rigged.find(entry => entry.id === id) : rigged.find(entry => entry.id === describe?.activeCharacterId) ?? (rigged.length === 1 ? rigged[0] : null);
 	if (!pick) {
-		throw notReady(rigged.length
+		throw notReady(id ? `${id} is not a Y Bot or X Bot character of this scene${rigged.length ? ` (it has: ${rigged.map(entry => entry.id).join(", ")})` : ""}.` : rigged.length
 			? `The scene has ${rigged.length} rigged characters and none is active; select the one to animate.`
 			: "The scene has no Y Bot or X Bot character to animate.");
 	}
@@ -25,7 +26,7 @@ export function subjectOf(describe) {
 /**
  * Point ctx at this turn: studio.runAction and studio.command go through this turn's studio tools
  * and workspace handle, records() answers this turn's describe objects, signal is this turn's.
- * turn: { describe, studioTools, hub, workspaceHandle, signal, log? }
+ * turn: { describe, studioTools, hub, workspaceHandle, signal, log?, subjectId? }
  */
 export function bindTurn(ctx, turn) {
 	const { describe, studioTools, hub, workspaceHandle, signal } = turn;
@@ -42,7 +43,7 @@ export function bindTurn(ctx, turn) {
 
 /** A new V4Context for the subject of turn.describe; ctx.track is set later by the tool set. */
 export function createV4Context(turn) {
-	const character = subjectOf(turn.describe);
+	const character = subjectOf(turn.describe, turn.subjectId);
 	const ctx = { sk: skeletonFor(character.model), character, track: null, log: () => {} };
 	return bindTurn(ctx, turn);
 }

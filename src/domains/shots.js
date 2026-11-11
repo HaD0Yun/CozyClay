@@ -51,7 +51,7 @@ function createShotsDomain(appContext, initial = {}) {
   const write = update => writeState(before => ({ ...before, shots: typeof update === 'function' ? update(before.shots) : update }));
   function renderCamera(camera, manual, fovDeg) {
     const angles = aimAt(camera.position, camera.lookAt), shared = appContext.shared;
-    Object.assign(shared.look.current, angles);
+    Object.assign(shared.look.current, angles, { roll: 0 });
     shared.shotCameraPosRef.current = { ...camera.position };
     const mounted = shared.shotCamRef.current;
     if (mounted) {
@@ -252,9 +252,10 @@ export function useShots(appContext) {
   }, [domain]);
   function setShots(value) { return appContext.storeDomain('shot').write(value); }
   function editShots(value) { const owner = appContext.storeDomain('shot'); return owner.run('shot.replace', { shots: typeof value === 'function' ? value(owner.read()) : value }); }
-  function setTlFrameCount(value) {
+  // join: write inside the composed transaction that is already open, instead of opening one through the bus
+  function setTlFrameCount(value, join = false) {
     const before = domain.state().frameCount, frameCount = Math.max(24, Math.round(typeof value === 'function' ? value(before) : value));
-    if (frameCount !== before) return domain.run('shot.setTimeline', { frameCount });
+    if (frameCount !== before) return join ? appContext.recordAction('shot', () => domain.writeState(state => ({ ...state, frameCount })), null, true) : domain.run('shot.setTimeline', { frameCount });
   }
   function setFovDeg(value) { return domain.edit('shot.setLens', { fovDeg: typeof value === 'function' ? value(domain.state().fovDeg) : value }); }
   function changeActiveCamera(patch, shotId = selectedShotId()) {
@@ -385,14 +386,16 @@ export function useShots(appContext) {
     extentInputs.current = inputs;
     const extent = timelineContentExtent(...inputs);
     const span = timelineSpan(extent, domain.read(), domain.state().frameCount);
-    setTlFrameCount(span); if (extent > 0) setTlFrame(frame => Math.min(frame, span - 1));
+    // Inside an open transaction (an agent turn that installed a take) a second one is refused, and a refusal thrown
+    // from this effect remounts the app (#1146): the new length joins the open transaction and lands or reverts with it.
+    setTlFrameCount(span, appContext.composing()); if (extent > 0) setTlFrame(frame => Math.min(frame, span - 1));
   }
   function finishCameraMove(finalFov) { setMovePlaying(false); setFovDeg(Math.round(finalFov * 10) / 10); }
   // scope "timeline" records every frame of the timeline, shot boxes and all;
   // "shot" records one shot (shotId, or the one under the playhead). Without a
   // scope the old rule stands: a named shot, or the playhead's shot when there
   // is no motion, else the whole record.
-  async function exportShotVideo({ download = true, shotId = null, scope = null, passKind = null, depthCurve = "linear" } = {}, commandContext = null) {
+  async function exportShotVideo({ download = true, shotId = null, scope = null, passKind = null, depthCurve = "linear", output = null } = {}, commandContext = null) {
     if (appContext.shared.recRef.current) return null;
     const atPlayhead = shotIndexAtFrame(shots, tlFrame);
     const target = shotId ? shots.find(entry => entry.id === shotId) : shots[atPlayhead >= 0 ? atPlayhead : 0] ?? null;
@@ -410,7 +413,7 @@ export function useShots(appContext) {
       commandContext?.signal.addEventListener('abort', abort, { once: true });
       try { commandContext?.signal.throwIfAborted(); return await appContext.shared.runShotExport({ ...range, download, passKind, depthCurve, ...(passKind === 'depth' ? { fileName: 'blocking-depth.mp4' } : {}) }, job); }
       finally { commandContext?.signal.removeEventListener('abort', abort); }
-    }, { exportShots, download }));
+    }, { exportShots, download, output: output && { width: output.width & ~1, height: output.height & ~1 } }));
   }
   return { ...domain, shots, setShots, editShots, fovDeg, setFovDeg, cameraMove, customMove, startupShotState,
     movePlaying, setMovePlaying, moveFollow, railDraw, setRailDraw, craneSelectedIndex, setCraneSelectedIndex,

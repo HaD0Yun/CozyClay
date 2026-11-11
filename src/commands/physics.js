@@ -9,7 +9,7 @@ export const declarations = Object.freeze([
 		input: { type: "object", required: [], additionalProperties: false, properties: {
 			com: flag("the centre of mass: a 4 cm ball with a line down to the ground, green inside the feet, red past the balance limit (what QA calls BALANCE), grey off the ground"),
 			support: flag("the support polygon: the outline of the soles on the ground"),
-			arc: flag("per air run: the hips' path (white, dashed) and the gravity parabola through the same takeoff and landing (orange); far apart is a FLOAT"),
+			arc: flag("per air run: the hips' path (white, dashed) and the hips' gravity parabola through the same takeoff and landing (orange); they part in a flight that tucks or turns, since the centre of mass rides the arc (QA FLOAT reads the hips' lost fall, not this gap)"),
 			trail: flag("the last 24 frames of each spring object's tip"),
 			all: flag("every part at once, before the named ones; { all: false } turns the overlay off"),
 		} },

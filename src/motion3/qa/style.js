@@ -9,7 +9,7 @@
 // spike, not a large value: a hard but continuous acceleration (a swing's launch) is style.
 // See docs/motion-api-v3.1.md C13.
 import { sub, len, dot, angle } from "../compiler/math.js";
-import { CAPSULES, segPoints, sdBox } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox } from "./geometry.js";
 import { groundSole, groundY } from "./ground.js";
 import { balanceAt } from "./com.js";
 import { skinCarries } from "./support.js";
@@ -22,7 +22,7 @@ const BENDS = [["knee_l", "LeftUpLeg", "LeftLeg", "LeftFoot"], ["knee_r", "Right
 /** A pop's acceleration is more than this many times the level around it (popLevel). */
 const POP_RATIO = 2;
 /** FLOAT: the share of gravity an airborne run may miss (0.75: the hips fall at a quarter of g). */
-const FLOAT_LIMIT = 0.75;
+export const FLOAT_LIMIT = 0.75;
 /** Peak speed (m/s) under which a joint counts as still and peaks leaves it out. */
 const STILL = 0.05;
 const r2 = x => Math.round(x * 100) / 100;
@@ -75,10 +75,10 @@ export function popChecks(sk, out, L, push) {
 const FLOOR_REST = ["hips", "torso_lo", "torso_hi"], FLOOR_TOL = 0.04;
 /** True when the floor under the trunk or a declared support (checks.supports) carries the body at frame f. */
 function supported(out, f, supports) {
-	const { P } = out.frames[f].s, I = out.ctx.sk.index;
-	if (CAPSULES.some(([part, a, b, r]) => FLOOR_REST.includes(part) && Math.min(P[I[a]][1], P[I[b]][1]) - r < FLOOR_TOL)) return true;
+	const { P } = out.frames[f].s, I = out.ctx.sk.index, caps = capsulesFor(out.ctx.sk);
+	if (caps.some(([part, a, b, r]) => FLOOR_REST.includes(part) && Math.min(P[I[a]][1], P[I[b]][1]) - r < FLOOR_TOL)) return true;
 	return supports.some(sp => {
-		const box = out.objectsAt(f)[sp.object], cap = CAPSULES.find(c => c[0] === (sp.part ?? "hips"));
+		const box = out.objectsAt(f)[sp.object], cap = caps.find(c => c[0] === (sp.part ?? "hips"));
 		return box && cap && Math.min(...segPoints(P[I[cap[1]]], P[I[cap[2]]]).map(p => sdBox(p, box))) - cap[3] < (sp.tol ?? 0.04);
 	});
 }
@@ -117,20 +117,25 @@ export function airRuns(out, supports = [], { skin = true } = {}) {
 	return runs;
 }
 
+/** The share of gravity the hips miss over air run [a, b] (indexes of out.frames): 1 - (speed in - speed out) / frames / g. */
+export function missingFall(out, a, b) {
+	const F = out.frames, n = F.length, I = out.ctx.sk.index, g = 9.81 / (out.fps ?? 24) ** 2;
+	const y = f => F[Math.max(0, Math.min(n - 1, f))].s.P[I.Hips][1];
+	const vin = a > 0 ? y(a) - y(a - 1) : y(a + 1) - y(a), vout = b < n - 1 ? y(b + 1) - y(b) : y(b) - y(b - 1);
+	return 1 - (vin - vout) / (b - a + 1) / g;
+}
+
 /**
  * Hard FLOAT issues: 4 or more frames off the ground (airRuns) in which the hips do not fall.
  * A jump or a drop is ballistic: over the run the hips' vertical speed drops by gravity (the
  * speed into the run minus the speed out of it, per frame, is g). A body held up by nothing
  * keeps it; under a quarter of g is a float. value = the share of g missing (1 = no fall).
  */
-export function floatChecks(out, checks = {}) {
-	const F = out.frames, n = F.length, I = out.ctx.sk.index, g = 9.81 / (out.fps ?? 24) ** 2, f0 = out.f0 ?? 0, issues = [];
-	const y = f => F[Math.max(0, Math.min(n - 1, f))].s.P[I.Hips][1];
-	for (const [a, b] of airRuns(out, checks.supports)) {
-		const frames = b - a + 1;
-		if (frames < 4) continue;
-		const vin = a > 0 ? y(a) - y(a - 1) : y(a + 1) - y(a), vout = b < n - 1 ? y(b + 1) - y(b) : y(b) - y(b - 1);
-		const missing = 1 - (vin - vout) / frames / g;
+export function floatChecks(out, checks = {}, runs = airRuns(out, checks.supports)) {
+	const f0 = out.f0 ?? 0, issues = [];
+	for (const [a, b] of runs) {
+		if (b - a + 1 < 4) continue;
+		const missing = missingFall(out, a, b);
 		if (missing <= FLOAT_LIMIT) continue;
 		for (let f = a; f <= b; f++) issues.push({ kind: "FLOAT", msg: `no foot on the ground f${a + f0}-f${b + f0}, hips fall at ${Math.round(Math.max(0, 1 - missing) * 100)}% of g`, frame: f, value: +missing.toFixed(4), limit: FLOAT_LIMIT });
 	}

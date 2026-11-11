@@ -26,7 +26,7 @@ import {
 import * as THREE from "three";
 
 import { restorePlaybackBones, snapshotPlaybackBones } from "./motion/rig-snapshot.js";
-import { applyTakeFrame } from "./motion3/playback.js";
+import { playTakeFrame as applyTakeFrame } from "./character-playback.js";
 
 import { FlyControls, aimAt, forwardFrom } from "./controls.jsx";
 import { createCameraPerformance, framingFromCamera } from "./camera-performance.js";
@@ -37,7 +37,7 @@ import { applyCameraOptics, focusDistance } from "./camera-optics.js";
 import { burnInRgba, reviewSlate } from "./review-burn-in.js";
 import { frameEditorView } from "./editor-view-frame.js";
 import { createLiveControl, loadLiveWorkspaceId, mintLiveWorkspaceId } from "./live-control.js";
-import { captureFrameAt, captureV4Sheet, refuseHiddenCapture } from "./live-capture-guard.js";
+import { captureFrameAt, captureHiddenFraming, captureV4Sheet, refuseHiddenCapture, tabHidden } from "./live-capture-guard.js";
 import { startUserEdits } from "./command-bus-telemetry.js";
 import { noteHistoryKey, noteShortcutIgnored, noteUnselectedKey } from "./shortcut-friction.js";
 import { noteNavSwitch } from "./thrash-friction.js";
@@ -58,7 +58,7 @@ import FirstSuccessGuide from "./first-success-guide.jsx";
 import { useEmbedBridge } from "./use-embed-bridge.js";
 import { useAssetShelf } from "./use-asset-shelf.js";
 import { StudioProtocolError } from "./studio-agent-protocol.js";
-import { elementByPath } from "./studio-elements.js";
+import { elementByPath } from "./studio-elements.js"; import { WORLD } from "./world-scale.js";
 import {
 	resolveStudioToast,
 } from "./studio-actions.js";
@@ -165,7 +165,7 @@ import {
 import { ko, isKo, isZh } from "./locale.js";
 import { saveExport } from "./export-workspace.js";
 import { startExportAttempt } from "./export-attempt.js";
-import { characterCapabilities, kindRefusal, proxyFigureBounds } from "./character-kind.js";
+import { characterCapabilities, capabilityRefusal, proxyFigureBounds } from "./character-kind.js";
 import { STARTER_SCENES, resolveSceneParam } from "./starter-scenes.js";
 import { PART_COLOURS } from "./part-colours.js";
 import {
@@ -1116,10 +1116,10 @@ export default function App() {
 	const setPoseObjectOpacity = (value) => { setPoseObjectOpacityState(value); writePoseFadeOpacity(value); };
 	// Pose mode IS IK editing (#521): with no rig to solve there is nothing to
 	// pose, so the mode refuses with the reason instead of opening empty.
-	// A capsule figure has no rig at all, so it gets its own reason rather than
+	// A capsule figure (no rig) or an imported character (no IK) gets its own reason rather than
 	// the "load a character" one, which would read as a loading problem.
 	const activeCapabilities = characterCapabilities(activeChar);
-	const poseRefusal = !activeCapabilities.pose ? kindRefusal("pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "캐릭터를 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
+	const poseRefusal = !activeCapabilities.pose ? capabilityRefusal(activeChar, "pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "캐릭터를 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
 	// #1048: one rigged character is selected and posed; otherwise Pose points at what to do next.
 	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: setActiveCharacterId, enter: () => selectWorkflowMode("pose") });
 	// False when the mode refuses (its reason shows as a toast): the 1-5 keys report that as shortcut:ignored.
@@ -1817,9 +1817,7 @@ export default function App() {
 	const [bottomTab, setBottomTab] = useState("timeline");
 	const { shelfImageIds, setShelfImageIds, shelfMeshIds, setShelfMeshIds, manageAssetStorage, setManageAssetStorage, unusedAssetIds, setUnusedAssetIds, usedAssetIds, setUsedAssetIds, usageCounts, setUsageCounts, assetShelfScanTokenRef, legacyDerivedIdsRef, assetTrash, setAssetTrash, assetUndoOffered, setAssetUndoOffered, deletingAssetId, setDeletingAssetId, cutoutLineage, meshLineage, projectCutoutLineage, projectAssetGraphSignature } = useAssetShelf({ scenes, activeSceneId, sceneObjects });
 	useEffect(() => {
-		const { scenes: latestScenes, activeSceneId: latestActiveSceneId, sceneObjects: latestObjects } = projectStateRef.current;
-		const allScenes = latestScenes.map((scene) => (scene.id === latestActiveSceneId ? { ...scene, objects: latestObjects } : scene));
-		const ids = derivedAssetIds(allScenes);
+		const ids = derivedAssetIds(snapshotActiveScene(projectStateRef.current.scenes));
 		for (const id of ids) legacyDerivedIdsRef.current.add(id);
 		if (ids.size === 0) return;
 		let db = null;
@@ -1851,10 +1849,9 @@ export default function App() {
 				...legacyDerivedIdsRef.current,
 				...records.filter((record) => record?.role === "derived").map((record) => record.id),
 			]);
-			// The active scene's live objects override its saved snapshot. That
-			// includes an unsaved matte or cutout edit in the reachability closure.
-			const { scenes: latestScenes, activeSceneId: latestActiveSceneId, sceneObjects: latestObjects } = projectStateRef.current;
-			const allScenes = latestScenes.map((scene) => (scene.id === latestActiveSceneId ? { ...scene, objects: latestObjects } : scene));
+			// The active scene's live objects, shots and stage override its saved snapshot. That includes an unsaved matte
+			// or cutout edit, and a character imported this session, in the reachability closure.
+			const allScenes = snapshotActiveScene(projectStateRef.current.scenes);
 			const latestUsageCounts = assetUsageCounts(allScenes);
 			const latestUsedAssetIds = stored.filter((id) => latestUsageCounts.has(id));
 			if (!current()) return;
@@ -1904,8 +1901,7 @@ export default function App() {
 			}
 			// Rebuild this at the destructive boundary rather than trusting the
 			// displayed list: a just-created cutout can make its image reachable.
-			const { scenes: latestScenes, activeSceneId: latestActiveSceneId, sceneObjects: latestObjects } = projectStateRef.current;
-			const allScenes = latestScenes.map((scene) => (scene.id === latestActiveSceneId ? { ...scene, objects: latestObjects } : scene));
+			const allScenes = snapshotActiveScene(projectStateRef.current.scenes);
 			const currentUsageCount = assetUsageCounts(allScenes).get(id) ?? 0;
 			const currentGraphSignature = assetGraphSignature(allScenes);
 			if (expectedUsageCount !== undefined && (!Number.isInteger(expectedUsageCount) || expectedUsageCount !== currentUsageCount)) {
@@ -1930,9 +1926,7 @@ export default function App() {
 				deleteRecord: () => deleteAsset(db, id),
 				restoreRecord: () => putAsset(db, record),
 				readGraphSignature: () => {
-					const { scenes: afterScenes, activeSceneId: afterActiveSceneId, sceneObjects: afterObjects } = projectStateRef.current;
-					const afterAllScenes = afterScenes.map((scene) => (scene.id === afterActiveSceneId ? { ...scene, objects: afterObjects } : scene));
-					return assetGraphSignature(afterAllScenes);
+					return assetGraphSignature(snapshotActiveScene(projectStateRef.current.scenes));
 				},
 			});
 			if (!committed) {
@@ -2445,10 +2439,9 @@ export default function App() {
 			// The full-resolution shot-camera pull the editor's own exports use —
 		// not capture_frame's 640x360 preview, which stays exactly as it is.
 			capture_framing_png: (args = {}) => {
-				refuseHiddenCapture();
 				const live = appContext.live.state;
-				// A named frame (#1074) renders the way the video export draws it.
-				if (args.frame !== undefined) return captureFrameAt(live, args.frame);
+				// A named frame (#1074) renders the way the video export draws it; so does the playhead's frame in a hidden tab (live-capture-guard.js).
+				if (args.frame !== undefined || tabHidden()) return args.frame !== undefined ? captureFrameAt(live, args.frame) : captureHiddenFraming(live);
 				const output = requestedCaptureOutput(args) ?? SHOT_ASPECT_PRESETS[live.stage.shotAspect] ?? SHOT_ASPECT_PRESETS["16:9"];
 				const dataUrl = live.captureFramingPng(live.captureCurrentFraming(), output);
 				if (!dataUrl) throw new Error("The shot renderer is not ready");
@@ -2636,7 +2629,7 @@ export default function App() {
 
 	const shotCamRef = useRef(null);
 	const captureRef = useRef(null);
-	const look = useRef({ yaw: 0, pitch: 0 });
+	const look = useRef({ yaw: 0, pitch: 0, roll: 0 });
 	// The poser camera is the IK-mode working view: orbit/dolly/WASD freely
 	// while posing WITHOUT touching the shot camera, which stays frozen on
 	// the framing and shows in the inset. Two separate screens by design.
@@ -2792,13 +2785,13 @@ export default function App() {
 	useEffect(() => () => cameraPerformanceRef.current?.cancel(), []);
 	// Snapshot authored inputs once, not when Retry is pressed. Runtime render
 	// resources are acquired per attempt; they are never part of the snapshot.
-	function exportRequest(kind, run, { exportShots = shots, external = false, download = true } = {}) {
+	function exportRequest(kind, run, { exportShots = shots, external = false, download = true, output = null } = {}) {
 		// IK's cached chains contain live Three bones/functions, not cloneable
 		// authored data. Retain that binding and copy only the evaluated keys.
 		const copyIk = (state) => state ? { ...state, keys: snapshotIkKeys(state), tracked: new Set(state.tracked) } : state;
 		const context = kind === "frame" ? null : {
 			...structuredClone({ shots: exportShots, playbackScene, characters, activeId: activeChar.id, motion,
-				framing: captureCurrentFraming(), output: shotOutput }),
+				framing: captureCurrentFraming(), output: output ?? shotOutput }),
 			ikState: copyIk(ikStateRef.current),
 			ikStates: new Map([...ikStatesRef.current].map(([id, state]) => [id, copyIk(state)])),
 			rigStates: Object.values(rigs).filter(Boolean).map(snapshotExportRig),
@@ -2927,9 +2920,9 @@ export default function App() {
 		if (cam && framing) {
 			cam.position.set(framing.pos.x, framing.pos.y, framing.pos.z);
 			cam.rotation.order = "YXZ";
-			cam.rotation.set(framing.pitch, framing.yaw, 0);
+			cam.rotation.set(framing.pitch, framing.yaw, ((framing.rollDeg ?? 0) * Math.PI) / 180);
 			look.current.yaw = framing.yaw;
-			look.current.pitch = framing.pitch;
+			look.current.pitch = framing.pitch; look.current.roll = cam.rotation.z;
 			cam.fov = framing.fovDeg;
 			applyCameraOptics(cam, shotForFrame?.optics);
 		}
@@ -2957,7 +2950,7 @@ export default function App() {
 		const cam = shotCamRef.current;
 		if (!cam) throw Object.assign(new Error("The shot renderer is not ready"), { exportFailureCode: "render_failed" });
 		const cameraSnapshot = { position: cam.position.clone(), quaternion: cam.quaternion.clone(),
-			rotationOrder: cam.rotation.order, fov: cam.fov, view: cam.view?.enabled ? structuredClone(cam.view) : null, yaw: look.current.yaw, pitch: look.current.pitch };
+			rotationOrder: cam.rotation.order, fov: cam.fov, view: cam.view?.enabled ? structuredClone(cam.view) : null, yaw: look.current.yaw, pitch: look.current.pitch, roll: look.current.roll };
 		const rigSnapshots = Object.values(rigs).filter(Boolean).map(snapshotExportRig);
 		const proxySnapshots = [];
 		const context = recRef.current?.request.context;
@@ -3003,7 +2996,7 @@ export default function App() {
 			if (cameraSnapshot.view) cam.view = cameraSnapshot.view; else cam.clearViewOffset();
 			cam.updateProjectionMatrix();
 			look.current.yaw = cameraSnapshot.yaw;
-			look.current.pitch = cameraSnapshot.pitch;
+			look.current.pitch = cameraSnapshot.pitch; look.current.roll = cameraSnapshot.roll;
 			propFrameRef.current = propFrame;
 			syncCarriers();
 			propSyncRef.current?.(); syncPhysicsOverlays();
@@ -3552,7 +3545,7 @@ export default function App() {
 	function captureCurrentFraming() {
 		const cam = shotCamRef.current;
 		const pos = cam ? cam.position : cameraPos;
-		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg });
+		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg, rollDeg: ((look.current.roll ?? 0) * 180) / Math.PI });
 	}
 
 	// What a framing capture says about the shot it came from: lens, delivery
@@ -3987,10 +3980,10 @@ export default function App() {
 	function captureFramingPng(framing, output = shotOutput) {
 		const cam = shotCamRef.current;
 		if (!cam || !captureRef.current) return null;
-		const prev = { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: look.current.yaw, pitch: look.current.pitch, fov: cam.fov };
+		const prev = { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: look.current.yaw, pitch: look.current.pitch, roll: look.current.roll ?? 0, fov: cam.fov };
 		cam.position.set(framing.pos.x, framing.pos.y, framing.pos.z);
 		cam.rotation.order = "YXZ";
-		cam.rotation.set(framing.pitch, framing.yaw, 0);
+		cam.rotation.set(framing.pitch, framing.yaw, ((framing.rollDeg ?? 0) * Math.PI) / 180);
 		cam.fov = framing.fovDeg;
 		const prevAspect = cam.aspect;
 		const offset = framing.viewOffset;
@@ -4009,7 +4002,7 @@ export default function App() {
 		} finally {
 			if (needsOwnTarget) capture.dispose?.();
 			cam.position.set(prev.x, prev.y, prev.z);
-			cam.rotation.set(prev.pitch, prev.yaw, 0);
+			cam.rotation.set(prev.pitch, prev.yaw, prev.roll);
 			look.current.yaw = prev.yaw;
 			look.current.pitch = prev.pitch;
 			cam.fov = prev.fov;
@@ -4723,7 +4716,7 @@ export default function App() {
 								makeDefault={!ikMode && lookThroughShot}
 								fov={fovDeg}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[0.97, 1.62, 2.39]}
 							/>
 							{/* the EDITOR camera: the user's working eye. Fixed lens — the
@@ -4734,7 +4727,7 @@ export default function App() {
 								makeDefault={!ikMode && !lookThroughShot && !sculptMode}
 								fov={55}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[3.6, 2.7, 5.4]}
 							/>
 							{/* the poser camera is the default (event/raycast) camera in
@@ -4744,7 +4737,7 @@ export default function App() {
 								makeDefault={ikMode}
 								fov={fovDeg}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[0.97, 1.62, 2.39]}
 							/>
 							{/* a plan is a plan: orthographic, framed to the working area, so

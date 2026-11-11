@@ -10,8 +10,9 @@ import { ko } from "./locale.js";
 import { isProxyFigure } from "./scenes.js";
 import { prepareRailBend } from "./camera-follow.js";
 import { MARK_GAP, MAX_PATH_MARKS, MAX_PATH_POINTS, nearestPathFraction, pathCurve, pathMarkFractions, pathPointAtFraction } from "./object-path.js";
+import { WORLD } from "./world-scale.js";
 
-const ROOM_LIMIT = 240; // stay on the open stage (matches scene-objects' clamp)
+const ROOM_LIMIT = WORLD.position; // stay on the open stage (matches scene-objects' clamp)
 const ACTOR_LIMIT = 4; // matches the Subject sliders' range
 const PUCK_R = 0.34;
 const GRAB_R = 1.0; // the pick radius, well beyond the drawn disc

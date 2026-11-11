@@ -7,8 +7,8 @@ import { initAnalytics, track } from "./analytics.js";
 import { admit } from "./analytics-friction.js";
 import { bucketLong } from "./analytics-strict.js";
 
-const GUIDE_MODES = Object.freeze(["animation", "storyboard"]);
-const GUIDE_STEP_VALUES = Object.freeze(["1", "2", "3", "4"]);
+const GUIDE_MODES = Object.freeze(["animation", "storyboard", "camera"]);
+const GUIDE_STEP_VALUES = Object.freeze(["1", "2", "3", "4", "5", "6", "7", "8"]);
 
 // The guide can open before the SDK has loaded; initAnalytics() is idempotent (main.jsx started
 // it), so waiting on it keeps an early guide:opened instead of spending its cap on a no-op.

@@ -9,6 +9,7 @@ import {
 	ReadonlyHotkeys,
 	ThemeControls,
 	ToggleControl,
+	WorldScaleControls,
 } from "./preference-controls.jsx";
 
 export function preferenceSection(section, props) {
@@ -38,6 +39,9 @@ export function preferenceSection(section, props) {
 				<PreferenceSection>
 					<PreferenceRow title={ko("Reference grid", "기준 그리드")} description={ko("Use a dark reference grid instead of the clay deck.", "클레이 데크 대신 어두운 기준 그리드를 사용해요.")}>
 						<ToggleControl pressed={gridView} onChange={(value) => { setGridView(value); writeStoredGridView(globalThis.localStorage, value); }} label={ko("Reference grid", "기준 그리드")} testid="preferences-grid" />
+					</PreferenceRow>
+					<PreferenceRow title={ko("World scale", "월드 크기", "世界尺度")} description={ko("Large lets a scene hold an exterior at full size: 3 km of floor, a 600 m crane and a 6 km lens. Switching reloads the editor.", "대형은 실외 세트를 실제 크기로 담아요: 바닥 3 km, 크레인 600 m, 렌즈 6 km. 바꾸면 에디터를 다시 불러와요.", "大场景可按实际尺寸容纳外景：3 公里地面、600 米摇臂和 6 公里镜头。切换后会重新加载编辑器。")}>
+						<WorldScaleControls />
 					</PreferenceRow>
 				</PreferenceSection>
 			);

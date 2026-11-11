@@ -3,6 +3,7 @@ import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { withFaded } from "./capture-fade.js";
+import { WORLD } from "./world-scale.js";
 
 export const CAPTURE_W = 1920;
 export const CAPTURE_H = 1080;
@@ -14,11 +15,11 @@ export const MCP_CAPTURE_SAMPLE_STEP = 32;
 // to survive, so the falloff starts later and ends further away, letting the
 // floor resolve into a horizon instead of dissolving into the background.
 //
-// Both values must stay inside the shot camera's far plane (100 m) — geometry
-// past it is clipped outright, so a fog range that ended beyond it would cut
-// the deck off mid-fade and take the horizon with it.
-export const CAPTURE_FOG_NEAR = 55;
-export const CAPTURE_FOG_FAR = 95;
+// Both values must stay inside the shot camera's far plane (WORLD.cameraFar) —
+// geometry past it is clipped outright, so a fog range that ended beyond it
+// would cut the deck off mid-fade and take the horizon with it.
+export const CAPTURE_FOG_NEAR = WORLD.horizon.near;
+export const CAPTURE_FOG_FAR = WORLD.horizon.far;
 
 /** Offscreen aspect-aware read-back, always from the shot camera. */
 export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE_H }) {
@@ -97,18 +98,22 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			};
 		}
 		// verify_result's own views (motion3/views.js): one read-back from a camera at eye, a vertical fov, fade drawn see-through.
-		function renderView({ eye, quaternion, fovDeg, output, fade }) {
-			const own = createExportCapture(output, () => {
+		// view.within(scene, shoot) is a caller's own pass (studio-closeup.js): it stages the scene, then shoot(cam) reads back
+		// each of its cameras { eye, quaternion, fovDeg, near, far }; it must put the scene back before it returns.
+		function renderView(view) {
+			let at = view;
+			const own = createExportCapture(view.output, () => {
 				const source = camRef.current;
 				if (!source) return null;
 				const cam = source.clone();
 				cam.clearViewOffset();
-				cam.position.set(...eye);
-				cam.quaternion.set(...quaternion);
-				cam.fov = fovDeg;
+				cam.position.set(...at.eye);
+				cam.quaternion.set(...at.quaternion);
+				cam.fov = at.fovDeg;
+				if (at.near) { cam.near = at.near; cam.far = at.far; }
 				return cam;
 			});
-			try { return withFaded(scene, fade, own.render); } finally { own.dispose(); }
+			try { return view.within ? view.within(scene, cam => { at = cam; return own.render(); }) : withFaded(scene, view.fade, own.render); } finally { own.dispose(); }
 		}
 		const api = { ...createExportCapture({ width, height }), createExportCapture, renderView };
 		apiRef.current = api;

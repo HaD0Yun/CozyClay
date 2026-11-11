@@ -853,6 +853,21 @@
 	font-size: var(--agent-font-sm);
 }
 .agent-offline-retry { align-self: center; display: inline-flex; align-items: center; gap: var(--agent-space-2); }
+a.agent-offline-install { align-self: center; display: inline-flex; align-items: center; gap: var(--agent-space-2); text-decoration: none; }
+.agent-offline-note { color: var(--agent-text-muted); font-size: var(--agent-font-sm); }
+/* The hosted card's demo requests: they read as things one would type to the agent, so they look like prompt chips. */
+.agent-demos { display: flex; flex-direction: column; gap: var(--agent-space-2); align-self: stretch; }
+.agent-demo {
+	display: flex; align-items: center; gap: var(--agent-space-2);
+	padding: var(--agent-space-2) var(--agent-space-3);
+	border: 1px solid var(--agent-border); border-radius: var(--agent-radius-md);
+	background: var(--agent-bg-sunken); color: var(--agent-text);
+	font: inherit; font-size: var(--agent-font-sm); text-align: left; cursor: pointer;
+}
+.agent-demo:hover:not([disabled]) { border-color: var(--agent-text-muted); }
+.agent-demo[disabled] { opacity: 0.6; cursor: progress; }
+.agent-demo[aria-busy="true"] { opacity: 1; border-color: var(--agent-text-muted); }
+.agent-demos-status { min-height: 1.3em; margin: 0; color: var(--agent-text-muted); font-size: var(--agent-font-sm); }
 .agent-signin-error { align-self: center; max-width: 32ch; }
 
 .agent-primary-button {

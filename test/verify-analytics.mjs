@@ -1693,7 +1693,7 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 			{ event: "guide:completed", props: { mode: "animation" } },
 		], "each guide event and step once per session; closed modes and steps only");
 		for (const { event, props } of guide) assert.deepEqual(sanitizeProps(event, { ...props, text: "private" }), props, `${event} passes its closed schema`);
-		assert.deepEqual(sanitizeProps("guide:step", { mode: "film", step: 5, step_ms: 4000 }), {}, "guide values are closed");
+		assert.deepEqual(sanitizeProps("guide:step", { mode: "film", step: 9, step_ms: 4000 }), {}, "guide values are closed");
 		const guideSource = readFileSync(new URL("../src/first-success-guide.jsx", import.meta.url), "utf8");
 		assert.match(guideSource, /const STEPS_BY_MODE = \{ animation: ANIMATION_STEPS, storyboard: STORYBOARD_STEPS \};/, "the schema's modes are the component's own");
 		for (const name of ["ANIMATION_STEPS", "STORYBOARD_STEPS"]) {

@@ -1099,3 +1099,24 @@
 	font-weight: 400;
 	line-height: var(--details-hint-line-height, 1.4);
 }
+
+/* Sample motions (Motion mode): one take per button, two to a row. */
+.sample-motions-list {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 6px;
+	margin: 6px 0;
+}
+.sample-motions-list button {
+	padding: 7px 8px;
+	border: 1px solid var(--line, rgba(0, 0, 0, 0.12));
+	border-radius: 8px;
+	background: var(--surface-2, #fff);
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	text-align: center;
+}
+.sample-motions-list button:hover:not(:disabled) { border-color: var(--accent, #2f6fed); }
+.sample-motions-list button:disabled { opacity: 0.55; cursor: default; }

@@ -5,6 +5,7 @@
 import { fail, characterOf } from "./shared.js";
 import { motionScene } from "../motion3/scene.js";
 import { skeletonFor } from "../motion3/rigs/index.js";
+import { isImportedCharacter, isImportedModel, registerCastRigs } from "../character-rig.js";
 import { expandPoses } from "../motion3/poses.js";
 import { fk } from "../motion3/compiler/skeleton.js";
 import { add, apply, ry } from "../motion3/compiler/math.js";
@@ -109,15 +110,25 @@ export function register(registry, ports) {
 	const mounted = () => Boolean(ports.storeDomain?.("motion")) || "The motion owner is not mounted.";
 	const always = () => true;
 	const rigOf = character => {
-		const sk = skeletonFor(character.model);
+		// an imported character carries its rig (character-rig.js): registered here, and sent with each compile job to the worker (rigsOf)
+		const sk = skeletonFor(registerCastRigs([character])[0].model);
+		if (!sk && isImportedModel(character.model)) fail("TARGET_NOT_READY", `${character.subject || character.id}'s imported skeleton is incomplete in this project; import the file again.`);
 		if (!sk) fail("TARGET_NOT_READY", `${character.subject || character.id} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
 		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before compiling motion.");
 		return sk;
 	};
 	// the scene a compile sees: the objects, and the other characters' installed takes as moving bodies (people.js)
 	const sceneFor = character => {
-		const state = ports.state(), people = peopleOf(state.characters, character.id, id => owner().motionFor(id));
+		const state = ports.state();
+		// the other characters' adapted rigs first, so their takes count as people (people.js reads skeletonFor(take.rig))
+		registerCastRigs((state.characters ?? []).filter(c => c?.id !== character.id));
+		const people = peopleOf(state.characters, character.id, id => owner().motionFor(id));
 		return { ...motionScene(state.objects), ...(Object.keys(people).length ? { people } : {}) };
+	};
+	// the adapted rigs a compile job reads, for the worker: the character's and those of the people in its scene (people.js)
+	const rigsOf = (character, scene) => {
+		const want = new Set([character.model, ...Object.values(scene.people ?? {}).map(p => p.rig)]);
+		return Object.fromEntries((ports.state().characters ?? []).filter(c => want.has(c?.model) && isImportedCharacter(c)).map(c => [c.model, c.adaptedRig]));
 	};
 	// one compile worker per editor in the browser, the calling thread elsewhere (motion3-compile.js)
 	const runner = createCompileRunner();
@@ -129,7 +140,8 @@ export function register(registry, ports) {
 	const compile = (character, spec, opts = {}, bake, taskId = null, scene = sceneFor(character)) => {
 		rigOf(character);
 		const placed = bake && { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0, ...bake };
-		return runner.run({ model: character.model, scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
+		const rigs = rigsOf(character, scene);
+		return runner.run({ model: character.model, ...(Object.keys(rigs).length ? { rigs } : {}), scene, spec, ...opts, ...(placed ? { bake: placed } : {}) }, { taskId, characterId: character.id });
 	};
 	// where a take was baked: the body's place and a hash of the scene's bodies (a take kept for the stop rule fits only
 	// there): 0.14 ms for 860 bodies, where their JSON took 0.9 ms and 295 KB a key
@@ -228,7 +240,7 @@ export function register(registry, ports) {
 			const flat = rounds(characterId, qa, base === undefined), broad = patchTooBroad(patch);
 			const output = report({ ...r, qa }, { frames: r.frameCount, fps: TIMELINE_FPS, installed: Boolean(wanted) || self, ...(flat ? { noImprovementRounds: flat } : {}), ...(stuck ? { stuck } : {}), ...(hint ? { hint } : {}), ...adjustedOf(notes), ...(broad || worse || verdict.note ? { notes: [broad, worse, verdict.note].filter(Boolean) } : {}) }, { ...delta, ...(r.repair ? { repair: repaired } : {}), ...(timing ? { timing } : {}), ...(auto.fill ? { fill: auto.fill } : {}), ...(r.thinned ? { thinned: r.thinned } : {}) });
 			// agent-progress.js: viewport ghost, timeline beats, agent panel
-			const draft = publishDraft(characterId, { take, installed: installs || kept || self, specId: output.specId, label: r.label, qa, timeline: r.timeline });
+			const draft = publishDraft(characterId, { take, installed: installs || kept || self, specId: output.specId, label: r.label, qa, timeline: r.timeline, owner: context?.taskId ?? context?.turnId ?? null });
 			noteDraftCompiled(draft, r, { installed: installs || kept || self, stuck, repaired: Boolean(r.repair && !r.repair.skipped), adjusted: notes.length > 0 });
 			// agent:turn_summary: this turn's drafts and their QA (agent-turn-telemetry.js)
 			noteTurnDraft(context?.turnId, { clean: Boolean(qa.ok), problems: qaProblems(qa), stuck: Boolean(stuck) });

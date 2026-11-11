@@ -30,10 +30,13 @@
 //     (edits: kept | reverted), so the main agent never tells the user that reverted work was kept
 //   - a run that ends but reports a visible criterion unmet ends incomplete, not done: its changes stay, the main agent
 //     hears task.incomplete with the unmet criteria, and its dependents fail as after a failed task
+//   - a motion task (motion: { characterId }, motion-tasks.mjs) runs the v4 motion engine: it may be queued with no scope
+//     key (its character joins when it starts) and has its own MAX_MS and MAX_TOOLS (motionMaxMs, motionMaxTools: the
+//     engine's slowest bench run took 23 minutes)
 import { randomUUID } from "node:crypto";
 import { isScopeKey, scopeConflict } from "../../src/bus-task-scopes.js";
 
-export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, idleMs: 3 * 60_000, modelMs: 5 * 60_000, maxTools: 120, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
+export const TASK_LIMITS = Object.freeze({ cap: 3, staggerMs: 1500, maxMs: 20 * 60_000, motionMaxMs: 60 * 60_000, idleMs: 3 * 60_000, modelMs: 5 * 60_000, maxTools: 120, motionMaxTools: 400, summaryChars: 1200, receipts: 8, changed: 24, agingMs: 60_000, busyMaxMs: 15_000 });
 const ACTIVE = new Set(["queued", "waiting", "starting", "running", "paused", "review"]);
 const ENDED = new Set(["done", "incomplete", "failed", "cancelled"]);
 // The task's report ends with "Unmet criteria: none" or "Unmet criteria: <list>" (taskHeader); a report without that line
@@ -65,7 +68,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	const running = () => list().filter(task => ["starting", "running"].includes(task.status));
 	const scopes = () => new Map(running().map(task => [task.taskId, { taskId: task.taskId, title: task.title, keys: new Set(task.scope) }]));
 	const view = task => ({ taskId: task.taskId, title: task.title, status: task.status, scope: task.scope, ...(task.reason ? { reason: task.reason } : {}), ...(task.edits ? { edits: task.edits } : {}), ...(task.turnId ? { turnId: task.turnId } : {}),
-		...(task.dependsOn.length ? { dependsOn: task.dependsOn } : {}), ...(task.verify ? { verify: true } : {}), tools: task.tools, usage: task.usage, ...(task.summary ? { summary: task.summary } : {}), ...(task.changed?.length ? { changed: task.changed } : {}), timing: timing(task) });
+		...(task.dependsOn.length ? { dependsOn: task.dependsOn } : {}), ...(task.verify ? { verify: true } : {}), ...(task.motion ? { motion: true } : {}), tools: task.tools, usage: task.usage, ...(task.summary ? { summary: task.summary } : {}), ...(task.changed?.length ? { changed: task.changed } : {}), timing: timing(task) });
 	// An open wait counts up to now, so a board read mid-wait is already true.
 	const waited = (task, kind) => task.waited[kind] + (task.wait?.kind === kind ? now() - task.wait.since : 0);
 	const timing = task => ({ queuedAt: task.createdAt, ...(task.startedAt ? { startedAt: task.startedAt } : {}), ...(task.endedAt ? { endedAt: task.endedAt } : {}),
@@ -75,18 +78,18 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	const tell = (type, task, extra = {}) => emit({ type, at: now(), ...view(task), ...extra });
 
 	const invalid = message => Object.assign(new Error(message), { code: "INVALID_ARGUMENT" });
-	function check({ instructions, scope }) {
+	function check({ instructions, scope, motion }) {
 		if (typeof instructions !== "string" || !instructions.trim()) throw invalid("A task needs instructions.");
-		if (!Array.isArray(scope) || !scope.length || scope.some(key => !isScopeKey(key))) throw invalid("scope: one or more keys object:<id>, character:<id>, shot:<id>, stage, timeline or scene.");
+		if (!Array.isArray(scope) || (!scope.length && !motion) || scope.some(key => !isScopeKey(key))) throw invalid("scope: one or more keys object:<id>, character:<id>, shot:<id>, stage, timeline or scene.");
 	}
 
-	function dispatch({ title, instructions, scope, reads = [], dependsOn = [], verify = false }) {
-		check({ instructions, scope });
+	function dispatch({ title, instructions, scope, reads = [], dependsOn = [], verify = false, motion = null }) {
+		check({ instructions, scope, motion });
 		const unknown = dependsOn.find(id => !tasks.has(id));
 		if (unknown) throw invalid(`dependsOn: no task ${unknown}.`);
-		const same = list().find(task => ACTIVE.has(task.status) && norm(task.instructions) === norm(instructions) && [...task.scope].sort().join() === [...scope].sort().join());
+		const motionKey = motion ? `${motion.characterId ?? ""}|${motion.design ?? ""}` : null, same = list().find(task => ACTIVE.has(task.status) && norm(task.instructions) === norm(instructions) && task.motionKey === motionKey && [...task.declared].sort().join() === [...scope].sort().join());
 		if (same) return { duplicateOf: same.taskId, ...view(same) };
-		const task = { taskId: randomUUID(), title: clip(String(title || instructions).trim(), 120), instructions, scope: [...new Set(scope)], reads, dependsOn, verify: verify === true,
+		const task = { taskId: randomUUID(), title: clip(String(title || instructions).trim(), 120), instructions, scope: [...new Set(scope)], declared: [...new Set(scope)], motionKey, reads, dependsOn, verify: verify === true, ...(motion ? { motion: { characterId: typeof motion.characterId === "string" && motion.characterId ? motion.characterId : null, known: Array.isArray(motion.known) ? motion.known : null, design: typeof motion.design === "string" && motion.design ? motion.design : null } } : {}),
 			status: "queued", tools: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, requests: 0 }, createdAt: now(), warm: false, waited: { scope: 0, deps: 0, cap: 0 }, wait: null };
 		tasks.set(task.taskId, task);
 		tell("task.queued", task);
@@ -178,7 +181,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		const mark = lastStart;
 		task.controller = new AbortController();
 		const deps = task.dependsOn.map(id => tasks.get(id)).map(dep => ({ taskId: dep.taskId, title: dep.title, summary: dep.summary, changed: dep.changed ?? [] }));
-		task.timer = setTimer(() => stop(task, `stopped at the ${span(L.maxMs)} limit (${inFlight(task)})`), L.maxMs);
+		const maxMs = task.motion ? L.motionMaxMs : L.maxMs, maxTools = task.motion ? L.motionMaxTools : L.maxTools; task.timer = setTimer(() => stop(task, `stopped at the ${span(maxMs)} limit (${inFlight(task)})`), maxMs);
 		// Stall watchdog (#1058): one timer per run that re-arms for what is left. While a tool (or the turn's review) runs, the
 		// run waits on it, not stalls; once none runs, a model request is open since the last tool ended: MODEL_MS for its first
 		// byte (a provider overload the model proxy retries sends nothing), then IDLE_MS between frames once it streams.
@@ -200,7 +203,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 			// a retry after SCOPE_BUSY says started once, not on every attempt
 			if (task.status === "starting") { task.status = "running"; if (!task.toldStart) tell(resume ? "task.resumed" : "task.started", task); task.toldStart = true; }
 			if (!mark.warm && ["text.delta", "tool.start", "thinking.delta"].includes(frame.type)) { mark.warm = true; rescheduleNow(); }
-			if (frame.type === "tool.start" && !frame.review && ++task.tools > L.maxTools) stop(task, `stopped after more than ${L.maxTools} tool calls`);
+			if (frame.type === "tool.start" && !frame.review && ++task.tools > maxTools) stop(task, `stopped after more than ${maxTools} tool calls`);
 		};
 		Promise.resolve().then(() => run(task, { resume, deps, signal: task.controller.signal })).then(result => settle(task, result), error => settle(task, { status: "failed", error }));
 	}

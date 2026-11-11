@@ -295,7 +295,7 @@ function liveToolsRuntime(mcpRuntime) {
 // `supervisor` (#728) defaults off only under an injected scripted provider:
 // a test's script is an exact queue of replies, and a review would take one
 // meant for a later turn. The real sidecar never injects one.
-export function createAgentHandler({ auth = defaultAuth, codex, models, codexBaseUrl, cliproxyBaseUrl, env, fauxProvider, handlers, liveHub, mcpRuntime, port, studioRuntime, clock = Date.now, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval, sessionStore: injectedSessionStore, supervisor = !fauxProvider, studioTasks = () => process.env.COZYCLAY_STUDIO_TASKS === "on", taskLimits } = {}) {
+export function createAgentHandler({ auth = defaultAuth, codex, models, codexBaseUrl, cliproxyBaseUrl, env, fauxProvider, handlers, liveHub, mcpRuntime, port, studioRuntime, clock = Date.now, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval, sessionStore: injectedSessionStore, supervisor = !fauxProvider, studioTasks = () => process.env.COZYCLAY_STUDIO_TASKS === "on", taskLimits, motionModel } = {}) {
 	const requestContext = new AsyncLocalStorage();
 	codex ||= defaultClient(auth, requestContext);
 	const runtime = handlers !== undefined || liveHub !== undefined ? Promise.resolve({ handlers: handlers ?? [], liveHub }) : liveToolsRuntime(mcpRuntime);
@@ -506,8 +506,9 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			},
 		};
 		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, previsMode: value.context.scene?.previsMode, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
-		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner. Every other model goes on below.
-		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
+		const turnTransaction = studioTransaction({ hub, context: current, turnId: value.turnId, admission, task: value.task, signal: controller.signal, plain: Boolean(value.main), onWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }); // the user mid-drag (studio-busy-wait.mjs)
+		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner (a motion task's run: inside its task transaction). Every other model goes on below.
+		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, transaction: turnTransaction, fauxProvider, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
 		const modelTools = tools.map(tool => ({
 			...tool,
 			handler: async (args, call) => {
@@ -519,7 +520,6 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				return { ...result, visualStatus: visual.visualStatus, imageId: visual.imageId, revision: visual.revision, receiptId: visual.receiptId, ...(visual.dataUrl ? { dataUrl: visual.dataUrl } : {}) };
 			},
 		}));
-		const turnTransaction = studioTransaction({ hub, context: current, turnId: value.turnId, admission, task: value.task, signal: controller.signal, plain: Boolean(value.main), onWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }); // the user mid-drag (studio-busy-wait.mjs)
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.
 		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: [...modelTools, plan.nested], signal: controller.signal, emit: send });
 		const scriptTool = {
@@ -640,7 +640,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	};
 	// Lazy, like every src/ import here: the minimal legacy-sidecar package omits src/.
 	let taskRoutesReady;
-	const taskRoutes = async (...args) => (await (taskRoutesReady ??= import("./studio-task-routes.mjs").then(({ createStudioTaskRoutes }) => createStudioTaskRoutes({ enabled: studioTasks, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, parseCookies, json, readBody: req => readBody(req, TURN_BODY_LIMIT), limits: taskLimits,
+	const taskRoutes = async (...args) => (await (taskRoutesReady ??= import("./studio-task-routes.mjs").then(({ createStudioTaskRoutes }) => createStudioTaskRoutes({ enabled: studioTasks, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, parseCookies, json, readBody: req => readBody(req, TURN_BODY_LIMIT), limits: taskLimits, motionModel: motionModel ?? (async () => (fauxProvider ? null : (await import("./v4/models.mjs")).motionTaskModel(await (await import("./providers.mjs")).listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env))),
 		newRecord: () => ({ next: 0, events: [], listeners: new Set(), terminal: false }),
 		validateEnvelope: async value => (await import("../../src/studio-agent-protocol.js")).validateStudioTurnEnvelope(value),
 		inspect: async (host, args) => ((await runtime).liveHub || liveHub).command("inspect_studio", args, host.workspaceHandle),

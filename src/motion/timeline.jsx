@@ -10,6 +10,7 @@ import { insertPathMark, pathMarks, pathMetrics, pathProgressAt, MAX_PATH_LEAN }
 import { NumberField } from "../ui.jsx";
 import { flatTiming, timingIsFlat, envelopeDrag, insertCut, removeCut, CUT_MIN_GAP } from "../speed-envelope.js";
 import { checkShotAgainstPreset, presetById } from "../model-presets.js";
+import { WORLD } from "../world-scale.js";
 import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { BeatBoard } from "./beat-board.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
 import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
@@ -823,7 +824,7 @@ function CameraBlockEditor({
 			? { points: [{ t: 0, height: follow.height }, { t: 1, height: follow.height }] }
 			: null);
 	const patchCamera = (patch) => onChange?.(patch);
-	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const railFrames = shot.camera?.railFollow?.mode === "range" ? shot.camera.railFollow.endFrame - shot.camera.railFollow.startFrame : shot.endFrame - shot.startFrame; const speedLimit = mode === "rail" && railLength != null && railFrames > 0 ? Math.max(0.2, Math.ceil((railLength / (railFrames / fps)) * 10) / 10) : 40; // the rail is ridden on the shot clock, so faster than length / time is never reached
+	const patchFollow = (patch) => onChange?.({ followCam: { ...follow, ...patch } }); const railFrames = shot.camera?.railFollow?.mode === "range" ? shot.camera.railFollow.endFrame - shot.camera.railFollow.startFrame : shot.endFrame - shot.startFrame; const speedLimit = mode === "rail" && railLength != null && railFrames > 0 ? Math.max(0.2, Math.ceil((railLength / (railFrames / fps)) * 10) / 10) : WORLD.dollySpeed; // the rail is ridden on the shot clock, so faster than length / time is never reached
 	const numberValue = (event) => Number(event.currentTarget.value);
 	const metric = (value, places = 1) => Number(value).toFixed(places);
 	return (
@@ -897,9 +898,9 @@ function CameraBlockEditor({
 						<output className="tl-camera-metric">{metric(follow.distance, 2)}</output>
 						<small>m</small>
 					</label>
-					<label title={speedLimit < 40 ? ko(`Dolly speed cap, up to ${speedLimit} m/s: the rail is ridden in the shot's time, so it never goes faster. Shorten the shot to go faster.`, `돌리 최고 속도, 최대 ${speedLimit} m/s: 레일은 샷 시간 안에 지나가므로 이보다 빨라지지 않아요. 더 빠르게 하려면 샷을 줄이세요.`, `推轨速度上限，最高 ${speedLimit} m/s：轨道在镜头时长内走完，因此不会更快。要更快请缩短镜头。`) : ko("Cap dolly travel speed", "돌리의 최고 이동 속도를 제한합니다")}>
+					<label title={speedLimit < WORLD.dollySpeed ? ko(`Dolly speed cap, up to ${speedLimit} m/s: the rail is ridden in the shot's time, so it never goes faster. Shorten the shot to go faster.`, `돌리 최고 속도, 최대 ${speedLimit} m/s: 레일은 샷 시간 안에 지나가므로 이보다 빨라지지 않아요. 더 빠르게 하려면 샷을 줄이세요.`, `推轨速度上限，最高 ${speedLimit} m/s：轨道在镜头时长内走完，因此不会更快。要更快请缩短镜头。`) : ko("Cap dolly travel speed", "돌리의 최고 이동 속도를 제한합니다")}>
 						<span>{ko("Speed", "속도")}</span>
-						<input type="number" min="0.2" max={speedLimit} step="0.1" value={Math.min(follow.maxDollySpeed, speedLimit)} onChange={(event) => patchFollow({ maxDollySpeed: Math.min(speedLimit, numberValue(event)) })} />{speedLimit < 40 && <em className="tl-camera-limit" data-testid="camera-speed-limit">/ {speedLimit}</em>}
+						<input type="number" min="0.2" max={speedLimit} step="0.1" value={Math.min(follow.maxDollySpeed, speedLimit)} onChange={(event) => patchFollow({ maxDollySpeed: Math.min(speedLimit, numberValue(event)) })} />{speedLimit < WORLD.dollySpeed && <em className="tl-camera-limit" data-testid="camera-speed-limit">/ {speedLimit}</em>}
 						<small>m/s</small>
 					</label>
 					{!(mode === "rail" && crane) && (

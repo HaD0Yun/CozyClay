@@ -72,11 +72,23 @@ function cloneRailAim(value) {
 	return point && [point.x, point.y, point.z].every(Number.isFinite) ? { point: { x: point.x, y: point.y, z: point.z } } : null;
 }
 
-/** The aim and lens fields a block with a rail carries (none without one). */
+/**
+ * A camera roll in degrees about the lens axis, wrapped to -180..180; 0 for
+ * anything else. Positive turns the camera's top toward screen left (three's
+ * rotation.z, like yaw's positive left turn), so the picture tilts clockwise.
+ */
+export function cameraRoll(value) {
+	if (!Number.isFinite(value)) return 0;
+	const wrapped = ((((value + 180) % 360) + 360) % 360) - 180;
+	return wrapped === -180 && value > 0 ? 180 : wrapped;
+}
+
+/** The aim, lens and roll fields a block with a rail carries (none without one). */
 export function railShotFields(value, cameraRail) {
 	const aim = cameraRail ? cloneRailAim(value.aim) : null;
 	const focalMm = cameraRail && Number.isFinite(value.focalMm) && value.focalMm > 0 ? value.focalMm : null;
-	return { ...(aim ? { aim } : {}), ...(focalMm ? { focalMm } : {}) };
+	const rollDeg = cameraRail ? cameraRoll(value.rollDeg) : 0;
+	return { ...(aim ? { aim } : {}), ...(focalMm ? { focalMm } : {}), ...(rollDeg ? { rollDeg } : {}) };
 }
 
 /** Build a complete block from a partial or stored camera value. */

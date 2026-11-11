@@ -15,6 +15,8 @@ const VERBS = ['begin', 'requestScope', 'mark', 'rollback', 'finish', 'cancel', 
 // Document actions around a finished task's undo (#1058): moving between scenes of one project, or replacing what is loaded.
 const NAVIGATES = new Set(['scene.switch', 'scene.create', 'scene.duplicate']), REPLACES = new Set(['project.new', 'project.open', 'project.openStarter', 'project.restore', 'load_scenes']);
 const FINISHED_KEPT = 32;
+// The protocol's cap on a receipt's affectedIds (studio-agent-protocol.js receiptBase).
+const AFFECTED_MAX = 100;
 /** Task controls that write no document (they grant, mark or close a scope): admitted mid-gesture, so a begin or finish never waits on the user's drag. */
 export const GESTURE_FREE_TASK_CONTROLS = new Set(['task.begin', 'task.requestScope', 'task.mark', 'task.finish']);
 // A holder the board no longer runs (its run ended without task.finish: a crash, a lost frame) and that sent nothing for this
@@ -32,11 +34,12 @@ export function createBusTasks({ ports, emit }) {
 	const open = new Map(), finished = new Map(), entryTask = new Map();
 	// A character layer has its own token (its fields only), so another task's edit of her other layers never makes it
 	// stale; an editor without layer reads falls back to the whole character's.
-	const tokenOf = key => {
+	// `read`: false after the caller read the editor once for a whole loop (a target read re-reads the scene each time).
+	const tokenOf = (key, read = true) => {
 		const of = layerOf(key);
-		if (of?.layer) return ports.readLayer?.(key) ?? ports.readTarget?.(of.id) ?? 'absent';
+		if (of?.layer) return ports.readLayer?.(key) ?? ports.readTarget?.(of.id, read) ?? 'absent';
 		const [kind, id] = key.split(/:(.*)/s);
-		if (id !== undefined) return ports.readTarget?.(id) ?? 'absent';
+		if (id !== undefined) return ports.readTarget?.(id, read) ?? 'absent';
 		const state = ports.read();
 		return kind === 'scene' ? `r${state.revision}` : `${kind}:${state.domainRevisions?.[kind === 'timeline' ? 'shot' : kind] ?? 0}`;
 	};
@@ -81,14 +84,15 @@ export function createBusTasks({ ports, emit }) {
 		}
 	}
 	function receipt(id, task, request, before, { historyEntryId = null, affectedIds = [], output, warnings = [] } = {}) {
-		const after = ports.read();
+		const after = ports.read(), ids = historyEntryId && !affectedIds.length ? task.restored : affectedIds;
 		if (task.skipped?.length) warnings = [...warnings, { code: 'SCOPE_NOT_RESTORED', message: `Left as they are (a document change has no undo): ${listOf(task.skipped)}.` }];
 		task.skipped = null;
 		return validateReceipt({ ok: true, status: 'completed', kind: 'transaction', commandId: request.commandId, receiptId: crypto.randomUUID(), host: before.host,
 			action: id, txId: task.taskId, authored: Boolean(historyEntryId), revision: { before: before.revision, after: after.revision },
-			affectedIds: historyEntryId && !affectedIds.length ? task.restored : affectedIds, delta: [],
+			// A receipt names at most AFFECTED_MAX ids; a task that touched more names the first and says how many in all.
+			affectedIds: ids.slice(0, AFFECTED_MAX), delta: [],
 			checks: { coverage: 'task-scope' }, warnings, undo: historyEntryId ? { historyEntryId, entries: 1, canUndoDirect: false } : null,
-			output: { scope: [...task.keys], ...output } });
+			output: { scope: [...task.keys], ...output, ...(ids.length > AFFECTED_MAX ? { affectedCount: ids.length } : {}) } });
 	}
 	const ownerOf = (request, taskId) => { if (request.origin !== 'agent' || request.taskId !== taskId) fail('CAPABILITY_MISSING', 'Only the owning task can control it.'); };
 	return {
@@ -150,7 +154,10 @@ export function createBusTasks({ ports, emit }) {
 			}
 			open.delete(task.taskId);
 			if (id === 'task.cancel') {
-				const historyEntryId = restore(task, [...task.pre.values()], 'cancelled');
+				const pre = [...task.pre.values()], historyEntryId = restore(task, pre, 'cancelled');
+				// restore says task.cancelled only when it put something back: a task cancelled before it edited anything says so here,
+				// so every cancel is heard (the panel's scope marks, the drafts the task compiled: agent-progress.js)
+				if (!pre.some(entry => entry.value !== null)) emit?.({ type: 'task.cancelled', taskId: task.taskId, keys: [] });
 				return receipt(id, task, request, before, { historyEntryId, affectedIds: task.affectedIds });
 			}
 			task.final = finalOf(task); task.sceneId = sceneNow();
@@ -203,7 +210,7 @@ export function createBusTasks({ ports, emit }) {
 				for (const made of expandScope([key])) { task.keys.add(made); grew = true; if (!point.keys.includes(made)) { task.pre.set(made, { key: made, value: undefined }); point.values.push({ key: made, value: undefined }); } }
 			}
 			if (grew) emit?.({ type: 'task.scope', taskId: task.taskId, scope: [...task.keys] });
-			for (const key of task.keys) task.tokens.set(key, tokenOf(key));
+			ports.read(); for (const key of task.keys) task.tokens.set(key, tokenOf(key, false));
 			if (recorded.authored) {
 				task.edits.push({ receiptId: recorded.receiptId, values: point.values, keys: point.keys, mark: point.mark });
 				task.affectedIds = [...new Set([...task.affectedIds, ...recorded.affectedIds])];

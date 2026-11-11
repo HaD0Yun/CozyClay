@@ -12,6 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { composePrompt, deriveShot } from "../src/shot.js";
+import { WORLD_SCALES } from "../src/world-scale.js";
 
 let failures = 0;
 const expect = (name, condition, detail = "") => {
@@ -56,13 +57,16 @@ expect("the subject casts its own shadow", app.includes("child.castShadow = true
 
 /* --- the exported frame keeps a horizon ------------------------------------ */
 
-// Both fog bounds must stay inside the shot camera's 100 m far plane, or the
-// deck is clipped mid-fade and the horizon never resolves.
-expect("the capture fog stays inside the camera far plane", app.includes("const CAPTURE_FOG_FAR = 95;") && app.includes("far={100}"));
+// Both fog bounds must stay inside the shot camera's far plane (100 m in the
+// room), or the deck is clipped mid-fade and the horizon never resolves.
+expect("the capture fog stays inside the camera far plane at every world scale",
+	Object.values(WORLD_SCALES).every((world) => world.horizon.near < world.horizon.far && world.horizon.far < world.cameraFar) &&
+	app.includes("const CAPTURE_FOG_FAR = WORLD.horizon.far;") && app.includes("far={WORLD.cameraFar}"));
+expect("the room keeps its 55-95 m export horizon and 100 m far plane",
+	WORLD_SCALES.room.horizon.near === 55 && WORLD_SCALES.room.horizon.far === 95 && WORLD_SCALES.room.cameraFar === 100);
 expect(
 	"the capture pushes the fog back and restores it",
-	app.includes("const CAPTURE_FOG_NEAR = 55;") &&
-	app.includes("const CAPTURE_FOG_FAR = 95;") &&
+	app.includes("const CAPTURE_FOG_NEAR = WORLD.horizon.near;") &&
 	// haze (stage.lighting.fog) brings its own range; without it the export horizon stands
 	app.includes("fog.near = look?.fog?.near ?? CAPTURE_FOG_NEAR;") &&
 	app.includes("fog.near = fogNear;") &&
