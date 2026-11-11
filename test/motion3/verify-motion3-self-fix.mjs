@@ -324,6 +324,17 @@ expect("(m) y-bot crossed arms: where the gate takes every span back, the moves 
 expect("(k) crossed arms (X Bot and Y Bot, before and after the repair): every arm part reads on the compiled states as on fresh copies", [cr.before, cr.r.out].every(o => staleReads(X, o) === 0) && [crY.before, crY.r.out].every(o => staleReads(Y, o) === 0),
 	JSON.stringify([staleReads(X, cr.before), staleReads(X, cr.r.out), staleReads(Y, crY.before), staleReads(Y, crY.r.out)]));
 
+// hands keyed together (a clasp before the chest, held f16-f32): the contact is the take's, so both hands stay where they
+// are keyed (only the elbows may turn) and QA still reads what it reads on the keyed take; no hand is pulled off its key
+{
+	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], y = v => +(H * v).toFixed(3), down = { hand_l: [0.3, y(0.95), 0.25], hand_r: [-0.3, y(0.95), 0.25] }, at = [0, y(1.12), 0.4];
+	const st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0], armw_l: 1, armw_r: 1 };
+	const c = run(X, specOf({ keys: [[0, { ...st, ...down }], [16, { hand_l: at, hand_r: at }], [32, { hand_l: at, hand_r: at }], [47, down]].map(([f, set]) => ({ f, set })) }));
+	const d = moved(c.r.out, c.before, 16, 32, [I.LeftHand, I.RightHand]);
+	console.log(`  x-bot hands clasped f16-f32: wrists moved ${d.toExponential(2)} m there; QA ${c.qa0.total} -> ${c.r.qa.total}; KEY ${JSON.stringify(c.r.qa.groups.filter(g => g.kind === "KEY").map(g => g.subject))}`);
+	expect("hands keyed together: both wrists keep their place on the clasped frames (1e-6 m) and no hand is read off its key", d < 1e-6 && !c.r.qa.groups.some(g => g.kind === "KEY"), JSON.stringify([d, c.self?.spans]));
+}
+
 // (n) where the first moves leave a hit, the wider set: the wrist over the skin (forward, up, out to the arm's side, as
 // well as along the normal) by the depth times the lever from the shoulder, up to 0.3 m, and the elbow turned 120-150
 // deg. A hand swept across the front into the far thigh, and a forearm across the belly to the far hip (it cleared while

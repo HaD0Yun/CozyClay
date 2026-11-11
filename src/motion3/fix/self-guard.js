@@ -6,7 +6,7 @@
 import { sub, len, cross, norm, angle } from "../compiler/math.js";
 import { isPop } from "../qa/style.js";
 import { QA_LIMITS } from "../qa/checks.js";
-import { SIDES, handHold } from "./self-hits.js";
+import { SIDES, handHold, claspAt } from "./self-hits.js";
 import { bodyDistance } from "../body.js";
 import { isFillKey } from "../bricks/fill-src.js";
 
@@ -80,7 +80,7 @@ export function keyedHands(out, body) {
 	const { sk, spec } = out.ctx, f0 = out.f0 ?? 0, list = [];
 	for (const key of (out.keys ?? []).filter(x => (x.src === undefined || /^keys\[\d+\]$/.test(x.src)) && !isFillKey(x) && !x.fill)) for (const k of ["r", "l"]) {
 		const j = key.f - f0, fr = out.frames[j], ch = `hand_${k}`, b = sk.index[`${SIDES[k]}Hand`];
-		if (!fr || !(ch in (key.set ?? {})) || !Array.isArray(fr.c[ch]) || (fr.c[`armw_${k}`] ?? 0) < 0.5 || handHold(spec, fr, f0 + j, k).hold !== null) continue;
+		if (!fr || !(ch in (key.set ?? {})) || !Array.isArray(fr.c[ch]) || (fr.c[`armw_${k}`] ?? 0) < 0.5 || handHold(spec, fr, f0 + j, k, claspAt(out, j)).hold !== null) continue;
 		if (bodyDistance(body, fr.s, fr.c[ch], body.skip.get(b)).d >= 0 && !list.some(x => x.j === j && x.k === k)) list.push({ j, k, t: fr.c[ch], b, d0: len(sub(fr.s.P[b], fr.c[ch])) });
 	}
 	return list;

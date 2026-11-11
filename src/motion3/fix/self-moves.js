@@ -8,7 +8,7 @@
 import { bodyNormal } from "../body.js";
 import { add, sub, scale, len, norm } from "../compiler/math.js";
 import { turnWeight } from "../compiler/pose.js";
-import { armHit, handHold, SIDES } from "./self-hits.js";
+import { armHit, handHold, claspAt, SIDES } from "./self-hits.js";
 
 const MARGIN = 0.004;
 export const GAIN = 0.002;
@@ -37,7 +37,7 @@ export function apply(out, engine, k, mv, at) {
 	for (const [j, t0] of at) {
 		// a wrist push or an FK move fades with the weight that holds the hand; an elbow turn keeps the hand where it is
 		const tw = weightAt(out, k, j), ik = tw >= 1e-3, fk = isFk(mv) && fkAt(out, k, j) >= 1e-3;
-		const t = mv.push || fk ? t0 * (1 - handHold(out.ctx.spec, out.frames[j], f0 + j, k).held) : t0;
+		const t = mv.push || fk ? t0 * (1 - handHold(out.ctx.spec, out.frames[j], f0 + j, k, claspAt(out, j)).held) : t0;
 		const tp = mv.push && ik ? t / tw : 0, ti = mv.turn && ik ? t0 / tw : 0, tf = fk ? t : 0;
 		if (!(tp > 0 || ti > 0 || tf > 0)) continue;
 		was.push([j, leverAt(out, k, f0 + j), out.frames[j]]);
