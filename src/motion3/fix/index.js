@@ -19,7 +19,8 @@
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
 //                4 frames or more that falls, or of 3 (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
 //                one a later fix makes starts the fixes again with its key interval kept (applyFixes, fixed.retime.air); the
-//                holds of 3-frame runs and of runs a later fix made stand only where QA is no worse with them (applyFixes)
+//                holds of 3-frame runs and of runs a later fix made stand where QA is no worse with them, and wherever the
+//                take without them has fewer flights of under MIN_RUN frames that the arc moves, whatever QA reads (applyFixes)
 //   ballistic    in each air run of 3 frames or more the whole body moves so the centre of mass follows the gravity
 //                parabola between takeoff and landing at constant horizontal speed; past 0.5 m, where the arc enters
 //                what the keyed flight did not (flight-gate.js), or a 3-frame run without a real takeoff and landing, it is
