@@ -4,7 +4,8 @@
 //   facingAxes      the source's up (feet to head) as the canonical +Y, snapped to the nearest world axis when within
 //                   25 deg (a Z-up export turns upright, a slight lean is straightened), and its left (the mean of the
 //                   right-to-left hip and shoulder lines, across up) as +X, +Z forward. A whole-body turn of any angle
-//                   goes away; a pelvis turned against the chest keeps half the twist each way.
+//                   goes away; a pelvis turned against the chest keeps half the twist each way. A source whose toes
+//                   point backward from that facing (Left and Right swapped, a mirrored export) is refused.
 //   normalise       each arm, leg and foot turned at its root joint onto the X Bot's bind direction: the upper arm,
 //                   forearm and hand (an A-pose's arms go up to the T-pose's horizontal; the palm turns to the X Bot's
 //                   by its knuckle line), the thigh and shin, and the foot's heading. A foot keeps its own pitch through
@@ -54,11 +55,18 @@ function snap(v) {
 	return Math.abs(v[k]) >= SNAP ? [0, 1, 2].map(i => (i === k ? Math.sign(v[k]) : 0)) : null;
 }
 
-/** Rows [left, up, forward] of the source: a canonical point is apply(B, source point). pos(name) gives a source joint. */
+/**
+ * Rows [left, up, forward] of the source: a canonical point is apply(B, source point). pos(name) gives a source joint
+ * (undefined for a bone the source lacks).
+ */
 export function facingAxes(pos) {
 	const lean = norm(sub(pos("Head"), scale(add(pos("LeftFoot"), pos("RightFoot")), 0.5))), up = snap(lean) ?? lean;
 	const line = (a, b) => norm(across(sub(pos(a), pos(b)), up));
 	const left = norm(add(line("LeftUpLeg", "RightUpLeg"), line("LeftArm", "RightArm"))), forward = cross(left, up);
+	const toes = SIDES.filter(S => pos(`${S}ToeBase`)).map(S => across(sub(pos(`${S}ToeBase`), pos(`${S}Foot`)), up));
+	if (toes.length && dot(toes.reduce(add), forward) <= 0) {
+		throw new Error("adaptRig: the toes point backward from the hips and shoulders (Left bones on the character's right): the source is mirrored or its Left and Right names are swapped");
+	}
 	return [left, up, forward];
 }
 

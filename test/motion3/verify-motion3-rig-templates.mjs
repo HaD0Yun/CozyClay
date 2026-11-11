@@ -589,6 +589,11 @@ for (const [field, at, v] of [["localPos", "mixamorig:LeftHandIndex2", [NaN, 0, 
 		expect(`X Bot turned ${yaw} deg about up: the unturned rig (joints ${dp.toExponential(1)} cm, frames ${dq.toExponential(1)} deg off) and its walk (${d.toExponential(1)} off, QA ${r.qa.total})`,
 			dp < 2e-6 && dq < 1e-5 && d < 1e-6 && JSON.stringify(r.qa.groups) === qa, `${dp} ${dq} ${d} ${JSON.stringify(issues(r))}`);
 	}
+	// a mirrored source (Left names on the character's right) is refused (before: adapted turned 180 deg about up)
+	const swapped = raw();
+	for (const b of swapped.bones) b.name = b.name.replace(/Left|Right/, m => (m === "Left" ? "Right" : "Left"));
+	const refused = (() => { try { adaptRig(swapped); return ""; } catch (e) { return e.message; } })();
+	expect(`Left and Right names swapped: refused as mirrored (${refused.slice(0, 60)}...)`, /mirrored/.test(refused), refused);
 }
 
 // 4q. a parent that is not an index into the bones, or the bone itself, is refused by name (before: a name or a fraction
