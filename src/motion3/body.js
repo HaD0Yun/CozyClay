@@ -52,7 +52,7 @@ export function preloadBodies() {
 		const response = await fetch(url);
 		if (!response.ok) throw new Error(`motion body fit ${url.pathname}: HTTP ${response.status}`);
 		const fit = await response.json();
-		if (!fits.has(model) && !made.has(model)) fits.set(model, fit);
+		if (!fits.has(model)) fits.set(model, fit);
 	}));
 }
 /** Distance read outside a grid: far enough that no probe counts it as touching. */
