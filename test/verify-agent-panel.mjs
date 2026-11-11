@@ -1128,14 +1128,16 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	const { transformWithOxc } = await import("vite");
 	const React = await import("react");
 	const { renderToStaticMarkup } = await import("react-dom/server");
-	const { FiPower, FiRotateCw } = await import("react-icons/fi");
-	const build = (koImpl) => {
-		const scope = { React, FiPower, FiRotateCw, ko: koImpl };
-		const source = parseSync("AgentPanel.jsx", panel).program.body.find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
-		return { scope, source: panel.slice(source.start, source.end) };
+	const { FiDownload, FiPower, FiRotateCw } = await import("react-icons/fi");
+	// The card lives in its own module; hosted (an https page, no agent server to start) reads differently from self-served.
+	const cardFile = readFileSync(new URL("../src/workflow/AgentOfflineCard.jsx", import.meta.url), "utf8");
+	const build = (koImpl, hosted) => {
+		const scope = { React, FiDownload, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#install", AgentHostedDemos: () => React.createElement("div", { "data-fid": "agent_demos" }) };
+		const source = parseSync("AgentOfflineCard.jsx", cardFile).program.body.map((node) => node.declaration ?? node).find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
+		return { scope, source: cardFile.slice(source.start, source.end) };
 	};
-	const render = async (koImpl, props) => {
-		const { scope, source } = build(koImpl);
+	const render = async (koImpl, props, hosted = false) => {
+		const { scope, source } = build(koImpl, hosted);
 		const { code } = await transformWithOxc(`function card() {\n${source}\nreturn OfflineCard;\n}`, "card.jsx", { lang: "jsx", jsx: { runtime: "classic" } });
 		const OfflineCard = new Function(...Object.keys(scope), `${code}\nreturn card();`)(...Object.values(scope));
 		return renderToStaticMarkup(React.createElement(OfflineCard, props));
@@ -1149,6 +1151,43 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	expect("offline: Retry is busy while it re-probes", busy.includes("disabled") && busy.includes('aria-busy="true"') && busy.includes("Checking…"), busy);
 	const korean = await render((_english, koText) => koText, { probing: false, onRetry() {} });
 	expect("offline: the card reads in Korean under the Korean locale", korean.includes("에이전트 서버가 실행 중이 아니에요") && korean.includes("다시 확인"), korean);
+	expect("the panel imports the card, and the card decides hosted by the page's protocol or ?try", panel.includes('import { OfflineCard } from "./AgentOfflineCard.jsx";') && cardFile.includes('globalThis.location?.protocol === "https:" || new URLSearchParams(globalThis.location?.search ?? "").has("try")'));
+	const hosted = await render((english) => english, { probing: false, onRetry() {} }, true);
+	expect("hosted: the title offers a look at the agent, not a server that is down", hosted.includes("<h3>See what the agent does</h3>") && !hosted.includes("not running"), hosted);
+	expect("hosted: the ready-made requests come before the way to use it for real", hosted.indexOf('data-fid="agent_demos"') > 0 && hosted.indexOf('data-fid="agent_demos"') < hosted.indexOf("Install CozyClay</a>") && hosted.includes("These are ready-made results"), hosted);
+	expect("hosted: one Install button that opens the landing page's install steps, with no Retry that could only fail", hosted.includes('href="https://cozyclay.org/#install"') && hosted.includes("Install CozyClay</a>") && hosted.includes("agent-primary-button") && !hosted.includes("Retry") && !hosted.includes("<code>") && hosted.includes('data-agent-offline="hosted"'), hosted);
+	const hostedKo = await render((_english, koText) => koText, { probing: false, onRetry() {} }, true);
+	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트가 하는 일 보기") && hostedKo.includes("CozyClay 설치"), hostedKo);
+	// The demos: a walk and a flip from the sample motions, a street of eight buildings, and a chair to sit on.
+	const demos = readFileSync(new URL("../src/workflow/AgentHostedDemos.jsx", import.meta.url), "utf8");
+	expect("the demos run the same commands the agent would: motion.compile, object.add, object.update", demos.includes('app.bus.run("motion.compile"') && demos.includes('app.bus.run("object.add", { kind: "cube"') && demos.includes('app.bus.run("object.update"') && demos.includes('sampleMotionSpec(demo.motion, who)'));
+	expect("a second press does not build a set twice", demos.includes("if (ids.has(name)) continue;"));
+	const { demoChair, demoSitSpec, demoStreet } = await import("../src/workflow/agent-demo-set.js");
+	const street = demoStreet({ x: 0, z: 0, rot: 0 });
+	expect("the street is eight buildings with distinct names, four a side", street.length === 8 && new Set(street.map((b) => b.name)).size === 8 && street.filter((b) => b.x > 0).length === 4 && street.filter((b) => b.x < 0).length === 4, JSON.stringify(street));
+	expect("the way the character walks in stays clear: no building within 4 m of the centre line, none in front of it", street.every((b) => Math.abs(b.x) - b.scaleX / 2 >= 4 && b.z <= 0), JSON.stringify(street));
+	// The chair: two boxes beside the character, clear of the way the walk comes in, and a take that sits on the seat.
+	const [seat, back] = demoChair({ x: 0, z: 0, rot: 0 });
+	expect("the chair is a seat with a back standing behind its rear edge, taller than it", seat.name === "Chair seat" && back.name === "Chair back" && back.x === seat.x && Math.abs((back.z + back.scaleZ / 2) - (seat.z - seat.scaleZ / 2)) < 1e-9 && back.scaleY > seat.scaleY, JSON.stringify([seat, back]));
+	expect("the chair stands beside the walk's centre line, not on it", Math.abs(seat.x) - seat.scaleX / 2 >= 0.7 && street.every((b) => Math.abs(b.x) - b.scaleX / 2 > Math.abs(seat.x) + seat.scaleX / 2), JSON.stringify(seat));
+	const sit = demoSitSpec({ x: 0, z: 0, rot: 0 }, "cube-1", "cube-2", 0.1);
+	expect("the sit take stands in front of the seat, then sits on it and stays", sit.use[0].skill === "standIdle" && Math.abs(sit.use[0].args.at[0] - seat.x) < 1e-9 && sit.use[0].args.at[1] > seat.z + seat.scaleZ / 2 && sit.use.slice(1).every((use) => use.skill === "sitInSeat" && use.args.seat === "cube-1" && use.args.seatBack === "cube-2") && sit.use[2].f0 > sit.use[1].f0, JSON.stringify(sit));
+	expect("the demo builds the chair, then installs the sit take on its seat with the rig's ankle height", demos.includes('await build(demoChair(who))') && demos.includes('demoSitSpec(who, ids.get("Chair seat"), ids.get("Chair back"), rig.restWorldPos[rig.index.LeftFoot][1])'));
+	// The sit take compiles QA-clean on both rigs wherever the character stands and faces (the bar the sample motions hold).
+	const { compileSpec } = await import("../src/motion3/pipeline.js"), { motionScene } = await import("../src/motion3/scene.js"), { skeletonFor } = await import("../src/motion3/rigs/index.js");
+	const { createSceneObject, updateSceneObject } = await import("../src/scene-objects.js");
+	for (const rigId of ["y-bot-tpose", "x-bot-tpose"]) {
+		const sk = skeletonFor(rigId), bad = [];
+		for (const place of [{ x: 0, z: 0, rot: 0 }, { x: 0.4, z: -0.3, rot: 30 }, { x: -1.2, z: 2, rot: 90 }, { x: 2, z: 1, rot: 180 }, { x: 0, z: 0, rot: -135 }]) {
+			let rows = [];
+			for (const { name, x, z, ...patch } of demoChair(place)) { const row = createSceneObject("cube", rows, { x, z }); rows = updateSceneObject([...rows, row], row.id, { x, z, name, ...patch }); }
+			const r = compileSpec(demoSitSpec(place, rows[0].id, rows[1].id, sk.restWorldPos[sk.index.LeftFoot][1]), { sk, scene: motionScene(rows) });
+			if (!r.qa.ok) bad.push(`${JSON.stringify(place)}: ${r.qa.groups.map((g) => `${g.kind} ${g.subject}`).join("; ")}`);
+		}
+		expect(`${rigId}: the sit take is QA-clean at 5 placements`, bad.length === 0, bad.join(" | "));
+	}
+	const turned = demoStreet({ x: 2, z: 1, rot: 90 });
+	expect("the street turns and moves with the character", turned.every((b, i) => Math.abs((b.x - 2) - street[i].z) < 0.01 && Math.abs((b.z - 1) + street[i].x) < 0.01 && b.rot === 90), JSON.stringify(turned));
 }
 
 // The model-connect funnel (PR E): one attempt is one connect_started and one connect_finished, the
