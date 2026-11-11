@@ -1,0 +1,551 @@
+/* The camera tutorial (camera-tutorial.jsx): a strip of step chips and one hint card over the stage, a gesture cue for
+   the four navigation steps, numbered beacons pinned to the controls of the last three, and a spotlight on those
+   controls. It came back from the 2.x Studio for the hosted Studio's first visit (guest-start.js). */
+
+/* The Studio tutorial's spotlight (#211). Same idea as the landing hints
+   above, one region louder: inside the full studio the operator is scanning
+   two panes and forty controls, so the ring is 3px in the accent with a halo
+   breathing out of it rather than a thin amber outline. data-tutorial-step is
+   the current step's kind, published by CameraTutorial through App. */
+.app[data-tutorial-step="shot"] .tl-track.shots .tl-track-add,
+.app[data-tutorial-step="rail"] .tl-track.shots .tl-shot-block:not(.selected),
+.app[data-tutorial-step="rail"] .tl-rail-draw,
+.app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block,
+.app[data-tutorial-step="play"]:not([data-tutorial-looking]) .vp-look-through,
+.app[data-tutorial-step="play"]:not([data-tutorial-looking]) .dock-shot-look,
+.app[data-tutorial-step="play"][data-tutorial-looking] .tl-transport .tl-btn.play {
+	animation: tutorial-spotlight 1.5s var(--ease) infinite;
+	box-shadow: 0 0 0 3px var(--accent);
+}
+/* The rail is drawn INTO the top view, so the inset is the second half of the
+   step's target: a soft accent outline, no pulse — two pulsing things in one
+   step read as an alarm, not an instruction. */
+.app[data-tutorial-step="rail"] .vp-inset {
+	box-shadow: 0 10px 30px #00000073, 0 0 0 2px var(--accent-ring);
+}
+@keyframes tutorial-spotlight {
+	0%, 100% { box-shadow: 0 0 0 3px var(--accent), 0 0 0 0 rgba(58, 124, 191, .45); }
+	50% { box-shadow: 0 0 0 3px var(--accent), 0 0 0 8px rgba(58, 124, 191, 0); }
+}
+
+/* The Studio-native camera tutorial (#206): a strip of seven step chips and
+   one hint card, hung under the 27px viewport titlebar, left of the Top-View
+   inset (right:15px). The overlay is transparent to the pointer — every step
+   is finished by working the stage underneath it — so only the close button
+   takes clicks. */
+.camera-tutorial {
+	position: absolute;
+	top: 35px;
+	left: 12px;
+	z-index: 7;
+	width: min(430px, calc(100% - 24px - 26%));
+	padding: 8px 10px 9px;
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+	background: color-mix(in srgb, var(--panel) 94%, #000);
+	border: 1px solid var(--line2);
+	border-radius: 8px;
+	box-shadow: var(--shadow-md);
+	pointer-events: none;
+	animation: rise var(--med) var(--ease) both;
+}
+
+/* The look-through exit pill is centred in the same band (top:60px), and it
+   is the only way back to the free camera without the keyboard. While the
+   player is up the card gives that width back rather than covering it. */
+.camera-tutorial[data-previewing="1"] {
+	width: clamp(220px, calc(50% - 92px), 360px);
+}
+
+/* The floating shell covers the full-bleed viewport with panels. Keep the
+   instructions inside its open stage, clear of the tool rail and dock. */
+.app[data-shell="glass"]:not([data-embed-mode]) .camera-tutorial {
+	top: calc(var(--shell-view-top, 52px) + 12px);
+	left: calc(var(--shell-center-left) + 64px);
+	width: min(430px, calc(100% - var(--shell-center-left) - var(--shell-center-right) - 128px));
+}
+.app[data-shell="glass"][data-tutorial-step="rail"] .camera-tutorial,
+.app[data-shell="glass"] .camera-tutorial[data-previewing="1"] {
+	top: auto;
+	bottom: calc(var(--shell-center-bottom) + 12px);
+}
+.app[data-shell="glass"]:not([data-embed-mode]) .tutorial-cue {
+	left: calc((var(--shell-center-left) + 100% - var(--shell-center-right)) / 2);
+	bottom: calc(var(--shell-center-bottom) + 18px);
+}
+
+.camera-tutorial-steps {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 0;
+	padding: 0 22px 0 0;
+	list-style: none;
+}
+
+.camera-tutorial-steps li {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 7px;
+	border: 1px solid var(--line2);
+	border-radius: 999px;
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: .02em;
+}
+
+.camera-tutorial-steps li i {
+	font-family: var(--mono);
+	font-style: normal;
+	font-size: 9px;
+	opacity: .85;
+}
+
+.camera-tutorial-steps li[data-current="1"] {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+	color: var(--fg);
+}
+
+.camera-tutorial-steps li[data-done="1"] {
+	border-color: color-mix(in srgb, #65c18c 55%, transparent);
+	color: #65c18c;
+}
+
+.camera-tutorial-card {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	color: var(--fg);
+	font-size: 11.5px;
+	line-height: 1.45;
+}
+
+.camera-tutorial-card p {
+	margin: 0;
+}
+
+.camera-tutorial-count {
+	flex: none;
+	color: var(--accent);
+	font-family: var(--mono);
+	font-size: 9.5px;
+	font-weight: 700;
+	letter-spacing: .06em;
+	text-transform: uppercase;
+}
+
+.camera-tutorial-count.done {
+	color: #65c18c;
+}
+
+.camera-tutorial kbd {
+	padding: 1px 5px;
+	border: 1px solid var(--line2);
+	border-radius: 4px;
+	background: var(--card2);
+	color: var(--fg);
+	font-family: var(--mono);
+	font-size: 9.5px;
+}
+
+.camera-tutorial-keys {
+	display: inline-flex;
+	gap: 3px;
+	margin: 0 2px;
+}
+
+.camera-tutorial-keys kbd[data-done="1"] {
+	border-color: color-mix(in srgb, #65c18c 55%, transparent);
+	color: #65c18c;
+}
+
+.camera-tutorial-close {
+	position: absolute;
+	top: 4px;
+	right: 5px;
+	padding: 0 4px;
+	border: 0;
+	background: transparent;
+	color: var(--muted);
+	font-size: 15px;
+	line-height: 1;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+.camera-tutorial-close:hover,
+.camera-tutorial-close:focus-visible {
+	color: var(--fg);
+}
+
+/* The card's region pointer: the control the step needs is in another pane,
+   so the copy opens with which way to look before it says what to do. */
+.camera-tutorial-where {
+	margin-right: 6px;
+	padding: 1px 5px;
+	border: 1px solid var(--accent-ring);
+	border-radius: 4px;
+	color: var(--accent);
+	font-size: 9.5px;
+	font-weight: 700;
+	letter-spacing: .02em;
+	white-space: nowrap;
+	vertical-align: 1px;
+}
+
+/* ------------------------------------------------- tutorial beacon ------- */
+
+/* A numbered circle, a leader line and a caption chip pinned to the control
+   the current step needs (#211). Portalled to <body>, so it clears every pane
+   in the studio (the highest viewport/timeline layer is 13) and clips to
+   nothing; never takes the pointer, so the control underneath stays
+   clickable. */
+.tutorial-beacon {
+	position: fixed;
+	z-index: 14;
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	pointer-events: none;
+	animation: rise var(--med) var(--ease) backwards;
+}
+
+.tutorial-beacon-leader {
+	position: absolute;
+	inset: 0;
+	overflow: visible;
+	width: 100%;
+	height: 100%;
+}
+
+.tutorial-beacon-leader line {
+	stroke: var(--accent);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-dasharray: 3 3;
+	opacity: .85;
+}
+
+.tutorial-beacon-dot {
+	position: relative;
+	flex: none;
+	width: 22px;
+	height: 22px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background: var(--accent);
+	color: var(--on-accent);
+	font-family: var(--mono);
+	font-size: 11px;
+	font-weight: 700;
+	box-shadow: 0 0 0 3px rgba(58, 124, 191, .28), var(--shadow);
+	animation: tutorial-beacon-breathe 1.5s var(--ease) infinite;
+}
+
+.tutorial-beacon-label {
+	position: relative;
+	max-width: 190px;
+	padding: 3px 8px;
+	border: 1px solid var(--accent-ring);
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--panel) 94%, #000);
+	box-shadow: var(--shadow-md);
+	color: var(--fg);
+	font-size: 10.5px;
+	font-weight: 600;
+	line-height: 1.35;
+	word-break: keep-all;
+}
+
+@keyframes tutorial-beacon-breathe {
+	0%, 100% { box-shadow: 0 0 0 3px rgba(58, 124, 191, .28), var(--shadow); }
+	50% { box-shadow: 0 0 0 8px rgba(58, 124, 191, 0), var(--shadow); }
+}
+
+/* ------------------------------------------------- gesture cue ----------- */
+
+/* Steps 1–4 have no control to point at, so the cue draws the hand instead:
+   a mouse glyph with the button the step wants lit, moving the way the hand
+   is supposed to move. Centre-bottom of the viewport, clear of the shot
+   preview (bottom-right) and the Top-View inset (top-right). */
+.tutorial-cue {
+	position: absolute;
+	left: 50%;
+	bottom: 18px;
+	z-index: 7;
+	width: 120px;
+	transform: translateX(-50%);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 7px;
+	padding: 10px 8px 8px;
+	border: 1px solid var(--line2);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--panel) 82%, transparent);
+	box-shadow: var(--shadow-md);
+	backdrop-filter: blur(6px);
+	pointer-events: none;
+	opacity: 1;
+	transition: opacity var(--med) var(--ease), transform var(--med) var(--ease);
+	/* `backwards`, not `both`: a filled-forwards animation would pin opacity at
+	   the keyframe's value and the fade-out below would never run. riseCenter
+	   keeps the -50% centring the base rule needs. */
+	animation: riseCenter var(--med) var(--ease) backwards;
+}
+
+.tutorial-cue[data-leaving="1"] {
+	opacity: 0;
+	transform: translateX(-50%) translateY(6px);
+}
+
+.tutorial-cue-stage {
+	position: relative;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	gap: 6px;
+	/* full width so the orbit keycap and pivot anchor to the panel, not to the
+	   glyph's own shrink-wrapped box */
+	width: 100%;
+	height: 54px;
+}
+
+.tutorial-cue-arm {
+	position: relative;
+	display: inline-flex;
+	align-items: flex-end;
+}
+
+.tutorial-cue-mouse {
+	width: 30px;
+	height: 44px;
+	overflow: visible;
+}
+
+.cue-mouse-body {
+	fill: none;
+	stroke: var(--muted);
+	stroke-width: 2.5;
+}
+
+.cue-mouse-left,
+.cue-mouse-right {
+	fill: var(--card2);
+	stroke: var(--muted);
+	stroke-width: 1.5;
+}
+
+.cue-mouse-wheel {
+	fill: var(--muted2);
+}
+
+/* the lit control per step */
+.tutorial-cue[data-kind="fly"] .cue-mouse-right,
+.tutorial-cue[data-kind="walk"] .cue-mouse-right {
+	fill: var(--accent);
+	stroke: var(--accent);
+}
+
+.tutorial-cue[data-kind="orbit"] .cue-mouse-left {
+	fill: var(--accent);
+	stroke: var(--accent);
+}
+
+.tutorial-cue[data-kind="dolly"] .cue-mouse-wheel {
+	fill: var(--accent);
+}
+
+/* fly: the mouse slides left and right under a two-headed arc */
+.tutorial-cue[data-kind="fly"] .tutorial-cue-arm {
+	animation: cue-swing 2.2s var(--ease) infinite;
+}
+
+.tutorial-cue-arc {
+	position: absolute;
+	left: 50%;
+	top: -13px;
+	width: 56px;
+	height: 18px;
+	transform: translateX(-50%);
+	overflow: visible;
+}
+
+.cue-arc-line,
+.cue-arc-head {
+	fill: none;
+	stroke: var(--accent);
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* dolly: the wheel is lit and the arrows breathe up and down */
+.tutorial-cue-updown {
+	width: 12px;
+	height: 40px;
+	overflow: visible;
+}
+
+.cue-up,
+.cue-down {
+	fill: none;
+	stroke: var(--accent);
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.cue-up { animation: cue-up 1.8s var(--ease) infinite; }
+.cue-down { animation: cue-down 1.8s var(--ease) infinite; }
+
+/* orbit: Alt is held while the mouse arcs around the subject. The keycap sits
+   in the stage's bottom-left corner and the pivot dot in its bottom-centre,
+   so the swing above them never crosses either. */
+.tutorial-cue[data-kind="orbit"] .tutorial-cue-stage {
+	height: 64px;
+	align-items: flex-start;
+}
+
+.tutorial-cue-key {
+	position: absolute;
+	left: 0;
+	bottom: 0;
+	padding: 2px 5px;
+	border: 1px solid var(--accent);
+	border-radius: 4px;
+	background: var(--accent-soft);
+	color: var(--fg);
+	font-family: var(--mono);
+	font-size: 9px;
+	font-weight: 700;
+}
+
+.tutorial-cue-pivot {
+	position: absolute;
+	left: 50%;
+	bottom: 1px;
+	width: 6px;
+	height: 6px;
+	transform: translateX(-50%);
+	border-radius: 50%;
+	background: var(--muted);
+	box-shadow: 0 0 0 3px var(--card2);
+}
+
+/* the pivot is 20px below the mouse, so the arc reads as circling a subject */
+.tutorial-cue[data-kind="orbit"] .tutorial-cue-arm {
+	transform-origin: 50% 145%;
+	animation: cue-orbit 2.8s var(--ease) infinite;
+}
+
+/* walk: the six keys, pulsing until each one has been pressed */
+.tutorial-cue-keys {
+	display: grid;
+	grid-template-columns: repeat(6, 1fr);
+	gap: 3px;
+	width: 100%;
+}
+
+.tutorial-cue-keys kbd {
+	padding: 2px 0;
+	border: 1px solid var(--line2);
+	border-radius: 3px;
+	background: var(--card2);
+	color: var(--muted);
+	font-family: var(--mono);
+	font-size: 8.5px;
+	font-weight: 700;
+	text-align: center;
+	animation: cue-key 1.6s var(--ease) infinite;
+}
+
+.tutorial-cue-keys kbd[data-done="1"] {
+	border-color: color-mix(in srgb, #65c18c 60%, transparent);
+	background: color-mix(in srgb, #65c18c 16%, transparent);
+	color: #65c18c;
+	animation: none;
+}
+
+.tutorial-cue-caption {
+	color: var(--fg);
+	font-size: 9.5px;
+	font-weight: 600;
+	line-height: 1.3;
+	text-align: center;
+	word-break: keep-all;
+}
+
+@keyframes cue-swing {
+	0%, 100% { transform: translateX(-7px); }
+	50% { transform: translateX(7px); }
+}
+
+@keyframes cue-orbit {
+	0%, 100% { transform: rotate(-13deg); }
+	50% { transform: rotate(13deg); }
+}
+
+@keyframes cue-up {
+	0%, 100% { transform: translateY(2px); opacity: .45; }
+	40% { transform: translateY(-2px); opacity: 1; }
+}
+
+@keyframes cue-down {
+	0%, 100% { transform: translateY(-2px); opacity: .45; }
+	90% { transform: translateY(2px); opacity: 1; }
+}
+
+@keyframes cue-key {
+	0%, 100% { border-color: var(--line2); color: var(--muted); }
+	50% { border-color: var(--accent); color: var(--fg); }
+}
+
+/* Reduced motion: the tutorial still points at the control, it just stops
+   moving — a static ring, a static glyph, static keycaps. */
+@media (prefers-reduced-motion: reduce) {
+	.app[data-tutorial-step="shot"] .tl-track.shots .tl-track-add,
+	.app[data-tutorial-step="rail"] .tl-track.shots .tl-shot-block:not(.selected),
+	.app[data-tutorial-step="rail"] .tl-rail-draw,
+	.app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block,
+	.app[data-tutorial-step="play"] .vp-look-through,
+	.app[data-tutorial-step="play"] .tl-transport .tl-btn.play {
+		animation: none;
+		box-shadow: 0 0 0 3px var(--accent);
+	}
+	.tutorial-beacon,
+	.tutorial-beacon-dot,
+	.tutorial-cue,
+	.tutorial-cue-arm,
+	.tutorial-cue-keys kbd,
+	.cue-up,
+	.cue-down {
+		animation: none;
+	}
+	.tutorial-cue { transition: none; }
+}
+
+/* The Length step is about the shot block's end handle, which the sequencer hides until hover. */
+.app[data-tutorial-step="length"] .tl-track.shots .tl-shot-block .tl-shot-edge.end { opacity: 1; }
+
+/* The language choice that comes before the tutorial: the same card, three buttons that do take the pointer. */
+.camera-tutorial-language { width: auto; }
+.camera-tutorial-languages { display: flex; gap: 6px; pointer-events: auto; }
+.camera-tutorial-languages button {
+	padding: 6px 14px;
+	border: 1px solid var(--line, rgba(127, 127, 127, .35));
+	border-radius: 999px;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 12.5px;
+	cursor: pointer;
+}
+.camera-tutorial-languages button:hover,
+.camera-tutorial-languages button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }

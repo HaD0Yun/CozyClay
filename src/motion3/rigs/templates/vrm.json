@@ -1,0 +1,18 @@
+{
+	"id": "vrm",
+	"name": "VRM 1.0 humanoid bones (and the J_Bip_ node names VRM exporters commonly write)",
+	"sides": { "Left": { "s": "left", "S": "L" }, "Right": { "s": "right", "S": "R" } },
+	"bones": {
+		"Hips": ["hips", "J_Bip_C_Hips"], "Spine": ["spine", "J_Bip_C_Spine"], "Spine1": ["chest", "J_Bip_C_Chest"], "Spine2": ["upperChest", "J_Bip_C_UpperChest", "chest", "J_Bip_C_Chest"],
+		"Neck": ["neck", "J_Bip_C_Neck"], "Head": ["head", "J_Bip_C_Head"],
+		"{Side}Shoulder": ["{s}Shoulder", "J_Bip_{S}_Shoulder"], "{Side}Arm": ["{s}UpperArm", "J_Bip_{S}_UpperArm"], "{Side}ForeArm": ["{s}LowerArm", "J_Bip_{S}_LowerArm"], "{Side}Hand": ["{s}Hand", "J_Bip_{S}_Hand"],
+		"{Side}UpLeg": ["{s}UpperLeg", "J_Bip_{S}_UpperLeg"], "{Side}Leg": ["{s}LowerLeg", "J_Bip_{S}_LowerLeg"], "{Side}Foot": ["{s}Foot", "J_Bip_{S}_Foot"], "{Side}ToeBase": ["{s}Toes", "J_Bip_{S}_ToeBase"]
+	},
+	"fingers": {
+		"Thumb": [["{s}ThumbMetacarpal", "J_Bip_{S}_Thumb1", "{s}ThumbProximal"], ["{s}ThumbProximal", "J_Bip_{S}_Thumb2", "{s}ThumbIntermediate"], ["{s}ThumbDistal", "J_Bip_{S}_Thumb3"]],
+		"Index": [["{s}IndexProximal", "J_Bip_{S}_Index1"], ["{s}IndexIntermediate", "J_Bip_{S}_Index2"], ["{s}IndexDistal", "J_Bip_{S}_Index3"]],
+		"Middle": [["{s}MiddleProximal", "J_Bip_{S}_Middle1"], ["{s}MiddleIntermediate", "J_Bip_{S}_Middle2"], ["{s}MiddleDistal", "J_Bip_{S}_Middle3"]],
+		"Ring": [["{s}RingProximal", "J_Bip_{S}_Ring1"], ["{s}RingIntermediate", "J_Bip_{S}_Ring2"], ["{s}RingDistal", "J_Bip_{S}_Ring3"]],
+		"Pinky": [["{s}LittleProximal", "J_Bip_{S}_Little1"], ["{s}LittleIntermediate", "J_Bip_{S}_Little2"], ["{s}LittleDistal", "J_Bip_{S}_Little3"]]
+	}
+}

@@ -10,12 +10,12 @@
 // depth }) may go that deep.
 import { add, sub, scale, dot, len, clamp } from "../compiler/math.js";
 import { QA_LIMITS, allowance } from "../qa/checks.js";
-import { CAPSULES, segPoints } from "../qa/geometry.js";
+import { CAPSULES, capsulesFor, segPoints } from "../qa/geometry.js";
 import { personCapsules } from "../qa/people-checks.js";
 import { round4 } from "./ease.js";
 
 const EASE = 4, MARGIN = 0.004, PASSES = 6, APART = 2.2;
-const ARM_PARTS = { l: CAPSULES.filter(c => /^(uarm|farm|hand)_l$/.test(c[0])), r: CAPSULES.filter(c => /^(uarm|farm|hand)_r$/.test(c[0])) };
+const armParts = (sk, k) => capsulesFor(sk).filter(c => c[0] === `uarm_${k}` || c[0] === `farm_${k}` || c[0] === `hand_${k}`);
 
 /** The closest points of segment PQ (sampled as qa/geometry.js segDist does, so the depth is QA's) and segment CD. */
 function closest(P, Q, C, D) {
@@ -42,7 +42,7 @@ function bodies(out) {
 
 /** Per-frame push vectors for side k: the escape (side-kept normal * (depth past what is allowed + margin)) summed over people. */
 function needs(out, k, people, lim, allow, stats) {
-	const { sk } = out.ctx, I = sk.index, n = out.frames.length, f0 = out.f0 ?? 0, v = Array.from({ length: n }, () => null);
+	const { sk } = out.ctx, I = sk.index, n = out.frames.length, f0 = out.f0 ?? 0, v = Array.from({ length: n }, () => null), arm = armParts(sk, k);
 	const prev = new Map();
 	for (let i = 0; i < n; i++) {
 		const { s, c } = out.frames[i];
@@ -51,7 +51,7 @@ function needs(out, k, people, lim, allow, stats) {
 			const theirs = personCapsules(p, i + f0), hips = theirs.find(t => t[0] === "hips")[1];
 			if (len(sub(s.P[I.Hips], hips)) > APART) continue;
 			let best = null;
-			for (const [part, a, b, r] of ARM_PARTS[k]) {
+			for (const [part, a, b, r] of arm) {
 				const meant = allowance(allow, part, `person:${id}`), limit = meant ?? lim, A = s.P[I[a]], B = s.P[I[b]];
 				for (const [, C, D, q] of theirs) {
 					const hit = closest(A, B, C, D), depth = r + q - hit.d;

@@ -252,9 +252,10 @@ export function useShots(appContext) {
   }, [domain]);
   function setShots(value) { return appContext.storeDomain('shot').write(value); }
   function editShots(value) { const owner = appContext.storeDomain('shot'); return owner.run('shot.replace', { shots: typeof value === 'function' ? value(owner.read()) : value }); }
-  function setTlFrameCount(value) {
+  // join: write inside the composed transaction that is already open, instead of opening one through the bus
+  function setTlFrameCount(value, join = false) {
     const before = domain.state().frameCount, frameCount = Math.max(24, Math.round(typeof value === 'function' ? value(before) : value));
-    if (frameCount !== before) return domain.run('shot.setTimeline', { frameCount });
+    if (frameCount !== before) return join ? appContext.recordAction('shot', () => domain.writeState(state => ({ ...state, frameCount })), null, true) : domain.run('shot.setTimeline', { frameCount });
   }
   function setFovDeg(value) { return domain.edit('shot.setLens', { fovDeg: typeof value === 'function' ? value(domain.state().fovDeg) : value }); }
   function changeActiveCamera(patch, shotId = selectedShotId()) {
@@ -390,7 +391,9 @@ export function useShots(appContext) {
     extentInputs.current = inputs;
     const extent = timelineContentExtent(...inputs);
     const span = timelineSpan(extent, domain.read(), domain.state().frameCount);
-    setTlFrameCount(span); if (extent > 0) setTlFrame(frame => Math.min(frame, span - 1));
+    // Inside an open transaction (an agent turn that installed a take) a second one is refused, and a refusal thrown
+    // from this effect remounts the app (#1146): the new length joins the open transaction and lands or reverts with it.
+    setTlFrameCount(span, appContext.composing()); if (extent > 0) setTlFrame(frame => Math.min(frame, span - 1));
   }
   function finishCameraMove(finalFov) { setMovePlaying(false); setFovDeg(Math.round(finalFov * 10) / 10); }
   // scope "timeline" records every frame of the timeline, shot boxes and all;

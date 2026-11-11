@@ -1,0 +1,17 @@
+{
+	"id": "unity-humanoid",
+	"name": "Unity Humanoid (HumanBodyBones names; spaced or not)",
+	"sides": { "Left": { "s": "Left" }, "Right": { "s": "Right" } },
+	"bones": {
+		"Hips": ["Hips"], "Spine": ["Spine"], "Spine1": ["Chest"], "Spine2": ["UpperChest", "Chest"], "Neck": ["Neck"], "Head": ["Head"],
+		"{Side}Shoulder": ["{s}Shoulder"], "{Side}Arm": ["{s}UpperArm"], "{Side}ForeArm": ["{s}LowerArm"], "{Side}Hand": ["{s}Hand"],
+		"{Side}UpLeg": ["{s}UpperLeg"], "{Side}Leg": ["{s}LowerLeg"], "{Side}Foot": ["{s}Foot"], "{Side}ToeBase": ["{s}Toes"]
+	},
+	"fingers": {
+		"Thumb": ["{s}ThumbProximal", "{s}ThumbIntermediate", "{s}ThumbDistal"],
+		"Index": ["{s}IndexProximal", "{s}IndexIntermediate", "{s}IndexDistal"],
+		"Middle": ["{s}MiddleProximal", "{s}MiddleIntermediate", "{s}MiddleDistal"],
+		"Ring": ["{s}RingProximal", "{s}RingIntermediate", "{s}RingDistal"],
+		"Pinky": ["{s}LittleProximal", "{s}LittleIntermediate", "{s}LittleDistal"]
+	}
+}

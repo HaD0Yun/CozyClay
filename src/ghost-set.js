@@ -8,7 +8,7 @@
 // translucent silhouette, not a stack of overlapping shells.
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { applyTakeFrame } from "./motion3/playback.js";
+import { playTakeFrame as applyTakeFrame } from "./character-playback.js";
 import { sceneObjectTravelMatrixAt, trackShown } from "./object-travel.js";
 import { ghostFrames, ghostLook, sheetGhostSettings, takeKeyFrames } from "./view-ghosts.js";
 

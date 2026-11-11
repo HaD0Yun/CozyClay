@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+Motion
+
+- Sample motions in the Motion tab: one click installs a walk or a flip on the
+  selected character and plays it, with no agent. On the hosted Studio, where
+  no agent server runs, the Agent panel shows four ready-made requests to
+  press (a walk, a street of buildings around the character, a chair to sit
+  on, a back flip) and an Install button, instead of a server error.
+
+Site
+
+- The landing page has an Install button named for the visitor's system. It
+  opens three steps: the official Node.js installer, how to open a terminal,
+  and the command to paste. The bare command stays in Quick start.
+
+Studio
+
+- The Studio starts in the dark theme. A theme already chosen in Preferences
+  is kept. (#1163)
+- A first visit to the hosted Studio opens on a ready stage with a character
+  on it. The project chooser no longer comes first there; File > New and Open
+  still reach it, and `npx cozyclay` keeps it.
+- That first visit opens with the camera tutorial from 2.x: eight steps done in
+  the Studio itself, controls first (look, walk, dolly, orbit), then a shot,
+  its length, a rail, and playing it through the shot camera. The character
+  walks, so the camera has something to follow. (#1161)
+- Before it starts, that visit asks for a language: English, 한국어 or 简体中文.
+  The tutorial's steps are written in all three. (#1161)
+
 ## 3.2.2 - 2026-11-07
 
 A patch for the motion compiler and the agent: faster compiles, holds and automatic legs, arms, gaze and tempo, steadier agent turns, and depth exports that read right.

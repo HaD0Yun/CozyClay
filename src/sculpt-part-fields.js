@@ -8,6 +8,7 @@
 import { SCULPT_OP_FIELD } from "./sculpt-cutters.js";
 import { SURFACE_FIELDS } from "./sculpt-surface-fields.js";
 import { RecipeError } from "./sculpt-recipe-read.js";
+import { SCULPT_REPEAT_FIELD } from "./sculpt-repeat.js";
 import { MATERIAL_FINISHES, MATERIAL_PRESETS } from "./material-presets.js";
 
 /** A name from `names`; null clears the field (back to the default look),
@@ -23,5 +24,6 @@ export const SCULPT_PART_FIELDS = Object.freeze([
 	{ key: "material", read: readName("material", MATERIAL_PRESETS) },
 	{ key: "finish", read: readName("finish", MATERIAL_FINISHES) },
 	...SURFACE_FIELDS,
+	SCULPT_REPEAT_FIELD,
 	SCULPT_OP_FIELD,
 ]);

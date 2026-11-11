@@ -140,7 +140,7 @@ const FEATURE_NAMES = new Set([
 	"pose_edit", "pose_save", "camera_fly", "orbit", "dolly_rail", "crane_graph", "timeline_scrub",
 	"export_frame", "export_video",
 	"export_depth_video", "export_keyframe_pack", "export_render_pass", "export_storyboard",
-	"auto_color",
+	"auto_color", "sample_motion", "agent_demo",
 ]);
 // `site` and `playground` arrive through `npx cozyclay --via <source>` from the
 // landing page's copy commands; the others are the first-launch prompt answers.

@@ -129,7 +129,8 @@ export function createAppContext({
   }
 
   return {
-    beginAction, recordAction, notify, storeDomain,
+    // composing(): a composed transaction is open, so a write must join it (nested) instead of opening its own
+    beginAction, recordAction, notify, storeDomain, composing: () => Boolean(activeComposition),
     storeDomainForReceipt(receipt) {
       const entry = entries.get(receipt?.undo?.historyEntryId);
       return entry && retained(entry) ? entry.handle : undefined;
