@@ -58,7 +58,7 @@ import FirstSuccessGuide from "./first-success-guide.jsx";
 import { useEmbedBridge } from "./use-embed-bridge.js";
 import { useAssetShelf } from "./use-asset-shelf.js";
 import { StudioProtocolError } from "./studio-agent-protocol.js";
-import { elementByPath } from "./studio-elements.js";
+import { elementByPath } from "./studio-elements.js"; import { WORLD } from "./world-scale.js";
 import {
 	resolveStudioToast,
 } from "./studio-actions.js";
@@ -4723,7 +4723,7 @@ export default function App() {
 								makeDefault={!ikMode && lookThroughShot}
 								fov={fovDeg}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[0.97, 1.62, 2.39]}
 							/>
 							{/* the EDITOR camera: the user's working eye. Fixed lens — the
@@ -4734,7 +4734,7 @@ export default function App() {
 								makeDefault={!ikMode && !lookThroughShot && !sculptMode}
 								fov={55}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[3.6, 2.7, 5.4]}
 							/>
 							{/* the poser camera is the default (event/raycast) camera in
@@ -4744,7 +4744,7 @@ export default function App() {
 								makeDefault={ikMode}
 								fov={fovDeg}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[0.97, 1.62, 2.39]}
 							/>
 							{/* a plan is a plan: orthographic, framed to the working area, so
