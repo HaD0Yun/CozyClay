@@ -32,9 +32,7 @@
 //   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open; keyed
 //       at an even rate (fix { spin: false }) QA says SPIN and its hint that fix.spin is off. Cut before it lands, fix.spin has no landing and QA still says SPIN
 //       (d2) a spin jump leaning -8 deg whose vector re-time reads SPIN past the limit: fix.spin keeps the axis re-time (fixed.spin.axis)
-//   (e) the flip and float-fix tests still pass
 // Prints PASS/FAIL lines; exits non-zero on a failure.
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileSpec } from "../../src/motion3/pipeline.js";
@@ -669,12 +667,6 @@ function spinJump(lean = 0) {
 	keys.push({ f: B + 6, set: { root: shift(p0.root, [0, -0.1, 0]), arm_rest: 60, abend_l: 0, abend_r: 0 } }, { f: B + 20, set: { root: p0.root, arm_rest: 72 } });
 	const r = compileSpec({ schema: SPEC, fps: 24, frames: 58, keys }, { sk: xs, scene: motionScene([]) }), fl = flightOf(r)[0], d = fl && runDrift(r.out, fl[0], fl[1]);
 	expect(`(d2) spin jump leaning -8 deg (X Bot): fix.spin keeps the axis re-time (${JSON.stringify(r.fixed.spin?.axis)}), SPIN reads ${r3(d)} as at 28ad5074 (0.176), QA has no SPIN`, r.fixed.spin?.axis?.includes("f17-f31") && Math.abs(d - 0.176) < 0.002 && !kinds(r).has("SPIN"), JSON.stringify({ spin: r.fixed.spin, fl, kinds: [...kinds(r)] }));
-}
-
-// (e) the existing flight tests
-for (const name of ["verify-motion3-flip.mjs", "verify-motion3-float-fix.mjs"]) {
-	const res = spawnSync(process.execPath, [fileURLToPath(new URL(name, import.meta.url))], { encoding: "utf8" });
-	expect(`(e) ${name} still passes`, res.status === 0, (res.stdout + res.stderr).split("\n").filter(l => /FAIL/.test(l)).join("; ").slice(0, 600));
 }
 
 if (failures) { console.error(`${failures} flight physics check(s) failed`); process.exit(1); }
