@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { parseSync } from 'rolldown/experimental';
 import * as cuts from '../../src/cuts.js';
 import { createSceneObject } from '../../src/scene-objects.js';

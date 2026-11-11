@@ -6,6 +6,7 @@
  * from the MCP process.
  */
 const GLB_MAGIC = 0x46546c67;
+/** Same 23-ish prefix three.js uses (`Kaydara FBX Binary  \\0`). */
 const FBX_BINARY_MAGIC = "Kaydara\u0020FBX\u0020Binary\u0020\u0020\0";
 const FBX_SNIFF_BYTES = 64 * 1024;
 const OBJ_SNIFF_BYTES = 256 * 1024;
@@ -16,18 +17,20 @@ const MIME_FOR_KIND = Object.freeze({
 	fbx: "model/fbx",
 });
 
-function bytesAsUint8(bytes) {
+export function bytesAsUint8(bytes) {
 	if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
 	if (ArrayBuffer.isView(bytes)) return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	return null;
 }
 
-function dataViewOf(bytes) {
+export function dataViewOf(bytes) {
 	if (bytes instanceof ArrayBuffer) return new DataView(bytes);
 	if (ArrayBuffer.isView(bytes)) return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	return null;
 }
 
+/** MIME lies (empty, octet-stream, a renamed screenshot). The first four
+ * bytes are the only honest gate that this is a GLB. */
 export function isGlbMagic(bytes) {
 	const view = dataViewOf(bytes);
 	return Boolean(view && view.byteLength >= 4 && view.getUint32(0, true) === GLB_MAGIC);
@@ -42,6 +45,7 @@ export function isFbxBinaryMagic(bytes) {
 	return true;
 }
 
+/** ASCII `FBXVersion:` in the first 64 KB, or null when the header is silent. */
 export function readFbxVersion(bytes) {
 	const view = bytesAsUint8(bytes);
 	if (!view || !view.byteLength) return null;
@@ -53,7 +57,7 @@ export function readFbxVersion(bytes) {
 	return Number.isFinite(version) ? version : null;
 }
 
-export function looksLikeObj(bytes) {
+function looksLikeObj(bytes) {
 	const view = bytesAsUint8(bytes);
 	if (!view || !view.byteLength) return false;
 	const text = new TextDecoder("utf-8").decode(view.subarray(0, Math.min(view.byteLength, OBJ_SNIFF_BYTES)));

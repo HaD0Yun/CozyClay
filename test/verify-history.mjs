@@ -213,7 +213,7 @@ expect("undo mid-interaction commits then undoes that interaction", cancelURuns 
 const sM = makeStore(["orig"]);
 const tokenM = sM.store.begin("gizmo", () => {});
 sM.store.applyIn(tokenM, () => ["orig", "mid"]);
-sM.store.applyAtomic((objects) => ["orig", "deleted"]);
+sM.store.applyAtomic(() => ["orig", "deleted"]);
 expect("an atomic mutation mid-interaction settles first", sM.store.depths().past === 2 && sM.store.depths().future === 0 && sM.store.objects[1] === "deleted" && sM.store.present() === sM.store.objects);
 
 const sZ = makeStore(["x"]);

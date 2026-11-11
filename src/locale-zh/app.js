@@ -118,7 +118,6 @@ export const ZH_APP = {
 	"Skip guide": "跳过指南",
 	"QA clean": "QA 通过",
 	"Settings": "设置",
-	"Language and analytics": "语言与统计",
 	"Medium": "中景",
 	"Wide": "广角",
 	"Close-Up": "特写",

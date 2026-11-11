@@ -13,7 +13,7 @@ const server = await createServer({ configFile: false, root: fileURLToPath(new U
     load(id) { if (id.endsWith('/src/app-stage.jsx')) return defaults; } }],
 });
 let useStage, AppContext;
-export const stagePanels = {};
+const stagePanels = {};
 try {
   ({ useStage } = await server.ssrLoadModule('/src/domains/stage.js'));
   ({ AppContext } = await server.ssrLoadModule('/src/app-context.js'));

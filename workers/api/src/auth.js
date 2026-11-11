@@ -41,16 +41,12 @@ async function hmacVerify(secret, value, signature) {
   return crypto.subtle.verify("HMAC", key, signature, encoder.encode(value));
 }
 
-function signingKey(envOrSecret) {
-  return typeof envOrSecret === "string" ? envOrSecret : envOrSecret?.SESSION_SIGNING_KEY;
-}
-
-export async function sha256Hex(value) {
+async function sha256Hex(value) {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function constantTimeEqual(a, b) {
+function constantTimeEqual(a, b) {
   const left = encoder.encode(String(a));
   const right = encoder.encode(String(b));
   let diff = left.length ^ right.length;
@@ -65,7 +61,7 @@ function randomHex(bytes = 32) {
   return [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function cookieValue(request, name) {
+function cookieValue(request, name) {
   const raw = request?.headers?.get?.("cookie") ?? "";
   for (const part of raw.split(";")) {
     const [key, ...value] = part.trim().split("=");
@@ -74,7 +70,7 @@ export function cookieValue(request, name) {
   return null;
 }
 
-export function safeNextPath(value) {
+function safeNextPath(value) {
   const candidate = typeof value === "string" && value.startsWith("/") ? value : "/demo/";
   if (!/^\/(?:demo|d)(?:[/?#]|$)/u.test(candidate) || candidate.startsWith("//")) return "/demo/";
   return candidate;
@@ -82,24 +78,6 @@ export function safeNextPath(value) {
 
 function environmentName(env, request) {
   return environmentFor(env, request);
-}
-
-export async function signedState(value, env) {
-  const payload = typeof value === "string" ? value : JSON.stringify(value);
-  const signature = bytesToBase64Url(await hmacBytes(signingKey(env), payload));
-  return `${bytesToBase64Url(encoder.encode(payload))}.${signature}`;
-}
-
-export async function verifyState(token, env) {
-  try {
-    const [encoded, signature] = String(token ?? "").split(".");
-    if (!encoded || !signature) return null;
-    const payload = decoder.decode(base64UrlToBytes(encoded));
-    if (!(await hmacVerify(signingKey(env), payload, base64UrlToBytes(signature)))) return null;
-    try { return JSON.parse(payload); } catch { return payload; }
-  } catch {
-    return null;
-  }
 }
 
 async function issueSession(accountId, env, options = {}) {
@@ -113,19 +91,15 @@ async function issueSession(accountId, env, options = {}) {
   return `${signingInput}.${signature}`;
 }
 
-export function sessionCookie(token, maxAge = POLICY.SESSION_TTL_DAYS * 86_400) {
+function sessionCookie(token, maxAge = POLICY.SESSION_TTL_DAYS * 86_400) {
   return `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }
 
-export function clearSessionCookie() {
-  return `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
-}
-
-export function oauthStateCookie(state, maxAge = Math.floor(POLICY.OAUTH_STATE_TTL_MS / 1000)) {
+function oauthStateCookie(state, maxAge = Math.floor(POLICY.OAUTH_STATE_TTL_MS / 1000)) {
   return `${OAUTH_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }
 
-export function clearOAuthStateCookie() {
+function clearOAuthStateCookie() {
   return `${OAUTH_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 }
 
@@ -147,7 +121,7 @@ export async function readSession(request, env) {
   }
 }
 
-export function redirectUri(provider, env, request = null) {
+function redirectUri(provider, env, request = null) {
   if (provider !== "google") throw new Error("unsupported_provider");
   const environment = environmentName(env, request);
   const base = REDIRECT_BASE[environment] ?? REDIRECT_BASE.production;
@@ -275,5 +249,3 @@ export async function handleCallback(request, provider, env) {
     return callbackError(codeValue === "identity_taken" ? 409 : 502, codeValue);
   }
 }
-
-export { OAUTH_COOKIE, SESSION_COOKIE, PROVIDERS };

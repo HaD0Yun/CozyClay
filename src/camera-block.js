@@ -3,7 +3,7 @@ import { createTiming, timingIsFlat } from "./speed-envelope.js";
 // Pure Camera Block model. A shot owns one complete camera instruction, like
 // the camera card clipped to a single strip of film.
 
-export const CAMERA_MODES = Object.freeze(["keys", "follow", "rail"]);
+const CAMERA_MODES = Object.freeze(["keys", "follow", "rail"]);
 
 const CAMERA_FOLLOW_DEFAULTS = Object.freeze({
 	distance: 3,

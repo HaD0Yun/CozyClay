@@ -267,23 +267,19 @@ export function CameraRailScenePreview({ points, cumLen, length, crane }) {
  * adds a mark and Delete removes a non-endpoint. Dots live on GIZMO_LAYER, so the
  * recording never sees them.
  */
-export const CRANE_AXES = [
+const CRANE_AXES = [
 	{ axis: "x", dir: new THREE.Vector3(1, 0, 0), color: "#ff5340" },
 	{ axis: "y", dir: new THREE.Vector3(0, 1, 0), color: "#54e05c" },
 	{ axis: "z", dir: new THREE.Vector3(0, 0, 1), color: "#3d8bff" },
 ];
-export const CRANE_ARROW_LEN = 0.5;
-export const CRANE_GIZMO_SCALE = 0.16; // metres of gizmo per metre of camera distance
-
-// The rail-bend preparation is shared with the Top-View board and lives with the
-// rest of the rail math.
-export { prepareRailBend };
+const CRANE_ARROW_LEN = 0.5;
+const CRANE_GIZMO_SCALE = 0.16; // metres of gizmo per metre of camera distance
 
 /**
  * A floating readout beside a drag — billboarded, sized to the screen, on
  * GIZMO_LAYER so it is editor furniture the recording never sees.
  */
-export function GizmoLabel({ position, text, camRef }) {
+function GizmoLabel({ position, text, camRef }) {
 	const ref = useRef(null);
 	useFrame(() => {
 		const cam = camRef?.current;

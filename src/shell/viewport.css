@@ -354,22 +354,13 @@
 		color: var(--text-1);
 		font: inherit;
 	}
-	.viewport-titlebar .viewport-fov-control output,
-	.vp-slider-popover output {
+	.viewport-titlebar .viewport-fov-control output {
 		min-width: 32px;
 		color: var(--text-row);
 		font-family: var(--mono);
 		text-align: right;
 	}
 	.viewport-titlebar input[type="range"] { width: 120px; accent-color: var(--select); }
-	.viewport-titlebar .vp-slider-popover {
-		flex-direction: row;
-		align-items: center;
-		gap: var(--sp-1, 8px);
-		min-width: 0;
-		height: calc(var(--h-row, 24px) + 10px);
-		padding: 0 var(--sp-1, 8px);
-	}
 
 	/* Bottom-right camera preview inset: a 300px card with a 26px header. The
 	   body below the header stays transparent — the shot camera is drawn into

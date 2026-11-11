@@ -202,65 +202,6 @@
 	color: var(--text-1, #e4e4e7);
 }
 
-/* Project mode (previs flag): a two-up segmented switch above the cards. Each
-   segment carries its label and the one-line promise of what the mode makes. */
-.v2-start-screen .v2-start-mode {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: var(--start-mode-gap, 4px);
-	max-width: var(--start-mode-max-width, 640px);
-	padding: var(--start-mode-pad, 4px);
-	border-radius: var(--r-2, 6px);
-	background: var(--field, #0f0f11);
-	box-shadow: inset 0 0 0 var(--start-border-width, 1px) var(--row-divider, #1d1d20);
-}
-
-/* Cast style: a three-up switch under the mode switch. */
-.v2-start-screen .v2-start-mode.cast {
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	margin-top: var(--sp-1, 8px);
-}
-
-.v2-start-screen .v2-start-mode-option {
-	min-width: var(--start-template-min-width, 0);
-	display: flex;
-	flex-direction: column;
-	gap: var(--start-copy-gap, 3px);
-	padding: var(--sp-1, 8px) var(--sp-2, 12px);
-	border: 0;
-	border-radius: var(--r-1, 4px);
-	background: var(--transparent, transparent);
-	color: var(--text-2, #9b9ba1);
-	text-align: left;
-}
-
-.v2-start-screen .v2-start-mode-option strong {
-	color: inherit;
-	font-size: var(--start-template-title-size, 12px);
-	font-weight: 500;
-}
-
-.v2-start-screen .v2-start-mode-option span {
-	color: var(--text-3, #636369);
-	font-size: var(--start-template-meta-size, 11px);
-	line-height: 1.35;
-}
-
-.v2-start-screen .v2-start-mode-option:hover {
-	background: var(--surface-raised, #1e1e21);
-	color: var(--text-1, #e4e4e7);
-}
-
-.v2-start-screen .v2-start-mode-option.active {
-	background: var(--surface-raised, #1e1e21);
-	box-shadow: inset 0 0 0 var(--start-selected-width, 1.5px) var(--select, #e8a33d);
-	color: var(--text-selected, #fff);
-}
-
-.v2-start-screen .v2-start-mode-option.active span {
-	color: var(--text-2, #9b9ba1);
-}
-
 .v2-start-screen .v2-start-template-grid {
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -368,7 +309,6 @@
 
 /* --------------------------------------------------------------- recent --- */
 
-.v2-start-screen .v2-start-recent-block,
 .v2-start-screen .v2-start-recent-page {
 	display: flex;
 	flex-direction: column;
@@ -379,23 +319,6 @@
 	flex: 1 1 auto;
 }
 
-.v2-start-screen .v2-start-recent-heading {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	min-height: var(--h-row, 24px);
-	color: var(--text-2, #9b9ba1);
-	font-size: var(--start-section-title-size, 12px);
-	font-weight: 500;
-}
-
-.v2-start-screen .v2-start-recent-actions {
-	display: flex;
-	align-items: center;
-	gap: var(--sp-1, 8px);
-}
-
-.v2-start-screen .v2-start-recent-actions button,
 .v2-start-screen .v2-start-empty-open,
 .v2-start-screen .v2-start-learn-action {
 	padding: 0;
@@ -405,7 +328,6 @@
 	font-size: var(--start-secondary-size, 11px);
 }
 
-.v2-start-screen .v2-start-recent-actions button:hover,
 .v2-start-screen .v2-start-empty-open:hover,
 .v2-start-screen .v2-start-learn-action:hover {
 	color: var(--text-1, #e4e4e7);

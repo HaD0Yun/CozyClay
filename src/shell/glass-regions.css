@@ -147,38 +147,6 @@
 }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-tabs button[aria-selected="true"] { color: var(--text-1); }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-tabs button:hover { color: var(--text-1); }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker {
-	position: relative;
-	display: flex;
-	align-items: center;
-	height: 26px;
-	border-radius: 13px;
-	color: var(--text-soft);
-}
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker:hover { background: var(--chip-fill); }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker select {
-	-webkit-appearance: none;
-	appearance: none;
-	height: 26px;
-	padding: 0 22px 0 10px;
-	border: 0;
-	background: none;
-	color: inherit;
-	font: 400 12px var(--sans);
-	cursor: pointer;
-}
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker svg {
-	position: absolute;
-	right: 8px;
-	width: 10px;
-	height: 10px;
-	fill: none;
-	stroke: var(--label);
-	stroke-width: 1.3;
-	stroke-linecap: round;
-	stroke-linejoin: round;
-	pointer-events: none;
-}
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-search {
 	order: 9;
 	flex: 1 0 100%;
@@ -597,9 +565,7 @@
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-lane { background: none; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-lane:hover { background: var(--tile-fill); }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-grid { display: none; }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-motion-clip,
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-prompt-clip,
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot { border-radius: 5px; }
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-motion-clip { border-radius: 5px; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-shot-empty { color: var(--text-3); font: 400 11.5px var(--sans); }
 
 /* ----------------------------------------------------------- Shot card */
@@ -636,7 +602,6 @@
 	stroke-linejoin: round;
 }
 .app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-title { flex: 1 1 auto; font: 600 12px var(--sans); }
-.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-meta { color: var(--label); font-size: 11px; }
 .app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-frame {
 	flex: 1 1 auto;
 	min-height: 60px;
@@ -825,20 +790,11 @@
 }
 /* Library head stays one line: tabs left, folder picker right. */
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-tabs { flex: 0 0 auto; }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker { min-width: 0; margin-left: auto; }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker select {
-	field-sizing: content;
-	max-width: 132px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
 /* A narrow shot card keeps Look through as its icon. */
 .app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-card { container-type: inline-size; }
 .app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-look { flex: none; white-space: nowrap; }
 @container (max-width: 240px) {
 	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-look { width: 28px; padding: 0; justify-content: center; font-size: 0; gap: 0; }
-	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-meta { display: none; }
 }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-head {
 	display: grid;
@@ -846,8 +802,6 @@
 	align-items: center;
 }
 .app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-head > .content-search { grid-column: 1 / -1; }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker { justify-self: end; max-width: 100%; }
-.app[data-shell="glass"]:not([data-embed-mode]) .studio-library .content-folder-picker select { max-width: 100%; }
 
 /* ----------------------------------------------- Dock: Animation | Assets */
 /* The switch sits at the head's left end, where the Sequencer's transport
@@ -907,7 +861,6 @@
 	padding: 0 16px 0 calc(16px + var(--dock-tabs-w) + 16px);
 	box-shadow: none;
 }
-.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .studio-library .content-folder-picker { margin-left: 0; }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .studio-library .content-head > .content-search {
 	order: 0;
 	flex: 0 1 240px;

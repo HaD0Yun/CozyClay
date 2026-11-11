@@ -138,7 +138,6 @@ test('#496.2 a direct-writing fixture handler makes the coverage gate red', () =
 });
 
 test("coverage metrics are measured from the source and registered actions", () => {
-  const f = fixture();
   const metrics = coverageMetrics();
   assert.equal(typeof metrics.writerReferences, "number");
   assert.equal(typeof metrics.handlerSites, "number");
@@ -168,4 +167,4 @@ test("registered mutations execute receipt and undo checks through the real bus"
 // The fixture above proves the generic runner; the pilot also executes every
 // stage origin/check against the real hook and App binding, not a fake slice.
 await import('./verify-stage-domain.mjs');
-export { parityMatrix, pendingErrors, readParityPending, coverageMetrics, executeParity };
+export { pendingErrors, readParityPending, coverageMetrics };

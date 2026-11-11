@@ -256,7 +256,7 @@ function studioObservationMessage(observation) {
  * and tool declarations ride in its system messages), its model and thinking
  * level, and its steering queue. Each turn is one `agent.prompt()`.
  */
-export function createAgentRunner({ models: suppliedModels, sessionStore, tools = [], systemPrompt = "", clock = () => performance.now(), fauxProvider, onQuota, codexBaseUrl, cliproxyBaseUrl, auth, credentials, keys, env } = {}) {
+export function createAgentRunner({ models: suppliedModels, sessionStore, tools = [], systemPrompt = "", clock = () => performance.now(), fauxProvider, codexBaseUrl, cliproxyBaseUrl, auth, credentials, keys, env } = {}) {
 	const openSessions = new Map();
 	let models = suppliedModels;
 	let piModules;

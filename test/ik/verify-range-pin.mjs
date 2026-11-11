@@ -183,10 +183,10 @@ const pinned = (() => {
 	check("applyRangePin leaves the rig as it found it", rigUnchanged(held));
 	check("applyRangePin writes nothing into the layer itself", main.state.keys.size === 0);
 	main.setEntries(result.entries);
-	return { pin, result, target: new THREE.Vector3().fromArray(target.position) };
+	return { result, target: new THREE.Vector3().fromArray(target.position) };
 })();
 {
-	const { pin, result, target } = pinned;
+	const { result, target } = pinned;
 	const frames = [...result.entries.keys()];
 	check("one key per frame of the inclusive range", frames.join() === "21,22,23,24,25,26,27,28,29", frames.join());
 	const keys = frames.map((f) => result.entries.get(f));
@@ -428,7 +428,7 @@ const pinned = (() => {
 	const result = take.apply(pin);
 	check("(8) body bake restores the rig and leaves the layer alone", rigUnchanged(held) && take.state.keys.size === 0);
 	take.setEntries(result.entries);
-	check("(8) body bake includes hips and both leg delta keys on every frame", [...result.entries].every(([f, entry]) => {
+	check("(8) body bake includes hips and both leg delta keys on every frame", [...result.entries].every(([, entry]) => {
 		const hips = entry.get("hips");
 		return hips?.p && hips.basePos && hips.q === null && ["leftFoot", "rightFoot", "rightHand"].every((id) => entry.get(id)?.baseQ?.length === 3)
 			&& [...entry.values()].every((k) => k.pin === pin.id && k.blend === pin.blend);

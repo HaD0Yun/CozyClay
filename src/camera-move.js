@@ -5,6 +5,7 @@
 // names the move from the geometry, so the prompt claims "push-in" only when
 // the camera actually pushes in.
 
+import { aimAngles } from "./camera-follow.js";
 import { FRAMING_PIVOT_Y, SUBJECT_HEIGHT_M, deriveShot, focalMmToFov, fovToFocalMm, usedSensorHeightMm } from "./shot.js";
 
 export const CAMERA_PRESETS = Object.freeze({
@@ -47,16 +48,6 @@ function forward(yaw, pitch) {
 }
 
 // position + target -> the yaw/pitch that looks at the target. Mirrors aimAt().
-function aimAngles(position, target) {
-	const dx = target.x - position.x;
-	const dy = target.y - position.y;
-	const dz = target.z - position.z;
-	return {
-		yaw: Math.atan2(-dx, -dz),
-		pitch: Math.atan2(dy, Math.max(Math.hypot(dx, dz), 1e-6)),
-	};
-}
-
 const TWO_PI = Math.PI * 2;
 
 /** signed shortest angular distance a -> b, in (-PI, PI] */

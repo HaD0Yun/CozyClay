@@ -81,7 +81,7 @@ server.listen(0, "127.0.0.1"); await once(server, "listening");
 const origin = `http://127.0.0.1:${server.address().port}`;
 let cookie, callsBefore = 0;
 const perTurn = [];
-for (const [index, steps] of turnsScript.entries()) {
+for (const [index] of turnsScript.entries()) {
 	if (index === 2) world.bumpBeforeInspect = true;
 	const envelope = { ...envelopeFixture(), context: context(), model: "faux/scripted", turnId: `00000000-0000-4000-8000-00000000010${index}`, text: `turn ${index + 1}: change the scene` };
 	const response = await fetch(`${origin}/agent/turn`, { method: "POST", headers: { "content-type": "application/json", origin, ...(cookie ? { cookie } : {}) }, body: JSON.stringify(envelope) });

@@ -7,9 +7,7 @@ import { ko } from "../locale.js"; import { saveExport } from "../export-workspa
 import { ContextChips } from "./ContextChips.jsx"; import { captureAnnotatedImage, consumeMarks, markStills } from "../context-chips.js";
 import {
 	AGENT_PANEL_OVERLAY_BREAKPOINT,
-	AGENT_PANEL_RAIL_WIDTH,
 	AGENT_PANEL_WIDTH_MAX, AGENT_PANEL_WIDTH_MIN,
-	AGENT_STATES,
 	agentServerUnavailable,
 	describeActivity,
 	JOB_STATE_COPY,
@@ -999,4 +997,3 @@ export default function AgentPanel({
 	</aside>;
 }
 
-export { AGENT_STATES, AGENT_PANEL_RAIL_WIDTH };

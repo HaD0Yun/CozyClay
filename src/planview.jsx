@@ -39,7 +39,6 @@ const handleAt = (e) => {
 	const distance = e.handleDist ?? HANDLE_DIST;
 	return { x: e.x + distance * Math.sin(e.yaw), z: e.z + distance * Math.cos(e.yaw) };
 };
-const near = (ax, az, bx, bz, r) => (ax - bx) ** 2 + (az - bz) ** 2 < r * r;
 const insideFootprint = (point, entity, padding = 0.2) => {
 	const dx = point.x - entity.x;
 	const dz = point.z - entity.z;

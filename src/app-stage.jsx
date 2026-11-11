@@ -9,12 +9,6 @@ import {
 } from "react";
 import { imageFilesFrom } from "./scene-assets.js";
 import { splitDroppedFiles } from "./scene-mesh.js";
-import { ko } from "./locale.js";
-
-import {
-	PRESETS,
-	editorFrameForSubject,
-} from "./stage-startup-defaults.js";
 
 export {
 	PRESETS,
@@ -80,11 +74,6 @@ export {
 	KeyLightPuck,
 	ShotCameraGhost,
 	CameraRailScenePreview,
-	CRANE_AXES,
-	CRANE_ARROW_LEN,
-	CRANE_GIZMO_SCALE,
-	prepareRailBend,
-	GizmoLabel,
 	ObjectPathHandles,
 	CraneHandles,
 	ShotPathPreview,

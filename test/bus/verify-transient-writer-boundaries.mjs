@@ -12,7 +12,7 @@ try {
   const sentinel = 'transient-state-must-not-be-saved-496';
   // Populate the same render/live/save envelopes the real serializer reads.
   // Guard both the setter names and the state fields, including nested leakage.
-  for (const [setter, state] of Object.entries(TRANSIENT_WRITERS)) {
+  for (const [, state] of Object.entries(TRANSIENT_WRITERS)) {
     f.scope[state] = sentinel;
     f.scope.projectStateRef.current[state] = sentinel;
     app.patchLive({ [state]: sentinel });

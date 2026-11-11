@@ -178,7 +178,6 @@ function db() {
 }
 
 const cache = createAssetTextureCache();
-export const loadAssetTexture = cache.loadAssetTexture;
 export const assetRecord = cache.assetRecord;
 export const rememberAsset = cache.rememberAsset;
 export const evictAssetTexture = cache.evictAssetTexture;

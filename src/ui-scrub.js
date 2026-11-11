@@ -35,7 +35,7 @@ const EXTRA_FINE_SCRUB_FACTOR = 0.1;
  * A step is "the smallest edit worth making", so a hundred of them is a
  * sensible whole range: step 0.05 → 5 units, step 1 → 100 units.
  */
-export const SCRUB_RANGE_STEPS = 100;
+const SCRUB_RANGE_STEPS = 100;
 
 /** The span one full `SCRUB_TRAVEL_PX` drag covers for a field. */
 export function scrubRangeFor({ scrubRange, step } = {}) {

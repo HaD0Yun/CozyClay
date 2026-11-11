@@ -1,9 +1,4 @@
-import {
-  handleCallback,
-  readSession,
-  startOAuth,
-  clearSessionCookie,
-} from "./auth.js";
+import { handleCallback, readSession, startOAuth } from "./auth.js";
 import { mutationGuard, requireOrigin, withCors } from "./cors.js";
 import { POLICY } from "./policy.js";
 
@@ -82,11 +77,4 @@ export default {
   },
 };
 
-export {
-  route,
-  json,
-  withCors,
-  requireOrigin,
-  mutationGuard,
-  clearSessionCookie,
-};
+export { requireOrigin, mutationGuard };

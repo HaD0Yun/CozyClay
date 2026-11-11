@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { motionFixture, seedMotion } from './motion-fixture.mjs';
-const ok = value => { assert.equal(value.ok, true, JSON.stringify(value)); return value; };
 test('motion: the shipped IK drag handler previews before Apply and records the pre-drag rig', () => {
   const f = motionFixture();
   try {

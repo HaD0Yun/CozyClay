@@ -896,7 +896,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			const workflowTools = createAgentTools({ ...dependencies, session, emit: send });
 			let workflowRunner = workflowRunners.get(value.sessionId);
 			if (!workflowRunner) {
-				workflowRunner = createAgentRunner({ models: workflowModels, tools: workflowTools, systemPrompt: SYSTEM_PROMPT, clock, fauxProvider, sessionStore, codexBaseUrl, cliproxyBaseUrl, auth, env, onQuota: quotaForResponse });
+				workflowRunner = createAgentRunner({ models: workflowModels, tools: workflowTools, systemPrompt: SYSTEM_PROMPT, clock, fauxProvider, sessionStore, codexBaseUrl, cliproxyBaseUrl, auth, env });
 				workflowRunners.set(value.sessionId, workflowRunner);
 			}
 			if (!session.modelSession) session.modelSession = await workflowRunner.openSession(value.sessionId, { surface: "workflow" });

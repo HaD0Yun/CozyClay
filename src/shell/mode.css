@@ -4,9 +4,7 @@
    Shot Camera frame, and hiding it left that frame a hole onto the editor
    view. The timeline's pose-correction tools are hidden only in Scene and
    Camera, so they stay visible here. */
-.app[data-workflow-mode="pose"] .workflow-scene-context,
 .app[data-workflow-mode="pose"] .workflow-camera-context { display: none; }
-.app[data-workflow-mode="pose"] .workflow-toolbar-hint { display: inline-flex; }
 .app[data-workflow-mode="pose"] .vp-inset { display: none !important; }
 
 /* A storyboard project (#650) is stills: the take, motion and pose-correction

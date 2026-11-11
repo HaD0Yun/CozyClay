@@ -16,7 +16,6 @@ function createAgentHandler(options) {
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 // A scratch config dir: the author's own ~/.config/cozyclay (a stored key) must not change what these routes list.
 process.env.COZYCLAY_CONFIG_DIR = mkdtempSync(join(tmpdir(), "cozyclay-agent-routes-config-"));
-import { agentJobHub } from './bus/agent-job-hub.mjs';
 // Route job doubles speak the editor job contract. The held-HTTP cases below
 // additionally execute the production command bus.
 
@@ -1277,7 +1276,6 @@ async function bounded16q(promise, label, ms = 10000) {
 	// test exactly as it would hang the real harness. This is the cooperative
 	// contract every real provider and Studio tool already follows.
 	const startedDetached = Promise.withResolvers();
-	const { fauxAssistantMessage: detachedFauxMessage, fauxText: detachedFauxText } = await import("@earendil-works/pi-ai/providers/faux");
 	const detachedFaux = createFakeModel();
 	detachedFaux.fauxProvider.setResponses([(context, options) => new Promise((resolve, reject) => {
 		const signal = options?.signal;

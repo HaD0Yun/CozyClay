@@ -411,7 +411,7 @@ export function IkHandles({ chains, fkJoints, ikState, enabled, focus, onFocus, 
 			if (Math.hypot(ev.clientX - d.downXY[0], ev.clientY - d.downXY[1]) > CLICK_PX) d.moved = true;
 			solveRef.current?.(d.kind, d.trackId, tmp.target, { bypass: ev.altKey });
 		};
-		const onUp = (ev) => {
+		const onUp = () => {
 			// Detach this drag's listeners but KEEP the handler pair — nulling
 			// it here would brick every subsequent drag (beginDrag refuses to
 			// start without it), which is exactly the "second drag does

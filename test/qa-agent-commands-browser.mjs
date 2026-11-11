@@ -12,7 +12,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
-import { once } from "node:events";
 import { cameraBrowser } from "./camera-browser-harness.mjs";
 import { connectController, discoverEndpoint } from "../bin/live/client.mjs";
 import { spawnOwned, terminateOwned } from "../tools/process-supervisor.mjs";

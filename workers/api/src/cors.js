@@ -19,8 +19,6 @@ export function requireOrigin(request, env) {
   return request?.headers?.get?.("origin") === siteOriginFor(env, request);
 }
 
-export const originAllowed = requireOrigin;
-
 /** Return a CORS-bearing 403 response for a mutation with a bad Origin. */
 export function mutationGuard(request, env) {
   if (requireOrigin(request, env)) return null;
