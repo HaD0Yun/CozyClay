@@ -9,7 +9,10 @@
 //     1 cm of the take's hips and both feet and both hands within 2 cm of the compiled joints (fk of the take on the
 //     adapted rig, at the take's placement);
 //   - after a reload (the autosaved project) the character and its take come back and play the same bones;
-//   - an X Bot character compiled and played the same way still puts its Mixamo bones on the compiled joints.
+//   - an X Bot character compiled and played the same way still puts its Mixamo bones on the compiled joints;
+//   - IK refuses it with a sentence of its own and the Pose tab poses the X Bot instead; Manage storage does not list its file as unused;
+//   - a project whose imported entries are malformed (a report without Hips, a rig without landmarks) opens and
+//     reloads without the crash screen, and the X Bot beside them still compiles.
 //
 // QA_URL=http://127.0.0.1:5180/app/ npm run qa:browser -- node test/qa-imported-character-browser.mjs
 import assert from "node:assert/strict";
@@ -161,6 +164,27 @@ const panelText = await evaluate("document.querySelector('[data-rig-report]')?.i
 console.log(`rig panel: ${JSON.stringify(panelText)}`);
 assert.ok(panel, "the Rig panel does not show the adapter's report and template choice");
 
+// --- 3b. Pose mode and IK refuse it; Manage storage keeps its file off the unused list ------------------------------
+const ikKey = await act("character.setIkKey", { characterId: imported.id, frame: 0, tracks: { head: { q: [{ x: 0, y: 0, z: 0, w: 1 }] } } });
+console.log(`character.setIkKey on it: ${JSON.stringify(ikKey)}`);
+assert.ok(!ikKey.ok && /^Imported characters/.test(ikKey.message ?? ""), "an IK key on the imported character is not refused");
+// the Pose tab with it active poses the one posable character, the X Bot (pose-entry.js), never the imported one
+const modeIs = mode => `document.querySelector('[data-mode=${JSON.stringify(mode)}]')?.getAttribute('aria-selected') === 'true'`;
+await evaluate("document.querySelector('[data-mode=\"pose\"]').click()");
+assert.ok(await waitFor(`${modeIs("pose")} && Boolean(window.__cozyclay.rigA?.getObjectByName?.("mixamorigHips"))`, 20_000), "the Pose tab did not pose the X Bot instead of the imported character");
+await evaluate("document.querySelector('[data-mode=\"scene\"]').click()");
+assert.ok(await waitFor(modeIs("scene"), 10_000) && (await select(imported.id))?.ok, "could not go back to the imported character in Scene mode");
+await evaluate("document.querySelector('[data-testid=dock-tab-assets]')?.click()");
+assert.ok(await waitFor("Boolean(document.querySelector('[data-testid=content-storage-toggle]'))", 10_000), "the dock's Assets tab has no Manage storage");
+await evaluate("document.querySelector('[data-testid=content-storage-toggle]').click()");
+// loaded: the list or its empty line (the file in neither list: nothing stored counts as unused)
+assert.ok(await waitFor("Boolean(document.querySelector('.asset-storage-manager') && !document.querySelector('.asset-storage-manager [aria-busy=true]'))", 15_000), "Manage storage never finished loading");
+await sleep(1500);
+const unusedText = await evaluate("document.querySelector('.asset-storage-section.is-unused')?.innerText ?? document.querySelector('.asset-storage-manager').innerText");
+console.log(`manage storage, unused: ${JSON.stringify(unusedText)}`);
+assert.ok(!unusedText.includes("ue5-xbot"), "Manage storage lists the imported character's file as unused");
+await evaluate("document.querySelector('[data-testid=content-storage-toggle]').click(); document.querySelector('[data-testid=dock-tab-animation]')?.click()");
+
 // --- 4. a walk compiled on it plays on its own bones ----------------------------------------------------------------
 const sourceOf = canonical => imported.rigImport.report.retarget[canonical].source;
 assert.equal(sourceOf("Hips"), names.Hips, "Hips maps to the file's pelvis");
@@ -194,6 +218,33 @@ console.log(`forced: ${forced.model}, template ${forced.rigImport.template}; pan
 assert.equal(forced.rigImport.template, "ue5");
 assert.ok(await waitFor(`!(${hasTake(imported.model)})`, 10_000), "the take compiled on the detected rig is still installed after forcing a template");
 
+// --- 7. malformed imported entries in an opened project: no crash screen, the X Bot still compiles -------------------
+let doc = await evaluate("window.__cozyclayProject.export('malformed')");
+while (typeof doc === "string") doc = JSON.parse(doc);
+const damage = node => { if (!node || typeof node !== "object") return; if (Array.isArray(node.characters) && node.characters.some(c => c?.rigImport)) {
+	const good = node.characters.find(c => c.rigImport), noLandmarks = structuredClone(good);
+	delete good.rigImport.report.retarget.Hips;
+	Object.assign(noLandmarks, { id: "qa-bad-landmarks", x: 2, model: good.model.replace(/-[a-z0-9]+$/, "-mixamo") });
+	delete noLandmarks.adaptedRig.landmarks;
+	node.characters.push(noLandmarks);
+	return; } Object.values(node).forEach(damage); };
+damage(doc);
+const opened = await evaluate(`window.__cozyclayProject.open(${JSON.stringify(JSON.stringify(doc))}).then(r => r.ok)`);
+assert.ok(opened, "the malformed project did not open");
+await sleep(3000);
+assert.ok(await evaluate("!document.querySelector('.crash-screen') && Boolean(document.querySelector('.app'))"), "a malformed imported entry crashed the studio");
+const kept = await characters();
+console.log(`malformed project: ${kept.map(c => `${c.id} ${c.model}${c.rigImport ? " (imported)" : ""}`).join(", ")}`);
+assert.ok(kept.every(c => !c.rigImport), "a malformed imported entry was kept as an imported character");
+assert.ok((await select(xbot.id))?.ok, "could not select the X Bot in the malformed project");
+await compileOn(xbot, "mixamorigHips");
+await sleep(2500);
+await send("Page.reload");
+await sleep(1000);
+assert.ok(await waitFor(ready, 60_000), "the reloaded malformed project never came back");
+await sleep(3000);
+assert.ok(await evaluate("!document.querySelector('.crash-screen')"), "the reloaded malformed project crashed the studio");
+
 assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
-console.log(`PASS imported ue5 character plays on its own bones (hips ${worst.hips.toFixed(3)} cm, limbs ${worst.limbs.toFixed(3)} cm; reloaded ${reWorst.hips.toFixed(3)} / ${reWorst.limbs.toFixed(3)} cm); ${xbot.model} hips ${xWorst.hips.toFixed(3)} cm, limbs ${xWorst.limbs.toFixed(3)} cm; page errors 0; screenshot ${out}/imported-walk.png`);
+console.log(`PASS imported ue5 character plays on its own bones (hips ${worst.hips.toFixed(3)} cm, limbs ${worst.limbs.toFixed(3)} cm; reloaded ${reWorst.hips.toFixed(3)} / ${reWorst.limbs.toFixed(3)} cm); ${xbot.model} hips ${xWorst.hips.toFixed(3)} cm, limbs ${xWorst.limbs.toFixed(3)} cm; malformed project opened and reloaded without the crash screen; page errors 0; screenshot ${out}/imported-walk.png`);
 ws.close();

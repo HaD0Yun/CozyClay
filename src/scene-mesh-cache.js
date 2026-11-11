@@ -51,8 +51,9 @@ export function createMeshSceneCache({
 
 	/** The parsed scene for this id, decoded once and shared. Callers must
 	 * clone before they fit, clay-tint or parent — the cached graph is the
-	 * original materials and the file's own pivot. */
-	function loadMeshScene(id) {
+	 * original materials and the file's own pivot. `record` (the asset itself)
+	 * parses bytes not stored yet, so an import can check them before saving. */
+	function loadMeshScene(id, record = null) {
 		if (typeof id !== "string" || !id) return Promise.resolve(null);
 		const entry = entryFor(id);
 		if (entry.evicted) return Promise.resolve(null);
@@ -60,7 +61,7 @@ export function createMeshSceneCache({
 		if (!entry.promise) {
 			const generation = entry.generation;
 			entry.promise = (async () => {
-				const asset = entry.record ?? (await getRecord(id));
+				const asset = entry.record ?? record ?? (await getRecord(id));
 				if (!asset || entry.evicted || entry.generation !== generation) return null;
 				// A picture id that wandered in here has nothing to parse; skip
 				// rather than handing PNG bytes to a mesh loader.

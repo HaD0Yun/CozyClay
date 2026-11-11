@@ -6,16 +6,19 @@ import * as THREE from "three";
 import { cloneMeshGraph } from "./mesh-graph-clone.js";
 import { canonicalFrame, restoreImportedBind } from "./character-playback.js";
 import { primeBindPose } from "./poses.js";
-import { registerCastRigs } from "./character-rig.js";
+import { importedRigData, registerCastRigs } from "./character-rig.js";
 
-/** The rig root for `character` ({ model, adaptedRig, rigImport }) from its parsed file `source`; null when its rig is unknown. */
+/**
+ * The rig root for `character` ({ model, adaptedRig, rigImport }) from its parsed file `source`; null when its rig does
+ * not register (registerCastRigs refuses an entry whose plan does not build) or the file lacks its top joint.
+ */
 export function buildImportedRig(source, character) {
-	const { model, rigImport } = registerCastRigs([character])[0], frame = canonicalFrame(model);
-	if (!frame) return null;
-	const clone = cloneMeshGraph(source), top = rigImport.raw.bones.findIndex(b => b.parent < 0);
+	const model = registerCastRigs([character])[0]?.model, frame = canonicalFrame(model), data = importedRigData(model);
+	if (!frame || !data) return null;
+	const top = data.raw.bones.findIndex(b => b.parent < 0), clone = cloneMeshGraph(source);
 	let joint = null;
-	clone.traverse(o => { if (!joint && o.name === rigImport.sources[top]) joint = o; });
-	if (!joint) return null;
+	clone.traverse(o => { if (!joint && o.name === data.sources[top]) joint = o; });
+	if (!joint?.parent) return null;
 	clone.updateMatrixWorld(true);
 	// file root -> top joint's parent space; canonical = [axes x k | shift] x that space
 	const below = joint.parent.matrixWorld.clone(), { axes: A, k, shift } = frame;

@@ -106,12 +106,14 @@ function buffersOf(value, found = new Set()) {
 }
 
 /** The worker's answer to { id, job }: { message: { id, value }, transfer } or { message: { id, error: { message, code, name } }, transfer: [] }. */
+const failed = (id, error) => ({ id, error: { message: String(error?.message ?? error), code: error?.code ?? null, name: error?.name ?? "Error" } });
+
 export function answerOf({ id, job }) {
 	try {
 		const value = runCompileJob(fresh(job));
 		return { message: { id, value }, transfer: buffersOf(value) };
 	} catch (error) {
-		return { message: { id, error: { message: String(error?.message ?? error), code: error?.code ?? null, name: error?.name ?? "Error" } }, transfer: [] };
+		return { message: failed(id, error), transfer: [] };
 	}
 }
 
@@ -119,9 +121,11 @@ export function answerOf({ id, job }) {
  * The compile worker's message handler (compile-worker.js): jobServer(post, ready) -> handle(data) -> a promise of the
  * answer posted. Answers go out one at a time in arrival order, the first after `ready` settles (the worker's preload of
  * the collision body fits, body.js preloadBodies: then no compile reads a fit by synchronous XHR; a failed preload leaves
- * that fallback). post(message, transfer) sends an answerOf answer.
+ * that fallback). post(message, transfer) sends an answerOf answer; when it throws (an answer that does not clone), the
+ * job is answered with that error instead, and the queue goes on serving the jobs after it.
  */
 export function jobServer(post, ready = Promise.resolve()) {
 	let queue = Promise.resolve(ready).catch(() => {});
-	return data => (queue = queue.then(() => { const { message, transfer } = answerOf(data); post(message, transfer); }));
+	return data => (queue = queue.then(() => { const { message, transfer } = answerOf(data); post(message, transfer); })
+		.catch(error => post(failed(data?.id, error), [])).catch(() => {}));
 }

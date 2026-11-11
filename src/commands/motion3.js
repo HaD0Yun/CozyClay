@@ -5,7 +5,7 @@
 import { fail, characterOf } from "./shared.js";
 import { motionScene } from "../motion3/scene.js";
 import { skeletonFor } from "../motion3/rigs/index.js";
-import { ensureRig } from "../motion3/rigs/posted.js";
+import { isImportedCharacter, isImportedModel, registerCastRigs } from "../character-rig.js";
 import { expandPoses } from "../motion3/poses.js";
 import { fk } from "../motion3/compiler/skeleton.js";
 import { add, apply, ry } from "../motion3/compiler/math.js";
@@ -110,8 +110,9 @@ export function register(registry, ports) {
 	const mounted = () => Boolean(ports.storeDomain?.("motion")) || "The motion owner is not mounted.";
 	const always = () => true;
 	const rigOf = character => {
-		// an adapted character carries its rig (rigs/posted.js): registered here, and sent with each compile job to the worker (rigsOf)
-		const sk = character.adaptedRig ? ensureRig(character.model, character.adaptedRig) : skeletonFor(character.model);
+		// an imported character carries its rig (character-rig.js): registered here, and sent with each compile job to the worker (rigsOf)
+		const sk = skeletonFor(registerCastRigs([character])[0].model);
+		if (!sk && isImportedModel(character.model)) fail("TARGET_NOT_READY", `${character.subject || character.id}'s imported skeleton is incomplete in this project; import the file again.`);
 		if (!sk) fail("TARGET_NOT_READY", `${character.subject || character.id} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
 		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before compiling motion.");
 		return sk;
@@ -120,14 +121,14 @@ export function register(registry, ports) {
 	const sceneFor = character => {
 		const state = ports.state();
 		// the other characters' adapted rigs first, so their takes count as people (people.js reads skeletonFor(take.rig))
-		for (const c of state.characters ?? []) if (c?.adaptedRig && c.id !== character.id) ensureRig(c.model, c.adaptedRig);
+		registerCastRigs((state.characters ?? []).filter(c => c?.id !== character.id));
 		const people = peopleOf(state.characters, character.id, id => owner().motionFor(id));
 		return { ...motionScene(state.objects), ...(Object.keys(people).length ? { people } : {}) };
 	};
 	// the adapted rigs a compile job reads, for the worker: the character's and those of the people in its scene (people.js)
 	const rigsOf = (character, scene) => {
 		const want = new Set([character.model, ...Object.values(scene.people ?? {}).map(p => p.rig)]);
-		return Object.fromEntries((ports.state().characters ?? []).filter(c => c?.adaptedRig && want.has(c.model)).map(c => [c.model, c.adaptedRig]));
+		return Object.fromEntries((ports.state().characters ?? []).filter(c => want.has(c?.model) && isImportedCharacter(c)).map(c => [c.model, c.adaptedRig]));
 	};
 	// one compile worker per editor in the browser, the calling thread elsewhere (motion3-compile.js)
 	const runner = createCompileRunner();

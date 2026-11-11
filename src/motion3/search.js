@@ -9,6 +9,7 @@ import { bakeChannels, flowOptions } from "./compiler/channels.js";
 import { expandGenerators } from "./compiler/walk.js";
 import { runMotionQa } from "./qa/index.js";
 import { airRuns } from "./qa/style.js";
+import { MIN_FLIGHT } from "./qa/flight-checks.js";
 import { weightOf } from "./qa/severity.js";
 
 const INT_FIELDS = new Set(["f", "f0", "steps", "period", "swing", "until", "reach", "hold", "release"]);
@@ -63,14 +64,15 @@ function dirtyWindow(spec, params, mid, prepare, sk) {
 }
 
 /**
- * The window widened to hold, 8 frames past each end, every air run of 4 frames or more it reaches (style.js airRuns of the
- * middle spec's first solve). A window that cuts a flight compiles another take: the flight fixes leave a run with no
- * takeoff or landing, and QA reads that run against no arc (a back tuck compiled as f26-f43: hips 0.308 m off the whole
- * compile, SPIN at f33). The middle spec's first solve stands for every trial (no fixes: air runs a fix makes are not seen).
+ * The window widened to hold, 8 frames past each end, every air run of MIN_FLIGHT frames or more it reaches, the runs the
+ * flight fixes act on (qa/flight-checks.js; style.js airRuns of the middle spec's first solve). A window that cuts a flight
+ * compiles another take: the flight fixes leave a run with no takeoff or landing, and QA reads that run against no arc (a
+ * back tuck compiled as f26-f43: hips 0.308 m off the whole compile, SPIN at f33). The middle spec's first solve stands for
+ * every trial (no fixes: air runs a fix makes are not seen).
  */
 function holdFlights(window, exp, { sk, scene }) {
 	if (!window) return window;
-	const out = compileMotion({ fps: 24, ...exp }, { sk, scene }, { fixes: false }), runs = airRuns(out, exp.checks?.supports ?? []).filter(([p, q]) => q - p >= 3);
+	const out = compileMotion({ fps: 24, ...exp }, { sk, scene }, { fixes: false }), runs = airRuns(out, exp.checks?.supports ?? []).filter(([p, q]) => q - p + 1 >= MIN_FLIGHT);
 	let [a, b] = window, grew = true;
 	while (grew) {
 		grew = false;

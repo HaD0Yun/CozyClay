@@ -19,9 +19,11 @@
 //         twisting spin jump (I_u about 1.8 kg m^2) keyed at an even rate with its arms pulled in drifts 5.6 kg m^2/s
 //         (0.245); a back tuck about 60 kg m^2/s, its keyed turn 35 (0.40), about 7 after fix.spin (fix/spin.js re-times
 //         the root's turn so it holds); legs tucked in a hop with no turn swing it by up to 11 (0.19, nothing to re-time).
-//   POP   on a moved flight's push-off and impact frames stands only where it read before the flight fixes (contactPops, qa/index.js).
+//   POP   on a moved flight's push-off and impact frames stands where it read before the flight fixes, and one they added
+//         only over POP_HARD (contactPops, qa/index.js).
 import { airRuns, missingFall, popChecks, FLOAT_LIMIT } from "./style.js";
 import { QA_LIMITS } from "./checks.js";
+import { POP_HARD } from "./blocking.js";
 import { momentumOf } from "./inertia.js";
 import { apply, dot, T } from "../compiler/math.js";
 import { isFollow } from "../carried.js";
@@ -35,9 +37,9 @@ export const SPIN_TOL = 0.2;
 export const MIN_TURN = 30;
 /** SPIN: rad/s (two turns a second, a flip's rate): a drift is measured against at least the momentum I_u * SPIN_OMEGA. */
 const SPIN_OMEGA = 4 * Math.PI;
-/** FLOAT and SPIN read air runs of MIN_RUN frames or more; the flight fixes (fix/ballistic.js, fix/spin.js) and retime's guard from MIN_FLIGHT. */
+/** FLOAT and SPIN read air runs of MIN_RUN frames or more; the flight fixes (fix/ballistic.js, fix/spin.js), retime's guard and search's window (search.js holdFlights) from MIN_FLIGHT. */
 export const MIN_RUN = 4;
-const MIN_FLIGHT = 3;
+export const MIN_FLIGHT = 3;
 /** DROP: a body whose hips' up axis tilts more than OVER deg in one go, TURNING deg a frame or more, is turning over. */
 const OVER = 180, TURNING = 2;
 
@@ -148,22 +150,27 @@ export function popsOf(out) {
 	return at;
 }
 
+/** The push-off and impact frames of flight [a, b] (indexes of out.frames): the one before takeoff, the first two air frames, the three from the one after landing. */
+export const contactFrames = (a, b) => [a - 1, a, a + 1, b + 1, b + 2, b + 3];
+
 /**
- * QA's POP on the push-off and impact of each flight fix.ballistic moved (out.flightRuns): issue -> the issue to report,
- * or null. The frames: the one before takeoff A, the first air frame and the next, the one after landing B and the two
- * after it (indexes of out.frames). There the arc's speed meets the keyed ground frames in one frame, a contact, and
- * fix.spin's re-time changes the air frames a landing is read against (the flip skill's landing knee: 8 cm/f^2 against 7
- * of keyed air frames, 2 after). So a POP there stands only when the joint read POP on that frame before the flight
- * fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the overlap layer lands on the impact is the
- * agent's (a hop's 59 cm/f^2 hand), and what the fixes added to a keyed pop (a vault's 22 cm/f^2 knee read 25) is not.
+ * QA's POP on the push-off and impact of each flight the flight fixes moved (out.flightRuns: the root moved by fix.ballistic
+ * or the turn re-timed by fix.spin): issue -> the issue to report, or null. The frames: the one before takeoff A, the first
+ * air frame and the next, the one after landing B and the two after it (indexes of out.frames). There the arc's speed meets
+ * the keyed ground frames in one frame, a contact, and fix.spin's re-time changes the air frames a landing is read against
+ * (the flip skill's landing knee: 8 cm/f^2 against 7 of keyed air frames, 2 after). So a POP there stands when the joint
+ * read POP on that frame before the flight fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the
+ * overlap layer lands on the impact is the agent's (a hop's 48 cm/f^2 hand), and what the fixes added to a keyed pop (a
+ * vault's 22 cm/f^2 knee read 25) is not. A POP the fixes added stands only over POP_HARD (qa/blocking.js): a one-frame
+ * impulse that large is a snap, not a contact (a hit at 8 m/s: hands 29.6 cm/f^2 at its push-off, 12.7 at its landing).
  */
 export function contactPops(out) {
-	const at = new Set(), was = out.flightPops ?? new Map();
-	for (const [a, b] of out.flightRuns ?? []) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
+	const at = new Set((out.flightRuns ?? []).flatMap(([a, b]) => contactFrames(a, b))), was = out.flightPops ?? new Map();
 	return i => {
 		if (i.kind !== "POP" || !at.has(i.frame)) return i;
 		const p = was.get(`${i.msg.split(" ")[0]} ${i.frame}`);
-		return p && p.value < i.value ? p : p && i;
+		if (!p) return i.value > POP_HARD ? i : null;
+		return p.value < i.value ? p : i;
 	};
 }
 

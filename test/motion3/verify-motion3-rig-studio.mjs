@@ -15,6 +15,7 @@
 //       answers the same take as a main-thread compile, with the body fits fetched by the preload and no synchronous
 //       XHR; with the preload failing it falls back to XHR and still answers the same take. An X Bot reaching for the
 //       shoulder of a person on an adapted rig compiles in the worker once the job carries that person's rig.
+//       A job whose answer cannot be posted (a DataCloneError) is answered with that error, and the jobs after it still are.
 //   (e) the MotionBricks fill refuses an adapted rig and passes the X Bot and the Y Bot.
 import * as THREE from "three";
 import { execFileSync } from "node:child_process";
@@ -31,7 +32,7 @@ import { createSkeleton, fk } from "../../src/motion3/compiler/skeleton.js";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { bakeTake, takeQuat, takeHips } from "../../src/motion3/take.js";
-import { runCompileJob } from "../../src/motion3/compile-job.js";
+import { runCompileJob, jobServer } from "../../src/motion3/compile-job.js";
 import { peopleOf } from "../../src/motion3/people.js";
 import { fillSpec } from "../../src/motion3/bricks/fill.js";
 import { fillSpecNative } from "../../src/motion3/bricks/fill-native.js";
@@ -251,8 +252,10 @@ function retargets() {
 	CASES.forEach((c, k) => {
 		const r = readThreeSkeleton(threeOf(synth(c))), model = `studio-test-${k}`, { rig, report } = adaptRig({ ...r.raw, model });
 		const sk = ensureRig(model, rig), plan = retargetPlan(r.raw, report, sk);
-		// the canonical frame of a source point: the axes, then the floor's lift (adapt.js keeps the horizontal placement)
-		expect(`(b) ${c.label}: the source maps onto the rig by its axes and a vertical lift only`, Math.hypot(plan.shift[0], plan.shift[2]) < 1e-8, JSON.stringify(plan.shift));
+		// the canonical frame of a source point: the axes, then the floor's lift (adapt.js keeps the horizontal placement);
+		// 1 um: the adapter takes the source's own facing out to the last bit (the X Bot's hip line is 1.4e-5 deg off +X), so a
+		// source point lands up to 1.4e-7 m off a pure axis swap
+		expect(`(b) ${c.label}: the source maps onto the rig by its axes and a vertical lift only`, Math.hypot(plan.shift[0], plan.shift[2]) < 1e-6, JSON.stringify(plan.shift));
 		const shift = [0, plan.shift[1], 0];
 		for (const [motion, spec] of Object.entries(MOTIONS)) {
 			const out = compileSpec(structuredClone(spec), { sk, scene: motionScene([]) }).out, states = out.frames.map(f => f.s);
@@ -313,6 +316,16 @@ function worker() {
 	expect("(c) ensureRig refuses a built-in model", code === "INVALID_ARGUMENT" && skeletonFor("y-bot-tpose").names.length === REF.names.length);
 }
 
+/** jobServer after one post() throws: that job gets an error answer and the jobs after it are still answered. */
+async function postFailure() {
+	const posted = [];
+	let calls = 0;
+	const serve = jobServer(message => { calls += 1; if (calls === 1) throw new DOMException("could not be cloned", "DataCloneError"); posted.push(message); });
+	await Promise.allSettled([1, 2, 3].map(id => serve({ id, job: null })));
+	expect("(c) a job whose answer fails to post is answered with the error, and the later jobs still are", posted.map(m => m.id).join() === "1,2,3"
+		&& posted[0].error?.name === "DataCloneError" && posted.slice(1).every(m => m.error), JSON.stringify(posted.map(m => [m.id, m.error?.name])));
+}
+
 // --- (e) the MotionBricks gate ----------------------------------------------------------------------------------------
 async function gate() {
 	const spec = { schema: SPEC, fps: 24, frames: 60, keys: [{ f: 0, set: {} }, { f: 40, set: {} }] };
@@ -332,6 +345,7 @@ async function main() {
 	readers();
 	const rows = retargets();
 	worker();
+	await postFailure();
 	await gate();
 	console.log(`retarget worst joint error: ${rows.join("; ")}`);
 	console.log(failures ? `FAILED ${failures}` : "all PASS");

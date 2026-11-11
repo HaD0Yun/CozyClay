@@ -1,8 +1,10 @@
 // What a cast member can do depends on its kind. A rigged character has a
 // skeleton every motion, IK and physics tool writes to; a capsule figure
 // (PROXY_FIGURE_MODEL) is a placement-only stand-in with no bones at all, so
-// those tools refuse it by name instead of failing on a missing rig.
+// those tools refuse it by name instead of failing on a missing rig. An imported character (character-rig.js) plays
+// compiled takes on its own bones, but Pose mode and IK write the X Bot's bones and rest pose, so those two refuse it.
 import { isProxyFigure } from "./scenes.js";
+import { isImportedModel } from "./character-rig.js";
 import { isKo, isZh } from "./locale.js";
 import { StudioProtocolError } from "./studio-agent-protocol.js";
 import {
@@ -38,11 +40,13 @@ export function proxyFigureBounds(character, placement = character) {
 	return { min, max };
 }
 
-/** `{ rig, ik, pose, motion }` - all false
- * for a capsule figure, all true for a rigged character. */
+const IMPORTED_OFF = new Set(["ik", "pose"]);
+
+/** `{ rig, ik, pose, motion }` - all false for a capsule figure, all true for a rigged character; an imported
+ * character has no ik or pose. */
 export function characterCapabilities(character) {
-	const rigged = !isProxyFigure(character);
-	return Object.freeze(Object.fromEntries(CHARACTER_CAPABILITIES.map((name) => [name, rigged])));
+	const rigged = !isProxyFigure(character), imported = isImportedModel(character?.model);
+	return Object.freeze(Object.fromEntries(CHARACTER_CAPABILITIES.map((name) => [name, rigged && !(imported && IMPORTED_OFF.has(name))])));
 }
 
 // The noun each refusal names. A feature id not listed here is used verbatim.
@@ -68,9 +72,23 @@ export function kindRefusal(feature, ko = false, zh = false) {
 	return `Capsule figures have no rig - ${label} works on rigged characters only.`;
 }
 
-/** Throw TARGET_NOT_READY when `character` is a capsule figure. The protocol
+/** Why an imported character refuses `feature` (ik or pose). */
+export function importedRefusal(feature, ko = false, zh = false) {
+	const label = FEATURE_LABELS[feature]?.[ko ? 1 : zh ? 2 : 0] ?? feature;
+	if (ko) return `가져온 캐릭터는 자기 뼈로 컴파일한 테이크만 재생해요 - ${label}는 X Bot과 Y Bot에서만 됩니다.`;
+	if (zh) return `导入的角色只在自己的骨骼上播放编译的动作 — ${label}仅适用于 X Bot 和 Y Bot。`;
+	return `Imported characters play compiled takes on their own bones - ${label} works on the X Bot and Y Bot only.`;
+}
+
+/** The sentence `character` refuses `feature` with (a capsule figure's, or an imported character's), else null. */
+export function capabilityRefusal(character, feature, ko = false, zh = false) {
+	if (isProxyFigure(character)) return kindRefusal(feature, ko, zh);
+	return isImportedModel(character?.model) && IMPORTED_OFF.has(feature) ? importedRefusal(feature, ko, zh) : null;
+}
+
+/** Throw TARGET_NOT_READY when `character` cannot use `feature` (capabilityRefusal). The protocol
  * message is English (the agent reads it); `uiMessage` is the locale's. */
 export function refuseRigOnly(character, feature) {
-	if (!isProxyFigure(character)) return;
-	throw Object.assign(new StudioProtocolError("TARGET_NOT_READY", kindRefusal(feature, false)), { uiMessage: kindRefusal(feature, isKo, isZh) });
+	const message = capabilityRefusal(character, feature);
+	if (message) throw Object.assign(new StudioProtocolError("TARGET_NOT_READY", message), { uiMessage: capabilityRefusal(character, feature, isKo, isZh) });
 }
