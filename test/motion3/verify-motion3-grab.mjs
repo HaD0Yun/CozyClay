@@ -6,6 +6,7 @@
 // a late hand gives a GRAB issue with a fix.
 import { SCENE_OBJECTS, CHARACTER, CUP } from "./fixtures/cup-scene.mjs";
 import { compileSpec } from "../../src/motion3/pipeline.js";
+import { compileMotion } from "../../src/motion3/compiler/compile.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { validateSpec } from "../../src/motion3/compiler/validate.js";
@@ -147,6 +148,13 @@ bump.keys.sort((a, b) => a.f - b.f);
 // the cup too; the check is QA's, on the bump as keyed
 const bumped = compileSpec({ ...bump, fix: { ...(bump.fix ?? {}), self: false } }, { sk, scene });
 expect("the other hand in the held cup: COLLIDE \"hand_r x empty-2\"; the holding hand is never reported", groups(bumped).some(s => /^COLLIDE (hand|farm)_r x empty-2$/.test(s)) && !groups(bumped).some(s => /^COLLIDE (hand|farm)_l x empty-2$/.test(s)), groups(bumped).join(" | "));
+// fix.self on: the repair moves the bump's arm out of the body only as far as it keeps the keyed hand on its key (its
+// gate reads the wrist against the key on key frames, fixed.self.spans key [before, after]; QA's REACH reads against the
+// target the repair pushed): it pulled the wrist 14.9 cm off the key at f70 (7.6 without the repair) and hid the miss
+const selfOn = compileSpec(bump, { sk, scene }), unrepaired = compileMotion({ fps: 24, ...selfOn.expanded, ...(selfOn.fixed?.retime?.kept === false ? { fix: { ...selfOn.expanded.fix, retime: false } } : {}) }, { sk, scene }, { selfRepair: false });
+const keyGap = o => gap(o.frames[70 - (o.f0 ?? 0)].s.P[sk.index.RightHand], [0.2, 1.27, 0.84]);
+expect("the bump with fix.self on: the right wrist at its key f70 no farther off it than without the repair (1 cm), and the spans report it", keyGap(selfOn.out) <= keyGap(unrepaired) + 0.01
+	&& (selfOn.fixed.self?.spans ?? []).every(sp => sp.key && sp.key[1] <= sp.key[0] + 0.01), JSON.stringify([keyGap(selfOn.out), keyGap(unrepaired), selfOn.fixed.self?.spans]));
 
 // A group hinge turns the whole group about the root: one track, every part box turned.
 const turn = { ...cupSpec({ objects: { [CUP.group]: { pivot: [0.2, 0.75, 0.85], axis: [0, 1, 0], channel: "cupTurn" } } }) };

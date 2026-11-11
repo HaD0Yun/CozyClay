@@ -188,8 +188,11 @@ for (const [what, mid] of [["the depth guard", [-0.02, 1.5, -0.04]], ["the pop g
 	const st = TX.head.keys[0].set, c = run(X, specOf({ keys: [[0, rest], [12, to], [23, rest]].map(([f, p]) => ({ f, set: { ...st, hand_r: p } })) }, { frames: 24 }));
 	const was = groupsOf(c.qa0, ["POP", "FLIP"]), now = groupsOf(c.r.qa, ["POP", "FLIP"]);
 	console.log(`  x-bot fast face reach (${what}): BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, QA ${c.qa0.total} -> ${c.r.qa.total}, fixed.self ${JSON.stringify({ spans: c.self?.spans, left: c.self?.left })}`);
-	expect(`(j) x-bot fast face reach (${what} decides a move): repaired, no BODY or FACE left, no POP or FLIP added or worse`, worstOwn(c.qa0) > 0.03 && c.self?.spans?.length > 0 && own(c.r.qa).length === 0
-		&& [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), [...was], [...now]]));
+	// the depth guard's take: the moves that cleared it pulled the hand 7 cm off its rest key at f23 (the gate's key, 1 cm),
+	// so it is repaired only as far as the rest key holds
+	const clears = what === "the pop guard" ? own(c.r.qa).length === 0 : worstOwn(c.r.qa) < worstOwn(c.qa0) - 0.01 && c.self.spans.every(sp => sp.key && sp.key[1] <= sp.key[0] + 0.01);
+	expect(`(j) x-bot fast face reach (${what} decides a move): repaired, ${what === "the pop guard" ? "no BODY or FACE left" : "1 cm or more off with the rest key kept"}, no POP or FLIP added or worse`, worstOwn(c.qa0) > 0.03 && c.self?.spans?.length > 0 && clears
+		&& [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), c.self?.spans, [...was], [...now]]));
 }
 // the guard per joint: an elbow pop that eases does not hide a wrist pop that gets harder on the same frame
 const spike = (dE, dW) => ({ ...belly.r.out, frames: belly.r.out.frames.map((fr, f) => (f === 24 ? { ...fr, s: { ...fr.s, P: fr.s.P.map((p, j) => (j === X.index.RightForeArm ? [p[0], p[1] + dE, p[2]] : j === X.index.RightHand ? [p[0], p[1] + dW, p[2]] : p)) } } : fr)) });

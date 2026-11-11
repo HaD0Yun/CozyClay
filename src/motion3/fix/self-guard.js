@@ -6,8 +6,14 @@
 import { sub, len, cross, norm, angle } from "../compiler/math.js";
 import { isPop } from "../qa/style.js";
 import { QA_LIMITS } from "../qa/checks.js";
-import { SIDES } from "./self-hits.js";
+import { SIDES, handHold } from "./self-hits.js";
+import { bodyDistance } from "../body.js";
 
+/** A span may pull a keyed free hand's wrist no more than KEY_TOL (m) farther off its key than it was, where the key is
+ * KEY_CLEAR or more clear of the skin (a reach out in front: a cup); a key nearer the skin is where the body is in the
+ * way (a hand keyed at the far hip, on the opposite shoulder, into the thigh) and the repair moves the hand off it. */
+export const KEY_TOL = 0.01;
+const KEY_CLEAR = 0.08;
 const FLIP_BEND = 20, BENT = Math.sin((FLIP_BEND * Math.PI) / 180);
 /** popLevel (qa/style.js) reads 3 frames either side; the bend plane is read from the last bent frame within LOOK back. */
 const POP_REACH = 3, LOOK = 8;
@@ -66,3 +72,22 @@ export function moveWorse(prev, next, rest = [0, 0]) {
 	for (let f = next.lo; f <= next.hi; f++) if (next.turns[f] > QA_LIMITS.flip && next.turns[f] > prev.turns[f] + 1e-9) return "a flip";
 	return "";
 }
+
+/**
+ * The key frames of free IK hands (out.keys setting hand_l or hand_r, no anchor, fit, carry or contact on the hand, armw
+ * 0.5 or more) whose keyed target is KEY_CLEAR or more clear of the skin:
+ * [{ j (frame index), k, t (the target), b (the hand bone) }]. QA reads a REACH against the target the repair pushed, so it
+ * cannot see a hand pulled off its key; the repair's gate reads it here (keyOff).
+ */
+export function keyedHands(out, body) {
+	const { sk, spec } = out.ctx, f0 = out.f0 ?? 0, list = [];
+	for (const key of out.keys ?? []) for (const k of ["r", "l"]) {
+		const j = key.f - f0, fr = out.frames[j], ch = `hand_${k}`, b = sk.index[`${SIDES[k]}Hand`];
+		if (!fr || !(ch in (key.set ?? {})) || !Array.isArray(fr.c[ch]) || (fr.c[`armw_${k}`] ?? 0) < 0.5 || handHold(spec, fr, f0 + j, k).hold !== null) continue;
+		if (bodyDistance(body, fr.s, fr.c[ch], body.skip.get(b)).d >= KEY_CLEAR && !list.some(x => x.j === j && x.k === k)) list.push({ j, k, t: fr.c[ch], b });
+	}
+	return list;
+}
+
+/** How far (m) each keyed hand of `keyed` (keyedHands) on frame indices a..b is from its key now: [{ ...x, d }]. */
+export const keyOff = (out, keyed, a, b) => keyed.filter(x => x.j >= a && x.j <= b).map(x => ({ ...x, d: len(sub(out.frames[x.j].s.P[x.b], x.t)) }));
