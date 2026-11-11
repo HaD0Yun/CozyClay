@@ -15,16 +15,17 @@
 //       place on the frames they are held (only the elbow may turn); a declared checks.allow is not repaired
 //   (e) a take with no arm in the body comes out identical to 1e-9, and fixed.self has no repair fields
 //   (f) fix.self false turns it off; the BODY and FACE hints say repaired, left (why) or off
-//   (g) the report: spans [{ at, depth }], depth [before, after], iterations, left [{ at, side, why }]
+//   (g) the report: spans [{ at, depth, key? }], depth [before, after], iterations, left [{ at, side, why, frames }] grouped
+//       by side and why
 //   (h) deterministic: the same spec twice gives the same take; two repaired takes pinned to 1e-9 (arm64 and x86_64)
 //   (i) hands keyed onto the hips (hand targets into the thighs): repaired, and the frames the keys hold still stay still
-//   (j) the move guard: on fast reaches to the face the depth guard and the pop guard decide a move, and the repair still
-//       clears; a wrist pop that gets harder while the elbow's eases is a pop; FACE is read as QA reads it (no checks.allow)
-//   (k) bodyDistance on a state that changed in place after its grid centres were read prunes as before (body.js)
+//   (j) the move guard: on fast reaches to the face the depth guard and the pop guard decide a move, and the repair
+//       clears (the first as far as the rest key holds); a wrist pop that gets harder while the elbow's eases is a pop; FACE is read as QA reads it (no checks.allow)
+//   (k) bodyDistance on a state changed in place after forgetCentres reads as on a fresh copy; compiled states read so too
 //   (l) FK arms move by their angles (the arm out from the body, the elbow bent): a swing with the arms hanging close,
 //       a slow one and a walk with armSwing 45 at arm_rest 98 clear with each hand's swing amplitude and timing kept and
 //       no sideways wave (one angle held over the run of hits: each hand's path no longer than 12% more); an arm half on
-//       its IK takes both kinds; a clean FK swing is untouched
+//       its IK takes both kinds; a clean FK swing is untouched; no bend takes an elbow keyed bent on one frame past straight
 //   (m) crossed arms (hand targets on the opposite shoulders inside the chest): both arms repaired, taking turns, the
 //       hands not into each other; on the Y Bot, where the gate takes every span back, the search again with only moves
 //       that add no subject keeps what helps

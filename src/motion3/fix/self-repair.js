@@ -14,21 +14,25 @@
 //    that takes the most off the window, at least GAIN.
 //    Each lever stays within its limit in all (self-moves.js), the elbow no higher over the shoulder than it was; the IK
 //    keeps the elbow's fold and the wrist's limits. A move that adds a POP or a FLIP to the arm, or makes the elbow's or the wrist's POP worse as QA would group it, is not made (self-guard.js);
-//  - again, until no hit is past the limit or MAX_IT moves are tried for each run of frames with a hit. A hand held on
+//  - again, until no hit is past the limit, MAX_IT moves are tried for each run of frames with a hit, or the take's
+//    budget is spent (IT_TAKE moves tried, SOLVE_TAKE frames solved over every search, however long the take). A hand held on
 //    its target (self-hits.js "pinned") or on the body keeps it: only the elbow turns, and a wrist push spread toward it
 //    fades with the weight that holds it; such a hand takes no FK move.
 // Never worse: a span that neither takes GAIN off its deepest hit nor clears a frame gets its frames back; the others
 // stand together where QA (qa-of.js, as pipeline.js reads it) is no worse with them, else they are tried in halves on
-// top of what stood, down to one span. Where every span goes back, the search runs again with only moves that add no
-// BODY or FACE subject QA did not report, and is gated the same way.
+// top of what stood, down to one span. A move or a span that pulls a free IK hand more than KEY_TOL farther off a key
+// clear of the skin is not made, or goes back (self-guard.js keyedHands: QA's REACH reads against the pushed target).
+// Where every span goes back, the search runs again with only moves that add no BODY or FACE subject QA did not report,
+// and is gated the same way (not where a search ran out of moves).
 // A group stands where QA is no worse by keptRetime's rule (qa/verdict.js noWorse: problems, summed severity, goals
 // held), no goal that held is lost, and no group but BODY and FACE got worse or new (a contact, a grasp, a support, a
 // planted foot, a carried object, a collision with an object or a person, a reach, a pop or a flip); else its spans get
 // their frames back exactly (the solved frames are kept, not solved again). Takes with no hit past the limit are not
-// touched. Reported in fixed.self: spans [{ at, depth: [before, after] }], depth [before, after] (m, the deepest hit),
-// iterations, and left [{ at, side, why }]: the frames still past the limit, with why (undone and why; the move cap; no
-// move, and what turned down the moves that helped on the frame: a pop, the hands into each other, a frame around it
-// deeper, the elbow lifted).
+// touched. Reported in fixed.self: spans [{ at, depth: [before, after], key?: [before, after] (m, the keyed hand it moved
+// most off its key) }], depth [before, after] (m, the deepest hit), iterations, and left [{ at, side, why, frames }]: the
+// frames still past the limit grouped by side and why (undone and why; the move cap; the take's budget; no move, and what
+// turned down the moves that helped on the frame: a pop, the hands into each other, a frame around it deeper, a hand off
+// its key, the elbow lifted).
 import { bodyFor } from "../body.js";
 import { round4 } from "./ease.js";
 import { qaOf } from "./qa-of.js";
