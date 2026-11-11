@@ -163,6 +163,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			} else resume = { ...resume, note: "Studio reconnected after a disconnect; your scope reads as you left it. Continue the task from where you were." };
 		}
 		task.host = main.host;
+		task.model = engine ?? main.model; task.effort = engine ? undefined : main.effort; // what this run is on: the panel shows it (#1165)
 		task.seen = await scopeFingerprint(context, task.scope);
 		task.midCommand = false;
 		const sessionId = task.sessionId ??= randomUUID();

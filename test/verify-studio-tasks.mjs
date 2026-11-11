@@ -56,8 +56,10 @@ const dispatch = (board, title, scope, extra = {}) => board.dispatch({ title, in
 	assert.equal(runs.length, 3, "case 11: three tasks run");
 	assert.equal(status().d, "waiting");
 	assert.match(board.board().find(task => task.title === "d").reason, /3 tasks are running/);
+	runs[0].task.model = "cliproxy/claude-opus-5-5"; runs[0].task.effort = "medium"; // the runner sets these before the first frame (#1165)
 	runs[0].task.onFrame({ type: "text.delta", text: "x" });
 	assert.equal(status().a, "running");
+	{ const [a, , , d] = board.board(); assert.deepEqual([a.model, a.effort], ["cliproxy/claude-opus-5-5", "medium"], "the view says what a task runs on"); assert.ok(!("model" in d), "a waiting task has no model yet"); }
 	runs[0].resolve({ status: "done", reply: "a moved", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.25, requests: 2 } });
 	await tick(); await tick();
 	assert.equal(status().a, "done"); assert.equal(runs.length, 4, "the waiting task starts when one ends"); assert.equal(runs[3].task.title, "d");

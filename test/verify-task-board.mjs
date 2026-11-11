@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { answerOf, runCompileJob } from '../src/motion3/compile-job.js';
 import { compileActivity, createCompileRunner, watchCompileActivity } from '../src/commands/motion3-compile.js';
 import { motionScene } from '../src/motion3/scene.js';
-import { TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, emptyBoard, progressLine, readStoredTaskMode, reduceBoard, reduceScopes, scopeLabel, seedBoard, taskLine, taskReason } from '../src/workflow/task-board.js';
+import { TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, emptyBoard, modelLine, progressLine, readStoredTaskMode, reduceBoard, reduceScopes, scopeLabel, seedBoard, taskLine, taskReason } from '../src/workflow/task-board.js';
 
 test('task mode is on by default; only an explicit off turns it off', () => {
 	const store = (value) => ({ getItem: () => value });
@@ -54,6 +54,12 @@ test('board events make one card per task, in arrival order, with the latest sta
 	assert.equal(board.tasks.a.summary.reply, 'Moved the cup.');
 	assert.equal(costLabel(board.tasks.a.usage), '$0.12');
 	assert.equal(costLabel({ cost: 0 }), '');
+	// what a task runs on (#1165): the model id without its provider and the effort; the motion engine's model is named as such
+	assert.equal(modelLine({ model: 'cliproxy/claude-opus-5-5', effort: 'medium' }), 'claude-opus-5-5 · medium');
+	assert.equal(modelLine({ model: 'openrouter/anthropic/claude-opus-5-5' }), 'anthropic/claude-opus-5-5');
+	assert.match(modelLine({ model: 'v4pi/claude-opus-5-5', motion: true }), /^claude-opus-5-5 · /);
+	assert.equal(modelLine({ status: 'waiting' }), '');
+	assert.equal(reduceBoard(board, { type: 'task.started', eventSeq: 6, ...view('b', 'running', { model: 'cliproxy/claude-opus-5-5', effort: 'high' }) }).tasks.b.model, 'cliproxy/claude-opus-5-5');
 	// a progress line for a task the board never heard of is dropped (no title, no card)
 	assert.equal(reduceBoard(board, { type: 'task.progress', taskId: 'zz', status: 'running', progress: 'x' }).tasks.zz, undefined);
 });
