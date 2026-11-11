@@ -1,10 +1,11 @@
 // Rest-pose work for adapt.js: a source skeleton's bind joints brought onto the canonical (Mixamo X Bot) bind the
 // compiler assumes. All in metres. The steps, in order:
 //   sourcePose      forward kinematics of the raw bones (any bone axis convention, any root above the hips).
-//   facingAxes      the source's up (feet to head) and left (right hip to left hip) as the canonical +Y and +X, +Z
-//                   forward; each snapped to the nearest world axis when within 25 deg, so a Z-up export turns upright
-//                   and a slight lean or turn is kept, not straightened: a source yawed under 25 deg keeps its trunk
-//                   yawed while normalise puts its arms and feet on the X Bot's directions.
+//   facingAxes      the source's up (feet to head) as the canonical +Y, snapped to the nearest world axis when within
+//                   25 deg (a Z-up export turns upright, a slight lean is straightened), and its left (the mean of the
+//                   right-to-left hip and shoulder lines, across up) as +X, +Z forward. A whole-body turn of any angle
+//                   goes away; a pelvis turned against the chest keeps half the twist each way. A source whose toes
+//                   point backward from that facing (Left and Right swapped, a mirrored export) is refused.
 //   normalise       each arm, leg and foot turned at its root joint onto the X Bot's bind direction: the upper arm,
 //                   forearm and hand (an A-pose's arms go up to the T-pose's horizontal; the palm turns to the X Bot's
 //                   by its knuckle line), the thigh and shin, and the foot's heading. A foot keeps its own pitch through
@@ -21,6 +22,8 @@ const SIDES = ["Left", "Right"], TRUNK = ["Hips", "Spine", "Spine1", "Spine2", "
 const at = (ref, n) => ref.restWorldPos[ref.index[n]];
 const lerp = (a, b, t) => add(a, scale(sub(b, a), t));
 const flat = v => [v[0], 0, v[2]];
+/** A vector's part across `axis` (unit). */
+const across = (v, axis) => sub(v, scale(axis, dot(v, axis)));
 
 /** The least rotation taking direction a onto direction b (identity when they already agree). */
 function swing(a, b) {
@@ -36,9 +39,9 @@ export function sourcePose(raw) {
 	const visit = (i, depth = 0) => {
 		if (P[i]) return;
 		if (depth > bones.length) throw new Error(`adaptRig: bone "${bones[i].name}" is its own ancestor`);
-		const b = bones[i], p = Number.isInteger(b.parent) ? b.parent : -1, q = b.localQuat ?? [0, 0, 0, 1], ql = Math.hypot(...q) || 1;
+		const b = bones[i], p = b.parent, q = b.localQuat ?? [0, 0, 0, 1], ql = Math.hypot(...q) || 1;
 		const L = matFromQuat(q.map(v => v / ql)), t = scale(b.localPos ?? [0, 0, 0], k);
-		if (p < 0 || p >= bones.length) { R[i] = L; P[i] = t; return; }
+		if (p < 0) { R[i] = L; P[i] = t; return; }
 		visit(p, depth + 1);
 		R[i] = mul(R[p], L);
 		P[i] = add(P[p], apply(R[p], t));
@@ -52,12 +55,19 @@ function snap(v) {
 	return Math.abs(v[k]) >= SNAP ? [0, 1, 2].map(i => (i === k ? Math.sign(v[k]) : 0)) : null;
 }
 
-/** Rows [left, up, forward] of the source: a canonical point is apply(B, source point). pos(name) gives a source joint. */
+/**
+ * Rows [left, up, forward] of the source: a canonical point is apply(B, source point). pos(name) gives a source joint
+ * (undefined for a bone the source lacks).
+ */
 export function facingAxes(pos) {
-	const up = norm(sub(pos("Head"), scale(add(pos("LeftFoot"), pos("RightFoot")), 0.5)));
-	const side = sub(pos("LeftUpLeg"), pos("RightUpLeg")), left = norm(sub(side, scale(up, dot(side, up))));
-	const B = [left, up, cross(left, up)], snapped = B.map(snap);
-	return snapped.every(Boolean) && new Set(snapped.map(v => v.findIndex(x => x !== 0))).size === 3 ? snapped : B;
+	const lean = norm(sub(pos("Head"), scale(add(pos("LeftFoot"), pos("RightFoot")), 0.5))), up = snap(lean) ?? lean;
+	const line = (a, b) => norm(across(sub(pos(a), pos(b)), up));
+	const left = norm(add(line("LeftUpLeg", "RightUpLeg"), line("LeftArm", "RightArm"))), forward = cross(left, up);
+	const toes = SIDES.filter(S => pos(`${S}ToeBase`)).map(S => across(sub(pos(`${S}ToeBase`), pos(`${S}Foot`)), up));
+	if (toes.length && dot(toes.reduce(add), forward) <= 0) {
+		throw new Error("adaptRig: the toes point backward from the hips and shoulders (Left bones on the character's right): the source is mirrored or its Left and Right names are swapped");
+	}
+	return [left, up, forward];
 }
 
 /** Turns canonical bone `name`'s subtree (the X Bot's hierarchy) about its joint by Rm: joints and source frames. */
@@ -71,9 +81,6 @@ function turnSubtree(ref, pose, name, Rm) {
 }
 
 const alignBone = (ref, pose, a, b) => pose.J[a] && pose.J[b] && turnSubtree(ref, pose, a, swing(sub(pose.J[b], pose.J[a]), sub(at(ref, b), at(ref, a))));
-
-/** A vector's part across `axis` (unit). */
-const across = (v, axis) => sub(v, scale(axis, dot(v, axis)));
 
 function alignHand(ref, pose, S) {
 	const h = `${S}Hand`, m = `${S}HandMiddle1`, i = `${S}HandIndex1`, p = `${S}HandPinky1`;

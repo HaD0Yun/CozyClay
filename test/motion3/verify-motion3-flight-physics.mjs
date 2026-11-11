@@ -10,13 +10,15 @@
 //       (a2) a keyed flight past the apex limit: fixed.ballistic.skipped reports it and the hips stay as keyed
 //       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, its keyed pops there stand, no blocking group;
 //       a hop whose keyed arm snap lands on the impact frames still reads it (POP, blocking) at its keyed size, and the same hop without it is clean
+//       a hit at 8 m/s: the arc's launch would add POPs over POP_HARD, which QA reads, so the flight keeps its keyed launch
 //       (a4) a hop keyed over a hurdle higher than its frames can carry it: the arc would enter the hurdle, so the flight
 //       keeps its frames and fixed.ballistic.skipped says how far off, what it entered and the frames it fits; the same
 //       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor, or a carried bar's into a post, gets the same; a re-time
 //       into a slab overhead is left under fixed.spin.left
 //       (a6) a 104-frame run with a trip whose short air runs read worse on QA held: retime re-times them as at 28ad5074 and says why
 //       (a7) a lunge hop whose 3-frame flight starts and ends a frame after and before the feet left and met the floor: the arc leaves it
-//       (a8) a standing hop with the default fixes: retime holds its 3-frame flight, which the arc moves (fe38741c's gain kept)
+//       (a8) a standing hop with the default fixes: retime holds its 3-frame flight, which the arc moves (fe38741c's gain kept);
+//       with an open parameter keyed just after it, search's window holds that 3-frame flight
 //       (a9) the cost of weighing the holds: hops with a second character bake at most 3 times as often as with retime off
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
@@ -30,9 +32,7 @@
 //   (d) a 360 deg spin jump that pulls the arms in mid-air: with fix.spin the body turns faster tucked than open; keyed
 //       at an even rate (fix { spin: false }) QA says SPIN and its hint that fix.spin is off. Cut before it lands, fix.spin has no landing and QA still says SPIN
 //       (d2) a spin jump leaning -8 deg whose vector re-time reads SPIN past the limit: fix.spin keeps the axis re-time (fixed.spin.axis)
-//   (e) the flip and float-fix tests still pass
 // Prints PASS/FAIL lines; exits non-zero on a failure.
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileSpec } from "../../src/motion3/pipeline.js";
@@ -42,8 +42,9 @@ import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { bakeTake } from "../../src/motion3/take.js";
 import { peopleOf } from "../../src/motion3/people.js";
 import { airRuns } from "../../src/motion3/qa/style.js";
-import { flights, runDrift, SPIN_TOL, DROP_LIMIT } from "../../src/motion3/qa/flight-checks.js";
-import { isBlocking } from "../../src/motion3/qa/blocking.js";
+import { flights, runDrift, contactPops, SPIN_TOL, DROP_LIMIT, MIN_FLIGHT } from "../../src/motion3/qa/flight-checks.js";
+import { NOTES } from "../../src/motion3/schema/topics.js";
+import { isBlocking, POP_HARD } from "../../src/motion3/qa/blocking.js";
 import { spinFix } from "../../src/motion3/fix/spin.js";
 import { rotationVector, momentumOf } from "../../src/motion3/qa/inertia.js";
 import { centerOfMass } from "../../src/motion3/qa/com.js";
@@ -193,14 +194,15 @@ for (const cut of [40, 45, 50]) {
 	expect("(a3) parkour vault: the POPs are the keyed take's (its push-off knees at their keyed size), no blocking group, no more issues than the 13 of the baseline", pops(r) === pops(keyed) && blocking.length === 0 && r.qa.total <= 13, JSON.stringify({ total: r.qa.total, blocking: list(blocking), all: list(r.qa.groups), keyed: pops(keyed) }));
 }
 
-// (a3) a 0.3 m hop, f30-f44, its arms keyed to snap 100 deg in one frame at f39: the overlap layer lands the hands' pop on f44-f45,
-// the frames after landing the fix leaves to its impact. The snap is keyed, not the fix's: POP still reads it, blocking, at its keyed size
+// (a3) a 0.3 m hop, f30-f44, its arms keyed to snap 80 deg in one frame at f39: the overlap layer lands the hands' pop on f44-f45,
+// the frames after landing the fix leaves to its impact. The snap is keyed, not the fix's: POP still reads it, blocking, at its keyed size.
+// (100 deg until the flight gate read POP_HARD: on the arc the forearms' keyed 24.6 cm/f^2 at f44 read over 25 at f45, so the arc is left)
 {
 	const A = 30, N = 14, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]], on = () => ({ root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r });
 	const up = y => { const root = shift(pose0.root, [0, y, 0]); return { root, foot_l: shift(root, shift(off("l"), [0, 0.02, 0])), foot_r: shift(root, shift(off("r"), [0, 0.02, 0])) }; };
 	const hop = (snap, fix) => {
 		const keys = [{ f: 0, set: { ...pose0 } }, { f: 20, set: on() }, { f: 26, set: { ...on(), root: shift(pose0.root, [0, -0.12, 0]) } }, { f: A, set: on() }, { f: A + 7, set: up(0.3) }, { f: A + N, set: on() }, { f: A + N + 6, set: { ...on(), root: shift(pose0.root, [0, -0.1, 0]) } }, { f: A + N + 16, set: on() }];
-		if (snap) keys.push({ f: 39, set: { aswing_l: 0, aswing_r: 0 } }, { f: 40, set: { aswing_l: 100, aswing_r: 100 } }, { f: 41, set: { aswing_l: 100, aswing_r: 100 } });
+		if (snap) keys.push({ f: 39, set: { aswing_l: 0, aswing_r: 0 } }, { f: 40, set: { aswing_l: 80, aswing_r: 80 } }, { f: 41, set: { aswing_l: 80, aswing_r: 80 } });
 		return compileSpec({ schema: SPEC, fps: 24, frames: A + N + 20, keys: keys.sort((p, q) => p.f - q.f), fix }, { sk, scene: motionScene([]) });
 	};
 	const r = hop(true, { retime: false }), keyed = hop(true, { retime: false, ballistic: false, spin: false }), plain = hop(false, { retime: false });
@@ -208,6 +210,24 @@ for (const cut of [40, 45, 50]) {
 	expect(`(a3) a keyed arm snap on the impact frames f${b + 1}-f${b + 3} of a moved flight: POP LeftHand still reads it, blocking, at its keyed size (${g?.worst} at f${g?.first}-f${g?.last}, keyed ${hand(keyed)?.worst})`,
 		r.out.flightRuns?.length === 1 && g && isBlocking(g) && g.worst === hand(keyed)?.worst && g.first > b && g.last <= b + 3 && !r.qa.ok, JSON.stringify({ runs: r.out.flightRuns, groups: r.qa.groups.map(x => `${x.kind} ${x.subject} f${x.first}-${x.last}`) }));
 	expect("(a3) the same hop without the snap: moved by the arc and QA clean (its push-off and impact read no POP)", plain.out.flightRuns?.length === 1 && plain.qa.total === 0, JSON.stringify(plain.qa.groups.map(x => `${x.kind} ${x.subject} f${x.first}`)));
+}
+
+// (a3) a hit at 8 m/s (hitReaction): on the arc the body launches in one frame, f12, the hips 26.7 cm/f^2, the hands 29.6 (Y Bot).
+// Over POP_HARD a contact is no excuse: QA reads a POP the fixes added there (contactPops), so the flight gate does too and the
+// arc gives the flight its frames back (fixed.ballistic.skipped pops); the take is the one with fix { ballistic: false }, no POP.
+// (until b7a8e69f every added contact-frame POP went unread; at 43368d96 QA read them, blocking, on the arc's take)
+{
+	const issue = (frame, value) => ({ kind: "POP", msg: `Hips accel ${value * 100} cm/f^2 in one frame`, frame, value });
+	const read = contactPops({ flightRuns: [[12, 25]], flightPops: new Map() });
+	expect("(a3) contactPops: an added POP on a contact frame stands over POP_HARD and goes unread under it; off the contact frames it stands",
+		read(issue(12, POP_HARD + 0.01)) !== null && read(issue(27, POP_HARD - 0.01)) === null && read(issue(18, 0.1)) !== null);
+}
+for (const rig of ["y-bot-tpose", "x-bot-tpose"]) {
+	const hit = fix => compileSpec({ schema: SPEC, fps: 24, frames: 90, use: [stand, { skill: "hitReaction", f0: 10, args: { dir: [0, -1], speed: 8 } }], ...(fix ? { fix } : {}) }, { sk: skeletonFor(rig), scene: motionScene([]) });
+	const r = hit(), off = hit({ ballistic: false }), skip = r.fixed.ballistic?.skipped?.[0], joints = (skip?.pops ?? []).map(p => p.split(" ")[0]);
+	const same = r.out.frames.every((q, f) => q.s.P.every((p, j) => p.every((x, k) => x === off.out.frames[f].s.P[j][k])));
+	expect(`(a3) ${rig}: a hit at 8 m/s keeps its keyed launch, the arc's would add POPs over POP_HARD (${skip?.pops?.join(", ")}): the take is fix { ballistic: false }'s, no POP`,
+		["Hips", "Head", "LeftHand", "RightHand", "LeftForeArm", "RightForeArm"].every(j => joints.includes(j)) && !r.fixed.ballistic.at.length && same && !kinds(r).has("POP"), JSON.stringify({ b: r.fixed.ballistic, groups: r.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`) }));
 }
 
 // (a4) a hop over a 0.1 m thick hurdle, sparse keys, the feet riding the hips: keyed over a clean 0.6 m apex in 14 frames, whose arc allows 0.417 m
@@ -371,6 +391,25 @@ function hop(keys, z, A, d = 0.4) {
 	expect(`(a8) standing hop, default fixes: its 3-frame flight rides the arc (${JSON.stringify(r.fixed.ballistic?.at)}, centre of mass ${r3(err)} g off 1 g)`, fl.length === 1 && (r.fixed.ballistic?.at ?? []).includes(`f${fl[0][0]}-f${fl[0][1]}`) && err < 0.01, JSON.stringify({ rt: r.fixed.retime, b: r.fixed.ballistic, fl: flightOf(r) }));
 }
 
+// motion.describe's fix note gives the flight length the fixes act on (it said 4+ frames while they moved the 3-frame flights above)
+{
+	const note = NOTES.fix.find(n => n.startsWith("ballistic and spin")) ?? "";
+	expect(`describe's fix note: the flight fixes work on flights of ${MIN_FLIGHT}+ frames, as flights() reads them`, note.includes(`each flight, ${MIN_FLIGHT}+ frames off the ground`), note.slice(0, 120));
+}
+
+// (a8) the same hop with an open head_pitch keyed f32-f38, just after its 3-frame flight f25-f27: search's window (f27-f49) reached
+// the flight's landing and widened only for air runs of 4 frames or more, so each trial cut the flight a 3-frame arc moves
+// (search cost 87.4 against the whole take's 101). The window holds every flight it reaches, 3 frames or more (MIN_FLIGHT)
+{
+	const keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r } }], z = hop(keys, 0, 24);
+	keys.push({ f: 32, set: { head_pitch: 0 } }, { f: 34, set: { head_pitch: { range: [-10, 10] } } }, { f: 38, set: { head_pitch: 0 } });
+	keys.push({ f: 46, set: { root: shift(pose0.root, [0, 0, z + 0.05]), foot_l: shift(pose0.foot_l, [0, 0, z + 0.05]), foot_r: shift(pose0.foot_r, [0, 0, z + 0.05]) } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 60, keys: keys.sort((p, q) => p.f - q.f) }, { sk, scene: motionScene([]) }), w = r.search?.window ?? [0, 0], [a, b] = flightOf(r)[0] ?? [0, 0];
+	const out = compileMotion({ fps: 24, ...r.expanded }, { sk, scene: motionScene([]) }, { window: w }), off = Math.max(...out.frames.map((q, i) => Math.hypot(...[0, 1, 2].map(k => q.s.P[I.Hips][k] - r.out.frames[w[0] + i].s.P[I.Hips][k]))));
+	expect(`(a8) standing hop with an open head_pitch after its 3-frame flight f${a}-f${b}: search's window f${w[0]}-f${w[1]} holds it 8 frames past each end and its trial reads the whole take's hips (${off.toExponential(1)} m off)`,
+		b - a + 1 === 3 && w[0] <= a - 8 && w[1] >= b + 8 && off < 1e-9, JSON.stringify({ search: r.search, flight: [a, b] }));
+}
+
 // (a9) the cost of weighing the holds: 2 standing hops 140 frames apart and a second character. The work is counted, not timed (a
 // timed ratio read 1.3x idle and 2.0x under the suite's load): the compile reads the scene's object list a fixed number of times per
 // frame of each pass (441 reads with retime off), so its reads count the work. Against retime off: fe38741c 1x (retime holds the
@@ -491,9 +530,10 @@ function hop(keys, z, A, d = 0.4) {
 	// fix.spin turns the body about its hips, which moves the centre of mass: the second arc puts it back on the parabola
 	const comFall = fallError(f => centerOfMass(sk, on.out.frames[f].s)[1], a + 1, b - 1);
 	expect(`(c) back tuck: after fix.spin the centre of mass still falls at 1 g (off by ${r3(comFall)} g)`, comFall < 0.01, comFall);
-	// the landing's one-frame POP goes unread only on a flight the ballistic fix moved
+	// the landing's one-frame POP (knees 8 cm/f^2, under POP_HARD) is a contact on a flight fix.spin re-timed, with or without the arc: until
+	// b7a8e69f only a flight whose root the ballistic fix moved was exempt, so { ballistic: false } read the same landing as POP
 	const kept = flip({ ballistic: false });
-	expect("(c) back tuck with fix { ballistic: false }: the landing reads POP (only a flight the ballistic fix moved is exempt)", kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
+	expect("(c) back tuck with fix { ballistic: false }: fix.spin's re-timed flight is a contact too, its landing reads no POP, as with the arc", JSON.stringify(kept.out.flightRuns) === JSON.stringify(on.out.flightRuns) && kept.fixed.spin?.frames > 0 && !kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
 }
 
 // (c) the back tuck with an open head_pitch keyed f36-f43, after the flight: search compiles only the frames a parameter changes, and
@@ -635,12 +675,6 @@ function spinJump(lean = 0) {
 	keys.push({ f: B + 6, set: { root: shift(p0.root, [0, -0.1, 0]), arm_rest: 60, abend_l: 0, abend_r: 0 } }, { f: B + 20, set: { root: p0.root, arm_rest: 72 } });
 	const r = compileSpec({ schema: SPEC, fps: 24, frames: 58, keys }, { sk: xs, scene: motionScene([]) }), fl = flightOf(r)[0], d = fl && runDrift(r.out, fl[0], fl[1]);
 	expect(`(d2) spin jump leaning -8 deg (X Bot): fix.spin keeps the axis re-time (${JSON.stringify(r.fixed.spin?.axis)}), SPIN reads ${r3(d)} as at 28ad5074 (0.176), QA has no SPIN`, r.fixed.spin?.axis?.includes("f17-f31") && Math.abs(d - 0.176) < 0.002 && !kinds(r).has("SPIN"), JSON.stringify({ spin: r.fixed.spin, fl, kinds: [...kinds(r)] }));
-}
-
-// (e) the existing flight tests
-for (const name of ["verify-motion3-flip.mjs", "verify-motion3-float-fix.mjs"]) {
-	const res = spawnSync(process.execPath, [fileURLToPath(new URL(name, import.meta.url))], { encoding: "utf8" });
-	expect(`(e) ${name} still passes`, res.status === 0, (res.stdout + res.stderr).split("\n").filter(l => /FAIL/.test(l)).join("; ").slice(0, 600));
 }
 
 if (failures) { console.error(`${failures} flight physics check(s) failed`); process.exit(1); }

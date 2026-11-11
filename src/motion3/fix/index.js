@@ -19,7 +19,8 @@
 //   retime       speed spikes get more frames, borrowed from the neighbouring keys; the key intervals of an air run of
 //                4 frames or more that falls, or of 3 (qa/flight-checks.js fallingRuns) are left as keyed: a fall is fast because gravity makes it so (#1124);
 //                one a later fix makes starts the fixes again with its key interval kept (applyFixes, fixed.retime.air); the
-//                holds of 3-frame runs and of runs a later fix made stand only where QA is no worse with them (applyFixes)
+//                holds of 3-frame runs and of runs a later fix made stand where QA is no worse with them, and wherever the
+//                take without them has fewer flights of under MIN_RUN frames that the arc moves, whatever QA reads (applyFixes)
 //   ballistic    in each air run of 3 frames or more the whole body moves so the centre of mass follows the gravity
 //                parabola between takeoff and landing at constant horizontal speed; past 0.5 m, where the arc enters
 //                what the keyed flight did not (flight-gate.js), or a 3-frame run without a real takeoff and landing, it is
@@ -27,7 +28,8 @@
 //   spin         in each air run the root's turn is re-timed so the angular momentum about the centre of mass stays
 //                constant (faster tucked, slower open), the keyed total turn kept; left where it would enter what the
 //                keyed flight did not (flight-gate.js) or read SPIN worse than keyed (spin.js); held about the turn's
-//                axis alone where holding the momentum vector reads SPIN worse than that (fixed.spin.axis)
+//                axis alone where holding the momentum vector reads SPIN worse than that (fixed.spin.axis); its landing, like
+//                the arc's push-off and impact, is a contact: QA reads a POP the fixes add there only over POP_HARD (contactPops)
 //   stance       a standIdle stance whose legs, feet or hips are in a scene body slides out of it, the least
 //                distance (skills/stance.js; applied when the skills expand, reported in observations.placed)
 //   person       arms out of the other characters (scene.people, their installed takes; QA PERSON): the wrist
@@ -198,14 +200,15 @@ function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}
 
 /**
  * The ballistic and spin fixes over `runs` (flights). out.flightMoved[ch] = Map(frame -> [dx, dy, dz]) is how far they moved
- * root and the ankles (qa/key-reach.js reads the keys before them); out.flightRuns the runs whose root they moved and
- * out.flightPops the POPs before them (QA's POP on their contact frames, qa/flight-checks.js contactPops: only fix.ballistic moves the root).
+ * root and the ankles (qa/key-reach.js reads the keys before them); out.flightRuns the runs whose root fix.ballistic moved or
+ * whose turn fix.spin re-timed, and out.flightPops the POPs before them (QA's POP on their contact frames, qa/flight-checks.js contactPops).
  */
 function flightFixes(out, engine, fix, runs) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	if (!runs.length) return fixed;
-	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()])), gate = flightGate(out, runs);
+	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()]));
 	out.flightPops = popsOf(out);
+	const gate = flightGate(out, runs, out.flightPops);
 	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs, gate));
 	if (fix.spin) put("spin", spinFix(out, engine, runs, gate));
 	// the second pass's report joins the first's (ballisticFix prev); null: nothing moved or skipped in either
@@ -218,7 +221,8 @@ function flightFixes(out, engine, fix, runs) {
 		const w = out.baked[ch][f];
 		return w !== v && Array.isArray(v) && Array.isArray(w) ? [[f, [w[0] - v[0], w[1] - v[1], w[2] - v[2]]]] : [];
 	}))]));
-	const root = out.flightMoved.root, f0 = out.f0 ?? 0;
-	out.flightRuns = runs.filter(([a, b]) => root && Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i).some(f => root.has(f)));
+	// a run fix.spin re-timed has the same contacts as one the arc moved: its landing is read against re-timed air frames
+	const root = out.flightMoved.root, f0 = out.f0 ?? 0, spun = new Set(fixed.spin?.at ?? []);
+	out.flightRuns = runs.filter(([a, b]) => spun.has(`f${a + f0}-f${b + f0}`) || (root && Array.from({ length: b - a + 1 }, (_, i) => a + f0 + i).some(f => root.has(f))));
 	return fixed;
 }
