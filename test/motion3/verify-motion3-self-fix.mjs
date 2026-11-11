@@ -284,6 +284,15 @@ for (const [rig, sk] of [["x-bot", X], ["y-bot", Y]]) {
 	console.log(`  x-bot FK swing, right arm half on its IK onto an anchor from f16: wrist moved ${d.toExponential(2)} m on f24-f47; FK levers on the right before f24 on ${early} frames; fixed.self ${JSON.stringify({ spans: c.self?.spans })}`);
 	expect("(l) x-bot half-IK arm easing onto an anchor: FK moves on its free frames, and the wrist keeps the anchor where it is held (1e-6 m)", early > 0 && d < 1e-6, String(d));
 }
+// an elbow keyed bent 150 deg on f24 alone (0 at f20 and f28): a bend held or eased over the frames around takes the
+// elbow no further back than the least bent of them (it bent 1.4 deg backwards when only f24's bend was read)
+{
+	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0], armw_l: 0, armw_r: 0 };
+	const keys = [[0, { ...st, aswing_r: 0, abend_r: 0, arm_rest: 85 }], [20, { abend_r: 0, aswing_r: -10 }], [24, { aswing_r: -10, abend_r: 150 }], [28, { abend_r: 0, aswing_r: -10 }], [47, { aswing_r: 0, abend_r: 0 }]].map(([f, set]) => ({ f, set }));
+	const o = compileMotion(specOf({ keys }, { fix: { retime: false } }), { sk: X, scene }), least = Math.min(...[...o.ctx.fkArm.r].map(([f, v]) => (o.frames[f].c.abend_r ?? 0) + v.bend));
+	console.log(`  x-bot FK elbow keyed 150 deg on one frame: least abend + bend ${least.toFixed(2)} deg; fixed.self ${JSON.stringify({ spans: o.fixed.self?.spans })}`);
+	expect("(l) x-bot FK elbow bent on one frame: no frame's bend lever takes the elbow past straight (abend + bend >= 0)", o.ctx.fkArm.r.size > 0 && least >= -1e-9, String(least));
+}
 const half = fk["x-bot half"].r.out.ctx;
 expect("(l) x-bot FK swing with the right arm half on its IK: the right arm takes FK angles and IK levers", half.fkArm.r.size > 0 && half.skinPush.r.size + half.swivel.r.size > 0, JSON.stringify([half.fkArm.r.size, half.skinPush.r.size, half.swivel.r.size]));
 

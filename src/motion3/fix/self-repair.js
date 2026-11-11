@@ -110,9 +110,12 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 	while (!(hits[k][ra]?.past > 0)) ra++;
 	while (!(hits[k][rb]?.past > 0)) rb--;
 	let best = null;
-	const found = movesFor(out, engine, body, k, i, h, known, wide), no = new Set(), tries = found.slice(0, TRIES), fk = ra < rb && tries.some(c => c.mv.out || c.mv.bend);
+	// an elbow bend is eased or held over these frames: it may unbend the elbow no further than the least bent of them
+	const atHere = windowOf(out, clock, i, i), atRun = ra < rb ? windowOf(out, clock, ra, rb) : null, f0 = out.f0 ?? 0;
+	const floor = Math.min(...(atRun ?? atHere).map(([j]) => (out.frames[j].c[`abend_${k}`] ?? 0) + (leverAt(out, k, f0 + j).bend ?? 0)));
+	const found = movesFor(out, engine, body, k, i, h, known, wide, floor), no = new Set(), tries = found.slice(0, TRIES), fk = atRun && tries.some(c => c.mv.out || c.mv.bend);
 	// the run's window is read only for an FK move to hold over it (its frames can span the take)
-	const here = frame(windowOf(out, clock, i, i)), run = fk ? frame(windowOf(out, clock, ra, rb)) : null;
+	const here = frame(atHere), run = fk ? frame(atRun) : null;
 	for (const c of tries) {
 		for (const w of c.mv.out || c.mv.bend ? [run, here].filter(Boolean) : [here]) {
 			if (spent()) return best ?? { why: null };

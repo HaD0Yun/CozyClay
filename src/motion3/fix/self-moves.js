@@ -49,12 +49,13 @@ export function apply(out, engine, k, mv, at) {
 
 /** The FK moves of side k for hit h on frame index i: the arm out by the angle that takes the hit's depth (and a margin)
  * off at its distance from the shoulder, times OUTS; the elbow bent either way by the angle that does it at its distance
- * from the elbow, times BENDS (a forearm or hand hit); and the two together. */
-function fkMoves(out, k, i, h, P0, a, e, was) {
+ * from the elbow, times BENDS (a forearm or hand hit); and the two together. `floor`: the least elbow bend (abend and
+ * its bend lever) over the frames a bend is eased or held on; no bend takes it below 0 (the elbow bent backwards). */
+function fkMoves(out, k, i, h, P0, a, e, was, floor) {
 	const fkw = fkAt(out, k, i), c = out.frames[i].c, moves = [], need = h.past + MARGIN;
 	const at = (p, j) => Math.max(0.05, len(sub(p, P0[j])));
 	const o = (DEG * need) / at(h.p, a) / fkw, b = (DEG * need) / at(h.p, e) / fkw, part = h.b === out.ctx.sk.index[`${SIDES[k]}Arm`];
-	const okOut = x => (was.out ?? 0) + x <= OUT_MAX, okBend = x => Math.abs((was.bend ?? 0) + x) <= BEND_MAX && (c[`abend_${k}`] ?? 0) + (was.bend ?? 0) + x >= 0;
+	const okOut = x => (was.out ?? 0) + x <= OUT_MAX, okBend = x => Math.abs((was.bend ?? 0) + x) <= BEND_MAX && Math.min(floor, (c[`abend_${k}`] ?? 0) + (was.bend ?? 0)) + x >= 0;
 	for (const m of OUTS) if (okOut(o * m)) moves.push({ out: o * m });
 	if (!part) for (const m of BENDS) for (const sg of [1, -1]) if (okBend(sg * b * m)) moves.push({ bend: sg * b * m });
 	if (!part && okOut(o) && okBend(b)) moves.push({ out: o, bend: b });
@@ -62,8 +63,8 @@ function fkMoves(out, k, i, h, P0, a, e, was) {
 }
 
 /** The moves of side k on frame index i for its hit h, each tried on that frame alone, best first: those that clear it
- * by the smaller move of the elbow and wrist, then those that take at least GAIN off it by how much. */
-export function movesFor(out, engine, body, k, i, h, known, wider = false) {
+ * by the smaller move of the elbow and wrist, then those that take at least GAIN off it by how much. `floor`: fkMoves'. */
+export function movesFor(out, engine, body, k, i, h, known, wider = false, floor = Infinity) {
 	const { sk } = out.ctx, I = sk.index, S = SIDES[k], fr = out.frames[i], was = leverAt(out, k, (out.f0 ?? 0) + i);
 	const [a, e, w] = [I[`${S}Arm`], I[`${S}ForeArm`], I[`${S}Hand`]], P0 = fr.s.P, rise0 = Math.max(0, P0[e][1] - P0[a][1]);
 	const tw = weightAt(out, k, i), moves = [], wide = [];
@@ -94,7 +95,7 @@ export function movesFor(out, engine, body, k, i, h, known, wider = false) {
 		if (wider) for (const d of WIDE_TURNS) for (const sg of [1, -1]) if (Math.abs((was.turn ?? 0) * tw + sg * d) <= TURN_MAX) wide.push({ turn: sg * d });
 	}
 	// a hand the take holds (on the body, on an anchor, a grasp or a contact) keeps its place: no FK move
-	if (fkAt(out, k, i) >= FK_MIN && (h.hold === null || h.hold === "fk")) moves.push(...fkMoves(out, k, i, h, P0, a, e, was));
+	if (fkAt(out, k, i) >= FK_MIN && (h.hold === null || h.hold === "fk")) moves.push(...fkMoves(out, k, i, h, P0, a, e, was, floor));
 	// why none helps: the nearest of those that keep the elbow down (its hit then), and whether one that would help lifts it
 	let nearest = null, lifts = false;
 	const tried = list => list.flatMap(mv => {
