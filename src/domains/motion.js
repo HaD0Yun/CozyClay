@@ -26,7 +26,7 @@ import {
 } from "../motion/ik.js";
 import * as THREE from "three";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
-import { applyTakeFrame } from "../motion3/playback.js";
+import { playTakeFrame as applyTakeFrame } from "../character-playback.js"; import { registerCastRigs } from "../character-rig.js";
 import { advancePlayback, installPlaybackApplier } from "./playback.js";
 import { ko } from "../locale.js";
 import { isProxyFigure } from "../scenes.js";
@@ -48,7 +48,7 @@ import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys,
 export function createMotionDomain(appContext, characters) {
 	const takes = new Map(), decoded = new WeakMap(), rigImages = new WeakMap();
 	let running = 0;
-	const references = entries => entries.map(entry => {
+	const references = entries => registerCastRigs(entries).map(entry => { // imported rigs register before their saved takes compile
 		const saved = normalizeTakeSource(entry.motionTake), take = saved ? restoredTake(entry.id, saved) : null;
 		// The saved Pose-mode / IK edits come back with the scene (scenes.js ikEdits).
 		const edits = entry.ikEdits;
