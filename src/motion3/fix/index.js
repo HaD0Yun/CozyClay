@@ -206,8 +206,9 @@ function runFixes(out, fix, engine, { whole = true } = {}, air, short, note = {}
 function flightFixes(out, engine, fix, runs) {
 	const fixed = {}, put = (name, report) => { if (report) fixed[name] = report; };
 	if (!runs.length) return fixed;
-	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()])), gate = flightGate(out, runs);
+	const before = Object.fromEntries(MOVED.map(ch => [ch, out.baked[ch]?.slice()]));
 	out.flightPops = popsOf(out);
+	const gate = flightGate(out, runs, out.flightPops);
 	if (fix.ballistic) put("ballistic", ballisticFix(out, engine, runs, gate));
 	if (fix.spin) put("spin", spinFix(out, engine, runs, gate));
 	// the second pass's report joins the first's (ballisticFix prev); null: nothing moved or skipped in either

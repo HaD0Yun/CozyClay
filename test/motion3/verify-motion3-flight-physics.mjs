@@ -10,7 +10,7 @@
 //       (a2) a keyed flight past the apex limit: fixed.ballistic.skipped reports it and the hips stay as keyed
 //       (a3) the bench-2 parkour vault: the push-off and impact the fix made are no POP, its keyed pops there stand, no blocking group;
 //       a hop whose keyed arm snap lands on the impact frames still reads it (POP, blocking) at its keyed size, and the same hop without it is clean
-//       a hit at 8 m/s: the launch POPs the arc added over POP_HARD stand (blocking), the added ones under it are contacts
+//       a hit at 8 m/s: the arc's launch would add POPs over POP_HARD, which QA reads, so the flight keeps its keyed launch
 //       (a4) a hop keyed over a hurdle higher than its frames can carry it: the arc would enter the hurdle, so the flight
 //       keeps its frames and fixed.ballistic.skipped says how far off, what it entered and the frames it fits; the same
 //       hop with the frames, with no hurdle or with an allowance moves. An arc through the floor, or a carried bar's into a post, gets the same; a re-time
@@ -42,7 +42,7 @@ import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { bakeTake } from "../../src/motion3/take.js";
 import { peopleOf } from "../../src/motion3/people.js";
 import { airRuns } from "../../src/motion3/qa/style.js";
-import { flights, runDrift, SPIN_TOL, DROP_LIMIT, MIN_FLIGHT } from "../../src/motion3/qa/flight-checks.js";
+import { flights, runDrift, contactPops, SPIN_TOL, DROP_LIMIT, MIN_FLIGHT } from "../../src/motion3/qa/flight-checks.js";
 import { NOTES } from "../../src/motion3/schema/topics.js";
 import { isBlocking, POP_HARD } from "../../src/motion3/qa/blocking.js";
 import { spinFix } from "../../src/motion3/fix/spin.js";
@@ -194,14 +194,15 @@ for (const cut of [40, 45, 50]) {
 	expect("(a3) parkour vault: the POPs are the keyed take's (its push-off knees at their keyed size), no blocking group, no more issues than the 13 of the baseline", pops(r) === pops(keyed) && blocking.length === 0 && r.qa.total <= 13, JSON.stringify({ total: r.qa.total, blocking: list(blocking), all: list(r.qa.groups), keyed: pops(keyed) }));
 }
 
-// (a3) a 0.3 m hop, f30-f44, its arms keyed to snap 100 deg in one frame at f39: the overlap layer lands the hands' pop on f44-f45,
-// the frames after landing the fix leaves to its impact. The snap is keyed, not the fix's: POP still reads it, blocking, at its keyed size
+// (a3) a 0.3 m hop, f30-f44, its arms keyed to snap 80 deg in one frame at f39: the overlap layer lands the hands' pop on f44-f45,
+// the frames after landing the fix leaves to its impact. The snap is keyed, not the fix's: POP still reads it, blocking, at its keyed size.
+// (100 deg until the flight gate read POP_HARD: on the arc the forearms' keyed 24.6 cm/f^2 at f44 read over 25 at f45, so the arc is left)
 {
 	const A = 30, N = 14, off = l => [pose0[`foot_${l}`][0], pose0[`foot_${l}`][1] - HIPS, pose0[`foot_${l}`][2]], on = () => ({ root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r });
 	const up = y => { const root = shift(pose0.root, [0, y, 0]); return { root, foot_l: shift(root, shift(off("l"), [0, 0.02, 0])), foot_r: shift(root, shift(off("r"), [0, 0.02, 0])) }; };
 	const hop = (snap, fix) => {
 		const keys = [{ f: 0, set: { ...pose0 } }, { f: 20, set: on() }, { f: 26, set: { ...on(), root: shift(pose0.root, [0, -0.12, 0]) } }, { f: A, set: on() }, { f: A + 7, set: up(0.3) }, { f: A + N, set: on() }, { f: A + N + 6, set: { ...on(), root: shift(pose0.root, [0, -0.1, 0]) } }, { f: A + N + 16, set: on() }];
-		if (snap) keys.push({ f: 39, set: { aswing_l: 0, aswing_r: 0 } }, { f: 40, set: { aswing_l: 100, aswing_r: 100 } }, { f: 41, set: { aswing_l: 100, aswing_r: 100 } });
+		if (snap) keys.push({ f: 39, set: { aswing_l: 0, aswing_r: 0 } }, { f: 40, set: { aswing_l: 80, aswing_r: 80 } }, { f: 41, set: { aswing_l: 80, aswing_r: 80 } });
 		return compileSpec({ schema: SPEC, fps: 24, frames: A + N + 20, keys: keys.sort((p, q) => p.f - q.f), fix }, { sk, scene: motionScene([]) });
 	};
 	const r = hop(true, { retime: false }), keyed = hop(true, { retime: false, ballistic: false, spin: false }), plain = hop(false, { retime: false });
@@ -211,15 +212,22 @@ for (const cut of [40, 45, 50]) {
 	expect("(a3) the same hop without the snap: moved by the arc and QA clean (its push-off and impact read no POP)", plain.out.flightRuns?.length === 1 && plain.qa.total === 0, JSON.stringify(plain.qa.groups.map(x => `${x.kind} ${x.subject} f${x.first}`)));
 }
 
-// (a3) a hit at 8 m/s (hitReaction): the arc launches the body in one frame, f12, the hips 26.7 cm/f^2, the hands 29.6 (Y Bot).
-// The fixes added those pops, but over POP_HARD a contact is no excuse: QA reads them, blocking; the added ones under it
-// (the feet and shins at f12, the landing at f27) stay a contact's (until b7a8e69f every added contact-frame POP went unread)
+// (a3) a hit at 8 m/s (hitReaction): on the arc the body launches in one frame, f12, the hips 26.7 cm/f^2, the hands 29.6 (Y Bot).
+// Over POP_HARD a contact is no excuse: QA reads a POP the fixes added there (contactPops), so the flight gate does too and the
+// arc gives the flight its frames back (fixed.ballistic.skipped pops); the take is the one with fix { ballistic: false }, no POP.
+// (until b7a8e69f every added contact-frame POP went unread; at 43368d96 QA read them, blocking, on the arc's take)
+{
+	const issue = (frame, value) => ({ kind: "POP", msg: `Hips accel ${value * 100} cm/f^2 in one frame`, frame, value });
+	const read = contactPops({ flightRuns: [[12, 25]], flightPops: new Map() });
+	expect("(a3) contactPops: an added POP on a contact frame stands over POP_HARD and goes unread under it; off the contact frames it stands",
+		read(issue(12, POP_HARD + 0.01)) !== null && read(issue(27, POP_HARD - 0.01)) === null && read(issue(18, 0.1)) !== null);
+}
 for (const rig of ["y-bot-tpose", "x-bot-tpose"]) {
-	const r = compileSpec({ schema: SPEC, fps: 24, frames: 90, use: [stand, { skill: "hitReaction", f0: 10, args: { dir: [0, -1], speed: 8 } }] }, { sk: skeletonFor(rig), scene: motionScene([]) });
-	const [a, b] = r.out.flightRuns?.[0] ?? [0, 0], contact = new Set([a - 1, a, a + 1, b + 1, b + 2, b + 3]), pops = r.qa.groups.filter(g => g.kind === "POP" && contact.has(g.first));
-	const joints = pops.filter(g => g.first === a).map(g => g.subject.split(" ")[0]);
-	expect(`(a3) ${rig}: a hit at 8 m/s reads its launch POPs over POP_HARD at f${a} (${joints.join(", ")}), blocking, and no added one under it`,
-		["Hips", "Head", "LeftHand", "RightHand", "LeftForeArm", "RightForeArm"].every(j => joints.includes(j)) && pops.every(g => isBlocking(g) && g.worst > POP_HARD), JSON.stringify(pops.map(g => `${g.subject} f${g.first} ${g.worst}`)));
+	const hit = fix => compileSpec({ schema: SPEC, fps: 24, frames: 90, use: [stand, { skill: "hitReaction", f0: 10, args: { dir: [0, -1], speed: 8 } }], ...(fix ? { fix } : {}) }, { sk: skeletonFor(rig), scene: motionScene([]) });
+	const r = hit(), off = hit({ ballistic: false }), skip = r.fixed.ballistic?.skipped?.[0], joints = (skip?.pops ?? []).map(p => p.split(" ")[0]);
+	const same = r.out.frames.every((q, f) => q.s.P.every((p, j) => p.every((x, k) => x === off.out.frames[f].s.P[j][k])));
+	expect(`(a3) ${rig}: a hit at 8 m/s keeps its keyed launch, the arc's would add POPs over POP_HARD (${skip?.pops?.join(", ")}): the take is fix { ballistic: false }'s, no POP`,
+		["Hips", "Head", "LeftHand", "RightHand", "LeftForeArm", "RightForeArm"].every(j => joints.includes(j)) && !r.fixed.ballistic.at.length && same && !kinds(r).has("POP"), JSON.stringify({ b: r.fixed.ballistic, groups: r.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`) }));
 }
 
 // (a4) a hop over a 0.1 m thick hurdle, sparse keys, the feet riding the hips: keyed over a clean 0.6 m apex in 14 frames, whose arc allows 0.417 m

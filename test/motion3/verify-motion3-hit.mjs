@@ -10,7 +10,6 @@ import { motionScene } from "../../src/motion3/scene.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { peopleOf, personJoint } from "../../src/motion3/people.js";
 import { takeHash } from "./fixtures/take-hash.mjs";
-import { POP_HARD } from "../../src/motion3/qa/blocking.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -23,10 +22,7 @@ const groups = r => JSON.stringify(r.qa.groups.map(g => [g.kind, g.subject, g.fi
 // lays it in the floor (measured: the hips 3 cm on the back, the thighs 13-15 cm and the fingers 27-30 cm face down, on the
 // rig's posed skin; skills/impact.js, open). "QA clean" here is every other check; FLOOR_MAX pins the depth so it cannot grow.
 const FLOOR_MAX = 0.31, floorOf = r => r.qa.groups.filter(g => g.kind === "GROUND" && !/ sole below floor$/.test(g.subject));
-// The arc launches the body in one frame; since QA reads a POP the flight fixes add there over POP_HARD (contactPops), a hit at
-// 8 m/s and up reads its launch POPs (hips 26-33 cm/f^2, hands 26-36), blocking: allowed on that frame alone (skills/impact.js, open).
-const launch = r => r.qa.groups.filter(g => g.kind === "POP" && g.first === g.last && g.first === r.out.flightRuns?.[0]?.[0] && g.worst > POP_HARD);
-const clean = r => r.qa.groups.every(g => floorOf(r).includes(g) || launch(r).includes(g)) && floorOf(r).every(g => g.worst <= FLOOR_MAX);
+const clean = r => r.qa.groups.every(g => floorOf(r).includes(g)) && floorOf(r).every(g => g.worst <= FLOOR_MAX);
 const hips = (r, f) => r.out.frames[f].s.P[yb.index.Hips];
 
 // 1. the pedestrian: walking across, a truck from the side at 8 m/s

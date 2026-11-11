@@ -120,5 +120,5 @@ export function ballisticFix(out, engine, runs, gate, prev = null) {
 	}
 	if (!at.length && !skipped.length) return null;
 	return { runs: at.length, frames, max: round4(max), at, ...(skipped.length ? { skipped } : {}),
-		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into) or loses a goal it met (lost), or a flight under 4 frames whose frame before or after touches no support or whose own frames touch one (contact), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
+		how: `the centre of mass follows the gravity parabola between takeoff and landing at constant horizontal speed${skipped.length ? `; runs past ${MAX_FIX} m, or whose arc enters what the keyed flight did not (into) or loses a goal it met (lost) or adds a POP over POP_HARD on its push-off or impact (pops), or a flight under 4 frames whose frame before or after touches no support or whose own frames touch one (contact), keep their frames and are reported (apex g N^2 / 8 for N frames; fits: the frames the keyed apex needs)` : ""}` };
 }

@@ -9,10 +9,14 @@
 // (fixed.ballistic.skipped, fixed.spin.left). Being physically right does not excuse it: the agent gets the frames the
 // flight needs instead. Only the flight's own frames are read (a fix re-solves no other): the other characters on them
 // (a view of out over a..b), the carried objects over the take (object-pose.js caches their poses on out and its frames).
+// A move is worse too where it adds a POP over POP_HARD on the flight's push-off or impact frames (qa/flight-checks.js
+// contactFrames), the rule QA reads there (contactPops): a hit at 8 m/s launched on the arc read its hands 29.6 cm/f^2.
 import { worldChecks, QA_LIMITS } from "../qa/checks.js";
 import { objectChecks } from "../qa/object-checks.js";
 import { peopleChecks } from "../qa/people-checks.js";
 import { goalChecks } from "../qa/goals.js";
+import { POP_HARD } from "../qa/blocking.js";
+import { contactFrames, popsOf } from "../qa/flight-checks.js";
 import { round4 } from "./ease.js";
 
 /** Metres: deeper than the frames before by less than this is the same depth. */
@@ -37,13 +41,21 @@ function reading(out, a, b) {
 const metGoals = out => new Set(out.ctx.spec?.goals?.length ? goalChecks(out, out.ctx.spec.goals).results.filter(r => r.ok).map(r => r.name) : []);
 
 /** What a gate's hit says: "enter <subjects> by <depth> m" and/or "lose goal <names>". */
-export const hitSays = hit => [...(hit.into.length ? [`enter ${hit.into.join(", ")} by ${hit.depth} m`] : []), ...(hit.lost?.length ? [`lose goal ${hit.lost.join(", ")}`] : [])].join(" and ");
+export const hitSays = hit => [...(hit.into.length ? [`enter ${hit.into.join(", ")} by ${hit.depth} m`] : []), ...(hit.lost?.length ? [`lose goal ${hit.lost.join(", ")}`] : []),
+	...(hit.pops?.length ? [`add a POP over ${Math.round(POP_HARD * 100)} cm/f^2 (${hit.pops.join(", ")})`] : [])].join(" and ");
+
+/** The POPs over POP_HARD on run [a, b]'s contact frames that `was` (qa/flight-checks.js popsOf before the flight fixes) did not read: ["<joint> f<frame>"]. */
+function addedPops(out, a, b, was) {
+	const at = new Set(contactFrames(a, b)), f0 = out.f0 ?? 0;
+	return [...popsOf(out)].filter(([key, i]) => at.has(i.frame) && i.value > POP_HARD && !was.has(key)).map(([key, i]) => `${key.split(" ")[0]} f${i.frame + f0}`);
+}
 
 /**
- * Reads flights `runs` now, as they are before any flight fix. -> gate(a, b) for run [a, b] after a move: null, or
- * { into: [subjects], depth (m, the deepest), lost?: [goal names] } for what the move entered and the goals it lost.
+ * Reads flights `runs` now, as they are before any flight fix (`pops`: popsOf of these frames). -> gate(a, b) for run
+ * [a, b] after a move: null, or { into: [subjects], depth (m, the deepest), lost?: [goal names], pops?: ["<joint> f<frame>"] }
+ * for what the move entered, the goals it lost and the POPs over POP_HARD it added on the flight's contact frames.
  */
-export function flightGate(out, runs) {
+export function flightGate(out, runs, pops = popsOf(out)) {
 	const keyed = new Map(runs.map(([a, b]) => [a, reading(out, a, b)])), met = metGoals(out);
 	return (a, b) => {
 		const was = keyed.get(a), into = new Set();
@@ -53,7 +65,7 @@ export function flightGate(out, runs) {
 			into.add(msg);
 			depth = Math.max(depth, value);
 		}
-		const now = met.size ? metGoals(out) : met, lost = [...met].filter(name => !now.has(name));
-		return into.size || lost.length ? { into: [...into], depth: round4(depth), ...(lost.length ? { lost } : {}) } : null;
+		const now = met.size ? metGoals(out) : met, lost = [...met].filter(name => !now.has(name)), added = addedPops(out, a, b, pops);
+		return into.size || lost.length || added.length ? { into: [...into], depth: round4(depth), ...(lost.length ? { lost } : {}), ...(added.length ? { pops: added } : {}) } : null;
 	};
 }

@@ -150,6 +150,9 @@ export function popsOf(out) {
 	return at;
 }
 
+/** The push-off and impact frames of flight [a, b] (indexes of out.frames): the one before takeoff, the first two air frames, the three from the one after landing. */
+export const contactFrames = (a, b) => [a - 1, a, a + 1, b + 1, b + 2, b + 3];
+
 /**
  * QA's POP on the push-off and impact of each flight the flight fixes moved (out.flightRuns: the root moved by fix.ballistic
  * or the turn re-timed by fix.spin): issue -> the issue to report, or null. The frames: the one before takeoff A, the first
@@ -157,13 +160,12 @@ export function popsOf(out) {
  * the keyed ground frames in one frame, a contact, and fix.spin's re-time changes the air frames a landing is read against
  * (the flip skill's landing knee: 8 cm/f^2 against 7 of keyed air frames, 2 after). So a POP there stands when the joint
  * read POP on that frame before the flight fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the
- * overlap layer lands on the impact is the agent's (a hop's 59 cm/f^2 hand), and what the fixes added to a keyed pop (a
+ * overlap layer lands on the impact is the agent's (a hop's 48 cm/f^2 hand), and what the fixes added to a keyed pop (a
  * vault's 22 cm/f^2 knee read 25) is not. A POP the fixes added stands only over POP_HARD (qa/blocking.js): a one-frame
  * impulse that large is a snap, not a contact (a hit at 8 m/s: hands 29.6 cm/f^2 at its push-off, 12.7 at its landing).
  */
 export function contactPops(out) {
-	const at = new Set(), was = out.flightPops ?? new Map();
-	for (const [a, b] of out.flightRuns ?? []) for (const f of [a - 1, a, a + 1, b + 1, b + 2, b + 3]) at.add(f);
+	const at = new Set((out.flightRuns ?? []).flatMap(([a, b]) => contactFrames(a, b))), was = out.flightPops ?? new Map();
 	return i => {
 		if (i.kind !== "POP" || !at.has(i.frame)) return i;
 		const p = was.get(`${i.msg.split(" ")[0]} ${i.frame}`);
