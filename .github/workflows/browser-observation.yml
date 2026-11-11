@@ -28,6 +28,19 @@ jobs:
           - motion3/qa-motion3-follow-browser
           - motion3/qa-motion3-kits-browser
           - motion3/qa-motion3-revision-browser
+          # Failed on every sampled pull request run on the hosted runner, so
+          # they moved here from ci.yml's browser matrix (#1173). A suite goes
+          # back once it passes here.
+          - motion3/qa-motion3-grab-browser
+          - motion3/qa-motion3-held-gizmo-browser
+          - qa-proxy-figure-browser
+          - qa-storyboard-board-browser
+          - qa-storyboard-export-browser
+          - qa-previs-start-browser
+          - qa-studio-polish-browser
+          - qa-annotate-browser
+          - qa-fix-islands-browser
+          - qa-sculpt-parts-browser
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

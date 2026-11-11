@@ -8,7 +8,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { GIZMO_LAYER } from "./dualview.jsx";
-import { sculptPartGeometry } from "./sculpt-geometry.js";
+import { repeatSculptGeometry, sculptPartGeometry } from "./sculpt-geometry.js";
 import { clearSculptSketch, sculptSketchFrame, sculptSketchSnapshot, sketchDrawnParts, subscribeSculptSketch } from "./sculpt-sketch-state.js";
 
 const OPACITY = 0.42;
@@ -51,7 +51,7 @@ class SketchLayer {
 		this.root.userData.sculptSketch = true;
 	}
 	make(part, now) {
-		const geometry = sculptPartGeometry(part.shape === "scatter" ? { ...part, shape: "blob", roundness: 0.5, taper: 0 } : part);
+		const geometry = repeatSculptGeometry(sculptPartGeometry(part.shape === "scatter" ? { ...part, shape: "blob", roundness: 0.5, taper: 0 } : part), part);
 		const material = new THREE.MeshStandardMaterial({ color: part.color, emissive: part.color, emissiveIntensity: 0.18, roughness: 0.85, metalness: 0, transparent: true, opacity: 0, depthWrite: false });
 		const mesh = new THREE.Mesh(geometry, material);
 		Object.assign(mesh, { raycast: noRay, castShadow: false, receiveShadow: false, matrixAutoUpdate: false, renderOrder: RENDER_ORDER, frustumCulled: false });

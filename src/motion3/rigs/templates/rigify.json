@@ -1,0 +1,18 @@
+{
+	"id": "rigify",
+	"name": "Blender Rigify (DEF- deform bones, or the metarig's own names)",
+	"prefixes": ["DEF-", "ORG-", ""],
+	"sides": { "Left": { "s": "L" }, "Right": { "s": "R" } },
+	"bones": {
+		"Hips": ["spine"], "Spine": ["spine.001"], "Spine1": ["spine.002"], "Spine2": ["spine.003"], "Neck": ["spine.004"], "Head": ["spine.006", "spine.005"],
+		"{Side}Shoulder": ["shoulder.{s}"], "{Side}Arm": ["upper_arm.{s}"], "{Side}ForeArm": ["forearm.{s}"], "{Side}Hand": ["hand.{s}"],
+		"{Side}UpLeg": ["thigh.{s}"], "{Side}Leg": ["shin.{s}"], "{Side}Foot": ["foot.{s}"], "{Side}ToeBase": ["toe.{s}"]
+	},
+	"fingers": {
+		"Thumb": ["thumb.01.{s}", "thumb.02.{s}", "thumb.03.{s}"],
+		"Index": ["f_index.01.{s}", "f_index.02.{s}", "f_index.03.{s}"],
+		"Middle": ["f_middle.01.{s}", "f_middle.02.{s}", "f_middle.03.{s}"],
+		"Ring": ["f_ring.01.{s}", "f_ring.02.{s}", "f_ring.03.{s}"],
+		"Pinky": ["f_pinky.01.{s}", "f_pinky.02.{s}", "f_pinky.03.{s}"]
+	}
+}

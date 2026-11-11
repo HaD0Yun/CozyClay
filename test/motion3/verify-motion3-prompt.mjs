@@ -31,7 +31,11 @@ const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(
 // the hybrid gate's stop does not apply once a take passed QA): +377
 // -33 for the blocking done rule (#1114 round 2: 0 blocking problems, every visible criterion, ONE contact-sheet look, then stop
 // and report the warnings; the shot camera only for a camera or shot request; the gate reads qa.blocking): the cap stays
-check("the whole prompt is at most 16,920 characters", () => assert.ok(prompt.length <= 16920, `${prompt.length}`));
+// +312 for the ground rule (big surfaces stay plain clay: a patterned preset tiles into stripes on a floor)
+// +1,091 for the making rule (a thing a viewer looks at is ONE multi-part sculpt, checked on its close-up and copied with
+// object.duplicate, in place of the reference-image-only sculpt rule: 5 of 5 recorded set-building runs stacked primitives and
+// never sculpted)
+check("the whole prompt is at most 18,323 characters", () => assert.ok(prompt.length <= 18323, `${prompt.length}`));
 check("the motion part is at most 4,272 characters", () => {
 	assert.ok(motion.length > 0 && motion.length <= 4272, `${motion.length}`);
 });

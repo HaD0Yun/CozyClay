@@ -4,18 +4,25 @@
 // is on screen is a decision they cannot make yet. The project is a normal one ("Untitled Project" in the browser
 // store): it saves, renames and exports like any other, and File > New or Open still reach the chooser.
 //
-// It applies when there is no project session yet and the page is hosted (https) or asks for it with `?try`
+// It applies when there is no project session and no stored scene document yet (an unnamed draft autosaves its scenes
+// without a session, and project.new would replace it) and the page is hosted (https) or asks for it with `?try`
 // (`npx cozyclay` and a checkout serve http, and keep the chooser: there the author usually opens a file).
 import { loadProjectSession } from "./project.js";
+import { LEGACY_SCENE_STORAGE_KEY, LEGACY_SCENES_STORAGE_KEYS, SCENES_STORAGE_KEY } from "./scenes.js";
 
-/** True on the hosted Studio (https), or anywhere the URL asks for its first run with `?try`. */
-function hostedFirstRun(location = globalThis.location) {
-	return location?.protocol === "https:" || new URLSearchParams(location?.search ?? "").has("try");
+const SCENE_DOCUMENT_KEYS = [SCENES_STORAGE_KEY, ...LEGACY_SCENES_STORAGE_KEYS, LEGACY_SCENE_STORAGE_KEY];
+
+function hasStoredScenes(storage) {
+	try {
+		return SCENE_DOCUMENT_KEYS.some((key) => storage?.getItem(key));
+	} catch {
+		return false;
+	}
 }
 
 /** True when this load should skip the project chooser and start a guest project. */
 export function guestStart(location = globalThis.location, storage = globalThis.localStorage) {
 	const params = new URLSearchParams(location?.search ?? "");
-	if (params.has("embed") || params.has("scene") || loadProjectSession(storage)?.name) return false;
-	return hostedFirstRun(location);
+	if (params.has("embed") || params.has("scene") || loadProjectSession(storage)?.name || hasStoredScenes(storage)) return false;
+	return location?.protocol === "https:" || params.has("try");
 }

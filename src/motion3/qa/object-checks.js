@@ -20,7 +20,7 @@
 //   REACH    "<id>: 6.2 cm off its keys": a keyed object the hand could not hold where its keys ask (key-checks.js)
 import { QA_LIMITS, allowance } from "./checks.js";
 import { keyIssues } from "./key-checks.js";
-import { CAPSULES, segPoints, sdBox } from "./geometry.js";
+import { capsulesFor, segPoints, sdBox } from "./geometry.js";
 import { isCarried, propOrigin } from "../carried.js";
 import { objectBoxesAt, partsOf, spanOf, restingAt } from "../object-pose.js";
 import { add, sub, apply, dot, cross, len, dist, scale, norm } from "../compiler/math.js";
@@ -114,7 +114,7 @@ export function objectChecks(sk, out, spec) {
 			if (!boxes || !shownAt(out, o, f)) continue;
 			const ids = boxes.map(b => b.id), spheres = boxes.map(b => [b, centre(b), len(b.half)]), { s } = out.frames[i];
 			const grips = Object.entries(out.frames[i].diag).filter(([k, v]) => /^hold_[lr]$/.test(k) && v?.second === id && (v.w >= 0.5 || palmIn(sk, s, k.slice(-1), boxes))).map(([k]) => `hand_${k.slice(-1)}`);
-			for (const [part, a, b, r] of CAPSULES) {
+			for (const [part, a, b, r] of capsulesFor(sk)) {
 				if (excused.has(part) || grips.includes(part)) continue;
 				const A = s.P[I[a]], B = s.P[I[b]], mid = scale(add(A, B), 0.5), reach = r + dist(A, B) / 2, l = lim([part], [id, ...ids]);
 				let pts = null, pen = -Infinity;

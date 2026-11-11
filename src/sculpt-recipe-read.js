@@ -63,3 +63,13 @@ export function readHexColor(value, path) {
 	if (long) return `#${long[1].toLowerCase()}`;
 	throw new RecipeError(path, `colour must be #rgb or #rrggbb, got ${JSON.stringify(value)}`);
 }
+
+// Slips with one obvious reading are read that way, not refused: a refusal costs the model the whole recipe again
+// (measured: 24 refusals in 14 runs, of which camelCase ids 9, detail.scale 4, sphere or cone 3).
+const SHAPE_ALIASES = { sphere: ["blob", { roundness: 0 }], ball: ["blob", { roundness: 0 }], ellipsoid: ["blob", { roundness: 0 }], cone: ["cylinder", { taper: 1 }], cube: ["box", {}], cuboid: ["box", {}] };
+export function forgiveSculptPart(raw) {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+	const alias = Object.hasOwn(SHAPE_ALIASES, raw.shape) ? SHAPE_ALIASES[raw.shape] : null;
+	const part = alias ? { ...alias[1], ...raw, shape: alias[0] } : raw, scale = part.detail?.scale;
+	return isFiniteNumber(scale) && (scale < 1 || scale > 12) ? { ...part, detail: { ...part.detail, scale: Math.min(12, Math.max(1, scale)) } } : part;
+}

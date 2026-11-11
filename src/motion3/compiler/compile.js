@@ -96,6 +96,7 @@ function hooksFor(ctx, c, f, inFit = false, lead = true, fitSide = null) {
 		push: inFit ? undefined : k => ctx.push?.[k]?.get(f),
 		swivel: k => ctx.swivel?.[k]?.get(f), // in a fit's passes too: a turn that stops at the wrist's limit moves the fit's point (wrist-clamp.js)
 		skinPush: inFit ? undefined : k => ctx.skinPush?.[k]?.get(f),
+		fkArm: inFit ? undefined : k => ctx.fkArm?.[k]?.get(f),
 		handTarget(k, s, diag) {
 			diag.frame = f;
 			const fkHand = s.P[sk.index[k === "l" ? "LeftHand" : "RightHand"]];
@@ -188,7 +189,8 @@ export function solveFrame(ctx, c0, f, lead = true) {
 
 /**
  * opts.window = [a, b] solves only frames a..b (out.f0 = a, out.frames[i] is frame a + i);
- * opts.keys replaces the generator expansion; opts.fixes = false skips the auto-fix pass.
+ * opts.keys replaces the generator expansion; opts.fixes = false skips the auto-fix pass; opts.selfRepair = false runs
+ * fix.self without its repair pass (fix/self-repair.js), the take that pass starts from.
  */
 export function compileMotion(spec, { sk, scene }, opts = {}) {
 	if (spec?.schema !== "cozyclay.motion-spec.v1") throw new Error("MOTION_SPEC_INVALID: schema must be cozyclay.motion-spec.v1");
@@ -196,7 +198,7 @@ export function compileMotion(spec, { sk, scene }, opts = {}) {
 	if (!(frameCount >= 1 && frameCount <= 20000)) throw new Error("MOTION_SPEC_INVALID: frames must be 1..20000");
 	const fix = fixOptions(spec.fix);
 	const [a, b] = opts.window ? [Math.max(0, opts.window[0]), Math.min(frameCount - 1, opts.window[1])] : [0, frameCount - 1];
-	const ctx = { sk, spec, scene, grasp: fix.grasp, softReach: fix.reach, push: { l: new Map(), r: new Map() }, swivel: { l: new Map(), r: new Map() }, skinPush: { l: new Map(), r: new Map() }, keepOut: fix.self ? wristBody(sk) : null };
+	const ctx = { sk, spec, scene, grasp: fix.grasp, softReach: fix.reach, push: { l: new Map(), r: new Map() }, swivel: { l: new Map(), r: new Map() }, skinPush: { l: new Map(), r: new Map() }, fkArm: { l: new Map(), r: new Map() }, keepOut: fix.self ? wristBody(sk) : null };
 	const out = { ctx, fps: spec.fps ?? 30, frameCount, f0: a, frames: [] };
 	// object anchors read the pose refs read (object-pose.js), on the frame being solved
 	ctx.objectPose = (id, f, now) => objectPoseAt(out, id, f, now);
@@ -233,7 +235,7 @@ export function compileMotion(spec, { sk, scene }, opts = {}) {
 	ctx.hold = holdHook(ctx, out, f => solveFrame(ctx, channelsAt(out.baked, f), f, false), f => solveFrame(ctx, channelsAt(out.baked, f), f));
 	engine.rebake(opts.keys ?? expandGenerators(spec, sk));
 	engine.solve(engine.all());
-	out.fixed = opts.fixes === false ? {} : applyFixes(out, fix, engine, { whole: !opts.window });
+	out.fixed = opts.fixes === false ? {} : applyFixes(out, fix, engine, { whole: !opts.window, repair: opts.selfRepair !== false });
 	// a retime maps the key frames only once it is done: solve the keyed frames again on the final map
 	if (ctx.hold && out.timeMap) engine.solve(engine.all());
 	return out;
