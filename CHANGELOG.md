@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Site
+
+- The landing page has an Install button named for the visitor's system. It
+  opens three steps: the official Node.js installer, how to open a terminal,
+  and the command to paste. The bare command stays in Quick start.
+
 Studio
 
 - The Studio starts in the dark theme. A theme already chosen in Preferences
