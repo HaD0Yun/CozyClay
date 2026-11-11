@@ -8,7 +8,9 @@ const fail = (code, message) => { throw new StudioProtocolError(code, message); 
 
 export function createDocumentStore({ owned = {}, dev = import.meta.env?.DEV ?? true, copyIntent = copyAuthoredIntent } = {}) {
   const freeze = value => dev ? deepFreeze(value) : value;
-  const copy = value => freeze(copyIntent(value));
+  // Every value a copy made is the store's own: a later write reuses it rather than copying it again.
+  const kept = new WeakSet();
+  const copy = value => freeze(copyIntent(value, new Set(), kept));
   let slices = copy(owned);
   let snapshot = freeze({ revision: 0, domainRevisions: Object.fromEntries(Object.keys(owned).map(domain => [domain, 0])), slices });
   let history = createHistory({ historyEntryId: null, snapshot: slices });
