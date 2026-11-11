@@ -42,7 +42,7 @@ import { armHit, handOnBody, handsPast } from "./self-hits.js";
 import { leverAt, setLever, apply, movesFor, GAIN } from "./self-moves.js";
 import { armMotion, moveWorse, popsOutside, keyedHands, keyOff } from "./self-guard.js";
 
-const EASE = 10, MAX_IT = 48, TRIES = 6, LEFT_MAX = 6;
+const EASE = 10, MAX_IT = 48, TRIES = 6, LEFT_MAX = 6, RUN_FAILS = 3;
 /** The take's budget, whatever its length or its runs of hits: IT_TAKE moves tried and SOLVE_TAKE frames solved over
  * every search (counts, not time, so a take compiles the same everywhere). */
 const IT_TAKE = 160, SOLVE_TAKE = 40000;
@@ -224,6 +224,14 @@ export function selfRepair(out, engine) {
 		// the wider moves are larger: every run of frames the keys hold an arm still on is one instant to their ease, the
 		// hand on the body or not (a hand held still in the air with a carry on a spring takes one constant move, no wave)
 		const tick = wide ? Object.fromEntries(KS.map(k => [k, clockOf(out, k, () => true)])) : clock;
+		// a run of frames with the hand on the body (a body anchor or a fit: only the elbow may turn) whose RUN_FAILS deepest
+		// frames found no move, and none of it moved, is not tried further in this search: its frames take the same few
+		// turns (a hand on a cup's handle by a fit, its upper arm a few mm in the side, tried 28 frames for nothing)
+		const runOf = (k, j) => { let a = j; while (a > 0 && open(k, a - 1)) a--; return a; }, fails = new Map(), movedRuns = new Set();
+		const failed = (k, j, h) => {
+			const a = runOf(k, j), r = `${k}${a}`, nf = fails.set(r, (fails.get(r) ?? 0) + 1).get(r);
+			if (h.hold === "body" && nf >= RUN_FAILS && !movedRuns.has(r)) for (let x = a; x < n && open(k, x); x++) if (!done.has(`${k}${x}`)) { done.add(`${k}${x}`); whyOf.set(`${k}${x}`, `not tried: the ${RUN_FAILS} deepest frames of its run found no move`); }
+		};
 		for (let tries = 0; ; tries++) {
 			let pick = null;
 			for (const k of KS) hits[k].forEach((h, j) => { if (open(k, j) && !done.has(`${k}${j}`) && (!pick || h.past > pick.h.past)) pick = { k, j, h }; });
@@ -233,7 +241,8 @@ export function selfRepair(out, engine) {
 			it++;
 			const { k, j, h } = pick, best = bestMove(out, eng, body, k, j, h, hits, known, tick[k], { wide, strict, whole: whole[k], spent });
 			if (!best.mv && best.why === null) { broke = true; return moves; }
-			if (!best.mv) { done.add(`${k}${j}`); whyOf.set(`${k}${j}`, best.why); continue; }
+			if (!best.mv) { done.add(`${k}${j}`); whyOf.set(`${k}${j}`, best.why); failed(k, j, h); continue; }
+			movedRuns.add(`${k}${runOf(k, j)}`);
 			for (const [x] of best.at) if (!before.has(x)) before.set(x, { fr: out.frames[x], v: levers(x) });
 			apply(out, eng, k, best.mv, best.at);
 			touch(best.at[0][0], best.at[best.at.length - 1][0]);
@@ -286,7 +295,9 @@ export function selfRepair(out, engine) {
 	const attempt = strict => {
 		const before = new Map();
 		search(false, strict, before);
-		const first = snap(), firstBefore = new Map(before), wider = KS.some(k => hits[k].some((_, j) => open(k, j))) && search(true, strict, before) > 0;
+		// the wider set only on what the first moves left: where they made none, the hits are ones no move reaches (the cost
+		// of a search that keeps nothing stays near that of a take without the repair)
+		const made = before.size > 0, first = snap(), firstBefore = new Map(before), wider = made && KS.some(k => hits[k].some((_, j) => open(k, j))) && search(true, strict, before) > 0;
 		let got = gate(before);
 		if (wider && !broke && got.spans.some(s => s.undone)) {
 			const both = snap();

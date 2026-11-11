@@ -127,6 +127,10 @@ for (const [rig, sk, T] of [["x-bot", X, TX], ["y-bot", Y, TY]]) {
 		console.log(`  ${rig} ${name}: wrist moved ${d.toExponential(2)} m on the held frames f20-f28; BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm; left ${JSON.stringify(c.self?.left ?? null)}`);
 		expect(`(d) ${rig} ${name}: the held hand keeps its place on f20-f28 (wrist within 1e-6 m of the take without the repair)`, d < 1e-6, String(d));
 		if (name === "pinned") expect(`(d) ${rig} pinned: the frames the elbow cannot clear are left, with why`, c.self?.left?.some(l => /the hand stays on its target/.test(l.why)), JSON.stringify(c.self?.left));
+		// a hand on the body whose deepest frames take no move: its run is not tried further (31 moves tried on the X Bot's
+		// pocket before, 19 now, the same span kept; a cup held by a fit tried 28 frames for nothing and cost 3x the compile)
+		if (name === "pocket" && rig === "x-bot") expect("(o) x-bot pocket: a run on the body whose 3 deepest frames take no move is not tried further (24 moves at most), the span kept", c.self?.iterations <= 24
+			&& c.self.spans?.length > 0 && c.self.left?.some(l => /^the hand stays on its target and no elbow turn clears it: not tried: the 3 deepest frames of its run found no move$/.test(l.why)), JSON.stringify(c.self));
 	}
 }
 // the belly reach, the hand then easing onto a world anchor where it was (f28-f32 in, held f32-f36): the wrist pushes the
