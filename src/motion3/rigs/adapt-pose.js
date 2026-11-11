@@ -36,9 +36,9 @@ export function sourcePose(raw) {
 	const visit = (i, depth = 0) => {
 		if (P[i]) return;
 		if (depth > bones.length) throw new Error(`adaptRig: bone "${bones[i].name}" is its own ancestor`);
-		const b = bones[i], p = Number.isInteger(b.parent) ? b.parent : -1, q = b.localQuat ?? [0, 0, 0, 1], ql = Math.hypot(...q) || 1;
+		const b = bones[i], p = b.parent, q = b.localQuat ?? [0, 0, 0, 1], ql = Math.hypot(...q) || 1;
 		const L = matFromQuat(q.map(v => v / ql)), t = scale(b.localPos ?? [0, 0, 0], k);
-		if (p < 0 || p >= bones.length) { R[i] = L; P[i] = t; return; }
+		if (p < 0) { R[i] = L; P[i] = t; return; }
 		visit(p, depth + 1);
 		R[i] = mul(R[p], L);
 		P[i] = add(P[p], apply(R[p], t));

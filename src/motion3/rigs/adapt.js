@@ -34,9 +34,14 @@ function check(raw) {
 	if (!raw || !Array.isArray(raw.bones) || !raw.bones.length) throw new Error("adaptRig: raw.bones must be a non-empty array of { name, parent, localPos, localQuat }");
 	if (raw.units !== "cm" && raw.units !== "m") throw new Error(`adaptRig: raw.units must be "cm" or "m", got ${JSON.stringify(raw.units)}`);
 	// a non-finite value would carry NaN into every joint below the bone and through every take compiled on the rig
-	for (const [i, b] of raw.bones.entries()) for (const [field, n] of [["localPos", 3], ["localQuat", 4]]) {
-		const v = b?.[field];
-		if (v !== undefined && !(Array.isArray(v) && v.length === n && v.every(Number.isFinite))) throw new Error(`adaptRig: bone ${JSON.stringify(b?.name ?? i)} ${field} must be ${n} finite numbers, got ${Array.isArray(v) ? `[${v.join(", ")}]` : JSON.stringify(v)}`);
+	for (const [i, b] of raw.bones.entries()) {
+		for (const [field, n] of [["localPos", 3], ["localQuat", 4]]) {
+			const v = b?.[field];
+			if (v !== undefined && !(Array.isArray(v) && v.length === n && v.every(Number.isFinite))) throw new Error(`adaptRig: bone ${JSON.stringify(b?.name ?? i)} ${field} must be ${n} finite numbers, got ${Array.isArray(v) ? `[${v.join(", ")}]` : JSON.stringify(v)}`);
+		}
+		// a name, a 1-based index or the bone's own index would hang the bone (and its subtree) somewhere else without a word
+		const p = b?.parent;
+		if (!(Number.isInteger(p) && p >= -1 && p < raw.bones.length && p !== i)) throw new Error(`adaptRig: bone ${JSON.stringify(b?.name ?? i)} parent must be an index into raw.bones (-1 for a root) other than its own (${i}), got ${JSON.stringify(p)}`);
 	}
 }
 

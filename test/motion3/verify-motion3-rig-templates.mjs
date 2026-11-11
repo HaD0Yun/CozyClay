@@ -550,6 +550,15 @@ for (const [field, at, v] of [["localPos", "mixamorig:LeftHandIndex2", [NaN, 0, 
 	expect("a retired skeleton never asked for its body: its body is its own rig's, not the new one's", mins(first) === mins(skeletonFor("test-retired-a")) && mins(first) !== mins(skeletonFor("test-retired")));
 }
 
+// 4q. a parent that is not an index into the bones, or the bone itself, is refused by name (before: a name or a fraction
+// read as a root and the bone's subtree hung at the origin; a 1-based index silently re-hung every bone)
+for (const [label, edit] of [["parent as a name", b => { b.parent = "mixamorig:Hips"; }], ["parent 1.5", b => { b.parent = 1.5; }], ["parent out of range", (b, n) => { b.parent = n; }], ["parent -2", b => { b.parent = -2; }], ["its own parent", (b, n, i) => { b.parent = i; }]]) {
+	const bones = xBot.bones.map(b => ({ name: `mixamorig:${b.name}`, parent: b.parent, localPos: b.localPos, localQuat: b.localQuat })), i = bones.findIndex(b => b.name === "mixamorig:LeftLeg");
+	edit(bones[i], bones.length, i);
+	const why = (() => { try { adaptRig({ units: "cm", bones }); return ""; } catch (e) { return e.message; } })();
+	expect(`${label} on mixamorig:LeftLeg: refused, naming the bone`, why.includes("mixamorig:LeftLeg") && why.includes("parent"), why);
+}
+
 // 5. the X Bot and Y Bot takes are identical to before rig templates, to 1e-9 (3804b63b)
 // digests of the same three motions compiled at 3804b63b, the commit before rig templates. The same six values come out
 // on macOS arm64 and Linux x86_64.
