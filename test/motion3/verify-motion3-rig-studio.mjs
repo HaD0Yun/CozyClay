@@ -252,8 +252,10 @@ function retargets() {
 	CASES.forEach((c, k) => {
 		const r = readThreeSkeleton(threeOf(synth(c))), model = `studio-test-${k}`, { rig, report } = adaptRig({ ...r.raw, model });
 		const sk = ensureRig(model, rig), plan = retargetPlan(r.raw, report, sk);
-		// the canonical frame of a source point: the axes, then the floor's lift (adapt.js keeps the horizontal placement)
-		expect(`(b) ${c.label}: the source maps onto the rig by its axes and a vertical lift only`, Math.hypot(plan.shift[0], plan.shift[2]) < 1e-8, JSON.stringify(plan.shift));
+		// the canonical frame of a source point: the axes, then the floor's lift (adapt.js keeps the horizontal placement);
+		// 1 um: the adapter takes the source's own facing out to the last bit (the X Bot's hip line is 1.4e-5 deg off +X), so a
+		// source point lands up to 1.4e-7 m off a pure axis swap
+		expect(`(b) ${c.label}: the source maps onto the rig by its axes and a vertical lift only`, Math.hypot(plan.shift[0], plan.shift[2]) < 1e-6, JSON.stringify(plan.shift));
 		const shift = [0, plan.shift[1], 0];
 		for (const [motion, spec] of Object.entries(MOTIONS)) {
 			const out = compileSpec(structuredClone(spec), { sk, scene: motionScene([]) }).out, states = out.frames.map(f => f.s);
