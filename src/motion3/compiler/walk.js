@@ -23,6 +23,7 @@
 // little flexed (WRIST). The pelvis and chest turns, the side sway and the dip each peak at their own phase of the step
 // (the constants below). All of it fades in over the first steps and back out on the closing one.
 import { add, sub, scale, len, apply, ry, clamp } from "./math.js";
+import { rigScale, soleHeel } from "./skeleton.js";
 import { walkRhythm } from "./gait-rhythm.js";
 import { fitPelvis, fitTrail, fitSwing, pivot, brisk } from "./walk-pelvis.js";
 
@@ -70,12 +71,13 @@ export function walk(gen, keys, sk, tag = "walk") {
 	const ank = P[I.LeftFoot][1], standY = P[I.Hips][1];
 	const footRest = { l: sub(P[I.LeftToeBase], P[I.LeftFoot]), r: sub(P[I.RightToeBase], P[I.RightFoot]) };
 	// QA's heel point from the ankle of a flat foot at yaw 0; a foot pitched `deg` about a point on the ground
-	const heelOff = [0, 0.005 - ank, -0.045];
+	const [heelBack, heelUp] = soleHeel(sk), heelOff = [0, heelUp - ank, -heelBack];
 	const flatAt = { l: -Infinity, r: -Infinity };
 	// Pelvis heights from the leg length: straight-ish over the stance foot, low enough at
 	// double support that the trailing leg still reaches (2% knee slack).
 	const leg = len(sub(P[I.LeftLeg], P[I.LeftUpLeg])) + len(sub(P[I.LeftFoot], P[I.LeftLeg]));
-	const hipDrop = P[I.Hips][1] - P[I.LeftUpLeg][1], step0 = gen.step ?? 0.5, hw = gen.halfWidth ?? 0.08;
+	// the default half-width is the X Bot's: an adapted rig's follows its hip width (rigs/adapt-measure.js)
+	const hipDrop = P[I.Hips][1] - P[I.LeftUpLeg][1], step0 = gen.step ?? 0.5, hw = gen.halfWidth ?? 0.08 * rigScale(sk, "hips");
 	const hipsAt = horiz => Math.sqrt(Math.max(0, (0.98 * leg) ** 2 - horiz ** 2)) + ank + hipDrop - standY;
 	const W = { steps: 8, step: step0, period: 20, swing: 14, halfWidth: hw, lift: 0.08, turnDistance: 0.4, firstStep: 0.4,
 		pelvisHigh: Math.min(-0.005, hipsAt(Math.hypot(0.03, hw - 0.035))), pelvisLow: hipsAt(Math.hypot(step0 / 2, hw)), vary: 1, ...gen };

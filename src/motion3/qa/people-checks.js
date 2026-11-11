@@ -2,7 +2,7 @@
 // CAPSULES on both bodies, at the same timeline frame). "<part> x person:<id>": how deep the part goes into the
 // other body (its deepest capsule there; the hint names which), past QA_LIMITS.allow. An intended touch (a push, a hand
 // on a shoulder) is allowed like any contact: checks.allow [{ part, object: "person:<id>", depth }].
-import { segDist, CAPSULES } from "./geometry.js";
+import { segDist, CAPSULES, capsulesFor } from "./geometry.js";
 import { allowance, QA_LIMITS } from "./checks.js";
 import { dist } from "../compiler/math.js";
 
@@ -21,7 +21,7 @@ export function peopleChecks(sk, out, checks = {}) {
 	if (!people.length) return issues;
 	const I = sk.index, f0 = out.f0 ?? 0, lim = { ...QA_LIMITS, ...checks.limits }.allow;
 	out.frames.forEach(({ s }, i) => {
-		const f = i + f0, mine = CAPSULES.map(([part, a, b, r]) => [part, s.P[I[a]], s.P[I[b]], r]);
+		const f = i + f0, mine = capsulesFor(sk).map(([part, a, b, r]) => [part, s.P[I[a]], s.P[I[b]], r]);
 		for (const [id, p] of people) {
 			// a saved take keeps only the joints its anchors read (people.js keptPeople): no body to collide with there
 			if (!CAPSULES.every(([, a, b]) => p.names.includes(a) && p.names.includes(b))) continue;

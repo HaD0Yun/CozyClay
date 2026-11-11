@@ -1,0 +1,17 @@
+{
+	"id": "daz-genesis9",
+	"name": "Daz Genesis 9",
+	"sides": { "Left": { "s": "l" }, "Right": { "s": "r" } },
+	"bones": {
+		"Hips": ["hip"], "Spine": ["spine1"], "Spine1": ["spine2", "spine3"], "Spine2": ["spine4", "spine3"], "Neck": ["neck1"], "Head": ["head"],
+		"{Side}Shoulder": ["{s}_shoulder"], "{Side}Arm": ["{s}_upperarm"], "{Side}ForeArm": ["{s}_forearm"], "{Side}Hand": ["{s}_hand"],
+		"{Side}UpLeg": ["{s}_thigh"], "{Side}Leg": ["{s}_shin"], "{Side}Foot": ["{s}_foot"], "{Side}ToeBase": ["{s}_toes"]
+	},
+	"fingers": {
+		"Thumb": ["{s}_thumb1", "{s}_thumb2", "{s}_thumb3"],
+		"Index": ["{s}_index1", "{s}_index2", "{s}_index3"],
+		"Middle": ["{s}_mid1", "{s}_mid2", "{s}_mid3"],
+		"Ring": ["{s}_ring1", "{s}_ring2", "{s}_ring3"],
+		"Pinky": ["{s}_pinky1", "{s}_pinky2", "{s}_pinky3"]
+	}
+}

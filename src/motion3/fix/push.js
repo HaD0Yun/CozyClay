@@ -4,22 +4,22 @@
 // Frames where that arm is FK (armw 0) cannot be pushed and are counted as skipped.
 import { add, scale, len } from "../compiler/math.js";
 import { QA_LIMITS, allowance } from "../qa/checks.js";
-import { CAPSULES, segPoints, sdBox, boxNormal } from "../qa/geometry.js";
+import { capsulesFor, segPoints, sdBox, boxNormal } from "../qa/geometry.js";
 import { round4 } from "./ease.js";
 
 const EASE = 4, MARGIN = 0.002, PASSES = 3;
-const ARM_PARTS = { l: CAPSULES.filter(c => c[0] === "hand_l" || c[0] === "farm_l"), r: CAPSULES.filter(c => c[0] === "hand_r" || c[0] === "farm_r") };
+const armParts = (sk, k) => capsulesFor(sk).filter(c => c[0] === `hand_${k}` || c[0] === `farm_${k}`);
 
 /** Per-frame push vectors for side k: the needed exit (normal * excess) summed over boxes. */
 function needs(out, k, maxDepth, allow, stats) {
-	const { sk } = out.ctx, I = sk.index, n = out.frames.length, v = Array.from({ length: n }, () => null);
+	const { sk } = out.ctx, I = sk.index, n = out.frames.length, v = Array.from({ length: n }, () => null), arm = armParts(sk, k);
 	for (let i = 0; i < n; i++) {
 		const { s, c } = out.frames[i], objs = out.objectsAt(i);
 		let sum = null;
 		for (const [id, box] of Object.entries(objs)) {
 			if (!box.half || box.ignore) continue;
 			let best = null;
-			for (const [part, a, b, r] of ARM_PARTS[k]) {
+			for (const [part, a, b, r] of arm) {
 				const lim = allowance(allow, part, id) ?? QA_LIMITS.allow;
 				const pts = segPoints(s.P[I[a]], s.P[I[b]]), ds = pts.map(p => sdBox(p, box)), m = Math.min(...ds);
 				const excess = r - m - lim;

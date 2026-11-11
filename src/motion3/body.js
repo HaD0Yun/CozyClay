@@ -25,9 +25,24 @@ function readFit(url) {
 	return JSON.parse(xhr.responseText);
 }
 
-function fitOf(model) {
+// Fits made in memory for registered rigs (rigs/index.js registerRig), per skeleton: a skeleton registerRig retires keeps
+// its own (a compile in flight on it reads its own rig, as the floor, foot and pose caches do). sk -> make(fileFit), called on
+// first use with a reader of the shipped fits (make reads the X Bot's to refit it; one already loaded is not read again).
+const made = new WeakMap(), madeFits = new WeakMap();
+const fileFit = model => {
 	if (!fits.has(model)) fits.set(model, readFit(BODIES[model]));
 	return fits.get(model);
+};
+
+function fitOf(sk) {
+	if (!made.has(sk)) return fileFit(sk.model);
+	if (!madeFits.has(sk)) madeFits.set(sk, made.get(sk)(fileFit));
+	return madeFits.get(sk);
+}
+
+/** Gives skeleton sk the fit make(fileFit) returns (body.js's shape), made on first use. */
+export function registerBody(sk, make) {
+	made.set(sk, make);
 }
 
 /** Fetches every rig's fit in the background, so a compile on this thread never waits on one. */
@@ -42,9 +57,11 @@ export function preloadBodies() {
 }
 /** Distance read outside a grid: far enough that no probe counts it as touching. */
 const FAR = 0.1;
-const cache = new Map();
+const cache = new WeakMap();
 
-function decode(text) {
+/** A fit's grid data: base64 text as signed bytes (a refitted fit already holds them). */
+export function decode(text) {
+	if (typeof text !== "string") return text;
 	const bytes = typeof Buffer !== "undefined" ? Buffer.from(text, "base64") : Uint8Array.from(atob(text), c => c.charCodeAt(0));
 	return new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
@@ -60,16 +77,16 @@ function skipOf(sk, b) {
 
 /** The fitted body of skeleton sk, or null for a rig without one. */
 export function bodyFor(sk) {
-	if (!BODIES[sk.model]) return null;
-	if (cache.has(sk.model)) return cache.get(sk.model);
-	const fit = fitOf(sk.model);
+	if (!BODIES[sk.model] && !made.has(sk)) return null;
+	if (cache.has(sk)) return cache.get(sk);
+	const fit = fitOf(sk);
 	const grids = Object.entries(fit.grids).map(([name, g]) => {
 		const half = g.dims.map(d => ((d - 1) * fit.step) / 2), centre = g.min.map((m, k) => m + half[k]);
 		return { b: sk.index[name], min: g.min, dims: g.dims, data: decode(g.data), centre, reach: len(half) };
 	});
 	const radii = Object.fromEntries(Object.entries(fit.radii).map(([name, r]) => [sk.index[name], r]));
 	const body = { step: fit.step, grids, radii, skip: new Map(Object.keys(radii).map(b => [+b, skipOf(sk, +b)])) };
-	cache.set(sk.model, body);
+	cache.set(sk, body);
 	return body;
 }
 
