@@ -26,7 +26,7 @@ const ENDPOINT_CLASSES = Object.freeze(["local", "lan", "hosted", "unknown"]);
 export const turnOriginAllowed = (key, value) => (key === "provider" ? value === "other" || CONNECT_PROVIDERS.includes(value) : ENDPOINT_CLASSES.includes(value));
 
 /** landing:cta_clicked targets: the landing page's links out and copy buttons. */
-export const LANDING_CTA_TARGETS = Object.freeze(["app", "github", "discord", "npm", "copy_npx", "copy_clone", "copy_mcp", "copy_terminal", "agent_install_doc"]);
+export const LANDING_CTA_TARGETS = Object.freeze(["app", "github", "discord", "npm", "copy_npx", "copy_clone", "copy_mcp", "copy_terminal", "agent_install_doc", "install_open", "node_download"]);
 
 /** A Studio refusal code as sent: one of STUDIO_ERROR_CODES, else "other". */
 export const refusalCodeOf = (code) => (STUDIO_ERROR_CODES.includes(code) ? code : "other");
@@ -81,10 +81,10 @@ const SCHEMAS = Object.freeze({
 		measured_fps: oneOf("lt20", "20-40", "40-55", "gte55", "unknown"),
 	},
 	// mode and step: first-success-guide.jsx's STEPS_BY_MODE keys and its 4 steps per mode.
-	"guide:opened": { mode: oneOf("animation", "storyboard") },
-	"guide:step": { mode: oneOf("animation", "storyboard"), step: oneOf("1", "2", "3", "4"), step_ms: long },
-	"guide:dismissed": { mode: oneOf("animation", "storyboard"), reached: oneOf("1", "2", "3", "4") },
-	"guide:completed": { mode: oneOf("animation", "storyboard") },
+	"guide:opened": { mode: oneOf("animation", "storyboard", "camera") },
+	"guide:step": { mode: oneOf("animation", "storyboard", "camera"), step: oneOf("1", "2", "3", "4", "5", "6", "7", "8"), step_ms: long },
+	"guide:dismissed": { mode: oneOf("animation", "storyboard", "camera"), reached: oneOf("1", "2", "3", "4", "5", "6", "7", "8") },
+	"guide:completed": { mode: oneOf("animation", "storyboard", "camera") },
 	"agent:panel_toggled": { open: bool, via: oneOf("key", "button") },
 	// The Export flyout opening (export-menu-telemetry.js); shots is analytics.js bucketCount.
 	"export:menu_opened": {

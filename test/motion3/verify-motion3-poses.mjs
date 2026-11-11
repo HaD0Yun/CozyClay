@@ -38,10 +38,16 @@ assert.throws(() => expandPoses({ keys: [{ f: 0, pose: "handstand" }] }, sk), /n
 console.log("PASS a named key expands (set overrides it); an unknown name lists the poses");
 // QA sees what it could not: a key the take never reaches (KEY) and hips that jump in one frame (TELEPORT)
 {
-	const r = compileSpec({ schema: "cozyclay.motion-spec.v1", frames: 20, keys: [{ f: 0, pose: "stand" }, { f: 10, set: { root: [0, 0.99, 0] } }, { f: 11, set: { root: [1.5, 0.99, 0] } }, { f: 19, pose: "stand", at: [1.5, 0] }] }, { sk, scene });
+	// fix.retime off: the re-timed take spreads the jump (and stands since fix.self clears the FK arms it puts 4.4 cm into the
+	// body); TELEPORT is read on the jump as keyed
+	const r = compileSpec({ schema: "cozyclay.motion-spec.v1", frames: 20, fix: { retime: false }, keys: [{ f: 0, pose: "stand" }, { f: 10, set: { root: [0, 0.99, 0] } }, { f: 11, set: { root: [1.5, 0.99, 0] } }, { f: 19, pose: "stand", at: [1.5, 0] }] }, { sk, scene });
 	assert.ok(r.qa.groups.some(g => g.kind === "TELEPORT" && g.first === 11), JSON.stringify(r.qa.groups.map(g => [g.kind, g.first])));
+	// the default path (fix.retime on, kept): the jump spread over the frames retime borrows still reads as one QA sees,
+	// the key the take no longer reaches (KEY) or the jump itself (TELEPORT)
+	const spread = compileSpec({ schema: "cozyclay.motion-spec.v1", frames: 20, keys: [{ f: 0, pose: "stand" }, { f: 10, set: { root: [0, 0.99, 0] } }, { f: 11, set: { root: [1.5, 0.99, 0] } }, { f: 19, pose: "stand", at: [1.5, 0] }] }, { sk, scene });
+	assert.ok(spread.qa.groups.some(g => g.kind === "KEY" || g.kind === "TELEPORT"), JSON.stringify(spread.qa.groups.map(g => [g.kind, g.first])));
 	const walk = compileSpec({ schema: "cozyclay.motion-spec.v1", frames: 20, keys: [{ f: 0, pose: "stand" }, { f: 19, pose: "stand", at: [0, 0.4] }] }, { sk, scene });
 	assert.ok(!walk.qa.groups.some(g => g.kind === "TELEPORT"), "a 0.4 m drift over 19 frames is no jump");
-	console.log("PASS QA: TELEPORT names a one-frame hips jump, not a slow move");
+	console.log("PASS QA: TELEPORT names a one-frame hips jump, not a slow move; with retime on the jump still reads (KEY or TELEPORT)");
 }
 console.log("verify-motion3-poses: all checks passed");

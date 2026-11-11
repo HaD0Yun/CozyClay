@@ -37,6 +37,15 @@ export function ko(en, koText, zhText) {
 	return en;
 }
 
+/** Save the language the page is already in as the visitor's choice. Nothing changes on screen, so no reload. */
+export function keepLocale() {
+	try {
+		localStorage.setItem(KEY, LOCALE);
+	} catch {
+		// Private mode without storage: the page stays in this language for this load.
+	}
+}
+
 export function setLocale(next) {
 	if (!LOCALES.has(next)) return;
 	try {

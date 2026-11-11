@@ -98,18 +98,22 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			};
 		}
 		// verify_result's own views (motion3/views.js): one read-back from a camera at eye, a vertical fov, fade drawn see-through.
-		function renderView({ eye, quaternion, fovDeg, output, fade }) {
-			const own = createExportCapture(output, () => {
+		// view.within(scene, shoot) is a caller's own pass (studio-closeup.js): it stages the scene, then shoot(cam) reads back
+		// each of its cameras { eye, quaternion, fovDeg, near, far }; it must put the scene back before it returns.
+		function renderView(view) {
+			let at = view;
+			const own = createExportCapture(view.output, () => {
 				const source = camRef.current;
 				if (!source) return null;
 				const cam = source.clone();
 				cam.clearViewOffset();
-				cam.position.set(...eye);
-				cam.quaternion.set(...quaternion);
-				cam.fov = fovDeg;
+				cam.position.set(...at.eye);
+				cam.quaternion.set(...at.quaternion);
+				cam.fov = at.fovDeg;
+				if (at.near) { cam.near = at.near; cam.far = at.far; }
 				return cam;
 			});
-			try { return withFaded(scene, fade, own.render); } finally { own.dispose(); }
+			try { return view.within ? view.within(scene, cam => { at = cam; return own.render(); }) : withFaded(scene, view.fade, own.render); } finally { own.dispose(); }
 		}
 		const api = { ...createExportCapture({ width, height }), createExportCapture, renderView };
 		apiRef.current = api;

@@ -37,6 +37,7 @@
 //               SUPPORT_TOL across), no thumb presses against the fingers (OPPOSE deg between their contact normals)
 //               and the contacts do not enclose it (their normals no more than ENCLOSE deg apart)
 import { add, sub, scale, dot, norm, apply, T } from "../compiler/math.js";
+import { rigScale } from "../compiler/skeleton.js";
 import { PALM_GRASPS } from "../compiler/vocab.js";
 import { isCarried } from "../carried.js";
 import { spanOf, partsOf, objectPoseAt } from "../object-pose.js";
@@ -112,9 +113,10 @@ export function palmGapAt(out, k, id, f) {
 	return s ? palmGap(out.ctx.sk, s, k, entriesAt(out, id, f)) : null;
 }
 
+/** Hand k's palm and phalanx capsules on pose s; the radii scale with the rig's hand (rigScale "hand"). */
 function handCapsules(sk, s, k) {
-	const S = SIDE[k], P = j => s.P[sk.index[`${S}Hand${j}`]], out = [{ bone: `${S}Hand`, finger: "palm", a: s.P[sk.index[`${S}Hand`]], b: P("Middle1"), r: PALM }];
-	for (const f of [...FINGERS, "Thumb"]) for (let i = 1; i <= 3; i++) out.push({ bone: `${S}Hand${f}${i}`, finger: f, tip: i === 3, a: P(`${f}${i}`), b: P(`${f}${i + 1}`), r: PHALANX });
+	const S = SIDE[k], P = j => s.P[sk.index[`${S}Hand${j}`]], h = rigScale(sk, "hand"), out = [{ bone: `${S}Hand`, finger: "palm", a: s.P[sk.index[`${S}Hand`]], b: P("Middle1"), r: PALM * h }];
+	for (const f of [...FINGERS, "Thumb"]) for (let i = 1; i <= 3; i++) out.push({ bone: `${S}Hand${f}${i}`, finger: f, tip: i === 3, a: P(`${f}${i}`), b: P(`${f}${i + 1}`), r: PHALANX * h });
 	return out;
 }
 

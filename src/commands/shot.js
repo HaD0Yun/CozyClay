@@ -130,12 +130,12 @@ export function register(registry, ports) {
   }
   // A rail owns the frames it covers, so the camera keys there go. Its answer
   // names the move it makes: length, speed, height, aim and lens.
-  function setRail({ shotId, points, height, aim, aimHeight, focalMm }) {
+  function setRail({ shotId, points, height, aim, aimHeight, focalMm, rollDeg }) {
     const shot = shotOf(shotId), cast = [...ports.state().characters, ...ports.state().objects];
     for (const id of Array.isArray(aim) ? aim : []) if (!cast.some(row => row.id === id)) fail('STALE_TARGET', `Aim ${id} is not a character or object in this scene.`);
     const railFollow = railFollowForNewGeometry(shot.camera?.railFollow, shot.endFrame - shot.startFrame + 1);
     const span = railFollow?.mode === 'range' ? [shot.startFrame + railFollow.startFrame, shot.startFrame + railFollow.endFrame] : [shot.startFrame, shot.endFrame];
-    const patch = { cameraRail: points, mode: 'rail', railFollow, ...(focalMm === undefined ? {} : { focalMm }),
+    const patch = { cameraRail: points, mode: 'rail', railFollow, ...(focalMm === undefined ? {} : { focalMm }), ...(rollDeg === undefined ? {} : { rollDeg }),
       ...(height === undefined ? {} : { craneHeight: { points: typeof height === 'number' ? [{ t: 0, height }, { t: 1, height }] : height } }),
       ...(aim === undefined && aimHeight === undefined ? {} : { aim: aimOf(aim === undefined ? createCameraBlock(shot.camera).aim : aim && (Array.isArray(aim) ? { ids: aim } : { point: aim }), aimHeight) }) };
     const keys = shot.cameraKeys.filter(key => key.frame < span[0] || key.frame > span[1]);

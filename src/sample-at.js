@@ -33,6 +33,7 @@ function sharedCamera(camera, scene) {
 		fovDeg,
 		focalMm,
 		sensorId,
+		...(camera.rollDeg ? { rollDeg: camera.rollDeg } : {}),
 	};
 }
 
@@ -76,7 +77,8 @@ function cameraOnTrack(track, frame, scene) {
  * Return the complete playback-facing state for one absolute timeline frame.
  * `scene` is a sealed runtime envelope: { frameCount, subject, motion,
  * subjectTrack, cameraTrack, cameraAnchor, fovDeg, sensorId/filmback }.
- * Camera is always { pos, yaw, pitch, fovDeg, focalMm, sensorId }.
+ * Camera is always { pos, yaw, pitch, fovDeg, focalMm, sensorId }, plus
+ * rollDeg when it is rolled about the lens axis.
  * Nothing in either input is
  * mutated and every returned nested value is independently owned.
  */

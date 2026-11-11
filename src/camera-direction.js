@@ -46,7 +46,8 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ai
 			? buildRailFollowTrack(aimed, fps, rail, { ...params, aimPerFrame: true, distanceInfluence: 0, pitchOffsetDeg: 0 })
 			: buildRailFollowTrack(subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1), fps, rail, params);
 		const fovDeg = camera.focalMm ? focalMmToFov(camera.focalMm, filmback.sensorId, filmback.aspectRatio) / DEG : null;
-		track.forEach((sample, offset) => { combined[from + offset] = fovDeg ? { ...sample, fovDeg } : sample; });
+		const lens = { ...(fovDeg ? { fovDeg } : {}), ...(camera.rollDeg ? { rollDeg: camera.rollDeg } : {}) };
+		track.forEach((sample, offset) => { combined[from + offset] = { ...sample, ...lens }; });
 	}
 	return combined;
 }
