@@ -2,11 +2,9 @@
 // held prop points entering the torso, the two hands overlapping, and hinged scene objects
 // (spec.objects, e.g. a door) passing through the rest of the scene. Corners only for objects.
 import { add, sub, scale, dot, len, apply, clamp } from "../compiler/math.js";
-import { CAPSULES, sdBox, segDist } from "./geometry.js";
+import { capsulesFor, sdBox, segDist } from "./geometry.js";
 import { movesRecord } from "../carried.js";
 
-const TORSO = CAPSULES.filter(c => c[0].startsWith("torso"));
-const HAND_R = CAPSULES.find(c => c[0] === "hand_l")[3];
 const PROP_R = 0.004;
 
 function pointSegDist(p, a, b) {
@@ -22,6 +20,7 @@ function corners(o) {
 
 /** L: limits { body, hands, object } (m); push(kind, msg, frame, value, limit); allowed(part, into): a declared depth or null. */
 export function contactChecks(sk, out, L, push, allowed = () => null) {
+	const caps = capsulesFor(sk), TORSO = caps.filter(c => c[0].startsWith("torso")), HAND_R = caps.find(c => c[0] === "hand_l")[3];
 	const I = sk.index, hinged = Object.entries(out.ctx.spec.objects ?? {}).filter(([, o]) => movesRecord(o)).map(([id]) => id);
 	for (let f = 0; f < out.frames.length; f++) {
 		const { s, diag } = out.frames[f], P = s.P;

@@ -9,7 +9,7 @@
 // on the release. A joint the preset curled into the body straightens when that leaves the finger shallower; a
 // joint whose sub-chain already touches stays, and the next joint out closes on: the finger wraps the body.
 import { add, sub, scale, norm, cross, dot, apply, axisRot } from "./math.js";
-import { rotateSubtree } from "./skeleton.js";
+import { rotateSubtree, rigScale } from "./skeleton.js";
 import { palmAxes, fingerCurl, fistCurl } from "./limbs.js";
 import { capsuleDepth, shapeOf } from "../shapes.js";
 import { GRASP_FINGERS } from "./vocab.js";
@@ -18,35 +18,37 @@ import { seatsInHand } from "../seat.js";
 
 const PHALANX = 0.009, TOUCH = 0.002, STEPS = 8, THUMB_FLEX = 70, SPREAD_STEP = 5, SPREAD_MAX = 15, SELF_GAP = 0.014;
 const FINGERS = ["Index", "Middle", "Ring", "Pinky"];
+/** A phalanx's radius on rig sk (m): PHALANX scaled by its hand (rigScale "hand"), as qa/finger-checks.js judges it. */
+const phalanx = sk => PHALANX * rigScale(sk, "hand");
 // the hand stays open for most of a reach and closes as it arrives: from OPEN_UNTIL of the fit's weight to CLOSED_AT
 const OPEN_UNTIL = 0.6, CLOSED_AT = 0.9;
 const closing = w => { const t = Math.min(1, Math.max(0, (w - OPEN_UNTIL) / (CLOSED_AT - OPEN_UNTIL))); return t * t * (3 - 2 * t); };
 
-function chainDepth(points, entries) {
+function chainDepth(points, entries, r) {
 	let depth = -Infinity;
-	for (let i = 0; i + 1 < points.length; i++) for (const e of entries) depth = Math.max(depth, capsuleDepth(e, points[i], points[i + 1], PHALANX));
+	for (let i = 0; i + 1 < points.length; i++) for (const e of entries) depth = Math.max(depth, capsuleDepth(e, points[i], points[i + 1], r));
 	return depth;
 }
 
 /** The turn (deg, 0..limit) about unit `axis` at `pivot` at which the chain first touches: 0 when it already does, null when it never does. */
-function touchTurn(points, pivot, axis, limit, entries) {
-	if (limit <= 0 || chainDepth(points, entries) >= -TOUCH) return 0;
+function touchTurn(points, pivot, axis, limit, entries, r) {
+	if (limit <= 0 || chainDepth(points, entries, r) >= -TOUCH) return 0;
 	const at = deg => { const R = axisRot(axis, deg); return points.map(p => add(pivot, apply(R, sub(p, pivot)))); };
-	if (chainDepth(at(limit), entries) < -TOUCH) return null;
+	if (chainDepth(at(limit), entries, r) < -TOUCH) return null;
 	let lo = 0, hi = limit;
-	for (let i = 0; i < STEPS; i++) { const mid = (lo + hi) / 2; if (chainDepth(at(mid), entries) >= -TOUCH) hi = mid; else lo = mid; }
+	for (let i = 0; i < STEPS; i++) { const mid = (lo + hi) / 2; if (chainDepth(at(mid), entries, r) >= -TOUCH) hi = mid; else lo = mid; }
 	return hi;
 }
 
 /** The turn (deg, 0..limit) back about `axis` that takes a chain inside the body just out of it (0 when it is out, or when
  * no opening leaves it shallower). */
-function clearTurn(points, pivot, axis, limit, entries) {
-	if (chainDepth(points, entries) < -TOUCH) return 0;
+function clearTurn(points, pivot, axis, limit, entries, r) {
+	if (chainDepth(points, entries, r) < -TOUCH) return 0;
 	const at = deg => { const R = axisRot(axis, -deg); return points.map(p => add(pivot, apply(R, sub(p, pivot)))); };
 	// a chain that stays in the body however far it opens opens only if that leaves it shallower
-	if (chainDepth(at(limit), entries) >= -TOUCH) return chainDepth(at(limit), entries) < chainDepth(points, entries) ? limit : 0;
+	if (chainDepth(at(limit), entries, r) >= -TOUCH) return chainDepth(at(limit), entries, r) < chainDepth(points, entries, r) ? limit : 0;
 	let lo = 0, hi = limit;
-	for (let i = 0; i < STEPS; i++) { const mid = (lo + hi) / 2; if (chainDepth(at(mid), entries) < -TOUCH) hi = mid; else lo = mid; }
+	for (let i = 0; i < STEPS; i++) { const mid = (lo + hi) / 2; if (chainDepth(at(mid), entries, r) < -TOUCH) hi = mid; else lo = mid; }
 	return hi;
 }
 
@@ -69,18 +71,18 @@ function segmentGap(p1, q1, p2, q2) {
 	return Math.hypot(...sub(add(p1, scale(d1, t1)), add(p2, scale(d2, t2))));
 }
 
-/** True when no phalanx of finger f lies within SELF_GAP of a phalanx of another (non-thumb) finger. */
+/** True when no phalanx of finger f lies within SELF_GAP (scaled by the rig's hand) of a phalanx of another (non-thumb) finger. */
 function clearOfNeighbours(sk, s, side, f) {
-	const P = name => s.P[sk.index[`${side}Hand${name}`]];
+	const P = name => s.P[sk.index[`${side}Hand${name}`]], gap = SELF_GAP * rigScale(sk, "hand");
 	for (const g of FINGERS) if (g !== f) for (let a = 1; a <= 3; a++) for (let b = 1; b <= 3; b++) {
-		if (segmentGap(P(`${f}${a}`), P(`${f}${a + 1}`), P(`${g}${b}`), P(`${g}${b + 1}`)) < SELF_GAP) return false;
+		if (segmentGap(P(`${f}${a}`), P(`${f}${a + 1}`), P(`${g}${b}`), P(`${g}${b + 1}`)) < gap) return false;
 	}
 	return true;
 }
 
 /** Turns joint j by the touching turn about `axis` (or `limit` when it never touches, unless `air` is false), weighted; true when it touched. */
 function closeJoint(sk, s, j, chain, axis, limit, entries, weight, air = true) {
-	const turn = touchTurn(chain.map(i => s.P[i]), s.P[j], axis, limit, entries), deg = turn ?? (air ? limit : 0);
+	const turn = touchTurn(chain.map(i => s.P[i]), s.P[j], axis, limit, entries, phalanx(sk)), deg = turn ?? (air ? limit : 0);
 	if (deg > 0) rotateSubtree(sk, s, j, s.P[j].slice(), axisRot(axis, deg * weight));
 	return turn !== null;
 }
@@ -101,7 +103,7 @@ export function closeOnShape(sk, s, side, { entries: held, stops = [], weight, p
 		// finger lying across a box would go deeper); each joint then closes until the finger touches
 		const pts = joints.map(i => s.P[i]), l0 = scale(palmAxes(sk, s, side).l, sign);
 		const straight = [0, 1, 2].reduce((p, k) => { const R = axisRot(l0, -fingerCurl(preset, f, k)); return p.map((q, i) => (i > k ? add(p[k], apply(R, sub(q, p[k]))) : q)); }, pts);
-		const opens = chainDepth(pts, held) >= -TOUCH && chainDepth(straight, held) < chainDepth(pts, held);
+		const r = phalanx(sk), opens = chainDepth(pts, held, r) >= -TOUCH && chainDepth(straight, held, r) < chainDepth(pts, held, r);
 		for (let k = 0; k < 3; k++) {
 			const axis = scale(palmAxes(sk, s, side).l, sign), curl = fingerCurl(preset, f, k), open = opens ? curl : 0;
 			if (open > 0) rotateSubtree(sk, s, joints[k], s.P[joints[k]].slice(), axisRot(axis, -open * weight));
@@ -146,7 +148,7 @@ export function closeOnShape(sk, s, side, { entries: held, stops = [], weight, p
 		let reached = false;
 		for (const k of [1, 2]) {
 			const axis = scale(norm(cross(norm(sub(s.P[thumb[k + 1]], s.P[thumb[k]])), n)), sign);
-			const out = clearTurn(thumb.slice(k).map(i => s.P[i]), s.P[thumb[k]], axis, THUMB_FLEX, entries);
+			const out = clearTurn(thumb.slice(k).map(i => s.P[i]), s.P[thumb[k]], axis, THUMB_FLEX, entries, phalanx(sk));
 			if (out > 0) rotateSubtree(sk, s, thumb[k], s.P[thumb[k]].slice(), axisRot(axis, -out * weight));
 			reached = closeJoint(sk, s, thumb[k], thumb.slice(k), axis, THUMB_FLEX, entries, weight, false);
 		}

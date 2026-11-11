@@ -12,7 +12,7 @@
 // Frames whose arm is FK (armw 0) only get the elbow turn. The report says what moved.
 import { bodyFor, bodyNormal, limbDepth, segmentDepth } from "../body.js";
 import { add, sub, scale, len, apply, axisRot } from "../compiler/math.js";
-import { CAPSULES, segPoints, sdBox } from "../qa/geometry.js";
+import { capsulesFor, segPoints, sdBox } from "../qa/geometry.js";
 import { round4 } from "./ease.js";
 import { turnWeight } from "../compiler/pose.js";
 import { allowance } from "../qa/checks.js";
@@ -54,7 +54,7 @@ export function fitWeight(spec, c, k) {
 	return Math.min(1, w);
 }
 
-const CAP = Object.fromEntries(CAPSULES.map(c => [c[0], c[3]]));
+const capR = (sk, part) => capsulesFor(sk).find(c => c[0] === part)[3];
 /** How deep (m) segment A-B of radius r goes into the scene's boxes (QA's COLLIDE on the same capsules). */
 function sceneDepth(boxes, A, B, r) {
 	let worst = 0;
@@ -68,7 +68,7 @@ function elbowDepth(body, sk, s, side, deg, boxes = []) {
 	const I = sk.index, a = I[`${side}Arm`], fa = I[`${side}ForeArm`], S = s.P[a], W = s.P[I[`${side}Hand`]];
 	const E = deg ? add(S, apply(axisRot(sub(W, S), deg), sub(s.P[fa], S))) : s.P[fa];
 	const worst = Math.max(segmentDepth(body, sk, s, a, S, E), segmentDepth(body, sk, s, fa, E, W));
-	const k = side === "Left" ? "l" : "r", scene = boxes.length ? Math.max(sceneDepth(boxes, S, E, CAP[`uarm_${k}`]), sceneDepth(boxes, E, W, CAP[`farm_${k}`])) : 0;
+	const k = side === "Left" ? "l" : "r", scene = boxes.length ? Math.max(sceneDepth(boxes, S, E, capR(sk, `uarm_${k}`)), sceneDepth(boxes, E, W, capR(sk, `farm_${k}`))) : 0;
 	return { depth: worst, scene, rise: Math.max(0, E[1] - (S[1] - LOW)), under: S[1] - E[1] };
 }
 

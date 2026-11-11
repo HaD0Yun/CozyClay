@@ -15,18 +15,20 @@
 import { len, scale, sub } from "../compiler/math.js";
 import { bodyFor } from "../body.js";
 import { regionOf } from "./body-checks.js";
-import { CAPSULES, fingerCapsules, segPoints } from "./geometry.js";
+import { capsulesFor, fingerCapsules, segPoints } from "./geometry.js";
 
 const SPACING = 0.01, COARSE = 0.03, FEET = /(Foot|Toe)/;
-const skins = new Map();
+// per skeleton (a rig registered again under its id is a new skeleton: rigs/index.js registerRig), then per spacing
+const skins = new WeakMap();
 
 /**
  * Skin points of every fitted bone but the feet, one per `spacing` cube, in the bones' bind frames: [[bone, local point,
  * part], ...]; null without a fitted body.
  */
 function bodySkin(sk, spacing = SPACING) {
-	const key = `${sk.model} ${spacing}`;
-	if (skins.has(key)) return skins.get(key);
+	if (!skins.has(sk)) skins.set(sk, new Map());
+	const mine = skins.get(sk);
+	if (mine.has(spacing)) return mine.get(spacing);
 	const body = bodyFor(sk), out = body ? [] : null;
 	for (const g of body?.grids ?? []) {
 		if (FEET.test(sk.names[g.b])) continue;
@@ -40,7 +42,7 @@ function bodySkin(sk, spacing = SPACING) {
 			if (!seen.has(cell)) { seen.add(cell); out.push([g.b, q, part]); }
 		}
 	}
-	skins.set(key, out);
+	mine.set(spacing, out);
 	return out;
 }
 
@@ -76,7 +78,7 @@ export function visitSkin(sk, s, visit, keep = null) {
 			if (visit(part, P[0] + R[0][0] * q[0] + R[0][1] * q[1] + R[0][2] * q[2], P[1] + R[1][0] * q[0] + R[1][1] * q[1] + R[1][2] * q[2],
 				P[2] + R[2][0] * q[0] + R[2][1] * q[1] + R[2][2] * q[2], 0)) return true;
 		}
-	} else if (CAPSULES.some(([part, a, b, r]) => axis(part, s.P[sk.index[a]], s.P[sk.index[b]], r))) return true;
+	} else if (capsulesFor(sk).some(([part, a, b, r]) => axis(part, s.P[sk.index[a]], s.P[sk.index[b]], r))) return true;
 	return ["Left", "Right"].some(side => fingerCapsules(sk, s, side).some(c => axis(...c)));
 }
 
@@ -85,7 +87,7 @@ export function floorDepths(sk, s) {
 	const deep = new Map(), put = (part, d) => { if (!(deep.get(part) >= d)) deep.set(part, d); };
 	const skin = bodySkin(sk);
 	if (skin) for (const [b, q, part] of skin) { const R = s.R[b]; put(part, -(s.P[b][1] + R[1][0] * q[0] + R[1][1] * q[1] + R[1][2] * q[2])); }
-	else for (const [part, a, b, r] of CAPSULES) put(part, r - Math.min(s.P[sk.index[a]][1], s.P[sk.index[b]][1]));
+	else for (const [part, a, b, r] of capsulesFor(sk)) put(part, r - Math.min(s.P[sk.index[a]][1], s.P[sk.index[b]][1]));
 	for (const side of ["Left", "Right"]) for (const [part, a, b, r] of fingerCapsules(sk, s, side)) put(part, r - Math.min(a[1], b[1]));
 	return deep;
 }

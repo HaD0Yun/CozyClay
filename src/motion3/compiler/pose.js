@@ -60,10 +60,11 @@ function softReach(sk, s, a, fa, h, target, diag, k) {
 // a working arm (on IK, or a hand that holds something: compile.js hangoff, idle.js busyHands) takes none of it. A rig whose thigh comes near (the X Bot) stops HANG_BACK
 // degrees short of the first angle that brings its forearm or hand within HANG_CLEAR of the skin standing, so the
 // walk's sway does not carry it into the thigh. Faded out as arm_rest raises the arms (none at 45); once per rig and rest.
-const HANG_CLEAR = 0.095, HANG_BACK = 2, hangs = new Map();
+const HANG_CLEAR = 0.095, HANG_BACK = 2, hangs = new WeakMap();
 function hangOf(sk, down) {
-	const key = `${sk.model}|${down}`;
-	if (hangs.has(key)) return hangs.get(key);
+	if (!hangs.has(sk)) hangs.set(sk, new Map());
+	const mine = hangs.get(sk);
+	if (mine.has(down)) return mine.get(down);
 	const full = (90 - down) * Math.min(1, Math.max(0, (down - 45) / 27)), wb = wristBody(sk);
 	const clearAt = h => {
 		const s = restState(sk);
@@ -79,7 +80,7 @@ function hangOf(sk, down) {
 	if (wb && full > 0) {
 		for (let h = 0; h <= full; h += 0.5) if (!clearAt(h)) { hang = Math.max(0, h - HANG_BACK); break; }
 	}
-	hangs.set(key, hang);
+	mine.set(down, hang);
 	return hang;
 }
 
