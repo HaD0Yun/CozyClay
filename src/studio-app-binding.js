@@ -107,7 +107,7 @@ export function createStudioAppBinding(ports) {
 	}
 	function guard(id) {
 		const raw = refresh(), token = tokens.get(id)?.token;
-		if (!token) fail("STALE_TARGET", "The exact target no longer exists.");
+		if (!token) fail("STALE_TARGET", `The exact target ${id} no longer exists (or never did): inspect_studio lists the ids.`);
 		return { ...raw.host, targetId: id, token };
 	}
 	function readCommand() {

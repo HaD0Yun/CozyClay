@@ -91,7 +91,8 @@ await check("bad detail is refused with the field's path, never clamped", () => 
 	refused({ parts: [blob("a", { detail: 0.5 })] }, "parts[a].detail", /must be an object/);
 	refused({ parts: [blob("a", { detail: { scale: 3 } })] }, "parts[a].detail.amount", /required/);
 	refused({ parts: [blob("a", { detail: { amount: 1.5 } })] }, "parts[a].detail.amount", /0 to 1/);
-	refused({ parts: [blob("a", { detail: { amount: 0.5, scale: 40 } })] }, "parts[a].detail.scale");
+	// a scale outside 1..12 is the one slip read as meant (clamped): a refusal costs the model the recipe again (verify-sculpt-forgive.mjs)
+	refused({ parts: [blob("a", { detail: { amount: 0.5, scale: "big" } })] }, "parts[a].detail.scale");
 	refused({ parts: [blob("a", { detail: { amount: 0.5, seed: 1.5 } })] }, "parts[a].detail.seed", /whole number/);
 	refused({ parts: [blob("a", { detail: { amount: 0.5, bumps: 3 } })] }, "parts[a].detail.bumps", /unknown key/);
 	refused({ parts: [scatter("g", { detail: { amount: 0.5 } })] }, "parts[g].detail", /scatter/);
