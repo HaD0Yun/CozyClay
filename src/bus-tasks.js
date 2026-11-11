@@ -15,6 +15,8 @@ const VERBS = ['begin', 'requestScope', 'mark', 'rollback', 'finish', 'cancel', 
 // Document actions around a finished task's undo (#1058): moving between scenes of one project, or replacing what is loaded.
 const NAVIGATES = new Set(['scene.switch', 'scene.create', 'scene.duplicate']), REPLACES = new Set(['project.new', 'project.open', 'project.openStarter', 'project.restore', 'load_scenes']);
 const FINISHED_KEPT = 32;
+// The protocol's cap on a receipt's affectedIds (studio-agent-protocol.js receiptBase).
+const AFFECTED_MAX = 100;
 /** Task controls that write no document (they grant, mark or close a scope): admitted mid-gesture, so a begin or finish never waits on the user's drag. */
 export const GESTURE_FREE_TASK_CONTROLS = new Set(['task.begin', 'task.requestScope', 'task.mark', 'task.finish']);
 // A holder the board no longer runs (its run ended without task.finish: a crash, a lost frame) and that sent nothing for this
@@ -81,14 +83,15 @@ export function createBusTasks({ ports, emit }) {
 		}
 	}
 	function receipt(id, task, request, before, { historyEntryId = null, affectedIds = [], output, warnings = [] } = {}) {
-		const after = ports.read();
+		const after = ports.read(), ids = historyEntryId && !affectedIds.length ? task.restored : affectedIds;
 		if (task.skipped?.length) warnings = [...warnings, { code: 'SCOPE_NOT_RESTORED', message: `Left as they are (a document change has no undo): ${listOf(task.skipped)}.` }];
 		task.skipped = null;
 		return validateReceipt({ ok: true, status: 'completed', kind: 'transaction', commandId: request.commandId, receiptId: crypto.randomUUID(), host: before.host,
 			action: id, txId: task.taskId, authored: Boolean(historyEntryId), revision: { before: before.revision, after: after.revision },
-			affectedIds: historyEntryId && !affectedIds.length ? task.restored : affectedIds, delta: [],
+			// A receipt names at most AFFECTED_MAX ids; a task that touched more names the first and says how many in all.
+			affectedIds: ids.slice(0, AFFECTED_MAX), delta: [],
 			checks: { coverage: 'task-scope' }, warnings, undo: historyEntryId ? { historyEntryId, entries: 1, canUndoDirect: false } : null,
-			output: { scope: [...task.keys], ...output } });
+			output: { scope: [...task.keys], ...output, ...(ids.length > AFFECTED_MAX ? { affectedCount: ids.length } : {}) } });
 	}
 	const ownerOf = (request, taskId) => { if (request.origin !== 'agent' || request.taskId !== taskId) fail('CAPABILITY_MISSING', 'Only the owning task can control it.'); };
 	return {
