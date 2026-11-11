@@ -44,7 +44,8 @@ import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { bakeTake } from "../../src/motion3/take.js";
 import { peopleOf } from "../../src/motion3/people.js";
 import { airRuns } from "../../src/motion3/qa/style.js";
-import { flights, runDrift, SPIN_TOL, DROP_LIMIT } from "../../src/motion3/qa/flight-checks.js";
+import { flights, runDrift, SPIN_TOL, DROP_LIMIT, MIN_FLIGHT } from "../../src/motion3/qa/flight-checks.js";
+import { NOTES } from "../../src/motion3/schema/topics.js";
 import { isBlocking, POP_HARD } from "../../src/motion3/qa/blocking.js";
 import { spinFix } from "../../src/motion3/fix/spin.js";
 import { rotationVector, momentumOf } from "../../src/motion3/qa/inertia.js";
@@ -382,6 +383,12 @@ function hop(keys, z, A, d = 0.4) {
 	const r = compileSpec({ schema: SPEC, fps: 24, frames: 48, keys }, { sk, scene: motionScene([]) }), fl = flightOf(r).filter(([a, b]) => b - a + 1 === 3);
 	const err = fl.length ? fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], fl[0][0], fl[0][1]) : Infinity;
 	expect(`(a8) standing hop, default fixes: its 3-frame flight rides the arc (${JSON.stringify(r.fixed.ballistic?.at)}, centre of mass ${r3(err)} g off 1 g)`, fl.length === 1 && (r.fixed.ballistic?.at ?? []).includes(`f${fl[0][0]}-f${fl[0][1]}`) && err < 0.01, JSON.stringify({ rt: r.fixed.retime, b: r.fixed.ballistic, fl: flightOf(r) }));
+}
+
+// motion.describe's fix note gives the flight length the fixes act on (it said 4+ frames while they moved the 3-frame flights above)
+{
+	const note = NOTES.fix.find(n => n.startsWith("ballistic and spin")) ?? "";
+	expect(`describe's fix note: the flight fixes work on flights of ${MIN_FLIGHT}+ frames, as flights() reads them`, note.includes(`each flight, ${MIN_FLIGHT}+ frames off the ground`), note.slice(0, 120));
 }
 
 // (a8) the same hop with an open head_pitch keyed f32-f38, just after its 3-frame flight f25-f27: search's window (f27-f49) reached
