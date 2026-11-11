@@ -22,12 +22,11 @@ import { SIDES } from "./compiler/pose.js";
 import { add, sub, scale, norm, dot, cross, mul, T, apply, axisRot, len, clamp } from "./compiler/math.js";
 import { landscape, ELBOW_REST } from "./compiler/arm-orient.js";
 import { bendPlane } from "./compiler/hold.js";
-import { CAPSULES } from "./qa/geometry.js";
+import { capsulesFor } from "./qa/geometry.js";
 import { QA_LIMITS } from "./qa/checks.js";
 import { bodyFor, segmentDepth } from "./body.js";
 
 const ROLLS = 36, TEMP = 0.05, PULL = 0.3, EASY = 3, SLACK = 10, POLES = 36, CLEAR = 1, DEEP = 100;
-const TORSO = CAPSULES.filter(c => c[0].startsWith("torso")), RADIUS = Object.fromEntries(CAPSULES.map(c => [c[0], c[3]]));
 const cols = (a, b, c) => [[a[0], b[0], c[0]], [a[1], b[1], c[1]], [a[2], b[2], c[2]]];
 const col = (R, i) => [R[0][i], R[1][i], R[2][i]];
 
@@ -74,6 +73,7 @@ export function secondGrip(sk, spec, id, s, c, axis) {
 	const wristAt = r => (pin === "wrist" ? wrist : point(r)), knuckle = apply(T(s.R[h]), sub(s.P[I.LeftHandMiddle3], wrist)), S = s.P[I.LeftArm], plane = bendPlane(sk, s, SIDES.l);
 	// on the fitted skin when the rig has one and spec.fix.self is on (body.js, as QA's BODY measures it), else on the torso capsules
 	const skin = spec.fix === false || spec.fix?.self === false ? null : bodyFor(sk), BONE = { uarm_l: I.LeftArm, farm_l: I.LeftForeArm, hand_l: I.LeftHand };
+	const caps = capsulesFor(sk), TORSO = caps.filter(x => x[0].startsWith("torso")), RADIUS = Object.fromEntries(caps.map(x => [x[0], x[3]]));
 	const into = (a, b, part) => (skin ? segmentDepth(skin, sk, s, BONE[part], a, b) : Math.max(0, ...TORSO.map(([, ta, tb, rt]) => RADIUS[part] + rt - segSeg(a, b, s.P[I[ta]], s.P[I[tb]]))));
 	const arms = new Map();
 	const arm = r => {
