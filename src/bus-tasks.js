@@ -32,11 +32,12 @@ export function createBusTasks({ ports, emit }) {
 	const open = new Map(), finished = new Map(), entryTask = new Map();
 	// A character layer has its own token (its fields only), so another task's edit of her other layers never makes it
 	// stale; an editor without layer reads falls back to the whole character's.
-	const tokenOf = key => {
+	// `read`: false after the caller read the editor once for a whole loop (a target read re-reads the scene each time).
+	const tokenOf = (key, read = true) => {
 		const of = layerOf(key);
-		if (of?.layer) return ports.readLayer?.(key) ?? ports.readTarget?.(of.id) ?? 'absent';
+		if (of?.layer) return ports.readLayer?.(key) ?? ports.readTarget?.(of.id, read) ?? 'absent';
 		const [kind, id] = key.split(/:(.*)/s);
-		if (id !== undefined) return ports.readTarget?.(id) ?? 'absent';
+		if (id !== undefined) return ports.readTarget?.(id, read) ?? 'absent';
 		const state = ports.read();
 		return kind === 'scene' ? `r${state.revision}` : `${kind}:${state.domainRevisions?.[kind === 'timeline' ? 'shot' : kind] ?? 0}`;
 	};
@@ -206,7 +207,7 @@ export function createBusTasks({ ports, emit }) {
 				for (const made of expandScope([key])) { task.keys.add(made); grew = true; if (!point.keys.includes(made)) { task.pre.set(made, { key: made, value: undefined }); point.values.push({ key: made, value: undefined }); } }
 			}
 			if (grew) emit?.({ type: 'task.scope', taskId: task.taskId, scope: [...task.keys] });
-			for (const key of task.keys) task.tokens.set(key, tokenOf(key));
+			ports.read(); for (const key of task.keys) task.tokens.set(key, tokenOf(key, false));
 			if (recorded.authored) {
 				task.edits.push({ receiptId: recorded.receiptId, values: point.values, keys: point.keys, mark: point.mark });
 				task.affectedIds = [...new Set([...task.affectedIds, ...recorded.affectedIds])];
