@@ -15,6 +15,8 @@ const at = (protocol, search = "") => ({ protocol, search });
 
 expect("hosted, first visit: guest start", guestStart(at("https:"), store(null)) === true);
 expect("hosted, a project session exists: the visitor resumes it", guestStart(at("https:"), store({ name: "My Project" })) === false);
+const draft = (key) => ({ getItem: (k) => (k === key ? JSON.stringify({ version: 5, activeSceneId: "a", scenes: [] }) : null) });
+expect("hosted, an unnamed stored draft and no session: the draft stays", ["cozyclay.scenes.v5", "cozyclay.scenes.v4", "cozyclay.scenes.v1", "cozyclay.scene.v1"].every((key) => guestStart(at("https:"), draft(key)) === false));
 expect("self-served (http), first run: the chooser stays", guestStart(at("http:"), store(null)) === false);
 expect("self-served with ?try: guest start", guestStart(at("http:", "?try=1"), store(null)) === true && guestStart(at("http:", "?try"), store(null)) === true);
 expect("?try with a project session: the visitor resumes it", guestStart(at("http:", "?try=1"), store({ name: "My Project" })) === false);
