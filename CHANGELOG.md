@@ -2,8 +2,24 @@
 
 ## Unreleased
 
+Motion
+
+- Sample motions in the Motion tab: one click installs a walk or a flip on the
+  selected character and plays it, with no agent. On the hosted Studio, where
+  no agent server runs, the Agent panel shows four ready-made requests to
+  press (a walk, a street of buildings around the character, a chair to sit
+  on, a back flip) and an Install button, instead of a server error.
+
+Site
+
+- The landing page has an Install button named for the visitor's system. It
+  opens three steps: the official Node.js installer, how to open a terminal,
+  and the command to paste. The bare command stays in Quick start.
+
 Studio
 
+- The Studio starts in the dark theme. A theme already chosen in Preferences
+  is kept. (#1163)
 - A first visit to the hosted Studio opens on a ready stage with a character
   on it. The project chooser no longer comes first there; File > New and Open
   still reach it, and `npx cozyclay` keeps it.

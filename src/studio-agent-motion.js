@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { StudioProtocolError, freezeStudioData } from './studio-agent-protocol.js';
-import { applyTakeFrame } from './motion3/playback.js';
+import { playTakeFrame as applyTakeFrame } from './character-playback.js';
 import { resolveIkRig, createIkState, ikEvaluate, findBone, hasBindPose } from './motion/ik.js';
 import { PHYSICS_LIMITS, createSupportSampler, copyPhysicsKeys, supportIntervals, physicsMetrics } from './motion/physics-review.js';
 import { createDynamicsSampler, supportDiagnostics } from './motion/physics-support.js';

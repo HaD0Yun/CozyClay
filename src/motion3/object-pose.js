@@ -60,7 +60,7 @@ function restPose(scene, id) {
 }
 
 /** The spec.objects key that moves body or group `id`: itself or its nearest group with a carry, follow or hinge entry (a switch moves nothing), or null. */
-function moverOf(spec, scene, id) {
+export function moverOf(spec, scene, id) {
 	return [id, ...(scene?.objects?.[id]?.ancestors ?? groupsOf(scene)[id]?.ancestors ?? [])].find(k => movesRecord(spec.objects?.[k])) ?? null;
 }
 

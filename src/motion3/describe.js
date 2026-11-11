@@ -84,7 +84,7 @@ const SCHEMAS = {
 		patternProperties: { "^w_.+_[lr]$": { type: "number", minimum: 0, maximum: 1, description: rangeOf("w_a_l")[3] }, "_vis$": { type: "number", description: "shown > 0.5" } },
 		additionalProperties: { type: "number", description: "spec.channels, an object's or a check's when" } }),
 	refs: () => ({ type: "string", oneOf: REF_KINDS.map(k => ({ pattern: `^${k}:`, description: typeOf(REF_DOCS, k, "refs") })) }),
-	fix: () => ({ oneOf: [{ const: false }, objectOf(FIX_KEYS, FIX_TYPES, "fix")] }),
+	fix: (keys = FIX_KEYS) => ({ oneOf: [{ const: false }, objectOf(keys, FIX_TYPES, "fix")] }),
 };
 
 function skillArgs(name) {
@@ -105,6 +105,8 @@ const MEANT = { topics: ["objects", "channels"], skills: ["reachGrip"] };
 const SHALLOW = ["checks"];
 /** Skills essentials leaves to topic skills: a flip, a cartwheel or a body thrown by a hit is no first spec's need, and essentials has no room. */
 const FIRST_SPEC_SKIP = ["flip", "hitReaction", "throwObject", "catchObject"];
+/** Fixes essentials leaves to topic fix: the flight's (on by default, a first spec never turns them off), and essentials has no room. */
+const FIRST_SPEC_FIX = FIX_KEYS.filter(k => !["ballistic", "spin"].includes(k));
 
 /** A shared shape whose fields are mostly a skill's args (walk, walkTo): its own fields and `...<skill> args`. */
 function shapeLine(d) {
@@ -130,7 +132,7 @@ function pointed(spec) {
 function essentials() {
 	const types = {}, shared = {};
 	for (const topic of DESCRIBE_TOPICS.filter(t => SCHEMAS[t])) {
-		const { $defs = {}, ...schema } = rooted(topic === "spec" ? pointed(SCHEMAS.spec()) : SCHEMAS[topic]());
+		const { $defs = {}, ...schema } = rooted(topic === "spec" ? pointed(SCHEMAS.spec()) : topic === "fix" ? SCHEMAS.fix(FIRST_SPEC_FIX) : SCHEMAS[topic]());
 		types[topic] = briefType(schema, { means: MEANT.topics.includes(topic), depth: SHALLOW.includes(topic) ? 1 : undefined });
 		Object.assign(shared, $defs);
 	}

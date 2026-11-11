@@ -5,6 +5,7 @@ import { useCastTransaction } from '../domains/cast.js';
 import { useContext } from "react";
 import { AppContext } from "../app-context.js";
 import { shotAtFrame } from "../cuts.js";
+import SampleMotionsPanel from "./SampleMotionsPanel.jsx";
 
 export default function CharacterTransformPanel({ workflowMode, isCharacterSelection, activeChar }) {
 	const { run, begin, commit } = useCastTransaction();
@@ -13,7 +14,7 @@ export default function CharacterTransformPanel({ workflowMode, isCharacterSelec
 	const still = live ? shotAtFrame(live.shots, live.view.frame) : null;
 	const shown = live?.targets?.get?.(activeChar.id)?.motion || activeChar.layer?.waypoints?.length
 		? activeChar : { ...activeChar, ...(still?.cast?.[activeChar.id] ?? {}) };
-	return (
+	return (<>
 <Foldout
 					key={workflowMode === "motion" ? "placement" : "transform"}
 					hidden={!isCharacterSelection}
@@ -62,5 +63,7 @@ export default function CharacterTransformPanel({ workflowMode, isCharacterSelec
 						</>
 					)}
 				</Foldout>
-	);
+		{/* Motion mode: takes that need no agent, so a character can move on the hosted Studio too. */}
+		<SampleMotionsPanel hidden={!isCharacterSelection || workflowMode !== "motion"} activeChar={activeChar} />
+	</>);
 }

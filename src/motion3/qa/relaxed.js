@@ -11,7 +11,7 @@
 //   redundant entries the skin model carries the body on wherever they do (support.js): not needed
 import { T } from "../compiler/math.js";
 import { QA_LIMITS } from "./checks.js";
-import { CAPSULES, segPoints, sdBox } from "./geometry.js";
+import { CAPSULES, capsulesFor, segPoints, sdBox } from "./geometry.js";
 import { visitSkin } from "./floor.js";
 import { NEAR, boxDist, skinCarries } from "./support.js";
 
@@ -33,7 +33,7 @@ function limitsLine(limits = {}) {
 
 /** Per frame of out: does entry sp's capsule test (style.js supported) carry the body, and how near its part's skin comes to the object. */
 function readSupport(out, sp) {
-	const sk = out.ctx.sk, I = sk.index, part = sp.part ?? "hips", cap = CAPSULES.find(c => c[0] === part), tol = sp.tol ?? SUPPORT_TOL;
+	const sk = out.ctx.sk, I = sk.index, part = sp.part ?? "hips", cap = capsulesFor(sk).find(c => c[0] === part), tol = sp.tol ?? SUPPORT_TOL;
 	const keep = /^hand_[lr]$/.test(part) ? p => p === part || p === `fingers_${part.slice(-1)}` : p => p === part;
 	const frames = [];
 	let nearest = Infinity, ever = false, seen = false;
