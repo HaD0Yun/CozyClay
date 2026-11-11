@@ -17,6 +17,8 @@
  */
 import { expandSculptParts, patchSculptRecipe } from "./sculpt-recipe.js";
 import { SCULPT_SHAPE_SPECS } from "./sculpt-shapes.js";
+import { repeatCopies } from "./sculpt-repeat.js";
+import { applyMatrix, multiply } from "./sculpt-matrix.js";
 
 const COMPARE_SIZE = 256;
 
@@ -114,9 +116,6 @@ function viewProject([x, y, z], yawDeg, elevationDeg) {
 	return [right, y * Math.cos(e) - towardCamera * Math.sin(e)];
 }
 
-function applyMatrix(m, [x, y, z]) {
-	return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
-}
 
 function convexHull(points) {
 	const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -129,8 +128,9 @@ function convexHull(points) {
 
 /** Projected convex outline of every drawn part, in view metres. Frames keep their hole. A cutter (op) adds no area and cuts no hole: the reference mask fills enclosed holes anyway, and an intersect's parent keeps its uncut outline. */
 export function sculptViewPolygons(recipe, { yaw = 0, elevation = 0 } = {}) {
-	return expandSculptParts(recipe).filter((part) => !part.op).map((part) => {
-		const project = (point) => viewProject(applyMatrix(part.matrix, point), yaw, elevation);
+	// A repeated part outlines every copy (sculpt-repeat.js).
+	return expandSculptParts(recipe).filter((part) => !part.op).flatMap((part) => repeatCopies(part).map((copy) => [part, multiply(part.matrix, copy)])).map(([part, matrix]) => {
+		const project = (point) => viewProject(applyMatrix(matrix, point), yaw, elevation);
 		const spec = SCULPT_SHAPE_SPECS[part.shape];
 		// See-through only where the front and back openings overlap; the front
 		// face's opening alone is a slightly generous stand-in.

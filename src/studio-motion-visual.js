@@ -18,6 +18,7 @@ import { GHOST_COLORS, sheetGhostSettings } from "./view-ghosts.js";
 import { publishSheet } from "./agent-progress.js";
 import { clampFrames } from "./motion3/lenient.js";
 import { sheetCaption } from "./workflow/agent-progress-view.js";
+import { studioCloseup } from "./studio-closeup.js";
 // verify_result's lighting check also reads the rendered shot frame; the binding imports it from here.
 export { verifyLighting } from "./studio-lighting-check.js";
 
@@ -153,6 +154,7 @@ export function studioVisual(args, { s, receipt, result, images, ports, scene })
 		const sheet = buildContactSheet(frames, ports.renderFrameBuffer, grid), hidden = shotHidden(r ?? takeCompile(args, s, receipt), frames, ports, scene);
 		return keep({ dataUrl: ports.encodePng(sheet.data, sheet), width: sheet.width, height: sheet.height, frames, layout: grid.layout }, said({ frames, layout: grid.layout, ...(picks ? { picks } : {}), ...hidden }));
 	}
+	if (args.visual === "closeup") return keep(...studioCloseup(args, { s, receipt, ports }));
 	if (args.visual === "trace") {
 		const r = takeCompile(args, s, receipt);
 		if (!r) throw new StudioProtocolError("TARGET_NOT_READY", "visual trace plots a character's compiled take; name a character that has one (run motion.compile first).");

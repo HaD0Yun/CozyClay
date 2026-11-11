@@ -11,6 +11,7 @@
 
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { expandSculptParts } from "./sculpt-recipe.js";
 import { BLOB_TAPER } from "./sculpt-shapes.js";
 import { cutSculptGeometry } from "./sculpt-csg.js";
@@ -20,6 +21,7 @@ import { applySculptDetail } from "./sculpt-detail.js";
 import { applySculptColours } from "./sculpt-colours.js";
 import { scatterMesh } from "./sculpt-scatter.js";
 import { lookMaterial } from "./material-look.js";
+import { repeatCopies } from "./sculpt-repeat.js";
 
 /** roundness 0..1 → superellipse exponent 2..8 */
 const blobExponent = (roundness) => 2 + 6 * roundness;
@@ -111,6 +113,18 @@ export function sculptPartGeometry(part) {
 	return applySculptDetail(build(part), part);
 }
 
+/** A repeated part's copies (sculpt-repeat.js) merged into ONE geometry in the
+ * part's own frame, so the part stays one mesh and one draw call. `geometry`
+ * (one copy, already cut and coloured) is consumed. */
+export function repeatSculptGeometry(geometry, part) {
+	if (!part.repeat) return geometry;
+	const copies = repeatCopies(part).map((copy) => geometry.clone().applyMatrix4(new THREE.Matrix4().fromArray(copy)));
+	const merged = mergeGeometries(copies);
+	for (const copy of copies) copy.dispose();
+	geometry.dispose();
+	return merged;
+}
+
 /**
  * The drawable object for a normalized recipe. `materialFor(part)` lets the
  * caller decide the look (auto-colour, depth rank); the default is the part's
@@ -133,6 +147,8 @@ export function buildSculptGroup(recipe, { materialFor } = {}) {
 		const mesh = MESH_BUILDERS[part.shape]?.(part, material) ?? new THREE.Mesh(cutSculptGeometry(sculptPartGeometry(part), part, parts, sculptPartGeometry), material);
 		// Gradients and scatter tints belong to the shaded look; a flat display mode (materialFor) ignores them.
 		if (!materialFor) applySculptColours(mesh, part);
+		// Copies after colours, so a gradient runs along each copy, not across the row.
+		mesh.geometry = repeatSculptGeometry(mesh.geometry, part);
 		mesh.name = part.id;
 		mesh.userData.sculptPart = part.id;
 		matrix.fromArray(part.matrix);

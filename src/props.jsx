@@ -18,7 +18,7 @@ import { GIZMO_LAYER } from "./dualview.jsx";
 import { CUTOUT_KIND, MESH_KIND, EMPTY_KIND, EMPTY_MARKER_SIZE, SCULPT_KIND } from "./scene-objects.js";
 import { TEXT_KIND } from "./text/text-record.js";
 import { TextObject } from "./text/text-object.jsx";
-import { buildSculptGroup, disposeSculptGroup } from "./sculpt-geometry.js";
+import { useSharedSculpt } from "./shared-sculpt.js";
 import { depthRankProps, usePrimitiveLook } from "./primitive-look.js";
 import { subscribeToAssetTexture } from "./scene-asset-cache.js";
 import { ImportedMesh } from "./imported-mesh.jsx";
@@ -156,20 +156,14 @@ function Cutout({ object }) {
 }
 
 /**
- * A sculpt: the clay parts its recipe describes, rebuilt only when the recipe
- * or the look changes. The shaded look is buildSculptGroup's own clay (part
+ * A sculpt: the clay parts its recipe describes, built once per recipe and
+ * shared by its copies. The shaded look is buildSculptGroup's own clay (part
  * colours, gradients, scatter tints); auto-colour paints the whole sculpt flat
  * like any other prop, because it is one object. Depth rank rides on either.
  */
 function Sculpt({ object, depthRank = 0 }) {
-	const { recipe, autoColor } = object;
-	const group = useMemo(() => {
-		const built = buildSculptGroup(recipe, autoColor ? { materialFor: () => new THREE.MeshStandardMaterial(autoFlat(autoColor)) } : {});
-		built.traverse((node) => node.material && Object.assign(node.material, depthRankProps(depthRank)));
-		return built;
-	}, [recipe, autoColor, depthRank]);
-	useEffect(() => () => disposeSculptGroup(group), [group]);
-	return <primitive object={group} />;
+	// Copies of one recipe share its built geometry (shared-sculpt.js); the record's colour tints the copy.
+	return <primitive object={useSharedSculpt(object, depthRank)} />;
 }
 
 const PRIMITIVE_KINDS = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "plane"]);

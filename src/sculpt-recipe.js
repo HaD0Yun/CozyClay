@@ -15,10 +15,12 @@
  * Contract: docs/sculpt-from-image.md.
  */
 
-import { RecipeError, readHexColor, readVector, tidy } from "./sculpt-recipe-read.js";
+import { RecipeError, forgiveSculptPart, readHexColor, readVector, tidy } from "./sculpt-recipe-read.js";
 import { SCULPT_SHAPES, SCULPT_SHAPE_KEYS, SCULPT_SHAPE_SPECS } from "./sculpt-shapes.js";
 import { SCULPT_PART_FIELDS } from "./sculpt-part-fields.js";
 import { checkSculptCutters } from "./sculpt-cutters.js";
+import { checkSculptRepeats, repeatCopies, repeatCount } from "./sculpt-repeat.js";
+import { IDENTITY, applyMatrix, composeMatrix, multiply } from "./sculpt-matrix.js";
 
 const SCULPT_RECIPE_VERSION = 1;
 export const SCULPT_LIMITS = Object.freeze({
@@ -30,6 +32,9 @@ export const SCULPT_LIMITS = Object.freeze({
 	maxDepth: 8,
 	/** scatter items across the whole recipe, after mirrors */
 	maxScatterItems: 12000,
+	/** repeat copies across the whole recipe, after mirrors: each copy is real
+	 * vertices in one merged mesh, and 256 dense blobs is about 0.8 M of them */
+	maxRepeatCopies: 256,
 });
 const SCULPT_DEFAULT_COLOR = "#c2c6c8";
 /** The suffix a mirrored copy's id gets. `.` is outside the id alphabet, so a
@@ -37,7 +42,7 @@ const SCULPT_DEFAULT_COLOR = "#c2c6c8";
 export const SCULPT_MIRROR_SUFFIX = ".mirror";
 const MIN_HEIGHT = 0.05;
 
-const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 export const PART_KEYS = new Set(["id", "shape", "size", "position", "rotation", "color", "parent", "mirror", ...SCULPT_SHAPE_KEYS, ...SCULPT_PART_FIELDS.map((field) => field.key)]);
 const wrapDegrees = (deg) => {
 	const wrapped = ((((deg + 180) % 360) + 360) % 360) - 180;
@@ -46,14 +51,14 @@ const wrapDegrees = (deg) => {
 
 const readColor = (value, path) => (value === undefined ? SCULPT_DEFAULT_COLOR : readHexColor(value, path));
 
-function normalizePart(raw, index) {
-	const at = `parts[${index}]`;
+function normalizePart(input, index) {
+	const raw = forgiveSculptPart(input), at = `parts[${index}]`;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new RecipeError(at, "must be an object");
 	for (const key of Object.keys(raw)) {
 		if (!PART_KEYS.has(key)) throw new RecipeError(`${at}.${key}`, `unknown key (allowed: ${[...PART_KEYS].join(", ")})`);
 	}
 	if (typeof raw.id !== "string" || !ID_PATTERN.test(raw.id)) {
-		throw new RecipeError(`${at}.id`, `must be 1-40 characters of a-z, 0-9 and -, starting with a letter or digit; got ${JSON.stringify(raw.id)}`);
+		throw new RecipeError(`${at}.id`, `must be 1-40 letters, digits, - and _, starting with a letter or digit; got ${JSON.stringify(raw.id)}`);
 	}
 	const where = `parts[${raw.id}]`;
 	if (!SCULPT_SHAPES.includes(raw.shape)) {
@@ -88,7 +93,8 @@ function normalizePart(raw, index) {
 	};
 	if (raw.parent !== undefined) part.parent = raw.parent;
 	if (raw.mirror === true) part.mirror = true;
-	spec.read(raw, part, where);
+	// A shape's own refusal brings a valid example of that shape (sculpt-shape-examples.js).
+	try { spec.read(raw, part, where); } catch (error) { throw Object.assign(error, { example: error.example ?? raw.shape }); }
 	for (const field of SCULPT_PART_FIELDS) if (raw[field.key] !== undefined) field.read(raw, part, where);
 	return part;
 }
@@ -144,6 +150,7 @@ export function normalizeSculptRecipe(input) {
 		}
 		partDepths(parts);
 		checkSculptCutters(parts);
+		checkSculptRepeats(parts);
 		const recipe = { version: SCULPT_RECIPE_VERSION, parts };
 		const drawn = expandSculptParts(recipe);
 		if (drawn.length > SCULPT_LIMITS.maxParts) {
@@ -154,9 +161,13 @@ export function normalizeSculptRecipe(input) {
 		if (items > SCULPT_LIMITS.maxScatterItems) {
 			throw new RecipeError("recipe.parts", `scatter parts draw ${items} items with mirrors; the limit is ${SCULPT_LIMITS.maxScatterItems}`);
 		}
+		const copies = drawn.reduce((sum, part) => sum + (part.repeat ? repeatCount(part) : 0), 0);
+		if (copies > SCULPT_LIMITS.maxRepeatCopies) {
+			throw Object.assign(new RecipeError("recipe.parts", `repeat parts draw ${copies} copies with mirrors; the limit is ${SCULPT_LIMITS.maxRepeatCopies}`), { example: "repeat" });
+		}
 		return { ok: true, recipe };
 	} catch (error) {
-		if (error instanceof RecipeError) return { ok: false, error: error.message, path: error.path };
+		if (error instanceof RecipeError) return { ok: false, error: error.message, path: error.path, ...(error.example ? { example: error.example } : {}) };
 		throw error;
 	}
 }
@@ -213,44 +224,6 @@ export function patchSculptRecipe(recipe, edits) {
 	return normalized.ok ? { ...normalized, changed: [...changed] } : normalized;
 }
 
-const DEG = Math.PI / 180;
-
-/** Column-major 4x4, three.js layout, so the geometry side can hand it to
- * Matrix4.fromArray without a transpose. Rotation order XYZ, three's default. */
-function composeMatrix(position, rotationDeg) {
-	const [x, y, z] = rotationDeg.map((deg) => deg * DEG);
-	const a = Math.cos(x), b = Math.sin(x);
-	const c = Math.cos(y), d = Math.sin(y);
-	const e = Math.cos(z), f = Math.sin(z);
-	const ae = a * e, af = a * f, be = b * e, bf = b * f;
-	return [
-		c * e, af + be * d, bf - ae * d, 0,
-		-c * f, ae - bf * d, be + af * d, 0,
-		d, -b * c, a * c, 0,
-		position[0], position[1], position[2], 1,
-	];
-}
-
-function multiply(m, n) {
-	const out = new Array(16);
-	for (let col = 0; col < 4; col += 1) {
-		for (let row = 0; row < 4; row += 1) {
-			let sum = 0;
-			for (let k = 0; k < 4; k += 1) sum += m[k * 4 + row] * n[col * 4 + k];
-			out[col * 4 + row] = sum;
-		}
-	}
-	return out;
-}
-
-function applyMatrix(m, [x, y, z]) {
-	return [
-		m[0] * x + m[4] * y + m[8] * z + m[12],
-		m[1] * x + m[5] * y + m[9] * z + m[13],
-		m[2] * x + m[6] * y + m[10] * z + m[14],
-	];
-}
-
 /** A reflection across x = 0 of the parent frame keeps the part's shape and
  * negates the lateral axis only: position.x flips, and the yaw and roll turn
  * the other way. Shapes symmetric about their own x need nothing more; the
@@ -295,8 +268,7 @@ export function expandSculptParts(recipe) {
 			for (const child of children.get(part.id) ?? []) visit(child, mirrorMatrix, mirror.id, true);
 		}
 	};
-	const identity = composeMatrix([0, 0, 0], [0, 0, 0]);
-	for (const root of children.get("") ?? []) visit(root, identity, undefined, false);
+	for (const root of children.get("") ?? []) visit(root, IDENTITY, undefined, false);
 	return out;
 }
 
@@ -309,19 +281,27 @@ function localCorners(part) {
 	return corners;
 }
 
-/** A cutter (op) is not drawn and only takes from its parent, so it never widens the box. */
-export function sculptBounds(recipe) {
+/** A drawn part's object-frame axis-aligned box, every repeat copy included. */
+export function drawnPartBox(part) {
 	const min = [Infinity, Infinity, Infinity];
 	const max = [-Infinity, -Infinity, -Infinity];
-	for (const part of expandSculptParts(recipe).filter((drawn) => !drawn.op)) {
+	for (const copy of repeatCopies(part)) {
+		const matrix = multiply(part.matrix, copy);
 		for (const corner of localCorners(part)) {
-			const point = applyMatrix(part.matrix, corner);
-			for (let axis = 0; axis < 3; axis += 1) {
-				min[axis] = Math.min(min[axis], point[axis]);
-				max[axis] = Math.max(max[axis], point[axis]);
-			}
+			applyMatrix(matrix, corner).forEach((value, axis) => {
+				min[axis] = Math.min(min[axis], value);
+				max[axis] = Math.max(max[axis], value);
+			});
 		}
 	}
+	return { min, max };
+}
+
+/** A cutter (op) is not drawn and only takes from its parent, so it never widens the box. */
+export function sculptBounds(recipe) {
+	const boxes = expandSculptParts(recipe).filter((drawn) => !drawn.op).map(drawnPartBox);
+	const min = [0, 1, 2].map((axis) => Math.min(...boxes.map((box) => box.min[axis])));
+	const max = [0, 1, 2].map((axis) => Math.max(...boxes.map((box) => box.max[axis])));
 	return { min: min.map(tidy), max: max.map(tidy) };
 }
 
