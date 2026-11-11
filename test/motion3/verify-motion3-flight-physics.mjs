@@ -17,7 +17,8 @@
 //       into a slab overhead is left under fixed.spin.left
 //       (a6) a 104-frame run with a trip whose short air runs read worse on QA held: retime re-times them as at 28ad5074 and says why
 //       (a7) a lunge hop whose 3-frame flight starts and ends a frame after and before the feet left and met the floor: the arc leaves it
-//       (a8) a standing hop with the default fixes: retime holds its 3-frame flight, which the arc moves (fe38741c's gain kept)
+//       (a8) a standing hop with the default fixes: retime holds its 3-frame flight, which the arc moves (fe38741c's gain kept);
+//       with an open parameter keyed just after it, search's window holds that 3-frame flight
 //       (a9) the cost of weighing the holds: hops with a second character bake at most 3 times as often as with retime off
 //   (b) hips falling at about 2 g while the feet stand (the trip run's fall): DROP, and its hint gives sqrt(2h/g); the
 //       same fall while the body turns about the vertical (a pirouette is no turn over): DROP; a stand-up that stops its
@@ -381,6 +382,19 @@ function hop(keys, z, A, d = 0.4) {
 	const r = compileSpec({ schema: SPEC, fps: 24, frames: 48, keys }, { sk, scene: motionScene([]) }), fl = flightOf(r).filter(([a, b]) => b - a + 1 === 3);
 	const err = fl.length ? fallError(f => centerOfMass(sk, r.out.frames[f].s)[1], fl[0][0], fl[0][1]) : Infinity;
 	expect(`(a8) standing hop, default fixes: its 3-frame flight rides the arc (${JSON.stringify(r.fixed.ballistic?.at)}, centre of mass ${r3(err)} g off 1 g)`, fl.length === 1 && (r.fixed.ballistic?.at ?? []).includes(`f${fl[0][0]}-f${fl[0][1]}`) && err < 0.01, JSON.stringify({ rt: r.fixed.retime, b: r.fixed.ballistic, fl: flightOf(r) }));
+}
+
+// (a8) the same hop with an open head_pitch keyed f32-f38, just after its 3-frame flight f25-f27: search's window (f27-f49) reached
+// the flight's landing and widened only for air runs of 4 frames or more, so each trial cut the flight a 3-frame arc moves
+// (search cost 87.4 against the whole take's 101). The window holds every flight it reaches, 3 frames or more (MIN_FLIGHT)
+{
+	const keys = [{ f: 0, set: { ...pose0 } }, { f: 10, set: { root: pose0.root, foot_l: pose0.foot_l, foot_r: pose0.foot_r } }], z = hop(keys, 0, 24);
+	keys.push({ f: 32, set: { head_pitch: 0 } }, { f: 34, set: { head_pitch: { range: [-10, 10] } } }, { f: 38, set: { head_pitch: 0 } });
+	keys.push({ f: 46, set: { root: shift(pose0.root, [0, 0, z + 0.05]), foot_l: shift(pose0.foot_l, [0, 0, z + 0.05]), foot_r: shift(pose0.foot_r, [0, 0, z + 0.05]) } });
+	const r = compileSpec({ schema: SPEC, fps: 24, frames: 60, keys: keys.sort((p, q) => p.f - q.f) }, { sk, scene: motionScene([]) }), w = r.search?.window ?? [0, 0], [a, b] = flightOf(r)[0] ?? [0, 0];
+	const out = compileMotion({ fps: 24, ...r.expanded }, { sk, scene: motionScene([]) }, { window: w }), off = Math.max(...out.frames.map((q, i) => Math.hypot(...[0, 1, 2].map(k => q.s.P[I.Hips][k] - r.out.frames[w[0] + i].s.P[I.Hips][k]))));
+	expect(`(a8) standing hop with an open head_pitch after its 3-frame flight f${a}-f${b}: search's window f${w[0]}-f${w[1]} holds it 8 frames past each end and its trial reads the whole take's hips (${off.toExponential(1)} m off)`,
+		b - a + 1 === 3 && w[0] <= a - 8 && w[1] >= b + 8 && off < 1e-9, JSON.stringify({ search: r.search, flight: [a, b] }));
 }
 
 // (a9) the cost of weighing the holds: 2 standing hops 140 frames apart and a second character. The work is counted, not timed (a

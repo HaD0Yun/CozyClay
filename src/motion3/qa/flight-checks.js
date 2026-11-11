@@ -37,9 +37,9 @@ export const SPIN_TOL = 0.2;
 export const MIN_TURN = 30;
 /** SPIN: rad/s (two turns a second, a flip's rate): a drift is measured against at least the momentum I_u * SPIN_OMEGA. */
 const SPIN_OMEGA = 4 * Math.PI;
-/** FLOAT and SPIN read air runs of MIN_RUN frames or more; the flight fixes (fix/ballistic.js, fix/spin.js) and retime's guard from MIN_FLIGHT. */
+/** FLOAT and SPIN read air runs of MIN_RUN frames or more; the flight fixes (fix/ballistic.js, fix/spin.js), retime's guard and search's window (search.js holdFlights) from MIN_FLIGHT. */
 export const MIN_RUN = 4;
-const MIN_FLIGHT = 3;
+export const MIN_FLIGHT = 3;
 /** DROP: a body whose hips' up axis tilts more than OVER deg in one go, TURNING deg a frame or more, is turning over. */
 const OVER = 180, TURNING = 2;
 
