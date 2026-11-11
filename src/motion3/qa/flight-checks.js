@@ -19,9 +19,11 @@
 //         twisting spin jump (I_u about 1.8 kg m^2) keyed at an even rate with its arms pulled in drifts 5.6 kg m^2/s
 //         (0.245); a back tuck about 60 kg m^2/s, its keyed turn 35 (0.40), about 7 after fix.spin (fix/spin.js re-times
 //         the root's turn so it holds); legs tucked in a hop with no turn swing it by up to 11 (0.19, nothing to re-time).
-//   POP   on a moved flight's push-off and impact frames stands only where it read before the flight fixes (contactPops, qa/index.js).
+//   POP   on a moved flight's push-off and impact frames stands where it read before the flight fixes, and one they added
+//         only over POP_HARD (contactPops, qa/index.js).
 import { airRuns, missingFall, popChecks, FLOAT_LIMIT } from "./style.js";
 import { QA_LIMITS } from "./checks.js";
+import { POP_HARD } from "./blocking.js";
 import { momentumOf } from "./inertia.js";
 import { apply, dot, T } from "../compiler/math.js";
 import { isFollow } from "../carried.js";
@@ -153,9 +155,11 @@ export function popsOf(out) {
  * or null. The frames: the one before takeoff A, the first air frame and the next, the one after landing B and the two
  * after it (indexes of out.frames). There the arc's speed meets the keyed ground frames in one frame, a contact, and
  * fix.spin's re-time changes the air frames a landing is read against (the flip skill's landing knee: 8 cm/f^2 against 7
- * of keyed air frames, 2 after). So a POP there stands only when the joint read POP on that frame before the flight
- * fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the overlap layer lands on the impact is the
- * agent's (a hop's 59 cm/f^2 hand), and what the fixes added to a keyed pop (a vault's 22 cm/f^2 knee read 25) is not.
+ * of keyed air frames, 2 after). So a POP there stands when the joint
+ * read POP on that frame before the flight fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the
+ * overlap layer lands on the impact is the agent's (a hop's 59 cm/f^2 hand), and what the fixes added to a keyed pop (a
+ * vault's 22 cm/f^2 knee read 25) is not. A POP the fixes added stands only over POP_HARD (qa/blocking.js): a one-frame
+ * impulse that large is a snap, not a contact (a hit at 8 m/s: hands 29.6 cm/f^2 at its push-off, 12.7 at its landing).
  */
 export function contactPops(out) {
 	const at = new Set(), was = out.flightPops ?? new Map();
@@ -163,7 +167,8 @@ export function contactPops(out) {
 	return i => {
 		if (i.kind !== "POP" || !at.has(i.frame)) return i;
 		const p = was.get(`${i.msg.split(" ")[0]} ${i.frame}`);
-		return p && p.value < i.value ? p : p && i;
+		if (!p) return i.value > POP_HARD ? i : null;
+		return p.value < i.value ? p : i;
 	};
 }
 
