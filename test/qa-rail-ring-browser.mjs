@@ -58,7 +58,6 @@ const seek = async (frame) => { await evaluate(`window.__cozyclay.scrub(${frame}
 // The page's own pure functions, so the QA asks the same math the studio does.
 const pagePath = (expression) => evaluate(`(async () => { const m = await import('/src/object-path.js'); const o = window.__cozyclay.objects.find((e) => e.id === 'cube'); const take = ${JSON.stringify(take)}; return JSON.parse(JSON.stringify((${expression})(m, o.path, take))); })()`);
 const frameAtProgress = (target) => pagePath(`(m, path, take) => { let best = 0, bestError = 9; for (let f = 0; f < take.frameCount; f += 1) { const e = Math.abs(m.pathProgressAt(path, f, take) - ${target}); if (e < bestError) { best = f; bestError = e; } } return best; }`);
-const progressAt = (frame) => pagePath(`(m, path, take) => m.pathProgressAt(path, ${frame}, take)`);
 const leanAt = (frame) => pagePath(`(m, path, take) => m.pathLeanAt(path, m.pathProgressAt(path, ${frame}, take))`);
 
 /* ---------------------------------------------------------------- 1. */
