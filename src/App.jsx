@@ -58,7 +58,7 @@ import FirstSuccessGuide from "./first-success-guide.jsx";
 import { useEmbedBridge } from "./use-embed-bridge.js";
 import { useAssetShelf } from "./use-asset-shelf.js";
 import { StudioProtocolError } from "./studio-agent-protocol.js";
-import { elementByPath } from "./studio-elements.js";
+import { elementByPath } from "./studio-elements.js"; import { WORLD } from "./world-scale.js";
 import {
 	resolveStudioToast,
 } from "./studio-actions.js";
@@ -481,7 +481,7 @@ export default function App() {
 	}));
 	const {
 		preset, shotAspectKey, environmentImage, cameraPresetId, sensorId, keyLight, lighting, changeKeyLight,
-		resetKeyLight, changeEnvironmentImage, hasEnvSheet, environment, style, publishStudioStage,
+		resetKeyLight, hasEnvSheet, environment, style, publishStudioStage,
 	} = stageDomain;
 	const shotsDomain = useShots(appContext.forRender({
 		get cameraPreviewEndRef() { return cameraPreviewEndRef; },
@@ -531,8 +531,8 @@ export default function App() {
 		setTlFrame, tlFrameCount, setTlFrameCount, tlFps, setTlFps, activeShotIdx, activeShot, cameraKeys,
 		activeCamera, craneActive, cameraRail, activeShotDuration, hasCameraKeys, changeActiveCamera,
 		changeShotTargetModel, addActiveCranePoint, deleteSelectedCranePoint, syncActiveCameraFraming,
-		commitManualCameraFraming, beginCameraFramingGesture, beginTimelineEditGesture, setShotCameraRail,
-		clearShotCameraRail, changeCameraRail, toggleCameraRailDraw, deleteCameraRail, previewCameraShot,
+		commitManualCameraFraming, beginCameraFramingGesture, setShotCameraRail,
+		clearShotCameraRail, toggleCameraRailDraw, deleteCameraRail, previewCameraShot,
 		addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe, addTimelineShot, splitTimelineShot,
 		selectTimelineShot, duplicateTimelineShot, moveTimelineShot, setTimelineShotRange, removeTimelineShot,
 	} = shotsDomain;
@@ -960,7 +960,7 @@ export default function App() {
 		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig, ghostLayers,
 		snapshotCast, changeInspectorCharacter, hasCharSheet, setHasCharSheet,
 		waypointMode, setWaypointMode, waypoints, setWaypoints,
-		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, setPosed, rootStart, commitPosedPose,
+		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
 		queueRootWaypointFrame, castMemberOf, addCharacterWaypoint, moveCharacterWaypoint,
 		removeCharacterWaypoint, clearCharacterWaypoints, addFloorWaypoint, moveWaypoint, removeWaypoint,
 		toggleWaypointMode, openStudio, closeStudio, saveCurrentPose, savePose, removePose,
@@ -1222,7 +1222,7 @@ export default function App() {
 		setMatteStats, matteBusy, gizmoMode, setGizmoMode, snapEnabled, setSnapEnabled, addSceneObject,
 		importCutout, importCutouts, spawnCutoutAt, persistMeshAsset, importMesh, importMeshes, spawnMeshAt,
 		applyMatte, duplicateSelectedSceneObject, frameSelection, groupObjectUnderNewEmpty, renameRequest, renameSceneObject, sceneObjectWorldMatrix,
-		attachTargetForRow, attachTargetLabel, attachSceneObject,
+		attachTargetLabel, attachSceneObject,
 	} = objectsDomain;
 
 	const { sculptMode, sculptCamRef, sculptView, sculptReference, setSculptReference, sculptRun, setSculptRun, sculptRunRef, sculptAgentStatus, sculptChatgpt, sculptModels, sculptModelPick, chooseSculptModel, sculptTransport, sculptTap, sculptTarget, setSculptTargetId, requestSculptView, sculptBlueprint, setSculptBlueprint, generateSculptBlueprint, cancelSculptBlueprint, sculptParts } = useSculptMode({ workflowMode, sceneObjects, selectedSceneObjectId, appContext });
@@ -1352,10 +1352,10 @@ export default function App() {
 	}));
 	const {
 		scenes, activeSceneId, sceneSaveError, snapshotActiveScene, persistScenes, projectName, previsMode, projectDirty,
-		setProjectDirty, projectSaveState, setProjectSaveState, projectMenuOpen, setProjectMenuOpen,
+		projectSaveState, projectMenuOpen, setProjectMenuOpen,
 		projectBrowserOpen, setProjectBrowserOpen, projectNameDialog, setProjectNameDialog, projectStartupOpen,
 		setProjectStartupOpen, projectManifest, setProjectManifest, saveBlockedReasons, setSaveBlockedReasons,
-		workflowRevision, setWorkflowRevision, collectProjectSnapshot, collectProjectSerialized,
+		workflowRevision, setWorkflowRevision, collectProjectSerialized,
 		projectProblemsNotice, rehydrateProjectAssets, saveProject, applyProject, openStarterScene, openProject,
 		openProjectByHandle, requestNewProject, newProject, restoreOffer, setRestoreOffer, restoreStoredProject,
 		flushScenes, openScene, selectSceneDocument, createSceneDocumentFromUi, duplicateSceneDocumentFromUi,
@@ -1557,8 +1557,6 @@ export default function App() {
 	}
 	// Viewport/plan camera framing would otherwise push an entry per pointermove.
 	const framingSessionRef = useRef(null);
-	// A colour picker streams values for as long as its dialog is open.
-	const tintSessionRef = useRef(null);
 	/* One Ctrl+Z entry per GESTURE for the surfaces that write cast-snapshot
 	 * state without a store transaction of their own: the key light (foldout
 	 * sliders, sun puck, move gizmo) and the character Transform rows. Every
@@ -1566,7 +1564,7 @@ export default function App() {
 	 * still the newest one, and the pointer/key release below closes it, so the
 	 * next gesture starts a fresh entry instead of extending the last one. */
 	const gestureUndoRef = useRef(null);
-	function beginGestureUndo(key) {
+	function beginGestureUndo() {
 		// NumberField hands this token back on every tick of a scrub. These edits
 		// are not store transactions, so the scrub runs with a null token.
 		return null;
@@ -2317,7 +2315,7 @@ export default function App() {
 	useEffect(() => subscribeToScenePlayback((command) => {
 		if (command?.activeSceneId && command.activeSceneId !== activeSceneIdRef.current) return;
 		if (Number.isFinite(Number(command?.frame))) {
-			setTlFrame((frame) => Math.max(0, Math.min(Math.round(Number(command.frame)), Math.max(0, frameCountRef.current - 1))));
+			setTlFrame(() => Math.max(0, Math.min(Math.round(Number(command.frame)), Math.max(0, frameCountRef.current - 1))));
 		}
 		if (typeof command?.playing === "boolean") {
 			cameraPreviewEndRef.current = null;
@@ -2631,7 +2629,7 @@ export default function App() {
 
 	const shotCamRef = useRef(null);
 	const captureRef = useRef(null);
-	const look = useRef({ yaw: 0, pitch: 0 });
+	const look = useRef({ yaw: 0, pitch: 0, roll: 0 });
 	// The poser camera is the IK-mode working view: orbit/dolly/WASD freely
 	// while posing WITHOUT touching the shot camera, which stays frozen on
 	// the framing and shows in the inset. Two separate screens by design.
@@ -2747,11 +2745,6 @@ export default function App() {
 			spanS: Math.round(((cameraKeys[cameraKeys.length - 1].frame - cameraKeys[0].frame) / tlFps) * 10) / 10,
 		};
 	}, [cameraKeys, charA, filmback, tlFps]);
-	// With Follow armed, Preview means "watch the shot": it plays the timeline
-	// from frame 0 so character motion and the camera move share one clock.
-	// Follow off keeps the camera-only preview on its own clock.
-	const followPreviewArmed = moveFollow && hasCameraKeys && !ikMode && !waypointMode && !posing;
-	const previewActive = movePlaying || (followPreviewArmed && tlPlaying);
 
 	/* --------------------------- shot video export --------------------------- */
 	// Record is an offline frame-addressed export. It never starts playback and
@@ -2792,13 +2785,13 @@ export default function App() {
 	useEffect(() => () => cameraPerformanceRef.current?.cancel(), []);
 	// Snapshot authored inputs once, not when Retry is pressed. Runtime render
 	// resources are acquired per attempt; they are never part of the snapshot.
-	function exportRequest(kind, run, { exportShots = shots, external = false, download = true } = {}) {
+	function exportRequest(kind, run, { exportShots = shots, external = false, download = true, output = null } = {}) {
 		// IK's cached chains contain live Three bones/functions, not cloneable
 		// authored data. Retain that binding and copy only the evaluated keys.
 		const copyIk = (state) => state ? { ...state, keys: snapshotIkKeys(state), tracked: new Set(state.tracked) } : state;
 		const context = kind === "frame" ? null : {
 			...structuredClone({ shots: exportShots, playbackScene, characters, activeId: activeChar.id, motion,
-				framing: captureCurrentFraming(), output: shotOutput }),
+				framing: captureCurrentFraming(), output: output ?? shotOutput }),
 			ikState: copyIk(ikStateRef.current),
 			ikStates: new Map([...ikStatesRef.current].map(([id, state]) => [id, copyIk(state)])),
 			rigStates: Object.values(rigs).filter(Boolean).map(snapshotExportRig),
@@ -2927,9 +2920,9 @@ export default function App() {
 		if (cam && framing) {
 			cam.position.set(framing.pos.x, framing.pos.y, framing.pos.z);
 			cam.rotation.order = "YXZ";
-			cam.rotation.set(framing.pitch, framing.yaw, 0);
+			cam.rotation.set(framing.pitch, framing.yaw, ((framing.rollDeg ?? 0) * Math.PI) / 180);
 			look.current.yaw = framing.yaw;
-			look.current.pitch = framing.pitch;
+			look.current.pitch = framing.pitch; look.current.roll = cam.rotation.z;
 			cam.fov = framing.fovDeg;
 			applyCameraOptics(cam, shotForFrame?.optics);
 		}
@@ -2957,7 +2950,7 @@ export default function App() {
 		const cam = shotCamRef.current;
 		if (!cam) throw Object.assign(new Error("The shot renderer is not ready"), { exportFailureCode: "render_failed" });
 		const cameraSnapshot = { position: cam.position.clone(), quaternion: cam.quaternion.clone(),
-			rotationOrder: cam.rotation.order, fov: cam.fov, view: cam.view?.enabled ? structuredClone(cam.view) : null, yaw: look.current.yaw, pitch: look.current.pitch };
+			rotationOrder: cam.rotation.order, fov: cam.fov, view: cam.view?.enabled ? structuredClone(cam.view) : null, yaw: look.current.yaw, pitch: look.current.pitch, roll: look.current.roll };
 		const rigSnapshots = Object.values(rigs).filter(Boolean).map(snapshotExportRig);
 		const proxySnapshots = [];
 		const context = recRef.current?.request.context;
@@ -3003,7 +2996,7 @@ export default function App() {
 			if (cameraSnapshot.view) cam.view = cameraSnapshot.view; else cam.clearViewOffset();
 			cam.updateProjectionMatrix();
 			look.current.yaw = cameraSnapshot.yaw;
-			look.current.pitch = cameraSnapshot.pitch;
+			look.current.pitch = cameraSnapshot.pitch; look.current.roll = cameraSnapshot.roll;
 			propFrameRef.current = propFrame;
 			syncCarriers();
 			propSyncRef.current?.(); syncPhysicsOverlays();
@@ -3552,7 +3545,7 @@ export default function App() {
 	function captureCurrentFraming() {
 		const cam = shotCamRef.current;
 		const pos = cam ? cam.position : cameraPos;
-		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg });
+		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg, rollDeg: ((look.current.roll ?? 0) * 180) / Math.PI });
 	}
 
 	// What a framing capture says about the shot it came from: lens, delivery
@@ -3987,10 +3980,10 @@ export default function App() {
 	function captureFramingPng(framing, output = shotOutput) {
 		const cam = shotCamRef.current;
 		if (!cam || !captureRef.current) return null;
-		const prev = { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: look.current.yaw, pitch: look.current.pitch, fov: cam.fov };
+		const prev = { x: cam.position.x, y: cam.position.y, z: cam.position.z, yaw: look.current.yaw, pitch: look.current.pitch, roll: look.current.roll ?? 0, fov: cam.fov };
 		cam.position.set(framing.pos.x, framing.pos.y, framing.pos.z);
 		cam.rotation.order = "YXZ";
-		cam.rotation.set(framing.pitch, framing.yaw, 0);
+		cam.rotation.set(framing.pitch, framing.yaw, ((framing.rollDeg ?? 0) * Math.PI) / 180);
 		cam.fov = framing.fovDeg;
 		const prevAspect = cam.aspect;
 		const offset = framing.viewOffset;
@@ -4009,7 +4002,7 @@ export default function App() {
 		} finally {
 			if (needsOwnTarget) capture.dispose?.();
 			cam.position.set(prev.x, prev.y, prev.z);
-			cam.rotation.set(prev.pitch, prev.yaw, 0);
+			cam.rotation.set(prev.pitch, prev.yaw, prev.roll);
 			look.current.yaw = prev.yaw;
 			look.current.pitch = prev.pitch;
 			cam.fov = prev.fov;
@@ -4556,7 +4549,7 @@ export default function App() {
 		exportMenuAnchor, resultOpen, exportFeedback, shots, exportKeyframePacks,
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
-		capturePanelThumbnail, packMetaForShot, previsMode: scenesDomain.previsMode, sceneRevision: sceneRevisionRef.current,
+		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,
 		downloadOtioCutList, projectStatus, liveWorkspaceHandle, selectedHierarchyId, selectHierarchy,
 		aimEditorAtKeyLight, characters, showB, ikFrames, ikMode,
 		rowIdForCharIndex, activeCharIndex, waypoints, sceneObjects, scenes,
@@ -4723,7 +4716,7 @@ export default function App() {
 								makeDefault={!ikMode && lookThroughShot}
 								fov={fovDeg}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[0.97, 1.62, 2.39]}
 							/>
 							{/* the EDITOR camera: the user's working eye. Fixed lens — the
@@ -4734,7 +4727,7 @@ export default function App() {
 								makeDefault={!ikMode && !lookThroughShot && !sculptMode}
 								fov={55}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[3.6, 2.7, 5.4]}
 							/>
 							{/* the poser camera is the default (event/raycast) camera in
@@ -4744,7 +4737,7 @@ export default function App() {
 								makeDefault={ikMode}
 								fov={fovDeg}
 								near={0.1}
-								far={100}
+								far={WORLD.cameraFar}
 								position={[0.97, 1.62, 2.39]}
 							/>
 							{/* a plan is a plan: orthographic, framed to the working area, so
@@ -5095,7 +5088,7 @@ export default function App() {
 								onChangePoints={shotsDomain.changeCranePoints}
 								onChangeRail={shotsDomain.changeCraneRail}
 							/>
-							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} shotCamRef={shotCamRef} subject={charA} />
+							<EditorCamSeed camRef={editorCamRef} lookRef={editorLook} subject={charA} />
 							<CameraGlide glide={camGlide} camRef={editorCamRef} lookRef={editorLook} onDone={() => setCamGlide(null)} />
 							<ViewportMeasurement camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} /><ContextChipTools camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef} />
 							<ShotLookApplier camRef={shotCamRef} look={look} />

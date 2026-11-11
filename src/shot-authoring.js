@@ -6,14 +6,15 @@
 
 import { createTiming, timingIsFlat } from "./speed-envelope.js";
 import { createShot } from "./cuts.js";
-import { railShotFields } from "./camera-block.js";
+import { cameraRoll, railShotFields } from "./camera-block.js";
 import { normalizeStableItems } from "./stable-items.js";
 import { VIDEO_MODEL_PRESETS } from "./model-presets.js";
-import { elementByPath } from "./studio-elements.js";
+import { elementByPath } from "./studio-elements.js"; import { WORLD } from "./world-scale.js";
 import { isImageAssetId } from "./scene-assets.js";
 import { createCharacterEntry } from "./scenes.js";
 import { repairOptics } from "./camera-optics.js";
 import { repairReview } from "./shot-review.js";
+import { toTimelineFrame } from "./timeline-fps.js";
 
 const VIDEO_MODEL_IDS = new Set(VIDEO_MODEL_PRESETS.map((preset) => preset.id));
 const CAMERA_KEY_LIMITS = elementByPath("shot.cameraKeys");
@@ -76,9 +77,6 @@ const finite = Number.isFinite;
  * on the 24 fps production clock. Every frame-bearing number is multiplied so
  * a saved roll keeps its DURATION: a 300-frame clip was 15 s and stays 15 s as
  * 360 frames. Reinterpreting instead would silently shorten it to 12.5 s. */
-const LEGACY_FRAME_FPS = 20;
-const TIMELINE_FRAME_FPS = 24;
-const toTimelineFrame = (frame) => Math.round((frame * TIMELINE_FRAME_FPS) / LEGACY_FRAME_FPS);
 const rescaleFrame = (value) => (finite(value) ? toTimelineFrame(value) : value);
 const rescaleKeys = (entries) => (Array.isArray(entries)
 	? entries.map((key) => (key && typeof key === "object" ? { ...key, frame: rescaleFrame(key.frame) } : key))
@@ -114,7 +112,7 @@ const FOLLOW_BOUNDS = {
 	height: [0.2, Number.POSITIVE_INFINITY],
 	response: [0.1, 3],
 	lead: [0, 1],
-	maxDollySpeed: [0.2, 40],
+	maxDollySpeed: [0.2, WORLD.dollySpeed],
 	pitchOffsetDeg: [-170, 170],
 	orbitOffsetDeg: [-180, 180],
 };
@@ -155,7 +153,7 @@ function repairKeys(entries, minFrame, maxFrame, ids = new Set()) {
 				pos: { x: key.framing.pos.x, y: key.framing.pos.y, z: key.framing.pos.z },
 				yaw: key.framing.yaw,
 				pitch: key.framing.pitch,
-				fovDeg: key.framing.fovDeg,
+				fovDeg: key.framing.fovDeg, ...(cameraRoll(key.framing.rollDeg) ? { rollDeg: cameraRoll(key.framing.rollDeg) } : {}),
 			},
 		});
 	}

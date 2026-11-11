@@ -79,7 +79,7 @@ export function supportIntervals(samples, fps, overrides = [], floorY = 0, groun
 	return { spans, masks, rejected };
 }
 
-export function physicsMetrics(samples, masks, fps, floorY = 0, groundAt = null) {
+export function physicsMetrics(samples, masks, fps, floorY = 0) {
 	const m = { penetration: 0, penetrationFrame: 0, float: 0, floatFrame: 0, slide: 0, slideFrame: 0, meanSlide: 0, kneeStep: 0, kneeStepFrame: 0, kneeAcceleration: 0, rootAcceleration: 0, count: 0, surfaceMeasured: samples.every((s) => SUPPORT_SITES.slice(0, 2).every((site) => s.support[site.id]?.vertices > 0)) };
 	for (let f = 0; f < samples.length; f += 1) {
 		for (const [id, point] of Object.entries(samples[f].support)) if (point.vertices > 0) { const g = samples[f].ground?.[id] ?? floorY; if (g - point.floor > m.penetration) { m.penetration = g - point.floor; m.penetrationFrame = f; } }

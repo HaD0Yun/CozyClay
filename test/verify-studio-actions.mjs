@@ -125,6 +125,9 @@ assert.equal(exportVideo.undoDomain, undefined);
 assert.equal(exportVideo.timeoutMs, 300_000);
 assert.deepEqual(exportVideo.input.required, []);
 assert.deepEqual(validateStudioSchema(exportVideo.input, { shotId: "shot-1" }), { shotId: "shot-1" });
+assert.deepEqual(validateStudioSchema(exportVideo.input, { output: { width: 736, height: 416 } }), { output: { width: 736, height: 416 } }, "an export can name its pixel size");
+assert.throws(() => validateStudioSchema(exportVideo.input, { output: { width: 736 } }), code("INVALID_ARGUMENT"), "a size names both sides");
+assert.throws(() => validateStudioSchema(exportVideo.input, { output: { width: 32, height: 18 } }), code("INVALID_ARGUMENT"), "too small to encode");
 // Scenes are project-level document work: outside the undo history, each
 // addressed by the scene id the context's host carries.
 for (const id of sceneActions) {

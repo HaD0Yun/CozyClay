@@ -48,7 +48,7 @@ export function ShotRig({ preset, nonce, fovDeg, charA, charB, showB, probe: pla
 		);
 		const angles = aimAt(cam.position, { x: aim.x, y: p.targetY, z: aim.z });
 		look.current.yaw = angles.yaw;
-		look.current.pitch = angles.pitch;
+		look.current.pitch = angles.pitch; look.current.roll = 0;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [preset, nonce]);
 
@@ -170,7 +170,7 @@ export function MoveRig({ playing, following, followFrame, frameRef, fps, keys, 
 			if (!f) return null;
 			cam.position.set(f.pos.x, f.pos.y, f.pos.z);
 			look.current.yaw = f.yaw;
-			look.current.pitch = f.pitch;
+			look.current.pitch = f.pitch; look.current.roll = THREE.MathUtils.degToRad(f.rollDeg ?? 0);
 			if (Math.abs(cam.fov - f.fovDeg) > 1e-3) {
 				cam.fov = f.fovDeg;
 				cam.updateProjectionMatrix();
@@ -224,7 +224,7 @@ export function FollowCamRig({ enabled, frame, frameRef, scene, shot, camRef, lo
 		applied.current = playhead;
 		cam.position.set(sample.pos.x, sample.pos.y, sample.pos.z);
 		look.current.yaw = sample.yaw;
-		look.current.pitch = sample.pitch;
+		look.current.pitch = sample.pitch; look.current.roll = THREE.MathUtils.degToRad(sample.rollDeg ?? 0);
 		// A rail with a lens of its own carries it; otherwise this is the scene lens.
 		if (Math.abs(cam.fov - sample.fovDeg) > 1e-3) { cam.fov = sample.fovDeg; cam.updateProjectionMatrix(); }
 		invalidate();
@@ -233,7 +233,7 @@ export function FollowCamRig({ enabled, frame, frameRef, scene, shot, camRef, lo
 }
 
 /**
- * Applies the shot camera's yaw/pitch from its look ref every frame. Before
+ * Applies the shot camera's yaw/pitch (and roll about the lens axis) from its look ref every frame. Before
  * the camera split, FlyControls owned the shot camera and performed this
  * apply as a side effect of flying; with the fly controls bound to the
  * editor camera, the recording camera still needs its aim (ShotRig, follow,
@@ -245,8 +245,8 @@ export function ShotLookApplier({ camRef, look }) {
 		const cam = camRef.current;
 		if (!cam) return;
 		if (cam.rotation.order !== "YXZ") cam.rotation.order = "YXZ";
-		if (cam.rotation.x !== look.current.pitch || cam.rotation.y !== look.current.yaw || cam.rotation.z !== 0) {
-			cam.rotation.set(look.current.pitch, look.current.yaw, 0);
+		const roll = look.current.roll ?? 0; if (cam.rotation.x !== look.current.pitch || cam.rotation.y !== look.current.yaw || cam.rotation.z !== roll) {
+			cam.rotation.set(look.current.pitch, look.current.yaw, roll);
 		}
 	});
 	return null;
@@ -317,7 +317,7 @@ export function CameraGlide({ glide, camRef, lookRef, onDone }) {
 	return null;
 }
 
-export function EditorCamSeed({ camRef, lookRef, shotCamRef, subject }) {
+export function EditorCamSeed({ camRef, lookRef, subject }) {
 	const seeded = useRef(false);
 	const invalidate = useThree((state) => state.invalidate);
 	useEffect(() => {

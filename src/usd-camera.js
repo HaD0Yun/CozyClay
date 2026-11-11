@@ -90,14 +90,12 @@ export function serializeUsdCamera(scene, shot) {
 		const cosPitch = Math.cos(halfPitch);
 		const sinYaw = Math.sin(halfYaw);
 		const cosYaw = Math.cos(halfYaw);
-		// USDA quaternion tuples are (real, i, j, k). For Three's YXZ with
-		// zero roll, qY * qX = (cy*cp, cy*sp, sy*cp, -sy*sp).
-		return tuple([
-			cosYaw * cosPitch,
-			cosYaw * sinPitch,
-			sinYaw * cosPitch,
-			-sinYaw * sinPitch,
-		]);
+		// USDA quaternion tuples are (real, i, j, k). For Three's YXZ,
+		// qY * qX = (cy*cp, cy*sp, sy*cp, -sy*sp), then times the roll qZ.
+		const [w, x, y, z] = [cosYaw * cosPitch, cosYaw * sinPitch, sinYaw * cosPitch, -sinYaw * sinPitch];
+		const halfRoll = ((camera.rollDeg ?? 0) * Math.PI) / 360;
+		const [cosRoll, sinRoll] = [Math.cos(halfRoll), Math.sin(halfRoll)];
+		return tuple([w * cosRoll - z * sinRoll, x * cosRoll + y * sinRoll, y * cosRoll - x * sinRoll, w * sinRoll + z * cosRoll]);
 	};
 	const focalMm = ({ camera }) => number(camera.focalMm);
 	const focalUsd = ({ camera }) => number(toUsdOpticalUnit(camera.focalMm));

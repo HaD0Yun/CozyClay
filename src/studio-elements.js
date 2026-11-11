@@ -2,6 +2,7 @@
 // history layers. This module is intentionally data-only: it does not import
 // React or any persistence implementation. Fields use generic set/read;
 // lifecycle and composite elements name the commands that own them.
+import { WORLD } from "./world-scale.js";
 
 const freezeBounds = (bounds) => bounds && typeof bounds === "object"
 	? Object.freeze({ ...bounds })
@@ -17,7 +18,7 @@ const freezeEntry = (entry) => Object.freeze({
 });
 
 const entries = [
-	{ path: "character.position", type: "vec3", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", min: { x: -240, y: 0, z: -240 }, max: { x: 240, y: 240, z: 240 }, gizmo: { min: { x: -4, y: 0, z: -4 }, max: { x: 4, y: 240, z: 4 } }, note: "y is the feet" },
+	{ path: "character.position", type: "vec3", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", min: { x: -WORLD.position, y: 0, z: -WORLD.position }, max: { x: WORLD.position, y: WORLD.position, z: WORLD.position }, gizmo: { min: { x: -4, y: 0, z: -4 }, max: { x: 4, y: WORLD.position, z: 4 } }, note: "y is the feet" },
 	{ path: "character.rot", type: "number", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", min: -180, max: 180, angle: true, note: "yaw degrees, wrapped at the upper bound" },
 	{ path: "character.scale", type: "number", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", min: 0.2, max: 3 },
 	{ path: "character.subject", type: "string", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry" },
@@ -35,9 +36,9 @@ const entries = [
 	{ path: "character.sessionMotion", type: "array", persisted: false, undoDomain: "cast", normalizer: "createCharacterEntry", note: "dropped by createCharacterEntry" },
 	{ path: "character.ikKeys", type: "array", persisted: false, undoDomain: "cast", normalizer: "createCharacterEntry", actions: ["character.setIkKey", "character.removeIkKey", "character.clearIkKeys"], note: "dropped by createCharacterEntry; keys travel as JSON quaternions/positions" },
 	{ path: "object.renderer", type: "enum", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", enum: ["cube", "sphere", "capsule", "cylinder", "cone", "plane", "empty", "light", "effect", "text"], note: "light is made from catalogue kind point-light or spot-light; effect (smoke, fire, rain, trail...) from kind effect; text (words, a sign, a logo) from kind text" },
-	{ path: "object.position", type: "vec3", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", min: { x: -240, y: 0, z: -240 }, max: { x: 240, y: 240, z: 240 }, note: "y is the object's base: y=0 rests on the floor; height/supportY rise from it" },
+	{ path: "object.position", type: "vec3", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", min: { x: -WORLD.position, y: 0, z: -WORLD.position }, max: { x: WORLD.position, y: WORLD.position, z: WORLD.position }, note: "y is the object's base: y=0 rests on the floor; height/supportY rise from it" },
 	{ path: "object.rotation", type: "vec3", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", min: { x: -180, y: -180, z: -180 }, max: { x: 180, y: 180, z: 180 }, angle: true, note: "rot/rotX/rotZ degrees, wrapped at the upper bound" },
-	{ path: "object.scale", type: "vec3", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", min: { x: 0.01, y: 0.01, z: 0.01 }, max: { x: 100, y: 100, z: 100 } },
+	{ path: "object.scale", type: "vec3", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", min: { x: 0.01, y: 0.01, z: 0.01 }, max: { x: WORLD.scale, y: WORLD.scale, z: WORLD.scale } },
 	{ path: "object.name", type: "string", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject" },
 	{ path: "object.color", type: "color", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject" },
 	{ path: "object.opacity", type: "number", persisted: true, undoDomain: "objects", normalizer: "normalizeSceneObject", min: 0.05, max: 1, note: "1 is solid; lower is see-through, e.g. 0.4 for a ghost or water; for a glass object use object.material glass" },

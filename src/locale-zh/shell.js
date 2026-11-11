@@ -224,8 +224,6 @@ export const ZH_SHELL = {
 	"Editor": "编辑器",
 	"Auto colour": "自动配色",
 	"Give scene objects stable display colours.": "为场景物体使用稳定的显示颜色。",
-	"Anonymous analytics": "匿名统计",
-	"Help improve CozyClay with anonymous product events.": "通过匿名产品事件帮助改进 CozyClay。",
 	"Use a dark reference grid instead of the clay deck.": "使用深色参考网格替代黏土台面。",
 	"Shortcuts are read-only here. They stay active whenever focus is outside a text field.": "此处快捷键为只读。只要焦点不在文本输入框内，快捷键始终生效。",
 	"Front view (with a part selected, W moves it)": "前视图（选中部件时，W 移动部件）",

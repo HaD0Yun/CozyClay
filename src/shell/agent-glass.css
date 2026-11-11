@@ -177,14 +177,11 @@
 	background: none;
 	color: var(--text-1);
 }
-.app[data-shell="glass"] .studio-agent-inspector .agent-failure-code,
-.app[data-shell="glass"] .studio-agent-inspector .agent-tool-elapsed,
-.app[data-shell="glass"] .studio-agent-inspector .agent-tool-detail {
+.app[data-shell="glass"] .studio-agent-inspector .agent-failure-code {
 	color: var(--text-3);
 	font: 500 11px var(--sans);
 }
 .app[data-shell="glass"] .studio-agent-inspector .agent-failure-code { color: var(--danger); text-transform: none; letter-spacing: 0; }
-.app[data-shell="glass"] .studio-agent-inspector .agent-tool-badge { border: 0; background: var(--chip-fill); color: var(--text-2); }
 .app[data-shell="glass"] .studio-agent-inspector .agent-image-actions button,
 .app[data-shell="glass"] .studio-agent-inspector .agent-image-actions a,
 .app[data-shell="glass"] .studio-agent-inspector .agent-paused-actions button,

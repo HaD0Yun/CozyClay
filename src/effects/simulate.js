@@ -15,6 +15,7 @@
 import { emitterPoseAt, emitterShown, rotate } from "./emitter.js";
 import { trackLevel } from "../object-travel.js";
 import { EFFECT_KIND, normalizeEffect } from "./effect-record.js";
+import { linearRgb } from "../stage-environment.js";
 
 /** Live particles drawn per scene; beyond it every emitter is thinned evenly. */
 export const EFFECT_PARTICLE_CAP = 2000;
@@ -57,8 +58,6 @@ const hashText = (text) => {
 	for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
 	return h >>> 0;
 };
-const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const linearRgb = (hex) => [1, 3, 5].map((i) => toLinear(parseInt(hex.slice(i, i + 2), 16) / 255));
 const smooth = (x) => (x >= 1 ? 1 : x <= 0 ? 0 : x * x * (3 - 2 * x));
 
 function emitterOf(record, scene) {

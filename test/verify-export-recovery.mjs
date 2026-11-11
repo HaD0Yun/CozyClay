@@ -93,7 +93,7 @@ function fixture() {
 		ikStatesRef: { current: new Map() }, snapshotIkKeys: (state) => new Map(state.keys),
 		captureCurrentFraming: () => ({ pos: { x: camera.position.x, y: camera.position.y, z: camera.position.z }, yaw: 0.2, pitch: 0.1, fovDeg: camera.fov }),
 		shotCamRef: { current: camera }, rigs: { cast: rig },
-		look: { current: { yaw: 0.2, pitch: 0.1 } }, propFrameRef: { current: 42 }, propSyncRef: { current() {} }, syncCarriers() {}, syncPhysicsOverlays() {},
+		look: { current: { yaw: 0.2, pitch: 0.1, roll: 0 } }, propFrameRef: { current: 42 }, propSyncRef: { current() {} }, syncCarriers() {}, syncPhysicsOverlays() {},
 		captureRef: { current: { createExportCapture(output) {
 			const target = { output: { ...output }, disposed: false, scene: {}, render() {
 				const state = { camera: camera.position.toArray(), fov: camera.fov, scale: rig.scale.toArray(), placement: parent.position.toArray(), bone: bone.position.toArray() };
@@ -263,6 +263,19 @@ await staticShot.api.retryExport();
 assert.equal(staticShot.deps.shotWrites, 1, "static-shot preflight is not repeated on retry");
 assert.equal(staticShot.deps.undoCount, 1);
 assertPaired(staticShot, 2);
+
+// A named output size renders and encodes at that size; odd sides round down to even for H.264.
+const sized = fixture();
+await sized.api.exportShotVideo({ output: { width: 737, height: 416 } });
+assert.equal(sized.status.phase, "completed");
+assert.deepEqual([sized.encodes[0].width, sized.encodes[0].height], [736, 416]);
+assert.deepEqual(sized.targets.map((target) => target.output), [{ width: 736, height: 416 }]);
+await sized.api.retryExport();
+assert.deepEqual([sized.encodes[1].width, sized.encodes[1].height], [736, 416], "Retry keeps the requested size");
+const preset = fixture();
+await preset.api.exportShotVideo();
+assert.deepEqual([preset.encodes[0].width, preset.encodes[0].height], [2, 2], "without a size the shot aspect's preset still decides");
+console.log("PASS a video export renders at a requested output size, else at the shot preset");
 
 const depth = fixture();
 const beforeDepth = editor(depth);

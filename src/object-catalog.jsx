@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { ko } from "./locale.js";
 import { EMPTY_KIND, OBJECT_MENU_ENTRIES } from "./scene-objects.js";
 
@@ -33,12 +32,6 @@ export function displayObjectLabel(label) {
 	if (numbered && OBJECT_LABELS_KO[numbered[1]]) return `${ko(numbered[1], OBJECT_LABELS_KO[numbered[1]])} ${numbered[2]}`;
 	return OBJECT_LABELS_KO[label] ? ko(label, OBJECT_LABELS_KO[label]) : label;
 }
-
-/**
- * "Add object" — the hierarchy's create menu, Unity's GameObject > 3D Object
- * in one popover. Grouped by catalogue section; picking an entry drops the
- * object in front of the camera and hands selection to the caller.
- */
 
 /** The catalogue grouped by section. Shared with the hierarchy's right-click
  * create menu so both entry points list the same objects
@@ -75,50 +68,4 @@ export function CatalogueEntries({ onPick }) {
 			))}
 		</div>
 	));
-}
-
-export default function AddObjectMenu({ onAdd, label = ko("Add object", "오브젝트 추가") }) {
-	const [open, setOpen] = useState(false);
-	const rootRef = useRef(null);
-
-	useEffect(() => {
-		if (!open) return undefined;
-		const onDocDown = (event) => {
-			if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
-		};
-		const onKey = (event) => {
-			if (event.key === "Escape") setOpen(false);
-		};
-		document.addEventListener("mousedown", onDocDown);
-		window.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("mousedown", onDocDown);
-			window.removeEventListener("keydown", onKey);
-		};
-	}, [open]);
-
-	return (
-		<div className={"add-object" + (open ? " open" : "")} ref={rootRef}>
-			<button
-				type="button"
-				className="add-object-trigger"
-				aria-expanded={open}
-				aria-haspopup="menu"
-				onClick={() => setOpen((value) => !value)}
-			>
-				<span aria-hidden="true">＋</span>
-				{label}
-			</button>
-			{open && (
-				<div className="add-object-menu" role="menu">
-					<CatalogueEntries
-						onPick={(kind) => {
-							onAdd(kind);
-							setOpen(false);
-						}}
-					/>
-				</div>
-			)}
-		</div>
-	);
 }

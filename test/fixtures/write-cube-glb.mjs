@@ -132,5 +132,3 @@ for (const [name, height] of cubes) {
 	writeFileSync(join(here, name), bytes);
 	console.log(`wrote ${name} (${bytes.byteLength} bytes, height ${height} m)`);
 }
-
-export { cubeGeometry, writeGlb };

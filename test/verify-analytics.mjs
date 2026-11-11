@@ -16,7 +16,6 @@ import * as promptTelemetry from "../src/workflow/prompt-telemetry.js";
 import * as shortcuts from "../src/shortcut-friction.js";
 import * as search from "../src/search-friction.js";
 import * as thrash from "../src/thrash-friction.js";
-import { createAppContext } from "../src/app-context.js";
 import { exportMenuOpenedProps } from "../src/export-menu-telemetry.js";
 import { readFileSync } from "node:fs";
 import packageInfo from "../package.json" with { type: "json" };
@@ -74,11 +73,6 @@ assert.deepEqual(sanitizeProps("motion:generate_blocked", { surface: "timeline",
 
 import { readStudioSource } from "./bus/verify-domain-modules.mjs";
 const appSource = readStudioSource();
-const appFunction = (name) => {
-	const start = appSource.indexOf(`function ${name}(`);
-	assert.notEqual(start, -1, `${name} exists`);
-	return appSource.slice(start, appSource.indexOf("\n\t}\n", start) + 3);
-};
 assert.doesNotMatch(appSource, /trackGenerateBlocked|motion:generate_blocked/);
 
 // The 2.x motion-generation funnel and the sample player have no emitter in

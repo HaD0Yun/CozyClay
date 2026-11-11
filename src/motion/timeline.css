@@ -767,11 +767,6 @@
 	color: var(--text-2, #9b9ba1);
 }
 
-.v2-sequencer .tl-chip-handle {
-	width: var(--tl-handle-width, 6px);
-	background: var(--select, #e8a33d);
-}
-
 .v2-sequencer .tl-chip.ghost {
 	background: var(--field, #0f0f11);
 	color: var(--text-3, #636369);

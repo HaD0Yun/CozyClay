@@ -6,7 +6,7 @@ export const POLICY = Object.freeze({
   OAUTH_STATE_TTL_MS: 10 * 60_000,
   SESSION_TTL_DAYS: 30,
 });
-export const SITE_ORIGIN = Object.freeze({
+const SITE_ORIGIN = Object.freeze({
   production: "https://cozyclay.org",
   development: "http://127.0.0.1:5180",
 });

@@ -65,10 +65,6 @@ const carried = (() => {
  assert(start > 0 && end > start, 'app-stage.jsx attachment block');
  return new Function('THREE', 'SCENE_ATTACH_BONES', 'normalizeBoneName', `${source.slice(start, end).replace(/^export /gm, '')}\nreturn { attachFrameMatrix, sceneObjectMatrix, attachPlacementPatch, placeSceneObject, attachWorldMatrix };`)(THREE, objects.SCENE_ATTACH_BONES, normalizeBoneName);
 })();
-function bounded(promise) {
- let timer;
- return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('binding event deadline')), 10000); })]).finally(() => clearTimeout(timer));
-}
 const aimAt = (p,t) => ({ yaw: Math.atan2(-(t.x-p.x), -(t.z-p.z)), pitch: Math.atan2(t.y-p.y, Math.hypot(t.x-p.x,t.z-p.z)) });
 const forwardFrom = (yaw,pitch) => new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch));
 // A 48-frame compiled take v3 (standing Y Bot) for the active character.
@@ -92,7 +88,6 @@ function fixture(options={}) {
  const live=ref({characters:chars,objects:[],rigs,shots:[],scenes:[{id:'scene',name:'Fixture',objects:[],shotDocument:null,stage:null}],activeCharacterId:a.id,stage,timeline:{currentFrame:0,frameCount:48},filmback:{sensorId:'fullFrame',aspectRatio:16/9},studioSelection:{kind:'character',id:a.id},studioShotId:null,studioView:{mode:'scene',frame:0,playing:false,lookThrough:false,grid:false,autoColor:false}});
  const camera=new THREE.PerspectiveCamera(45,16/9); camera.position.set(0,1.6,5);
  const values={}, semantic=[], motionStore=options.motionStore??new Map(), motionSet=[];
- let urlLoader=async url=>{throw new Error(`bridge does not serve ${url}`);};
  let currentBinding;
  const markSemanticEdit=(domain,before,after)=>{if(before!==after)revision.current++;currentBinding?.invalidate?.(domain,before,after);semantic.push(domain);if(domain==='characters'&&Array.isArray(after)){characterRef.current=after;live.current.characters=after;}if(domain==='shots')live.current.shots=after;};
  // A value owner: set publishes, edit publishes and marks the semantic edit against the value it replaced.
@@ -255,7 +250,7 @@ function fixture(options={}) {
  const call=async(name,args)=>{const response=await dispatchLiveFrame(JSON.stringify({type:'cmd',id:crypto.randomUUID(),name,args}),binding.handlers);assert(response.ok, response.error);return response.value;};
  // A React commit of the state the test sets (and the App's own setters left).
  const render=(patch={})=>{Object.assign(renderState,patch);Object.assign(committed,renderState);rendered=renderApp();};
- return {render,rendered:()=>rendered,renderState,stand,setUrlLoader:loader=>{urlLoader=loader;},nextMotion:()=>new Promise(resolve=>{const release=motionDomain.documentStore.subscribe(()=>{const take=motionDomain.motionFor(scope.loadedLayerCharRef.current);if(take){release();resolve(take);}});}),motionStore,values,binding,actual,scope,ports,registry,request,call,revision,semantic,live,store,history,characterRef,buffer,rigs,host,poses,dispose:()=>{binding.dispose();motionDomain.dispose();stageDomain.dispose();objectDomain.dispose();castDomain.dispose();shotDomain.dispose();}};
+ return {render,rendered:()=>rendered,renderState,stand,nextMotion:()=>new Promise(resolve=>{const release=motionDomain.documentStore.subscribe(()=>{const take=motionDomain.motionFor(scope.loadedLayerCharRef.current);if(take){release();resolve(take);}});}),motionStore,values,binding,actual,scope,ports,registry,request,call,revision,semantic,live,store,history,characterRef,buffer,rigs,host,poses,dispose:()=>{binding.dispose();motionDomain.dispose();stageDomain.dispose();objectDomain.dispose();castDomain.dispose();shotDomain.dispose();}};
 }
 const createArgs={ops:[{op:'create',source:{kind:'cube'},position:{world:{x:2,y:0,z:0}}}]};
 // Owned stage commands return the complete stage readback. Pin every field,

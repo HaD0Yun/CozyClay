@@ -20,23 +20,17 @@
 .cozy-scene-node-status.has-pack { max-width: 178px; word-break: break-word; }
 .status-running { color: #f0c979; }.status-complete { color: #8dd5b1; }.status-error { color: #f08d8d; }
 .cozy-scene-preview { position: relative; height: 134px; margin: 0 10px; overflow: hidden; border: 1px solid #3c4b5d; border-radius: 6px; background: linear-gradient(145deg, #32475d, #121820 70%); }
-.cozy-scene-canvas { position: absolute; inset: 0; }
 /* ReactFlow zooms the canvas with a CSS transform the iframe's document never
  * sees, so the embedded Studio keeps rendering at the node's layout size and
  * is stretched on screen. Lay the frame out at 2x (ReactFlow's default max
  * zoom) and scale it back down: the WebGL buffer then holds the pixels a
  * zoomed-in node actually displays. */
 .cozy-scene-live-frame { position: absolute; top: 0; left: 0; width: 200%; height: 200%; transform: scale(.5); transform-origin: 0 0; border: 0; background: #111722; }
-.cozy-scene-world-image { position: absolute; inset: 0; background-image: url("/media/cozyclay-demo-poster.jpg"); background-position: left center; background-repeat: no-repeat; background-size: auto 250%; filter: saturate(.78) brightness(.82); }
-.cozy-scene-world-tint { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(9, 15, 22, .04), rgba(9, 15, 22, .62)); pointer-events: none; }
 /* The captured frame is evidence of the last Run, not the preview itself: it
  * sits in the corner of the live previs so Play still has something to move. */
 .cozy-scene-render-thumb { position: absolute; bottom: 8px; left: 8px; width: 76px; margin: 0; overflow: hidden; border: 1px solid #3c4b5d; border-radius: 5px; background: #111722; box-shadow: 0 4px 10px rgba(0, 0, 0, .34); }
 .cozy-scene-render-thumb img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 .cozy-scene-render-thumb figcaption { padding: 2px 5px; color: #9eb0c2; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; background: rgba(18, 23, 34, .86); }
-.cozy-scene-grid { position: absolute; inset: 45% -25% -55%; transform: perspective(80px) rotateX(58deg); background: repeating-linear-gradient(90deg, transparent 0 19px, rgba(133, 180, 218, .18) 20px 21px), repeating-linear-gradient(0deg, transparent 0 17px, rgba(133, 180, 218, .14) 18px 19px); }
-.cozy-scene-stage-mark { position: absolute; top: 25px; left: 50%; width: 78px; height: 78px; transform: translateX(-50%) rotate(45deg); border: 2px solid rgba(180, 215, 241, .72); border-radius: 8px; background: rgba(121, 183, 232, .18); }
-.cozy-scene-stage-mark span { position: absolute; width: 8px; height: 8px; border: 1px solid #c3e5ff; border-radius: 50%; background: #527c9d; }.cozy-scene-stage-mark span:nth-child(1) { top: -5px; left: -5px; }.cozy-scene-stage-mark span:nth-child(2) { top: -5px; right: -5px; }.cozy-scene-stage-mark span:nth-child(3) { right: -5px; bottom: -5px; }
 /* The copy now sits over a live render instead of a dimmed still, so it needs
  * its own scrim to stay readable when the shot points at a bright set. */
 .cozy-scene-preview-copy { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 1px; padding: 4px 7px; border-radius: 5px; background: rgba(18, 23, 34, .78); color: #d7e4ef; text-align: right; }.cozy-scene-preview-copy strong { font-size: 11px; }.cozy-scene-preview-copy span { color: #9eb0c2; font-size: 10px; }
@@ -53,7 +47,7 @@
 .cozy-scene-frame-control { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 7px; color: #acbbc9; font-size: 10px; }.cozy-scene-frame-control input { width: 100%; accent-color: #79b7e8; }.cozy-scene-frame-control output { min-width: 40px; color: #dce7f1; font-family: ui-monospace, monospace; text-align: right; }
 .cozy-scene-camera-row { display: flex; align-items: center; justify-content: center; gap: 8px; color: #9eafbf; font-size: 10px; }.cozy-scene-camera-row button { padding: 2px 7px; }
 .cozy-scene-node-footer { border-top: 1px solid #33404e; color: #8799aa; font-size: 10px; }.cozy-scene-node-footer span + span { margin-left: auto; }
-.cozy-scene-node-inputs, .cozy-scene-node-outputs { position: absolute; top: 0; bottom: 0; width: 12px; pointer-events: none; }.cozy-scene-node-inputs { left: -7px; }.cozy-scene-node-outputs { right: -7px; }.cozy-scene-handle { position: absolute; display: block; width: 10px; height: 10px; border: 2px solid #a9d1f0; border-radius: 50%; background: #243443; pointer-events: auto; }.cozy-scene-handle-target { left: 0; }.cozy-scene-handle-source { right: 0; }.cozy-scene-handle-asset { top: 85px; }.cozy-scene-handle-motion { top: 115px; }.cozy-scene-handle-render { top: 108px; }.cozy-scene-handle-scene { top: 140px; }
+.cozy-scene-node-inputs, .cozy-scene-node-outputs { position: absolute; top: 0; bottom: 0; width: 12px; pointer-events: none; }.cozy-scene-node-inputs { left: -7px; }.cozy-scene-node-outputs { right: -7px; }.cozy-scene-handle { position: absolute; display: block; width: 10px; height: 10px; border: 2px solid #a9d1f0; border-radius: 50%; background: #243443; pointer-events: auto; }.cozy-scene-handle-target { left: 0; }.cozy-scene-handle-source { right: 0; }
 .cozy-scene-reactflow-handle { z-index: 5; }
 /* ReactFlow's default handle rule pins every handle to 50%. Keep the four
  * Scene ports distinct so asset/motion inputs and render/scene outputs can be

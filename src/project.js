@@ -487,7 +487,7 @@ function openIdb() {
 	});
 }
 
-export async function storeProjectHandle(handle, name) {
+async function storeProjectHandle(handle, name) {
 	try {
 		const db = await openIdb();
 		await new Promise((resolve, reject) => {

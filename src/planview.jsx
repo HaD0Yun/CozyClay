@@ -10,8 +10,9 @@ import { ko } from "./locale.js";
 import { isProxyFigure } from "./scenes.js";
 import { prepareRailBend } from "./camera-follow.js";
 import { MARK_GAP, MAX_PATH_MARKS, MAX_PATH_POINTS, nearestPathFraction, pathCurve, pathMarkFractions, pathPointAtFraction } from "./object-path.js";
+import { WORLD } from "./world-scale.js";
 
-const ROOM_LIMIT = 240; // stay on the open stage (matches scene-objects' clamp)
+const ROOM_LIMIT = WORLD.position; // stay on the open stage (matches scene-objects' clamp)
 const ACTOR_LIMIT = 4; // matches the Subject sliders' range
 const PUCK_R = 0.34;
 const GRAB_R = 1.0; // the pick radius, well beyond the drawn disc
@@ -38,7 +39,6 @@ const handleAt = (e) => {
 	const distance = e.handleDist ?? HANDLE_DIST;
 	return { x: e.x + distance * Math.sin(e.yaw), z: e.z + distance * Math.cos(e.yaw) };
 };
-const near = (ax, az, bx, bz, r) => (ax - bx) ** 2 + (az - bz) ** 2 < r * r;
 const insideFootprint = (point, entity, padding = 0.2) => {
 	const dx = point.x - entity.x;
 	const dz = point.z - entity.z;

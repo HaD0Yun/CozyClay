@@ -5,6 +5,7 @@
 // names the move from the geometry, so the prompt claims "push-in" only when
 // the camera actually pushes in.
 
+import { aimAngles } from "./camera-follow.js";
 import { FRAMING_PIVOT_Y, SUBJECT_HEIGHT_M, deriveShot, focalMmToFov, fovToFocalMm, usedSensorHeightMm } from "./shot.js";
 
 export const CAMERA_PRESETS = Object.freeze({
@@ -35,8 +36,8 @@ export function cameraPresetFraming(id, subject = {}, filmback = {}) {
  * yaw/pitch follow the YXZ free-look convention in controls.jsx.
  * @param {{pos:{x:number,y:number,z:number}, yaw:number, pitch:number, fovDeg:number}} state
  */
-export function captureFraming({ pos, yaw, pitch, fovDeg }) {
-	return { pos: { x: pos.x, y: pos.y, z: pos.z }, yaw, pitch, fovDeg };
+export function captureFraming({ pos, yaw, pitch, fovDeg, rollDeg = 0 }) {
+	return { pos: { x: pos.x, y: pos.y, z: pos.z }, yaw, pitch, fovDeg, ...(rollDeg ? { rollDeg } : {}) };
 }
 
 // yaw/pitch -> unit forward vector. Mirrors forwardFrom() in controls.jsx,
@@ -47,16 +48,6 @@ function forward(yaw, pitch) {
 }
 
 // position + target -> the yaw/pitch that looks at the target. Mirrors aimAt().
-function aimAngles(position, target) {
-	const dx = target.x - position.x;
-	const dy = target.y - position.y;
-	const dz = target.z - position.z;
-	return {
-		yaw: Math.atan2(-dx, -dz),
-		pitch: Math.atan2(dy, Math.max(Math.hypot(dx, dz), 1e-6)),
-	};
-}
-
 const TWO_PI = Math.PI * 2;
 
 /** signed shortest angular distance a -> b, in (-PI, PI] */
@@ -140,12 +131,12 @@ export function interpolateFraming(a, b, anchor, t, ease = easeInOut, filmback =
 		z: lerp(A.aim.z, B.aim.z, k),
 	};
 	const { yaw, pitch } = aimAngles(pos, aim);
-	const focalMm = lerp(A.focalMm, B.focalMm, k);
+	const focalMm = lerp(A.focalMm, B.focalMm, k), rollDeg = lerp(a.rollDeg ?? 0, b.rollDeg ?? 0, k);
 	return {
 		pos,
 		yaw,
 		pitch,
-		fovDeg: (focalMmToFov(focalMm, filmback.sensorId, filmback.aspectRatio) * 180) / Math.PI,
+		fovDeg: (focalMmToFov(focalMm, filmback.sensorId, filmback.aspectRatio) * 180) / Math.PI, ...(rollDeg ? { rollDeg } : {}),
 	};
 }
 

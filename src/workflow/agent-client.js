@@ -37,7 +37,6 @@ const AGENT_PANEL_WIDTH_KEY = "cozyclay.workflow.agentPanel.width";
 export const AGENT_PANEL_WIDTH_DEFAULT = 360;
 export const AGENT_PANEL_WIDTH_MIN = 300;
 export const AGENT_PANEL_WIDTH_MAX = 560;
-export const AGENT_PANEL_RAIL_WIDTH = 36;
 export const AGENT_PANEL_OVERLAY_BREAKPOINT = 1100;
 export const STUDIO_SESSION_STORAGE_KEY = "cozyclay.agent.session.studio";
 

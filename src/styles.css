@@ -198,11 +198,6 @@ select {
 	cursor: not-allowed;
 }
 
-.project-export-action.recording {
-	border-color: #e87878;
-	color: #ffb1b1;
-}
-
 .project-save-status {
 	min-width: 74px;
 	color: var(--muted2);
@@ -597,36 +592,10 @@ select {
 	}
 }
 
-.project-browser-head .x {
-	background: none;
-	border: none;
-	color: var(--muted);
-	font-size: 16px;
-	cursor: pointer;
-	padding: 2px 6px;
-}
-
 .project-browser section {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-}
-
-.project-browser-list li.active > button:first-child {
-	border-color: var(--accent);
-}
-
-.project-browser-list .del {
-	border: none;
-	background: none;
-	color: var(--muted2);
-	cursor: pointer;
-	padding: 0 6px;
-	font-size: 11px;
-}
-
-.project-browser-foot .btn {
-	flex: 1;
 }
 
 .auto-color-hex {
@@ -818,7 +787,6 @@ select {
 /* Title bar keeps nothing but the pane's own name: the drawn dolly plays
    full-screen through the shot camera's look-through button, and Esc is the
    way back to flying. */
-.app[data-embed-mode="playground"] .viewport-titlebar .workflow-mode-switch,
 .app[data-embed-mode="playground"] .viewport-titlebar .editor-toolbar { display: none !important; }
 /* The plan inset only matters while a rail is being drawn into it. */
 .app[data-embed-mode="playground"]:not([data-rail-draw="1"]) .vp-inset.plan { display: none !important; }
@@ -1080,9 +1048,7 @@ select {
 	border-bottom-left-radius: 4px;
 }
 
-.hud,
-.caption,
-.viewmode {
+.caption {
 	background: #0e0e108c;
 	border: 1px solid rgba(var(--lg-ink-rgb, 255,255,255), .1);
 	backdrop-filter: blur(14px) saturate(1.2);
@@ -1112,14 +1078,6 @@ select {
 	background: rgba(229, 72, 77, .18);
 	border-color: rgba(229, 72, 77, .5);
 	color: #ffc9cb;
-}
-.viewmode button.active {
-	background: var(--grad);
-	color: #fff;
-	box-shadow: 0 3px 12px #3346ff66;
-}
-.pose-btns .btn.full {
-	margin-top: 0;
 }
 
 /* ------------------------------------------------------- pose studio ----- */
@@ -1212,29 +1170,10 @@ select {
 	border-style: dashed;
 }
 
-.tl-chip-ghost-label {
-	font-size: 9px;
-	padding: 0 4px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	display: block;
-}
-
 .tl-marker.wp.ghost {
 	opacity: 0.42;
 	pointer-events: none;
 }
-
-.gen-layers li.active {
-	color: var(--fg);
-	background: var(--hover, rgba(var(--lg-ink-rgb, 255,255,255),.06));
-}
-
-.gen-layers-state.running { color: #f5b453; }
-.gen-layers-state.queued { color: var(--muted2); }
-.gen-layers-state.error { color: #e06c6c; }
-.gen-layers-state.loaded { color: #7bc98b; }
 
 /* Timeline track owner chip: which character's layer a Prompts/2D Root
    track belongs to. */
@@ -1528,7 +1467,6 @@ select {
 	white-space: nowrap;
 }
 
-.hierarchy-kicker,
 .inspector-heading > span {
 	display: block;
 	margin-bottom: 2px;
@@ -1712,25 +1650,6 @@ select {
 	padding-right: 0;
 }
 
-.hierarchy-icon {
-	flex: none;
-	width: 15px;
-	height: 15px;
-	color: #82909d;
-	overflow: visible;
-}
-
-.hierarchy-icon.scene { color: #8fa8ff; }
-.hierarchy-icon.camera { color: #e1a84b; }
-.hierarchy-icon.group,
-.hierarchy-icon.character { color: #82c9ad; }
-.hierarchy-icon.rig,
-.hierarchy-icon.bone { color: #bd94d4; }
-.hierarchy-icon.environment { color: #75b692; }
-.hierarchy-icon.props,
-.hierarchy-icon.object { color: #d18b70; }
-.selected .hierarchy-icon { filter: brightness(1.2); }
-
 .hierarchy-label {
 	min-width: 0;
 	overflow: hidden;
@@ -1846,16 +1765,6 @@ select {
 }
 
 .inspector-scroll > [hidden] { display: none !important; }
-
-.trail-falloff-row {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-.trail-falloff-row input[type="range"] {
-	flex: 1;
-	min-width: 0;
-}
 .trail-falloff-value {
 	font-variant-numeric: tabular-nums;
 	opacity: 0.8;
@@ -2238,9 +2147,6 @@ input[type=range]::-moz-range-thumb {
 }
 .segmented button.active {
 	color: #fff;
-}
-.sheet-checks .check {
-	margin-top: 9px;
 }
 
 .actions {
@@ -3227,13 +3133,6 @@ input[type=range]::-moz-range-thumb {
 	box-shadow: 0 0 0 1px #ffe0a8, 0 0 12px rgba(255, 180, 84, .9);
 }
 
-.tl-shot-block.has-dolly .tl-shot-title,
-.tl-shot-block.has-dolly .tl-shot-meta {
-	position: relative;
-	z-index: 2;
-	text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
-}
-
 .sg-shot .sg-body {
 	min-height: 0;
 	margin: 0;
@@ -3354,11 +3253,6 @@ input[type=range]::-moz-range-thumb {
 	font-weight: 700;
 	letter-spacing: .08em;
 	vertical-align: 1px;
-}
-
-.tl-object-editor .tl-subject-kind {
-	background: rgba(111, 207, 151, .2);
-	color: #9fe0bb;
 }
 
 .tl-camera-editor-title {
@@ -3988,30 +3882,10 @@ input[type=range]::-moz-range-thumb {
 	color: rgba(var(--lg-ink-rgb, 255,255,255), .72);
 }
 
-.tl-chip-handle {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	width: 8px;
-	padding: 0;
-	border: 0;
-	background: rgba(var(--lg-ink-rgb, 255,255,255), .2);
-	cursor: ew-resize;
-	z-index: 2;
-}
-
-.tl-chip-handle.start { left: 0; }
-.tl-chip-handle.end { right: 0; }
-
 /* No motion prompt yet: identical frame 0..end geometry, visually quiet. */
 .tl-chip.empty {
 	background: linear-gradient(103deg, #2a2d3a, #3b4050);
 	box-shadow: none;
-}
-
-.tl-chip.empty .tl-chip-text {
-	color: var(--muted);
-	font-weight: 500;
 }
 
 /* Editorial strips sit edge-to-edge. Their seams are hard cut points, so the
@@ -4287,12 +4161,6 @@ input[type=range]::-moz-range-thumb {
 	.tl-shot-camera-summary {
 		display: none;
 	}
-}
-
-.tl-crane-point.selected {
-	background: #ffb454;
-	border-color: #40270f;
-	box-shadow: 0 0 0 1px #ffe0a8, 0 0 9px rgba(255, 180, 84, .95);
 }
 
 .tl-marker {
@@ -4620,7 +4488,6 @@ input[type=range]::-moz-range-thumb {
 	.pose-grid {
 		grid-template-columns: 1fr 1fr;
 	}
-	.hud,
 	.caption {
 		font-size: 10.5px;
 	}
@@ -4733,17 +4600,6 @@ input[type=range]::-moz-range-thumb {
 	0% {
 		opacity: 0;
 		transform: translateY(10px) scale(.96);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0) scale(1);
-	}
-}
-
-@keyframes fabPop {
-	0% {
-		opacity: 0;
-		transform: translateY(6px) scale(.9);
 	}
 	to {
 		opacity: 1;
@@ -4984,7 +4840,6 @@ input[type=range]::-moz-range-thumb {
 	color: var(--lg-d2d2d2, #d2d2d2);
 }
 
-.hierarchy-kicker,
 .inspector-heading > span {
 	color: var(--lg-9a9a9a, #9a9a9a);
 }
@@ -5022,21 +4877,6 @@ input[type=range]::-moz-range-thumb {
 	background: rgba(var(--lg-ink-rgb, 255,255,255), .08);
 	color: var(--lg-9a9a9a, #9a9a9a);
 }
-
-.hierarchy-icon {
-	color: #82909d;
-}
-
-.hierarchy-icon.scene { color: #78a8dc; }
-.hierarchy-icon.camera { color: #d9a34a; }
-.hierarchy-icon.group,
-.hierarchy-icon.character { color: #73aa8d; }
-.hierarchy-icon.rig,
-.hierarchy-icon.bone { color: #a98cc0; }
-.hierarchy-icon.environment { color: #73aa8d; }
-.hierarchy-icon.props,
-.hierarchy-icon.object { color: #cb826b; }
-.selected .hierarchy-icon { filter: brightness(1.25); }
 
 .inspector-scroll {
 	background: var(--surface-panel);
@@ -5259,10 +5099,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 .vp-inset-tag,
-.hud,
-.caption,
-.viewmode,
-.grid-toggle {
+.caption {
 	background: rgba(255, 250, 241, .9);
 	border-color: rgba(var(--lg-ink-rgb, 255,255,255), .42);
 	color: var(--lg-d2d2d2, #d2d2d2);
@@ -5275,20 +5112,8 @@ input[type=range]::-moz-range-thumb {
 	color: var(--lg-d2d2d2, #d2d2d2);
 }
 
-.viewmode button.active {
-	background: #3a7cbf;
-	color: #fff;
-	box-shadow: none;
-}
-
 .caption {
 	color: var(--lg-d2d2d2, #d2d2d2);
-}
-
-.grid-toggle.active {
-	color: #5a9bd4;
-	border-color: #3a7cbf;
-	background: var(--lg-3c3c3c, #3c3c3c);
 }
 
 .film-frame i:before,
@@ -5443,14 +5268,6 @@ input[type=range]::-moz-range-thumb {
 	color: #52616b;
 }
 
-.tl-chip.empty .tl-chip-text {
-	color: #52616b;
-}
-
-.tl-chip-handle {
-	background: rgba(var(--lg-ink-rgb, 255,255,255), .32);
-}
-
 .tl-marker {
 	background: #6f9f86;
 	border-color: var(--lg-2c2c2c, #2c2c2c);
@@ -5569,7 +5386,6 @@ input[type=range]::-moz-range-thumb {
 	letter-spacing: -.015em;
 }
 
-.hierarchy-kicker,
 .inspector-heading > span {
 	font-size: 8.5px;
 	font-weight: 720;
@@ -5583,8 +5399,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 .hierarchy-status,
-.hierarchy-badge,
-.hierarchy-frame-status {
+.hierarchy-badge {
 	font-family: var(--mono);
 	font-variant-numeric: tabular-nums;
 	letter-spacing: 0;
@@ -5637,10 +5452,7 @@ input[type=range]::-moz-range-thumb {
 
 .row .val,
 .readout,
-.inspector-status-grid,
-.kbd-hint,
 .caption,
-.hud,
 .tl-readout,
 .tl-badge,
 .tl-frame-box,
@@ -5663,8 +5475,6 @@ input[type=range]::-moz-range-thumb {
 	letter-spacing: .065em;
 }
 
-.viewmode button,
-.grid-toggle,
 .vp-inset-tag {
 	font-family: var(--sans);
 	font-size: 10.5px;
@@ -5786,29 +5596,14 @@ input[type=range]::-moz-range-thumb {
 	flex-direction: column;
 }
 
-.right-panel-tabs button.active {
-	border-color: rgba(58, 124, 191, .42);
-	background: #2d5c8a;
-	box-shadow: inset 0 -2px #3a7cbf;
-	color: #cfe3f5;
-}
-
-.right-panel-view,
-.hierarchy-tab-pane,
 .inspector-pane {
 	min-height: 0;
 }
 
-.hierarchy-tab-pane,
-.hierarchy-tab-pane > .hierarchy-pane,
 .inspector-pane {
 	width: 100%;
 	height: 100%;
 	max-height: none;
-}
-
-.hierarchy-tab-pane > .hierarchy-pane {
-	border-bottom: 0;
 }
 
 /* window title strips stay visible in the Unity layout (the tabbed
@@ -5818,10 +5613,6 @@ input[type=range]::-moz-range-thumb {
 /* Create menu, gizmo tool switch and object swatches. The hierarchy's own
    heading is hidden in the tabbed panel, so the create action gets its own
    toolbar row above the tree. */
-
-.add-object {
-	position: relative;
-}
 
 .add-object-trigger {
 	display: inline-flex;
@@ -5916,11 +5707,6 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* inspector cards clip their overflow, so the menu opens inline there */
-.card .add-object {
-	display: block;
-	margin-bottom: 10px;
-}
-
 .card .add-object-menu {
 	position: static;
 	width: auto;
@@ -6092,28 +5878,6 @@ input[type=range]::-moz-range-thumb {
 
 /* ------------------------------------------------ camera move A→B ------ */
 
-.move-ab .btn {
-	flex: 1;
-	min-width: 62px;
-	padding: 6px 0;
-	font-size: 11px;
-}
-
-/* Keep the selected part-colour mode visible even though these controls use
-   the compact ghost-button treatment. */
-.move-ab .btn.ghost.primary,
-.move-ab .btn.ghost.primary:hover {
-	background: var(--grad);
-	border-color: transparent;
-	color: var(--on-accent);
-	box-shadow: var(--glow);
-}
-
-.move-ab .btn:disabled {
-	opacity: .45;
-	cursor: default;
-}
-
 .move-slate {
 	margin: 4px 0 10px;
 	font-size: 10.5px;
@@ -6218,14 +5982,6 @@ input[type=range]::-moz-range-thumb {
 	flex-direction: column;
 }
 
-/* view-mode toggle as a scene-view overlay (Unity overlay toolbar spot) */
-.viewport .viewmode {
-	position: absolute;
-	top: 10px;
-	left: 10px;
-	z-index: 7;
-}
-
 /* bottom window: tab strip over a shared body */
 .bottom-window {
 	flex: none;
@@ -6274,15 +6030,6 @@ input[type=range]::-moz-range-thumb {
 	background: var(--panel);
 }
 
-.assets-shelf:has(.asset-storage-manager) {
-	display: block;
-}
-
-.assets-shelf:has(.asset-storage-manager) .assets-shelf-toolbar {
-	margin-bottom: 6px;
-}
-
-.assets-manage-toggle,
 .asset-storage-undo,
 .asset-storage-cancel,
 .asset-storage-delete {
@@ -6295,12 +6042,10 @@ input[type=range]::-moz-range-thumb {
 	cursor: pointer;
 }
 
-.assets-manage-toggle,
 .asset-storage-undo {
 	padding: 4px 8px;
 }
 
-.assets-manage-toggle:hover,
 .asset-storage-undo:hover,
 .asset-storage-cancel:hover {
 	border-color: var(--accent);
@@ -6513,26 +6258,12 @@ input[type=range]::-moz-range-thumb {
 	filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .45));
 }
 
-.asset-card-preview .preview-detail {
-	fill: none;
-	stroke: rgba(236, 240, 242, .62);
-	stroke-width: 1;
-	stroke-linecap: round;
-	stroke-linejoin: round;
-}
-
 .asset-card-preview .preview-limb {
 	fill: none;
 	stroke: #cdd2d5;
 	stroke-width: 4;
 	stroke-linecap: round;
 	stroke-linejoin: round;
-}
-
-.assets-section:first-of-type .asset-card-preview {
-	fill: #bfc4c7;
-	stroke: #dce0e2;
-	stroke-width: 1;
 }
 
 .asset-card-swatch[data-model="x-bot-tpose"] {
@@ -6542,15 +6273,8 @@ input[type=range]::-moz-range-thumb {
 
 /* Placeholders while a scan or a decode is in flight — the grid never blocks
    on a thumbnail, and the empty message never races the scan. */
-.asset-card-thumb-skeleton,
-.asset-card-skeleton {
+.asset-card-thumb-skeleton {
 	animation: asset-skeleton 1.1s ease-in-out infinite alternate;
-}
-
-/* Inline button rows in the inspector (travel-path tools, mode toggles). */
-.inspector-row-buttons .btn {
-	flex: 1 1 auto;
-	min-width: 84px;
 }
 
 @keyframes asset-skeleton {
@@ -6628,21 +6352,6 @@ input[type=range]::-moz-range-thumb {
 		border-bottom: 1px solid var(--line);
 		max-height: 38vh;
 	}
-	.viewport .viewmode {
-		top: 8px;
-		left: 8px;
-	}
-}
-
-.tool-switch button.active {
-	background: var(--accent);
-	color: var(--on-accent);
-}
-
-.snap-switch.active {
-	border-color: var(--accent);
-	background: var(--accent-soft);
-	color: var(--accent-2);
 }
 
 /* Unity Inspector foldout sections */
@@ -6708,19 +6417,10 @@ input[type=range]::-moz-range-thumb {
 	background: var(--panel);
 	border-bottom: 1px solid var(--line);
 }
-.workflow-mode-switch button.active {
-	color: #fff;
-	background: #2d5c8a;
-	border-color: #4b8bc4;
-	box-shadow: 0 0 0 1px rgba(75,139,196,.24);
-}
 /* Scene mode owns transform/grid tools; Camera mode owns framing controls.
    Motion mode intentionally leaves only its short instruction in the bar. */
 .app[data-workflow-mode="scene"] .workflow-camera-context { display: none; }
-.app[data-workflow-mode="camera"] .workflow-scene-context { display: none; }
-.app[data-workflow-mode="motion"] .workflow-scene-context,
 .app[data-workflow-mode="motion"] .workflow-camera-context { display: none; }
-.app[data-workflow-mode="motion"] .workflow-toolbar-hint { display: inline-flex; }
 /* The shot preview stays in Motion: it fills the dock's Shot Camera frame. */
 .app[data-workflow-mode="motion"] .vp-inset { display: none !important; }
 
@@ -6733,14 +6433,6 @@ input[type=range]::-moz-range-thumb {
 .app[data-workflow-mode="camera"] .tl-pose-tools,
 .app[data-workflow-mode="camera"] .tl-motion-tools,
 .app[data-workflow-mode="camera"] .take-bar { display: none !important; }
-
-/* the Shot/Top-View toggle sits right of the mode tabs in Scene view */
-.viewport .viewmode.scene-only {
-	top: 0;
-	left: 168px;
-	border: 1px solid var(--line);
-	border-top: 0;
-}
 
 /* ------------------------------------------- Unity widget material -------- */
 /* Flat editor widgets: 1px borders, 2px radius, no gradients, no glow. This
@@ -6972,9 +6664,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* hud/caption/viewmode chips: flat dark glass already; kill blur & radius */
-.hud,
-.caption,
-.viewmode {
+.caption {
 	border-radius: 2px;
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
@@ -7080,263 +6770,9 @@ input[type=range] {
 	height: 3px;
 }
 
-.multimodel-card {
-	padding: 8px;
-	border: 1px solid rgba(58, 124, 191, .38);
-	background: linear-gradient(180deg, rgba(58, 124, 191, .12), rgba(var(--lg-ink-rgb, 255,255,255), .025));
-	border-radius: 3px;
-}
-
-.multimodel-card-head {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 8px;
-}
-
-.multimodel-card-head strong,
-.multimodel-card-head span {
-	display: block;
-}
-
-.multimodel-card-head strong {
-	font-size: 11px;
-	color: #dce7ff;
-}
-
-.multimodel-card-head div > span {
-	margin-top: 2px;
-	color: var(--muted);
-	font-size: 9px;
-}
-
-.multimodel-status {
-	padding: 2px 5px;
-	border: 1px solid var(--line);
-	color: var(--muted);
-	font-family: var(--mono);
-	font-size: 8px;
-	letter-spacing: .08em;
-}
-
-.multimodel-status.ready {
-	border-color: rgba(126, 208, 143, .55);
-	color: #9fe0a7;
-}
-
-.multimodel-status.error {
-	border-color: rgba(229, 72, 77, .65);
-	color: #ff9b9f;
-}
-
-.multimodel-source-row,
-.multimodel-url-row {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-top: 8px;
-}
-
-.multimodel-input-block {
-	margin-top: 9px;
-	padding: 8px;
-	border: 1px solid rgba(var(--lg-ink-rgb, 255,255,255), .1);
-	background: rgba(0, 0, 0, .12);
-}
-
-.multimodel-input-block + .multimodel-input-block {
-	margin-top: 6px;
-}
-
-.multimodel-input-label {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 8px;
-}
-
-.multimodel-input-label strong {
-	color: #c9d8f7;
-	font-size: 10px;
-	font-weight: 600;
-}
-
-.multimodel-input-label span {
-	color: var(--muted2);
-	font-size: 8px;
-	white-space: nowrap;
-}
-
 /* The panels' native file pickers stay hidden; their own buttons open them. */
 .multimodel-file-input {
 	display: none;
-}
-
-.multimodel-file-name {
-	min-width: 0;
-	overflow: hidden;
-	color: var(--muted2);
-	font-size: 9px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.multimodel-url-input {
-	display: block;
-	box-sizing: border-box;
-	width: 100%;
-	margin-top: 7px;
-	height: 26px;
-	padding: 2px 8px;
-	border: 1px solid var(--line);
-	background: var(--card2);
-	color: var(--fg);
-	font-family: var(--mono);
-	font-size: 10px;
-}
-
-.multimodel-url-input::placeholder {
-	color: var(--muted2);
-}
-
-.multimodel-url-input:focus {
-	outline: none;
-	border-color: var(--accent);
-	box-shadow: 0 0 0 1px var(--accent);
-}
-
-.multimodel-url-actions {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-top: 6px;
-}
-
-.multimodel-url-actions .btn {
-	flex: 1;
-}
-
-.multimodel-status.busy {
-	border-color: rgba(126, 160, 224, .55);
-	color: #a8c4f2;
-}
-
-.multimodel-progress {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	margin-top: 9px;
-}
-
-.multimodel-progress-track {
-	flex: 1;
-	height: 4px;
-	background: rgba(0, 0, 0, .35);
-	overflow: hidden;
-}
-
-.multimodel-progress-bar {
-	height: 100%;
-	width: 0;
-	background: var(--accent);
-	transition: width .12s linear;
-}
-
-.multimodel-progress-bar.indeterminate {
-	width: 35%;
-	animation: multimodel-slide 1.1s ease-in-out infinite;
-}
-
-@keyframes multimodel-slide {
-	0% { transform: translateX(-100%); }
-	100% { transform: translateX(300%); }
-}
-
-.multimodel-progress span {
-	flex: none;
-	min-width: 62px;
-	text-align: right;
-	color: var(--muted2);
-	font-family: var(--mono);
-	font-size: 9px;
-}
-
-.multimodel-error {
-	margin: 9px 0 0;
-	padding: 6px 8px;
-	border: 1px solid rgba(229, 72, 77, .45);
-	background: rgba(229, 72, 77, .1);
-	color: #ff9b9f;
-	font-size: 9.5px;
-	line-height: 1.45;
-}
-
-.multimodel-receipt {
-	display: flex;
-	gap: 8px;
-	margin-top: 9px;
-	padding: 7px;
-	border: 1px solid rgba(126, 208, 143, .3);
-	background: rgba(126, 208, 143, .07);
-}
-
-.multimodel-preview {
-	flex: none;
-	width: 76px;
-	height: 44px;
-	object-fit: cover;
-	background: #000;
-	border: 1px solid rgba(var(--lg-ink-rgb, 255,255,255), .12);
-}
-
-.multimodel-receipt-body {
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-}
-
-.multimodel-receipt-body strong {
-	overflow: hidden;
-	color: #dbe8ff;
-	font-size: 10px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.multimodel-receipt-body span {
-	color: var(--muted2);
-	font-family: var(--mono);
-	font-size: 9px;
-}
-
-.multimodel-receipt-timeline {
-	color: #9fe0a7 !important;
-}
-
-.multimodel-extract {
-	margin-top: 9px;
-}
-
-.multimodel-extract .btn {
-	width: 100%;
-}
-
-.multimodel-extract-receipt {
-	margin: 8px 0 0;
-	padding: 6px 8px;
-	border: 1px solid rgba(126, 208, 143, .3);
-	background: rgba(126, 208, 143, .07);
-	color: #9fe0a7;
-	font-size: 9.5px;
-	line-height: 1.45;
-}
-
-.multimodel-note {
-	margin: 8px 0 0;
-	color: var(--muted2);
-	font-size: 9px;
-	line-height: 1.45;
 }
 
 /* readouts: single quiet line */
@@ -7523,21 +6959,6 @@ input[type=range] {
 	border-radius: 2px;
 }
 
-/* object transform sections: gizmo-modes as compact 3-way strip */
-.presets.gizmo-modes {
-	grid-template-columns: 1fr 1fr 1fr;
-}
-
-.presets.gizmo-modes button {
-	padding: 0 4px;
-}
-
-.presets.gizmo-modes kbd {
-	font-size: 8px;
-	padding: 0 3px;
-	border-radius: 2px;
-}
-
 .object-colors {
 	gap: 4px;
 	margin: 4px 0 8px;
@@ -7550,16 +6971,6 @@ input[type=range] {
 }
 
 /* ------------------------------------------------ Unity scene title bar --- */
-
-.editor-toolbar.scene-tools .tool-switch button.active {
-	background: #2d5c8a;
-	color: #fff;
-}
-
-.editor-toolbar.scene-tools .snap-switch.active {
-	background: rgba(45, 92, 138, .35);
-	color: var(--fg);
-}
 
 .viewport-toolbar-field,
 .viewport-fov-control {
@@ -7981,11 +7392,6 @@ input[type=range] {
 	background: rgba(var(--lg-ink-rgb, 255,255,255), .07);
 }
 
-.hierarchy-icon {
-	width: 10px;
-	height: 10px;
-}
-
 .hierarchy-label {
 	font-size: 11px;
 }
@@ -8005,7 +7411,6 @@ input[type=range] {
 	font-weight: 600;
 }
 
-.hierarchy-kicker,
 .inspector-heading > span {
 	display: none;
 }
@@ -8031,17 +7436,6 @@ input[type=range] {
 .number-field input {
 	text-align: left;
 	padding-left: 4px;
-}
-
-/* scene overlay: one continuous bar. Pane tabs + tools form the left strip;
-   the view-mode toggle docks to the scene's top-right instead of floating. */
-.viewport .viewmode.scene-only {
-	top: 0;
-	left: auto;
-	right: 0;
-	border: 1px solid var(--line);
-	border-top: 0;
-	border-radius: 0;
 }
 
 /* swatches: tighten */
@@ -8325,30 +7719,6 @@ input[type=range] {
 .hierarchy-row-wrap:before {
 	display: none;
 }
-
-.hierarchy-icon {
-	width: 10px;
-	height: 10px;
-	border: 1px solid #8a8a8a;
-	border-radius: 2px;
-	background: rgba(var(--lg-ink-rgb, 255,255,255), .05);
-	box-shadow: none;
-	transform: none;
-}
-
-.hierarchy-icon.shot { border-radius: 50%; border-color: #3a7cbf; background: rgba(58, 124, 191, .18); }
-.hierarchy-icon.camera { border-color: #d4972d; background: rgba(212, 151, 45, .16); transform: skewX(-8deg); }
-.hierarchy-icon.character { border-radius: 50% 50% 3px 3px; border-color: #6f9f86; background: rgba(111, 159, 134, .16); }
-.hierarchy-icon.motion,
-.hierarchy-icon.clip,
-.hierarchy-icon.prompt { border-color: #3a7cbf; background: rgba(58, 124, 191, .18); }
-.hierarchy-icon.key { border-color: var(--danger); background: rgba(214, 95, 85, .16); transform: rotate(45deg) scale(.78); }
-.hierarchy-icon.rig,
-.hierarchy-icon.bone { border-radius: 50%; border-color: #8a759d; background: rgba(138, 117, 157, .16); }
-.hierarchy-icon.path { width: 12px; height: 5px; border-radius: 999px; border-color: #6f9f86; background: rgba(111, 159, 134, .16); }
-.hierarchy-icon.environment { border-radius: 50%; border-color: #6f9f86; background: rgba(111, 159, 134, .16); }
-.hierarchy-icon.props,
-.hierarchy-icon.object { border-color: #c7836f; background: rgba(199, 131, 111, .16); }
 
 /* badges: plain muted counts, no pill; gone when zero */
 .hierarchy-badge {
@@ -8881,186 +8251,6 @@ input[type=range] {
 	color: var(--muted, var(--lg-9a9a9a, #9a9a9a));
 	font-size: 12px;
 }
-.preserve-strength-value {
-	font-variant-numeric: tabular-nums;
-	opacity: .8;
-}
-/* Which limbs the grouped mask will actually free. It reads as a continuation
-   of the slider, not as a new paragraph, so it sits tighter to the row above
-   and one step quieter than the hint it borrows its voice from. */
-.preserve-tracks-summary {
-	margin-top: 4px;
-	opacity: .85;
-}
-
-/* --------------------------------------------- line editing (C6) ---------- */
-/* The drawing surface for "draw a line, the joint follows it". A plain 2D
-   canvas stretched over the stage, ABOVE both .vp-pane rectangles (z-index 5)
-   and below the graphics-loss card (z-index 9) — a lost context has to be
-   readable even mid-stroke. It is the only element on the stage that
-   deliberately TAKES the pointer, and it only exists while the mode is on, so
-   nothing else has to opt out of it.
-   Appended at the end for the same reason the preserve block above is: the
-   Unity density and widget-material passes further up the cascade would
-   otherwise win over rules written beside the viewport section.
-   The selector is qualified with `.stage canvas` on purpose, and appending
-   alone would NOT have been enough: `.stage canvas` (0,1,1) and
-   `.stage canvas:active` (0,2,1) up in the viewport section out-specify a bare
-   class, so the overlay would have inherited the WebGL canvas's grab/grabbing
-   cursor no matter where these rules were written. */
-.stage canvas.line-edit-overlay,
-.stage canvas.line-edit-overlay:active {
-	position: absolute;
-	inset: 0;
-	z-index: 7;
-	/* THE OVERLAY IS INERT. It paints the joint's path and nothing else: every
-	   pointer goes straight through to the WebGL canvas underneath, so orbit,
-	   pan and click-to-select keep working while the mode is on. The grab is
-	   decided by a capture-phase listener on .stage, which consumes the event
-	   only when the pointer actually lands on the curve — see
-	   onLineStagePointerDown. A surface that swallowed pointers would have made
-	   the mode unusable, since judging a correction means looking at it from
-	   other angles.
-	   Both `cursor` and `touch-action` therefore belong to the canvas below,
-	   not here; `:active` stays in the selector only so the viewport section's
-	   more specific `.stage canvas:active` cannot reintroduce a cursor on an
-	   element that can never be hovered. */
-	pointer-events: none;
-	cursor: inherit;
-}
-/* Grab affordance while the mode is on, driven by a data attribute the stage
-   carries: "hover" whenever the pointer is within grab distance of the curve,
-   "drag" while one is held. Written on the DOM node rather than through React
-   because the hover test runs at pointer cadence and must not re-render an 11k
-   -line component; the same reason lineDragRef is a ref.
-   The scene's own cursor is ALREADY `grab`, so `hover` changes nothing visually
-   on its own — the visible affordance is the marker swelling under the pointer
-   (see paintLineOverlay). It is spelled out anyway so the three states are real
-   and one place decides them. `drag` is the one that does work: the grab
-   pointerdown calls preventDefault, which suppresses `:active` on the canvas,
-   so `grabbing` has to be asserted rather than inherited. Specificity beats
-   `.stage canvas:active` (0,2,1) by tying it and landing later in the cascade;
-   the `:active` twin removes even that doubt. */
-.stage[data-line-grab="hover"] canvas,
-.stage[data-line-grab="hover"] canvas:active {
-	cursor: grab;
-}
-.stage[data-line-grab="drag"] canvas,
-.stage[data-line-grab="drag"] canvas:active {
-	cursor: grabbing;
-}
-/* "draw" is the fourth state: a press that missed the curve is drawing a new
-   path on empty space, and a crosshair says that in the one place the eye is
-   already looking. Same preventDefault caveat as `drag`, hence the twin. */
-.stage[data-line-grab="draw"] canvas,
-.stage[data-line-grab="draw"] canvas:active {
-	cursor: crosshair;
-}
-
-/* The mode's controls, folded under the toggle inside the preserve region. The
-   left rule reads as "these belong to the button above" without adding another
-   card border inside an already-nested Field. */
-.line-edit-panel {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	margin-top: 8px;
-	padding-left: 8px;
-	border-left: 2px solid var(--line2, var(--lg-3c3c3c, #3c3c3c));
-}
-/* Two bounds on one line, reading as a single range rather than two fields —
-   same flat shape as .preserve-strength-row. */
-.line-edit-range-row {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-.line-edit-range-row input[type="number"] {
-	flex: 1;
-	min-width: 0;
-	font-variant-numeric: tabular-nums;
-}
-.line-edit-range-row span {
-	opacity: .6;
-}
-/* The falloff width, slider plus its value in frames. Same flat row as the
-   range above so the two read as one stack of settings. */
-.line-edit-radius-row {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-.line-edit-radius-row input[type="range"] {
-	flex: 1;
-	min-width: 0;
-}
-.line-edit-radius-value {
-	flex: none;
-	opacity: .75;
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
-}
-
-/* The view moved out from under a committed edit. A STATUS, not an error: the
-   edit is intact and still on its way to the box, so this reads like the
-   preview lines below (quiet, tinted, a rule down the side) rather than like
-   .line-preview-error. The overlay is already saying the same thing by drawing
-   the line ghosted; this is the sentence that explains it. */
-.line-edit-drift {
-	margin-top: 2px;
-	padding-left: 6px;
-	border-left: 2px solid var(--warn, #ff9c6e);
-	opacity: .9;
-}
-
-/* ---- the live preview loop (contracts C10/C11) ----
-   Releasing a pull fires a 20-step draft and the VIEWPORT answers; these three
-   lines only say which state that loop is in. They are deliberately quiet —
-   the artist is watching the take move, and a status line that competed with
-   it for attention would be looking in the wrong place. */
-.line-preview-busy {
-	margin-top: 2px;
-	opacity: .8;
-}
-/* The pulse is the whole busy affordance: no spinner, no layout shift, and it
-   stops the instant the draft lands. Reduced-motion gets the text alone. */
-.line-preview-busy::before {
-	content: "";
-	display: inline-block;
-	width: 6px;
-	height: 6px;
-	margin-right: 6px;
-	border-radius: 50%;
-	background: var(--accent, #3a7cbf);
-	vertical-align: middle;
-	animation: line-preview-pulse 1s ease-in-out infinite;
-}
-@keyframes line-preview-pulse {
-	0%, 100% { opacity: .25; }
-	50% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-	.line-preview-busy::before { animation: none; opacity: .8; }
-}
-/* A draft IS on screen. Tinted, because "what you are looking at is not the
-   take yet" is the one thing the artist must not have to remember. */
-.line-preview-live {
-	margin-top: 2px;
-	padding-left: 6px;
-	border-left: 2px solid var(--accent, #3a7cbf);
-	opacity: .9;
-}
-.line-preview-time {
-	font-variant-numeric: tabular-nums;
-	opacity: .7;
-	white-space: nowrap;
-}
-/* Non-fatal by contract: the pull is still here and Generate still runs. */
-.line-preview-error {
-	margin-top: 2px;
-	color: var(--warn, #ff9c6e);
-	opacity: .95;
-}
 
 /* ------------------------------------- the take bar (contracts C9/C12) ---- */
 /* Two edit entries, the version strip and the last run's replay verdict, in a
@@ -9081,50 +8271,6 @@ input[type=range] {
 	background: var(--panel);
 }
 
-.take-mode-btn.active {
-	border-color: var(--accent);
-	box-shadow: inset 0 -2px var(--accent);
-}
-
-/* Unavailable, and SAYING so: greyed, still focusable, still hoverable, with
-   the reason spelled out on the line below. Never pointer-events:none — an
-   entry the pointer slides straight through cannot explain itself. */
-.take-mode-btn.disabled,
-.take-scene-action .btn.disabled {
-	opacity: .45;
-	cursor: not-allowed;
-}
-
-.take-scene-menu .btn {
-	height: 26px;
-	padding: 0 10px;
-	font-size: 11px;
-	white-space: nowrap;
-}
-
-.take-recipe-summary {
-	margin-top: 4px;
-	opacity: .8;
-	font-variant-numeric: tabular-nums;
-}
-
-.take-version-chip.current {
-	border-color: var(--accent);
-	color: var(--fg);
-	box-shadow: inset 0 -2px var(--accent);
-}
-
-/* A replayed refinement that failed or straddled a block boundary. Non-blocking
-   by contract (C10): the take is loaded and playing, so this is a line to read,
-   not an error to clear. Full width so it never squeezes the chips. */
-.replay-notice {
-	flex-basis: 100%;
-	margin: 0;
-	font-size: 10px;
-	line-height: 1.4;
-	color: var(--warn, #ff9c6e);
-}
-
 /* ------------------------------------------------ desktop polish (16:9) --
    The editor is normally used full-screen on a 16:9 monitor. Keep the scene
    pane dominant while preserving every existing control and resize gesture. */
@@ -9141,10 +8287,6 @@ input[type=range] {
 		max-width: 270px;
 		bottom: 12px;
 		right: 12px;
-	}
-	.editor-toolbar.scene-tools .viewport-toolbar-field,
-	.editor-toolbar.scene-tools .viewport-fov-control {
-		background: rgba(0, 0, 0, .08);
 	}
 
 	/* Splitters are deliberately wider than their 1px visual rule so the
@@ -9190,7 +8332,6 @@ input[type=range] {
 .inspector-heading,
 .inspector-hint,
 .foldout-head,
-.right-panel-tabs,
 .bottom-window-tabs,
 .settings-menu {
 	word-break: keep-all;
@@ -9508,10 +8649,6 @@ input[type=range] {
 .agent-history-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-history-empty { padding: 10px; color: var(--muted); }
 .agent-toast { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--accent-soft); color: var(--fg); font-size: 11px; }
-
-.result-motion-video { width: 100%; max-height: 420px; background: #090b10; }
-.result-motion-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; color: var(--muted, #a7afc2); font-size: 11px; }
-.result-motion-meta span { padding: 3px 6px; border: 1px solid var(--line, #313747); border-radius: 999px; }
 
 /* ------------------------------------------- use-case question (#466) ----- */
 /* One optional, non-modal question after the first successful export. Same

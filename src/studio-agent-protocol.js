@@ -118,7 +118,7 @@ const characterOp = union(
  * records what an element IS, not how JSON carries it. */
 const dataImage = { ...text(2 * 1024 * 1024), pattern: "^data:image/[A-Za-z0-9.+-]+[;,]" };
 
-const cameraKey = object({ frame: integer(), framing: object({ pos: vec3, yaw: { ...number(), description: "RADIANS, not degrees. 0 looks down -Z; positive turns the camera left (toward -X)." }, pitch: { ...number(), description: "RADIANS, not degrees. 0 is level; positive looks up." }, fovDeg: { ...number(1, 179), description: "Vertical field of view in DEGREES." } }) }, { id });
+const cameraKey = object({ frame: integer(), framing: object({ pos: vec3, yaw: { ...number(), description: "RADIANS, not degrees. 0 looks down -Z; positive turns the camera left (toward -X)." }, pitch: { ...number(), description: "RADIANS, not degrees. 0 is level; positive looks up." }, fovDeg: { ...number(1, 179), description: "Vertical field of view in DEGREES." } }, { rollDeg: { ...number(-180, 180), description: "DEGREES about the lens axis (a dutch angle); 0 or absent is level, positive turns the camera's top toward screen left. Eases between keys like the rest of the framing." } }) }, { id });
 // A mark is an arc fraction, or { t, bank, pitch } when the object should lean
 // there (degrees, +-90). The route normaliser (src/object-path.js) owns the
 // rules; this only carries the shape through untouched.

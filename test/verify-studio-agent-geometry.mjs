@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Euler, Vector3 } from 'three';
-import { createSceneObject, updateSceneObject } from '../src/scene-objects.js';
+import { createSceneObject } from '../src/scene-objects.js';
 import { createCharacterEntry } from '../src/scenes.js';
 import { createShotAuthoringDocument } from '../src/shot-authoring.js';
 import { validateReceipt, validateStudioCommand } from '../src/studio-agent-protocol.js';

@@ -9,7 +9,7 @@ import jpeg from "jpeg-js";
 
 import { normalizeMeshPath } from "./mesh-file.mjs";
 
-export const REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
+const REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
 const MAX_PIXELS = 40_000_000;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 

@@ -44,7 +44,6 @@ export const ZH_TIMELINE = {
 	"Dots": "点",
 	"Add a dot where the prop is on this frame": "在当前帧道具所在位置添加一个点",
 	"No room for a dot here: the route is full, or the playhead is on a dot or an end": "此处无法添加点：路径已满，或播放头位于某个点或端点",
-	"Add dot at playhead": "在播放头处添加点",
 	"+ Dot": "+ 点",
 	"Ends are always level; select a dot between them to lean the prop there": "两端始终水平；选中中间的点可让道具在该处倾斜",
 	"Bank": "侧倾",

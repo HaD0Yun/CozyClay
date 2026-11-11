@@ -147,7 +147,7 @@ test("a user edit counts from its bus receipt, not from a write outside a bus ru
   } finally { restore(); }
 });
 
-export { scanSource, scanTree, applyRatchet, writerName, isRunCall };
+export { scanSource, scanTree, writerName, isRunCall };
 
 const actualReferences = scanTree(fileURLToPath(new URL("../../src", import.meta.url)));
 const currentCounts = Object.create(null);

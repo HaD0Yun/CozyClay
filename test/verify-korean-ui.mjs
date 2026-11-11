@@ -37,15 +37,6 @@ function assertKoPairsHaveBothSides(path) {
 	}
 }
 
-function assertKoEnglishDefaults(path, text = source(path)) {
-	const calls = [...text.matchAll(/ko\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`)\s*,/g)];
-	assert.ok(calls.length > 0, `${path} has no literal ko() defaults to verify`);
-	for (const call of calls) {
-		const english = call[1] ?? call[2] ?? call[3];
-		assert.doesNotMatch(english, /[\uAC00-\uD7AF]/, `${path} has Korean text as the English ko() default: ${english}`);
-	}
-}
-
 // Korean may only appear inside ko(...) calls, isKo branches, or the
 // *_KO mapping tables — never as bare Korean in JSX or strings.
 function assertKoreanInsideLocaleConstructs(path) {

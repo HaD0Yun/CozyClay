@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
 	LEGACY_SCENE_STORAGE_KEY,
 	LEGACY_SCENES_STORAGE_KEYS,
