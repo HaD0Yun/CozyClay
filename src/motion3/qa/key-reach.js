@@ -6,9 +6,14 @@
 //             f9 and QA ranked it the best of the round.
 // Only keys the author wrote count (no src: fill keys and skill keys are generated), and a key counts as reached when the take
 // passes within KEY_MISS of it within RETIME_SLACK frames (the retime fix moves keys a few frames).
+// A free IK hand's key is read where fix.self's repair moved the hand (out.selfKeys, fix/self-guard.js keyedHands): KEY
+// "hand_r off its key (fix.self)" when the repair left the wrist more than HAND_PULL farther off its key than it was
+// before (d1 once the repair is done, the take as it is while its gate reads), one group a hand, its size the most the
+// repair added (m) and its hint the wrist off the key in the take. QA's REACH reads against the target the repair pushed,
+// so without it a hand pulled off a cup it reached for went unseen.
 import { isFillKey } from "../bricks/fill-src.js";
 
-const KEY_MISS = 0.15, TELEPORT = 0.3, RETIME_SLACK = 3;
+const KEY_MISS = 0.15, TELEPORT = 0.3, RETIME_SLACK = 3, HAND_PULL = 0.02;
 const CHANNELS = ["root", "foot_l", "foot_r"];
 
 /** Issues (frames as out.frames indexes) for authored keys the take misses and for hips that jump. */
@@ -29,6 +34,10 @@ export function keyReachIssues(sk, out, spec) {
 			if (d > KEY_MISS) issues.push({ kind: "KEY", msg: `${ch} ${(d * 100).toFixed(1)} cm off its key at f${k.f}`, frame: k.f - f0, value: +d.toFixed(4), limit: KEY_MISS });
 		}
 	}
+	for (const { j, k, t, d0, d1 } of out.selfKeys ?? []) {
+		const p = out.frames[j]?.s.P[sk.index[k === "l" ? "LeftHand" : "RightHand"]], d = p ? Math.hypot(p[0] - t[0], p[1] - t[1], p[2] - t[2]) : 0;
+		if ((d1 ?? d) > d0 + HAND_PULL) issues.push({ kind: "KEY", msg: `hand_${k} off its key (fix.self)`, frame: j, value: +((d1 ?? d) - d0).toFixed(4), limit: HAND_PULL, off: d });
+	}
 	const I = sk.index.Hips, step = f => { const a = out.frames[f - 1]?.s.P[I], b = out.frames[f]?.s.P[I]; return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) : 0; };
 	for (let f = 1; f < n; f++) {
 		const d = step(f);
@@ -40,6 +49,12 @@ export function keyReachIssues(sk, out, spec) {
 /** explain.js hints: what to change for a missed key or a hips jump. */
 export const keyReachHints = {
 	KEY(X, g) {
+		const hand = /^(hand_[lr]) off its key \(fix\.self\)$/.exec(g.subject)?.[1];
+		if (hand) {
+			const f0 = X.out?.f0 ?? 0, x = (X.out?.selfKeys ?? []).find(y => `hand_${y.k}` === hand && y.j === g.worstFrame);
+			const off = x ? ` (the wrist ${(x.d0 * 100).toFixed(1)} cm off it before the repair, ${((x.d1 ?? x.d0) * 100).toFixed(1)} after)` : "";
+			return { cause: X.cause(hand, g.worstFrame + f0), hint: `fix.self moved this arm out of the body and with it the hand up to ${(g.worst * 100).toFixed(1)} cm farther off its keys, most at f${g.worstFrame + f0}${off}: key the hand where the arm reaches it without going through the body, turn the elbow (${hand.replace("hand", "elbow")}), or turn fix.self off for the take` };
+		}
 		const [, ch, f] = /^(\w+) [\d.]+ cm off its key at f(\d+)$/.exec(g.subject) ?? [];
 		return { cause: X.cause(ch ?? "root", Number(f ?? g.worstFrame)), hint: `the take never reaches this key: a planted foot held through it (the slide fix) or the limb cannot reach it. Give the move more frames before f${f}, move the key nearer the pose before it, or key the foot lifting on its way` };
 	},

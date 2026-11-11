@@ -20,8 +20,8 @@
 //    fades with the weight that holds it; such a hand takes no FK move.
 // Never worse: a span that neither takes GAIN off its deepest hit nor clears a frame gets its frames back; the others
 // stand together where QA (qa-of.js, as pipeline.js reads it) is no worse with them, else they are tried in halves on
-// top of what stood, down to one span. A move or a span that pulls a free IK hand more than KEY_TOL farther off a key
-// clear of the skin is not made, or goes back (self-guard.js keyedHands: QA's REACH reads against the pushed target).
+// top of what stood, down to one span. A free IK hand the repair moves more than 2 cm farther off a key outside the skin
+// is a KEY problem to QA (out.selfKeys, self-guard.js keyedHands, qa/key-reach.js), weighed in that QA like any other.
 // Where every span goes back, the search runs again with only moves that add no BODY or FACE subject QA did not report,
 // and is gated the same way (not where a search ran out of moves).
 // A group stands where QA is no worse by keptRetime's rule (qa/verdict.js noWorse: problems, summed severity, goals
@@ -31,8 +31,8 @@
 // touched. Reported in fixed.self: spans [{ at, depth: [before, after], key?: [before, after] (m, the keyed hand it moved
 // most off its key) }], depth [before, after] (m, the deepest hit), iterations, and left [{ at, side, why, frames }]: the
 // frames still past the limit grouped by side and why (undone and why; the move cap; the take's budget; no move, and what
-// turned down the moves that helped on the frame: a pop, the hands into each other, a frame around it deeper, a hand off
-// its key, the elbow lifted).
+// turned down the moves that helped on the frame: a pop, the hands into each other, a frame around it deeper, the elbow
+// lifted).
 import { bodyFor } from "../body.js";
 import { round4 } from "./ease.js";
 import { qaOf } from "./qa-of.js";
@@ -40,7 +40,7 @@ import { noWorse, compareQa } from "../qa/verdict.js";
 import { groupKey } from "../qa/severity.js";
 import { armHit, handOnBody, handsPast } from "./self-hits.js";
 import { leverAt, setLever, apply, movesFor, GAIN } from "./self-moves.js";
-import { armMotion, moveWorse, popsOutside, keyedHands, keyOff, KEY_TOL } from "./self-guard.js";
+import { armMotion, moveWorse, popsOutside, keyedHands, keyOff } from "./self-guard.js";
 
 const EASE = 10, MAX_IT = 48, TRIES = 6, LEFT_MAX = 6;
 /** The take's budget, whatever its length or its runs of hits: IT_TAKE moves tried and SOLVE_TAKE frames solved over
@@ -86,7 +86,7 @@ function windowOf(out, clock, ra, rb) {
  * window's deepest hit, or off its summed depth past the limit without deepening that hit; of those that clear frame i
  * one held over the run wins, the arm raised out over the elbow bent, then the smaller move, else the larger gain.
  * `strict`: a move that adds a BODY or FACE subject QA did not report is not made at all. */
-function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict, whole, spent, keyed }) {
+function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict, whole, spent }) {
 	const measure = (w, hit) => {
 		let max = 0, sum = 0, fresh = 0;
 		for (let j = w.lo; j <= w.hi; j++) { const x = hit(j), p = Math.max(0, x?.past ?? 0); max = Math.max(max, p); sum += p; fresh += (x?.seen ?? []).filter(t => !known.has(t)).length; }
@@ -103,7 +103,6 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 		w.rest = popsOutside(whole, w.prev.lo, w.prev.hi);
 		w.base = measure(w, j => hits[k][j]);
 		w.hands = span(w, j => handsPast(out, j));
-		w.keys = keyOff(out, keyed, w.lo, w.hi);
 		return w;
 	};
 	// the run: the frames with a hit around i, across gaps of up to 2 EASE (where two eased moves would meet anyway)
@@ -123,8 +122,7 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 	for (const c of tries) {
 		for (const w of c.mv.out || c.mv.bend ? [run, here].filter(Boolean) : [here]) {
 			if (spent()) return best ?? { why: null };
-			const undo = apply(out, engine, k, c.mv, w.at), worse = moveWorse(w.prev, armMotion(out, k, w.lo - 3, w.hi + 5), w.rest) || (handsWorse(w) ? "the hands into each other" : "")
-				|| (keyOff(out, keyed, w.lo, w.hi).some((x, q) => x.d > w.keys[q].d + KEY_TOL) ? "a hand off its key" : "");
+			const undo = apply(out, engine, k, c.mv, w.at), worse = moveWorse(w.prev, armMotion(out, k, w.lo - 3, w.hi + 5), w.rest) || (handsWorse(w) ? "the hands into each other" : "");
 			const now = worse ? null : measure(w, j => armHit(out, body, j, k, known)), clearI = !worse && (armHit(out, body, i, k, known)?.past ?? -1) <= 0;
 			undo();
 			// a move that deepens the window's deepest hit is not made; one that adds a BODY or FACE subject QA did not report
@@ -148,13 +146,15 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 	return best ?? { why: found.length ? `the moves that help on the frame are turned down (${[...no].sort().join("; ")})` : found.lifts ? "the moves that help on the frame lift the elbow" : near ? `the nearest move on the frame leaves ${at}` : "no move to try" };
 }
 
-/** Why QA `next` is worse than `base` for a span ("" when it is not): the pipeline's rule, then any group but OWN that rose. */
+/** Why QA `next` is worse than `base` for a span ("" when it is not): the pipeline's rule, then any group but OWN (and a
+ * hand's KEY) that rose. */
 function worseWhy(next, base) {
 	const held = q => (q.goals ?? []).filter(g => g.ok).map(g => g.name), lost = held(base).filter(nm => !held(next).includes(nm));
 	if (lost.length) return `goal "${lost[0]}" no longer holds`;
 	if (!noWorse(next, base)) { const v = compareQa(next, base); return `QA worse (problems ${v.problems[0]} -> ${v.problems[1]}, summed severity ${v.sev[0]} -> ${v.sev[1]})`; }
 	const was = new Map(base.groups.map(g => [groupKey(g), g.severity ?? 0]));
-	const rose = next.groups.find(g => !OWN.has(g.kind) && (g.severity ?? 0) > (was.get(groupKey(g)) ?? 0) + 0.01);
+	// a hand the repair moves off its key (KEY hand_l, hand_r: out.selfKeys) is weighed by the rule above, as BODY and FACE are
+	const rose = next.groups.find(g => !OWN.has(g.kind) && !(g.kind === "KEY" && /^hand_[lr] off its key/.test(g.subject)) && (g.severity ?? 0) > (was.get(groupKey(g)) ?? 0) + 0.01);
 	return rose ? `${rose.kind} ${rose.subject} ${was.has(groupKey(rose)) ? "worse" : "new"}` : "";
 }
 
@@ -187,6 +187,7 @@ function leftOf(list) {
 }
 
 export function selfRepair(out, engine) {
+	delete out.selfKeys;
 	const body = bodyFor(out.ctx.sk);
 	if (!body) return null;
 	const n = out.frames.length, f0 = out.f0 ?? 0, hits = { l: new Array(n), r: new Array(n) };
@@ -203,6 +204,8 @@ export function selfRepair(out, engine) {
 	// another (it would count as a new problem)
 	known = new Set(KS.flatMap(k => hits[k].flatMap(h => h?.seen ?? [])));
 	const done = new Set(), whyOf = new Map(), keyed = keyedHands(out, body);
+	// QA reads a keyed free hand the repair moves off its key (qa/key-reach.js KEY), and so does the gate
+	out.selfKeys = keyed.map(({ j, k, t, d0 }) => ({ j, k, t, d0 }));
 	// the move cap: MAX_IT for each run of frames with a hit QA reads
 	const cap = MAX_IT * KS.reduce((c, k) => c + runsOf(hits[k].flatMap((_, j) => (open(k, j) ? [[j, ""]] : []))).length, 0);
 	const openIn = (a, b) => KS.reduce((c, k) => c + hits[k].slice(a, b + 1).filter((_, j) => open(k, a + j)).length, 0);
@@ -228,7 +231,7 @@ export function selfRepair(out, engine) {
 			// out of moves with hits still open: the cap, or the take's budget
 			if (tries >= cap || spent()) { broke = true; return moves; }
 			it++;
-			const { k, j, h } = pick, best = bestMove(out, eng, body, k, j, h, hits, known, tick[k], { wide, strict, whole: whole[k], spent, keyed });
+			const { k, j, h } = pick, best = bestMove(out, eng, body, k, j, h, hits, known, tick[k], { wide, strict, whole: whole[k], spent });
 			if (!best.mv && best.why === null) { broke = true; return moves; }
 			if (!best.mv) { done.add(`${k}${j}`); whyOf.set(`${k}${j}`, best.why); continue; }
 			for (const [x] of best.at) if (!before.has(x)) before.set(x, { fr: out.frames[x], v: levers(x) });
@@ -259,12 +262,6 @@ export function selfRepair(out, engine) {
 		const gains = s => s.depth[0] - s.depth[1] >= GAIN || s.open[1] < s.open[0];
 		const rest = spans.filter(gains).sort((p, q) => q.depth[0] - p.depth[0] || p.a - q.a);
 		for (const s of spans.filter(s => !gains(s))) { put(s, before); s.undone = `the span's deepest hit did not drop ${GAIN * 1000} mm and no frame cleared`; }
-		// a span that pulls a keyed free hand off its key goes back too (a reach to a cup the repair would miss)
-		for (const s of rest.filter(s => s.key && s.key.d - s.key.d0 > KEY_TOL)) {
-			put(s, before);
-			s.undone = `the ${s.key.k === "l" ? "left" : "right"} wrist ${(s.key.d * 100).toFixed(1)} cm off its key at f${f0 + s.key.j} (${(s.key.d0 * 100).toFixed(1)} cm without the move)`;
-		}
-		rest.splice(0, rest.length, ...rest.filter(s => !s.undone));
 		const settle = (group, base) => {
 			for (const s of group) put(s, after);
 			const q = qaOf(out), no = worseWhy(q, base);
@@ -311,6 +308,8 @@ export function selfRepair(out, engine) {
 	}
 	const { spans, kept } = chosen;
 	kept.sort((p, q) => p.a - q.a);
+	// what the repair left of each keyed hand (d1): QA's KEY reads the repair's own pull, not what later fixes do to the hand
+	for (const x of keyOff(out, keyed, 0, n - 1)) out.selfKeys.find(y => y.j === x.j && y.k === x.k).d1 = x.d;
 	// what is still past the limit, and why
 	const still = [];
 	for (const k of KS) {

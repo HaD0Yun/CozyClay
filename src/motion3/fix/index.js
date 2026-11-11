@@ -152,7 +152,7 @@ function restore(out, s) {
 
 /** The fixes again from `keys` on a fresh solve, retime keeping the key intervals of `air` and of the 3-frame runs `short` too (applyFixes). */
 function fromKeys(out, fix, engine, opts, keys, air, short, note) {
-	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns"]) delete out[k];
+	for (const k of ["timeMap", "flightPops", "flightMoved", "flightRuns", "selfKeys"]) delete out[k];
 	for (const m of ["push", "swivel", "skinPush", "fkArm"]) for (const side of Object.values(out.ctx[m] ?? {})) side.clear();
 	engine.rebake(keys);
 	engine.solve(engine.all());

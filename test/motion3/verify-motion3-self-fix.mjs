@@ -189,10 +189,10 @@ for (const [what, mid] of [["the depth guard", [-0.02, 1.5, -0.04]], ["the pop g
 	const st = TX.head.keys[0].set, c = run(X, specOf({ keys: [[0, rest], [12, to], [23, rest]].map(([f, p]) => ({ f, set: { ...st, hand_r: p } })) }, { frames: 24 }));
 	const was = groupsOf(c.qa0, ["POP", "FLIP"]), now = groupsOf(c.r.qa, ["POP", "FLIP"]);
 	console.log(`  x-bot fast face reach (${what}): BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, QA ${c.qa0.total} -> ${c.r.qa.total}, fixed.self ${JSON.stringify({ spans: c.self?.spans, left: c.self?.left })}`);
-	// the depth guard's take: the moves that cleared it pulled the hand 7 cm off its rest key at f23 (the gate's key, 2 cm),
-	// so it is repaired only as far as the rest key holds
-	const clears = what === "the pop guard" ? own(c.r.qa).length === 0 : worstOwn(c.r.qa) < worstOwn(c.qa0) - 0.01 && c.self.spans.every(sp => sp.key && sp.key[1] <= sp.key[0] + 0.02);
-	expect(`(j) x-bot fast face reach (${what} decides a move): repaired, ${what === "the pop guard" ? "no BODY or FACE left" : "1 cm or more off with the rest key kept"}, no POP or FLIP added or worse`, worstOwn(c.qa0) > 0.03 && c.self?.spans?.length > 0 && clears
+	// the depth guard's take: the moves that clear it pull the hand 7 cm off its rest key at f23, and QA says so (KEY
+	// "hand_r off its key (fix.self)", weighed by the gate); a key pulled 2 cm or more is never silent
+	const pulled = c.self?.spans?.some(sp => sp.key && sp.key[1] > sp.key[0] + 0.02), seen = c.r.qa.groups.some(g => g.kind === "KEY" && g.subject === "hand_r off its key (fix.self)");
+	expect(`(j) x-bot fast face reach (${what} decides a move): repaired, no BODY or FACE left, a hand pulled off its key read as KEY, no POP or FLIP added or worse`, worstOwn(c.qa0) > 0.03 && c.self?.spans?.length > 0 && own(c.r.qa).length === 0 && pulled === seen
 		&& [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), c.self?.spans, [...was], [...now]]));
 }
 // the guard per joint: an elbow pop that eases does not hide a wrist pop that gets harder on the same frame
@@ -343,6 +343,17 @@ for (const [rig, sk, name, t, most] of [["x-bot", X, "far thigh", WX.far2, 0.04]
 		&& [...now].every(([key, sev]) => was.has(key) && sev <= was.get(key) + 1e-9), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), [...was], [...now]]));
 }
 
+// a right hand keyed across the body to the far left at waist height, beyond reach (the forearm across the belly, 12.1 cm):
+// the repair moves the arm out and the hand 19 cm farther off its key, and QA reads that as KEY "hand_r off its key
+// (fix.self)" with the gate weighing it; refusing every move that pulled the hand off left the take 12.1 cm deep (QA 40)
+{
+	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], y = v => +(H * v).toFixed(3), rest = [-0.3, y(0.95), 0.25], to = [0.4, y(1.0), 0.15];
+	const st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0], armw_l: 0, armw_r: 1 };
+	const c = run(X, specOf({ keys: [{ f: 0, set: { ...st, hand_r: rest } }, { f: 24, set: { hand_r: to } }, { f: 47, set: { hand_r: rest } }] })), key = c.r.qa.groups.find(g => g.kind === "KEY" && g.subject === "hand_r off its key (fix.self)");
+	console.log(`  x-bot hand across the body beyond reach: BODY/FACE ${cm(worstOwn(c.qa0))} -> ${cm(worstOwn(c.r.qa))} cm, QA ${c.qa0.total} -> ${c.r.qa.total}, KEY ${key ? `${cm(key.worst)} cm more: ${key.hint}` : "none"}, spans ${JSON.stringify(c.self?.spans)}`);
+	expect("(n) x-bot hand keyed across the body beyond reach: repaired (10 cm or more before, under 2 cm after), and the hand pulled off its key is a KEY group with its hint", worstOwn(c.qa0) >= 0.1 && worstOwn(c.r.qa) < 0.02
+		&& key && /fix\.self moved this arm/.test(key.hint ?? "") && c.self.spans.some(sp => sp.key && sp.key[1] > sp.key[0] + 0.02), JSON.stringify([own(c.r.qa).map(g => [g.subject, g.worst]), c.self?.spans, key]));
+}
 // a goal on the hand at the far thigh reach (16 cm): the wider moves take the hand off it, so the gate takes them back; the
 // first moves alone stand
 {
@@ -363,8 +374,8 @@ for (const [rig, sk, name, t, most] of [["x-bot", X, "far thigh", WX.far2, 0.04]
 }
 
 // (o) the take's budget: crossed arms re-keyed every 30 frames over 360 frames (12 runs of hits an arm): the moves tried
-// stop at the take's 160 whatever its runs (the cap of 48 a run alone let this take try about 900), and the frames left
-// say so
+// stop at the take's 160 whatever its runs (the cap of 48 a run alone let this take try 2119), and the frames left say
+// so (what the moves found goes back: they pull both hands off their keys, two KEY problems more than the BODY they take off)
 {
 	const P = X.restWorldPos, I = X.index, H = P[I.Hips][1], y = v => +(H * v).toFixed(3), N = 360;
 	const st = { root: [0, H - 0.01, 0], foot_l: [P[I.LeftFoot][0], P[I.LeftFoot][1], 0], foot_r: [-P[I.LeftFoot][0], P[I.LeftFoot][1], 0] };
@@ -373,8 +384,8 @@ for (const [rig, sk, name, t, most] of [["x-bot", X, "far thigh", WX.far2, 0.04]
 	keys.push({ f: N - 1, set: down });
 	const o = compileMotion({ schema: SPEC, fps: 24, frames: N, keys, fix: { retime: false } }, { sk: X, scene }), self = o.fixed.self;
 	console.log(`  x-bot crossed arms re-keyed every 30 frames over ${N} frames: iterations ${self?.iterations}, depth ${JSON.stringify(self?.depth)}, spans ${self?.spans?.length}, left ${self?.left?.length}`);
-	expect(`(o) a ${N}-frame take with 24 runs of hits: at most 160 moves tried (the take's budget), a span kept, and the frames left name the budget`,
-		self?.iterations <= 160 && self.spans?.length > 0 && self.depth[1] < self.depth[0] && self.left?.some(l => /the take's budget/.test(l.why)), JSON.stringify({ iterations: self?.iterations, depth: self?.depth }));
+	expect(`(o) a ${N}-frame take with 24 runs of hits: at most 160 moves tried (the take's budget), and the frames left name the budget`,
+		self?.iterations <= 160 && self.left?.some(l => /the take's budget/.test(l.why)), JSON.stringify({ iterations: self?.iterations, depth: self?.depth }));
 	// fixed.self.left groups the frames left by side and why, with their counts: at most 7 entries a side however long the take
 	const open = o.frames.length && self.left.reduce((x, l) => x + l.frames, 0);
 	expect("(g) fixed.self.left on the long take: grouped by side and why, at most 7 entries a side, each with its frame count", self.left.length <= 14 && self.left.every(l => /^f\d+-f\d+$/.test(l.at) && l.frames > 0)
