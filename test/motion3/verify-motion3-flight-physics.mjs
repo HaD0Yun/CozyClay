@@ -503,9 +503,10 @@ function hop(keys, z, A, d = 0.4) {
 	// fix.spin turns the body about its hips, which moves the centre of mass: the second arc puts it back on the parabola
 	const comFall = fallError(f => centerOfMass(sk, on.out.frames[f].s)[1], a + 1, b - 1);
 	expect(`(c) back tuck: after fix.spin the centre of mass still falls at 1 g (off by ${r3(comFall)} g)`, comFall < 0.01, comFall);
-	// the landing's one-frame POP goes unread only on a flight the ballistic fix moved
+	// the landing's one-frame POP (knees 8 cm/f^2, under POP_HARD) is a contact on a flight fix.spin re-timed, with or without the arc: until
+	// b7a8e69f only a flight whose root the ballistic fix moved was exempt, so { ballistic: false } read the same landing as POP
 	const kept = flip({ ballistic: false });
-	expect("(c) back tuck with fix { ballistic: false }: the landing reads POP (only a flight the ballistic fix moved is exempt)", kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
+	expect("(c) back tuck with fix { ballistic: false }: fix.spin's re-timed flight is a contact too, its landing reads no POP, as with the arc", JSON.stringify(kept.out.flightRuns) === JSON.stringify(on.out.flightRuns) && kept.fixed.spin?.frames > 0 && !kinds(kept).has("POP") && !kinds(on).has("POP"), JSON.stringify(kept.qa.groups.map(g => `${g.kind} ${g.subject} f${g.first}`)));
 }
 
 // (c) the back tuck with an open head_pitch keyed f36-f43, after the flight: search compiles only the frames a parameter changes, and

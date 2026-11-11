@@ -151,11 +151,11 @@ export function popsOf(out) {
 }
 
 /**
- * QA's POP on the push-off and impact of each flight fix.ballistic moved (out.flightRuns): issue -> the issue to report,
- * or null. The frames: the one before takeoff A, the first air frame and the next, the one after landing B and the two
- * after it (indexes of out.frames). There the arc's speed meets the keyed ground frames in one frame, a contact, and
- * fix.spin's re-time changes the air frames a landing is read against (the flip skill's landing knee: 8 cm/f^2 against 7
- * of keyed air frames, 2 after). So a POP there stands when the joint
+ * QA's POP on the push-off and impact of each flight the flight fixes moved (out.flightRuns: the root moved by fix.ballistic
+ * or the turn re-timed by fix.spin): issue -> the issue to report, or null. The frames: the one before takeoff A, the first
+ * air frame and the next, the one after landing B and the two after it (indexes of out.frames). There the arc's speed meets
+ * the keyed ground frames in one frame, a contact, and fix.spin's re-time changes the air frames a landing is read against
+ * (the flip skill's landing knee: 8 cm/f^2 against 7 of keyed air frames, 2 after). So a POP there stands when the joint
  * read POP on that frame before the flight fixes too (out.flightPops), at the smaller of the two sizes: a keyed snap the
  * overlap layer lands on the impact is the agent's (a hop's 59 cm/f^2 hand), and what the fixes added to a keyed pop (a
  * vault's 22 cm/f^2 knee read 25) is not. A POP the fixes added stands only over POP_HARD (qa/blocking.js): a one-frame
