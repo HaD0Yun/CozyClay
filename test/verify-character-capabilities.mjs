@@ -3,7 +3,8 @@
 // in the same scene keep every feature.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { characterCapabilities, kindRefusal, refuseRigOnly, CHARACTER_CAPABILITIES } from '../src/character-kind.js';
+import { characterCapabilities, kindRefusal, refuseRigOnly, capabilityRefusal, importedRefusal, CHARACTER_CAPABILITIES } from '../src/character-kind.js';
+import { planPoseEntry } from '../src/pose-entry.js';
 import { createCharacterEntry, PROXY_FIGURE_MODEL } from '../src/scenes.js';
 import { isKo } from '../src/locale.js';
 import { motionFixture, seedMotion } from './bus/motion-fixture.mjs';
@@ -22,6 +23,23 @@ test('capabilities: all false for a capsule figure, all true for a rigged charac
   assert.deepEqual(CHARACTER_CAPABILITIES, ['rig', 'ik', 'pose', 'motion']);
   assert.deepEqual({ ...characterCapabilities(proxy) }, Object.fromEntries(CHARACTER_CAPABILITIES.map(name => [name, false])));
   assert.deepEqual({ ...characterCapabilities(rigged) }, Object.fromEntries(CHARACTER_CAPABILITIES.map(name => [name, true])));
+});
+
+// an imported character (character-rig.js) by its model id: it plays takes on its own bones, but Pose mode and IK
+// write the X Bot's bones and rest pose
+const imported = { id: 'i', model: 'rig-0123456789abcdef-auto' };
+test('capabilities: an imported character keeps its rig and motion, and has no IK or Pose mode', () => {
+  assert.deepEqual({ ...characterCapabilities(imported) }, { rig: true, ik: false, pose: false, motion: true });
+  assert.equal(importedRefusal('pose', false), 'Imported characters play compiled takes on their own bones - Pose mode works on the X Bot and Y Bot only.');
+  assert.equal(capabilityRefusal(imported, 'pose'), importedRefusal('pose', false));
+  assert.equal(capabilityRefusal(imported, 'motion'), null);
+  assert.equal(capabilityRefusal(proxy, 'pose'), kindRefusal('pose', false));
+  assert.equal(capabilityRefusal(rigged, 'pose'), null);
+  for (const feature of ['ik', 'pose']) assert.throws(() => refuseRigOnly(imported, feature), { code: 'TARGET_NOT_READY', message: importedRefusal(feature, false), uiMessage: importedRefusal(feature, isKo) });
+  assert.equal(refuseRigOnly(imported, 'motion'), undefined);
+  // the Pose tab with the imported character active: the one posable character (the Y Bot) is selected instead
+  assert.deepEqual(planPoseEntry([imported, rigged], imported, importedRefusal('pose')), { selectId: rigged.id });
+  assert.equal(planPoseEntry([imported], imported, importedRefusal('pose')).reason, importedRefusal('pose'));
 });
 
 test('kindRefusal: exact en/ko sentences', () => {
