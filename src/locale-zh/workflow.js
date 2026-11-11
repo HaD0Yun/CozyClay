@@ -94,6 +94,8 @@ export const ZH_WORKFLOW = {
 	"Paused: Studio lost": "已暂停：Studio 已断开",
 	"Being checked": "检查中",
 	"Starts when another task frees its part": "等其他任务释放该部分后开始",
+	"The model this task runs on": "此任务使用的模型",
+	"motion engine": "动作引擎",
 	"Working…": "处理中…",
 	"timeline": "时间线",
 	"stage": "舞台",

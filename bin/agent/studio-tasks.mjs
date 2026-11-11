@@ -68,7 +68,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	const running = () => list().filter(task => ["starting", "running"].includes(task.status));
 	const scopes = () => new Map(running().map(task => [task.taskId, { taskId: task.taskId, title: task.title, keys: new Set(task.scope) }]));
 	const view = task => ({ taskId: task.taskId, title: task.title, status: task.status, scope: task.scope, ...(task.reason ? { reason: task.reason } : {}), ...(task.edits ? { edits: task.edits } : {}), ...(task.turnId ? { turnId: task.turnId } : {}),
-		...(task.dependsOn.length ? { dependsOn: task.dependsOn } : {}), ...(task.verify ? { verify: true } : {}), ...(task.motion ? { motion: true } : {}), tools: task.tools, usage: task.usage, ...(task.summary ? { summary: task.summary } : {}), ...(task.changed?.length ? { changed: task.changed } : {}), timing: timing(task) });
+		...(task.dependsOn.length ? { dependsOn: task.dependsOn } : {}), ...(task.verify ? { verify: true } : {}), ...(task.motion ? { motion: true } : {}), ...(task.model ? { model: task.model, effort: task.effort } : {}), tools: task.tools, usage: task.usage, ...(task.summary ? { summary: task.summary } : {}), ...(task.changed?.length ? { changed: task.changed } : {}), timing: timing(task) });
 	// An open wait counts up to now, so a board read mid-wait is already true.
 	const waited = (task, kind) => task.waited[kind] + (task.wait?.kind === kind ? now() - task.wait.since : 0);
 	const timing = task => ({ queuedAt: task.createdAt, ...(task.startedAt ? { startedAt: task.startedAt } : {}), ...(task.endedAt ? { endedAt: task.endedAt } : {}),

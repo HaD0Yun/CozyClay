@@ -4,7 +4,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { FiChevronDown, FiChevronLeft } from "react-icons/fi";
 import { ko } from "../locale.js";
-import { ACTIVE_STATUSES, TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, progressLine, scopeLabel, taskLine, taskReason, taskView } from "./task-board.js";
+import { ACTIVE_STATUSES, TASK_STATUS_COPY, boardGroups, compileState, costLabel, dispatchedTaskIds, modelLine, progressLine, scopeLabel, taskLine, taskReason, taskView } from "./task-board.js";
 import "./task-board.css";
 export { readStoredTaskMode, storeTaskMode } from "./task-board.js";
 
@@ -13,12 +13,13 @@ const openTask = taskId => taskView.set({ open: taskId });
 
 function TaskRow({ task, activity }) {
 	const line = task.status === "running" && compileState(activity, task.taskId).waiting > 0 ? ko("Compile waits for a free worker", "컴파일 차례 기다리는 중") : taskLine(task);
-	const status = TASK_STATUS_COPY[task.status] ?? task.status;
+	const status = TASK_STATUS_COPY[task.status] ?? task.status, model = modelLine(task);
 	return <button type="button" className="task-row" data-status={task.status} data-task-id={task.taskId} onClick={() => openTask(task.taskId)}
-		title={`${task.title} — ${line}`} aria-label={`${task.title}, ${status}: ${line}`}>
+		title={`${task.title} — ${line}${model ? ` (${model})` : ""}`} aria-label={`${task.title}, ${status}: ${line}${model ? `, ${model}` : ""}`}>
 		<span className="task-dot" aria-hidden="true" />
 		<span className="task-row-title">{task.title}</span>
 		<span className="task-row-line">{line}</span>
+		{model && <span className="task-row-model">{model}</span>}
 	</button>;
 }
 
@@ -81,7 +82,7 @@ function OpenTask({ task, client, undo, labelOf }) {
 		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 	const active = ACTIVE_STATUSES.has(task.status);
-	const cost = costLabel(task.usage);
+	const cost = costLabel(task.usage), model = modelLine(task);
 	const act = async (run, done) => { setNotice(""); try { await run(); setNotice(done); } catch (error) { setNotice(String(error?.message ?? error)); } };
 	const steer = event => {
 		event.preventDefault();
@@ -97,6 +98,7 @@ function OpenTask({ task, client, undo, labelOf }) {
 			<div className="task-detail-meta" data-status={task.status}>
 				<span className="task-dot" aria-hidden="true" />
 				<span>{TASK_STATUS_COPY[task.status] ?? task.status}{cost ? ` · ${cost}` : ""}</span>
+				{model && <span className="task-detail-model" title={ko("The model this task runs on", "이 작업이 도는 모델")}>{model}</span>}
 				{active && <button type="button" className="agent-ghost-button task-detail-cancel" onClick={() => act(() => client.cancel(task.taskId), ko("Cancelled; its changes go back.", "취소함: 바뀐 것은 되돌아가요."))}>{ko("Cancel", "취소")}</button>}
 				{(task.status === "done" || task.status === "incomplete") && !task.undone && <button type="button" className="agent-ghost-button task-detail-undo" onClick={() => act(() => undo(task.taskId), ko("Undone.", "되돌림."))}>{ko("Undo task", "작업 되돌리기")}</button>}
 			</div>

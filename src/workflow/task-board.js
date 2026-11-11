@@ -120,6 +120,13 @@ function createTaskViewStore() {
 // One agent panel per page, so one view.
 export const taskView = createTaskViewStore();
 
+/** "claude-opus-5-5 · medium" for what a task runs on (the motion engine's own model is named as such), or "" before its run began. */
+export function modelLine(task) {
+	if (!task?.model) return "";
+	const key = String(task.model);
+	return [key.slice(key.indexOf("/") + 1), key.startsWith("v4") ? ko("motion engine", "모션 엔진") : task.effort].filter(Boolean).join(" · ");
+}
+
 /** "$0.12" for a task's cost, or "" when nothing is known yet. */
 export const costLabel = usage => (Number.isFinite(usage?.cost) && usage.cost > 0 ? `$${usage.cost.toFixed(2)}` : "");
 

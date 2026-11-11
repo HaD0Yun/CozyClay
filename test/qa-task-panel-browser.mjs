@@ -145,6 +145,10 @@ try {
 	await waitFor(`${card("Nudge cube one again")}.querySelector('.task-row-line')?.textContent.includes('Move cube one')`, "a waiting row names the task it waits for, not its id");
 	assert.equal(await x(c3), 3);
 	pass("the main agent answered at once: two tasks run, a third waits for the first's scope, and the quick edit landed");
+	// what a task runs on (#1165): a running row names its model, a waiting one has none yet
+	await waitFor(`${card("Move cube one")}.querySelector('.task-row-model')?.textContent.length > 0`, "a running row names its model");
+	assert.equal(await evaluate(`${card("Nudge cube one again")}.querySelector('.task-row-model')`), null);
+	pass(`a running row names the model it runs on (${await evaluate(`${card("Move cube one")}.querySelector('.task-row-model').textContent`)}); a waiting row names none`);
 	await evaluate(`(() => { const row = document.querySelector('[data-node-id="props"]'); if (row?.getAttribute('aria-expanded') === 'false') row.querySelector('.hierarchy-toggle')?.click(); return true; })()`);
 	await waitFor(`document.querySelector('[data-node-id="object:${c1}"]')?.dataset.taskScope === 'Move cube one'`, "outliner row marked");
 	pass("the outliner marks a row inside a running task's scope");
