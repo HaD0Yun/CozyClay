@@ -6,10 +6,13 @@ import './elements/object.js';
 import { createSceneObject, updateSceneObject, removeSceneObject, setSceneObjectParent, descendantsOf, normalizeSceneObject, groupUnderNewEmpty, objectPatchFields, createSculptObject, SCULPT_KIND } from '../scene-objects.js';
 import { expandSculptParts, normalizeSculptRecipe, patchSculptRecipe } from '../sculpt-recipe.js';
 import { sculptRefusalPath } from '../sculpt-refusal-path.js';
+import { sculptRefusalExample } from '../sculpt-shape-examples.js';
+import { sculptBuildReport } from '../sculpt-report.js';
 import { runSculptCompare, sculptCompare } from './sculpt-compare.js';
 import { clampWarning } from '../receipt-findings.js';
 import { effectPresetSet } from '../effects/effect-record.js';
 import { withLightWarnings } from '../light-blockers.js';
+import { placeObjectCopies } from '../object-copies.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas, StudioProtocolError } from '../studio-agent-protocol.js';
 
 // An argument refusal that names its field for studio:refused (#1042); the message is what the agent reads.
@@ -32,7 +35,7 @@ const semantic = [
 	// A clay prop from a recipe of soft parts (docs/sculpt-from-image.md). With `id` it re-sculpts that
 	// sculpt in place (one undo); without, it creates one. The recipe is checked by sculpt-recipe.js.
 	{ ...mutation('object.sculpt', 'Sculpt a clay prop from a recipe', input({ recipe: { type: 'object', properties: {}, additionalProperties: true }, edits: { type: 'array', minItems: 1, maxItems: 48, items: { type: 'object', properties: {}, additionalProperties: true } }, id, name: { type: 'string', maxLength: 240 }, placement, parent: id }, [])),
-		description: 'Create a sculpt (or re-sculpt one by id) from a recipe, or patch a sculpt by id with edits [{ set: partId, ...fields } | { add: part } | { remove: partId }]. Recipe { version: 1, parts: [{ id, shape, size: [x,y,z] m, position, rotation (deg), color, parent, mirror, ...shape fields, material, finish, detail, gradient, op }] }. Shapes: blob {roundness, taper} soft forms; box {roundness}; cylinder {taper}; torus; frame {border} rims; lathe {profile [[r 0..1, y 0..1]...], smooth} turned objects (pot, vase, bottle, bowl, lampshade); tube {path [[x,y,z] each -0.5..0.5 of size], thickness m, taper, closed} ropes, vines, cables, handles, bike frames; extrude {outline [[x,y] -0.5..0.5], holes, roundness} flat cut shapes (sign, leaf, gable, star); loft {sections [{ y 0..1, points [[x,z]] } | { y, w, d, x?, z?, roundness? }], smooth} cross-sections that change (hull, car body, shoe, loaf); convex {points | seed, facetCount, facets} rocks, boulders, gems; scatter {item blade|tuft|flower|leaf|pebble|twig, count <= 4000, spread ground|shell, seed} thousands of small items as ONE part (grass, flower beds, gravel, leaf crowns). Any part: material clay|wood|straw|stone|brick|concrete|metal|glass|ceramic|plastic|rubber|fabric|paper|foliage (real texture and shine; color tints it; never fake glass with opacity or thatch with stripes) and finish matte|satin|gloss; detail {amount 0..1, scale, seed} lumpy surface (clouds, bushes, rocks, hay); gradient {color, axis, from, to} two-tone blend; op subtract|intersect turns the part into a cutter of its parent (windows, doors, arches; hollow a lathe with a smaller lathe of the same profile). Floor is y=0, front +z, the subject\'s left +x; mirror reflects across x=0.' },
+		description: 'Create a sculpt (or re-sculpt one by id) from a recipe, or patch a sculpt by id with edits [{ set: partId, ...fields } | { add: part } | { remove: partId }]. Recipe { version: 1, parts: [{ id, shape, size: [x,y,z] m, position, rotation (deg), color, parent, mirror, repeat, ...shape fields, material, finish, detail, gradient, op }] }, at most 48 drawn parts after mirrors. Shapes: blob {roundness, taper}; box {roundness}; cylinder {taper}; torus; frame {border}; lathe {profile [[r 0..1, y 0..1]...], smooth}; tube {path [[x,y,z] each -0.5..0.5 of size], thickness m, taper, closed}; extrude {outline [[x,y] -0.5..0.5], holes, roundness}; loft {sections [{ y 0..1, points [[x,z]] } | { y, w, d, x?, z?, roundness? }], smooth}; convex {points | seed, facetCount, facets}; scatter {item blade|tuft|flower|leaf|pebble|twig, count <= 4000, spread ground|shell, seed} thousands of small items as ONE part. Use for: lathe turned things (pots, lamp bases, wheel rims); tube stems, legs, frames, pipes, ropes; loft tapered or changing sections (trunks, hulls, bottles); convex/blob rocks, lumps, foliage masses; extrude flat outlines with thickness (signs, leaves, gears); box with roundness boards, panels; scatter leaves, blades; repeat any 3+ identical parts. Blob roundness runs the other way from box: blob 0 = ellipsoid, 1 = rounded box; box 0 = sharp. repeat {count 2-64, step [x,y,z] m, turn [x,y,z] deg, pivot (default parent origin), jitter {position m, rotation deg, scale 0..0.5, seed}}: copy k moves k*step, then turns k*turn about pivot; ring: turn only; spiral stair: step + turn; stays ONE part (256 copies per recipe); not on scatter, cutters or parts with children. Any part: material clay|wood|straw|stone|brick|concrete|metal|glass|ceramic|plastic|rubber|fabric|paper|foliage (real texture and shine; color tints it; never fake glass with opacity or thatch with stripes) and finish matte|satin|gloss; detail {amount 0..1, scale 1..12 lumps across the part, seed} lumpy surface (clouds, bushes, rocks, hay); gradient {color, axis, from, to} two-tone blend; op subtract|intersect turns the part into a cutter of its parent (windows, doors, arches; hollow a lathe or loft with a smaller one of the same shape). Floor is y=0, front +z, the subject\'s left +x; mirror reflects across x=0. The answer ends with a box check (floating, hidden, below-floor part ids): fix those before a render. Natural things (tree, bush, rock, cloud) are never one symmetric lump: build the mass from 7-12 overlapping pieces in three sizes with gaps between them, each turned differently, and lean the whole a little. A leaf mass: a blob (roundness 0-0.2) with material foliage, detail {amount 0.7-0.95, scale 5-8} and a gradient from a darker underside to a lighter top (axis y); no leaf scatter glued on it. A tree: a trunk (loft or lathe, material wood, detail amount 0.25 scale 12) that tapers, bends a little and flares at the foot into 3-5 short root tubes; 3-5 limbs as tapering tubes that fork from the upper trunk and run up INTO the crown, visible from below; the crown as 7-12 leaf masses of three sizes at the limb ends, not one cap, with gaps where limbs and sky show. A conifer: 5-8 tiers that shrink up the trunk, each a low cone-shaped leaf mass (cylinder taper 0.6-0.8, widest and lowest at its rim) that overlaps the tier below a little, uneven and tilted, never flat discs with bare gaps. When you read the close-up, name what a photo of the real thing shows that yours lacks and add the biggest one. Example, wheelbarrow (wheel_d 0.4, tray_l 0.9, tray_w 0.66, height 0.66): {parts:[{id:"tray",shape:"loft",size:[0.66,0.3,0.92],position:[0,0.51,0],color:"#4f8a5b",material:"metal",sections:[{y:0,w:0.6,d:0.55,z:-0.2,roundness:0.4},{y:1,w:1,d:1}]},{id:"hollow",shape:"loft",parent:"tray",op:"subtract",size:[0.62,0.3,0.88],position:[0,0.03,0],sections:[{y:0,w:0.6,d:0.55,z:-0.2,roundness:0.4},{y:1,w:1,d:1}]},{id:"handle",shape:"tube",mirror:true,size:[0.25,0.36,1.61],position:[0.165,0.36,-0.165],color:"#2f4f39",material:"metal",thickness:0.04,path:[[0.5,0.5,-0.5],[0.405,0.125,-0.18],[0.167,-0.094,0.26],[-0.5,-0.5,0.5]]},{id:"grip",shape:"cylinder",mirror:true,size:[0.05,0.16,0.05],position:[0.27,0.51,-0.9],rotation:[104,0,0],color:"#1f2b23",material:"rubber"},{id:"leg",shape:"cylinder",mirror:true,size:[0.035,0.36,0.035],position:[0.2,0.18,-0.32],color:"#2f4f39"},{id:"foot",shape:"box",mirror:true,size:[0.05,0.02,0.1],position:[0.2,0.01,-0.32],color:"#1f2b23"},{id:"brace",shape:"cylinder",size:[0.025,0.4,0.025],position:[0,0.14,-0.32],rotation:[0,0,90],color:"#2f4f39"},{id:"tyre",shape:"torus",size:[0.4,0.4,0.08],position:[0,0.2,0.62],rotation:[0,90,0],color:"#1f2b23",material:"rubber"},{id:"rim",shape:"torus",size:[0.3,0.3,0.035],position:[0,0.2,0.62],rotation:[0,90,0],color:"#2f4f39"},{id:"hub",shape:"cylinder",size:[0.08,0.1,0.08],position:[0,0.2,0.62],rotation:[0,0,90],color:"#2f4f39"},{id:"axle",shape:"cylinder",size:[0.025,0.16,0.025],position:[0,0.2,0.62],rotation:[0,0,90],color:"#2f4f39"},{id:"spoke",shape:"cylinder",size:[0.014,0.12,0.014],position:[0,0.28,0.62],color:"#2f4f39",repeat:{count:8,turn:[45,0,0],pivot:[0,0.2,0.62]}}]}' },
 	mutation('object.remove', 'Remove objects', input({ ids })),
 	mutation('object.rename', 'Rename object', input({ id, name: { type: 'string', maxLength: 240 } })),
 	mutation('object.group', 'Group objects', input({ parent: id, children: ids })),
@@ -89,8 +92,8 @@ export function register(registry, ports) {
 				refused = patchSculptRecipe(target.recipe, args.edits);
 				changedParts = refused.changed;
 			} else refused = normalizeSculptRecipe(args.recipe);
-			// The failing recipe field rides on the refusal for studio:refused (#1042); the message stays as it was.
-			if (!refused.ok) throw new StudioProtocolError('INVALID_ARGUMENT', `Recipe refused at ${refused.error}`, { path: sculptRefusalPath(refused.path), rule: 'recipe' });
+			// The failing recipe field rides on the refusal for studio:refused (#1042); a shape's refusal adds a valid example of it.
+			if (!refused.ok) throw new StudioProtocolError('INVALID_ARGUMENT', `Recipe refused at ${refused.error}${sculptRefusalExample(refused.example)}`, { path: sculptRefusalPath(refused.path), rule: 'recipe' });
 			const patch = { ...(args.placement ?? {}), ...(args.name === undefined ? {} : { name: args.name }) };
 			let objectId = args.id;
 			if (objectId !== undefined) {
@@ -107,8 +110,10 @@ export function register(registry, ports) {
 			const sculpted = owned().read().find(row => row.id === objectId);
 			const parts = expandSculptParts(sculpted.recipe).length;
 			const size = `${sculpted.footprint.width} × ${sculpted.footprint.depth} m, ${sculpted.height} m tall`;
-			return { affectedIds: [objectId, ...result(before, '').affectedIds.filter(row => row !== objectId)],
-				summary: `${args.id === undefined ? 'Sculpted' : changedParts ? `Patched ${changedParts.join(', ')} on` : 'Re-sculpted'} ${sculpted.name} (${objectId}): ${parts} parts, ${size}.` };
+			// A receipt summary holds 240 characters: the head stays short and the box check takes what is left.
+			const patched = changedParts && `${changedParts.slice(0, 4).join(', ')}${changedParts.length > 4 ? ` +${changedParts.length - 4}` : ''}`;
+			const head = `${args.id === undefined ? 'Sculpted' : patched ? `Patched ${patched} on` : 'Re-sculpted'} ${String(sculpted.name).slice(0, 40)} (${objectId}): ${parts} parts, ${size}.`.slice(0, 150);
+			return { affectedIds: [objectId, ...result(before, '').affectedIds.filter(row => row !== objectId)], summary: `${head} ${sculptBuildReport(sculpted.recipe, 239 - head.length)}` };
 		},
 		'object.remove': ({ ids }) => {
 			const before = owned().read(); ids.forEach(objectOf);
@@ -209,10 +214,19 @@ export function register(registry, ports) {
 		} });
 	registry.register({ ...studioActionDeclaration("object.duplicate"),
 		available: state => state.objects.length > 0 || "There are no scene objects to duplicate.",
-		run: ({ objectId }) => {
+		run: ({ objectId, copies }) => {
 			const state = ports.state(), id = objectId ?? state.selectedObjectId;
 			if (!id) fail("TARGET_NOT_READY", "Name objectId or select an object first.");
 			const source = state.objects.find(object => object.id === id) ?? fail("STALE_TARGET", `Object ${id} is not in this scene.`);
+			if (copies) {
+				// Every copy in one write: one undo entry takes them all back.
+				let placed;
+				try { placed = placeObjectCopies(owned().read(), id, copies); } catch (error) { if (error.code !== 'INVALID_ARGUMENT') throw error; argumentFail(error.message, error.path); }
+				owned().write(placed.objects);
+				const sizes = placed.made.map(copy => copy.size.height);
+				return { affectedIds: placed.ids, output: { sourceId: id, copies: placed.made },
+					summary: `Made ${placed.made.length} copies of ${(source.name || id).slice(0, 60)}: ${placed.made[0].id} .. ${placed.made.at(-1).id} (${placed.ids.length} objects), ${Math.min(...sizes)}-${Math.max(...sizes)} m tall.`.slice(0, 240) };
+			}
 			ports.duplicateSelectedSceneObject(id);
 			const after = ports.state().objects, affectedIds = changedIds(state.objects, after);
 			const copy = after.find(object => affectedIds.includes(object.id));
