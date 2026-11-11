@@ -70,6 +70,8 @@ function mount({ lock = "granted", enabled = true } = {}) {
 		cancelAnimationFrame: (id) => raf.delete(id),
 		// controls.jsx's camera:thrash hook (thrash-friction.js); its detector has its own tests.
 		noteCameraGesture: () => {},
+		// the camera tutorial's cozyclay:nav signal (nav-signal.js); verify-guest-start covers it.
+		announceNav: () => {},
 	};
 	const Controls = runInNewContext(`${source}\nFlyControls;`, context);
 	const camera = new THREE.PerspectiveCamera();
