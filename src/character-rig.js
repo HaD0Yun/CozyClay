@@ -4,7 +4,7 @@
 //   adaptedRig  adaptRig's rig, the skeleton every compile runs on (commands/motion3.js rigOf, the worker's job.rigs).
 //   rigImport   { assetId (the mesh- bytes in the asset store), name, template (forced, or null for detected),
 //                 raw (the file's skeleton, rigs/read-skeleton.js), sources (each raw bone's node name),
-//                 report (adaptRig's report: detected, missing, grounded, axes, retarget), unitsDetected, scaled }.
+//                 report (adaptRig's report: detected, missing, grounded, axes, retarget), unitsDetected }.
 // Pure: no three.js, no DOM. registerCastRigs is the one place an imported rig becomes a model on the main thread.
 // An entry is an imported character only when its retarget plan builds and a dry run plays (rigPlays): a project file,
 // load_scenes or an agent patch can hand in a broken report or skeleton, and it must not reach render or compile.

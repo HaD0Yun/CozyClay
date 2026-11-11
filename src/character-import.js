@@ -2,7 +2,7 @@
 // The bytes go to the asset store, as an imported prop's do (scene-mesh.js importMeshFile, putAsset). The skeleton is
 // read from the parsed three.js scene (rigs/read-skeleton.js) and adapted (rigs/adapt.js); the entry keeps the rig and
 // the adapter's report (character-rig.js). A file the player could not drive is refused with a sentence for a toast:
-// no bones, two bones of one name, or a node that is not a bone between two bones. three's FBXLoader nests a copy of
+// no bones, two bones of one name, a node that is not a bone between two bones, or a joint with a scale. three's FBXLoader nests a copy of
 // each bone that two skinned meshes share under the bone, with its name and an identity transform: that copy is not a
 // joint (sharedBoneCopy), so the copy follows the bone it sits under.
 import { importMeshFile } from "./scene-mesh.js";
@@ -31,6 +31,8 @@ export function adaptCharacterScene(scene, { assetId, name = "", template = null
 	read.raw.bones.forEach((b, i) => {
 		if (b.parent >= 0 && bones[i].parent !== bones[b.parent]) refuse(`The bone ${read.sources[i]} hangs under a node that is not a bone`);
 	});
+	// the player writes the file's own rotations and offsets and never a joint's scale, so a scaled joint would draw off size
+	if (read.scaled.length) refuse(`The bone ${read.scaled[0]} has a scale: apply the scale in the modelling tool and export again`);
 	const model = importedModelId(assetId, template);
 	let adapted;
 	try {
@@ -39,7 +41,7 @@ export function adaptCharacterScene(scene, { assetId, name = "", template = null
 		refuse(`That skeleton cannot be driven: ${error.message}`);
 	}
 	return { model, adaptedRig: adapted.rig, rigImport: { assetId, name, template: template ?? null, raw: read.raw, sources: read.sources,
-		report: adapted.report, unitsDetected: read.unitsDetected, scaled: read.scaled } };
+		report: adapted.report, unitsDetected: read.unitsDetected } };
 }
 
 /** Stores the file and reads its skeleton: the new character's fields, its rig registered (character-rig.js). */

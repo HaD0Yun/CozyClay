@@ -3,7 +3,7 @@
 // character-playback.js, imported-rig-root.js), without a browser: the ue5 file built from the X Bot bind
 // (fixtures/ue5-character-glb.mjs) parsed by three's GLTFLoader, as the asset store's mesh cache parses it.
 //   (a) adaptCharacterScene reads and adapts it: detected ue5, cm, a per-file model id; files the player could not
-//       drive are refused (no bones, two bones of one name, a non-bone node between two bones).
+//       drive are refused (no bones, two bones of one name, a non-bone node between two bones, a scaled joint).
 //   (b) the project file keeps it: createCharacterEntry keeps the model, the rig and the report; an entry missing a
 //       part falls back to the default body; the file's asset stays reachable (referencedAssetIds).
 //   (c) playback: a standIdle + walkTo compiled on the adapted rig and baked at a placement, played with
@@ -51,6 +51,12 @@ expect("two bones of one name are refused", /same name/.test(refusal(() => adapt
 const helper = await parse(bytes), knee = helper.getObjectByName(names.LeftLeg), group = new THREE.Group();
 knee.parent.add(group); group.add(knee);
 expect("a non-bone node between two bones is refused", /not a bone/.test(refusal(() => adaptCharacterScene(helper, { assetId })) ?? ""));
+const scaledRoot = await parse(bytes), armature = scaledRoot.getObjectByName("Armature"), root = Object.assign(new THREE.Bone(), { name: "root" });
+root.scale.setScalar(0.01);
+armature.scale.setScalar(1);
+armature.add(root);
+root.add(scaledRoot.getObjectByName(names.Hips));
+expect("a joint with a scale is refused (a scaled armature above the joints is not)", /root has a scale/.test(refusal(() => adaptCharacterScene(scaledRoot, { assetId })) ?? ""), refusal(() => adaptCharacterScene(scaledRoot, { assetId })));
 
 // --- (b) the project file -----------------------------------------------------------------------------------------------
 const entry = createCharacterEntry({ id: "char-9", x: 1, ...fields }, 2);
