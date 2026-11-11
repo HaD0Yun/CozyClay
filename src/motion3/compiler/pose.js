@@ -9,7 +9,7 @@ import { holdHand } from "./hold.js";
 import { closeOnShape } from "./finger-close.js";
 import { clampWrist } from "./wrist-clamp.js";
 import { ELBOW_REST } from "./arm-orient.js";
-import { wristBody, bodyDistance } from "../body.js";
+import { wristBody, bodyDistance, forgetCentres } from "../body.js";
 import { poseWasm, poseWasmReady } from "./pose-wasm.js";
 
 export const SIDES = { l: "Left", r: "Right" };
@@ -171,6 +171,8 @@ export function poseJs(sk, c, hooks = {}) {
 			const pole = add(scale(poleFk, 1 - w), scale(poleIk, w));
 			// a target nearer the shoulder than the elbow folds leaves a residual too; arm_fold says what it asked
 			diag[`arm_miss_${k}`] = twoBone(sk, s, a, fa, h, target, pole, ELBOW_REST, hooks.foldFree ? null : "elbow");
+			// the IK moved the arm in place: grid centres the keepOut above cached for s are stale (body.js)
+			forgetCentres(s);
 			const fold = askedFold(sk, s, side, target);
 			if (fold > ELBOW_FOLD && !hooks.foldFree) diag[`arm_fold_${k}`] = fold;
 		}
@@ -190,6 +192,7 @@ export function poseJs(sk, c, hooks = {}) {
 		const grasped = hooks.heldShapes?.(k, s);
 		if (grasped) diag[`closed_${k}`] = closeOnShape(sk, s, side, grasped).touched;
 		hooks.afterArm?.(k, s, diag);
+		forgetCentres(s);
 	}
 	return { s, diag };
 }

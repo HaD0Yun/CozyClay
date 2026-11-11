@@ -110,6 +110,10 @@ function centresAt(body, s) {
 	return c;
 }
 
+/** Drops the grid centres cached for state s: a solver that moves s in place after a bodyDistance read (pose.js: the
+ * wrist target's keepOut reads the body before the arms' IK moves them) calls it, so later reads see where the bones are. */
+export const forgetCentres = s => { centres.delete(s); };
+
 /** Signed distance (m) from p to the skin of every bone not in `skip`, with the bone it came from. */
 export function bodyDistance(body, s, p, skip = null) {
 	let best = FAR, bone = -1;
