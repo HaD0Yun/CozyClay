@@ -7,9 +7,10 @@
 
 const DEG = Math.PI / 180;
 
-/** Translation × rotation (× uniform scale). */
+/** Translation × rotation (× uniform scale). A rotation that is not an array (a recipe that skipped
+ * normalizeSculptRecipe, which refuses one) reads as no rotation, so the part still draws. */
 export function composeMatrix(position, rotationDeg, scale = 1) {
-	const [x, y, z] = rotationDeg.map((deg) => deg * DEG);
+	const [x, y, z] = (Array.isArray(rotationDeg) ? rotationDeg : [0, 0, 0]).map((deg) => deg * DEG);
 	const a = Math.cos(x), b = Math.sin(x);
 	const c = Math.cos(y), d = Math.sin(y);
 	const e = Math.cos(z), f = Math.sin(z);

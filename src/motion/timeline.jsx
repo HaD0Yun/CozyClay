@@ -138,7 +138,8 @@ function craneCurvePath(points, xFor, yFor) {
  * generous circles, not pixel dots, so a lens height is aimed at with the
  * wrist rather than with the fingertip.
  */
-function CraneHeightEditor({ crane, railRange, durationFrames, selectedIndex, onSelect, onAddPoint, onChangePoints }) {
+function CraneHeightEditor(props) { return props.crane?.points?.length && props.railRange ? <CraneHeightGraph {...props} /> : null; }
+function CraneHeightGraph({ crane, railRange, durationFrames, selectedIndex, onSelect, onAddPoint, onChangePoints }) {
 	const svgRef = useRef(null);
 	const dragRef = useRef(null);
 	const [draftPoints, setDraftPoints] = useState(null);
@@ -146,7 +147,6 @@ function CraneHeightEditor({ crane, railRange, durationFrames, selectedIndex, on
 	// would re-map the pointer under itself on every move — one flick of the
 	// wrist and the value runs away by tens of metres.
 	const [heldScale, setHeldScale] = useState(null);
-	if (!crane?.points?.length || !railRange) return null;
 	const points = draftPoints ?? crane.points;
 	const origin = railRange.start / Math.max(1, durationFrames - 1);
 	const span = Math.max(0.001, (railRange.end - railRange.start) / Math.max(1, durationFrames - 1));
