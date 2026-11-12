@@ -14,7 +14,6 @@
 	"react-hooks/preserve-manual-memoization": 24,
 	"react-hooks/purity": 5,
 	"react-hooks/refs": 102,
-	"react-hooks/rules-of-hooks": 2,
 	"react-hooks/set-state-in-effect": 28,
 	"react-hooks/use-memo": 1,
 	"require-yield": 2
