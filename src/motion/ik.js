@@ -69,8 +69,8 @@ function pointSegmentDistance(point, start, end) {
 
 /*
  * `rig.userData.poseBind` (primed by primeBindPose at clone time) is the only
- * record of the UNTOUCHED skeleton once a clip is playing: ARDY playback writes
- * per-bone translations AND rotations every frame, so "where is this bone"
+ * record of the UNTOUCHED skeleton once a clip is playing: motion3 playback writes
+ * bone rotations AND the hips position every frame, so "where is this bone"
  * answered off the live matrices is a question about frame 137, not about the
  * rig. Anything that must be pose-INVARIANT — measured capsule radii, the
  * bind-relative collision calibration in fix-collisions.js — reads its

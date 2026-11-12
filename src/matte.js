@@ -9,7 +9,7 @@
  * This is the cheap, offline half of that job (issue #17 P2): grow a region
  * from the edges of the frame and drop what it reaches. It cannot cut a
  * subject out of a busy street — that is the model-backed half, P3, which
- * belongs behind the same runner boundary as ARDY — but it is exact on the
+ * needs a segmentation model behind a server-side runner — but it is exact on the
  * pictures previs actually uses: a product shot, a prop on a sweep, anything
  * photographed against a wall.
  *

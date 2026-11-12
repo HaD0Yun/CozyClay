@@ -14,7 +14,7 @@ import { SearchEmpty } from "./search-friction.js";
 import "./asset-pane.css";
 
 /** Casting assets offered in the Content browser's Characters folder. A rig's `id` doubles as
- * the FBX file stem and the ARDY wire rig name (see scenes.js); the capsule figure has no FBX. */
+ * the FBX file stem and the motion3 rig name (see scenes.js); the capsule figure has no FBX. */
 export const CHARACTER_ASSETS = [
 	...CHARACTER_MODEL_IDS.map((id) => ({
 		id,
