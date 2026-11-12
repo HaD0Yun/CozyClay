@@ -14,6 +14,7 @@ import { createObjectsDomain, createMotionDomain, mountHistoryCast } from './bus
 import { createStageDomain } from '../src/domains/stage.js';
 import { createCharacterEntry, createCharacterLayer, addScene, duplicateScene, renameScene, removeScene, isProxyFigure } from '../src/scenes.js';
 import * as characterKind from '../src/character-kind.js';
+import * as characterNames from '../src/character-name.js';
 import { judgeNextWaypoint } from '../src/motion/waypoints.js';
 import { createStableItemId, removeStableItem, updateStableItem } from '../src/stable-items.js';
 import { createCameraBlock, removeCameraRail, updateCameraBlock } from '../src/camera-block.js';
@@ -110,7 +111,7 @@ function fixture(options={}) {
   cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
   captureFramingPng:framing=>{captures.push(framing);return `data:image/png;base64,${btoa(JSON.stringify(framing.pos))}`;},captureRef:ref(null),bufferToPng:()=>null,
   navigator:{clipboard:{writeText:async text=>{clipboard.push(text);}}}};
- const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,...characterKind,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
+ const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,...characterKind,...characterNames,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
  liveStateRef:live,sceneRevisionRef:revision,charactersRef:characterRef,loadedLayerCharRef:ref(a.id),bufferRef:buffer,ikStateRef:state,ikStatesRef:layers,storeRef:store,
  charHistoryRef:history,opClockRef:clock,lastObjectOpRef:lastObject,studioHistoryRef:studioHistory,studioActionGroupRef:ref(null),motionFullRef:ref(new Map()),
  store:store.current,suppressObjectClockRef:suppressObjectClock,studioBindingRef:ref(null),objectDeleteUndo:null,selectedSceneObjectId:null,
