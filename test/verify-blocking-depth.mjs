@@ -87,7 +87,7 @@ expect("the restore happens after the render, in a finally", captureFog > 0 && r
 const shot = deriveShot({ x: 0, y: 1.6, z: 3 }, { x: 0, z: 0, rot: 0 }, (45 * Math.PI) / 180);
 const prompt = composePrompt({
 	shot,
-	subject: "a young woman in a tan coat",
+	subjects: [{ description: "a young woman in a tan coat", posePhrase: "" }],
 	environment: "a sunlit modern living room",
 	style: "35mm film look",
 });
@@ -97,7 +97,7 @@ expect("the grid joins the do-not-reproduce list", /measurement grid/i.test(prom
 
 const sheeted = composePrompt({
 	shot,
-	subject: "a young woman in a tan coat",
+	subjects: [{ description: "a young woman in a tan coat", posePhrase: "" }],
 	environment: "a sunlit modern living room",
 	style: "35mm film look",
 	hasCharSheet: true,

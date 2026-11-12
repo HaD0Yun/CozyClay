@@ -21,11 +21,11 @@ const woman = "a young woman in a tan coat";
 const man = "an old man with a cane";
 
 const ACTUAL = {
-	onePosed: composePrompt({ ...base, subject: woman, posePhrase: "arms crossed" }),
-	oneBare: composePrompt({ ...base, subject: woman }),
-	two: composePrompt({ ...base, subject: woman, posePhrase: "arms crossed", subject2: man, pose2Phrase: "" }),
-	oneSheet: composePrompt({ ...base, subject: woman, posePhrase: "arms crossed", hasCharSheet: true }),
-	twoSheet: composePrompt({ ...base, subject: woman, posePhrase: "arms crossed", subject2: man, pose2Phrase: "waving", hasCharSheet: true }),
+	onePosed: composePrompt({ ...base, subjects: [{ description: woman, posePhrase: "arms crossed" }] }),
+	oneBare: composePrompt({ ...base, subjects: [{ description: woman, posePhrase: "" }] }),
+	two: composePrompt({ ...base, subjects: [{ description: woman, posePhrase: "arms crossed" }, { description: man, posePhrase: "" }] }),
+	oneSheet: composePrompt({ ...base, subjects: [{ description: woman, posePhrase: "arms crossed" }], hasCharSheet: true }),
+	twoSheet: composePrompt({ ...base, subjects: [{ description: woman, posePhrase: "arms crossed" }, { description: man, posePhrase: "waving" }], hasCharSheet: true }),
 };
 
 let failures = 0;

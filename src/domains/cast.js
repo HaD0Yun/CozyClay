@@ -188,10 +188,6 @@ export function useCast(appContext) {
 
 	const poseB = charB.pose ?? DEFAULT_POSE;
 
-	const subject = charA.subject;
-
-	const subject2 = charB.subject;
-
 	function updateCharacterAt(index, next) {
 		const base = domain.read()[index], raw = appContext.ports.read();
 		const entry = base && { ...base, ...shotAtFrame(raw.shots, raw.view.frame)?.cast[base.id] };
@@ -826,7 +822,7 @@ export function useCast(appContext) {
 		applyExternalCharacters, publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain, removeLegacyRootWaypoint, switchActiveCharacterLayer, createLegacyCastHandlers, toggleCharacterHidden,
 		characters, editCharacters, customPoses, posing, setPosing, posingClosing,
 		studioPick, setStudioPick, commitPosedPose, rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
-		poseA, poseB, subject, subject2, updateCharacterAt, setShowB, moveCharacter, removeCharacter, reportRig,
+		poseA, poseB, updateCharacterAt, setShowB, moveCharacter, removeCharacter, reportRig,
 		spawnCharacter, charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId,
 		rowIdForCharIndex, activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig,
 		ghostLayers, snapshotCast, changeInspectorCharacter, hasCharSheet,
