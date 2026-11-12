@@ -2666,9 +2666,9 @@ input[type=range]::-moz-range-thumb {
 	animation: toastIn .28s var(--spring);
 }
 
-/* ------------------------------------------------------- ardy timeline ---- */
-/* Visual/interaction prototype of the ARDY Viser timeline. Local state only:
-   nothing here touches the bridge, generation, or the scene. */
+/* ------------------------------------------------------------ timeline ---- */
+/* The animation timeline (src/motion/timeline.jsx): frame ruler, playback,
+   waypoints and the motion badge. */
 
 .timeline {
 	flex: none;
