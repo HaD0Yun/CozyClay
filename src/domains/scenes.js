@@ -49,7 +49,7 @@ import { restoreProjectAssets } from "../project-assets.js";
 import { internWorkflowOutputs, workflowOutputRefs, resolveWorkflowOutputs } from "../workflow/workflow-resources.js";
 
 import { resourceManifest } from "../project-resources.js";
-import { ko } from "../locale.js";
+import { ko } from "../locale.js"; import { checkAfterWrite } from "./save-deadline.js";
 import { track, bucketCount, bucketProjectAge } from "../analytics.js"; import { startExportAttempt } from "../export-attempt.js";
 import { mergeProjectCustomPoses } from "../project-poses.js";
 import { DEFAULT_WORKSPACE_LAYOUT, DEFAULT_DURATION_S, TIMELINE_FPS } from "../app-stage.jsx";
@@ -306,7 +306,7 @@ export function useScenes(appContext) {
 		}
 		setProjectSaveState("saving");
 		const name = (explicitName ?? currentName ?? "My Project").trim() || "My Project";
-		const checkpoint = collectProjectSnapshot(name);
+		const checkpoint = collectProjectSnapshot(name), checkWritten = checkAfterWrite(context, appContext.ports.read);
 		let downloaded = false;
 		try {
 			const serialized = await collectProjectSerialized(name);
@@ -327,7 +327,7 @@ export function useScenes(appContext) {
 				// the recent entry's counts were read when the project opened: an overwrite refreshes them
 				await rememberRecentProject(handle, name, serializedSummary(serialized));
 			}
-			context.check();
+			checkWritten(); // an expired deadline after the write still records the save (#1207)
 			markProjectClean(name, checkpoint, currentName);
 			void captureProjectThumb(name);
 			setSaveBlockedReasons(null);
