@@ -29,6 +29,12 @@ assert.match(html, /data-install-step="1"/);
 // Windows leads with the installer download; the Node.js steps stay behind one button
 assert.match(html, /data-installer-download href="https:\/\/github\.com\/HaD0Yun\/CozyClay\/releases\/download\/windows-installer\/CozyClay-Setup\.exe"/);
 assert.match(html, /data-install-manual/);
+// macOS leads with one pasted line: install.sh brings Node.js and leaves an app to double-click
+assert.match(html, /data-install-direct="mac"[\s\S]*data-copy="curl -fsSL https:\/\/cozyclay\.org\/install\.sh \| bash"/);
+const script = readFileSync(new URL("../public/install.sh", import.meta.url), "utf8");
+assert.match(script, /SHASUMS256\.txt/);
+assert.match(script, /npx --yes cozyclay@latest --via installer/);
+assert.match(script, /Applications\/CozyClay\.app/);
 // phones cannot install: Install is hidden there, the rest of the page stays
 assert.match(html, /\[data-touch\] :is\(\[data-install-open\]/);
 assert.match(html, /Run anyway/);

@@ -4,6 +4,9 @@
 
 Site
 
+- On macOS the Install dialog is one step: paste one line in Terminal. It
+  brings its own Node.js (no installer, no password) and leaves a CozyClay app
+  to double-click. (#1190)
 - On a phone the landing page no longer offers Install. (#1189)
 - On Windows the Install dialog leads with one download, `CozyClay-Setup.exe`;
   the Node.js and terminal steps stay one click away. (#1188)

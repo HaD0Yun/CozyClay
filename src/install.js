@@ -114,7 +114,7 @@ export function setupInstall() {
 			if (request === copyRequest) copy.disabled = false;
 		}
 	});
-	install.querySelector("[data-install-manual]").addEventListener("click", () => showStep(1));
+	install.querySelectorAll("[data-install-manual]").forEach((button) => button.addEventListener("click", () => showStep(1)));
 	document.querySelectorAll("[data-install-open]").forEach((button) => button.addEventListener("click", open));
 	const openFromHash = () => { if (location.hash === "#install") open(); };
 	openFromHash();

@@ -26,7 +26,7 @@ const ENDPOINT_CLASSES = Object.freeze(["local", "lan", "hosted", "unknown"]);
 export const turnOriginAllowed = (key, value) => (key === "provider" ? value === "other" || CONNECT_PROVIDERS.includes(value) : ENDPOINT_CLASSES.includes(value));
 
 /** landing:cta_clicked targets: the landing page's links out and copy buttons. */
-export const LANDING_CTA_TARGETS = Object.freeze(["app", "github", "discord", "npm", "copy_npx", "copy_clone", "copy_mcp", "copy_terminal", "agent_install_doc", "install_open", "node_download", "installer_download"]);
+export const LANDING_CTA_TARGETS = Object.freeze(["app", "github", "discord", "npm", "copy_npx", "copy_clone", "copy_mcp", "copy_terminal", "agent_install_doc", "install_open", "node_download", "installer_download", "copy_installer"]);
 
 /** A Studio refusal code as sent: one of STUDIO_ERROR_CODES, else "other". */
 export const refusalCodeOf = (code) => (STUDIO_ERROR_CODES.includes(code) ? code : "other");
