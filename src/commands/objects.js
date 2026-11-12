@@ -14,6 +14,7 @@ import { effectPresetSet } from '../effects/effect-record.js';
 import { withLightWarnings } from '../light-blockers.js';
 import { placeObjectCopies } from '../object-copies.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas, StudioProtocolError } from '../studio-agent-protocol.js';
+import { characterName } from '../character-name.js';
 
 // An argument refusal that names its field for studio:refused (#1042); the message is what the agent reads.
 const argumentFail = (message, path, rule = 'check') => { throw new StudioProtocolError('INVALID_ARGUMENT', message, { path, rule }); };
@@ -199,7 +200,7 @@ export function register(registry, ports) {
 		run: ({ objectId, characterId, bone }) => {
 			const object = objectOf(objectId), character = characterOf(ports, characterId), before = ports.state().objects;
 			ports.attachSceneObject(objectId, { characterId, bone: bone ?? null });
-			const frameName = `${character.subject || character.id}'s ${bone ?? "root"}`;
+			const frameName = `${characterName(character)}'s ${bone ?? "root"}`;
 			return { affectedIds: [objectId], summary: ports.state().objects === before
 				? `${object.name || objectId} already rides ${frameName}; nothing changed.`
 				: `Attached ${object.name || objectId} to ${frameName}, keeping its place on screen.` };

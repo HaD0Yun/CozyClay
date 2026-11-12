@@ -14,12 +14,7 @@ import {
 	saveCustomPoses,
 } from "../poses.js";
 import { createCharacterEntry, createCharacterLayer, isProxyFigure, PROXY_FIGURE_MODEL } from "../scenes.js";
-import {
-	DEFAULT_SUBJECT,
-	DEFAULT_SUBJECT2,
-	nextCharacterId,
-	MAX_WAYPOINTS,
-} from "../app-stage.jsx";
+import { nextCharacterId, MAX_WAYPOINTS } from "../app-stage.jsx"; import { characterName } from "../character-name.js";
 import { ko } from "../locale.js";
 import { createIkState } from "../motion/ik.js";
 import { createCastPlacements } from "./cast-placement.js";
@@ -193,9 +188,9 @@ export function useCast(appContext) {
 
 	const poseB = charB.pose ?? DEFAULT_POSE;
 
-	const subject = charA.subject ?? DEFAULT_SUBJECT;
+	const subject = charA.subject;
 
-	const subject2 = charB.subject ?? DEFAULT_SUBJECT2;
+	const subject2 = charB.subject;
 
 	function updateCharacterAt(index, next) {
 		const base = domain.read()[index], raw = appContext.ports.read();
@@ -213,7 +208,7 @@ export function useCast(appContext) {
 				if (anyVisibleExtra) return list;
 				const hiddenIdx = list.findIndex((entry, i) => i > 0 && entry.hidden);
 				if (hiddenIdx > 0) return list.map((entry, i) => (i === hiddenIdx ? { ...entry, hidden: false } : entry));
-				return [...list, createCharacterEntry({ id: nextCharacterId(list), x: 1.15, z: 0.1, rot: -14, pose: DEFAULT_POSE, subject: DEFAULT_SUBJECT2 }, list.length)];
+				return [...list, createCharacterEntry({ id: nextCharacterId(list), x: 1.15, z: 0.1, rot: -14, pose: DEFAULT_POSE }, list.length)];
 			}
 			return list.map((entry, i) => (i > 0 && !entry.hidden ? { ...entry, hidden: true } : entry));
 		});
@@ -255,7 +250,7 @@ export function useCast(appContext) {
 
 	const spawnCharacter = (model, x, z) => {
 		const id = nextCharacterId(domain.read());
-		domain.run('character.add', { character: { id, model, x, z, pose: DEFAULT_POSE, subject: 'a person' } });
+		domain.run('character.add', { character: { id, model, x, z, pose: DEFAULT_POSE } });
 		if (model === PROXY_FIGURE_MODEL) track("cast:proxy_added", { surface: "assets" });
 		appContext.shared.setSelectedHierarchyId(`character:${id}`);
 		appContext.notify(ko("Character added to the scene", "인물을 씬에 추가했어요"));
@@ -517,7 +512,7 @@ export function useCast(appContext) {
 		const character = castMemberOf(characterId);
 		const ordered = [...readCharacterWaypoints(characterId)].sort((a, b) => a.frame - b.frame);
 		const index = ordered.findIndex((waypoint) => waypoint.frame === frame);
-		if (index === -1) throw new StudioProtocolError("STALE_TARGET", `${character.subject || character.id} has no root waypoint at frame ${frame}.`);
+		if (index === -1) throw new StudioProtocolError("STALE_TARGET", `${characterName(character)} has no root waypoint at frame ${frame}.`);
 		const moved = { ...ordered[index], x: clampRootPosition(point.x), z: clampRootPosition(point.z) };
 		if (moved.x === ordered[index].x && moved.z === ordered[index].z) return { waypoint: ordered[index], index, warnings: [] };
 		const next = ordered.map((waypoint, i) => (i === index ? moved : waypoint));
@@ -534,7 +529,7 @@ export function useCast(appContext) {
 		const character = castMemberOf(characterId);
 		const current = readCharacterWaypoints(characterId);
 		const waypoint = current.find((entry) => entry.frame === frame);
-		if (!waypoint) throw new StudioProtocolError("STALE_TARGET", `${character.subject || character.id} has no root waypoint at frame ${frame}.`);
+		if (!waypoint) throw new StudioProtocolError("STALE_TARGET", `${characterName(character)} has no root waypoint at frame ${frame}.`);
 		writeCharacterWaypoints(characterId, removeStableItem(current, waypoint.id, "waypoints"));
 		return waypoint;
 	}

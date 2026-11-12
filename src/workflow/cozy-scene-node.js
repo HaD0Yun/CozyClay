@@ -6,6 +6,7 @@
  * turn a node into a render request and to put a render result back on the
  * node.
  */
+import { characterName } from "../character-name.js";
 
 export const COZY_SCENE_NODE_TYPE = "cozyclay-scene";
 const COZY_SCENE_NODE_VERSION = 1;
@@ -40,7 +41,7 @@ export function sceneInputSpecs(characters = [], { includeLegacyMotion = true } 
 	for (const character of Array.isArray(characters) ? characters : []) {
 		const id = typeof character === "string" ? character : character?.id;
 		if (!id || specs.some((spec) => spec.id === `character:${id}`)) continue;
-		specs.push({ id: `character:${id}`, label: typeof character === "object" && character.subject ? character.subject : id, kind: "motion", characterId: id });
+		specs.push({ id: `character:${id}`, label: typeof character === "object" ? characterName(character) : id, kind: "motion", characterId: id });
 	}
 	if (includeLegacyMotion && !hasCharacters && specs.length === 1) specs.push({ id: "motion", label: "Motion", kind: "motion", legacy: true });
 	return specs;

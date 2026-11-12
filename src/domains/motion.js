@@ -42,6 +42,7 @@ import { PLACEMENT_TRACK, placementRows } from "../motion/placement-keys.js"; im
 import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage, sameRangePinPreview } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
 
 import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js";
+import { characterName } from "../character-name.js";
 import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys, cloneRangePin, encodeRangePins, decodeRangePins, encodeRangePinResiduals, decodeRangePinResiduals } from "./motion/motion-intent-codec.js";
 // Plain intent owns take identities and JSON keys. Decoded buffers and rig
 // preimages are copy-on-record runtime resources, never mutable store values.
@@ -582,7 +583,7 @@ export function useMotion(appContext) {
 		const state = ikStateFor(characterId);
 		if (!state.keys.has(frame)) {
 			const keyed = ikKeyframes(state);
-			throw new StudioProtocolError("STALE_TARGET", `${character.subject || character.id} has no IK key at frame ${frame}${keyed.length ? `; keyed frames: ${keyed.join(", ")}` : ""}.`);
+			throw new StudioProtocolError("STALE_TARGET", `${characterName(character)} has no IK key at frame ${frame}${keyed.length ? `; keyed frames: ${keyed.join(", ")}` : ""}.`);
 		}
 		editCharacterIkKeys(characterId, (target) => ikRemoveKeyframe(target, frame));
 	}

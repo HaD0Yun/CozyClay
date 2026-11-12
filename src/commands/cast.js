@@ -11,6 +11,7 @@ import { track } from '../analytics.js';
 import { DEFAULT_POSE } from '../poses.js';
 import { createStableItemId } from '../stable-items.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas } from '../studio-agent-protocol.js';
+import { characterName } from '../character-name.js';
 
 const id = StudioSchemas.TargetGuard.properties.targetId;
 const input = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
@@ -129,7 +130,7 @@ export function register(registry, ports) {
 		available: state => state.characters.length > 0 || "There are no characters in this scene; add one with arrange_characters.",
 		run: args => {
 			const character = characterOf(ports, args.characterId);
-			return { affectedIds: [character.id], summary: run(args, character.subject || character.id) };
+			return { affectedIds: [character.id], summary: run(args, characterName(character)) };
 		} });
 	const pin = waypoint => `frame ${waypoint.frame} (x ${waypoint.x}, z ${waypoint.z})`;
 	const warned = warnings => warnings.length ? `; warning: ${warnings[0]}` : "";
