@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Install
+
+- A Windows installer (`CozyClay-Setup.exe`): it brings its own Node.js and
+  starts the newest CozyClay from a desktop shortcut, with no terminal. Built
+  by the `Windows installer` workflow; not yet linked from the site. (#1184)
+
 Motion
 
 - Sample motions in the Motion tab: one click installs a walk or a flip on the

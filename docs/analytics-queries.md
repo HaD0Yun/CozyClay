@@ -1107,7 +1107,7 @@ contract report it: before that release the new events are **unknown, not 0**.
 | Do people use bone-level pose control? | `feature:used` `name = 'pose_edit'` (a real pose change) and `app:session_ended.pose_edit_bucket` |
 | Where does it break? | `app:error` (type, source, bundle file + line/column) |
 | Can their machine run it? | `device:profile` (GPU vendor/class, WebGL, CPU/memory, frame-rate bucket) |
-| Where did the install come from? | `install:first_launch.heard_from` (`site`, `playground` from `--via`) |
+| Where did the install come from? | `install:first_launch.heard_from` (`site`, `playground`, `installer` from `--via`; `installer` is the Windows installer's launcher) |
 | What are they making, with whom? | `survey:use_case` (`use_case`, `team`) |
 | Are they on the newest release? | `update_status` on every npm event |
 

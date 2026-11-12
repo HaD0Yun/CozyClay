@@ -1,0 +1,79 @@
+name: Windows installer
+
+# Builds CozyClay-Setup.exe (installer/windows) and proves it on Windows: a silent install, then the launcher has to
+# bring the Studio up. Runs when the installer changes, or by hand.
+on:
+  push:
+    paths: ["installer/**", ".github/workflows/installer.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: v26.13.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis imagemagick unzip
+      - name: Portable Node.js
+        run: |
+          curl -fsSLO "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-win-x64.zip"
+          curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" | grep "node-${NODE_VERSION}-win-x64.zip" | sha256sum -c -
+          unzip -q "node-${NODE_VERSION}-win-x64.zip"
+      - name: Icon
+        run: convert public/icons/icon-192.png -define icon:auto-resize=64,48,32,16 installer/windows/cozyclay.ico
+      - name: Build
+        run: |
+          makensis -V2 -DNODE_DIR="$PWD/node-${NODE_VERSION}-win-x64" installer/windows/cozyclay.nsi
+          ls -la installer/windows/CozyClay-Setup.exe
+          sha256sum installer/windows/CozyClay-Setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CozyClay-Setup
+          path: installer/windows/CozyClay-Setup.exe
+          if-no-files-found: error
+
+  verify:
+    needs: build
+    runs-on: windows-latest
+    env:
+      DO_NOT_TRACK: "1"
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CozyClay-Setup
+      - name: Silent install
+        shell: pwsh
+        run: |
+          Start-Process -FilePath .\CozyClay-Setup.exe -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\CozyClay'
+          foreach ($f in 'CozyClay.cmd', 'node\node.exe', 'node\npx.cmd', 'Uninstall.exe') { if (-not (Test-Path (Join-Path $dir $f))) { throw "missing $f" } }
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'CozyClay.lnk'))) { throw 'no desktop shortcut' }
+          & (Join-Path $dir 'node\node.exe') --version
+      - name: The launcher brings the Studio up
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\CozyClay'
+          $p = Start-Process -FilePath cmd.exe -ArgumentList '/c', "`"$dir\CozyClay.cmd`" --no-open --no-star --no-update-check" -PassThru -RedirectStandardOutput out.log -RedirectStandardError err.log
+          $ok = $false
+          foreach ($i in 1..90) {
+            Start-Sleep -Seconds 4
+            try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:5180/app/' -UseBasicParsing -TimeoutSec 5; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+            if ($p.HasExited) { break }
+          }
+          Get-Content out.log, err.log -ErrorAction SilentlyContinue | Select-Object -Last 40
+          if (-not $ok) { throw 'the Studio did not answer on http://127.0.0.1:5180/app/' }
+          Write-Host 'Studio answered 200'
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\CozyClay'
+          Start-Process -FilePath (Join-Path $dir 'Uninstall.exe') -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          if (Test-Path (Join-Path $dir 'CozyClay.cmd')) { throw 'uninstall left the launcher behind' }
