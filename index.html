@@ -136,23 +136,33 @@
       .btn.install-open { gap: 8px; background: rgba(15, 14, 13, .85); }
       .linkish { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
-      /* Install dialog: the three steps from nothing installed to the Studio open. */
+      /* Guided desktop setup, with one task visible at a time. */
       dialog.install { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; overflow: auto; background: var(--raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 12px; }
       dialog.install::backdrop { background: rgba(8, 7, 6, .72); }
-      .install-body { display: flex; flex-direction: column; gap: 20px; padding: 28px; }
+      .install-body { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
       .install-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
       .install-head h2 { font-size: 28px; line-height: 1.15; }
       .install-head p { margin-top: 8px; color: var(--muted); font-size: 15px; }
       .install-close { flex: none; width: 40px; height: 40px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
       .install-close:hover { color: var(--ink); background: var(--field); }
-      .install-steps { display: flex; flex-direction: column; gap: 20px; margin: 0; padding: 0; list-style: none; counter-reset: install; }
-      .install-steps > li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 12px; counter-increment: install; }
-      .install-steps > li::before { content: counter(install); grid-row: span 3; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); font-size: 14px; }
+      .install-steps { display: flex; flex-direction: column; gap: 12px; padding: 0; }
+      .install-progress { color: var(--clay); font-size: 13px; }
       .install-steps h3 { font-family: inherit; font-size: 17px; font-weight: 600; line-height: 28px; }
       .install-steps p { color: var(--muted); font-size: 15px; }
       .install-steps .btn, .install-steps .code { margin-top: 8px; }
       .install-steps .btn { justify-self: start; gap: 8px; }
       .install-steps [hidden] { display: none; }
+      .install-steps[hidden] { display: none; }
+      .install-steps .code { padding: 0; }
+      .install-steps .code pre { padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .install-steps code:focus-visible { outline: 2px solid var(--clay); outline-offset: 4px; }
+      .install-steps .install-action { width: 100%; justify-content: center; margin: 0; }
+      .install-steps details { margin: 0; padding-top: 12px; border-top: 1px solid var(--line); border-bottom: 0; }
+      .install-steps summary { min-height: 32px; cursor: pointer; color: var(--muted); }
+      .install-steps details p { margin-top: 10px; font-size: 14px; }
+      .install-steps .install-back { align-self: flex-start; font-size: 14px; }
+      #install-status { min-height: 3em; font-size: 14px; }
+      #install-status[data-state="copied"] { color: var(--clay); }
 
       /* First screen: the whole 16:9 shot in a frame no wider than 1200 px, so the
          1080p takes are stretched as little as possible (at most 1.25x on a 2x
@@ -499,8 +509,8 @@ cclay live status --wait</code></pre>
                 <button type="button" aria-pressed="false" data-panel="start-src">From source</button>
               </div>
               <div class="code" id="start-npx">
-                <pre><code>npx cozyclay --via site</code></pre>
-                <button type="button" class="copy" data-copy="npx cozyclay --via site">Copy</button>
+                <pre><code data-launch-command>npx --yes cozyclay@latest --via site</code></pre>
+                <button type="button" class="copy" data-launch-copy data-copy="npx --yes cozyclay@latest --via site">Copy</button>
               </div>
               <div class="code" id="start-src" hidden>
                 <pre><code>git clone https://github.com/HaD0Yun/CozyClay.git
@@ -568,7 +578,7 @@ npm run dev</code></pre>
           <div class="install-head">
             <div>
               <h2 id="install-title">Install CozyClay</h2>
-              <p>The installed Studio adds the AI agent, which builds scenes and motion from your words. Free, and it runs on your computer.</p>
+              <p>Run the Studio on your computer with the AI agent. Set up Node.js once, then launch CozyClay in your browser.</p>
             </div>
             <button type="button" class="install-close" data-install-close aria-label="Close">&times;</button>
           </div>
@@ -577,30 +587,36 @@ npm run dev</code></pre>
             <button type="button" aria-pressed="false" data-os="win">Windows</button>
             <button type="button" aria-pressed="false" data-os="linux">Linux</button>
           </div>
-          <ol class="install-steps">
-            <li>
-              <h3>Install Node.js</h3>
-              <p data-os-text data-mac="CozyClay runs on Node.js 22.19 or newer. Open the downloaded file and click through the installer. Already have it? Skip this step." data-win="CozyClay runs on Node.js 22.19 or newer. Open the downloaded file and click through the installer. Already have it? Skip this step." data-linux="CozyClay runs on Node.js 22.19 or newer. Install it from your package manager or from nodejs.org. Already have it? Skip this step.">CozyClay runs on Node.js 22.19 or newer. Open the downloaded file and click through the installer. Already have it? Skip this step.</p>
+          <p class="install-progress" id="install-progress" aria-live="polite">Step 1 of 2 · Install Node.js</p>
+          <section class="install-steps" data-install-step="1" aria-labelledby="install-runtime-title">
+              <h3 id="install-runtime-title" tabindex="-1">Install Node.js</h3>
+              <p data-os-text data-mac="Download Node.js, open the .pkg file, and finish the installer." data-win="Download Node.js, open the .msi file, and finish the installer using its default options." data-linux="Install Node.js 22.19 or newer using the instructions for your Linux distribution.">Download Node.js, open the .pkg file, and finish the installer.</p>
               <a class="btn primary" id="install-node" data-node-download href="https://nodejs.org/en/download" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg><span>Download Node.js</span></a>
-            </li>
-            <li>
-              <h3 data-os-text data-mac="Open Terminal" data-win="Open PowerShell" data-linux="Open a terminal">Open Terminal</h3>
-              <p data-os-text data-mac="Press ⌘ Space, type Terminal, then press Return." data-win="Press the Windows key, type PowerShell, then press Enter." data-linux="Use your desktop's terminal app.">Press ⌘ Space, type Terminal, then press Return.</p>
-            </li>
-            <li>
-              <h3>Paste this and press Enter</h3>
-              <p>The first time, it asks to install <code>cozyclay</code>: type <kbd>y</kbd>. The Studio then opens in your browser. Run the same command to open it again.</p>
-              <div class="code">
-                <pre><code>npx cozyclay --via site</code></pre>
-                <button type="button" class="copy" data-copy="npx cozyclay --via site">Copy</button>
-              </div>
-            </li>
-          </ol>
+              <p class="small">Already have Node.js 22.19 or newer? Continue to launch.</p>
+              <button type="button" class="btn ghost install-action" data-install-next="2">Node.js is installed — continue</button>
+          </section>
+          <section class="install-steps" data-install-step="2" hidden aria-labelledby="install-launch-title">
+              <h3 id="install-launch-title" tabindex="-1" data-os-text data-mac="Open a new Terminal window" data-win="Open a new PowerShell window" data-linux="Open a new terminal window">Open a new Terminal window</h3>
+              <p data-os-text data-mac="After installing Node.js, quit Terminal if it is open. Press ⌘ Space, type Terminal, then press Return." data-win="After installing Node.js, close any open PowerShell windows. Press the Windows key, type PowerShell, then press Enter." data-linux="After installing Node.js, close and reopen your terminal.">After installing Node.js, quit Terminal if it is open. Press ⌘ Space, type Terminal, then press Return.</p>
+              <div class="code"><pre><code id="install-command" tabindex="0" aria-label="CozyClay launch command">npx --yes cozyclay@latest --via site</code></pre></div>
+              <button type="button" class="btn primary install-action copy" data-copy="npx --yes cozyclay@latest --via site" data-install-copy>Copy launch command</button>
+              <p id="install-status" role="status" aria-live="polite">Paste into your terminal and press Enter. The first launch may take a few minutes.</p>
+              <p>The Studio opens in your browser. Keep the terminal open while you work. Run this command again whenever you want to start CozyClay.</p>
+              <details>
+                <summary>Having trouble?</summary>
+                <p><strong>Command not found?</strong> Finish the Node.js installer, then close and reopen your terminal.</p>
+                <p><strong>Download failed?</strong> Check your internet connection and run the command again.</p>
+                <p><strong>Browser did not open?</strong> Once the terminal says the Studio is running, <a href="http://127.0.0.1:5180/app/" target="_blank" rel="noopener">open the local Studio</a>.</p>
+              </details>
+              <button type="button" class="linkish install-back" data-install-next="1">← Back to Node.js setup</button>
+          </section>
         </div>
       </dialog>
     </main>
 
-    <script>
+    <script type="module">
+      import { setupInstall } from "./src/install.js";
+      setupInstall();
       (() => {
         const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -613,62 +629,11 @@ npm run dev</code></pre>
             document.getElementById(other.dataset.panel).hidden = !on;
           });
         }));
-        document.querySelectorAll("button.copy[data-copy]").forEach((button) => {
+        document.querySelectorAll("button.copy[data-copy]:not([data-install-copy])").forEach((button) => {
           button.addEventListener("click", async () => {
             try { await navigator.clipboard.writeText(button.dataset.copy); button.dataset.state = "copied"; setTimeout(() => { button.dataset.state = ""; }, 1400); } catch {}
           });
         });
-
-        // Install: the button names the visitor's system, and the dialog walks from nothing installed to the Studio open.
-        // The Node.js link goes straight to the official installer of the newest LTS (nodejs.org/dist/index.json);
-        // it stays on the download page when that cannot be read.
-        const install = document.getElementById("install");
-        const ua = navigator.userAgentData?.platform || navigator.platform || "";
-        const mobile = /iPhone|iPad|Android/i.test(navigator.userAgent) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
-        const detected = mobile ? null : /Mac/i.test(ua) ? "mac" : /Win/i.test(ua) ? "win" : /Linux|X11/i.test(ua) ? "linux" : null;
-        const OS_NAME = { mac: "macOS", win: "Windows", linux: "Linux" };
-        if (detected) document.querySelectorAll("[data-install-label]").forEach((label) => { label.textContent = "Install on " + OS_NAME[detected]; });
-        const nodeLink = document.getElementById("install-node");
-        let nodeVersion = null, winArch = "x64";
-        const showOs = (os) => {
-          install.querySelectorAll("#install-os button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.os === os)));
-          install.querySelectorAll("[data-os-text]").forEach((node) => { node.textContent = node.dataset[os]; });
-          const file = nodeVersion && (os === "mac" ? `node-${nodeVersion}.pkg` : os === "win" ? `node-${nodeVersion}-${winArch}.msi` : null);
-          nodeLink.href = file ? `https://nodejs.org/dist/${nodeVersion}/${file}` : "https://nodejs.org/en/download";
-          nodeLink.querySelector("span").textContent = os === "linux" ? "Get Node.js for Linux" : `Download Node.js for ${OS_NAME[os]}`;
-          install.dataset.os = os;
-        };
-        const newestLts = async () => {
-          try {
-            const list = await (await fetch("https://nodejs.org/dist/index.json")).json();
-            // newest first; an LTS line at or past 22.19, with both installers published
-            const ok = (entry) => {
-              const [major, minor] = entry.version.slice(1).split(".").map(Number);
-              return entry.lts && (major > 22 || (major === 22 && minor >= 19)) && entry.files.includes("osx-x64-pkg") && entry.files.includes("win-x64-msi");
-            };
-            nodeVersion = list.find(ok)?.version ?? null;
-            const arch = await navigator.userAgentData?.getHighEntropyValues?.(["architecture"]);
-            if (arch?.architecture === "arm" && /Win/i.test(ua)) winArch = "arm64";
-          } catch {}
-          showOs(install.dataset.os || detected || "mac");
-        };
-        showOs(detected || "mac");
-        install.querySelectorAll("#install-os button").forEach((button) => button.addEventListener("click", () => showOs(button.dataset.os)));
-        let asked = false;
-        document.querySelectorAll("[data-install-open]").forEach((button) => button.addEventListener("click", () => {
-          install.showModal();
-          if (!asked) { asked = true; void newestLts(); }
-        }));
-        // cozyclay.org/#install opens the steps directly: the hosted Studio's Agent panel links here.
-        const openFromHash = () => {
-          if (location.hash !== "#install" || install.open) return;
-          install.showModal();
-          if (!asked) { asked = true; void newestLts(); }
-        };
-        openFromHash();
-        window.addEventListener("hashchange", openFromHash);
-        install.querySelector("[data-install-close]").addEventListener("click", () => install.close());
-        install.addEventListener("click", (event) => { if (event.target === install) install.close(); });
 
         // Hero compare: drag (or arrow keys on the hidden range) moves the divider;
         // the generated take follows the greybox clock so both show the same frame.
