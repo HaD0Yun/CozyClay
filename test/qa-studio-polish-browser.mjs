@@ -123,7 +123,7 @@ expect("Create opens the editor", await waitFor("!document.querySelector('.v2-st
 
 // --- 1. Default lighting --------------------------------------------------------
 const { keyLight } = await exported();
-expect("a new project opens with brightness 3 and warmth 0", keyLight?.intensity === 3 && keyLight?.warmth === 0, JSON.stringify(keyLight));
+expect("a new project opens with brightness 4 and warmth 0", keyLight?.intensity === 4 && keyLight?.warmth === 0, JSON.stringify(keyLight));
 
 // --- 2. No tutorial pop-up ---------------------------------------------------
 await new Promise((resolve) => setTimeout(resolve, 1200));
