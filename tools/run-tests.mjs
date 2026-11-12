@@ -92,7 +92,7 @@ const NODE_FILES = [
 	"test/verify-route-owner.mjs",
 	"test/verify-part-colours.mjs",
 	"test/verify-asset-shelf.mjs",
-	"test/verify-blocking-depth.mjs", "test/verify-prompt-cast-pin.mjs",
+	"test/verify-blocking-depth.mjs", "test/verify-prompt-cast-pin.mjs", "test/verify-prompt-cast-list.mjs", "test/verify-prompt-cast-mcp.mjs",
 	"test/verify-render-passes-video.mjs",
 	"test/verify-camera-block.mjs", "test/verify-camera-direction.mjs",
 	"test/verify-camera-follow.mjs",
