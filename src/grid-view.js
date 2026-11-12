@@ -1,5 +1,5 @@
 // Blender-style viewport mode: no floor deck, a coordinate grid overlay and a
-// dark neutral background. The grid is a reference, not a set piece — it
+// theme-matched background. The grid is a reference, not a set piece — it
 // belongs to the editor viewport, never to the scene, the plan board or an
 // exported frame. Pure constants + persistence here; the shader mesh lives in
 // grid-floor.jsx.
@@ -9,8 +9,7 @@ export const GRID_VIEW_STORAGE_KEY = "cozyclay.grid-view.v1";
 // Blender's solid-mode look: a dark grey void, not true black. Under the dark
 // UI theme the stage wears it — editor, shot preview and exports — so the set
 // reads as one grey workbench; the grid view only trades the deck for the
-// reference grid (and keeps the dark void under both themes: its line palette
-// is tuned for it). Fog matches the background so distance still dissolves
+// reference grid. Both views follow the UI theme. Fog matches the background so distance still dissolves
 // into the same neutral. The far plane stays below the capture rig's
 // CAPTURE_FOG_NEAR (55) so pushing near past far still disables fog for
 // exported frames.
@@ -32,6 +31,14 @@ export const GRID_FOG = Object.freeze({ color: GRID_BACKGROUND, near: 30, far: 5
 export const GRID_COLORS = Object.freeze({
 	minor: "#3d4046",
 	major: "#4c5058",
+	axisX: "#b3454f",
+	axisZ: "#3f6bb0",
+});
+
+// Darker marks on the light studio background keep the same scale hierarchy.
+export const GRID_COLORS_LIGHT = Object.freeze({
+	minor: "#c1c4ca",
+	major: "#a4a9b2",
 	axisX: "#b3454f",
 	axisZ: "#3f6bb0",
 });

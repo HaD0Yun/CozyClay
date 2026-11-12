@@ -547,7 +547,7 @@ export default function App() {
 	useEffect(() => {
 		writeStoredGuideMode(globalThis.localStorage, guideMode);
 	}, [guideMode]);
-	// Blender-style grid viewport: dark void + reference grid instead of the
+	// Blender-style grid viewport: themed background + reference grid instead of the
 	// clay deck. A viewer preference like the guides — never scene data.
 	const [gridView, setGridView] = useState(() => readStoredGridView(globalThis.localStorage));
 	// The stage follows the UI theme (grid-view.js stageBackground).
@@ -4698,7 +4698,7 @@ export default function App() {
 								onChange={(patch) => changeKeyLight("puck", patch)}
 								onDragEnd={endGestureUndo}
 							/>
-							{gridView ? <GridFloor layer={GIZMO_LAYER} /> : <Room light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} />}
+							{gridView ? <GridFloor layer={GIZMO_LAYER} light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} /> : <Room light={uiTheme === "light" && !lighting.sky && !(lighting.hdr && lighting.hdrBackground)} />}
 							<SetProps
 								objects={stageSceneObjects}
 								authoredObjects={sceneObjects}

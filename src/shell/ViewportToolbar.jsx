@@ -477,7 +477,7 @@ export default function ViewportToolbar() {
 									className={"view-menu-item grid-view-switch" + (gridView ? " active" : "")}
 									aria-checked={gridView}
 									aria-pressed={gridView}
-									title={ko("Blender-style viewport — dark void with a reference grid instead of the deck", "Blender식 뷰포트 — 데크 대신 어두운 배경과 기준 그리드")}
+									title={ko("Blender-style viewport — themed background with a reference grid instead of the deck", "Blender식 뷰포트 — 데크 대신 테마 배경과 기준 그리드")}
 									onClick={() => setGridView((v) => !v)}
 								>
 									<span className="view-menu-mark" aria-hidden="true">{gridView ? "✓" : ""}</span>

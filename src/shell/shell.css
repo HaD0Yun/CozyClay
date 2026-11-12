@@ -6,15 +6,11 @@
 		--shell-gap: var(--float-gap, 12px);
 		--shell-left: var(--shell-left-width, var(--shell-left-default));
 		--shell-right: var(--shell-right-width, var(--shell-right-default));
-		--shell-left-default: 206px;
-		--shell-right-default: 300px;
+		--shell-left-default: 190px;
+		--shell-right-default: 252px;
 		--shell-dock: var(--shell-dock-height, var(--shell-dock-default));
-		/* The sequencer's fixed grid: 48px head + 28px camera bar (always
-		   reserved, see glass-regions.css) + 24px ruler + the lane rows
-		   (22 + 66 + 22 + 66 = 176) = 276px. The dock is exactly that tall, so
-		   every lane is on screen, the body never scrolls vertically, and no
-		   empty band sits under the last lane. */
-		--shell-dock-default: 276px;
+		/* Timeline lanes share the available body height (timeline-notes.css). */
+		--shell-dock-default: 220px;
 		/* The shot card never takes more than 36 % of the dock, so the
 		   Sequencer keeps room on narrow windows. */
 		--shell-camera: min(var(--shell-camera-width, 340px), calc((100vw - var(--shell-center-left) - var(--shell-center-right)) * .36));
@@ -52,10 +48,10 @@
 	}
 
 	@media (max-width: 1440px) {
-		.app:not([data-embed-mode]) { --shell-left-default: 206px; --shell-right-default: 272px; }
+		.app:not([data-embed-mode]) { --shell-left-default: 190px; --shell-right-default: 252px; }
 	}
 	@media (max-width: 1180px) {
-		.app:not([data-embed-mode]) { --shell-left-default: 190px; --shell-right-default: 248px; }
+		.app:not([data-embed-mode]) { --shell-left-default: 174px; --shell-right-default: 230px; }
 	}
 
 	.app:not([data-embed-mode]) > .main { display: contents; }
