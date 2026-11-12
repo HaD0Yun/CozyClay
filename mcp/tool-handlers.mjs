@@ -1517,18 +1517,15 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				}
 				const st = stage();
 				const known = CAMERA_MOVES.includes(camera_move);
-				// composePrompt frames two subjects: the one the camera is on, then the
-				// next visible member of the cast.
+				// The prompt describes the framed character first (even when hidden), then every
+				// other visible character in cast order. pose_phrase and pose2_phrase go to the first two.
 				const framed = findCharacter(state.focus) ?? st.characters[0];
-				const other = st.characters.find((c) => c !== framed && !c.hidden) ?? null;
+				const described = [framed, ...st.characters.filter((c) => c !== framed && !c.hidden)];
 				const prompt = composePrompt({
 					mode,
 					model: modelById(model) ?? undefined,
 					shot: currentShot(),
-					subject: promptDescription(framed?.subject),
-					subject2: other ? promptDescription(other.subject) : null,
-					posePhrase: pose_phrase,
-					pose2Phrase: other ? pose2_phrase : "",
+					subjects: described.map((c, i) => ({ description: promptDescription(c?.subject), posePhrase: [pose_phrase, pose2_phrase][i] ?? "" })),
 					environment,
 					style,
 					cameraMove: known ? camera_move : "Custom…",

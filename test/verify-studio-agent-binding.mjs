@@ -14,7 +14,7 @@ import { createObjectsDomain, createMotionDomain, mountHistoryCast } from './bus
 import { createStageDomain } from '../src/domains/stage.js';
 import { createCharacterEntry, createCharacterLayer, addScene, duplicateScene, renameScene, removeScene, isProxyFigure } from '../src/scenes.js';
 import * as characterKind from '../src/character-kind.js';
-import * as characterNames from '../src/character-name.js';
+import * as characterNames from '../src/character-name.js'; import { promptSubjects } from '../src/prompt-cast.js';
 import { judgeNextWaypoint } from '../src/motion/waypoints.js';
 import { createStableItemId, removeStableItem, updateStableItem } from '../src/stable-items.js';
 import { createCameraBlock, removeCameraRail, updateCameraBlock } from '../src/camera-block.js';
@@ -107,7 +107,8 @@ function fixture(options={}) {
  const aiScope={IMAGE_MODELS,CUSTOM_MOVE,SUBJECT_HEIGHT_M,composePrompt,deriveShot,PART_COLOURS,filmback,shot:fromShot,
   activeShot:heroShot,activeCamera:{mode:'keys',followCam:null,cameraRail:null,railFollow:null},cameraKeys:heroShot.cameraKeys,
   moveSequence:{fromShot,phrase:'a slow push-in toward the subject'},followTrack:null,subjectTrack:null,fovDeg:40,charA:{x:0,z:0,rot:0},
-  subject:'a woman in a red coat',showB:false,subject2:null,poseA:{prompt:'arms crossed'},poseB:null,environment:stage.environment,style:stage.style,
+  // App's prompt cast comes from the real helper; the first fixture character stands in with a description and pose.
+  promptSubjects:(cast,fallback)=>promptSubjects(cast.map((c,i)=>i?c:{...c,subject:'a woman in a red coat',pose:{prompt:'arms crossed'}}),fallback),showB:false,poseA:{prompt:'arms crossed'},poseB:null,environment:stage.environment,style:stage.style,
   cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
   captureFramingPng:framing=>{captures.push(framing);return `data:image/png;base64,${btoa(JSON.stringify(framing.pos))}`;},captureRef:ref(null),bufferToPng:()=>null,
   navigator:{clipboard:{writeText:async text=>{clipboard.push(text);}}}};

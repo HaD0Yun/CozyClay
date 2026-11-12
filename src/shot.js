@@ -218,6 +218,9 @@ export const CAMERA_MOVES = [
 	CUSTOM_MOVE,
 ];
 
+// The subject count is spelled out up to ten ("Two subjects."), then written in digits.
+const COUNT_WORDS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+
 /**
  * Assemble the final prompt.
  *
@@ -225,15 +228,15 @@ export const CAMERA_MOVES = [
  * geometrically correct but visually worthless — grey clay in a grey box — so
  * the prompt has to claim the geometry and disown the appearance in the same
  * breath. Anything vaguer and the model paints grey mannequins.
+ *
+ * `subjects` is the cast in the order the prompt describes it: one
+ * { description, posePhrase } per visible character (#1213).
  */
 export function composePrompt({
 	mode = "image",
 	model,
 	shot,
-	subject,
-	subject2 = null,
-	posePhrase = "",
-	pose2Phrase = "",
+	subjects = [],
 	environment,
 	style,
 	cameraMove = CAMERA_MOVES[0],
@@ -249,17 +252,20 @@ export function composePrompt({
 			? `Cinematic ${shot.sizeLabel} at ${lens}, ${shot.levelPhrase}, ${shot.viewPhrase}.`
 			: `Photorealistic cinematic film still, ${shot.sizeLabel} at ${lens}, ${shot.levelPhrase}, ${shot.viewPhrase}.`;
 
-	const withPose = (who, phrase) => (phrase ? `${who}, ${phrase}` : who);
+	const withPose = ({ description, posePhrase }) => (posePhrase ? `${description}, ${posePhrase}` : description);
+	// An empty list is never sent by a caller; it reads as one neutral subject.
+	const cast = subjects.length ? subjects : [{ description: "a person", posePhrase: "" }];
 
-	let cast;
+	let castLine;
 	if (hasCharSheet) {
-		cast = subject2
-			? "Both subjects are the characters from the attached character sheet. Each one exactly matches their own body pose and placement shown in the blocking frame."
-			: "The subject is the character from the attached character sheet, exactly matching the body pose and placement shown in the blocking frame.";
-	} else if (subject2) {
-		cast = `Two subjects. Subject 1: ${withPose(subject, posePhrase)}. Subject 2: ${withPose(subject2, pose2Phrase)}. Each subject exactly matches their own body pose and placement shown in the blocking frame.`;
+		castLine = cast.length === 1
+			? "The subject is the character from the attached character sheet, exactly matching the body pose and placement shown in the blocking frame."
+			: `${cast.length === 2 ? "Both" : "All"} subjects are the characters from the attached character sheet. Each one exactly matches their own body pose and placement shown in the blocking frame.`;
+	} else if (cast.length === 1) {
+		castLine = `Subject: ${withPose(cast[0])}, exactly matching the body pose and placement shown in the blocking frame.`;
 	} else {
-		cast = `Subject: ${withPose(subject, posePhrase)}, exactly matching the body pose and placement shown in the blocking frame.`;
+		const listed = cast.map((entry, i) => `Subject ${i + 1}: ${withPose(entry)}.`).join(" ");
+		castLine = `${COUNT_WORDS[cast.length] ?? cast.length} subjects. ${listed} Each subject exactly matches their own body pose and placement shown in the blocking frame.`;
 	}
 
 	const place = hasEnvSheet
@@ -273,7 +279,7 @@ export function composePrompt({
 
 	const parts = [
 		opening,
-		cast,
+		castLine,
 		place,
 		`${style}, ${shot.sizeContext}.`,
 		mode === "video" ? `Camera move: ${move}.` : null,

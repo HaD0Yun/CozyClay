@@ -113,7 +113,7 @@ import { subscribeToSceneDocuments, subscribeToScenePlayback } from "./workflow/
 import {
 	decodeMask,
 } from "./matte.js";
-import { createMatteEditor } from "./matte-editor.js"; import { characterName, promptDescription } from "./character-name.js";
+import { createMatteEditor } from "./matte-editor.js"; import { characterName, promptDescription } from "./character-name.js"; import { promptSubjects } from "./prompt-cast.js";
 import {
 	SCENES_VERSION,
 	activeSceneIndex,
@@ -954,7 +954,7 @@ export default function App() {
 	}));
 	const {
 		characters, customPoses, posing, posingClosing, studioPick, setStudioPick,
-		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB, poseA, poseB, subject, subject2,
+		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB, poseA, poseB,
 		updateCharacterAt, setShowB, moveCharacter, removeCharacter, reportRig, spawnCharacter,
 		charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId, rowIdForCharIndex,
 		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig, ghostLayers,
@@ -2533,7 +2533,7 @@ export default function App() {
 		dirtyRef.current = true;
 		const timer = setTimeout(flushScenes, 400);
 		return () => clearTimeout(timer);
-	}, [sceneObjects, shots, waypoints, tlFrameCount, charA, charB, showB, poseA, poseB, hasCharSheet, environmentImage, environment, style, hasEnvSheet, subject, subject2, shotAspectKey, sensorId, keyLight, scenes, activeSceneId, motionLayers]);
+	}, [sceneObjects, shots, waypoints, tlFrameCount, charA, charB, showB, poseA, poseB, hasCharSheet, environmentImage, environment, style, hasEnvSheet, shotAspectKey, sensorId, keyLight, scenes, activeSceneId, motionLayers]);
 	useEffect(() => {
 		const onPageHide = () => flushScenes();
 		const onVisibility = () => {
@@ -4128,10 +4128,7 @@ export default function App() {
 			shot: movePlan?.fromShot ?? (framingA
 				? deriveShot(framingA.pos, promptSubject, (framingA.fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback)
 				: shot),
-			subject: promptDescription(subject),
-			subject2: showB ? promptDescription(subject2) : null,
-			posePhrase: poseA?.prompt ?? "",
-			pose2Phrase: showB ? (poseB?.prompt ?? "") : "",
+			subjects: promptSubjects(characters, charA),
 			environment,
 			style,
 			cameraMove: movePlan || blockMove ? CUSTOM_MOVE : cameraMove,
