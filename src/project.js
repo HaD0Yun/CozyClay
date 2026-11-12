@@ -17,7 +17,7 @@
 
 import { SCENES_VERSION } from "./scenes.js";
 import { ASSET_MAX_SOURCE_BYTES, assetIdForBytes, isAssetId, isImageAssetId, isMeshAssetId, meshIdForBytes, normalizeAsset, referencedAssetIds } from "./scene-assets.js";
-import { ko } from "./locale.js"; import { hdrIdForBytes, isHdrAssetId } from "./stage-hdr.js";
+import { ko } from "./locale.js"; import { hdrIdForBytes, isHdrAssetId } from "./stage-hdr.js"; import { decodeWorkflowDraft, encodeWorkflowDraft } from "./workflow-draft-codec.js";
 
 export const PROJECT_VERSION = 5;
 // A project is authored either as a storyboard (stills) or as animation
@@ -146,7 +146,7 @@ export function normalizeWorkflowGraph(value) {
  * parse error so a caller about to write can refuse to overwrite it. */
 export function loadWorkflowGraph(storage = globalThis.localStorage, { strict = false } = {}) {
 	try {
-		return normalizeWorkflowGraph(JSON.parse(storage?.getItem(WORKFLOW_STORAGE_KEY) || "null"));
+		return normalizeWorkflowGraph(decodeWorkflowDraft(storage?.getItem(WORKFLOW_STORAGE_KEY)));
 	} catch (error) {
 		if (strict) throw error;
 		return createWorkflowGraph();
@@ -158,7 +158,7 @@ export function loadWorkflowGraph(storage = globalThis.localStorage, { strict = 
 export function storeWorkflowGraph(graph, storage = globalThis.localStorage) {
 	const normalized = normalizeWorkflowGraph(graph);
 	try {
-		storage?.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(normalized));
+		storage?.setItem(WORKFLOW_STORAGE_KEY, encodeWorkflowDraft(normalized));
 	} catch {
 		// localStorage is an optional session cache; the project file remains the
 		// durable source of truth.

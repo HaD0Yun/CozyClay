@@ -7,6 +7,7 @@
  */
 
 import { loadWorkflowGraph, normalizeWorkflowGraph, WORKFLOW_STORAGE_KEY, WORKFLOW_VERSION } from "./project.js";
+import { encodeWorkflowDraft } from "./workflow-draft-codec.js";
 import { pastedImageNodeData } from "./workflow/clipboard-image.js";
 import { DEFAULT_NODE_SCHEMAS, defaultFormValues, schemaProperties } from "./workflow/node-schema.js";
 import { buildShotPrompt } from "./shot-prompt.js";
@@ -73,7 +74,7 @@ export function sendPanelToWorkflow(panel, storage = globalThis.localStorage, no
 	// A corrupt stored draft throws here, before anything is written.
 	const draft = loadWorkflowGraph(storage, { strict: true });
 	const graph = appendPanelToWorkflowGraph(draft, { ...panel, now });
-	storage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(graph));
+	storage.setItem(WORKFLOW_STORAGE_KEY, encodeWorkflowDraft(graph));
 	try { globalThis.dispatchEvent?.(new CustomEvent("cozyclay:workflow-change")); } catch { /* non-browser runtime */ }
 	return graph;
 }
