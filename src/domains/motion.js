@@ -1,6 +1,6 @@
 import { useState, useEffect, useSyncExternalStore, useRef, useMemo } from "react";
 import { createDocumentStore } from '../document-store.js';
-import { useDocumentDomain } from '../store/use-document-store.js';
+import { useChangedState, useDocumentDomain } from '../store/use-document-store.js';
 import {
 	hierarchyIdForIkFocus,
 	REST_BONES,
@@ -39,7 +39,7 @@ import { chooseIkEntryPose } from "../ik-camera.js";
 import { applyRangePin, captureRangePinTarget, normalizeRangePin, rangePinTargetWorld, rangePinTracks, removeRangePinKeys } from "../motion/range-pin.js";
 import { rangePinObjectMatrixAt } from "../range-pin-object-transform.js";
 import { PLACEMENT_TRACK, placementRows } from "../motion/placement-keys.js"; import { createPoseKeys } from "./motion/pose-keys.js";
-import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
+import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage, sameRangePinPreview } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
 
 import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js";
 import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys, cloneRangePin, encodeRangePins, decodeRangePins, encodeRangePinResiduals, decodeRangePinResiduals } from "./motion/motion-intent-codec.js";
@@ -378,7 +378,7 @@ export function useMotion(appContext) {
 	const [ikEditTool, setIkEditTool] = useState("ik");
 	const [rangePinSelection, setRangePinSelection] = useState(null);
 	const [rangePinPartPick, setRangePinPartPick] = useState(null);
-	const [rangePinPreview, setRangePinPreview] = useState(null);
+	const [rangePinPreview, setRangePinPreview] = useChangedState(null);
 	const pinLayer = domain.layer(appContext.shared.activeChar.id);
 	const rangePins = useMemo(() => encodeRangePins(pinLayer.ikPins), [pinLayer.ikPins]);
 	const rangePinResiduals = useMemo(() => decodeRangePinResiduals(pinLayer.ikPinResiduals), [pinLayer.ikPinResiduals]);
@@ -486,12 +486,13 @@ export function useMotion(appContext) {
 		const state = ensureRangePinState(appContext.shared.ikStateRef.current);
 		const conflictFrames = rangePinConflictFrames(draft, state);
 		const overlapping = overlappingRangePin(draft, state);
-		try {
-			const resolved = captureRangePinTargetForDraft(draft);
-			setRangePinPreview({ draft, track: draft.track, target: resolved?.targetWorld?.toArray() ?? null, conflictFrames, overlapError: rangePinOverlapMessage(overlapping) });
-		} catch {
-			setRangePinPreview({ draft, track: draft.track, target: null, conflictFrames, overlapError: rangePinOverlapMessage(overlapping) });
-		}
+		let target = null;
+		try { target = captureRangePinTargetForDraft(draft)?.targetWorld?.toArray() ?? null; } catch { /* previewed without a target */ }
+		// The Pin panel calls this after every frame commit: a new but equal
+		// preview kept a React update pending behind each scrub commit and chained
+		// React into "Maximum update depth exceeded" (#1195), so an unchanged one is not set.
+		const next = { draft, track: draft.track, target, conflictFrames, overlapError: rangePinOverlapMessage(overlapping) };
+		setRangePinPreview((current) => (sameRangePinPreview(current, next) ? current : next));
 	}
 	function applyRangePinDraft(draft) {
 		if (!motion || !appContext.shared.activeRig || !ikChains) return;
