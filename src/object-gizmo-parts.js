@@ -57,7 +57,7 @@ export const PICK_TUBE_R = 0.07;
 export const PICK_CENTRE_R = 0.16;
 /** metres of gizmo per metre of camera distance: keeps it a constant size on
  * screen whether the object is at the lens or across the room */
-export const SCREEN_SCALE = 0.16;
+export const SCREEN_SCALE = 0.12;
 
 /** the object's own centre height, where the gizmo sits */
 function gizmoHeight(object) {
