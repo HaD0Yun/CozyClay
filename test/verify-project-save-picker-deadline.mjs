@@ -61,4 +61,34 @@ for (const id of ['project.save', 'project.saveAs', 'project.exportAsAnimation']
   }, id === 'project.exportAsAnimation' ? { session: { name: 'Heist', previsMode: 'storyboard' } } : undefined);
 }
 
+const expireOnWrite = t => { t.handle.onClose = () => { for (const timer of t.timers) if (!timer.cleared) { timer.cleared = true; timer.run(); } }; };
+const dirty = t => t.f.scope.appContext.storeDomain('scenes').dirtyStore.read('projectDirty');
+await check('a project file written as the deadline expires is recorded as saved', async t => {
+  const renamed = await t.f.run('scene.rename', { sceneId: 'scene', name: 'Edited' });
+  t.f.scope.appContext.storeDomain('scenes').refreshDirty();
+  assert.ok(renamed.ok && dirty(t), 'the project has unsaved edits before the save');
+  expireOnWrite(t);
+  const answer = t.f.run('project.save');
+  await settle();
+  t.pick();
+  await answer;
+  await settle();
+  assert.equal(t.written.length, 1, 'the project file was written before the deadline expired');
+  assert.notEqual(saveStates.at(-1), 'error', `a written file is not shown as a failed save (states: ${saveStates.join(' > ')})`);
+  assert.ok(!t.notices.some(notice => /Could not save/.test(notice)), `no "Could not save" notice for a written file (${t.notices.join(' | ')})`);
+  assert.ok(t.notices.some(notice => /Project saved/.test(notice)), `the save is reported as done (${t.notices.join(' | ')})`);
+  assert.equal(dirty(t), false, 'the project is marked clean against the save checkpoint');
+});
+
+await check('a save whose scene changed underneath keeps its stale-target handling after the deadline', async t => {
+  t.handle.onClose = () => { t.f.project.switchSceneDocument('scene-b'); for (const timer of t.timers) if (!timer.cleared) { timer.cleared = true; timer.run(); } };
+  const answer = t.f.run('project.save');
+  await settle();
+  t.pick();
+  await answer;
+  await settle();
+  assert.equal(t.written.length, 1);
+  assert.equal(saveStates.at(-1), 'error', `a save whose scene changed is not recorded as saved (states: ${saveStates.join(' > ')})`);
+});
+
 if (failures.length) { console.error(`${failures.length} failing: ${failures.join('; ')}`); process.exit(1); }
