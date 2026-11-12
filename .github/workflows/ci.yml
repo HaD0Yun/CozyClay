@@ -296,6 +296,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - suite: verify-install-browser
+            tier: gating
           - suite: verify-camera-rail-browser
             tier: gating
           - suite: qa-gizmo-click-through-browser
