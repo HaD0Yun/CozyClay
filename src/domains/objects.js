@@ -29,7 +29,7 @@ import {
 	setSceneObjectParent,
 	rigidMotionBetween,
 	carryPointByMotion,
-	tidyAngle,
+	tidyAngle, normalizeSceneObject,
 } from "../scene-objects.js";
 
 import { ko } from "../locale.js";
@@ -120,7 +120,8 @@ export function createObjectsDomain(appContext, initial) {
 		document: () => ({ objects: read() }), publish: state => write(state.objects), commitDraft: write,
 		load(objects) {
 			domain.settle?.(); release(); native.dispose();
-			native = createDocumentStore({ owned: { objects } });
+			// A loaded scene's records enter within the editor's limits (#1196); a record the normalizer cannot read stays as stored.
+			native = createDocumentStore({ owned: { objects: objects.map(row => normalizeSceneObject(row) ?? row) } });
 			release = native.subscribe(notify); notify();
 		},
 		arrange(args) {
