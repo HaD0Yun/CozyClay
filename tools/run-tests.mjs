@@ -102,7 +102,7 @@ const NODE_FILES = [
 	"test/verify-codex-client.mjs",
 	"test/verify-cuts.mjs",
 	"test/verify-shot-guides.mjs", "test/verify-shot-frame.mjs",
-	"test/verify-error-boundary.mjs",
+	"test/verify-error-boundary.mjs", "test/verify-character-load-fallback.mjs",
 	"test/verify-g006-css.mjs",
 	"test/verify-gizmo-claim.mjs",
 	"test/verify-grid-view.mjs",
