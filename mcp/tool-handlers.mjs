@@ -1520,12 +1520,12 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				// The prompt describes the framed character first (even when hidden), then every
 				// other visible character in cast order. pose_phrase and pose2_phrase go to the first two.
 				const framed = findCharacter(state.focus) ?? st.characters[0];
-				const cast = [framed, ...st.characters.filter((c) => c !== framed && !c.hidden)];
+				const described = [framed, ...st.characters.filter((c) => c !== framed && !c.hidden)];
 				const prompt = composePrompt({
 					mode,
 					model: modelById(model) ?? undefined,
 					shot: currentShot(),
-					subjects: cast.map((c, i) => ({ description: promptDescription(c?.subject), posePhrase: [pose_phrase, pose2_phrase][i] ?? "" })),
+					subjects: described.map((c, i) => ({ description: promptDescription(c?.subject), posePhrase: [pose_phrase, pose2_phrase][i] ?? "" })),
 					environment,
 					style,
 					cameraMove: known ? camera_move : "Custom…",
