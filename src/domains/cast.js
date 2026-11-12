@@ -24,7 +24,7 @@ import { ko } from "../locale.js";
 import { createIkState } from "../motion/ik.js";
 import { createCastPlacements } from "./cast-placement.js";
 import { judgeNextWaypoint } from "../motion/waypoints.js";
-import { StudioProtocolError } from "../studio-agent-protocol.js";
+import { StudioProtocolError } from "../studio-agent-protocol.js"; import { settleUiRefusal } from "./ui-refusal.js";
 import { studioActionRefusal } from "../studio-actions.js";
 import { createStableItemId, removeStableItem } from "../stable-items.js";
 import { track, trackFeature } from "../analytics.js";
@@ -791,7 +791,8 @@ export function useCast(appContext) {
 		}
 		return { add_character: addLiveCharacter, update_character: updateLiveCharacter, remove_character: removeLiveCharacter };
 	}
-	function toggleCharacterHidden(charId) { return domain.run('character.update', { characterId: charId, patch: { hidden: castMemberOf(charId).hidden !== true } }); }
+	// The Outliner's eye (a UI door): a refusal is logged here, never in window.onerror (#1185).
+	function toggleCharacterHidden(charId) { return settleUiRefusal('the visibility toggle was not applied', () => domain.run('character.update', { characterId: charId, patch: { hidden: castMemberOf(charId).hidden !== true } })); }
 	domain.snapshotMotion = snapshotNativeMotion;
 	domain.syncLayer = () => {
 		// An empty stage has no layer to edit: the buffer holds no route.
