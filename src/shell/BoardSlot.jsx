@@ -103,7 +103,7 @@ export default function BoardSlot({ active = true }) {
 		} catch (error) {
 			attempt.fail(error);
 			console.warn(`[cozyclay] panel ${entry.id} could not be sent to Workflow`, error);
-			setToast(ko(`Could not send the panel to Workflow: ${error?.message || error}`, `패널을 워크플로로 보내지 못했어요: ${error?.message || error}`, `无法将面板发送到工作流：${error?.message || error}`));
+			setToast(/quota/i.test(error?.name || "") ? ko("The Workflow draft is full. Remove pictures from the Workflow canvas, or save the project, then send the panel again.", "워크플로 초안이 가득 찼어요. 워크플로 캔버스에서 그림을 지우거나 프로젝트를 저장한 뒤 패널을 다시 보내 주세요.", "工作流草稿已满。请从工作流画布中删除图片，或保存项目，然后重新发送面板。") : ko(`Could not send the panel to Workflow: ${error?.message || error}`,`패널을 워크플로로 보내지 못했어요: ${error?.message || error}`, `无法将面板发送到工作流：${error?.message || error}`));
 		}
 	}
 
