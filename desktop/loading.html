@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>CozyClay</title>
+<style>
+	html, body { height: 100%; margin: 0; background: #16130f; color: #ece6dc; font: 15px -apple-system, "Segoe UI", sans-serif; }
+	body { display: flex; align-items: center; justify-content: center; -webkit-app-region: drag; }
+	main { text-align: center; max-width: 520px; padding: 24px; }
+	h1 { font-size: 22px; font-weight: 600; margin: 0 0 18px; }
+	.spin { width: 28px; height: 28px; margin: 0 auto 18px; border: 3px solid #3a3229; border-top-color: #d4824a; border-radius: 50%; animation: s 0.9s linear infinite; }
+	@keyframes s { to { transform: rotate(360deg); } }
+	#status { color: #a89f92; min-height: 1.4em; }
+	#hint { color: #7d7468; font-size: 13px; margin-top: 10px; }
+	#error { display: none; text-align: left; white-space: pre-wrap; font: 12px ui-monospace, Menlo, monospace; color: #e8b4a0; background: #221d17; border-radius: 8px; padding: 12px; margin-top: 16px; max-height: 220px; overflow: auto; -webkit-app-region: no-drag; user-select: text; }
+	button { display: none; margin-top: 16px; padding: 8px 18px; border: 0; border-radius: 8px; background: #d4824a; color: #16130f; font-weight: 600; -webkit-app-region: no-drag; cursor: pointer; }
+	.failed .spin { display: none; }
+	.failed #error, .failed button { display: inline-block; }
+	.failed #error { display: block; }
+</style>
+</head>
+<body>
+<main>
+	<div class="spin"></div>
+	<h1>Starting CozyClay…</h1>
+	<div id="status">Getting ready</div>
+	<div id="hint">The first start downloads CozyClay and can take a few minutes.</div>
+	<div id="error"></div>
+	<button onclick="location.hash = 'retry'">Try again</button>
+</main>
+<script>
+	window.setStatus = (text) => { document.getElementById("status").textContent = text; };
+	window.setFailed = (text, log) => {
+		document.body.classList.add("failed");
+		document.querySelector("h1").textContent = "CozyClay did not start";
+		document.getElementById("status").textContent = text;
+		document.getElementById("hint").textContent = "Check your internet connection, then try again.";
+		document.getElementById("error").textContent = log;
+	};
+</script>
+</body>
+</html>

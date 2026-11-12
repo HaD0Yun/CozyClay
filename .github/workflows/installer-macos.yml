@@ -1,11 +1,13 @@
 name: macOS app
 
-# Builds CozyClay.dmg (installer/macos) and proves the app's launcher brings the Studio up on a Mac.
-# Signing needs the Developer ID secrets (MAC_CERT_P12, MAC_CERT_PASSWORD) and notarization the App Store Connect key
-# (ASC_KEY_P8, ASC_KEY_ID, ASC_ISSUER_ID). Only a notarized build is for the site.
+# Builds CozyClay.dmg from desktop/: an Electron window (its own Chromium, so Safari users are fine) that starts the
+# newest cozyclay with the Node.js inside the app and shows the Studio in that window. No Terminal.
+# The app is launched on the runner and has to load the Studio in its window before anything is uploaded.
+# Signing needs MAC_CERT_P12 / MAC_CERT_PASSWORD (Developer ID Application) and notarization the App Store Connect
+# key (ASC_KEY_P8, ASC_KEY_ID, ASC_ISSUER_ID). Only a notarized build is for the site.
 on:
   push:
-    paths: ["installer/macos/**", ".github/workflows/installer-macos.yml"]
+    paths: ["desktop/**", ".github/workflows/installer-macos.yml"]
   workflow_dispatch:
 
 permissions:
@@ -17,6 +19,7 @@ env:
 jobs:
   build:
     runs-on: macos-latest
+    timeout-minutes: 120
     env:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
       MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
@@ -26,77 +29,89 @@ jobs:
       DO_NOT_TRACK: "1"
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble CozyClay.app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Electron and electron-builder
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Portable Node.js for Apple silicon and Intel
+        working-directory: desktop
         run: |
-          APP="build/CozyClay.app"
-          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp installer/macos/Info.plist "$APP/Contents/Info.plist"
-          cp installer/macos/launcher.sh "$APP/Contents/MacOS/CozyClay"
-          cp installer/macos/CozyClay.command "$APP/Contents/Resources/CozyClay.command"
-          chmod +x "$APP/Contents/MacOS/CozyClay" "$APP/Contents/Resources/CozyClay.command"
-          sips -s format icns public/icons/icon-512.png --out "$APP/Contents/Resources/CozyClay.icns"
           curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" -o SHASUMS256.txt
           for arch in arm64 x64; do
             name="node-${NODE_VERSION}-darwin-${arch}"
             curl -fsSLO "https://nodejs.org/dist/${NODE_VERSION}/${name}.tar.gz"
             grep " ${name}.tar.gz\$" SHASUMS256.txt | shasum -a 256 -c -
             tar -xzf "${name}.tar.gz"
-            mkdir -p "$APP/Contents/Resources/node-${arch}"
-            cp -R "${name}/bin" "${name}/lib" "$APP/Contents/Resources/node-${arch}/"
+            mkdir -p "vendor/node-${arch}"
+            cp -R "${name}/bin" "${name}/lib" "vendor/node-${arch}/"
           done
-          du -sh "$APP"
-      - name: The launcher brings the Studio up
-        run: |
-          build/CozyClay.app/Contents/Resources/CozyClay.command --no-open --no-star --no-update-check > out.log 2>&1 &
-          ok=""
-          for i in $(seq 1 90); do
-            sleep 4
-            if curl -fs -m 5 -o /dev/null http://127.0.0.1:5180/app/; then ok=1; break; fi
-          done
-          tail -20 out.log
-          [ -n "$ok" ] || { echo "the Studio did not answer"; exit 1; }
-          echo "Studio answered"
-          pkill -f cozyclay || true
-      - name: Sign (Developer ID)
+          cp ../public/icons/icon-512.png build/icon.png
+      - name: Signing keychain
         if: env.MAC_CERT_P12 != ''
         run: |
           KEYCHAIN="$RUNNER_TEMP/build.keychain"
           echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security create-keychain -p ci "$KEYCHAIN"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p ci "$KEYCHAIN"
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
           curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/g2.cer" && security import "$RUNNER_TEMP/g2.cer" -k "$KEYCHAIN" || true
           security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN" > /dev/null
-          security list-keychains -d user -s "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
-          [ -n "$IDENTITY" ] || { echo "no Developer ID Application identity in the certificate"; exit 1; }
+          [ -n "$IDENTITY" ] || { echo "no Developer ID Application identity"; exit 1; }
           echo "IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          APP="build/CozyClay.app"
-          find "$APP/Contents/Resources" -type f \( -perm -u+x -o -name "*.node" -o -name "*.dylib" \) -print0 | while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -q "Mach-O"; then codesign --force --timestamp --options runtime --entitlements installer/macos/node.entitlements -s "$IDENTITY" "$f"; fi
+      - name: Build CozyClay.app (universal)
+        working-directory: desktop
+        run: |
+          if [ -n "$IDENTITY" ]; then export CSC_NAME="${IDENTITY#Developer ID Application: }"; else export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
+          npx electron-builder --mac dir --universal --publish never -c.extraMetadata.version="1.0.${GITHUB_RUN_NUMBER}"
+          du -sh dist/mac-universal/CozyClay.app
+          codesign -dv dist/mac-universal/CozyClay.app 2>&1 | grep -E "Authority|TeamIdentifier|flags" || true
+      - name: The app opens the Studio in its window
+        working-directory: desktop
+        run: |
+          APP="dist/mac-universal/CozyClay.app/Contents/MacOS/CozyClay"
+          SMOKE="$RUNNER_TEMP/smoke.txt"
+          COZYCLAY_DESKTOP_SMOKE="$SMOKE" "$APP" > "$RUNNER_TEMP/app.log" 2>&1 &
+          for i in $(seq 1 120); do
+            sleep 4
+            [ -s "$SMOKE" ] && break
           done
-          codesign --force --timestamp --options runtime -s "$IDENTITY" "$APP"
-          codesign --verify --deep --strict "$APP"
-      - name: Disk image
-        run: |
-          mkdir dmg && cp -R build/CozyClay.app dmg/ && ln -s /Applications dmg/Applications
-          hdiutil create -volname CozyClay -srcfolder dmg -ov -format UDZO CozyClay.dmg
-          ls -la CozyClay.dmg && shasum -a 256 CozyClay.dmg
-      - name: Sign the disk image
-        if: env.MAC_CERT_P12 != ''
-        run: |
-          codesign --force --timestamp -s "$IDENTITY" CozyClay.dmg
-          codesign --verify --verbose=2 CozyClay.dmg
-      - name: Notarize
-        if: env.MAC_CERT_P12 != '' && env.ASC_KEY_P8 != ''
+          tail -40 "$HOME/Library/Logs/CozyClay/cozyclay.log" || true
+          [ -s "$SMOKE" ] || { echo "the app window did not load the Studio"; tail -20 "$RUNNER_TEMP/app.log"; exit 1; }
+          echo "Studio loaded in the app window:"; cat "$SMOKE"
+          sleep 5
+          if curl -fs -m 3 -o /dev/null http://127.0.0.1:5180/app/; then echo "quitting the app left the server running"; exit 1; fi
+          echo "quitting the app stopped the server"
+      - name: Notarize and staple the app
+        if: env.IDENTITY != '' && env.ASC_KEY_P8 != ''
+        working-directory: desktop
         run: |
           printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc.p8"
-          xcrun notarytool submit CozyClay.dmg --key "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
-          xcrun stapler staple CozyClay.dmg
-          spctl -a -t open --context context:primary-signature -v CozyClay.dmg
+          ditto -c -k --keepParent dist/mac-universal/CozyClay.app "$RUNNER_TEMP/app.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/app.zip" --key "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+          xcrun stapler staple dist/mac-universal/CozyClay.app
+          spctl -a -t exec -vv dist/mac-universal/CozyClay.app
+      - name: Disk image
+        working-directory: desktop
+        run: |
+          mkdir dmg && cp -R dist/mac-universal/CozyClay.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname CozyClay -srcfolder dmg -ov -format UDZO dist/CozyClay.dmg
+          ls -la dist/CozyClay.dmg
+      - name: Sign, notarize and staple the disk image
+        if: env.IDENTITY != '' && env.ASC_KEY_P8 != ''
+        working-directory: desktop
+        run: |
+          codesign --force --timestamp -s "$IDENTITY" dist/CozyClay.dmg
+          xcrun notarytool submit dist/CozyClay.dmg --key "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
+          xcrun stapler staple dist/CozyClay.dmg
+          spctl -a -t open --context context:primary-signature -v dist/CozyClay.dmg
+          shasum -a 256 dist/CozyClay.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ASC_KEY_P8 != '' && 'CozyClay-dmg' || 'CozyClay-dmg-not-notarized' }}
-          path: CozyClay.dmg
+          path: desktop/dist/CozyClay.dmg
           if-no-files-found: error

@@ -1,0 +1,49 @@
+{
+  "name": "cozyclay-desktop",
+  "productName": "CozyClay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CozyClay as a desktop app: one window with its own Chromium, no Terminal.",
+  "license": "AGPL-3.0-or-later",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac dir --universal --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "org.cozyclay.desktop",
+    "productName": "CozyClay",
+    "copyright": "\u00a9 2026 CozyClay contributors",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "loading.html"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/",
+        "to": ".",
+        "filter": [
+          "node-*/**"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "x64ArchFiles": "Contents/Resources/node-*/**",
+      "notarize": false
+    }
+  }
+}
