@@ -79,6 +79,15 @@ try {
 	const mounted = picks();
 	ok("the rest of the cast stays on the stage", mounted.includes("proxy"), JSON.stringify(mounted));
 	ok("the failed character shows the proxy figure in its place", mounted.includes("bad"), JSON.stringify(mounted));
+
+	// Only a load failure is settled at the character: any other render error is a real crash and must still
+	// reach the crash screen (and its app:render_crash telemetry) instead of hiding behind a proxy figure.
+	const { CharacterLoadBoundary } = await server.ssrLoadModule("/src/character-load-boundary.js");
+	const Broken = () => { throw new TypeError("not a load failure"); };
+	crashes.length = 0;
+	root.render(h(CrashScreen, { key: "other-error" }, h(CharacterLoadBoundary, { url: "broken", fallback: null }, h(Broken))));
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	ok("a render error that is not a load failure still reaches the root crash screen", crashes.some((c) => c?.message === "not a load failure"), JSON.stringify(crashes.map((c) => c?.message)));
 	root.unmount();
 } finally {
 	process.off("uncaughtException", onUncaught);
