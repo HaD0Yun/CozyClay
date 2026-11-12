@@ -22,7 +22,7 @@ test("a character created without a subject carries no placeholder text", () => 
 test("a stored scene whose character subject is a placeholder loads with no subject", () => {
 	const stage = createSceneStage({ characters: PLACEHOLDERS.map((subject, i) => ({ id: `char-${i + 1}`, subject })) });
 	assert.deepEqual(stage.characters.map((entry) => entry.subject), ["", "", ""]);
-	const raw = JSON.stringify({ version: 5, activeSceneId: "s1", scenes: [{ id: "s1", name: "SCENE 01", stage: { characters: [
+	const raw = JSON.stringify({ version: 5, activeSceneId: "s1", scenes: [{ id: "s1", name: "SCENE 01", objects: [], stage: { characters: [
 		{ id: "char-a", model: "y-bot-tpose", subject: "a young woman in a tan coat" },
 		{ id: "char-b", model: "x-bot-tpose", subject: "a man in a dark coat" },
 		{ id: "char-3", model: "proxy-figure", subject: "a person" },
