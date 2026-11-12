@@ -7,11 +7,12 @@ const name = { type: "string", minLength: 1, maxLength: 240 };
 const token = { type: "string", minLength: 1, maxLength: 240 };
 const document = (id, label, properties = {}) => ({ id, label, description: label, kind: "document", exposure: "confirm", input: input(properties) });
 const rename = { id: "project.rename", label: "Rename project", description: "Rename the project in one retained undo entry.", kind: "mutation", undoDomain: "scenes", input: input({ name }, ["name"]) };
-const save = { ...studioActionDeclaration("project.save"), input: input({ name }) };
+// The deadline covers the user in the file picker, so it is the hub's ceiling, not the 30 s default (#834, #1207).
+const PICKER_TIMEOUT_MS = 300_000;
+const save = { ...studioActionDeclaration("project.save"), input: input({ name }), timeoutMs: PICKER_TIMEOUT_MS };
 const saveAs = { ...save, id: "project.saveAs", label: "Save project as" };
-const exportAsAnimation = studioActionDeclaration("project.exportAsAnimation");
-// The deadline covers the user in the file picker, so it is the hub's ceiling, not the 30 s default.
-const opening = { ...document("project.open", "Open a project file", { serialized: { type: "string", maxLength: 400_000_000 }, handleToken: token, projectToken: token }), timeoutMs: 300_000 };
+const exportAsAnimation = { ...studioActionDeclaration("project.exportAsAnimation"), timeoutMs: PICKER_TIMEOUT_MS };
+const opening = { ...document("project.open", "Open a project file", { serialized: { type: "string", maxLength: 400_000_000 }, handleToken: token, projectToken: token }), timeoutMs: PICKER_TIMEOUT_MS };
 const fresh = document("project.new", "Start a new project", { name, previsMode: { type: "string", enum: [...PREVIS_MODES] }, castStyle: { type: "string", enum: [...CAST_STYLES] } });
 const starter = document("project.openStarter", "Open a starter project", { id: token, source: { type: "string", enum: ["starter", "launch"] }, name, castStyle: { type: "string", enum: [...CAST_STYLES] } });
 const restore = { ...document("project.restore", "Restore the remembered project", { handleToken: token }), exposure: "ui-only" };
