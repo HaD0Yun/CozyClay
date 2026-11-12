@@ -169,7 +169,7 @@ expect("the toggle unfolds it again", await waitFor("document.querySelector('.st
 // --- 5b. One compact rail on the right -----------------------------------------
 const rail = await rect(".vp-overlay-rail");
 expect("the object and view tools share one rail", await evaluate("!!document.querySelector('.vp-overlay-rail > .vp-overlay-left') && !!document.querySelector('.vp-overlay-rail > .vp-overlay-right')"));
-expect("the rail is 30px wide on the right edge of the stage", !!rail && Math.round(rail.width) === 30 && rail.left > 1000, JSON.stringify(rail));
+expect("the rail is 28px wide on the right edge of the stage", !!rail && Math.round(rail.width) === 28 && rail.left > 1000, JSON.stringify(rail));
 expect("every rail cell is at most 24px and none overlap", await evaluate(`(() => {
 	const box = document.querySelector('.vp-overlay-rail').getBoundingClientRect();
 	const cells = [...document.querySelectorAll('.vp-overlay-rail button, .vp-overlay-rail .vp-speed')].filter((node) => node.offsetParent).map((node) => node.getBoundingClientRect());
@@ -276,10 +276,24 @@ expect("typing a Rotation X tilts the shot camera", Math.abs(tilted.after - tilt
 expect("the roll field is read-only", await evaluate("document.querySelectorAll('[data-testid=camera-transform] .vec3-row')[1].querySelectorAll('input')[2].disabled"));
 await screenshot("camera-transform.png");
 
-// One top row 8px inside the stage frame: toggle, modes, menus, then the rail.
-const row = await evaluate(`(() => { const r = (s) => document.querySelector(s)?.getBoundingClientRect(); const t = r(".shell-left-toggle"), m = r(".v2-topbar .menubar"), v = r(".vp-mode-toolbar"), rail = r(".vp-overlay-rail"), dock = r(".studio-dock-slot"); return { tops: [t?.top, m?.top, v?.top, rail?.top].map(Math.round), menuRight: Math.round(m?.right), railLeft: Math.round(rail?.left), railRight: Math.round(rail?.right), dockRight: Math.round(dock?.right), gap: getComputedStyle(document.querySelector(".app")).getPropertyValue("--shell-gap").trim(), radius: getComputedStyle(document.querySelector(".v2-dock")).borderRadius }; })()`);
-expect("the top row shares one top line", new Set(row.tops).size === 1, JSON.stringify(row));
-expect("the menus sit just left of the rail", row.menuRight < row.railLeft && row.railLeft - row.menuRight <= 8, JSON.stringify(row));
+// Compact controls at the top, menus aligned with the left edge of the bar.
+const row = await evaluate(`(() => {
+	const r = (selector) => document.querySelector(selector).getBoundingClientRect();
+	const app = document.querySelector(".app"), root = app.getBoundingClientRect();
+	const menu = r(".v2-topbar .menubar"), mode = r(".vp-mode-toolbar"), rail = r(".vp-overlay-rail");
+	const edges = getComputedStyle(app, "::before");
+	return {
+		tops: [menu.top, mode.top, rail.top].map((top) => Math.round(top - root.top)),
+		menuLeft: menu.left, barLeft: r(".v2-topbar").left, menuRight: menu.right, modeLeft: mode.left,
+		heights: [menu.height, mode.height],
+		edges: [edges.borderTopWidth, edges.borderBottomWidth, edges.top, edges.bottom],
+		gap: getComputedStyle(app).getPropertyValue("--shell-gap").trim(),
+		radius: getComputedStyle(document.querySelector(".v2-dock")).borderRadius,
+	};
+})()`);
+expect("compact controls share the top line", row.tops.every((top) => top >= 2 && top <= 3) && row.heights.every((height) => height === 20), JSON.stringify(row));
+expect("menus align with the left bar edge before the mode switch", Math.abs(row.menuLeft - row.barLeft) <= 1 && row.menuRight < row.modeLeft, JSON.stringify(row));
+expect("1px rules sit at the full app's top and bottom", JSON.stringify(row.edges) === JSON.stringify(["1px", "1px", "0px", "0px"]), JSON.stringify(row));
 expect("panels use a 3px gap and 10px corners", row.gap === "3px" && row.radius === "10px", JSON.stringify(row));
 
 // Wheel over a camera-bar number field steps it by its own step.

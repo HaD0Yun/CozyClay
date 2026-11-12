@@ -78,9 +78,9 @@ check("Look through draws into the open stage, not under the panels", () => {
 	assert.ok(rule.includes("--shot-look-x: calc(var(--shell-gap) * 2 + 44px)") && rule.includes("--shot-look-y:"), "rail and pill bands");
 	assert.ok(rule.includes("inset: calc(var(--shell-stage-top) + var(--shot-look-y)) calc(var(--shell-center-right) + var(--shot-look-x)) calc(var(--shell-center-bottom) + var(--shot-look-y)) calc(var(--shell-center-left) + var(--shot-look-x));"), "symmetric pane inset");
 	const glass = readFileSync(new URL("../src/shell/glass.css", import.meta.url), "utf8");
-	// One rail on the right edge holds both tool groups: 30px wide, a gutter off the stage edge
+	// One rail on the right edge holds both tool groups: 28px wide, a gutter off the stage edge
 	// (still inside the 44px band the shot-look inset keeps clear on each side).
-	assert.match(glass, /\.vp-overlay-rail \{[\s\S]*?right: 8px;[\s\S]*?width: 30px;/, "the merged rail is 30px wide, 8px inside the right edge");
+	assert.match(glass, /\.vp-overlay-rail \{[\s\S]*?right: 6px;[\s\S]*?width: 28px;/, "the merged rail is 28px wide, 6px inside the right edge");
 	// the stage frame opens to the top gap; the bar floats over it
 	assert.match(css, /--shell-view-top: var\(--shell-gap\);/);
 	const dual = readFileSync(new URL("../src/dualview.jsx", import.meta.url), "utf8");
