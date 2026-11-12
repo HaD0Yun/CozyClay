@@ -1797,7 +1797,7 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 
 	const { FIRST_LAUNCH_SOURCES } = await import("../bin/telemetry-state.mjs");
 	assert.deepEqual([...HEARD_FROM_SOURCES].sort(), [...FIRST_LAUNCH_SOURCES].sort(), "the CLI and the browser agree on install sources");
-	for (const heard_from of ["site", "playground", "installer"]) {
+	for (const heard_from of ["site", "playground", "installer", "store"]) {
 		assert.deepEqual(sanitizeProps("install:first_launch", { heard_from }), { heard_from });
 		assert.ok(rowTokens("install:first_launch").has(heard_from), `install source ${heard_from} is disclosed`);
 	}

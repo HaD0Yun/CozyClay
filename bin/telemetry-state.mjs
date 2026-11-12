@@ -6,7 +6,7 @@ const POSTHOG_PROJECT_TOKEN = "phc_CpizzZ8VhSorSS8yEeQhdpUcvB2erp5xkCbnFD8HTJ5m"
 const POSTHOG_API_HOST = "https://t.cozyclay.org";
 // First-launch answers plus the `npx cozyclay --via <source>` values the
 // landing page's copy commands carry (#466). Mirrors analytics HEARD_FROM_SOURCES.
-export const FIRST_LAUNCH_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground", "installer"]);
+export const FIRST_LAUNCH_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground", "installer", "store"]);
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

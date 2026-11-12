@@ -144,7 +144,7 @@ const FEATURE_NAMES = new Set([
 ]);
 // `site` and `playground` arrive through `npx cozyclay --via <source>` from the
 // landing page's copy commands; the others are the first-launch prompt answers.
-export const HEARD_FROM_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground", "installer"]);
+export const HEARD_FROM_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground", "installer", "store"]);
 const HEARD_FROM_VALUES = new Set(HEARD_FROM_SOURCES);
 const DENIED_PROPERTY_KEYS = new Set(["prompt", "text", "url", "path", "file"]);
 // Sculpt mode (#739): one sculpt_run per finished run. Numbers only: no

@@ -7,6 +7,10 @@ Install
 - A Windows installer (`CozyClay-Setup.exe`): it brings its own Node.js and
   starts the newest CozyClay from a desktop shortcut, with no terminal. Built
   by the `Windows installer` workflow; not yet linked from the site. (#1184)
+- A Microsoft Store package (`CozyClay.msix`, Store ID 9P8H63Q9CRTC): Node.js
+  and a pinned copy of the newest cozyclay, started by `CozyClay.exe`. The
+  Store signs it, so it installs without the SmartScreen warning. First
+  launches from it are counted as `--via store`. (#1204)
 
 Motion
 

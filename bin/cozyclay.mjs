@@ -130,7 +130,7 @@ const HELP = `cozyclay - browser-based 3D staging studio
   npx cozyclay --no-star    never ask about starring the repo
   npx cozyclay --no-update-check
                             do not look for a newer release
-  npx cozyclay --via site   say where you found CozyClay (site, playground, installer, x,
+  npx cozyclay --via site   say where you found CozyClay (site, playground, installer, store, x,
                             hn, reddit, github, friend or other); recorded once,
                             with the anonymous first launch
   cclay telemetry status   show anonymous telemetry status

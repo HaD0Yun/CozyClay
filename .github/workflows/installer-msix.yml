@@ -1,0 +1,108 @@
+name: Microsoft Store package
+
+# Builds CozyClay.msix (installer/msix) for the Microsoft Store: a portable Node.js, a pinned copy of the newest
+# published cozyclay and CozyClay.exe. A self-signed copy is installed on the runner and has to bring the Studio up
+# before the unsigned package is uploaded. The Store signs the package it receives.
+on:
+  push:
+    paths: ["installer/msix/**", ".github/workflows/installer-msix.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: v26.13.1
+  PUBLISHER: CN=E0E770C9-47D9-47C3-9318-B676971230D3
+  PFN: CozyClay.CozyClay_rgvjgaa725x4j
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    env:
+      DO_NOT_TRACK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Portable Node.js
+        shell: pwsh
+        run: |
+          $zip = "node-$env:NODE_VERSION-win-x64.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/$env:NODE_VERSION/$zip" -OutFile $zip
+          $sums = (Invoke-WebRequest "https://nodejs.org/dist/$env:NODE_VERSION/SHASUMS256.txt").Content -split "`n"
+          $want = (($sums | Where-Object { $_ -match " $zip$" }) -split '\s+')[0]
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $want) { throw "checksum mismatch for $zip" }
+          Expand-Archive $zip -DestinationPath .
+          New-Item -ItemType Directory pkg | Out-Null
+          Move-Item "node-$env:NODE_VERSION-win-x64" pkg\node
+      - name: The newest cozyclay, pinned in the package
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD\pkg\node;$env:PATH"
+          New-Item -ItemType Directory pkg\app | Out-Null
+          Set-Content pkg\app\package.json '{"private":true}'
+          & pkg\node\npm.cmd install --prefix pkg\app cozyclay@latest --omit=dev --no-audit --no-fund
+          if ($LASTEXITCODE) { throw "npm install failed" }
+          $v = (Get-Content pkg\app\node_modules\cozyclay\package.json | ConvertFrom-Json).version
+          "COZYCLAY_VERSION=$v" | Out-File -Append $env:GITHUB_ENV
+          Write-Host "cozyclay $v"
+      - name: CozyClay.exe
+        shell: pwsh
+        run: |
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:pkg\CozyClay.exe installer\msix\Launcher.cs
+          if ($LASTEXITCODE) { throw "csc failed" }
+      - name: Tiles and manifest
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          New-Item -ItemType Directory pkg\Assets | Out-Null
+          $src = [System.Drawing.Image]::FromFile("$PWD\public\icons\icon-512.png")
+          function Tile($name, $w, $h) {
+            $bmp = New-Object System.Drawing.Bitmap $w, $h
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.InterpolationMode = 'HighQualityBicubic'; $g.Clear([System.Drawing.Color]::Transparent)
+            $s = [Math]::Min($w, $h); $g.DrawImage($src, [int](($w - $s) / 2), [int](($h - $s) / 2), $s, $s)
+            $bmp.Save("$PWD\pkg\Assets\$name", [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose()
+          }
+          Tile StoreLogo.png 50 50; Tile Square44x44Logo.png 44 44; Tile Square150x150Logo.png 150 150; Tile Wide310x150Logo.png 310 150
+          $version = "1.0.$env:GITHUB_RUN_NUMBER.0"
+          (Get-Content installer\msix\AppxManifest.xml -Raw).Replace('__VERSION__', $version) | Set-Content pkg\AppxManifest.xml -Encoding utf8
+          "MSIX_VERSION=$version" | Out-File -Append $env:GITHUB_ENV
+      - name: Pack
+        shell: pwsh
+        run: |
+          $kit = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName | Select-Object -Last 1
+          & $kit.FullName pack /d pkg /p CozyClay.msix /o
+          if ($LASTEXITCODE) { throw "makeappx failed" }
+          "SDKBIN=$($kit.DirectoryName)" | Out-File -Append $env:GITHUB_ENV
+          Get-Item CozyClay.msix | Format-List Name, Length
+          (Get-FileHash CozyClay.msix).Hash
+      - name: A self-signed copy installs and brings the Studio up
+        shell: pwsh
+        run: |
+          Copy-Item CozyClay.msix test.msix
+          $cert = New-SelfSignedCertificate -Type Custom -Subject $env:PUBLISHER -KeyUsage DigitalSignature -FriendlyName "CozyClay CI test" -CertStoreLocation Cert:\CurrentUser\My -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+          $pw = ConvertTo-SecureString -String ci -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath test.pfx -Password $pw | Out-Null
+          Export-Certificate -Cert $cert -FilePath test.cer | Out-Null
+          Import-Certificate -FilePath test.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          & "$env:SDKBIN\signtool.exe" sign /fd SHA256 /f test.pfx /p ci test.msix
+          if ($LASTEXITCODE) { throw "signtool failed" }
+          Add-AppxPackage -Path test.msix
+          $pkg = Get-AppxPackage -Name CozyClay.CozyClay
+          if (-not $pkg) { throw "the package did not install" }
+          Write-Host "installed $($pkg.PackageFullName) at $($pkg.InstallLocation)"
+          Invoke-CommandInDesktopPackage -PackageFamilyName $env:PFN -AppId CozyClay -Command (Join-Path $pkg.InstallLocation 'CozyClay.exe') -Args '--no-open --no-star --no-update-check'
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 3
+            try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:5180/app/' -UseBasicParsing -TimeoutSec 5; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+          }
+          if (-not $ok) { throw 'the packaged Studio did not answer on http://127.0.0.1:5180/app/' }
+          Write-Host "Studio answered 200 from the installed package (cozyclay $env:COZYCLAY_VERSION, package $env:MSIX_VERSION)"
+          Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+          Remove-AppxPackage $pkg.PackageFullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CozyClay-msix
+          path: CozyClay.msix
+          if-no-files-found: error

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CozyClay for the Microsoft Store (installer/msix). The identity values come from Partner Center (Store ID 9P8H63Q9CRTC).
+     The workflow (.github/workflows/installer-msix.yml) fills in the version. The Store signs the package. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+  <Identity Name="CozyClay.CozyClay" Publisher="CN=E0E770C9-47D9-47C3-9318-B676971230D3" Version="__VERSION__" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>CozyClay</DisplayName>
+    <PublisherDisplayName>CozyClay</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Open source previs: block a scene in 3D, pose characters, set the camera and cuts, then hand the same shot to an AI video model.</Description>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="CozyClay" Executable="CozyClay.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="CozyClay" Description="Open source previs in your browser"
+        BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <Capability Name="privateNetworkClientServer" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
