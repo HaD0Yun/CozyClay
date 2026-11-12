@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Site
+
+- On Windows the Install dialog leads with one download, `CozyClay-Setup.exe`;
+  the Node.js and terminal steps stay one click away. (#1188)
+
 Motion
 
 - Sample motions in the Motion tab: one click installs a walk or a flip on the

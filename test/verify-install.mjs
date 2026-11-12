@@ -26,6 +26,10 @@ assert.equal(nodeInstaller(null, "mac"), fallback);
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 assert.match(html, /import \{ setupInstall \} from "\.\/src\/install\.js"/);
 assert.match(html, /data-install-step="1"/);
+// Windows leads with the installer download; the Node.js steps stay behind one button
+assert.match(html, /data-installer-download href="https:\/\/github\.com\/HaD0Yun\/CozyClay\/releases\/download\/windows-installer\/CozyClay-Setup\.exe"/);
+assert.match(html, /data-install-manual/);
+assert.match(html, /Run anyway/);
 assert.match(html, /data-install-step="2" hidden/);
 assert.match(html, /id="install-status"[^>]*role="status"/);
 assert.match(html, /http:\/\/127\.0\.0\.1:5180\/app\//);
