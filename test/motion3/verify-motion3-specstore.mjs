@@ -170,13 +170,16 @@ const both = run(remeasureReg, "motion.compile", { characterId: CHARACTER.id, ba
 expect("spec.probes join the request's probes", Object.keys(both.probes ?? {}).join() === "hand,head", JSON.stringify(both.probes));
 
 // ---- 4c. the round-2 refusals, replayed verbatim on the cup scene (fixtures/round2-calls.mjs) ---
+// a CI runner loaded during one compile (#1187): its clock runs 8x, so a full repair (~4 s here) reads past repair.js's 20 s cap
+const realNow = performance.now.bind(performance);
+const loaded = fn => { performance.now = () => realNow() * 8; try { return fn(); } finally { performance.now = realNow; } };
 const replay = createStudioAppActions(portsFor(CHARACTER, SCENE_OBJECTS));
 const bare = replay.run("motion.compile", MOVED_BARE);
 const lifted = bare.output.qa.goals?.find(g => g.name === "cup lifted off the table");
 const prefixed = structuredClone(MOVED_BARE);
 prefixed.spec.goals[1].moved = "object:empty-2";
 expect("replay 95b449d7: goals[1].moved \"empty-2\" compiles as object:empty-2 (the cup is lifted; the same specId as the object: form)", lifted?.kind === "moved" && lifted.ok === true
-	&& bare.output.specId === replay.run("motion.compile", prefixed).output.specId, JSON.stringify(bare.output.qa.goals));
+	&& bare.output.specId === loaded(() => replay.run("motion.compile", prefixed)).output.specId, JSON.stringify(bare.output.qa.goals));
 const baseA = run(replay, "motion.compile", { characterId: CHARACTER.id, spec: BASE_REMEASURE, install: false }).specId;
 const remeasure = replay.run("motion.compile", { ...REMEASURE, base: baseA });
 expect("replay 95b449d7: install \"never\", base + patch: [] + 3 probes answers the probes and installs nothing", remeasure.output.specId === baseA && remeasure.output.installed === false
