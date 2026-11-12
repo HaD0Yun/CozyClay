@@ -130,7 +130,7 @@ const NODE_FILES = [
 	"test/verify-otio.mjs",
 	"test/verify-pose-library.mjs",
 	"test/verify-project.mjs",
-	"test/verify-workflow-send.mjs",
+	"test/verify-workflow-send.mjs", "test/verify-workflow-entry.mjs",
 	"test/verify-animation-export.mjs",
 	"test/verify-project-previs-mode.mjs", "test/verify-project-cast-style.mjs",
 	"test/verify-pwa.mjs", "test/verify-github-stars.mjs",
