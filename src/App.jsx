@@ -1187,7 +1187,7 @@ export default function App() {
 
 	// Right-sidebar tab. "inspector" shows the selection's properties; "shot"
 	// holds shot-global settings (type presets, prompt); "motion" holds the
-	// ARDY workflow in pipeline order. Selecting anything in the scene routes
+	// motion3 workflow in pipeline order. Selecting anything in the scene routes
 	// to the inspector tab; the root SHOT row routes to the shot tab.
 	const [inspectorActionsOpen, setInspectorActionsOpen] = useState(false);
 
@@ -1615,7 +1615,7 @@ export default function App() {
 			// camera's; a tool switch mid-flight would be a surprise.
 			if (flyingRef.current) return;
 			// Undo/redo (plan §6.5). The input guard above keeps Ctrl/Cmd+Z in
-			// the Name field or the ARDY prompt as the browser's text undo.
+			// the Name field or a prompt box as the browser's text undo.
 			// Placed before the selection gate: undo works with nothing
 			// selected, and mid-drag the store's settle commits then steps.
 			if (event.code === "KeyZ" && (event.ctrlKey || event.metaKey)) {
@@ -3657,7 +3657,7 @@ export default function App() {
 
 	// Keyed-pose playback: the IK layer's keyed bone rotations apply at the
 	// current frame whether or not IK edit mode is on — IK-authored keys are
-	// the source of truth (the user designs first/end keys and ARDY in-
+	// the source of truth (the user designs first/end keys and motion3 in-
 	// betweens them), so scrubbing/playing with IK OFF must still show them.
 	// With a motion loaded the clip is the base layer: this effect runs
 	// AFTER the motion-apply effect above (definition order), so the keys

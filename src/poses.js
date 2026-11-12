@@ -134,7 +134,7 @@ function qToEuler(q) {
  * only writer, and it mounts long after Character's own effect has already
  * applied the default pose -- so the snapshot baked the default's deltas
  * (~90 degrees on the arms) and called them "rest". Everything downstream that
- * expresses a pose as a delta -- capturePose, savePose, and the ARDY export --
+ * expresses a pose as a delta -- capturePose and savePose --
  * then measured against a pose instead of against the bind, and a default
  * character exported arms as identity.
  */

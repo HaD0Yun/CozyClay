@@ -287,7 +287,7 @@ function directionTriangle(from, to, distance = 0.26) {
 	return geometry;
 }
 
-/** ARDY movement endpoints shown while composing a camera rail. The direct
+/** Subject track endpoints shown while composing a camera rail. The direct
  * start-to-end vector gives the operator one unambiguous travel direction. */
 function SubjectMovementGuide({ track }) {
 	const guide = useMemo(() => {

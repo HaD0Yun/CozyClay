@@ -145,7 +145,6 @@
     "react-three-fiber",
     "webgl",
     "motion",
-    "ardy",
     "storyboard",
     "previz"
   ],
