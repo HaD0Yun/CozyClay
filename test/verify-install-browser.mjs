@@ -16,7 +16,8 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: `
 	window.fetch = (input, options) => String(input).includes("nodejs.org/dist/index.json")
 		? Promise.resolve(new Response("[]", { status: 503 })) : originalFetch(input, options);
 ` });
-await send("Page.navigate", { url: `${origin}/#install` });
+// Vite redirects / to the Studio; /index.html serves the same landing entry.
+await send("Page.navigate", { url: `${origin}/index.html#install` });
 if (!await waitFor('document.querySelector("#install")?.open')) throw new Error("install hash entry did not open");
 
 expect("hash opens setup with runtime step visible", await evaluate('!document.querySelector(\'[data-install-step="1"]\').hidden && document.querySelector(\'[data-install-step="2"]\').hidden'));
