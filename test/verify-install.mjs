@@ -29,6 +29,8 @@ assert.match(html, /data-install-step="1"/);
 // Windows leads with the installer download; the Node.js steps stay behind one button
 assert.match(html, /data-installer-download href="https:\/\/github\.com\/HaD0Yun\/CozyClay\/releases\/download\/windows-installer\/CozyClay-Setup\.exe"/);
 assert.match(html, /data-install-manual/);
+// phones cannot install: Install is hidden there, the rest of the page stays
+assert.match(html, /\[data-touch\] :is\(\[data-install-open\]/);
 assert.match(html, /Run anyway/);
 assert.match(html, /data-install-step="2" hidden/);
 assert.match(html, /id="install-status"[^>]*role="status"/);

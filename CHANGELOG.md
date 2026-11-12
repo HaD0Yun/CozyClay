@@ -4,6 +4,7 @@
 
 Site
 
+- On a phone the landing page no longer offers Install. (#1189)
 - On Windows the Install dialog leads with one download, `CozyClay-Setup.exe`;
   the Node.js and terminal steps stay one click away. (#1188)
 

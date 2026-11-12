@@ -196,6 +196,8 @@
       .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + 32px); width: min(500px, 42%); pointer-events: none; }
       .pitch h1 { font-size: clamp(40px, 4vw, 60px); line-height: 1.04; }
       .pitch p { margin-top: 16px; max-width: 30em; color: #d6d3cb; font-size: 18px; }
+      /* phones and tablets (html[data-touch], set by src/install.js) cannot install: the page stays as it is, without Install */
+      [data-touch] :is([data-install-open], p:has([data-install-open])) { display: none; }
       .pitch-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; pointer-events: auto; }
 
       /* The strip under the shot reads like the studio's Sequencer: transport,

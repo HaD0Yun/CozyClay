@@ -28,6 +28,7 @@ export function setupInstall() {
 	const copy = install.querySelector("[data-install-copy]");
 	const status = document.getElementById("install-status");
 	const command = document.getElementById("install-command");
+	if (mobile) document.documentElement.dataset.touch = "";
 	if (detected) document.querySelectorAll("[data-install-label]").forEach((label) => { label.textContent = `Install on ${OS_NAME[detected]}`; });
 
 	const updateDownload = () => {
