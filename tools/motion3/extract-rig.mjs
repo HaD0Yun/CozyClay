@@ -15,7 +15,7 @@ root.traverse(o => { if (o.isSkinnedMesh && (!mesh || o.skeleton.bones.length > 
 // The whole bone hierarchy under the skinned Hips, end bones included (some rigs do not skin them).
 const bones = [];
 // Mixamo FBX nests an identity "skinned" copy of every bone under its control bone; the
-// project rule (src/ardy/playback.js findBone) is first depth-first match wins, so keep
+// project rule (src/motion3/playback.js) is first depth-first match wins, so keep
 // the first bone of each name and never the nested copies.
 const seen = new Set();
 let top0 = mesh.skeleton.bones[0];

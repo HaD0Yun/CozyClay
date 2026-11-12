@@ -16,7 +16,7 @@ import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
 
 /**
- * ARDY Viser-style animation timeline — the live motion workspace.
+ * Viser-style animation timeline — the live motion workspace.
  *
  * Frame, playback, waypoints and the motion badge are owned by App: this
  * component is controlled and reports every interaction through callbacks,
