@@ -671,7 +671,7 @@ export default function ObjectGizmo({ object, objects = [], mode = "move", snap 
 		if (!root || !camera || !object) return;
 		camera.getWorldPosition(tools.camPos);
 		gizmoOrigin(object, held, tools.origin);
-		root.scale.setScalar(Math.max(0.35, tools.camPos.distanceTo(tools.origin) * SCREEN_SCALE));
+		root.scale.setScalar(Math.max(0.2625, tools.camPos.distanceTo(tools.origin) * SCREEN_SCALE));
 		if (mode !== "rotate") return;
 		// The rotate rings are view-dependent, so their orientation is frame
 		// state: the screen ring billboards flat to the camera (the shot
