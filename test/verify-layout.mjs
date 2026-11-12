@@ -282,8 +282,8 @@ expect(
 	!app.includes("advanced-toggle") && !app.includes("cozyclay.advanced"),
 );
 expect(
-	"the Studio's Window menu returns to Workflow",
-	app.includes('className="menubar-item workflow-topbar-link" href="/workflow/"'),
+	"the Studio's Window menu keeps its Workflow link behind the off-by-default entry switch (#1211)",
+	app.includes('className="menubar-item workflow-topbar-link" href="/workflow/"') && app.includes("{WORKFLOW_ENTRY_ENABLED && "),
 );
 expect(
 	"expert foldouts stay enabled in the always-advanced Studio",
