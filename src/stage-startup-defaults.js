@@ -37,8 +37,7 @@ export const SHOT_ASPECT_PRESETS = Object.freeze({
 export const characterModelUrl = (model) => `/models/${model}.fbx`;
 
 /** Shipped rig names as the operator says them, not as the files spell them. */
-export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };
-CHARACTER_MODEL_LABELS["proxy-figure"] = ko("Capsule figure", "캡슐 인물");
+export { CHARACTER_MODEL_LABELS } from "./character-name.js";
 
 /** Sequential ids for spawned characters, collision-free against the cast. */
 export function nextCharacterId(list) {

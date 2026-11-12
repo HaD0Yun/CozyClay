@@ -3,7 +3,12 @@
 // its body (CHARACTER_MODEL_LABELS) plus a suffix from its own id, so the name
 // is unique within the cast and does not shift when others come and go. The
 // agent's scene context and its name resolver both read this one function.
-import { CHARACTER_MODEL_LABELS } from "./stage-startup-defaults.js";
+import { ko } from "./locale.js";
+
+// The body labels live here, not in stage-startup-defaults.js (which imports three), so Node-side
+// callers such as the MCP handlers can name a character without loading the stage.
+export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };
+CHARACTER_MODEL_LABELS["proxy-figure"] = ko("Capsule figure", "캡슐 인물");
 
 /** The display name of one cast row: its subject, else "<model label> <id suffix>". */
 export function characterName(character) {
