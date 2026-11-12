@@ -4,7 +4,7 @@
 // document, the command layer, the tests and the agent sidecar can all load it.
 // The renderer reads it through stageLook() (room.jsx, stage-sky.jsx).
 import { elementByPath } from "./studio-elements.js";
-import { GRID_BACKGROUND, GRID_FOG, stageBackground } from "./grid-view.js";
+import { GRID_FOG, stageBackground } from "./grid-view.js";
 import { environmentSpec } from "./stage-environment.js";
 import { HDR_FIELDS, normalizeHdrFields } from "./stage-hdr.js";
 
@@ -17,11 +17,11 @@ const limits = (path) => elementByPath(path);
 const finite = (value, fallback, { min, max }) => (typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback);
 
 // The key a new project opens with, and what Reset light and the studio look
-// return to: a bright neutral sun (brightness 3, warmth 0). Saved stages keep
+// return to: a bright neutral sun (brightness 4, warmth 0). Saved stages keep
 // their own key; only a record with no key at all picks this up. The 1.12
 // still used as a ratio elsewhere (dim, practical lights) is the old key's
 // brightness, kept as the scale those were tuned against.
-const DEFAULT_KEY_LIGHT = Object.freeze({ x: 6, y: 9, z: 4, intensity: 3, warmth: 0, color: null });
+const DEFAULT_KEY_LIGHT = Object.freeze({ x: 6, y: 9, z: 4, intensity: 4, warmth: 0, color: null });
 // envLight and ao are 0 in the studio look: no environment map, no occlusion pass.
 // No look names an HDR environment (stage-hdr.js); the user or the agent picks one.
 const DEFAULT_LIGHTING = Object.freeze({ preset: "studio", sky: null, skyTop: null, ambient: 1, hemiSky: "#ffffff", hemiGround: "#5a5d64", fill: 1, fog: 0, exposure: 1, shadowSoftness: 0, envLight: 0, ao: 0, ...normalizeHdrFields() });
@@ -120,8 +120,9 @@ export function stageLook({ lighting, keyLight, theme = "dark", grid = false }) 
 	const normalized = normalizeLighting(lighting), key = createKeyLight(keyLight);
 	// An HDR backdrop is no UI theme's stage either: a null sky under it is the dark stage's grey.
 	const l = normalized.sky === null && normalized.hdr && normalized.hdrBackground ? { ...normalized, sky: stageBackground("dark") } : normalized;
-	const themed = l.sky === null, neutral = grid && themed, lightTheme = themed && theme === "light";
-	const sky = themed ? (grid ? GRID_BACKGROUND : stageBackground(theme)) : l.sky;
+	const themed = l.sky === null, lightTheme = themed && theme === "light";
+	const neutral = grid && themed && !lightTheme;
+	const sky = themed ? stageBackground(theme) : l.sky;
 	const haze = hazeRange(l.fog), base = neutral ? GRID_FOG : { near: 18, far: 54 };
 	const dim = key.intensity / 1.12, lift = Math.min(1, 0.35 + 0.65 * dim);
 	// The environment map takes over the hemisphere's share as envLight rises (stage-environment.js).
