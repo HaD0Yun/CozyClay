@@ -45,3 +45,10 @@ test("a reference by a model-built name resolves to that character", () => {
 	assert.ok(nearOne.x < 0, `"Y Bot 1" resolves to char-1 at x 0 (crate x ${nearOne.x})`);
 	assert.ok(nearTwo.x > 1, `"Y Bot 2" resolves to char-2 at x 3 (crate x ${nearTwo.x})`);
 });
+
+test("the name helper is a leaf module, so Node-side callers such as the MCP handlers can import it", async () => {
+	const { readFileSync } = await import("node:fs");
+	const source = readFileSync(new URL("../src/character-name.js", import.meta.url), "utf8");
+	const imports = [...source.matchAll(/^import [^;]* from "([^"]+)";/gm)].map((match) => match[1]);
+	assert.deepEqual(imports, ["./locale.js"], `src/character-name.js imports ${JSON.stringify(imports)}; stage-startup-defaults.js would pull in three`);
+});
