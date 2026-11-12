@@ -7,7 +7,7 @@ import { CAMERA_PRESETS, cameraPresetFraming } from '../camera-move.js';
 import { createDocumentStore } from '../document-store.js';
 import { useDocumentDomain } from '../store/use-document-store.js';
 import { frameDraft } from '../studio-agent-commands.js';
-import { StudioProtocolError } from '../studio-agent-protocol.js';
+import { StudioProtocolError } from '../studio-agent-protocol.js'; import { settleUiRefusal } from './ui-refusal.js';
 import { createShotAuthoringDocument, readShotAuthoring, readShotAuthoringDocument, SHOT_AUTHORING_KEY,
   SHOT_AUTHORING_LEGACY_KEYS, SHOT_AUTHORING_QUARANTINE_KEY } from '../shot-authoring.js';
 import { shotIndexAtFrame } from '../cuts.js';
@@ -267,8 +267,8 @@ export function useShots(appContext) {
   }
   function syncActiveCameraFraming() {
     if (!appContext.shared.shotCamRef.current || appContext.shared.ikMode || appContext.shared.playMode) return;
-    const shotId = selectedShotId();
-    return domain.edit('shot.captureCamera', shotId ? { shotId } : {});
+    const shotId = selectedShotId(); // UI doors (orbit end, rail draw, follow): a refusal is logged here (#1185).
+    return settleUiRefusal('the camera framing was not captured', () => domain.edit('shot.captureCamera', shotId ? { shotId } : {}));
   }
   function commitManualCameraFraming() { trackFeature('orbit'); return syncActiveCameraFraming(); }
   function beginCameraFramingGesture() { if (!appContext.shared.ikMode && !appContext.shared.playMode) domain.beginGesture(); }
@@ -281,7 +281,7 @@ export function useShots(appContext) {
     if (receipt.authored) appContext.shared.markCraftAction('camera_key');
     appContext.shared.setSelectedHierarchyId('camera'); return receipt;
   }
-  function moveCameraKeyframe(shotId, keyId, from, to) { if (from !== to) return domain.edit('shot.moveKey', { shotId, keyId, frame: Math.max(0, Math.round(to)) }); }
+  function moveCameraKeyframe(shotId, keyId, from, to) { if (from !== to) return settleUiRefusal('the camera key was not moved', () => domain.edit('shot.moveKey', { shotId, keyId, frame: Math.max(0, Math.round(to)) })); }
   function removeCameraKeyframe(shotId, keyId) { return domain.run('shot.removeKey', { shotId, keyId }); }
   function clearMove() { setMovePlaying(false); const shotId = selectedShotId(); if (shotId) return domain.run('shot.clearKeys', { shotId }); }
   function addTimelineShot() { return appContext.storeDomain('shot').run('shot.create'); }

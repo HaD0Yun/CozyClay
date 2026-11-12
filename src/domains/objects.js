@@ -49,6 +49,7 @@ import { cutOutBackground, maskAsset } from "../matte.js";
 import { parseRigNodeId } from "../hierarchy-model.js";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
 import { assetDataUrl, sculptPlacement } from "../sculpt-mode.js";
+import { settleUiRefusal } from "./ui-refusal.js";
 
 // A stable owner across scene loads. App's remaining native history readers use
 // the small store facade below; authored writes are owned by the document store.
@@ -1002,9 +1003,8 @@ export function useObjects(appContext) {
 	function settleObjects() { return storeRef.current.settle(); }
 	function beginStudioObjectAction() { return storeRef.current.beginCommand(); }
 	function stepObjectHistory(redo) { return (redo ? storeRef.current.redo : storeRef.current.undo)(); }
-	function applyExternalObjects(objects) {
-		return run("objects.replace", { objects: Array.isArray(objects) ? objects : [] });
-	}
+	// Runs from the cross-tab scene subscription: a refusal ends here, logged, never in window.onerror (#1185).
+	function applyExternalObjects(objects) { return settleUiRefusal("the objects from another tab were not applied", () => run("objects.replace", { objects: Array.isArray(objects) ? objects : [] })); }
 
 	return {
 		...domain, run, beginStudioObjectAction, stepObjectHistory, applyExternalObjects,
