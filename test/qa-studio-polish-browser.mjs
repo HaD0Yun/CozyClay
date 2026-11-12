@@ -179,6 +179,19 @@ await click("[data-testid=viewport-add]");
 await waitFor("!!document.querySelector('.add-object-menu')");
 const addMenu = await rect(".add-object-menu");
 expect("Add opens to the left of the rail, inside the window", !!addMenu && addMenu.left >= 0 && addMenu.left + addMenu.width <= rail.left, JSON.stringify({ addMenu, rail }));
+expect("Add menu rows fill the popover and contain their labels", await evaluate(`(() => {
+	const menu = document.querySelector('.add-object-menu');
+	const rows = [...menu.querySelectorAll('button')];
+	return rows.length > 0 && rows.every((row) => {
+		const box = row.getBoundingClientRect();
+		const range = document.createRange();
+		range.selectNodeContents(row);
+		const content = range.getBoundingClientRect();
+		return box.width >= menu.clientWidth - 16 && box.height >= 24
+			&& content.left >= box.left && content.right <= box.right
+			&& row.scrollWidth <= row.clientWidth;
+	});
+})()`));
 await click("[data-testid=viewport-add]");
 await screenshot("compact-rail.png");
 
