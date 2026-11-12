@@ -12,6 +12,7 @@ import { entityWorldBounds, projectSubject } from "./studio-agent-commands.js";
 import { segmentIntersectsAabb } from "./studio-geometry-facts.js";
 import { isEffectivelyHidden, isEmptyObject } from "./scene-objects.js";
 import { focalMmToFov, SENSOR_FORMATS } from "./shot.js";
+import { characterName } from "./character-name.js";
 
 // MIN_SHARE: under this much of a box in the picture reads as out of it (a figure against the lens rounded to IN_FRAME 0.00).
 const SUPPORT_M = 0.02, NEAR_M = 1, SIDE_MARGIN = 0.02, MIN_OCCLUDED = 0.1, MIN_SHARE = 0.005, GRID = 3, ROWS = 40;
@@ -42,7 +43,7 @@ function landing(box, camera, fov, aspect) {
  */
 export function studioRelations(state, ports) {
 	const solid = o => !isEmptyObject(o) && !isEffectivelyHidden(o, state.objects, state.characters);
-	const row = (entity, kind) => { const box = entityWorldBounds(entity, state, ports); return box ? { id: entity.id, label: `${entity.name || entity.subject || kind}#${entity.id}`, box, entity, kind } : null; };
+	const row = (entity, kind) => { const box = entityWorldBounds(entity, state, ports); return box ? { id: entity.id, label: `${kind === "character" ? characterName(entity) : entity.name || kind}#${entity.id}`, box, entity, kind } : null; };
 	const characters = state.characters.filter(c => !isEffectivelyHidden(c, state.objects, state.characters)).map(c => row(c, "character")).filter(Boolean);
 	const objects = state.objects.filter(solid).map(o => row(o, "object")).filter(Boolean), all = [...characters, ...objects];
 	const occluded = [], framed = [], support = [], side = [], near = [];

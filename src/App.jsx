@@ -113,7 +113,7 @@ import { subscribeToSceneDocuments, subscribeToScenePlayback } from "./workflow/
 import {
 	decodeMask,
 } from "./matte.js";
-import { createMatteEditor } from "./matte-editor.js";
+import { createMatteEditor } from "./matte-editor.js"; import { characterName, promptDescription } from "./character-name.js";
 import {
 	SCENES_VERSION,
 	activeSceneIndex,
@@ -3564,7 +3564,7 @@ export default function App() {
 	function captureShotReferences() {
 		const references = characters
 			.filter((entry) => !entry.hidden && typeof entry.identityImage === "string" && entry.identityImage)
-			.map((entry) => ({ role: "character", name: entry.subject || entry.id, dataUrl: entry.identityImage }));
+			.map((entry) => ({ role: "character", name: characterName(entry), dataUrl: entry.identityImage }));
 		if (typeof environmentImage === "string" && environmentImage) {
 			references.push({ role: "environment", dataUrl: environmentImage });
 		}
@@ -4128,8 +4128,8 @@ export default function App() {
 			shot: movePlan?.fromShot ?? (framingA
 				? deriveShot(framingA.pos, promptSubject, (framingA.fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback)
 				: shot),
-			subject,
-			subject2: showB ? subject2 : null,
+			subject: promptDescription(subject),
+			subject2: showB ? promptDescription(subject2) : null,
 			posePhrase: poseA?.prompt ?? "",
 			pose2Phrase: showB ? (poseB?.prompt ?? "") : "",
 			environment,
@@ -4175,7 +4175,7 @@ export default function App() {
 				railFollow: activeCamera.railFollow,
 				keys: cameraKeys,
 			} : null,
-			subjects: characters.filter((entry) => !entry.hidden).map((entry) => entry.subject ?? "a person"),
+			subjects: characters.filter((entry) => !entry.hidden).map((entry) => promptDescription(entry.subject)),
 		};
 		setResult(nextResult);
 		setResultOpen(true);

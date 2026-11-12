@@ -71,7 +71,7 @@ import {
 } from "../src/scene-objects.js";
 import { classifyMove, captureFraming, moveSlate } from "../src/camera-move.js";
 import { DEFAULT_PREVIS_MODE, PREVIS_MODES, readProjectDocument } from "../src/project.js";
-import { kindRefusal } from "../src/character-kind.js";
+import { kindRefusal } from "../src/character-kind.js"; import { characterName, promptDescription } from "../src/character-name.js";
 import { splitSavedCamera, serializeSavedProject } from "./project-camera.mjs";
 
 /** The authoring state. One scene document, one camera, one project name. */
@@ -505,7 +505,7 @@ function sceneReport({ characterCursor = 0, objectCursor = 0, limit = 50 } = {})
 	for (const [offset, c] of characterPage.entries()) {
 		const letter = String.fromCharCode(65 + characterCursor + offset);
 		lines.push(
-			`  ${letter} ${c.id}  "${c.subject}"  at x ${round(c.x)}, z ${round(c.z)}, ` +
+			`  ${letter} ${c.id}  "${characterName(c)}"  at x ${round(c.x)}, z ${round(c.z)}, ` +
 				`facing ${round(c.rot, 1)}deg  [${c.model}]` +
 				`${c.pose ? " posed" : ""}${c.hidden ? " hidden" : ""}` +
 				`${c === framed ? "  <- framed" : ""}`,
@@ -1043,7 +1043,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				if (!target) return text(`No character "${character}". ${castHint()}`);
 				state.focus = target.id;
 				state.focusLocked = true;
-				return text(`Framing ${letterFor(target)} "${target.subject}".\n\n${shotReport()}`);
+				return text(`Framing ${letterFor(target)} "${characterName(target)}".\n\n${shotReport()}`);
 			},
 		),
 
@@ -1525,8 +1525,8 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					mode,
 					model: modelById(model) ?? undefined,
 					shot: currentShot(),
-					subject: framed?.subject ?? "",
-					subject2: other?.subject ?? null,
+					subject: promptDescription(framed?.subject),
+					subject2: other ? promptDescription(other.subject) : null,
 					posePhrase: pose_phrase,
 					pose2Phrase: other ? pose2_phrase : "",
 					environment,

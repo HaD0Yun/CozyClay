@@ -44,7 +44,7 @@ CAMERA
   distance   4.51m to the subject's centre of mass
 
 CAST (total: 1, returned: 1, truncated: false, revision: <rev>)
-  A char-a  "a young woman in a tan coat"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
+  A char-a  "Y Bot a"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
     model: y-bot-tpose  kind: rig  pose: null  tint: null  scale: 1
     layer: {"waypoints":[]}
 
@@ -144,5 +144,21 @@ assert.deepEqual(
 	"live_status no longer reports a memory-only session",
 );
 console.log("PASS handler arguments and the memory-only live path behave as they do over MCP");
+
+/* ------------- 5. a character without a subject (#1212) ------------------- */
+// The name shown is built from the model (the report above: "Y Bot a"). A prompt
+// still needs a description, so it gets the neutral phrase, never an empty one,
+// and a second character without a subject is still the prompt's second subject.
+
+const renderPrompt = tools.find((entry) => entry.name === "render_prompt");
+const promptArgs = { mode: "video", environment: "an empty stage", style: "plain", camera_move: "hold", pose_phrase: "", pose2_phrase: "" };
+const solo = (await renderPrompt.handler(promptArgs)).content[0].text;
+assert.match(solo, /Subject: a person,/, `render_prompt left a subject-less character without a description:\n${solo}`);
+const addCharacter = tools.find((entry) => entry.name === "add_character");
+const added = await addCharacter.handler({ subject: "", x: 1.2, z: 0, facing: 0 });
+assert.equal(added.isError, undefined, `add_character refused a character without a subject: ${added.content[0].text}`);
+const duo = (await renderPrompt.handler(promptArgs)).content[0].text;
+assert.match(duo, /Two subjects\. Subject 1: a person\. Subject 2: a person\./, `render_prompt dropped the second subject-less character:\n${duo}`);
+console.log("PASS render_prompt describes subject-less characters with the neutral phrase and keeps both");
 
 console.log(`\nPASS tool handler registry (${tools.length} tools, importable without an MCP server)`);
