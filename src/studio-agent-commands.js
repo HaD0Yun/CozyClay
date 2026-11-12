@@ -2,7 +2,7 @@
 // history, gesture fences and semantic revision/telemetry. No UI callbacks here.
 import { Euler, Vector3, Quaternion, PerspectiveCamera } from 'three';
 import { createSceneObject, updateSceneObject, removeSceneObject, setSceneObjectParent, descendantsOf, isEffectivelyHidden, supportHeightForObject, OBJECT_MENU_ENTRIES } from './scene-objects.js';
-import { createCharacterEntry } from './scenes.js';
+import { createCharacterEntry } from './scenes.js'; import { characterName } from './character-name.js';
 import { createShot, shotAtFrame } from './cuts.js';
 import { captureFraming } from './camera-move.js';
 import { createStableItemId } from './stable-items.js';
@@ -20,7 +20,8 @@ const fail = (code, message) => { throw new StudioProtocolError(code, message); 
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const pos = e => ({ x: e.x, y: e.y ?? 0, z: e.z });
 const vector = p => new Vector3(p.x, p.y, p.z);
-const normalizedName = name => name.normalize('NFC').trim();
+// entityName: an object's name, or a character's display name, the one the scene context shows (character-name.js).
+const normalizedName = name => name.normalize('NFC').trim(), entityName = (e, state) => (state.characters.includes(e) ? characterName(e) : e.name ?? '');
 const entityById = (state, id) => {
   const entity = [...state.objects, ...state.characters].find(e => e.id === id);
   if (!entity) fail('AMBIGUOUS_TARGET', 'Target ID is not present in the admitted scene.');
@@ -32,7 +33,7 @@ const entityById = (state, id) => {
 function resolveRef(ref, state, field) {
   const all = [...state.objects, ...state.characters];
   if (all.some(e => e.id === ref)) return ref;
-  const named = all.filter(e => normalizedName(e.name ?? e.subject ?? '') === normalizedName(ref));
+  const named = all.filter(e => normalizedName(entityName(e, state)) === normalizedName(ref));
   if (named.length === 1) return named[0].id;
   if (named.length) fail('AMBIGUOUS_TARGET', `${field} '${ref}' matches ${named.length} objects by name (${named.map(e => e.id).join(', ')}); reference one by id.`);
   fail('AMBIGUOUS_TARGET', `${field} '${ref}' not found; reference an existing id, or a part created EARLIER in this batch by its name (create it before it is referenced).`);
@@ -278,7 +279,7 @@ export function arrangement(command, before, ports) {
     if (id && !entity) fail('AMBIGUOUS_TARGET', `Edited target '${id}' is not present in the draft; ids of parts created in this batch are not known yet, so use the part name in position references and create it before it is referenced.`);
     let op = resolveOpRefs(rawOp, draft(), id);
     if (op.op === 'create') {
-      if (op.name && rows.some(e => normalizedName(e.name ?? e.subject) === normalizedName(op.name))) fail('DUPLICATE_NAME', 'Create name already exists in the domain.');
+      if (op.name && rows.some(e => normalizedName(isObject ? e.name ?? '' : characterName(e)) === normalizedName(op.name))) fail('DUPLICATE_NAME', 'Create name already exists in the domain.');
       let parentId;
       if (isObject && op.parent !== undefined) {
         parentId = rows.some(e => e.id === op.parent) ? op.parent : createdByName.get(normalizedName(op.parent));
@@ -341,7 +342,7 @@ export function arrangement(command, before, ports) {
   }
   if (command.args.collisionPolicy === 'avoid' && overlaps.length) fail('VERIFICATION_FAILED', 'The final batch is still blocked after its outward adjustments.');
   // Every finding the receipt carries: a value moved to a limit first, then what the final scene shows wrong.
-  const nameOf = id => { const e = [...after.objects, ...after.characters].find(row => row.id === id); return e?.name ?? e?.subject ?? id; };
+  const nameOf = id => { const e = [...after.objects, ...after.characters].find(row => row.id === id); return e ? entityName(e, after) : id; };
   warnings.push(...clamps.slice(0, 3), ...floorLiftWarnings([...liftedIds].filter(id => rows.some(e => e.id === id)), nameOf));
   for (const item of overlaps.slice(0, 5)) warnings.push({ code: 'FOOTPRINT_OVERLAP', id: item.id, message: [...`${nameOf(item.of)} overlaps ${nameOf(item.id)} by ${Number(item.depth.toFixed(2))} m`].slice(0, 120).join('') });
   if (overlaps.length > 5) warnings.push({ code: 'FOOTPRINT_OVERLAP', count: overlaps.length - 5, message: `${overlaps.length - 5} more footprint overlaps omitted` });

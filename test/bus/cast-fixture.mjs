@@ -18,12 +18,12 @@ export const proxyCast = () => [createCharacterEntry({ id: 'actor-a', model: 'y-
 const source = readFileSync(new URL('../../src/app-stage.jsx', import.meta.url), 'utf8')
   + readFileSync(new URL('../../src/timeline-defaults.js', import.meta.url), 'utf8')
   + readFileSync(new URL('../../src/stage-startup-defaults.js', import.meta.url), 'utf8');
-const names = new Set(['DEFAULT_SUBJECT', 'DEFAULT_SUBJECT2', 'nextCharacterId', 'MAX_WAYPOINTS', 'TIMELINE_FPS']);
+const names = new Set(['nextCharacterId', 'MAX_WAYPOINTS', 'TIMELINE_FPS']);
 const constants = parseSync('stage.jsx', source).program.body.filter(node => node.type === 'ExportNamedDeclaration' &&
   names.has(node.declaration?.id?.name ?? node.declaration?.declarations?.[0]?.id?.name)).map(node => source.slice(node.start, node.end)).join('\n');
 const server = await createServer({ configFile: false, root: fileURLToPath(new URL('../../', import.meta.url)), server: { middlewareMode: true, hmr: false },
   optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', plugins: [{ name: 'cast-without-renderer', enforce: 'pre', load(id) {
-    if (id.endsWith('/src/app-stage.jsx')) return `import { DEFAULT_SUBJECT_ONE, DEFAULT_SUBJECT_TWO } from './scenes.js';\n${constants}`;
+    if (id.endsWith('/src/app-stage.jsx')) return constants;
   } }] });
 let useCast;
 try { ({ useCast } = await server.ssrLoadModule('/src/domains/cast.js')); }

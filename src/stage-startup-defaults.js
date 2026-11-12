@@ -4,8 +4,6 @@ import { SHOT_ASPECT_RATIOS } from "./shot.js";
 import {
 	SCENES_QUARANTINE_KEY,
 	createSceneDocument,
-	DEFAULT_SUBJECT_ONE,
-	DEFAULT_SUBJECT_TWO,
 	loadSceneDocumentFromStorage,
 } from "./scenes.js";
 import { POSE_BONES } from "./poses.js";
@@ -39,8 +37,7 @@ export const SHOT_ASPECT_PRESETS = Object.freeze({
 export const characterModelUrl = (model) => `/models/${model}.fbx`;
 
 /** Shipped rig names as the operator says them, not as the files spell them. */
-export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };
-CHARACTER_MODEL_LABELS["proxy-figure"] = ko("Capsule figure", "캡슐 인물");
+export { CHARACTER_MODEL_LABELS } from "./character-name.js";
 
 /** Sequential ids for spawned characters, collision-free against the cast. */
 export function nextCharacterId(list) {
@@ -89,8 +86,6 @@ export function editorFrameForSubject(subject) {
 	};
 }
 
-export const DEFAULT_SUBJECT = DEFAULT_SUBJECT_ONE;
-export const DEFAULT_SUBJECT2 = DEFAULT_SUBJECT_TWO;
 export const DEFAULT_ENVIRONMENT = "a sunlit modern living room";
 export const DEFAULT_CAMERA_POSITION = { x: 0.97, y: 1.62, z: 2.39 };
 export const REST_BONES = Object.fromEntries(POSE_BONES.map((b) => [b.id, [0, 0, 0]]));

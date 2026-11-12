@@ -23,8 +23,6 @@ export {
 	CLAY_X,
 	defaultCharacterTint,
 	editorFrameForSubject,
-	DEFAULT_SUBJECT,
-	DEFAULT_SUBJECT2,
 	DEFAULT_ENVIRONMENT,
 	DEFAULT_CAMERA_POSITION,
 	REST_BONES,

@@ -28,7 +28,7 @@ import { canvasTakesPaste, fileToDataUrl, imageFileFromTransfer, pastedImageNode
 import { appendVersion, compareIndex, pinnedInputs, selectVersion, versionLabel, versionState } from "./image-versions.js";
 import { normalizeVideoForm, videoFormContract } from "./video-contract.js";
 import ShotPromptNode from "./ShotPromptNode.jsx";
-import { shotPromptFromInputs, shotPromptNodeData } from "./shot-prompt-node.js";
+import { shotPromptFromInputs, shotPromptNodeData } from "./shot-prompt-node.js"; import { characterName } from "../character-name.js";
 
 const NODE_COLORS = { text: "#6c7cff", image: "#44c2a4", video: "#d9955b", audio: "#6bb6dc", api: "#cf8de8", "video-combiner": "#efb064", upload: "#a88cdb", concat: "#d6b55e", "motion-input": "#79b5ed", scene: "#ef759d", "shot-prompt": "#8fd4b0" };
 
@@ -240,7 +240,7 @@ function MotionInputNode({ id, data }) {
 		<label>Character handle</label>
 		<select aria-label="Motion character" value={normalized.characterId} onChange={(event) => update({ characterId: event.target.value })}>
 			<option value="">Choose character…</option>
-			{options.map((character) => <option key={character.id} value={character.id}>{character.name || character.subject || character.id}</option>)}
+			{options.map((character) => <option key={character.id} value={character.id}>{character.name || characterName(character)}</option>)}
 		</select>
 		<input aria-label="Character id" value={normalized.characterId} onChange={(event) => update({ characterId: event.target.value.trim() })} placeholder="character id (e.g. char-a)" />
 		<label>Motion spec (cozyclay.motion-spec.v1)</label>

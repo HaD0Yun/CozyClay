@@ -11,7 +11,7 @@ import { annotateWorld, armNoteBone, disarmViewportSketch } from "./viewport-ske
 import { POSE_BONES, normalizeBoneName } from "./poses.js";
 import { createStableItemId } from "./stable-items.js";
 import { MAX_WAYPOINTS } from "./timeline-defaults.js";
-import { PROXY_FIGURE_MODEL } from "./scenes.js";
+import { characterName as displayName } from "./character-name.js";
 
 const run = (shell, id, args) => shell.appContext.bus.run(id, args, { origin: "ui" });
 // A mark waits in the agent composer, so the composer comes into view with it.
@@ -50,9 +50,8 @@ const BONE_LABELS = {
 	lFoot: ko("Left foot", "왼발"), rFoot: ko("Right foot", "오른발"),
 };
 const FACE_LABELS = { top: ko("top", "윗면"), bottom: ko("bottom", "아랫면"), front: ko("front", "앞면"), back: ko("back", "뒷면"), left: ko("left side", "왼쪽 면"), right: ko("right side", "오른쪽 면") };
-const MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot", [PROXY_FIGURE_MODEL]: ko("Capsule figure", "캡슐 인물") };
 
-const characterName = (world, id) => { const row = world?.characters?.find((entry) => entry.id === id); return row ? MODEL_LABELS[row.model] ?? row.subject ?? id : id; };
+const characterName = (world, id) => { const row = world?.characters?.find((entry) => entry.id === id); return row ? displayName(row) : id; };
 const objectName = (world, id) => { const row = world?.objects?.find((entry) => entry.id === id); return row?.name || row?.renderer || id; };
 /** A character as a mark's hit, with its name (fix-send.js). */
 export const characterHit = (id) => named(annotateWorld(), { type: "character", id });
