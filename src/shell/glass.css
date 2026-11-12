@@ -618,7 +618,7 @@
 		height: 24px;
 		min-height: 24px;
 	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail button {
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail button:not(:where(.vp-menu *)) {
 		width: 24px;
 		height: 24px;
 		min-width: 24px;
