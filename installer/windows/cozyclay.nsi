@@ -10,10 +10,21 @@ InstallDir "$LOCALAPPDATA\Programs\CozyClay"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "CozyClay"
+; what Windows shows under the file's Properties > Details
+VIProductVersion "1.0.0.0"
+VIAddVersionKey "ProductName" "CozyClay"
+VIAddVersionKey "FileDescription" "CozyClay Setup"
+VIAddVersionKey "CompanyName" "CozyClay"
+VIAddVersionKey "LegalCopyright" "CozyClay contributors, MIT License"
+VIAddVersionKey "FileVersion" "1.0.0.0"
+VIAddVersionKey "ProductVersion" "1.0.0.0"
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\CozyClay"
 !define MUI_ICON "cozyclay.ico"
 !define MUI_UNICON "cozyclay.ico"
+; the CozyClay mark on the welcome and finish pages (cozyclay-side.bmp, 164x314, made by the workflow)
+!define MUI_WELCOMEFINISHPAGE_BITMAP "cozyclay-side.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "cozyclay-side.bmp"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "$(StartNow)"
 !define MUI_FINISHPAGE_RUN_FUNCTION StartCozyClay

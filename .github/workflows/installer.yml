@@ -26,7 +26,11 @@ jobs:
           curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" | grep "node-${NODE_VERSION}-win-x64.zip" | sha256sum -c -
           unzip -q "node-${NODE_VERSION}-win-x64.zip"
       - name: Icon
-        run: convert public/icons/icon-192.png -define icon:auto-resize=64,48,32,16 installer/windows/cozyclay.ico
+        run: |
+          # every size Windows asks for (256 for large desktop icons), and the side picture of the welcome page
+          convert public/icons/icon-512.png -define icon:auto-resize=256,128,64,48,32,24,16 installer/windows/cozyclay.ico
+          convert -size 164x314 xc:'#16130f' \( public/icons/icon-512.png -resize 112x112 \) -gravity center -geometry +0-20 -composite BMP3:installer/windows/cozyclay-side.bmp
+          identify installer/windows/cozyclay.ico installer/windows/cozyclay-side.bmp
       - name: Build
         run: |
           makensis -V2 -DNODE_DIR="$PWD/node-${NODE_VERSION}-win-x64" installer/windows/cozyclay.nsi
@@ -37,6 +41,12 @@ jobs:
           name: CozyClay-Setup
           path: installer/windows/CozyClay-Setup.exe
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-art
+          path: |
+            installer/windows/cozyclay.ico
+            installer/windows/cozyclay-side.bmp
 
   verify:
     needs: build
