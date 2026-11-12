@@ -9,8 +9,8 @@ import { ShaderChunk } from 'three';
 import { installSoftShadows } from '../../src/soft-shadows.js';
 
 const STUDIO = { preset: 'studio', sky: null, skyTop: null, ambient: 1, hemiSky: '#ffffff', hemiGround: '#5a5d64', fill: 1, fog: 0, exposure: 1, shadowSoftness: 0, envLight: 0, ao: 0, hdr: null, hdrRotation: 0, hdrIntensity: 1, hdrBackground: true };
-// The studio look's key is the new-project default: a bright neutral sun (brightness 3, warmth 0).
-const STUDIO_KEY = { x: 6, y: 9, z: 4, intensity: 3, warmth: 0, color: null };
+// The studio look's key is the new-project default: a bright neutral sun (brightness 4, warmth 0).
+const STUDIO_KEY = { x: 6, y: 9, z: 4, intensity: 4, warmth: 0, color: null };
 
 // Normalization: an old stage (no lighting, no key colour) gets the studio look.
 const legacy = createSceneStage({ keyLight: { x: 6, y: 9, z: 4, intensity: 1.12, warmth: 0.5 } });
@@ -18,6 +18,8 @@ assert.deepEqual(legacy.lighting, STUDIO);
 // ...but keeps the key it was saved with (only a stage with no key takes the new default).
 assert.deepEqual(legacy.keyLight, { ...STUDIO_KEY, intensity: 1.12, warmth: 0.5 });
 assert.deepEqual(createSceneStage(null).lighting, STUDIO);
+assert.deepEqual(createSceneStage(null).keyLight, STUDIO_KEY);
+assert.deepEqual(createKeyLight(null), STUDIO_KEY);
 assert.deepEqual(normalizeLighting({ preset: 'noon', sky: 'blue', skyTop: '#12345', ambient: 9, fill: -1, fog: 2, exposure: 0, shadowSoftness: 'soft', hemiSky: null }),
   { ...STUDIO, ambient: 3, fill: 0, fog: 1, exposure: 0.2 }, 'bad values clamp or fall back to studio');
 assert.deepEqual(normalizeLighting({ preset: 'night', sky: '#0B1426', exposure: 1.4 }), { ...STUDIO, preset: 'night', sky: '#0B1426', exposure: 1.4 }, 'valid values survive as given');
@@ -35,8 +37,13 @@ assert.deepEqual({ sky: studio.sky, skyTop: studio.skyTop, fog: studio.fog, capt
 assert.ok(Math.abs(studio.fill - 0.36) < 1e-12 && Math.abs(studio.rim - 0.22) < 1e-12);
 const lightTheme = stageLook({ lighting: STUDIO, keyLight: STUDIO_KEY, theme: 'light' });
 assert.deepEqual([lightTheme.sky, lightTheme.hemi.ground, lightTheme.ambient, lightTheme.lightDeck], ['#e7e8eb', '#d6d8de', 0.32, true]);
-const grid = stageLook({ lighting: STUDIO, keyLight: STUDIO_KEY, grid: true, theme: 'light' });
+const grid = stageLook({ lighting: STUDIO, keyLight: STUDIO_KEY, grid: true, theme: 'dark' });
 assert.deepEqual([grid.sky, grid.fog, grid.hemi.ground, grid.ambient], ['#232428', { color: '#232428', near: 30, far: 54 }, '#3a3d42', 0.34]);
+assert.deepEqual(stageLook({ lighting: STUDIO, keyLight: STUDIO_KEY, grid: true, theme: 'light' }), lightTheme, 'reference grid uses the full light studio look');
+assert.deepEqual(stageLook({ lighting: null, keyLight: STUDIO_KEY, grid: true, theme: 'light' }), lightTheme, 'legacy stages follow the light theme with a saved grid preference');
+for (const lighting of [{ ...STUDIO, sky: '#18223f' }, { ...STUDIO, hdr: 'builtin:studio-softbox', hdrBackground: true }]) {
+  assert.deepEqual(stageLook({ lighting, keyLight: STUDIO_KEY, grid: true, theme: 'light' }), stageLook({ lighting, keyLight: STUDIO_KEY, grid: true, theme: 'dark' }), 'authored sky and HDR backdrop render independently of the UI theme');
+}
 assert.deepEqual(hazeRange(0), { near: 55, far: 95 }, 'no haze keeps the export horizon');
 assert.deepEqual(hazeRange(1), { near: 2, far: 14 });
 console.log('PASS studio look equals the tuned rig under both themes and the grid view');
