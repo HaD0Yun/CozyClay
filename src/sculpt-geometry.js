@@ -138,7 +138,13 @@ export function buildSculptGroup(recipe, { materialFor } = {}) {
 	const group = new THREE.Group();
 	group.userData.sculpt = true;
 	const matrix = new THREE.Matrix4();
-	const parts = expandSculptParts(recipe);
+	// A shape with no builder (a newer build's recipe, or one that skipped normalizeSculptRecipe) is skipped, cutters
+	// included, so the rest of the sculpt draws instead of sculptPartGeometry throwing to the window.
+	const parts = expandSculptParts(recipe).filter((part) => {
+		if (BUILDERS[part.shape] || (!part.op && MESH_BUILDERS[part.shape])) return true;
+		console.warn(`sculpt part "${part.id}" has unknown shape "${part.shape}"; skipped`);
+		return false;
+	});
 	for (const part of parts) {
 		// A cutter (op) is never drawn: it cuts its parent's geometry instead.
 		if (part.op) continue;
