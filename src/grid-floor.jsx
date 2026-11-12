@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { STAGE_SIZE } from "./room.jsx";
-import { GRID_COLORS } from "./grid-view.js";
+import { GRID_COLORS, GRID_COLORS_LIGHT } from "./grid-view.js";
 
 /**
  * The Blender-style reference grid: one shader plane instead of a floor.
@@ -63,21 +63,23 @@ const GRID_FRAGMENT = /* glsl */ `
 	}
 `;
 
-export function GridFloor({ layer = null }) {
+export function GridFloor({ layer = null, light = false }) {
+	const colors = light ? GRID_COLORS_LIGHT : GRID_COLORS;
 	const material = useMemo(() => new THREE.ShaderMaterial({
 		vertexShader: GRID_VERTEX,
 		fragmentShader: GRID_FRAGMENT,
 		uniforms: {
-			minorColor: { value: new THREE.Color(GRID_COLORS.minor) },
-			majorColor: { value: new THREE.Color(GRID_COLORS.major) },
-			axisXColor: { value: new THREE.Color(GRID_COLORS.axisX) },
-			axisZColor: { value: new THREE.Color(GRID_COLORS.axisZ) },
+			minorColor: { value: new THREE.Color(colors.minor) },
+			majorColor: { value: new THREE.Color(colors.major) },
+			axisXColor: { value: new THREE.Color(colors.axisX) },
+			axisZColor: { value: new THREE.Color(colors.axisZ) },
 			fadeDistance: { value: 120 },
 		},
 		transparent: true,
 		depthWrite: false,
 		fog: false,
-	}), []);
+	}), [colors]);
+	useEffect(() => () => material.dispose(), [material]);
 	return (
 		<mesh
 			rotation={[-Math.PI / 2, 0, 0]}
