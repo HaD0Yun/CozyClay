@@ -3,9 +3,9 @@
 // and repeatCopies (repeat.turn). normalizeSculptRecipe refuses a rotation that is not [x, y, z], but a recipe that
 // skipped it must still draw instead of throwing `rotationDeg.map is not a function` at the window.
 import assert from "node:assert/strict";
-import { composeMatrix } from "../../src/sculpt-matrix.js";
-import { expandSculptParts } from "../../src/sculpt-recipe.js";
-import { buildSculptGroup, disposeSculptGroup } from "../../src/sculpt-geometry.js";
+import { composeMatrix } from "../src/sculpt-matrix.js";
+import { expandSculptParts } from "../src/sculpt-recipe.js";
+import { buildSculptGroup, disposeSculptGroup } from "../src/sculpt-geometry.js";
 
 const unrotated = composeMatrix([1, 2, 3], [0, 0, 0]);
 for (const rotation of [{ x: 0, y: 90, z: 0 }, "0,90,0", null, undefined, 90]) {

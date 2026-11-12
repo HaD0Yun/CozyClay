@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import * as THREE from "three";
 
-const source = readFileSync(new URL("../../src/controls.jsx", import.meta.url), "utf8")
+const source = readFileSync(new URL("../src/controls.jsx", import.meta.url), "utf8")
 	.replace(/^import .*;\n/gm, "")
 	.replace(/^export /gm, "");
 

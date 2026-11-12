@@ -3,7 +3,7 @@
 // for shelf thumbnails). A part whose shape has no builder (a recipe from a newer build, or one that skipped
 // normalizeSculptRecipe) is skipped with a console.warn; the rest of the sculpt draws and nothing reaches the window.
 import assert from "node:assert/strict";
-import { buildSculptGroup, disposeSculptGroup } from "../../src/sculpt-geometry.js";
+import { buildSculptGroup, disposeSculptGroup } from "../src/sculpt-geometry.js";
 
 const warnings = [];
 console.warn = (...args) => { warnings.push(args.join(" ")); };
