@@ -179,7 +179,7 @@ import {
 	RangePinMarker,
 	warmPoseThumbnails,
 } from "./posestudio.jsx";
-import { FingerHandles, useFingerEdit } from "./finger-handles.jsx";
+import { PoseOverlays, useFingerEdit } from "./pose-overlays.jsx";
 import { STORYBOARD_FONT, storyboardCaption, storyboardLine } from "./shell/storyboard-caption.js";
 
 import {
@@ -1579,13 +1579,13 @@ export default function App() {
 				sculptParts.onKey(event.code);
 				return;
 			}
-			// Pose mode's W/R are the IK tools, gated like their Rig Control
+			// Pose mode's W/E/R are the IK tools and Auto Pose, gated like their Rig Control
 			// buttons: the range pin needs a take.
 			if (workflowMode === "pose" && GIZMO_HOTKEYS[event.code]) {
 				event.preventDefault();
-				// E has no IK tool: a pose-mode E does nothing (shortcut:ignored).
+				// E is Auto Pose: drag a few handles and a pose network places the rest of the body.
 				if (event.code === "KeyW") setIkEditTool("ik");
-				else if (event.code === "KeyR" && motion) { setIkEditTool("pin"); setRangePinPartPick(null); } else if (event.code === "KeyE") noteShortcutIgnored("transform", "wrong_mode");
+				else if (event.code === "KeyR" && motion) { setIkEditTool("pin"); setRangePinPartPick(null); } else if (event.code === "KeyE") setIkEditTool("poser");
 				return;
 			}
 			if (GIZMO_HOTKEYS[event.code]) {
@@ -4835,7 +4835,7 @@ export default function App() {
 								onDragEnd={ikDragEnd}
 								focusToolsHidden={fingerEditing} exposureProbeRef={fingerExposureRef}
 							/>
-							<FingerHandles fingers={handFingers} enabled={fingerEditing && ikMode && ikEditTool === "ik" && !posing && !playMode} onSolve={ikSolve} onDragEnd={ikDragEnd} exposureProbeRef={fingerExposureRef} />
+							<PoseOverlays onSolve={ikSolve} onDragEnd={ikDragEnd} fingers={handFingers} fingerEnabled={fingerEditing && ikMode && ikEditTool === "ik" && !posing && !playMode} exposureProbeRef={fingerExposureRef} rig={activeRig} model={activeChar?.model} characterId={activeChar?.id} poserEnabled={ikMode && ikEditTool === "poser" && !posing && !playMode} onNotice={setToast} />
 							<RangePinMarker
 								chains={ikChains}
 								track={rangePinPreview?.track}

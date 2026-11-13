@@ -159,6 +159,15 @@ The MCP runtime decodes JPEG reference images for `compare_sculpt` with `jpeg-js
 - License: BSD-3-Clause
 - Source: https://github.com/jpeg-js/jpeg-js
 
+## ONNX Runtime
+
+The Auto Pose tool (`src/poser/`) runs its pose network in the browser with `onnxruntime-web` (WASM); its Node tests use the same package. The Auto Pose network file ships in the npm package (`dist/models/`), not in the git repository or on the hosted site; it is CozyClay's own model and is loaded from the local server on first use.
+
+- Copyright (c) Microsoft Corporation
+- License: MIT
+- Source: https://github.com/microsoft/onnxruntime
+- License text: https://github.com/microsoft/onnxruntime/blob/main/LICENSE
+
 ## CozyClay license scope
 
 The CozyClay combined work in this repository is distributed under AGPL-3.0-or-later, subject to the transition details in `LICENSING.md`. That license does not replace or relicense Three.js, ARDY, ARDY model checkpoints, the bundled fonts, the character rigs, or any other third-party component.

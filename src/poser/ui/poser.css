@@ -1,0 +1,19 @@
+@layer regions {
+.pose-details .poser-panel .pose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pose-details .poser-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pose-details .poser-chip {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px dashed var(--row-divider, #2a2a2e);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2, #9b9ba1);
+  font-size: 11px;
+  cursor: pointer;
+}
+.pose-details .poser-chip.on { border-style: solid; color: var(--text-1, #e4e4e7); background: var(--surface-active, #26262a); }
+.pose-details .poser-chip.held { border-color: var(--text-2, #9b9ba1); font-weight: 600; }
+.pose-details .poser-chip.selected { border-color: var(--accent, #e8a33d); box-shadow: inset 0 0 0 1px var(--accent, #e8a33d); }
+.pose-details .poser-handle-details { display: grid; gap: 2px; padding-top: 4px; border-top: 1px solid var(--row-divider, #2a2a2e); }
+.pose-details .poser-handle-details > h5 { margin: 0; font-size: 11px; font-weight: 600; color: var(--text-1, #e4e4e7); }
+}

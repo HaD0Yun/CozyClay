@@ -23,7 +23,7 @@ const NODE_FILES = [
 	"test/verify-studio-actions.mjs",
 	"test/motion/verify-collision-blockers.mjs",
 	"test/verify-pose-fade.mjs",
-	"test/verify-pose-gizmo.mjs", "test/verify-fingertip-pick.mjs",
+	"test/verify-pose-gizmo.mjs", "test/verify-fingertip-pick.mjs", "test/poser/verify-poser-goldens.mjs", "test/poser/verify-poser-api.mjs", "test/poser/verify-poser-model-source.mjs", "test/poser/verify-poser-ui.mjs",
 	"test/motion/verify-key-runs.mjs",
 	"test/motion/verify-playback-clock.mjs",
 	"test/motion/verify-timeline-coordinates.mjs",
@@ -211,7 +211,7 @@ const NODE_FILES = [
 const BROWSER_FILES = [
 	"test/qa-imported-character-browser.mjs", "test/verify-install-browser.mjs",
 	"test/qa-proxy-entry-browser.mjs", "test/qa-update-depth-browser.mjs", "test/qa-scrub-update-depth-browser.mjs", "test/qa-translate-guard-browser.mjs",
-	"test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs",
+	"test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-poser-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs",
 	"test/qa-storyboard-board-browser.mjs", "test/qa-sculpt-shelf-browser.mjs",
 	"test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs",
 	"test/qa-proxy-figure-browser.mjs", "test/qa-click-friction-browser.mjs", "test/qa-update-notice-browser.mjs", "test/qa-export-menu-browser.mjs",
@@ -260,7 +260,7 @@ EXTRA_INVENTORY.push("test/qa-proxy-figure-browser.mjs", "test/qa-click-friction
 EXTRA_INVENTORY.push("test/qa-proxy-entry-browser.mjs", "test/qa-export-menu-browser.mjs", "test/qa-update-depth-browser.mjs", "test/qa-scrub-update-depth-browser.mjs", "test/qa-translate-guard-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-storyboard-board-browser.mjs", "test/qa-sculpt-parts-browser.mjs", "test/qa-sculpt-shelf-browser.mjs");
-EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs", "test/qa-imported-character-browser.mjs");
+EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs", "test/qa-imported-character-browser.mjs", "test/qa-poser-browser.mjs");
 
 function verificationFiles(directory) {
 	return readdirSync(directory, { withFileTypes: true })

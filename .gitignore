@@ -25,3 +25,6 @@ tools/tutorial/voice/
 
 # Rust build output (npm run build:pose-wasm copies the module to src/motion3/compiler)
 native/pose-rs/target/
+
+# Auto Pose network (83 MB): not in git. The npm package ships it; copy it here before a release build (src/poser/config.js)
+public/models/cozy-poser-v1.onnx

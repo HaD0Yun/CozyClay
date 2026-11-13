@@ -8,6 +8,7 @@ import { PRIME_SET } from "../shot.js";
 import { CatalogueEntries } from "../object-catalog.jsx";
 import { saveAutoColor } from "../auto-color.js";
 import { trackFeature } from "../analytics.js";
+import { poseTools } from "./pose-tools.js";
 import { GUIDE_LABELS, nextGuideMode } from "../shot-guides.js";
 import GhostsMenuGroup from "./GhostsMenuGroup.jsx"; import AddSceneEntries from "./AddSceneEntries.jsx";
 import { toggleViewportTool, useViewportTools } from "../viewport-tools.js"; import AnnotateCell from "./AnnotateCell.jsx";
@@ -137,15 +138,7 @@ export default function ViewportToolbar() {
 			{ key: "E", id: "rotate", name: ko("Rotate", "회전"), active: gizmoMode === "rotate", pick: () => setGizmoMode("rotate") },
 			{ key: "R", id: "scale", name: ko("Scale", "크기"), active: gizmoMode === "scale", pick: () => setGizmoMode("scale") },
 		],
-		pose: [
-			{ key: "W", id: "ik", name: ko("Pose fix (IK parts)", "포즈 수정 (IK 파츠)"), active: ikEditTool === "ik", pick: () => setIkEditTool("ik") },
-			
-			{
-				key: "R", id: "pin", name: ko("Pin (range pin)", "고정 (범위 고정)"), active: ikEditTool === "pin",
-				refused: motion ? null : ko("Pinning needs a motion take", "고정하려면 모션 테이크가 필요해요"),
-				pick: () => { setIkEditTool("pin"); setRangePinPartPick(null); },
-			},
-		],
+		pose: poseTools({ ikEditTool, setIkEditTool, motion, setRangePinPartPick }),
 		camera: [
 			{ key: "W", id: "move", name: ko("Move camera", "카메라 이동"), active: gizmoMode === "move", pick: () => setGizmoMode("move") },
 			{ key: "E", id: "rotate", name: ko("Rotate camera", "카메라 회전"), active: gizmoMode === "rotate", pick: () => setGizmoMode("rotate") },

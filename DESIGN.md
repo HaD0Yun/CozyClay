@@ -113,8 +113,8 @@ name and shortcut.
 
 - Stage: W Move, E Rotate, R Scale; values `5cm` and `5°` (snap toggles on
   click and Ctrl inverts it).
-- Pose: W Pose fix (IK parts), R Pin (range pin; refused until a motion take
-  exists); no value group.
+- Pose: W Pose fix (IK parts), E Auto Pose, R Pin (range pin; refused until a
+  motion take exists); no value group.
 - Camera: W Move, E Rotate; values `24mm` and `2.39` (each opens a small list).
 - Motion: no tools and no value group; the agent compiles motion.
 - Sculpt: W Front, E Side, R Back views (with a part selected they move,
@@ -134,8 +134,17 @@ title explains why. Camera, Motion and Sculpt use `"camera"`, `"motion"` and
 ### G3 — Pose Details
 
 For a selected character or rig group, Details lists Pose (Foot lock, Body
-contact, influence range), then the selected tool section. Pin contains the
-range-pin controls as 24 px rows.
+contact, influence range), then the selected tool section. Auto Pose contains
+the model state (loading percentage, ready, could not load with Try again, or
+not on this site in a build without the model), one hint line, the whole-pose
+actions (Back to T-pose, Flip left and right, Copy pose, Paste pose, Paste
+reversed) and a chip per handle; the selected handle shows On, Hold position,
+Hold rotation and the Tolerance and Turn tolerance sliders as 24 px rows. In
+the viewport its handles follow the IK handles' colours: held is a solid dot
+with a thick ring and an outer ring, following is a solid dot with a thin ring,
+off is a faint hollow ring, turn-only handles are diamonds, and the selected
+handle gets a white ring plus X/Y/Z turn rings. Pin contains the range-pin
+controls as 24 px rows.
 
 ### G4 — auto-fix preview and apply
 

@@ -69,7 +69,7 @@ Pose Details 패널만 세면 13개다(#545의 `qa-shell-pose-browser` 지표, �
 | Sculpt (이미지로 조형, #739) | 뷰포트 모드 툴바 **5 Sculpt**: 선택한 sculpt 하나만 턴테이블에 격리(W/E/R = 정면/측면/뒷면), Details 맨 위 **Sculpt from image** 패널(참조 이미지 → Start → Measure/Draft/Score/Refine → Place in scene). UI 전용 모드라 바깥에는 Stage로 보인다 |
 | IK on/off | **Pose 모드(2)** 진입이 IK를 켜고, 나가면 끈다 |
 | Foot snap / Body contact | Pose 모드 동안 시퀀서 헤더 |
-| 자동 수정(Pose fix, Path fix, Pin, Fit to platforms) | **Pose Details** (W Pose fix / E Path fix / R Pin), 미리보기 → Apply/Cancel |
+| 자동 수정(Pose fix, Auto Pose, Pin, Fit to platforms) | **Pose Details** (W Pose fix / E Auto Pose / R Pin), 미리보기 → Apply/Cancel |
 | 테이크 바 Scene/Refine 카드 | 없음 (3.0에서 제거: Generate Motion과 캐럿 메뉴가 없고, 모션은 에이전트가 계산한다) |
 | 테이크 버전 목록 | **Details › Takes** |
 | + Add object (계층), Props + Add | 뷰포트 **+ Add**, **Content › Basic Shapes**; Outliner 우클릭 Create ▸ |
