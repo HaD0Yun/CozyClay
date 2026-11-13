@@ -1,0 +1,204 @@
+// engine-simple: a small deterministic motion engine for the 17-joint figure. Pure JS on rig17.js; Node and browser.
+//
+// SPEC FORMAT. A spec is { demo, <characterId>: [[frame, verb, options], ...] }. The scene (start positions,
+// props, frame count) comes from demos.js. An action lasts until the next action of the same layer.
+//   Body layer (feet and pelvis):
+//     idle | walk {to:[x,z], heading?, facing?, steps?, burst?} | run {to} | turn {heading}
+//     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
+//     Consecutive walk / run actions are one flowing path. `heading` is the arrival heading (the path curves, or a
+//     turn on the spot is added). `facing` keeps the body facing that way (back / side steps). `steps: 1` is a lunge.
+//   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
+//     pose {hands|L|R: target, lean:deg, twist:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n, over, ease}
+//       hand target: "rest" | [x,y,z] in the body frame from the Hips joint (x = own left, z = forward)
+//                    | {prop:id} | {meet:id} | {chest:id} | {world:[x,y,z]}
+//     carry {prop, at:[x,y,z], over}   the prop follows the hands from this frame
+//     place {prop, at:[x,y,z] world, over}   the hands take the prop there and let go
+// Angles in a spec are degrees; lengths are metres.
+import { DEMOS } from "../demos.js";
+import { INDEX as J } from "../rig17.js";
+import { addCharacter, addProp, createClip, setPose } from "../clip.js";
+import { EASE, add, clamp, mix, mixV, qRotate, qY, rad, sub, wrap } from "./math.js";
+import { solve } from "./solve.js";
+import { hold, home, locomote, shuffle } from "./gait.js";
+import { kneel, lie, sit, stand } from "./posture.js";
+
+const BODY = new Set(["idle", "walk", "run", "turn", "sit", "stand", "kneel", "lie"]);
+const HAND = [J.LeftHand, J.RightHand];
+const PAD = 0.03; // wrist centre to the surface it holds
+
+export const NOTES = [
+	"simple engine: no collision between bodies, limbs and props; contacts are where the spec puts them",
+	"no fingers and no wrist detail: a hand is one box aligned with the forearm",
+	"kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent",
+	"reach assist bends the hips and knees toward low targets only; it does not step toward a far target",
+	"a slow walk beat arrives early and stands; it is not stretched to fill the beat",
+	"run is a short-stride jog at the demo's speed (about 1.2 m/s); the first step of a move starts abruptly",
+	"elbow and knee directions come from one fixed pole hint; there is no hands-on-hips or crossed-arms pose",
+];
+
+function buildBody(c, acts, F, ctx) {
+	const yaw = rad(c.heading), list = acts.filter(a => BODY.has(a[1])).map(([f, verb, o = {}]) => ({ f, verb, o }));
+	if (!list.length || list[0].f > 0) list.unshift({ f: 0, verb: "idle", o: {} });
+	let st = { p: c.at.slice(), yaw, feet: [1, -1].map(s => ({ g: home(c.at, yaw, s), yaw })) };
+	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run");
+	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
+	const special = a => a.o.steps != null || a.o.facing != null;
+	for (let i = 0; i < list.length; i++) {
+		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on];
+		let r;
+		if (moving(a)) {
+			const segs = [seg(a, N)];
+			while (moving(list[i + 1]) && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
+			r = locomote(st, segs);
+		} else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
+		else if (a.verb === "sit") {
+			const top = prop ? prop.c[1] + prop.size[1] / 2 : a.o.height, d = prop ? Math.hypot(prop.c[0] - st.p[0], prop.c[2] - st.p[1]) : 0.33;
+			r = sit(st, N, { y: top, back: Math.min(0.35, d) });
+		} else if (a.verb === "stand") r = st.seat ? stand(st, N) : { frames: hold(st, N), st };
+		else if (a.verb === "kneel") r = kneel(st, N, ctx.ground);
+		else if (a.verb === "lie") {
+			const head = rad(a.o.head ?? c.heading), at = prop ? [prop.c[0] + Math.sin(head) * 0.1, prop.c[2] + Math.cos(head) * 0.1] : a.o.at;
+			r = lie(st, N, { at, head, floor: ctx.ground(at[0], at[1]) });
+		} else { // idle: hold the posture, breathe
+			r = { frames: hold(st, N), st };
+			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
+		}
+		out.push(...r.frames); st = r.st;
+	}
+	// soften pelvis height and lean so action boundaries have no kinks (the solver still guarantees leg reach)
+	const blur = (get, set) => {
+		for (let pass = 0; pass < 3; pass++) {
+			const v = out.map(get);
+			out.forEach((B, f) => set(B, 0.25 * v[Math.max(0, f - 1)] + 0.5 * v[f] + 0.25 * v[Math.min(F - 1, f + 1)]));
+		}
+	};
+	blur(B => B.p[1], (B, v) => { B.p[1] = v; });
+	blur(B => B.lean, (B, v) => { B.lean = v; });
+	return out;
+}
+const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
+
+function buildUpper(id, acts, props) {
+	const keys = { L: [], R: [], lean: [], twist: [], hip: [], look: [] }, events = [];
+	for (const [f, verb, o = {}] of acts) {
+		if (BODY.has(verb)) continue;
+		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout" };
+		if (verb === "carry") {
+			const half = props[o.prop].size[0] / 2 + PAD, at = o.at ?? [0, 0.25, 0.26];
+			keys.L.push({ ...k, to: [at[0] + half, at[1], at[2]] }); keys.R.push({ ...k, to: [at[0] - half, at[1], at[2]] });
+			events.push({ f, prop: o.prop, holder: id });
+		} else if (verb === "place") {
+			keys.L.push({ ...k, to: { at: o.at, prop: o.prop } }); keys.R.push({ ...k, to: { at: o.at, prop: o.prop } });
+			events.push({ f: f + k.over, prop: o.prop, holder: null, at: o.at });
+		} else if (verb === "pose") {
+			const L = o.L ?? o.hands, R = o.R ?? (Array.isArray(o.hands) ? [-o.hands[0], o.hands[1], o.hands[2]] : o.hands);
+			if (L !== undefined) keys.L.push({ ...k, to: L, shake: o.shake });
+			if (R !== undefined) keys.R.push({ ...k, to: R, shake: o.shake });
+			if (o.lean !== undefined) keys.lean.push({ ...k, to: rad(o.lean) });
+			if (o.twist !== undefined) keys.twist.push({ ...k, to: rad(o.twist) });
+			if (o.hip !== undefined) keys.hip.push({ ...k, to: o.hip });
+			if (o.look !== undefined || o.nod) keys.look.push({ ...k, to: o.look ?? keys.look.at(-1)?.to ?? "fwd", nod: o.nod });
+		} else throw new Error(`engine-simple: unknown verb "${verb}"`);
+	}
+	return { keys, events };
+}
+
+/** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks. */
+export function buildClip(spec, def = DEMOS[spec.demo]) {
+	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
+	const props = Object.fromEntries(def.props.map(p => [p.id, { id: p.id, size: p.size, c: p.at.slice(), yaw: 0, holder: null, moves: !!p.moves }]));
+	const ground = (x, z) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= 0.3 && Math.abs(x - p.c[0]) <= p.size[0] / 2 && Math.abs(z - p.c[2]) <= p.size[2] / 2).map(p => p.c[1] + p.size[1] / 2));
+	const chars = def.characters.map(c => {
+		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]);
+		return { id: c.id, body: buildBody(c, acts, F, { props, ground }), ...buildUpper(c.id, acts, props), out: addCharacter(clip, c.id), rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
+	});
+	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
+	const outProps = def.props.map(p => ({ p: props[p.id], out: addProp(clip, p.id, p.size, p.moves ? F : 1) }));
+	const aux = { contacts: Object.fromEntries(chars.map(c => [c.id, []])), holders: Object.fromEntries(def.props.map(p => [p.id, []])), placed: [] };
+
+	const handLine = pose => { const l = pose.pos[HAND[0]], r = pose.pos[HAND[1]]; return { mid: mixV(l, r, 0.5), yaw: Math.atan2(l[0] - r[0], l[2] - r[2]) }; };
+	const follow = (p, pose) => { const h = handLine(pose); p.yaw = h.yaw + p.yawOff; p.c = sub(h.mid, qRotate(qY(p.yaw), p.off)); };
+	// where hand s of a character at B holds a box centred at c: on its left / right face, a little toward the holder
+	const grab = (c, p, B, s) => {
+		const d = [B.p[0] - c[0], B.p[2] - c[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l, half = p.size[0] / 2 + PAD;
+		return [c[0] - dz * s * half + dx * 0.07, c[1], c[2] + dx * s * half + dz * 0.07];
+	};
+	const handTarget = (c, i, to, f) => {
+		const B = c.body[f], s = i ? -1 : 1;
+		if (Array.isArray(to)) return add(B.p, qRotate(qY(B.yaw), to));
+		if (to.world) return to.world;
+		if (to.at) return grab(to.at, props[to.prop], B, s);
+		if (to.prop) return grab(props[to.prop].c, props[to.prop], B, s);
+		const o = byId[to.meet ?? to.chest], oB = o.body[f];
+		const d = [oB.p[0] - B.p[0], oB.p[2] - B.p[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l;
+		if (to.meet) return [(B.p[0] + oB.p[0]) / 2 - dx * 0.06, to.y ?? 1.1, (B.p[2] + oB.p[2]) / 2 - dz * 0.06];
+		const ch = (o.poseNow ?? solve(oB)).pos[J.Spine2]; // palms on the other figure's chest
+		return [ch[0] - dx * 0.15 + dz * s * 0.1, ch[1] + 0.03, ch[2] - dz * 0.15 - dx * s * 0.1];
+	};
+	const active = (list, f) => list.findLast(k => k.f <= f);
+	const scalar = (c, name, f, zero) => {
+		const k = active(c.keys[name], f);
+		if (!k) return zero;
+		k.from ??= c.last[name] ?? zero;
+		const w = EASE[k.ease]((f - k.f) / k.over);
+		return (c.cur[name] = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w));
+	};
+	const upper = (c, f, first) => {
+		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist };
+		[c.keys.L, c.keys.R].forEach((list, i) => {
+			const k = active(list, f);
+			let h = { from: null, to: null, w: 1 }, upTo = 0;
+			if (k) {
+				if (k.from === undefined) k.from = c.rest[i] || !c.pose ? null : qRotate(qY(-c.prevB.yaw), sub(c.pose.pos[HAND[i]], c.prevB.p));
+				const u = clamp((f - k.f) / k.over), w = EASE[k.ease](u);
+				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : handTarget(c, i, k.to, f), w };
+				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u), 0];
+				if (k.to?.chest) upTo = w;
+				c.restNext[i] = k.to === "rest" && w >= 1;
+			} else c.restNext[i] = true;
+			if (first) c.up[i] += (upTo - c.up[i]) * 0.3;
+			h.up = c.up[i];
+			U.hands.push(h);
+		});
+		const k = active(c.keys.look, f);
+		if (k) {
+			k.from ??= c.last.look ?? [0, 0];
+			let t = [0, 0];
+			if (k.to !== "fwd") {
+				const head = c.pose?.pos[J.Head] ?? add(B.p, [0, 0.56, 0]), o = byId[k.to];
+				const p = o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56, 0])) : k.to, d = sub(p, head);
+				t = [clamp(wrap(Math.atan2(d[0], d[2]) - B.yaw), -1.2, 1.2), clamp(-Math.atan2(d[1], Math.hypot(d[0], d[2])), -0.6, 0.6)];
+			}
+			const u = clamp((f - k.f) / k.over);
+			U.look = c.cur.look = mixV(k.from, t, EASE[k.ease](u));
+			if (k.nod) U.look = [U.look[0], U.look[1] + 0.2 * Math.sin(2 * Math.PI * k.nod * u)];
+		}
+		return U;
+	};
+
+	for (let f = 0; f < F; f++) {
+		for (const c of chars) for (const e of c.events) if (e.f === f) {
+			const p = props[e.prop];
+			p.holder = e.holder;
+			if (e.at) aux.placed.push({ prop: e.prop, f, miss: Math.hypot(...sub(p.c, e.at)) });
+			if (e.holder) { const h = handLine(byId[e.holder].pose ?? solve(c.body[f])); p.yawOff = p.yaw - h.yaw; p.off = qRotate(qY(-p.yaw), sub(h.mid, p.c)); }
+		}
+		for (let pass = 0; pass < 2; pass++) for (const c of chars) { // second pass: targets on other figures and props are current
+			c.restNext = [true, true];
+			c.poseNow = solve(c.body[f], upper(c, f, pass === 0));
+			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
+		}
+		for (const c of chars) {
+			c.pose = c.poseNow; c.prevB = c.body[f]; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
+			setPose(c.out, f, c.pose);
+			aux.contacts[c.id].push(c.body[f].feet.map(ft => ft.planted));
+		}
+		for (const { p, out } of outProps) {
+			aux.holders[p.id].push(p.holder);
+			if (out.pos.length === 3 && f > 0) continue;
+			out.pos.set(p.c, out.pos.length === 3 ? 0 : f * 3); out.quat.set(qY(p.yaw), out.pos.length === 3 ? 0 : f * 4);
+		}
+	}
+	clip.notes.push(...NOTES);
+	return { clip, aux };
+}
