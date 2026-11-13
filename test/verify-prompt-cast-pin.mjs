@@ -16,7 +16,7 @@ const EXPECTED = {
 };
 
 const shot = deriveShot({ x: 0, y: 1.6, z: 3 }, { x: 0, z: 0, rot: 0 }, (45 * Math.PI) / 180);
-const base = { shot, environment: "a sunlit modern living room", style: "35mm film look" };
+const base = { shot, environment: "a sunlit modern living room", style: "35mm film look", aspect: "16:9" };
 const woman = "a young woman in a tan coat";
 const man = "an old man with a cane";
 
