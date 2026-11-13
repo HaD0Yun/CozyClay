@@ -359,7 +359,11 @@ const implementations={
   // and the motion candidate use; only what truly cannot be computed is
   // unsupported, and each such check says why.
   const bindingSource=readFileSync(new URL('../src/studio-app-binding.js',import.meta.url),'utf8');
-  const branch=bindingSource.slice(bindingSource.indexOf('if (request.name === "verify_result") {'),bindingSource.indexOf('fail("CAPABILITY_MISSING", "Generation is owned by the server runtime.");'));
+  // The fall-through refusal (no tool alias: its owner is not mounted) names that owner, not a retired generation runtime.
+  const fallback=bindingSource.indexOf('fail("CAPABILITY_MISSING", `${request.name} needs the ');
+  assert(fallback>0&&!bindingSource.includes('Generation is owned'),'the no-alias refusal names the unmounted owner');
+  for(const [tool,domain] of [['arrange_objects','objects'],['arrange_characters','cast'],['frame_shot','shots']])assert(bindingSource.slice(fallback,bindingSource.indexOf('\n',fallback)).includes(`${tool}: "${domain}"`),`the no-alias refusal names the ${domain} owner for ${tool}`);
+  const branch=bindingSource.slice(bindingSource.indexOf('if (request.name === "verify_result") {'),fallback);
   for(const helper of ['placementChecks(','framingChecks(','verifyInstalledTake('])assert(branch.includes(helper),`verify_result computes target checks through ${helper}`);
   const verify=args=>f.call('verify_result',f.request('verify_result',{visual:'none',...args}));
   const first=await verify({targets:['actor-a'],checks:['placement','framing','motion']});
