@@ -950,7 +950,7 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	const { transformWithOxc } = await import("vite");
 	const React = await import("react");
 	const { renderToStaticMarkup } = await import("react-dom/server");
-	const scope = { React, ...(await import("react-icons/fi")), ...(await import("../src/workflow/agent-client.js")) };
+	const scope = { React, ...(await import("react-icons/fi")), ...(await import("../src/workflow/agent-client.js")), ko: (await import("../src/locale.js")).ko };
 	const names = Object.keys(scope).filter((name) => /^[A-Za-z_$][\w$]*$/.test(name) && name !== "default");
 	const cards = parseSync("AgentPanel.jsx", panel).program.body
 		.filter((node) => node.type === "FunctionDeclaration" && ["StatusDot", "JobCard", "ReceiptCard"].includes(node.id.name))
