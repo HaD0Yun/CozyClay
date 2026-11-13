@@ -1027,7 +1027,6 @@ export default function Timeline({
 	motion = null, // { frames, label, segments, cut, speed, remove, trim, reset } (take-segments.jsx timelineTake) | null
 	ikFrames = [], // sorted full-body key frames
 	rangePins = [], // active character's inclusive pin ranges
-	previewRanges = [], // amber preview spans shown under the Body track
 	selectedPinId = null,
 	pendingPinRange = null,
 	footSnap = true, // feet stay planted while the body moves
@@ -1915,13 +1914,7 @@ export default function Timeline({
 									{gridFrames.map((f) => (
 										<i key={f} className="tl-grid" style={{ "--tl-f": framePct(f, displayFrameCount) }} aria-hidden="true" />
 									))}
-									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} ikParts={ikParts} onJump={(f) => handlers.current.onScrub?.(f)} />}{name === IK_LANE && previewRanges.map((range, index) => {
-										const startFrame = Number.isFinite(Number(range?.startFrame)) ? Number(range.startFrame) : Number(range?.start ?? 0);
-										const endFrame = Number.isFinite(Number(range?.endFrame)) ? Number(range.endFrame) : Number(range?.end ?? startFrame);
-										const start = Math.max(0, Math.min(displayFrameCount - 1, Math.round(startFrame)));
-										const end = Math.max(start, Math.min(displayFrameCount - 1, Math.round(endFrame)));
-										return <span key={`preview:${index}`} className="tl-preview-range" style={{ "--tl-f-start": framePct(start, displayFrameCount), "--tl-f-end": framePct(end, displayFrameCount) }} aria-label={ko(`Preview range ${start}–${end}`, `미리보기 범위 ${start}–${end}`, `预览范围 ${start}–${end}`)} />;
-									})}
+									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} ikParts={ikParts} onJump={(f) => handlers.current.onScrub?.(f)} />}
 									{name === SHOTS_LANE && shots.length === 0 && (
 										<div className="tl-shot-empty">
 											<span>{ko("No shots yet — use + Add shot in the lane header to create one.", "아직 샷이 없습니다 — 레인 헤더의 + 샷 추가로 만들어 보세요.")}</span>

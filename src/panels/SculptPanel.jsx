@@ -79,7 +79,7 @@ function IouTrail({ history, target }) {
 	const delta = history.length > 1 ? last - history.at(-2).iou : null;
 	return (
 		<div className="sculpt-trail" data-testid="sculpt-trail">
-			<svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-label={ko(`IoU by round: ${values.map((v) => v.toFixed(3)).join(", ")}`, `라운드별 IoU: ${values.map((v) => v.toFixed(3)).join(", ")}`, `各轮 IoU：${values.map((v) => v.toFixed(3)).join(", ")}`)} role="img">
+			<svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-label={ko(`Match by round: ${values.map((v) => v.toFixed(3)).join(", ")}`, `라운드별 일치도: ${values.map((v) => v.toFixed(3)).join(", ")}`, `各轮匹配度：${values.map((v) => v.toFixed(3)).join(", ")}`)} role="img">
 				{target !== null && <line className="sculpt-trail-target" x1="0" x2="100" y1={y(target)} y2={y(target)} />}
 				{history.length > 1 && <polyline className="sculpt-trail-line" points={history.map((row, index) => `${x(index)},${y(row.iou)}`).join(" ")} />}
 				{history.map((row, index) => <circle key={index} className="sculpt-trail-dot" data-last={index === history.length - 1 ? "true" : undefined} cx={x(index)} cy={y(row.iou)} r="2.2" />)}
@@ -358,10 +358,10 @@ export default function SculptPanel({ run, reference, onReference, onStart, onCa
 
 						<div className="sculpt-iou">
 							<div className="sculpt-label">
-								<span>{stage === "done" ? ko("Final IoU", "최종 IoU") : "IoU"}</span>
+								<span title={ko("Silhouette match (IoU)", "실루엣 일치도 (IoU)")}>{stage === "done" ? ko("Final match", "최종 일치도", "最终匹配度") : ko("Match", "일치도", "匹配度")}</span>
 								<small data-testid="sculpt-iou">{formatIou(iou)}{target !== null && <span className="sculpt-iou-target"> / {formatIou(target)}</span>}</small>
 							</div>
-							<div className="sculpt-iou-bar" role="meter" aria-label={ko("Silhouette match (IoU)", "실루엣 일치도 (IoU)")}
+							<div className="sculpt-iou-bar" role="meter" aria-label={ko("Silhouette match", "실루엣 일치도", "轮廓匹配度")}
 								aria-valuemin={0} aria-valuemax={1} aria-valuenow={iou ?? undefined}
 								data-reached={iou !== null && target !== null && iou >= target ? "true" : undefined}
 								style={{ "--sculpt-iou": iou ?? 0, "--sculpt-target": target ?? 0 }}>

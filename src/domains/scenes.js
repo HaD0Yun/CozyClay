@@ -301,11 +301,11 @@ export function useScenes(appContext) {
 		}
 		const currentName = domain.metadata().name;
 		if (currentName === null && explicitName === null) {
-			setProjectNameDialog({ kind: "save", initialName: "My Project" });
+			setProjectNameDialog({ kind: "save", initialName: ko("Untitled Project", "제목 없는 프로젝트", "未命名项目") });
 			return { saved: false, naming: true };
 		}
 		setProjectSaveState("saving");
-		const name = (explicitName ?? currentName ?? "My Project").trim() || "My Project";
+		const name = (explicitName ?? currentName ?? ko("Untitled Project", "제목 없는 프로젝트", "未命名项目")).trim() || ko("Untitled Project", "제목 없는 프로젝트", "未命名项目");
 		const checkpoint = collectProjectSnapshot(name), checkWritten = checkAfterWrite(context, appContext.ports.read);
 		let downloaded = false;
 		try {
@@ -509,7 +509,7 @@ export function useScenes(appContext) {
 		if (domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled"; // the user kept their unsaved changes
 		// The choices made on the start screen ride on the name dialog until its
 		// submit commits the project.
-		setProjectNameDialog({ kind: "new", initialName: projectName ?? "My Project", ...chosen(choices) });
+		setProjectNameDialog({ kind: "new", initialName: projectName ?? ko("Untitled Project", "제목 없는 프로젝트", "未命名项目"), ...chosen(choices) });
 	}
 
 	function newProject(name, authorized = false, choices = {}) {
@@ -518,7 +518,7 @@ export function useScenes(appContext) {
 			return runProject("project.new", { ...(typeof name === "string" ? { name } : {}), ...pending, ...chosen(choices) });
 		}
 		if (typeof name !== "string") return requestNewProject(true, choices);
-		name = name.trim() || "My Project";
+		name = name.trim() || ko("Untitled Project", "제목 없는 프로젝트", "未命名项目");
 		const previsMode = normalizePrevisMode(choices.previsMode), castStyle = normalizeCastStyle(choices.castStyle);
 		setProjectNameDialog(null);
 		const fresh = createSceneDocument(ko("SCENE 01", "씬 01"));

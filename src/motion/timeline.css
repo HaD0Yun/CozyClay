@@ -18,7 +18,6 @@
 	--tl-playhead-head-height: 6px;
 	--tl-key-size: 8px;
 	--tl-pin-height: 6px;
-	--tl-preview-height: 2px;
 	--tl-control-gap: 2px;
 	--tl-font-ui: 12px;
 	--tl-font-secondary: 11px;
@@ -991,17 +990,6 @@
 	right: 0;
 	width: calc((var(--tl-f-end) - var(--tl-pin-ramp-end)) / max(.0001, var(--tl-f-end) - var(--tl-f-start)) * 100%);
 	opacity: .55;
-}
-
-.v2-sequencer .tl-preview-range {
-	position: absolute;
-	bottom: calc(var(--tl-track-group-height, 114px) - var(--tl-track-row-height, 38px));
-	left: calc(var(--tl-f-start) * 100%);
-	width: max(var(--tl-min-pin-width, 1px), calc((var(--tl-f-end) - var(--tl-f-start)) * 100%));
-	height: var(--tl-preview-height, 2px);
-	background: var(--select, #e8a33d);
-	pointer-events: none;
-	z-index: 5;
 }
 
 .v2-sequencer .tl-playhead {

@@ -6,13 +6,8 @@ import PreferencesDialog from "./shell/PreferencesDialog.jsx";
 // (#193, docs/studio-ui-ia.md R4). Neither item edits the document, so they do
 // not belong on the Save/Export row as bare toggles.
 //
-// The trigger now opens the v2 Preferences dialog. The old language strings stay
-// here because the locale contract treats this file as the Settings entry point.
-const LANGUAGES = [
-	{ id: "en", label: "English", action: "Switch to English" },
-	{ id: "ko", label: "한국어", action: "한국어로 전환" },
-	{ id: "zh", label: "简体中文", action: "切换到中文" },
-];
+// The trigger opens the v2 Preferences dialog, whose LanguageControls
+// (shell/preference-controls.jsx) hold the language choices.
 
 export default function SettingsMenu() {
 	const [open, setOpen] = useState(false);

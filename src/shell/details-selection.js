@@ -19,7 +19,7 @@ export function detailsSelection({ selectedHierarchyId: id, selectedSceneObject,
 		const { renderer, light } = selectedSceneObject;
 		if (renderer === LIGHT_KIND) return { name: sceneObjectNameDisplayKo(selectedSceneObject.name), type: `${ko("Light", "조명")} · ${light?.type === "spot" ? ko("Spot", "스포트") : ko("Point", "점")}` };
 		const kind = renderer === CUTOUT_KIND ? ko("Cutout", "컷아웃") : renderer === EMPTY_KIND ? ko("Empty", "빈 오브젝트") : renderer === SCULPT_KIND ? ko("Sculpt", "조형") : renderer === TEXT_KIND ? ko("Text", "텍스트") : ko("Mesh", "메시");
-		return { name: sceneObjectNameDisplayKo(selectedSceneObject.name), type: `${renderer === EMPTY_KIND ? ko("Node", "노드") : ko("Prop", "소품")} · ${kind}` };
+		return { name: sceneObjectNameDisplayKo(selectedSceneObject.name), type: renderer === EMPTY_KIND ? kind : `${ko("Prop", "소품")} · ${kind}` };
 	}
 	if (rigSelection) {
 		const index = characterIndexForRow(rigSelection.rowId, characters);
