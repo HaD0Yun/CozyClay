@@ -1,7 +1,6 @@
 [
 	"export bin/agent/provider-keys.mjs#removeKey",
 	"export bin/agent/provider-keys.mjs#setKey",
-	"export bin/package-signature.mjs#PACKAGE_SIGNATURE_PUBLIC_KEY",
 	"export src/asset-pane.jsx#CHARACTER_ASSETS",
 	"export src/asset-pane.jsx#FolderGrid",
 	"export src/domains/motion.js#createMotionDomain",

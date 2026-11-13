@@ -71,7 +71,7 @@ import {
 } from "../src/scene-objects.js";
 import { classifyMove, captureFraming, moveSlate } from "../src/camera-move.js";
 import { DEFAULT_PREVIS_MODE, PREVIS_MODES, readProjectDocument } from "../src/project.js";
-import { kindRefusal } from "../src/character-kind.js"; import { characterName, promptDescription } from "../src/character-name.js";
+import { characterName, promptDescription } from "../src/character-name.js";
 import { splitSavedCamera, serializeSavedProject } from "./project-camera.mjs";
 
 /** The authoring state. One scene document, one camera, one project name. */
@@ -212,7 +212,7 @@ const executeStudioCommand = async ({ action, args, expectedRevision, commandId,
 		commandId: commandId ?? randomUUID(),
 		host: Object.fromEntries(STUDIO_IDENTITY_KEYS.map((key) => [key, context.host[key]])),
 		expectedRevision: expectedRevision ?? inspectedRevision,
-	}, workspaceHandle, { timeoutMs: timeoutMs ?? (declared?.timeoutMs === undefined ? undefined : Math.min(MAX_COMMAND_TIMEOUT_MS, declared.timeoutMs + (declared.generation ? 5000 : 0))) });
+	}, workspaceHandle, { timeoutMs: timeoutMs ?? (declared?.timeoutMs === undefined ? undefined : Math.min(MAX_COMMAND_TIMEOUT_MS, declared.timeoutMs)) });
 	return receipt;
 };
 // A refusal is the editor's receipt: its code and recovery are the answer.
@@ -226,19 +226,13 @@ const runStudioCommand = async options => studioResult(await executeStudioComman
 // or the target's kind cannot run answers a structured refusal instead of acting.
 const refusal = (code, reason) => ({ content: [{ type: "text", text: JSON.stringify({ ok: false, code, reason }) }], isError: true });
 
-/** NOT_IN_MODE in a storyboard project; TARGET_NOT_READY when `feature` is given
- * and the target (`characterId`, else the active character) is a capsule figure.
- * Null when the tool may run. `context` is the connected editor's Studio context;
- * without one the in-memory project answers. */
-const previsRefusal = (toolName, { feature, context, characterId } = {}) => {
+/** NOT_IN_MODE in a storyboard project; null when the tool may run. `context` is
+ * the connected editor's Studio context; without one the in-memory project answers. */
+const previsRefusal = (toolName, { context } = {}) => {
 	if ((context ? context.scene?.previsMode : state.previsMode) === "storyboard") {
 		return refusal("NOT_IN_MODE", `This project is a Storyboard - ${toolName} is available in Animation projects.`);
 	}
-	if (!feature) return null;
-	const proxy = context
-		? context.entities?.find((entity) => entity.id === (characterId ?? context.activeCharacterId))?.characterKind === "proxy"
-		: isProxyFigure(findCharacter(characterId ?? state.focus));
-	return proxy ? refusal("TARGET_NOT_READY", kindRefusal(feature)) : null;
+	return null;
 };
 
 const scene = () => activeScene(state.doc.scenes, state.doc.activeSceneId);
@@ -1800,7 +1794,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				title: "List Studio commands",
 				description:
 					"List every command the connected editor registers, for studio_run: id, label, kind (mutation, transient, job, document), " +
-					"exposure, whether it is available now (the reason when not), and timeoutMs or generation where declared. The list carries " +
+					"exposure, whether it is available now (the reason when not), and timeoutMs where declared. The list carries " +
 					"no schemas; pass ids to read those commands' full declarations, description and input schema included.",
 				inputSchema: {
 					ids: z.array(z.string().min(1).max(120)).min(1).max(32).optional().describe("command ids whose full declarations to read"),

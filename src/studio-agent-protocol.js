@@ -14,7 +14,6 @@ const PREVIS_MODES = ["storyboard", "animation"], CAST_STYLES = ["rig", "capsule
 export const STUDIO_CONTEXT_MAX_BYTES = 64 * 1024;
 export const STUDIO_CONTEXT_LIMITS = Object.freeze({ entities: 24, entityIndex: 400, shots: 8, assets: 48, recentReceipts: 3, jobs: 8 });
 export const STUDIO_TOOL_FAMILIES = Object.freeze(["inspect_studio", "run_action", "verify_result"]);
-export const STUDIO_TOOL_ALIASES = Object.freeze(["operate_studio", "arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "undo_edit"]);
 export const STUDIO_TOOL_LABELS = Object.freeze({
 	inspect_studio: "Read the scene",
 	operate_studio: "Selection and view",
@@ -221,8 +220,8 @@ const entity = object({ id, kind: choices(["object", "character", "rig"]), token
 const indexRow = object({ id, kind: choices(["object", "character", "rig"]) }, { name, position: vec3 });
 // One compact row per registered Studio command: what run_action can call.
 // Its schema is on request (inspect_studio scope "actions" with ids); the
-// declared generation and hub timeout ride along for the sidecar's gate.
-const actionIndexRow = object({ id }, { label: name, generation: literal("motion"), timeoutMs: integer(1, 300_000) });
+// declared hub timeout rides along for the sidecar's gate.
+const actionIndexRow = object({ id }, { label: name, timeoutMs: integer(1, 300_000) });
 const shotSummary = object({ id, name, range, keyCount: integer() }, { subjectIds: ids(24, 0), kind: choices(["clip", "still"]), caption: text(500) });
 const currentShot = object({ id, name, range, mode: choices(STUDIO_VARIANTS.shotModes) }, { subjectIds: ids(24, 0), kind: choices(["clip", "still"]), caption: text(500) });
 const camera = object({ position: vec3, lookAt: vec3, focalMm: positive, sensorId: id, slate: name });
@@ -254,7 +253,7 @@ const undo = object({ historyEntryId: id, entries: literal(1), canUndoDirect: bo
 const installed = object({ characterId: id, beforeTakeId: nullable(id), takeId: id, targetToken: id, frameCount: integer(1), fps: literal(24), durationSeconds: positive, blocks: array(object({ sourceBeat: integer(0, 7), startFrame: integer(), endFrameExclusive: integer(1) }), 120, 1), selectionChanged: literal(false) });
 const verification = object({ id, status: choices(["verified", "unverified"]), profile: literal("studio-motion-v1"), range, evaluatedFrames: integer(), physicsRevision: integer(), limitations: array(name, 12) }, {
 	surfaceMeasured: bool, maxFloorPenetrationM: number(0), maxContactSlipM: number(0), maxContactFloatM: number(0), unsupportedFrames: integer(), supportedCollisionFrames: integer(), continuityRegressed: bool,
-	semanticStatus: choices(["pending_image_review", "passed", "failed", "unavailable"]),
+	semanticStatus: choices(["unavailable"]),
 });
 // One measured value per patched element path. Exactly one typed member is
 // carried, so a picture is reported by its measured size and a schedule by its

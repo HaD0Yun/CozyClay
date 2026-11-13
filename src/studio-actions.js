@@ -9,8 +9,7 @@ import { StudioProtocolError, StudioSchemas, freezeStudioData, validateStudioSch
  * transient: view state only. job: long-running work (a generation, an
  * export); it answers "started", or "completed" with its output when it runs
  * to its end. A job that needs longer than the hub's 30 s default declares
- * `timeoutMs` (at most the hub's 300 s ceiling); one that starts a motion
- * generation declares `generation: "motion"`, the agent's one per message.
+ * `timeoutMs` (at most the hub's 300 s ceiling).
  * document: project-level work outside the undo history (scenes, the project
  * file); it answers "completed", with the new host when the open scene moved. */
 export const STUDIO_ACTION_KINDS = freezeStudioData(["mutation", "transient", "job", "document"]);
@@ -235,13 +234,13 @@ export function createStudioActionRegistry({ readState } = {}) {
 		state() { return readState?.(); },
 		/** Available actions carry their description and input schema;
 		 * unavailable ones carry the reason instead of arguments. The declared
-		 * hub timeout and generation travel with each, so no caller keeps its
+		 * hub timeout travels with each, so no caller keeps its
 		 * own copy of them. */
 		list(state = readState?.()) {
 			return [...entries.values()].map(entry => {
 				const verdict = availability(entry, state);
 				const row = { id: entry.id, label: entry.label, kind: entry.kind, description: entry.description, exposure: entry.exposure, ...(entry.agentHidden ? { agentHidden: true } : {}), ...(entry.readOnly ? { readOnly: true } : {}),
-					...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }), ...(entry.generation ? { generation: entry.generation } : {}) };
+					...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }) };
 				return verdict === true ? { ...row, available: true, input: entry.input } : { ...row, available: false, reason: verdict };
 			});
 		},
