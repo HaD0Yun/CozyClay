@@ -41,9 +41,9 @@ try {
 	const { send, ev } = page;
 	await openDocument(page, JSON.parse(readFileSync(join(dir, "start.cclayproject"), "utf8")));
 	for (let t0 = Date.now(); Date.now() - t0 < 60_000; await sleep(1000)) if ((cclayLive(hub, "inspect", "--scope", "entities", "--limit", "32").entities ?? []).some(e => e.id === "char-a" && e.capabilities?.rigReady)) break;
-	// the panel docks collapsed ("Agent · Ask the agent..."): open it through the inspector switch or the dock itself
+	// the panel docks collapsed ("Agent · Ask the agent..."): open it through the agent bar
 	const INPUT = `${PANE}?.querySelector('textarea')`, SHOWN = `(() => { const a = ${INPUT}; return !!a && a.offsetParent !== null && !a.disabled; })()`;
-	await ev(`(() => { const b = document.querySelector('button.inspector-agent-switch[aria-pressed="false"]') ?? [...document.querySelectorAll('button')].find(b => /Ask the agent|에이전트에게/.test(b.textContent)); b?.click(); return true; })()`);
+	await ev(`(() => { const b = document.querySelector('button.studio-agent-bar') ?? [...document.querySelectorAll('button')].find(b => /Ask the agent|에이전트에게/.test(b.textContent)); b?.click(); return true; })()`);
 	if (!(await waitFor(ev, SHOWN, 30_000))) throw new Error("the Agent panel did not open");
 	out.modelSelected = await select(ev, "Model", model);
 	out.effortSelected = await select(ev, "Reasoning effort", effort);

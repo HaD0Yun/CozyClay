@@ -471,24 +471,6 @@
 	outline-offset: var(--start-focus-offset, 1px);
 }
 
-.v2-start-screen .v2-start-select-wrap {
-	position: relative;
-	width: var(--start-field-width, 100%);
-	height: var(--start-field-height, 30px);
-	display: block;
-}
-
-.v2-start-screen .v2-start-select-wrap::after {
-	content: "⌄";
-	position: absolute;
-	right: var(--sp-2, 12px);
-	top: 50%;
-	transform: translateY(-50%);
-	pointer-events: none;
-	color: var(--text-off, #4f4f55);
-	font-size: var(--start-caret-size, 10px);
-}
-
 .v2-start-screen .v2-start-field select {
 	appearance: none;
 	background-color: var(--field-deep, #0c0c0d);
