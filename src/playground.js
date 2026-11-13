@@ -1,7 +1,7 @@
-// Landing-page playground: the marketing page embeds the Studio in an iframe
-// with a preset scene, so a visitor can fly the same camera that produced
-// the demo reels before installing anything. Nothing here touches storage —
-// the iframe shares the origin with /app/, and a visitor poking at the
+// Playground mode (?embed=playground): a page hosted outside this repo can
+// frame the Studio in an iframe with a preset scene, so a visitor can fly the
+// camera before installing anything. Nothing here touches storage — such an
+// iframe shares the origin with /app/, and a visitor poking at the
 // playground must never overwrite scenes they authored in the real studio.
 
 import { readProjectDocument } from "./project.js";

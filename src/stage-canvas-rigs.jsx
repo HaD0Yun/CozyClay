@@ -13,7 +13,7 @@ import { PRESETS, editorFrameForSubject } from "./stage-startup-defaults.js";
 /** Selection marker for the picked cast member: a Unity-style XYZ tripod
  * plus a ground ring at the feet. X/Z arrows also drag the character on the
  * floor (Y is display-only — characters stand on the deck). */
-export function ShotRig({ preset, nonce, fovDeg, charA, charB, showB, probe: playbackProbeInput = {}, camRef, look, onMetrics, appliedPresetRef, lastPosRef }) {
+export function ShotRig({ preset, nonce, fovDeg, charA, probe: playbackProbeInput = {}, camRef, look, onMetrics, appliedPresetRef, lastPosRef }) {
 	useEffect(() => {
 		const cam = camRef.current;
 		if (!cam) return;
@@ -38,8 +38,7 @@ export function ShotRig({ preset, nonce, fovDeg, charA, charB, showB, probe: pla
 		const p = PRESETS[preset];
 		const az = (p.azimuth * Math.PI) / 180;
 		const el = (p.elevation * Math.PI) / 180;
-		const aim =
-			p.aimMid && showB ? { x: (charA.x + charB.x) / 2, z: (charA.z + charB.z) / 2 } : { x: charA.x, z: charA.z };
+		const aim = { x: charA.x, z: charA.z };
 		const horizontal = p.distance * Math.cos(el);
 		cam.position.set(
 			aim.x + horizontal * Math.sin(az),

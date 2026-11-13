@@ -715,7 +715,7 @@ select {
 	height: 100%;
 }
 
-/* The landing page's playground iframe: the viewport, a one-row transport,
+/* The playground iframe an external page hosts: the viewport, a one-row transport,
    the Shots lane (a shot and its rail) and the shot monitor stay; project chrome, hierarchy, inspector and the other lanes go. */
 .app[data-embed-mode="playground"] {
 	width: 100vw;

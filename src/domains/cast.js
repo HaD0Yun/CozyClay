@@ -27,6 +27,8 @@ import { track, trackFeature } from "../analytics.js";
 import { shotAtFrame } from "../cuts.js";
 
 const sameCastValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Where the second cast slot stands: the placeholder and a newly shown extra share it.
+const B_SLOT_START = { x: 1.15, z: 0.1, rot: -14 };
 
 function createCastDomain(appContext, initial, customPoses = []) {
 	const normalize = value => ({ characters: (Array.isArray(value) ? value : value.characters).map(createCharacterEntry),
@@ -179,14 +181,10 @@ export function useCast(appContext) {
 	// and waypoints new effect dependencies on every commit, so an empty or
 	// one-character cast re-ran App's dirty check after each playback frame and
 	// chained React into "Maximum update depth exceeded" (#1045).
-	const [[placeholderA, placeholderB]] = useState(() => [createCharacterEntry(null, 0), { ...createCharacterEntry(null, 1), x: 1.15, z: 0.1, rot: -14 }]);
+	const [[placeholderA, placeholderB]] = useState(() => [createCharacterEntry(null, 0), { ...createCharacterEntry(null, 1), ...B_SLOT_START }]);
 	const charA = characters[0] ?? placeholderA, charB = characters[1] ?? placeholderB;
 
 	const showB = characters.some((entry, index) => index > 0 && !entry.hidden);
-
-	const poseA = charA.pose ?? DEFAULT_POSE;
-
-	const poseB = charB.pose ?? DEFAULT_POSE;
 
 	function updateCharacterAt(index, next) {
 		const base = domain.read()[index], raw = appContext.ports.read();
@@ -194,9 +192,6 @@ export function useCast(appContext) {
 		if (entry) return domain.edit('character.update', { characterId: entry.id, patch: typeof next === 'function' ? next(entry) : next });
 	}
 
-	function setShowB(next) {
-		return domain.run('cast.showExtras', { show: typeof next === 'function' ? next(domain.read().some((entry, i) => i > 0 && !entry.hidden)) : next });
-	}
 	function applyShowB(on) {
 		editCharacters((list) => {
 			const anyVisibleExtra = list.some((entry, i) => i > 0 && !entry.hidden);
@@ -204,7 +199,7 @@ export function useCast(appContext) {
 				if (anyVisibleExtra) return list;
 				const hiddenIdx = list.findIndex((entry, i) => i > 0 && entry.hidden);
 				if (hiddenIdx > 0) return list.map((entry, i) => (i === hiddenIdx ? { ...entry, hidden: false } : entry));
-				return [...list, createCharacterEntry({ id: nextCharacterId(list), x: 1.15, z: 0.1, rot: -14, pose: DEFAULT_POSE }, list.length)];
+				return [...list, createCharacterEntry({ id: nextCharacterId(list), ...B_SLOT_START, pose: DEFAULT_POSE }, list.length)];
 			}
 			return list.map((entry, i) => (i > 0 && !entry.hidden ? { ...entry, hidden: true } : entry));
 		});
@@ -601,7 +596,7 @@ export function useCast(appContext) {
 			return;
 		}
 
-		appContext.notify(ko("Root path on — click the set floor in the Shot view to drop waypoints; Subject 1 is the frame 0 start", "루트 경로 켜짐 — 샷 뷰의 세트 바닥을 클릭해 웨이포인트를 놓으세요. 인물 1이 0프레임 시작점입니다"));
+		appContext.notify(ko("Root path on — click the set floor in the Shot view to drop waypoints; Character 1 is the frame 0 start", "루트 경로 켜짐 — 샷 뷰의 세트 바닥을 클릭해 웨이포인트를 놓으세요. 인물 1이 0프레임 시작점입니다", "根路径已开启 — 在镜头视图中点击布景地面放置路径点；角色 1 是第 0 帧的起点"));
 	}
 
 	function openStudio(charId) {
@@ -720,7 +715,7 @@ export function useCast(appContext) {
 			renderer: target?.rig ? appContext.shared.snapshotExportRig(target.rig) : null };
 	}
 	function removeLegacyRootWaypoint() {
-		// Subject 1 is the sole frame-zero root start. Drop any legacy seeded
+		// The first character is the sole frame-zero root start. Drop any legacy seeded
 		// waypoint so Top-View never renders two start markers.
 		setWaypoints((current) => current.filter((waypoint) => waypoint.frame !== 0));
 		setActiveWaypointId(null);
@@ -822,7 +817,7 @@ export function useCast(appContext) {
 		applyExternalCharacters, publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain, removeLegacyRootWaypoint, switchActiveCharacterLayer, createLegacyCastHandlers, toggleCharacterHidden,
 		characters, editCharacters, customPoses, posing, setPosing, posingClosing,
 		studioPick, setStudioPick, commitPosedPose, rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
-		poseA, poseB, updateCharacterAt, setShowB, moveCharacter, removeCharacter, reportRig,
+		updateCharacterAt, moveCharacter, removeCharacter, reportRig,
 		spawnCharacter, charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId,
 		rowIdForCharIndex, activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig,
 		ghostLayers, snapshotCast, changeInspectorCharacter, hasCharSheet,
