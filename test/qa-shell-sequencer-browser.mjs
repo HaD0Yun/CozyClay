@@ -8,7 +8,7 @@ import { waitForFrameState } from "./bus/browser-frame-state.mjs";
 import { SCENES_STORAGE_KEY } from "../src/scenes.js";
 
 const port = Number(process.env.CDP_PORT || 9528);
-const appUrl = process.env.QA_URL || "http://127.0.0.1:5528/app/?motion=/demo/walk-then-stop.npz";
+const appUrl = process.env.QA_URL || "http://127.0.0.1:5528/app/";
 const outputDir = process.env.QA_OUT || "/tmp/cozyclay-task-14";
 mkdirSync(outputDir, { recursive: true });
 
@@ -118,7 +118,7 @@ expect("demo motion is loaded", await waitFor("!!window.__cozyclay?.motion && wi
 await evaluate("window.__cozyclay.pause?.()");
 await waitFor("!document.querySelector('.tl-btn.play.on')");
 await click('[data-mode-key="4"]');
-expect("Motion mode exposes Body actions", await waitFor("document.querySelector('.v2-sequencer [data-testid=sequencer-add-block]') && document.querySelector('.v2-sequencer [data-testid=sequencer-cut]')"));
+expect("Motion mode exposes the Body cut action", await waitFor("document.querySelector('.v2-sequencer [data-testid=sequencer-cut]')"));
 
 const geometry = await evaluate(`(() => {
 	const root = document.querySelector('.v2-sequencer');

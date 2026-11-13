@@ -1,5 +1,5 @@
 // pose()'s bone edits (src/motion3/compiler/pose.js, limbs.js, skeleton.js rotateSubtree) for pose-wasm.js.
-// Every float op keeps the JS evaluation order so results match bit for bit; sin/cos/acos/exp are
+// Every float op keeps the JS evaluation order so results match bit for bit; sin/cos/acos are
 // imported from the host's Math, hypot is V8's (Kahan-summed, normalised by the largest term).
 
 type V = [f64; 3];

@@ -44,12 +44,14 @@ borders; the surface value does the work.
   Fonts are self-hosted woff2 assets; the shell does not load a CDN font.
 - Controls are 28 px or 24 px high. Control corners are 4 px; pills and cards
   use 6 px. The spacing scale is 8 / 12 / 16 px.
-- The 2a shell is 1920×1080: top bar 44 px, right column 340 px, bottom dock
+- The 2a shell record (an earlier version; §6 supersedes its layout and
+  sizes) is 1920×1080: top bar 44 px, right column 340 px, bottom dock
   330 px, status bar 24 px. Panel headers are 36 px, Outliner rows 24 px,
   Sequencer rows 38 px with a 190 px track tree, and Content is 620 px wide.
 - **Top bar (`#121214`):** a 20 px project swatch, project name and dirty dot,
-  File/Edit/Window/Help menus, MCP status, and the violet Generate Motion
-  action.
+  and File/Edit/Window/Help menus. The 2a version also showed MCP status and
+  a violet Generate Motion action; today the MCP status element is hidden and
+  there is no Generate Motion action.
 - **Viewport:** a `+ Add` pill and Perspective / Clay Lit / Show pill at top
   left; the single mode+tool pill at top centre; fly speed at top right; axis
   gizmo at bottom left; and a 300 px camera preview with a 26 px header and
@@ -221,16 +223,6 @@ snapping and a read-only hotkeys list.
 - `.tl-crane-editor`: card-local time/height graph; the graph inserts points,
   points have enlarged targets, and vertical drags edit height without moving
   the Shot block.
-- `.motion-readiness`: compact text-labelled generation status beside the
-  generation controls. It distinguishes checking, ready, not configured,
-  unavailable and unsupported routes without gating authoring. It inherits
-  `--fg`, `--muted`, `--cyan`, `--panel`, `--line2`, `--radius`, the 11 px
-  inspector scale and 4/8 px spacing; state is never colour-only.
-- `.motion-setup`: an explicitly opened region in Settings, not a modal or
-  another topbar control. Documentation opens separately and Retry only probes
-  health. It preserves the scene and prompt blocks, scrolls within the viewport,
-  wraps commands, and keeps controls reachable at 390 px. Status uses polite
-  announcements, visible keyboard focus and immediate state changes.
 
 ## 6. Floating-glass shell and themes (#570)
 
@@ -246,8 +238,9 @@ panel with 12 px gutters and a 20 px radius:
   a 12 px gap (G9). Details is titled by the selection (name, then kind); each
   section is an 11 px label over a rounded card.
 - **Top row:** menus left, the mode switch (Stage, Pose, Camera, Motion, each
-  with its icon) centred, then one capsule with the MCP state and Generate
-  Motion. All 40 px capsules between the two columns.
+  with its icon) centred. All 40 px capsules between the two columns. (The
+  #570 version ended the row with one capsule for the MCP state and Generate
+  Motion; the MCP state is now hidden and Generate Motion is removed.)
 - **Viewport rails:** a 44 px vertical rail on the left (Add, the mode's tools,
   its value such as snap) and one on the right (view, shading, Show, fly
   speed). Rail controls are 36 px round buttons with 16 px line icons; their

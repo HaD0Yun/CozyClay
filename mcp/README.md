@@ -9,8 +9,8 @@ Works two ways, with one tool catalog:
 - **Editor open** — tool calls drive the visible viewport live: camera, cast, set and the
   compiled motion on the timeline (`studio_run` with `motion.compile`).
 - **No editor** — scene, camera, prompt and project-file tools run in memory with no browser,
-  GPU or build step. `capture_frame`, `apply_batch` and `import_mesh` explicitly require a
-  live editor.
+  GPU or build step. `capture_frame`, `apply_batch`, `import_mesh`, `studio_commands` and
+  `studio_run` explicitly require a live editor.
 
 ## Run it locally
 
@@ -53,7 +53,11 @@ size      wide shot — the subject fills 40% of frame height
 view      a right-side profile view
 level     a low knee-level angle looking up at the subject
 distance  4.39m
+...
 ```
+
+(Abbreviated: the full answer also carries `lens` and `elevation` lines and a closing
+`texture guidance` line.)
 
 `render_prompt` turns that same geometry into a prompt that carries the real framing, so the
 generated frame matches the blocking instead of drifting off into a generic shot.
@@ -99,8 +103,9 @@ Vite build connects to the selected loopback endpoint; `npm run dev` preserves t
 variable for the browser. A CozyClay editor tab then connects on its own; `live_status` tells you whether one is attached. With an editor connected, mutations
 forward to it and reads report its real state — the screen you are looking at is the source of
 truth. Without one, headless-capable tools keep their in-memory behaviour while `capture_frame`
-returns an explicit connected-editor error. The other three live-only tools return a readable
-ordinary response explaining that an editor is required. In `--http` mode each session
+returns an explicit connected-editor error, and so do `import_mesh`, `studio_commands` and
+`studio_run` (an `isError` result). `apply_batch` returns a readable ordinary response
+explaining that an editor is required. In `--http` mode each session
 child attempts to bind the live port, so one session owns the editor and the others
 intentionally run memory-only.
 
@@ -151,8 +156,8 @@ still-shot commands (`shot.createStill`, `shot.setCaption`, `shot.setHold`, ...)
 A **capsule figure** is a rigless stand-in for blocking: `add_character { subject, model:
 "proxy-figure", posture: "sit" }`. It places, turns and frames like any cast member and holds a
 posture (`stand`, `sit` or `lie`), but it has no skeleton, so motion and takes are refused with
-`TARGET_NOT_READY` and the kind's reason, for example `Capsule figures have no rig - Motion
-generation works on rigged characters only.` The editor refuses its own IK, pose, physics,
+`TARGET_NOT_READY` and the reason, for example `<name> is a proxy-figure body, which motion
+compile cannot drive; use an X Bot or Y Bot character.` for `motion.compile`. The editor refuses its own IK, pose, physics,
 collision and line-edit commands on a capsule figure with the same code when they arrive
 through `studio_run`. Use a rigged model for anything that moves a body.
 

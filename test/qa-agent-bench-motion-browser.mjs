@@ -104,7 +104,7 @@ async function runScenario(id, index) {
 		const opened = await ev(`window.__cozyclayProject.open(${JSON.stringify(fixtureText)}).then(r => ({ ok: r.ok, problems: r.problems ?? null }))`);
 		if (!opened?.ok) throw new Error(`the fixture did not open: ${JSON.stringify(opened)}`);
 		await sleep(2500);
-		await ev(`(() => { const b = document.querySelector('button.inspector-agent-switch[aria-pressed="false"]') ?? [...document.querySelectorAll('button')].find(b => /Ask the agent|에이전트에게/.test(b.textContent)); b?.click(); return true; })()`);
+		await ev(`(() => { const b = document.querySelector('button.studio-agent-bar') ?? [...document.querySelectorAll('button')].find(b => /Ask the agent|에이전트에게/.test(b.textContent)); b?.click(); return true; })()`);
 		await sleep(1200);
 		const select = (aria, value) => ev(`(() => { const s = document.querySelector('select[aria-label=${JSON.stringify(aria)}]'); if (!s) return 'missing'; Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(s, ${JSON.stringify(value)}); s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; })()`);
 		// The model list fills in after the provider answers (slow when several benches load at once): wait for

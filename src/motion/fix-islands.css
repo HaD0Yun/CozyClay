@@ -1,17 +1,43 @@
-/* Fix islands on the IK keys row (TimelineFixIslands.jsx): a band behind the island's key dot. */
+/* Fix keys and IK keys by body part (TimelineFixIslands.jsx). The IK keys row is row 1 of the Body group; each part with a
+   fix key opens one more row under it (--tl-ik-parts on the surface), and --fix-row places a mark on its row. */
 .v2-sequencer .tl-fix-islands { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
-.v2-sequencer .tl-fix-island {
-	position: absolute;
-	top: calc(var(--tl-track-row-height, 38px) * 1.5 - 6px);
-	height: 12px;
-	min-width: 4px;
-	border-radius: 4px;
-	background: color-mix(in srgb, var(--select, #0a6ee0) 16%, transparent);
-	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--select, #0a6ee0) 55%, transparent);
-	pointer-events: auto;
-}
-.v2-sequencer .tl-fix-island.dragging { background: color-mix(in srgb, var(--select, #0a6ee0) 28%, transparent); }
-.v2-sequencer .tl-fix-edge { position: absolute; top: -2px; bottom: -2px; width: 6px; cursor: ew-resize; }
-.v2-sequencer .tl-fix-edge.start { left: -3px; }
-.v2-sequencer .tl-fix-edge.end { right: -3px; }
 .v2-sequencer .tl-track.ik .tl-marker.ik { z-index: 3; }
+
+/* a row: its hairline, a strip that takes clicks (go to a frame, Shift: rest key), and a small diamond per other key of that part */
+.v2-sequencer .tl-fix-part-line { position: absolute; left: 0; right: 0; top: calc(var(--tl-track-row-height, 38px) * var(--fix-row, 1)); height: var(--tl-divider-width, 1px);
+	background: var(--row-divider, #1d1d20); opacity: 0.6; pointer-events: none; }
+.v2-sequencer .tl-fix-row-hit { position: absolute; left: 0; right: 0; top: calc(var(--tl-track-row-height, 38px) * var(--fix-row, 1) + 1px); height: calc(var(--tl-track-row-height, 38px) - 1px); pointer-events: auto; cursor: pointer; }
+.v2-sequencer .tl-part-key { position: absolute; top: calc(var(--tl-track-row-height, 38px) * (var(--fix-row, 1) + 0.5)); width: 6px; height: 6px; border-radius: 1px;
+	background: color-mix(in srgb, var(--text-row, #c9c9ce) 55%, transparent); transform: translate(-50%, -50%) rotate(45deg); pointer-events: auto; cursor: pointer; }
+.v2-sequencer .tl-part-key:hover { background: var(--text-row, #c9c9ce); }
+
+/* what plays between two dots: thin and fading where the pose eases in or out of the take, solid between two pose keys */
+.v2-sequencer .tl-fix-seg { position: absolute; top: calc(var(--tl-track-row-height, 38px) * (var(--fix-row, 1) + 0.5) - 1px); height: 2px; pointer-events: none; }
+.v2-sequencer .tl-fix-seg.pose { top: calc(var(--tl-track-row-height, 38px) * (var(--fix-row, 1) + 0.5) - 2px); height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--select, #0a6ee0) 70%, transparent); }
+.v2-sequencer .tl-fix-seg.in { background: linear-gradient(to right, color-mix(in srgb, var(--select, #0a6ee0) 8%, transparent), color-mix(in srgb, var(--select, #0a6ee0) 70%, transparent)); }
+.v2-sequencer .tl-fix-seg.out { background: linear-gradient(to left, color-mix(in srgb, var(--select, #0a6ee0) 8%, transparent), color-mix(in srgb, var(--select, #0a6ee0) 70%, transparent)); }
+
+/* the dots: a pose key is filled, a rest key (the take itself) is hollow and smaller; both have a grab area larger than they look */
+.v2-sequencer .tl-fix-key { position: absolute; top: calc(var(--tl-track-row-height, 38px) * (var(--fix-row, 1) + 0.5)); width: 18px; height: 18px; transform: translate(-50%, -50%); pointer-events: auto; cursor: ew-resize; touch-action: none; z-index: 1; }
+.v2-sequencer .tl-fix-key::after { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, -50%);
+	background: var(--select, #0a6ee0); box-shadow: 0 0 0 2px var(--surface-panel, #151517); }
+.v2-sequencer .tl-fix-key.rest::after { width: 7px; height: 7px; background: var(--surface-panel, #151517); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--select, #0a6ee0) 75%, transparent), 0 0 0 2px var(--surface-panel, #151517); }
+.v2-sequencer .tl-fix-key:hover::after, .v2-sequencer .tl-fix-key.moving::after { box-shadow: 0 0 0 2px var(--surface-panel, #151517), 0 0 0 4px color-mix(in srgb, var(--select, #0a6ee0) 45%, transparent); }
+.v2-sequencer .tl-fix-key.rest:hover::after, .v2-sequencer .tl-fix-key.rest.moving::after { box-shadow: inset 0 0 0 1.5px var(--select, #0a6ee0), 0 0 0 2px var(--surface-panel, #151517), 0 0 0 4px color-mix(in srgb, var(--select, #0a6ee0) 45%, transparent); }
+
+/* labels */
+.v2-sequencer .tl-ik-parts-toggle:not(#_) { flex: none; width: 16px; height: 16px; margin-left: -18px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 3px; background: none; color: var(--label, #8b8b93); cursor: pointer; }
+.v2-sequencer .tl-ik-parts-toggle:hover:not(#_) { color: var(--text-row, #c9c9ce); background: color-mix(in srgb, var(--text-row, #c9c9ce) 12%, transparent); }
+.v2-sequencer .tl-track-subrow.tl-ik-part-row:not(#_):not(#_) { padding-left: 44px; }
+.v2-sequencer .tl-track-subrow.tl-ik-part-row .tl-track-chip { opacity: 0.85; }
+.v2-sequencer .tl-ik-part-count { margin-left: auto; min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 8px; font-style: normal; font-size: 10px;
+	background: color-mix(in srgb, var(--select, #0a6ee0) 22%, transparent); color: var(--text-row, #c9c9ce); }
+
+/* Merge, at the end of a part's label */
+.v2-sequencer .tl-ik-part-merge:not(#_) { flex: none; width: 20px; height: 20px; margin-left: 4px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--r-1, 4px); background: none; color: var(--label, #8b8b93); cursor: pointer; }
+.v2-sequencer .tl-ik-part-merge:hover:not(#_) { background: var(--select, #0a6ee0); color: var(--on-primary, #fff); }
+
+/* The Body group grows by one row per open part; the rows below it follow (auto rows, each track keeps its own height). */
+.v2-sequencer .tl-surface[data-ik-parts] .tl-track.ik:not(#_):not(#_) { height: calc(var(--tl-track-row-height, 38px) * (2 + var(--tl-ik-parts, 0))); min-height: calc(var(--tl-track-row-height, 38px) * (2 + var(--tl-ik-parts, 0))); }
+.v2-sequencer .tl-surface[data-ik-parts]:not(.prop-subject):not(#_):not(#_):not(#_) { grid-template-rows: var(--tl-ruler-height, 24px) auto auto auto; align-content: start; }
+.v2-sequencer .tl-surface[data-ik-parts] .tl-track-label-stack { grid-template-rows: none; grid-auto-rows: var(--tl-track-row-height, 38px); }

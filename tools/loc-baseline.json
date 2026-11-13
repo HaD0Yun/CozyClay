@@ -69,6 +69,5 @@
 	"src/workflow/agent-client.js": 1294,
 	"src/workflow/AgentPanel.jsx": 790,
 	"src/workflow/WorkflowBuilder.jsx": 592,
-	"tools/qa/css-rule-usage.mjs": 251,
-	"tools/run-tests.mjs": 407
+	"tools/run-tests.mjs": 389
 }

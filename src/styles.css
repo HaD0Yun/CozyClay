@@ -286,31 +286,6 @@ select {
 	background: var(--hover);
 }
 
-/* Project header at the top of the hierarchy column (Project > Scene). */
-.hierarchy-project {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	padding: 9px 12px 8px;
-	border-bottom: 1px solid var(--line);
-}
-
-.hierarchy-project-label {
-	font-size: 10px;
-	font-weight: 700;
-	letter-spacing: .08em;
-	text-transform: uppercase;
-	color: var(--muted2);
-}
-
-.hierarchy-project strong {
-	flex: 1;
-	font-size: 12.5px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
 /* Project browser modal */
 .project-browser-backdrop {
 	position: fixed;
@@ -604,17 +579,6 @@ select {
 	color: var(--fg-dim, var(--lg-9a9a9a, #9a9a9a));
 	font-variant-numeric: tabular-nums;
 }
-.wordmark {
-	font-family: var(--display);
-	font-weight: 750;
-	font-size: 18px;
-	line-height: 1;
-	color: var(--lg-d2d2d2, #d2d2d2);
-	letter-spacing: -.045em;
-}
-.wordmark span {
-	color: #3c91a8;
-}
 
 .brandbar {
 	position: relative;
@@ -635,11 +599,6 @@ select {
 	width: 46px;
 	height: 2px;
 	background: #3a7cbf;
-}
-
-.brandbar .wordmark {
-	font-size: 14px;
-	letter-spacing: -.035em;
 }
 
 .source-offer {
@@ -770,8 +729,6 @@ select {
 .app[data-embed-mode="playground"] .hierarchy-left,
 .app[data-embed-mode="playground"] .hierarchy-sidebar,
 .app[data-embed-mode="playground"] .workspace-splitter,
-.app[data-embed-mode="playground"] .bottom-window-tabs,
-.app[data-embed-mode="playground"] .take-bar,
 .app[data-embed-mode="playground"] .tl-pose-tools,
 .app[data-embed-mode="playground"] .tl-motion-tools,
 .app[data-embed-mode="playground"] .tl-badge,
@@ -784,10 +741,6 @@ select {
 /* The v2 Sequencer styles sit outside the legacy layer, so the lane rule above
    needs !important to keep only the Shots lane. */
 .app[data-embed-mode="playground"] .tl-track:not(.shots) { display: none !important; }
-/* Title bar keeps nothing but the pane's own name: the drawn dolly plays
-   full-screen through the shot camera's look-through button, and Esc is the
-   way back to flying. */
-.app[data-embed-mode="playground"] .viewport-titlebar .editor-toolbar { display: none !important; }
 /* The plan inset only matters while a rail is being drawn into it. */
 .app[data-embed-mode="playground"]:not([data-rail-draw="1"]) .vp-inset.plan { display: none !important; }
 .app[data-embed-mode="playground"][data-rail-draw="1"] .vp-inset.plan { width: 44% !important; height: 62% !important; }
@@ -1164,12 +1117,6 @@ select {
 
 /* Ghost (other characters') clips and pins on the timeline lanes: visible
    for schedule awareness, never interactive. */
-.tl-chip.ghost {
-	opacity: 0.42;
-	pointer-events: none;
-	border-style: dashed;
-}
-
 .tl-marker.wp.ghost {
 	opacity: 0.42;
 	pointer-events: none;
@@ -2352,26 +2299,6 @@ input[type=range]::-moz-range-thumb {
 	color: #fff;
 	background: #e5484d;
 }
-/* current App.jsx renders the subject remove button as button.x until the
-   caller swaps it for .sb-actions/.sb-remove markup */
-.subject-box-head .x {
-	width: 22px;
-	height: 22px;
-	border-radius: 7px;
-	border: none;
-	background: none;
-	color: var(--muted2);
-	font-size: 11px;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	transition: color var(--fast), background var(--fast);
-}
-.subject-box-head .x:hover {
-	color: #fff;
-	background: #e5484d;
-}
 
 .cslider {
 	margin-top: 11px;
@@ -2939,12 +2866,6 @@ input[type=range]::-moz-range-thumb {
 	vector-effect: non-scaling-stroke;
 }
 
-/* The camera's copy wears the rail's colour. */
-.sg-cam .sg-head { color: #cbb8ef; }
-.sg-cam .sg-body { border-color: rgba(154, 123, 212, .3); background: #120f17; }
-.sg-cam .sg-line { stroke: #b9a1e8; }
-.sg-cam .sg-axis, .sg-cam .sg-average { stroke: rgba(185, 161, 232, .4); }
-
 .sg-cut {
 	stroke: #ffb454;
 	stroke-width: 1;
@@ -3000,7 +2921,6 @@ input[type=range]::-moz-range-thumb {
 .sg-scale-top { top: 3px; }
 .sg-scale-avg { transform: translateY(-100%); padding-bottom: 2px; }
 .sg-scale-zero { bottom: 3px; }
-.sg-cam .sg-scale-top, .sg-cam .sg-scale-avg, .sg-cam .sg-scale-zero { color: #7d6a9e; }
 
 .sg-readout {
 	position: absolute;
@@ -3015,7 +2935,6 @@ input[type=range]::-moz-range-thumb {
 	white-space: nowrap;
 	pointer-events: none;
 }
-.sg-cam .sg-readout { background: #4a3d6e; }
 
 /* The dolly's curve sits INSIDE its shot card, in the cell the card already
    has: between the title row and the Rail Follow ribbon. The Shots lane keeps
@@ -3164,10 +3083,6 @@ input[type=range]::-moz-range-thumb {
 
 /* Filling the take is the default, so it whispers rather than shouts. */
 /* The speed graph: a real editing surface, so it gets real height. */
-.sg-cam .sg-line { stroke: #b9a1e8; }
-.sg-cam .sg-fill { fill: rgba(154, 123, 212, .18); }
-.sg-cam .sg-average { stroke: rgba(185, 161, 232, .3); }
-.sg-cam .tl-track-label { color: #cbb8ef; }
 
 
 .sg-fill { fill: rgba(111, 207, 151, .18); }
@@ -3824,70 +3739,6 @@ input[type=range]::-moz-range-thumb {
 	box-shadow: 0 0 10px rgba(235, 190, 96, .25);
 }
 
-.tl-chip {
-	box-sizing: border-box;
-	position: absolute;
-	top: 50%;
-	height: min(22px, calc(100% - 4px));
-	transform: translateY(-50%);
-	left: calc(var(--tl-f-start) * 100%);
-	width: calc((var(--tl-f-end) - var(--tl-f-start)) * 100%);
-	display: flex;
-	align-items: center;
-	padding: 0 8px;
-	background: linear-gradient(103deg, #2b3cf5, #4d7bff);
-	color: #fff;
-	font-size: 9.5px;
-	font-weight: 600;
-	letter-spacing: .02em;
-	border-radius: 5px;
-	white-space: nowrap;
-	overflow: hidden;
-	box-shadow: 0 0 10px rgba(51, 70, 255, .35);
-	pointer-events: auto;
-	touch-action: none;
-	cursor: grab;
-}
-
-.tl-chip.moving,
-.tl-chip.moving .tl-chip-input {
-	cursor: grabbing;
-	user-select: none;
-}
-
-.tl-chip.selected {
-	outline: 1px solid #9bb2ff;
-	box-shadow: 0 0 14px rgba(86, 114, 255, .65);
-}
-
-.tl-chip-input {
-	flex: 1;
-	min-width: 0;
-	height: 100%;
-	padding: 0 5px;
-	border: 0;
-	outline: 0;
-	background: transparent;
-	color: #fff;
-	font: inherit;
-	font-weight: 600;
-	cursor: grab;
-}
-
-.tl-chip-input:focus {
-	cursor: text;
-}
-
-.tl-chip-input::placeholder {
-	color: rgba(var(--lg-ink-rgb, 255,255,255), .72);
-}
-
-/* No motion prompt yet: identical frame 0..end geometry, visually quiet. */
-.tl-chip.empty {
-	background: linear-gradient(103deg, #2a2d3a, #3b4050);
-	box-shadow: none;
-}
-
 /* Editorial strips sit edge-to-edge. Their seams are hard cut points, so the
    boundary handle is a narrow splice line instead of a transition control. */
 .tl-shot-block {
@@ -4354,19 +4205,6 @@ input[type=range]::-moz-range-thumb {
 	color: #ff9b9b;
 }
 
-/* State badge variants: ROOT PATH (default amber), GENERATING, PLAYBACK. */
-.tl-badge.generating {
-	color: #79c0ff;
-	background: rgba(56, 139, 253, .1);
-	border-color: rgba(56, 139, 253, .45);
-}
-
-.tl-badge.playback {
-	color: #7ee787;
-	background: rgba(46, 160, 67, .1);
-	border-color: rgba(46, 160, 67, .45);
-}
-
 /* Plain guidance for the path-constrained flow, in the timeline head. */
 .tl-wp-hint {
 	font-size: 10.5px;
@@ -4731,7 +4569,6 @@ input[type=range]::-moz-range-thumb {
 	}
 
 	.workspace-splitter-vertical:after,
-	.hierarchy-splitter:after,
 	.timeline-splitter:after {
 		content: "";
 		position: absolute;
@@ -4744,7 +4581,6 @@ input[type=range]::-moz-range-thumb {
 		width: 2px;
 	}
 
-	.hierarchy-splitter:after,
 	.timeline-splitter:after {
 		left: 0;
 		right: 0;
@@ -5251,23 +5087,6 @@ input[type=range]::-moz-range-thumb {
 	color: #5a9bd4;
 }
 
-.tl-chip {
-	background: #3a7cbf;
-	color: #fff;
-	border-radius: 4px;
-	box-shadow: none;
-}
-
-.tl-chip.selected {
-	outline-color: #5a9bd4;
-	box-shadow: 0 0 0 2px rgba(58, 124, 191, .18);
-}
-
-.tl-chip.empty {
-	background: var(--lg-424242, #424242);
-	color: #52616b;
-}
-
 .tl-marker {
 	background: #6f9f86;
 	border-color: var(--lg-2c2c2c, #2c2c2c);
@@ -5353,17 +5172,10 @@ input[type=range]::-moz-range-thumb {
 	border-color: rgba(111, 159, 134, .55);
 }
 
-.tl-btn.zoom.on,
-.tl-badge.generating {
+.tl-btn.zoom.on {
 	color: #5a9bd4;
 	background: rgba(58, 124, 191, .1);
 	border-color: rgba(58, 124, 191, .46);
-}
-
-.tl-badge.playback {
-	color: #8fc7a5;
-	background: rgba(111, 159, 134, .11);
-	border-color: rgba(111, 159, 134, .46);
 }
 
 .tl-wp-hint.warn {
@@ -5515,14 +5327,6 @@ input[type=range]::-moz-range-thumb {
 	font-size: 10.5px;
 	font-weight: 720;
 	letter-spacing: -.02em;
-}
-
-.tl-chip,
-.tl-chip-input {
-	font-family: var(--sans);
-	font-size: 9.5px;
-	font-weight: 620;
-	letter-spacing: -.005em;
 }
 
 .modal-label {
@@ -5947,7 +5751,7 @@ input[type=range]::-moz-range-thumb {
 
 /* ------------------------------------------- Unity editor window layout ---- */
 /* Three fixed windows around the scene: Hierarchy left, Inspector right,
-   a tabbed bottom window (Timeline / Assets), and the view-mode toggle as
+   a bottom window (Timeline), and the view-mode toggle as
    a scene-view overlay — Unity's default editor arrangement
    (docs/unity-reference.md §8). Structure only: every colour rides the
    existing theme tokens so the Cozy Clay lightbox palette stays untouched. */
@@ -5982,7 +5786,7 @@ input[type=range]::-moz-range-thumb {
 	flex-direction: column;
 }
 
-/* bottom window: tab strip over a shared body */
+/* bottom window: one shared body */
 .bottom-window {
 	flex: none;
 	display: flex;
@@ -5990,17 +5794,6 @@ input[type=range]::-moz-range-thumb {
 	min-height: 0;
 	background: var(--bg);
 	border-top: 1px solid var(--line);
-}
-
-.bottom-window-tabs button.active {
-	background: var(--bg);
-	border-color: var(--line2);
-	color: var(--fg);
-	box-shadow: inset 0 2px var(--accent);
-}
-
-.bottom-window-tabs button.active:hover {
-	background: var(--bg);
 }
 
 .bottom-timeline {
@@ -6417,10 +6210,6 @@ input[type=range]::-moz-range-thumb {
 	background: var(--panel);
 	border-bottom: 1px solid var(--line);
 }
-/* Scene mode owns transform/grid tools; Camera mode owns framing controls.
-   Motion mode intentionally leaves only its short instruction in the bar. */
-.app[data-workflow-mode="scene"] .workflow-camera-context { display: none; }
-.app[data-workflow-mode="motion"] .workflow-camera-context { display: none; }
 /* The shot preview stays in Motion: it fills the dock's Shot Camera frame. */
 .app[data-workflow-mode="motion"] .vp-inset { display: none !important; }
 
@@ -6429,10 +6218,8 @@ input[type=range]::-moz-range-thumb {
    noise during blocking and camera work.  The motion clear action stays
    visible in Stage so a loaded take is always reversible. */
 .app[data-workflow-mode="scene"] .tl-pose-tools,
-.app[data-workflow-mode="scene"] .take-bar,
 .app[data-workflow-mode="camera"] .tl-pose-tools,
-.app[data-workflow-mode="camera"] .tl-motion-tools,
-.app[data-workflow-mode="camera"] .take-bar { display: none !important; }
+.app[data-workflow-mode="camera"] .tl-motion-tools { display: none !important; }
 
 /* ------------------------------------------- Unity widget material -------- */
 /* Flat editor widgets: 1px borders, 2px radius, no gradients, no glow. This
@@ -7216,72 +7003,6 @@ input[type=range] {
 
 .settings-menu button[aria-pressed="true"] .mark {
 	color: var(--cyan);
-}
-
-/* Motion readiness (#277) reuses the inspector hint and Settings surfaces. */
-.motion-readiness {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 4px 8px;
-	min-width: 0;
-	margin: 4px 0;
-	color: var(--muted);
-	font-size: 11px;
-	line-height: 1.45;
-	word-break: keep-all;
-	overflow-wrap: anywhere;
-}
-
-.motion-readiness[data-state="ready"] {
-	color: var(--cyan);
-}
-
-.motion-readiness .btn {
-	flex: none;
-	margin: 0;
-	white-space: normal;
-}
-
-.settings-menu:has(.motion-setup) {
-	width: min(360px, calc(100vw - 16px));
-	min-width: 0;
-	max-height: calc(100dvh - 64px);
-	overflow-y: auto;
-}
-
-.motion-setup {
-	display: grid;
-	gap: 8px;
-	padding: 8px;
-	border-block: 1px solid var(--line2);
-	color: var(--fg);
-	font-size: 11px;
-	line-height: 1.5;
-}
-
-.motion-setup p {
-	margin: 0;
-}
-
-.motion-setup code {
-	display: block;
-	padding: 8px;
-	background: var(--panel);
-	border-radius: var(--radius);
-	font-family: var(--mono);
-	white-space: normal;
-	overflow-wrap: anywhere;
-}
-
-.motion-setup a {
-	color: var(--cyan);
-}
-
-.motion-readiness button:focus-visible,
-.motion-setup :is(button, a):focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
 }
 
 .view-menu-trigger {
@@ -8252,25 +7973,6 @@ input[type=range] {
 	font-size: 12px;
 }
 
-/* ------------------------------------- the take bar (contracts C9/C12) ---- */
-/* Two edit entries, the version strip and the last run's replay verdict, in a
-   single strip directly above the timeline. It lives HERE rather than in the
-   Inspector because both entries act on the take that is playing, and a mode
-   the artist has to go find in a collapsed foldout is a mode they will not use.
-   Appended at the end for the same reason the preserve and line-edit blocks
-   above are: the global button/input rules further up the cascade would
-   otherwise win over anything written beside the panels these controls left. */
-.take-bar {
-	flex: none;
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 6px 14px;
-	padding: 5px 8px;
-	border-bottom: 1px solid var(--line);
-	background: var(--panel);
-}
-
 /* ------------------------------------------------ desktop polish (16:9) --
    The editor is normally used full-screen on a 16:9 monitor. Keep the scene
    pane dominant while preserving every existing control and resize gesture. */
@@ -8327,20 +8029,13 @@ input[type=range] {
    These selectors cover labels and controls without changing the model-facing
    prompt contract or the English-default typography. */
 .hierarchy-label,
-.hierarchy-project,
 .inspector-pane,
 .inspector-heading,
 .inspector-hint,
 .foldout-head,
-.bottom-window-tabs,
 .settings-menu {
 	word-break: keep-all;
 	overflow-wrap: anywhere;
-}
-
-.hierarchy-project {
-	font-size: 12px;
-	line-height: 1.25;
 }
 
 .inspector-hint {
@@ -8579,8 +8274,6 @@ input[type=range] {
 }
 
 /* Studio Agent shares the Inspector footprint. */
-.inspector-agent-switch { margin-left: auto; border: 1px solid var(--line2); border-radius: 4px; background: var(--card2); color: var(--fg); padding: 3px 8px; font-size: 11px; cursor: pointer; }
-.inspector-agent-switch:hover, .inspector-agent-switch[aria-pressed="true"] { border-color: var(--accent); color: var(--on-accent); background: var(--accent-2); }
 .studio-agent-inspector { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .studio-agent-inspector > .agent-panel { flex: 1 1 auto; min-height: 0; width: 100%; }
 .studio-agent-inspector[hidden], .inspector-sidebar .inspector-pane[hidden] { display: none; }

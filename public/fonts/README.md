@@ -2,8 +2,9 @@
 
 The `.woff2` files in this directory are redistributed with CozyClay under the
 SIL Open Font License 1.1. Each family has its upstream OFL text beside the
-font files. The existing Inter and Instrument Serif files remain until their
-later cleanup todo.
+font files. The Inter and Instrument Serif files are still in use: `index.html`
+loads `inter-latin.woff2` and `instrument-serif-latin.woff2`, and `public/sw.js`
+precaches `inter-latin.woff2`.
 
 | Files | Family | Upstream release | Copyright | Licence |
 | --- | --- | --- | --- | --- |

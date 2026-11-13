@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Browser QA for Fix and tell (domains/motion/fix-islands.js, motion/fix-weight.js, TimelineFixIslands.jsx,
-// shell/FixTools.jsx on the IK keys row's header, fix-original-ghost.jsx, fix-send.js): with a walk take installed, a left-hand pose drag at f40
-// (the production IK solve/end path) makes ONE correction island reaching 6 frames each side; frames outside it are the
-// take bone for bone, frames inside blend toward the fix, the feet stay put; a band edge drags to widen it (one undo);
-// A/B shows the original take at f40 and, in the fixed view, its pose as a ghost; Send fixes puts one chip in the
-// composer whose mark carries the fix payload and a before | after still, and arms the range guard; right-click removes
-// the island and undo brings it back; one more undo removes the fix itself.
+// Browser QA for Fix and tell with fix keys (motion/fix-keys.js, domains/motion/fix-islands.js, TimelineFixIslands.jsx,
+// shell/FixTools.jsx on the IK keys row's header, fix-original-ghost.jsx, fix-send.js): with a walk take installed, a left-hand
+// pose drag at f40 (the production IK solve/end path) puts three dots on a Left arm row: rest f34, pose f40, rest f46. Frames
+// outside them are the take bone for bone, frames inside ease toward the pose, the feet stay put. A dot drags to retime (one
+// undo); A/B shows the original take and, in the fixed view, its pose as a ghost; Send fixes puts one chip in the composer and
+// arms the range guard; Alt-drag copies a pose key and the pose holds between the two; Shift-click on the row adds a rest key;
+// more drags add keys; right-click removes a dot; the keys survive a reload; Merge writes a row's keys into the take and
+// clears it (a new key after that is a new layer, undo brings the keys back, the merge survives a reload); rows saved as
+// bands convert to keys.
 // Run through tools/qa-browser.mjs with QA_URL pointing at `/app/`.
 
 
@@ -92,7 +94,6 @@ const setInput = (selector, value) => evaluate(`(() => {
 	return true;
 })()`);
 const click = (selector) => evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return false; node.click(); return true; })()`);
-const mouse = (type, x, y, buttons = 0) => send("Input.dispatchMouseEvent", { type, x, y, button: type === "mouseMoved" && !buttons ? "none" : "left", buttons, clickCount: type === "mouseMoved" ? 0 : 1 });
 const press = async (code, keyName, modifiers = 0) => {
 	const text = !modifiers && keyName.length === 1 ? { text: keyName } : {};
 	await send("Input.dispatchKeyEvent", { type: "keyDown", code, key: keyName, ...text, modifiers, windowsVirtualKeyCode: keyName === "Escape" ? 27 : keyName.toUpperCase().charCodeAt(0) });
@@ -121,8 +122,6 @@ const angle = (a, b) => {
 };
 const maxTurn = (a, b, only = null) => Math.max(0, ...a.q.map((row, i) => (only && !only.test(row[0]) ? 0 : angle(row, b.q[i]))));
 const feetMoved = (a, b) => Math.max(0, ...Object.keys(a.feet).map((name) => Math.hypot(...a.feet[name].map((v, i) => v - b.feet[name][i]))));
-const band = () => evaluate("(() => { const node = document.querySelector('.tl-track[data-track-id=\"Full-Body\"] [data-fix-island]'); if (!node) return null; const r = node.getBoundingClientRect(); return { frame: Number(node.dataset.fixFrame), title: node.title, x: r.left, w: r.width, y: r.top + r.height / 2, h: r.height }; })()");
-const laneX = (frame) => evaluate(`(() => { const lane = document.querySelector('.tl-track[data-track-id="Full-Body"] .tl-lane').getBoundingClientRect(); return lane.left + ${frame} / Math.max(1, window.__cozyclay.frameCount - 1) * lane.width; })()`);
 
 await send("Page.enable"); await send("Runtime.enable"); const pageErrors = []; ws.addEventListener("message", (e) => { const m = JSON.parse(e.data); if (m.method === "Runtime.exceptionThrown") pageErrors.push(m.params.exceptionDetails?.exception?.description?.slice(0, 400)); if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") pageErrors.push(m.params.args.map((a) => a.value ?? a.description).join(" ").slice(0, 400)); });
 await send("Emulation.setDeviceMetricsOverride", { width: 1438, height: 979, deviceScaleFactor: 1, mobile: false });
@@ -159,50 +158,64 @@ await click(".vp-mode-key[data-mode=pose]");
 expect("Pose mode shows the Fix tools on the IK keys row's header (the take is on)", await waitFor("!!document.querySelector('.tl-track[data-track-id=\"Full-Body\"] .tl-track-label [data-testid=fix-mode]')", 20000));
 expect("Fix mode is on by default; A/B and Send wait for a fix", await evaluate("document.querySelector('[data-testid=fix-mode]').getAttribute('aria-pressed') === 'true' && document.querySelector('[data-testid=fix-ab]').disabled && document.querySelector('[data-testid=fix-send]').disabled"));
 const cells = await evaluate("[...document.querySelectorAll('.pose-fix-tools > button')].map((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })");
-expect("the three Fix tools are 24 px icon cells", cells.length === 3 && cells.every(([w, h]) => w === 24 && h === 24), JSON.stringify(cells));
+expect("the four Fix tools (Fix mode, A/B, Merge all, Send) are 24 px icon cells", cells.length === 4 && cells.every(([w, h]) => w === 24 && h === 24), JSON.stringify(cells));
 const reachable = await evaluate("[...document.querySelectorAll('.pose-fix-tools > button')].map((b) => { const r = b.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('button') === b; })");
-expect("each one is on screen and not covered", reachable.length === 3 && reachable.every(Boolean), JSON.stringify(reachable));
+expect("each one is on screen and not covered", reachable.length === 4 && reachable.every(Boolean), JSON.stringify(reachable));
 await waitFor("false", 600);
 
 const FRAMES = [20, 33, 34, 37, 40, 43, 46, 47, 50, 60];
 const take = {};
 for (const f of FRAMES) { await scrub(f); take[f] = await readRig(); }
 
-// --- 1. A pose drag of the left hand at f40 makes one island -----------------------------------------------
+// --- 1. A pose drag of the left hand at f40 keys the left arm: rest, pose, rest ----------------------------------
+const dots = (part = null) => evaluate(`[...document.querySelectorAll('.tl-track[data-track-id="Full-Body"] [data-fix-key]')].filter((n) => ${JSON.stringify(part)} === null || n.dataset.fixPart === ${JSON.stringify(part)}).map((n) => { const r = n.getBoundingClientRect(); return { part: n.dataset.fixPart, frame: Number(n.dataset.fixKey), rest: !!n.dataset.fixRest, x: r.left + r.width / 2, y: r.top + r.height / 2 }; })`);
+const shape = async (part = "leftArm") => (await dots(part)).map((d) => `${d.frame}${d.rest ? "r" : "p"}`).join(" ");
+const shapeIs = (want, part = "leftArm") => poll(`[...document.querySelectorAll('.tl-track[data-track-id="Full-Body"] [data-fix-key][data-fix-part=${part}]')].map((n) => n.dataset.fixKey + (n.dataset.fixRest ? "r" : "p")).join(" ") === ${JSON.stringify(want)}`, 5000);
+const laneX = (frame) => evaluate(`(() => { const lane = document.querySelector('.tl-track[data-track-id="Full-Body"] .tl-lane').getBoundingClientRect(); return lane.left + ${frame} / Math.max(1, window.__cozyclay.frameCount - 1) * lane.width; })()`);
+const ALT = 1, SHIFT = 8;
+const pointer = (type, x, y, buttons, modifiers = 0, button = "left") => send("Input.dispatchMouseEvent", { type, x, y, button: type === "mouseMoved" && !buttons ? "none" : button, buttons, modifiers, clickCount: type === "mouseMoved" ? 0 : 1 });
+const dragDot = async (frame, toFrame, modifiers = 0, part = "leftArm") => {
+	const dot = (await dots(part)).find((d) => d.frame === frame), x1 = await laneX(toFrame);
+	await pointer("mouseMoved", dot.x, dot.y, 0, modifiers);
+	await pointer("mousePressed", dot.x, dot.y, 1, modifiers);
+	for (let t = 1; t <= 6; t += 1) await pointer("mouseMoved", dot.x + (x1 - dot.x) * t / 6, dot.y, 1, modifiers);
+	await pointer("mouseReleased", x1, dot.y, 0, modifiers);
+};
+const rightClickDot = async (frame, part = "leftArm") => { const dot = (await dots(part)).find((d) => d.frame === frame); await pointer("mousePressed", dot.x, dot.y, 2, 0, "right"); await pointer("mouseReleased", dot.x, dot.y, 0, 0, "right"); };
+const undo = async () => { await evaluate("document.activeElement?.blur?.()"); await press("KeyZ", "z", 2); await settle(); };
+const ARM = /Left(Arm|ForeArm|Hand)$/;
+
 await scrub(40);
 expect("the IK drag seam moves the left hand at f40", await evaluate("window.__cozyclay.ikPreviewApply('leftHand', { x: 0.1, y: 0.14, z: 0.06 })"));
-expect("an island band appears on the IK keys row at f40", await waitFor("!!document.querySelector('.tl-track[data-track-id=\"Full-Body\"] [data-fix-island]')"));
-const made = await band();
-const fills = await evaluate("(() => { const root = document.documentElement, was = root.dataset.theme, n = document.querySelector('[data-fix-island]'), out = []; for (const t of ['light', 'dark']) { root.dataset.theme = t; out.push(getComputedStyle(n).backgroundColor); } root.dataset.theme = was; return out; })()"); expect("the island reaches 6 frames each side: f34–46, with a visible fill in light and dark", made?.frame === 40 && /f34–46/.test(made.title) && fills.every((c) => c !== "rgba(0, 0, 0, 0)"), JSON.stringify({ made, fills }));
+expect("three dots appear on a Left arm row: rest f34, pose f40, rest f46", await shapeIs("34r 40p 46r"), await shape());
 expect("no whole-take range preview is pending (Fix mode took the drag)", await evaluate("!document.querySelector('[data-testid=ik-pending-edit]')"));
-const dot = await evaluate("(() => { const d = [...document.querySelectorAll('.tl-track[data-track-id=\"Full-Body\"] .tl-marker.ik')].find((n) => /at frame 40\\b/.test(n.title)); if (!d) return null; const r = d.getBoundingClientRect(); return { y: r.top + r.height / 2 }; })()");
-expect("the band sits on the IK keys row with the key dot", dot && made && Math.abs(dot.y - made.y) <= 2, JSON.stringify({ dot, made }));
+const rowH = await evaluate("document.querySelector('.tl-track[data-track-id=\"Full-Body\"] .tl-track-subrow').getBoundingClientRect().height");
+const dot40 = await evaluate("(() => { const d = [...document.querySelectorAll('.tl-track[data-track-id=\"Full-Body\"] .tl-marker.ik')].find((n) => /at frame 40\\b/.test(n.title)); if (!d) return null; const r = d.getBoundingClientRect(); return { y: r.top + r.height / 2 }; })()");
+const made = (await dots()).find((d) => d.frame === 40);
+expect("the dots sit on their own Left arm row, one row under the IK keys row", dot40 && made && Math.abs(made.y - dot40.y - rowH) <= 2 && await evaluate("/Left arm/.test(document.querySelector('.tl-ik-part-row[data-ik-part=leftArm]')?.textContent ?? '') && document.querySelectorAll('.tl-ik-part-row').length === 1"), JSON.stringify({ dot40, made, rowH }));
+expect("the lines between the dots read ease in, ease out", await evaluate("[...document.querySelectorAll('[data-fix-seg]')].map((n) => n.dataset.fixSeg).join() === 'in,out'"));
+await scrub(20);
+await poll("!document.querySelector('.toast')", 10000);
+expect("each dot is on screen and takes the pointer (playhead away at f20)", await evaluate("[...document.querySelectorAll('[data-fix-key]')].every((n) => { const r = n.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === n; })"));
 const fixed = {};
 for (const f of FRAMES) { await scrub(f); fixed[f] = await readRig(); }
 const turn = Object.fromEntries(FRAMES.map((f) => [f, maxTurn(take[f], fixed[f])]));
-const ARM = /Left(Arm|ForeArm|Hand)$/;
-expect("f40 shows the fix (left arm bones turned)", maxTurn(take[40], fixed[40], ARM) > 0.05, JSON.stringify(turn));
-expect("outside f34–46 every bone is the take's (f20, f33, f47, f60)", [20, 33, 47, 60].every((f) => turn[f] < 1e-5), JSON.stringify(turn));
-expect("inside, the fix eases in and out (f34 < f37 < f40 > f43 > f46 > 0)", turn[34] > 0 && turn[34] < turn[37] && turn[37] < turn[40] && turn[43] < turn[40] && turn[46] < turn[43] && turn[46] > 0, JSON.stringify(turn));
-expect("only the left arm moved: other bones are the take's at f40", maxTurn(take[40], fixed[40], /^(?!.*Left(Arm|ForeArm|Hand|Hand.*\d)$).*/) < 1e-5, String(maxTurn(take[40], fixed[40], /^(?!.*Left(Arm|ForeArm|Hand|Hand.*\d)$).*/)));
-expect("the feet stay where the take puts them at f37, f40, f43", [37, 40, 43].every((f) => feetMoved(take[f], fixed[f]) < 0.001), JSON.stringify([37, 40, 43].map((f) => feetMoved(take[f], fixed[f]))));
+expect("f40 shows the pose (left arm bones turned)", maxTurn(take[40], fixed[40], ARM) > 0.05, JSON.stringify(turn));
+expect("on and outside the rest keys every bone is the take's (f20, f33, f34, f46, f47, f60)", [20, 33, 34, 46, 47, 60].every((f) => turn[f] < 1e-5), JSON.stringify(turn));
+expect("between them the pose eases in and out (0 < f37 < f40 > f43 > 0)", turn[37] > 0 && turn[37] < turn[40] && turn[43] < turn[40] && turn[43] > 0, JSON.stringify(turn));
+expect("only the left arm moved: other bones are the take's at f40", maxTurn(take[40], fixed[40], /^(?!.*Left(Arm|ForeArm|Hand|Hand.*\d)$).*/) < 1e-5);
+expect("the IK keys row shows one dot for the pose key and none for the rest keys", await evaluate("(() => { const t = [...document.querySelectorAll('.tl-track[data-track-id=\"Full-Body\"] .tl-marker.ik')].map((n) => n.title); return t.some((x) => /at frame 40\\b/.test(x)) && !t.some((x) => /at frame (34|46)\\b/.test(x)); })()"));
+expect("the feet stay where the take puts them at f37, f40, f43", [37, 40, 43].every((f) => feetMoved(take[f], fixed[f]) < 0.001));
 await scrub(40);
-await screenshot("01-island-f40.png");
+await screenshot("01-first-key.png");
 
-// --- 2. A band edge drag widens the island (one undo) -------------------------------------------------------
-const edge = await evaluate("(() => { const r = document.querySelector('[data-fix-island] [data-fix-edge=end]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()");
-const to = await laneX(52);
-await mouse("mouseMoved", edge.x, edge.y);
-await mouse("mousePressed", edge.x, edge.y, 1);
-for (let t = 1; t <= 6; t += 1) await mouse("mouseMoved", edge.x + (to - edge.x) * t / 6, edge.y, 1);
-await mouse("mouseReleased", to, edge.y);
-const wide = await band();
-expect("dragging the end edge to f52 widens the island to f34–52", /f34–5[1-3]/.test(wide?.title ?? ""), JSON.stringify(wide));
+// --- 2. A rest dot drags to change where the pose eases out (one undo) --------------------------------------------
+await dragDot(46, 56);
+expect("dragging the rest dot from f46 to f56 lengthens the ease out", await shapeIs("34r 40p 56r"), await shape());
 await scrub(50);
-expect("f50 now eases out of the fix", maxTurn(take[50], await readRig()) > 1e-4);
-await evaluate("document.activeElement?.blur?.()");
-await press("KeyZ", "z", 2);
-expect("one undo puts the reach back to f34–46", await waitFor("/f34–46/.test(document.querySelector('[data-fix-island]')?.title ?? '')"), JSON.stringify(await band()));
+expect("f50 now eases out of the pose", maxTurn(take[50], await readRig()) > 1e-4);
+await undo();
+expect("one undo puts it back at f46", await shapeIs("34r 40p 46r"), await shape());
 await scrub(50);
 expect("and f50 is the take again", maxTurn(take[50], await readRig()) < 1e-5);
 
@@ -228,7 +241,7 @@ await evaluate("window.dispatchEvent(new CustomEvent('cozyclay:agent-panel-toggl
 await waitFor("(() => { const r = document.querySelector('.agent-composer textarea')?.getBoundingClientRect(); return !!r && r.width > 100; })()", 20000);
 await scrub(40);
 await click("[data-testid=fix-send]");
-expect("Send fixes puts one fix chip in the composer: Fix f34–46 · Left hand", await waitFor("document.querySelectorAll('.agent-context-chip[data-chip-kind=fix]').length === 1 && /Fix f34–46 · Left hand/.test(document.querySelector('.agent-context-chip[data-chip-kind=fix]').textContent)"), JSON.stringify(await evaluate("[...document.querySelectorAll('.agent-context-chip')].map((n) => n.textContent)")));
+expect("Send fixes puts one fix chip in the composer (one per pose key): Fix f34–46 · Left hand", await waitFor("document.querySelectorAll('.agent-context-chip[data-chip-kind=fix]').length === 1 && /Fix f34–46 · Left hand/.test(document.querySelector('.agent-context-chip[data-chip-kind=fix]').textContent)"), JSON.stringify(await evaluate("[...document.querySelectorAll('.agent-context-chip')].map((n) => n.textContent)")));
 expect("the playhead keeps its fixed pose after the stills are taken", maxTurn(fixed[40], await readRig()) < 1e-5);
 await screenshot("03-fix-chip.png");
 await typeInto(".agent-composer textarea", "Make the take do this at f40");
@@ -257,27 +270,139 @@ if (still) {
 }
 expect("the still is before | after side by side (twice as wide as tall-ish)", still && still[0] > still[1] * 1.6, JSON.stringify(still));
 
-// --- 5. Right-click removes the island; undo brings it back; one more undo removes the fix --------------------
-await evaluate("document.activeElement?.blur?.()");
-const hit = await band();
-await send("Input.dispatchMouseEvent", { type: "mousePressed", x: hit.x + 6, y: hit.y, button: "right", buttons: 2, clickCount: 1 });
-await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: hit.x + 6, y: hit.y, button: "right", buttons: 0, clickCount: 1 });
-expect("right-click on the band removes the island", await waitFor("!document.querySelector('[data-fix-island]')"));
-await scrub(40);
-expect("f40 is the take again", maxTurn(take[40], await readRig()) < 1e-5);
-await press("KeyZ", "z", 2);
-expect("one undo brings the island back", await waitFor("!!document.querySelector('[data-fix-island]')"));
-await scrub(40);
-expect("with its fix", maxTurn(fixed[40], await readRig()) < 1e-5);
-await press("KeyZ", "z", 2);
-expect("one more undo removes the fix itself (back to the take)", await waitFor("!document.querySelector('[data-fix-island]')"));
-await scrub(40);
-expect("f40 is the take", maxTurn(take[40], await readRig()) < 1e-5);
+// --- 5. Alt-drag copies a pose key: the pose holds between the two -----------------------------------------------
+await dragDot(40, 60, ALT);
+expect("Alt-dragging the pose dot to f60 copies it and carries the rest dot past it (rest f66)", await shapeIs("34r 40p 60p 66r"), await shape());
+expect("the line between the two pose keys is solid", await evaluate("[...document.querySelectorAll('[data-fix-seg]')].map((n) => n.dataset.fixSeg).join() === 'in,pose,out'"));
+for (const f of [40, 50, 60]) { await scrub(f); const now = await readRig(); expect(`held: the left arm is the posed arm at f${f}`, maxTurn(fixed[40], now, ARM) < 1e-4, String(maxTurn(fixed[40], now, ARM))); }
+await scrub(60);
+expect("held: every other bone is the take's at f60", maxTurn(take[60], await readRig(), /^(?!.*Left(Arm|ForeArm|Hand|Hand.*\d)$).*/) < 1e-5);
+await scrub(20);
+expect("outside the keys f20 is still the take", maxTurn(take[20], await readRig()) < 1e-5);
+await scrub(50);
+await screenshot("05-held.png");
+// Shift-click on the row: a rest key, the arm is the take's there
+{ const y = (await dots())[0].y, x = await laneX(50); await pointer("mouseMoved", x, y, 0, SHIFT); await pointer("mousePressed", x, y, 1, SHIFT); await pointer("mouseReleased", x, y, 0, SHIFT); }
+expect("Shift-click on the row at f50 adds a rest key there", await shapeIs("34r 40p 50r 60p 66r"), await shape());
+await scrub(50);
+expect("and f50 is the take again", maxTurn(take[50], await readRig()) < 1e-5);
+await undo();
+await undo();
+expect("two undos (rest key, copy) leave rest f34, pose f40, rest f46", await shapeIs("34r 40p 46r"), await shape());
+
+// --- 6. Dragging a pose dot retimes the whole correction ------------------------------------------------------------
+await dragDot(40, 44);
+expect("dragging the pose dot to f44 moves it with its two rest dots (f38, f44, f50)", await shapeIs("38r 44p 50r"), await shape());
+await scrub(44);
+expect("f44 now shows the posed arm", maxTurn(fixed[40], await readRig(), ARM) < 1e-4);
+await scrub(36);
+expect("f20 is still the take", maxTurn(take[20], await (async () => { await scrub(20); return readRig(); })()) < 1e-5);
+await scrub(20);
+await dragDot(44, 100);
+expect("dragging it far (to f100) carries both rest dots along (f94, f100, f106)", await shapeIs("94r 100p 106r"), await shape());
+await undo();
+await undo();
+expect("two undos put the keys back (f34, f40, f46)", await shapeIs("34r 40p 46r"), await shape());
+
+// --- 7. More drags add keys; a key inside a correction is one more dot ------------------------------------------------
+await scrub(43);
+await evaluate("window.__cozyclay.ikPreviewApply('leftHand', { x: 0.04, y: 0.08, z: 0 })");
+expect("a drag at f43 (inside) adds one pose dot and no rest dots", await shapeIs("34r 40p 43p 46r"), await shape());
+await scrub(37);
+expect("frames before the first pose key are untouched by it (f37)", maxTurn(fixed[37], await readRig()) < 1e-5);
+await scrub(70);
+await evaluate("window.__cozyclay.ikPreviewApply('leftHand', { x: 0.05, y: 0.1, z: 0 })");
+expect("a drag at f70 (far outside) adds its own rest, pose, rest (f64, f70, f76)", await shapeIs("34r 40p 43p 46r 64r 70p 76r"), await shape());
+await scrub(60);
+expect("between the two corrections the arm is the take's (f60)", maxTurn(take[60], await readRig()) < 1e-5);
+expect("the Left arm label counts three pose keys", await evaluate("document.querySelector('.tl-ik-part-row[data-ik-part=leftArm] .tl-ik-part-count')?.textContent === '3'"));
+await scrub(42);
+await evaluate("window.__cozyclay.ikPreviewApply('rightHand', { x: -0.1, y: 0.12, z: 0.06 })");
+expect("a right-hand drag at f42 opens a Right arm row with its own three dots", await shapeIs("36r 42p 48r", "rightArm") && await evaluate("[...document.querySelectorAll('.tl-ik-part-row')].map((n) => n.dataset.ikPart).join() === 'leftArm,rightArm'"), await shape("rightArm"));
+{ const l = (await dots("leftArm"))[0], r = (await dots("rightArm"))[0]; expect("the Right arm row is one row under the Left arm row", Math.abs(r.y - l.y - rowH) <= 2, JSON.stringify([l.y, r.y, rowH])); }
+await scrub(42);
+await screenshot("07-many-keys.png");
+
+// --- 8. Right-click removes a dot; the last pose key takes the row with it ----------------------------------------------
+await rightClickDot(43);
+expect("right-click on the f43 dot removes that key", await shapeIs("34r 40p 46r 64r 70p 76r"), await shape());
+await undo();
+expect("one undo brings it back", await shapeIs("34r 40p 43p 46r 64r 70p 76r"), await shape());
+await rightClickDot(42, "rightArm");
+expect("removing the Right arm's only pose key removes its rest keys and its row", await poll("!document.querySelector('[data-fix-key][data-fix-part=rightArm]') && document.querySelectorAll('.tl-ik-part-row').length === 1"), await shape("rightArm"));
+await scrub(42);
+const many = {};
+for (const f of [37, 41, 43, 45, 55, 70, 73]) { await scrub(f); many[f] = await readRig(); }
+
+// --- 9. The keys survive a reload ---------------------------------------------------------------------------------------
+await waitFor("false", 2500);
+{ const loaded = waitForPageLoad(); await send("Page.reload"); await loaded; }
+expect("the project comes back after a reload", await waitFor(`!!window.__cozyclay?.characters?.length && !!${rigExpr} && window.__cozyclay.motion?.schema === 'cozyclay.take.v3'`, 30000));
+expect("with the same dots", await shapeIs("34r 40p 43p 46r 64r 70p 76r"), await shape());
+for (const f of [37, 41, 43, 45, 55, 70, 73]) { await scrub(f); const now = await readRig(); expect(`and the same motion at f${f}`, maxTurn(many[f], now) < 1e-4, String(maxTurn(many[f], now))); }
+
+// --- 9b. Merge writes a row's keys into the take and clears the row ----------------------------------------------------------
+await click(".vp-mode-key[data-mode=pose]");
+await waitFor("!!document.querySelector('[data-testid=fix-merge-all]')", 20000);
+await scrub(42);
+await evaluate("window.__cozyclay.ikPreviewApply('rightHand', { x: -0.1, y: 0.12, z: 0.06 })");
+await shapeIs("36r 42p 48r", "rightArm");
+const before = {};
+const CHECK = [20, 37, 41, 43, 45, 55, 70, 73];
+for (const f of CHECK) { await scrub(f); before[f] = await readRig(); }
+await click("[data-fix-merge=leftArm]");
+expect("the check on the Left arm label merges its keys: its dots and row go, the Right arm row stays", await poll("!document.querySelector('[data-fix-key][data-fix-part=leftArm]') && [...document.querySelectorAll('.tl-ik-part-row')].map((n) => n.dataset.ikPart).join() === 'rightArm'"), await shape());
+for (const f of CHECK) { await scrub(f); const now = await readRig(); expect(`the motion is unchanged by the merge at f${f} (every bone)`, maxTurn(before[f], now) < 1e-5, String(maxTurn(before[f], now))); }
+await click("[data-testid=fix-ab]");
+await settle();
+await scrub(41);
+{ const a = await readRig(); expect("A (the take) is now the merged left arm, without the open right-arm key", maxTurn(before[41], a, ARM) < 1e-5 && maxTurn(before[41], a, /Right(Arm|ForeArm|Hand)$/) > 0.02, JSON.stringify([maxTurn(before[41], a, ARM), maxTurn(before[41], a, /Right(Arm|ForeArm|Hand)$/)])); }
+await click("[data-testid=fix-ab]");
+await settle();
+// a key after the merge is a new layer over the merged motion
+await scrub(41);
+await evaluate("window.__cozyclay.ikPreviewApply('leftHand', { x: 0.03, y: 0.06, z: 0 })");
+expect("a new left-hand drag at f41 starts a clean Left arm row (rest f35, pose f41, rest f47)", await shapeIs("35r 41p 47r"), await shape());
+await scrub(37);
+{ const now = await readRig(); expect("it eases in over the merged motion (f37 moved a little, f33 not at all)", maxTurn(before[37], now, ARM) > 1e-4, String(maxTurn(before[37], now, ARM))); }
+await rightClickDot(41);
+await poll("!document.querySelector('[data-fix-key][data-fix-part=leftArm]')");
+for (const f of [37, 41, 43]) { await scrub(f); expect(`removing that key leaves the merged motion, not the old take (f${f})`, maxTurn(before[f], await readRig()) < 1e-5); }
+await undo();
+await undo();
+await undo();
+expect("three undos (remove, new key, merge) bring the merged keys back as dots", await shapeIs("34r 40p 43p 46r 64r 70p 76r"), await shape());
+await scrub(43);
+expect("with the same motion (f43)", maxTurn(before[43], await readRig()) < 1e-5);
+await poll("!document.querySelector('.toast')", 10000);
+await click("[data-testid=fix-merge-all]");
+expect("Merge all clears every row (Body group back to two rows); A/B, Merge all and Send have nothing left", await poll("!document.querySelector('[data-fix-key]') && !document.querySelector('.tl-ik-part-row') && Math.abs(document.querySelector('.tl-track[data-track-id=\"Full-Body\"]').getBoundingClientRect().height - " + rowH + " * 2) <= 2 && ['fix-ab', 'fix-merge-all', 'fix-send'].every((id) => document.querySelector('[data-testid=' + id + ']').disabled)"));
+for (const f of CHECK) { await scrub(f); const now = await readRig(); expect(`the motion is still unchanged at f${f}`, maxTurn(before[f], now) < 1e-5, String(maxTurn(before[f], now))); }
+await screenshot("09-merged.png");
+await waitFor("false", 2500);
+{ const loaded = waitForPageLoad(); await send("Page.reload"); await loaded; }
+expect("the project comes back after a second reload", await waitFor(`!!window.__cozyclay?.characters?.length && !!${rigExpr} && window.__cozyclay.motion?.schema === 'cozyclay.take.v3'`, 30000));
+for (const f of [41, 43, 70]) { await scrub(f); const now = await readRig(); expect(`the reloaded take plays the merged keys (f${f}), with no dots`, maxTurn(before[f], now) < 1e-4 && !(await evaluate("!!document.querySelector('[data-fix-key]')")), String(maxTurn(before[f], now))); }
+
+// --- 10. Rows saved as bands (the earlier Fix model) convert to keys with the same shape ----------------------------------
+{
+	const { convertBandKeys, partKeysOf } = await import("../src/motion/fix-keys.js");
+	const q = { x: 0, y: 0, z: 0, w: 1 }, key = (fix) => ({ q: [q], baseQ: [q], blend: 6, fix });
+	const plain = [{ frame: 5, tracks: { leftHand: { q: [q] } } }];
+	expect("rows without band keys come back as they are", convertBandKeys(plain, 99) === plain);
+	const eased = convertBandKeys([{ frame: 40, tracks: { leftHand: key({ id: "a", takeId: "t", before: 6, after: 10 }) } }], 99);
+	const read = (rows) => (partKeysOf(rows).get("leftArm") ?? []).map((d) => `${d.frame}${d.rest ? "r" : "p"}`).join(" ");
+	expect("an eased band f34–50 becomes rest f33, pose f40, rest f51", read(eased) === "33r 40p 51r" && eased[1].tracks.leftHand.fix.kf === true && !("before" in eased[1].tracks.leftHand.fix) && !("blend" in eased[1].tracks.leftHand), read(eased));
+	const held = convertBandKeys([{ frame: 17, tracks: { rightFoot: key({ id: "b", before: 17, after: 62, hold: { in: 0, out: 6 } }) } }], 79);
+	const legs = (partKeysOf(held).get("rightLeg") ?? []).map((d) => `${d.frame}${d.rest ? "r" : "p"}`).join(" ");
+	expect("a held band f0–79 (ease out 6) becomes pose f0, pose f17, pose f73 and no rest past the take's end", legs === "0p 17p 73p", legs);
+	expect("converting twice changes nothing more", JSON.stringify(convertBandKeys(eased, 99)) === JSON.stringify(eased));
+}
 
 expect("no page errors", pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 1200));
 ws.close();
 if (failures > 0) {
-	console.error(`\n${failures} fix island check(s) failed`);
+	console.error(`\n${failures} fix key check(s) failed`);
 	process.exit(1);
 }
-console.log("\nAll fix island checks passed");
+console.log("\nAll fix key checks passed");

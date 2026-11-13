@@ -94,7 +94,6 @@ const TABLE_FILES = new Set([
 	"src/stage-hdr.js",
 	"src/range-pin-panel.jsx",
 	"src/character-kind.js",
-	"src/motion/beat-board-model.js",
 	"src/settings-menu.jsx",
 	"src/shell/preference-controls.jsx",
 ]);
