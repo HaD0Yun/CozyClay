@@ -1,5 +1,5 @@
 {
-	"bin/agent/agent-routes.mjs": 799,
+	"bin/agent/agent-routes.mjs": 798,
 	"bin/agent/agent-runner.mjs": 495,
 	"bin/agent/providers.mjs": 255,
 	"bin/agent/session-store.mjs": 324,
@@ -8,7 +8,7 @@
 	"bin/cozyclay.mjs": 313,
 	"bin/live/cli.mjs": 415,
 	"mcp/live-hub.mjs": 529,
-	"mcp/tool-handlers.mjs": 1721,
+	"mcp/tool-handlers.mjs": 1715,
 	"mcp/verify-live-batch.mjs": 485,
 	"mcp/verify-live-capture.mjs": 268,
 	"mcp/verify-live-controller.mjs": 340,
@@ -63,12 +63,12 @@
 	"src/stage-canvas-rigs.jsx": 349,
 	"src/stage-editor-gizmos.jsx": 1115,
 	"src/studio-agent-commands.js": 487,
-	"src/studio-agent-protocol.js": 480,
+	"src/studio-agent-protocol.js": 479,
 	"src/studio-app-binding.js": 346,
 	"src/ui.jsx": 385,
-	"src/workflow/agent-client.js": 1294,
+	"src/workflow/agent-client.js": 1291,
 	"src/workflow/AgentPanel.jsx": 790,
 	"src/workflow/WorkflowBuilder.jsx": 592,
 	"tools/qa/css-rule-usage.mjs": 251,
-	"tools/run-tests.mjs": 407
+	"tools/run-tests.mjs": 406
 }
