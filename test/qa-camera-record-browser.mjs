@@ -63,7 +63,7 @@ try {
 	await screenshot("ready");
 
 	async function record(name, direction) {
-		const phases = [["start", 21, 22, -7], ["middle", 65, -31, 12], ["end", 115, 19, -9]];
+		const phases = [["start", 21, 22, -7], ["middle", 57, -31, 12], ["end", 93, 19, -9]];
 		const head = railTrack[18];
 		await wait(`Math.abs(window.__cozyclay.shotCam.position.x-(${head.pos.x})) < 0.001`);
 		const initial = await pose();
@@ -104,7 +104,8 @@ try {
 		// short take window; screenshots and extra observations run afterward.
 		const inputsDone = Promise.all(phases.map(async ([phase, target, dx, dy], index) => {
 			const signal = await b.evaluate(`window.__railQA.phaseWaits[${index}]`);
-			assert.ok(!signal.ended && signal.frame >= target && signal.frame < 125, `${phase} is reached while recording`);
+			assert.ok(!signal.ended && signal.frame >= target && signal.frame < 125,
+				`${name} ${phase} is reached while recording: ${JSON.stringify(signal)}`);
 			await b.mouse("mouseMoved", { x: p.x + dx * direction, y: p.y + dy * direction, buttons: 0 });
 		}));
 		await Promise.all([inputsDone, b.change("document.pointerLockElement === document.querySelector('.stage canvas')", () =>
