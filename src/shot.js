@@ -36,6 +36,8 @@ export const SHOT_ASPECT_RATIOS = Object.freeze({
 	// canvas the generated clip will have.
 	"fal 480P": 832 / 480,
 });
+// What the prompt says for an output whose preset label is not a ratio.
+const SHOT_ASPECT_PIXELS = Object.freeze({ "fal 480P": "832x480" });
 
 export function shotAspectRatio(value) {
 	return SHOT_ASPECT_RATIOS[value] ?? DEFAULT_ASPECT_RATIO;
@@ -230,7 +232,8 @@ const COUNT_WORDS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seve
  * breath. Anything vaguer and the model paints grey mannequins.
  *
  * `subjects` is the cast in the order the prompt describes it: one
- * { description, posePhrase } per visible character (#1213).
+ * { description, posePhrase } per visible character (#1213). `aspect` is the
+ * output preset key (SHOT_ASPECT_RATIOS); without one the prompt names no ratio.
  */
 export function composePrompt({
 	mode = "image",
@@ -243,6 +246,7 @@ export function composePrompt({
 	customMove = "",
 	hasCharSheet = false,
 	hasEnvSheet = false,
+	aspect,
 }) {
 	// a numeric-lens model wants glass it can reason about; the rest want the word
 	const lens = model?.numericLens ? `${shot.focalMm}mm lens at f/2.2` : `${shot.focalMm}mm lens`;
@@ -268,9 +272,11 @@ export function composePrompt({
 		castLine = `${COUNT_WORDS[cast.length] ?? cast.length} subjects. ${listed} Each subject exactly matches their own body pose and placement shown in the blocking frame.`;
 	}
 
+	// An empty environment or style leaves its words out instead of inventing some.
 	const place = hasEnvSheet
 		? "The setting is the location from the attached environment sheet."
-		: `Environment: ${environment}.`;
+		: environment?.trim() ? `Environment: ${environment}.` : null;
+	const look = style?.trim() ? `${style}, ${shot.sizeContext}.` : `${shot.sizeContext[0].toUpperCase()}${shot.sizeContext.slice(1)}.`;
 
 	const move = cameraMove === CUSTOM_MOVE ? customMove.trim() || "static, locked-off shot" : cameraMove.toLowerCase();
 
@@ -281,12 +287,12 @@ export function composePrompt({
 		opening,
 		castLine,
 		place,
-		`${style}, ${shot.sizeContext}.`,
+		look,
 		mode === "video" ? `Camera move: ${move}.` : null,
 		guide,
 		model?.flavor ?? null,
 		mode === "video" && (model?.audio || model?.capabilities?.audio) ? "Include natural ambient sound." : null,
-		"16:9.",
+		/^\d+(\.\d+)?:\d+$/.test(aspect ?? "") ? `${aspect}.` : SHOT_ASPECT_PIXELS[aspect] ? `${SHOT_ASPECT_PIXELS[aspect]}.` : null,
 	];
 
 	return parts.filter(Boolean).join(" ");

@@ -492,9 +492,9 @@ const cases = {
 		}
 		const defaults = createSceneStage();
 		assert.equal(typeof defaults.environment, "string");
-		assert.ok(defaults.environment.length, "a new stage names a location");
+		assert.equal(defaults.environment, "", "a new stage invents no location (#1238)");
 		assert.equal(typeof defaults.style, "string");
-		assert.ok(defaults.style.length, "a new stage names a look");
+		assert.equal(defaults.style, "", "a new stage invents no look (#1238)");
 		assert.equal(defaults.hasEnvSheet, false);
 		const malformed = createSceneStage({ environment: 7, style: {}, hasEnvSheet: "true" });
 		for (const key of Object.keys(fields)) assert.deepEqual(malformed[key], defaults[key], `${key} repairs to the default`);

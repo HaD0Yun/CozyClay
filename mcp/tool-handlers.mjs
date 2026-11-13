@@ -1525,7 +1525,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					cameraMove: known ? camera_move : "Custom…",
 					customMove: known ? "" : camera_move,
 					hasCharSheet: st.hasCharSheet === true,
-					hasEnvSheet: false,
+					hasEnvSheet: false, aspect: st.shotAspect,
 				});
 				return text(`${slateLine(currentShot())}\n\n${prompt}`);
 			},
