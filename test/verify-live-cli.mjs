@@ -722,6 +722,8 @@ try {
 	}), "cozyclay --help", 30_000);
 	assert.equal(help.code, 0);
 	assert.match(help.stdout, /cclay live status/, "`cclay --help` lists live");
+	// No starter scene ships (src/starter-scenes.js STARTER_SCENES is empty), so help does not advertise one.
+	assert.doesNotMatch(help.stdout, /starter scene/, "`cclay --help` advertises a bundled starter scene that does not ship");
 	const liveHelp = await run(["--help"]);
 	assert.equal(liveHelp.code, 0);
 	assert.match(liveHelp.stdout, /cclay live capture --out/);
