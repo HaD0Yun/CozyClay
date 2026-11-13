@@ -12,7 +12,6 @@
 	"export workers/api/src/index.js#mutationGuard",
 	"export workers/api/src/index.js#requireOrigin",
 	"file workers/api/scripts/dev-session.mjs",
-	"unlisted bin/agent/pi-tools.mjs#typebox",
 	"unlisted mcp/live-hub.mjs#ws",
 	"unlisted mcp/verify-live-batch.mjs#ws",
 	"unlisted mcp/verify-live-capture.mjs#ws",
@@ -41,7 +40,6 @@
 	"unlisted test/bus/verify-store-domain-routing.mjs#rolldown",
 	"unlisted test/verify-agent-panel.mjs#rolldown",
 	"unlisted test/verify-export-recovery.mjs#rolldown",
-	"unlisted test/verify-schema-to-typebox.mjs#typebox",
 	"unlisted test/verify-studio-agent-binding.mjs#rolldown",
 	"unlisted test/verify-studio-undo-hygiene.mjs#rolldown",
 	"unlisted tools/qa/css-rule-usage.mjs#postcss"
