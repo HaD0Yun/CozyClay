@@ -4,12 +4,13 @@
 import { initAnalytics, track } from "../analytics.js";
 import { LANDING_CTA_TARGETS } from "../analytics-strict.js";
 
-const COPY_TARGETS = [["--via site", "copy_npx"], ["git clone", "copy_clone"], ["mcpServers", "copy_mcp"], ["cclay live", "copy_terminal"]];
+const COPY_TARGETS = [["install.sh", "copy_installer"], ["--via site", "copy_npx"], ["git clone", "copy_clone"], ["mcpServers", "copy_mcp"], ["cclay live", "copy_terminal"]];
 
 /** The landing:cta_clicked target for a clicked element, or null when it is not a call to action. */
 function ctaTarget(element) {
 	if (element.closest?.("[data-install-open]")) return "install_open";
 	if (element.closest?.("a[data-node-download]")) return "node_download";
+	if (element.closest?.("a[data-installer-download]")) return "installer_download";
 	const copy = element.closest?.("button.copy[data-copy]");
 	if (copy) return COPY_TARGETS.find(([needle]) => copy.dataset.copy.includes(needle))?.[1] ?? null;
 	const href = element.closest?.("a[href]")?.getAttribute("href") ?? "";
