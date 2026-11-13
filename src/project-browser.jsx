@@ -23,7 +23,7 @@ import "./project-browser.css";
 const APP_VERSION = packageInfo.version;
 // The "+" card is the one blank entry: an empty stage under a fresh name (no
 // starterId, so Create takes the blank path). Its preview is the blank-stage render.
-const NEW_PROJECT = Object.freeze({ id: "new-project", thumbId: "blank-stage", kind: "blank", defaultName: "Untitled Project", get name() { return ko("New project", "새 프로젝트"); }, get description() { return ko("Start from an empty stage.", "빈 무대에서 시작합니다."); } });
+const NEW_PROJECT = Object.freeze({ id: "new-project", thumbId: "blank-stage", kind: "blank", get defaultName() { return ko("Untitled Project", "제목 없는 프로젝트"); }, get name() { return ko("New project", "새 프로젝트"); }, get description() { return ko("Start from an empty stage.", "빈 무대에서 시작합니다."); } });
 
 // App.jsx keeps the project mutation behind its named requestNewProject/newProject
 // path. The v2 chooser already has the name, so this short-lived handoff seeds

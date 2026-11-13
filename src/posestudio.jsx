@@ -1296,7 +1296,7 @@ export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, o
 				<p className="studio-hint" data-pose-motion-warning role="status">
 					{ikCorrection
 						? ko("Pose mode is on — applying keys the pose as a full-body correction at the current frame; the motion stays.", "포즈 모드가 켜져 있어요 — 적용하면 현재 프레임에 전신 보정 키로 들어가고, 모션은 그대로 유지됩니다.")
-						: ko("A sample motion is moving the character — applying a pose clears it and returns to the blocking pose.", "현재 샘플 모션이 캐릭터를 움직이고 있어요. 포즈를 눈앞에 적용하려면 샘플 모션을 지우고 블로킹 포즈로 전환합니다.")}
+						: ko("A sample motion is moving the character — applying a pose clears it and returns to the blocking pose.", "현재 샘플 모션이 캐릭터를 움직이고 있어요. 포즈를 적용하면 샘플 모션이 지워지고 블로킹 포즈로 돌아가요.")}
 				</p>
 			)}
 			<div className="studio-actions">

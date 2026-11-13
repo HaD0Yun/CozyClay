@@ -6,7 +6,7 @@
 // ko() at render time, so switching saves the choice and reloads.
 //
 // Chinese lives in a central dictionary (locale-zh.js) keyed by the English
-// default, so the ~1500 call sites stay unchanged upstream. A third argument
+// default, so the call sites stay unchanged upstream. A third argument
 // overrides the dictionary where one English string needs two translations.
 import { ZH } from "./locale-zh.js";
 
