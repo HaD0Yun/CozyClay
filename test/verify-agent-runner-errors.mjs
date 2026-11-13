@@ -14,7 +14,7 @@ import { createModels, createAssistantMessageEventStream } from "@earendil-works
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxThinking } from "@earendil-works/pi-ai/providers/faux";
 import { fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { createAgentRunner, classifyError, classifyProviderError } from "../bin/agent/agent-runner.mjs";
-import { headerRetryAfterMs, retryAfterMs, retryHintMs, retryKind } from "../bin/agent/agent-stream.mjs";
+import { headerRetryAfterMs, retryAfterMs, retryKind } from "../bin/agent/agent-stream.mjs";
 import { failureCodeOf } from "../bin/agent/agent-failure-codes.mjs";
 import * as piAi from "@earendil-works/pi-ai";
 import { createSessionStore, transcriptFromHistory } from "../bin/agent/session-store.mjs";
@@ -192,17 +192,17 @@ function errorMessage(text) {
 	expect("the surviving text reached the panel", frames.some((f) => f.type === "text.delta" && f.text) || frames.some((f) => f.type === "text.delta"), JSON.stringify(frames));
 }
 
-// --- a provider's own wait hint sets the backoff, capped at 20 s (#975) ---
+// --- a provider's own wait hint, read from the message (#975) ---
 {
-	const hint = (text) => retryHintMs({ errorMessage: text });
+	const hint = (text) => retryAfterMs({ errorMessage: text });
 	assert.equal(hint("429 Too Many Requests. Please retry after 8 seconds."), 8000);
 	assert.equal(hint("Rate limit reached. Please try again in 2.5s."), 2500);
 	assert.equal(hint("overloaded, retry in 750ms"), 750);
-	assert.equal(hint("try again in 600 seconds"), 20_000, "a long hint is capped");
+	assert.equal(hint("try again in 600 seconds"), 600_000, "a long hint is read uncapped");
 	assert.equal(hint("500 overloaded"), 0, "no hint: pi-ai's backoff alone");
 	assert.equal(hint("request 429 failed after 3 retries"), 0, "a count is not a wait");
-	assert.equal(retryHintMs(undefined), 0);
-	console.log("PASS retry hint: seconds and milliseconds, capped, none without a unit");
+	assert.equal(retryAfterMs(undefined), 0);
+	console.log("PASS retry hint: seconds and milliseconds, none without a unit");
 }
 
 // --- #1043: what is retried, and how a final provider failure is labelled ---
@@ -221,7 +221,6 @@ function errorMessage(text) {
 	assert.equal(retryKind(piAi, { stopReason: "stop" }), null);
 	assert.equal(retryAfterMs(failed(gemini429)), 37_500, "the message's own wait, uncapped");
 	assert.equal(retryAfterMs(failed('{"retryDelay":"12s"}')), 12_000, "Gemini's RetryInfo alone");
-	assert.equal(retryHintMs(failed(gemini429)), 20_000, "the backoff hint stays capped");
 	// pi-ai's Codex adapter turns a 429 into this sentence: no status, a wait in minutes.
 	const codexLimit = "You have hit your ChatGPT usage limit (plus plan). Try again in ~38 min.";
 	assert.equal(retryAfterMs(failed(codexLimit)), 38 * 60_000, "a wait in minutes");

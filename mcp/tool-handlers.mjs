@@ -71,7 +71,7 @@ import {
 } from "../src/scene-objects.js";
 import { classifyMove, captureFraming, moveSlate } from "../src/camera-move.js";
 import { DEFAULT_PREVIS_MODE, PREVIS_MODES, readProjectDocument } from "../src/project.js";
-import { kindRefusal } from "../src/character-kind.js"; import { characterName, promptDescription } from "../src/character-name.js";
+import { characterName, promptDescription } from "../src/character-name.js";
 import { splitSavedCamera, serializeSavedProject } from "./project-camera.mjs";
 
 /** The authoring state. One scene document, one camera, one project name. */
@@ -212,7 +212,7 @@ const executeStudioCommand = async ({ action, args, expectedRevision, commandId,
 		commandId: commandId ?? randomUUID(),
 		host: Object.fromEntries(STUDIO_IDENTITY_KEYS.map((key) => [key, context.host[key]])),
 		expectedRevision: expectedRevision ?? inspectedRevision,
-	}, workspaceHandle, { timeoutMs: timeoutMs ?? (declared?.timeoutMs === undefined ? undefined : Math.min(MAX_COMMAND_TIMEOUT_MS, declared.timeoutMs + (declared.generation ? 5000 : 0))) });
+	}, workspaceHandle, { timeoutMs: timeoutMs ?? (declared?.timeoutMs === undefined ? undefined : Math.min(MAX_COMMAND_TIMEOUT_MS, declared.timeoutMs)) });
 	return receipt;
 };
 // A refusal is the editor's receipt: its code and recovery are the answer.
@@ -226,19 +226,13 @@ const runStudioCommand = async options => studioResult(await executeStudioComman
 // or the target's kind cannot run answers a structured refusal instead of acting.
 const refusal = (code, reason) => ({ content: [{ type: "text", text: JSON.stringify({ ok: false, code, reason }) }], isError: true });
 
-/** NOT_IN_MODE in a storyboard project; TARGET_NOT_READY when `feature` is given
- * and the target (`characterId`, else the active character) is a capsule figure.
- * Null when the tool may run. `context` is the connected editor's Studio context;
- * without one the in-memory project answers. */
-const previsRefusal = (toolName, { feature, context, characterId } = {}) => {
+/** NOT_IN_MODE in a storyboard project; null when the tool may run. `context` is
+ * the connected editor's Studio context; without one the in-memory project answers. */
+const previsRefusal = (toolName, { context } = {}) => {
 	if ((context ? context.scene?.previsMode : state.previsMode) === "storyboard") {
 		return refusal("NOT_IN_MODE", `This project is a Storyboard - ${toolName} is available in Animation projects.`);
 	}
-	if (!feature) return null;
-	const proxy = context
-		? context.entities?.find((entity) => entity.id === (characterId ?? context.activeCharacterId))?.characterKind === "proxy"
-		: isProxyFigure(findCharacter(characterId ?? state.focus));
-	return proxy ? refusal("TARGET_NOT_READY", kindRefusal(feature)) : null;
+	return null;
 };
 
 const scene = () => activeScene(state.doc.scenes, state.doc.activeSceneId);
@@ -248,8 +242,8 @@ const stage = () => scene().stage;
  * list, so "character A/B" is simply index 0/1 of this array. */
 const cast = () => stage().characters;
 
-/** Resolve a character by id, by the A/B/C letter the studio labels them with,
- * or by 1-based slot. Returns null when nothing matches. */
+/** Resolve a character by id, by its A/B/C letter (an MCP handle by cast position;
+ * the studio itself numbers them), or by 1-based slot. Returns null when nothing matches. */
 const findCharacter = (ref) => {
 	const list = cast();
 	if (ref === undefined || ref === null || ref === "") return list[0] ?? null;
@@ -269,7 +263,7 @@ const liveCharacterId = async ref => {
 	return findCharacter(ref)?.id ?? ref;
 };
 
-/** The studio labels the cast A, B, C… by position. */
+/** The MCP handle of a cast member: A, B, C… by position (the studio itself numbers them). */
 const letterFor = (character) => String.fromCharCode(65 + cast().indexOf(character));
 
 /** What to say when a character reference does not resolve. */
@@ -994,7 +988,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 			"remove_character",
 			{
 				title: "Remove a character",
-				description: "Take a character out of the cast. The last remaining character cannot be removed.",
+				description: "Take a character out of the cast. The last character can go too: an empty cast is a legal stage.",
 				inputSchema: {
 					character: z.string().describe('which character — letter, slot number or id'),
 				},
@@ -1480,7 +1474,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 			{
 				title: "Render the AI prompt for this shot",
 				description:
-					"Turn the current camera, cast and set into a prompt for an AI image or video model. " +
+					"Turn the current camera and cast into a prompt for an AI image or video model. " +
 					"The prompt carries the real framing — shot size, lens, angle and level — so the " +
 					"generated frame matches the blocking.",
 				inputSchema: {
@@ -1503,8 +1497,8 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 						.string()
 						.default(CAMERA_MOVES[0])
 						.describe(`camera move. Known: ${CAMERA_MOVES.filter((m) => m !== "Custom…").join(", ")}`),
-					pose_phrase: z.string().default("").describe("what character A is doing"),
-					pose2_phrase: z.string().default("").describe("what character B is doing"),
+					pose_phrase: z.string().default("").describe("what the framed character is doing"),
+					pose2_phrase: z.string().default("").describe("what the next visible character in cast order is doing"),
 				},
 			},
 			async ({ mode, model, environment, style, camera_move, pose_phrase, pose2_phrase }) => {
@@ -1800,7 +1794,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				title: "List Studio commands",
 				description:
 					"List every command the connected editor registers, for studio_run: id, label, kind (mutation, transient, job, document), " +
-					"exposure, whether it is available now (the reason when not), and timeoutMs or generation where declared. The list carries " +
+					"exposure, whether it is available now (the reason when not), and timeoutMs where declared. The list carries " +
 					"no schemas; pass ids to read those commands' full declarations, description and input schema included.",
 				inputSchema: {
 					ids: z.array(z.string().min(1).max(120)).min(1).max(32).optional().describe("command ids whose full declarations to read"),

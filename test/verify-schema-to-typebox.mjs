@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { toTypeBox } from "../bin/agent/schema-to-typebox.mjs";
 import { STUDIO_TOOL_SCHEMAS } from "../src/studio-agent-protocol.js";
-import { createAgentTools, agentToolSchemas } from "../bin/agent/agent-tools.mjs";
+import { createAgentTools } from "../bin/agent/agent-tools.mjs";
 import { Value } from "typebox/value";
 
 // Fakes matching the shape createAgentTools needs, same as
@@ -11,7 +11,7 @@ const fakeHub = { workspaceHandleDetails: () => [{ handle: "studio", meta: { com
 const fakeSession = { signal: new AbortController().signal, images: new Map(), codex: {} };
 const workflowTools = createAgentTools({ liveHub: fakeHub, session: fakeSession, emit: () => {} });
 const WORKFLOW_NAMES = new Set(["describe_workflow", "add_workflow_node", "update_workflow_node", "remove_workflow_node", "connect_workflow_nodes", "disconnect_workflow_nodes", "run_workflow", "set_workflow_node_output", "focus_workflow_node"]);
-const workflowSchemas = Object.fromEntries(agentToolSchemas(workflowTools).filter((tool) => WORKFLOW_NAMES.has(tool.name)).map((tool) => [tool.name, tool.parameters]));
+const workflowSchemas = Object.fromEntries(workflowTools.filter((tool) => WORKFLOW_NAMES.has(tool.name)).map((tool) => [tool.name, tool.parameters]));
 assert.ok(Object.keys(workflowSchemas).length >= 8, "at least 8 Workflow tool schemas are available");
 
 const allSchemas = { ...STUDIO_TOOL_SCHEMAS, ...workflowSchemas };

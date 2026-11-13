@@ -9,8 +9,7 @@ import { StudioProtocolError, StudioSchemas, freezeStudioData, validateStudioSch
  * transient: view state only. job: long-running work (a generation, an
  * export); it answers "started", or "completed" with its output when it runs
  * to its end. A job that needs longer than the hub's 30 s default declares
- * `timeoutMs` (at most the hub's 300 s ceiling); one that starts a motion
- * generation declares `generation: "motion"`, the agent's one per message.
+ * `timeoutMs` (at most the hub's 300 s ceiling).
  * document: project-level work outside the undo history (scenes, the project
  * file); it answers "completed", with the new host when the open scene moved. */
 export const STUDIO_ACTION_KINDS = freezeStudioData(["mutation", "transient", "job", "document"]);
@@ -158,8 +157,6 @@ export const STUDIO_ACTIONS = freezeStudioData([
 		description: "Copy a scene object (the selected one when objectId is omitted). Without copies: one copy half a metre beside it. With copies [{ x, z, y?, rot?, scale?, color? }] (1-64): every copy in one call and one undo entry; x, z (-240..240 m) is the copy's base pivot, y (0..240) defaults to the source's, rot is yaw in degrees (-360..360, default the source's), scale multiplies the source's size (one number, or [x, y, z] factors, each 0.1..10), color (#rrggbb) tints it. Sculpt copies share one built mesh, so sculpt each kind of prop once and place the rest as copies. A group root copies the whole group: scale must be one number and resizes it about the root's pivot; at most 100 new objects per call (copies x group size). Answers output.copies [{ id, size { width, height, depth } m, scale, memberIds? }] in the order given; invalid input is refused, never clamped." },
 	{ id: "ai.prepareShot", label: "Send to AI", kind: "job", input: input({}, { mode: { type: "string", enum: ["image", "video"] }, model: { type: "string", enum: AI_IMAGE_MODELS } }),
 		description: "Prepare the Studio's Send-to-AI package for the shot under the playhead (else the current camera): the prompt for an external image or video model, written from the shot's camera, cast, poses, environment and style, plus reference frames rendered from the shot camera (its first and last camera key when it has keys). No AI service is called. mode \"image\" is a still, \"video\" a shot with its camera move; model is the image model the prompt is written for (image mode only). Each omitted choice keeps the Studio's current one; a given one becomes it. The Studio opens its result panel, where the user copies the prompt and exports the frames to the configured export folder or browser downloads; the frame images stay there and are not in the answer. Answers status \"completed\" with output.prompt, mode, modelLabel, shot (id, name, range), aspectRatio, cameraMode and referenceFrames (how many frames the panel shows). Changes nothing in the scene; not a motion generation." },
-	// The instruction leads the H3 prompt, which the motion API caps at 4000
-	// characters with its camera-lock text (about 225) appended.
 ]);
 export const STUDIO_ACTION_IDS = freezeStudioData(STUDIO_ACTIONS.map(action => action.id));
 
@@ -237,13 +234,13 @@ export function createStudioActionRegistry({ readState } = {}) {
 		state() { return readState?.(); },
 		/** Available actions carry their description and input schema;
 		 * unavailable ones carry the reason instead of arguments. The declared
-		 * hub timeout and generation travel with each, so no caller keeps its
+		 * hub timeout travels with each, so no caller keeps its
 		 * own copy of them. */
 		list(state = readState?.()) {
 			return [...entries.values()].map(entry => {
 				const verdict = availability(entry, state);
 				const row = { id: entry.id, label: entry.label, kind: entry.kind, description: entry.description, exposure: entry.exposure, ...(entry.agentHidden ? { agentHidden: true } : {}), ...(entry.readOnly ? { readOnly: true } : {}),
-					...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }), ...(entry.generation ? { generation: entry.generation } : {}) };
+					...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }) };
 				return verdict === true ? { ...row, available: true, input: entry.input } : { ...row, available: false, reason: verdict };
 			});
 		},

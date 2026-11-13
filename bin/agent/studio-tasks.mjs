@@ -1,4 +1,4 @@
-// Parallel Studio tasks, P2 (the server; plan: ~/.claude/plans/parallel-studio-agents.md, cases by number). The main
+// Parallel Studio tasks, P2 (the server; case numbers from a design plan kept outside the repository). The main
 // agent answers the user at once and hands work to tasks; each task is an ordinary Studio agent run (studio-prompt.mjs,
 // its own history) inside task.begin..finish on its scope (src/bus-tasks.js). This file is the board: it queues, starts
 // and ends tasks and tells the main agent what happened, never what it hopes happened.

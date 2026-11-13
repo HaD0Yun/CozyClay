@@ -6,7 +6,9 @@ import { randomUUID } from "node:crypto";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
 import { startLiveHub } from "../mcp/live-hub.mjs";
 import { STUDIO_TOOL_FAMILIES, STUDIO_TOOLS } from "../src/studio-agent-protocol.js";
-import { studioToolSchemas, studioToolResult } from "../bin/agent/studio-tools.mjs";
+import { createStudioTools } from "../bin/agent/studio-tools.mjs";
+// The model-facing Studio tool list, as the sidecar builds it.
+const studioToolSchemas = () => createStudioTools({ liveHub: { command: async () => ({}) }, workspaceHandle: "schemas" });
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 import { fauxAssistantMessage, fauxToolCall, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { createRequire } from "node:module";
@@ -156,7 +158,6 @@ if (shouldRun("stale-scene-readmits-any-family")) {
 }
 
 if (shouldRun("studio-tool-catalogue")) {
-  const { createStudioTools, studioToolSchemas } = await import("../bin/agent/studio-tools.mjs");
   const families = ["inspect_studio", "operate_studio", "arrange_objects", "arrange_characters", "patch_elements", "frame_shot", "verify_result", "undo_edit", "run_action"];
   assert.deepEqual([...STUDIO_TOOL_FAMILIES], ["inspect_studio", "run_action", "verify_result"]);
   assert.deepEqual([...STUDIO_TOOLS], families, "the primary tools and compatibility aliases remain callable");
@@ -183,16 +184,6 @@ if (shouldRun("studio-tool-catalogue")) {
     assert.ok(tool.description.includes("STALE_SCENE"), `${tool.name} description explains STALE_SCENE`);
     assert.ok(/inspect_studio/.test(tool.description) && /resubmit|re-?issue/i.test(tool.description), `${tool.name} description teaches inspect-then-resubmit for STALE_SCENE`);
   }
-  // A partial receipt parses back with its dropped paths and the value that
-  // actually landed in delta[].after, unabridged.
-  const partial = { ok: true, commandId: "cmd-1", receiptId: "receipt-1", host: host(), status: "partial", authored: true, revision: { before: 1, after: 2 }, affectedIds: ["cube-24"],
-    delta: [{ id: "cube-24", after: { patched: [{ path: "object.scale", vec: { x: 0.24, y: 0.1, z: 0.5 } }] } }],
-    checks: { coverage: "declared-element-readback" }, undo: { historyEntryId: "h-1", entries: 1, canUndoDirect: true }, warnings: [], ops: [{ index: 0, status: "partial", droppedPaths: ["object.scale"] }] };
-  const rendered = studioToolResult(partial);
-  const parsed = JSON.parse(rendered);
-  assert.deepEqual(parsed.ops[0].droppedPaths, ["object.scale"]);
-  assert.equal(parsed.delta[0].after.patched.find(p => p.path === "object.scale").vec.y, 0.1);
-  assert.ok(rendered.length < 8000, "sanity: this fixture is far under the 8000-byte receipt cap");
   console.log("PASS the Studio tool list is exactly the nine families and patch_elements is admitted");
 }
 

@@ -2,7 +2,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
-export const PACKAGE_SIGNATURE_PUBLIC_KEY = "MCowBQYDK2VwAyEAiDLutMZ8CX/NzpuQF/juhT8v9QwPBUvIOHFRqEZoG3U=";
+const PACKAGE_SIGNATURE_PUBLIC_KEY = "MCowBQYDK2VwAyEAiDLutMZ8CX/NzpuQF/juhT8v9QwPBUvIOHFRqEZoG3U=";
 
 const CONTENT_ROOTS = [
 	"bin",

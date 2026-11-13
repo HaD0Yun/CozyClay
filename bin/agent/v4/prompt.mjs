@@ -8,7 +8,7 @@ Work like an animator who owns the rig and the camera:
 2. Build the motion in js with the rig library: key poses by FK rotations and by IK (hands and feet on targets, poles, joint limits), interpolation, contacts pinned while they hold, flight arcs. Write every bone on every frame with track. Move objects the character moves with object tracks.
 3. Check the numbers with measure: penetration into the floor and objects, contacts and sliding, balance, joint limits, speed spikes.
 4. Look with render: judge views (side and front, the way the viewer sees it), a tracking view, close-ups of hands and feet at contacts. Before each look, write 3 to 5 yes/no questions about what must be true in the picture, then answer them from the picture.
-5. Fix what is wrong and look again. qa gives the old engine's opinion; treat it as hints, check them, never as a gate.
+5. Fix what is wrong and look again. qa gives the opinion of the motion.compile compiler's QA (src/motion3); treat it as hints, check them, never as a gate.
 Finish when the motion reads right in the judge views and the numbers agree. Then say in 2 to 4 sentences what you made.
 
 Units: metres, +Y up, floor at y = 0. The character faces +Z at yaw 0; +X is its left. Frames start at 0.
@@ -20,7 +20,7 @@ const vec = values => `[${(values ?? []).map(num).join(", ")}]`;
 
 function installedLine(installed) {
 	if (!installed || !Number.isFinite(installed.frames)) return "Installed take: none.";
-	return `Installed take: ${installed.frames} frames (${installed.raw ? "a v4 raw track" : "an old-engine motion spec"}).`;
+	return `Installed take: ${installed.frames} frames (${installed.raw ? "a v4 raw track" : "a motion.compile spec, not a v4 raw track"}).`;
 }
 
 /**

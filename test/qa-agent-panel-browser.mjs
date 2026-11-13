@@ -217,9 +217,9 @@ expect("the capture tool card appears while running", await waitFor("!!document.
 shots.push(await shot("streaming"));
 
 expect("the capture tool completes", await waitFor("document.querySelector('[data-tool-name=\"capture_blocking_frame\"]')?.dataset.toolStatus === 'done'", 10000));
-expect("the render tool runs after the capture", await waitFor("!!document.querySelector('[data-tool-name=\"render_from_frame\"]')", 10000));
+expect("the workflow run follows the capture", await waitFor("!!document.querySelector('[data-tool-name=\"run_workflow\"]')", 10000));
 expect("tool steps read as verb + target", await evaluate("document.querySelector('[data-tool-name=\"capture_blocking_frame\"] .agent-step-label')?.textContent === 'Capture blocking frame'"));
-expect("a completed tool step shows its elapsed time", await waitFor("/\\d/.test(document.querySelector('[data-tool-name=\"render_from_frame\"] .agent-step-time')?.textContent || '')", 10000));
+expect("a completed tool step shows its elapsed time", await waitFor("/\\d/.test(document.querySelector('[data-tool-name=\"run_workflow\"] .agent-step-time')?.textContent || '')", 10000));
 expect("the image result card arrives", await waitFor("!!document.querySelector('.agent-image-card img')", 12000));
 expect("the turn finishes and Stop reverts to Send", await waitFor("!document.querySelector('.agent-send.stop')", 12000));
 await openMenu();
