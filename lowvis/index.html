@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CozyClay lowvis viewer</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #e8e5df; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; }
+      #lowvis-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #lowvis-overlay { position: fixed; inset: 0; pointer-events: none; }
+      .lowvis-panel { position: absolute; box-sizing: border-box; border: 1px solid #b9b3a8; }
+      .lowvis-label { position: absolute; left: 14px; top: 10px; padding: 4px 12px; border-radius: 6px; background: rgba(32, 30, 28, 0.82); color: #fff; font-size: 24px; font-weight: 650; letter-spacing: 0.01em; white-space: nowrap; }
+      .lowvis-label small { font-size: 17px; font-weight: 500; opacity: 0.8; margin-left: 8px; }
+      .lowvis-label.missing { background: rgba(150, 44, 36, 0.9); }
+      .lowvis-note { position: absolute; left: 14px; top: 56px; color: #5b554c; font-size: 15px; max-width: 90%; }
+      #lowvis-caption { position: absolute; left: 0; right: 0; bottom: 0; height: 44px; box-sizing: border-box; padding: 0 16px; display: flex; align-items: center; gap: 22px; background: #23211f; color: #f1eee8; font-size: 20px; white-space: nowrap; overflow: hidden; }
+      #lowvis-caption b { font-weight: 650; }
+      #lowvis-caption .frame { font-variant-numeric: tabular-nums; min-width: 230px; }
+      #lowvis-caption .beat { opacity: 0.92; overflow: hidden; text-overflow: ellipsis; }
+    </style>
+  </head>
+  <body>
+    <canvas id="lowvis-canvas"></canvas>
+    <div id="lowvis-overlay"></div>
+    <script type="module" src="/src/lowvis/viewer/main.js"></script>
+  </body>
+</html>
