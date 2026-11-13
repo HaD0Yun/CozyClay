@@ -27,7 +27,6 @@
     "test:camera-move": "node test/verify-camera-move.mjs",
     "test:cuts": "node test/verify-cuts.mjs",
     "test:project-menu": "node tools/qa-browser.mjs -- node test/verify-project-menu-browser.mjs",
-    "test:first-success-guide": "QA_STARTUP_CHOOSER=1 node tools/qa-browser.mjs -- node test/verify-first-success-guide-browser.mjs",
     "test:objects": "node tools/qa-browser.mjs -- node test/verify-object-gizmo.mjs",
     "test:theme": "node test/verify-theme.mjs",
     "test:appearance": "node test/verify-appearance.mjs",

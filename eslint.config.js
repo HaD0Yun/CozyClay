@@ -11,7 +11,6 @@ export default [
 			"**/node_modules/**",
 			"public/**",
 			"mcp/runtime/**",
-			"coverage/**",
 		],
 	},
 	{

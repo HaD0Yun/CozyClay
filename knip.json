@@ -1,6 +1,6 @@
 {
 	"$schema": "https://unpkg.com/knip@5/schema.json",
-	"entry": ["test/**/*.mjs", "tools/**/*.mjs", "bin/**/*.mjs", "mcp/**/*.mjs", "workers/api/src/**/*.js"],
+	"entry": ["test/**/*.mjs", "tools/**/*.mjs", "bin/**/*.mjs", "mcp/**/*.mjs", "workers/api/src/**/*.js", "workers/api/scripts/**/*.mjs"],
 	"project": ["src/**", "bin/**", "mcp/**", "tools/**", "test/**", "workers/**"],
 	"includeEntryExports": true,
 	"ignore": ["dist/**", "**/node_modules/**", "mcp/runtime/**"],
