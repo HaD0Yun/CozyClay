@@ -3,7 +3,7 @@
 // and the dock resize edge, driven through real pointer input over CDP.
 //
 // Run with a dev server up:
-//   QA_URL=http://127.0.0.1:5527/app/?motion=/demo/walk-then-stop.npz CDP_PORT=9527 \
+//   QA_URL=http://127.0.0.1:5527/app/ CDP_PORT=9527 \
 //   QA_OUT=<dir> node tools/qa-browser.mjs -- node test/qa-shell-content-browser.mjs
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,7 +11,7 @@ import { afterPageLoad } from "./bus/browser-navigation.mjs";
 import { waitForFrameState } from "./bus/browser-frame-state.mjs";
 
 const port = Number(process.env.CDP_PORT || 9527);
-const appUrl = process.env.QA_URL || "http://127.0.0.1:5527/app/?motion=/demo/walk-then-stop.npz";
+const appUrl = process.env.QA_URL || "http://127.0.0.1:5527/app/";
 const outputDir = process.env.QA_OUT || "/tmp/cozyclay-task-13";
 mkdirSync(outputDir, { recursive: true });
 const referenceUrl = pathToFileURL(fileURLToPath(new URL("../docs/design/v2-reference.html", import.meta.url))).href;
