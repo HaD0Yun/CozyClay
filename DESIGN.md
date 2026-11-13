@@ -103,21 +103,24 @@ missing behaviour in the same grammar as the owner's 2a, 2b and 2c screens.
 ### G1 — mode and tool toolbar
 
 One 32 px pill sits at the viewport top centre in this order: mode keys `1 2 3
-4`, divider, tool keys, divider, context values. The active mode shows its
-amber mono digit and its name (Stage / Pose / Camera / Motion; in Korean,
-배치 / 포즈 / 카메라 / 모션); inactive modes show only a 28×28 digit. W/E/R
+4 5`, divider, tool keys, divider, context values. The active mode shows its
+amber mono digit and its name (Stage / Pose / Camera / Motion / Sculpt; in
+Korean, 배치 / 포즈 / 카메라 / 모션 / 조형); inactive modes show only a 28×28
+digit. A storyboard project has no Motion key (`1 2 3 5`). W/E/R
 keys are 28×28, with the active tool filled amber `#e8a33d` and text
 `#1a1204`; inactive tools use `#9b9ba1`. Every key has a title with its full
 name and shortcut.
 
-- Stage: W Move, E Rotate, R Scale; values `10cm` and `15°` (snap toggles on
+- Stage: W Move, E Rotate, R Scale; values `5cm` and `5°` (snap toggles on
   click and Ctrl inverts it).
-- Pose: W Pose fix, E Path fix, R Pin; value `0.25s` (click opens a 24 px
-  influence slider).
+- Pose: W Pose fix (IK parts), R Pin (range pin; refused until a motion take
+  exists); no value group.
 - Camera: W Move, E Rotate; values `24mm` and `2.39` (each opens a small list).
-- Motion: W Blocks and E Refine; no value group.
+- Motion: no tools and no value group; the agent compiles motion.
+- Sculpt: W Front, E Side, R Back views (with a part selected they move,
+  rotate and scale it); no value group.
 
-Keys 1–4 switch modes and W/E/R select tools only when focus is outside a text
+Keys 1–5 switch modes and W/E/R select tools only when focus is outside a text
 field.
 
 ### G2 — mode to state mapping
@@ -125,8 +128,8 @@ field.
 Stage keeps `workflowMode "scene"` for the bus and saved views. Pose uses the
 new `workflowMode "pose"`; entering it runs `toggleIkMode` and leaving it runs
 `leaveIkMode`. Without a character with IK chains, key 2 is disabled and its
-title explains why. Camera and Motion use `"camera"` and `"motion"`. Motion E
-uses `enterRefineMode` / `lineEditMode`, and `view.setMode` accepts `"pose"`.
+title explains why. Camera, Motion and Sculpt use `"camera"`, `"motion"` and
+`"sculpt"`, and `view.setMode` accepts `"pose"`.
 
 ### G3 — Pose Details
 
