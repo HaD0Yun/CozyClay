@@ -103,7 +103,8 @@ export function tiltFrame(yaw, pitch, roll) {
 
 /** One frame: channels -> { s, diag }, on the WebAssembly module once it is ready (pose-wasm.js), the same bit for bit. */
 export function pose(sk, c, hooks = {}) {
-	return poseWasmReady() ? poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, turnWeight, KNEE_REST, SIDES }) : poseJs(sk, c, hooks);
+	// a rig with markers (skeleton.js addMarkers) is not in the module's bone table: it runs the JS pose
+	return poseWasmReady() && !sk.markers ? poseWasm(sk, c, hooks, { num, v3, hangOf, tiltFrame, softReach, turnWeight, KNEE_REST, SIDES }) : poseJs(sk, c, hooks);
 }
 
 /** pose() in JS: the reference the module matches, and the path until it loads. */
@@ -128,7 +129,8 @@ export function poseJs(sk, c, hooks = {}) {
 	spread(sk, s, ["Neck", "Head"], num(c.head_yaw), num(c.head_pitch), num(c.head_roll));
 	// the top spine bone turns its share of chest_* when flow bakes one (channels.js overlap: it breaks after the two below)
 	const sy = num(c.spine_yaw), sp = num(c.spine_pitch), sr = num(c.spine_roll);
-	spread(sk, s, ["Spine", "Spine1"], sy, sp, sr, 3);
+	// on a rig whose Spine1 is a marker (skeleton.js addMarkers: no joint there) Spine turns Spine1's share too
+	spread(sk, s, sk.markers && !sk.subtree[sk.index.Spine1]?.length ? ["Spine", "Spine"] : ["Spine", "Spine1"], sy, sp, sr, 3);
 	spread(sk, s, ["Spine2"], num(c.chest_yaw, sy), num(c.chest_pitch, sp), num(c.chest_roll, sr), 3);
 	// Root: turn about the hips joint, then put the hips at `root`.
 	const hips = sk.index.Hips, yaw = num(c.yaw);

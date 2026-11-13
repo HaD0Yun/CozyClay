@@ -31,5 +31,7 @@ export function registerRig(id, rig) {
 	cache.set(id, sk);
 	reference ??= createSkeleton(xBot);
 	// the body belongs to this skeleton: one retired by a later registerRig keeps its own (body.js registerBody)
-	registerBody(sk, fileFit => refitBody(sk, reference, fileFit("x-bot-tpose")));
+	// a rig without toe, finger and head-top joints (sk.markers: a lowvis rig) gets no collision body: the X Bot's fit is
+	// a grid per X Bot bone, and the refit needs every one of them. bodyFor(sk) is then null and the skin fixes do nothing.
+	if (!sk.markers) registerBody(sk, fileFit => refitBody(sk, reference, fileFit("x-bot-tpose")));
 }
