@@ -73,7 +73,7 @@ expect(
 );
 expect(
 	"plan view remains free of shot post-processing",
-	dualview.includes("draw(planCam, planPane, null, false)"),
+	dualview.includes("drawVisibleInset(planCam, planPane, null, false)") && !dualview.includes("drawVisibleInset(planCam, planPane, null, true)"),
 );
 expect(
 	"IK controls emphasize the camera-nearest circles",

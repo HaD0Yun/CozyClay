@@ -49,7 +49,7 @@ import { restoreProjectAssets } from "../project-assets.js";
 import { internWorkflowOutputs, workflowOutputRefs, resolveWorkflowOutputs } from "../workflow/workflow-resources.js";
 
 import { resourceManifest } from "../project-resources.js";
-import { ko } from "../locale.js";
+import { ko } from "../locale.js"; import { checkAfterWrite } from "./save-deadline.js";
 import { track, bucketCount, bucketProjectAge } from "../analytics.js"; import { startExportAttempt } from "../export-attempt.js";
 import { mergeProjectCustomPoses } from "../project-poses.js";
 import { DEFAULT_WORKSPACE_LAYOUT, DEFAULT_DURATION_S, TIMELINE_FPS } from "../app-stage.jsx";
@@ -301,12 +301,12 @@ export function useScenes(appContext) {
 		}
 		const currentName = domain.metadata().name;
 		if (currentName === null && explicitName === null) {
-			setProjectNameDialog({ kind: "save", initialName: "My Project" });
+			setProjectNameDialog({ kind: "save", initialName: ko("Untitled Project", "제목 없는 프로젝트", "未命名项目") });
 			return { saved: false, naming: true };
 		}
 		setProjectSaveState("saving");
-		const name = (explicitName ?? currentName ?? "My Project").trim() || "My Project";
-		const checkpoint = collectProjectSnapshot(name);
+		const name = (explicitName ?? currentName ?? ko("Untitled Project", "제목 없는 프로젝트", "未命名项目")).trim() || ko("Untitled Project", "제목 없는 프로젝트", "未命名项目");
+		const checkpoint = collectProjectSnapshot(name), checkWritten = checkAfterWrite(context, appContext.ports.read);
 		let downloaded = false;
 		try {
 			const serialized = await collectProjectSerialized(name);
@@ -327,7 +327,7 @@ export function useScenes(appContext) {
 				// the recent entry's counts were read when the project opened: an overwrite refreshes them
 				await rememberRecentProject(handle, name, serializedSummary(serialized));
 			}
-			context.check();
+			checkWritten(); // an expired deadline after the write still records the save (#1207)
 			markProjectClean(name, checkpoint, currentName);
 			void captureProjectThumb(name);
 			setSaveBlockedReasons(null);
@@ -509,7 +509,7 @@ export function useScenes(appContext) {
 		if (domain.dirtyStore.read("projectDirty") && !window.confirm(ko("Discard unsaved changes and start a new project?", "저장되지 않은 변경사항을 버리고 새 프로젝트를 시작할까요?"))) return "cancelled"; // the user kept their unsaved changes
 		// The choices made on the start screen ride on the name dialog until its
 		// submit commits the project.
-		setProjectNameDialog({ kind: "new", initialName: projectName ?? "My Project", ...chosen(choices) });
+		setProjectNameDialog({ kind: "new", initialName: projectName ?? ko("Untitled Project", "제목 없는 프로젝트", "未命名项目"), ...chosen(choices) });
 	}
 
 	function newProject(name, authorized = false, choices = {}) {
@@ -518,7 +518,7 @@ export function useScenes(appContext) {
 			return runProject("project.new", { ...(typeof name === "string" ? { name } : {}), ...pending, ...chosen(choices) });
 		}
 		if (typeof name !== "string") return requestNewProject(true, choices);
-		name = name.trim() || "My Project";
+		name = name.trim() || ko("Untitled Project", "제목 없는 프로젝트", "未命名项目");
 		const previsMode = normalizePrevisMode(choices.previsMode), castStyle = normalizeCastStyle(choices.castStyle);
 		setProjectNameDialog(null);
 		const fresh = createSceneDocument(ko("SCENE 01", "씬 01"));

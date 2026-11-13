@@ -5,7 +5,7 @@ import { assetRecord, rememberAsset } from "../scene-asset-cache.js";
 import { ASSET_MAX_SOURCE_BYTES, importImageFile } from "../scene-assets.js";
 import { STILL_HOLD_MAX } from "../shot-authoring.js";
 import { track } from "../analytics.js"; import { startExportAttempt } from "../export-attempt.js";
-import { bytesToDataUrl, panelVideoPrompt, sendPanelToWorkflow } from "../workflow-send.js";
+import { bytesToDataUrl, panelVideoPrompt, sendPanelToWorkflow } from "../workflow-send.js"; import { WORKFLOW_ENTRY_ENABLED } from "../workflow-entry.js";
 import { panelStylizeRequest, requestAgentImage, stylizedPngBytes, stylizeErrorMessage } from "../agent-image-client.js";
 
 // A card's greybox is re-captured this long after the last document edit, so
@@ -276,7 +276,7 @@ function PanelCard({ shot, index, fps, thumb, stylizing, onStylize, onUnstylize,
 				{shot.stylizedAssetId && !stylizing && (
 					<button type="button" data-action="unstylize" title={ko("Remove the stylized picture; the greybox stays", "스타일화 그림 제거 (그레이박스는 남아요)")} onClick={(event) => { stop(event); onUnstylize(); }}>{ko("Remove", "제거")}</button>
 				)}
-				<button
+				{WORKFLOW_ENTRY_ENABLED && <><button
 					type="button"
 					data-action="workflow"
 					title={ko("Send this panel to a Workflow video node", "이 패널을 워크플로 비디오 노드로 보내기")}
@@ -294,7 +294,7 @@ function PanelCard({ shot, index, fps, thumb, stylizing, onStylize, onUnstylize,
 						<button type="button" role="menuitem" data-send-source="stylized" autoFocus onClick={(event) => { stop(event); setSendMenu(false); onSendToWorkflow("stylized"); }}>{ko("Stylized image", "스타일화 이미지")}</button>
 						<button type="button" role="menuitem" data-send-source="greybox" onClick={(event) => { stop(event); setSendMenu(false); onSendToWorkflow("greybox"); }}>{ko("Greybox", "그레이박스")}</button>
 					</div>
-				)}
+				)}</>}
 				<button type="button" data-action="export" data-fid="board_export" disabled={exporting} title={exporting ? ko("Export — another export is running", "내보내기 — 다른 내보내기가 진행 중입니다") : ko("Export this panel as a pack (zip)", "이 패널을 팩(zip)으로 내보내기")} data-disabled-reason={exporting ? "export-running" : undefined} onClick={(event) => { stop(event); onExport(); }}>{ko("Export", "내보내기")}</button>
 			</div>
 			<div className="dock-board-thumb" data-stylized={stylized ? "true" : undefined}>

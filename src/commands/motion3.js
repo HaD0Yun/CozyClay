@@ -35,7 +35,7 @@ import { hybridCapsuleHint } from "../motion3/hybrid-hint.js";
 import { patchTooBroad, keptFill } from "../motion3/patch-guard.js";
 import { createInstalledQa } from "./motion3-installed.js";
 import { blockingCount, blockingOf, blockingSay, fitFlagged, markBlocking } from "../motion3/qa/blocking.js";
-import { takeOut } from "../motion3/physics-frames.js";
+import { takeOut } from "../motion3/physics-frames.js"; import { characterName } from "../character-name.js";
 
 const TIMELINE_FPS = 24;
 const id = { type: "string", minLength: 1 };
@@ -112,8 +112,8 @@ export function register(registry, ports) {
 	const rigOf = character => {
 		// an imported character carries its rig (character-rig.js): registered here, and sent with each compile job to the worker (rigsOf)
 		const sk = skeletonFor(registerCastRigs([character])[0].model);
-		if (!sk && isImportedModel(character.model)) fail("TARGET_NOT_READY", `${character.subject || character.id}'s imported skeleton is incomplete in this project; import the file again.`);
-		if (!sk) fail("TARGET_NOT_READY", `${character.subject || character.id} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
+		if (!sk && isImportedModel(character.model)) fail("TARGET_NOT_READY", `${characterName(character)}'s imported skeleton is incomplete in this project; import the file again.`);
+		if (!sk) fail("TARGET_NOT_READY", `${characterName(character)} is a ${character.model} body, which motion compile cannot drive; use an X Bot or Y Bot character.`);
 		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before compiling motion.");
 		return sk;
 	};

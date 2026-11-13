@@ -1,4 +1,5 @@
 import { SCENES_STORAGE_KEY, readSceneDocument } from "../scenes.js";
+import { characterName } from "../character-name.js";
 
 const MOTION_INPUT_NODE_TYPE = "motion-input";
 const MOTION_INPUT_NODE_VERSION = 2;
@@ -71,7 +72,7 @@ export function activeSceneCharacters(storage = globalThis.localStorage) {
 		const result = readSceneDocument(raw);
 		const scene = result.document?.scenes?.find((entry) => entry.id === result.document.activeSceneId) || result.document?.scenes?.[0];
 		return Array.isArray(scene?.stage?.characters)
-			? scene.stage.characters.filter((entry) => entry && typeof entry.id === "string" && entry.id).map((entry, index) => ({ id: entry.id, name: entry.subject || `Character ${index + 1}`, model: entry.model || null }))
+			? scene.stage.characters.filter((entry) => entry && typeof entry.id === "string" && entry.id).map((entry) => ({ id: entry.id, name: characterName(entry), model: entry.model || null }))
 			: [];
 	} catch {
 		return [];

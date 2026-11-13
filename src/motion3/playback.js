@@ -7,7 +7,7 @@ import { normalizeBoneName } from "../poses.js";
 const CM_PER_M = 100;
 const resolved = new WeakMap();
 
-function controlBones(rig, names) {
+export function controlBones(rig, names) {
 	let entry = resolved.get(rig);
 	if (entry && entry.key === names.join()) return entry;
 	const first = new Map();

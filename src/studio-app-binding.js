@@ -6,7 +6,7 @@ import { createCommandBus } from "./command-bus.js";
 import { readElementDocument, elementReadback, elementPatchArgs, elementTarget, elementPatchReceipt } from "./commands/elements.js";
 import { physicsKeyStamp } from "./motion/physics-review.js";
 import { shotAtFrame } from "./cuts.js";
-import { isProxyFigure } from "./scenes.js";
+import { isProxyFigure } from "./scenes.js"; import { characterName } from "./character-name.js";
 import { supportHeightForObject } from "./scene-objects.js";
 import { studioAssetList } from "./studio-asset-list.js";
 import { buildStudioContext, physicsFingerprintInput, studioEntityCursor, validateStudioCursor } from "./studio-agent-context.js"; import { marksForAgent } from "./context-chips.js";
@@ -120,7 +120,7 @@ export function createStudioAppBinding(ports) {
 	function entityProjection(s) {
 		return [...s.characters.map(c => {
 			const t = s.targets.get(c.id);
-			return { id: c.id, kind: "character", token: tokens.get(c.id).token, name: c.subject || c.id,
+			return { id: c.id, kind: "character", token: tokens.get(c.id).token, name: characterName(c),
 				position: { x: c.x, y: c.y ?? 0, z: c.z }, yawDeg: c.rot ?? 0, scale: c.scale ?? 1, tint: c.tint ?? null, modelId: c.model ?? null,
 				motion: { takeId: t?.motion?.studioTakeId ?? null, frames: t?.motion?.frames ?? 0,
 					ikKeyCount: t?.ikState?.keys.size ?? 0 },
@@ -201,7 +201,7 @@ export function createStudioAppBinding(ports) {
 		const shot = s.shots.find(row => row.id === id), key = !shot && !entity && s.shots.flatMap(row => row.cameraKeys?.map(k => ({ shotId: row.id, frame: k.frame, id: k.id })) ?? []).find(k => k.id === id);
 		if (shot) return { name: shot.name || shot.id, range: { startFrame: shot.startFrame, endFrameExclusive: shot.endFrame + 1 } };
 		if (!entity) return key ? { shotId: key.shotId, frame: key.frame } : { removed: true };
-		const brief = { name: entity.name || entity.subject || entity.id, position: { x: entity.x, y: entity.y ?? 0, z: entity.z } };
+		const brief = { name: object ? object.name || object.id : characterName(entity), position: { x: entity.x, y: entity.y ?? 0, z: entity.z } };
 		if (compact) return brief;
 		if (!object) return { ...brief, yawDeg: entity.rot ?? 0, scale: entity.scale ?? 1, ...extras() };
 		return { ...brief, rotationDeg: { x: object.rotX ?? 0, y: object.rot ?? 0, z: object.rotZ ?? 0 }, scale: { x: object.scaleX, y: object.scaleY, z: object.scaleZ },
@@ -293,7 +293,7 @@ export function createStudioAppBinding(ports) {
 					const subjects = args.targets ?? receipt.affectedIds.filter(id => s.characters.some(c => c.id === id));
 					if (!subjects.length) skipped.push("The receipt affected no character.");
 					subjects.forEach((id, index) => {
-						const character = s.characters.find(c => c.id === id), target = s.targets.get(id), name = character?.subject || id;
+						const character = s.characters.find(c => c.id === id), target = s.targets.get(id), name = character ? characterName(character) : id;
 						if (!character) return skipped.push(`${id} is not a character; motion checks a character's take.`);
 						if (!target?.motion) return skipped.push(`${name} has no motion take to check.`);
 						if (!target.rig) return skipped.push(`${name}'s rig is not loaded yet.`);
@@ -317,7 +317,7 @@ export function createStudioAppBinding(ports) {
 					return same(rejected.host, journal.host) ? journal.record(rejected) : rejected;
 				});
 			}
-			fail("CAPABILITY_MISSING", "Generation is owned by the server runtime.");
+			fail("CAPABILITY_MISSING", `${request.name} needs the ${({ arrange_objects: "objects", arrange_characters: "cast", frame_shot: "shots" })[request.name] ?? "Studio"} document owner, which is not mounted.`);
 		} catch (error) { const receipt = rejection(request, error); return journal.record(receipt); }
 	}
 	const handlers = {

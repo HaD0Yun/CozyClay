@@ -96,10 +96,6 @@ jobs:
       # records its own per-file seconds for tools/update-test-durations.mjs
       # and writes "selected N, predicted X s, actual Y s" to its summary (#632).
       - run: node tools/run-tests.mjs --shard "${{ matrix.shard }}/4" --durations-out test-durations.json
-        env:
-          # The MorphGS truth comparison needs uv + torch; the runner has
-          # neither, so only its structural checks run in hosted CI.
-          MORPHGS_SKIP_TRUTH: "1"
       - uses: actions/upload-artifact@v4
         with:
           name: test-durations-${{ matrix.shard }}

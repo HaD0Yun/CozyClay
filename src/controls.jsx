@@ -206,7 +206,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 			const pivot = kind === "orbit" && cam ? resolvePivot(cam) : null;
 			gesture.current = { kind, pointerId: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, pivot, changed: false };
 			if (typeof window !== "undefined") window.__cozyclayCameraGesture = true;
-			element.setPointerCapture(e.pointerId);
+			try { element.setPointerCapture(e.pointerId); } catch { /* pointer already gone: window pointerup still ends it */ }
 			element.focus();
 			element.style.cursor = kind === "fly" ? "crosshair" : kind === "pan" ? "grabbing" : "move";
 			lockAttempts = 0;

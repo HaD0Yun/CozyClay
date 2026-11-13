@@ -641,7 +641,7 @@ console.log("agent routes verified");
 }
 
 {
-	const { pickWorkspace, createAgentTools, agentToolSchemas, SYSTEM_PROMPT } = await import("../bin/agent/agent-tools.mjs");
+	const { pickWorkspace, createAgentTools, SYSTEM_PROMPT } = await import("../bin/agent/agent-tools.mjs");
 	const mapping = { describe_workflow: "get_graph", add_workflow_node: "add_node", update_workflow_node: "update_node", remove_workflow_node: "remove_node", connect_workflow_nodes: "connect", disconnect_workflow_nodes: "disconnect", run_workflow: "run_workflow", set_workflow_node_output: "set_node_output", focus_workflow_node: "focus_node" };
 	const details = [
 		{ handle: "studio", meta: { commands: ["capture_framing_png", "import_asset"] } },
@@ -660,7 +660,7 @@ console.log("agent routes verified");
 	assert.throws(() => pickWorkspace(onlyStudio, ["get_graph"], "workflow"), /workflow/i, "never route graph commands to a sole Studio");
 	const session = { signal: new AbortController().signal, images: new Map(), codex: fakeCodex };
 	const tools = createAgentTools({ liveHub: hub, session, emit: () => {} });
-	const schemas = agentToolSchemas(tools);
+	const schemas = tools;
 	const names = schemas.map((tool) => tool.name);
 	for (const removed of ["capture_blocking_frame", "render_from_frame", "place_image_in_scene"]) assert.equal(names.includes(removed), false, `${removed} is removed from the tool list`);
 	assert.ok(names.includes("describe_workflow") && names.includes("add_reference_node"), "describe_workflow and add_reference_node are exposed");

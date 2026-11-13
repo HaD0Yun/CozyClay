@@ -129,13 +129,13 @@ event table and opt-out controls.
 
 ## pi agent packages
 
-The optional agent sidecar loads `@earendil-works/pi-ai` and
-`@earendil-works/pi-agent-core` at runtime (they are declared dependencies,
+The optional agent sidecar loads `@earendil-works/pi-ai`,
+`@earendil-works/pi-agent-core` and `@earendil-works/pi-codemode` at runtime (they are declared dependencies,
 loaded lazily by the sidecar; the launcher itself does not import them).
 
 - Copyright (c) Earendil Works
 - License: MIT
-- Source: https://github.com/earendil-works/pi (packages/ai → @earendil-works/pi-ai, packages/agent → @earendil-works/pi-agent-core)
+- Source: https://github.com/earendil-works/pi (packages/ai → @earendil-works/pi-ai, packages/agent → @earendil-works/pi-agent-core, packages/codemode → @earendil-works/pi-codemode)
 
 Their transitive runtime dependencies, which the agent sidecar also loads, are:
 
@@ -148,11 +148,8 @@ Their transitive runtime dependencies, which the agent sidecar also loads, are:
 - `https-proxy-agent` — License: MIT — https://github.com/TooTallNate/proxy-agents
 - `partial-json` — License: MIT — https://github.com/promplate/partial-json-parser-js
 - `typebox` — License: MIT — https://github.com/sinclairzx81/typebox
-- `@earendil-works/chord` — License: MIT — https://github.com/earendil-works/pi
 - `@earendil-works/pi-telemetry` — License: MIT — https://github.com/earendil-works/pi
-- `diff` — License: BSD-3-Clause — https://github.com/kpdecker/jsdiff
-- `ignore` — License: MIT — https://github.com/kaelzhang/node-ignore
-- `yaml` — License: ISC — https://github.com/eemeli/yaml
+- `quickjs-wasi` — License: MIT — https://github.com/vercel-labs/quickjs-wasi
 
 ## jpeg-js
 
@@ -161,6 +158,15 @@ The MCP runtime decodes JPEG reference images for `compare_sculpt` with `jpeg-js
 - Copyright (c) 2014, Eugene Ware and Adobe
 - License: BSD-3-Clause
 - Source: https://github.com/jpeg-js/jpeg-js
+
+## ONNX Runtime
+
+The Auto Pose tool (`src/poser/`) runs its pose network in the browser with `onnxruntime-web` (WASM); its Node tests use the same package. The Auto Pose network file ships in the npm package (`dist/models/`), not in the git repository or on the hosted site; it is CozyClay's own model and is loaded from the local server on first use.
+
+- Copyright (c) Microsoft Corporation
+- License: MIT
+- Source: https://github.com/microsoft/onnxruntime
+- License text: https://github.com/microsoft/onnxruntime/blob/main/LICENSE
 
 ## CozyClay license scope
 

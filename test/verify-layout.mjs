@@ -157,8 +157,6 @@ expect("motion preview stays at native 1x speed", app.includes("const DEFAULT_PL
 expect("timeline cadence and v2 readout expose native preview speed", timeline.includes("fps * playbackSpeed") && timeline.includes('data-testid="sequencer-frame-readout"') && timeline.includes('padStart(4, "0")'));
 expect("legacy greeting demo migration is removed", !app.includes("GREETING_DEMO_MIGRATION_KEY") && !app.includes('id: "demo-rise"'));
 // v2 removed the Details "Generate all blocks" button, so the top bar is the only generate home and runs the blocks when any has text.
-// The pin decision moved into ardy/pose-pin.js so it can be tested directly
-// (test/ardy/verify-pose-pin.mjs); the call site only has to route it.
 // Prompt Blocks starts collapsed and can sit below the fold, so selecting a
 // block on the timeline has to open it AND bring it on screen — otherwise the
 // click reads as doing nothing at all.
@@ -282,8 +280,8 @@ expect(
 	!app.includes("advanced-toggle") && !app.includes("cozyclay.advanced"),
 );
 expect(
-	"the Studio's Window menu returns to Workflow",
-	app.includes('className="menubar-item workflow-topbar-link" href="/workflow/"'),
+	"the Studio's Window menu keeps its Workflow link behind the off-by-default entry switch (#1211)",
+	app.includes('className="menubar-item workflow-topbar-link" href="/workflow/"') && app.includes("{WORKFLOW_ENTRY_ENABLED && "),
 );
 expect(
 	"expert foldouts stay enabled in the always-advanced Studio",
@@ -365,8 +363,8 @@ expect("selectWorkflowMode refuses Motion in a storyboard with the shared toast"
 expect("the project head always shows the mode badge", topBar.includes('data-testid="topbar-previs-mode"') && topBar.includes("<PrevisModeBadge mode={previsMode} />") && !topBar.includes("previsEnabled"));
 expect("waypoint authoring and Top-View path drawing stay off in a storyboard", appSource.includes("toggleWaypointMode: storyboardProject ? undefined : toggleWaypointMode") && appSource.includes("if (waypointMode) setWaypointMode(false);") && appSource.includes("if (pathDraw) setPathDraw(false);"));
 expect(
-	"storyboard CSS hides the take bar, motion/pose tools, the waypoint switch and the prop path track",
-	[".take-bar", ".tl-motion-tools", ".tl-pose-tools", ".tl-btn.wp", ".tl-wp-hint", ".tl-track.objmo"].every((selector) => modeCss.includes(`.app[data-previs-mode="storyboard"] ${selector}`)),
+	"storyboard CSS hides the motion/pose tools, the waypoint switch and the prop path track",
+	[".tl-motion-tools", ".tl-pose-tools", ".tl-btn.wp", ".tl-wp-hint", ".tl-track.objmo"].every((selector) => modeCss.includes(`.app[data-previs-mode="storyboard"] ${selector}`)),
 );
 
 // Add > Camera toasts the shot it made (its name and start frame); a refusal leaves the toast to runStudioAction.

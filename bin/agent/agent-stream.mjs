@@ -71,11 +71,6 @@ export function retryAfterMs(message) {
 	return Number.isFinite(ms) && ms > 0 ? Math.ceil(ms) : 0;
 }
 
-/** The wait a failed message asks for, in ms (capped), or 0 when it names none. */
-export function retryHintMs(message) {
-	return Math.min(retryAfterMs(message), RETRY_HINT_CAP_MS);
-}
-
 /** Why a failed attempt may be tried again: "transient", "resample", "quota_wait", or null (final). */
 export function retryKind(ai, message) {
 	if (message?.stopReason !== "error") return null;

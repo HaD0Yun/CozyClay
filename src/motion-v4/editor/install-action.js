@@ -8,6 +8,7 @@ import { fail, characterOf } from "../../commands/shared.js";
 import { skeletonFor } from "../../motion3/rigs/index.js";
 import { decodeRawTrack } from "../track/codec.js";
 import { placedTake } from "../track/literal.js";
+import { characterName } from "../../character-name.js";
 
 const SPEC_SCHEMA = "cozyclay.motion-spec.v1";
 
@@ -25,7 +26,7 @@ export function register(registry, ports) {
 	registry.register({ ...declarations[0], available: mounted, target: args => args.characterId, run({ characterId, raw: encoded, label }) {
 		const character = characterOf(ports, characterId);
 		const sk = skeletonFor(character.model);
-		if (!sk) fail("TARGET_NOT_READY", `${character.subject || character.id} is a ${character.model} body, which a raw take cannot drive; use an X Bot or Y Bot character.`);
+		if (!sk) fail("TARGET_NOT_READY", `${characterName(character)} is a ${character.model} body, which a raw take cannot drive; use an X Bot or Y Bot character.`);
 		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before installing motion.");
 		let raw;
 		try { raw = decodeRawTrack(encoded, sk); } catch (error) { fail("INVALID_ARGUMENT", error.message); }

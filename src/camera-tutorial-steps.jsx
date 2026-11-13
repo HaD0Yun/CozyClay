@@ -117,7 +117,7 @@ export const TUTORIAL_BEACONS = {
 		{ role: "top-view", selector: ".vp-inset", requires: '[data-rail-draw="1"]', label: () => ko("Drag a line here", "여기에 선을 그으세요") },
 	],
 	play: [
-		// The glass shell keeps Look through in the bottom dock; the classic shell has it on the viewport card.
+		// Look through sits in the bottom dock; an embedded view keeps it on the viewport card.
 		// data-tutorial-looking is on the .app root while the shot camera is the view (camera-tutorial.jsx).
 		{ role: "look-through", selector: ".dock-shot-look, .vp-look-through", absent: ".app[data-tutorial-looking]", label: () => ko("1. Look through the shot camera", "1. 샷 카메라로 보기") },
 		{ role: "press-play", selector: ".tl-transport .tl-btn.play", requires: ".app[data-tutorial-looking]", label: () => ko("2. Press play", "2. 재생 누르기") },

@@ -17,7 +17,7 @@ import { contextFixture } from "./verify-studio-agent-protocol.mjs";
 const actionIndex = studioActionIndex([
 	{ id: "shot.createStill", label: "New still" },
 	{ id: "character.add", label: "Add character" },
-	{ id: "motion.generate", label: "Generate motion", generation: "motion", timeoutMs: 300000 },
+	{ id: "motion.generate", label: "Generate motion", timeoutMs: 300000 },
 ]);
 const contextFor = (turn) => ({ ...contextFixture(), revision: { scene: 40 + turn, physics: 9, view: 18 }, actionIndex });
 

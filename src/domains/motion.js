@@ -1,6 +1,6 @@
 import { useState, useEffect, useSyncExternalStore, useRef, useMemo } from "react";
 import { createDocumentStore } from '../document-store.js';
-import { useDocumentDomain } from '../store/use-document-store.js';
+import { useChangedState, useDocumentDomain } from '../store/use-document-store.js';
 import {
 	hierarchyIdForIkFocus,
 	REST_BONES,
@@ -39,15 +39,15 @@ import { chooseIkEntryPose } from "../ik-camera.js";
 import { applyRangePin, captureRangePinTarget, normalizeRangePin, rangePinTargetWorld, rangePinTracks, removeRangePinKeys } from "../motion/range-pin.js";
 import { rangePinObjectMatrixAt } from "../range-pin-object-transform.js";
 import { PLACEMENT_TRACK, placementRows } from "../motion/placement-keys.js"; import { createPoseKeys } from "./motion/pose-keys.js";
-import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
+import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage, sameRangePinPreview } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
 
-import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js";
+import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js"; import { applyBaked } from "../motion3/take-baked.js"; import { convertBandKeys } from "../motion/fix-keys.js";
+import { characterName } from "../character-name.js";
 import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys, cloneRangePin, encodeRangePins, decodeRangePins, encodeRangePinResiduals, decodeRangePinResiduals } from "./motion/motion-intent-codec.js";
 // Plain intent owns take identities and JSON keys. Decoded buffers and rig
 // preimages are copy-on-record runtime resources, never mutable store values.
 export function createMotionDomain(appContext, characters) {
 	const takes = new Map(), decoded = new WeakMap(), rigImages = new WeakMap();
-	let running = 0;
 	const references = entries => registerCastRigs(entries).map(entry => { // imported rigs register before their saved takes compile
 		const saved = normalizeTakeSource(entry.motionTake), take = saved ? restoredTake(entry.id, saved) : null;
 		// The saved Pose-mode / IK edits come back with the scene (scenes.js ikEdits).
@@ -61,13 +61,13 @@ export function createMotionDomain(appContext, characters) {
 		if (take.resourceId) return { ...take };
 		if (stored) takes.set(resourceId, structuredClone(take));
 		source ??= takeSource(take, appContext.shared.storeRef?.current?.objects ?? appContext.shared.sceneObjects);
-		return { resourceId, frames: take.frames, fps: take.fps, prompt: take.prompt ?? '', studioTakeId: take.studioTakeId ?? resourceId, ...(source ? { source } : {}), ...(take.edit ? { edit: take.edit } : {}) };
+		return { resourceId, frames: take.frames, fps: take.fps, prompt: take.prompt ?? '', studioTakeId: take.studioTakeId ?? resourceId, ...(source ? { source } : {}), ...(take.edit ? { edit: take.edit } : {}), ...(take.baked ? { baked: take.baked } : {}) };
 	}
-	const restoredTake = (id, { takeId, edit, ...source }) => snapshotTake({ schema: source.schema, frames: Math.round(source.spec.frames), fps: 24,
-		prompt: source.spec.label ?? '', studioTakeId: takeId, edit }, `restore:${id}:${takeId ?? 'take-v3'}`, source, false);
+	const restoredTake = (id, { takeId, edit, baked, ...source }) => snapshotTake({ schema: source.schema, frames: Math.round(source.spec.frames), fps: 24,
+		prompt: source.spec.label ?? '', studioTakeId: takeId, edit, baked }, `restore:${id}:${takeId ?? 'take-v3'}`, source, false);
 	const normalize = rows => rows.map(row => ({ ...emptyMotionLayer(row.id), ...row,
 		take: snapshotTake(row.take), fullTake: snapshotTake(row.fullTake ?? row.take),
-		ikKeys: row.ikKeys ?? [], ikPins: row.ikPins ?? [], ikPinResiduals: row.ikPinResiduals ?? [], committedIkEdits: row.committedIkEdits ?? [] }));
+		ikKeys: convertBandKeys(row.ikKeys ?? [], (row.take?.frames ?? Infinity) - 1), ikPins: row.ikPins ?? [], ikPinResiduals: row.ikPinResiduals ?? [], committedIkEdits: row.committedIkEdits ?? [] }));
 	let native = createDocumentStore({ owned: { motion: normalize(references(characters)) } });
 	const listeners = new Set(), notify = () => { for (const listener of listeners) listener(); };
 	let release = native.subscribe(notify), viewRevision = 0;
@@ -82,7 +82,7 @@ export function createMotionDomain(appContext, characters) {
 		if (!take || !takes.has(take.resourceId)) return null;
 		if (!decoded.has(take)) {
 			const { resourceId, ...metadata } = take;
-			decoded.set(take, renderTakeEdit({ ...takes.get(resourceId), ...metadata }));
+			decoded.set(take, renderTakeEdit(applyBaked({ ...takes.get(resourceId), ...metadata }))); // merged hand fixes first (source frames), then the timing edit
 		}
 		return decoded.get(take);
 	}
@@ -143,7 +143,7 @@ export function createMotionDomain(appContext, characters) {
 		rigImages.set(read(), new Map([...(gesture?.rigs ?? rigSnapshots()), ...(preimages instanceof Map ? preimages : [])]));
 		const session = documentStore.beginAction('motion');
 		return { ...session,
-			run(fn) { return session.run(() => { running++; try { return fn(); } finally { running--; } }); },
+			run(fn) { return session.run(() => fn()); },
 			commit() { const result = session.commit(); rigImages.set(read(), rigSnapshots()); pruneTakes(); return result; },
 		};
 	}
@@ -292,7 +292,7 @@ export function createMotionDomain(appContext, characters) {
 	}
 	const domain = { documentStore, read, write, layer, writeLayer, motionFor, fullMotionFor, visibleMotion, snapshotTake, project,
 		setKeys, setRangePinState, bakeRangePin, removePin, editKeys, setKey, ...poseKeys, replace, clear, run, edit, beginGesture, finishGesture, beginAction,
-		insideAction: () => running > 0, bakeCurrentKey, keyPose, moveKey, liveIkStates: () => appContext.shared.ikStatesRef.current,
+		bakeCurrentKey, keyPose, moveKey, liveIkStates: () => appContext.shared.ikStatesRef.current,
 		bindRender(context) { appContext = context; },
 		viewRevision: () => viewRevision, canUndo: id => documentStore.canUndo(id),
 		stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },
@@ -302,7 +302,7 @@ export function createMotionDomain(appContext, characters) {
 		}) }), sceneSlice: slices => slices.motion ?? references(slices.cast),
 		publish: rows => write(rows), commitDraft: write,
 		switchLayer(id) { appContext.shared.loadedLayerCharRef.current = id; project(); notify(); },
-		snapshotLegacy: () => read(), restoreLegacy: write,
+		snapshotLegacy: () => read(),
 		snapshotTarget(id) {
 			const state = appContext.shared.readStudioState(), keys = decodeMotionKeys(layer(id).ikKeys), rig = rigFor(id);
 			return { character: state.characters.find(row => row.id === id), fullMotion: fullMotionFor(id),
@@ -327,7 +327,7 @@ export function useMotion(appContext) {
 		const start = () => { if (ikDragRef.current?.characterId === null) ikDragRef.current = null; domain.beginGesture(); }; window.addEventListener('pointerdown', start, true);
 		return () => { window.removeEventListener('pointerdown', start, true); domain.finishGesture(true); };
 	}, [domain, appContext.shared.activeChar.id]);
-	// IK posing for Subject 1: dragging a wrist/ankle handle FOCUSES that
+	// IK posing for the active character: dragging a wrist/ankle handle FOCUSES that
 	// joint and solves its chain backward (two-bone analytic IK) on top of
 	// the current pose; joints never dragged stay purely on the FK pose.
 	// Keys land on the Full-Body lane as sparse per-chain world targets and
@@ -378,7 +378,7 @@ export function useMotion(appContext) {
 	const [ikEditTool, setIkEditTool] = useState("ik");
 	const [rangePinSelection, setRangePinSelection] = useState(null);
 	const [rangePinPartPick, setRangePinPartPick] = useState(null);
-	const [rangePinPreview, setRangePinPreview] = useState(null);
+	const [rangePinPreview, setRangePinPreview] = useChangedState(null);
 	const pinLayer = domain.layer(appContext.shared.activeChar.id);
 	const rangePins = useMemo(() => encodeRangePins(pinLayer.ikPins), [pinLayer.ikPins]);
 	const rangePinResiduals = useMemo(() => decodeRangePinResiduals(pinLayer.ikPinResiduals), [pinLayer.ikPinResiduals]);
@@ -486,12 +486,13 @@ export function useMotion(appContext) {
 		const state = ensureRangePinState(appContext.shared.ikStateRef.current);
 		const conflictFrames = rangePinConflictFrames(draft, state);
 		const overlapping = overlappingRangePin(draft, state);
-		try {
-			const resolved = captureRangePinTargetForDraft(draft);
-			setRangePinPreview({ draft, track: draft.track, target: resolved?.targetWorld?.toArray() ?? null, conflictFrames, overlapError: rangePinOverlapMessage(overlapping) });
-		} catch {
-			setRangePinPreview({ draft, track: draft.track, target: null, conflictFrames, overlapError: rangePinOverlapMessage(overlapping) });
-		}
+		let target = null;
+		try { target = captureRangePinTargetForDraft(draft)?.targetWorld?.toArray() ?? null; } catch { /* previewed without a target */ }
+		// The Pin panel calls this after every frame commit: a new but equal
+		// preview kept a React update pending behind each scrub commit and chained
+		// React into "Maximum update depth exceeded" (#1195), so an unchanged one is not set.
+		const next = { draft, track: draft.track, target, conflictFrames, overlapError: rangePinOverlapMessage(overlapping) };
+		setRangePinPreview((current) => (sameRangePinPreview(current, next) ? current : next));
 	}
 	function applyRangePinDraft(draft) {
 		if (!motion || !appContext.shared.activeRig || !ikChains) return;
@@ -581,7 +582,7 @@ export function useMotion(appContext) {
 		const state = ikStateFor(characterId);
 		if (!state.keys.has(frame)) {
 			const keyed = ikKeyframes(state);
-			throw new StudioProtocolError("STALE_TARGET", `${character.subject || character.id} has no IK key at frame ${frame}${keyed.length ? `; keyed frames: ${keyed.join(", ")}` : ""}.`);
+			throw new StudioProtocolError("STALE_TARGET", `${characterName(character)} has no IK key at frame ${frame}${keyed.length ? `; keyed frames: ${keyed.join(", ")}` : ""}.`);
 		}
 		editCharacterIkKeys(characterId, (target) => ikRemoveKeyframe(target, frame));
 	}
@@ -605,7 +606,7 @@ export function useMotion(appContext) {
 	useEffect(() => {
 		if (ikDragRef.current && ikDragRef.current.characterId !== appContext.shared.activeChar.id) abortIkDrag(true);
 		const pending = pendingIkEditRef.current, id = pending?.characterId, other = id !== appContext.shared.activeChar.id;
-		const current = pending && pending.rig === appContext.shared.rigs[id] && pending.motion === domain.visibleMotion(id) && pending.sourceLayer === domain.layer(id) && ikMode && ikEditTool === "ik";
+		const current = pending && pending.rig === appContext.shared.rigs[id] && pending.motion === domain.visibleMotion(id) && pending.sourceLayer === domain.layer(id) && ikMode && ikEditTool !== "pin";
 		// Selecting another character applies a still-current preview, as leaving Pose mode does.
 		if (current && other) applyPendingIkEdit();
 		else if (pending && (!current || other || pending.rig !== appContext.shared.activeRig || pending.motion !== motion)) cancelPendingIkEdit();
@@ -748,7 +749,7 @@ export function useMotion(appContext) {
 	// ends pinned (the handle snaps to the clamped position); FK joints swing
 	// toward the pointer. The solved pose stays a preview until Apply.
 	function ikSolve(kind, trackId, targetWorld, input = null) {
-		if (ikDragRef.current && ikDragRef.current.characterId !== appContext.shared.activeChar.id) return;
+		if ((ikDragRef.current && ikDragRef.current.characterId !== appContext.shared.activeChar.id) || (input?.rig && input.rig !== appContext.shared.activeRig)) return;
 		const state = appContext.shared.ikStateRef.current;
 		const ikChains = state.chains;
 		const ikFkJoints = state.fkJoints;
@@ -769,6 +770,7 @@ export function useMotion(appContext) {
 		}
 		ikDragRef.current = Object.assign(ikDragRecord(ikDragRef.current, appContext.shared.tlFrame), { characterId: appContext.shared.activeChar.id });
 		const touch = (id) => ikDragTouch(appContext.shared.ikStateRef.current, ikDragRef.current, id), activeId = appContext.shared.activeChar.id;
+		if (kind === "poser") return targetWorld(touch); // Auto Pose passes a writer that sets its bones and touches its tracks
 		const clamp = () => clampDragTarget({ kind, trackId, targetWorld, bodyContact, chains: ikChains, record: ikDragRef.current, bypass: input?.bypass, open: () => ({ rigs: appContext.shared.rigs, activeId, cast: appContext.shared.characters, allow: domain.layer(activeId).take?.source?.spec?.checks?.allow, notify: appContext.notify }) });
 		if (kind === "finger") return solveFingerGesture(fingersOf(appContext.shared.ikStateRef.current.fkJoints)?.get(trackId), targetWorld, touch);
 		if (kind === "chain") {
@@ -782,8 +784,7 @@ export function useMotion(appContext) {
 		}
 		if (kind === "mid") {
 			// Mid tracks reference their parent chain through MID_TRACKS.
-			const midDef = MID_TRACKS.find((t) => t.id === trackId);
-			const chain = midDef ? appContext.shared.ikStateRef.current.chains?.get(midDef.chain) : null;
+			const midDef = MID_TRACKS.find((t) => t.id === trackId), chain = midDef ? appContext.shared.ikStateRef.current.chains?.get(midDef.chain) : null;
 			if (!chain) return;
 			touch(chain.track.id);
 			solveDragTarget(kind, chain, clamp());

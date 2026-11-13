@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, u
 import { createPortal } from "react-dom";
 import { useStudioShell } from "./studio-shell-context.js";
 import SourceOffer from "../source-offer.jsx";
-import { ko } from "../locale.js";
+import { ko } from "../locale.js"; import { WORKFLOW_ENTRY_ENABLED } from "../workflow-entry.js";
 import { noteShortcutsOpened } from "../shortcut-friction.js";
 import { appVersion } from "../app-version.js";
 import { useExportMenuTelemetry } from "../export-menu-telemetry.js";
@@ -528,10 +528,10 @@ export default function MenuBar({ preferences }) {
 					<span className="menubar-item-label">{ko("Agent", "에이전트")}</span>
 					<Shortcut keys={`${MOD}B`} />
 				</button>
-				<hr className="menubar-separator" />
+				{WORKFLOW_ENTRY_ENABLED && <><hr className="menubar-separator" />
 				<a role="menuitem" className="menubar-item workflow-topbar-link" href="/workflow/" aria-label={ko("Open Workflow", "워크플로 열기")}>
 					<span className="menubar-item-label">{ko("Workflow", "워크플로우")}</span>
-				</a>
+				</a></>}
 			</>
 		),
 		help: (

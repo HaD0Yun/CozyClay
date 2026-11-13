@@ -3,7 +3,7 @@ import { ko } from "../locale.js";
 import { HIERARCHY_INSPECTOR_TITLES } from "../app-stage.jsx";
 import { RangePinPanel } from "../range-pin-panel.jsx";
 import FingerPanel from "./FingerPanel.jsx";
-
+import PoserPanel from "../poser/ui/PoserPanel.jsx";
 import "./pose.css";
 
 export default function RigControlPanel({
@@ -13,7 +13,7 @@ export default function RigControlPanel({
  rangePinPreview = null, objects = [], setRangePinSelection, setRangePinPartPick,
  previewRangePinDraft, applyRangePinDraft, deleteRangePin,
 }) {
- const activeTool = ikEditTool === "pin" ? "Pin" : "IK";
+ const activeTool = ikEditTool === "pin" ? ko("Pin", "고정") : ikEditTool === "poser" ? ko("Auto Pose", "자동 포즈", "自动姿势") : ko("IK", "IK");
  return <Foldout hidden={!isRigSelection} title={ko("Pose", "포즈")}>
   <div className="pose-details" data-testid="pose-details">
    <section className="pose-section">
@@ -37,9 +37,9 @@ export default function RigControlPanel({
     <p className="inspector-hint">{rigSelection && rigSelection.token !== "rig" ? ko(`${HIERARCHY_INSPECTOR_TITLES[rigSelection.token]} is the active control group.`, `${HIERARCHY_INSPECTOR_TITLES[rigSelection.token]}이 활성 제어 그룹입니다.`, `${HIERARCHY_INSPECTOR_TITLES[rigSelection.token]}是当前控制组。`) : ko("Select a body group to pose it in the viewport.", "몸 그룹을 선택해 뷰포트에서 포즈를 잡으세요.")}</p>
    </section>
    {ikMode && <section className="pose-section" data-testid="pose-active-tool">
-    <h4>{ko("Active tool", "활성 도구")} · {ko(activeTool, activeTool === "Pin" ? "고정" : "IK")}</h4>
+    <h4>{ko("Active tool", "활성 도구")} · {activeTool}</h4>
     <div className="pose-actions">
-     <button type="button" className={"btn" + (ikEditTool === "ik" ? " primary" : "")} aria-pressed={ikEditTool === "ik"} onClick={() => setIkEditTool("ik")}>{ko("IK", "IK")}</button>
+     {[["ik", ko("IK", "IK")], ["poser", ko("Auto Pose", "자동 포즈", "自动姿势"), "poser-tool"]].map(([tool, label, testId]) => <button key={tool} type="button" data-testid={testId} className={"btn" + (ikEditTool === tool ? " primary" : "")} aria-pressed={ikEditTool === tool} onClick={() => setIkEditTool(tool)}>{label}</button>)}
      <button type="button" data-testid="range-pin-tool" className={"btn" + (ikEditTool === "pin" ? " primary" : "")} aria-pressed={ikEditTool === "pin"} disabled={!motion} onClick={() => { setIkEditTool("pin"); setRangePinPartPick?.(null); }}>{ko("Pin", "고정")}</button>
     </div>
     {pendingIkEdit && <div className="pose-section" data-testid="ik-pending-edit">
@@ -51,7 +51,7 @@ export default function RigControlPanel({
      </div>
     </div>}
     {ikEditTool === "pin" && <RangePinPanel active motion={motion} frame={tlFrame} frameCount={motion?.frames ?? 1} fps={motion?.fps ?? 24} pins={rangePins} residuals={rangePinResiduals} objects={objects} selectedPinId={rangePinSelection} partPick={rangePinPartPick} conflictFrames={rangePinPreview?.conflictFrames ?? []} overlapError={rangePinPreview?.overlapError ?? ""} onSelectPin={(id) => { setRangePinSelection?.(id); if (id) setIkEditTool("pin"); }} onApply={applyRangePinDraft} onCancel={() => { setRangePinSelection?.(null); setIkEditTool("ik"); }} onDelete={deleteRangePin} onPreviewTarget={previewRangePinDraft} />}
-    {ikEditTool === "ik" && <p className="inspector-hint">{ko("Grab a hand, foot, elbow or knee handle in the viewport.", "뷰포트에서 손·발·팔꿈치·무릎 핸들을 잡으세요.")}</p>}
+    {ikEditTool === "poser" ? <PoserPanel /> : ikEditTool === "ik" && <p className="inspector-hint">{ko("Grab a hand, foot, elbow or knee handle in the viewport.", "뷰포트에서 손·발·팔꿈치·무릎 핸들을 잡으세요.")}</p>}
    </section>}
    {ikMode && ikEditTool === "ik" && fingerPanel && <FingerPanel {...fingerPanel} />}
   </div>

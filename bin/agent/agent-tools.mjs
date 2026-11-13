@@ -114,5 +114,3 @@ export function createAgentTools({ liveHub, handlers = [], session }) {
 	tools.internal = { capture };
 	return tools;
 }
-
-export const agentToolSchemas = (tools) => tools.map(({ name, description, parameters }) => ({ type: "function", name, description, parameters }));

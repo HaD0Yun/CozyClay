@@ -19,7 +19,6 @@ const CORE_ASSETS = [
 	APP_SHELL,
 	"/app/index.html",
 	"./manifest.webmanifest",
-	"./icons/icon-32.png",
 	"./icons/icon-192.png",
 	"./icons/icon-512.png",
 	"./icons/icon-maskable-512.png",
@@ -83,9 +82,9 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
 	const { request } = event;
 	const url = new URL(request.url);
-	// Landing-page playground presets are edited in place; a cache-first hit
-	// would pin the first version a visitor ever saw.
-	if (url.pathname.startsWith("/scenes/")) return;
+	// Landing-page playground presets are edited in place (a cache-first hit would pin the first version a visitor saw).
+	// Model weights have their own hash-checked cache; a copy here doubles the storage and turns a 404 into "offline".
+	if (url.pathname.startsWith("/scenes/") || url.pathname.endsWith(".onnx")) return;
 	if (request.method !== "GET") return;
 	if (url.origin !== self.location.origin) return;
 	if (request.headers.has("range")) {

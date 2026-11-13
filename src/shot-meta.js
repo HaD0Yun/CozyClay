@@ -11,6 +11,7 @@
  * browser unchanged. Everything is read defensively because callers pass live
  * editor state, where a shot can be missing entirely (no shots authored yet).
  */
+import { characterName } from "./character-name.js";
 
 const finite = (value) => (Number.isFinite(value) ? value : null);
 
@@ -46,11 +47,10 @@ export function shotCaptureMeta({ shot = null, stage = null, cast = [], fps = nu
 			rail: Boolean(camera?.railFollow) && camera.railFollow.mode !== "off",
 		},
 		keyLight: stage?.keyLight ?? null,
-		// A cast member's name is what the operator typed for it: the studio
-		// stores that as the subject description, which is exactly the line a
-		// generator wants beside the still.
+		// A cast member's name: what the operator typed for it (its subject), else
+		// its model-built display name (character-name.js).
 		cast: (Array.isArray(cast) ? cast : []).map((entry) => ({
-			name: entry?.name ?? entry?.subject ?? null,
+			name: entry?.name ?? (entry ? characterName(entry) : null),
 			model: entry?.model ?? null,
 		})),
 		frameRange: {

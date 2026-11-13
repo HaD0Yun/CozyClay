@@ -120,8 +120,8 @@ function JobCard({ job, onStop, onAccept }) {
 		{phase && <p className="agent-job-phase">{phase}</p>}
 		{/* An acknowledged Stop states what happened to the scene; the state label
 		    alone does not. Uncertainty is reported as uncertainty, never as safety. */}
-		{job.outcome?.status === "not_applied" && <p className="agent-job-outcome">Not applied — scene unchanged.</p>}
-		{job.outcome?.status === "unknown" && <p className="agent-job-outcome">Stopped, but the result is unknown — reconcile before editing this target.</p>}
+		{job.outcome?.status === "not_applied" && <p className="agent-job-outcome">{ko("Not applied — scene unchanged.", "적용되지 않았어요 — 장면은 그대로예요.", "未应用 — 场景未改变。")}</p>}
+		{job.outcome?.status === "unknown" && <p className="agent-job-outcome">{ko("Stopped, but the result is unknown — check the scene before editing this target.", "멈췄지만 결과를 알 수 없어요 — 이 대상을 고치기 전에 장면을 확인하세요.", "已停止，但结果未知 — 编辑此目标前请先检查场景。")}</p>}
 		{percent !== null && <div className="agent-job-bar" role="progressbar" aria-label="Generation progress" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
 			<span className="agent-job-bar-fill" style={{ transform: `scaleX(${job.progress})` }} />
 		</div>}
@@ -154,7 +154,7 @@ function ReceiptCard({ item }) {
 		</ul>}
 		{/* The pane has no direct Undo into the Studio editor; it names the two
 		    paths that do exist rather than drawing a button it cannot honour. */}
-		{installedWithWarnings && <p className="agent-job-note">Undo with Cmd+Z or ask the agent.</p>}
+		{installedWithWarnings && <p className="agent-job-note">{ko("Undo with Cmd+Z or ask the agent.", "Cmd+Z로 되돌리거나 에이전트에게 부탁하세요.", "按 Cmd+Z 撤销，或请智能体撤销。")}</p>}
 	</div>;
 }
 
@@ -200,20 +200,20 @@ function SupervisorCard({ note, onSend, defaultOpen = false }) {
 }
 
 const RECOVERY_COPY = {
-	none: "No recovery is available for this command.",
-	inspect: "Ask the agent to inspect the target before trying again.",
-	retry: "The same command can be retried.",
-	new_intent: "Tell the agent what to do with the changed target.",
-	reconcile: "The result is unknown; reconcile before changing this target.",
-	sign_in: "Sign in again to continue.",
-	fix_key: "Log in again under Connect a model, then retry.",
+	none: ko("No recovery is available for this command.", "이 명령은 복구할 방법이 없어요.", "此命令无法恢复。"),
+	inspect: ko("Ask the agent to inspect the target before trying again.", "다시 시도하기 전에 에이전트에게 대상을 살펴보게 하세요.", "重试前，请让智能体先检查目标。"),
+	retry: ko("The same command can be retried.", "같은 명령을 다시 시도할 수 있어요.", "可以重试同一命令。"),
+	new_intent: ko("Tell the agent what to do with the changed target.", "바뀐 대상을 어떻게 할지 에이전트에게 알려 주세요.", "请告诉智能体如何处理已更改的目标。"),
+	reconcile: ko("The result is unknown; check the scene before changing this target.", "결과를 알 수 없어요. 이 대상을 바꾸기 전에 장면을 확인하세요.", "结果未知；更改此目标前请先检查场景。"),
+	sign_in: ko("Sign in again to continue.", "계속하려면 다시 로그인하세요.", "请重新登录以继续。"),
+	fix_key: ko("Log in again under Connect a model, then retry.", "Connect a model에서 다시 로그인한 뒤 다시 시도하세요.", "请在 Connect a model 中重新登录，然后重试。"),
 };
 
 function FailureCard({ failure, onRetry, onFixKey }) {
 	return <div className="agent-card agent-failure-card" data-failure-code={failure.code} role="alert">
 		<div className="agent-failure-head"><FiAlertTriangle size={12} aria-hidden="true" /><span className="agent-failure-code">{failure.code}</span></div>
 		<p className="agent-failure-message">{(failure.message !== failure.code && failure.message) || "The command did not complete."}</p>
-		<p className="agent-failure-recovery">{RECOVERY_COPY[failure.recovery?.action] || RECOVERY_COPY.none}{failure.preserved?.authoredState === "unchanged" ? " Nothing in the scene changed." : failure.preserved?.authoredState === "unknown" ? " Whether the scene changed is unknown." : ""}</p>
+		<p className="agent-failure-recovery">{RECOVERY_COPY[failure.recovery?.action] || RECOVERY_COPY.none}{failure.preserved?.authoredState === "unchanged" ? ko(" Nothing in the scene changed.", " 장면은 바뀌지 않았어요.", " 场景未改变。") : failure.preserved?.authoredState === "unknown" ? ko(" Whether the scene changed is unknown.", " 장면이 바뀌었는지는 알 수 없어요.", " 无法确定场景是否已改变。") : ""}</p>
 		{failure.recovery?.retryAllowed && <div className="agent-error-actions">{failure.recovery.action === "fix_key" && onFixKey && <button type="button" className="agent-ghost-button agent-error-keys" onClick={onFixKey}>Log in again</button>}<button type="button" className="agent-ghost-button agent-error-retry" data-fid="agent_retry" onClick={onRetry}>Retry</button></div>}
 	</div>;
 }

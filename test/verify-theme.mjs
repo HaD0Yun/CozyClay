@@ -25,7 +25,6 @@ expect("browser title names the studio", /<title>[^<]*Cozy\s?Clay[^<]*<\/title>/
 expect("IBM Plex Sans is the only active studio UI family", css.includes('@font-face {\n\tfont-family: "IBM Plex Sans";') && !css.includes("font-family:Inter"));
 expect("display and UI roles both use IBM Plex Sans", css.includes("--display: var(--sans)") && css.includes('--sans: "IBM Plex Sans"'));
 expect("numeric editing data has a JetBrains Mono role", css.includes('--mono: "JetBrains Mono"') && css.includes("font-family: var(--mono)"));
-expect("wordmark uses a modern heavy display treatment", css.includes("font-weight: 750") && css.includes("letter-spacing: -.045em"));
 expect("chrome backdrop token uses the v2 surface", css.includes("--bg: var(--surface-0)"));
 expect("chrome foreground token uses the v2 text scale", css.includes("--fg: var(--text-1)"));
 expect("chrome panel token uses the v2 panel surface", css.includes("--panel: var(--surface-panel)"));
@@ -37,7 +36,7 @@ expect("new installs start in dark mode", theme.includes('export const DEFAULT_T
 // The stage is the grey workbench (editor, preview, exports), dark or light
 // with the UI theme; grid view only trades the deck for the reference grid.
 expect("Canvas uses the grey workbench background", app.includes("<StageAtmosphere lighting={lighting} keyLight={keyLight} theme={uiTheme} grid={gridView} />")
-	&& look.includes("const sky = themed ? (grid ? GRID_BACKGROUND : stageBackground(theme)) : l.sky;"));
+	&& look.includes("const sky = themed ? stageBackground(theme) : l.sky;"));
 expect("Character uses white clay", app.includes('const CLAY = "#ffffff"'));
 expect("Room uses a grey deck a step above the sky", room.includes('const FLOOR = "#5b5d63"'));
 // The walls are gone on purpose: the set is an open deck, so a shot can stage a
@@ -57,8 +56,8 @@ expect(
 		look.includes('hemiSky: "#ffffff", hemiGround: "#5a5d64"') &&
 		look.includes("(neutral ? 0.34 : lightTheme ? 0.32 : 0.18)") &&
 		// the key colour is now the user's warmth dial (or an explicit colour),
-		// defaulting to the bright neutral key (brightness 3, warmth 0) the default keyLight shape carries
-		look.includes("{ x: 6, y: 9, z: 4, intensity: 3, warmth: 0, color: null }"),
+		// defaulting to the bright neutral key (brightness 4, warmth 0) the default keyLight shape carries
+		look.includes("{ x: 6, y: 9, z: 4, intensity: 4, warmth: 0, color: null }"),
 );
 
 // #650: the project-mode badge is quiet secondary text from the v2 text scale,

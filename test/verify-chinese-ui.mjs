@@ -94,7 +94,6 @@ const TABLE_FILES = new Set([
 	"src/stage-hdr.js",
 	"src/range-pin-panel.jsx",
 	"src/character-kind.js",
-	"src/motion/beat-board-model.js",
 	"src/settings-menu.jsx",
 	"src/shell/preference-controls.jsx",
 ]);
@@ -174,8 +173,7 @@ assert.match(localeSource, /export const isZh = LOCALE === "zh"/, "locale.js exp
 assert.match(localeSource, /zhText \?\? ZH\[en\] \?\? en/, "zh falls back from the third argument to the dictionary to English");
 
 // 5. Wiring: language pickers, first-run cue, document language.
-assert.match(source("src/settings-menu.jsx"), /简体中文/, "the Settings menu offers 简体中文");
-assert.match(source("src/settings-menu.jsx"), /切换到中文/, "the Settings menu names the switch in Chinese");
+assert.match(source("src/shell/preference-controls.jsx"), /切换到中文/, "Preferences names the switch in Chinese");
 assert.match(source("src/shell/preference-controls.jsx"), /简体中文/, "Preferences offers 简体中文");
 assert.match(source("src/main.jsx"), /LOCALE === "zh" \? "zh-CN" : LOCALE/, "the document language is zh-CN in Chinese");
 

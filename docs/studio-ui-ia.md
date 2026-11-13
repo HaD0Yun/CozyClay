@@ -69,8 +69,8 @@ Pose Details 패널만 세면 13개다(#545의 `qa-shell-pose-browser` 지표, �
 | Sculpt (이미지로 조형, #739) | 뷰포트 모드 툴바 **5 Sculpt**: 선택한 sculpt 하나만 턴테이블에 격리(W/E/R = 정면/측면/뒷면), Details 맨 위 **Sculpt from image** 패널(참조 이미지 → Start → Measure/Draft/Score/Refine → Place in scene). UI 전용 모드라 바깥에는 Stage로 보인다 |
 | IK on/off | **Pose 모드(2)** 진입이 IK를 켜고, 나가면 끈다 |
 | Foot snap / Body contact | Pose 모드 동안 시퀀서 헤더 |
-| 자동 수정(Pose fix, Path fix, Pin, Fit to platforms) | **Pose Details** (W Pose fix / E Path fix / R Pin), 미리보기 → Apply/Cancel |
-| 테이크 바 Scene/Refine 카드 | 상단바 **Generate Motion** + 캐럿(Start over / Take it again / Add block); Refine = Motion 도구 E |
+| 자동 수정(Pose fix, Auto Pose, Pin, Fit to platforms) | **Pose Details** (W Pose fix / E Auto Pose / R Pin), 미리보기 → Apply/Cancel |
+| 테이크 바 Scene/Refine 카드 | 없음 (3.0에서 제거: Generate Motion과 캐럿 메뉴가 없고, 모션은 에이전트가 계산한다) |
 | 테이크 버전 목록 | **Details › Takes** |
 | + Add object (계층), Props + Add | 뷰포트 **+ Add**, **Content › Basic Shapes**; Outliner 우클릭 Create ▸ |
 | Agent / Workflow | **Window** 메뉴 (Agent ⌘B) |
@@ -124,7 +124,7 @@ Pose Details 패널만 세면 13개다(#545의 `qa-shell-pose-browser` 지표, �
 | Subject / + Add second / Open pose studio | 인스펙터 | 유지 | — | R5 | — |
 | 캐릭터 Transform(9 입력) | 인스펙터 | 접기/재구성 | Scene 모드: 기본 닫힘(기즈모+M/R/S가 주 경로). Motion 모드: M/R/S가 이미 CSS로 숨어 있으므로(styles 7803-7810) **"Placement (무대 위치; 테이크는 안 바꿈)" 컴팩트 행(Position X/Z + Rotation, 4개)으로 열어 둠**. `selectWorkflowMode('motion')`이 그룹이 아니라 활성 캐릭터 행을 선택하도록 한 줄 수정(기즈모 활성). **오브젝트 Transform(12267)은 열린 채 유지** — verify-object-gizmo:133이 읽음. 후속 이슈: 로드된 테이크에서 배치 드래그가 clip.anchor가 아니라 entry.x/z만 바꾸는 기존 함정(App 4184-4214 vs 1045-1054) | R5 | verify-object-gizmo:133 |
 | Rig / Pose / Video capture / Prompt Blocks 폴드아웃 | 인스펙터 | 유지(닫힘) | — | — | — |
-| Prompt Blocks: Generate all | 폴드아웃 | 삭제 (#550) | 톱바 `Generate Motion` 버튼: 블록에 텍스트가 있으면 모든 블록을 생성 (IS-2) | R1 | verify-layout, generation-browser-smoke |
+| Prompt Blocks: Generate all | 폴드아웃 | 삭제 (#550) | 없음 (3.0에서 톱바 `Generate Motion` 버튼 제거) | R1 | verify-layout, generation-browser-smoke |
 
 ### 타임라인
 | 컨트롤 | 현재 | 결정 | 새 위치 / 라벨 | 규칙 | 영향 테스트 |

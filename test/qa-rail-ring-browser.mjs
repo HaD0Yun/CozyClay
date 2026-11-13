@@ -5,7 +5,7 @@
 // restores it, and the move tool (W) brings the arrows back. Seeds the real
 // Vintage Car scene like qa-rail-lean-browser.
 //
-// Run: `CCLAY_KIMODO_HOST= COZYCLAY_LIVE_PORT=5932 npm run dev -- --port 5832`
+// Run: `COZYCLAY_LIVE_PORT=5932 npm run dev -- --port 5832`
 // then `QA_OUT=/tmp/ring QA_URL=http://127.0.0.1:5832/app/ CDP_PORT=9832 node tools/qa-browser.mjs -- node test/qa-rail-ring-browser.mjs`
 import fs from "node:fs";
 // Browser contract for lean marks on a travel route, against a real scene: the
@@ -19,7 +19,7 @@ import fs from "node:fs";
 //   3. "Add dot at playhead" drops a dot where the prop is on that frame.
 //   4. The Bank field edits the selected dot; the ends stay level (disabled).
 //
-// Run: `CCLAY_KIMODO_HOST= COZYCLAY_LIVE_PORT=5932 npm run dev -- --port 5832` in
+// Run: `COZYCLAY_LIVE_PORT=5932 npm run dev -- --port 5832` in
 // one shell, then
 // `QA_URL=http://127.0.0.1:5832/app/ CDP_PORT=9832 node tools/qa-browser.mjs -- node test/qa-rail-lean-browser.mjs`
 import assert from "node:assert/strict";
@@ -49,16 +49,10 @@ await waitFor("hook", () => evaluate("Boolean(window.__cozyclay?.sceneObject) &&
 await waitFor("stage", () => evaluate("Boolean(window.__cclayPropWorld?.['cube'] && window.__cclayPropWorld?.['cylinder'])"));
 await sleep(800);
 
-const frameCount = await evaluate("window.__cozyclay.frameCount");
-const take = { frameCount, fps: 24 };
 const objects = () => evaluate("JSON.parse(JSON.stringify(window.__cozyclay.objects))");
 const object = async (id) => (await objects()).find((o) => o.id === id);
 const update = async (id, patch) => { await evaluate(`window.__cozyclay.sceneObject.update({ id: ${JSON.stringify(id)}, ...${JSON.stringify(patch)} }); true`); await sleep(500); };
 const seek = async (frame) => { await evaluate(`window.__cozyclay.scrub(${frame}); true`); await sleep(450); };
-// The page's own pure functions, so the QA asks the same math the studio does.
-const pagePath = (expression) => evaluate(`(async () => { const m = await import('/src/object-path.js'); const o = window.__cozyclay.objects.find((e) => e.id === 'cube'); const take = ${JSON.stringify(take)}; return JSON.parse(JSON.stringify((${expression})(m, o.path, take))); })()`);
-const frameAtProgress = (target) => pagePath(`(m, path, take) => { let best = 0, bestError = 9; for (let f = 0; f < take.frameCount; f += 1) { const e = Math.abs(m.pathProgressAt(path, f, take) - ${target}); if (e < bestError) { best = f; bestError = e; } } return best; }`);
-const leanAt = (frame) => pagePath(`(m, path, take) => m.pathLeanAt(path, m.pathProgressAt(path, ${frame}, take))`);
 
 /* ---------------------------------------------------------------- 1. */
 const start = await objects();
@@ -82,9 +76,6 @@ console.log(`1. empty rotZ 15 and back: ${start.length} records, routes untouche
 /* ---------------------------------------------------------------- 2. */
 const routePath = chassisStart.path;
 await update("cube", { path: { ...routePath, marks: [{ t: 0.4, bank: 12, pitch: 0 }, { t: 0.6, bank: 0, pitch: 0 }] } });
-const subtree = (rows, root) => { const out = new Set(); const grow = (id) => { for (const o of rows) if (o.parent === id && !out.has(o.id)) { out.add(o.id); grow(o.id); } }; grow(root); return out; };
-const rows = await objects();
-const riders = [...subtree(rows, "cube")].filter((id) => !rows.find((o) => o.id === id).path && !rows.find((o) => o.id === id).hidden);
 /* ---- ring probe: E on a selected dot shows bank/pitch rings; dragging them writes the lean ---- */
 import { pathMarkFractions, pathPointAtFraction } from "../src/object-path.js";
 const OUT = process.env.QA_OUT;

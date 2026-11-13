@@ -9,7 +9,6 @@
  *   shot.js          geometry -> film vocabulary -> prompt
  *   scenes.js        the scene document + its stage envelope
  *   scene-objects.js the set: create/update/remove/normalise
- *   cuts.js          shots on a timeline
  *   camera-move.js   two framings -> a named camera move
  *   project.js       the .cclayproject envelope
  *
@@ -30,7 +29,7 @@
  * MCP server at all. What is left in this file is the MCP surface — protocol,
  * transports, the registration wrapper that applies the safety annotations and
  * the live workspace routing, and the process wiring the handlers cannot do for
- * themselves (project root, capture-artifact cleanup, motion job delivery).
+ * themselves (project root, capture-artifact cleanup).
  */
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -225,7 +224,7 @@ if (httpFlag === -1) {
 			command: process.execPath,
 			args: [fileURLToPath(import.meta.url), "--live-port", String(livePort)],
 			// StdioClientTransport strips the environment to a safe default set, which
-			// silently discards COZYCLAY_* configuration (bridge URL, project root) in
+			// silently discards COZYCLAY_* configuration (the project root) in
 			// HTTP mode. The children are this same file in the same trust domain, so
 			// they get the full parent environment.
 			env: process.env,

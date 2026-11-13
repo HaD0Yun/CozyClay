@@ -29,7 +29,7 @@ import {
 	setSceneObjectParent,
 	rigidMotionBetween,
 	carryPointByMotion,
-	tidyAngle,
+	tidyAngle, normalizeSceneObject,
 } from "../scene-objects.js";
 
 import { ko } from "../locale.js";
@@ -49,6 +49,7 @@ import { cutOutBackground, maskAsset } from "../matte.js";
 import { parseRigNodeId } from "../hierarchy-model.js";
 import { StudioProtocolError } from "../studio-agent-protocol.js";
 import { assetDataUrl, sculptPlacement } from "../sculpt-mode.js";
+import { settleUiRefusal } from "./ui-refusal.js";
 
 // A stable owner across scene loads. App's remaining native history readers use
 // the small store facade below; authored writes are owned by the document store.
@@ -119,7 +120,8 @@ export function createObjectsDomain(appContext, initial) {
 		document: () => ({ objects: read() }), publish: state => write(state.objects), commitDraft: write,
 		load(objects) {
 			domain.settle?.(); release(); native.dispose();
-			native = createDocumentStore({ owned: { objects } });
+			// A loaded scene's records enter within the editor's limits (#1196); a record the normalizer cannot read stays as stored.
+			native = createDocumentStore({ owned: { objects: objects.map(row => normalizeSceneObject(row) ?? row) } });
 			release = native.subscribe(notify); notify();
 		},
 		arrange(args) {
@@ -137,11 +139,6 @@ export function createObjectsDomain(appContext, initial) {
 		undo: () => stepHistory(false) ? read() : null,
 		redo: () => stepHistory(true) ? read() : null,
 		settle: () => domain.settle?.(),
-		hasHistoryState: state => [...documentStore.history().past, documentStore.history().present, ...documentStore.history().future].some(entry => entry.snapshot.objects === state),
-		beginCommand() {
-			const session = beginAction();
-			return { ...session, commit: () => Boolean(session.commit().historyEntryId) };
-		},
 	};
 	domain.store = store;
 	const unregister = appContext.registerStoreDomain("objects", domain);
@@ -319,9 +316,16 @@ export function useObjects(appContext) {
 
 	/** "Sofa 2.png" reads as a set piece; "sofa-2.png" does not. The extension
 	 * goes, the rest is the user's own name for the thing. */
-	function cutoutNameFromFile(fileName) {
+	function nameFromFile(fileName, fallback) {
 		const base = String(fileName ?? "").replace(/\.[^.]+$/, "").trim();
-		return base || ko("Cutout", "컷아웃");
+		return base || fallback;
+	}
+
+	/** The scale hint every imported cutout or model shows once it is placed. */
+	function notifyObjectAdded(name) {
+		appContext.notify(ko(`${name} added — type its real height in metres to set the scale`,
+			`${name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
+			`${name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
 	}
 
 	/**
@@ -335,19 +339,13 @@ export function useObjects(appContext) {
 		if (!commandContext) return importFile(file, "cutout");
 		try {
 			const asset = await rememberAsset(await importImageFile(file));
-			const camera = (appContext.shared.lookThroughShot ? appContext.shared.shotCamRef : appContext.shared.editorCamRef).current;
-			const placement = camera
-				? placementInFront({ x: camera.position.x, z: camera.position.z }, (appContext.shared.lookThroughShot ? appContext.shared.look : appContext.shared.editorLook).current.yaw)
-				: {};
 			const object = createCutoutObject(
-				{ assetId: asset.id, aspect: assetAspect(asset) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: cutoutNameFromFile(asset.name) },
+				{ assetId: asset.id, aspect: assetAspect(asset) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: nameFromFile(asset.name, ko("Cutout", "컷아웃")) },
 				domain.read(),
-				placement,
+				placementInFrontOfShot(),
 			);
 			const imported = publishImported(object, commandContext);
-			appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-				`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-				`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+			notifyObjectAdded(object.name);
 			return imported;
 		} catch (error) {
 			throw new StudioProtocolError(error.code ?? "INVALID_ARGUMENT", `Could not import that image: ${error.message}`);
@@ -372,14 +370,12 @@ export function useObjects(appContext) {
 		const record = await assetRecord(assetId);
 		if (!record) throw new StudioProtocolError("TARGET_NOT_READY", "That image is no longer stored.");
 		const object = createCutoutObject(
-			{ assetId: record.id, aspect: assetAspect(record) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: cutoutNameFromFile(record.name) },
+			{ assetId: record.id, aspect: assetAspect(record) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: nameFromFile(record.name, ko("Cutout", "컷아웃")) },
 			domain.read(),
 			placement,
 		);
 		const imported = publishImported(object, commandContext);
-		appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-			`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-			`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+		notifyObjectAdded(object.name);
 		return imported;
 	}
 
@@ -416,11 +412,6 @@ export function useObjects(appContext) {
 		return importCommandAsset(args, context);
 	};
 	domain.applyMatte = applyMatte;
-
-	function meshNameFromFile(fileName) {
-		const base = String(fileName ?? "").replace(/\.[^.]+$/, "").trim();
-		return base || ko("Model", "모델");
-	}
 
 	async function persistMeshAsset(asset) {
 		const db = await openAssetDb();
@@ -470,14 +461,12 @@ export function useObjects(appContext) {
 			const { asset, height, footprint } = await importMeshFile(file);
 			await persistMeshAsset(asset);
 			const object = createMeshObject(
-				{ assetId: asset.id, height, footprint, name: meshNameFromFile(asset.name) },
+				{ assetId: asset.id, height, footprint, name: nameFromFile(asset.name, ko("Model", "모델")) },
 				domain.read(),
 				placementInFrontOfShot(),
 			);
 			const imported = publishImported(object, commandContext);
-			appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-				`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-				`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+			notifyObjectAdded(object.name);
 			return imported;
 		} catch (error) {
 			throw new StudioProtocolError(error.code ?? "INVALID_ARGUMENT", `Could not import that model: ${error.message}`);
@@ -508,15 +497,13 @@ export function useObjects(appContext) {
 				assetId: record.id,
 				height: fitted.height,
 				footprint: fitted.footprint,
-				name: meshNameFromFile(record.name),
+				name: nameFromFile(record.name, ko("Model", "모델")),
 			},
 			domain.read(),
 			placement,
 		);
 		const imported = publishImported(object, commandContext);
-		appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-			`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-			`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+		notifyObjectAdded(object.name);
 		return imported;
 	}
 
@@ -599,6 +586,9 @@ export function useObjects(appContext) {
 		appContext.notify((isKo, ko) => ko(`${placed.name} duplicated`, `${sceneObjectNameDisplayKo(placed.name)} 복제됨`, `${sceneObjectNameDisplayKo(placed.name)}已复制`));
 	}
 
+	/** Frame the selection: fly the shot camera to a comfortable distance along
+	 * the current view direction, the way Unity's F key does. Defaults to the
+	 * selection; the hierarchy context menu passes a specific row's id. */
 	function frameSelection(id = selectedSceneObjectId) {
 		const object = sceneObjects.find((item) => item.id === id) ?? null;
 		if (!object) return;
@@ -662,11 +652,7 @@ export function useObjects(appContext) {
 		const index = appContext.shared.characters.findIndex((entry) => entry.id === attach.characterId);
 		const who = index < 0
 			? ko("Missing character", "없는 인물")
-			: index === 0
-				? ko("Character 1", "인물 1")
-				: index === 1
-					? ko("Character 2", "인물 2")
-					: ko(`Character ${index + 1}`, `인물 ${index + 1}`, `角色 ${index + 1}`);
+			: ko(`Character ${index + 1}`, `인물 ${index + 1}`, `角色 ${index + 1}`);
 		const bone = attach.bone
 			? HIERARCHY_INSPECTOR_TITLES[`rig.${attach.bone}`] ?? attach.bone
 			: ko("Root", "루트");
@@ -729,12 +715,7 @@ export function useObjects(appContext) {
 			const fileType = mime || headerMime || "application/octet-stream";
 			const file = new File([bytes], args.name, { type: fileType });
 			const { asset, height, footprint } = await importMeshFile(file);
-			const db = await openAssetDb();
-			try {
-				await putAsset(db, asset);
-			} finally {
-				db.close?.();
-			}
+			await persistMeshAsset(asset);
 			const live = appContext.live.state;
 			const camera = appContext.shared.shotCamRef.current;
 			const hasFloor = Number.isFinite(args.x) || Number.isFinite(args.z);
@@ -1000,14 +981,11 @@ export function useObjects(appContext) {
 		domain.write(objects => children.reduce((rows, id) => placeSceneObject(setSceneObjectParent(rows, id, parent), id, placements.get(id)), objects));
 	};
 	function settleObjects() { return storeRef.current.settle(); }
-	function beginStudioObjectAction() { return storeRef.current.beginCommand(); }
-	function stepObjectHistory(redo) { return (redo ? storeRef.current.redo : storeRef.current.undo)(); }
-	function applyExternalObjects(objects) {
-		return run("objects.replace", { objects: Array.isArray(objects) ? objects : [] });
-	}
+	// Runs from the cross-tab scene subscription: a refusal ends here, logged, never in window.onerror (#1185).
+	function applyExternalObjects(objects) { return settleUiRefusal("the objects from another tab were not applied", () => run("objects.replace", { objects: Array.isArray(objects) ? objects : [] })); }
 
 	return {
-		...domain, run, beginStudioObjectAction, stepObjectHistory, applyExternalObjects,
+		...domain, run, applyExternalObjects,
 		canReparentSceneObject, reparentSceneObject, settleObjects,
 		recentObjectColors, objectColorDraft, setObjectColorDraft, rememberSceneObjectColor, objectDeleteUndo,
 		setObjectDeleteUndo, sceneObjects, storeRef, store, selectedSceneObjectId,

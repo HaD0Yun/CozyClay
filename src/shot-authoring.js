@@ -384,7 +384,7 @@ export function readShotAuthoringDocument(raw) {
 	};
 }
 
-/** JSON compatibility adapters used by App and older model callers. */
+/** JSON adapters: readShotAuthoring backs the shot domain; the serializer is the tests' round trip. */
 export function serializeShotAuthoring(state) {
 	return JSON.stringify(createShotAuthoringDocument(state));
 }
@@ -398,7 +398,7 @@ export function readShotAuthoring(raw) {
 	}
 }
 
-/** Compatibility-shaped convenience for model callers and tests. */
+/** Compatibility-shaped convenience the tests read with. */
 export function loadShotAuthoring(raw) {
 	return readShotAuthoring(raw).state;
 }

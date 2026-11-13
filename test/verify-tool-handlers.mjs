@@ -44,7 +44,7 @@ CAMERA
   distance   4.51m to the subject's centre of mass
 
 CAST (total: 1, returned: 1, truncated: false, revision: <rev>)
-  A char-a  "a young woman in a tan coat"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
+  A char-a  "Y Bot a"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
     model: y-bot-tpose  kind: rig  pose: null  tint: null  scale: 1
     layer: {"waypoints":[]}
 
@@ -53,7 +53,7 @@ SET (total: 0, returned: 0, truncated: false, revision: <rev>)
 
 STAGE
   shotAspect: 16:9  sensorId: fullFrame  hasCharSheet: false
-  keyLight: x 6  y 9  z 4  intensity 3
+  keyLight: x 6  y 9  z 4  intensity 4
 
 TIMELINE
   currentFrame: 0  frameCount: 360  fps: 24`;
@@ -145,4 +145,47 @@ assert.deepEqual(
 );
 console.log("PASS handler arguments and the memory-only live path behave as they do over MCP");
 
+/* ------------- 5. a character without a subject (#1212) ------------------- */
+// The name shown is built from the model (the report above: "Y Bot a"). A prompt
+// still needs a description, so it gets the neutral phrase, never an empty one,
+// and a second character without a subject is still the prompt's second subject.
+
+const renderPrompt = tools.find((entry) => entry.name === "render_prompt");
+const promptArgs = { mode: "video", environment: "an empty stage", style: "plain", camera_move: "hold", pose_phrase: "", pose2_phrase: "" };
+const solo = (await renderPrompt.handler(promptArgs)).content[0].text;
+assert.match(solo, /Subject: a person,/, `render_prompt left a subject-less character without a description:\n${solo}`);
+const addCharacter = tools.find((entry) => entry.name === "add_character");
+const added = await addCharacter.handler({ subject: "", x: 1.2, z: 0, facing: 0 });
+assert.equal(added.isError, undefined, `add_character refused a character without a subject: ${added.content[0].text}`);
+const duo = (await renderPrompt.handler(promptArgs)).content[0].text;
+assert.match(duo, /Two subjects\. Subject 1: a person\. Subject 2: a person\./, `render_prompt dropped the second subject-less character:\n${duo}`);
+console.log("PASS render_prompt describes subject-less characters with the neutral phrase and keeps both");
+
+/* ------------- 6. update_object keeps a travel path with no editor ------- */
+// Without a live editor the memory branch must store the path it answered
+// "Updated" for, and null must clear it again (read back through describe_scene).
+
+const call = (name, args) => tools.find((entry) => entry.name === name).handler(args);
+const placed = (await call("place_object", { kind: "cube", x: 0, z: 0 })).content[0].text;
+const objectId = placed.match(/ as (\S+)\.\n/)?.[1];
+assert.ok(objectId, `place_object returned no object id:\n${placed}`);
+const route = { points: [{ x: 0, z: 0 }, { x: 3, z: 1 }], speed: 1.5 };
+const updated = await call("update_object", { id: objectId, path: route });
+assert.equal(updated.isError, undefined, `update_object refused a path: ${updated.content[0].text}`);
+const objectLine = async () => (await describeScene.handler({ character_cursor: 0, object_cursor: 0, limit: 50 })).content[0].text;
+assert.match(await objectLine(), /path: 2 pts {2}\(0,0\) → \(3,1\) {2}speed: 1\.5/, "update_object answered success but dropped the travel path in memory mode");
+await call("update_object", { id: objectId, path: null });
+assert.doesNotMatch(await objectLine(), /path: \d+ pts/, "update_object path: null did not clear the travel path in memory mode");
+console.log("PASS update_object stores and clears a travel path without a live editor");
+
 console.log(`\nPASS tool handler registry (${tools.length} tools, importable without an MCP server)`);
+
+/* ------------- 7. render_prompt invents no look (#1238) ------------------- */
+// The agent names the look. When it names none, the prompt must not carry one
+// the tool made up; the size words still close the sentence.
+
+const defaultStyle = renderPrompt.inputSchema.style.parse(undefined);
+assert.equal(defaultStyle, "", `render_prompt fills in a look the caller did not give: "${defaultStyle}"`);
+const unstyled = (await renderPrompt.handler({ ...promptArgs, style: defaultStyle })).content[0].text;
+assert.doesNotMatch(unstyled, /cinematic film still, natural light/, `render_prompt wrote an invented look into the prompt:\n${unstyled}`);
+console.log("PASS render_prompt adds no look when the caller gives none");

@@ -7,6 +7,7 @@ import { isEffectivelyHidden } from './scene-objects.js';
 import { shotAtFrame } from './cuts.js';
 import { occludersOf, primarySubjects, shotCamera, sideOfAxis } from './studio-geometry-facts.js';
 import { entityWorldBounds } from './studio-agent-commands.js';
+import { characterName } from './character-name.js';
 
 export const PLAN_DIAGRAM = Object.freeze({ marginM: 1.5, maxSpanM: 30, minSpanM: 6, characterRadiusM: 0.3, frustumM: 3, defaultFovDeg: 40 });
 const SIDE_LABEL = { left: 'L', right: 'R', 'on-axis': 'on-axis' };
@@ -54,7 +55,7 @@ export function planDiagramLayout(state, { width = 1280, height = 720, ports, cu
   }
   for (const c of characters) {
     const yaw = (c.rot ?? 0) * Math.PI / 180;
-    primitives.push({ kind: 'character', id: c.id, label: c.subject || c.id, x: round(c.x), z: round(c.z), radius: PLAN_DIAGRAM.characterRadiusM, facing: flat({ x: Math.sin(yaw), z: Math.cos(yaw) }) });
+    primitives.push({ kind: 'character', id: c.id, label: characterName(c), x: round(c.x), z: round(c.z), radius: PLAN_DIAGRAM.characterRadiusM, facing: flat({ x: Math.sin(yaw), z: Math.cos(yaw) }) });
   }
   shots.forEach((shot, index) => {
     const camera = shotCamera(shot, state);

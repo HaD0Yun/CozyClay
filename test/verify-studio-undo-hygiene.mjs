@@ -68,7 +68,7 @@ assert.equal(declarations.has('restoreCast'), false, 'native cast restoration is
 // the RED state of #345 is exactly "no such recording seam exists".
 const APP_FUNCTIONS = [
 	"snapshotIkKeys", "undoScene", "redoScene",
-	"updateCharacterAt", "beginGestureUndo", "endGestureUndo", "changeKeyLight", "resetKeyLight",
+	"updateCharacterAt", "endGestureUndo", "changeKeyLight", "resetKeyLight",
 	"changeKeyLightFromGizmo", "changeInspectorCharacter", "changeEnvironmentImage",
 ];
 const ref = (current) => ({ current });
@@ -94,7 +94,6 @@ function fixture() {
 		charHistoryRef: ref({ past: [], future: [] }),
 		opClockRef: ref(0),
 		lastObjectOpRef: ref(0),
-		gestureUndoRef: ref(null),
 		environmentTextSessionRef: ref(null),
 		studioBindingRef: ref(null),
 		suppressObjectClockRef: ref(false),
@@ -493,9 +492,9 @@ const cases = {
 		}
 		const defaults = createSceneStage();
 		assert.equal(typeof defaults.environment, "string");
-		assert.ok(defaults.environment.length, "a new stage names a location");
+		assert.equal(defaults.environment, "", "a new stage invents no location (#1238)");
 		assert.equal(typeof defaults.style, "string");
-		assert.ok(defaults.style.length, "a new stage names a look");
+		assert.equal(defaults.style, "", "a new stage invents no look (#1238)");
 		assert.equal(defaults.hasEnvSheet, false);
 		const malformed = createSceneStage({ environment: 7, style: {}, hasEnvSheet: "true" });
 		for (const key of Object.keys(fields)) assert.deepEqual(malformed[key], defaults[key], `${key} repairs to the default`);

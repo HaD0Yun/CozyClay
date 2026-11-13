@@ -14,6 +14,7 @@ import { createObjectsDomain, createMotionDomain, mountHistoryCast } from './bus
 import { createStageDomain } from '../src/domains/stage.js';
 import { createCharacterEntry, createCharacterLayer, addScene, duplicateScene, renameScene, removeScene, isProxyFigure } from '../src/scenes.js';
 import * as characterKind from '../src/character-kind.js';
+import * as characterNames from '../src/character-name.js'; import { promptSubjects } from '../src/prompt-cast.js';
 import { judgeNextWaypoint } from '../src/motion/waypoints.js';
 import { createStableItemId, removeStableItem, updateStableItem } from '../src/stable-items.js';
 import { createCameraBlock, removeCameraRail, updateCameraBlock } from '../src/camera-block.js';
@@ -42,7 +43,7 @@ import { objectTransformAt } from '../src/object-path.js';
 import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
 
-const cases = ['previs-mode-and-character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'still-frame-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
+const cases = ['previs-mode-and-character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'still-frame-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
 const argv = process.argv.slice(2);
 assert(!argv.length || (argv.length === 2 && argv[0] === '--case' && cases.includes(argv[1])), 'Unknown test arguments');
 import { readStudioSource } from './bus/verify-domain-modules.mjs';
@@ -82,7 +83,7 @@ function fixture(options={}) {
  const a=createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}), b=createCharacterEntry({id:'actor-b',model:'y-bot-tpose',x:4,z:0});
  const chars=options.characters??[a,b], rigs={'actor-a':rig(),'actor-b':rig()}; rigs['actor-b'].parent.position.x=4;rigs['actor-b'].parent.updateMatrixWorld(true);
  const actionsRef=ref(null);
- const revision=ref(0), clock=ref(0), lastObject=ref(0), history=ref({past:[],future:[]}), studioHistory=ref(new Map()), characterRef=ref(chars), buffer=ref({waypoints:[],motion:null}), state=ref(ik.createIkState()), layers=ref(new Map());
+ const revision=ref(0), clock=ref(0), lastObject=ref(0), history=ref({past:[],future:[]}), characterRef=ref(chars), buffer=ref({waypoints:[],motion:null}), state=ref(ik.createIkState()), layers=ref(new Map());
  const stage={shotAspect:'16:9',cameraPresetId:null,sensorId:'fullFrame',hasCharSheet:false,environmentImage:null,environment:'a sunlit modern living room',style:'moody cinematic lighting, 35mm film look',hasEnvSheet:false,keyLight:{x:6,y:9,z:4,intensity:3,warmth:0,color:null},
   lighting:{preset:'studio',sky:null,skyTop:null,ambient:1,hemiSky:'#ffffff',hemiGround:'#5a5d64',fill:1,fog:0,exposure:1,shadowSoftness:0,envLight:0,ao:0,hdr:null,hdrRotation:0,hdrIntensity:1,hdrBackground:true}};
  const live=ref({characters:chars,objects:[],rigs,shots:[],scenes:[{id:'scene',name:'Fixture',objects:[],shotDocument:null,stage:null}],activeCharacterId:a.id,stage,timeline:{currentFrame:0,frameCount:48},filmback:{sensorId:'fullFrame',aspectRatio:16/9},studioSelection:{kind:'character',id:a.id},studioShotId:null,studioView:{mode:'scene',frame:0,playing:false,lookThrough:false,grid:false,autoColor:false}});
@@ -106,18 +107,19 @@ function fixture(options={}) {
  const aiScope={IMAGE_MODELS,CUSTOM_MOVE,SUBJECT_HEIGHT_M,composePrompt,deriveShot,PART_COLOURS,filmback,shot:fromShot,
   activeShot:heroShot,activeCamera:{mode:'keys',followCam:null,cameraRail:null,railFollow:null},cameraKeys:heroShot.cameraKeys,
   moveSequence:{fromShot,phrase:'a slow push-in toward the subject'},followTrack:null,subjectTrack:null,fovDeg:40,charA:{x:0,z:0,rot:0},
-  subject:'a woman in a red coat',showB:false,subject2:null,poseA:{prompt:'arms crossed'},poseB:null,environment:stage.environment,style:stage.style,
-  cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
+  // App's prompt cast comes from the real helper; the first fixture character stands in with a description and pose.
+  promptSubjects:(cast,fallback)=>promptSubjects(cast.map((c,i)=>i?c:{...c,subject:'a woman in a red coat',pose:{prompt:'arms crossed'}}),fallback),showB:false,poseA:{prompt:'arms crossed'},poseB:null,environment:stage.environment,style:stage.style,
+  cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotAspectKey:'16:9',shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
   captureFramingPng:framing=>{captures.push(framing);return `data:image/png;base64,${btoa(JSON.stringify(framing.pos))}`;},captureRef:ref(null),bufferToPng:()=>null,
   navigator:{clipboard:{writeText:async text=>{clipboard.push(text);}}}};
- const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,...characterKind,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
+ const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,...characterKind,...characterNames,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
  liveStateRef:live,sceneRevisionRef:revision,charactersRef:characterRef,loadedLayerCharRef:ref(a.id),bufferRef:buffer,ikStateRef:state,ikStatesRef:layers,storeRef:store,
- charHistoryRef:history,opClockRef:clock,lastObjectOpRef:lastObject,studioHistoryRef:studioHistory,studioActionGroupRef:ref(null),motionFullRef:ref(new Map()),
+ charHistoryRef:history,opClockRef:clock,lastObjectOpRef:lastObject,studioActionGroupRef:ref(null),motionFullRef:ref(new Map()),
  store:store.current,suppressObjectClockRef:suppressObjectClock,studioBindingRef:ref(null),objectDeleteUndo:null,selectedSceneObjectId:null,
  liveWorkspaceIdRef:ref('workspace'),liveWorkspaceHandleRef:ref('handle'),studioDocumentEpochRef:ref('document'),activeSceneIdRef:ref('scene'),studioSceneEpochRef:ref('epoch'),
  look:ref({yaw:0,pitch:0}),shotCamRef:ref(camera),shotCameraPosRef:ref(null),manualCameraOverrideRef:ref(false),frameCountRef:ref(48),tlFrameRef:ref(0),
  physicsOptions:{protectedFrames:[]},bridge:{ok:false},ikBodyDragRef:ref(false),lineDragRef:ref(null),lineDrawRef:ref(null),linePinDragRef:ref(null),autoPhysicsRunRef:ref(null),recRef:ref(null),restoreRef:ref(null),
- committedIkEdits:[],IK_CORRECTION_BLEND_FRAMES:6,tlFps:24,MAX_WAYPOINTS:32,WALK_SPEED_MPS:1.4,clampRootPosition:v=>Math.max(-11,Math.min(11,v)),judgeNextWaypoint,createStableItemId,removeStableItem,createCharacterLayer,gestureUndoRef:ref(null),updateStableItem,createCameraBlock,removeCameraRail,updateCameraBlock,railFollowForNewGeometry,framingSessionRef:ref(null),stageRef:ref(null),
+ committedIkEdits:[],IK_CORRECTION_BLEND_FRAMES:6,tlFps:24,MAX_WAYPOINTS:32,WALK_SPEED_MPS:1.4,clampRootPosition:v=>Math.max(-11,Math.min(11,v)),judgeNextWaypoint,createStableItemId,removeStableItem,createCharacterLayer,updateStableItem,createCameraBlock,removeCameraRail,updateCameraBlock,railFollowForNewGeometry,stageRef:ref(null),
  ...carried,animatedSceneObjects:[],attachFrameRef:ref((characterId,bone,out)=>carried.attachFrameMatrix(rigs[characterId]??null,bone,out)),
  // Stands in for the mounted prop groups: where each prop is drawn right now.
  propWorldRef:ref((id,out)=>{const o=store.current.objects.find(row=>row.id===id);if(!o)return null;const local=carried.sceneObjectMatrix(o,new THREE.Matrix4());if(!o.attach)return out.copy(local);const frame=carried.attachFrameMatrix(rigs[o.attach.characterId]??null,o.attach.bone??null,new THREE.Matrix4());return frame?out.copy(frame.multiply(local)):null;}),snapshotCast:()=>({}),markSemanticEdit,setCharacters:castOwner.set,editCharacters:castOwner.edit,setShots:shotsOwner.set,editShots:shotsOwner.edit,
@@ -135,8 +137,8 @@ function fixture(options={}) {
  scope.setMotion=value=>{noPublish('setMotion')(value);for(const done of motionSet.splice(0))done(value);};
  scope.setScenes=noPublish('setScenes');
  scope.openScene=(scene,nextScenes)=>{scope.scenesRef.current=nextScenes;live.current.scenes=nextScenes;scope.activeSceneIdRef.current=scene.id;scope.studioSceneEpochRef.current=crypto.randomUUID();};
- const names=['beginStudioObjectAction','stepObjectHistory','publishStudioShots','commitStudioShots','finishStudioHistoryGesture',"canUndoStudioReceipt",'readStudioCamera','readStudioState','publishStudioCamera','publishStudioStage','snapshotStudioDomain','publishStudioCharacters','syncStudioLayerBuffer','stepStudioHistory','undoScene','redoScene','commitStudioDraft','studioBounds','operateStudio','snapshotExportRig','restoreExportRig','poseMemberAtFrame','leaveIkMode','sceneObjectWorldMatrix','recordStudioAction','beginStudioAction','publishStudioDomain','isStudioHistoryRetained','addTimelineShot','runStudioAction',
-  'choosePartColours','setInsetCollapsed','expandInset','setShotCameraRail','clearShotCameraRail','changeActiveCamera','framingSessionOpen','attachSceneObject','setCharacterIkKey','removeCharacterIkKey','clearCharacterIkKeys','ikStateFor','editCharacterIkKeys','snapshotIkKeys',
+ const names=['publishStudioShots','commitStudioShots','finishStudioHistoryGesture',"canUndoStudioReceipt",'readStudioCamera','readStudioState','publishStudioCamera','publishStudioStage','snapshotStudioDomain','publishStudioCharacters','syncStudioLayerBuffer','stepStudioHistory','undoScene','redoScene','commitStudioDraft','studioBounds','operateStudio','snapshotExportRig','restoreExportRig','poseMemberAtFrame','leaveIkMode','sceneObjectWorldMatrix','recordStudioAction','beginStudioAction','publishStudioDomain','isStudioHistoryRetained','addTimelineShot','runStudioAction',
+  'choosePartColours','setInsetCollapsed','expandInset','setShotCameraRail','clearShotCameraRail','changeActiveCamera','attachSceneObject','setCharacterIkKey','removeCharacterIkKey','clearCharacterIkKeys','ikStateFor','editCharacterIkKeys','snapshotIkKeys',
   'validateWaypointAt','castMemberOf','readCharacterWaypoints','writeCharacterWaypoints','addCharacterWaypoint','moveCharacterWaypoint','removeCharacterWaypoint','clearCharacterWaypoints',
   'switchSceneDocument','addSceneDocument','duplicateSceneDocument','renameSceneDocument','deleteSceneDocument',
   'selectSceneDocument','createSceneDocumentFromUi','duplicateSceneDocumentFromUi','renameSceneDocumentFromUi','deleteSceneDocumentFromUi',
@@ -357,7 +359,11 @@ const implementations={
   // and the motion candidate use; only what truly cannot be computed is
   // unsupported, and each such check says why.
   const bindingSource=readFileSync(new URL('../src/studio-app-binding.js',import.meta.url),'utf8');
-  const branch=bindingSource.slice(bindingSource.indexOf('if (request.name === "verify_result") {'),bindingSource.indexOf('fail("CAPABILITY_MISSING", "Generation is owned by the server runtime.");'));
+  // The fall-through refusal (no tool alias: its owner is not mounted) names that owner, not a retired generation runtime.
+  const fallback=bindingSource.indexOf('fail("CAPABILITY_MISSING", `${request.name} needs the ');
+  assert(fallback>0&&!bindingSource.includes('Generation is owned'),'the no-alias refusal names the unmounted owner');
+  for(const [tool,domain] of [['arrange_objects','objects'],['arrange_characters','cast'],['frame_shot','shots']])assert(bindingSource.slice(fallback,bindingSource.indexOf('\n',fallback)).includes(`${tool}: "${domain}"`),`the no-alias refusal names the ${domain} owner for ${tool}`);
+  const branch=bindingSource.slice(bindingSource.indexOf('if (request.name === "verify_result") {'),fallback);
   for(const helper of ['placementChecks(','framingChecks(','verifyInstalledTake('])assert(branch.includes(helper),`verify_result computes target checks through ${helper}`);
   const verify=args=>f.call('verify_result',f.request('verify_result',{visual:'none',...args}));
   const first=await verify({targets:['actor-a'],checks:['placement','framing','motion']});
@@ -486,6 +492,14 @@ const implementations={
   assert.deepEqual(c.entityIndex.map(e=>e.id),all,'the per-turn context indexes all 63 entities');
   assert.deepEqual(c.entityIndex.find(e=>e.id==='cube-40'),{id:'cube-40',kind:'object',name:'Crate 39',position:{x:39,y:0,z:-3}});
   assert.equal(c.entityIndex.find(e=>e.id==='actor-b').kind,'character');
+ },
+ async 'context-character-names'(f){
+  // #1212: a character without a subject is named from its model and id, and the agent can use exactly that name.
+  const c=f.binding.context(), names=c.entityIndex.filter(e=>e.kind==='character').map(e=>[e.id,e.name]);
+  assert.deepEqual(names,[['actor-a','Y Bot actor-a'],['actor-b','Y Bot actor-b']],'the context names each subject-less Y Bot from its model and id');
+  const placed=await f.call('arrange_objects',f.request('arrange_objects',{ops:[{op:'create',source:{kind:'cube'},name:'Marker',position:{relativeTo:'Y Bot actor-b',basis:'world',side:'left',gapM:0.5,support:'floor'}}]}));
+  assert.equal(placed.status,'applied',JSON.stringify(placed));
+  assert.ok(f.store.current.objects.find(o=>o.name==='Marker').x>2,'the context name resolves to actor-b at x 4');
  },
  async 'context-assets'(f){
   f.store.current.applyAtomic(rows=>[...rows,objects.createCutoutObject({assetId:'img-0a1b2c',name:'Poster'},rows)]);

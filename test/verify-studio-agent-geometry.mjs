@@ -9,6 +9,7 @@ import { physicsFingerprintInput } from '../src/studio-agent-context.js';
 import { arrangement, frameDraft, placementChecks, framingChecks, createStudioCommandJournal, studioObjectCatalogue } from '../src/studio-agent-commands.js';
 import { createShot } from '../src/cuts.js';
 import { DECK_LIFT_M } from '../src/studio-support-gap.js';
+import { declarations as shotDeclarations } from '../src/commands/shot.js';
 
 // These are the shared domain planners now, not the retired agent executor.
 // Receipt/admission/replay/undo remain exercised through the real bus in the
@@ -257,6 +258,11 @@ test('framing: independent filmback inversion, key/lens/aim boundaries and measu
   assert.equal(plan.checks.derivedSize, 'medium shot'); assert.equal(plan.details.created, true); assert.deepEqual(framingChecks(['alex'], f.state, f.ports), plan.checks);
   f.state.camera = null; assert.throws(() => framingChecks(['alex'], f.state, f.ports), error => error.code === 'TARGET_NOT_READY');
   const g = fixture(); g.state.frameCount = 0; g.refuse('frame_shot', { subjectIds: ['alex'], framing }, 'TARGET_NOT_READY');
+  // The empty-timeline refusal names only commands an agent may call: no ui-only shot command.
+  let empty; try { g.prepare('frame_shot', { subjectIds: ['alex'], framing }); } catch (error) { empty = error; }
+  const uiOnly = shotDeclarations.filter(entry => entry.exposure === 'ui-only').map(entry => entry.id);
+  for (const named of empty.message.match(/\b[a-z]+\.[a-zA-Z]+\b/g) ?? []) assert.ok(!uiOnly.includes(named), `the empty-timeline refusal names the ui-only ${named}: ${empty.message}`);
+  assert.match(empty.message, /motion\.compile/, empty.message);
   g.state.frameCount = 144; g.state.shotDocument.shots = [createShot('Later', 60, 100)]; g.refuse('frame_shot', { subjectIds: ['alex'], framing }, 'AMBIGUOUS_TARGET');
   g.state.selectedShotId = g.state.shotDocument.shots[0].id; g.refuse('frame_shot', { subjectIds: ['alex'], framing, keyAtFrame: 101 }, 'INVALID_RANGE');
   const exact = { exact: { position: { x: 3, y: 2, z: 4 }, lookAt: { x: 0, y: 1, z: 0 }, focalMm: 35 } };

@@ -18,7 +18,7 @@ import { spawnOwned, terminateOwned } from "../tools/process-supervisor.mjs";
 import { createSceneStage, SCENES_STORAGE_KEY } from "../src/scenes.js";
 import { normalizeSceneObject } from "../src/scene-objects.js";
 import { createShotAuthoringDocument } from "../src/shot-authoring.js";
-import { createStudioTools, studioToolSchemas } from "../bin/agent/studio-tools.mjs";
+import { createStudioTools } from "../bin/agent/studio-tools.mjs";
 
 const legacy = process.argv.includes("--legacy");
 assert(process.argv.slice(2).every(arg => arg === "--legacy"), "only --legacy is supported");
@@ -137,7 +137,7 @@ async function issue398(handle) {
 	await assertion(1, "published transform schema and catalogue per-axis ranges", async () => {
 		const catalogue = await command("inspect_studio", { scope: "catalogue" }, handle);
 		// This is the actual model-facing schema supplier, not a test-built schema.
-		const schema = studioToolSchemas().find(tool => tool.name === "patch_elements").parameters;
+		const schema = createStudioTools({ liveHub: { command: async () => ({}) }, workspaceHandle: handle }).find(tool => tool.name === "patch_elements").parameters;
 		const branches = schema.properties.ops.items.oneOf;
 		const expected = {
 			"character.position": [[-240, 0, -240], [240, 240, 240]],

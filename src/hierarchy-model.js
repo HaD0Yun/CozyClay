@@ -3,7 +3,7 @@
 // It is also the Inspector's only router: the sidebar has no tabs, so the
 // selected node decides which panels App.jsx shows. Workflow surfaces are
 // filed under the node that owns them — the generation prompt under the
-// scene, the lens under the camera, and motion (capture, ARDY, prompt
+// scene, the lens under the camera, and motion (capture, motion3, prompt
 // blocks, root path) under the character it animates.
 /**
  * One character row's rig subtree, every node id namespaced under the row id

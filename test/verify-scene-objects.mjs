@@ -1118,9 +1118,9 @@ expect(
 const hiddenCube = updateSceneObject([visibleCube], visibleCube.id, { hidden: true })[0];
 expect("updateSceneObject hides on a boolean true", hiddenCube.hidden === true);
 const shownAgain = updateSceneObject([hiddenCube], hiddenCube.id, { hidden: false });
-expect("updateSceneObject shows again on false", shownAgain[0].hidden === false && shownAgain !== [hiddenCube]);
+expect("updateSceneObject shows again on false", shownAgain[0].hidden === false);
 const ignored = updateSceneObject([visibleCube], visibleCube.id, { hidden: "yes" });
-expect("a non-boolean hidden is ignored", ignored === [visibleCube] || ignored[0] === visibleCube);
+expect("a non-boolean hidden is ignored", ignored[0] === visibleCube);
 const normalizedHidden = normalizeSceneObject({ ...visibleCube, hidden: true });
 expect("normalize keeps a true hidden flag", normalizedHidden.hidden === true);
 const normalizedMissing = normalizeSceneObject({ id: "cube", renderer: "cube", name: "Cube" });

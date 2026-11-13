@@ -8,6 +8,7 @@ import { PRIME_SET } from "../shot.js";
 import { CatalogueEntries } from "../object-catalog.jsx";
 import { saveAutoColor } from "../auto-color.js";
 import { trackFeature } from "../analytics.js";
+import { poseTools } from "./pose-tools.js";
 import { GUIDE_LABELS, nextGuideMode } from "../shot-guides.js";
 import GhostsMenuGroup from "./GhostsMenuGroup.jsx"; import AddSceneEntries from "./AddSceneEntries.jsx";
 import { toggleViewportTool, useViewportTools } from "../viewport-tools.js"; import AnnotateCell from "./AnnotateCell.jsx";
@@ -21,7 +22,7 @@ const MODES = [
 	{ id: "camera", key: "3", label: ko("Camera", "카메라") },
 	{ id: "motion", key: "4", label: ko("Motion", "모션") },
 	// #739: an isolated turntable for one sculpt. Every previs mode has it.
-	{ id: "sculpt", key: "5", label: ko("Sculpt", "조각") },
+	{ id: "sculpt", key: "5", label: ko("Sculpt", "조형") },
 ];
 // A storyboard project has no Motion department: its pill reads 1 2 3 5.
 const modesFor = (previsMode) => (previsMode === "storyboard" ? MODES.filter((mode) => mode.id !== "motion") : MODES);
@@ -137,15 +138,7 @@ export default function ViewportToolbar() {
 			{ key: "E", id: "rotate", name: ko("Rotate", "회전"), active: gizmoMode === "rotate", pick: () => setGizmoMode("rotate") },
 			{ key: "R", id: "scale", name: ko("Scale", "크기"), active: gizmoMode === "scale", pick: () => setGizmoMode("scale") },
 		],
-		pose: [
-			{ key: "W", id: "ik", name: ko("Pose fix (IK parts)", "포즈 수정 (IK 파츠)"), active: ikEditTool === "ik", pick: () => setIkEditTool("ik") },
-			
-			{
-				key: "R", id: "pin", name: ko("Pin (range pin)", "고정 (범위 고정)"), active: ikEditTool === "pin",
-				refused: motion ? null : ko("Pinning needs a motion take", "고정하려면 모션 테이크가 필요해요"),
-				pick: () => { setIkEditTool("pin"); setRangePinPartPick(null); },
-			},
-		],
+		pose: poseTools({ ikEditTool, setIkEditTool, motion, setRangePinPartPick }),
 		camera: [
 			{ key: "W", id: "move", name: ko("Move camera", "카메라 이동"), active: gizmoMode === "move", pick: () => setGizmoMode("move") },
 			{ key: "E", id: "rotate", name: ko("Rotate camera", "카메라 회전"), active: gizmoMode === "rotate", pick: () => setGizmoMode("rotate") },
@@ -257,7 +250,7 @@ export default function ViewportToolbar() {
 	return (
 		<div className="viewport-titlebar" data-testid="viewport-overlays">
 			<div className="vp-mode-toolbar" role="toolbar" data-testid="mode-toolbar" aria-label={ko("Mode and tools", "모드와 도구")}>
-				<div className="vp-mode-keys" role="tablist" aria-label={ko("Workflow", "작업 모드")}>
+				<div className="vp-mode-keys" role="tablist" aria-label={ko("Mode", "모드", "模式")}>
 					{modesFor(previsMode).map((mode) => {
 						const active = workflowMode === mode.id;
 						const refused = mode.id === "pose" ? poseRefusal : null;
@@ -477,7 +470,7 @@ export default function ViewportToolbar() {
 									className={"view-menu-item grid-view-switch" + (gridView ? " active" : "")}
 									aria-checked={gridView}
 									aria-pressed={gridView}
-									title={ko("Blender-style viewport — dark void with a reference grid instead of the deck", "Blender식 뷰포트 — 데크 대신 어두운 배경과 기준 그리드")}
+									title={ko("Blender-style viewport — themed background with a reference grid instead of the deck", "Blender식 뷰포트 — 데크 대신 테마 배경과 기준 그리드")}
 									onClick={() => setGridView((v) => !v)}
 								>
 									<span className="view-menu-mark" aria-hidden="true">{gridView ? "✓" : ""}</span>
@@ -521,7 +514,7 @@ export default function ViewportToolbar() {
 									<div className="view-menu-group" role="group" aria-label={ko("Body part colours", "부위 색상")}>
 										<span className="view-menu-label" aria-hidden="true">{ko("Body part colours", "부위 색상")}</span>
 										{[
-											{ value: "off", label: ko("Off", "끕") },
+											{ value: "off", label: ko("Off", "끔") },
 											{ value: "shaded", label: ko("Shaded", "음영") },
 											{ value: "flat", label: ko("Flat", "평면") },
 										].map((option) => {

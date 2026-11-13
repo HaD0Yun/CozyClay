@@ -77,7 +77,7 @@ export async function readaptCharacter(entry, template) {
 export async function addImportedCharacter(appContext, file, x = 0) {
 	try {
 		const fields = await importCharacterFile(file), cast = appContext.storeDomain("cast"), rows = cast.read(), id = nextCharacterId(rows);
-		cast.run("cast.replace", { characters: [...rows, { id, x, z: 0, subject: fields.rigImport.name || "a person", ...fields }] });
+		cast.run("cast.replace", { characters: [...rows, { id, x, z: 0, subject: fields.rigImport.name || "", ...fields }] });
 		appContext.shared?.setSelectedHierarchyId?.(`character:${id}`);
 		const { detected, missing } = fields.rigImport.report;
 		appContext.notify?.(ko(`Character imported: ${detected.id} skeleton${missing.length ? `, ${missing.length} bones estimated` : ""}`,

@@ -151,8 +151,8 @@ jobs:
   # test step pages.yml runs before deploying: green here means the merge
   # cannot break the deploy. Each shard has its own runner, so wall-clock time
   # follows the slowest quarter of the suite instead of the whole suite (#666):
-  # minutes are free on this public repository. One run starts 19 jobs (ten
-  # of them the browser matrix below), just under the free plan's 20
+  # minutes are free on this public repository. One run starts 20 jobs (11
+  # of them the browser matrix below), the free plan's limit of 20
   # concurrent jobs: a second pull request in flight queues, so every job
   # added here costs wall-clock time on all of them (#1173).
   test-shard:
@@ -212,11 +212,6 @@ jobs:
       - run: |
           if [ ! -f test-selection.json ]; then echo "::error title=test selection missing::the changes job's test-selection artifact did not arrive; rerun the job"; exit 1; fi
           node tools/run-tests.mjs --shard "${{ matrix.shard }}/4" --durations-out test-durations.json --only-from test-selection.json
-        env:
-          # test/verify-morphgs-exporter.mjs: the MorphGS truth comparison
-          # needs uv + a torch wheel; the runner has neither, so only its
-          # structural checks run here. Run the full test locally.
-          MORPHGS_SKIP_TRUTH: "1"
       - uses: actions/upload-artifact@v4
         with:
           name: test-durations-${{ matrix.shard }}
@@ -296,6 +291,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - suite: verify-install-browser
+            tier: gating
           - suite: verify-camera-rail-browser
             tier: gating
           - suite: qa-gizmo-click-through-browser

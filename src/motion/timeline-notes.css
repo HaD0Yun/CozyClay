@@ -39,3 +39,10 @@
 	--tl-surface-height: calc(var(--tl-ruler-height) + var(--tl-track-row-height) * 2 + var(--tl-track-group-height));
 }
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer :is(.tl-surface, .tl-surface.empty-shots):not(.prop-subject):not(#_):not(#_) { grid-template-rows: var(--tl-ruler-height) calc(var(--tl-track-row-height) * 2) var(--tl-track-group-height); }
+
+/* Share the available height across Body, IK keys, Cuts, Rail and Crane.
+   Prop tracks use their existing flexible speed-graph row. */
+.app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-surface:not(.prop-subject) {
+	--tl-track-row-height: max(26px, calc((100cqh - var(--tl-ruler-height)) / 5));
+	--tl-track-group-height: calc(var(--tl-track-row-height) * 3);
+}

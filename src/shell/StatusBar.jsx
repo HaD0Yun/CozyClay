@@ -11,20 +11,18 @@ const BUSY = ["preparing", "encoding", "finalizing"];
 // right. #570: the save state sits under the project name (ProjectHead).
 // In the studio shell there is no standing row: a fixed "Ready", the fps the
 // Sequencer already shows and a source link Help › About already carries were
-// a band of noise under the dock. Only a live status (an export, or a status
-// message) shows, as a capsule floating in the viewport's bottom-left corner.
+// a band of noise under the dock. Only a live export status shows, as a
+// capsule floating in the viewport's bottom-left corner.
 // Embeds have no menu bar, so they keep the full row and its source offer.
 export default function StatusBar({ embedded = false }) {
-	const { statusText, exportStatus, exportPhaseLabel, resultOpen, recState, tlFps } = useStudioShell();
+	const { exportStatus, exportPhaseLabel, resultOpen, recState, tlFps } = useStudioShell();
 	// A frame export's status is already shown inside its result dialog.
 	const exportShown = exportStatus && !(resultOpen && exportStatus.kind === "frame");
 	if (!embedded) {
-		if (!exportShown && !statusText) return null;
+		if (!exportShown) return null;
 		return (
 			<footer className="brandbar v2-statusbar statusbar-float">
-				{exportShown
-					? <ExportStatus status={exportStatus} label={exportPhaseLabel} recording={recState === "recording"} />
-					: <span className="statusbar-text">{statusText}</span>}
+				<ExportStatus status={exportStatus} label={exportPhaseLabel} recording={recState === "recording"} />
 			</footer>
 		);
 	}
@@ -33,7 +31,7 @@ export default function StatusBar({ embedded = false }) {
 			<div className="statusbar-left">
 				{exportShown
 					? <ExportStatus status={exportStatus} label={exportPhaseLabel} recording={recState === "recording"} />
-					: <span className="statusbar-text">{statusText || ko("Ready", "준비")}</span>}
+					: <span className="statusbar-text">{ko("Ready", "준비")}</span>}
 			</div>
 			<span className="statusbar-fps" title={ko("Timeline frame rate", "타임라인 프레임 레이트")}>{tlFps} fps</span>
 			<SourceOffer />

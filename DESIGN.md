@@ -44,12 +44,14 @@ borders; the surface value does the work.
   Fonts are self-hosted woff2 assets; the shell does not load a CDN font.
 - Controls are 28 px or 24 px high. Control corners are 4 px; pills and cards
   use 6 px. The spacing scale is 8 / 12 / 16 px.
-- The 2a shell is 1920×1080: top bar 44 px, right column 340 px, bottom dock
+- The 2a shell record (an earlier version; §6 supersedes its layout and
+  sizes) is 1920×1080: top bar 44 px, right column 340 px, bottom dock
   330 px, status bar 24 px. Panel headers are 36 px, Outliner rows 24 px,
   Sequencer rows 38 px with a 190 px track tree, and Content is 620 px wide.
 - **Top bar (`#121214`):** a 20 px project swatch, project name and dirty dot,
-  File/Edit/Window/Help menus, MCP status, and the violet Generate Motion
-  action.
+  and File/Edit/Window/Help menus. The 2a version also showed MCP status and
+  a violet Generate Motion action; today the MCP status element is hidden and
+  there is no Generate Motion action.
 - **Viewport:** a `+ Add` pill and Perspective / Clay Lit / Show pill at top
   left; the single mode+tool pill at top centre; fly speed at top right; axis
   gizmo at bottom left; and a 300 px camera preview with a 26 px header and
@@ -101,21 +103,24 @@ missing behaviour in the same grammar as the owner's 2a, 2b and 2c screens.
 ### G1 — mode and tool toolbar
 
 One 32 px pill sits at the viewport top centre in this order: mode keys `1 2 3
-4`, divider, tool keys, divider, context values. The active mode shows its
-amber mono digit and its name (Stage / Pose / Camera / Motion; in Korean,
-배치 / 포즈 / 카메라 / 모션); inactive modes show only a 28×28 digit. W/E/R
+4 5`, divider, tool keys, divider, context values. The active mode shows its
+amber mono digit and its name (Stage / Pose / Camera / Motion / Sculpt; in
+Korean, 배치 / 포즈 / 카메라 / 모션 / 조형); inactive modes show only a 28×28
+digit. A storyboard project has no Motion key (`1 2 3 5`). W/E/R
 keys are 28×28, with the active tool filled amber `#e8a33d` and text
 `#1a1204`; inactive tools use `#9b9ba1`. Every key has a title with its full
 name and shortcut.
 
-- Stage: W Move, E Rotate, R Scale; values `10cm` and `15°` (snap toggles on
+- Stage: W Move, E Rotate, R Scale; values `5cm` and `5°` (snap toggles on
   click and Ctrl inverts it).
-- Pose: W Pose fix, E Path fix, R Pin; value `0.25s` (click opens a 24 px
-  influence slider).
+- Pose: W Pose fix (IK parts), E Auto Pose, R Pin (range pin; refused until a
+  motion take exists); no value group.
 - Camera: W Move, E Rotate; values `24mm` and `2.39` (each opens a small list).
-- Motion: W Blocks and E Refine; no value group.
+- Motion: no tools and no value group; the agent compiles motion.
+- Sculpt: W Front, E Side, R Back views (with a part selected they move,
+  rotate and scale it); no value group.
 
-Keys 1–4 switch modes and W/E/R select tools only when focus is outside a text
+Keys 1–5 switch modes and W/E/R select tools only when focus is outside a text
 field.
 
 ### G2 — mode to state mapping
@@ -123,25 +128,27 @@ field.
 Stage keeps `workflowMode "scene"` for the bus and saved views. Pose uses the
 new `workflowMode "pose"`; entering it runs `toggleIkMode` and leaving it runs
 `leaveIkMode`. Without a character with IK chains, key 2 is disabled and its
-title explains why. Camera and Motion use `"camera"` and `"motion"`. Motion E
-uses `enterRefineMode` / `lineEditMode`, and `view.setMode` accepts `"pose"`.
+title explains why. Camera, Motion and Sculpt use `"camera"`, `"motion"` and
+`"sculpt"`, and `view.setMode` accepts `"pose"`.
 
 ### G3 — Pose Details
 
 For a selected character or rig group, Details lists Pose (Foot lock, Body
-contact, influence range), the selected tool section, then Auto-fix. Path fix
-contains Trails, Trail falloff and a violet Regenerate from trail edit action;
-Pin contains the range-pin controls as 24 px rows. Auto-fix has Fit to platforms
-[Run]/[Remove], Body collisions [Frame]/[Clip], and Physics cleanup [Run] with a
-collapsed Advanced row.
+contact, influence range), then the selected tool section. Auto Pose contains
+the model state (loading percentage, ready, could not load with Try again, or
+not on this site in a build without the model), one hint line, the whole-pose
+actions (Back to T-pose, Flip left and right, Copy pose, Paste pose, Paste
+reversed) and a chip per handle; the selected handle shows On, Hold position,
+Hold rotation and the Tolerance and Turn tolerance sliders as 24 px rows. In
+the viewport its handles follow the IK handles' colours: held is a solid dot
+with a thick ring and an outer ring, following is a solid dot with a thin ring,
+off is a faint hollow ring, turn-only handles are diamonds, and the selected
+handle gets a white ring plus X/Y/Z turn rings. Pin contains the range-pin
+controls as 24 px rows.
 
 ### G4 — auto-fix preview and apply
 
-Fit to platforms and Physics cleanup show `Preview · <fix name>` in amber, one
-summary row and at most five result rows, followed by 28 px Cancel (`#1e1e21`)
-and violet Apply. Enter applies and Esc cancels; the status bar says
-`Preview — Enter apply · Esc cancel`. Affected character ranges get a 2 px
-amber Sequencer underline. Body collisions remains direct and undoable.
+Removed in 3.0.
 
 ### G5 — Sequencer
 
@@ -154,11 +161,7 @@ crane editing continue to work.
 
 ### G6 — Motion takes
 
-Motion Details for a selected character has 24 px Takes rows such as
-`v1 · 0:18 · seed 42`; the current row uses the amber tint and calls
-`loadTakeVersion`. Generate Motion runs today's `runArdy`; its caret menu has
-Start over, Take it again and Add block at frame N. Keep the current take is in
-collapsed Motion › Advanced. The old Scene/Refine take bar is removed.
+Removed in 3.0.
 
 ### G7 — export and save
 
@@ -176,9 +179,9 @@ ago` / `Unsaved changes`); export progress, retry and cancel use
 Edit contains Undo, Redo and Preferences… (2c); Window contains Agent, Content
 and Log; Help contains Tutorial, Keyboard shortcuts and About. Show is the
 viewport's Reference grid, Auto Color, Body part colours and Trails menu. Clay
-Lit is the shading list; Perspective is the camera/view list. Language,
-Analytics and Motion setup move to Preferences (General › Appearance and
-Motion › ARDY Connection). UI copy contains no Kimodo, ProjFlow or 2D Root.
+Lit is the shading list; Perspective is the camera/view list. Language moves
+to Preferences (General › Appearance). UI copy contains no Kimodo, ProjFlow or
+2D Root.
 
 ### G9 — Agent pane
 
@@ -205,8 +208,8 @@ a drag handle.
 
 Screen 2b replaces the project browser/startup chooser with today's samples;
 without samples it shows only Blank Stage. Screen 2c is a modal Preferences
-dialog built from Settings: motion setup, language, analytics, auto colour,
-snapping and a read-only hotkeys list.
+dialog whose navigation has one General group: Appearance, Viewport, Export
+and Hotkeys (a read-only list).
 
 ### Reusable primitives
 
@@ -221,16 +224,6 @@ snapping and a read-only hotkeys list.
 - `.tl-crane-editor`: card-local time/height graph; the graph inserts points,
   points have enlarged targets, and vertical drags edit height without moving
   the Shot block.
-- `.motion-readiness`: compact text-labelled generation status beside the
-  generation controls. It distinguishes checking, ready, not configured,
-  unavailable and unsupported routes without gating authoring. It inherits
-  `--fg`, `--muted`, `--cyan`, `--panel`, `--line2`, `--radius`, the 11 px
-  inspector scale and 4/8 px spacing; state is never colour-only.
-- `.motion-setup`: an explicitly opened region in Settings, not a modal or
-  another topbar control. Documentation opens separately and Retry only probes
-  health. It preserves the scene and prompt blocks, scrolls within the viewport,
-  wraps commands, and keeps controls reachable at 390 px. Status uses polite
-  announcements, visible keyboard focus and immediate state changes.
 
 ## 6. Floating-glass shell and themes (#570)
 
@@ -246,8 +239,9 @@ panel with 12 px gutters and a 20 px radius:
   a 12 px gap (G9). Details is titled by the selection (name, then kind); each
   section is an 11 px label over a rounded card.
 - **Top row:** menus left, the mode switch (Stage, Pose, Camera, Motion, each
-  with its icon) centred, then one capsule with the MCP state and Generate
-  Motion. All 40 px capsules between the two columns.
+  with its icon) centred. All 40 px capsules between the two columns. (The
+  #570 version ended the row with one capsule for the MCP state and Generate
+  Motion; the MCP state is now hidden and Generate Motion is removed.)
 - **Viewport rails:** a 44 px vertical rail on the left (Add, the mode's tools,
   its value such as snap) and one on the right (view, shading, Show, fly
   speed). Rail controls are 36 px round buttons with 16 px line icons; their

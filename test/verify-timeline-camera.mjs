@@ -28,7 +28,6 @@ const commands = readFileSync(new URL('../src/commands/shot.js', import.meta.url
 expect("timeline has one combined Shot/Camera track", timeline.includes('const SHOTS_LANE = "Shots";') && !timeline.includes('const CAMERA_LANE = "Camera";') && !timeline.includes('"Camera",'));
 expect("v2 sequencer root and scoped stylesheet are wired", timeline.includes('className={"timeline v2-sequencer"') && timeline.includes('import "./timeline.css";') && v2Css.includes('.v2-sequencer .tl-head') && v2Css.includes('var(--select, #e8a33d)'));
 expect("v2 lane labels expose Body, IK keys, Camera Cuts, Rail and Crane", ["Body", "IK keys", "Camera Cuts", "Rail", "Crane"].every((label) => timeline.includes(`data-lane-label="${label}"`)) && timeline.includes('ko("Root path", "루트 경로")'));
-expect("preview ranges underline the Body track", timeline.includes("previewRanges = []") && timeline.includes('className="tl-preview-range"') && v2Css.includes('.v2-sequencer .tl-preview-range') && v2Css.includes('var(--tl-preview-height, 2px)'));
 expect("ruler labels step in 10-frame units", timeline.includes("const LABEL_STEPS = [10, 20, 50, 100, 200, 500, 1000];"));
 expect("lane gridlines ride one 10-frame cadence", timeline.includes("const GRID_STEP_FRAMES = 10;") && timeline.includes("f += GRID_STEP_FRAMES"));
 expect("gridlines render from the ruler's framePct", timeline.includes('className="tl-grid"') && timeline.includes('style={{ "--tl-f": framePct(f, displayFrameCount) }}'));

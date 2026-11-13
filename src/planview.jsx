@@ -215,7 +215,6 @@ function EmptyPlanMarker({ object, selected, dragging, turning }) {
 }
 
 function SceneObjectFootprint({ object, selected, dragging, turning }) {
-	if (isEmptyObject(object)) return <EmptyPlanMarker object={object} selected={selected} dragging={dragging} turning={turning} />;
 	const { width, height, depth } = objectSize(object);
 	const objectLabel = displayObjectLabel(object.name).slice(0, 8);
 	const handleDist = depth / 2 + 0.65;
@@ -229,6 +228,7 @@ function SceneObjectFootprint({ object, selected, dragging, turning }) {
 		const z = depth / 2;
 		return [[-x, capY, -z], [x, capY, -z], [x, capY, z], [-x, capY, z], [-x, capY, -z]];
 	}, [width, depth, capY]);
+	if (isEmptyObject(object)) return <EmptyPlanMarker object={object} selected={selected} dragging={dragging} turning={turning} />;
 	return (
 		<group position={[object.x, 0, object.z]} rotation={[0, rotation, 0]}>
 			{selected ? (
@@ -287,7 +287,7 @@ function directionTriangle(from, to, distance = 0.26) {
 	return geometry;
 }
 
-/** ARDY movement endpoints shown while composing a camera rail. The direct
+/** Subject track endpoints shown while composing a camera rail. The direct
  * start-to-end vector gives the operator one unambiguous travel direction. */
 function SubjectMovementGuide({ track }) {
 	const guide = useMemo(() => {

@@ -757,15 +757,13 @@
 }
 
 /* Ruler labels thin out instead of running together. */
-/* The dock is sized to the lane grid (shell.css), so the body only ever
-   scrolls sideways with the zoom; a vertical bar here would mean a lane is
-   off screen, which the shell does not allow. The body is pinned to the
-   surface height: the camera bar above it has its own reserved row and can
-   never take height from the lanes. */
+/* Fill the dock below the active controls. The minimum keeps every lane
+   usable when the camera or pose controls take an extra row. */
 .app[data-shell="glass"]:not([data-embed-mode]) .v2-sequencer .tl-body {
-	flex: 0 0 var(--tl-surface-height);
-	height: var(--tl-surface-height);
-	min-height: var(--tl-surface-height);
+	flex: 1 1 auto;
+	height: auto;
+	min-height: 164px;
+	container-type: size;
 	overflow-y: hidden;
 	scrollbar-width: thin;
 }

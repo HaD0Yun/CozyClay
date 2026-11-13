@@ -6,7 +6,6 @@ import { STUDIO_ACTIONS, STUDIO_ACTION_IDS, STUDIO_ACTION_KINDS, studioActionDec
 import { validateStudioCommand, validateStudioSchema } from "../src/studio-agent-protocol.js";
 import * as studioActions from "../src/studio-actions.js";
 import { FK_TRACKS, IK_TRACKS } from "../src/motion/ik.js";
-import { FINGER_TRACK_IDS } from "../src/motion/fingers.js";
 import { SCENE_ATTACH_BONES } from "../src/scene-objects.js";
 import { GUIDE_MODES } from "../src/shot-guides.js";
 import { IMAGE_MODELS } from "../src/shot.js";
@@ -73,6 +72,7 @@ for (const id of ikKeyActions) {
 	assert.ok(studioActionDeclaration(id).input.required.includes("characterId"), id);
 }
 // The JSON form of a key names exactly the tracks the IK layer keys.
+const FINGER_TRACK_IDS = ["left", "right"].flatMap(side => ["Thumb", "Index", "Middle", "Ring", "Pinky"].flatMap(name => [1, 2, 3].map(joint => `${side}${name}${joint}`)));
 assert.deepEqual([...studioActions.STUDIO_IK_CHAIN_TRACKS], IK_TRACKS.map(track => track.id));
 assert.deepEqual([...studioActions.STUDIO_IK_JOINT_TRACKS], [...FK_TRACKS.map(track => track.id), ...FINGER_TRACK_IDS]);
 const setIkKey = studioActionDeclaration("character.setIkKey").input;
@@ -152,8 +152,12 @@ assert.deepEqual([...importAsset.input.properties.placeAs.enum], ["cutout", "bac
 for (const source of ["data:image/png;base64,AAAA", "https://example.test/poster.png", "http://127.0.0.1:5180/chair.glb"]) validateStudioSchema(importAsset.input, { source, name: "poster.png", placeAs: "cutout" });
 for (const source of ["/Users/me/poster.png", "file:///tmp/poster.png", "ftp://example.test/poster.png"]) assert.throws(() => validateStudioSchema(importAsset.input, { source, name: "poster.png", placeAs: "cutout" }), code("INVALID_ARGUMENT"), source);
 // The Send-to-AI package is a job that answers with its prompt: no external
-// call, no motion generation, nothing authored. Its model is one the Studio
-// writes image prompts for.
+// call, nothing authored. Its model is one the Studio writes image prompts for.
+// 3.x has no motion generation backend, so no description is defined against one;
+// each states its own constraint instead.
+for (const action of STUDIO_ACTIONS) assert.doesNotMatch(action.description ?? "", /motion generation/, `${action.id} is described against a retired motion generation`);
+assert.match(studioActionDeclaration("export.shotVideo").description, /One export at a time \(a second one is refused while one runs\)/);
+assert.match(studioActionDeclaration("ai.prepareShot").description, /Changes nothing in the scene; only a given mode or model becomes the Studio's choice\./);
 const prepareShot = studioActionDeclaration("ai.prepareShot");
 assert.equal(prepareShot.kind, "job");
 assert.equal(prepareShot.generation, undefined);

@@ -13,7 +13,7 @@ import { rotateSubtree } from "./skeleton.js";
 import { palmAxes } from "./limbs.js";
 import { WRIST_LIMITS, wristNeed } from "./arm-orient.js";
 
-const clampTo = (v, [lo, hi]) => Math.min(hi, Math.max(lo, v));
+export const clampTo = (v, [lo, hi]) => Math.min(hi, Math.max(lo, v));
 
 /**
  * clampWrist(sk, s, side): the hand of `side` turned back within WRIST_LIMITS on its forearm (twist, flex and

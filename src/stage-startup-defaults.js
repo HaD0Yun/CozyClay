@@ -2,25 +2,21 @@ import * as THREE from "three";
 import { ko } from "./locale.js";
 import { SHOT_ASPECT_RATIOS } from "./shot.js";
 import {
-	SCENES_QUARANTINE_KEY,
 	createSceneDocument,
-	DEFAULT_SUBJECT_ONE,
-	DEFAULT_SUBJECT_TWO,
 	loadSceneDocumentFromStorage,
 } from "./scenes.js";
 import { POSE_BONES } from "./poses.js";
 import { isPlaygroundEmbed, takePlaygroundProject } from "./playground.js";
-import { DEFAULT_SCENE_OBJECTS } from "./scene-objects.js";
 
 // Stated the way a crew states a setup: how far back, which side, how high the
 // lens rides, and what glass is on it. Order matters — Medium is the setup a
 // director reaches for first, so it leads.
 export const PRESETS = {
-	medium: { label: ko("Medium", "미디엄"), distance: 2.6, azimuth: 22, elevation: 6, fov: 45, targetY: 1.35, two: false },
-	wide: { label: ko("Wide", "와이드"), distance: 7, azimuth: 25, elevation: 4, fov: 38, targetY: 1.2, two: false },
-	closeup: { label: ko("Close-Up", "클로즈업"), distance: 1.3, azimuth: 16, elevation: 2, fov: 45, targetY: 1.55, two: false },
-	low: { label: ko("Low Angle", "로우 앵글"), distance: 3.5, azimuth: 20, elevation: -14, fov: 50, targetY: 1.1, two: false },
-	high: { label: ko("High Angle", "하이 앵글"), distance: 4.5, azimuth: 20, elevation: 16, fov: 45, targetY: 1.1, two: false },
+	medium: { label: ko("Medium", "미디엄"), distance: 2.6, azimuth: 22, elevation: 6, fov: 45, targetY: 1.35 },
+	wide: { label: ko("Wide", "와이드"), distance: 7, azimuth: 25, elevation: 4, fov: 38, targetY: 1.2 },
+	closeup: { label: ko("Close-Up", "클로즈업"), distance: 1.3, azimuth: 16, elevation: 2, fov: 45, targetY: 1.55 },
+	low: { label: ko("Low Angle", "로우 앵글"), distance: 3.5, azimuth: 20, elevation: -14, fov: 50, targetY: 1.1 },
+	high: { label: ko("High Angle", "하이 앵글"), distance: 4.5, azimuth: 20, elevation: 16, fov: 45, targetY: 1.1 },
 };
 
 export const SHOT_ASPECT_PRESETS = Object.freeze({
@@ -29,8 +25,8 @@ export const SHOT_ASPECT_PRESETS = Object.freeze({
 	"9:16": Object.freeze({ label: "9:16", aspect: SHOT_ASPECT_RATIOS["9:16"], width: 1080, height: 1920 }),
 	"1:1": Object.freeze({ label: "1:1", aspect: SHOT_ASPECT_RATIOS["1:1"], width: 1080, height: 1080 }),
 	"4:3": Object.freeze({ label: "4:3", aspect: SHOT_ASPECT_RATIOS["4:3"], width: 1440, height: 1080 }),
-	"12:7": Object.freeze({ label: "12:7", aspect: SHOT_ASPECT_RATIOS["12:7"], width: 1536, height: 896, title: "12:7 video-inbetweener ratio" }),
-	"fal 480P": Object.freeze({ label: "fal 480P", aspect: SHOT_ASPECT_RATIOS["fal 480P"], width: 1664, height: 960, title: "Fal H3 480P canvas (832x480)" }),
+	"12:7": Object.freeze({ label: "12:7", aspect: SHOT_ASPECT_RATIOS["12:7"], width: 1536, height: 896, title: ko("Widescreen 12:7", "와이드스크린 12:7", "宽屏 12:7") }),
+	"fal 480P": Object.freeze({ label: "fal 480P", aspect: SHOT_ASPECT_RATIOS["fal 480P"], width: 1664, height: 960, title: ko("480p widescreen (832x480)", "480p 와이드 (832x480)", "480p 宽屏（832x480）") }),
 });
 // Per-character rig model: the stage entry's `model` is the FBX file stem in
 // public/models. Root-absolute on purpose: the studio is served from "/app/"
@@ -39,8 +35,7 @@ export const SHOT_ASPECT_PRESETS = Object.freeze({
 export const characterModelUrl = (model) => `/models/${model}.fbx`;
 
 /** Shipped rig names as the operator says them, not as the files spell them. */
-export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };
-CHARACTER_MODEL_LABELS["proxy-figure"] = ko("Capsule figure", "캡슐 인물");
+export { CHARACTER_MODEL_LABELS } from "./character-name.js";
 
 /** Sequential ids for spawned characters, collision-free against the cast. */
 export function nextCharacterId(list) {
@@ -89,9 +84,6 @@ export function editorFrameForSubject(subject) {
 	};
 }
 
-export const DEFAULT_SUBJECT = DEFAULT_SUBJECT_ONE;
-export const DEFAULT_SUBJECT2 = DEFAULT_SUBJECT_TWO;
-export const DEFAULT_ENVIRONMENT = "a sunlit modern living room";
 export const DEFAULT_CAMERA_POSITION = { x: 0.97, y: 1.62, z: 2.39 };
 export const REST_BONES = Object.fromEntries(POSE_BONES.map((b) => [b.id, [0, 0, 0]]));
 
@@ -123,23 +115,20 @@ export function loadWorkspaceLayout() {
 }
 
 /** Load the Scene envelope once. Legacy single-scene objects are migrated by
- * scenes.js; App only supplies the familiar starter set for a truly new room. */
+ * scenes.js; a new room starts empty (createSceneDocument seeds no objects). */
 export function loadSceneStartup() {
-	const defaults = () => DEFAULT_SCENE_OBJECTS.map((object) => ({ ...object, footprint: { ...object.footprint } }));
 	// The landing-page playground never reads or writes the visitor's saved
 	// scenes: it opens the preset the page fetched (or an empty room if that
 	// fetch failed) and saving stays off for the whole session.
 	if (isPlaygroundEmbed(globalThis.location?.search)) {
 		const preset = takePlaygroundProject();
 		const document = preset?.document ?? createSceneDocument();
-		if (!preset?.document) document.scenes[0].objects = defaults();
 		return { document, saveBlocked: true, error: null, startupCreatedScene: false, toast: null };
 	}
 	try {
 		const result = loadSceneDocumentFromStorage(localStorage);
 		if (result.status === "future") {
 			const document = createSceneDocument();
-			document.scenes[0].objects = defaults();
 			return {
 				document,
 				saveBlocked: true,
@@ -148,9 +137,6 @@ export function loadSceneStartup() {
 			};
 		}
 		const document = result.document;
-		if ((result.status === "absent" || result.status === "corrupt") && document.scenes[0].objects.length === 0) {
-			document.scenes[0].objects = defaults();
-		}
 		return {
 			document,
 			saveBlocked: false,
@@ -159,14 +145,13 @@ export function loadSceneStartup() {
 			// funnel's "scene created" step never fires for a brand-new room.
 			startupCreatedScene: result.status === "absent" || result.status === "corrupt",
 			toast: result.status === "corrupt"
-				? ko(`Saved scenes were unreadable — starting fresh; the old data is kept under ${SCENES_QUARANTINE_KEY}`, `저장된 장면을 읽을 수 없어 새로 시작합니다. 기존 데이터는 ${SCENES_QUARANTINE_KEY}에 보관했어요.`, `无法读取已保存的场景 — 将重新开始；旧数据保留在 ${SCENES_QUARANTINE_KEY} 下。`)
+				? ko("Saved scenes were unreadable — starting fresh; your previous scenes were kept for recovery", "저장된 장면을 읽을 수 없어 새로 시작합니다. 이전 장면은 복구용으로 보관했어요.", "无法读取已保存的场景 — 将重新开始；之前的场景已保留以便恢复。")
 				: result.dropped > 0
 					? ko(`${result.dropped} saved scene(s) could not be restored`, `저장된 장면 ${result.dropped}개를 복원하지 못했어요`, `${result.dropped} 个已保存的场景无法恢复`)
 					: null,
 		};
 	} catch {
 		const document = createSceneDocument();
-		document.scenes[0].objects = defaults();
 		return { document, saveBlocked: false, error: null, startupCreatedScene: true, toast: null };
 	}
 }

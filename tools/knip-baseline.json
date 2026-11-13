@@ -1,7 +1,6 @@
 [
 	"export bin/agent/provider-keys.mjs#removeKey",
 	"export bin/agent/provider-keys.mjs#setKey",
-	"export bin/package-signature.mjs#PACKAGE_SIGNATURE_PUBLIC_KEY",
 	"export src/asset-pane.jsx#CHARACTER_ASSETS",
 	"export src/asset-pane.jsx#FolderGrid",
 	"export src/domains/motion.js#createMotionDomain",
@@ -9,9 +8,6 @@
 	"export test/bus/objects-asset-db.mjs#db",
 	"export test/bus/objects-asset-db.mjs#holdNextWrite",
 	"export test/bus/objects-asset-db.mjs#records",
-	"export workers/api/src/index.js#mutationGuard",
-	"export workers/api/src/index.js#requireOrigin",
-	"file workers/api/scripts/dev-session.mjs",
 	"unlisted bin/agent/pi-tools.mjs#typebox",
 	"unlisted mcp/live-hub.mjs#ws",
 	"unlisted mcp/verify-live-batch.mjs#ws",

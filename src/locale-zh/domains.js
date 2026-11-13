@@ -5,7 +5,6 @@ export const ZH_DOMAINS = {
 	"The active character's rig is not loaded": "当前角色的骨骼尚未加载",
 	"The path already fills the clip — extend the duration or clear a waypoint": "路径已填满整个片段 — 请延长时长或清除一个路径点",
 	"Root path constraints off": "根路径约束已关闭",
-	"Root path on — click the set floor in the Shot view to drop waypoints; Subject 1 is the frame 0 start": "根路径已开启 — 在镜头视图中点击布景地面放置路径点；角色 1 是第 0 帧的起点",
 	"Edited pose": "已编辑的姿势",
 	"Pose saved": "姿势已保存",
 	"Nothing to undo": "没有可撤销的操作",

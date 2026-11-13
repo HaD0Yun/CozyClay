@@ -11,12 +11,12 @@ import { NumberField } from "../ui.jsx";
 import { flatTiming, timingIsFlat, envelopeDrag, insertCut, removeCut, CUT_MIN_GAP } from "../speed-envelope.js";
 import { checkShotAgainstPreset, presetById } from "../model-presets.js";
 import { WORLD } from "../world-scale.js";
-import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { BeatBoard } from "./beat-board.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
+import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands, IkPartLabels, IkPartsToggle, useIkParts } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
 import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
 
 /**
- * ARDY Viser-style animation timeline — the live motion workspace.
+ * Viser-style animation timeline — the live motion workspace.
  *
  * Frame, playback, waypoints and the motion badge are owned by App: this
  * component is controlled and reports every interaction through callbacks,
@@ -138,7 +138,8 @@ function craneCurvePath(points, xFor, yFor) {
  * generous circles, not pixel dots, so a lens height is aimed at with the
  * wrist rather than with the fingertip.
  */
-function CraneHeightEditor({ crane, railRange, durationFrames, selectedIndex, onSelect, onAddPoint, onChangePoints }) {
+function CraneHeightEditor(props) { return props.crane?.points?.length && props.railRange ? <CraneHeightGraph {...props} /> : null; }
+function CraneHeightGraph({ crane, railRange, durationFrames, selectedIndex, onSelect, onAddPoint, onChangePoints }) {
 	const svgRef = useRef(null);
 	const dragRef = useRef(null);
 	const [draftPoints, setDraftPoints] = useState(null);
@@ -146,7 +147,6 @@ function CraneHeightEditor({ crane, railRange, durationFrames, selectedIndex, on
 	// would re-map the pointer under itself on every move — one flick of the
 	// wrist and the value runs away by tens of metres.
 	const [heldScale, setHeldScale] = useState(null);
-	if (!crane?.points?.length || !railRange) return null;
 	const points = draftPoints ?? crane.points;
 	const origin = railRange.start / Math.max(1, durationFrames - 1);
 	const span = Math.max(0.001, (railRange.end - railRange.start) / Math.max(1, durationFrames - 1));
@@ -1027,7 +1027,6 @@ export default function Timeline({
 	motion = null, // { frames, label, segments, cut, speed, remove, trim, reset } (take-segments.jsx timelineTake) | null
 	ikFrames = [], // sorted full-body key frames
 	rangePins = [], // active character's inclusive pin ranges
-	previewRanges = [], // amber preview spans shown under the Body track
 	selectedPinId = null,
 	pendingPinRange = null,
 	footSnap = true, // feet stay planted while the body moves
@@ -1267,10 +1266,10 @@ export default function Timeline({
 	// for everything — the old /count chip scale drifted off the gridlines.
 	const clipPct = (value) => Math.max(0, Math.min(1, framePct(value, displayFrameCount)));
 	const waypointFrames = waypoints.map((waypoint) => waypoint.frame);
-	// Fix Collisions and AutoPhysics key EVERY frame of a corrected span, so
+	// A baked correction keys EVERY frame of its span, so
 	// the raw list draws a wall of diamonds. Collapse consecutive frames into
 	// runs first; only runs shorter than KEY_RUN_MIN stay diamonds.
-	const ikRuns = useMemo(() => groupKeyRuns(ikFrames), [ikFrames]);
+	const ikParts = useIkParts(displayFrameCount), ikRuns = useMemo(() => groupKeyRuns(ikParts.hidden.size ? ikFrames.filter((f) => !ikParts.hidden.has(f)) : ikFrames), [ikFrames, ikParts.hidden]); // ikParts: keys by body part (TimelineFixIslands.jsx); a frame of rest keys only draws no summary dot
 	const pinBands = useMemo(() => rangePins.map((pin) => ({
 		pin,
 		geometry: rangePinBandGeometry(pin, frameCount, displayFrameCount),
@@ -1790,7 +1789,7 @@ export default function Timeline({
 					)}
 
 					<div className="tl-body" ref={bodyRef}>
-						<div className={"tl-surface" + (!shots.length ? " empty-shots" : "") + (pathObject ? " prop-subject" : "")} style={{ "--tl-zoom": surfaceZoom }}>
+						<div className={"tl-surface" + (!shots.length ? " empty-shots" : "") + (pathObject ? " prop-subject" : "")} data-ik-parts={ikParts.rows || undefined} style={{ "--tl-zoom": surfaceZoom, "--tl-ik-parts": ikParts.rows }}>
 						<div className="tl-ruler">
 							<span className="tl-ruler-label">{ko("Frame", "프레임", "帧")}</span>
 							<div
@@ -1856,7 +1855,7 @@ export default function Timeline({
 									{name === IK_LANE ? (
 										<span className="tl-track-label-stack">
 											<span className="tl-track-subrow"><span className="tl-track-chip body" data-lane-label="Body">{ko("Body", "바디")}</span></span>
-											<span className="tl-track-subrow indent"><span className="tl-track-chip ik" data-lane-label="IK keys">{ko("IK keys", "IK 키")}</span>{ikMode && <FixTools />}</span>
+											<span className="tl-track-subrow indent"><IkPartsToggle ikParts={ikParts} /><span className="tl-track-chip ik" data-lane-label="IK keys">{ko("IK keys", "IK 키")}</span>{ikMode && <FixTools />}</span><IkPartLabels ikParts={ikParts} />
 										</span>
 									) : name === SHOTS_LANE ? (
 										<span className="tl-track-label-stack">
@@ -1915,13 +1914,7 @@ export default function Timeline({
 									{gridFrames.map((f) => (
 										<i key={f} className="tl-grid" style={{ "--tl-f": framePct(f, displayFrameCount) }} aria-hidden="true" />
 									))}
-									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} />}{name === IK_LANE && previewRanges.map((range, index) => {
-										const startFrame = Number.isFinite(Number(range?.startFrame)) ? Number(range.startFrame) : Number(range?.start ?? 0);
-										const endFrame = Number.isFinite(Number(range?.endFrame)) ? Number(range.endFrame) : Number(range?.end ?? startFrame);
-										const start = Math.max(0, Math.min(displayFrameCount - 1, Math.round(startFrame)));
-										const end = Math.max(start, Math.min(displayFrameCount - 1, Math.round(endFrame)));
-										return <span key={`preview:${index}`} className="tl-preview-range" style={{ "--tl-f-start": framePct(start, displayFrameCount), "--tl-f-end": framePct(end, displayFrameCount) }} aria-label={ko(`Preview range ${start}–${end}`, `미리보기 범위 ${start}–${end}`, `预览范围 ${start}–${end}`)} />;
-									})}
+									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} ikParts={ikParts} onJump={(f) => handlers.current.onScrub?.(f)} />}
 									{name === SHOTS_LANE && shots.length === 0 && (
 										<div className="tl-shot-empty">
 											<span>{ko("No shots yet — use + Add shot in the lane header to create one.", "아직 샷이 없습니다 — 레인 헤더의 + 샷 추가로 만들어 보세요.")}</span>
@@ -2135,7 +2128,7 @@ export default function Timeline({
 							aria-label={ko(`Pending pin range ${geometry.startFrame}–${geometry.endFrame}`, `대기 중인 고정 범위 ${geometry.startFrame}–${geometry.endFrame}`, `待定固定范围 ${geometry.startFrame}–${geometry.endFrame}`)}
 						/>;
 					})()}
-					{name === IK_LANE && motion?.segments && <TakeSegmentClips motion={motion} frame={frame} frameCount={frameCount} displayFrameCount={displayFrameCount} clipPct={clipPct} tools={motionTools} />}{name === IK_LANE && <BeatBoard motion={motion} frame={frame} displayFrameCount={displayFrameCount} clipPct={clipPct} onJump={(f) => handlers.current.onScrub?.(f)} />}
+					{name === IK_LANE && motion?.segments && <TakeSegmentClips motion={motion} frame={frame} frameCount={frameCount} displayFrameCount={displayFrameCount} clipPct={clipPct} tools={motionTools} />}
 
 									{name === IK_LANE &&
 										ikRuns.flatMap((run) => (run.length < KEY_RUN_MIN

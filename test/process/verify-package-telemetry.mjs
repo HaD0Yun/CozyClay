@@ -26,8 +26,8 @@ const signatureModule = join(packageRoot, "bin", "package-signature.mjs");
 writeFileSync(
 	signatureModule,
 	readFileSync(signatureModule, "utf8").replace(
-		/export const PACKAGE_SIGNATURE_PUBLIC_KEY = "[^"]+";/,
-		`export const PACKAGE_SIGNATURE_PUBLIC_KEY = ${JSON.stringify(publicDer)};`,
+		/const PACKAGE_SIGNATURE_PUBLIC_KEY = "[^"]+";/,
+		`const PACKAGE_SIGNATURE_PUBLIC_KEY = ${JSON.stringify(publicDer)};`,
 	),
 );
 const packageMetadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));

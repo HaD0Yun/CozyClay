@@ -210,24 +210,21 @@
 
 	/* -------------------------------------------------------- top bar */
 	/* Menus left, the mode switch centred (from the viewport overlays), the
-	   MCP state and Generate right. The bar itself lets the stage take the
+	   MCP state right. The bar itself lets the stage take the
 	   pointer between its capsules. */
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar {
+		top: 2px;
+		height: 22px;
 		gap: 0;
-		padding: 0;
+		padding: 0 44px 0 0;
 		background: none;
 		font-size: 13px;
 		pointer-events: none;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar > * { pointer-events: auto; }
-	/* File/Edit/Window/Help sit at the right end of the row, just left of the
-	   tool rail (30px wide, 8px inside the stage's right edge), so the row reads
-	   toggle, modes, menus, rail. */
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar { padding-right: calc(8px + 30px + 6px); }
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar { order: 2; }
+	/* Menus align with the stage edge, before the flexible spacer. */
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar,
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp,
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate {
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp {
 		box-sizing: border-box;
 		height: var(--shell-bar-h, 32px);
 		padding: 0 3px;
@@ -237,15 +234,20 @@
 		backdrop-filter: var(--capsule-blur);
 		box-shadow: var(--capsule-shadow);
 	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar {
+		order: 0;
+		height: 20px;
+		min-height: 0;
+	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .menubar-trigger {
-		height: 26px;
-		padding: 0 9px;
+		height: 18px;
+		min-height: 0;
+		padding: 0 8px;
 		border-radius: 13px;
 		color: var(--text-1);
-		font-size: 12px;
+		font-size: 11px;
 	}
-	/* MCP and Generate share one capsule: an icon button, a hairline, then
-	   the split button. */
+	/* MCP: an icon button and a hairline. */
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp {
 		position: relative;
 		display: flex;
@@ -274,14 +276,6 @@
 		height: 16px;
 		background: var(--divider-strong);
 	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp-text {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp-dot {
 		position: absolute;
 		top: 12px;
@@ -290,23 +284,6 @@
 		height: 6px;
 		margin: 0;
 		box-shadow: 0 0 0 1.5px var(--surface-panel);
-	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate {
-		gap: 1px;
-		padding: 4px 4px 4px 6px;
-		border-radius: 0 20px 20px 0;
-		clip-path: inset(-20px -20px -20px 0);
-	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate button {
-		height: 32px;
-		background: var(--primary-fill, var(--primary));
-		color: #fff;
-		font-size: 13px;
-		font-weight: 600;
-	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-generate button:hover {
-		background: var(--primary-fill, var(--primary));
-		filter: brightness(1.08);
 	}
 
 	/* ------------------------------------ project head (left column top) */
@@ -345,6 +322,16 @@
 	}
 
 	/* --------------------------------------------- viewport overlay rails */
+	/* Hairlines along the full application's top and bottom edges. */
+	.app[data-shell="glass"]:not([data-embed-mode])::before {
+		content: "";
+		position: absolute;
+		z-index: 89;
+		inset: 0;
+		box-sizing: border-box;
+		border-block: 1px solid var(--divider-strong);
+		pointer-events: none;
+	}
 	/* Overlays fill the open stage between the columns: the mode switch rides
 	   in the top bar's row, tools are a vertical rail on the left, view
 	   options a vertical rail on the right. */
@@ -368,11 +355,11 @@
 		pointer-events: auto;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-mode-toolbar {
-		top: var(--shell-row-top, 14px);
+		top: 3px;
 		left: 50%;
 		display: flex;
 		align-items: center;
-		height: var(--shell-bar-h, 32px);
+		height: 20px;
 		margin: 0;
 		padding: 0 3px;
 		border: 0;
@@ -388,13 +375,14 @@
 		align-items: center;
 		gap: 6px;
 		width: auto;
-		height: 26px;
+		height: 18px;
+		min-height: 0;
 		padding: 0 10px;
 		border: 0;
 		border-radius: 13px;
 		background: transparent;
 		color: var(--text-2);
-		font: 500 12px var(--sans);
+		font: 500 11px var(--sans);
 		letter-spacing: -.005em;
 		transition: color .12s ease, background-color .12s ease;
 	}
@@ -565,13 +553,14 @@
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-snap-value .vp-icon { width: 12px; height: 12px; }
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail {
 		position: absolute;
-		top: var(--shell-row-top, 14px);
-		right: 8px;
+		top: 3px;
+		right: 6px;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		width: 30px;
-		padding: 2px 0;
+		width: 28px;
+		padding: 3px 0;
+		gap: 0;
 		border-radius: 15px;
 		background: var(--glass-capsule);
 		-webkit-backdrop-filter: var(--capsule-blur);
@@ -582,18 +571,18 @@
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail > .vp-overlay-left,
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail > .vp-overlay-right {
 		position: static;
-		width: 100%;
+		width: 26px;
 		padding: 0;
 		border-radius: 0;
 		background: none;
 		-webkit-backdrop-filter: none;
 		backdrop-filter: none;
 		box-shadow: none;
-		gap: 1px;
+		gap: 2px;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail > .vp-overlay-right {
 		margin-top: 3px;
-		padding-top: 3px;
+		padding-top: 0;
 		border-top: 1px solid var(--row-divider, rgba(127, 127, 127, .2));
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail :is(.vp-pill:not(.vp-view-pill), .vp-tool-key, .vp-value, .vp-pill-segment) {
@@ -602,7 +591,19 @@
 		height: 24px;
 		min-height: 24px;
 	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-toolbar-divider { width: 14px; margin: 2px 0; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail button:not(:where(.vp-menu *)) {
+		width: 24px;
+		height: 24px;
+		min-width: 24px;
+		min-height: 24px;
+		padding: 0;
+		margin: 0;
+		transform: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-toolbar-divider { width: 16px; height: 1px; margin: 4px 0; }
 	/* Compact: every cell is a 28px icon. Snap keeps its grid icon (the 5cm ·
 	   5° step stays in its title); speed keeps only its value; the eye menu
 	   drops the 36px pill it has elsewhere. */
@@ -633,9 +634,10 @@
 		place-items: center;
 		width: 24px;
 		min-width: 24px;
-		height: 18px;
-		min-height: 18px;
+		height: 24px;
+		min-height: 24px;
 		padding: 0;
+		margin: 0;
 	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-speed .vp-icon { display: none; }
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail .vp-speed-value { font-size: 9.5px; line-height: 1; }
@@ -762,8 +764,7 @@
 
 	/* ------------------------------------------------- narrower windows */
 	/* The open stage shrinks first; the top row gives way in steps: mode
-	   names go (icons stay), then the mode switch drops under the top row,
-	   then Generate shortens. */
+	   names go (icons stay), then the mode switch drops under the top row. */
 	@media (max-width: 1500px) {
 		.app[data-shell="glass"]:not([data-embed-mode]) .vp-mode-key { padding: 0 9px; }
 		.app[data-shell="glass"]:not([data-embed-mode]) .vp-mode-key .vp-icon { display: block; }

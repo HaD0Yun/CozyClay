@@ -1,4 +1,4 @@
-// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+// Vendored snapshot, generated from dc-runtime/src/*.ts. That source is not in this repository, so there is no build step here; do not edit.
 "use strict";
 (() => {
   var __defProp = Object.defineProperty;

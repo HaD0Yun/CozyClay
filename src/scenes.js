@@ -36,11 +36,11 @@ export const LEGACY_SCENES_STORAGE_KEYS = Object.freeze([
 export { TIMELINE_FRAME_FPS };
 
 /** Rigged character models shipped in public/models. The id is both the FBX
- * file stem and the wire `source.rig` value sent to ARDY. */
+ * file stem and the motion3 rig name (src/motion3/rigs/<id>.json). */
 export const CHARACTER_MODEL_IDS = Object.freeze(["y-bot-tpose", "x-bot-tpose"]);
 export const DEFAULT_CHARACTER_MODEL = "y-bot-tpose";
-/** A rig-free capsule stand-in for blocking. It has no FBX and is never sent
- * to ARDY, so it extends the accepted kinds without joining
+/** A rig-free capsule stand-in for blocking. It has no FBX and no motion3
+ * rig, so it extends the accepted kinds without joining
  * CHARACTER_MODEL_IDS. */
 export const PROXY_FIGURE_MODEL = "proxy-figure";
 export const CHARACTER_KIND_IDS = Object.freeze([...CHARACTER_MODEL_IDS, PROXY_FIGURE_MODEL]);
@@ -49,13 +49,13 @@ export const POSTURES = Object.freeze(["stand", "sit", "lie"]);
 export function isProxyFigure(character) {
 	return character?.model === PROXY_FIGURE_MODEL;
 }
-export const DEFAULT_SUBJECT_ONE = "a young woman in a tan coat";
-export const DEFAULT_SUBJECT_TWO = "a man in a dark coat";
+// Descriptions the app once invented for a character with none (#1212): a stored one loads as no subject.
+const PLACEHOLDER_SUBJECTS = new Set(["a young woman in a tan coat", "a man in a dark coat", "a person"]);
 
 // The one-character cast every scene used to open with. A new scene now
 // starts on an empty stage; legacy documents that never stored a cast, and
 // fixtures that want a body to work with, still seed this one.
-const SEED_CHARACTER = Object.freeze({ id: "char-a", model: DEFAULT_CHARACTER_MODEL, x: 0, z: 0, rot: 0, hidden: false, pose: null, subject: DEFAULT_SUBJECT_ONE });
+const SEED_CHARACTER = Object.freeze({ id: "char-a", model: DEFAULT_CHARACTER_MODEL, x: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "" });
 const DEFAULT_SCENE_STAGE = Object.freeze({
 	characters: Object.freeze([]),
 	hasCharSheet: false,
@@ -64,11 +64,9 @@ const DEFAULT_SCENE_STAGE = Object.freeze({
 	// What the location IS and how it should look: the two lines every shot
 	// prompt is built from, plus the flag saying the author has a sheet for it
 	// instead. Session state until #345 — a reopened scene came back describing
-	// the previous room. The strings mirror the studio's own first-run defaults
-	// (app-stage.jsx DEFAULT_ENVIRONMENT); this module stays free of renderer
-	// imports, so they are repeated rather than borrowed.
-	environment: "a sunlit modern living room",
-	style: "moody cinematic lighting, 35mm film look",
+	// the previous room. A new scene starts with neither; the author writes them.
+	environment: "",
+	style: "",
 	hasEnvSheet: false,
 	shotAspect: "16:9",
 	cameraPresetId: null,
@@ -132,8 +130,8 @@ export function createCharacterEntry(source = null, index = 0) {
 		model: CHARACTER_KIND_IDS.includes(s.model) || isImportedCharacter(s) ? s.model : DEFAULT_CHARACTER_MODEL,
 		posture: POSTURES.includes(s.posture) ? s.posture : "stand",
 		x: Math.max(CHARACTER_POSITION_LIMITS.min.x, Math.min(CHARACTER_POSITION_LIMITS.max.x, finiteOr(s.x, 0))),
-		// Lift is bounded by the deck and the shared room headroom, so every
-		// writer (inspector field, viewport gizmo, load path) shares one envelope.
+		// Lift (y) is bounded by the deck and the shared room headroom; only y has
+		// one envelope for every writer (inspector field, viewport gizmo, load path).
 		y: Math.max(CHARACTER_POSITION_LIMITS.min.y, Math.min(CHARACTER_POSITION_LIMITS.max.y, finiteOr(s.y, 0))),
 		z: Math.max(CHARACTER_POSITION_LIMITS.min.z, Math.min(CHARACTER_POSITION_LIMITS.max.z, finiteOr(s.z, 0))),
 		rot: wrapAngle(finiteOr(s.rot, 0)),
@@ -154,7 +152,7 @@ export function createCharacterEntry(source = null, index = 0) {
 		// the FILMED person's leg ratio. It persists with the entry because the
 		// take's root travel was authored against it — see the render path.
 		scale: clampScale(s.scale),
-		subject: typeof s.subject === "string" ? s.subject : index === 0 ? DEFAULT_SUBJECT_ONE : DEFAULT_SUBJECT_TWO,
+		subject: typeof s.subject === "string" && !PLACEHOLDER_SUBJECTS.has(s.subject) ? s.subject : "",
 		// The character's animation layer: its own root path.
 		layer: normalizeLayer(s.layer),
 		// The Pose-mode / IK edits on this character's layer (encoded keys, range
@@ -237,9 +235,9 @@ export function migrateStageFrames(stage) {
  * poseB/subject/subject2). Fold that cast into the characters list so the
  * rest of the app only ever sees one shape. */
 function migrateLegacyCast(source) {
-	const cast = [createCharacterEntry({ ...plainObject(source.charA) ? source.charA : {}, id: "char-a", pose: source.poseA ?? null, subject: source.subject ?? DEFAULT_SUBJECT_ONE }, 0)];
+	const cast = [createCharacterEntry({ ...plainObject(source.charA) ? source.charA : {}, id: "char-a", pose: source.poseA ?? null, subject: source.subject }, 0)];
 	if (source.showB === true) {
-		cast.push(createCharacterEntry({ ...plainObject(source.charB) ? source.charB : {}, id: "char-b", pose: source.poseB ?? null, subject: source.subject2 ?? DEFAULT_SUBJECT_TWO }, 1));
+		cast.push(createCharacterEntry({ ...plainObject(source.charB) ? source.charB : {}, id: "char-b", pose: source.poseB ?? null, subject: source.subject2 }, 1));
 	}
 	return cast;
 }
