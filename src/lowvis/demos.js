@@ -69,6 +69,37 @@ export const DEMOS = Object.freeze({
 			{ who: "b", from: 300, to: 360, do: "stand up straight, look at a" },
 		],
 	},
+	push: {
+		frames: 336,
+		characters: [{ id: "a", at: [0, 0], heading: 0 }],
+		props: [{ id: "crate", size: [0.8, 0.8, 0.8], at: [0, 0.4, 2.0], moves: true }], // about 100 kg
+		beats: [
+			{ who: "a", from: 0, to: 48, do: "walk up to the heavy crate" },
+			{ who: "a", from: 48, to: 72, do: "set both hands on the crate" },
+			{ who: "a", from: 72, to: 114, do: "brace the feet back, lean the whole body in and shove: the crate does not move" },
+			{ who: "a", from: 114, to: 258, do: "the crate breaks loose and creeps 2 m; short driving steps, feet behind the hips" },
+			{ who: "a", from: 258, to: 294, do: "stop pushing: the crate stops at once; let go and straighten up" },
+			{ who: "a", from: 294, to: 336, do: "wipe the brow, stand" },
+		],
+	},
+	chop: {
+		frames: 312,
+		characters: [{ id: "a", at: [0, 0], heading: 0 }],
+		props: [
+			{ id: "stump", size: [0.25, 1.0, 0.25], at: [0, 0.5, 1.6] },
+			{ id: "trunk", size: [0.25, 1.4, 0.25], at: [0, 1.7, 1.6], moves: true },
+			{ id: "sword", size: [0.04, 0.04, 1.0], at: [-0.26, 0.9, 0.4], moves: true },
+		],
+		beats: [
+			{ who: "a", from: 0, to: 30, do: "stand with the sword in the right hand" },
+			{ who: "a", from: 30, to: 78, do: "walk to the tree, step into a stance beside it" },
+			{ who: "a", from: 78, to: 126, do: "wind up and strike: the blade stops in the trunk" },
+			{ who: "a", from: 126, to: 168, do: "wind up and strike again" },
+			{ who: "a", from: 168, to: 204, do: "big wind-up: chest and hips turn away, sword far back" },
+			{ who: "a", from: 204, to: 240, do: "fast cut through the trunk at frame 208, the body weight follows; follow through and settle" },
+			{ who: "a", from: 240, to: 312, do: "step back, lower the sword, stand; the upper trunk lies on the floor" },
+		],
+	},
 });
 
 export const DEMO_IDS = Object.freeze(Object.keys(DEMOS));

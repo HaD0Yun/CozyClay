@@ -7,7 +7,10 @@ import { SOLE, TOE } from "./solve.js";
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand];
 
 export function checkClip(clip, aux) {
-	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0 };
+	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [] };
+	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
+	// signed distance from a world point to a prop's box at frame f (negative = inside)
+	const toBox = (pt, p, f) => { const { c, q } = propAt(p, f), l = qRotate(qConj(q), [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2); return Math.hypot(...l.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...l)); };
 	const at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
 	const rot = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 4; return [c.quat[i], c.quat[i + 1], c.quat[i + 2], c.quat[i + 3]]; };
 	const contact = (c, f, j) => [TOE, SOLE].map(o => { const a = at(c, f, j), d = qRotate(rot(c, f, j), o); return [a[0] + d[0], a[1] + d[1], a[2] + d[2]]; });
@@ -29,7 +32,7 @@ export function checkClip(clip, aux) {
 		if (p.pos.length === 3) continue;
 		for (let f = 0; f < F; f++) {
 			const c = clip.characters.find(ch => ch.id === aux.holders[p.id][f]);
-			if (!c) continue;
+			if (!c || aux.grips[p.id][f]) continue;
 			r.carryFrames++;
 			const centre = p.pos.slice(f * 3, f * 3 + 3), q = qConj(p.quat.slice(f * 4, f * 4 + 4));
 			for (const j of HANDS) { // signed distance from the wrist joint to the box surface (negative = inside)
@@ -38,6 +41,32 @@ export function checkClip(clip, aux) {
 				r.carryMin = Math.min(r.carryMin ?? d, d); r.carryMax = Math.max(r.carryMax ?? d, d);
 			}
 		}
+	}
+	for (const p of clip.props) {
+		if (p.pos.length === 3) continue;
+		// travel of a prop that nothing holds and no key moves: must be 0
+		for (let f = 1; f < F; f++) if (!aux.holders[p.id][f] && !aux.holders[p.id][f - 1] && !aux.keyed[p.id][f]) r.freeTravel += Math.hypot(p.pos[f * 3] - p.pos[f * 3 - 3], p.pos[f * 3 + 1] - p.pos[f * 3 - 2], p.pos[f * 3 + 2] - p.pos[f * 3 - 1]);
+		// a pushed prop: clearance of every joint but the hands, over the whole clip
+		if (aux.slid[p.id]) for (const c of clip.characters) for (let f = 0; f < F; f++) for (let j = 0; j < JOINT_COUNT; j++) if (!HANDS.includes(j)) r.bodyToBox = Math.min(r.bodyToBox ?? Infinity, toBox(at(c, f, j), p, f));
+		// a prop fixed in one hand: drift of its centre and of its rotation in the hand's frame
+		let ref = null;
+		for (let f = 0; f < F; f++) {
+			const g = aux.grips[p.id][f], c = g && clip.characters.find(ch => ch.id === g.c);
+			if (!c) continue;
+			const j = HANDS[g.hand], hq = qConj(rot(c, f, j)), { c: pc, q: pq } = propAt(p, f), h = at(c, f, j);
+			const off = qRotate(hq, [pc[0] - h[0], pc[1] - h[1], pc[2] - h[2]]), axis = qRotate(hq, qRotate(pq, [0, 0, 1]));
+			ref ??= { off, axis };
+			r.gripDrift = Math.max(r.gripDrift ?? 0, Math.hypot(off[0] - ref.off[0], off[1] - ref.off[1], off[2] - ref.off[2]));
+			r.gripTurn = Math.max(r.gripTurn ?? 0, Math.asin(Math.min(1, Math.hypot(axis[1] * ref.axis[2] - axis[2] * ref.axis[1], axis[2] * ref.axis[0] - axis[0] * ref.axis[2], axis[0] * ref.axis[1] - axis[1] * ref.axis[0]))));
+		}
+	}
+	// when a keyed prop starts to move (the trunk at the cut frame): distance from each hand-held prop's long axis to it
+	for (const k of aux.keyStarts) for (const p of clip.props) {
+		if (!aux.grips[p.id]?.[k.f]) continue;
+		const target = clip.props.find(t => t.id === k.prop), { c, q } = propAt(p, k.f);
+		let d = Infinity;
+		for (let n = 0; n <= 40; n++) { const o = qRotate(q, [0, 0, (n / 40 - 0.5) * p.size[2]]); d = Math.min(d, toBox([c[0] + o[0], c[1] + o[1], c[2] + o[2]], target, k.f)); }
+		r.cuts.push({ f: k.f, blade: p.id, target: k.prop, dist: d });
 	}
 	return r;
 }

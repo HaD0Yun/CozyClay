@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the four demos with engine-simple, validates each clip, writes public/lowvis/clips/simple/<demo>.json and
+// Builds every demo with engine-simple, validates each clip, writes public/lowvis/clips/simple/<demo>.json and
 // prints the build time and the self-checks (all measured from the written clip).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { serializeClip, validateClip } from "../../../src/lowvis/clip.js";
@@ -23,6 +23,11 @@ for (const demo of DEMO_IDS) {
 	console.log([demo.padEnd(11), String(clip.frameCount).padStart(6), clip.stats.buildMs.toFixed(1).padStart(7), (serializeClip(clip).length / 1024).toFixed(0).padStart(3),
 		mm(valid.stretch).padStart(10), `${mm(c.slide)}(${mm(c.slideStep)})`.padStart(15), mm(c.footLow).padStart(11), mm(c.jointLow).padStart(12),
 		(c.carryFrames ? `${mm(c.carryMin)}..${mm(c.carryMax)}` : "-").padStart(19), valid.ok ? "  ok" : "  FAIL"].join(" "));
+	if (c.bodyToBox != null) console.log(`  ${demo}: hands-to-face while pushing ${mm(c.carryMin)}..${mm(c.carryMax)} mm; body-to-crate clearance ${mm(c.bodyToBox)} mm (negative = inside)`);
+	if (parsed.props.some(p => p.pos.length > 3)) console.log(`  ${demo}: prop travel while nothing holds or keys it ${mm(c.freeTravel)} mm`);
+	if (c.gripDrift != null) console.log(`  ${demo}: prop-in-hand drift ${mm(c.gripDrift)} mm, ${(c.gripTurn * 180 / Math.PI).toFixed(3)} deg`);
+	for (const k of c.cuts) console.log(`  ${demo}: ${k.blade} to ${k.target} at cut frame ${k.f}: ${mm(Math.max(0, k.dist))} mm (0 = the blade is inside it, depth ${mm(Math.max(0, -k.dist))} mm)`);
+	Object.assign(clip.stats, { freeTravel: c.freeTravel, bodyToBox: c.bodyToBox, gripDrift: c.gripDrift, cuts: c.cuts });
 	for (const p of aux.placed) console.log(`  ${demo}: prop ${p.prop} released at frame ${p.f}, ${mm(p.miss)} mm from its place target`);
 	if (!valid.ok) { failed = true; console.error(valid.errors); }
 }

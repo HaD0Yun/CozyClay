@@ -13,11 +13,13 @@ const HIP_FWD = REST[J.Hips][2], FOOT_X = REST[J.LeftFoot][0], FOOT_Z = REST[J.L
 const SETTLE = 3; // frames kept still at the end of a move
 const GAIT = {
 	// stepFrames: frames per step; sw: swing time / step time (over 1 = flight phase); base, bobA: pelvis height
-	walk: { stepFrames: 12, sw: 0.8, maxStride: 0.62, lift: 0.07, base: -0.035, bobA: 0.018, bobPh: 0.4, lean: 0.05, heelOff: 0.55, strike: -0.3, armZ: 0.2, armUp: 0, armFwd: 0, twist: 0.1 },
-	run: { stepFrames: 9, sw: 1.25, maxStride: 1.2, lift: 0.15, base: -0.04, bobA: 0.035, bobPh: 0.15, lean: 0.26, heelOff: 0.45, strike: -0.05, armZ: 0.3, armUp: 0.2, armFwd: 0.06, twist: 0.18 },
+	walk: { stepFrames: 12, sw: 0.8, maxStride: 0.62, lift: 0.07, base: -0.035, bobA: 0.018, bobPh: 0.4, lean: 0.05, heelOff: 0.55, strike: -0.3, armZ: 0.2, armUp: 0, armFwd: 0, twist: 0.1, drop: 0, pitch: 0, bow: 0, trail: 0, toe: 0, pulse: 0 },
+	run: { stepFrames: 9, sw: 1.25, maxStride: 1.2, lift: 0.15, base: -0.04, bobA: 0.035, bobPh: 0.15, lean: 0.26, heelOff: 0.45, strike: -0.05, armZ: 0.3, armUp: 0.2, armFwd: 0.06, twist: 0.18, drop: 0, pitch: 0, bow: 0, trail: 0, toe: 0, pulse: 0 },
+	// push: a low, steep lean on the balls of the feet, which trail the hips; short steps; speed pulses with each step
+	push: { stepFrames: 12, sw: 0.6, maxStride: 0.4, lift: 0.02, base: 0, bobA: 0.012, bobPh: 0.4, lean: 0, heelOff: 0, strike: 0, armZ: 0, armUp: 0, armFwd: 0, twist: 0, drop: 0.27, pitch: 0.62, bow: 0.22, trail: 0.6, toe: 0.5, pulse: 0.6 },
 };
 const KEYS = Object.keys(GAIT.walk);
-const blend = r => Object.fromEntries(KEYS.map(k => [k, mix(GAIT.walk[k], GAIT.run[k], r)]));
+const blend = ([r, p]) => Object.fromEntries(KEYS.map(k => [k, GAIT.walk[k] + r * (GAIT.run[k] - GAIT.walk[k]) + p * (GAIT.push[k] - GAIT.walk[k])]));
 
 const dir2 = yaw => [Math.sin(yaw), Math.cos(yaw)];
 const dist2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -45,27 +47,28 @@ export function standB(st) {
 }
 export const hold = (st, n) => Array.from({ length: Math.max(0, n) }, () => st.lastB ? { ...st.lastB, p: st.lastB.p.slice() } : standB(st));
 
-/** Plays a step plan [{ t0, dur, stepT, side }] over T frames along posAt(t) / yawAt(t). runAt(t) is 0 walk .. 1 run. */
-function stepper(st, T, plan, posAt, yawAt, runAt) {
+/** Plays a step plan [{ t0, dur, stepT, side }] over T frames along posAt(t) / yawAt(t). mixAt(t) is [run, push] weights (0, 0 = walk). */
+function stepper(st, T, plan, posAt, yawAt, mixAt) {
 	const swings = [[], []], cur = st.feet.map(f => ({ g: f.g.slice(), yaw: f.yaw }));
 	plan.forEach((s, k) => {
-		const nxt = plan[k + 2], tau = nxt ? (s.t0 + s.dur + nxt.t0) / 2 : T, yaw = yawAt(tau);
-		const from = cur[s.side], to = { g: home(posAt(tau), yaw, s.side ? -1 : 1), yaw: from.yaw + wrap(yaw - from.yaw) };
-		const [sn, cs] = dir2(yaw), d = dist2(from.g, to.g);
+		const nxt = plan[k + 2], tau = nxt ? (s.t0 + s.dur + nxt.t0) / 2 : T, yaw = yawAt(tau), [sn, cs] = dir2(yaw);
+		const c = posAt(tau), trail = blend(mixAt(tau)).trail, from = cur[s.side];
+		const to = { g: home([c[0] - sn * trail, c[1] - cs * trail], yaw, s.side ? -1 : 1), yaw: from.yaw + wrap(yaw - from.yaw) }, d = dist2(from.g, to.g);
 		// sf: how much heel-toe roll the step gets (forward strides only); small and backward steps stay flat
 		swings[s.side].push({ t0: s.t0, t1: s.t0 + s.dur, from, to, d, sf: clamp(((to.g[0] - from.g[0]) * sn + (to.g[1] - from.g[1]) * cs) / 0.5) });
 		cur[s.side] = to;
 	});
 	const speed = t => dist2(posAt(t + 0.5), posAt(t - 0.5)) * 24;
-	const frames = [];
+	const frames = [], was = [0, 0];
 	for (let t = 0; t < T; t++) {
-		const P = blend(runAt(t)), yaw = yawAt(t), c = posAt(t), [sn, cs] = dir2(yaw);
+		const [r, pw] = mixAt(t), P = blend([r, pw]), yaw = yawAt(t), c = posAt(t), [sn, cs] = dir2(yaw);
 		const feet = swings.map((list, side) => {
 			const sw = list.find(s => t >= s.t0 && t < s.t1);
 			if (sw) {
-				const u = (t - sw.t0) / (sw.t1 - sw.t0), r = runAt(t), e = mix(0.4 * u + 0.6 * smooth(u), u ** 1.4, r); // a run foot trails, then snaps forward
-				const lift = (0.025 + P.lift * clamp(sw.d / 0.5)) * Math.sin(Math.PI * u ** mix(1, 0.75, r)) ** 0.9;
-				return { ...footPose(mix2(sw.from.g, sw.to.g, e), lift, mix(sw.from.yaw, sw.to.yaw, smooth(u)), mix(sw.t0 < 2 ? 0 : P.heelOff, P.strike, smooth(u)) * sw.sf), planted: false }; // the first step has no heel-off before it
+				const u = (t - sw.t0) / (sw.t1 - sw.t0), e = mix(0.4 * u + 0.6 * smooth(u), u ** 1.4, r); // a run foot trails, then snaps forward
+				const lift = (0.025 + P.lift * clamp(sw.d / 0.5)) * Math.sin(Math.PI * u ** mix(1, 0.75, r)) ** 1.6 * smooth(u / 0.3); // eased lift-off: no knee pop on the first frame
+				was[side] = 0;
+				return { ...footPose(mix2(sw.from.g, sw.to.g, e), lift, mix(sw.from.yaw, sw.to.yaw, smooth(u)), Math.max(P.toe, mix(sw.t0 < 2 ? 0 : P.heelOff, pw ? 0 : P.strike, smooth(u)) * sw.sf)), planted: false }; // the first step has no heel-off before it
 			}
 			const last = list.findLast(s => s.t1 <= t), next = list.find(s => s.t0 > t), at = last ? last.to : st.feet[side];
 			// heel strike rolls off, the foot lies flat for at least one frame, then the heel lifts before the next step
@@ -73,16 +76,19 @@ function stepper(st, T, plan, posAt, yawAt, runAt) {
 			let pitch = 0;
 			if (last && t - last.t1 < on) pitch = P.strike * last.sf * (1 - (t - last.t1) / on);
 			if (next && next.t0 - t < off) pitch = P.heelOff * next.sf * smooth(1 - (next.t0 - t) / off);
+			if (pw > 0 && pitch >= 0) pitch = Math.max(pitch, P.toe); // pushing: on the balls of the feet
+			if (pitch * was[side] < 0) pitch = 0; // between rolling on the heel and on the toe the foot is flat for a frame
+			was[side] = pitch;
 			return { ...footPose(at.g, 0, at.yaw, pitch), planted: true };
 		});
 		const v = speed(t), act = clamp(v / 0.6), acc = (speed(t + 1) - speed(t - 1)) * 12;
 		const step = plan.findLast(s => s.t0 <= t), ph = step ? (t - step.t0) / step.stepT : 0;
 		// w: +1 left foot ahead, -1 right foot ahead; drives the arm swing and the pelvis / chest counter-twist
 		const w = clamp(((feet[0].a[0] - feet[1].a[0]) * sn + (feet[0].a[2] - feet[1].a[2]) * cs) / 0.35, -1, 1) * act;
-		const lean = act * P.lean + clamp(0.05 * acc, -0.12, 0.12), r = runAt(t);
+		const lean = act * P.lean + clamp(0.05 * acc, -0.12, 0.12) * (1 - pw);
 		frames.push({
-			p: [c[0] + sn * HIP_FWD, STAND_Y + act * (P.base + P.bobA * Math.cos(2 * Math.PI * (ph - P.bobPh))), c[1] + cs * HIP_FWD],
-			q: qMul(qY(yaw - 0.5 * P.twist * w), qX(0.35 * lean)), yaw, lean: 0.65 * lean, twist: 1.2 * P.twist * w, feet,
+			p: [c[0] + sn * HIP_FWD, STAND_Y - P.drop + act * (P.base + P.bobA * Math.cos(2 * Math.PI * (ph - P.bobPh))), c[1] + cs * HIP_FWD],
+			q: qMul(qY(yaw - 0.5 * P.twist * w), qX(0.35 * lean + P.pitch)), yaw, lean: 0.65 * lean + P.bow, twist: 1.2 * P.twist * w, feet,
 			hands: [1, -1].map(s => [s * (0.22 - 0.03 * r), -0.13 + act * P.armUp + 0.03 * Math.abs(w), 0.02 + act * P.armFwd - s * w * P.armZ]),
 		});
 	}
@@ -107,7 +113,7 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst } = {}) {
 	const sw = GAIT.walk.sw, stepT = Math.min(L > 0.03 ? 13 : 11, (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
 	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = burst ? EASE.out : smooth, side = firstSide(st, D, dyaw);
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
-	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t / Tm)), t => st.yaw + dyaw * smooth(t / Tm), () => 0);
+	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t / Tm)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
 	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st };
 }
 
@@ -135,9 +141,9 @@ function buildPath(pts, dirs) {
 }
 
 /** Distance travelled at frames 0..N for a move of length d that enters at speed vin and leaves at vout (m/frame). */
-function warp(N, d, vin, vout) {
+function warp(N, d, vin, vout, pulse = () => 1) {
 	const Ta = Math.min(12, N / 3), vc = Math.max(0, (d - (vin + vout) * Ta / 2) / (N - Ta));
-	const v = t => t < Ta ? mix(vin, vc, smooth(t / Ta)) : t > N - Ta ? mix(vc, vout, smooth((t - (N - Ta)) / Ta)) : vc;
+	const v = t => (t < Ta ? mix(vin, vc, smooth(t / Ta)) : t > N - Ta ? mix(vc, vout, smooth((t - (N - Ta)) / Ta)) : vc) * pulse(t);
 	const S = [0];
 	for (let t = 0; t < N; t++) S.push(S[t] + (v(t) + v(t + 1)) / 2);
 	return S.map(s => S[N] > 1e-9 ? s * d / S[N] : 0);
@@ -149,21 +155,24 @@ const turnFrames = (d, N) => Math.min(N >> 1, Math.round(6 + 10 * Math.abs(d) / 
 function travel(st, segs) {
 	segs = segs.map(s => ({ ...s }));
 	const out = [], n = segs.length, last = segs[n - 1];
-	let d0 = wrap(yawTo(st.p, segs[0].to) - st.yaw);
+	const all = [st.p, ...segs.map(s => s.to)];
+	// direction of leg i of the route; a leg of no length (push in place, feet together) takes the nearest real one
+	const legYaw = i => { for (let k = 0; k < n; k++) for (const j of [i + k, i - k]) if (j >= 0 && j < n && dist2(all[j], all[j + 1]) > 0.02) return yawTo(all[j], all[j + 1]); return st.yaw; };
+	let d0 = wrap(legYaw(0) - st.yaw);
 	if (Math.abs(d0) > rad(100)) { // facing away: turn on the spot first
 		const Na = turnFrames(d0, segs[0].N), r = shuffle(st, Na, { yaw: st.yaw + d0 });
 		out.push(...r.frames); st = r.st; segs[0].N -= Na; d0 = 0;
 	}
-	const pts = [st.p, ...segs.map(s => s.to)], yl = yawTo(pts[n - 1], pts[n]);
+	const pts = [st.p, ...segs.map(s => s.to)], yl = legYaw(n - 1);
 	let post = null, Nb = 0, endDir = dir2(yl);
 	if (last.heading != null) {
 		if (Math.abs(wrap(last.heading - yl)) > rad(100)) { post = last.heading; Nb = turnFrames(wrap(post - yl), last.N); last.N -= Nb; }
 		else endDir = dir2(last.heading);
 	}
 	const dirs = pts.map((p, i) => {
-		if (i === 0) return dir2(Math.abs(d0) < rad(8) ? yawTo(pts[0], pts[1]) : st.yaw);
+		if (i === 0) return dir2(Math.abs(d0) < rad(8) ? legYaw(0) : st.yaw);
 		if (i === n) return endDir;
-		return dir2(segs[i - 1].heading ?? yawTo(pts[i - 1], pts[i + 1]));
+		return dir2(segs[i - 1].heading ?? (dist2(pts[i - 1], pts[i + 1]) > 0.02 ? yawTo(pts[i - 1], pts[i + 1]) : legYaw(i)));
 	});
 	const path = buildPath(pts, dirs), lens = segs.map((_, i) => path.segEnd[i] - (i ? path.segEnd[i - 1] : 0));
 	segs.forEach((s, i) => {
@@ -178,8 +187,9 @@ function travel(st, segs) {
 	const S = [0], plan = [];
 	let side = firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
 	segs.forEach((s, i) => {
-		const G = GAIT[s.kind], F0 = S.length - 1, base = S.at(-1), w = warp(s.use, lens[i], vb(i), vb(i + 1));
+		const G = GAIT[s.kind], F0 = S.length - 1, base = S.at(-1);
 		const stepT = i === n - 1 ? (s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k;
+		const w = warp(s.use, lens[i], vb(i), vb(i + 1), t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw)));
 		for (let j = 0; j < s.k; j++, side ^= 1) plan.push({ t0: F0 + j * stepT, dur: G.sw * stepT, stepT, side });
 		for (let t = 1; t <= s.use; t++) S.push(base + w[t]);
 		s.F0 = F0;
@@ -189,9 +199,9 @@ function travel(st, segs) {
 	const yawRaw = S.map(s => (prev += wrap(path.yaw(s) - prev)));
 	const dStart = st.yaw - yawRaw[0], dEnd = post == null && last.heading != null ? wrap(last.heading - yawRaw[Tm]) : 0;
 	const yawTab = yawRaw.map((y, t) => y + dStart * (1 - smooth(t / 10)) + dEnd * smooth((t - (Tm - 10)) / 10));
-	const isRun = t => segs.findLast(s => s.F0 <= Math.max(0, t)).kind === "run" ? 1 : 0;
-	const runAt = t => { let a = 0; for (let d = -5; d <= 5; d++) a += isRun(t + d); return a / 11; };
-	let r = stepper(st, Tm, plan, t => path.at(tab(S, t)), t => tab(yawTab, t), runAt);
+	const kindAt = t => segs.findLast(s => s.F0 <= Math.max(0, t)).kind;
+	const share = (kind, t, half) => { let a = 0; for (let d = -half; d <= half; d++) a += kindAt(t + d) === kind; return a / (2 * half + 1); };
+	let r = stepper(st, Tm, plan, t => path.at(tab(S, t)), t => tab(yawTab, t), t => [share("run", t, 5), share("push", t - 9, 9)]); // the push posture comes on after its beat starts and goes after it ends
 	out.push(...r.frames);
 	const rest = last.N - last.use;
 	if (post != null) { r = shuffle(r.st, Nb + rest, { yaw: post }); out.push(...r.frames); }
@@ -202,7 +212,7 @@ function travel(st, segs) {
 /** One walk / run action or a chain of them. A single short, `facing` or `steps` move is a shuffle. */
 export function locomote(st, segs) {
 	const s = segs[0];
-	if (segs.length === 1 && (s.facing != null || s.steps != null || dist2(st.p, s.to) < 0.5))
+	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || dist2(st.p, s.to) < 0.5))
 		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst });
 	return travel(st, segs);
 }

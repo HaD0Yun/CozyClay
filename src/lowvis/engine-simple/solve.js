@@ -4,11 +4,13 @@
 // B = { p: Hips world position, q: pelvis world quaternion, yaw: heading (rad), lean, twist: chest relative to the
 //       pelvis (rad), feet: [L, R] of { a: ankle world position, q: foot world quaternion, planted, floor },
 //       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint }
-// U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset },
+// U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
+//                          aim: world direction of the hand's thumb side, aimW: 0..1 },
+//       hipTurn: pelvis turn about Y over planted feet (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
 //       assist: the previous frame's { bend, drop } of the reach assist }
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS } from "../rig17.js";
-import { Y, Z, add, dot, len, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qX, qY, sub } from "./math.js";
+import { Y, Z, add, dot, len, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, sub } from "./math.js";
 
 export const SIDES = [
 	{ s: 1, arm: J.LeftArm, fore: J.LeftForeArm, hand: J.LeftHand, up: J.LeftUpLeg, leg: J.LeftLeg, foot: J.LeftFoot },
@@ -45,7 +47,7 @@ export function solve(B, U = {}) {
 	let bend = 0, drop = 0;
 	const torso = (extraDrop = 0) => {
 		const hips = [hips0[0] + fwd[0] * 0.12 * bend, hips0[1] - drop - extraDrop, hips0[2] + fwd[2] * 0.12 * bend];
-		const qP = qMul(B.q, qX(0.6 * bend)), lean = lean0 + 0.4 * bend;
+		const qP = qMul(qMul(qY(U.hipTurn ?? 0), B.q), qX(0.6 * bend)), lean = lean0 + 0.4 * bend;
 		const q1 = qMul(qP, qMul(qY(0.4 * twist), qX(0.4 * lean))), q2 = qMul(qP, qMul(qY(twist), qX(lean)));
 		const p2 = add(add(hips, qRotate(qP, OFFSET[J.Spine])), qRotate(q1, OFFSET[J.Spine2]));
 		const hand = SIDES.map((S, i) => {
@@ -90,6 +92,8 @@ export function solve(B, U = {}) {
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
 		quat[S.hand] = qMul(qFrame(dir, A.perp), qConj(qFrame(OFFSET[S.hand], [0, 0, -1])));
+		// aim: the hand's thumb side (rest +Z, the long axis of a prop held in it) points along a world direction
+		if (H[i]?.aimW > 0) quat[S.hand] = qSlerp(quat[S.hand], qMul(qFrame(H[i].aim, sub(A.end, A.mid)), qConj(qFrame(Z, OFFSET[S.hand]))), H[i].aimW);
 		place(S.fore); place(S.hand);
 		place(S.up);
 		const pole = add(qRotate(T.qP, Z), mul(qRotate(feet[i].q, Z), 0.5));
