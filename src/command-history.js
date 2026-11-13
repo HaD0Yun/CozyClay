@@ -11,7 +11,6 @@ export function withCommandHistory(store) {
   let past = [], future = [], group = null;
   const adapter = Object.create(store);
   const pushed = before => { if (before !== store.present()) { past.push(before); past = past.slice(-HISTORY_LIMIT); future = []; } };
-  adapter.hasHistoryState = state => state === store.present() || past.includes(state) || future.includes(state);
   adapter.settle = (...args) => { const before = store.present(); store.settle(...args); pushed(before); };
   adapter.applyAtomic = fn => {
     if (group) { if (!group.running) fail('TARGET_BUSY', 'A command transaction owns the object history.'); return store.applyIn(group.token, fn); }
