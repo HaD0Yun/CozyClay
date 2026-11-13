@@ -593,13 +593,12 @@ npm run dev</code></pre>
             <button type="button" aria-pressed="false" data-os="win">Windows</button>
             <button type="button" aria-pressed="false" data-os="linux">Linux</button>
           </div>
-          <section class="install-steps install-direct" data-install-direct="mac" aria-labelledby="install-paste-title">
-              <h3 id="install-paste-title">Open Terminal and paste one line</h3>
-              <p>Press ⌘ Space, type Terminal and press Return. Paste this line, then press Return.</p>
-              <div class="code"><pre><code>curl -fsSL https://cozyclay.org/install.sh | bash</code></pre></div>
-              <button type="button" class="btn primary install-action copy" data-copy="curl -fsSL https://cozyclay.org/install.sh | bash">Copy the line</button>
-              <p class="small">It downloads what CozyClay needs (no password asked), adds CozyClay to the Applications folder in your home folder and opens the Studio. From then on, open the CozyClay app.</p>
-              <button type="button" class="linkish install-back" data-install-manual>Set up with Node.js instead</button>
+          <section class="install-steps install-direct" data-install-direct="mac" aria-labelledby="install-mac-title">
+              <h3 id="install-mac-title">Download and open</h3>
+              <p>Open the file, drag CozyClay to Applications, then open CozyClay. The Studio opens in its own window.</p>
+              <a class="btn primary" data-installer-download href="https://github.com/HaD0Yun/cozyclay-releases/releases/latest/download/CozyClay.dmg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg><span>Download CozyClay for macOS</span></a>
+              <p class="small">For Apple silicon and Intel Macs, macOS 12 or later. The first start downloads CozyClay and can take a few minutes.</p>
+              <button type="button" class="linkish install-back" data-install-manual>Set up with Node.js and a terminal instead</button>
           </section>
           <section class="install-steps install-direct" data-install-direct="win" aria-labelledby="install-direct-title">
               <h3 id="install-direct-title">Download and run</h3>
