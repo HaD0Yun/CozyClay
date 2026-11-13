@@ -451,7 +451,7 @@ export default function App() {
 	useEffect(() => {
 		if (!playgroundMode) return;
 		track("playground:opened");
-		// The landing page keeps a loading veil over the iframe until the
+		// The embedding page keeps a loading veil over the iframe until the
 		// studio has actually mounted; a bare `load` fires far too early.
 		window.parent?.postMessage({ type: "cozyclay:playground-ready" }, "*");
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4758,8 +4758,6 @@ export default function App() {
 								lastPosRef={shotCameraPosRef}
 								fovDeg={fovDeg}
 								charA={charA}
-								charB={charB}
-								showB={showB}
 								probe={{ scene: playbackSceneBase, frameRef: propFrameRef, carry: subjectCarry }}
 								camRef={shotCamRef}
 								look={look}

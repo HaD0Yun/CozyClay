@@ -7,17 +7,16 @@ import {
 } from "./scenes.js";
 import { POSE_BONES } from "./poses.js";
 import { isPlaygroundEmbed, takePlaygroundProject } from "./playground.js";
-import { DEFAULT_SCENE_OBJECTS } from "./scene-objects.js";
 
 // Stated the way a crew states a setup: how far back, which side, how high the
 // lens rides, and what glass is on it. Order matters — Medium is the setup a
 // director reaches for first, so it leads.
 export const PRESETS = {
-	medium: { label: ko("Medium", "미디엄"), distance: 2.6, azimuth: 22, elevation: 6, fov: 45, targetY: 1.35, two: false },
-	wide: { label: ko("Wide", "와이드"), distance: 7, azimuth: 25, elevation: 4, fov: 38, targetY: 1.2, two: false },
-	closeup: { label: ko("Close-Up", "클로즈업"), distance: 1.3, azimuth: 16, elevation: 2, fov: 45, targetY: 1.55, two: false },
-	low: { label: ko("Low Angle", "로우 앵글"), distance: 3.5, azimuth: 20, elevation: -14, fov: 50, targetY: 1.1, two: false },
-	high: { label: ko("High Angle", "하이 앵글"), distance: 4.5, azimuth: 20, elevation: 16, fov: 45, targetY: 1.1, two: false },
+	medium: { label: ko("Medium", "미디엄"), distance: 2.6, azimuth: 22, elevation: 6, fov: 45, targetY: 1.35 },
+	wide: { label: ko("Wide", "와이드"), distance: 7, azimuth: 25, elevation: 4, fov: 38, targetY: 1.2 },
+	closeup: { label: ko("Close-Up", "클로즈업"), distance: 1.3, azimuth: 16, elevation: 2, fov: 45, targetY: 1.55 },
+	low: { label: ko("Low Angle", "로우 앵글"), distance: 3.5, azimuth: 20, elevation: -14, fov: 50, targetY: 1.1 },
+	high: { label: ko("High Angle", "하이 앵글"), distance: 4.5, azimuth: 20, elevation: 16, fov: 45, targetY: 1.1 },
 };
 
 export const SHOT_ASPECT_PRESETS = Object.freeze({
@@ -85,7 +84,6 @@ export function editorFrameForSubject(subject) {
 	};
 }
 
-export const DEFAULT_ENVIRONMENT = "a sunlit modern living room";
 export const DEFAULT_CAMERA_POSITION = { x: 0.97, y: 1.62, z: 2.39 };
 export const REST_BONES = Object.fromEntries(POSE_BONES.map((b) => [b.id, [0, 0, 0]]));
 
@@ -117,23 +115,20 @@ export function loadWorkspaceLayout() {
 }
 
 /** Load the Scene envelope once. Legacy single-scene objects are migrated by
- * scenes.js; App only supplies the familiar starter set for a truly new room. */
+ * scenes.js; a new room starts empty (createSceneDocument seeds no objects). */
 export function loadSceneStartup() {
-	const defaults = () => DEFAULT_SCENE_OBJECTS.map((object) => ({ ...object, footprint: { ...object.footprint } }));
 	// The landing-page playground never reads or writes the visitor's saved
 	// scenes: it opens the preset the page fetched (or an empty room if that
 	// fetch failed) and saving stays off for the whole session.
 	if (isPlaygroundEmbed(globalThis.location?.search)) {
 		const preset = takePlaygroundProject();
 		const document = preset?.document ?? createSceneDocument();
-		if (!preset?.document) document.scenes[0].objects = defaults();
 		return { document, saveBlocked: true, error: null, startupCreatedScene: false, toast: null };
 	}
 	try {
 		const result = loadSceneDocumentFromStorage(localStorage);
 		if (result.status === "future") {
 			const document = createSceneDocument();
-			document.scenes[0].objects = defaults();
 			return {
 				document,
 				saveBlocked: true,
@@ -142,9 +137,6 @@ export function loadSceneStartup() {
 			};
 		}
 		const document = result.document;
-		if ((result.status === "absent" || result.status === "corrupt") && document.scenes[0].objects.length === 0) {
-			document.scenes[0].objects = defaults();
-		}
 		return {
 			document,
 			saveBlocked: false,
@@ -160,7 +152,6 @@ export function loadSceneStartup() {
 		};
 	} catch {
 		const document = createSceneDocument();
-		document.scenes[0].objects = defaults();
 		return { document, saveBlocked: false, error: null, startupCreatedScene: true, toast: null };
 	}
 }
