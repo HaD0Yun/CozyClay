@@ -606,7 +606,7 @@ export function useMotion(appContext) {
 	useEffect(() => {
 		if (ikDragRef.current && ikDragRef.current.characterId !== appContext.shared.activeChar.id) abortIkDrag(true);
 		const pending = pendingIkEditRef.current, id = pending?.characterId, other = id !== appContext.shared.activeChar.id;
-		const current = pending && pending.rig === appContext.shared.rigs[id] && pending.motion === domain.visibleMotion(id) && pending.sourceLayer === domain.layer(id) && ikMode && ikEditTool === "ik";
+		const current = pending && pending.rig === appContext.shared.rigs[id] && pending.motion === domain.visibleMotion(id) && pending.sourceLayer === domain.layer(id) && ikMode && ikEditTool !== "pin";
 		// Selecting another character applies a still-current preview, as leaving Pose mode does.
 		if (current && other) applyPendingIkEdit();
 		else if (pending && (!current || other || pending.rig !== appContext.shared.activeRig || pending.motion !== motion)) cancelPendingIkEdit();
@@ -749,7 +749,7 @@ export function useMotion(appContext) {
 	// ends pinned (the handle snaps to the clamped position); FK joints swing
 	// toward the pointer. The solved pose stays a preview until Apply.
 	function ikSolve(kind, trackId, targetWorld, input = null) {
-		if (ikDragRef.current && ikDragRef.current.characterId !== appContext.shared.activeChar.id) return;
+		if ((ikDragRef.current && ikDragRef.current.characterId !== appContext.shared.activeChar.id) || (input?.rig && input.rig !== appContext.shared.activeRig)) return;
 		const state = appContext.shared.ikStateRef.current;
 		const ikChains = state.chains;
 		const ikFkJoints = state.fkJoints;
@@ -770,6 +770,7 @@ export function useMotion(appContext) {
 		}
 		ikDragRef.current = Object.assign(ikDragRecord(ikDragRef.current, appContext.shared.tlFrame), { characterId: appContext.shared.activeChar.id });
 		const touch = (id) => ikDragTouch(appContext.shared.ikStateRef.current, ikDragRef.current, id), activeId = appContext.shared.activeChar.id;
+		if (kind === "poser") return targetWorld(touch); // Auto Pose passes a writer that sets its bones and touches its tracks
 		const clamp = () => clampDragTarget({ kind, trackId, targetWorld, bodyContact, chains: ikChains, record: ikDragRef.current, bypass: input?.bypass, open: () => ({ rigs: appContext.shared.rigs, activeId, cast: appContext.shared.characters, allow: domain.layer(activeId).take?.source?.spec?.checks?.allow, notify: appContext.notify }) });
 		if (kind === "finger") return solveFingerGesture(fingersOf(appContext.shared.ikStateRef.current.fkJoints)?.get(trackId), targetWorld, touch);
 		if (kind === "chain") {
@@ -783,8 +784,7 @@ export function useMotion(appContext) {
 		}
 		if (kind === "mid") {
 			// Mid tracks reference their parent chain through MID_TRACKS.
-			const midDef = MID_TRACKS.find((t) => t.id === trackId);
-			const chain = midDef ? appContext.shared.ikStateRef.current.chains?.get(midDef.chain) : null;
+			const midDef = MID_TRACKS.find((t) => t.id === trackId), chain = midDef ? appContext.shared.ikStateRef.current.chains?.get(midDef.chain) : null;
 			if (!chain) return;
 			touch(chain.track.id);
 			solveDragTarget(kind, chain, clamp());

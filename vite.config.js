@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
+import { poserModelFlag } from "./src/poser/build-plugin.js";
 
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
@@ -38,6 +39,7 @@ export default defineConfig({
 	},
 	plugins: [
 		react(),
+		poserModelFlag(),
 		// The landing shows the release it was built from (#903).
 		{
 			name: "cozyclay-landing-version",
