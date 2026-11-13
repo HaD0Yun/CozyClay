@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-off generator for the search-facing article pages.
+"""Regenerates the root article pages (<slug>/index.html) from tools/dev/pages.
 
 Each page is plain static HTML (no bundle) so it stays crawlable and cheap.
 The shell (head, nav, footer, shared CSS link) lives here; the body of each
