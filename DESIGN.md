@@ -134,19 +134,12 @@ title explains why. Camera, Motion and Sculpt use `"camera"`, `"motion"` and
 ### G3 — Pose Details
 
 For a selected character or rig group, Details lists Pose (Foot lock, Body
-contact, influence range), the selected tool section, then Auto-fix. Path fix
-contains Trails, Trail falloff and a violet Regenerate from trail edit action;
-Pin contains the range-pin controls as 24 px rows. Auto-fix has Fit to platforms
-[Run]/[Remove], Body collisions [Frame]/[Clip], and Physics cleanup [Run] with a
-collapsed Advanced row.
+contact, influence range), then the selected tool section. Pin contains the
+range-pin controls as 24 px rows.
 
 ### G4 — auto-fix preview and apply
 
-Fit to platforms and Physics cleanup show `Preview · <fix name>` in amber, one
-summary row and at most five result rows, followed by 28 px Cancel (`#1e1e21`)
-and violet Apply. Enter applies and Esc cancels; the status bar says
-`Preview — Enter apply · Esc cancel`. Affected character ranges get a 2 px
-amber Sequencer underline. Body collisions remains direct and undoable.
+Removed in 3.0.
 
 ### G5 — Sequencer
 
@@ -159,11 +152,7 @@ crane editing continue to work.
 
 ### G6 — Motion takes
 
-Motion Details for a selected character has 24 px Takes rows such as
-`v1 · 0:18 · seed 42`; the current row uses the amber tint and calls
-`loadTakeVersion`. Generate Motion runs today's `runArdy`; its caret menu has
-Start over, Take it again and Add block at frame N. Keep the current take is in
-collapsed Motion › Advanced. The old Scene/Refine take bar is removed.
+Removed in 3.0.
 
 ### G7 — export and save
 
