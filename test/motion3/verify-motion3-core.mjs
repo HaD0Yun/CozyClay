@@ -9,9 +9,11 @@ import { validateSpec } from "../../src/motion3/compiler/validate.js";
 import { compileMotion } from "../../src/motion3/compiler/compile.js";
 import { runMotionQa } from "../../src/motion3/qa/index.js";
 import { solePoints } from "../../src/motion3/qa/geometry.js";
-import { bakeTake, takeQuat, takeHips } from "../../src/motion3/take.js";
+import { bakeTake, takeHips } from "../../src/motion3/take.js";
 import { dist, I3, angle, sub, dot } from "../../src/motion3/compiler/math.js";
 import { palmAxes } from "../../src/motion3/compiler/limbs.js";
+/** Local quaternion [x,y,z,w] of bone b at frame f of a take (nearest frame, clamped). */
+const takeQuat = (take, f, b) => { const i = (Math.max(0, Math.min(take.frameCount - 1, Math.round(f))) * take.bones.length + b) * 4; return [take.rot[i], take.rot[i + 1], take.rot[i + 2], take.rot[i + 3]]; };
 
 let failures = 0;
 function expect(name, condition, detail = "") {

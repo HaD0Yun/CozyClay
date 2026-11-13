@@ -6,7 +6,6 @@ import { STUDIO_ACTIONS, STUDIO_ACTION_IDS, STUDIO_ACTION_KINDS, studioActionDec
 import { validateStudioCommand, validateStudioSchema } from "../src/studio-agent-protocol.js";
 import * as studioActions from "../src/studio-actions.js";
 import { FK_TRACKS, IK_TRACKS } from "../src/motion/ik.js";
-import { FINGER_TRACK_IDS } from "../src/motion/fingers.js";
 import { SCENE_ATTACH_BONES } from "../src/scene-objects.js";
 import { GUIDE_MODES } from "../src/shot-guides.js";
 import { IMAGE_MODELS } from "../src/shot.js";
@@ -73,6 +72,7 @@ for (const id of ikKeyActions) {
 	assert.ok(studioActionDeclaration(id).input.required.includes("characterId"), id);
 }
 // The JSON form of a key names exactly the tracks the IK layer keys.
+const FINGER_TRACK_IDS = ["left", "right"].flatMap(side => ["Thumb", "Index", "Middle", "Ring", "Pinky"].flatMap(name => [1, 2, 3].map(joint => `${side}${name}${joint}`)));
 assert.deepEqual([...studioActions.STUDIO_IK_CHAIN_TRACKS], IK_TRACKS.map(track => track.id));
 assert.deepEqual([...studioActions.STUDIO_IK_JOINT_TRACKS], [...FK_TRACKS.map(track => track.id), ...FINGER_TRACK_IDS]);
 const setIkKey = studioActionDeclaration("character.setIkKey").input;

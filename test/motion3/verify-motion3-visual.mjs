@@ -5,7 +5,7 @@
 // views of its own (front/side/three-quarter/top, focus, trail) on a cup pick-up, and the view a
 // sheet adds when the asked ones look along nearly one line (depthViews).
 import * as THREE from "three";
-import { viewCameras, trailPoints, projectPoint, depthViews, VIEW_NAMES } from "../../src/motion3/views.js";
+import { viewCameras, trailPoints, projectPoint, depthViews } from "../../src/motion3/views.js";
 import { beatFrames, grabReleases, traceSeries } from "../../src/motion3/beats.js";
 import { studioVisual, traceRgba } from "../../src/studio-motion-visual.js";
 import { sampleContactSheetFrames, CONTACT_SHEET_LAYOUT } from "../../src/studio-contact-sheet.js";
@@ -149,6 +149,7 @@ const cupSpec = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 100, use: 
 const cup = compileSpec(cupSpec, { sk, scene }, { lenient: true }), cupFrames = [20, 34, 50, 70];
 const cupTrail = [{ ref: `object:${CUP.group}`, points: trailPoints(cup.out, `object:${CUP.group}`, [0, 99]) }];
 const focus = [`object:${CUP.group}`, "joint:LeftHand"];
+const VIEW_NAMES = ["front", "side", "three-quarter", "top"];
 const cams = viewCameras(cup.out, { views: VIEW_NAMES, frames: cupFrames, focus, trails: cupTrail });
 const byName = Object.fromEntries(cams.map(c => [c.name, c]));
 expect("views: the same compile and arguments give the same cameras", json(viewCameras(cup.out, { views: VIEW_NAMES, frames: cupFrames, focus, trails: cupTrail })) === json(cams));
