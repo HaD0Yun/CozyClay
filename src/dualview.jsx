@@ -108,7 +108,7 @@ const EDGE_FRAGMENT = `
 	}
 `;
 
-export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCamRef, planCamRef, poserCamRef, editorCamRef, ikMode = false, planIsMain, playMode = false, lookThrough = false, insetCollapsed = false, planZoom = 1, shotAspect = SHOT_ASPECT, shotOptics = null, editorLook = false }) {
+export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCamRef, planCamRef, poserCamRef, editorCamRef, ikMode = false, playMode = false, lookThrough = false, insetCollapsed = false, planZoom = 1, shotAspect = SHOT_ASPECT, shotOptics = null, editorLook = false }) {
 	const { xray } = useViewportTools();
 	const invalidate = useThree((state) => state.invalidate);
 	const lastPoserPose = useRef({ position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), valid: false });
@@ -249,8 +249,8 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 		const insetOff = insetCollapsed || (!playMode && insetRect.w < 2);
 		if (mainRect.w < 2) return;
 
-		const planPane = planIsMain ? mainRect : insetRect;
-		const shotPane = planIsMain ? insetRect : mainRect;
+		const planPane = insetRect;
+		const shotPane = mainRect;
 		// During camera navigation the poser view is the only surface changing.
 		// Keep the frozen inset in the existing framebuffer and avoid its
 		// additional scene + outline passes until the gesture ends.
@@ -461,10 +461,6 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 				// separate camera-placement screen the framing lives on.
 				drawEditorPane(poserCam, mainRect, null, !navigatingCamera);
 				if (!navigatingCamera || redrawFrozenPanes) drawVisibleInset(shotCam, insetRect, fitAspect(insetRect, shotAspect), !navigatingCamera);
-				drawPreviewCard();
-			} else if (planIsMain) {
-				draw(planCam, planPane, null, false);
-				if (!navigatingCamera || redrawFrozenPanes) drawVisibleInset(shotCam, shotPane, fitAspect(shotPane, shotAspect), !navigatingCamera);
 				drawPreviewCard();
 			} else if (editorCam && !lookThrough) {
 				// Split-camera editing: the main pane is the EDITOR camera — free

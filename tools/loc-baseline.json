@@ -26,7 +26,7 @@
 	"src/domains/objects.js": 888,
 	"src/domains/scenes.js": 722,
 	"src/domains/shots.js": 403,
-	"src/dualview.jsx": 381,
+	"src/dualview.jsx": 377,
 	"src/hierarchy-panel.jsx": 776,
 	"src/live-control.js": 331,
 	"src/matte-editor.js": 486,
