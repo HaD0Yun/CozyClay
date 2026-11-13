@@ -40,7 +40,7 @@ After publishing, use a clean config directory and a disposable port:
 
 ```bash
 XDG_CONFIG_HOME="$(mktemp -d)" npx --yes cozyclay@VERSION \
-  --port 5212 --no-open --no-motion --no-star --no-update-check
+  --port 5212 --no-open --no-star --no-update-check
 ```
 
 Verify the first launch creates the anonymous state and that PostHog receives

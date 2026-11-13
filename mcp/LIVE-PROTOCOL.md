@@ -49,9 +49,11 @@ editor -> server, one per command, echoing `id`:
     { "type": "result", "id": "<same id>", "ok": false, "error": "<human message>" }
 
 Unknown `name` MUST answer `ok:false`, never silence. The server times a
-command out after 5 s and treats it as failed, except `import_asset` and the
-Studio commands (`inspect_studio`, `run_action`, `capture_framing_png`, ...),
-which retain a dedicated 30 s editor bound. A timeout or disconnect during
+command out after 5 s and treats it as failed, except `import_asset`,
+`capture_frame` and the Studio commands (`inspect_studio`, `run_action`,
+`capture_framing_png`, ...), which retain a dedicated 30 s editor bound, and
+`run_workflow`, which gets 180 s. A caller's own per-call timeout replaces
+these bounds, capped at 300 s. A timeout or disconnect during
 a mutation is ambiguous: it may already have applied, so callers MUST NOT retry
 blindly and should `describe` before recovering.
 
@@ -114,7 +116,7 @@ scene document already uses.
 | `set_camera` | `{ x?, y?, z?, focalMm?, lookAtX?, lookAtY?, lookAtZ? }` | `{ camera }` | omitted fields keep their value; the **viewport must visibly move**. The `lookAt*` triple is additive to v1 and must arrive complete or not at all: given it, the editor aims the shot camera at that world point and records the resulting orientation as the camera's own (so the framing it commits is the one it just applied); without it the orientation is untouched, so an editor that ignores the fields degrades to the pre-aim behaviour instead of failing. `frame_shot` always sends the framing pivot, because the shot vocabulary (`deriveShot`, `captureFraming`) measures the shot as if the lens points at that pivot — a placed-but-unaimed camera reports a framing it is not holding. |
 | `add_character` | `{ subject, x?, z?, rot?, model?, posture? }` | `{ id }` | `model` is one of the stable character model ids, or `proxy-figure` for a rigless capsule figure; `posture` (`stand`, `sit`, `lie`; `stand` when omitted) applies to a capsule figure |
 | `update_character` | `{ ref, x?, y?, z?, rot?, subject?, hidden? }` | `{ id }` | `ref` = id, letter (`"A"`) or 1-based slot |
-| `remove_character` | `{ ref }` | `{ id }` | must refuse to empty the cast |
+| `remove_character` | `{ ref }` | `{ id }` | an empty cast is legal (an `arrange_characters` remove op still refuses the final or active character) |
 | `place_object` | `{ kind, x?, z?, y?, rot?, name?, parent? }` | `{ id }` | `kind` from OBJECT_LIBRARY; optional `name` labels the object and optional `parent` attaches it under another object |
 | `import_asset` | `{ name, mimeType, dataUrl, placeAs, clay?, x?, y?, z?, rot?, height? }` | `{ assetId, objectId }` | decode `dataUrl` and store the bytes in the content-addressed asset store under `assetId`, then stand the result up through the Studio's own import pipeline. `placeAs: "cutout"` is a 1.8 m standee 2.6 m in front of the shot camera; `placeAs: "backdrop"` is the same card as a 5 m background plate 12 m down the shot camera's view ray, turned to face the lens (PNG, WebP, JPEG or GIF; `dataUrl` must be `data:image/…`; `mimeType` optional when the data URL carries it). `placeAs: "mesh"` imports a GLB, a Wavefront OBJ or an FBX (`data:model/gltf-binary`, `data:model/obj`, `data:model/fbx`, `data:text/plain` when `name` ends in `.obj` or `.fbx`, or `data:application/octet-stream`, and those same types as `mimeType`), fits height/footprint once, and stands the model on the floor. Omit both `x` and `z` to place it in front of the shot camera; if either is present, those are world metres and the missing axis is 0. Optional `rot` is yaw in degrees (omitted is 0, like the Import button). Optional `height` overrides the fitted standing size. Optional `y` is lift off the floor, applied after mint (`createMeshObject` always writes `y: 0`). Optional `clay: true` replaces file materials with matte clay. Bytes decide the format (glTF magic first, then FBX magic/`FBXVersion:`, then OBJ vertices). Exactly ONE undo entry: a single Ctrl+Z removes the placed object (the asset bytes stay, being content-addressed). This deliberately does NOT reuse the Workflow-tab scene sync, which writes the document without touching undo. |
 | `update_object` | `{ id, x?, y?, z?, rot?, rotX?, rotZ?, scale?, scaleX?, scaleY?, scaleZ?, color?, name?, height?, clay?, hidden? }` | `{ id }` | `scale` sets all three axes; per-axis values override it; `name` renames the object. `height` is metres (cutout card height, or a mesh's fitted box height). `clay` is a boolean on mesh objects (file materials when false, matte clay when true). `hidden` shows or hides the prop without deleting it. |
