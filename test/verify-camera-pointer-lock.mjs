@@ -187,5 +187,14 @@ for (const pointerType of ["touch", "pen"]) {
 	assert.equal(h.state.requests, 0, "the chrome-free player's disabled controls cannot lock");
 	h.cleanup();
 }
+{
+	const h = mount();
+	// Another camera tool may own the same canvas lock without a navigation
+	// hold. Disabling fly controls must not unlock that recording.
+	h.document.pointerLockElement = h.canvas;
+	h.cleanup();
+	assert.equal(h.document.pointerLockElement, h.canvas, "cleanup only releases a navigation-owned lock");
+	h.document.exitPointerLock();
+}
 console.log("PASS touch/pen fallback, late grant, cleanup, and disabled player controls");
 console.log("verify-camera-pointer-lock: all behavioral checks passed");

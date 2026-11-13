@@ -151,9 +151,9 @@ jobs:
   # test step pages.yml runs before deploying: green here means the merge
   # cannot break the deploy. Each shard has its own runner, so wall-clock time
   # follows the slowest quarter of the suite instead of the whole suite (#666):
-  # minutes are free on this public repository. One run starts 20 jobs (11
-  # of them the browser matrix below), the free plan's limit of 20
-  # concurrent jobs: a second pull request in flight queues, so every job
+  # minutes are free on this public repository. One run starts 21 jobs (12
+  # of them the browser matrix below), above the free plan's limit of 20
+  # concurrent jobs, so jobs queue and every job
   # added here costs wall-clock time on all of them (#1173).
   test-shard:
     if: needs.changes.outputs.source == 'true'
@@ -294,6 +294,8 @@ jobs:
           - suite: verify-install-browser
             tier: gating
           - suite: verify-camera-rail-browser
+            tier: gating
+          - suite: qa-camera-record-browser
             tier: gating
           - suite: qa-gizmo-click-through-browser
             tier: gating

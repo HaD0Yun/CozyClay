@@ -94,7 +94,7 @@ const NODE_FILES = [
 	"test/verify-asset-shelf.mjs",
 	"test/verify-blocking-depth.mjs", "test/verify-prompt-cast-pin.mjs", "test/verify-prompt-cast-list.mjs", "test/verify-prompt-cast-mcp.mjs", "test/verify-prompt-cast-subjects.mjs", "test/verify-prompt-defaults.mjs",
 	"test/verify-render-passes-video.mjs",
-	"test/verify-camera-block.mjs", "test/verify-camera-direction.mjs",
+	"test/verify-camera-block.mjs", "test/verify-camera-direction.mjs", "test/verify-camera-record.mjs", "test/verify-camera-record-lifecycle.mjs",
 	"test/verify-camera-follow.mjs",
 	"test/verify-camera-move.mjs",
 	"test/verify-camera-rail-schedule.mjs",
@@ -233,7 +233,7 @@ const BROWSER_FILES = [
 	"test/verify-static-shot-export-browser.mjs",
 	"test/qa-agent-view-toggle-browser.mjs",
 	"test/qa-agent-scenarios-browser.mjs",
-	"test/qa-camera-pointer-lock-browser.mjs",
+	"test/qa-camera-pointer-lock-browser.mjs", "test/qa-camera-record-browser.mjs",
 	"test/qa-first-edit-browser.mjs",
 	"test/qa-ia-tail-browser.mjs",
 	"test/qa-keyframe-pack-browser.mjs",
@@ -258,7 +258,7 @@ const EXTRA_INVENTORY = ["test/ik/translation-step.mjs", "test/qa-scenes-v5-migr
 
 EXTRA_INVENTORY.push("test/qa-proxy-figure-browser.mjs", "test/qa-click-friction-browser.mjs", "test/qa-update-notice-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-proxy-entry-browser.mjs", "test/qa-export-menu-browser.mjs", "test/qa-update-depth-browser.mjs", "test/qa-scrub-update-depth-browser.mjs", "test/qa-translate-guard-browser.mjs");
-EXTRA_INVENTORY.push("test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs");
+EXTRA_INVENTORY.push("test/qa-previs-start-browser.mjs", "test/qa-shortcut-friction-browser.mjs", "test/qa-ik-contact-browser.mjs", "test/qa-camera-record-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-storyboard-board-browser.mjs", "test/qa-sculpt-parts-browser.mjs", "test/qa-sculpt-shelf-browser.mjs");
 EXTRA_INVENTORY.push("test/qa-storyboard-export-browser.mjs", "test/qa-playback-guide-browser.mjs", "test/qa-recent-work-browser.mjs", "test/qa-studio-polish-browser.mjs", "test/qa-annotate-browser.mjs", "test/qa-pose-keys-browser.mjs", "test/qa-fix-islands-browser.mjs", "test/qa-lie-down-browser.mjs", "test/qa-imported-character-browser.mjs", "test/qa-poser-browser.mjs");
 

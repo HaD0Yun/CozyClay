@@ -29,7 +29,7 @@ import { restorePlaybackBones, snapshotPlaybackBones } from "./motion/rig-snapsh
 import { playTakeFrame as applyTakeFrame } from "./character-playback.js";
 
 import { FlyControls, aimAt, forwardFrom } from "./controls.jsx";
-import { createCameraPerformance, framingFromCamera } from "./camera-performance.js";
+import { useCameraPerformance, RailRecordingRig } from "./use-rail-recording.jsx";
 import ViewportMeasurement from "./viewport-measurement.jsx"; import { ContextChipTools } from "./context-chip-tools.jsx"; import { PoseKeyGhosts } from "./pose-key-ghosts.jsx"; import { FixOriginalGhost } from "./fix-original-ghost.jsx";
 import ReviewOverlay from "./review-overlay.jsx";
 import "./previs.css";
@@ -610,7 +610,7 @@ export default function App() {
 	 * back, playback paused, so leaving never leaves the timeline running
 	 * underneath it. */
 	function exitPreview() {
-		if (cameraPerformanceRef.current?.active) stopCameraPerformance();
+		if (cameraPerformance.active) cameraPerformance.stop();
 		setPreview(false);
 		setLookThroughShot(false);
 		setTlPlaying(false);
@@ -2685,37 +2685,12 @@ export default function App() {
 	// CaptureRig reads the shot camera's WebGLRenderTarget, and WebCodecs receives
 	// exactly one VideoFrame for every address in the inclusive export range.
 	const [recState, setRecState] = useState("idle"); // "idle" | "recording"
-	const recRef = useRef(null), cameraPerformanceRef = useRef(null), cameraPerformanceShotRef = useRef(null);
+	const recRef = useRef(null);
 	const tlFrameRef = useRef(0);
 	tlFrameRef.current = tlFrame;
 	const [exportStatus, setExportStatus] = useState(null);
-	const [cameraPerformanceRecording, setCameraPerformanceRecording] = useState(false);
 	const retryExportRef = useRef(null);
 	const frameExportRef = useRef(null);
-	function startCameraPerformance() {
-		if (!activeShot || cameraPerformanceRef.current?.active) return false;
-		if (!cameraPerformanceRef.current) {
-			cameraPerformanceRef.current = createCameraPerformance({ sample: () => framingFromCamera(shotCamRef.current, look.current) });
-		}
-		const started = cameraPerformanceRef.current.start({ startFrame: activeShot.startFrame, endFrame: activeShot.endFrame, fps: tlFps });
-		if (!started) return false;
-		enterShotLook();
-		cameraPerformanceShotRef.current = activeShot.id; manualCameraOverrideRef.current = true;
-		setCameraPerformanceRecording(true);
-		setToast(ko("Recording camera performance — right-drag and WASD to shoot; Stop saves editable keys", "퍼포먼스 녹화 중 — 오른쪽 드래그와 WASD로 촬영하고 Stop으로 키를 저장하세요"));
-		return true;
-	}
-	function stopCameraPerformance() {
-		const shotId = cameraPerformanceShotRef.current, keys = cameraPerformanceRef.current?.stop() ?? []; cameraPerformanceShotRef.current = null;
-		setCameraPerformanceRecording(false);
-		manualCameraOverrideRef.current = false;
-		if (!shotId || !keys.length) { setToast(ko("No camera performance was recorded", "녹화된 퍼포먼스가 없습니다")); return null; }
-		setTlFrame(keys.at(-1).frame);
-		runStudioAction("shot.recordKeys", { shotId, keys });
-		setToast(ko(`Camera performance saved as ${keys.length} editable keys`, `퍼포먼스를 편집 가능한 키 ${keys.length}개로 저장했어요`));
-		return keys;
-	}
-	useEffect(() => () => cameraPerformanceRef.current?.cancel(), []);
 	// Snapshot authored inputs once, not when Retry is pressed. Runtime render
 	// resources are acquired per attempt; they are never part of the snapshot.
 	function exportRequest(kind, run, { exportShots = shots, external = false, download = true, output = null } = {}) {
@@ -3817,6 +3792,15 @@ export default function App() {
 	const followTrack = useShotCameraTracks({ shots, subjectTrack, subjectId: charA.id, fps: tlFps, yawDeg: charA.rot, filmback, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion });
 
 	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack), [playbackSceneBase, subjectTrack, followTrack]);
+	const cameraPerformance = useCameraPerformance({
+		shot: activeShot, scene: playbackScene, fps: tlFps, playing: tlPlaying, setPlaying: setTlPlaying,
+		setFrame: setTlFrame, frameRef: propFrameRef, camRef: shotCamRef, look, stageRef,
+		enterShotLook, manualRef: manualCameraOverrideRef, setMovePlaying, previewEndRef: cameraPreviewEndRef,
+		writeTake: (shotId, aimTake) => runStudioAction("shot.setCamera", { shotId, patch: { aimTake } }),
+		writeKeys: (shotId, keys) => runStudioAction("shot.recordKeys", { shotId, keys }), notify: setToast,
+		onLockError: () => setToast(ko("Camera recording needs mouse capture. Allow it and try again.", "카메라 녹화에는 마우스 캡처가 필요합니다. 허용한 뒤 다시 시도하세요.", "摄影机录制需要捕获鼠标。请允许后重试。")),
+	});
+	const railRecording = cameraPerformance.rail;
 
 	// Browser acceptance seam: it invokes the exact production exporter but
 	// suppresses the download, returning only serializable evidence.
@@ -4533,7 +4517,7 @@ export default function App() {
 		saveStatus: { state: projectSaveState, text: projectStatus, dirty: projectDirty, name: projectName },
 		exportStatus: exportStatus && { ...exportStatus, cancel: stopShotRecording, retry: retryExport },
 		subscribeToasts: (listener) => { toastSinkRef.current.add(listener); return () => toastSinkRef.current.delete(listener); },
-		enterShotLook, startCameraPerformance, stopCameraPerformance, cameraPerformanceRecording,
+		enterShotLook, startCameraPerformance: () => cameraPerformance.start(), stopCameraPerformance: () => cameraPerformance.stop(), cameraPerformanceRecording: cameraPerformance.active,
 		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform,
 		// The shot camera's transform for Details › Transform; cameraLookTick keeps the angles fresh.
 		// eslint-disable-next-line react-hooks/refs -- the look ref is the camera's angle; cameraLookTick re-renders after every gizmo or Details edit
@@ -4785,7 +4769,7 @@ export default function App() {
 								onDone={shotsDomain.finishCameraMove}
 							/>
 							<FollowCamRig
-								enabled={followCamActive && !movePlaying}
+								enabled={followCamActive && !movePlaying && !railRecording.active}
 								frame={tlFrame}
 								frameRef={propFrameRef}
 								scene={playbackScene}
@@ -4794,12 +4778,13 @@ export default function App() {
 								look={look}
 								isInterrupted={() => (lookThroughShot && flyingRef.current) || manualCameraOverrideRef.current}
 							/>
+							<RailRecordingRig recording={railRecording} />
 							{/* Camera stays live in IK mode but drives the POSER camera,
 							    never the shot camera: the handle layer only consumes
 							    pointerdowns that hit a handle, so empty-space drags orbit
 							    and the wheel dollies without wrecking the framing. */}
 							<FlyControls
-								enabled={!posing && !playMode && !sculptMode}
+								enabled={!posing && !playMode && !sculptMode && !railRecording.active}
 								camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef}
 								look={ikMode ? poserLook : lookThroughShot ? look : editorLook}
 								getPivot={() => {

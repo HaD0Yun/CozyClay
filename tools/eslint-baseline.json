@@ -9,7 +9,7 @@
 	"no-useless-assignment": 9,
 	"no-useless-escape": 6,
 	"preserve-caught-error": 6,
-	"react-hooks/immutability": 83,
+	"react-hooks/immutability": 81,
 	"react-hooks/preserve-manual-memoization": 23,
 	"react-hooks/purity": 5,
 	"react-hooks/refs": 102,
