@@ -66,7 +66,7 @@ export default {
 					spotlight: ".vp-mode-keys",
 					hold: 2600,
 					label: { ko: "작업 모드", en: "Workflow modes" },
-					note: { ko: "배치, 포즈, 카메라, 모션, 조각을 오갑니다", en: "Switch between Stage, Pose, Camera, Motion and Sculpt" },
+					note: { ko: "배치, 포즈, 카메라, 모션, 조형을 오갑니다", en: "Switch between Stage, Pose, Camera, Motion and Sculpt" },
 				},
 				{
 					id: "spot-body",

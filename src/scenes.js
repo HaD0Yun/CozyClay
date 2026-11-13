@@ -64,9 +64,7 @@ const DEFAULT_SCENE_STAGE = Object.freeze({
 	// What the location IS and how it should look: the two lines every shot
 	// prompt is built from, plus the flag saying the author has a sheet for it
 	// instead. Session state until #345 — a reopened scene came back describing
-	// the previous room. The strings mirror the studio's own first-run defaults
-	// (app-stage.jsx DEFAULT_ENVIRONMENT); this module stays free of renderer
-	// imports, so they are repeated rather than borrowed.
+	// the previous room. These strings are the studio's first-run defaults.
 	environment: "a sunlit modern living room",
 	style: "moody cinematic lighting, 35mm film look",
 	hasEnvSheet: false,

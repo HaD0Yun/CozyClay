@@ -1,5 +1,5 @@
 import { handleCallback, readSession, startOAuth } from "./auth.js";
-import { mutationGuard, requireOrigin, withCors } from "./cors.js";
+import { withCors } from "./cors.js";
 import { POLICY } from "./policy.js";
 
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
@@ -76,5 +76,3 @@ export default {
     await work;
   },
 };
-
-export { requireOrigin, mutationGuard };

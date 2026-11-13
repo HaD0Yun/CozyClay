@@ -221,9 +221,3 @@ export function graspChecks(sk, out) {
 	}
 	return issues;
 }
-
-/** How many of hand k's 4 fingertips are under the bottom face of held object `id` at absolute frame f (TIPS_OFF's measure), or null without finger joints. */
-export function tipsUnder(out, id, k, f) {
-	const { sk } = out.ctx, s = out.frames[f - (out.f0 ?? 0)]?.s, tips = FINGERS.map(x => sk.index[`${SIDE[k]}Hand${x}4`]), entries = entriesAt(out, id, f);
-	return s && tips.every(j => j !== undefined) ? tips.filter(j => tipUnder(s.P[j], entries)).length : null;
-}

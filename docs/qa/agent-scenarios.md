@@ -1,6 +1,6 @@
 # Real-model Studio Agent scenarios
 
-Run against the full local dev stack (Studio on `:5180`, motion bridge on `:5181`, live hub on `:5184`):
+Run against the full local dev stack (Studio on `:5180`, live hub on `:5184`):
 
 ```sh
 QA_URL=http://127.0.0.1:5180/app/ \

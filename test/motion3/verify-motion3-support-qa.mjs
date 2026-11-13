@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
 import { skeletonFor } from "../../src/motion3/rigs/index.js";
-import { graspChecks, clearanceAt, tipsUnder } from "../../src/motion3/qa/grasp-checks.js";
+import { graspChecks, clearanceAt } from "../../src/motion3/qa/grasp-checks.js";
 import { explainGroups } from "../../src/motion3/qa/explain.js";
 import { SUPPORT_SLIDE, SUPPORT_LEAD } from "../../src/motion3/sockets.js";
 
@@ -45,8 +45,6 @@ const span = ([a, b]) => Array.from({ length: b - a + 1 }, (_, i) => a + i), inS
 const runs = fs => fs.reduce((out, f) => (out.length && f === out.at(-1)[1] + 1 ? (out.at(-1)[1] = f, out) : [...out, [f, f]]), []).map(([a, b]) => (a === b ? `f${a}` : `f${a}-${b}`)).join(", ") || "none";
 /** The frames whose box stands SUPPORT_SLIDE clear on every frame within SUPPORT_LEAD (the frames TIPS_OFF judges). */
 const clearFrames = r => { const gap = span([0, r.out.frameCount - 1]).map(g => clearanceAt(r.out, BOX, g).gap); return span(HELD).filter(f => gap.slice(Math.max(0, f - SUPPORT_LEAD), f + SUPPORT_LEAD + 1).every(v => v >= SUPPORT_SLIDE)); };
-/** "a-b of 4" tips under, per side, over frames fs. */
-const count = (r, fs) => SIDES.map(side => { const n = fs.map(f => tipsUnder(r.out, BOX, side[0], f)); return `${side} ${Math.min(...n)}-${Math.max(...n)}/4`; }).join(", ");
 
 const mid = supportSpec([0.152, 0.15, -0.06]), rMid = compileSpec(mid, { sk, scene });
 const none = supportSpec(null), rNone = compileSpec(none, { sk, scene });
@@ -95,8 +93,7 @@ expect(`support, no local: no hint moves anchors.boxL/boxR.local or patches it (
 	others.length > 0 && others.every(g => !/anchors\.box[LR]\.local/.test(g.hint ?? "") && !JSON.stringify(g.patch ?? null).includes("/local") && /keep it without local/.test(g.hint ?? "")),
 	others.map(g => `${g.kind} ${g.subject}: ${g.hint} | ${JSON.stringify(g.patch ?? null)}`).join("\n"));
 console.log(`  TIPS_OFF frames: local 15 cm up ${SIDES.map(s => `${s} ${runs(tips.mid[s])}`).join(", ")}; no local ${SIDES.map(s => `${s} ${runs(tips.none[s])}`).join(", ")}`);
-console.log(`  tips under, no local: walk f168-296 ${count(rNone, span([168, 296]))}; lift onto the shelf f304-344 ${count(rNone, span([304, 344]))}; judged ${runs(clearFrames(rNone))}`);
-console.log(`  tips under, local 15 cm up: walk ${count(rMid, span(WALK))}; QA problems: local 15 cm up ${rMid.qa.problems}, no local ${rNone.qa.problems}, palm reference ${rPalm.qa.problems}`);
+console.log(`  QA problems: local 15 cm up ${rMid.qa.problems}, no local ${rNone.qa.problems}, palm reference ${rPalm.qa.problems}`);
 
 if (failures) { console.error(`${failures} failed`); process.exit(1); }
 console.log("all passed");

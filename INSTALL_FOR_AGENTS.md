@@ -87,7 +87,8 @@ For Claude Code: `claude mcp add cozyclay -- npx -y cozyclay mcp`.
 - The first start installs the MCP SDK (about 95 packages). This takes some time once.
 - Without an editor tab, the scene, camera, prompt and project-file tools work in memory.
 - With an editor tab connected, the tools move the visible viewport. `live_status` tells you if
-  a tab is connected. `capture_frame`, `apply_batch` and `import_mesh` need a connected tab.
+  a tab is connected. `capture_frame`, `apply_batch`, `import_mesh`, `studio_commands` and
+  `studio_run` need a connected tab.
 - Tool list and protocol: [`mcp/README.md`](mcp/README.md).
 
 ### One hub per port
@@ -112,10 +113,13 @@ refuse it with `TARGET_NOT_READY` or `NOT_IN_MODE`.
 
 ## 5. Agent panel models (optional)
 
-The Agent panel inside the studio can use ChatGPT (sign in in the panel), Anthropic, OpenAI,
-Google Gemini, OpenRouter or CLIProxyAPI. Set the key in the environment of the process that starts
-the studio (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`,
-`CLIPROXY_API_KEY`), or let the user paste it in the panel. Keys go to
+The Agent panel inside the studio can use ChatGPT or Claude (sign in in the panel), Anthropic,
+OpenAI, Google Gemini, MiniMax, MiniMax (China), OpenRouter, CLIProxyAPI, or an OpenAI-compatible
+server such as LM Studio or Ollama (connect it in the panel with its address). For an API-key
+provider, set the key in the environment of the process that starts the studio
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY`, `MINIMAX_API_KEY`,
+`MINIMAX_CN_API_KEY`, `OPENROUTER_API_KEY`, `CLIPROXY_API_KEY`), or let the user paste it in the
+panel. Keys go to
 `~/.config/cozyclay/providers.json` (mode 0600). Never print a key or put it in a command line
 that is logged. Details: [`docs/agent-cli.md`](docs/agent-cli.md#models-and-providers).
 

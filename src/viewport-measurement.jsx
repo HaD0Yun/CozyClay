@@ -4,6 +4,7 @@ import { Html, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { setViewportTool, useViewportTools } from "./viewport-tools.js";
+import { ko } from "./locale.js";
 
 export default function ViewportMeasurement({ camRef }) {
 	const { gl, scene } = useThree();
@@ -53,7 +54,7 @@ export default function ViewportMeasurement({ camRef }) {
 		</mesh>)}
 		{points.length === 2 && <Line points={points} color="#ffbf47" lineWidth={2} depthTest={false} />}
 		<Html position={middle} center zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
-			<span className="viewport-measure-readout">{distance === null ? "Pick second point" : `${distance.toFixed(3)} m`}</span>
+			<span className="viewport-measure-readout">{distance === null ? ko("Pick second point", "두 번째 점 선택", "选择第二个点") : `${distance.toFixed(3)} m`}</span>
 		</Html>
 	</group>}
 	</>;

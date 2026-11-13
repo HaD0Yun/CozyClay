@@ -8,8 +8,6 @@
 	"export test/bus/objects-asset-db.mjs#db",
 	"export test/bus/objects-asset-db.mjs#holdNextWrite",
 	"export test/bus/objects-asset-db.mjs#records",
-	"export workers/api/src/index.js#mutationGuard",
-	"export workers/api/src/index.js#requireOrigin",
 	"unlisted mcp/live-hub.mjs#ws",
 	"unlisted mcp/verify-live-batch.mjs#ws",
 	"unlisted mcp/verify-live-capture.mjs#ws",

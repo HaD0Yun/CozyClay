@@ -48,7 +48,6 @@ import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys,
 // preimages are copy-on-record runtime resources, never mutable store values.
 export function createMotionDomain(appContext, characters) {
 	const takes = new Map(), decoded = new WeakMap(), rigImages = new WeakMap();
-	let running = 0;
 	const references = entries => registerCastRigs(entries).map(entry => { // imported rigs register before their saved takes compile
 		const saved = normalizeTakeSource(entry.motionTake), take = saved ? restoredTake(entry.id, saved) : null;
 		// The saved Pose-mode / IK edits come back with the scene (scenes.js ikEdits).
@@ -144,7 +143,7 @@ export function createMotionDomain(appContext, characters) {
 		rigImages.set(read(), new Map([...(gesture?.rigs ?? rigSnapshots()), ...(preimages instanceof Map ? preimages : [])]));
 		const session = documentStore.beginAction('motion');
 		return { ...session,
-			run(fn) { return session.run(() => { running++; try { return fn(); } finally { running--; } }); },
+			run(fn) { return session.run(() => fn()); },
 			commit() { const result = session.commit(); rigImages.set(read(), rigSnapshots()); pruneTakes(); return result; },
 		};
 	}
@@ -293,7 +292,7 @@ export function createMotionDomain(appContext, characters) {
 	}
 	const domain = { documentStore, read, write, layer, writeLayer, motionFor, fullMotionFor, visibleMotion, snapshotTake, project,
 		setKeys, setRangePinState, bakeRangePin, removePin, editKeys, setKey, ...poseKeys, replace, clear, run, edit, beginGesture, finishGesture, beginAction,
-		insideAction: () => running > 0, bakeCurrentKey, keyPose, moveKey, liveIkStates: () => appContext.shared.ikStatesRef.current,
+		bakeCurrentKey, keyPose, moveKey, liveIkStates: () => appContext.shared.ikStatesRef.current,
 		bindRender(context) { appContext = context; },
 		viewRevision: () => viewRevision, canUndo: id => documentStore.canUndo(id),
 		stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },
@@ -303,7 +302,7 @@ export function createMotionDomain(appContext, characters) {
 		}) }), sceneSlice: slices => slices.motion ?? references(slices.cast),
 		publish: rows => write(rows), commitDraft: write,
 		switchLayer(id) { appContext.shared.loadedLayerCharRef.current = id; project(); notify(); },
-		snapshotLegacy: () => read(), restoreLegacy: write,
+		snapshotLegacy: () => read(),
 		snapshotTarget(id) {
 			const state = appContext.shared.readStudioState(), keys = decodeMotionKeys(layer(id).ikKeys), rig = rigFor(id);
 			return { character: state.characters.find(row => row.id === id), fullMotion: fullMotionFor(id),
@@ -328,7 +327,7 @@ export function useMotion(appContext) {
 		const start = () => { if (ikDragRef.current?.characterId === null) ikDragRef.current = null; domain.beginGesture(); }; window.addEventListener('pointerdown', start, true);
 		return () => { window.removeEventListener('pointerdown', start, true); domain.finishGesture(true); };
 	}, [domain, appContext.shared.activeChar.id]);
-	// IK posing for Subject 1: dragging a wrist/ankle handle FOCUSES that
+	// IK posing for the active character: dragging a wrist/ankle handle FOCUSES that
 	// joint and solves its chain backward (two-bone analytic IK) on top of
 	// the current pose; joints never dragged stay purely on the FK pose.
 	// Keys land on the Full-Body lane as sparse per-chain world targets and

@@ -19,7 +19,7 @@ identity first.
    - export/share a project file (needs a name to save under),
    - sync a scene across devices,
    - AI generation queue (if a hosted queue ever bills per user).
-3. Instrumentation (already shipped in this branch): `install:first_launch`,
+3. Instrumentation (already in the product code, `src/analytics.js` and `src/App.jsx`): `install:first_launch`,
    `sample:played` (removed in #914), `craft:first_action`, `scene:created` (including the
    startup scene), `export:video_succeeded`, `export:blocking_frame_succeeded`,
    `activation:completed`. When a lazy-identity prompt lands, add

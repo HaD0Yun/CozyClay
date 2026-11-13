@@ -3,8 +3,6 @@ import {
 	resolveIkRig,
 	createIkState,
 	ikSeedTargets,
-	ikSnapshot,
-	ikRestore,
 	ikTouch,
 	ikBakeKeyframe,
 	ikRemoveKeyframe,
@@ -283,12 +281,6 @@ check("moved character keeps the keyed local rotations", deg(arm.bones[0].quater
 rig.position.x -= 0.5;
 rig.updateMatrixWorld(true);
 
-/* --- snapshot / restore --------------------------------------------------- */
-const snap = ikSnapshot(chains, fkJoints);
-solveIk(arm, wristStart.clone().add(new THREE.Vector3(0, 0.3, 0)));
-ikRestore(chains, snap, fkJoints);
-check("restore returns the chain to the snapshot", sameQ(arm.bones[0].quaternion, snap.get("leftHand").quats[0]));
-
 ikRemoveKeyframe(ik, 10);
 check("removeKeyframe drops the frame", JSON.stringify(ikKeyframes(ik)) === JSON.stringify([30]));
 
@@ -437,12 +429,6 @@ ikEvaluate(chains, ik2, 20, fkJoints);
 const expectNeck = neckQ1.clone().slerp(neckQ2, 0.5);
 check("FK key slerp midpoint (<0.5°)", deg(neck.bone.quaternion, expectNeck) < 0.5, `err=${deg(neck.bone.quaternion, expectNeck).toFixed(4)}°`);
 
-/* FK snapshot/restore */
-const snap2 = ikSnapshot(chains, fkJoints);
-solveSwingAngle(neck, new THREE.Vector3(1, 0, 0), 0.3, neck.bone.quaternion.clone(), startParentQuat);
-ikRestore(chains, snap2, fkJoints);
-check("FK restore returns the joint to the snapshot", sameQ(neck.bone.quaternion, snap2.get("neck").quats[0]));
-
 /* --- body root: hips translate = crouch/lean, keys carry the position ----- */
 const hips = fkJoints.get("hips");
 const hipsWorldBefore = hips.bone.getWorldPosition(v()).clone();
@@ -485,12 +471,6 @@ rig.updateMatrixWorld(true);
 ikEvaluate(chains, ik3, 20, fkJoints);
 const expectedHips = hipsKeyLow.clone().lerp(hipsKeyHigh, 0.5);
 check("hips position lerps between keys", hips.bone.position.distanceTo(expectedHips) < 1e-6, `err=${hips.bone.position.distanceTo(expectedHips).toExponential(2)}`);
-
-// restore puts the bind position back
-const snap3 = ikSnapshot(chains, fkJoints);
-solveHipsTranslate(hips, new THREE.Vector3(0, -0.5, 0), hips.bone.position.clone());
-ikRestore(chains, snap3, fkJoints);
-check("restore returns the hips bind position", hips.bone.position.distanceTo(snap3.get("hips").pos) < 1e-9);
 
 /* --- foot planting: hips drop, ankles stay at their plants ----------------- */
 // reset the hips and the left leg to bind

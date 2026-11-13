@@ -53,12 +53,6 @@ export function bakeTake(sk, out, placement = { position: [0, 0, 0], yaw: 0 }, m
 	return { schema: TAKE_SCHEMA, fps: out.fps, frameCount: F, rig: sk.model, bones: sk.names.slice(), rot, hips, objects, placement, ...meta };
 }
 
-/** Local quaternion [x,y,z,w] of bone b at frame f (nearest frame, clamped). */
-export function takeQuat(take, f, b) {
-	const ff = Math.max(0, Math.min(take.frameCount - 1, Math.round(f))), i = (ff * take.bones.length + b) * 4;
-	return [take.rot[i], take.rot[i + 1], take.rot[i + 2], take.rot[i + 3]];
-}
-
 export function takeHips(take, f) {
 	const ff = Math.max(0, Math.min(take.frameCount - 1, Math.round(f))) * 3;
 	return [take.hips[ff], take.hips[ff + 1], take.hips[ff + 2]];

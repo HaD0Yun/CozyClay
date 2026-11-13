@@ -15,7 +15,6 @@ const LIMITS = { Thumb: [[-20, 50], [-10, 60], [-10, 75]], other: [[-15, 90], [0
 const limitsOf = (name) => LIMITS[name] ?? LIMITS.other;
 
 const fingerTrackId = (side, name, joint) => `${side.toLowerCase()}${name}${joint}`;
-export const FINGER_TRACK_IDS = ["Left", "Right"].flatMap((side) => FINGER_NAMES.flatMap((name) => [1, 2, 3].map((joint) => fingerTrackId(side, name, joint))));
 
 const hingeCache = new WeakMap();
 /** The fingers of an FK joint map (resolveIkRig's fkJoints): each finger joint record points at its finger. */

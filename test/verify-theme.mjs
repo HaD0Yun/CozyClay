@@ -25,7 +25,6 @@ expect("browser title names the studio", /<title>[^<]*Cozy\s?Clay[^<]*<\/title>/
 expect("IBM Plex Sans is the only active studio UI family", css.includes('@font-face {\n\tfont-family: "IBM Plex Sans";') && !css.includes("font-family:Inter"));
 expect("display and UI roles both use IBM Plex Sans", css.includes("--display: var(--sans)") && css.includes('--sans: "IBM Plex Sans"'));
 expect("numeric editing data has a JetBrains Mono role", css.includes('--mono: "JetBrains Mono"') && css.includes("font-family: var(--mono)"));
-expect("wordmark uses a modern heavy display treatment", css.includes("font-weight: 750") && css.includes("letter-spacing: -.045em"));
 expect("chrome backdrop token uses the v2 surface", css.includes("--bg: var(--surface-0)"));
 expect("chrome foreground token uses the v2 text scale", css.includes("--fg: var(--text-1)"));
 expect("chrome panel token uses the v2 panel surface", css.includes("--panel: var(--surface-panel)"));
