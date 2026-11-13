@@ -18,6 +18,14 @@
 .agent-plan-row[data-plan-live="true"] .agent-plan { box-shadow: 0 6px 14px -8px #000c; }
 
 .agent-plan-head {
+	/* a button: the whole header folds and unfolds the steps */
+	width: 100%;
+	margin: 0;
+	border: 0;
+	background: none;
+	font-family: inherit;
+	text-align: left;
+	cursor: pointer;
 	display: flex;
 	align-items: center;
 	gap: var(--agent-space-3);
@@ -27,6 +35,12 @@
 }
 
 .agent-plan-title { flex: none; font-weight: 600; }
+.agent-plan-head:hover .agent-plan-chevron { color: var(--agent-text); }
+.agent-plan-head:focus-visible { outline: 1px solid var(--agent-border-focus); outline-offset: -1px; border-radius: inherit; }
+.agent-plan-chevron { flex: none; margin-right: calc(-1 * var(--agent-space-1)); color: var(--agent-text-dim); }
+/* folded: the step under way takes the progress bar's place */
+.agent-plan-current { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-text-muted); }
+.agent-plan[data-plan-state="live"] .agent-plan-current[data-plan-status="active"] { color: var(--agent-text); }
 
 .agent-plan-bar {
 	flex: 1;

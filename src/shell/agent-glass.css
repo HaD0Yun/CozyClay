@@ -157,6 +157,23 @@
 	color: var(--text-1);
 	font-size: 12px;
 }
+/* A running turn's plan pins to the top of the transcript (workflow/agent-plan.css) and the steps scroll under it.
+   Here the panel's --agent-bg is transparent and a card's fill is a 5% tint, so the pinned card would let them show
+   through. It is a floating sheet instead: the row frosts what passes under it (the panel's tone, a little see-through,
+   blurred), and the card on it is a lighter tint with a visible hairline and a shadow below, so it reads as its own layer.
+   It pins at the transcript's edge, whole: the base offset tucked its top edge and corners out of sight. */
+.app[data-shell="glass"] .studio-agent-inspector .agent-plan-row[data-plan-live="true"] {
+	top: 0;
+	margin-top: 0;
+	padding-bottom: var(--agent-space-2);
+	background: color-mix(in srgb, var(--glass-text-panel-flat) 72%, transparent);
+	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
+}
+.app[data-shell="glass"] .studio-agent-inspector .agent-plan-row[data-plan-live="true"] .agent-card.agent-plan {
+	background: color-mix(in srgb, var(--text-1) 9%, transparent);
+	box-shadow: 0 0 0 1px var(--agent-border-strong), 0 10px 20px -10px rgba(0, 0, 0, .65);
+}
 .app[data-shell="glass"] .studio-agent-inspector .agent-card.failed,
 .app[data-shell="glass"] .studio-agent-inspector .agent-failure-card,
 .app[data-shell="glass"] .studio-agent-inspector .agent-job-card[data-job-state="stale_environment"] {
