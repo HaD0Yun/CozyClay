@@ -342,18 +342,6 @@ function poseMemberAtFrame(rig, clip, ikState, frame, blendFrames = 0, pose = nu
 	}
 }
 
-/** The longest edge a stored reference picture may have. A character sheet is
- * read as a LOOK, not as texture detail, and the whole thing has to survive
- * inside the project document — 1024 px keeps a face legible at a fraction of
- * the bytes a phone photo would cost. */
-
-/**
- * Read one picked file into the data URL a reference slot stores: FileReader
- * for the bytes (so the result survives save/load exactly like an Upload node's
- * image), then a canvas pass to cap the long side. The source type is kept, so
- * a JPEG photo stays a JPEG instead of being re-encoded into a much larger PNG.
- */
-
 /** An http(s) asset source as the data URL the import path takes. */
 async function fetchImportSource(url) {
 	const response = await fetch(url);
@@ -487,8 +475,6 @@ export default function App() {
 		get cameraPreviewEndRef() { return cameraPreviewEndRef; },
 		get captureCurrentFraming() { return captureCurrentFraming; },
 		get charA() { return charA; },
-		get framingSessionOpen() { return framingSessionOpen; },
-		get framingSessionRef() { return framingSessionRef; },
 		get ikMode() { return ikMode; },
 		get look() { return look; },
 		get manualCameraOverrideRef() { return manualCameraOverrideRef; },
@@ -504,7 +490,6 @@ export default function App() {
 		get setTlPlaying() { return setTlPlaying; },
 		get setWorkspaceLayout() { return setWorkspaceLayout; },
 		get shotCamRef() { return shotCamRef; },
-		get snapshotCast() { return snapshotCast; },
 		get startupScene() { return startupScene; },
 		get tlPlaying() { return tlPlaying; },
 		get waypointMode() { return waypointMode; },
@@ -571,9 +556,6 @@ export default function App() {
 	// the live set_camera handler writes it directly because that command can
 	// land while the camera is unmounted.
 	const shotCameraPosRef = useRef(null);
-	// The Top-View is always the inset: the old double-click swap that let the
-	// plan own the big pane is gone, so there is no view mode to toggle.
-	const planIsMain = false;
 	// The framed output only — no editing chrome (gizmo, inset, fly navigation)
 	// reaches it. The Scene/PlayView centre tabs are gone (#195): this is an
 	// internal player with two entry points (the Workflow embed and the
@@ -659,7 +641,7 @@ export default function App() {
 	// double-click would toggle twice.
 	const insetToggledAtRef = useRef(0);
 	const planCamRef = useRef();
-	const planHostRef = planIsMain ? mainPaneRef : insetPaneRef;
+	const planHostRef = insetPaneRef;
 
 	useEffect(() => {
 		// The landing-page playground runs a fixed, throwaway layout: whatever a
@@ -892,14 +874,12 @@ export default function App() {
 	}
 
 	const castDomain = useCast(appContext.forRender({
-		get beginGestureUndo() { return beginGestureUndo; },
 		get bufferRef() { return bufferRef; },
 		get clearMotion() { return clearMotion; },
 		get committedIkEdits() { return committedIkEdits; },
 		get environment() { return environment; },
 		get environmentImage() { return environmentImage; },
 		get frameCountRef() { return frameCountRef; },
-		get gestureUndoRef() { return gestureUndoRef; },
 		get hasEnvSheet() { return hasEnvSheet; },
 		get ikStateRef() { return ikStateRef; },
 		get ikStatesRef() { return ikStatesRef; },
@@ -937,7 +917,6 @@ export default function App() {
 		get snapshotStudioDomain() { return snapshotStudioDomain; },
 		get storeRef() { return storeRef; },
 		get studioActionGroupRef() { return studioActionGroupRef; },
-		get studioHistoryRef() { return studioHistoryRef; },
 		get syncStudioLayerBuffer() { return syncStudioLayerBuffer; },
 		get ikMode() { return ikMode; },
 		get leaveIkMode() { return leaveIkMode; },
@@ -1028,7 +1007,6 @@ export default function App() {
 		get castMemberOf() { return castMemberOf; },
 		get charA() { return charA; },
 		get characters() { return characters; },
-		get fovDeg() { return fovDeg; },
 		get frameCountRef() { return frameCountRef; },
 		get ikBodyDragRef() { return ikBodyDragRef; },
 		get ikFrames() { return ikFrames; },
@@ -1039,7 +1017,6 @@ export default function App() {
 		get markSemanticEdit() { return markSemanticEdit; },
 		get motionFullRef() { return motionFullRef; },
 		get poseMemberAtFrame() { return poseMemberAtFrame; },
-		get posedRig() { return posedRig; },
 		// Pose mode enters from the view the author is looking through (motion.js toggleIkMode).
 		get poserCamRef() { return poserCamRef; }, get editorCamRef() { return editorCamRef; }, get editorLook() { return editorLook; },
 		get poserLook() { return poserLook; },
@@ -1059,11 +1036,9 @@ export default function App() {
 		get setProjectManifest() { return setProjectManifest; },
 		
 		get setSelectedHierarchyId() { return setSelectedHierarchyId; },
-		get setTlFps() { return setTlFps; },
 		get setTlFrame() { return setTlFrame; },
 		get setTlFrameCount() { return setTlFrameCount; },
 		get setTlPlaying() { return setTlPlaying; },
-		get shot() { return shot; },
 		get shotCamRef() { return shotCamRef; },
 		get tlFps() { return tlFps; },
 		get tlFrame() { return tlFrame; },
@@ -1072,20 +1047,14 @@ export default function App() {
 		get propFrameRef() { return propFrameRef; },
 		
 		
-		get waitForRig() { return waitForRig; },
 		get waypointMode() { return waypointMode; },
-		get waypoints() { return waypoints; },
 		get captureCurrentFraming() { return captureCurrentFraming; },
 		get enterShotLook() { return enterShotLook; },
-		get captureLiveFraming() { return liveQueries.capture_framing_png; },
 		get lookThroughShot() { return lookThroughShot; },
 		
 		get readStudioState() { return readStudioState; },
 		get restoreExportRig() { return restoreExportRig; },
 		get setCameraPos() { return setCameraPos; },
-		get setFovDeg() { return setFovDeg; },
-		get setResult() { return setResult; },
-		get setResultOpen() { return setResultOpen; },
 		get setWaypoints() { return setWaypoints; },
 		get shotCameraPosRef() { return shotCameraPosRef; },
 		get snapshotExportRig() { return snapshotExportRig; },
@@ -1185,10 +1154,6 @@ export default function App() {
 		if (id && characters.some((entry) => entry.id === id)) setActiveCharacterId(id);
 	}, [selectedHierarchyId, characters]);
 
-	// Right-sidebar tab. "inspector" shows the selection's properties; "shot"
-	// holds shot-global settings (type presets, prompt); "motion" holds the
-	// motion3 workflow in pipeline order. Selecting anything in the scene routes
-	// to the inspector tab; the root SHOT row routes to the shot tab.
 	const [inspectorActionsOpen, setInspectorActionsOpen] = useState(false);
 
 	const objectsDomain = useObjects(appContext.forRender({
@@ -1211,7 +1176,6 @@ export default function App() {
 		get shotCamRef() { return shotCamRef; },
 		get startupScene() { return startupScene; },
 		get runStudioAction() { return runStudioAction; },
-		get studioHistoryRef() { return studioHistoryRef; },
 	}));
 	const {
 		recentObjectColors, objectColorDraft, setObjectColorDraft, rememberSceneObjectColor, objectDeleteUndo,
@@ -1345,7 +1309,6 @@ export default function App() {
 		get startup() { return startup; },
 		get storeRef() { return storeRef; },
 		get studioDocumentEpochRef() { return studioDocumentEpochRef; },
-		get studioHistoryRef() { return studioHistoryRef; },
 		get studioSceneEpochRef() { return studioSceneEpochRef; },
 		get castDomain() { return castDomain; },
 		get objectsDomain() { return objectsDomain; },
@@ -1507,9 +1470,6 @@ export default function App() {
 	// down during a flythrough, because W/A/S/D belong to the camera then.
 	const flyingRef = useRef(false);
 
-	/** Frame the selection: fly the shot camera to a comfortable distance along
-	 * the current view direction, the way Unity's F key does. Defaults to the
-	 * selection; the hierarchy context menu passes a specific row's id. */
 	/** Dolly-and-aim onto a world point. The editor camera glides; the shot
 	 * camera (look-through) still cuts, because reframing the RECORDING lens
 	 * is a deliberate act, not a tour. */
@@ -1555,23 +1515,11 @@ export default function App() {
 		if (!offset || lookThroughShot || ikMode) return;
 		setCamGlide({ position: { x: target.x + offset.x, y: Math.max(0.3, target.y + offset.y), z: target.z + offset.z }, target });
 	}
-	// Viewport/plan camera framing would otherwise push an entry per pointermove.
-	const framingSessionRef = useRef(null);
-	/* One Ctrl+Z entry per GESTURE for the surfaces that write cast-snapshot
-	 * state without a store transaction of their own: the key light (foldout
-	 * sliders, sun puck, move gizmo) and the character Transform rows. Every
-	 * tick of a drag or a scrub reopens the same session while its entry is
-	 * still the newest one, and the pointer/key release below closes it, so the
-	 * next gesture starts a fresh entry instead of extending the last one. */
-	const gestureUndoRef = useRef(null);
-	function beginGestureUndo() {
-		// NumberField hands this token back on every tick of a scrub. These edits
-		// are not store transactions, so the scrub runs with a null token.
-		return null;
-	}
+	/* The pointer/key release closes the stage domain's open gesture (key
+	 * light foldout, sun puck, move gizmo), so the next drag or scrub starts a
+	 * fresh Ctrl+Z entry instead of extending the last one. */
 	function endGestureUndo() {
 		stageDomain.finishGesture();
-		gestureUndoRef.current = null;
 	}
 	useEffect(() => {
 		const end = () => endGestureUndo();
@@ -1584,13 +1532,6 @@ export default function App() {
 			window.removeEventListener("keyup", end, true);
 		};
 	}, []);
-
-	/** True while a framing capture for `shotId` is the newest history entry. */
-	function framingSessionOpen(shotId) {
-		return Boolean(framingSessionRef.current)
-			&& framingSessionRef.current.key === `framing:${shotId}`
-			&& appContext.historyEntry() === framingSessionRef.current.historyEntryId;
-	}
 
 	function undoObjectDeletion() {
 		if (!objectDeleteUndo) return;
@@ -1714,10 +1655,9 @@ export default function App() {
 		return () => window.removeEventListener("keydown", onKeyDown);
 	});
 
-	// Deps are identities, not the entry objects: charA/charB are rebuilt as
-	// fresh fallback objects on EVERY render when the cast is short (748-749),
-	// so depending on the objects fired this on each render and the actions
-	// menu closed the instant it opened.
+	// Deps are identities, not the entry objects: the cast placeholders are made
+	// once (domains/cast.js), but every edit to a character replaces its entry,
+	// and the actions menu should close only when the selection changes.
 	useEffect(() => {
 		setInspectorActionsOpen(false);
 	}, [selectedSceneObjectId, selectedHierarchyId, charA.id, charB.id, showB]);
@@ -1811,7 +1751,6 @@ export default function App() {
 
 
 
-	 // default clip length in seconds; aligned with the recommended 3-5 s block range
 
 
 	const [bottomTab, setBottomTab] = useState("timeline");
@@ -1979,7 +1918,6 @@ export default function App() {
 		if (position) setCameraPos(position);
 		setSubjectVisible(subjectVisibleRef.current);
 	} });
-	 // the clip length on the production clock
 
 	// Keep the imperative frame in step with the playhead for live playback;
 	// the export overwrites it per captured frame and restores nothing, which
@@ -2134,9 +2072,8 @@ export default function App() {
 			window.removeEventListener("keydown", onKeyDown);
 		};
 	}, [projectMenuOpen]);
-	// The PlayView reference-export menu (#165) dismisses the same way.
+	// The Export menu (#165) dismisses the same way.
 	const [exportMenuOpen, setExportMenuOpen] = useState(false);
-	const [exportMenuAnchor, setExportMenuAnchor] = useState({ top: 0, right: 0 });
 	useEffect(() => {
 		if (!exportMenuOpen) return undefined;
 		if (exportShotIdRef.current) document.querySelector('[data-testid="export-video"]')?.focus();
@@ -2164,7 +2101,6 @@ export default function App() {
 	// the inspector. Same dismissal as the two menus above, plus focus
 	// returning to the trigger on Escape — the bar is a keyboard stop.
 	const [viewMenuOpen, setViewMenuOpen] = useState(false);
-	const [viewMenuAnchor, setViewMenuAnchor] = useState({ top: 0, right: 0 });
 	const viewMenuTriggerRef = useRef(null);
 	useEffect(() => {
 		if (!viewMenuOpen) return undefined;
@@ -2202,7 +2138,6 @@ export default function App() {
 	// latest handlers; the UI controls and run_action share both.
 	const studioActionsRef = useRef(null);
 	const renderWaitersRef = useRef([]);
-	const studioHistoryRef = useRef(new Map());
 	const studioActionGroupRef = useRef(null);
 	const studioIkStampsRef = useRef(new Map());
 	const [studioAgentError, setStudioAgentError] = useState(null);
@@ -4542,8 +4477,8 @@ export default function App() {
 		projectMenuOpen, setProjectMenuOpen, projectDirty, projectName, previsMode, castStyle: scenesDomain.castStyle, projectStartupOpen,
 		requestNewProject, setProjectStartupOpen, setProjectBrowserOpen, runStudioAction, saveProject,
 		projectManifest, projectSaveState, recState, exportMenuTriggerRef, exportMenuOpen,
-		exportShotIdRef, setExportMenuAnchor, setExportMenuOpen, exportPhaseLabel,
-		exportMenuAnchor, resultOpen, exportFeedback, shots, exportKeyframePacks,
+		exportShotIdRef, setExportMenuOpen, exportPhaseLabel,
+		resultOpen, exportFeedback, shots, exportKeyframePacks,
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
 		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,
@@ -4556,8 +4491,8 @@ export default function App() {
 		selectWorkflowMode, gizmoMode, setGizmoMode, snapEnabled, setSnapEnabled, sculptView, requestSculptView, sculptParts,
 		preset, applyPreset, cameraPresetId, shotAspectKey,
 		fovDeg, shotsDomain, shot, setNonce, workspaceLayout,
-		viewMenuTriggerRef, viewMenuOpen, setViewMenuAnchor, setViewMenuOpen, viewLooksActive,
-		viewMenuAnchor, gridView, setGridView, autoColor, setAutoColor,
+		viewMenuTriggerRef, viewMenuOpen, setViewMenuOpen, viewLooksActive,
+		gridView, setGridView, autoColor, setAutoColor,
 		guideMode,
 		isCharacterSelection, partColoursChoice, embedMode, agentCollapsed, sceneSaveError,
 		studioAgentError, studioAgentMode, setStudioAgentMode, AgentPanel, setAgentCollapsed,
@@ -4801,7 +4736,7 @@ export default function App() {
 									objects={characterGizmoObject ? [characterGizmoObject] : []}
 									mode={gizmoMode}
 									snap={snapEnabled}
-									enabled={!planIsMain && !posing && !ikMode && !playMode && !sculptMode && !!characterGizmoObject}
+									enabled={!posing && !ikMode && !playMode && !sculptMode && !!characterGizmoObject}
 									paneRef={mainPaneRef}
 									camRef={lookThroughShot ? shotCamRef : editorCamRef}
 									shotAspect={lookThroughShot ? shotOutput.aspect : null}
@@ -4892,7 +4827,7 @@ export default function App() {
 							/>
 							<PoseHandles
 								root={posedRig()}
-								enabled={!!posing && !planIsMain && !playMode}
+								enabled={!!posing && !playMode}
 								onChange={(before, after) => {
 									markSemanticEdit("pose", before, after);
 									setPoseTick((n) => n + 1);
@@ -5022,7 +4957,7 @@ export default function App() {
 								held={cameraGizmoObject || lightGizmoObject ? null : heldEdit.gizmo}
 								mode={lightGizmoObject ? "move" : cameraGizmoObject ? (gizmoMode === "scale" ? "move" : gizmoMode) : gizmoMode}
 								snap={snapEnabled}
-								enabled={!planIsMain && !posing && !ikMode && !playMode && !sculptMode}
+								enabled={!posing && !ikMode && !playMode && !sculptMode}
 								paneRef={mainPaneRef}
 								camRef={lookThroughShot ? shotCamRef : editorCamRef}
 								shotAspect={lookThroughShot ? shotOutput.aspect : null}
@@ -5040,7 +4975,7 @@ export default function App() {
 										id === "__shotcam__" ? "camera" : id === "__keylight__" ? "light" : id?.startsWith("char:") ? charKeyToHierarchyId(id) : id ? `object:${id}` : "props",
 									)
 								}
-								onGroundClick={waypointMode && !planIsMain ? addFloorWaypoint : undefined}
+								onGroundClick={waypointMode ? addFloorWaypoint : undefined}
 							/>
 							{!preview && railCurve && (
 								<CameraRailScenePreview
@@ -5121,8 +5056,7 @@ export default function App() {
 								// render outside this loop and keep them everywhere.
 								editorLook={!embedMode}
 								ikMode={ikMode}
-								planIsMain={planIsMain}
-								// Preview IS PlayView's render path: DualRender tests this branch
+								// Preview IS the shot player's render path: DualRender tests this branch
 								// first, so the embed and playground rail land in the letterboxed
 								// player. Studio look-through keeps playMode false and flies the
 								// shot camera in the editing draw instead.
@@ -5165,11 +5099,11 @@ export default function App() {
 							</div>
 						)}
 
-						<div ref={mainPaneRef} className={"vp-pane vp-main" + (planIsMain ? " plan" : "")} />
+						<div ref={mainPaneRef} className="vp-pane vp-main" />
 						<div
 							ref={insetPaneRef}
 							hidden={playMode}
-							className={"vp-pane vp-inset" + (planIsMain || ikMode ? " shot" : " plan") + (workspaceLayout.insetCollapsed ? " collapsed" : "")}
+							className={"vp-pane vp-inset" + (ikMode ? " shot" : " plan") + (workspaceLayout.insetCollapsed ? " collapsed" : "")}
 							style={{
 								"--shot-aspect": shotOutput.aspect,
 								...(insetPos ? { left: insetPos.x, top: insetPos.y, right: "auto" } : {}),
@@ -5198,8 +5132,8 @@ export default function App() {
 								>
 									{workspaceLayout.insetCollapsed ? "▸" : "▾"}
 								</span>
-								{planIsMain || ikMode ? ko("Shot view", "샷 뷰") : ko("Top-View", "탑뷰")}
-								{!planIsMain && !ikMode && workspaceLayout.planZoom !== 1 && !workspaceLayout.insetCollapsed && (
+								{ikMode ? ko("Shot view", "샷 뷰") : ko("Top-View", "탑뷰")}
+								{!ikMode && workspaceLayout.planZoom !== 1 && !workspaceLayout.insetCollapsed && (
 									<em className="vp-inset-zoom">{workspaceLayout.planZoom.toFixed(2).replace(/\.?0+$/, "")}×</em>
 								)}
 							</span>
