@@ -161,4 +161,21 @@ const duo = (await renderPrompt.handler(promptArgs)).content[0].text;
 assert.match(duo, /Two subjects\. Subject 1: a person\. Subject 2: a person\./, `render_prompt dropped the second subject-less character:\n${duo}`);
 console.log("PASS render_prompt describes subject-less characters with the neutral phrase and keeps both");
 
+/* ------------- 6. update_object keeps a travel path with no editor ------- */
+// Without a live editor the memory branch must store the path it answered
+// "Updated" for, and null must clear it again (read back through describe_scene).
+
+const call = (name, args) => tools.find((entry) => entry.name === name).handler(args);
+const placed = (await call("place_object", { kind: "cube", x: 0, z: 0 })).content[0].text;
+const objectId = placed.match(/ as (\S+)\.\n/)?.[1];
+assert.ok(objectId, `place_object returned no object id:\n${placed}`);
+const route = { points: [{ x: 0, z: 0 }, { x: 3, z: 1 }], speed: 1.5 };
+const updated = await call("update_object", { id: objectId, path: route });
+assert.equal(updated.isError, undefined, `update_object refused a path: ${updated.content[0].text}`);
+const objectLine = async () => (await describeScene.handler({ character_cursor: 0, object_cursor: 0, limit: 50 })).content[0].text;
+assert.match(await objectLine(), /path: 2 pts {2}\(0,0\) → \(3,1\) {2}speed: 1\.5/, "update_object answered success but dropped the travel path in memory mode");
+await call("update_object", { id: objectId, path: null });
+assert.doesNotMatch(await objectLine(), /path: \d+ pts/, "update_object path: null did not clear the travel path in memory mode");
+console.log("PASS update_object stores and clears a travel path without a live editor");
+
 console.log(`\nPASS tool handler registry (${tools.length} tools, importable without an MCP server)`);
