@@ -1095,8 +1095,8 @@ const capsuleForPlan = await transform(); // the Capsule, now away from the Cube
 const pastBeforePlan = await evaluate("window.__sceneHistory().past");
 await click("[...document.querySelectorAll('.hierarchy-row')].find(b => b.textContent.includes('Cube'))");
 await waitFor("window.__gizmoHandles().length > 0");
-// The plan board only lives in the Top-View inset now (planIsMain is
-// hard false — the double-click big-pane swap is gone for good), so the
+// The plan board only lives in the Top-View inset now (the double-click
+// big-pane swap is gone for good), so the
 // puck is driven in the inset itself: PLAN_EXTENT (12.4 m) maps to half
 // its shorter side, same as the bird's-eye case above.
 const planRect = await evaluate("(() => { const b = document.querySelector('.vp-inset').getBoundingClientRect(); return { left: b.left, top: b.top, width: b.width, height: b.height, scale: Math.min(b.width, b.height) / 2 / 12.4 }; })()");
