@@ -385,7 +385,7 @@ No production PostHog query was executed to establish this document.
 
 The actual call paths do not provide an own-project-reopen event contract:
 
-- `src/App.jsx::applyProject` calls `openScene` and unconditionally emits
+- `src/domains/scenes.js::applyProject` calls `openScene` and unconditionally emits
   `project:opened {age_bucket}`. `openProject` (file picker),
   `openProjectByHandle` (recents/folder), and `restoreStoredProject` (automatic
   stored-handle restore when permission is granted, or an explicit restore
@@ -403,7 +403,7 @@ The actual call paths do not provide an own-project-reopen event contract:
   events (`local`, then its starter or launch source); do not subtract
   or pair them by loose timestamps to infer ownership.
 - Hosted Playground startup is different: `src/main.jsx::boot` fetches and
-  stashes its bundled preset before mounting; `src/app-stage.jsx::loadSceneStartup`
+  stashes its bundled preset before mounting; `src/stage-startup-defaults.js::loadSceneStartup`
   consumes it without reading saved local scenes and without `applyProject`.
   Its automatic initial preset is not a project reopen. Normal cached scene
   startup likewise need not emit `project:opened`.
@@ -986,9 +986,7 @@ MCP reports only into the selected connected editor through sanitized live
 frames; the browser revalidates, deduplicates and calls the existing analytics
 and opt-out gate. There is no server analytics client. Memory-only sessions,
 ambiguous/stale workspace routing and disconnected stages are unobserved, not
-zero use. Reconnecting never replays execution telemetry. `generate_motion`
-can complete by queuing work; application requires a later acknowledged
-installation.
+zero use. Reconnecting never replays execution telemetry.
 Same-value mutations and rolled-back batches do not count as applied. A
 partially applied failed batch can have a failed execution and an application.
 State comparisons stay inside the local hub; if a handler has no prior
