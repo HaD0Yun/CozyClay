@@ -41,7 +41,7 @@ import { rangePinObjectMatrixAt } from "../range-pin-object-transform.js";
 import { PLACEMENT_TRACK, placementRows } from "../motion/placement-keys.js"; import { createPoseKeys } from "./motion/pose-keys.js";
 import { ensureRangePinState, overlappingRangePin, rangePinConflictFrames, rangePinOverlapMessage, sameRangePinPreview } from "./motion/motion-range-pin-rules.js"; import { bakeFixIsland } from "./motion/fix-islands.js";
 
-import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js";
+import { takeSource, normalizeTakeSource, compileTakeSource, renderTakeEdit } from "./motion/take-source.js"; import { applyBaked } from "../motion3/take-baked.js"; import { convertBandKeys } from "../motion/fix-keys.js";
 import { characterName } from "../character-name.js";
 import { sameMotionIntent, emptyMotionLayer, encodeMotionKeys, decodeMotionKeys, cloneRangePin, encodeRangePins, decodeRangePins, encodeRangePinResiduals, decodeRangePinResiduals } from "./motion/motion-intent-codec.js";
 // Plain intent owns take identities and JSON keys. Decoded buffers and rig
@@ -62,13 +62,13 @@ export function createMotionDomain(appContext, characters) {
 		if (take.resourceId) return { ...take };
 		if (stored) takes.set(resourceId, structuredClone(take));
 		source ??= takeSource(take, appContext.shared.storeRef?.current?.objects ?? appContext.shared.sceneObjects);
-		return { resourceId, frames: take.frames, fps: take.fps, prompt: take.prompt ?? '', studioTakeId: take.studioTakeId ?? resourceId, ...(source ? { source } : {}), ...(take.edit ? { edit: take.edit } : {}) };
+		return { resourceId, frames: take.frames, fps: take.fps, prompt: take.prompt ?? '', studioTakeId: take.studioTakeId ?? resourceId, ...(source ? { source } : {}), ...(take.edit ? { edit: take.edit } : {}), ...(take.baked ? { baked: take.baked } : {}) };
 	}
-	const restoredTake = (id, { takeId, edit, ...source }) => snapshotTake({ schema: source.schema, frames: Math.round(source.spec.frames), fps: 24,
-		prompt: source.spec.label ?? '', studioTakeId: takeId, edit }, `restore:${id}:${takeId ?? 'take-v3'}`, source, false);
+	const restoredTake = (id, { takeId, edit, baked, ...source }) => snapshotTake({ schema: source.schema, frames: Math.round(source.spec.frames), fps: 24,
+		prompt: source.spec.label ?? '', studioTakeId: takeId, edit, baked }, `restore:${id}:${takeId ?? 'take-v3'}`, source, false);
 	const normalize = rows => rows.map(row => ({ ...emptyMotionLayer(row.id), ...row,
 		take: snapshotTake(row.take), fullTake: snapshotTake(row.fullTake ?? row.take),
-		ikKeys: row.ikKeys ?? [], ikPins: row.ikPins ?? [], ikPinResiduals: row.ikPinResiduals ?? [], committedIkEdits: row.committedIkEdits ?? [] }));
+		ikKeys: convertBandKeys(row.ikKeys ?? [], (row.take?.frames ?? Infinity) - 1), ikPins: row.ikPins ?? [], ikPinResiduals: row.ikPinResiduals ?? [], committedIkEdits: row.committedIkEdits ?? [] }));
 	let native = createDocumentStore({ owned: { motion: normalize(references(characters)) } });
 	const listeners = new Set(), notify = () => { for (const listener of listeners) listener(); };
 	let release = native.subscribe(notify), viewRevision = 0;
@@ -83,7 +83,7 @@ export function createMotionDomain(appContext, characters) {
 		if (!take || !takes.has(take.resourceId)) return null;
 		if (!decoded.has(take)) {
 			const { resourceId, ...metadata } = take;
-			decoded.set(take, renderTakeEdit({ ...takes.get(resourceId), ...metadata }));
+			decoded.set(take, renderTakeEdit(applyBaked({ ...takes.get(resourceId), ...metadata }))); // merged hand fixes first (source frames), then the timing edit
 		}
 		return decoded.get(take);
 	}

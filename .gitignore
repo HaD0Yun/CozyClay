@@ -4,15 +4,8 @@ artifacts/
 .gjc/
 
 # Generated motion archives are large binaries produced by the remote box, not
-# source. Keep only the explicitly listed demo and test fixtures below.
+# source.
 *.npz
-# Exceptions: the hosted demo seed clip ships with the build; test-only clips
-# stay tracked as fixtures but are never copied into production output.
-!public/demo/*.npz
-# QA evidence archives are extraction output staged for a local replay run,
-# not fixtures; the exception above would otherwise make them committable.
-public/demo/qa-h3-*.npz
-!test/fixtures/qa-lying.npz
 
 .DS_Store
 *.log

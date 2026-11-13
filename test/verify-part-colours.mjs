@@ -29,7 +29,7 @@ assert.ok(paletteViolations([{ part: "leftHand", hue: 359 }, { part: "leftFoot",
 assert.ok(paletteViolations([{ part: "leftHand", hue: 20 }]).some((message) => message.includes("10-35")));
 console.log("PASS palette constraints and fully saturated, full-value limb hexes");
 
-// Same Node FBXLoader shim as test/ardy/verify-rest.mjs; read the shipped
+// A minimal window so FBXLoader parses under Node; read the shipped
 // assets themselves so a replacement rig cannot silently outgrow a fixture.
 globalThis.window ??= {
 	innerWidth: 1920,

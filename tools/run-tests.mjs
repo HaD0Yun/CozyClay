@@ -21,12 +21,12 @@ const NODE_FILES = [
 	"test/verify-studio-elements.mjs", "test/verify-world-scale.mjs", "test/verify-camera-roll.mjs",
 	"test/bus/verify-view-mode-pose.mjs",
 	"test/verify-studio-actions.mjs",
-	"test/ardy/verify-collision-blockers.mjs",
+	"test/motion/verify-collision-blockers.mjs",
 	"test/verify-pose-fade.mjs",
 	"test/verify-pose-gizmo.mjs", "test/verify-fingertip-pick.mjs",
-	"test/ardy/verify-key-runs.mjs",
-	"test/ardy/verify-playback-clock.mjs",
-	"test/ardy/verify-timeline-coordinates.mjs",
+	"test/motion/verify-key-runs.mjs",
+	"test/motion/verify-playback-clock.mjs",
+	"test/motion/verify-timeline-coordinates.mjs",
 	"test/verify-tokens.mjs", "test/verify-lens-scrub.mjs",
 	"test/demo/verify-api-routes.mjs",
 	"test/ik/verify-collision-capsules.mjs", "test/ik/verify-ik-pick.mjs", "test/ik/verify-contact-project.mjs",
@@ -293,7 +293,7 @@ function parseArguments(arguments_) {
 	}
 	options.jobs = Number(options.jobs);
 	if (options.shard !== null) options.shard = parseShard(options.shard);
-	if (options.scope !== "all" && options.scope !== "ardy") throw new Error(`unknown test scope: ${options.scope}`);
+	if (options.scope !== "all" && options.scope !== "motion") throw new Error(`unknown test scope: ${options.scope}`);
 	if (!Number.isInteger(options.jobs) || options.jobs < 1) throw new Error(`--jobs must be a positive integer, got ${options.jobs}`);
 	if (options.durationsOut === "" || options.onlyFrom === "") throw new Error("--durations-out and --only-from need a file path");
 	return options;
@@ -354,22 +354,6 @@ async function runAll(files, jobs) {
 	for (const file of files.filter((file) => SERIAL_ONLY.has(file))) await run(file, { buffered: true });
 }
 
-// node:sqlite's DatabaseSync only ships unflagged from Node 22.13.0 (it lived
-// behind --experimental-sqlite before that). package.json requires >=22.19,
-// but older 22.x installs are still common enough that the manifest should
-// degrade gracefully instead of aborting the whole run.
-const NODE_SQLITE_MIN = [22, 13, 0];
-const NODE_SQLITE_FILES = [];
-
-function meetsMinimumNodeVersion([major, minor, patch], current = process.versions.node) {
-	const [currentMajor, currentMinor, currentPatch] = current.split(".").map(Number);
-	if (currentMajor !== major) return currentMajor > major;
-	if (currentMinor !== minor) return currentMinor > minor;
-	return currentPatch >= patch;
-}
-
-const hasNodeSqlite = meetsMinimumNodeVersion(NODE_SQLITE_MIN);
-
 // The MCP suites fork mcp/server.mjs, which imports the MCP SDK from
 // mcp/node_modules — a tree the root `npm install` does not create. On a
 // fresh clone those suites must degrade to an actionable EXCLUDE instead of
@@ -395,15 +379,6 @@ const categories = new Map([
 	...["mcp/verify-live-batch.mjs", "mcp/verify-live-capture.mjs", "mcp/verify-live-editor-model.mjs", "mcp/verify-live-scene-parity.mjs", "test/qa-live-reconnect-browser.mjs"].map(
 		(file) => [file, { kind: "browser", reason: "drives a real Chrome editor over the live socket" }],
 	),
-	...NODE_SQLITE_FILES.map((file) => [
-		file,
-		hasNodeSqlite
-			? { kind: "node", reason: "runs directly under Node" }
-			: {
-					kind: "sqlite",
-					reason: `requires node:sqlite, unflagged only from Node >=${NODE_SQLITE_MIN.join(".")} (current runtime is Node ${process.versions.node})`,
-				},
-	]),
 ]);
 if (!mcpDepsInstalled) {
 	for (const [file, category] of categories) {
@@ -431,7 +406,7 @@ if (unclassified.length > 0 || stale.length > 0) {
 	].filter(Boolean).join("\n"));
 }
 
-const scoped = inventory.filter((file) => scope === "all" || file.startsWith("test/ardy/") || file.startsWith("test/ik/"));
+const scoped = inventory.filter((file) => scope === "all" || file.startsWith("test/motion/") || file.startsWith("test/ik/"));
 const only = readSelection(onlyFrom);
 const runnable = scoped.filter((file) => categories.get(file).kind === "node" && (!only || only.has(file)));
 const { files: selected, predicted } = assignShards(runnable, durations, shard?.total ?? 1)[(shard?.current ?? 1) - 1];
