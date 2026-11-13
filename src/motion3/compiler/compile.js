@@ -32,7 +32,7 @@ import { resolveAnchor, measureProps, armReach } from "./anchors.js";
 import { expandGenerators } from "./walk.js";
 import { steadyHead } from "./head-steady.js";
 import { leadHead } from "./head-lead.js";
-import { autoLayer } from "./auto.js";
+import { autoLayer, smooth } from "./auto.js";
 import { fixOptions, applyFixes } from "../fix/index.js";
 import { fitWeight } from "../fix/self.js";
 import { holdHook } from "../object-keys.js";
@@ -41,7 +41,6 @@ import { objectPoseAt, handOf, restingAt, frameAt, spanOf } from "../object-pose
 import { heldFor, carryFingers } from "./finger-close.js";
 import { sagOf } from "../load.js";
 
-const smooth = x => x * x * (3 - 2 * x);
 // how far past the straight arm a grasp fit's wrist target may end before it counts as wound up (solveFrame), m
 const REACH_SLACK = 0.02;
 

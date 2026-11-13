@@ -13,11 +13,10 @@
 //   look   spec.look [{ f, at }]: at "object:<id>" | "anchor:<name>" | [x, y, z] | null; head_yaw and head_pitch turn the
 //          head to it each frame (an object where its keys, hinge or fall put it), eased over TURN frames between
 //          targets; while a look is set it decides the head, null hands the head back to its keys
-import { ry, apply, sub, add } from "./math.js";
+import { ry, apply, sub, add, clamp } from "./math.js";
 
 const PLANT = 0.25, STEP = 0.05, LIFT = 0.03, SWING_GAIN = 55, SWING_MAX = 22, TRAVEL = 0.15, TURN = 8;
-const smooth = x => x * x * (3 - 2 * x);
-const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+export const smooth = x => x * x * (3 - 2 * x);
 const deg = r => (r * 180) / Math.PI;
 const wrap = a => a - 360 * Math.round(a / 360);
 
