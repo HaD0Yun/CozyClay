@@ -136,10 +136,11 @@ gap measured (`actualGapM`) match, nothing overlaps, and one undo entry exists.
 `verify` re-runs that evidence and adds a picture of the current state:
 
 ```sh
-cclay live verify --receipt receipt-mu3uybgp-2 --checks placement --visual frame --out /tmp/329-doc/shots/f-a-place-check.png
+mkdir -p /tmp/cozyclay-demo/shots   # the examples below write here; --out does not create folders
+cclay live verify --receipt receipt-mu3uybgp-2 --checks placement --visual frame --out /tmp/cozyclay-demo/shots/f-a-place-check.png
 ```
 ```json
-{"receiptId":"receipt-mu3uybgp-2","revision":4,"checks":{"coverage":"same-frame-world-AABB-proxies","relationSatisfied":true,"overlapIds":[],"actualGapM":1.4000000000000001,"requestedGapM":1.4,"maximumFootprintOverlapM":0,"basis":"subject","support":"floor","baseY":0},"verification":null,"semanticStatus":"unavailable","visualRefs":[{"imageId":"ffdcee4e-bf4b-432c-82be-8b7b92c419b3"}],"unsupportedChecks":[],"visual":[{"imageId":"ffdcee4e-bf4b-432c-82be-8b7b92c419b3","path":"/tmp/329-doc/shots/f-a-place-check.png","width":1920,"height":1080,"bytes":684177}]}
+{"receiptId":"receipt-mu3uybgp-2","revision":4,"checks":{"coverage":"same-frame-world-AABB-proxies","relationSatisfied":true,"overlapIds":[],"actualGapM":1.4000000000000001,"requestedGapM":1.4,"maximumFootprintOverlapM":0,"basis":"subject","support":"floor","baseY":0},"verification":null,"semanticStatus":"unavailable","visualRefs":[{"imageId":"ffdcee4e-bf4b-432c-82be-8b7b92c419b3"}],"unsupportedChecks":[],"visual":[{"imageId":"ffdcee4e-bf4b-432c-82be-8b7b92c419b3","path":"/tmp/cozyclay-demo/shots/f-a-place-check.png","width":1920,"height":1080,"bytes":684177}]}
 ```
 
 Now frame the shot — camera vocabulary, not coordinates. This scene has no
@@ -150,17 +151,17 @@ writes the framing as its one camera key, at the shot's start — a held shot:
 cclay live frame-shot --subject char-a --size "wide shot" --view front --level hip
 ```
 ```json
-{"ok":true,"commandId":"c836cddc-9861-4ec0-87e3-fec764666ed7","receiptId":"receipt-mu3uybub-4","host":{…},"status":"applied","authored":true,"revision":{"before":4,"after":5},"affectedIds":["shot-mu3uybub-3","camera-key-…"],"delta":[{"id":"shot-mu3uybub-3","after":{"range":{"startFrame":0,"endFrameExclusive":432},"camera":{"position":{"x":-0.011522021105043662,"y":1.0621432515131122,"z":5.077024270710456},"lookAt":{…},"focalMm":24.44391231902759,"sensorId":"fullFrame","slate":"wide shot"},"subjectIds":["char-a"],"shotId":"shot-mu3uybub-3"}}],"checks":{"coverage":"same-frame-subject-bounds-projection","clipped":false,"behindCamera":false,"screenFraction":0.44729099405708983,"derivedSize":"wide shot"},"undo":{"historyEntryId":"be5d9c6f-0bb7-4e5c-be4d-3b1fe7dc887c","entries":1,"canUndoDirect":true},"warnings":[{"code":"OCCLUSION_UNMEASURED"}],"detailCursor":"c836cddc-9861-4ec0-87e3-fec764666ed7"}
+{"ok":true,"commandId":"c836cddc-9861-4ec0-87e3-fec764666ed7","receiptId":"receipt-mu3uybub-4","host":{…},"status":"applied","authored":true,"revision":{"before":4,"after":5},"affectedIds":["shot-mu3uybub-3","camera-key-…"],"delta":[{"id":"shot-mu3uybub-3","after":{"range":{"startFrame":0,"endFrameExclusive":432},"camera":{"position":{"x":-0.011522021105043662,"y":1.0621432515131122,"z":5.077024270710456},"lookAt":{…},"focalMm":24.44391231902759,"sensorId":"fullFrame","slate":"wide shot"},"subjectIds":["char-a"],"shotId":"shot-mu3uybub-3"}}],"checks":{"coverage":"same-frame-subject-bounds-projection","clipped":false,"behindCamera":false,"screenFraction":0.44729099405708983,"derivedSize":"wide shot"},"undo":{"historyEntryId":"be5d9c6f-0bb7-4e5c-be4d-3b1fe7dc887c","entries":1,"canUndoDirect":true},"warnings":[],"detailCursor":"c836cddc-9861-4ec0-87e3-fec764666ed7"}
 ```
 
 `derivedSize` is what the lens actually produced, measured by projection:
 "wide shot" requested, "wide shot" derived, `clipped: false`. Then look at it:
 
 ```sh
-cclay live capture --framing --out /tmp/329-doc/shots/f-a-wide-hip.png
+cclay live capture --framing --out /tmp/cozyclay-demo/shots/f-a-wide-hip.png
 ```
 ```json
-{"path":"/tmp/329-doc/shots/f-a-wide-hip.png","width":1920,"height":1080,"bytes":344608}
+{"path":"/tmp/cozyclay-demo/shots/f-a-wide-hip.png","width":1920,"height":1080,"bytes":344608}
 ```
 
 To check the blocking from above instead, ask `verify` for the plan:
@@ -218,9 +219,9 @@ scene revision you saw. Mint your own `commandId`; the editor journals it,
 which is what makes the command reconcilable later:
 
 ```sh
-cclay live inspect --scope shot > /tmp/329-doc/f-b-inspect.json
+cclay live inspect --scope shot > /tmp/cozyclay-demo/f-b-inspect.json
 node -e '
-const c = require("/tmp/329-doc/f-b-inspect.json");
+const c = require("/tmp/cozyclay-demo/f-b-inspect.json");
 const host = (({workspaceId, documentEpoch, sceneId, sceneEpoch}) => ({workspaceId, documentEpoch, sceneId, sceneEpoch}))(c.host);
 const envelope = {
   name: "frame_shot",
@@ -234,17 +235,17 @@ const envelope = {
   host,
   expectedRevision: c.revision.scene,
 };
-require("node:fs").writeFileSync("/tmp/329-doc/f-b-envelope.json", JSON.stringify(envelope));
+require("node:fs").writeFileSync("/tmp/cozyclay-demo/f-b-envelope.json", JSON.stringify(envelope));
 '
 ```
 
 Send it as one raw command:
 
 ```sh
-cclay live cmd frame_shot --args "$(cat /tmp/329-doc/f-b-envelope.json)"
+cclay live cmd frame_shot --args "$(cat /tmp/cozyclay-demo/f-b-envelope.json)"
 ```
 ```json
-{"ok":true,"commandId":"e94748b1-5df7-4859-a1f3-baf9cb20067a","receiptId":"receipt-mu3uyc8d-6","host":{…},"status":"applied","authored":true,"revision":{"before":5,"after":6},"affectedIds":["shot-mu3uybub-3","camera-key-mu3uyc8d-5"],"delta":[{"id":"shot-mu3uybub-3","after":{"range":{"startFrame":0,"endFrameExclusive":432},"camera":{"position":{"x":-0.011522021105043662,"y":1.5894328518973564,"z":2.109947017309772},"lookAt":{…},"focalMm":24.44391231902759,"sensorId":"fullFrame","slate":"medium shot"},"subjectIds":["char-a"],"shotId":"shot-mu3uybub-3"}},{"id":"camera-key-mu3uyc8d-5","after":{…,"keyId":"camera-key-mu3uyc8d-5","frame":0,…}}],"checks":{"coverage":"same-frame-subject-bounds-projection","clipped":true,"behindCamera":false,"screenFraction":1.1027891282716213,"derivedSize":"medium shot"},"undo":{"historyEntryId":"47bcf6d7-2a8e-44bb-b40e-25a3180e7d57","entries":1,"canUndoDirect":true},"warnings":[{"code":"OCCLUSION_UNMEASURED"}],"detailCursor":"e94748b1-5df7-4859-a1f3-baf9cb20067a"}
+{"ok":true,"commandId":"e94748b1-5df7-4859-a1f3-baf9cb20067a","receiptId":"receipt-mu3uyc8d-6","host":{…},"status":"applied","authored":true,"revision":{"before":5,"after":6},"affectedIds":["shot-mu3uybub-3","camera-key-mu3uyc8d-5"],"delta":[{"id":"shot-mu3uybub-3","after":{"range":{"startFrame":0,"endFrameExclusive":432},"camera":{"position":{"x":-0.011522021105043662,"y":1.5894328518973564,"z":2.109947017309772},"lookAt":{…},"focalMm":24.44391231902759,"sensorId":"fullFrame","slate":"medium shot"},"subjectIds":["char-a"],"shotId":"shot-mu3uybub-3"}},{"id":"camera-key-mu3uyc8d-5","after":{…,"keyId":"camera-key-mu3uyc8d-5","frame":0,…}}],"checks":{"coverage":"same-frame-subject-bounds-projection","clipped":true,"behindCamera":false,"screenFraction":1.1027891282716213,"derivedSize":"medium shot"},"undo":{"historyEntryId":"47bcf6d7-2a8e-44bb-b40e-25a3180e7d57","entries":1,"canUndoDirect":true},"warnings":[],"detailCursor":"e94748b1-5df7-4859-a1f3-baf9cb20067a"}
 ```
 
 The affected ids are the shot and the new camera key
@@ -257,10 +258,10 @@ shot on a 24 mm lens does crop). Put the playhead on the key and look at it:
 
 ```sh
 cclay live operate --frame 96
-cclay live capture --framing --out /tmp/329-doc/shots/f-b-eye-keyed.png
+cclay live capture --framing --out /tmp/cozyclay-demo/shots/f-b-eye-keyed.png
 ```
 ```json
-{"path":"/tmp/329-doc/shots/f-b-eye-keyed.png","width":1920,"height":1080,"bytes":588902}
+{"path":"/tmp/cozyclay-demo/shots/f-b-eye-keyed.png","width":1920,"height":1080,"bytes":588902}
 ```
 
 The PNG reads as the medium shot at eye level the receipt described. If the
@@ -307,7 +308,7 @@ undoable like any other.
 an error code.** The CLI only learns the socket is gone, and says so:
 
 ```sh
-cclay live cmd arrange_objects --args "$(cat /tmp/329-doc/f-c-envelope.json)" &
+cclay live cmd arrange_objects --args "$(cat /tmp/cozyclay-demo/f-c-envelope.json)" &
 CLI_PID=$!
 sleep 0.15 && kill -9 "$(lsof -tiTCP:5629 -sTCP:LISTEN)"   # kill the hub mid-command
 wait $CLI_PID; echo "exit=$?"
@@ -337,7 +338,7 @@ ask the editor's journal what happened to that commandId:
 
 ```sh
 cclay live cmd reconcile_studio_command --args "$(node -e '
-const e = require("/tmp/329-doc/f-c-envelope.json");
+const e = require("/tmp/cozyclay-demo/f-c-envelope.json");
 console.log(JSON.stringify({ commandId: e.commandId, host: e.host }));
 ')"
 ```
@@ -353,8 +354,8 @@ case above reconciles `applied` because there the page never reloaded).
 `not_applied` both mean the same next step — a fresh `inspect`, then choose:
 
 ```sh
-cclay live inspect --scope scene --ids cube > /tmp/329-doc/f-c-inspect2.json
-cat /tmp/329-doc/f-c-inspect2.json
+cclay live inspect --scope scene --ids cube > /tmp/cozyclay-demo/f-c-inspect2.json
+cat /tmp/cozyclay-demo/f-c-inspect2.json
 ```
 ```json
 {"revision":{"scene":3,"physics":3,"view":1},"host":{"workspaceId":"8306b693-…","documentEpoch":"9110399f-…","sceneId":"scene-mu3uy6d6-1","sceneEpoch":"69c39cf9-…"},"scope":"document","document":{"objects":[{"id":"cube","name":"Stand-in box",…}]},"schema":{"objects":{…}}}
@@ -369,7 +370,7 @@ answered `noop` — also fine, just nothing to undo):
 
 ```sh
 node -e '
-const c = require("/tmp/329-doc/f-c-inspect2.json");
+const c = require("/tmp/cozyclay-demo/f-c-inspect2.json");
 const host = (({workspaceId, documentEpoch, sceneId, sceneEpoch}) => ({workspaceId, documentEpoch, sceneId, sceneEpoch}))(c.host);
 const envelope = {
   name: "arrange_objects",
@@ -378,9 +379,9 @@ const envelope = {
   host,
   expectedRevision: c.revision.scene,
 };
-require("node:fs").writeFileSync("/tmp/329-doc/f-c-envelope2.json", JSON.stringify(envelope));
+require("node:fs").writeFileSync("/tmp/cozyclay-demo/f-c-envelope2.json", JSON.stringify(envelope));
 '
-cclay live cmd arrange_objects --args "$(cat /tmp/329-doc/f-c-envelope2.json)"
+cclay live cmd arrange_objects --args "$(cat /tmp/cozyclay-demo/f-c-envelope2.json)"
 ```
 ```json
 {"ok":true,"commandId":"53f3bb46-b939-4d57-811d-04701ba0bebf","receiptId":"receipt-mu3vc2ed-2","host":{…},"status":"applied","authored":true,"revision":{"before":3,"after":4},"affectedIds":["cube"],"delta":[{"id":"cube","after":{"position":{"x":2.0380938133472153,"y":0,"z":0},"yawDeg":0,"rotationDeg":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1},"name":"Stand-in box","color":"#3d5a80","renderer":"cube","parentId":null}}],"checks":{"coverage":"same-frame-world-AABB-proxies","overlapIds":[],"maximumFootprintOverlapM":0},"undo":{"historyEntryId":"7ada6c36-2b26-460d-874f-c70ef47a698c","entries":1,"canUndoDirect":true},"warnings":[],"detailCursor":"53f3bb46-b939-4d57-811d-04701ba0bebf"}
@@ -472,19 +473,17 @@ A registry tool that does not apply to the project or to its target answers a
 structured refusal instead of acting: `NOT_IN_MODE` for an animation-only tool
 in a Storyboard project, `TARGET_NOT_READY` for motion or a take on a capsule
 figure (`model: "proxy-figure"`). Branch on `code`; `reason` is the sentence to
-show. Here a capsule figure is cast, selected, and asked to move:
+show. Here a capsule figure is cast and asked to move:
 
 ```sh
 cclay live tool add_character --args '{"subject":"a stand-in","model":"proxy-figure","posture":"sit","x":1.2,"z":0.5}'
-cclay live operate --select character:character-mv17e47z-3
-cclay live tool generate_motion --args '{"phases":["A person walks forward."]}'
-```
-```json
-{"content":[{"type":"text","text":"{\"ok\":false,\"code\":\"TARGET_NOT_READY\",\"reason\":\"Capsule figures have no rig - Motion generation works on rigged characters only.\"}"}],"isError":true}
+cclay live run motion.compile --args '{"characterId":"character-mv17e47z-3","spec":{"schema":"cozyclay.motion-spec.v1","fps":24,"frames":48,"use":[{"skill":"standIdle","f0":0,"args":{"at":[0,0],"heading":0,"until":47}}]},"install":false}'
 ```
 
-Nothing reached the editor. Select a rigged character and the same call goes to
-the editor's own motion readiness checks.
+The editor's motion readiness check refuses the compile with
+`TARGET_NOT_READY` and the reason `a stand-in is a proxy-figure body, which
+motion compile cannot drive; use an X Bot or Y Bot character.` Nothing is
+compiled or installed. Name a rigged character and the same call compiles.
 
 Entity inspection pages default to 12 rows (maximum 32): use `--limit 32` and pass the returned `nextCursor` as `--cursor` until it is null; `total` is the matching entity count. Shot and selection scopes return `scope: "document"`, `document` and `schema`, while entities returns `entities`, `total` and `nextCursor`; all carry top-level `host` and `revision`.
 
@@ -556,7 +555,9 @@ ambiguity; it just reports `selected: null`.
 
 ### Timeouts
 
-- Default editor command bound: 5 s (30 s for motion installs). `--timeout`
+- Default editor command bound: 5 s; 30 s for the Studio commands
+  (`run_action` among them) when no timeout is passed. `cclay live run` passes
+  the action's declared timeout (240 s for `motion.compile`). `--timeout`
   overrides it per command, capped at 300 s.
 - The CLI additionally abandons a request that gets no *hub* answer at all
   (default ceiling 330 s).
@@ -576,7 +577,7 @@ positive looks up), while `fovDeg` is degrees.
 ## Models and providers
 
 The other prompt surface, the Agent panel (Studio and Workflow), runs on the
-pi agent harness and can talk to nine providers. A model id on the wire is
+pi agent harness and can talk to ten providers. A model id on the wire is
 `provider/model`, so `openai-codex/gpt-6-astra` and `anthropic/claude-fable-5`
 name two different models without ambiguity. A bare id with no slash still
 works and means `openai-codex/<id>`, which is why older saved model choices
@@ -593,6 +594,7 @@ keep resolving.
 | `minimax-cn` | MiniMax (China) | API key, `MINIMAX_CN_API_KEY` (Anthropic-compatible, `https://api.minimaxi.com/anthropic`) |
 | `openrouter` | OpenRouter | API key, `OPENROUTER_API_KEY` |
 | `cliproxy` | CLIProxyAPI | API key, `CLIPROXY_API_KEY` (base URL `CLIPROXY_BASE_URL`, default `http://127.0.0.1:8317`) |
+| `openai-compatible` | OpenAI-compatible server | the server address (default `http://127.0.0.1:11434`) and an optional API key, entered under Connect a model (LM Studio, Ollama, any server with `/v1/models`) |
 
 ChatGPT sign-in did not change: the panel still runs the Codex OAuth flow,
 the token still lives in `~/.config/cozyclay/codex-auth.json`, and it is still
@@ -624,8 +626,10 @@ mode 0600 and is a flat map of provider id to key:
 
 The environment variable wins when both are set, so a key exported in the
 shell that started the Studio temporarily overrides the saved one without
-touching the file. `COZYCLAY_CONFIG_DIR` moves the whole config home,
-`providers.json` and `codex-auth.json` together, which is what the tests use.
+touching the file. `COZYCLAY_CONFIG_DIR` moves `providers.json` and the
+agent sessions, which is what the provider tests use. The ChatGPT token in
+`codex-auth.json` does not follow it: it moves with `XDG_CONFIG_HOME`, or to
+the file `COZYCLAY_CODEX_AUTH_FILE` names.
 
 Three routes manage the file. They sit behind the same origin guard as the
 rest of `/agent/*`: a browser request must carry an `Origin` of the Studio's
@@ -661,12 +665,12 @@ continue on Anthropic without losing its history.
 ### Prompt caching
 
 On an `anthropic-messages` model the request already carries Anthropic cache
-breakpoints from pi-ai 0.85.1 itself (default retention "short", i.e.
-`{"type":"ephemeral"}`): every system block
-(`node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js:801-826`),
-the last tool definition (`:1133`, unless the model's
-`compat.supportsCacheControlOnTools` is false) and the last block of the last
-user message (`:1066-1085`). The runner's `before_payload` hook only fills a
+breakpoints from pi-ai 1.4.0 itself (default retention "short", i.e.
+`{"type":"ephemeral"}`), in
+`node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js`: every
+system block (`buildParams`), the last tool definition (`convertTools`, unless
+the model's `compat.supportsCacheControlOnTools` is false) and the last block
+of the last user message (`convertMessages`). The runner's `before_payload` hook only fills a
 missing mark on the last system block and the last tool, never past
 Anthropic's four breakpoints. The Studio's `<actions>` block sits at the end
 of the system prompt, so the system prompt and the tool schemas form a stable
@@ -820,7 +824,7 @@ read the old file yourself: nothing in the Studio will convert it.
 
 Motion is not a dedicated verb, but the editor's registered motion actions
 run through `live run`, admitted like the agent's `run_action` and waiting
-the action's declared timeout (120 s for `motion.compile`). `cclay live
+the action's declared timeout (240 s for `motion.compile`). `cclay live
 commands --ids motion.compile` prints the input schema; the spec language is
 in [motion3-agent-guide.md](motion3-agent-guide.md) and
 [motion-api-v3.1.md](motion-api-v3.1.md). Compile without installing first,
@@ -838,8 +842,9 @@ The other motion actions (`motion.qa`, `motion.sample`, `motion.describe`,
   motion owner mounted; otherwise `motion.compile`, `motion.qa`,
   `motion.sample` and `motion.keyObject` are refused as unavailable with
   "The motion owner is not mounted."
-- an X Bot or Y Bot character at scale 1; any other body (a capsule figure
-  included) or scale answers `TARGET_NOT_READY` with the reason.
+- a rigged character at scale 1 (X Bot, Y Bot, or an imported character whose
+  rig adapted); a capsule figure, an imported body with an incomplete
+  skeleton, or any other scale answers `TARGET_NOT_READY` with the reason.
 - `motion.qa`, `motion.sample` and `motion.keyObject` need a compiled take on
   the character; compile first.
 

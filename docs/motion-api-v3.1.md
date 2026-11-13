@@ -637,6 +637,8 @@ A slip with one reading is corrected before the spec is stored (`correct.js` `pr
 
 ## Amendment procedure
 
+This procedure records the 3.1 lane work, which used a `v3` integration branch. That branch no longer exists: `main` is the only trunk, and an amendment now lands as a PR on `main`.
+
 1. The lane stops and reports the change it needs and why.
 2. Lane I lands a small amendment PR on `v3` that changes this file, the stub JSDoc and `test/motion3/verify-motion3-contracts.mjs` together.
 3. Every lane rebases on `v3`.
