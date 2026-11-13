@@ -36,7 +36,7 @@
     "test:timeline-camera": "node test/verify-timeline-camera.mjs",
     "test:timeline-shots": "node test/verify-timeline-shots.mjs",
     "preview": "vite preview",
-    "test:ardy": "node tools/run-tests.mjs --scope ardy",
+    "test:motion": "node tools/run-tests.mjs --scope motion",
     "test:ik-browser": "node tools/qa-browser.mjs -- node test/verify-ik-browser.mjs",
     "demo:api": "npm --prefix workers/api run dev",
     "demo:api:install": "npm --prefix workers/api ci",
