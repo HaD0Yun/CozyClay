@@ -88,7 +88,8 @@ try {
 				if(!q.expected||!document.pointerLockElement)return;
 				const c=window.__cozyclay.shotCam;
 				q.frames[q.frame()]={yaw:c.rotation.y,pitch:c.rotation.x,roll:c.rotation.z,fov:c.fov,
-					pos:{x:c.position.x,y:c.position.y,z:c.position.z},expected:{...q.expected}};
+					pos:{x:c.position.x,y:c.position.y,z:c.position.z},expected:{...q.expected},
+					cameraGesture:window.__cozyclayCameraGesture};
 				q.phaseResolvers.forEach((pending,index)=>{
 					if(pending && q.frame()>=pending.target){
 						q.phaseResolvers[index]=null;pending.resolve({frame:q.frame(),ended:false});
@@ -111,6 +112,7 @@ try {
 		await Promise.all([inputsDone, b.change("document.pointerLockElement === document.querySelector('.stage canvas')", () =>
 			b.click('[data-testid="camera-performance-record"]'))]);
 		await wait("document.pointerLockElement === null && window.__cozyclay.playing === false");
+		assert.equal(await b.evaluate("window.__cozyclayCameraGesture"), false, "the settled camera restores its full-quality render");
 		const inputs = await b.evaluate("({inputs:window.__railQA.inputs,frames:window.__railQA.frames})");
 		assert.equal(inputs.inputs.length, 3, "all three native steering inputs arrive during the take");
 		for (const [index, input] of inputs.inputs.entries()) {
@@ -131,6 +133,7 @@ try {
 				assert.ok(Math.abs(recorded[axis] - recorded.expected[axis]) <= 0.005, `${name} live frame ${frameText} follows native ${axis}`);
 			}
 			const base = railTrack[Number(frameText)];
+			assert.equal(recorded.cameraGesture, true, `${name} live frame ${frameText} uses the transient camera-render path`);
 			assert.ok(Math.hypot(recorded.pos.x - base.pos.x, recorded.pos.y - base.pos.y, recorded.pos.z - base.pos.z) < 0.001, `${name} live frame ${frameText} stays on the rail`);
 			assert.ok(Math.abs(recorded.roll - 17 * Math.PI / 180) < 0.00001, "live recording keeps authored roll");
 			assert.ok(Math.abs(recorded.fov - initial.fov) < 0.00001, "live recording keeps authored lens");

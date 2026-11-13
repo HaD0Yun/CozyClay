@@ -63,6 +63,7 @@ function mount() {
 	assert.equal(h.state.requests, 1, "record requests mouse capture once");
 	h.grant();
 	assert.equal(h.state.playing, true, "capture starts real playback");
+	assert.equal(h.window.__cozyclayCameraGesture, true, "mouse aim shares the existing transient camera-render path");
 	h.frame(22);
 	h.move(30, -10); h.frame(34);
 	assert.ok(Math.abs(h.camera.rotation.y - (0.2 - 30 * 0.0032)) < 1e-9);
@@ -72,6 +73,7 @@ function mount() {
 	h.move(-10, 4); h.frame(45);
 	assert.equal(h.state.playing, false);
 	assert.equal(h.document.pointerLockElement, null, "completed take releases mouse");
+	assert.equal(h.window.__cozyclayCameraGesture, false, "completed take restores the full-quality settled render");
 	assert.equal(h.saved.length, 1, "one complete write at the actual final frame");
 	const take = h.saved[0].take;
 	assert.equal(take.startFrame, 10); assert.equal(take.samples.length, 24);
@@ -91,6 +93,7 @@ for (const interruption of ["escape", "blur", "unlock", "error"]) {
 	assert.equal(h.saved.length, 0, `${interruption} leaves the previous take untouched`);
 	assert.equal(h.state.playing, false, `${interruption} stops the rail`);
 	assert.equal(h.document.pointerLockElement, null, `${interruption} releases mouse capture`);
+	assert.equal(h.window.__cozyclayCameraGesture, false, `${interruption} restores the settled renderer`);
 	h.cleanup();
 }
 {

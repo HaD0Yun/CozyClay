@@ -192,8 +192,10 @@ for (const pointerType of ["touch", "pen"]) {
 	// Another camera tool may own the same canvas lock without a navigation
 	// hold. Disabling fly controls must not unlock that recording.
 	h.document.pointerLockElement = h.canvas;
+	h.window.__cozyclayCameraGesture = true;
 	h.cleanup();
 	assert.equal(h.document.pointerLockElement, h.canvas, "cleanup only releases a navigation-owned lock");
+	assert.equal(h.window.__cozyclayCameraGesture, true, "cleanup preserves another camera tool's render ownership");
 	h.document.exitPointerLock();
 }
 console.log("PASS touch/pen fallback, late grant, cleanup, and disabled player controls");

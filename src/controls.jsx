@@ -329,7 +329,7 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 				invalidateRaf.current = 0;
 			}
 			gesture.current = null;
-			if (typeof window !== "undefined") window.__cozyclayCameraGesture = false;
+			if (typeof window !== "undefined" && ownedLock) window.__cozyclayCameraGesture = false;
 			if (ownedLock) releaseNavLock();
 			element.style.cursor = "";
 			flyStateRef.current?.(false);

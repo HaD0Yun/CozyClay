@@ -24,6 +24,7 @@ function useRailRecording(options) {
 		setActive(false);
 		handlers.current.setPlaying(false);
 		handlers.current.previewEndRef.current = null;
+		window.__cozyclayCameraGesture = false;
 		if (document.pointerLockElement === take.canvas) document.exitPointerLock();
 		if (save) handlers.current.writeTake(take.shot.id, { startFrame: take.start, samples: take.samples });
 	}, []);
@@ -41,6 +42,7 @@ function useRailRecording(options) {
 			if (document.pointerLockElement !== take.canvas) { finish(); return; }
 			if (take.running) return;
 			take.running = true;
+			window.__cozyclayCameraGesture = true;
 			const current = handlers.current;
 			current.setFrame(take.shot.startFrame + take.start);
 			current.previewEndRef.current = take.shot.startFrame + take.end;
@@ -72,6 +74,7 @@ function useRailRecording(options) {
 		return () => {
 			const take = session.current;
 			session.current = null;
+			if (take) window.__cozyclayCameraGesture = false;
 			if (take && document.pointerLockElement === take.canvas) document.exitPointerLock();
 			document.removeEventListener("mousemove", move);
 			document.removeEventListener("pointerlockchange", locked);
@@ -108,6 +111,7 @@ function useRailRecording(options) {
 			start: schedule.startFrame, end: schedule.endFrame, samples: [], yaw: initial.yaw, pitch: initial.pitch };
 		session.current = take;
 		setActive(true);
+		window.__cozyclayCameraGesture = true;
 		try {
 			const request = canvas.requestPointerLock();
 			request?.then(() => {

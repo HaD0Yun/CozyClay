@@ -75,6 +75,8 @@ borders; the surface value does the work.
   at the rail end. Record again replaces only its aim; Discard take restores
   the authored aim and leaves keys, position, lens and roll intact. Feedback
   uses existing button active/disabled states with no stage hint or animation.
+  While mouse aim is live, the viewport uses the same transient fast render
+  as fly navigation; full-resolution ink and shadows return when it settles.
 - Crane editing exposes explicit Add point and Remove point actions beside the
   selected point height and count. Add point fills the largest un-authored
   interval and selects the new mark; Remove point is enabled only for a
