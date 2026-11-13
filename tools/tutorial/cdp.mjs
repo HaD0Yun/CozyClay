@@ -1,5 +1,5 @@
 // Raw-WebSocket CDP client for the tutorial recorder: the same pattern the
-// browser suites use (test/verify-first-success-guide-browser.mjs), packaged
+// browser suites use (test/qa-shell-start-browser.mjs), packaged
 // so the recorder can also listen for screencast events.
 
 export async function connectPage(port) {
