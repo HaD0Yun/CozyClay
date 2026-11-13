@@ -1105,7 +1105,7 @@ contract report it: before that release the new events are **unknown, not 0**.
 | Do people use bone-level pose control? | `feature:used` `name = 'pose_edit'` (a real pose change) and `app:session_ended.pose_edit_bucket` |
 | Where does it break? | `app:error` (type, source, bundle file + line/column) |
 | Can their machine run it? | `device:profile` (GPU vendor/class, WebGL, CPU/memory, frame-rate bucket) |
-| Where did the install come from? | `install:first_launch.heard_from` (`site`, `playground` from `--via`) |
+| Where did the install come from? | `install:first_launch.heard_from` (`site`, `playground`, `installer` from `--via`) |
 | What are they making, with whom? | `survey:use_case` (`use_case`, `team`) |
 | Are they on the newest release? | `update_status` on every npm event |
 
@@ -1187,7 +1187,8 @@ ORDER BY people DESC
 ## Install source, use case and update status
 
 ```sql
--- Install source: blank means the prompt was skipped and no --via was given.
+-- Install source: site, playground or installer can come from --via.
+-- Blank means no accepted source was supplied and the prompt was skipped.
 SELECT coalesce(properties.heard_from, '(blank)') AS source, uniq(distinct_id) AS installs
 FROM events
 WHERE event = 'install:first_launch' AND JSONExtractRaw(properties, 'internal_qa') != 'true'
