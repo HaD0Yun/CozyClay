@@ -5,7 +5,7 @@
 // camera must end the take about its follow distance from the character's
 // body, not parked behind the spot where the character was authored.
 //
-// Run: `CCLAY_KIMODO_HOST= COZYCLAY_LIVE_PORT=5890 npm run dev -- --port 5790`
+// Run: `COZYCLAY_LIVE_PORT=5890 npm run dev -- --port 5790`
 // in one shell, then
 // `QA_URL=http://127.0.0.1:5790/app/ CDP_PORT=9431 node tools/qa-browser.mjs -- node test/qa-camera-follow-carry-browser.mjs`
 import assert from "node:assert/strict";
