@@ -91,6 +91,25 @@ for (const { line, args } of templates) {
 }
 has(keyBar, /throw new Error\(ko\("The character rig is not loaded\.", "캐릭터 리그가 로드되지 않았어요\.", "角色的骨骼尚未加载。"\)\)/, "the missing-rig error reaches the status line in English");
 
+// The fallback project name follows the locale like the new-project default.
+lacks(browser, /value\.trim\(\) \|\| "My Project"/, "the name dialog falls back to an English-only project name");
+has(browser, /value\.trim\(\) \|\| ko\("Untitled Project", "제목 없는 프로젝트", "未命名项目"\)/);
+const scenesDomain = read("src/domains/scenes.js");
+lacks(scenesDomain, /"My Project"/, "the save and new-project dialogs fall back to an English-only project name");
+
+// An Empty is not called a node: the Add menu caption and the Details type line say Empty.
+lacks(read("src/object-catalog.jsx"), /node only/, "the Add menu calls an Empty a node");
+has(read("src/object-catalog.jsx"), /ko\("empty, no geometry", "빈 오브젝트, 형상 없음", "空对象，无几何体"\)/);
+lacks(read("src/shell/details-selection.js"), /ko\("Node", "노드"\)/, "the Details type line calls an Empty a node");
+
+// Sculpt: the visible label and the aria-labels say Match; IoU stays in the title tooltip.
+const sculpt = read("src/panels/SculptPanel.jsx");
+lacks(sculpt, /: "IoU"\}/, "the sculpt meter label shows the bare term IoU");
+lacks(sculpt, /ko\("Final IoU"/, "the finished sculpt meter label shows the term IoU");
+has(sculpt, /title=\{ko\("Silhouette match \(IoU\)", "실루엣 일치도 \(IoU\)"\)\}>\{stage === "done" \? ko\("Final match", "최종 일치도", "最终匹配度"\) : ko\("Match", "일치도", "匹配度"\)\}/);
+has(sculpt, /role="meter" aria-label=\{ko\("Silhouette match", "실루엣 일치도", "轮廓匹配度"\)\}/);
+has(sculpt, /aria-label=\{ko\(`Match by round: /, "the round trail aria-label names IoU");
+
 if (failures.length) {
 	console.error(`UI copy checks FAIL (${failures.length}):\n${failures.map((failure) => `  - ${failure}`).join("\n")}`);
 	process.exit(1);

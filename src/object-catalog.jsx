@@ -63,7 +63,7 @@ export function CatalogueEntries({ onPick }) {
 					<span className={`add-object-swatch ${entry.kind}`} style={{ background: entry.color }} aria-hidden="true" />
 					<span>{displayObjectLabel(entry.label)}</span>
 					{/* An empty has no size to quote: say what it is instead of "0 × 0 m". */}
-					<small>{entry.light ? ko("practical light", "실제 조명") : entry.kind === EMPTY_KIND ? ko("node only", "노드 전용") : entry.kind === "effect" ? ko("smoke, fire, rain…", "연기, 불, 비…") : entry.kind === "text" ? ko("words, signs, logos", "글자, 간판, 로고") : `${entry.footprint.width} × ${entry.footprint.depth} m`}</small>
+					<small>{entry.light ? ko("practical light", "실제 조명") : entry.kind === EMPTY_KIND ? ko("empty, no geometry", "빈 오브젝트, 형상 없음", "空对象，无几何体") : entry.kind === "effect" ? ko("smoke, fire, rain…", "연기, 불, 비…") : entry.kind === "text" ? ko("words, signs, logos", "글자, 간판, 로고") : `${entry.footprint.width} × ${entry.footprint.depth} m`}</small>
 				</button>
 			))}
 		</div>

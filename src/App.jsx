@@ -676,8 +676,6 @@ export default function App() {
 	}, []);
 
 	const [preferencesOpen, setPreferencesOpen] = useState(false);
-	const [statusText, setStatusText] = useState("");
-	const [previewRanges, setPreviewRanges] = useState([]);
 	const [flySpeed, setFlySpeed] = useState(1);
 	const workspaceStyle = {
 		"--shell-right-width": workspaceLayout.shellSidebarWidth && `${workspaceLayout.shellSidebarWidth}px`,
@@ -4528,7 +4526,7 @@ export default function App() {
 		selectTimelineShot, clearMotion,
 		spawnCharacter, stopShotRecording, retryExport, poseRefusal: poseEntry.blocked ? poseEntry.plan.reason : null,
 		beginWorkspaceResize, frameAll, setAxisView,
-		preferencesOpen, setPreferencesOpen, statusText, setStatusText, previewRanges, setPreviewRanges,
+		preferencesOpen, setPreferencesOpen,
 		flySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
 		agentOpen: !agentCollapsed,
 		toggleAgent: () => window.dispatchEvent(new CustomEvent("cozyclay:agent-panel-toggle")),
