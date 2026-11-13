@@ -74,7 +74,6 @@
 		background: var(--text-off, #4f4f55);
 	}
 	.v2-topbar .topbar-mcp[data-state="connected"] .topbar-mcp-dot { background: var(--ok, #4fbf7a); }
-	.v2-topbar .topbar-mcp-text { overflow: hidden; text-overflow: ellipsis; }
 
 	.menubar-dialog-close svg {
 		width: 12px;
@@ -370,7 +369,6 @@
 	/* ------------------------------------------------ narrow windows (G11) */
 	@media (max-width: 720px) {
 		.app:not([data-embed-mode]) .v2-topbar { gap: var(--sp-1, 8px); }
-		.v2-topbar .topbar-mcp-text { display: none; }
 		.v2-topbar .project-menu-trigger { max-width: 96px; }
 		.v2-topbar { --menubar-trigger-pad: 5px 6px; }
 		.v2-statusbar .statusbar-fps { display: none; }

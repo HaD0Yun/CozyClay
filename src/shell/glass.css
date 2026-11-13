@@ -276,14 +276,6 @@
 		height: 16px;
 		background: var(--divider-strong);
 	}
-	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp-text {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .v2-topbar .topbar-mcp-dot {
 		position: absolute;
 		top: 12px;

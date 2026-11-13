@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Issue #193: the camera inspector lost its duplicate Lens/Recenter controls,
-// so the viewport camera bar is their only home — and that bar is CSS-gated to
-// Camera mode (styles.css `.workflow-camera-context`). Selecting the camera
+// so the viewport camera bar is their only home — and that bar only shows in
+// Camera mode. Selecting the camera
 // must therefore ENTER Camera mode, from the hierarchy row and from a Shot
 // block, or the controls would be selected-but-invisible.
 //
