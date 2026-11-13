@@ -26,6 +26,7 @@ for (const os of ["mac", "win", "linux"]) {
 	await evaluate(`document.querySelector('[data-os="${os}"]').click(); document.querySelector('[data-install-next="2"]').click();`);
 	const command = `${os === "win" ? "npx.cmd" : "npx"} --yes cozyclay@latest --via site`;
 	expect(`${os} shows its launch command`, await evaluate(`document.querySelector("#install-command").textContent === ${JSON.stringify(command)}`));
+	expect(`${os} Quick start shows the same command`, await evaluate(`document.querySelector("[data-launch-command]").textContent === ${JSON.stringify(command)} && document.querySelector("[data-launch-copy]").dataset.copy === ${JSON.stringify(command)}`));
 	expect(`${os} next focuses the visible heading`, await evaluate('document.activeElement.id === "install-launch-title"'));
 	expect(`${os} setup overrides landing section spacing`, await evaluate('getComputedStyle(document.querySelector(\'[data-install-step="2"]\')).paddingTop === "0px" && getComputedStyle(document.querySelector("#install details")).marginTop === "0px"'));
 	await evaluate('document.querySelector("[data-install-copy]").click()');
@@ -46,4 +47,18 @@ expect("install button reopens at step one", await evaluate('document.querySelec
 await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
 await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
 expect("Escape closes the dialog", await waitFor('!document.querySelector("#install").open'));
+
+// #1183: the hosted Studio links here with ?from=studio. The page then shows and copies --via playground wherever it
+// shows the command; opened any other way (everything above) it says --via site.
+await send("Page.navigate", { url: `${origin}/index.html?from=studio#install` });
+if (!await waitFor('location.search === "?from=studio" && document.querySelector("#install")?.open')) throw new Error("install entry from the Studio did not open");
+for (const os of ["mac", "win", "linux"]) {
+	await evaluate(`document.querySelector('[data-os="${os}"]').click(); document.querySelector('[data-install-next="2"]').click();`);
+	const command = `${os === "win" ? "npx.cmd" : "npx"} --yes cozyclay@latest --via playground`;
+	expect(`from the Studio: ${os} shows the playground command`, await evaluate(`document.querySelector("#install-command").textContent === ${JSON.stringify(command)}`), await evaluate('document.querySelector("#install-command").textContent'));
+	expect(`from the Studio: ${os} Quick start shows the same command`, await evaluate(`document.querySelector("[data-launch-command]").textContent === ${JSON.stringify(command)} && document.querySelector("[data-launch-copy]").dataset.copy === ${JSON.stringify(command)}`));
+	await evaluate('document.querySelector("[data-install-copy]").click()');
+	expect(`from the Studio: ${os} copy uses the shown command`, await waitFor(`window.__installCopy.at(-1) === ${JSON.stringify(command)}`, 5000), await evaluate("window.__installCopy.at(-1)"));
+}
+expect("from the Studio: the page shows one command, never the landing page's own", await evaluate('!document.body.textContent.includes("--via site") && !document.querySelector(\'[data-copy*="--via site"]\')'));
 finish("install browser flow");

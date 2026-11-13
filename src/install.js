@@ -1,8 +1,13 @@
 const NODE_DOWNLOAD = "https://nodejs.org/en/download";
 const OS_NAME = { mac: "macOS", win: "Windows", linux: "Linux" };
 
-export function launchCommand(os) {
-	return `${os === "win" ? "npx.cmd" : "npx"} --yes cozyclay@latest --via site`;
+// The hosted Studio links here with ?from=studio, so an install that began there is counted apart from the landing page's.
+export function installSource(search) {
+	return new URLSearchParams(search).get("from") === "studio" ? "playground" : "site";
+}
+
+export function launchCommand(os, via = "site") {
+	return `${os === "win" ? "npx.cmd" : "npx"} --yes cozyclay@latest --via ${via}`;
 }
 
 export function nodeInstaller(releases, os, winArch = "x64") {
@@ -28,6 +33,7 @@ export function setupInstall() {
 	const copy = install.querySelector("[data-install-copy]");
 	const status = document.getElementById("install-status");
 	const command = document.getElementById("install-command");
+	const via = installSource(location.search);
 	if (mobile) document.documentElement.dataset.touch = "";
 	if (detected) document.querySelectorAll("[data-install-label]").forEach((label) => { label.textContent = `Install on ${OS_NAME[detected]}`; });
 
@@ -47,10 +53,10 @@ export function setupInstall() {
 		install.dataset.os = os;
 		install.querySelectorAll("[data-os]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.os === os)));
 		install.querySelectorAll("[data-os-text]").forEach((node) => { node.textContent = node.dataset[os]; });
-		command.textContent = launchCommand(os);
-		copy.dataset.copy = launchCommand(os);
-		document.querySelectorAll("[data-launch-command]").forEach((node) => { node.textContent = launchCommand(os); });
-		document.querySelectorAll("[data-launch-copy]").forEach((button) => { button.dataset.copy = launchCommand(os); });
+		command.textContent = launchCommand(os, via);
+		copy.dataset.copy = launchCommand(os, via);
+		document.querySelectorAll("[data-launch-command]").forEach((node) => { node.textContent = launchCommand(os, via); });
+		document.querySelectorAll("[data-launch-copy]").forEach((button) => { button.dataset.copy = launchCommand(os, via); });
 		updateDownload();
 		resetCopy();
 	};
@@ -95,7 +101,7 @@ export function setupInstall() {
 		const request = ++copyRequest;
 		copy.disabled = true;
 		try {
-			await navigator.clipboard.writeText(launchCommand(os));
+			await navigator.clipboard.writeText(launchCommand(os, via));
 			if (request !== copyRequest) return;
 			copy.textContent = "Copy again";
 			status.textContent = "Copied. Paste into your terminal and press Enter.";

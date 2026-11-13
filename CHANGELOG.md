@@ -4,6 +4,10 @@
 
 Site
 
+- The hosted Studio's Install button opens the landing page with
+  `?from=studio`, and the command the page then shows and copies ends in
+  `--via playground` instead of `--via site`, so an install that began in the
+  Studio is counted apart from one that began on the landing page. (#1183)
 - On macOS the Install dialog leads with one download, `CozyClay.dmg`: a
   signed, notarized app that opens the Studio in its own window, with no
   Terminal. `cozyclay.org/install.sh` stays for a one-line install. (#1190)
