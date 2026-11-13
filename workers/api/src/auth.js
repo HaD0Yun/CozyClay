@@ -76,14 +76,10 @@ function safeNextPath(value) {
   return candidate;
 }
 
-function environmentName(env, request) {
-  return environmentFor(env, request);
-}
-
 async function issueSession(accountId, env, options = {}) {
   const now = Math.floor(Number(options.now ?? Date.now()) / 1000);
   const exp = now + POLICY.SESSION_TTL_DAYS * 86_400;
-  const environment = options.environment ?? environmentName(env);
+  const environment = options.environment ?? environmentFor(env);
   const header = bytesToBase64Url(encoder.encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
   const body = bytesToBase64Url(encoder.encode(JSON.stringify({ sub: accountId, iat: now, exp, env: environment })));
   const signingInput = `${header}.${body}`;
@@ -114,7 +110,7 @@ export async function readSession(request, env) {
     const payload = JSON.parse(decoder.decode(base64UrlToBytes(body)));
     const now = Math.floor(Date.now() / 1000);
     if (!payload?.sub || !Number.isFinite(payload.exp) || payload.exp <= now) return null;
-    if (payload.env && payload.env !== environmentName(env, request)) return null;
+    if (payload.env && payload.env !== environmentFor(env, request)) return null;
     return payload;
   } catch {
     return null;
@@ -123,7 +119,7 @@ export async function readSession(request, env) {
 
 function redirectUri(provider, env, request = null) {
   if (provider !== "google") throw new Error("unsupported_provider");
-  const environment = environmentName(env, request);
+  const environment = environmentFor(env, request);
   const base = REDIRECT_BASE[environment] ?? REDIRECT_BASE.production;
   const expected = `${base.replace(/\/$/u, "")}/auth/google/callback`;
   return env?.GOOGLE_REDIRECT_URI === expected ? env.GOOGLE_REDIRECT_URI : expected;
