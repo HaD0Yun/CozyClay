@@ -39,7 +39,7 @@ import { createStudioAppActions, commandDeclarations } from '../src/commands/ind
 import { HISTORY_LIMIT } from '../src/history.js';
 import { focalMmToFov, fovToFocalMm, IMAGE_MODELS, CUSTOM_MOVE, SUBJECT_HEIGHT_M, composePrompt, deriveShot } from '../src/shot.js';
 import { PART_COLOURS } from '../src/part-colours.js';
-import { objectTransformAt } from '../src/object-path.js';
+import { objectTransformAt } from '../src/object-path.js'; import { createShotSubjectSampler } from '../src/camera-direction.js'; import { subjectsCenter } from '../src/shot-subjects.js';
 import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
 
@@ -104,7 +104,8 @@ function fixture(options={}) {
  const heroShot=createShot('Hero',0,23,[{frame:0,framing:keyA},{frame:23,framing:keyB}]);
  const filmback={sensorId:'fullFrame',aspectRatio:16/9},fromShot=deriveShot(keyA.pos,{x:0,z:0,rot:0},40*Math.PI/180,SUBJECT_HEIGHT_M,filmback);
  const captures=[],clipboard=[];
- const aiScope={IMAGE_MODELS,CUSTOM_MOVE,SUBJECT_HEIGHT_M,composePrompt,deriveShot,PART_COLOURS,filmback,shot:fromShot,
+ const aiScope={IMAGE_MODELS,CUSTOM_MOVE,SUBJECT_HEIGHT_M,composePrompt,deriveShot,PART_COLOURS,filmback,shot:fromShot,subjectsCenter,activeChar:chars[0],
+  cameraSubjectsAt:createShotSubjectSampler({characters:chars,objects:[],shots:[heroShot],frameCount:48,fps:24,activeId:a.id,clipOf:()=>null}),
   activeShot:heroShot,activeCamera:{mode:'keys',followCam:null,cameraRail:null,railFollow:null},cameraKeys:heroShot.cameraKeys,
   moveSequence:{fromShot,phrase:'a slow push-in toward the subject'},followTrack:null,subjectTrack:null,fovDeg:40,charA:{x:0,z:0,rot:0},
   // App's prompt cast comes from the real helper; the first fixture character stands in with a description and pose.

@@ -443,7 +443,7 @@ export function frameDraft(command, state, ports) {
   // framing (a still, or a clip with at most one key) is reframed whole; a clip
   // that already moves takes the framing as a key at the playhead.
   const existingKey = shot.cameraKeys[0];
-  const hold = shot.kind === 'still' || (command.args.keyAtFrame === undefined && shot.cameraKeys.length <= 1);
+  const hold = command.args.over === 'shot' || shot.kind === 'still' || (command.args.keyAtFrame === undefined && shot.cameraKeys.length <= 1);
   const frame = hold ? (existingKey?.frame ?? shot.startFrame) : command.args.keyAtFrame ?? state.frame;
   if (frame < shot.startFrame || frame > shot.endFrame || shot.endFrame >= state.frameCount) fail('INVALID_RANGE', 'Framing/key frame must be inside the shot range.');
   const intent = command.args.framing.intent;
