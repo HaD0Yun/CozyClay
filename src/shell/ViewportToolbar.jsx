@@ -21,7 +21,7 @@ const MODES = [
 	{ id: "camera", key: "3", label: ko("Camera", "카메라") },
 	{ id: "motion", key: "4", label: ko("Motion", "모션") },
 	// #739: an isolated turntable for one sculpt. Every previs mode has it.
-	{ id: "sculpt", key: "5", label: ko("Sculpt", "조각") },
+	{ id: "sculpt", key: "5", label: ko("Sculpt", "조형") },
 ];
 // A storyboard project has no Motion department: its pill reads 1 2 3 5.
 const modesFor = (previsMode) => (previsMode === "storyboard" ? MODES.filter((mode) => mode.id !== "motion") : MODES);
@@ -257,7 +257,7 @@ export default function ViewportToolbar() {
 	return (
 		<div className="viewport-titlebar" data-testid="viewport-overlays">
 			<div className="vp-mode-toolbar" role="toolbar" data-testid="mode-toolbar" aria-label={ko("Mode and tools", "모드와 도구")}>
-				<div className="vp-mode-keys" role="tablist" aria-label={ko("Workflow", "작업 모드")}>
+				<div className="vp-mode-keys" role="tablist" aria-label={ko("Mode", "모드", "模式")}>
 					{modesFor(previsMode).map((mode) => {
 						const active = workflowMode === mode.id;
 						const refused = mode.id === "pose" ? poseRefusal : null;
@@ -521,7 +521,7 @@ export default function ViewportToolbar() {
 									<div className="view-menu-group" role="group" aria-label={ko("Body part colours", "부위 색상")}>
 										<span className="view-menu-label" aria-hidden="true">{ko("Body part colours", "부위 색상")}</span>
 										{[
-											{ value: "off", label: ko("Off", "끕") },
+											{ value: "off", label: ko("Off", "끔") },
 											{ value: "shaded", label: ko("Shaded", "음영") },
 											{ value: "flat", label: ko("Flat", "평면") },
 										].map((option) => {
