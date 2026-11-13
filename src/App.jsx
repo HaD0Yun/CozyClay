@@ -469,7 +469,7 @@ export default function App() {
 	}));
 	const {
 		preset, shotAspectKey, environmentImage, cameraPresetId, sensorId, keyLight, lighting, changeKeyLight,
-		resetKeyLight, hasEnvSheet, environment, style, publishStudioStage,
+		hasEnvSheet, environment, style, publishStudioStage,
 	} = stageDomain;
 	const shotsDomain = useShots(appContext.forRender({
 		get cameraPreviewEndRef() { return cameraPreviewEndRef; },
@@ -511,11 +511,11 @@ export default function App() {
 		get stageDomain() { return stageDomain; },
 	}));
 	const {
-		fovDeg, setFovDeg, cameraMove, customMove, startupShotState, shots, setShots, editShots, movePlaying,
+		fovDeg, cameraMove, customMove, startupShotState, shots, setShots, editShots, movePlaying,
 		setMovePlaying, moveFollow, railDraw, setRailDraw, craneSelectedIndex, setCraneSelectedIndex, tlFrame,
-		setTlFrame, tlFrameCount, setTlFrameCount, tlFps, setTlFps, activeShotIdx, activeShot, cameraKeys,
+		setTlFrame, tlFrameCount, setTlFrameCount, tlFps, activeShotIdx, activeShot, cameraKeys,
 		activeCamera, craneActive, cameraRail, activeShotDuration, hasCameraKeys, changeActiveCamera,
-		changeShotTargetModel, addActiveCranePoint, deleteSelectedCranePoint, syncActiveCameraFraming,
+		addActiveCranePoint, deleteSelectedCranePoint, syncActiveCameraFraming,
 		commitManualCameraFraming, beginCameraFramingGesture, setShotCameraRail,
 		clearShotCameraRail, toggleCameraRailDraw, deleteCameraRail, previewCameraShot,
 		addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe, addTimelineShot, splitTimelineShot,
@@ -933,11 +933,11 @@ export default function App() {
 	}));
 	const {
 		characters, customPoses, posing, posingClosing, studioPick, setStudioPick,
-		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB, poseA, poseB,
-		updateCharacterAt, setShowB, moveCharacter, removeCharacter, reportRig, spawnCharacter,
+		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
+		updateCharacterAt, moveCharacter, removeCharacter, reportRig, spawnCharacter,
 		charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId, rowIdForCharIndex,
-		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig, ghostLayers,
-		snapshotCast, changeInspectorCharacter, hasCharSheet, setHasCharSheet,
+		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, ghostLayers,
+		snapshotCast, hasCharSheet, setHasCharSheet,
 		waypointMode, setWaypointMode, waypoints, setWaypoints,
 		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
 		queueRootWaypointFrame, castMemberOf, addCharacterWaypoint, moveCharacterWaypoint,
@@ -1185,7 +1185,7 @@ export default function App() {
 		matteShrink, setMatteShrink, matteFeather, setMatteFeather, matteMode, setMatteMode, matteStats,
 		setMatteStats, matteBusy, gizmoMode, setGizmoMode, snapEnabled, setSnapEnabled, addSceneObject,
 		importCutout, importCutouts, spawnCutoutAt, persistMeshAsset, importMesh, importMeshes, spawnMeshAt,
-		applyMatte, duplicateSelectedSceneObject, frameSelection, groupObjectUnderNewEmpty, renameRequest, renameSceneObject, sceneObjectWorldMatrix,
+		duplicateSelectedSceneObject, frameSelection, groupObjectUnderNewEmpty, renameRequest, renameSceneObject, sceneObjectWorldMatrix,
 		attachTargetLabel, attachSceneObject,
 	} = objectsDomain;
 
@@ -2468,7 +2468,7 @@ export default function App() {
 		dirtyRef.current = true;
 		const timer = setTimeout(flushScenes, 400);
 		return () => clearTimeout(timer);
-	}, [sceneObjects, shots, waypoints, tlFrameCount, charA, charB, showB, poseA, poseB, hasCharSheet, environmentImage, environment, style, hasEnvSheet, shotAspectKey, sensorId, keyLight, scenes, activeSceneId, motionLayers]);
+	}, [sceneObjects, shots, waypoints, tlFrameCount, charA, charB, showB, hasCharSheet, environmentImage, environment, style, hasEnvSheet, shotAspectKey, sensorId, keyLight, scenes, activeSceneId, motionLayers]);
 	useEffect(() => {
 		const onPageHide = () => flushScenes();
 		const onVisibility = () => {
@@ -2493,7 +2493,7 @@ export default function App() {
 	// The untrimmed take per CHARACTER. Trims are non-destructive views of the
 	// full take, so re-trimming and "restore full" always cut from the
 	// original — and because each cast member owns its own layer, one shared
-	// ref would hand Subject 2's take to Subject 1 on the next switch.
+	// ref would hand one character's take to another on the next switch.
 	const motionFullRef = useRef(new Map()); // charId -> untrimmed take
 
 	
@@ -3483,12 +3483,6 @@ export default function App() {
 		return captureFraming({ pos: { x: pos.x, y: pos.y, z: pos.z }, yaw: look.current.yaw, pitch: look.current.pitch, fovDeg, rollDeg: ((look.current.roll ?? 0) * 180) / Math.PI });
 	}
 
-	// What a framing capture says about the shot it came from: lens, delivery
-	// aspect, cast, cut range and the video model the shot is aimed at. Both
-	// capture paths (the live command and the embed message) attach this, so a
-	// still handed to a generator arrives with its production notes.
-	// A frame that falls in a gap between shots describes the first shot — a
-	// pull still belongs to the piece even when the playhead sits outside a cut.
 	/**
 	 * The reference pictures a capture travels with (#167): every visible cast
 	 * member's identity sheet, then the set's environment reference. Slots that
@@ -3506,6 +3500,12 @@ export default function App() {
 		return references;
 	}
 
+	// What a framing capture says about the shot it came from: lens, delivery
+	// aspect, cast, cut range and the video model the shot is aimed at. Both
+	// capture paths (the live command and the embed message) attach this, so a
+	// still handed to a generator arrives with its production notes.
+	// A frame that falls in a gap between shots describes the first shot — a
+	// pull still belongs to the piece even when the playhead sits outside a cut.
 	function captureShotMeta(frame) {
 		const index = shotIndexAtFrame(shots, frame);
 		const resolvedIndex = index >= 0 ? index : shots.length ? 0 : null;
@@ -3530,7 +3530,7 @@ export default function App() {
 	const isCharacterSelection = selectedHierarchyId === "characters"
 		|| ((selectedHierarchyId === "characterA" || selectedHierarchyId === "characterB" || selectedHierarchyId.startsWith("character:"))
 			&& characterRowExists(selectedHierarchyId, characters));
-	// The View menu's three toggles, as the menu reads them: one radio choice
+	// The View menu's four settings, as the menu reads them: one radio choice
 	// for the part colours, and a dot on the trigger whenever the viewport is
 	// showing something other than the plain stage.
 	const partColoursChoice = partColoursEnabled ? partColoursMode : "off";
@@ -3567,7 +3567,7 @@ export default function App() {
 	}, [characters, activeChar.id, motion, rigs, tlFrame, ikTick]);
 
 	// The shared timeline spans the longest CURRENT content on the production
-	// clock. Recomputing both directions matters: deleting Subject 2 or
+	// clock. Recomputing both directions matters: deleting a character or
 	// shortening its take must pull the end back in instead of leaving the
 	// recorder with frozen tail frames (#80).
 	useEffect(shotsDomain.syncTimelineExtent, [characters, activeChar.id, motion, shots]);
@@ -4197,10 +4197,6 @@ export default function App() {
 		} };
 	}
 
-	/** The authored stage envelope (key light, environment, filmback) published
-	 * as one body: the live read model first, so the next synchronous read sees
-	 * it, then the React state the foldouts and the save path own. */
-
 	/** All surfaces share the facade's owned sessions and store histories. */
 	function beginStudioAction(domain, targetId = null) {
 		return appContext.beginAction(domain, targetId);
@@ -4359,8 +4355,6 @@ export default function App() {
 			shots: appContext.live.state.shots, objects: storeRef.current.objects, characters: appContext.live.characters, frame: tlFrame, frameCount: tlFrameCount,
 			selectedObjectId: selectedSceneObjectId, activeCharacterId: characters.length ? activeChar.id : null,
 			
-			generating: false,
-			motionReady: false,
 			// The Export menu offers Video (mp4) on exactly these conditions.
 			exporting: Boolean(recRef.current), canExportVideo: shots.length > 0 || hasCameraKeys || Boolean(motion),
 			// The scene refs move synchronously with every scene handler.
@@ -4371,8 +4365,6 @@ export default function App() {
 				gesture: globalThis.navigator?.userActivation?.isActive === true },
 			// What generate() reads for the Send-to-AI package, as this render has it.
 			aiShot: { mode, imageModel },
-			// AI-video motion: the account's Fal access, the card's job state and
-			// the daily generations left (null until the server says).
 		}),
 		addTimelineShot, splitTimelineShot, duplicateTimelineShot, removeTimelineShot, setTimelineShotRange, moveTimelineShot,
 		duplicateSelectedSceneObject,
@@ -4475,10 +4467,10 @@ export default function App() {
 	const shellContext = {
 		sculptPanel,
 		projectMenuOpen, setProjectMenuOpen, projectDirty, projectName, previsMode, castStyle: scenesDomain.castStyle, projectStartupOpen,
-		requestNewProject, setProjectStartupOpen, setProjectBrowserOpen, runStudioAction, saveProject,
+		setProjectStartupOpen, setProjectBrowserOpen, runStudioAction,
 		projectManifest, projectSaveState, recState, exportMenuTriggerRef, exportMenuOpen,
 		exportShotIdRef, setExportMenuOpen, exportPhaseLabel,
-		resultOpen, exportFeedback, shots, exportKeyframePacks,
+		resultOpen, shots, exportKeyframePacks,
 		hasCameraKeys, motion, exportRenderPasses, exportDepthVideo, exportStoryboard,
 		exportContactSheet, exportPanelPacks, exportAnimatic,
 		capturePanelThumbnail, packMetaForShot, sceneRevision: sceneRevisionRef.current,
@@ -4498,9 +4490,9 @@ export default function App() {
 		studioAgentError, studioAgentMode, setStudioAgentMode, AgentPanel, setAgentCollapsed,
 		buildStudioAgentContext, highlightAgentTargets, selectedSceneObject, rigSelection,
 		inspectorActionsOpen, setInspectorActionsOpen, deleteSelectedSceneObject, inspectorHasContent, keyLightSelected,
-		keyLight, lighting, changeKeyLight, resetKeyLight, isCameraSelection, moveSequence,
-		cameraKeys, activeShot, changeShotTargetModel, updateCharacterAt, openStudio,
-		posing, removeCharacter, setShowB, activeChar, changeInspectorCharacter,
+		keyLight, lighting, isCameraSelection, moveSequence,
+		cameraKeys, activeShot, openStudio,
+		posing, activeChar,
 		selectablePoses, ikApplyPoseAsKey,
 		setStudioPick, appContext, removePose, activeRig, saveCurrentPose,
 		setTlFrame, tlFrameCount,
@@ -4514,11 +4506,11 @@ export default function App() {
 		changeSceneObject, attachTargetLabel, store, beginSceneTransaction, endSceneTransaction,
 		matteCanvasRef, matteStats, matteMode, setMatteMode, matteEditorRef,
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
-		setMatteShrink, matteFeather, setMatteFeather, matteBusy, applyMatte,
+		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
 		posingIndex, posingChar, charA, allPoses, studioPick,
 		posingClosing, closeStudio, castDomain, setToast, savePose,
-		bottomTab, setBottomTab, beginAssetDrag, shelfImageIds, shelfMeshIds,
+		setBottomTab, beginAssetDrag, shelfImageIds, shelfMeshIds,
 		manageAssetStorage, setManageAssetStorage, unusedAssetIds, usedAssetIds, usageCounts,
 		projectAssetGraphSignature, assetTrash, deleteUnusedAsset, undoDeletedAsset, deletingAssetId,
 		waypointMode,
@@ -4534,7 +4526,7 @@ export default function App() {
 		moveCameraKeyframe, removeCameraKeyframe, syncActiveCameraFraming, activeCamera, activeShotDuration,
 		changeActiveCamera, cameraRail, previewCameraShot, toggleCameraRailDraw, deleteCameraRail,
 		selectTimelineShot, clearMotion,
-		spawnCharacter, exportShotVideo, stopShotRecording, retryExport, poseRefusal: poseEntry.blocked ? poseEntry.plan.reason : null,
+		spawnCharacter, stopShotRecording, retryExport, poseRefusal: poseEntry.blocked ? poseEntry.plan.reason : null,
 		beginWorkspaceResize, frameAll, setAxisView,
 		preferencesOpen, setPreferencesOpen, statusText, setStatusText, previewRanges, setPreviewRanges,
 		flySpeed, liveHubStatus: liveWorkspaceHandle ? "connected" : "disconnected",
@@ -5068,17 +5060,6 @@ export default function App() {
 								shotOptics={activeShot?.optics ?? null}
 							/>
 						</Canvas>
-
-						{/* Line editing (C6): the path overlay. A plain 2D canvas stacked
-						    on the stage — it never enters the three.js scene graph, so an
-						    edit cannot disturb picking, playback or the render loop, and it
-						    behaves the same in every view mode.
-						    It carries NO pointer handlers and is `pointer-events: none`:
-						    the mode must not take the viewport hostage, so the listeners
-						    live on the stage container (capture phase) and consume a
-						    pointer only when it actually grabs the curve. Everything else
-						    — orbit, pan, click-to-select — reaches the WebGL canvas
-						    untouched while the mode is on. */}
 
 						{!webGlAvailable && (
 							<div className="gl-lost-overlay" role="alert" data-testid="webgl-unavailable">
