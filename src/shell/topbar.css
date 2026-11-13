@@ -6,8 +6,6 @@
 	.v2-statusbar,
 	.menubar-menu,
 	.menubar-dialog-backdrop {
-		--topbar-swatch-size: 20px;
-		--topbar-swatch: var(--project-swatch);
 		--topbar-dot: 6px;
 		--topbar-primary-height: 30px;
 		--topbar-primary-pad: 14px;
@@ -41,13 +39,6 @@
 		align-items: center;
 		gap: 10px;
 		min-width: 0;
-	}
-	.v2-topbar .topbar-swatch {
-		flex: none;
-		width: var(--topbar-swatch-size);
-		height: var(--topbar-swatch-size);
-		border-radius: var(--r-2, 6px);
-		background: var(--topbar-swatch);
 	}
 	/* The project name is the project menu's trigger: plain name, dirty dot after.
 	   The trigger's 8px inline padding (details.css) is pulled back so the
@@ -85,16 +76,6 @@
 	.v2-topbar .topbar-mcp[data-state="connected"] .topbar-mcp-dot { background: var(--ok, #4fbf7a); }
 	.v2-topbar .topbar-mcp-text { overflow: hidden; text-overflow: ellipsis; }
 
-	/* Generate Motion: the one violet primary, with its caret joined on. */
-	.v2-topbar .topbar-generate { display: flex; flex: none; }
-	.v2-topbar .topbar-generate button {
-		height: var(--topbar-primary-height);
-		border: 0;
-		background: var(--primary, #7258a0);
-		color: var(--text-selected, #fff);
-		font: 500 var(--ui-size) var(--sans);
-		cursor: pointer;
-	}
 	.menubar-dialog-close svg {
 		width: 12px;
 		height: 12px;
@@ -104,10 +85,6 @@
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}
-	.v2-topbar .topbar-generate button:hover {
-		background: color-mix(in srgb, var(--primary, #7258a0) 86%, var(--text-selected, #fff));
-	}
-	.v2-topbar .topbar-generate button:focus-visible,
 	.v2-topbar .menubar-trigger:focus-visible {
 		outline: 1px solid var(--select, #e8a33d);
 		outline-offset: 1px;

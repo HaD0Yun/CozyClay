@@ -1,16 +1,14 @@
 /* Pose mode (#521) is IK editing on the motion workspace: it hides what
-   Motion hides (scene transform and camera framing chrome, the inset) and
+   Motion hides (the inset) and
    shows the mode hint. The shot preview stays: it is drawn into the dock's
    Shot Camera frame, and hiding it left that frame a hole onto the editor
    view. The timeline's pose-correction tools are hidden only in Scene and
    Camera, so they stay visible here. */
-.app[data-workflow-mode="pose"] .workflow-camera-context { display: none; }
 .app[data-workflow-mode="pose"] .vp-inset { display: none !important; }
 
-/* A storyboard project (#650) is stills: the take, motion and pose-correction
+/* A storyboard project (#650) is stills: the motion and pose-correction
    tools, the root-path (waypoint) switch and a prop's Top-View travel path
    never show, whatever the mode. */
-.app[data-previs-mode="storyboard"] .take-bar,
 .app[data-previs-mode="storyboard"] .tl-motion-tools,
 .app[data-previs-mode="storyboard"] .tl-pose-tools,
 .app[data-previs-mode="storyboard"] .tl-btn.wp,

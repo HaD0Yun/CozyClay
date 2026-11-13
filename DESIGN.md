@@ -221,16 +221,6 @@ snapping and a read-only hotkeys list.
 - `.tl-crane-editor`: card-local time/height graph; the graph inserts points,
   points have enlarged targets, and vertical drags edit height without moving
   the Shot block.
-- `.motion-readiness`: compact text-labelled generation status beside the
-  generation controls. It distinguishes checking, ready, not configured,
-  unavailable and unsupported routes without gating authoring. It inherits
-  `--fg`, `--muted`, `--cyan`, `--panel`, `--line2`, `--radius`, the 11 px
-  inspector scale and 4/8 px spacing; state is never colour-only.
-- `.motion-setup`: an explicitly opened region in Settings, not a modal or
-  another topbar control. Documentation opens separately and Retry only probes
-  health. It preserves the scene and prompt blocks, scrolls within the viewport,
-  wraps commands, and keeps controls reachable at 390 px. Status uses polite
-  announcements, visible keyboard focus and immediate state changes.
 
 ## 6. Floating-glass shell and themes (#570)
 
