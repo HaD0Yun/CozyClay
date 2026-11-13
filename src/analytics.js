@@ -142,9 +142,9 @@ const FEATURE_NAMES = new Set([
 	"export_depth_video", "export_keyframe_pack", "export_render_pass", "export_storyboard",
 	"auto_color", "sample_motion", "agent_demo",
 ]);
-// `site` and `playground` arrive through `npx cozyclay --via <source>` from the
-// landing page's copy commands; the others are the first-launch prompt answers.
-export const HEARD_FROM_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground"]);
+// `site`, `playground` and `installer` arrive through `npx cozyclay --via <source>`
+// from copy commands and installers; the others are the first-launch prompt answers.
+export const HEARD_FROM_SOURCES = Object.freeze(["x", "hn", "reddit", "github", "friend", "other", "site", "playground", "installer"]);
 const HEARD_FROM_VALUES = new Set(HEARD_FROM_SOURCES);
 const DENIED_PROPERTY_KEYS = new Set(["prompt", "text", "url", "path", "file"]);
 // Sculpt mode (#739): one sculpt_run per finished run. Numbers only: no
