@@ -130,8 +130,8 @@ export function createCharacterEntry(source = null, index = 0) {
 		model: CHARACTER_KIND_IDS.includes(s.model) || isImportedCharacter(s) ? s.model : DEFAULT_CHARACTER_MODEL,
 		posture: POSTURES.includes(s.posture) ? s.posture : "stand",
 		x: Math.max(CHARACTER_POSITION_LIMITS.min.x, Math.min(CHARACTER_POSITION_LIMITS.max.x, finiteOr(s.x, 0))),
-		// Lift is bounded by the deck and the shared room headroom, so every
-		// writer (inspector field, viewport gizmo, load path) shares one envelope.
+		// Lift (y) is bounded by the deck and the shared room headroom; only y has
+		// one envelope for every writer (inspector field, viewport gizmo, load path).
 		y: Math.max(CHARACTER_POSITION_LIMITS.min.y, Math.min(CHARACTER_POSITION_LIMITS.max.y, finiteOr(s.y, 0))),
 		z: Math.max(CHARACTER_POSITION_LIMITS.min.z, Math.min(CHARACTER_POSITION_LIMITS.max.z, finiteOr(s.z, 0))),
 		rot: wrapAngle(finiteOr(s.rot, 0)),
