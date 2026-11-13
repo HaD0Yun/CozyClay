@@ -179,3 +179,13 @@ assert.doesNotMatch(await objectLine(), /path: \d+ pts/, "update_object path: nu
 console.log("PASS update_object stores and clears a travel path without a live editor");
 
 console.log(`\nPASS tool handler registry (${tools.length} tools, importable without an MCP server)`);
+
+/* ------------- 7. render_prompt invents no look (#1238) ------------------- */
+// The agent names the look. When it names none, the prompt must not carry one
+// the tool made up; the size words still close the sentence.
+
+const defaultStyle = renderPrompt.inputSchema.style.parse(undefined);
+assert.equal(defaultStyle, "", `render_prompt fills in a look the caller did not give: "${defaultStyle}"`);
+const unstyled = (await renderPrompt.handler({ ...promptArgs, style: defaultStyle })).content[0].text;
+assert.doesNotMatch(unstyled, /cinematic film still, natural light/, `render_prompt wrote an invented look into the prompt:\n${unstyled}`);
+console.log("PASS render_prompt adds no look when the caller gives none");
