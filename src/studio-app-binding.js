@@ -317,7 +317,7 @@ export function createStudioAppBinding(ports) {
 					return same(rejected.host, journal.host) ? journal.record(rejected) : rejected;
 				});
 			}
-			fail("CAPABILITY_MISSING", "Generation is owned by the server runtime.");
+			fail("CAPABILITY_MISSING", `${request.name} needs the ${({ arrange_objects: "objects", arrange_characters: "cast", frame_shot: "shots" })[request.name] ?? "Studio"} document owner, which is not mounted.`);
 		} catch (error) { const receipt = rejection(request, error); return journal.record(receipt); }
 	}
 	const handlers = {

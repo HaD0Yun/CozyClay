@@ -1398,7 +1398,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				if (clay !== undefined) patch.clay = clay;
 				if (hidden !== undefined) patch.hidden = hidden;
 				if (opacity !== undefined) patch.opacity = opacity;
-				sc.objects = updateSceneObject(sc.objects, id, patch);
+				sc.objects = updateSceneObject(sc.objects, id, travelPath === undefined ? patch : { ...patch, path: travelPath });
 				return text(`Updated ${id}.\n\n${sceneReport()}`);
 			},
 		),
