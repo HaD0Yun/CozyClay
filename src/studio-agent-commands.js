@@ -430,7 +430,7 @@ export function sampledFramingResult(args, scene, ports, frameCount, measured, r
   catch (error) { if (!(error instanceof StudioProtocolError)) throw error; return { reason: error.message }; }
 }
 export function frameDraft(command, state, ports) {
-  if (state.frameCount <= 0) fail('TARGET_NOT_READY', 'A nonempty timeline is required; set its length with shot.setTimeline { frameCount } (24 to 28800).');
+  if (state.frameCount <= 0) fail('TARGET_NOT_READY', 'A nonempty timeline is required; installing a take with motion.compile grows it to cover the take.');
   const subject = frameSubject(command.args.subjectIds[0], state, SENSOR_FORMATS);
   const points = geometry(subject, state, ports), bounds = aabb(points), height = bounds.y.max - bounds.y.min;
   if (height <= EPS) fail('TARGET_NOT_READY', `${subject.id} has no measurable height yet (its body is still loading); wait a moment and send the same frame_shot again.`);
