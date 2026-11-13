@@ -111,7 +111,7 @@ const NODE_FILES = [
 	"test/verify-image-versions.mjs",
 	"test/verify-keyframe-pack.mjs",
 	"test/verify-keyframe-pack-request.mjs",
-	"test/verify-korean-ui.mjs", "test/verify-chinese-ui.mjs",
+	"test/verify-korean-ui.mjs", "test/verify-chinese-ui.mjs", "test/verify-ui-copy.mjs",
 	"test/verify-label-tooltips.mjs",
 	"test/verify-layout.mjs",
 	"test/verify-beginner-screen.mjs",
