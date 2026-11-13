@@ -14,7 +14,7 @@ import { bodyFor, bodyNormal, limbDepth, segmentDepth } from "../body.js";
 import { add, sub, scale, len, apply, axisRot } from "../compiler/math.js";
 import { capsulesFor, segPoints, sdBox } from "../qa/geometry.js";
 import { round4 } from "./ease.js";
-import { turnWeight } from "../compiler/pose.js";
+import { turnWeight, SIDES } from "../compiler/pose.js";
 import { allowance } from "../qa/checks.js";
 import { regionOf } from "../qa/body-checks.js";
 
@@ -41,7 +41,6 @@ function wingMin(out, i, side) {
 }
 /** The most the turn changes in one frame (deg): a fast arm turned faster than this pops. */
 const STEP_TURN = 10;
-const SIDES = { l: "Left", r: "Right" };
 
 /** How much hand k is on a measured target at channels c: a fit of its own (the mouth), or a fit of the
  * other hand anchored to a prop k holds (the flame under k's cigarette). Such a hand is not moved. */

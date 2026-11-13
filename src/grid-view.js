@@ -22,8 +22,7 @@ export const STAGE_BACKGROUND = "#232428";
 // mapping), so fog blends floor into sky without a step.
 const STAGE_BACKGROUND_LIGHT = "#e7e8eb";
 export const stageBackground = (theme) => (theme === "light" ? STAGE_BACKGROUND_LIGHT : STAGE_BACKGROUND);
-export const GRID_BACKGROUND = STAGE_BACKGROUND;
-export const GRID_FOG = Object.freeze({ color: GRID_BACKGROUND, near: 30, far: 54 });
+export const GRID_FOG = Object.freeze({ color: STAGE_BACKGROUND, near: 30, far: 54 });
 
 // Line palette, tuned against the dark background the way Blender's theme
 // does it: minor metre lines whisper, ten-metre lines carry the scale read,
