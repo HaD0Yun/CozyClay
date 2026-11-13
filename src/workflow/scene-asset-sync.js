@@ -131,7 +131,6 @@ function publishSceneDocument(document, {
 
 /** Subscribe to same-tab CustomEvents and cross-tab storage updates. */
 export function subscribeToSceneDocuments(onDocument, {
-	storage = globalThis.localStorage,
 	target = globalThis,
 } = {}) {
 	if (typeof onDocument !== "function") return () => {};
@@ -174,7 +173,6 @@ export function publishScenePlayback(command, {
 
 /** Subscribe to transient playback commands from Workflow or another tab. */
 export function subscribeToScenePlayback(onCommand, {
-	storage = globalThis.localStorage,
 	target = globalThis,
 	} = {}) {
 	if (typeof onCommand !== "function") return () => {};

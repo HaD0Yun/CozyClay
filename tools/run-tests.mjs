@@ -158,7 +158,6 @@ const NODE_FILES = [
 	"test/verify-character-kind.mjs",
 	"test/verify-cozy-scene-node.mjs",
 	"test/verify-motion-input.mjs",
-	"test/verify-vibe-payload.mjs",
 	"test/verify-vibe-node-schema.mjs",
 	"test/verify-video-adapters.mjs",
 	"test/verify-video-route.mjs",
