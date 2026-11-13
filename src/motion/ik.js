@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { normalizeBoneName, POSE_BONES, DEFAULT_POSE } from "../poses.js";
 import { resolveFingers } from "./fingers.js";
-import { findBone } from "./find-bone.js"; import { fixWeight } from "./fix-weight.js";
+import { findBone } from "./find-bone.js"; import { fixHeld, fixWeight } from "./fix-weight.js"; import { fixKeySample } from "./fix-keys.js";
 export { findBone };
 
 /**
@@ -1068,10 +1068,10 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 	// "placement" is the whole character's spot (placement-keys.js), no bone
 	for (const id of [...ikState.tracked].filter(track => track !== "placement")) {
 		const chain = rig.get(id);
-		const sampled = sampleChain(ikState.keys, id, frame, chain);
+		const kf = fixKeySample(ikState.keys, id, frame, ikState), sampled = kf ? (kf.delta ? withDeltas(kf.delta) : kf.sampled) : sampleChain(ikState.keys, id, frame, chain); // fix keys (fix-keys.js) play as keyframes
 		if (!sampled) continue;
 		const joint = fkJoints?.get(id);
-		const w = blendWindow > 0 ? (fixWeight(ikState.keys, id, frame, ikState) ?? correctionWeight(ikState.keys, id, frame, blendWindow)) : 1;
+		const w = kf ? kf.w : blendWindow > 0 ? (fixWeight(ikState.keys, id, frame, ikState) ?? correctionWeight(ikState.keys, id, frame, blendWindow)) : 1;
 		if (w <= 0) continue;
 		if (chain) {
 			if (sampled.chainP) chain.bones.forEach((bone, i) => { if (sampled.chainP[i]) bone.position.lerp(sampled.chainP[i], w * (sampled.chainPWeight ?? 1)); });
@@ -1086,7 +1086,7 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 			// OWN rotation instead — applied = clipCurrent ∘ slerp(identity,
 			// baseQ⁻¹ ∘ q, w) — makes the smear proportional to the correction,
 			// which is the only thing the key ever claimed.
-			const deltas = blendWindow > 0 ? sampled.deltaQ : null;
+			const deltas = blendWindow > 0 && (kf ? Boolean(kf.delta) : !fixHeld(ikState.keys, id, frame)) /* a held fix (fix-weight.js) keeps the keyed pose itself across its band, not the take plus a delta */ ? sampled.deltaQ : null;
 			if (deltas) {
 				// Ease the translations with the rotations: switching to bind only
 				// at w = 1 tears the otherwise continuous correction at island edges.
@@ -1118,7 +1118,7 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 			// A translation-only key (see ikBakeKeyframe) stores no rotation at
 			// all, and must leave the clip's own orientation strictly alone.
 			if (sampled.q?.[0]) {
-				if (blendWindow > 0 && sampled.deltaQ?.[0]) {
+				if (blendWindow > 0 && sampled.deltaQ?.[0] && !fixHeld(ikState.keys, id, frame)) {
 					easedDelta.copy(sampled.deltaQ[0]).slerp(identityQuat, 1 - w);
 					joint.bone.quaternion.multiply(easedDelta);
 				} else if (w >= 1) joint.bone.quaternion.copy(sampled.q[0]);

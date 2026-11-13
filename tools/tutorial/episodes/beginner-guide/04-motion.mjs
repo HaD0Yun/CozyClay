@@ -50,9 +50,6 @@ export default {
 		spot("4.4", BODY_LANE, t("바디", "Body"), t("모션 테이크가 놓이는 레인", "The lane where the motion take lands"), {
 			caption: t("테이크가 바디 레인에 클립으로 올라왔습니다.", "The take landed on the Body lane as a clip."),
 		}),
-		spot("4.5", "[data-testid=\"beat-board\"]", t("구간", "Beats"), t("각 구간은 프레임 범위와 QA 체크", "Each beat is a frame range with a QA tick"), {
-			caption: t("클립 위의 구간마다 체크가 붙습니다. 충돌, 발 미끄러짐, 손 닿기를 검사한 결과입니다.", "Each beat on the clip carries a tick: the QA checks for collisions, foot slide and hand contact."),
-		}),
 		spot("4.6", "[data-fid=\"tl_play\"]", t("재생 (Space)", "Play (Space)"), t("재생·정지", "Play and pause"), {
 			caption: t("Space로 재생하고 다시 Space로 멈춥니다.", "Space plays, Space again pauses."),
 		}),

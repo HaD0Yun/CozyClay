@@ -11,7 +11,7 @@ import { NumberField } from "../ui.jsx";
 import { flatTiming, timingIsFlat, envelopeDrag, insertCut, removeCut, CUT_MIN_GAP } from "../speed-envelope.js";
 import { checkShotAgainstPreset, presetById } from "../model-presets.js";
 import { WORLD } from "../world-scale.js";
-import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { BeatBoard } from "./beat-board.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
+import { TakeSegmentClips, TakeSegmentTools } from "./take-segments.jsx"; import { NotePinButton, NotePins } from "./TimelineNotePins.jsx"; import { ikLanePress } from "./pose-key-door.js"; import { FixIslandBands, IkPartLabels, IkPartsToggle, useIkParts } from "./TimelineFixIslands.jsx"; import { FixTools } from "../shell/FixTools.jsx"; import { PhysicsToggle } from "../physics-toggle.jsx";
 import "./timeline.css";
 export { timelineTake } from "./take-segments.jsx";
 
@@ -1270,7 +1270,7 @@ export default function Timeline({
 	// Fix Collisions and AutoPhysics key EVERY frame of a corrected span, so
 	// the raw list draws a wall of diamonds. Collapse consecutive frames into
 	// runs first; only runs shorter than KEY_RUN_MIN stay diamonds.
-	const ikRuns = useMemo(() => groupKeyRuns(ikFrames), [ikFrames]);
+	const ikParts = useIkParts(displayFrameCount), ikRuns = useMemo(() => groupKeyRuns(ikParts.hidden.size ? ikFrames.filter((f) => !ikParts.hidden.has(f)) : ikFrames), [ikFrames, ikParts.hidden]); // ikParts: keys by body part (TimelineFixIslands.jsx); a frame of rest keys only draws no summary dot
 	const pinBands = useMemo(() => rangePins.map((pin) => ({
 		pin,
 		geometry: rangePinBandGeometry(pin, frameCount, displayFrameCount),
@@ -1790,7 +1790,7 @@ export default function Timeline({
 					)}
 
 					<div className="tl-body" ref={bodyRef}>
-						<div className={"tl-surface" + (!shots.length ? " empty-shots" : "") + (pathObject ? " prop-subject" : "")} style={{ "--tl-zoom": surfaceZoom }}>
+						<div className={"tl-surface" + (!shots.length ? " empty-shots" : "") + (pathObject ? " prop-subject" : "")} data-ik-parts={ikParts.rows || undefined} style={{ "--tl-zoom": surfaceZoom, "--tl-ik-parts": ikParts.rows }}>
 						<div className="tl-ruler">
 							<span className="tl-ruler-label">{ko("Frame", "프레임", "帧")}</span>
 							<div
@@ -1856,7 +1856,7 @@ export default function Timeline({
 									{name === IK_LANE ? (
 										<span className="tl-track-label-stack">
 											<span className="tl-track-subrow"><span className="tl-track-chip body" data-lane-label="Body">{ko("Body", "바디")}</span></span>
-											<span className="tl-track-subrow indent"><span className="tl-track-chip ik" data-lane-label="IK keys">{ko("IK keys", "IK 키")}</span>{ikMode && <FixTools />}</span>
+											<span className="tl-track-subrow indent"><IkPartsToggle ikParts={ikParts} /><span className="tl-track-chip ik" data-lane-label="IK keys">{ko("IK keys", "IK 키")}</span>{ikMode && <FixTools />}</span><IkPartLabels ikParts={ikParts} />
 										</span>
 									) : name === SHOTS_LANE ? (
 										<span className="tl-track-label-stack">
@@ -1915,7 +1915,7 @@ export default function Timeline({
 									{gridFrames.map((f) => (
 										<i key={f} className="tl-grid" style={{ "--tl-f": framePct(f, displayFrameCount) }} aria-hidden="true" />
 									))}
-									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} />}{name === IK_LANE && previewRanges.map((range, index) => {
+									{name === IK_LANE && <NotePins displayFrameCount={displayFrameCount} />}{name === IK_LANE && <FixIslandBands displayFrameCount={displayFrameCount} ikParts={ikParts} onJump={(f) => handlers.current.onScrub?.(f)} />}{name === IK_LANE && previewRanges.map((range, index) => {
 										const startFrame = Number.isFinite(Number(range?.startFrame)) ? Number(range.startFrame) : Number(range?.start ?? 0);
 										const endFrame = Number.isFinite(Number(range?.endFrame)) ? Number(range.endFrame) : Number(range?.end ?? startFrame);
 										const start = Math.max(0, Math.min(displayFrameCount - 1, Math.round(startFrame)));
@@ -2135,7 +2135,7 @@ export default function Timeline({
 							aria-label={ko(`Pending pin range ${geometry.startFrame}–${geometry.endFrame}`, `대기 중인 고정 범위 ${geometry.startFrame}–${geometry.endFrame}`, `待定固定范围 ${geometry.startFrame}–${geometry.endFrame}`)}
 						/>;
 					})()}
-					{name === IK_LANE && motion?.segments && <TakeSegmentClips motion={motion} frame={frame} frameCount={frameCount} displayFrameCount={displayFrameCount} clipPct={clipPct} tools={motionTools} />}{name === IK_LANE && <BeatBoard motion={motion} frame={frame} displayFrameCount={displayFrameCount} clipPct={clipPct} onJump={(f) => handlers.current.onScrub?.(f)} />}
+					{name === IK_LANE && motion?.segments && <TakeSegmentClips motion={motion} frame={frame} frameCount={frameCount} displayFrameCount={displayFrameCount} clipPct={clipPct} tools={motionTools} />}
 
 									{name === IK_LANE &&
 										ikRuns.flatMap((run) => (run.length < KEY_RUN_MIN
