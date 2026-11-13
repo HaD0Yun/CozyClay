@@ -161,7 +161,6 @@ const STUDIO_TOOL_LABELS = {
 	arrange_characters: ko("Arrange characters", "\uCE90\uB9AD\uD130 \uBC30\uCE58"),
 	patch_elements: ko("Edit properties", "\uC18D\uC131 \uD3B8\uC9D1"),
 	frame_shot: ko("Frame the shot", "\uC0F7 \uAD6C\uB3C4 \uC7A1\uAE30"),
-	generate_motion: ko("Generate motion", "\uBAA8\uC158 \uC0DD\uC131"),
 	verify_result: ko("Verify the result", "\uACB0\uACFC \uAC80\uC99D"),
 	undo_edit: ko("Undo an edit", "\uD3B8\uC9D1 \uB418\uB3CC\uB9AC\uAE30"),
 	run_action: ko("Run an editor action", "\uD3B8\uC9D1\uAE30 \uB3D9\uC791 \uC2E4\uD589"),
@@ -329,8 +328,6 @@ export function formatResetIn(resetAt, now = Date.now()) {
 
 const TOOL_LABELS = {
 	capture_blocking_frame: { verb: "Capture", target: "blocking frame" },
-	render_from_frame: { verb: "Render", target: "from frame" },
-	place_image_in_scene: { verb: "Place", target: "image in scene" },
 };
 
 /** ToolCallCard shows "verb + target", never a raw function name. */
@@ -796,7 +793,7 @@ const MOCK_SCRIPT = [
 	{ delay: 120, event: { type: "text.delta", text: "Capturing the viewport first." } },
 	{ delay: 120, event: { type: "tool.start", callId: "call-1", name: "capture_blocking_frame", label: "Capture blocking frame", args: { shot: "current" } } },
 	{ delay: 260, event: { type: "tool.done", callId: "call-1", ok: true, elapsedMs: 268, result: { width: 1280, height: 720 } } }, { delay: 0, event: { type: "context", tokens: 41_200, window: 1_000_000 } },
-	{ delay: 90, event: { type: "tool.start", callId: "call-2", name: "render_from_frame", label: "Render from frame", args: { style: "storyboard", strength: 0.6 } } },
+	{ delay: 90, event: { type: "tool.start", callId: "call-2", name: "run_workflow", label: "Run workflow", args: {} } },
 	{ delay: 420, event: { type: "tool.done", callId: "call-2", ok: true, elapsedMs: 1412, result: { imageId: "img-1" } } },
 	{ delay: 80, event: { type: "image", imageId: "img-1", dataUrl: MOCK_IMAGE, width: 512, height: 288, prompt: "wide two-shot, storyboard ink" } },
 	{ delay: 60, event: { type: "quota", plan: "Plus", primary: { usedPercent: 46, windowMinutes: 300, resetAt: null }, credits: { has: true } } }, { delay: 0, event: { type: "context", tokens: 95_900, window: 1_000_000 } },

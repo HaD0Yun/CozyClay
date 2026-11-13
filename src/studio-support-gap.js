@@ -100,5 +100,5 @@ export function liftOffDeck(entity, onDeck, bottomOf, deckY, patch, lifted) {
 export function floorLiftWarnings(ids, nameOf) {
 	if (!ids.length) return [];
 	const who = ids.length === 1 ? nameOf(ids[0]) : `${ids.length} objects`;
-	return [{ code: 'FLOOR_LIFT', ...(ids.length === 1 ? { id: ids[0] } : { count: ids.length }), message: [...`${who} lifted ${DECK_LIFT_M * 1000} mm off the deck so a bottom face does not z-fight with it`].slice(0, 120).join('') }];
+	return [{ code: 'FLOOR_LIFT', ...(ids.length === 1 ? { id: ids[0] } : { count: ids.length }), message: [...`${who} lifted ${DECK_LIFT_M * 1000} mm off the deck so its bottom face does not flicker against the floor`].slice(0, 120).join('') }];
 }

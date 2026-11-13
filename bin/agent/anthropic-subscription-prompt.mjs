@@ -82,7 +82,7 @@ export function buildPromptBlocks(context) {
 		for (const message of history) {
 			if (message.role === "user") {
 				pushPrefix("USER:");
-				if (!appendSdkContentBlocks(blocks, message.content)) pushText("(see attached image)");
+				if (!appendSdkContentBlocks(blocks, message.content)) pushText("(no visible content)");
 				continue;
 			}
 			if (message.role === "assistant") {
@@ -93,13 +93,13 @@ export function buildPromptBlocks(context) {
 			}
 			if (message.role === "toolResult") {
 				pushPrefix(`TOOL RESULT (historical ${message.toolName}, id=${message.toolCallId}):`);
-				if (!appendSdkContentBlocks(blocks, message.content)) pushText("(see attached image)");
+				if (!appendSdkContentBlocks(blocks, message.content)) pushText("(no visible content)");
 			}
 		}
 		pushText(CONVERSATION_HISTORY_CLOSER);
 	}
 	pushText(continuesTurn ? CONTINUE_TURN_INSTRUCTION : RESPOND_TO_USER_INSTRUCTION);
-	if (finalUserMessage && !appendSdkContentBlocks(blocks, finalUserMessage.content)) pushText("(see attached image)");
+	if (finalUserMessage && !appendSdkContentBlocks(blocks, finalUserMessage.content)) pushText("(no visible content)");
 	return blocks;
 }
 

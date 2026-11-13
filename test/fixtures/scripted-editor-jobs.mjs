@@ -5,7 +5,7 @@ export function scriptedEditorJobs(base, script) {
   const jobs = new Map();
   const withIndex = context => ({ ...context, actionIndex: [
     ...(context.actionIndex ?? []).filter(row => !['motion.generate', 'motion.generateAllBlocks'].includes(row.id)),
-    ...['motion.generate', 'motion.generateAllBlocks'].map(id => ({ id, label: id, generation: 'motion', timeoutMs: 300000 })),
+    ...['motion.generate', 'motion.generateAllBlocks'].map(id => ({ id, label: id, timeoutMs: 300000 })),
   ] });
   const context = async () => withIndex(await script.readContext());
   return { ...base, async command(name, payload, ...rest) {

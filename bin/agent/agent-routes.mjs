@@ -74,8 +74,7 @@ const agentToolCategory = (name) => {
 	if (name === "describe_workflow" || name === "focus_workflow_node") return "workflow_read";
 	if (["add_workflow_node", "update_workflow_node", "remove_workflow_node", "connect_workflow_nodes", "disconnect_workflow_nodes", "set_workflow_node_output"].includes(name)) return "workflow_write";
 	if (name === "capture_blocking_frame") return "frame_capture";
-	if (name === "render_from_frame") return "image_generate";
-	if (name === "place_image_in_scene" || name === "add_reference_node") return "scene_write";
+	if (name === "add_reference_node") return "scene_write";
 	return "other";
 };
 // These existing canvas commands only return a node/edge after publishing a
@@ -744,7 +743,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			} catch { json(res, 400, { error: "invalid request" }); return true; }
 			if (!await auth.getAccessToken()) { json(res, 401, { error: { code: "auth", message: "Sign in with ChatGPT in the Agent panel." } }); return true; }
 			try {
-				// Same composition guidance the agent's render_from_frame appends: the
+				// Composition guidance (renderGuidance, FRAME_COMPOSITION_GUIDANCE): the
 				// node's prompt is intent only; camera, cast and set come from the scene.
 				// Scene references (#167) are appended after the frame/reference pair,
 				// and the prompt says what each attachment is for.

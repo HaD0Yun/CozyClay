@@ -246,7 +246,7 @@ expect("progress animates on the compositor only", /\.agent-job-bar-fill\s*\{[^}
 // --- mock transport ------------------------------------------------------
 expect("mock mode is gated on ?agent=mock", client.includes('params.get("agent") !== "mock"'));
 expect("mock mode reads ?state=", client.includes('params.get("state")'));
-expect("the scripted turn captures then renders", client.includes("capture_blocking_frame") && client.includes("render_from_frame"));
+expect("the scripted turn captures then runs the workflow", client.includes("capture_blocking_frame") && client.includes("run_workflow"));
 expect("the scripted turn emits an image and a done event", client.includes('type: "image"') && client.includes('type: "done"'));
 
 // --- behaviour of the pure helpers --------------------------------------
@@ -308,9 +308,9 @@ const seen = [];
 await mock.turn({ sessionId: "s", text: "hi", attachFrame: false }, (event) => seen.push(event));
 const types = seen.map((event) => event.type);
 expect("the scripted turn streams text first", types[0] === "text.delta");
-expect("the scripted turn runs capture then render", (() => {
+expect("the scripted turn runs capture then the workflow", (() => {
 	const starts = seen.filter((event) => event.type === "tool.start").map((event) => event.name);
-	return starts[0] === "capture_blocking_frame" && starts[1] === "render_from_frame";
+	return starts[0] === "capture_blocking_frame" && starts[1] === "run_workflow";
 })(), types.join(","));
 expect("every tool.start is answered by a tool.done", seen.filter((event) => event.type === "tool.start").length === seen.filter((event) => event.type === "tool.done").length);
 expect("the scripted turn ends with an image, a quota and done", types.includes("image") && types.includes("quota") && types.at(-1) === "done");

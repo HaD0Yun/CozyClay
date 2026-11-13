@@ -146,7 +146,7 @@ const out240 = outOf(poses240, [crate("crate", xs, [top - 0.3, top], zs)]);
 	const tool = createQaTool({ track: { out: async () => out240 } });
 	expect("tool: name qa, schema as the design", tool.name === "qa" && JSON.stringify(Object.keys(tool.inputSchema.properties)) === JSON.stringify(["from", "to", "kinds", "maxGroups", "hands"])
 		&& tool.inputSchema.additionalProperties === false && tool.inputSchema.required.length === 0 && tool.inputSchema.properties.maxGroups.maximum === 50);
-	expect("tool: description quotes the bench record and fits 2,000 chars", tool.description.startsWith("The old engine's QA. On the bench it agreed with the owner on 1 of 10 tasks and went the other way on 5. Read it as hints and check what it says with measure and render.")
+	expect("tool: description quotes the bench record and fits 2,000 chars", tool.description.startsWith("The QA of the motion.compile compiler (src/motion3). On the bench it agreed with the owner on 1 of 10 tasks and went the other way on 5. Read it as hints and check what it says with measure and render.")
 		&& tool.description.length <= 2000, `${tool.description.length} chars`);
 	const res = await tool.run({}, { from: "model" });
 	console.log(res.text.split("\n").slice(0, 6).map(l => `  | ${l}`).join("\n"));

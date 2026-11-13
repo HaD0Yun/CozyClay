@@ -210,13 +210,12 @@ function registerTests() {
 		assert.match(prompt, /Previs procedure/);
 		assert.match(prompt, /180/);
 		assert.match(prompt, /axisConsistent/);
-		assert.ok(prompt.includes("On STALE_SCENE, inspect_studio once to read the fresh revision and re-issue the exact same operation with that revision as the new admission"));
+		assert.ok(prompt.includes("On STALE_SCENE, the admission is already refreshed: adapt the operation to the listed changes and resubmit; inspect_studio only ids not listed"));
 		assert.ok(prompt.indexOf("Previs procedure") > prompt.indexOf("Ask concise questions only when"), "appended after the existing rules");
 		assert.doesNotMatch(storyboard, /Previs procedure/);
 	});
 	test("D3 patch_elements schema is derived from the element declaration table", () => {
 		assert.equal(protocol.STUDIO_TOOL_FAMILIES.length, 3);
-		assert.ok(protocol.STUDIO_TOOL_ALIASES.includes("patch_elements"));
 		assert.ok(protocol.STUDIO_CATALOGUE.some(tool => tool.name === "patch_elements"));
 		// Every family must fit the context capability list.
 		const c = contextFixture(); c.capabilities.tools = [...protocol.STUDIO_TOOL_FAMILIES]; protocol.validateStudioContext(c);
@@ -527,10 +526,6 @@ function registerTests() {
 		assert.deepEqual(call("inspect_studio", { scope: "actions", ids: '["motion.compile", "motion.describe"]' }), { scope: "actions", ids: ["motion.compile", "motion.describe"] });
 		assert.throws(() => call("inspect_studio", { scope: "actions", ids: '["bad id"]' }), /ids\.0: must match pattern/);
 		assert.deepEqual(call("run_action", { action: "motion.compile", args: { characterId: "char-a" } }), { action: "motion.compile", args: { characterId: "char-a" } });
-	});
-	test("GENERATION_LIMIT is a failure code of its own, distinct from AUTH_REQUIRED", () => {
-		const failure={ok:false,commandId:"cmd-1",host:receiptFixture().host,code:"GENERATION_LIMIT",phase:"admission",affectedIds:[],expectedTargets:[],currentTargets:[],mutated:false,preserved:{authoredState:"unchanged"},recovery:{action:"none"}};
-		assert.equal(protocol.validateReceipt(failure).code,"GENERATION_LIMIT");assert.ok(protocol.STUDIO_ERROR_CODES.includes("AUTH_REQUIRED"));
 	});
 	test("HTTP stale epoch/token fences use authoritative injected state before execution", async()=>{
 		let executed=0;const runtime={readContext:async()=>contextFixture(),handleTurn:async(v,req,res)=>{executed++;res.writeHead(200,{"content-type":"application/json"});res.end(JSON.stringify({turnId:v.turnId}));}};

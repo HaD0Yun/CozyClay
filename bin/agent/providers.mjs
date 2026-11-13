@@ -325,7 +325,7 @@ export async function listAgentModels({ models, codex, auth = defaultAuth, keys 
 		if (check) providers.push({ id: provider.id, label: provider.name ?? provider.id, signedIn: true, authSource: check.type === "oauth" || /stored/i.test(check.source ?? "") ? "file" : "env", models: catalogModels(resolvedModels, provider.id, getSupportedThinkingLevels) });
 	}
 	// The flat union is what the panel's dropdown reads today (`models[].id`);
-	// with six providers in play the id has to be the provider/id key so two
+	// with several providers in play the id has to be the provider/id key so two
 	// providers' same-named model never collide there, while each provider's
 	// own `models[]` keeps the bare id.
 	return {
