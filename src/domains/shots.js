@@ -262,9 +262,6 @@ export function useShots(appContext) {
     if (!shotId) return;
     return appContext.storeDomain('shot').edit('shot.setCamera', { shotId, patch });
   }
-  function changeShotTargetModel(targetModel, shotId = selectedShotId()) {
-    if (shotId) return domain.run('shot.set', { id: shotId, set: { targetModel: targetModel || null } });
-  }
   function syncActiveCameraFraming() {
     if (!appContext.shared.shotCamRef.current || appContext.shared.ikMode || appContext.shared.playMode) return;
     const shotId = selectedShotId(); // UI doors (orbit end, rail draw, follow): a refusal is logged here (#1185).
@@ -283,7 +280,6 @@ export function useShots(appContext) {
   }
   function moveCameraKeyframe(shotId, keyId, from, to) { if (from !== to) return settleUiRefusal('the camera key was not moved', () => domain.edit('shot.moveKey', { shotId, keyId, frame: Math.max(0, Math.round(to)) })); }
   function removeCameraKeyframe(shotId, keyId) { return domain.run('shot.removeKey', { shotId, keyId }); }
-  function clearMove() { setMovePlaying(false); const shotId = selectedShotId(); if (shotId) return domain.run('shot.clearKeys', { shotId }); }
   function addTimelineShot() { return appContext.storeDomain('shot').run('shot.create'); }
   function splitTimelineShot(shotId) { return appContext.storeDomain('shot').run('shot.split', { shotId }); }
   function duplicateTimelineShot(shotId) { return appContext.storeDomain('shot').run('shot.duplicate', { shotId }); }
@@ -418,9 +414,9 @@ export function useShots(appContext) {
   return { ...domain, shots, setShots, editShots, fovDeg, setFovDeg, cameraMove, customMove, startupShotState,
     movePlaying, setMovePlaying, moveFollow, railDraw, setRailDraw, craneSelectedIndex, setCraneSelectedIndex,
     tlFrame, setTlFrame, commitPlaybackFrame, tlFrameCount, setTlFrameCount, tlFps, setTlFps, activeShotIdx, activeShot, cameraKeys,
-    activeCamera, craneActive, cameraRail, activeShotDuration, hasCameraKeys, changeActiveCamera, changeShotTargetModel,
+    activeCamera, craneActive, cameraRail, activeShotDuration, hasCameraKeys, changeActiveCamera,
     syncActiveCameraFraming, commitManualCameraFraming, beginCameraFramingGesture,
-    setShotCameraRail, clearShotCameraRail, addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe, clearMove,
+    setShotCameraRail, clearShotCameraRail, addCameraKeyframe, moveCameraKeyframe, removeCameraKeyframe,
     addTimelineShot, splitTimelineShot, duplicateTimelineShot, removeTimelineShot, moveTimelineShot, setTimelineShotRange,
     resizeTimelineShot, renameTimelineShot, selectTimelineShot, previewCameraShot, addActiveCranePoint, deleteSelectedCranePoint,
     changeCranePoints, changeCraneRail, toggleCameraRailDraw, deleteCameraRail, drawCameraRail,

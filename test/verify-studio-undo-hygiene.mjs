@@ -68,7 +68,7 @@ assert.equal(declarations.has('restoreCast'), false, 'native cast restoration is
 // the RED state of #345 is exactly "no such recording seam exists".
 const APP_FUNCTIONS = [
 	"snapshotIkKeys", "undoScene", "redoScene",
-	"updateCharacterAt", "beginGestureUndo", "endGestureUndo", "changeKeyLight", "resetKeyLight",
+	"updateCharacterAt", "endGestureUndo", "changeKeyLight", "resetKeyLight",
 	"changeKeyLightFromGizmo", "changeInspectorCharacter", "changeEnvironmentImage",
 ];
 const ref = (current) => ({ current });
@@ -94,7 +94,6 @@ function fixture() {
 		charHistoryRef: ref({ past: [], future: [] }),
 		opClockRef: ref(0),
 		lastObjectOpRef: ref(0),
-		gestureUndoRef: ref(null),
 		environmentTextSessionRef: ref(null),
 		studioBindingRef: ref(null),
 		suppressObjectClockRef: ref(false),

@@ -139,11 +139,6 @@ export function createObjectsDomain(appContext, initial) {
 		undo: () => stepHistory(false) ? read() : null,
 		redo: () => stepHistory(true) ? read() : null,
 		settle: () => domain.settle?.(),
-		hasHistoryState: state => [...documentStore.history().past, documentStore.history().present, ...documentStore.history().future].some(entry => entry.snapshot.objects === state),
-		beginCommand() {
-			const session = beginAction();
-			return { ...session, commit: () => Boolean(session.commit().historyEntryId) };
-		},
 	};
 	domain.store = store;
 	const unregister = appContext.registerStoreDomain("objects", domain);
@@ -601,6 +596,9 @@ export function useObjects(appContext) {
 		appContext.notify((isKo, ko) => ko(`${placed.name} duplicated`, `${sceneObjectNameDisplayKo(placed.name)} 복제됨`, `${sceneObjectNameDisplayKo(placed.name)}已复制`));
 	}
 
+	/** Frame the selection: fly the shot camera to a comfortable distance along
+	 * the current view direction, the way Unity's F key does. Defaults to the
+	 * selection; the hierarchy context menu passes a specific row's id. */
 	function frameSelection(id = selectedSceneObjectId) {
 		const object = sceneObjects.find((item) => item.id === id) ?? null;
 		if (!object) return;
@@ -664,11 +662,7 @@ export function useObjects(appContext) {
 		const index = appContext.shared.characters.findIndex((entry) => entry.id === attach.characterId);
 		const who = index < 0
 			? ko("Missing character", "없는 인물")
-			: index === 0
-				? ko("Character 1", "인물 1")
-				: index === 1
-					? ko("Character 2", "인물 2")
-					: ko(`Character ${index + 1}`, `인물 ${index + 1}`, `角色 ${index + 1}`);
+			: ko(`Character ${index + 1}`, `인물 ${index + 1}`, `角色 ${index + 1}`);
 		const bone = attach.bone
 			? HIERARCHY_INSPECTOR_TITLES[`rig.${attach.bone}`] ?? attach.bone
 			: ko("Root", "루트");
@@ -1002,13 +996,11 @@ export function useObjects(appContext) {
 		domain.write(objects => children.reduce((rows, id) => placeSceneObject(setSceneObjectParent(rows, id, parent), id, placements.get(id)), objects));
 	};
 	function settleObjects() { return storeRef.current.settle(); }
-	function beginStudioObjectAction() { return storeRef.current.beginCommand(); }
-	function stepObjectHistory(redo) { return (redo ? storeRef.current.redo : storeRef.current.undo)(); }
 	// Runs from the cross-tab scene subscription: a refusal ends here, logged, never in window.onerror (#1185).
 	function applyExternalObjects(objects) { return settleUiRefusal("the objects from another tab were not applied", () => run("objects.replace", { objects: Array.isArray(objects) ? objects : [] })); }
 
 	return {
-		...domain, run, beginStudioObjectAction, stepObjectHistory, applyExternalObjects,
+		...domain, run, applyExternalObjects,
 		canReparentSceneObject, reparentSceneObject, settleObjects,
 		recentObjectColors, objectColorDraft, setObjectColorDraft, rememberSceneObjectColor, objectDeleteUndo,
 		setObjectDeleteUndo, sceneObjects, storeRef, store, selectedSceneObjectId,

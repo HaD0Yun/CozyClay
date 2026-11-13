@@ -291,7 +291,7 @@ expect(
 	JSON.stringify(split),
 );
 expect(
-	"the GLB is the mesh, never an image — useImageDrop must not toast it as an unsupported picture",
+	"the GLB is the mesh, never an image — a picture-only drop must not toast it as an unsupported picture",
 	split.meshes[0].name === "b.glb" && split.images[0].name === "a.png" && split.rejected[0].name === "c.pdf" && !split.images.some((file) => /\.glb$/i.test(file.name)),
 	JSON.stringify(split),
 );
