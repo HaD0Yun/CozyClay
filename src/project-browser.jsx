@@ -59,7 +59,7 @@ export function ProjectNameDialog({ open, initialName = "My Project", onCancel, 
 	if (!open) return null;
 	const submit = (event) => {
 		event.preventDefault();
-		const name = value.trim() || "My Project";
+		const name = value.trim() || ko("Untitled Project", "제목 없는 프로젝트", "未命名项目");
 		onSubmit(name);
 	};
 	return (
