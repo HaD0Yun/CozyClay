@@ -43,12 +43,14 @@ const navigate = async destination => {
   await send('Page.navigate', { url: destination }); await loaded;
 };
 const transition = (condition, action = '') => evaluate(`new Promise((resolve,reject) => {
-  let timer; const finish = () => { observer.disconnect(); clearTimeout(timer); resolve(true); };
+  let timer; const cleanup = () => { observer.disconnect(); window.removeEventListener('cast-qa:state',check); clearTimeout(timer); };
+  const finish = () => { cleanup(); resolve(true); };
   const check = () => { if (${condition}) finish(); };
   const observer = new MutationObserver(check);
   observer.observe(document, { childList:true, subtree:true, attributes:true, characterData:true });
-  timer = setTimeout(() => { observer.disconnect(); reject(new Error('DOM transition deadline: ' + ${JSON.stringify(condition)})); }, 30000);
-  ${action}; check();
+  window.addEventListener('cast-qa:state',check);
+  timer = setTimeout(() => { cleanup(); reject(new Error('State transition deadline: ' + ${JSON.stringify(condition)})); }, 30000);
+  try { ${action}; check(); } catch(error) { cleanup(); reject(error); }
 })`);
 const report = [], errors = [];
 events.set('Runtime.exceptionThrown', new Set([event => errors.push(event.exceptionDetails.exception?.description ?? event.exceptionDetails.text)]));
@@ -70,7 +72,7 @@ const seed = {
       camera: { mode: 'keys' } }], waypoints: [] },
   }],
 };
-const frame = ids => `window.__cozyclay.runStudioAction('shot.frame', { subjectIds: ${JSON.stringify(ids)}, framing: { intent: { size:'wide shot',view:'front',level:'eye',side:'right',focalMm:35 } } })`;
+const frame = ids => `if (!window.__cozyclay.runStudioAction('shot.frame', { subjectIds: ${JSON.stringify(ids)}, framing: { intent: { size:'wide shot',view:'front',level:'eye',side:'right',focalMm:35 } } })) throw new Error('shot.frame refused its ready cast')`;
 const projection = id => evaluate(`(() => {
   const qa=window.__cozyclay, c=qa.characters.find(entry=>entry.id===${JSON.stringify(id)}), cam=qa.shotCam;
   cam.updateMatrixWorld(); const direction=cam.getWorldDirection(cam.position.clone());
@@ -82,7 +84,10 @@ const projection = id => evaluate(`(() => {
 try {
   await mkdir(out, { recursive: true });
   await send('Runtime.enable'); await send('Page.enable'); await send('Log.enable');
-  await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__castQaErrors=[];window.addEventListener('error',e=>window.__castQaErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__castQaErrors.push(String(e.reason?.stack??e.reason)));` });
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    window.__castQaErrors=[];window.addEventListener('error',e=>window.__castQaErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__castQaErrors.push(String(e.reason?.stack??e.reason)));
+    let qa;Object.defineProperty(window,'__cozyclay',{configurable:true,enumerable:true,get:()=>qa,set:value=>{qa=value;window.dispatchEvent(new Event('cast-qa:state'));}});
+  ` });
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await navigate(`${new URL(url).origin}/favicon.ico`);
   await evaluate(`localStorage.setItem('cozyclay.locale','en');localStorage.setItem('cozyclay.project-session.v1',JSON.stringify({name:'Cast list QA',updatedAt:Date.now()}));localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)},${JSON.stringify(JSON.stringify(seed))})`);
@@ -90,6 +95,8 @@ try {
   await transition(`window.__cozyclay?.characters?.length===3 && document.querySelector('[data-node-id="character:cast-3"]')`);
   await transition(`window.__cozyclay?.tlFrame===1 && !!window.__cozyclay.shotCam`, 'window.__cozyclay.scrub(1)');
   await transition(`window.__cozyclay?.tlFrame===0`, 'window.__cozyclay.scrub(0)');
+  await transition(`window.__cozyclay.characters.every(entry=>!!window.__cozyclay.rigs[entry.id]?.parent)`);
+  await capture('ready-desktop');
   await transition(`Math.abs(window.__cozyclay.shotCam.position.x-3)<0.001`, frame(['cast-3']));
   await capture('third-desktop');
   const third = await projection('cast-3');
