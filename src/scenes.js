@@ -64,9 +64,9 @@ const DEFAULT_SCENE_STAGE = Object.freeze({
 	// What the location IS and how it should look: the two lines every shot
 	// prompt is built from, plus the flag saying the author has a sheet for it
 	// instead. Session state until #345 — a reopened scene came back describing
-	// the previous room. These strings are the studio's first-run defaults.
-	environment: "a sunlit modern living room",
-	style: "moody cinematic lighting, 35mm film look",
+	// the previous room. A new scene starts with neither; the author writes them.
+	environment: "",
+	style: "",
 	hasEnvSheet: false,
 	shotAspect: "16:9",
 	cameraPresetId: null,

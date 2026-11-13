@@ -14,11 +14,11 @@ export default function EnvironmentPanel(props) {
 						</label>
 						{!props.hasEnvSheet && (
 						<Field label={ko("Environment description", "환경 설명")}>
-								<input type="text" value={props.environment} onChange={(event) => run("run.update", { txId: begin("stage.setEnvironment"), args: { environment: event.target.value } })} onBlur={commit} />
+								<input type="text" value={props.environment} placeholder={ko("Describe the location", "어떤 장소인지 적어 주세요", "描述这个地点")} onChange={(event) => run("run.update", { txId: begin("stage.setEnvironment"), args: { environment: event.target.value } })} onBlur={commit} />
 							</Field>
 						)}
 					<Field label={ko("Look / style", "룩 / 스타일")}>
-							<input type="text" value={props.style} onChange={(event) => run("run.update", { txId: begin("stage.setStyle"), args: { style: event.target.value } })} onBlur={commit} />
+							<input type="text" value={props.style} placeholder={ko("Describe the look and lighting", "룩과 조명을 적어 주세요", "描述画面风格和光线")} onChange={(event) => run("run.update", { txId: begin("stage.setStyle"), args: { style: event.target.value } })} onBlur={commit} />
 						</Field>
 						<ReferenceImageField
 							label={ko("Environment reference", "환경 참고 이미지")}
