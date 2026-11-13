@@ -16,8 +16,8 @@ import { isEffectivelyHidden, objectFootprintBounds } from "../scene-objects.js"
  * the floor. Sloped tops are out of scope - the height is flat per object and
  * the foot keeps its source rotation.
  */
-export function createGroundSampler(objects = [], { floorY = 0, collidable = isCollidable, characters = [] } = {}) {
-	const surfaces = objects.filter((object) => !isEffectivelyHidden(object, objects, characters) && collidable(object)).map((object) => objectFootprintBounds(object));
+export function createGroundSampler(objects = [], { floorY = 0, characters = [] } = {}) {
+	const surfaces = objects.filter((object) => !isEffectivelyHidden(object, objects, characters) && isCollidable(object)).map((object) => objectFootprintBounds(object));
 	const groundAt = (x, z, maxY = Infinity) => {
 		let best = floorY;
 		for (const b of surfaces) {

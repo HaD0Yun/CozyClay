@@ -1,12 +1,11 @@
 /**
- * EXTERNAL blockers for Fix Collisions.
+ * EXTERNAL blockers for the motion verification in studio-agent-motion.js.
  *
- * fix-collisions.js already knows how to push a limb out of the character's
- * OWN torso: it builds capsule proxies for one rig and treats the trunk as a
- * static blocker. The set has two more kinds of solid thing in it — the other
- * cast members, and the objects the user dropped on the deck — and neither is
- * visible to a solver that only ever looked at one skeleton. This module turns
- * both into the same static-blocker vocabulary the fixer accepts:
+ * fix-collisions.js builds capsule proxies for one rig, so it only sees the
+ * character's OWN body. The set has two more kinds of solid thing in it — the
+ * other cast members, and the objects the user dropped on the deck — and
+ * neither is visible from one skeleton. This module turns both into the
+ * static-blocker vocabulary that detectPenetrations accepts:
  *
  *   { id, kind: "capsule", a: Vector3, b: Vector3, radius }
  *   { id, kind: "box", center: Vector3, halfExtents: Vector3, yaw }   // radians about world Y
@@ -254,19 +253,19 @@ export function characterBlockers(rigs, activeId = null, { radii = null, charact
 
 /**
  * Everything external, in one call: the other cast members as they stand right
- * now plus the scene's objects. This is what both Fix Collisions buttons hand
- * the solver, and (per frame) what the whole-clip pass rebuilds.
+ * now plus the scene's objects. studio-agent-motion.js rebuilds this list per
+ * frame and hands it to its penetration check.
  */
-export function collisionBlockers({ rigs = null, activeId = null, characterIds = null, sceneObjects = null, library = null, frame = null, take = null, skipIds = null, radii = null } = {}) {
+export function collisionBlockers({ rigs = null, activeId = null, characterIds = null, sceneObjects = null, library = null } = {}) {
 	return [
-		...characterBlockers(rigs, activeId, { radii, characterIds }),
-		...sceneObjectBlockers(sceneObjects, { library, frame, take, skipIds, characters: characterIds }),
+		...characterBlockers(rigs, activeId, { characterIds }),
+		...sceneObjectBlockers(sceneObjects, { library, characters: characterIds }),
 	];
 }
 
 /**
- * A JSON-safe view of a blocker list, for `window.__cozyclay.fcBlockers()` and
- * for tests: plain numbers only, no THREE.Vector3, so a headless check can
+ * A JSON-safe view of a blocker list, for the verification report and for
+ * tests: plain numbers only, no THREE.Vector3, so a headless check can
  * serialize it across the CDP boundary.
  */
 export function blockerSummary(blockers) {
