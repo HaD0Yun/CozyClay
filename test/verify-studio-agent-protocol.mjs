@@ -210,7 +210,7 @@ function registerTests() {
 		assert.match(prompt, /Previs procedure/);
 		assert.match(prompt, /180/);
 		assert.match(prompt, /axisConsistent/);
-		assert.ok(prompt.includes("On STALE_SCENE, inspect_studio once to read the fresh revision and re-issue the exact same operation with that revision as the new admission"));
+		assert.ok(prompt.includes("On STALE_SCENE, the admission is already refreshed: adapt the operation to the changes the error lists and resubmit it; call inspect_studio only for ids the list does not cover"));
 		assert.ok(prompt.indexOf("Previs procedure") > prompt.indexOf("Ask concise questions only when"), "appended after the existing rules");
 		assert.doesNotMatch(storyboard, /Previs procedure/);
 	});
