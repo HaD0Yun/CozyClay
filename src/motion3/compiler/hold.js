@@ -12,6 +12,7 @@
 import { add, sub, scale, norm, dot, len, mul, T, apply, axisRot, angle, quatFromMat, matFromQuat } from "./math.js";
 import { twoBone, palmAxes, carried, askedFold, reachAt, ELBOW_FOLD } from "./limbs.js";
 import { rotateSubtree } from "./skeleton.js";
+import { clampTo } from "./wrist-clamp.js";
 import { slerp } from "./quat.js";
 import { bodyFor, segmentDepth } from "../body.js";
 import { WRIST_LIMITS, FOREARM_SHARE, ELBOW_REST, wristNeed, swivel, landscape, shoulderPrice, comfortPrice } from "./arm-orient.js";
@@ -28,7 +29,6 @@ import { WRIST_LIMITS, FOREARM_SHARE, ELBOW_REST, wristNeed, swivel, landscape, 
 // 162 deg), and the frames between keys, where the wrist moves a few cm, broke away from it. twoBone
 // now stops the fold (limbs.js ELBOW_FOLD, ELBOW_STOP); the price still steers the roll off it.
 const ITERATIONS = 3, REACH_PRICE = 1, STRAIGHT = 0.005, ROLL_MARGIN = 0.15, BODY_PRICE = 4;
-const clampTo = (v, [lo, hi]) => Math.min(hi, Math.max(lo, v));
 
 /**
  * Turn the hand (and its fingers) about the wrist so its world rotation is `goal`, as far as the

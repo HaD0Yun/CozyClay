@@ -8,7 +8,7 @@
 // frames, slowing to a stop, and eases back. side "both", or a thing over HEAVY kg, adds the left hand on its left side
 // along the same path (world anchors: the right hand holds the carry, the left meets it). A flight that never comes within
 // reach is refused, naming its nearest frame and point; a hand that comes too late (f0 past the reach) misses: QA CATCH.
-import { add, sub, scale, apply, ry, len, norm, dot } from "../compiler/math.js";
+import { add, sub, scale, apply, ry, len, norm, dot, clamp } from "../compiler/math.js";
 import { freePoseAt } from "../free-motion.js";
 import { massOf } from "../mass.js";
 import { skillError } from "./book.js";
@@ -16,7 +16,6 @@ import { transportKeys } from "./reach-human.js";
 
 const SHELL = [0.35, 0.65], FRONT = 0.15, REACH = 10, LONG = 20, ARRIVE = 2, ABSORB = 6, BACK = 8, HEAVY = 1;
 const r3 = v => v.map(x => Math.round(x * 1000) / 1000);
-const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
 /** The shoulder of side S and the body's forward on the keyed root and yaw of state. */
 function bodyAt(sk, state, S) {

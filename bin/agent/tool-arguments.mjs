@@ -9,7 +9,7 @@
 //     says only "root: must not have additional properties", and a model then resends the call
 //     unchanged. The message keeps pi's "Validation failed for tool" prefix (agent-routes.mjs
 //     shortens that prefix for the browser).
-const isRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
+export const isRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const where = at => at || "root";
 
 function parseArrayText(value) {

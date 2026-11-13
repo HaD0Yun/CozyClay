@@ -316,9 +316,16 @@ export function useObjects(appContext) {
 
 	/** "Sofa 2.png" reads as a set piece; "sofa-2.png" does not. The extension
 	 * goes, the rest is the user's own name for the thing. */
-	function cutoutNameFromFile(fileName) {
+	function nameFromFile(fileName, fallback) {
 		const base = String(fileName ?? "").replace(/\.[^.]+$/, "").trim();
-		return base || ko("Cutout", "컷아웃");
+		return base || fallback;
+	}
+
+	/** The scale hint every imported cutout or model shows once it is placed. */
+	function notifyObjectAdded(name) {
+		appContext.notify(ko(`${name} added — type its real height in metres to set the scale`,
+			`${name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
+			`${name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
 	}
 
 	/**
@@ -332,19 +339,13 @@ export function useObjects(appContext) {
 		if (!commandContext) return importFile(file, "cutout");
 		try {
 			const asset = await rememberAsset(await importImageFile(file));
-			const camera = (appContext.shared.lookThroughShot ? appContext.shared.shotCamRef : appContext.shared.editorCamRef).current;
-			const placement = camera
-				? placementInFront({ x: camera.position.x, z: camera.position.z }, (appContext.shared.lookThroughShot ? appContext.shared.look : appContext.shared.editorLook).current.yaw)
-				: {};
 			const object = createCutoutObject(
-				{ assetId: asset.id, aspect: assetAspect(asset) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: cutoutNameFromFile(asset.name) },
+				{ assetId: asset.id, aspect: assetAspect(asset) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: nameFromFile(asset.name, ko("Cutout", "컷아웃")) },
 				domain.read(),
-				placement,
+				placementInFrontOfShot(),
 			);
 			const imported = publishImported(object, commandContext);
-			appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-				`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-				`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+			notifyObjectAdded(object.name);
 			return imported;
 		} catch (error) {
 			throw new StudioProtocolError(error.code ?? "INVALID_ARGUMENT", `Could not import that image: ${error.message}`);
@@ -369,14 +370,12 @@ export function useObjects(appContext) {
 		const record = await assetRecord(assetId);
 		if (!record) throw new StudioProtocolError("TARGET_NOT_READY", "That image is no longer stored.");
 		const object = createCutoutObject(
-			{ assetId: record.id, aspect: assetAspect(record) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: cutoutNameFromFile(record.name) },
+			{ assetId: record.id, aspect: assetAspect(record) ?? 1, height: CUTOUT_DEFAULT_HEIGHT, name: nameFromFile(record.name, ko("Cutout", "컷아웃")) },
 			domain.read(),
 			placement,
 		);
 		const imported = publishImported(object, commandContext);
-		appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-			`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-			`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+		notifyObjectAdded(object.name);
 		return imported;
 	}
 
@@ -413,11 +412,6 @@ export function useObjects(appContext) {
 		return importCommandAsset(args, context);
 	};
 	domain.applyMatte = applyMatte;
-
-	function meshNameFromFile(fileName) {
-		const base = String(fileName ?? "").replace(/\.[^.]+$/, "").trim();
-		return base || ko("Model", "모델");
-	}
 
 	async function persistMeshAsset(asset) {
 		const db = await openAssetDb();
@@ -467,14 +461,12 @@ export function useObjects(appContext) {
 			const { asset, height, footprint } = await importMeshFile(file);
 			await persistMeshAsset(asset);
 			const object = createMeshObject(
-				{ assetId: asset.id, height, footprint, name: meshNameFromFile(asset.name) },
+				{ assetId: asset.id, height, footprint, name: nameFromFile(asset.name, ko("Model", "모델")) },
 				domain.read(),
 				placementInFrontOfShot(),
 			);
 			const imported = publishImported(object, commandContext);
-			appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-				`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-				`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+			notifyObjectAdded(object.name);
 			return imported;
 		} catch (error) {
 			throw new StudioProtocolError(error.code ?? "INVALID_ARGUMENT", `Could not import that model: ${error.message}`);
@@ -505,15 +497,13 @@ export function useObjects(appContext) {
 				assetId: record.id,
 				height: fitted.height,
 				footprint: fitted.footprint,
-				name: meshNameFromFile(record.name),
+				name: nameFromFile(record.name, ko("Model", "모델")),
 			},
 			domain.read(),
 			placement,
 		);
 		const imported = publishImported(object, commandContext);
-		appContext.notify(ko(`${object.name} added — type its real height in metres to set the scale`,
-			`${object.name} 추가됨 — 실제 높이(m)를 입력하면 크기가 맞습니다`,
-			`${object.name} 已添加 — 输入实际高度（米）即可匹配尺寸`));
+		notifyObjectAdded(object.name);
 		return imported;
 	}
 
@@ -725,12 +715,7 @@ export function useObjects(appContext) {
 			const fileType = mime || headerMime || "application/octet-stream";
 			const file = new File([bytes], args.name, { type: fileType });
 			const { asset, height, footprint } = await importMeshFile(file);
-			const db = await openAssetDb();
-			try {
-				await putAsset(db, asset);
-			} finally {
-				db.close?.();
-			}
+			await persistMeshAsset(asset);
 			const live = appContext.live.state;
 			const camera = appContext.shared.shotCamRef.current;
 			const hasFloor = Number.isFinite(args.x) || Number.isFinite(args.z);

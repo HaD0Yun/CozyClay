@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-	GRID_BACKGROUND,
+	STAGE_BACKGROUND,
 	GRID_COLORS,
 	GRID_COLORS_LIGHT,
 	GRID_FOG,
@@ -14,8 +14,8 @@ import {
 
 // --- constants ------------------------------------------------------------
 assert.equal(GRID_VIEW_STORAGE_KEY, "cozyclay.grid-view.v1");
-assert.match(GRID_BACKGROUND, /^#[0-9a-f]{6}$/, "the void is a concrete colour, not a theme lookup");
-assert.equal(GRID_FOG.color, GRID_BACKGROUND, "fog dissolves into the same void, no horizon line");
+assert.match(STAGE_BACKGROUND, /^#[0-9a-f]{6}$/, "the void is a concrete colour, not a theme lookup");
+assert.equal(GRID_FOG.color, STAGE_BACKGROUND, "fog dissolves into the same void, no horizon line");
 assert.ok(GRID_FOG.far > GRID_FOG.near && GRID_FOG.near > 0);
 for (const key of ["minor", "major", "axisX", "axisZ"]) {
 	assert.match(GRID_COLORS[key], /^#[0-9a-f]{6}$/, `${key} line colour is pinned`);

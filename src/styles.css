@@ -2048,54 +2048,6 @@ input[type=range]::-moz-range-thumb {
 	font-size: 11.5px;
 }
 
-.segmented {
-	position: relative;
-	display: flex;
-	background: #101012;
-	border: 1px solid var(--line);
-	border-radius: 11px;
-	padding: 4px;
-	margin-bottom: 6px;
-}
-/* the sliding pill is driven by data-active on the container, which App.jsx
-   sets to "image" or "video" */
-.segmented:before {
-	content: "";
-	position: absolute;
-	top: 4px;
-	bottom: 4px;
-	left: 4px;
-	width: calc(50% - 4px);
-	background: var(--grad);
-	border-radius: 8px;
-	box-shadow: 0 3px 12px #3346ff59;
-	transition: transform var(--med) var(--spring);
-	z-index: 0;
-}
-.segmented[data-active=video]:before {
-	transform: translate(100%);
-}
-.segmented button {
-	position: relative;
-	z-index: 1;
-	flex: 1;
-	background: none;
-	border: none;
-	cursor: pointer;
-	padding: 9px;
-	border-radius: 8px;
-	font-size: 12px;
-	font-weight: 600;
-	color: var(--muted);
-	transition: color var(--fast);
-}
-.segmented button:hover {
-	color: #ccccd4;
-}
-.segmented button.active {
-	color: #fff;
-}
-
 .actions {
 	display: flex;
 	flex-direction: column;
@@ -4855,30 +4807,6 @@ input[type=range]::-moz-range-thumb {
 	color: #5a9bd4;
 }
 
-.segmented {
-	background: var(--lg-1e1e1e, #1e1e1e);
-	border-color: rgba(var(--lg-ink-rgb, 255,255,255), .18);
-	border-radius: 7px;
-}
-
-.segmented:before {
-	background: #3a7cbf;
-	border-radius: 5px;
-	box-shadow: none;
-}
-
-.segmented button {
-	color: var(--lg-9a9a9a, #9a9a9a);
-}
-
-.segmented button:hover {
-	color: var(--lg-d2d2d2, #d2d2d2);
-}
-
-.segmented button.active {
-	color: #fff;
-}
-
 .btn {
 	border-color: rgba(var(--lg-ink-rgb, 255,255,255), .24);
 	background: var(--lg-383838, #383838);
@@ -5233,7 +5161,6 @@ input[type=range]::-moz-range-thumb {
 
 .presets button,
 .btn,
-.segmented button,
 .dropdown-item,
 .dropdown .trigger {
 	font-size: 12px;
@@ -6237,7 +6164,6 @@ input[type=range]::-moz-range-thumb {
 .toast,
 .promptbox,
 .add-subject,
-.segmented,
 .tl-btn,
 .add-object-trigger,
 .hierarchy-context-menu,
@@ -6398,19 +6324,6 @@ input[type=range]::-moz-range-thumb {
 	border-radius: 2px;
 	background: var(--lg-c4c4c4, #c4c4c4);
 	border: 1px solid var(--lg-1a1a1a, #1a1a1a);
-	box-shadow: none;
-}
-
-/* segmented control: flat Unity toggle strip */
-.segmented {
-	background: var(--lg-2a2a2a, #2a2a2a);
-	border: 1px solid var(--lg-1a1a1a, #1a1a1a);
-	padding: 2px;
-}
-
-.segmented:before {
-	background: #2d5c8a;
-	border-radius: 2px;
 	box-shadow: none;
 }
 
@@ -6688,16 +6601,6 @@ input[type=range] {
 .btn.cta {
 	height: 30px;
 	font-size: 12px;
-}
-
-/* segmented: 20px pills */
-.segmented {
-	margin-bottom: 4px;
-}
-
-.segmented button {
-	padding: 3px 9px;
-	font-size: 11px;
 }
 
 /* subjects row: compact boxes */

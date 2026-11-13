@@ -8,6 +8,8 @@
 // script or rolls its edits back. The tool a plan change happened in carries the list in its result (`track`), which is
 // how the persisted session history (session-store.mjs transcriptFromHistory) brings the card back after a reload.
 
+import { isRecord } from "./tool-arguments.mjs";
+
 const MIN_STEPS = 2, MAX_STEPS = 8, STEP_CHARS = 60;
 const FIELDS = ["steps", "done", "active", "add"];
 
@@ -30,7 +32,6 @@ const PARAMETERS = {
 };
 
 const refusal = message => Object.assign(new Error(message), { code: "INVALID_ARGUMENT" });
-const isRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
 
 /** Labels from `field`, trimmed to one line each, or a refusal that says which one is wrong. */
 function labels(field, value, min) {
