@@ -170,9 +170,9 @@ ago` / `Unsaved changes`); export progress, retry and cancel use
 Edit contains Undo, Redo and Preferences… (2c); Window contains Agent, Content
 and Log; Help contains Tutorial, Keyboard shortcuts and About. Show is the
 viewport's Reference grid, Auto Color, Body part colours and Trails menu. Clay
-Lit is the shading list; Perspective is the camera/view list. Language,
-Analytics and Motion setup move to Preferences (General › Appearance and
-Motion › ARDY Connection). UI copy contains no Kimodo, ProjFlow or 2D Root.
+Lit is the shading list; Perspective is the camera/view list. Language moves
+to Preferences (General › Appearance). UI copy contains no Kimodo, ProjFlow or
+2D Root.
 
 ### G9 — Agent pane
 
@@ -199,8 +199,8 @@ a drag handle.
 
 Screen 2b replaces the project browser/startup chooser with today's samples;
 without samples it shows only Blank Stage. Screen 2c is a modal Preferences
-dialog built from Settings: motion setup, language, analytics, auto colour,
-snapping and a read-only hotkeys list.
+dialog whose navigation has one General group: Appearance, Viewport, Export
+and Hotkeys (a read-only list).
 
 ### Reusable primitives
 
