@@ -122,7 +122,8 @@ for (const path of ["src/result-modal.jsx", "src/hierarchy-panel.jsx", "src/obje
 // The PR's Korean copy is preserved, now living inside the locale constructs.
 // The language choice moved into the Settings menu (#193); its Korean copy —
 // and the first-run "한국어" cue — travelled with it.
-includesAll("src/settings-menu.jsx", ["한국어로 전환", "한국어", "Switch to English", "설정"]);
+includesAll("src/settings-menu.jsx", ["한국어", "설정"]);
+includesAll("src/shell/preference-controls.jsx", ["한국어로 전환", "한국어", "Switch to English"]);
 includesAll("src/result-modal.jsx", ["장면이 준비됐어요", "프롬프트 복사", "프레임 내보내기", "AI에 넣는 순서", "AI에 이미지 첨부"]);
 // "재생 보기" was the PlayView centre tab's label; the tabs are gone (#195)
 // and look-through now flies the shot camera from the camera bar / PiP.
