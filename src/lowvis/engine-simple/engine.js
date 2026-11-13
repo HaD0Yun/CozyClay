@@ -3,20 +3,23 @@
 // SPEC FORMAT. A spec is { demo, <characterId>: [[frame, verb, options], ...] }. The scene (start positions,
 // props, frame count) comes from demos.js. An action lasts until the next action of the same layer.
 //   Body layer (feet and pelvis):
-//     idle | walk {to:[x,z], heading?, facing?, steps?, burst?} | run {to} | push {to} | turn {heading}
+//     idle | walk {to:[x,z], heading?, facing?, steps?, burst?, first?:"L"|"R", end?:{L:[left,fwd],R:[..]}} | run {to} | push {to} | turn {heading}
 //     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
 //     Consecutive walk / run actions are one flowing path. `heading` is the arrival heading (the path curves, or a
 //     turn on the spot is added). `facing` keeps the body facing that way (back / side steps). `steps: 1` is a lunge.
 //     `push` is a low, leaning, short-step gait; `push {to: <where it stands>}` braces in place.
 //   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
-//     pose {hands|L|R: target, lean:deg, twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
-//           aim:[x,y,z]|"off", over, ease}     aim = where the long axis of the prop in the hand points, body frame
+//     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
+//           aim:[x,y,z]|"off", fast:true, over, ease}     aim = where the long axis of the prop in the hand points, body frame
 //       hand target: "rest" | [x,y,z] in the body frame from the Hips joint (x = own left, z = forward)
 //                    | {prop:id} | {prop:id, face:true, y, w} | {meet:id} | {chest:id} | {world:[x,y,z]}
 //     carry {prop, at:[x,y,z], over}   the prop follows both hands from this frame; no `at` = hands stay as they are;
 //                                      slide:true = the prop only slides on the floor with the hands (a push)
 //     hold {prop, hand:"R"|"L"}        the prop is fixed in one hand (its long z axis along the thumb side)
-//     release {prop}                   the prop stays where it is
+//     release {prop, roll?}            the prop stays where it is; roll:true = it keeps the hand's velocity, drops to
+//                                      the floor under it and rolls on until one of its own keys starts
+//     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast.
+//     look: a character id, a prop id (its top), a world point or "fwd"; with no target the gaze stays level.
 //     place {prop, at:[x,y,z] world, over}   the hands take the prop there and let go
 //   Prop layer: <propId>: [[frame, verb, options], ...] moves a free prop by keys:
 //     tip {pivot:[x,y,z], axis:[x,y,z], deg, over, ease} | move {to:[x,y,z], axis?, deg?, over, ease}
@@ -24,7 +27,7 @@
 import { DEMOS } from "../demos.js";
 import { INDEX as J, qAxisAngle } from "../rig17.js";
 import { addCharacter, addProp, createClip, setPose } from "../clip.js";
-import { EASE, add, clamp, mix, mixV, norm, qMul, qRotate, qY, rad, sub, wrap } from "./math.js";
+import { EASE, add, clamp, mix, mixV, norm, qConj, qMul, qRotate, qY, rad, sub } from "./math.js";
 import { solve } from "./solve.js";
 import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
@@ -42,7 +45,8 @@ export const NOTES = [
 	"run is a short-stride jog at the demo's speed (about 1.2 m/s)",
 	"a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis",
 	"a pushed prop slides with the hands; friction and weight are in the gait's timing, not simulated",
-	"a keyed prop (the falling trunk) follows its keys; nothing checks that it misses the figure",
+	"a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand",
+	"a released prop keeps the hand's velocity exactly, so a swing that is not straight sends it off line",
 	"elbow and knee directions come from one fixed pole hint; there is no hands-on-hips or crossed-arms pose",
 ];
 
@@ -51,8 +55,8 @@ function buildBody(c, acts, F, ctx) {
 	if (!list.length || list[0].f > 0) list.unshift({ f: 0, verb: "idle", o: {} });
 	let st = { p: c.at.slice(), yaw, feet: [1, -1].map(s => ({ g: home(c.at, yaw, s), yaw })) };
 	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run" || a.verb === "push");
-	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
-	const special = a => a.o.steps != null || a.o.facing != null;
+	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
+	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on];
 		let r;
@@ -89,18 +93,18 @@ function buildBody(c, acts, F, ctx) {
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 
 function buildUpper(id, acts, props) {
-	const keys = { L: [], R: [], lean: [], twist: [], hipTurn: [], hip: [], look: [], aim: [] }, events = [];
+	const keys = { L: [], R: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [] }, events = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
-		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout" };
+		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout", fast: o.fast };
 		if (verb === "carry") {
 			const half = props[o.prop].size[0] / 2 + PAD, at = o.at;
-			keys.L.push({ ...k, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
+			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
-		} else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1 });
-		else if (verb === "release") events.push({ f, prop: o.prop, holder: null });
+		} else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1, grip: o.grip });
+		else if (verb === "release") events.push({ f, prop: o.prop, holder: null, roll: o.roll });
 		else if (verb === "place") {
-			keys.L.push({ ...k, to: { at: o.at, prop: o.prop } }); keys.R.push({ ...k, to: { at: o.at, prop: o.prop } });
+			keys.L.push({ ...k, pair: true, to: { at: o.at, prop: o.prop } }); keys.R.push({ ...k, pair: true, to: { at: o.at, prop: o.prop } });
 			events.push({ f: f + k.over, prop: o.prop, holder: null, at: o.at });
 		} else if (verb === "pose") {
 			const L = o.L ?? o.hands, R = o.R ?? (Array.isArray(o.hands) ? [-o.hands[0], o.hands[1], o.hands[2]] : o.hands);
@@ -109,6 +113,7 @@ function buildUpper(id, acts, props) {
 			if (o.lean !== undefined) keys.lean.push({ ...k, to: rad(o.lean) });
 			if (o.twist !== undefined) keys.twist.push({ ...k, to: rad(o.twist) });
 			if (o.hipTurn !== undefined) keys.hipTurn.push({ ...k, to: rad(o.hipTurn) });
+			if (o.bow !== undefined) keys.bow.push({ ...k, to: rad(o.bow) });
 			if (o.aim !== undefined) keys.aim.push({ ...k, to: o.aim });
 			if (o.hip !== undefined) keys.hip.push({ ...k, to: o.hip });
 			if (o.look !== undefined || o.nod) keys.look.push({ ...k, to: o.look ?? keys.look.at(-1)?.to ?? "fwd", nod: o.nod });
@@ -121,7 +126,7 @@ function buildUpper(id, acts, props) {
 export function buildClip(spec, def = DEMOS[spec.demo]) {
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
 	const props = Object.fromEntries(def.props.map(p => [p.id, {
-		id: p.id, size: p.size, c: p.at.slice(), yaw: 0, q: [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves,
+		id: p.id, size: p.size, c: p.at.slice(), yaw: 0, q: [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
 		keys: (spec[p.id] ?? []).map(([f, verb, o = {}]) => ({ f, verb, ...o })).sort((a, b) => a.f - b.f),
 	}]));
 	const ground = (x, z) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= 0.3 && Math.abs(x - p.c[0]) <= p.size[0] / 2 && Math.abs(z - p.c[2]) <= p.size[2] / 2).map(p => p.c[1] + p.size[1] / 2));
@@ -130,10 +135,11 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 		return { id: c.id, body: buildBody(c, acts, F, { props, ground }), ...buildUpper(c.id, acts, props), out: addCharacter(clip, c.id), rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
-	const outProps = def.props.map(p => ({ p: props[p.id], out: addProp(clip, p.id, p.size, p.moves ? F : 1) }));
+	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}) }));
 	const aux = { contacts: Object.fromEntries(chars.map(c => [c.id, []])), holders: Object.fromEntries(def.props.map(p => [p.id, []])), placed: [] };
 	Object.assign(aux, {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
+		rolling: Object.fromEntries(def.props.map(p => [p.id, []])), releases: [],
 		keyStarts: def.props.filter(p => props[p.id].keys.length).map(p => ({ prop: p.id, f: props[p.id].keys[0].f })),
 	});
 
@@ -167,17 +173,18 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 		return [ch[0] - dx * 0.15 + dz * s * 0.1, ch[1] + 0.03, ch[2] - dz * 0.15 - dx * s * 0.1];
 	};
 	const active = (list, f) => list.findLast(k => k.f <= f);
+	const prog = (k, f) => k.over > 0 ? (f - k.f) / k.over : 1; // over: 0 = at once
 	// the key before k, if its blend has ended by frame f: the new key then starts exactly from that key's target
 	const ended = (list, k, f) => { const prev = list[list.indexOf(k) - 1]; return prev && f - prev.f >= prev.over ? prev : null; };
 	const scalar = (c, name, f, zero) => {
 		const k = active(c.keys[name], f);
 		if (!k) return zero;
 		k.from ??= ended(c.keys[name], k, f)?.to ?? c.last[name] ?? zero;
-		const w = EASE[k.ease]((f - k.f) / k.over);
+		const w = EASE[k.ease](prog(k, f));
 		return (c.cur[name] = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w));
 	};
 	const upper = (c, f, first) => {
-		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist };
+		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist };
 		[c.keys.L, c.keys.R].forEach((list, i) => {
 			const k = active(list, f);
 			let h = { from: null, to: null, w: 1 }, upTo = 0;
@@ -188,8 +195,9 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 					k.from = !prev && c.rest[i] ? null : local;
 					if (k.to === "keep") { k.to = local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
 				}
-				const u = clamp((f - k.f) / k.over), w = EASE[k.ease](u);
+				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : handTarget(c, i, k.to, f), w };
+				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u), 0];
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;
@@ -197,6 +205,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 			} else c.restNext[i] = true;
 			if (first) c.up[i] += (upTo - c.up[i]) * 0.3;
 			h.up = c.up[i];
+			if (c.pose && !k?.fast) h.prev = add(B.p, qRotate(qY(B.yaw), qRotate(qY(-c.prevB.yaw), sub(c.pose.pos[HAND[i]], c.prevB.p))));
 			U.hands.push(h);
 		});
 		const ka = active(c.keys.aim, f);
@@ -206,23 +215,33 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 				const prev = ended(c.keys.aim, ka, f), on = prev && prev.to !== "off";
 				ka.from = (on ? prev.to : c.last.aim) ?? (off ? [0, 0, 1] : ka.to); ka.fromW = prev ? (on ? 1 : 0) : c.last.aimW ?? 0;
 			}
-			const w = EASE[ka.ease]((f - ka.f) / ka.over), h = U.hands[c.gripHand ?? 1];
+			const w = EASE[ka.ease](prog(ka, f)), h = U.hands[c.gripHand ?? 1];
 			c.cur.aim = off ? ka.from : mixV(ka.from, ka.to, w); c.cur.aimW = mix(ka.fromW, off ? 0 : 1, w);
 			h.aim = qRotate(qY(B.yaw), norm(c.cur.aim)); h.aimW = c.cur.aimW;
 		}
+		// Head: angles relative to the chest, measured from the neck (which the look does not move). With no target
+		// the gaze stays level while the chest leans (not when lying down).
+		const now = c.poseNow ?? c.pose, chestQ = now?.quat[J.Spine2] ?? B.q, neck = now?.pos[J.Neck] ?? add(B.p, [0, 0.46, 0]);
+		const angles = d => { // a target behind the head fades back to straight ahead instead of flipping sides
+			const l = qRotate(qConj(chestQ), d), yaw = Math.atan2(l[0], l[2]), fade = clamp((Math.PI - Math.abs(yaw)) / (Math.PI - 1.9));
+			return [clamp(yaw * fade, -1.2, 1.2), clamp(-Math.atan2(l[1], Math.hypot(l[0], l[2])), -0.7, 0.7) * fade];
+		};
+		const level = [0, angles([Math.sin(B.yaw), -0.08, Math.cos(B.yaw)])[1] * clamp(2 * qRotate(chestQ, [0, 1, 0])[1] - 0.3)];
 		const k = active(c.keys.look, f);
+		U.look = c.cur.look = level;
 		if (k) {
-			k.from ??= c.last.look ?? [0, 0];
-			let t = [0, 0];
+			k.from ??= c.last.look ?? level;
+			let t = level;
 			if (k.to !== "fwd") {
-				const head = c.pose?.pos[J.Head] ?? add(B.p, [0, 0.56, 0]), o = byId[k.to];
-				const p = o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56, 0])) : k.to, d = sub(p, head);
-				t = [clamp(wrap(Math.atan2(d[0], d[2]) - B.yaw), -1.2, 1.2), clamp(-Math.atan2(d[1], Math.hypot(d[0], d[2])), -0.6, 0.6)];
+				const o = byId[k.to], pr = props[k.to];
+				t = angles(sub(o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to, neck));
 			}
-			const u = clamp((f - k.f) / k.over);
+			const u = clamp(prog(k, f));
 			U.look = c.cur.look = mixV(k.from, t, EASE[k.ease](u));
 			if (k.nod) U.look = [U.look[0], U.look[1] + 0.2 * Math.sin(2 * Math.PI * k.nod * u)];
 		}
+		if (c.last.head) U.look = U.look.map((v, n) => c.last.head[n] + clamp(v - c.last.head[n], -0.3, 0.3)); // the neck turns at most 0.3 rad a frame
+		c.cur.head = U.look;
 		return U;
 	};
 
@@ -231,7 +250,11 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 			const p = props[e.prop];
 			p.holder = e.holder; p.hand = e.hand ?? null; p.slide = !!e.slide;
 			if (e.at) aux.placed.push({ prop: e.prop, f, miss: Math.hypot(...sub(p.c, e.at)) });
-			if (e.hand != null) { p.grip = [(e.hand ? -1 : 1) * 0.04, 0, p.size[2] / 2 - 0.15]; c.gripHand = e.hand; }
+			if (e.hand != null) { // a stick lies along the thumb side, anything else sits in front of the palm
+				const s = e.hand ? -1 : 1, stick = p.size[2] > 2 * Math.max(p.size[0], p.size[1]);
+				p.grip = e.grip ?? (stick ? [s * 0.04, 0, p.size[2] / 2 - 0.15] : [s * (0.02 + p.size[0] / 2), 0, 0]); c.gripHand = e.hand;
+			}
+			if (e.roll) { p.vel = sub(p.h1, p.h2); aux.releases.push({ prop: e.prop, f }); }
 			else if (e.holder) {
 				const h = handLine(byId[e.holder].pose ?? solve(c.body[f]));
 				if (e.slide) { p.off = sub(h.mid, p.c); aux.slid[e.prop] = true; }
@@ -240,7 +263,14 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 		}
 		for (const p of Object.values(props)) { // a free prop follows its own keys
 			const k = p.holder ? null : p.keys.findLast(k => k.f <= f);
-			aux.keyed[p.id].push(!!k);
+			if (k || p.holder) p.vel = null;
+			aux.keyed[p.id].push(!!k || !!p.vel); aux.rolling[p.id].push(!!p.vel);
+			if (p.vel) { // released with a velocity: it falls to the floor under it and rolls on at that speed
+				const floor = ground(p.c[0], p.c[2]) + p.size[1] / 2, sp = Math.hypot(p.vel[0], p.vel[2]);
+				p.c = add(p.c, p.vel); p.vel[1] -= 0.017; // gravity, 9.8 m/s2 at 24 fps
+				if (p.c[1] <= floor) { p.c[1] = floor; p.vel[1] = 0; }
+				if (sp > 1e-6) p.q = qMul(qAxisAngle([p.vel[2] / sp, 0, -p.vel[0] / sp], sp / (p.size[1] / 2)), p.q);
+			}
 			if (!k) continue;
 			if (!k.c0) { k.c0 = p.c.slice(); k.q0 = p.q.slice(); }
 			const u = EASE[k.ease ?? "inout"]((f - k.f) / (k.over ?? 12)), r = k.axis ? qAxisAngle(norm(k.axis), rad(k.deg) * u) : [0, 0, 0, 1];
@@ -258,6 +288,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 			aux.contacts[c.id].push(c.body[f].feet.map(ft => ft.planted));
 		}
 		for (const { p, out } of outProps) {
+			p.h2 = p.h1; p.h1 = p.c.slice();
 			aux.holders[p.id].push(p.holder); aux.grips[p.id].push(p.holder && p.hand != null ? { c: p.holder, hand: p.hand } : null);
 			if (out.pos.length === 3 && f > 0) continue;
 			out.pos.set(p.c, out.pos.length === 3 ? 0 : f * 3); out.quat.set(p.q, out.pos.length === 3 ? 0 : f * 4);

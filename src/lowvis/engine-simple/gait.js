@@ -53,7 +53,8 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 	plan.forEach((s, k) => {
 		const nxt = plan[k + 2], tau = nxt ? (s.t0 + s.dur + nxt.t0) / 2 : T, yaw = yawAt(tau), [sn, cs] = dir2(yaw);
 		const c = posAt(tau), trail = blend(mixAt(tau)).trail, from = cur[s.side];
-		const to = { g: home([c[0] - sn * trail, c[1] - cs * trail], yaw, s.side ? -1 : 1), yaw: from.yaw + wrap(yaw - from.yaw) }, d = dist2(from.g, to.g);
+		const o = s.off ?? [0, 0], h = home([c[0] - sn * trail, c[1] - cs * trail], yaw, s.side ? -1 : 1); // off: [left, forward] from the home spot
+		const to = { g: [h[0] + o[0] * cs + o[1] * sn, h[1] - o[0] * sn + o[1] * cs], yaw: from.yaw + wrap(yaw - from.yaw) }, d = dist2(from.g, to.g);
 		// sf: how much heel-toe roll the step gets (forward strides only); small and backward steps stay flat
 		swings[s.side].push({ t0: s.t0, t1: s.t0 + s.dur, from, to, d, sf: clamp(((to.g[0] - from.g[0]) * sn + (to.g[1] - from.g[1]) * cs) / 0.5) });
 		cur[s.side] = to;
@@ -103,16 +104,18 @@ function firstSide(st, D, dyaw) {
 	return lat < -0.05 ? 1 : 0;
 }
 
-/** Steps without following a path: turn on the spot, short / side / back moves, a lunge (steps: 1), feet together. */
-export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst } = {}) {
+/** Steps without following a path: turn on the spot, short / side / back moves, a lunge (steps: 1), feet together.
+ *  first: "L" | "R" foot that starts; end: { L: [left, forward], R: [...] } final foot offsets (a split finish). */
+export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, end } = {}) {
 	const dyaw = wrap(yaw - st.yaw), D = [to[0] - st.p[0], to[1] - st.p[1]], L = Math.hypot(D[0], D[1]);
 	const still = L < 0.03 && Math.abs(dyaw) < 0.05;
 	const away = [1, -1].filter((s, i) => dist2(st.feet[i].g, home(st.p, st.yaw, s)) > 0.02).length;
 	const n = steps ?? (still ? away : Math.max(2, Math.ceil(L / 0.4) + 1, Math.ceil(Math.abs(dyaw) / rad(45)) + 1));
 	if (!n || N < 4) return { frames: hold(st, N), st };
 	const sw = GAIT.walk.sw, stepT = Math.min(L > 0.03 ? 13 : 11, (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
-	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = burst ? EASE.out : smooth, side = firstSide(st, D, dyaw);
+	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = burst ? EASE.out : smooth, side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
+	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t / Tm)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
 	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st };
 }
@@ -212,7 +215,7 @@ function travel(st, segs) {
 /** One walk / run action or a chain of them. A single short, `facing` or `steps` move is a shuffle. */
 export function locomote(st, segs) {
 	const s = segs[0];
-	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || dist2(st.p, s.to) < 0.5))
-		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst });
+	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || s.end || s.first || dist2(st.p, s.to) < 0.5))
+		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end });
 	return travel(st, segs);
 }

@@ -7,13 +7,32 @@ import { SOLE, TOE } from "./solve.js";
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand];
 
 export function checkClip(clip, aux) {
-	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [] };
+	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [], headTurn: 0, elbow: 0, wrist: 0, releases: [] };
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
 	// signed distance from a world point to a prop's box at frame f (negative = inside)
 	const toBox = (pt, p, f) => { const { c, q } = propAt(p, f), l = qRotate(qConj(q), [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2); return Math.hypot(...l.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...l)); };
 	const at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
 	const rot = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 4; return [c.quat[i], c.quat[i + 1], c.quat[i + 2], c.quat[i + 3]]; };
 	const contact = (c, f, j) => [TOE, SOLE].map(o => { const a = at(c, f, j), d = qRotate(rot(c, f, j), o); return [a[0] + d[0], a[1] + d[1], a[2] + d[2]]; });
+	for (const c of clip.characters) for (let f = 1; f < F; f++) { // fastest head turn (deg per frame) and elbow / wrist move (m per frame)
+		const q = rot(c, f, J.Head), p = rot(c, f - 1, J.Head), sp = j => Math.hypot(...at(c, f, j).map((v, k) => v - at(c, f - 1, j)[k]));
+		r.headTurn = Math.max(r.headTurn, 2 * Math.acos(Math.min(1, Math.abs(q[0] * p[0] + q[1] * p[1] + q[2] * p[2] + q[3] * p[3]))) * 180 / Math.PI);
+		r.elbow = Math.max(r.elbow, sp(J.LeftForeArm), sp(J.RightForeArm)); r.wrist = Math.max(r.wrist, sp(J.LeftHand), sp(J.RightHand));
+	}
+	// a prop released into a roll: the jump of its position (against constant velocity) and of its speed at the release
+	// frame, and its height over the static prop under it (the lane) while it rolls
+	for (const e of aux.releases) {
+		const p = clip.props.find(q => q.id === e.prop), c = f => propAt(p, f).c, d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+		const a = c(e.f - 2), b = c(e.f - 1), n = c(e.f), out = { prop: e.prop, f: e.f, posJump: Math.hypot(n[0] - 2 * b[0] + a[0], n[1] - 2 * b[1] + a[1], n[2] - 2 * b[2] + a[2]), speedJump: Math.abs(d(n, b) - d(b, a)), speed: d(n, b), low: Infinity, high: -Infinity, off: 0 };
+		for (let f = e.f; f < F; f++) {
+			if (!aux.rolling[e.prop][f]) continue;
+			const pc = c(f), under = clip.props.filter(s => s.pos.length === 3 && Math.abs(pc[0] - s.pos[0]) <= s.size[0] / 2 && Math.abs(pc[2] - s.pos[2]) <= s.size[2] / 2 && s.pos[1] + s.size[1] / 2 < 0.3);
+			if (!under.length) out.off++;
+			const h = pc[1] - p.size[1] / 2 - Math.max(0, ...under.map(s => s.pos[1] + s.size[1] / 2));
+			out.low = Math.min(out.low, h); out.high = Math.max(out.high, h);
+		}
+		r.releases.push(out);
+	}
 	for (const c of clip.characters) {
 		for (let f = 0; f < F; f++) for (let j = 0; j < JOINT_COUNT; j++) r.jointLow = Math.min(r.jointLow, c.pos[(f * JOINT_COUNT + j) * 3 + 1]);
 		FEET.forEach((j, side) => {

@@ -23,6 +23,9 @@ for (const demo of DEMO_IDS) {
 	console.log([demo.padEnd(11), String(clip.frameCount).padStart(6), clip.stats.buildMs.toFixed(1).padStart(7), (serializeClip(clip).length / 1024).toFixed(0).padStart(3),
 		mm(valid.stretch).padStart(10), `${mm(c.slide)}(${mm(c.slideStep)})`.padStart(15), mm(c.footLow).padStart(11), mm(c.jointLow).padStart(12),
 		(c.carryFrames ? `${mm(c.carryMin)}..${mm(c.carryMax)}` : "-").padStart(19), valid.ok ? "  ok" : "  FAIL"].join(" "));
+	console.log(`  ${demo}: head turn ${c.headTurn.toFixed(1)} deg/frame max; elbow ${(c.elbow * 100).toFixed(1)}, wrist ${(c.wrist * 100).toFixed(1)} cm/frame max`);
+	for (const e of c.releases) console.log(`  ${demo}: ${e.prop} released at frame ${e.f} at ${(e.speed * 24).toFixed(2)} m/s: position jump ${mm(e.posJump)} mm, speed jump ${mm(e.speedJump)} mm/frame; rolling ${mm(e.low)}..${mm(e.high)} mm over the lane, ${e.off} frames off it`);
+	Object.assign(clip.stats, { headTurn: c.headTurn, elbowSpeed: c.elbow, wristSpeed: c.wrist, releases: c.releases });
 	if (c.bodyToBox != null) console.log(`  ${demo}: hands-to-face while pushing ${mm(c.carryMin)}..${mm(c.carryMax)} mm; body-to-crate clearance ${mm(c.bodyToBox)} mm (negative = inside)`);
 	if (parsed.props.some(p => p.pos.length > 3)) console.log(`  ${demo}: prop travel while nothing holds or keys it ${mm(c.freeTravel)} mm`);
 	if (c.gripDrift != null) console.log(`  ${demo}: prop-in-hand drift ${mm(c.gripDrift)} mm, ${(c.gripTurn * 180 / Math.PI).toFixed(3)} deg`);

@@ -6,6 +6,7 @@
 //   joints: [17 names]                               // rig17.js JOINTS, in this order
 //   characters: [{ id, pos: [F*17*3], quat: [F*17*4] }]   // WORLD space, metres, Y up; quat = rotation from rest (rig17.js)
 //   props: [{ id, size: [w,h,d], pos: [N*3], quat: [N*4] }] // boxes, pos = box CENTRE; N is F (animated) or 1 (static)
+//                                                    // optional shape: "sphere" draws a ball of diameter size[0]
 //   stats: { buildMs, ... }                          // free form; buildMs = time to compute the clip
 //   notes: [strings]                                 // what the engine could not do, in plain words
 // }
@@ -49,7 +50,7 @@ export function serializeClip(clip) {
 	return JSON.stringify({
 		...clip,
 		characters: clip.characters.map(c => ({ id: c.id, pos: round(c.pos), quat: round(c.quat) })),
-		props: clip.props.map(p => ({ id: p.id, size: p.size, pos: round(p.pos), quat: round(p.quat) })),
+		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat) })),
 	});
 }
 

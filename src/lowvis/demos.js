@@ -100,6 +100,26 @@ export const DEMOS = Object.freeze({
 			{ who: "a", from: 240, to: 312, do: "step back, lower the sword, stand; the upper trunk lies on the floor" },
 		],
 	},
+	bowl: {
+		frames: 264,
+		characters: [{ id: "a", at: [-0.2, -2.7], heading: 0 }], // left of centre: the ball crosses the lane a little to the right
+		props: [
+			{ id: "lane", size: [1.05, 0.02, 9.6], at: [0, -0.009, 4.6] }, // top 1 mm over the floor; the foul line is its near end (z = -0.2)
+			// ten pins: rows of 1, 2, 3, 4 from the head pin at z = 8.0
+			...[0, 1, 2, 3].flatMap(row => Array.from({ length: row + 1 }, (_, k) => ({ id: `pin${row * (row + 1) / 2 + k + 1}`, size: [0.12, 0.38, 0.12], at: [(k - row / 2) * 0.3, 0.191, 8.0 + row * 0.26], moves: true }))),
+			{ id: "ball", size: [0.22, 0.22, 0.22], shape: "sphere", at: [-0.3, 1.2, -2.3], moves: true },
+		],
+		beats: [
+			{ who: "a", from: 0, to: 30, do: "stand, the ball at chest height in both hands" },
+			{ who: "a", from: 30, to: 43, do: "step 1 (right foot): push the ball away" },
+			{ who: "a", from: 43, to: 56, do: "step 2: the ball swings down past the leg" },
+			{ who: "a", from: 56, to: 69, do: "step 3: top of the back swing, the body leans forward" },
+			{ who: "a", from: 69, to: 84, do: "step 4: slide on the left foot, the right leg crosses behind; release at the bottom of the swing (frame 82)" },
+			{ who: "a", from: 84, to: 104, do: "follow through, the arm rises" },
+			{ who: "a", from: 104, to: 216, do: "hold the finish and watch: the ball rolls down the lane and scatters the pins" },
+			{ who: "a", from: 216, to: 264, do: "straighten up, feet together" },
+		],
+	},
 });
 
 export const DEMO_IDS = Object.freeze(Object.keys(DEMOS));

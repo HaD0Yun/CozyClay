@@ -97,7 +97,7 @@ export function createPanelScene({ clip, look, bounds, environment }) {
 			actors.push(f => body.setPose(c.pos, c.quat, f));
 		});
 		for (const p of clip.props ?? []) {
-			const mesh = new THREE.Mesh(new THREE.BoxGeometry(...p.size), clayMaterial(PROP_TINT));
+			const mesh = new THREE.Mesh(p.shape === "sphere" ? new THREE.SphereGeometry(p.size[0] / 2, 24, 16) : new THREE.BoxGeometry(...p.size), clayMaterial(PROP_TINT));
 			mesh.castShadow = mesh.receiveShadow = true;
 			scene.add(mesh);
 			const n = p.pos.length / 3;

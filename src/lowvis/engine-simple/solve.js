@@ -5,12 +5,13 @@
 //       pelvis (rad), feet: [L, R] of { a: ankle world position, q: foot world quaternion, planted, floor },
 //       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint }
 // U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
-//                          aim: world direction of the hand's thumb side, aimW: 0..1 },
-//       hipTurn: pelvis turn about Y over planted feet (rad),
+//                          aim: world direction of the hand's thumb side, aimW: 0..1,
+//                          prev: where the hand was last frame, carried with the body (limits its speed) },
+//       hipTurn: pelvis turn about Y over planted feet (rad), bow: forward hinge at the hips (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
 //       assist: the previous frame's { bend, drop } of the reach assist }
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS } from "../rig17.js";
-import { Y, Z, add, dot, len, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, sub } from "./math.js";
+import { Y, Z, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, sub } from "./math.js";
 
 export const SIDES = [
 	{ s: 1, arm: J.LeftArm, fore: J.LeftForeArm, hand: J.LeftHand, up: J.LeftUpLeg, leg: J.LeftLeg, foot: J.LeftFoot },
@@ -21,6 +22,24 @@ export const LEG_LEN = len(OFFSET[J.LeftLeg]) + len(OFFSET[J.LeftFoot]);
 /** Toe tip and heel (sole point under the ankle) relative to the ankle joint, in the foot's rest frame. */
 export const TOE = sub(TIPS.LeftFoot, REST[J.LeftFoot]);
 export const SOLE = [0, -ANKLE_HEIGHT, 0];
+
+const MAX_STEP = 0.12; // m per frame a hand may move in the body frame unless its key says fast (2.9 m/s)
+
+/** Blend of two hand points along an arc about the shoulder (direction and distance apart), not through the body. */
+function arc(a, b, w, sh) {
+	const da = sub(a, sh), db = sub(b, sh), d = mixV(norm(da), norm(db), w);
+	// straight line instead when the two directions oppose each other or a point sits on the shoulder
+	const k = clamp((len(d) - 0.1) / 0.3) * clamp((Math.min(len(da), len(db)) - 0.12) / 0.2);
+	const line = mixV(a, b, w);
+	return k <= 0 ? line : mixV(line, add(sh, mul(norm(d), mix(len(da), len(db), w))), k);
+}
+
+/** Elbow direction from where the hand is relative to the shoulder (chest frame): down and back for a hanging arm,
+ *  out to the side as the hand rises, folds close to the shoulder or crosses the body. Continuous in the hand position. */
+function elbowPole(S, sh, hand, q2) {
+	const n = mul(qRotate(qConj(q2), sub(hand, sh)), 1 / ARM_LEN), up = clamp(n[1] + 0.2), fold = clamp(1 - len(n));
+	return qRotate(q2, [S.s * (0.2 + 1.1 * up + 0.9 * fold + 0.5 * Math.max(0, -S.s * n[0])), -0.6 + 0.3 * up, -0.7 * (1 - up)]);
+}
 
 /** Two-bone IK: joints jm (middle) and je (end) hang from `root`; the middle joint bends toward `pole`. */
 function limb(root, target, pole, jm, je, restPole) {
@@ -46,22 +65,31 @@ export function solve(B, U = {}) {
 	// Reach assist: when a hand target is out of arm's reach and not overhead, hinge at the hips and bend the knees.
 	let bend = 0, drop = 0;
 	const torso = (extraDrop = 0) => {
+		const b = bend + (U.bow ?? 0); // bow: a hinge at the hips asked for by the spec; bend: the same hinge added by the reach assist
 		const hips = [hips0[0] + fwd[0] * 0.12 * bend, hips0[1] - drop - extraDrop, hips0[2] + fwd[2] * 0.12 * bend];
-		const qP = qMul(qMul(qY(U.hipTurn ?? 0), B.q), qX(0.6 * bend)), lean = lean0 + 0.4 * bend;
+		const qP = qMul(qMul(qY(U.hipTurn ?? 0), B.q), qX(0.6 * b)), lean = lean0 + 0.4 * b;
 		const q1 = qMul(qP, qMul(qY(0.4 * twist), qX(0.4 * lean))), q2 = qMul(qP, qMul(qY(twist), qX(lean)));
 		const p2 = add(add(hips, qRotate(qP, OFFSET[J.Spine])), qRotate(q1, OFFSET[J.Spine2]));
+		const sh = SIDES.map(S => add(p2, qRotate(q2, OFFSET[S.arm])));
 		const hand = SIDES.map((S, i) => {
 			const rest = add(hips, qRotate(B.q, B.hands[i])), h = H[i];
 			if (!h) return rest;
-			const t = mixV(h.from ?? rest, h.to ?? rest, h.w);
-			return h.offset ? add(t, h.offset) : t;
+			let t = h.line ? mixV(h.from ?? rest, h.to ?? rest, h.w) : arc(h.from ?? rest, h.to ?? rest, h.w, sh0?.[i] ?? sh[i]); // about the shoulder of the unbent body
+			if (h.offset) t = add(t, h.offset);
+			if (h.prev) { const d = sub(t, h.prev), l = len(d); if (l > MAX_STEP) t = add(h.prev, mul(d, MAX_STEP / l)); }
+			return t;
 		});
-		return { hips, qP, q1, q2, hand, sh: SIDES.map(S => add(p2, qRotate(q2, OFFSET[S.arm]))) };
+		return { hips, qP, q1, q2, hand, sh };
 	};
-	let T = torso();
+	let sh0 = null, T = torso();
+	sh0 = T.sh;
 	if (active.some(Boolean)) for (let it = 0; it < 14; it++) {
-		const d = Math.max(0, ...SIDES.map((S, i) => active[i] && T.hand[i][1] < T.sh[i][1] + 0.1 ? (len(sub(T.hand[i], T.sh[i])) - 0.95 * ARM_LEN) * aimed[i] : 0));
-		bend = Math.min(1.5, bend + 1.4 * d); drop = Math.min(0.58, drop + 0.6 * d);
+		let d = 0, ahead = 0; // ahead: bending forward only helps a target in front of the hips
+		SIDES.forEach((S, i) => {
+			const di = active[i] && T.hand[i][1] < T.sh[i][1] + 0.1 ? (len(sub(T.hand[i], T.sh[i])) - 0.95 * ARM_LEN) * aimed[i] : 0;
+			if (di > d) { d = di; ahead = clamp((dot(sub(T.hand[i], T.hips), fwd) + 0.1) / 0.3); }
+		});
+		bend = Math.min(1.5, bend + 1.4 * d * ahead); drop = Math.min(0.58, Math.max(0, hips0[1] - 0.45), drop + 0.6 * d);
 		T = torso();
 	}
 	// straighten up gradually when the target comes back into reach
@@ -88,7 +116,7 @@ export function solve(B, U = {}) {
 	for (let j = 1; j <= 4; j++) place(j);
 	SIDES.forEach((S, i) => {
 		place(S.arm);
-		const A = limb(pos[S.arm], T.hand[i], qRotate(T.q2, [S.s * 0.5, -0.6, -0.7]), S.fore, S.hand, [0, 0, -1]);
+		const A = limb(pos[S.arm], T.hand[i], elbowPole(S, pos[S.arm], T.hand[i], T.q2), S.fore, S.hand, [0, 0, -1]);
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
 		quat[S.hand] = qMul(qFrame(dir, A.perp), qConj(qFrame(OFFSET[S.hand], [0, 0, -1])));
