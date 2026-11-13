@@ -31,9 +31,9 @@
 	"src/live-control.js": 331,
 	"src/matte-editor.js": 486,
 	"src/matte.js": 472,
-	"src/motion/collision-blockers.js": 273,
+	"src/motion/collision-blockers.js": 272,
 	"src/motion/fix-collisions.js": 748,
-	"src/motion/ik.js": 1127,
+	"src/motion/ik.js": 1089,
 	"src/motion/range-pin.js": 277,
 	"src/motion/timeline.jsx": 2061,
 	"src/object-gizmo.jsx": 750,
@@ -69,6 +69,5 @@
 	"src/workflow/agent-client.js": 1294,
 	"src/workflow/AgentPanel.jsx": 790,
 	"src/workflow/WorkflowBuilder.jsx": 592,
-	"tools/qa/css-rule-usage.mjs": 251,
-	"tools/run-tests.mjs": 407
+	"tools/run-tests.mjs": 389
 }

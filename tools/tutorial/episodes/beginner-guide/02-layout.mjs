@@ -27,8 +27,8 @@ export default {
 		spot("2.4", "nav.menubar", t("메뉴", "Menus"), t("파일·편집·창·도움말", "File, Edit, Window, Help"), {
 			caption: t("파일은 새로 만들기·열기·저장·내보내기, 편집은 되돌리기·다시 실행, 창은 에이전트·워크플로, 도움말은 단축키와 정보입니다.", "File: New, Open, Save, Export. Edit: Undo, Redo. Window: Agent, Workflow. Help: Keyboard shortcuts, About."),
 		}),
-		spot("2.5", "[data-testid=\"mode-toolbar\"]", t("모드", "Modes"), t("배치 1 · 포즈 2 · 카메라 3 · 모션 4 · 조각 5", "Stage 1, Pose 2, Camera 3, Motion 4, Sculpt 5"), {
-			caption: t("다섯 모드는 숫자 키 1~5로 바꿉니다. 배치에서 놓고, 포즈로 고치고, 카메라로 찍고, 모션으로 다듬고, 조각으로 만듭니다.", "Five modes, keys 1 to 5. Stage places, Pose fixes, Camera shoots, Motion trims, Sculpt builds."),
+		spot("2.5", "[data-testid=\"mode-toolbar\"]", t("모드", "Modes"), t("배치 1 · 포즈 2 · 카메라 3 · 모션 4 · 조형 5", "Stage 1, Pose 2, Camera 3, Motion 4, Sculpt 5"), {
+			caption: t("다섯 모드는 숫자 키 1~5로 바꿉니다. 배치에서 놓고, 포즈로 고치고, 카메라로 찍고, 모션으로 다듬고, 조형으로 만듭니다.", "Five modes, keys 1 to 5. Stage places, Pose fixes, Camera shoots, Motion trims, Sculpt builds."),
 		}),
 		spot("2.6", "section.hierarchy-pane.v2-outliner", t("아웃라이너", "Outliner"), t("장면 트리: 카메라, 조명, 캐릭터, 환경, 소품", "The scene tree: camera, light, character, environment, props"), {
 			caption: t("왼쪽 아웃라이너는 장면에 있는 모든 것의 목록입니다. 줄을 누르면 선택됩니다.", "The Outliner on the left lists everything in the scene. Click a row to select it."),

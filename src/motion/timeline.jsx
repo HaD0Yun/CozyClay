@@ -1267,7 +1267,7 @@ export default function Timeline({
 	// for everything — the old /count chip scale drifted off the gridlines.
 	const clipPct = (value) => Math.max(0, Math.min(1, framePct(value, displayFrameCount)));
 	const waypointFrames = waypoints.map((waypoint) => waypoint.frame);
-	// Fix Collisions and AutoPhysics key EVERY frame of a corrected span, so
+	// A baked correction keys EVERY frame of its span, so
 	// the raw list draws a wall of diamonds. Collapse consecutive frames into
 	// runs first; only runs shorter than KEY_RUN_MIN stay diamonds.
 	const ikParts = useIkParts(displayFrameCount), ikRuns = useMemo(() => groupKeyRuns(ikParts.hidden.size ? ikFrames.filter((f) => !ikParts.hidden.has(f)) : ikFrames), [ikFrames, ikParts.hidden]); // ikParts: keys by body part (TimelineFixIslands.jsx); a frame of rest keys only draws no summary dot

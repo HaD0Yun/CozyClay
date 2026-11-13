@@ -62,5 +62,4 @@ environment and is not assembled from the request host:
 - production: `https://api.cozyclay.org/auth/google/callback`
 - development: `http://127.0.0.1:8787/auth/google/callback`
 
-All mutation requests require an exact `Origin` match. Every response carries
-exact ACAO, `Vary: Origin`, and credential CORS headers.
+Every response carries exact ACAO, `Vary: Origin`, and credential CORS headers.

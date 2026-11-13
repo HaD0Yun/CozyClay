@@ -33,20 +33,20 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 		try {
 			const id = characterId(), keys = motion().layer(id).ikKeys;
 			motion().keyAll(id, at, placementOf(entry(), keys, at));
-			say(ko(`Pose and placement keyed at frame ${at}`, `${at}프레임에 포즈와 위치를 키로 저장했어요`));
+			say(ko(`Pose and placement keyed at frame ${at}`, `${at}프레임에 포즈와 위치를 키로 저장했어요`, `已在第 ${at} 帧为姿势和位置设置关键帧`));
 			return true;
 		} catch (error) { say(error.message); return false; }
 	};
 	const unkey = () => {
 		if (!keyedFrames.includes(frame)) return;
-		run("ik.removeKey", { characterId: characterId(), frame }).then(() => say(ko(`Key at frame ${frame} removed`, `${frame}프레임 키를 지웠어요`)), error => say(error.message));
+		run("ik.removeKey", { characterId: characterId(), frame }).then(() => say(ko(`Key at frame ${frame} removed`, `${frame}프레임 키를 지웠어요`, `已删除第 ${frame} 帧的关键帧`)), error => say(error.message));
 	};
 	const breakdown = () => {
 		const neighbors = breakdownNeighbors(keyedFrames, frame), owner = motion();
 		if (!neighbors) return;
 		try {
 			const id = characterId(), rig = activeRig;
-			if (!rig) throw new Error("The character rig is not loaded.");
+			if (!rig) throw new Error(ko("The character rig is not loaded.", "캐릭터 리그가 로드되지 않았어요.", "角色的骨骼尚未加载。"));
 			const keys = owner.layer(id).ikKeys, current = snapshotLocalRig(rig);
 			owner.poseRigAt(id, neighbors.before);
 			const before = snapshotLocalRig(rig);
@@ -57,7 +57,7 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 			applyBreakdownPose(rig, before, after, breakdownWeight);
 			const at = breakdownPlacement(placementOf(entry(), keys, neighbors.before), placementOf(entry(), keys, neighbors.after), breakdownWeight);
 			owner.keyAll(id, frame, at);
-			say(ko(`Breakdown keyed at frame ${frame}`, `${frame}프레임에 브레이크다운 키를 저장했어요`));
+			say(ko(`Breakdown keyed at frame ${frame}`, `${frame}프레임에 브레이크다운 키를 저장했어요`, `已在第 ${frame} 帧设置中间姿势关键帧`));
 		} catch (error) { owner.project?.(); say(error.message); }
 	};
 	const fill = async () => {
@@ -69,7 +69,8 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 			const receipt = await run("motion.fill", { characterId: id, spec, install: true }), out = receipt.output ?? {};
 			const added = frames.length - keyed.length, retimes = (out.fill?.warnings ?? []).filter(w => /model's length|^guide |^last key /.test(w)), warn = retimes.length ? ` · ${retimes.map(w => w.replace(/ \(model's length\); later keys moved/, " · keys after").replace(/^gap /, "")).join(" | ")}` : out.fill?.warnings?.length ? ` · ${out.fill.warnings.length} warning(s)` : "";
 			say(ko(`Filled ${out.fill?.gaps?.length ?? 0} gaps (${out.fill?.keys ?? 0} fill keys${added ? `, ${added} middle poses added` : ""}); QA ${out.qa?.problems ?? out.qa?.groups?.length ?? 0} problems${warn}`,
-				`${out.fill?.gaps?.length ?? 0}구간을 채웠어요 (채움 키 ${out.fill?.keys ?? 0}개${added ? `, 중간 포즈 ${added}개 추가` : ""}); QA 문제 ${out.qa?.problems ?? out.qa?.groups?.length ?? 0}개${warn}`));
+				`${out.fill?.gaps?.length ?? 0}구간을 채웠어요 (채움 키 ${out.fill?.keys ?? 0}개${added ? `, 중간 포즈 ${added}개 추가` : ""}); QA 문제 ${out.qa?.problems ?? out.qa?.groups?.length ?? 0}개${warn}`,
+				`已填充 ${out.fill?.gaps?.length ?? 0} 个区间（填充关键帧 ${out.fill?.keys ?? 0} 个${added ? `，新增中间姿势 ${added} 个` : ""}）；QA 问题 ${out.qa?.problems ?? out.qa?.groups?.length ?? 0} 个${warn}`));
 		} catch (error) { motion().project?.(); say(error.message); } finally { setBusy(false); }
 	};
 	const actions = useRef({});
@@ -99,10 +100,10 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 			{poseMode && <>
 				<button type="button" onClick={keyedFrames.includes(frame) ? unkey : () => key()} data-fid="pose_key"
 					title={ko("Key the whole pose and the character's spot at the playhead (K; Shift+K removes)", "재생 위치에 전신 포즈와 위치를 키로 저장 (K, Shift+K로 삭제)")}>
-					{keyedFrames.includes(frame) ? ko(`Unkey f${frame}`, `f${frame} 키 삭제`) : ko(`Key f${frame}`, `f${frame} 키`)}
+					{keyedFrames.includes(frame) ? ko(`Unkey f${frame}`, `f${frame} 키 삭제`, `删除 f${frame} 关键帧`) : ko(`Key f${frame}`, `f${frame} 키`, `f${frame} 关键帧`)}
 				</button>
 				<button type="button" aria-pressed={autoKey} data-testid="pose-auto-key" onClick={() => setAutoKey(value => !value)}
-					title={ko("Apply IK corrections as keys when each drag ends", "드래그가 끝날 때마다 IK 보정을 키로 적용")}>{ko(`Auto-key ${autoKey ? "on" : "off"}`, `오토 키 ${autoKey ? "켜짐" : "꺼짐"}`)}</button>
+					title={ko("Apply IK corrections as keys when each drag ends", "드래그가 끝날 때마다 IK 보정을 키로 적용")}>{ko(`Auto-key ${autoKey ? "on" : "off"}`, `오토 키 ${autoKey ? "켜짐" : "꺼짐"}`, `自动关键帧 ${autoKey ? "开" : "关"}`)}</button>
 				<label title={ko("Breakdown interpolation weight", "브레이크다운 보간 비율")}><span>{ko("Weight", "비율")}</span>
 					<input type="range" min="0.1" max="0.9" step="0.05" value={breakdownWeight} onChange={event => setBreakdownWeight(Number(event.target.value))} />
 					<output>{Math.round(breakdownWeight * 100)}%</output></label>
@@ -113,7 +114,7 @@ export default function PoseKeyBar({ frame, frameCount, poseMode, keyedFrames = 
 				</button>
 				<button type="button" aria-pressed={ghosts} data-testid="pose-ghosts" onClick={() => setPoseGhosts(!ghosts)}
 					title={ko("Show every keyed pose as a faded ghost", "키로 저장한 포즈를 모두 흐린 고스트로 표시")}>{ko("Ghosts", "고스트")}</button>
-				<span className="pose-key-count">{ko(`${keyedFrames.length} keyed`, `키 ${keyedFrames.length}개`)}</span>
+				<span className="pose-key-count">{ko(`${keyedFrames.length} keyed`, `키 ${keyedFrames.length}개`, `${keyedFrames.length} 个关键帧`)}</span>
 			</>}
 			{status && <span className="pose-key-status" role="status">{status}</span>}
 		</div>

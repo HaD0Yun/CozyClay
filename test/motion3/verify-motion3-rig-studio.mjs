@@ -31,12 +31,14 @@ import { skeletonFor } from "../../src/motion3/rigs/index.js";
 import { createSkeleton, fk } from "../../src/motion3/compiler/skeleton.js";
 import { compileSpec } from "../../src/motion3/pipeline.js";
 import { motionScene } from "../../src/motion3/scene.js";
-import { bakeTake, takeQuat, takeHips } from "../../src/motion3/take.js";
+import { bakeTake, takeHips } from "../../src/motion3/take.js";
 import { runCompileJob, jobServer } from "../../src/motion3/compile-job.js";
 import { peopleOf } from "../../src/motion3/people.js";
 import { fillSpec } from "../../src/motion3/bricks/fill.js";
 import { fillSpecNative } from "../../src/motion3/bricks/fill-native.js";
 import { add, sub, scale, apply, mul, T, rx, rz, dist, quatFromMat } from "../../src/motion3/compiler/math.js";
+/** Local quaternion [x,y,z,w] of bone b at frame f of a take (nearest frame, clamped). */
+const takeQuat = (take, f, b) => { const i = (Math.max(0, Math.min(take.frameCount - 1, Math.round(f))) * take.bones.length + b) * 4; return [take.rot[i], take.rot[i + 1], take.rot[i + 2], take.rot[i + 3]]; };
 
 const SELF = fileURLToPath(import.meta.url);
 let failures = 0;

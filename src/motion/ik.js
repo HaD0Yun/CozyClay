@@ -812,46 +812,6 @@ export function ikSeedTargets(chains, ikState) {
 	}
 }
 
-/** Snapshot the current local rotations of every chain and FK bone — plus
- * the hips' LOCAL POSITION (the body root's height/lean) — the pre-IK state
- * restored when IK mode closes. */
-export function ikSnapshot(rig, fkJoints) {
-	const out = new Map();
-	for (const [id, chain] of rig) {
-		out.set(id, { quats: chain.bones.map((b) => b.quaternion.clone()), pos: null });
-	}
-	if (fkJoints) {
-		for (const [id, joint] of fkJoints) {
-			out.set(id, {
-				quats: [joint.bone.quaternion.clone()],
-				pos: joint.bindPos ? joint.bone.position.clone() : null,
-			});
-		}
-	}
-	return out;
-}
-
-/** Restore a snapshot taken by ikSnapshot. */
-export function ikRestore(rig, snapshot, fkJoints) {
-	if (!snapshot) return;
-	for (const [id, saved] of snapshot) {
-		const chain = rig.get(id);
-		if (chain) {
-			chain.bones.forEach((b, i) => {
-				if (saved.quats[i]) b.quaternion.copy(saved.quats[i]);
-			});
-			chain.bones[0].updateMatrixWorld(true);
-			continue;
-		}
-		const joint = fkJoints?.get(id);
-		if (joint) {
-			if (saved.quats[0]) joint.bone.quaternion.copy(saved.quats[0]);
-			if (saved.pos && joint.bindPos) joint.bone.position.copy(saved.pos);
-			joint.bone.updateMatrixWorld(true);
-		}
-	}
-}
-
 /**
  * Bake the CURRENT local rotations into the key at `frame`: solved chain bones
  * (b0, b1, b2) for chains, the single bone for FK joints — and the hips' LOCAL

@@ -121,10 +121,8 @@ export const ZH_TIMELINE = {
 	"Clear loaded motion": "清除已加载的动作",
 	"Clear the compiled take, then restore the blocking pose": "清除已编译的动作片段，然后恢复摆位姿势",
 	"Clear motion": "清除动作",
-	"Click the set floor in the Shot view to drop waypoints": "在镜头视图中点击布景地面放置路径点",
 	"Collapse timeline": "折叠时间线",
 	"Scrub timeline": "浏览时间线",
-	"Pins": "固定",
 	"IK keys": "IK 键",
 	"Rail": "轨道",
 	"Crane": "摇臂",
@@ -140,7 +138,6 @@ export const ZH_TIMELINE = {
 	"Dolly speed — drag the line; cuts and reset live in the camera bar above": "推轨速度 — 拖动线条；切分和重置在上方摄影机栏",
 	"Click the crane graph to add a point; click a point and drag it to change height": "点击摇臂曲线添加点；点击点并拖动改变高度",
 	"Click at a frame to store the current camera framing": "在某一帧点击以保存当前摄影机取景",
-	"Click the set floor in the Shot view to add waypoints": "在镜头视图中点击布景地面添加路径点",
 	"Expand timeline": "展开时间线",
 	// the Sequencer key bar (shell/PoseKeyBar.jsx)
 	"Generating the transition with MotionBricks…": "正在用 MotionBricks 生成过渡…",

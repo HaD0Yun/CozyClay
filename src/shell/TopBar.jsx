@@ -25,10 +25,9 @@ export default function TopBar({ preferences }) {
 				className={"topbar-mcp" + (liveWorkspaceHandle ? " live-workspace-handle" : "")}
 				data-state={connected ? "connected" : "disconnected"}
 				data-live-workspace={liveWorkspaceHandle || undefined}
-				title={liveWorkspaceHandle || ko("No MCP client is attached to this studio", "이 스튜디오에 연결된 MCP 클라이언트가 없어요")}
+				title={liveWorkspaceHandle || undefined}
 			>
 				<i className="topbar-mcp-dot" aria-hidden="true" />
-				<span className="topbar-mcp-text">{connected ? ko("MCP connected", "MCP 연결됨") : ko("MCP offline", "MCP 꺼짐")}</span>
 			</span>
 		</header>
 	);

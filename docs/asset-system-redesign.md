@@ -1,7 +1,7 @@
 # CozyClay 에셋 시스템 재설계 노트
 STATUS: complete draft — gates pending
 
-> 리서치 기반: `.omo/ulw-research/20260820-184437/` — 팀 8인(코드베이스·Unity/Unreal·Blender·Godot·웹툴·UI/UX·스켑틱·컨트래리언) + 레인 6개, 1차 소스 95+건, 디베이트 5라운드. 코드 근거는 HEAD `b71358856` 기준.
+> 리서치 기반: `.omo/ulw-research/20260820-184437/` (로컬 작업 폴더라 저장소에는 없다) — 팀 8인(코드베이스·Unity/Unreal·Blender·Godot·웹툴·UI/UX·스켑틱·컨트래리언) + 레인 6개, 1차 소스 95+건, 디베이트 5라운드. 코드 근거는 HEAD `b71358856` 기준.
 
 ## 1. 현황 진단
 
@@ -45,7 +45,7 @@ CozyClay에서 "에셋"이라는 말은 서로 배선이 전혀 다른 세 시�
 | ![Unity Project window](assets/asset-redesign/unity_project-window-context.png) Unity Project window (1열 레이아웃) | ![Unreal Content Browser](assets/asset-redesign/unreal_cb_areas_overview.png) Unreal Content Browser 7영역 |
 | ![Blender Asset Browser](assets/asset-redesign/blender_asset_browser-gold-material.png) Blender Asset Browser 3영역 | ![Godot FileSystem dock](assets/asset-redesign/godot_editor_intro_filesystem_dock.webp) Godot FileSystem dock |
 
-전체 19장: `.omo/ulw-research/20260820-184437/assets/engine-shots/`
+전체 19장: `.omo/ulw-research/20260820-184437/assets/engine-shots/` (로컬 전용, 저장소에 없음)
 
 CozyClay에 시사하는 핵심 수렴점 5개:
 
@@ -171,7 +171,7 @@ graph LR
 | Blender | docs/developer/code.blender.org — data_blocks(ID.us/Fake User), asset_libraries(Mark as Asset=메타데이터), asset_catalogs(UUID 카탈로그), 2021 workshop outcomes, Outliner 인터페이스 [S6-10,S45-56] |
 | 웹 툴 | three.js@09860b8f·blockbench@47e633e4 소스; PlayCanvas·Spline·Figma 공식 문서 [S22-24,S59-78] |
 | 스토리지 | MDN/web.dev(쿼터·축출), w3c/IndexedDB#454 + Chromium indexed_db 문서(블롭 미회수), excalidraw@e160ff7 LocalData.ts(mark-and-sweep), tldraw@5181649 [S79-S95] |
-| 시각 증거 | 엔진 4종 공식 문서 스크린샷 19장 — `.omo/ulw-research/20260820-184437/assets/engine-shots/` |
+| 시각 증거 | 엔진 4종 공식 문서 스크린샷 19장 — `.omo/ulw-research/20260820-184437/assets/engine-shots/` (로컬 전용) |
 
 ## 부록 B. 기각/보류된 대안 (디베이트 기록)
 

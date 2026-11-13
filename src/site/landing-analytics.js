@@ -4,7 +4,7 @@
 import { initAnalytics, track } from "../analytics.js";
 import { LANDING_CTA_TARGETS } from "../analytics-strict.js";
 
-const COPY_TARGETS = [["install.sh", "copy_installer"], ["--via site", "copy_npx"], ["git clone", "copy_clone"], ["mcpServers", "copy_mcp"], ["cclay live", "copy_terminal"]];
+const COPY_TARGETS = [["--via site", "copy_npx"], ["git clone", "copy_clone"], ["mcpServers", "copy_mcp"], ["cclay live", "copy_terminal"]];
 
 /** The landing:cta_clicked target for a clicked element, or null when it is not a call to action. */
 function ctaTarget(element) {

@@ -14,8 +14,6 @@ const HIERARCHY_LABELS_KO = {
 	"SCENE 01": "장면 01",
 	Camera: "카메라",
 	Characters: "캐릭터",
-	"Character 1": "캐릭터 1",
-	"Character 2": "캐릭터 2",
 	Rig: "리그",
 	Torso: "몸통",
 	"Root / Hips": "루트 / 골반",
@@ -112,6 +110,8 @@ function ScenePill({ scenes, activeSceneId, onSceneSelect, onSceneCreate, onRena
 function displayHierarchyLabel(node) {
 	if (node.kind === "object") return displayObjectLabel(node.label);
 	if (node.kind === "scene") return displaySceneName(node.label);
+	const characterNumber = /^Character (\d+)$/.exec(node.label)?.[1];
+	if (characterNumber) return ko(node.label, `캐릭터 ${characterNumber}`, `角色 ${characterNumber}`);
 	return HIERARCHY_LABELS_KO[node.label] ? ko(node.label, HIERARCHY_LABELS_KO[node.label]) : node.label;
 }
 
