@@ -190,14 +190,14 @@ function repairShots(entries, frameCount, inheritedCamera = null, ids = new Set(
 		// Infer their old boundary exactly; new bodies persist an explicit end.
 		const storedEnd = finite(entry.endFrame) ? Math.round(entry.endFrame) : nextStart - 1;
 		const endFrame = Math.max(startFrame, Math.min(frameCount - 1, nextStart - 1, storedEnd));
-		const review = repairReview(entry.review, { startFrame, endFrame });
+		const review = repairReview(entry.review, { startFrame, endFrame }), subjectIds = [...new Set((Array.isArray(entry.subjectIds) ? entry.subjectIds : []).filter(id => typeof id === "string" && id.trim()))];
 		return {
 			id: entry.id,
 			name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : `Shot ${index + 1}`,
 			startFrame,
 			endFrame,
 			cameraKeys: repairKeys(entry.cameraKeys, startFrame, endFrame, ids),
-			camera: repairCamera(inheritedCamera ?? entry.camera),
+			camera: repairCamera(inheritedCamera ?? entry.camera), ...(subjectIds.length ? { subjectIds } : {}),
 			...targetModel,
 			...(optics ? { optics } : {}),
 			...(review ? { review } : {}),

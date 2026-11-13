@@ -9,8 +9,8 @@ import { createStableItemId } from './stable-items.js';
 import { focalMmToFov, SENSOR_FORMATS } from './shot.js';
 import { coplanarConflicts } from './coplanar-depth.js';
 import { clampWarning } from './receipt-findings.js';
-import { occludersOf, primarySubjects, sideOfAxis } from './studio-geometry-facts.js';
-import { frameSubject } from './studio-frame-subject.js';
+import { axisSubjects, occludersOf, sideOfAxis } from './studio-geometry-facts.js';
+import { frameSubject } from './studio-frame-subject.js'; import { subjectsCenter } from './shot-subjects.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
 import { supportGaps, liftOffDeck, floorLiftWarnings } from './studio-support-gap.js';
@@ -391,7 +391,7 @@ const boundsOf = points => { const box = aabb(points); return { min: { x: box.x.
  * the two leading characters (the subjects, else the ones nearest the camera). */
 function sightChecks(subjects, boxes, cameraPosition, state, ports) {
   const occluders = subjects.flatMap((subject, index) => occludersOf(subject, cameraPosition, state, ports, boundsOf(boxes[index])));
-  const pair = primarySubjects(subjects.map(subject => subject.id), cameraPosition, state);
+  const pair = axisSubjects(subjects.map(subject => subject.id), cameraPosition, state);
   const cameraSide = pair.length === 2 ? sideOfAxis(pair[0], pair[1], cameraPosition) : null;
   return { occluders, checks: { occluded: occluders.length > 0, ...(cameraSide ? { cameraSide } : {}) } };
 }
@@ -431,9 +431,9 @@ export function sampledFramingResult(args, scene, ports, frameCount, measured, r
 }
 export function frameDraft(command, state, ports) {
   if (state.frameCount <= 0) fail('TARGET_NOT_READY', 'A nonempty timeline is required; installing a take with motion.compile grows it to cover the take.');
-  const subject = frameSubject(command.args.subjectIds[0], state, SENSOR_FORMATS);
-  const points = geometry(subject, state, ports), bounds = aabb(points), height = bounds.y.max - bounds.y.min;
-  if (height <= EPS) fail('TARGET_NOT_READY', `${subject.id} has no measurable height yet (its body is still loading); wait a moment and send the same frame_shot again.`);
+  const subjects = command.args.subjectIds.map(id => frameSubject(id, state, SENSOR_FORMATS)), subject = subjectsCenter(subjects), boxes = subjects.map(entry => geometry(entry, state, ports));
+  const points = boxes.flat(), bounds = aabb(points), height = bounds.y.max - bounds.y.min;
+  if (height <= EPS) fail('TARGET_NOT_READY', `${subjects[0].id} has no measurable height yet (its body is still loading); wait a moment and send the same frame_shot again.`);
   let shot = command.args.shotId ? state.shotDocument.shots.find(s => s.id === command.args.shotId) : shotAtFrame(state.shotDocument.shots, state.frame) ?? state.shotDocument.shots.find(s => s.id === state.selectedShotId);
   const created = !shot && !state.shotDocument.shots.length && !command.args.shotId;
   if (created) shot = createShot('Shot 1', 0, state.frameCount - 1);
@@ -453,7 +453,7 @@ export function frameDraft(command, state, ports) {
   if (fov / DEG < 14 || fov / DEG > 90) fail('INVALID_ARGUMENT', 'Requested lens is outside the editor FOV range.');
   if (intent) {
     const lookAt = { x: (bounds.x.min + bounds.x.max) / 2, y: bounds.y.min + height * (1.3 / 1.8), z: (bounds.z.min + bounds.z.max) / 2 };
-    const distance = height / (2 * FRAMING_FRACTIONS[intent.size] * Math.tan(fov / 2));
+    const width = subjects.length > 1 ? Math.hypot(bounds.x.max - bounds.x.min, bounds.z.max - bounds.z.min) : 0, distance = Math.max(height, width / state.filmback.aspectRatio) / (2 * FRAMING_FRACTIONS[intent.size] * Math.tan(fov / 2));
     const y = bounds.y.min + height * FRAMING_LEVELS[intent.level], dy = y - lookAt.y;
     if (distance * distance <= dy * dy + EPS) fail('INVALID_ARGUMENT', 'The exact lens cannot satisfy both requested size and level.');
     const horizontal = Math.sqrt(distance * distance - dy * dy);
@@ -465,17 +465,17 @@ export function frameDraft(command, state, ports) {
   const framing = captureFraming({ pos: camera.position, yaw: Math.atan2(-direction.x, -direction.z), pitch: Math.atan2(direction.y, Math.hypot(direction.x, direction.z)), fovDeg: fov / DEG });
   const keyId = (hold ? existingKey?.id : shot.cameraKeys.find(k => k.frame === frame)?.id) ?? createStableItemId('camera-key');
   const keys = hold ? [{ id: keyId, frame, framing }] : [...shot.cameraKeys.filter(k => k.frame !== frame), { id: keyId, frame, framing }].sort((a, b) => a.frame - b.frame);
-  const nextShot = { ...shot, cameraKeys: keys, camera: { ...shot.camera, mode: 'keys' } };
+  const subjectIds = subjects.map(entry => entry.id), nextShot = { ...shot, subjectIds, cameraKeys: keys, camera: { ...shot.camera, mode: 'keys' } };
   const shots = created ? [nextShot] : state.shotDocument.shots.map(s => s.id === shot.id ? nextShot : s);
   const { screenBounds, checks: projected } = projectSubject(points, camera, fov, state.filmback.aspectRatio), derivedSize = projected.derivedSize;
-  const sight = sightChecks([subject], [points], camera.position, state, ports), checks = { ...projected, ...sight.checks };
+  const sight = sightChecks(subjects, boxes, camera.position, state, ports), checks = { ...projected, ...sight.checks };
   const resolvedCamera = { ...camera, sensorId: state.filmback.sensorId, slate: derivedSize };
   // Not a manual override: the keys drive the live shot camera from here, so a
   // later playhead move shows what the export renders at that frame.
   const draft = { shotDocument: { ...state.shotDocument, shots }, camera: resolvedCamera, manual: false };
   return { domain: 'shot', draft, affectedIds: [shot.id, keyId],
     checks,
-    warnings: sight.occluders.slice(0, 5).map(item => ({ code: 'OCCLUDED', id: item.byObjectId })), details: { created, shotId: shot.id, keyId, frame, framing, screenBounds, subjectIds: [subject.id] } };
+    warnings: sight.occluders.slice(0, 5).map(item => ({ code: 'OCCLUDED', id: item.byObjectId })), details: { created, shotId: shot.id, keyId, frame, framing, screenBounds, subjectIds } };
 }
 
 /** Local journal. Unsettled/protected records are never evicted. Call prune on

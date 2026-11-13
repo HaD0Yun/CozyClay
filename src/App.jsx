@@ -3650,7 +3650,7 @@ export default function App() {
 			// the camera the main view renders through (poser in IK mode) — QA
 			// projections must use this one, not the frozen shot camera
 			activeCam: ikMode ? poserCamRef.current : lookThroughShot ? shotCamRef.current : editorCamRef.current,
-			shotCam: shotCamRef.current,
+			get shotCam() { return shotCamRef.current; },
 			poserCam: poserCamRef.current,
 			planCam: planCamRef.current,
 			editorCam: editorCamRef.current,
