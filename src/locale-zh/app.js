@@ -1,6 +1,5 @@
 // Chinese UI copy for App-level toasts, export status, error boundary and first-run guide.
 export const ZH_APP = {
-	"Load a character to pose it — Pose mode edits its rig with IK": "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼",
 	"That picture format is not supported — use PNG, JPG, WebP or GIF": "不支持该图片格式 — 请使用 PNG、JPG、WebP 或 GIF",
 	"A newer edit comes after this deletion. Use Undo history instead.": "此删除之后还有更新的编辑。请改用撤销历史。",
 	"Double-click the line to add a dot": "双击线条添加一个点",
@@ -107,7 +106,6 @@ export const ZH_APP = {
 	"Expand Outliner": "展开大纲",
 	"Collapse Outliner": "收起大纲",
 	"Your first 60 seconds": "你的最初 60 秒",
-	"Core loop complete": "核心流程完成",
 	"Dismiss guide": "关闭指南",
 	"You made your first panel.": "你做出了第一个面板。",
 	"You made your first shot.": "你做出了第一个镜头。",

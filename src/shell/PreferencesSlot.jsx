@@ -4,7 +4,7 @@ import SettingsMenu from "../settings-menu.jsx";
 import { useStudioShell } from "./studio-shell-context.js";
 
 // Temporary adapter until the Preferences region replaces SettingsMenu.
-// SettingsMenu retains its trigger, focus, dismissal and motion-setup behavior.
+// SettingsMenu retains its trigger, focus and dismissal behavior.
 // Mirror its published expanded state so future menus can also open it through
 // the shell context, without mounting a second copy or changing SettingsMenu.
 export default function PreferencesSlot() {

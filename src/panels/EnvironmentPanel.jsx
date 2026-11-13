@@ -24,7 +24,7 @@ export default function EnvironmentPanel(props) {
 							label={ko("Environment reference", "환경 참고 이미지")}
 							hint={ko(
 								"A picture of this location. It travels with every framing capture so a render takes its materials, palette and lighting from the real place.",
-								"이 장소의 사진입니다. 모든 프레이밍 캐프처에 함께 실려 재질·색감·조명을 실제 장소에서 가져옵니다.",
+								"이 장소의 사진입니다. 모든 프레이밍 캡처에 함께 실려 재질·색감·조명을 실제 장소에서 가져옵니다.",
 							)}
 							value={props.environmentImage}
 							alt={ko("Environment reference", "환경 참고 이미지")}

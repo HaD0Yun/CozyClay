@@ -19,7 +19,6 @@ const CORE_ASSETS = [
 	APP_SHELL,
 	"/app/index.html",
 	"./manifest.webmanifest",
-	"./icons/icon-32.png",
 	"./icons/icon-192.png",
 	"./icons/icon-512.png",
 	"./icons/icon-maskable-512.png",
