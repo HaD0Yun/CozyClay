@@ -14,7 +14,6 @@ import { objectBoxesAt, partsOf } from "./object-pose.js";
 import { resolveBone } from "./bones.js";
 import { add, sub, scale, dot, cross, norm, apply, quatFromMat } from "./compiler/math.js";
 
-export const VIEW_NAMES = ["front", "side", "three-quarter", "top"];
 // FOV is the widest lens; a deep subject (a body seen from above) moves the camera back until
 // its far side is at most DEPTH_RATIO times as far as its near side, and the lens narrows (down
 // to MIN_FOV) to fill the tile again, so perspective stays mild.
