@@ -4210,7 +4210,7 @@ input[type=range]::-moz-range-thumb {
 	box-shadow: 0 0 10px rgba(255, 160, 90, 1), 0 0 0 2px rgba(255, 160, 90, .35);
 }
 
-/* A baked correction span — Fix Collisions or AutoPhysics keying every frame
+/* A baked correction span — a correction keying every frame
    of 44–86 — is one BAR, not 43 diamonds. Same lane, same accent family; the
    end caps carry the diamond shape so the run still reads as keys. */
 .tl-ik-run {
