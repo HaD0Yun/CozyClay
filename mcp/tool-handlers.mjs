@@ -248,8 +248,8 @@ const stage = () => scene().stage;
  * list, so "character A/B" is simply index 0/1 of this array. */
 const cast = () => stage().characters;
 
-/** Resolve a character by id, by the A/B/C letter the studio labels them with,
- * or by 1-based slot. Returns null when nothing matches. */
+/** Resolve a character by id, by its A/B/C letter (an MCP handle by cast position;
+ * the studio itself numbers them), or by 1-based slot. Returns null when nothing matches. */
 const findCharacter = (ref) => {
 	const list = cast();
 	if (ref === undefined || ref === null || ref === "") return list[0] ?? null;
@@ -269,7 +269,7 @@ const liveCharacterId = async ref => {
 	return findCharacter(ref)?.id ?? ref;
 };
 
-/** The studio labels the cast A, B, C… by position. */
+/** The MCP handle of a cast member: A, B, C… by position (the studio itself numbers them). */
 const letterFor = (character) => String.fromCharCode(65 + cast().indexOf(character));
 
 /** What to say when a character reference does not resolve. */

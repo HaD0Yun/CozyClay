@@ -1,7 +1,7 @@
 // verify_result's visual: the one image the agent asks to see. "frame" and "plan" are captures;
 // "contact_sheet" tiles frames spread evenly, picked from the installed take's beats
 // (frames: "beats") or named (frames: [f, ...]), seen by the shot camera or by views of its own
-// (views, focus, trail); "trace" plots hand heights and distances of the take over the range (C11).
+// (views, focus, trail); "closeup" shows 1-4 objects from three cameras of its own; "trace" plots hand heights and distances of the take over the range (C11).
 // The beats, the views and the trace read one lenient compile of the take's stored spec, as motion.qa does.
 import { StudioProtocolError } from "./studio-agent-protocol.js";
 import { buildContactSheet, paintDots, sampleContactSheetFrames, sheetGrid, viewTileSide } from "./studio-contact-sheet.js";

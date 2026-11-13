@@ -1,4 +1,4 @@
-// V4Context (design 2.2): what the v4 tools of one Studio conversation share. The engine builds it
+// V4Context: what the v4 tools of one Studio conversation share. The engine builds it
 // on the first turn and re-binds the per-turn parts (studio calls, records, signal) on every turn.
 import { skeletonFor } from "../../../src/motion3/rigs/index.js";
 
