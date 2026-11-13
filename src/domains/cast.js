@@ -601,7 +601,7 @@ export function useCast(appContext) {
 			return;
 		}
 
-		appContext.notify(ko("Root path on — click the set floor in the Shot view to drop waypoints; Subject 1 is the frame 0 start", "루트 경로 켜짐 — 샷 뷰의 세트 바닥을 클릭해 웨이포인트를 놓으세요. 인물 1이 0프레임 시작점입니다"));
+		appContext.notify(ko("Root path on — click the set floor in the Shot view to drop waypoints; Character 1 is the frame 0 start", "루트 경로 켜짐 — 샷 뷰의 세트 바닥을 클릭해 웨이포인트를 놓으세요. 인물 1이 0프레임 시작점입니다", "根路径已开启 — 在镜头视图中点击布景地面放置路径点；角色 1 是第 0 帧的起点"));
 	}
 
 	function openStudio(charId) {

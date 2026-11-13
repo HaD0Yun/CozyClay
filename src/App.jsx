@@ -2447,7 +2447,7 @@ export default function App() {
 					onEvent: (name, payload) => {
 						if (name !== "motion_job" || typeof payload.taskId !== "string") return;
 						if (["failed", "cancelled", "expired"].includes(payload.status)) {
-							setToast(payload.outcome?.message ?? `Motion job ${payload.status}.`);
+							setToast(payload.outcome?.message ?? ko(`Motion job ${payload.status}.`, `모션 작업이 중단됐어요 (${payload.status}).`, `动作任务已中止（${payload.status}）。`));
 						}
 					},
 				});

@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { ko } from "./locale.js";
 import { SHOT_ASPECT_RATIOS } from "./shot.js";
 import {
-	SCENES_QUARANTINE_KEY,
 	createSceneDocument,
 	loadSceneDocumentFromStorage,
 } from "./scenes.js";
@@ -27,8 +26,8 @@ export const SHOT_ASPECT_PRESETS = Object.freeze({
 	"9:16": Object.freeze({ label: "9:16", aspect: SHOT_ASPECT_RATIOS["9:16"], width: 1080, height: 1920 }),
 	"1:1": Object.freeze({ label: "1:1", aspect: SHOT_ASPECT_RATIOS["1:1"], width: 1080, height: 1080 }),
 	"4:3": Object.freeze({ label: "4:3", aspect: SHOT_ASPECT_RATIOS["4:3"], width: 1440, height: 1080 }),
-	"12:7": Object.freeze({ label: "12:7", aspect: SHOT_ASPECT_RATIOS["12:7"], width: 1536, height: 896, title: "12:7 video-inbetweener ratio" }),
-	"fal 480P": Object.freeze({ label: "fal 480P", aspect: SHOT_ASPECT_RATIOS["fal 480P"], width: 1664, height: 960, title: "Fal H3 480P canvas (832x480)" }),
+	"12:7": Object.freeze({ label: "12:7", aspect: SHOT_ASPECT_RATIOS["12:7"], width: 1536, height: 896, title: ko("Widescreen 12:7", "와이드스크린 12:7", "宽屏 12:7") }),
+	"fal 480P": Object.freeze({ label: "fal 480P", aspect: SHOT_ASPECT_RATIOS["fal 480P"], width: 1664, height: 960, title: ko("480p widescreen (832x480)", "480p 와이드 (832x480)", "480p 宽屏（832x480）") }),
 });
 // Per-character rig model: the stage entry's `model` is the FBX file stem in
 // public/models. Root-absolute on purpose: the studio is served from "/app/"
@@ -154,7 +153,7 @@ export function loadSceneStartup() {
 			// funnel's "scene created" step never fires for a brand-new room.
 			startupCreatedScene: result.status === "absent" || result.status === "corrupt",
 			toast: result.status === "corrupt"
-				? ko(`Saved scenes were unreadable — starting fresh; the old data is kept under ${SCENES_QUARANTINE_KEY}`, `저장된 장면을 읽을 수 없어 새로 시작합니다. 기존 데이터는 ${SCENES_QUARANTINE_KEY}에 보관했어요.`, `无法读取已保存的场景 — 将重新开始；旧数据保留在 ${SCENES_QUARANTINE_KEY} 下。`)
+				? ko("Saved scenes were unreadable — starting fresh; your previous scenes were kept for recovery", "저장된 장면을 읽을 수 없어 새로 시작합니다. 이전 장면은 복구용으로 보관했어요.", "无法读取已保存的场景 — 将重新开始；之前的场景已保留以便恢复。")
 				: result.dropped > 0
 					? ko(`${result.dropped} saved scene(s) could not be restored`, `저장된 장면 ${result.dropped}개를 복원하지 못했어요`, `${result.dropped} 个已保存的场景无法恢复`)
 					: null,
