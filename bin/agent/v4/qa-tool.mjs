@@ -1,10 +1,10 @@
-// The v4 qa tool: the old engine's motion QA on the current raw take (src/motion-v4/qa/run.js), as
+// The v4 qa tool: the motion.compile compiler's QA (src/motion3) on the current raw take (src/motion-v4/qa/run.js), as
 // information only. It returns no ok and no gate, and nothing waits on it: the model reads it as hints
 // and checks them with measure and render.
 import { runV4Qa } from "../../../src/motion-v4/qa/run.js";
 
 const DESCRIPTION = [
-	"The old engine's QA. On the bench it agreed with the owner on 1 of 10 tasks and went the other way on 5. Read it as hints and check what it says with measure and render.",
+	"The QA of the motion.compile compiler (src/motion3). On the bench it agreed with the owner on 1 of 10 tasks and went the other way on 5. Read it as hints and check what it says with measure and render.",
 	"It runs on the current track (call track set first; no commit needed) and never blocks anything.",
 	"It reports: QA groups (kind, subject, frames, worst value and its frame);",
 	"impacts: POP frames that end a ballistic air run (the hips fall at g within 15%, a sole, palm, knee or the buttocks within 5 cm of a surface), a landing and not a pop;",

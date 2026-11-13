@@ -994,7 +994,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 			"remove_character",
 			{
 				title: "Remove a character",
-				description: "Take a character out of the cast. The last remaining character cannot be removed.",
+				description: "Take a character out of the cast. The last character can go too: an empty cast is a legal stage.",
 				inputSchema: {
 					character: z.string().describe('which character — letter, slot number or id'),
 				},
@@ -1480,7 +1480,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 			{
 				title: "Render the AI prompt for this shot",
 				description:
-					"Turn the current camera, cast and set into a prompt for an AI image or video model. " +
+					"Turn the current camera and cast into a prompt for an AI image or video model. " +
 					"The prompt carries the real framing — shot size, lens, angle and level — so the " +
 					"generated frame matches the blocking.",
 				inputSchema: {
@@ -1503,8 +1503,8 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 						.string()
 						.default(CAMERA_MOVES[0])
 						.describe(`camera move. Known: ${CAMERA_MOVES.filter((m) => m !== "Custom…").join(", ")}`),
-					pose_phrase: z.string().default("").describe("what character A is doing"),
-					pose2_phrase: z.string().default("").describe("what character B is doing"),
+					pose_phrase: z.string().default("").describe("what the framed character is doing"),
+					pose2_phrase: z.string().default("").describe("what the next visible character in cast order is doing"),
 				},
 			},
 			async ({ mode, model, environment, style, camera_move, pose_phrase, pose2_phrase }) => {
