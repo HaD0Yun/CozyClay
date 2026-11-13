@@ -4069,7 +4069,7 @@ export default function App() {
 			cameraMove: movePlan || blockMove ? CUSTOM_MOVE : cameraMove,
 			customMove: movePlan?.phrase ?? blockMove ?? customMove,
 			hasCharSheet,
-			hasEnvSheet,
+			hasEnvSheet, aspect: shotAspectKey,
 		});
 		let frame = null;
 		let frameB = null;

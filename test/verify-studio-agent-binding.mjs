@@ -109,7 +109,7 @@ function fixture(options={}) {
   moveSequence:{fromShot,phrase:'a slow push-in toward the subject'},followTrack:null,subjectTrack:null,fovDeg:40,charA:{x:0,z:0,rot:0},
   // App's prompt cast comes from the real helper; the first fixture character stands in with a description and pose.
   promptSubjects:(cast,fallback)=>promptSubjects(cast.map((c,i)=>i?c:{...c,subject:'a woman in a red coat',pose:{prompt:'arms crossed'}}),fallback),showB:false,poseA:{prompt:'arms crossed'},poseB:null,environment:stage.environment,style:stage.style,
-  cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
+  cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotAspectKey:'16:9',shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
   captureFramingPng:framing=>{captures.push(framing);return `data:image/png;base64,${btoa(JSON.stringify(framing.pos))}`;},captureRef:ref(null),bufferToPng:()=>null,
   navigator:{clipboard:{writeText:async text=>{clipboard.push(text);}}}};
  const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,...characterKind,...characterNames,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
