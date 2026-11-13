@@ -126,7 +126,6 @@ const HELP = `cozyclay - browser-based 3D staging studio
   cclay update --off|--on   stop or resume update notices (launch line, Studio chip)
   npx cozyclay --port 5200  serve on another port
   npx cozyclay --no-open    do not open a browser
-  npx cozyclay --scene <id> open the studio on a bundled starter scene
   npx cozyclay --no-star    never ask about starring the repo
   npx cozyclay --no-update-check
                             do not look for a newer release
