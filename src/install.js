@@ -28,6 +28,7 @@ export function setupInstall() {
 	const copy = install.querySelector("[data-install-copy]");
 	const status = document.getElementById("install-status");
 	const command = document.getElementById("install-command");
+	if (mobile) document.documentElement.dataset.touch = "";
 	if (detected) document.querySelectorAll("[data-install-label]").forEach((label) => { label.textContent = `Install on ${OS_NAME[detected]}`; });
 
 	const updateDownload = () => {
@@ -57,6 +58,9 @@ export function setupInstall() {
 		install.querySelectorAll("[data-install-step]").forEach((panel) => { panel.hidden = panel.dataset.installStep !== String(step); });
 		document.getElementById("install-progress").textContent = `Step ${step} of 2 · ${step === 1 ? "Install Node.js" : "Launch CozyClay"}`;
 		resetCopy();
+		// the Node.js steps are the manual path on Windows (the installer leads there); going to a step shows them
+		if (focus) install.dataset.manual = "";
+		else delete install.dataset.manual;
 		if (focus) install.querySelector(`[data-install-step="${step}"] h3`).focus();
 	};
 	const loadInstallers = async () => {
@@ -110,6 +114,7 @@ export function setupInstall() {
 			if (request === copyRequest) copy.disabled = false;
 		}
 	});
+	install.querySelectorAll("[data-install-manual]").forEach((button) => button.addEventListener("click", () => showStep(1)));
 	document.querySelectorAll("[data-install-open]").forEach((button) => button.addEventListener("click", open));
 	const openFromHash = () => { if (location.hash === "#install") open(); };
 	openFromHash();

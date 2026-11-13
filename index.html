@@ -153,6 +153,10 @@
       .install-steps .btn { justify-self: start; gap: 8px; }
       .install-steps [hidden] { display: none; }
       .install-steps[hidden] { display: none; }
+      /* Windows leads with the installer and macOS with one pasted line; the Node.js steps wait behind "Set up with Node.js" */
+      .install-direct, .install[data-manual] .install-direct { display: none; }
+      .install[data-os="win"]:not([data-manual]) [data-install-direct="win"], .install[data-os="mac"]:not([data-manual]) [data-install-direct="mac"] { display: flex; }
+      .install:is([data-os="win"], [data-os="mac"]):not([data-manual]) :is(.install-progress, [data-install-step]) { display: none; }
       .install-steps .code { padding: 0; }
       .install-steps .code pre { padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
       .install-steps code:focus-visible { outline: 2px solid var(--clay); outline-offset: 4px; }
@@ -193,6 +197,8 @@
       .pitch { position: absolute; z-index: 2; left: 32px; bottom: calc(var(--seq-h) + 32px); width: min(500px, 42%); pointer-events: none; }
       .pitch h1 { font-size: clamp(40px, 4vw, 60px); line-height: 1.04; }
       .pitch p { margin-top: 16px; max-width: 30em; color: #d6d3cb; font-size: 18px; }
+      /* phones and tablets (html[data-touch], set by src/install.js) cannot install: the page stays as it is, without Install */
+      [data-touch] :is([data-install-open], p:has([data-install-open])) { display: none; }
       .pitch-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; pointer-events: auto; }
 
       /* The strip under the shot reads like the studio's Sequencer: transport,
@@ -578,7 +584,7 @@ npm run dev</code></pre>
           <div class="install-head">
             <div>
               <h2 id="install-title">Install CozyClay</h2>
-              <p>Run the Studio on your computer with the AI agent. Set up Node.js once, then launch CozyClay in your browser.</p>
+              <p>Run the Studio on your computer with the AI agent.</p>
             </div>
             <button type="button" class="install-close" data-install-close aria-label="Close">&times;</button>
           </div>
@@ -587,6 +593,20 @@ npm run dev</code></pre>
             <button type="button" aria-pressed="false" data-os="win">Windows</button>
             <button type="button" aria-pressed="false" data-os="linux">Linux</button>
           </div>
+          <section class="install-steps install-direct" data-install-direct="mac" aria-labelledby="install-mac-title">
+              <h3 id="install-mac-title">Download and open</h3>
+              <p>Open the file, drag CozyClay to Applications, then open CozyClay. The Studio opens in its own window.</p>
+              <a class="btn primary" data-installer-download href="https://github.com/HaD0Yun/cozyclay-releases/releases/latest/download/CozyClay.dmg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg><span>Download CozyClay for macOS</span></a>
+              <p class="small">For Apple silicon and Intel Macs, macOS 12 or later. The first start downloads CozyClay and can take a few minutes.</p>
+              <button type="button" class="linkish install-back" data-install-manual>Set up with Node.js and a terminal instead</button>
+          </section>
+          <section class="install-steps install-direct" data-install-direct="win" aria-labelledby="install-direct-title">
+              <h3 id="install-direct-title">Download and run</h3>
+              <p>One file. It brings everything CozyClay needs, puts a shortcut on your desktop and opens the Studio in your browser.</p>
+              <a class="btn primary" data-installer-download href="https://github.com/HaD0Yun/CozyClay/releases/download/windows-installer/CozyClay-Setup.exe"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg><span>Download CozyClay for Windows</span></a>
+              <p class="small">If Windows shows "Windows protected your PC", choose More info, then Run anyway. The first start downloads CozyClay and can take a few minutes.</p>
+              <button type="button" class="linkish install-back" data-install-manual>Set up with Node.js and a terminal instead</button>
+          </section>
           <p class="install-progress" id="install-progress" aria-live="polite">Step 1 of 2 · Install Node.js</p>
           <section class="install-steps" data-install-step="1" aria-labelledby="install-runtime-title">
               <h3 id="install-runtime-title" tabindex="-1">Install Node.js</h3>

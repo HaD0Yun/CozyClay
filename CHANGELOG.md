@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Site
+
+- On macOS the Install dialog leads with one download, `CozyClay.dmg`: a
+  signed, notarized app that opens the Studio in its own window, with no
+  Terminal. `cozyclay.org/install.sh` stays for a one-line install. (#1190)
+- On a phone the landing page no longer offers Install. (#1189)
+- On Windows the Install dialog leads with one download, `CozyClay-Setup.exe`;
+  the Node.js and terminal steps stay one click away. (#1188)
+
 Motion
 
 - Sample motions in the Motion tab: one click installs a walk or a flip on the
