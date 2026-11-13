@@ -28,7 +28,7 @@
 	50% { box-shadow: 0 0 0 3px var(--accent), 0 0 0 8px rgba(58, 124, 191, 0); }
 }
 
-/* The Studio-native camera tutorial (#206): a strip of seven step chips and
+/* The Studio-native camera tutorial (#206): a strip of eight step chips and
    one hint card, hung under the 27px viewport titlebar, left of the Top-View
    inset (right:15px). The overlay is transparent to the pointer — every step
    is finished by working the stage underneath it — so only the close button
