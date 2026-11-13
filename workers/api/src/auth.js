@@ -76,7 +76,7 @@ function safeNextPath(value) {
   return candidate;
 }
 
-async function issueSession(accountId, env, options = {}) {
+export async function issueSession(accountId, env, options = {}) {
   const now = Math.floor(Number(options.now ?? Date.now()) / 1000);
   const exp = now + POLICY.SESSION_TTL_DAYS * 86_400;
   const environment = options.environment ?? environmentFor(env);
