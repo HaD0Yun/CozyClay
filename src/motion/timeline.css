@@ -735,44 +735,6 @@
 	background: var(--select, #e8a33d);
 }
 
-.v2-sequencer .tl-chip {
-	top: var(--tl-clip-inset, 7px);
-	height: calc(var(--tl-track-row-height, 38px) - (var(--tl-clip-inset, 7px) * 2));
-	transform: none;
-	left: calc(var(--tl-f-start) * 100% + var(--tl-clip-inset, 7px));
-	width: max(var(--tl-min-clip-width, 1px), calc((var(--tl-f-end) - var(--tl-f-start)) * 100% - (var(--tl-clip-inset, 7px) * 2)));
-	padding: 0 var(--sp-1, 8px);
-	border: 0;
-	border-radius: var(--r-1, 4px);
-	background: var(--tl-prompt-clip, #233149);
-	color: var(--tl-prompt-clip-text, #b9c9ea);
-	font-size: var(--tl-font-secondary, 11px);
-	font-weight: 500;
-	box-shadow: none;
-}
-
-.v2-sequencer .tl-chip.selected {
-	background: var(--surface-active, #26262a);
-	outline: var(--tl-divider-width, 1px) solid var(--select, #e8a33d);
-	box-shadow: none;
-}
-
-.v2-sequencer .tl-chip-input {
-	padding: 0 var(--tl-control-gap, 2px);
-	color: inherit;
-	font: inherit;
-}
-
-.v2-sequencer .tl-chip-input::placeholder {
-	color: var(--text-2, #9b9ba1);
-}
-
-.v2-sequencer .tl-chip.ghost {
-	background: var(--field, #0f0f11);
-	color: var(--text-3, #636369);
-	box-shadow: none;
-}
-
 /* Shots cut against each other: a hairline between neighbours, not a wide gutter, so a run of cuts reads as
    one sequence. Free-camera time between shots still shows as its own gap. */
 .v2-sequencer .tl-shot-block {
@@ -1191,19 +1153,16 @@
 	bottom: var(--tl-control-gap, 2px);
 }
 
-.v2-sequencer .sg-shot .sg-line,
-.v2-sequencer .sg-cam .sg-line {
+.v2-sequencer .sg-shot .sg-line {
 	stroke: var(--camera, #a78bfa);
 }
 
-.v2-sequencer .sg-shot .sg-body,
-.v2-sequencer .sg-cam .sg-body {
+.v2-sequencer .sg-shot .sg-body {
 	background: var(--tl-transparent, transparent);
 	border: 0;
 }
 
-.v2-sequencer .sg-shot .sg-fill,
-.v2-sequencer .sg-cam .sg-fill {
+.v2-sequencer .sg-shot .sg-fill {
 	fill: var(--select-tint, rgba(232, 163, 61, .14));
 }
 

@@ -61,7 +61,7 @@ let qaHandle = null;
 // The Studio mounts the Agent pane hidden behind the Inspector; switch to it so
 // every scenario screenshot shows the conversation and its receipts.
 async function showAgentPane() {
-  await evaluate(`(() => { const button = document.querySelector('button.inspector-agent-switch[aria-pressed]'); if (button && button.getAttribute('aria-pressed') !== 'true') button.click(); })()`);
+  await evaluate(`(() => { document.querySelector('button.studio-agent-bar')?.click(); })()`);
   await waitFor(`(() => { const pane = document.querySelector('aside[aria-label="Agent"]'); return !!pane && !pane.hidden && pane.offsetParent !== null; })()`, 15_000).catch(() => null);
 }
 async function readHandle() {
