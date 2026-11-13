@@ -1491,8 +1491,8 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 						.describe('the real setting, e.g. "a rain-slicked Seoul side street at night"'),
 					style: z
 						.string()
-						.default("cinematic film still, natural light")
-						.describe('look and grade, e.g. "shot on 35mm film, warm practical light"'),
+						.default("")
+						.describe('look and grade, e.g. "shot on 35mm film, warm practical light"; leave it out to add none'),
 					camera_move: z
 						.string()
 						.default(CAMERA_MOVES[0])
