@@ -36,6 +36,23 @@ function shotExtras(shot) {
 	};
 }
 
+function rebaseRecordedAim(camera, delta) {
+	if (!camera?.aimTake || delta === 0) return camera;
+	const startFrame = camera.aimTake.startFrame - delta;
+	return createCameraBlock({
+		...camera,
+		aimTake: {
+			startFrame: Math.max(0, startFrame),
+			samples: camera.aimTake.samples.slice(Math.max(0, -startFrame)),
+		},
+		railFollow: camera.railFollow?.mode === "range" ? {
+			...camera.railFollow,
+			startFrame: Math.max(0, camera.railFollow.startFrame - delta),
+			endFrame: Math.max(0, camera.railFollow.endFrame - delta),
+		} : camera.railFollow,
+	});
+}
+
 function shotById(shots, shotId) {
 	return requireStableItem(shots, shotId, "shots");
 }
@@ -109,7 +126,7 @@ export function cutAtFrame(shots, shotId, frame, currentFraming) {
 	const downstream = { ...createShot(`Shot ${shots.length + 1}`, cutFrame, source.endFrame, [
 		...source.cameraKeys.filter((key) => key.frame >= cutFrame),
 		{ id: createStableItemId("camera-key"), frame: cutFrame, framing: currentFraming },
-	], source.camera), ...shotExtras(source) };
+	], rebaseRecordedAim(source.camera, cutFrame - source.startFrame)), ...shotExtras(source) };
 	return [...shots.slice(0, index), upstream, downstream, ...shots.slice(index + 1)];
 }
 
@@ -153,7 +170,11 @@ export function resizeShot(shots, shotId, edge, rawFrame, frameCount) {
 	const startFrame = edge === "start" ? Math.min(frame, shot.endFrame) : shot.startFrame;
 	const endFrame = edge === "end" ? Math.max(frame, shot.startFrame) : shot.endFrame;
 	if ((startFrame === shot.startFrame && endFrame === shot.endFrame) || overlaps(shots, startFrame, endFrame, shotId)) return shots;
-	return updateStableItem(shots, shotId, (entry) => ({ ...entry, startFrame, endFrame, cameraKeys: uniqueKeys(entry.cameraKeys, startFrame, endFrame) }), "shots")
+	return updateStableItem(shots, shotId, (entry) => ({
+		...entry, startFrame, endFrame,
+		camera: rebaseRecordedAim(entry.camera, startFrame - entry.startFrame),
+		cameraKeys: uniqueKeys(entry.cameraKeys, startFrame, endFrame),
+	}), "shots")
 		.sort((a, b) => a.startFrame - b.startFrame);
 }
 

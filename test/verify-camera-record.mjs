@@ -6,7 +6,7 @@ import { buildShotCameraTracks } from "../src/camera-direction.js";
 import { sampleAt } from "../src/sample-at.js";
 import { createShotAuthoringDocument, serializeShotAuthoring, loadShotAuthoring } from "../src/shot-authoring.js";
 import { serializeUsdCamera } from "../src/usd-camera.js";
-import { duplicateShot, reorderShot } from "../src/cuts.js";
+import { createShot, cutAtFrame, duplicateShot, reorderShot, resizeShot } from "../src/cuts.js";
 
 const tolerance = 1e-9;
 const near = (a, b, message) => assert.ok(Math.abs(a - b) <= tolerance, `${message}: ${a} != ${b}`);
@@ -56,6 +56,78 @@ near(sampleAt(movedScene, moved, 82).camera.yaw, samples[0].yaw, "local take tra
 assert.notEqual(createCameraBlock(recorded.camera).aimTake.samples, recorded.camera.aimTake.samples, "clones never share sample arrays");
 assert.equal("aimTake" in removeCameraRail(recorded.camera), false, "no rail means no rail take");
 console.log("PASS save/reload, replace-only-take, discard, duplicate and shot movement");
+
+for (const offset of [0, 7]) {
+	const editSamples = Array.from({ length: offset ? 38 : 60 }, (_, i) => ({ yaw: i / 100, pitch: -i / 200 }));
+	const source = createShot("Edit take", 10, 69,
+		shot.cameraKeys.map((key, i) => ({ ...key, frame: i ? 69 : 10 })), {
+		...shot.camera,
+		railFollow: { mode: "range", startFrame: offset, endFrame: offset + editSamples.length - 1 },
+		aimTake: { startFrame: offset, samples: editSamples },
+	});
+	const editScene = { ...scene, cameraTrack: buildShotCameraTracks({ shots: [withoutTake(source)], subjectTrack, fps: 24 }) };
+	const first = source.startFrame + offset, last = first + editSamples.length - 1;
+	const check = (rows, label) => {
+		for (const row of rows) {
+			for (let frame = row.startFrame; frame <= row.endFrame; frame++) {
+				const actual = sampleAt(editScene, row, frame).camera;
+				if (frame >= first && frame <= last) {
+					assert.ok(row.camera.aimTake, `${label}: retained recording is not deleted`);
+					assert.ok(actual, `${label}: retained frame ${frame} has a camera`);
+					const expected = editSamples[frame - first];
+					near(actual.yaw, expected.yaw, `${label}: retained frame ${frame} yaw`);
+					near(actual.pitch, expected.pitch, `${label}: retained frame ${frame} pitch`);
+					const original = sampleAt(editScene, source, frame).camera;
+					assert.deepEqual(actual.pos, original.pos, `${label}: retained rail position`);
+					near(actual.fovDeg, original.fovDeg, `${label}: retained lens`);
+					assert.equal(actual.rollDeg, original.rollDeg, `${label}: retained roll`);
+				} else {
+					assert.deepEqual(actual, sampleAt(editScene, withoutTake(row), frame).camera,
+						`${label}: frame ${frame} outside the recording stays unmodified`);
+				}
+			}
+		}
+	};
+	const verifyEdit = (rows, label) => {
+		check(rows, label);
+		const reloaded = loadShotAuthoring(serializeShotAuthoring({ ...base, shots: rows })).shots;
+		check(reloaded, `${label} after save/reload`);
+		const rebuiltScene = { ...editScene, cameraTrack: buildShotCameraTracks({ shots: reloaded, subjectTrack, fps: 24 }) };
+		for (const row of reloaded) {
+			for (let frame = Math.max(row.startFrame, first); frame <= Math.min(row.endFrame, last); frame++) {
+				const actual = sampleAt(rebuiltScene, row, frame).camera;
+				assert.ok(actual, `${label}: rebuilt track retains frame ${frame}`);
+				near(actual.yaw, editSamples[frame - first].yaw, `${label}: rebuilt yaw`);
+				near(actual.pitch, editSamples[frame - first].pitch, `${label}: rebuilt pitch`);
+			}
+		}
+	};
+	for (const frame of [40, 11, 20, 60, 69]) {
+		const split = cutAtFrame([source], source.id, frame, sampleAt(editScene, source, frame).camera);
+		assert.equal(split.length, 2, `offset ${offset} split at ${frame} creates both halves`);
+		verifyEdit(split, `offset ${offset} split at ${frame}, both halves`);
+	}
+	for (const frame of [0, 12, 17, 30, 54, 60, 69]) {
+		verifyEdit(resizeShot([source], source.id, "start", frame, 144), `offset ${offset} trim start to ${frame}`);
+	}
+	for (const frame of [10, 19, 30, 54, 60]) {
+		verifyEdit(resizeShot([source], source.id, "end", frame, 144), `offset ${offset} trim end to ${frame}`);
+	}
+	const short = resizeShot([source], source.id, "end", 10, 144)[0];
+	const off = { ...short, camera: updateCameraBlock(short.camera, { railFollow: { mode: "off" } }) };
+	assert.deepEqual(sampleAt(editScene, off, 10), sampleAt(editScene, withoutTake(off), 10), "short retained takes respect explicit rail off");
+	const trimmed = resizeShot([source], source.id, "start", 30, 144)[0];
+	const movedTrim = reorderShot([trimmed], trimmed.id, 80, 144)[0];
+	const copiedTrim = duplicateShot([trimmed], trimmed.id, 144).find(row => row.id !== trimmed.id);
+	for (const row of [movedTrim, copiedTrim]) {
+		assert.deepEqual(row.camera.aimTake, trimmed.camera.aimTake, "move and duplicate retain the edited local take");
+		const frame = row.startFrame + row.camera.aimTake.startFrame;
+		const travelScene = { ...editScene, cameraTrack: buildShotCameraTracks({ shots: [withoutTake(row)], subjectTrack, fps: 24 }) };
+		near(sampleAt(travelScene, row, frame).camera.yaw, trimmed.camera.aimTake.samples[0].yaw, "edited take travels with its shot");
+	}
+	assert.deepEqual(source.camera.aimTake, { startFrame: offset, samples: editSamples }, "edits never mutate the source take");
+}
+console.log("PASS split halves, nonzero offsets, trim boundaries, save/reload and edited take movement");
 
 for (const bad of [
 	{ startFrame: -1, samples }, { startFrame: 0.5, samples }, { startFrame: 0, samples: [] },
