@@ -69,7 +69,7 @@ export async function cameraBrowser() {
 		assert.equal(result.errorText, undefined, "navigation succeeds");
 		await loaded;
 	};
-	const arm = (condition) => evaluate(`(() => {
+	const arm = (condition, timeoutMs = 30000) => evaluate(`(() => {
 		const check = () => !!(${condition});
 		window.__qaCameraWait = new Promise((resolve, reject) => {
 			const observer = new MutationObserver(probe);
@@ -79,7 +79,7 @@ export async function cameraBrowser() {
 				document.removeEventListener('pointerlockchange', probe);
 			};
 			function probe() { if (check()) { cleanup(); resolve(true); } }
-			const timer = setTimeout(() => { cleanup(); reject(new Error('camera state timeout: ' + ${JSON.stringify(condition)})); }, 30000);
+			const timer = setTimeout(() => { cleanup(); reject(new Error('camera state timeout: ' + ${JSON.stringify(condition)})); }, ${timeoutMs});
 			observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
 			window.addEventListener('qa:camera-state', probe);
 			document.addEventListener('pointerlockchange', probe);

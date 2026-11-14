@@ -22,8 +22,6 @@ observer.send(JSON.stringify({ id: 1, method: "Runtime.enable" }));
 try {
 	await b.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 	await b.seed();
-	await b.navigate(b.base.href);
-	await b.ready();
 	// Use the mounted AppContext provider, not a second command bus.
 	await b.evaluate(`(() => {
 		const element = document.querySelector('.app');
@@ -34,24 +32,20 @@ try {
 		window.__proxyContext = context;
 		window.__proxyBus = { bus: context.bus, get characters() { return context.live.characters; } };
 	})()`);
-	await b.change("!!document.querySelector('[data-node-id=\"characterB\"]')", () => b.evaluate(`window.__proxyBus.bus.run('character.add', { character: { id: 'qa-proxy', model: 'proxy-figure', tint: '#cf946e', posture: 'stand', x: 0, z: 0, rot: 0 } })`));
+	await b.change("!!document.querySelector('[data-node-id=\"character:qa-proxy\"]')", () => b.evaluate(`window.__proxyBus.bus.run('character.add', { character: { id: 'qa-proxy', model: 'proxy-figure', tint: '#cf946e', posture: 'stand', x: 0, z: 0, rot: 0 } })`));
 	assert.equal(await b.evaluate("window.__proxyBus.characters.find(c => c.id === 'qa-proxy')?.model"), "proxy-figure");
 	await b.evaluate(`(() => {
-		const canvas = document.querySelector('canvas');
-		window.__proxyScene = canvas.__r3f?.root?.getState?.().scene;
+		let root = window.__cozyclay.rigA;
+		while (root.parent) root = root.parent;
+		window.__proxyScene = root;
 	})()`);
-	if (!await b.evaluate("!!window.__proxyScene")) {
-		await b.evaluate(`(async () => {
-			const { _roots } = await import('/node_modules/.vite/deps/@react-three_fiber.js');
-			window.__proxyScene = _roots.get(document.querySelector('canvas')).store.getState().scene;
-		})()`);
-	}
+	assert.equal(await b.evaluate("window.__proxyScene.isScene"), true, "inspect the renderer-owned scene, not a second module's root map");
 	await b.evaluate(`(async () => {
 		const THREE = await import('/node_modules/.vite/deps/three.js');
 		window.__proxyThree = THREE;
 		window.__proxyRoot = () => {
 			let found;
-			window.__proxyScene.traverse(node => { if (node.userData.characterPick === 'B') found = node; });
+			window.__proxyScene.traverse(node => { if (node.userData.characterPick === 'qa-proxy') found = node; });
 			return found;
 		};
 		window.__proxyBounds = () => {
@@ -79,11 +73,11 @@ try {
 		const r = window.__cozyclay.mainPane.getBoundingClientRect();
 		return { x: r.left + (p.x + 1) * r.width / 2, y: r.top + (1 - p.y) * r.height / 2 };
 	})()`);
-	await b.change("document.querySelector('[data-node-id=\"characterB\"]')?.getAttribute('aria-selected') === 'true' || document.querySelector('[data-node-id=\"characterB\"]')?.classList.contains('selected')", async () => {
+	await b.change("document.querySelector('[data-node-id=\"character:qa-proxy\"]')?.getAttribute('aria-selected') === 'true' || document.querySelector('[data-node-id=\"character:qa-proxy\"]')?.classList.contains('selected')", async () => {
 		await b.mouse("mousePressed", { ...point, button: "left", buttons: 1, clickCount: 1 });
 		await b.mouse("mouseReleased", { ...point, button: "left", buttons: 0, clickCount: 1 });
 	});
-	console.log("PASS clicking proxy mesh selects characterB row");
+	console.log("PASS clicking proxy mesh selects its stable character row");
 	await b.arm("window.__characterGizmoHandles?.().some(h => h.axis === 'x')");
 	await b.settled();
 	for (const axis of ["x", "z"]) {
@@ -176,7 +170,8 @@ try {
 	assert.equal(rangedShot?.startFrame, 0, JSON.stringify(rangedShot));
 	assert.equal(rangedShot?.endFrame, 23, JSON.stringify(rangedShot));
 	const stillVideo = await b.evaluate(`window.__proxyBus.bus.run('export.shotVideo', { shotId: ${JSON.stringify(shotId)} })`);
-	assert.match(stillVideo.message ?? "", /exported · 24 frames/, JSON.stringify(stillVideo));
+	assert.equal(stillVideo.status, "completed", JSON.stringify(stillVideo));
+	assert.equal(stillVideo.output?.frameCount, 24, JSON.stringify(stillVideo));
 	const noPathBytes = await b.evaluate("window.__proxyVideoSizes.at(-1)");
 	assert.ok(Number.isInteger(noPathBytes) && noPathBytes > 0, `no-path sizes=${JSON.stringify(await b.evaluate("window.__proxyVideoSizes"))}`);
 	for (const [frame, position] of [[8, { x: 1, z: 0 }], [16, { x: 1, z: 1 }]]) {
@@ -196,7 +191,8 @@ try {
 	assert.ok(Math.abs(midpoint.puck[2] - 0.5) < 1e-6, JSON.stringify(midpoint));
 	console.log(`PASS root-path midpoint mesh and puck follow ${JSON.stringify(midpoint)}`);
 	const movingVideo = await b.evaluate(`window.__proxyBus.bus.run('export.shotVideo', { shotId: ${JSON.stringify(shotId)} })`);
-	assert.match(movingVideo.message ?? "", /exported · 24 frames/, JSON.stringify(movingVideo));
+	assert.equal(movingVideo.status, "completed", JSON.stringify(movingVideo));
+	assert.equal(movingVideo.output?.frameCount, 24, JSON.stringify(movingVideo));
 	const pathBytes = await b.evaluate("window.__proxyVideoSizes.at(-1)");
 	assert.ok(Number.isInteger(pathBytes) && pathBytes > 0, `path sizes=${JSON.stringify(await b.evaluate("window.__proxyVideoSizes"))}`);
 	assert.notEqual(noPathBytes, pathBytes, `moving mp4 byte size matches no-path export: ${noPathBytes}`);
@@ -206,7 +202,7 @@ try {
 	await b.settled();
 	const rigBefore = await b.evaluate(`(() => {
 		let rig;
-		window.__proxyScene.traverse(node => { if (node.userData.characterPick === 'A' && node.type === 'Group') rig = node; });
+		window.__proxyScene.traverse(node => { if (node.userData.characterPick === 'char-a' && node.type === 'Group') rig = node; });
 		return rig?.getWorldPosition(new window.__proxyThree.Vector3()).toArray() ?? null;
 	})()`);
 	assert.ok(rigBefore, "rigged character root exists");
@@ -216,7 +212,7 @@ try {
 		b.evaluate("window.__proxyBus.bus.run('timeline.seek', { frame: 18 })"));
 	const rigAfter = await b.evaluate(`(() => {
 		let rig;
-		window.__proxyScene.traverse(node => { if (node.userData.characterPick === 'A' && node.type === 'Group') rig = node; });
+		window.__proxyScene.traverse(node => { if (node.userData.characterPick === 'char-a' && node.type === 'Group') rig = node; });
 		return rig?.getWorldPosition(new window.__proxyThree.Vector3()).toArray() ?? null;
 	})()`);
 	assert.deepEqual(rigAfter, rigBefore);
@@ -240,14 +236,14 @@ try {
 	};
 	const workflowMode = "document.querySelector('[data-mode][aria-selected=\"true\"]')?.dataset.mode";
 	const proxyRefusal = "Capsule figures have no rig - Pose mode works on rigged characters only.";
-	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'qa-proxy'", () => b.click('[data-node-id="characterB"]'));
+	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'qa-proxy'", () => b.click('[data-node-id="character:qa-proxy"]'));
 	const modeBefore = await b.evaluate(workflowMode);
 	assert.equal(await b.evaluate("document.querySelector('[data-mode=\"pose\"]').dataset.disabledReason"), proxyRefusal);
 	await b.change(`[...document.querySelectorAll('.toast')].some(t => t.textContent === ${JSON.stringify(proxyRefusal)})`, pressTwo);
 	assert.equal(await b.evaluate(workflowMode), modeBefore, "mode stays after the refusal");
 	console.log(`PASS capsule active + 2 -> toast "${proxyRefusal}"; mode stays ${modeBefore}`);
 	await capture("task-7-proxy-pose-refused");
-	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'char-a'", () => b.click('[data-node-id="characterA"]'));
+	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'char-a'", () => b.click('[data-node-id="character:char-a"]'));
 	assert.equal(await b.evaluate("document.querySelector('[data-mode=\"pose\"]').dataset.disabledReason ?? null"), null);
 	await b.change(`${workflowMode} === 'pose'`, pressTwo);
 	console.log("PASS rig active + 2 -> Pose mode opens");
