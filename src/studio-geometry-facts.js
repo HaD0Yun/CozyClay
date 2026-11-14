@@ -5,6 +5,7 @@
 import { entityWorldBounds } from './studio-agent-commands.js';
 import { isEffectivelyHidden } from './scene-objects.js';
 import { shotAtFrame } from './cuts.js';
+import { shotSubjects } from './shot-subjects.js';
 
 export const GEOMETRY_FACTS_LIMITS = Object.freeze({ shots: 8, subjects: 24, pairs: 24, occluders: 8 });
 /** Closer to the action line than this (m) is "on-axis", neither side. */
@@ -43,15 +44,20 @@ export function sideOfAxis(a, b, p) {
   return Math.abs(offset) < ON_AXIS_M ? 'on-axis' : offset > 0 ? 'left' : 'right';
 }
 
-/** The two characters a camera is read against: the given ids that are visible
- * characters, then the visible characters nearest the camera. Ordered by id, so
- * every shot of the same pair reads the line in the same direction. */
+/** All named visible subjects, or the visible cast for an unnamed geometry observation. */
 export function primarySubjects(ids, cameraPosition, state) {
-  const visible = visibleCharacters(state);
-  const chosen = ids.map(id => visible.find(c => c.id === id)).filter(Boolean);
-  const near = c => Math.hypot(c.x - cameraPosition.x, c.z - cameraPosition.z);
-  const rest = visible.filter(c => !chosen.includes(c)).sort((p, q) => near(p) - near(q));
-  return [...chosen, ...rest].slice(0, 2).sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
+  const subjects = ids.length ? shotSubjects({ subjectIds: ids }, state.characters, null, state.objects) : visibleCharacters(state);
+  return subjects.slice(0, GEOMETRY_FACTS_LIMITS.subjects).sort((p, q) => p.id < q.id ? -1 : p.id > q.id ? 1 : 0);
+}
+
+/** A consistently oriented axis pair, separate from the complete subject list. */
+export function axisSubjects(ids, cameraPosition, state) {
+  const subjects = primarySubjects(ids, cameraPosition, state);
+  const rest = visibleCharacters(state).filter(entry => !subjects.includes(entry));
+  const near = entry => Math.hypot(entry.x - cameraPosition.x, entry.z - cameraPosition.z);
+  if (!ids.length) subjects.sort((p, q) => near(p) - near(q));
+  rest.sort((p, q) => near(p) - near(q));
+  return [...subjects, ...rest].slice(0, 2).sort((p, q) => p.id < q.id ? -1 : p.id > q.id ? 1 : 0);
 }
 
 /** Props whose world box crosses the sight line from the camera to the centre of
@@ -84,7 +90,7 @@ function axisConsistency(shots) {
   const byPair = new Map();
   for (const shot of shots) {
     if (shot.cameraSide !== 'left' && shot.cameraSide !== 'right') continue;
-    const key = shot.subjectIds.join('|');
+    const key = (shot.axisSubjectIds ?? shot.subjectIds).join('|');
     byPair.set(key, [...(byPair.get(key) ?? []), shot.cameraSide]);
   }
   const compared = [...byPair.values()].filter(sides => sides.length >= 2);
@@ -105,10 +111,10 @@ export function shotGeometryFacts(state, { shotIds, first = [], ports } = {}) {
   const shots = wanted.map(shot => {
     const camera = shotCamera(shot, state);
     if (!camera) return { shotId: shot.id, subjectIds: [], camera: null, cameraSide: null, occluders: [] };
-    const pair = primarySubjects(shot.subjectIds ?? [], camera.position, state);
-    return { shotId: shot.id, subjectIds: pair.map(c => c.id), camera: { position: point(camera.position), lookAt: point(camera.lookAt) },
+    const subjects = primarySubjects(shot.subjectIds ?? [], camera.position, state), pair = axisSubjects(shot.subjectIds ?? [], camera.position, state);
+    return { shotId: shot.id, subjectIds: subjects.map(c => c.id), ...(subjects.length !== pair.length ? { axisSubjectIds: pair.map(c => c.id) } : {}), camera: { position: point(camera.position), lookAt: point(camera.lookAt) },
       cameraSide: pair.length === 2 ? sideOfAxis(pair[0], pair[1], camera.position) : null,
-      occluders: pair.flatMap(subject => occludersOf(subject, camera.position, state, ports)).slice(0, GEOMETRY_FACTS_LIMITS.occluders) };
+      occluders: subjects.flatMap(subject => occludersOf(subject, camera.position, state, ports)).slice(0, GEOMETRY_FACTS_LIMITS.occluders) };
   });
   return { subjects, pairs, shots, axisConsistent: axisConsistency(shots) };
 }
