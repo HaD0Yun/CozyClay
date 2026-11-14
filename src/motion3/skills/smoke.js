@@ -81,6 +81,8 @@ export function smokeCigarette(ctx) {
 	k.at(34, { fingers_l: { grip: 0, fist: 1 } });
 	k.step(35, "lit_vis", 1);
 	k.hold(44, "w_lpocket_l", "w_flame_l", "wtwist_l", "wflex_l", "elbow_l");
+	// Leave the folded thigh before turning the palm and elbow toward the cigarette.
+	if (squat && ctx.self) k.hold(52, "wtwist_l", "wflex_l", "elbow_l");
 	k.at(60, { w_lpocket_l: 0, w_flame_l: 1, wtwist_l: WR.TW_L, wflex_l: WR.FX_L, elbow_l: EL_LIGHT_L });
 	// light it: flame on, the ember appears, inhale
 	k.step(63, "flame_vis", 1);
