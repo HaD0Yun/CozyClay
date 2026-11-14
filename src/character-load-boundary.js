@@ -13,7 +13,7 @@ const isLoadFailure = (error) => typeof error?.message === "string" && error.mes
 export class CharacterLoadBoundary extends Component {
 	constructor(props) {
 		super(props);
-		this.state = { error: null };
+		this.state = { error: null, retried: false };
 	}
 
 	static getDerivedStateFromError(error) {
@@ -21,7 +21,13 @@ export class CharacterLoadBoundary extends Component {
 	}
 
 	componentDidCatch(error) {
-		if (isLoadFailure(error)) console.warn(`[cozyclay] character model ${this.props.url} failed to load; showing the proxy figure`, error.message);
+		if (!isLoadFailure(error)) return;
+		if (!this.state.retried && this.props.onLoadFailure) {
+			this.props.onLoadFailure(error);
+			this.setState({ error: null, retried: true });
+			return;
+		}
+		console.warn(`[cozyclay] character model ${this.props.url} failed to load; showing the proxy figure`, error.message);
 	}
 
 	render() {
