@@ -608,7 +608,11 @@ try {
 	// React commits metadata before DualView applies the requested aspect.
 	// Observe the actual projection update, not a delay or an intermediate
 	// R3F canvas-aspect value, before taking the editing-state snapshot.
-	await wait("window.__cozyclay.shotCam.aspect === 1", "edited square camera projection rendered");
+	await wait(`(() => {
+		const pane = document.querySelector('.vp-pane.vp-main')?.getBoundingClientRect();
+		return !!pane && pane.height > 0
+			&& Math.abs(window.__cozyclay.shotCam.aspect - pane.width / pane.height) < 0.01;
+	})()`, "edited editor camera projection rendered");
 	const beforeRetry = await evaluate("window.__qaRecovery.editing()");
 	assert.notDeepEqual(beforeRetry.meta, originalRequest.meta);
 	assert.equal(beforeRetry.meta.shotIndex, 0);
