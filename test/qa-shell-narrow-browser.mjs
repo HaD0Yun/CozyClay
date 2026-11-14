@@ -85,7 +85,12 @@ try {
 			}
 			const agentReady = menuItemReady("[data-testid=menu-agent]");
 			assert.ok(await agentReady, "Agent menu item is placed and hittable");
-			await b.change("!!document.querySelector('.studio-agent-inspector:not([hidden])')", () => b.click("[data-testid=menu-agent]"));
+			await b.change(`(() => {
+				const panel = document.querySelector('.studio-agent-inspector:not([hidden])');
+				const header = panel?.querySelector('.agent-header'), composer = panel?.querySelector('.agent-composer');
+				return !!panel && !!header && !!composer
+					&& header.getBoundingClientRect().width > 0 && composer.getBoundingClientRect().width > 0;
+			})()`, () => b.click("[data-testid=menu-agent]"));
 			const agent = await b.evaluate(`(() => {
 				const box = s => document.querySelector(s).getBoundingClientRect().toJSON();
 				return { panel: box('.studio-right-column'), header: box('.studio-agent-inspector .agent-header'),
