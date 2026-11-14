@@ -211,7 +211,8 @@ const lieDown = async (axis, label, shot) => {
 	expect(`${label}: still level, legs not folded (tilt under 15 degrees, knees over 150)`, tiltDeg(lying.Hips, lying.Head) < 15 && ["Left", "Right"].every((s) => kneeDeg(lying[`${s}UpLeg`], lying[`${s}Leg`], lying[`${s}Foot`]) > 150));
 	expect(`${label}: the body rests on the floor, not through it or above it (lowest point but the hands -2..+4 cm)`, floor > -0.02 && floor < 0.04, String(floor));
 	await screenshot(shot);
-	await settle();
+	// Persistence after release is the behavior measured here, not readiness.
+	await new Promise((resolve) => setTimeout(resolve, 300));
 	const kept = await joints();
 	expect(`${label}: the pose stays after the drags end (hips within 1 cm)`, Math.abs(kept.Hips[1] - lying.Hips[1]) < 0.01, `${lying.Hips[1]} -> ${kept.Hips[1]}`);
 	console.log(`MEASURE ${label}: ring ${axis} ${step * 5} deg on screen | hips ${lying.Hips[1].toFixed(3)} head ${lying.Head[1].toFixed(3)} ankles ${lying.LeftFoot[1].toFixed(3)}/${lying.RightFoot[1].toFixed(3)} | tilt ${tiltDeg(lying.Hips, lying.Head).toFixed(1)} deg | knees ${kneeDeg(lying.LeftUpLeg, lying.LeftLeg, lying.LeftFoot).toFixed(0)}/${kneeDeg(lying.RightUpLeg, lying.RightLeg, lying.RightFoot).toFixed(0)} | body min ${floor.toFixed(3)} hands min ${mins.hands.toFixed(3)}`);
