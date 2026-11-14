@@ -83,7 +83,10 @@ const seed = {
       camera: { mode: 'keys' } }], waypoints: [] },
   }],
 };
-const action = (name, args) => `if (!window.__cozyclay.runStudioAction(${JSON.stringify(name)},${JSON.stringify(args)})) throw new Error(${JSON.stringify(name + ' refused its ready scene')})`;
+const action = (name, args) => `(()=>{try {
+  const r=window.__cozyclay.runStudioAction(${JSON.stringify(name)},${JSON.stringify(args)});
+  if(r?.ok!==true)throw Object.assign(new Error(r?.message??'Action returned no receipt.'),{code:r?.code??'ACTION_REFUSED'});
+}catch(error){throw new Error((error.code??'STUDIO_ACTION_FAILED')+': '+(error.message??String(error)));}})()`;
 const frame = ids => action('shot.frame', { subjectIds: ids, framing: { intent: { size: 'wide shot', view: 'front', level: 'eye', side: 'right', focalMm: 35 } } });
 const projection = id => evaluate(`(() => {
   const qa=window.__cozyclay, c=qa.characters.find(entry=>entry.id===${JSON.stringify(id)}), cam=qa.shotCam;

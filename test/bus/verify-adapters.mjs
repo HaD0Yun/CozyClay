@@ -95,14 +95,15 @@ try {
  }, 'browser protocol error fields survive the CDP result boundary');
  const helperFailures = [];
  for (const path of ['../qa-effects-browser.mjs', '../motion3/qa-motion3-follow-browser.mjs',
-  '../motion3/qa-motion3-kits-browser.mjs', '../qa-view-ghosts-browser.mjs']) {
+  '../motion3/qa-motion3-kits-browser.mjs', '../qa-view-ghosts-browser.mjs', '../qa-cast-list-browser.mjs']) {
   const text = readFileSync(new URL(path, import.meta.url), 'utf8');
   const syntax = parseJavaScript(path, text);
   assert.deepEqual(syntax.errors, []);
+  const scriptHelper = path.endsWith('/qa-cast-list-browser.mjs');
   let helper;
   const findHelper = node => {
    if (!node || typeof node !== 'object') return;
-   if (node.type === 'VariableDeclarator' && node.id?.name === 'act') helper = node.init;
+   if (node.type === 'VariableDeclarator' && node.id?.name === (scriptHelper ? 'action' : 'act')) helper = node.init;
    for (const [key, value] of Object.entries(node)) if (key !== 'parent') {
     if (Array.isArray(value)) value.forEach(findHelper); else findHelper(value);
    }
@@ -115,8 +116,12 @@ try {
    } } };
    const actual = new Function('evaluate', `return (${text.slice(helper.start, helper.end)});`)(
     expression => new Function('window', `return (${expression});`)(window));
+   const invoke = scriptHelper
+    ? (id, args) => Promise.resolve().then(() => new Function('window', actual(id, args))(window))
+    : actual;
    try {
-    await assert.rejects(actual('stage.applyLighting', { preset: 'night' }), error =>
+    await assert.rejects(invoke(scriptHelper ? 'character.update' : 'stage.applyLighting',
+     scriptHelper ? { characterId: 'cast-2', patch: { hidden: false } } : { preset: 'night' }), error =>
      error.message.includes(mode === 'throw' ? 'STALE_TARGET' : 'TARGET_NOT_READY') &&
      error.message.includes(mode === 'throw' ? 'Injected thrown setup refusal.' : 'Injected setup refusal.'));
     console.log(`PASS strict helper injected ${mode}: ${path}`);
