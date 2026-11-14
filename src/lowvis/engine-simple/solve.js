@@ -83,7 +83,7 @@ export function solve(B, U = {}) {
 	};
 	let sh0 = null, T = torso();
 	sh0 = T.sh;
-	if (active.some(Boolean)) for (let it = 0; it < 14; it++) {
+	if (!U.noAssist && active.some(Boolean)) for (let it = 0; it < 14; it++) {
 		let d = 0, ahead = 0; // ahead: bending forward only helps a target in front of the hips
 		SIDES.forEach((S, i) => {
 			const di = active[i] && T.hand[i][1] < T.sh[i][1] + 0.1 ? (len(sub(T.hand[i], T.sh[i])) - 0.95 * ARM_LEN) * aimed[i] : 0;
@@ -93,7 +93,7 @@ export function solve(B, U = {}) {
 		T = torso();
 	}
 	// straighten up gradually when the target comes back into reach
-	if (U.assist) { bend = Math.max(bend, U.assist.bend - 0.09); drop = Math.max(drop, U.assist.drop - 0.035); T = torso(); }
+	if (U.assist && !U.noAssist) { bend = Math.max(bend, U.assist.bend - 0.09); drop = Math.max(drop, U.assist.drop - 0.035); T = torso(); }
 	// Feet: keep the toe tip and the heel on or over the floor, then lower the pelvis until planted feet are in reach.
 	const feet = B.feet.map(f => {
 		const low = Math.min(0, qRotate(f.q, TOE)[1], qRotate(f.q, SOLE)[1]);

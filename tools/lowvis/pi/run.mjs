@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Authors one lowvis scene from a request with the pi harness (src/lowvis/pi/harness.mjs).
-//   node tools/lowvis/pi/run.mjs --name <name> [--model <id>] [--effort <level>] [--images latest|all] [--variant base|lean|patch|reach] "<request>"
+//   node tools/lowvis/pi/run.mjs --name <name> [--model <id>] [--effort <level>] [--images latest|all] [--variant base|lean|patch|reach|noassist] "<request>"
 // Needs CLIPROXY_BASE_URL and CLIPROXY_API_KEY. Writes public/lowvis/clips/pi/<name>.json and lowvis-out/pi/<name>/.
 import { DEFAULT_EFFORT, DEFAULT_MODEL, runScene } from "../../../src/lowvis/pi/harness.mjs";
 

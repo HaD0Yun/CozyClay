@@ -224,7 +224,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 		return (c.cur[name] = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w));
 	};
 	const upper = (c, f, first) => {
-		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist };
+		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, noAssist: def.assist === false };
 		[c.keys.L, c.keys.R].forEach((list, i) => {
 			const k = active(list, f);
 			let h = { from: null, to: null, w: 1 }, upTo = 0;

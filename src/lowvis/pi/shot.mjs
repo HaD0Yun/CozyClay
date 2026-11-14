@@ -17,6 +17,7 @@ import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
+const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
 const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
@@ -190,7 +191,7 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 		const ids = [...state.scene.characters, ...(state.scene.props ?? [])].map(e => e.id), focus = look?.focus == null ? null : [].concat(look.focus);
 		if (focus?.some(id => !ids.includes(id))) return reject("look.focus", [`look.focus: no character or prop has the id ${JSON.stringify(look.focus)} (scene ids: ${ids.join(", ")})`]);
 
-		const { def, set } = withMovers(state.scene, state.spec), built = compile(state.spec, def, name);
+		const moved = withMovers(state.scene, state.spec), set = moved.set, def = feature.assist === false ? { ...moved.def, assist: false } : moved.def, built = compile(state.spec, def, name);
 		if (built.error) {
 			return reject(built.error, [`engine error: ${built.error}${built.where ? ` (${built.where})` : ""}`, offender(state.spec, def, name)]);
 		}
@@ -236,7 +237,7 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
-			state.notesSaid ? "" : `engine limits (said once): ${NOTES.join("; ")}`,
+			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,
 		].filter(Boolean).join("\n");
 		state.notesSaid = true; state.moversSaid = set.join(); state.prevRows = told; state.compiles++;
 		state.last = { key, scene: def, spec: state.spec, rows, frames: F, buildMs };

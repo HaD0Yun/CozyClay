@@ -19,8 +19,9 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // The parts that differ between the variants. "lean" tells only the numbers that are a difference between what was
 // asked and what came out (shot.mjs filters the rows the same way), and stops when the action reads. "patch" is lean
 // plus the edit argument of shot: single actions are changed without sending the whole spec again. "reach" is patch
-// plus the rows that say how far a hand or a foot is from the target its action gave it.
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true } };
+// plus the rows that say how far a hand or a foot is from the target its action gave it. "noassist" is patch with the
+// engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target.
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false } };
 /** What a variant turns on: { text: "base" | "lean", edit?: true }. Throws on an unknown name. */
 export function features(variant = "base") { if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`); return FEATURES[variant]; }
 const REACH = `\n- hand off its target, foot off its target: how far a wrist or an ankle is from the point its action gave it, on the frames after that action's blend has ended; the note names the side, the action and on how many frames it is over 10 mm off. A few frames: it arrives late. Many: it is out of reach or the body has moved away.`;
