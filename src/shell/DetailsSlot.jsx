@@ -113,7 +113,7 @@ export default function DetailsSlot() {
 			<p className="inspector-empty" data-inspector-empty role="status">
 				{ko(
 					"Select the camera, a character, the light, the environment or a prop in the Outliner, and its settings appear here.",
-					"아웃라이너에서 카메라, 캐릭터, 조명, 환경, 소품을 고르면 그 설정이 여기 나타납니다.",
+					"아웃라이너에서 카메라, 인물, 조명, 환경, 소품을 고르면 그 설정이 여기 나타납니다.",
 				)}
 			</p>
 		)}

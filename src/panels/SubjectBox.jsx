@@ -50,7 +50,7 @@ export default function SubjectBox({ label, model, modelTitle, modelId, onRemove
 						</button>
 					)}
 					{onRemove && (
-						<button type="button" className="sb-remove" title={ko("Remove subject", "인물 제거")} onClick={onRemove}>
+						<button type="button" className="sb-remove" title={ko("Remove character", "인물 제거", "删除角色")} onClick={onRemove}>
 							✕
 						</button>
 					)}

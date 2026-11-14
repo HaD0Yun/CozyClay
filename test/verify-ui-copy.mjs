@@ -54,7 +54,7 @@ for (const path of ["src/panels/EnvironmentPanel.jsx", "src/panels/PosePanel.jsx
 // The sample-motion warning says what the English says: applying a pose clears the motion.
 const poseStudio = read("src/posestudio.jsx");
 lacks(poseStudio, /눈앞에/, "the sample-motion warning adds 'right before your eyes'");
-has(poseStudio, /"A sample motion is moving the character — applying a pose clears it and returns to the blocking pose\.", "현재 샘플 모션이 캐릭터를 움직이고 있어요\. 포즈를 적용하면 샘플 모션이 지워지고 블로킹 포즈로 돌아가요\."\)/);
+has(poseStudio, /"A sample motion is moving the character — applying a pose clears it and returns to the blocking pose\.", "현재 샘플 모션이 인물을 움직이고 있어요\. 포즈를 적용하면 샘플 모션이 지워지고 블로킹 포즈로 돌아가요\."\)/);
 
 // Viewport toolbar: Off is 끔, the Sculpt mode uses the studio's 조형, and the mode tablist is named for modes.
 const toolbar = read("src/shell/ViewportToolbar.jsx");
@@ -79,7 +79,7 @@ has(browser, /get defaultName\(\) \{ return ko\("Untitled Project", "제목 없�
 // Tree rows for the third and later cast members are translated by pattern.
 const hierarchy = read("src/hierarchy-panel.jsx");
 has(hierarchy, /\/\^Character \(\\d\+\)\$\//, "Character N rows need a pattern, not an exact-key map");
-has(hierarchy, /ko\(node\.label, `캐릭터 \$\{characterNumber\}`, `角色 \$\{characterNumber\}`\)/);
+has(hierarchy, /ko\(node\.label, `인물 \$\{characterNumber\}`, `角色 \$\{characterNumber\}`\)/);
 
 // Pose key bar: interpolated status lines carry their own Chinese, and the missing-rig error is localized.
 const keyBar = read("src/shell/PoseKeyBar.jsx");
@@ -89,7 +89,7 @@ for (const { line, args } of templates) {
 	if (!args[0].includes("${")) continue;
 	if (args.length !== 3) failures.push(`src/shell/PoseKeyBar.jsx:${line} interpolates English that the Chinese dictionary cannot match: ${args[0]}`);
 }
-has(keyBar, /throw new Error\(ko\("The character rig is not loaded\.", "캐릭터 리그가 로드되지 않았어요\.", "角色的骨骼尚未加载。"\)\)/, "the missing-rig error reaches the status line in English");
+has(keyBar, /throw new Error\(ko\("The character rig is not loaded\.", "인물 리그가 로드되지 않았어요\.", "角色的骨骼尚未加载。"\)\)/, "the missing-rig error reaches the status line in English");
 
 // The fallback project name follows the locale like the new-project default.
 lacks(browser, /value\.trim\(\) \|\| "My Project"/, "the name dialog falls back to an English-only project name");

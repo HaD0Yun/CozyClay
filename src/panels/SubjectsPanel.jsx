@@ -15,12 +15,12 @@ export default function SubjectsPanel({
 	const { run, begin, commit, cancel } = useCastTransaction();
 	const multiple = characters.filter(entry => !entry.hidden).length > 1;
 	return (
-<Foldout hidden={!isCharacterSelection} title={multiple ? ko("Subjects", "인물들") : ko("Subject", "인물")}>
+<Foldout hidden={!isCharacterSelection} title={ko("Character", "인물", "角色")}>
 						<div className={"subjects-row v2-details-subjects" + (multiple ? "" : " single")} onBlur={commit} onPointerUp={commit} onPointerCancel={cancel}>
 							{characters.map((entry, index) => entry.hidden ? null : (
 								<SubjectBox
 									key={entry.id}
-									label={ko(`Subject ${index + 1}`, `인물 ${index + 1}`, `角色 ${index + 1}`)}
+									label={ko(`Character ${index + 1}`, `인물 ${index + 1}`, `角色 ${index + 1}`)}
 									model={modelLetter(entry.model)}
 									modelTitle={CHARACTER_MODEL_LABELS[entry.model]}
 									modelId={entry.model}

@@ -1085,7 +1085,7 @@ export default function App() {
 	// A capsule figure (no rig) or an imported character (no IK) gets its own reason rather than
 	// the "load a character" one, which would read as a loading problem.
 	const activeCapabilities = characterCapabilities(activeChar);
-	const poseRefusal = !activeCapabilities.pose ? capabilityRefusal(activeChar, "pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "캐릭터를 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
+	const poseRefusal = !activeCapabilities.pose ? capabilityRefusal(activeChar, "pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "인물을 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
 	// #1048: one rigged character is selected and posed; otherwise Pose points at what to do next.
 	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: setActiveCharacterId, enter: () => selectWorkflowMode("pose") });
 	// False when the mode refuses (its reason shows as a toast): the 1-5 keys report that as shortcut:ignored.
@@ -5060,7 +5060,7 @@ export default function App() {
 
 						<div ref={mainPaneRef} className="vp-pane vp-main">
 							<div className={"caption" + (subjectVisible ? "" : " off")} hidden={playMode || !lookThroughShot}>
-								{subjectVisible ? slateLineKo(shot) : ko("SUBJECT OUT OF FRAME", "피사체가 프레임 밖에 있어요")}
+								{subjectVisible ? slateLineKo(shot) : ko("CHARACTER OUT OF FRAME", "인물이 프레임 밖에 있어요", "角色不在画面内")}
 							</div>
 						</div>
 						<div

@@ -20,10 +20,10 @@ export function planPoseEntry(characters, activeChar, refusal) {
 	// The active character is rigged but its rig is still resolving: wait for it rather than refuse.
 	if (rigged.some((entry) => entry.id === activeChar?.id)) return { selectId: activeChar.id };
 	if (rigged.length === 1) return { selectId: rigged[0].id };
-	if (!cast.length) return { reason: ko("Add a character first: Add > Y Bot", "먼저 캐릭터를 추가하세요: 추가 > Y Bot", "请先添加角色：添加 > Y Bot"), point: "add" };
+	if (!cast.length) return { reason: ko("Add a character first: Add > Y Bot", "먼저 인물을 추가하세요: 추가 > Y Bot", "请先添加角色：添加 > Y Bot"), point: "add" };
 	// Only capsule figures: none of them can be posed, so point at Add instead of at them.
 	if (!rigged.length) return { reason: refusal, point: "add" };
-	return { reason: ko("Select a character to pose first", "먼저 포즈를 잡을 캐릭터를 선택하세요", "请先选择要摆姿势的角色"), point: "characters" };
+	return { reason: ko("Select a character to pose first", "먼저 포즈를 잡을 인물을 선택하세요", "请先选择要摆姿势的角色"), point: "characters" };
 }
 
 /** Light up the control the refusal points at for one beat. */
