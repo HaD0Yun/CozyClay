@@ -61,13 +61,13 @@ const FEATURE_LABELS = {
 // A character's kind (rig or capsule figure) is fixed at creation; character.update refuses a kind change.
 export const KIND_FIXED_REFUSAL = Object.freeze({
 	en: "A character's kind is chosen when it is created; add a new character instead.",
-	ko: "캐릭터 종류는 만들 때 정합니다. 새 캐릭터를 추가하세요.",
+	ko: "인물 종류는 만들 때 정합니다. 새 인물을 추가하세요.",
 	zh: "角色的类型在创建时确定；请改为添加新角色。",
 });
 
 export function kindRefusal(feature, ko = false, zh = false) {
 	const label = FEATURE_LABELS[feature]?.[ko ? 1 : zh ? 2 : 0] ?? feature;
-	if (ko) return `캡슐 인물은 리그가 없어요 - ${label}는 리그 캐릭터에서만 됩니다.`;
+	if (ko) return `캡슐 인물은 리그가 없어요 - ${label}는 리그 인물에서만 됩니다.`;
 	if (zh) return `胶囊人物没有骨骼 — ${label}仅适用于带骨骼的角色。`;
 	return `Capsule figures have no rig - ${label} works on rigged characters only.`;
 }
@@ -75,7 +75,7 @@ export function kindRefusal(feature, ko = false, zh = false) {
 /** Why an imported character refuses `feature` (ik or pose). */
 export function importedRefusal(feature, ko = false, zh = false) {
 	const label = FEATURE_LABELS[feature]?.[ko ? 1 : zh ? 2 : 0] ?? feature;
-	if (ko) return `가져온 캐릭터는 자기 뼈로 컴파일한 테이크만 재생해요 - ${label}는 X Bot과 Y Bot에서만 됩니다.`;
+	if (ko) return `가져온 인물은 자기 뼈로 컴파일한 테이크만 재생해요 - ${label}는 X Bot과 Y Bot에서만 됩니다.`;
 	if (zh) return `导入的角色只在自己的骨骼上播放编译的动作 — ${label}仅适用于 X Bot 和 Y Bot。`;
 	return `Imported characters play compiled takes on their own bones - ${label} works on the X Bot and Y Bot only.`;
 }

@@ -82,12 +82,12 @@ export async function addImportedCharacter(appContext, file, x = 0) {
 		appContext.shared?.setSelectedHierarchyId?.(characterRowId(id));
 		const { detected, missing } = fields.rigImport.report;
 		appContext.notify?.(ko(`Character imported: ${detected.id} skeleton${missing.length ? `, ${missing.length} bones estimated` : ""}`,
-			`캐릭터를 가져왔어요: ${detected.id} 스켈레톤${missing.length ? `, 뼈 ${missing.length}개 추정` : ""}`,
+			`인물을 가져왔어요: ${detected.id} 스켈레톤${missing.length ? `, 뼈 ${missing.length}개 추정` : ""}`,
 			`已导入角色：${detected.id} 骨骼${missing.length ? `，估算了 ${missing.length} 根骨骼` : ""}`));
 		return id;
 	} catch (error) {
 		console.warn("[cozyclay] character import failed", error);
-		appContext.notify?.(ko(`Could not import that character: ${error.message}`, `캐릭터를 가져오지 못했어요: ${error.message}`, `无法导入该角色：${error.message}`));
+		appContext.notify?.(ko(`Could not import that character: ${error.message}`, `인물을 가져오지 못했어요: ${error.message}`, `无法导入该角色：${error.message}`));
 		return null;
 	}
 }

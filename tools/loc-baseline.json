@@ -8,7 +8,7 @@
 	"bin/cozyclay.mjs": 312,
 	"bin/live/cli.mjs": 415,
 	"mcp/live-hub.mjs": 529,
-	"mcp/tool-handlers.mjs": 1715,
+	"mcp/tool-handlers.mjs": 1711,
 	"mcp/verify-live-batch.mjs": 485,
 	"mcp/verify-live-capture.mjs": 268,
 	"mcp/verify-live-controller.mjs": 340,
