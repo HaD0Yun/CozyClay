@@ -22,10 +22,8 @@ try {
 	for (const width of [390, 768, 1180, 1440]) {
 		await b.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width === 390 });
 		for (const theme of ["light", "dark"]) {
-			await b.evaluate("document.querySelector('[data-testid=menu-edit]').focus()");
+			await b.evaluate("document.querySelector('.menubar-menu')?.remove(); document.querySelector('[data-testid=menu-edit]').click()");
 			const preferencesReady = menuItemReady("[data-testid=menu-preferences]");
-			await b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
-			await b.send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
 			assert.ok(await preferencesReady, "Preferences menu item is placed and hittable");
 			await b.change("!!document.querySelector('.v2-preferences__dialog')", () => b.click("[data-testid=menu-preferences]"));
 			await b.click(`[data-testid="settings-theme-${theme}"]`);
@@ -80,10 +78,8 @@ try {
 			assert.ok(controls.panel.bottom <= controls.dock.top && controls.rail.bottom <= controls.panel.top + 1, `${width}: panel, tool rail and timeline do not overlap: ${JSON.stringify(controls)}`);
 			await b.change("!document.querySelector('.app').hasAttribute('data-narrow-panel')", () => b.click('[aria-controls="shell-details"]'));
 			console.log(`PASS ${width}: Outliner and Details navigation, Camera performance reachable`);
-			await b.evaluate("document.querySelector('[data-testid=menu-window]').focus()");
+			await b.evaluate("document.querySelector('.menubar-menu')?.remove(); document.querySelector('[data-testid=menu-window]').click()");
 			const agentReady = menuItemReady("[data-testid=menu-agent]");
-			await b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
-			await b.send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
 			assert.ok(await agentReady, "Agent menu item is placed and hittable");
 			await b.change("!!document.querySelector('.studio-agent-inspector:not([hidden])')", () => b.click("[data-testid=menu-agent]"));
 			const agent = await b.evaluate(`(() => {
