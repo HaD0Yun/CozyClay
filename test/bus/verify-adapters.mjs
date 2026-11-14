@@ -93,5 +93,36 @@ try {
   assert.deepEqual(error.details, details);
   return true;
  }, 'browser protocol error fields survive the CDP result boundary');
+ const helperFailures = [];
+ for (const path of ['../qa-effects-browser.mjs', '../motion3/qa-motion3-follow-browser.mjs',
+  '../motion3/qa-motion3-kits-browser.mjs', '../qa-view-ghosts-browser.mjs']) {
+  const text = readFileSync(new URL(path, import.meta.url), 'utf8');
+  const syntax = parseJavaScript(path, text);
+  assert.deepEqual(syntax.errors, []);
+  let helper;
+  const findHelper = node => {
+   if (!node || typeof node !== 'object') return;
+   if (node.type === 'VariableDeclarator' && node.id?.name === 'act') helper = node.init;
+   for (const [key, value] of Object.entries(node)) if (key !== 'parent') {
+    if (Array.isArray(value)) value.forEach(findHelper); else findHelper(value);
+   }
+  };
+  findHelper(syntax.program); assert.ok(helper, `${path} has its real action helper`);
+  for (const mode of ['receipt', 'throw']) {
+   const window = { __cozyclay: { runStudioAction: () => {
+    if (mode === 'throw') throw new StudioProtocolError('STALE_TARGET', 'Injected thrown setup refusal.');
+    return { ok: false, code: 'TARGET_NOT_READY', message: 'Injected setup refusal.', affectedIds: [] };
+   } } };
+   const actual = new Function('evaluate', `return (${text.slice(helper.start, helper.end)});`)(
+    expression => new Function('window', `return (${expression});`)(window));
+   try {
+    await assert.rejects(actual('stage.applyLighting', { preset: 'night' }), error =>
+     error.message.includes(mode === 'throw' ? 'STALE_TARGET' : 'TARGET_NOT_READY') &&
+     error.message.includes(mode === 'throw' ? 'Injected thrown setup refusal.' : 'Injected setup refusal.'));
+    console.log(`PASS strict helper injected ${mode}: ${path}`);
+   } catch (error) { helperFailures.push({ path, mode, error: error.message }); }
+  }
+ }
+ assert.deepEqual(helperFailures, [], 'each real browser helper rejects receipt and thrown setup refusals with their code/message');
 } finally { f.dispose(); }
 console.log('PASS bus native adapters: deferred lifecycle, atomic undo and visible UI refusal results');
