@@ -1,0 +1,117 @@
+/* On narrow windows, one optional panel sits above the full-width dock.
+   The stage keeps its own space; Details/Outliner bodies own panel scrolling. */
+.shell-panel-tabs { display: none; }
+
+@media (max-width: 1280px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-look-through-exit { top: 80px; }
+}
+
+@media (max-width: 1000px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) {
+		--shell-left: 0px;
+		--shell-right: 0px;
+		--shell-center-left: var(--shell-gap);
+		--shell-center-right: var(--shell-gap);
+		--shell-stage-top: 100px;
+		--shell-panel-height: min(240px, 28dvh);
+		--shell-panel-space: 0px;
+		--shell-center-bottom: calc(var(--shell-dock) + var(--shell-dock-bottom) + var(--shell-gap) + var(--shell-panel-space));
+		height: 100dvh;
+	}
+	.app[data-shell="glass"][data-narrow-panel]:not([data-embed-mode]) {
+		--shell-panel-space: calc(var(--shell-panel-height) + var(--shell-gap));
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .topbar {
+		left: var(--shell-gap);
+		right: var(--shell-gap);
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .shell-panel-tabs {
+		position: absolute;
+		z-index: 22;
+		top: 64px;
+		left: var(--shell-gap);
+		display: flex;
+		gap: 4px;
+	}
+	.shell-panel-tabs button {
+		min-height: 28px;
+		padding: 0 12px;
+		border: 0;
+		border-radius: var(--capsule-radius);
+		background: var(--glass-capsule);
+		color: var(--text-1);
+		font: 500 12px var(--sans);
+		cursor: pointer;
+	}
+	.shell-panel-tabs button[aria-expanded="true"] { background: var(--surface-active); }
+	.shell-panel-tabs button:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
+	.app[data-shell="glass"]:not([data-embed-mode]) :is(.studio-left-column, .studio-right-column) {
+		display: none;
+		top: auto;
+		left: var(--shell-gap);
+		right: var(--shell-gap);
+		bottom: calc(var(--shell-dock) + var(--shell-dock-bottom) + var(--shell-gap));
+		width: auto;
+		height: var(--shell-panel-height);
+	}
+	.app[data-shell="glass"][data-narrow-panel="outliner"]:not([data-embed-mode]) .studio-left-column,
+	.app[data-shell="glass"][data-narrow-panel="details"]:not([data-embed-mode]) .studio-right-column { display: flex; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column:has(.studio-agent-inspector:not([hidden])) .inspector-pane { display: none; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .studio-right-column .studio-agent-inspector { height: 100%; flex: 1 1 auto; }
+	.app[data-shell="glass"][data-left-collapsed]:not([data-embed-mode]) .studio-left-column {
+		background: var(--glass-panel);
+		box-shadow: var(--panel-shadow);
+		pointer-events: auto;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .shell-left-body[hidden] { display: flex; }
+	.app[data-shell="glass"]:not([data-embed-mode]) :is(.shell-left-toggle, .shell-splitter, .timeline-splitter) { display: none; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .brandbar {
+		left: var(--shell-gap);
+		right: var(--shell-gap);
+		max-width: none;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-look-through-exit { top: calc(var(--shell-stage-top) + 8px); }
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail {
+		max-height: calc(100dvh - var(--shell-center-bottom) - 6px);
+		overflow-y: auto;
+		overflow-x: hidden;
+		scrollbar-width: none;
+	}
+}
+
+@media (max-width: 600px) {
+	.app[data-shell="glass"]:not([data-embed-mode]) {
+		--shell-dock: min(340px, 43dvh);
+		--shell-panel-height: min(180px, 22dvh);
+		--shot-pic-w: 0px;
+		--shot-pic-h: 0px;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .vp-shot-preview { display: none; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .bottom-window.v2-dock {
+		box-sizing: border-box;
+		padding-top: 36px;
+		padding-bottom: 80px;
+	}
+	.app[data-shell="glass"][data-dock-tab="assets"]:not([data-embed-mode]) .bottom-window.v2-dock { padding-bottom: 0; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock > .bottom-timeline { position: relative; margin-right: 0; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-tabs { top: 3px; left: 8px; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-dock .v2-sequencer .tl-head {
+		padding-left: 8px;
+		overflow-x: auto;
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-card {
+		top: auto;
+		width: 100%;
+		height: 80px;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		grid-template-rows: 32px 28px;
+		gap: 4px 12px;
+		padding: 8px;
+		box-shadow: inset 0 .5px 0 var(--divider-strong);
+	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-frame { display: none; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-head { grid-column: 1; grid-row: 1; height: 32px; min-width: 0; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-foot { grid-column: 2; grid-row: 1; height: 32px; margin: 0; min-width: 0; }
+	.app[data-shell="glass"]:not([data-embed-mode]) .dock-shot-ratios { grid-column: 1 / -1; grid-row: 2; margin: 0; }
+}

@@ -519,9 +519,11 @@ try {
 	assert.equal(originalRequest.meta.shotIndex, 1);
 	await writeFile(`${out}/original-request.json`, JSON.stringify({ ...originalRequest, authoredShot: scene.scenes[0].shotDocument.shots[1] }, null, 2));
 	let baseline;
+	// This fixture addresses the selected four-frame shot, not the timeline.
+	// PR #747 made MenuBar's primary Video item explicitly export the timeline.
 	await nativeScenario({ holdSupport: true, holdHash: true, holdFlush: true }, async () => {
 		const attempt = await arm("video-success");
-		await exportMenu("export-video");
+		await exportMenu("export-video-shot");
 		await wait("window.__qaRecovery.native.supportEntered", "real codec support reached");
 		await status("preparing", "video"); // Initial baseline red: missing #276 status seam.
 		await captureStatus("preparing", "video");
@@ -547,7 +549,7 @@ try {
 
 	await nativeScenario({ unsupported: true }, async () => {
 		const attempt = await arm("unsupported-codec");
-		await exportMenu("export-video");
+		await exportMenu("export-video-shot");
 		await finish(attempt, failedVideo("unsupported_codec"));
 		await captureStatus("failed", "video", "unsupported-codec");
 		const proof = await nativeProof("unsupported-codec", 0);
@@ -556,7 +558,7 @@ try {
 
 	await nativeScenario({ failRender: true }, async () => {
 		const attempt = await arm("render-failure");
-		await exportMenu("export-video");
+		await exportMenu("export-video-shot");
 		await finish(attempt, failedVideo("render_failed"));
 		await captureStatus("failed", "video", "render-failure");
 		const proof = await nativeProof("render-failure", 0);
@@ -573,7 +575,7 @@ try {
 	let failedId;
 	await nativeScenario({ failEncodeAt: 4 }, async () => {
 		const attempt = await arm("encode-failure");
-		await exportMenu("export-video");
+		await exportMenu("export-video-shot");
 		failedId = (await finish(attempt, failedVideo("encode_failed"))).attempt_id;
 		await captureStatus("failed", "video", "encode-failure");
 		const proof = await nativeProof("encode-failure", 4);
@@ -635,7 +637,7 @@ try {
 	for (const gate of ["support", "flush"]) {
 		await nativeScenario(gate === "support" ? { holdSupport: true } : { holdFlush: true }, async () => {
 			const attempt = await arm(`cancel-${gate}`);
-			await exportMenu("export-video");
+			await exportMenu("export-video-shot");
 			await wait(`window.__qaRecovery.native.${gate}Entered`, `cancel ${gate} gate entered`);
 			await status(gate === "support" ? "preparing" : "finalizing", "video");
 			await click('[data-testid="export-cancel"]');
@@ -646,7 +648,7 @@ try {
 	}
 	await nativeScenario({}, async () => {
 		const attempt = await arm("post-cancel-success");
-		await exportMenu("export-video"); await finish(attempt, video, 1);
+		await exportMenu("export-video-shot"); await finish(attempt, video, 1);
 		await nativeProof("post-cancel-success", 4);
 	});
 

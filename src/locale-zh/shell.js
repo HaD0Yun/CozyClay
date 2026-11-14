@@ -127,6 +127,7 @@ export const ZH_SHELL = {
 	"Keyboard shortcuts": "键盘快捷键",
 	"About Cozy Clay": "关于 Cozy Clay",
 	"Menu bar": "菜单栏",
+	"Studio panels": "工作室面板",
 	"Stage / Pose / Camera / Motion mode": "舞台 / 姿势 / 摄影机 / 动作模式",
 	"Pick the tool of the current mode": "选择当前模式的工具",
 	"Frame the selection": "将所选内容适配到画面",
