@@ -302,7 +302,7 @@ try {
 	pass("Studio and real analytics sanitizer ready");
 
 	// A real editor selection before exporting, rather than hooks-only QA.
-	await changeAndWait("document.querySelector('[data-node-id=characterA]')?.getAttribute('aria-selected') === 'true'", () => click("[data-node-id='characterA'] .hierarchy-row"), "character selected through editor");
+	await changeAndWait("document.querySelector('[data-node-id=\"character:char-a\"]')?.getAttribute('aria-selected') === 'true'", () => click('[data-node-id="character:char-a"] .hierarchy-row'), "character selected through editor");
 	await screenshot("studio-desktop");
 	await runAttempt("studio-video", { kind: "video", format: "mp4", legacy: "export:video_succeeded" }, () => exportMenu("export-video"), { downloads: 1 });
 

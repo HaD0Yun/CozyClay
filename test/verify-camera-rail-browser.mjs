@@ -143,12 +143,12 @@ expect("rail deletion turns the Draw Rail row Follow On", await waitFor("[...doc
 expect("rail delete toast is shown", await waitFor("window.__railToastSeen === true"));
 expect("live Follow camera holds the displayed 3 m distance", await waitFor(`(() => {
 	const state = window.__cozyclay;
-	if (!state?.shotCam || !state?.charA) return false;
-	return Math.abs(Math.hypot(state.shotCam.position.x - state.charA.x, state.shotCam.position.z - state.charA.z) - 3) < 0.05;
+	if (!state?.shotCam || !state?.activeChar) return false;
+	return Math.abs(Math.hypot(state.shotCam.position.x - state.activeChar.x, state.shotCam.position.z - state.activeChar.z) - 3) < 0.05;
 })()`));
 expect("front-authored Follow stays in front of the subject", await waitFor(`(() => {
 	const state = window.__cozyclay;
-	return !!state?.shotCam && !!state?.charA && state.shotCam.position.z > state.charA.z;
+	return !!state?.shotCam && !!state?.activeChar && state.shotCam.position.z > state.activeChar.z;
 })()`));
 expect("rail deletion reaches the debounced Scene save", await waitFor(`(() => {
 	const body = JSON.parse(localStorage.getItem("${SCENES_STORAGE_KEY}"));
@@ -174,8 +174,8 @@ await evaluate("[...document.querySelectorAll('.tl-camera-editor button')].find(
 expect("Draw Rail row Follow On restores distance mode", await waitFor("[...document.querySelectorAll('.tl-camera-editor button')].some((button) => button.textContent.trim() === 'Follow On' && button.getAttribute('aria-pressed') === 'true')"));
 expect("Follow On captures the user's front camera placement", await waitFor(`(() => {
 	const state = window.__cozyclay;
-	return state.shotCam.position.z > state.charA.z &&
-		Math.abs(Math.hypot(state.shotCam.position.x - state.charA.x, state.shotCam.position.z - state.charA.z) - 3) < 0.05;
+	return state.shotCam.position.z > state.activeChar.z &&
+		Math.abs(Math.hypot(state.shotCam.position.x - state.activeChar.x, state.shotCam.position.z - state.activeChar.z) - 3) < 0.05;
 })()`));
 expect("front placement is persisted as a 180 degree orbit offset", await waitFor(`(() => {
 	const body = JSON.parse(localStorage.getItem("${SCENES_STORAGE_KEY}"));

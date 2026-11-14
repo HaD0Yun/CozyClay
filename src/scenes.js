@@ -452,14 +452,14 @@ export function readSceneDocument(raw, legacyRaw = null) {
 export function migrateScenesDocument(source) {
 	if (!Number.isInteger(source.version) || source.version >= SCENES_VERSION) return source;
 	const legacyClock = source.version < 4;
+	const { stage: legacyStage, ...document } = source, fallbackStage = source.version < 3 && !plainObject(legacyStage) ? createSeededSceneStage() : legacyStage;
 	return {
-		...source,
+		...document,
 		version: SCENES_VERSION,
 		scenes: source.scenes.map((scene) => {
-			const stage = legacyClock ? migrateStageFrames(scene.stage) : scene.stage;
-			return { ...scene, stage: plainObject(stage) && Array.isArray(stage.characters)
-				? { ...stage, characters: stage.characters.map((entry) => (plainObject(entry) && !POSTURES.includes(entry.posture) ? { ...entry, posture: "stand" } : entry)) }
-				: stage };
+			const authored = plainObject(scene.stage) ? scene.stage : fallbackStage, folded = source.version < 3 ? createSceneStage(authored) : authored;
+			const stage = legacyClock ? migrateStageFrames(folded) : folded;
+			return { ...scene, stage: plainObject(stage) && Array.isArray(stage.characters) ? { ...stage, characters: stage.characters.map(entry => plainObject(entry) && !POSTURES.includes(entry.posture) ? { ...entry, posture: "stand" } : entry) } : stage };
 		}),
 	};
 }

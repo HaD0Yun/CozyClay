@@ -13,6 +13,7 @@ import { POSTURES } from "../src/scenes.js";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import { toAgentTools } from "../bin/agent/pi-tools.mjs";
+import { characterRowId } from "../src/hierarchy-model.js";
 
 export const uuid = "00000000-0000-4000-8000-000000000001";
 export function contextFixture() {
@@ -22,7 +23,7 @@ export function contextFixture() {
 		revision: { scene: 41, physics: 9, view: 18 },
 		units: { distance: "m", angle: "deg", up: "+Y", yawZero: "+Z", yawPositiveToward: "+X", pivot: "base", fps: 24, rangeEnd: "exclusive" },
 		scene: { name: "Workshop", aspect: "16:9", floorY: 0, frameCount: 144, objectCount: 0, characterCount: 1 },
-		selection: { kind: "character", id: "char-alex", hierarchyId: "characterA" }, activeCharacterId: "char-alex",
+		selection: { kind: "character", id: "char-alex", hierarchyId: "character:char-alex" }, activeCharacterId: "char-alex",
 		view: { mode: "scene", frame: 0, playing: false, lookThrough: false, grid: false, autoColor: false }, shot: null, camera: null,
 		entities: [{ id: "char-alex", kind: "character", name: "Alex", token: "ct-11", position: { x: 0, y: 0, z: 0 }, yawDeg: 0, scale: 1 }],
 		entityPage: { returned: 1, total: 1, truncated: false, nextCursor: null },
@@ -70,6 +71,22 @@ function registerTests() {
 	test("D1b a context carrying annotation marks validates (the server reads the same schema)", () => {
 		const value = { ...contextFixture(), marks: [{ n: 1, kind: "pin", hit: { type: "object", id: "cube", name: "Cube" }, points: [{ x: 0, y: 1, z: 0 }], frame: 0 }] };
 		assert.equal(protocol.validateStudioContext(value).marks[0].hit.id, "cube");
+	});
+	test("encoded hierarchy rows preserve valid character IDs in native context", () => {
+		for (const id of ["actor.v1", "actor.rig", "char:side", `a${".".repeat(119)}`]) {
+			for (const suffix of ["", ".rig.rightShoulder"]) {
+				const value = contextFixture();
+				value.activeCharacterId = id;
+				value.entities[0].id = id;
+				value.selection = { kind: "character", id, hierarchyId: characterRowId(id) + suffix };
+				assert.deepEqual(protocol.validateStudioContext(value).selection, value.selection);
+			}
+		}
+		const overlong = contextFixture(), rawId = `a${".".repeat(120)}`;
+		overlong.activeCharacterId = rawId;
+		overlong.entities[0].id = rawId;
+		overlong.selection = { kind: "character", id: rawId, hierarchyId: characterRowId(rawId) };
+		rejects(() => protocol.validateStudioContext(overlong), "INVALID_CONTEXT");
 	});
 	test("D2 HTTP uses turnId and rejects turn_id as a Studio identity alias", async () => {
 		protocol.validateStudioTurnEnvelope(envelopeFixture());

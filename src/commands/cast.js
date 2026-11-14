@@ -38,7 +38,6 @@ const semantic = [
 	mutation('cast.setCustomPoses', 'Set pose library', input({ poses: { type: 'array', items: record } }), 'ui-only'),
 	mutation('cast.savePose', 'Save pose', input({ pose: record, characterId: id, clearMotion: { type: 'boolean' } }, ['pose']), 'ui-only'),
 	mutation('cast.removePose', 'Remove saved pose', input({ id }), 'ui-only'),
-	mutation('cast.showExtras', 'Show extra subjects', input({ show: { type: 'boolean' } }), 'ui-only'),
 	mutation('cast.setLayer', 'Set character layer', input({ characterId: id, layer: record }), 'ui-only'),
 ];
 // "Apply as walk" on a route sketch chip (workflow/ContextChips.jsx): the character's whole root path in one
@@ -100,7 +99,6 @@ export function register(registry, ports) {
 			customPoses: before.customPoses.filter(entry => entry.id !== id),
 		})),
 
-		'cast.showExtras': ({ show }) => owner().showExtras(show),
 		'cast.setLayer': ({ characterId, layer }) => patch(characterId, { layer: { ...character(characterId).layer, ...layer } }),
 	};
 	registerElementSet({ register(entry) {
