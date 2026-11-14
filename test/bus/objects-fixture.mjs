@@ -5,6 +5,7 @@ import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { createStudioAppActions } from '../../src/commands/index.js';
 import { createSceneObject } from '../../src/scene-objects.js';
+import { characterIdFromHierarchyId } from '../../src/hierarchy-model.js';
 import { stageFixture } from './stage-fixture.mjs';
 const source = readFileSync(new URL('../../src/stage-attach-frames.js', import.meta.url), 'utf8');
 const carried = source.slice(source.indexOf('export const ATTACH_BONE_ROWS'));
@@ -39,7 +40,7 @@ export function objectsFixture(initial = ['cube', 'sphere', 'cylinder'].map(kind
   Object.assign(f.scope, { startupScene: { objects: initial }, selectedHierarchyId: 'object:cube',
     editorCamRef: f.scope.shotCamRef, editorLook: f.scope.look, lookThroughShot: true,
     markCraftAction: () => {}, setInspectorActionsOpen: () => {}, matteEditorRef: { current: null },
-    characters: f.characterRef.current, charIdFromHierarchyId: id => id.startsWith('character:') ? id.slice(10) : null,
+    characters: f.characterRef.current, charIdFromHierarchyId: characterIdFromHierarchyId,
   });
   app.storeDomain('objects').load(initial);
   function Mount() { objects = useObjects(app); return null; }

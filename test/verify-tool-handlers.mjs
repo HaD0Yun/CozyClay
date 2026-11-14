@@ -44,7 +44,7 @@ CAMERA
   distance   4.51m to the subject's centre of mass
 
 CAST (total: 1, returned: 1, truncated: false, revision: <rev>)
-  A char-a  "Y Bot a"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
+  Character 1 char-a  "Y Bot a"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
     model: y-bot-tpose  kind: rig  pose: null  tint: null  scale: 1
     layer: {"waypoints":[]}
 

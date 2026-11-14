@@ -5,7 +5,7 @@ import { aimAt } from "./controls.jsx";
 import { SUBJECT_HEIGHT_M } from "./shot.js";
 import { shotAtFrame } from "./cuts.js";
 import { sampleAt } from "./sample-at.js";
-import { playbackProbe, probeVisibility } from "./motion/playback-probe.js";
+import { probeVisibility } from "./motion/playback-probe.js";
 import { RENDER_ACTIVITY_EVENT } from "./use-render-activity.js";
 import { reportGlLost } from "./crash-telemetry.js";
 import { PRESETS, editorFrameForSubject } from "./stage-startup-defaults.js";
@@ -13,7 +13,7 @@ import { PRESETS, editorFrameForSubject } from "./stage-startup-defaults.js";
 /** Selection marker for the picked cast member: a Unity-style XYZ tripod
  * plus a ground ring at the feet. X/Z arrows also drag the character on the
  * floor (Y is display-only — characters stand on the deck). */
-export function ShotRig({ preset, nonce, fovDeg, charA, probe: playbackProbeInput = {}, camRef, look, onMetrics, appliedPresetRef, lastPosRef }) {
+export function ShotRig({ preset, nonce, fovDeg, subject, subjectsAt, frameRef, camRef, look, onMetrics, appliedPresetRef, lastPosRef }) {
 	useEffect(() => {
 		const cam = camRef.current;
 		if (!cam) return;
@@ -38,7 +38,7 @@ export function ShotRig({ preset, nonce, fovDeg, charA, probe: playbackProbeInpu
 		const p = PRESETS[preset];
 		const az = (p.azimuth * Math.PI) / 180;
 		const el = (p.elevation * Math.PI) / 180;
-		const aim = { x: charA.x, z: charA.z };
+		const aim = { x: subject.x, z: subject.z };
 		const horizontal = p.distance * Math.cos(el);
 		cam.position.set(
 			aim.x + horizontal * Math.sin(az),
@@ -68,9 +68,8 @@ export function ShotRig({ preset, nonce, fovDeg, charA, probe: playbackProbeInpu
 		if (!cam) return;
 		// During motion playback the probe follows the played root, so the
 		// "subject out of frame" caption stays honest.
-		const frame = playbackProbeInput.frameRef?.current ?? 0;
-		const current = playbackProbe(playbackProbeInput, frame, charA);
-		const visible = probeVisibility(probe.current, cam, current, SUBJECT_HEIGHT_M);
+		const frame = frameRef.current;
+		const visible = subjectsAt(frame).every(current => probeVisibility(probe.current, cam, current, SUBJECT_HEIGHT_M * (current.scale ?? 1)));
 		const previous = lastMetrics.current;
 		if (
 			Math.abs(previous.x - cam.position.x) +

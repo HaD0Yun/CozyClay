@@ -17,7 +17,7 @@ export default function RigPanel({ isCharacterSelection, activeChar }) {
 					{/* The rig is a property of the character, and swapping it is a
 					    look decision made while blocking — so it belongs beside the
 					    subject, not buried in the project file. */}
-					<div className="rig-picker v2-details-rig-picker" role="radiogroup" aria-label={ko("Character rig", "캐릭터 리그")}>
+					<div className="rig-picker v2-details-rig-picker" role="radiogroup" aria-label={ko("Character rig", "인물 리그")}>
 						{CHARACTER_MODEL_IDS.map((id) => (
 							<button
 								type="button"

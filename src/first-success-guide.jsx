@@ -7,7 +7,7 @@ const ANIMATION_STEPS = [
 		// #1047: a new project starts with no character, so the old "Select Character 1"
 		// had nothing to select. Adding one is the step, and it ticks itself off.
 		en: "Add a character.",
-		ko: "캐릭터를 추가하세요.",
+		ko: "인물을 추가하세요.",
 		zh: "添加一个角色。",
 		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Y Bot.",
 		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 Y Bot을 고르세요.",
@@ -15,10 +15,10 @@ const ANIMATION_STEPS = [
 	},
 	{
 		en: "Move it in the Scene view.",
-		ko: "장면 보기에서 캐릭터를 움직이세요.",
+		ko: "장면 보기에서 인물을 움직이세요.",
 		zh: "在场景视图中移动它。",
 		hintEn: "Drag the character marker on the floor to place it.",
-		hintKo: "바닥의 캐릭터 마커를 드래그해 배치하세요.",
+		hintKo: "바닥의 인물 마커를 드래그해 배치하세요.",
 		hintZh: "拖动地面上的角色标记来摆放位置。",
 	},
 	{
@@ -26,7 +26,7 @@ const ANIMATION_STEPS = [
 		ko: "에이전트에게 동작을 요청하세요.",
 		zh: "让智能体生成一个动作。",
 		hintEn: "Open it with Cmd/Ctrl+B and say what the character does; the take lands on the Body lane.",
-		hintKo: "Cmd/Ctrl+B로 열고 캐릭터가 할 동작을 말하면 테이크가 바디 레인에 올라갑니다.",
+		hintKo: "Cmd/Ctrl+B로 열고 인물이 할 동작을 말하면 테이크가 바디 레인에 올라갑니다.",
 		hintZh: "按 Cmd/Ctrl+B 打开，说出角色要做的动作；动作片段会落在身体轨道上。",
 	},
 	{

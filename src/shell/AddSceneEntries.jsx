@@ -39,7 +39,7 @@ export default function AddSceneEntries({ onDone }) {
 					}}
 				/>
 				<span className="add-object-swatch vp-add-swatch-cast" aria-hidden="true" />
-				<span>{ko("Import character…", "캐릭터 가져오기…", "导入角色…")}</span>
+				<span>{ko("Import character…", "인물 가져오기…", "导入角色…")}</span>
 			</label>
 			<button type="button" role="menuitem" className="add-object-item" data-add="camera"
 				onClick={() => { addCameraShot({ appContext, runStudioAction, setToast }); onDone?.(); }}

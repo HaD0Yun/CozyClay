@@ -185,8 +185,8 @@ export function moveSequenceSlateKo(segments) {
 /** The hierarchy node id an IK focus lights up. Focus maps stay keyed by the
  * BONE TOKEN; the row id namespaces the result so each cast member's tree
  * highlights its own bone (#76). */
-export function hierarchyIdForIkFocus(focus, rowId = "characterA") {
-	if (!focus) return null;
+export function hierarchyIdForIkFocus(focus, rowId) {
+	if (!focus || !rowId) return null;
 	const exact = Object.entries(RIG_HIERARCHY_FOCUS)
 		.find(([id, mappedFocus]) =>
 			!["rig.torso", "rig.leftArm", "rig.rightArm", "rig.leftLeg", "rig.rightLeg"].includes(id) &&

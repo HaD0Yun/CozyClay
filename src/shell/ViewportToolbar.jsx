@@ -286,7 +286,7 @@ export default function ViewportToolbar() {
 						data-testid="viewport-add"
 						aria-haspopup="menu"
 						aria-expanded={menu.open === "add"}
-						title={ko("Add an object, a character or a camera", "오브젝트, 캐릭터, 카메라 추가")}
+						title={ko("Add an object, a character or a camera", "오브젝트, 인물, 카메라 추가")}
 						onClick={() => menu.toggle("add")}
 					>
 						<span className="vp-add-plus" aria-hidden="true"><RailIcon name="plus" /></span>

@@ -31,6 +31,7 @@ function uniqueKeys(keys, min = -Infinity, max = Infinity) {
 
 function shotExtras(shot) {
 	return {
+		...(shot.subjectIds?.length ? { subjectIds: [...shot.subjectIds] } : {}),
 		...(shot.optics ? { optics: structuredClone(shot.optics) } : {}),
 		...(shot.review ? { review: structuredClone(shot.review) } : {}),
 	};

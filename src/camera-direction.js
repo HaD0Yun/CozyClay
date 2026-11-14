@@ -12,6 +12,8 @@ import { placementAt } from "./root-path.js";
 import { sampleAt } from "./sample-at.js";
 import { SUBJECT_HEIGHT_M, focalMmToFov } from "./shot.js";
 import { takeHips } from "./motion3/take.js";
+import { shotSubjects, subjectsCenter } from "./shot-subjects.js";
+import { carriedPointAt } from "./object-travel.js";
 
 const DEG = Math.PI / 180;
 /** where a character's aim sits on its body: chest height, as a share of its stature, or above a take's hips */
@@ -24,16 +26,17 @@ const CHEST = 0.75, HIPS_TO_CHEST = 0.35;
  * schedule (no distance pull, no pitch offset), with its own lens when the
  * block names one. aimAt(id, frame) answers one cast member's aim point.
  */
-export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, aimAt = () => null, filmback = {} }) {
+export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, yawDegOf = () => yawDeg, aimAt = () => null, filmback = {} }) {
 	const combined = new Array(subjectTrack.length).fill(null);
-	const initialDir = { x: Math.sin(yawDeg * DEG), z: Math.cos(yawDeg * DEG) };
 	for (const shot of shots) {
 		const camera = createCameraBlock(shot.camera);
 		if (camera.mode === "keys") continue;
 		const start = shot.startFrame, subjectSlice = subjectTrack.slice(start, Math.min(subjectTrack.length, shot.endFrame + 1));
+		const yaw = yawDegOf(shot) * DEG, initialDir = { x: Math.sin(yaw), z: Math.cos(yaw) };
 		const params = { ...camera.followCam, craneHeight: camera.craneHeight, dollyTiming: camera.dollyTiming, initialDir };
 		const rail = camera.mode === "rail" ? buildRail(camera.cameraRail) : null;
 		if (!rail) {
+			if (!subjectSlice.length || subjectSlice.some(point => !point)) continue;
 			buildFollowTrack(subjectSlice, fps, params).forEach((sample, offset) => { combined[start + offset] = sample; });
 			continue;
 		}
@@ -47,6 +50,7 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ai
 		const from = start + schedule.startFrame, length = schedule.endFrame - schedule.startFrame + 1;
 		const aim = camera.aim ? Array.from({ length }, (_, offset) => railAimPoint(camera.aim, from + offset, aimAt)) : null;
 		const aimed = aim?.every(Boolean) ? aim : null;
+		if (!aimed && subjectSlice.some(point => !point)) continue;
 		const track = aimed
 			? buildRailFollowTrack(aimed, fps, rail, { ...params, aimPerFrame: true, distanceInfluence: 0, pitchOffsetDeg: 0 })
 			: buildRailFollowTrack(subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1), fps, rail, params);
@@ -55,6 +59,23 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ai
 		track.forEach((sample, offset) => { combined[from + offset] = { ...sample, ...lens }; });
 	}
 	return combined;
+}
+
+/** Sample every named visible member through its own take, placement and parent carry. */
+export function createShotSubjectSampler(cast) {
+	const objects = new Map(cast.objects.map(object => [object.id, object]));
+	return (shot, frame) => shotSubjects(shot, cast.characters, cast.activeId, cast.objects).map(entry => {
+		const point = castAimPoint(entry.id, frame, cast);
+		const placed = placementAt(entry, frame, { shotAt: at => shotAtFrame(cast.shots, at) });
+		const carried = carriedPointAt(objects, entry.parent, { x: point.x, y: entry.y ?? 0, z: point.z }, frame, { frameCount: cast.frameCount, fps: cast.fps });
+		return { ...entry, ...placed, ...carried };
+	});
+}
+
+/** A camera anchor for each absolute frame; null means no named visible target. */
+export function shotSubjectTrack(cast) {
+	const subjectsAt = createShotSubjectSampler(cast);
+	return Array.from({ length: Math.max(1, cast.frameCount) }, (_, frame) => subjectsCenter(subjectsAt(shotAtFrame(cast.shots, frame), frame)));
 }
 
 /** A rail aim at one frame: its world point, or the middle of its cast (null when one is missing). */

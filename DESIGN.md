@@ -221,6 +221,10 @@ and Hotkeys (a read-only list).
 
 ### Reusable primitives
 
+- `.subject-box-head`: an intrinsic wrapping cluster for the character name,
+  model glyph and actions. Keep the numbered name readable; when the card is
+  narrow, actions wrap to a trailing-aligned second row instead of hiding the
+  character number. The Details pane remains the scroll owner.
 - `.tl-camera-tool`: compact camera-toolbar action.
 - `.tl-camera-tool.active`: active/engaged action.
 - `.tl-camera-tool.danger`: destructive camera-toolbar action.

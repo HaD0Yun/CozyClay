@@ -14,9 +14,9 @@ import { demoChair, demoSitSpec, demoStreet } from "./agent-demo-set.js";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DEMOS = [
-	{ id: "walk", motion: "walk", ask: () => ko("Make the character walk in", "캐릭터가 걸어 들어오게 해줘", "让角色走进来"), done: () => ko("Walk added. Space plays and stops.", "걷기를 넣었어요. Space로 재생하고 멈춰요.", "已添加行走。按空格播放或停止。") },
+	{ id: "walk", motion: "walk", ask: () => ko("Make the character walk in", "인물이 걸어 들어오게 해줘", "让角色走进来"), done: () => ko("Walk added. Space plays and stops.", "걷기를 넣었어요. Space로 재생하고 멈춰요.", "已添加行走。按空格播放或停止。") },
 	{ id: "street", ask: () => ko("Build a street around them", "주변에 거리를 만들어줘", "在周围搭一条街道"), done: () => ko("Eight buildings added. They are ordinary objects: select, move, delete.", "건물 8개를 세웠어요. 일반 오브젝트라 선택, 이동, 삭제가 됩니다.", "已添加 8 栋建筑。它们是普通物体，可以选中、移动、删除。") },
-	{ id: "chair", ask: () => ko("Make a chair and sit on it", "의자를 만들고 앉혀줘", "做一把椅子并坐上去"), done: () => ko("Chair built, and the character sits on it. Space plays and stops.", "의자를 만들고 캐릭터를 앉혔어요. Space로 재생하고 멈춰요.", "椅子已做好，角色坐上去了。按空格播放或停止。") },
+	{ id: "chair", ask: () => ko("Make a chair and sit on it", "의자를 만들고 앉혀줘", "做一把椅子并坐上去"), done: () => ko("Chair built, and the character sits on it. Space plays and stops.", "의자를 만들고 인물을 앉혔어요. Space로 재생하고 멈춰요.", "椅子已做好，角色坐上去了。按空格播放或停止。") },
 	{ id: "flip", motion: "back_flip", ask: () => ko("Now a back flip", "이번엔 백플립", "再来一个后空翻"), done: () => ko("Back flip added. Space plays and stops.", "백플립을 넣었어요. Space로 재생하고 멈춰요.", "已添加后空翻。按空格播放或停止。") },
 ];
 
@@ -50,7 +50,7 @@ export default function AgentHostedDemos() {
 	};
 	const run = async (demo) => {
 		const who = character();
-		if (!who) return setStatus(ko("Add a character first: + in the toolbar, then Character.", "먼저 캐릭터를 추가하세요: 툴바의 +, Character.", "请先添加角色：工具栏的 +，然后选 Character。"));
+		if (!who) return setStatus(ko("Add a character first: + in the toolbar, then Character.", "먼저 인물을 추가하세요: 툴바의 +, Character.", "请先添加角色：工具栏的 +，然后选 Character。"));
 		setBusy(demo.id); setStatus("");
 		try {
 			await (demo.motion ? install(who, sampleMotionSpec(demo.motion, who)) : demo.id === "chair" ? chair(who) : build(demoStreet(who)));

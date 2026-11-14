@@ -107,10 +107,10 @@ test("an incomplete task needs a look and says why", () => {
 });
 
 test("a character row names a character only when the cast has it (no phantom Character 1)", () => {
-	assert.equal(characterRowExists("characterA", []), false, "the default selection with an empty cast");
-	assert.equal(characterRowExists("characterA.rig.head", []), false);
-	assert.equal(characterRowExists("characterB", [{ id: "a" }]), false);
-	assert.equal(characterRowExists("characterA", [{ id: "a" }]), true);
+	assert.equal(characterRowExists("character:a", []), false, "the default selection with an empty cast");
+	assert.equal(characterRowExists("character:a.rig.head", []), false);
+	assert.equal(characterRowExists("character:b", [{ id: "a" }]), false);
+	assert.equal(characterRowExists("character:a", [{ id: "a" }]), true);
 	assert.equal(characterRowExists("character:b", [{ id: "a" }, { id: "b" }]), true);
 	assert.equal(characterRowExists("character:z", [{ id: "a" }]), false);
 	assert.equal(characterRowExists("character:b.rig", [{ id: "b" }]), true);

@@ -39,9 +39,10 @@ import { createStudioAppActions, commandDeclarations } from '../src/commands/ind
 import { HISTORY_LIMIT } from '../src/history.js';
 import { focalMmToFov, fovToFocalMm, IMAGE_MODELS, CUSTOM_MOVE, SUBJECT_HEIGHT_M, composePrompt, deriveShot } from '../src/shot.js';
 import { PART_COLOURS } from '../src/part-colours.js';
-import { objectTransformAt } from '../src/object-path.js';
+import { objectTransformAt } from '../src/object-path.js'; import { createShotSubjectSampler } from '../src/camera-direction.js'; import { subjectsCenter } from '../src/shot-subjects.js';
 import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
+import { characterRowId } from '../src/hierarchy-model.js';
 
 const cases = ['previs-mode-and-character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'still-frame-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
 const argv = process.argv.slice(2);
@@ -104,7 +105,8 @@ function fixture(options={}) {
  const heroShot=createShot('Hero',0,23,[{frame:0,framing:keyA},{frame:23,framing:keyB}]);
  const filmback={sensorId:'fullFrame',aspectRatio:16/9},fromShot=deriveShot(keyA.pos,{x:0,z:0,rot:0},40*Math.PI/180,SUBJECT_HEIGHT_M,filmback);
  const captures=[],clipboard=[];
- const aiScope={IMAGE_MODELS,CUSTOM_MOVE,SUBJECT_HEIGHT_M,composePrompt,deriveShot,PART_COLOURS,filmback,shot:fromShot,
+ const aiScope={IMAGE_MODELS,CUSTOM_MOVE,SUBJECT_HEIGHT_M,composePrompt,deriveShot,PART_COLOURS,filmback,shot:fromShot,subjectsCenter,activeChar:chars[0],
+  cameraSubjectsAt:createShotSubjectSampler({characters:chars,objects:[],shots:[heroShot],frameCount:48,fps:24,activeId:a.id,clipOf:()=>null}),
   activeShot:heroShot,activeCamera:{mode:'keys',followCam:null,cameraRail:null,railFollow:null},cameraKeys:heroShot.cameraKeys,
   moveSequence:{fromShot,phrase:'a slow push-in toward the subject'},followTrack:null,subjectTrack:null,fovDeg:40,charA:{x:0,z:0,rot:0},
   // App's prompt cast comes from the real helper; the first fixture character stands in with a description and pose.
@@ -112,7 +114,7 @@ function fixture(options={}) {
   cameraMove:'Static / locked-off',customMove:'',hasCharSheet:false,hasEnvSheet:false,partColoursEnabled:false,shotAspectKey:'16:9',shotOutput:{label:'16:9',width:1920,height:1080},characters:chars,
   captureFramingPng:framing=>{captures.push(framing);return `data:image/png;base64,${btoa(JSON.stringify(framing.pos))}`;},captureRef:ref(null),bufferToPng:()=>null,
   navigator:{clipboard:{writeText:async text=>{clipboard.push(text);}}}};
- const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,...characterKind,...characterNames,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
+ const scope={THREE,cloneSkeleton,createCommandBus,studioBusy,HISTORY_LIMIT,characterRowId,...characterKind,...characterNames,isProxyFigure,placementAt,...protocol,...context,...commands,...objects,...ik,...playback,...rigSnapshot,verifyInstalledTake:studioMotion.verifyInstalledTake,copyPhysicsKeys,physicsKeyStamp,sampleAt,shotAtFrame,focalMmToFov,fovToFocalMm,objectTransformAt,aimAt,forwardFrom,
  liveStateRef:live,sceneRevisionRef:revision,charactersRef:characterRef,loadedLayerCharRef:ref(a.id),bufferRef:buffer,ikStateRef:state,ikStatesRef:layers,storeRef:store,
  charHistoryRef:history,opClockRef:clock,lastObjectOpRef:lastObject,studioActionGroupRef:ref(null),motionFullRef:ref(new Map()),
  store:store.current,suppressObjectClockRef:suppressObjectClock,studioBindingRef:ref(null),objectDeleteUndo:null,selectedSceneObjectId:null,
@@ -406,7 +408,7 @@ const implementations={
   const image=await f.call('resolve_studio_image',{imageId:verified.visualRefs[0].imageId,receiptId:shot.receiptId,revision:verified.revision});
   assert.match(image.dataUrl,/^data:image\/png;base64,/);assert.equal(image.width,1280);
   protocol.validateStudioSchema(protocol.StudioSchemas.GeometryFacts,verified.geometry);
-  assert.deepEqual(verified.geometry.shots.map(s=>({shotId:s.shotId,subjectIds:s.subjectIds,cameraSide:s.cameraSide})),[{shotId:shot.affectedIds[0],subjectIds:['actor-a','actor-b'],cameraSide:'right'}]);
+   assert.deepEqual(verified.geometry.shots.map(s=>({shotId:s.shotId,subjectIds:s.subjectIds,axisSubjectIds:s.axisSubjectIds,cameraSide:s.cameraSide})),[{shotId:shot.affectedIds[0],subjectIds:['actor-a'],axisSubjectIds:['actor-a','actor-b'],cameraSide:'right'}]);
   assert.equal(verified.geometry.axisConsistent,null,'one shot has nothing to compare');
   // A target verify of the framing reports the same sight-line evidence; an editor without the port refuses the plan.
   const targets=await f.call('verify_result',f.request('verify_result',{targets:['actor-a'],checks:['framing'],visual:'none'}));
@@ -611,7 +613,7 @@ const implementations={
   assert.deepEqual(r.revision,{before,after:before+1});
   assert.equal(f.live.current.shots.length,1);const shot=f.live.current.shots[0];
   assert.deepEqual(r.affectedIds,[shot.id]);
-  assert.deepEqual(r.delta,[{id:shot.id,after:{patched:[{path:'shot.cameraKeys',count:1},{path:'shot.targetModel',text:null}]}}]);
+  assert.deepEqual(r.delta,[{id:shot.id,after:{patched:[{path:'shot.cameraKeys',count:1},{path:'shot.targetModel',text:null},{path:'shot.subjectIds',text:null}]}}]);
   assert.equal(f.scope.shotsDomain.documentStore.depths().past,1,'one owned Ctrl+Z entry');
   assert.equal(f.history.current.past.length,0,'shots leave native cast history');
   assert.equal((await f.call('reconcile_studio_command',{host:f.host(),commandId:r.commandId})).status,'applied');

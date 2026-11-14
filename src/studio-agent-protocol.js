@@ -79,7 +79,7 @@ const identityFields = { workspaceId: id, documentEpoch: id, sceneId: id, sceneE
 const identity = object(identityFields);
 const host = object({ surface: literal("studio"), ...identityFields, workspaceHandle: nullable(id) });
 const revision = object({ scene: integer(), physics: integer(), view: integer() });
-const selection = nullable(object({ kind: choices(STUDIO_VARIANTS.selectionKinds), id }, { hierarchyId: id }));
+const selection = nullable(object({ kind: choices(STUDIO_VARIANTS.selectionKinds), id }, { hierarchyId: { ...id, maxLength: id.maxLength * 3 + 32, pattern: "^[A-Za-z0-9](?:[A-Za-z0-9._:-]|%[0-9A-Fa-f]{2})*$" } }));
 const view = object({ mode: choices(STUDIO_VARIANTS.modes), frame: integer(), playing: bool, lookThrough: bool, grid: bool, autoColor: bool });
 const position = union(
 	object({ world: vec3 }),
@@ -126,10 +126,10 @@ const objectRoute = nullable(object({ points: array(vec3, 64, 2) }, { speed: num
 // A practical light and a glow (src/object-look.js owns the defaults and the repair); grasp sockets (src/object-grasp.js).
 const objectLight = object({}, { type: choices(["point", "spot"]), color: { ...text(32), pattern: "^#[0-9a-fA-F]{6}$" }, intensity: number(0, 1000), range: number(0, 100), angle: number(1, 89), softness: number(0, 1), shadow: bool, flicker: number(0, 1), aim: nullable(vec3) });
 const objectGlow = nullable(object({}, { color: { ...text(32), pattern: "^#[0-9a-fA-F]{6}$" }, intensity: number(0, 20), halo: number(0, 4) })), objectGrasp = nullable(openObject);
-const PATCH_VALUE_SCHEMAS = {
+const castIds = { type: "array", items: id, uniqueItems: true }, PATCH_VALUE_SCHEMAS = {
 	"character.pose": nullable(id), "character.identityImage": nullable(dataImage), "object.light": objectLight, "object.glow": objectGlow, "object.grasp": objectGrasp, "object.effect": EFFECT_VALUE_SCHEMA, "object.text": TEXT_VALUE_SCHEMA,
 	"object.parent": nullable(id), "object.path": objectRoute, "stage.environmentImage": nullable(dataImage),
-	"shot.cameraKeys": array(cameraKey, 64), "shot.targetModel": nullable(id) };
+	"shot.cameraKeys": array(cameraKey, 64), "shot.targetModel": nullable(id), "shot.subjectIds": castIds };
 /** One declared element as a JSON value schema, or null when the declaration
  * carries no carriable shape (a structured element without a declared value
  * schema above). Null elements are omitted from the patch schema, and
@@ -187,14 +187,14 @@ const patchOp = union(
 	object({ target: object({ kind: literal("shot") }, { id }), set: STUDIO_PATCH_SET_SCHEMAS.shot }),
 	object({ target: object({ kind: literal("stage") }), set: STUDIO_PATCH_SET_SCHEMAS.stage }),
 );
-const SUBJECT_IDS_NOTE = "Exactly ONE character id (a character, not an object): size, level and view are measured on it. For a two-shot name one of the pair and choose a size wide enough for both (medium-wide shot or wider), then read checks";
+const SUBJECT_IDS_NOTE = "Character ids, not object ids: frame all named visible members together and measure their combined bounds";
 const toolSchemas = {
 	inspect_studio: object({ scope: choices(STUDIO_VARIANTS.inspectionScopes) }, { ids: ids(32), select: ids(32), query: name, cursor: text(512), limit: { ...integer(1, 32), default: 12 } }),
 	operate_studio: object({}, { selection, shotId: id, frame: integer(), playing: bool, mode: choices(STUDIO_VARIANTS.modes), view: object({}, { lookThrough: bool, grid: bool, autoColor: bool }) }),
 	arrange_objects: object({ ops: { ...array(objectOp, 100, 1), description: "Applied in order, as one undo step. Each op sees the parts created by earlier ops, so build an assembly in one call: create the main part, then place the rest with position.onObject / relativeTo(+side,gapM) / between naming earlier parts (e.g. relativeTo \"Hood\"). Reference parts created in this call by name, never by id." } }, { collisionPolicy: { ...choices(STUDIO_VARIANTS.collisionPolicies), default: "report" } }),
 	arrange_characters: object({ ops: array(characterOp, 8, 1) }),
 	patch_elements: object({ ops: array(patchOp, 32, 1) }),
-	frame_shot: object({ subjectIds: { ...ids(1), description: SUBJECT_IDS_NOTE, "x-studio-bound": `${SUBJECT_IDS_NOTE}.` }, framing }, { shotId: id, caption: { type: "string", maxLength: 500 }, keyAtFrame: integer(), over: { ...choices(["shot"]), description: "Fit one held camera to every pose of the shot, turned off the asked view only as far as walls need" } }),
+	frame_shot: object({ subjectIds: { ...castIds, minItems: 1, description: SUBJECT_IDS_NOTE }, framing }, { shotId: id, caption: { type: "string", maxLength: 500 }, keyAtFrame: integer(), over: { ...choices(["shot"]), description: "Fit one held camera to every pose of the shot, turned off the asked view only as far as walls need" } }),
 	verify_result: object({ checks: { ...array(choices(["placement", "framing", "motion", "lighting"]), 4, 1, true), description: "lighting measures the shot frame rendered at the playhead: checks.lighting { meanLuma 0..1, clippedPct (a channel at full scale), crushedPct (pure black), subjects: [{ id, meanLuma, contrast (5th to 95th percentile luma spread, 0..1) }] inside each target character's projected box, look: { preset, envLight, ao } the stage look's environment light and occlusion strength }. motion also answers exportFraming (one per character with a take): what the camera the export renders shows of the take over sampledFrames: camera (shot where a shot covers the frame, studio = the Studio camera as it stands when none does; shotIds), character { screenFraction [min, max] of the frame height, inFrame [lowest share of its joints' screen box inside the frame, frame], behindCamera, cut { head, hand_l, hand_r, foot_l, foot_r } }, and every object the take names { id, name, inFrame, out, cut }; out, cut and behindCamera are spans [first, last] of sampled frames; { character: { id }, reason } when it cannot be measured" } }, { receiptId: id, targets: ids(), range: union(literal("whole_clip"), range), visual: { ...choices(["none", "frame", "contact_sheet", "plan", "trace", "closeup"]), default: "none", description: "closeup: one image of 1-4 objects (targets: object ids; a group includes its parts) from three cameras of its own, three-quarter, front or side, top, fitted to them, other objects hidden, a 1.8 m figure beside them for scale; the shot camera and the user's view stay as they are" }, frames: { ...union(choices(["even", "beats"]), array(integer(), 8, 1, true)), default: "even", description: "contact_sheet frames: even spacing, beats (grab/release, beat starts, the worst QA frames, then even fill, answered in visualRefs[0].picks), or up to 8 timeline frames of your choice" }, views: { ...array(choices(["front", "side", "three-quarter", "top"]), 2, 1, true), description: "contact_sheet from cameras of its own around the character instead of the shot camera (which stays as it is): a row per view, each held still over the frames and framed on focus, so small actions fill the tile; side and three-quarter look from the focus's side; a sheet always holds two views at least 60 degrees apart: if the asked ones look along nearly one line, side, front or top is added and named in visualRefs[0].addedView" }, focus: { ...union(text(120), array(text(120), 3, 1, true)), description: "with views: what to frame, as refs (object:<id>, joint:<Bone>, prop:<prop>.<point>, landmark:mouth); default the whole character" }, trail: { ...union(text(120), array(text(120), 3, 1, true)), description: "with views: refs whose path over the range is drawn as one dot per frame (spacing shows speed; later frames faint, the tile's own frame ringed), colours in visualRefs[0].trails" }, ghosts: { ...bool, description: "with views: each tile also shows the first target's poses around its frame as translucent ghosts (onion skin), earlier ones blue, later ones orange, carried props included, so spacing and arcs read in one tile; how many and how far apart is view.setGhosts (while it is off: 3 each side, every 4 frames), answered in visualRefs[0].ghosts" } }),
 	undo_edit: object({ receiptId: id }),
 	run_action: object({ action: id }, { args: openObject, confirmationToken: id }),
@@ -222,8 +222,8 @@ const indexRow = object({ id, kind: choices(["object", "character", "rig"]) }, {
 // Its schema is on request (inspect_studio scope "actions" with ids); the
 // declared hub timeout rides along for the sidecar's gate.
 const actionIndexRow = object({ id }, { label: name, timeoutMs: integer(1, 300_000) });
-const shotSummary = object({ id, name, range, keyCount: integer() }, { subjectIds: ids(24, 0), kind: choices(["clip", "still"]), caption: text(500) });
-const currentShot = object({ id, name, range, mode: choices(STUDIO_VARIANTS.shotModes) }, { subjectIds: ids(24, 0), kind: choices(["clip", "still"]), caption: text(500) });
+const shotSummary = object({ id, name, range, keyCount: integer() }, { subjectIds: castIds, kind: choices(["clip", "still"]), caption: text(500) });
+const currentShot = object({ id, name, range, mode: choices(STUDIO_VARIANTS.shotModes) }, { subjectIds: castIds, kind: choices(["clip", "still"]), caption: text(500) });
 const camera = object({ position: vec3, lookAt: vec3, focalMm: positive, sensorId: id, slate: name });
 // What the agent can place: a catalogue kind, or an asset imported into the scene.
 const assetTypes = choices(["primitive", "set-piece", "image", "mesh"]);
@@ -262,7 +262,7 @@ const verification = object({ id, status: choices(["verified", "unverified"]), p
 // not a missing member.
 const patchedValue = object({ path: text(120) }, { number: number(), text: nullable(text(512)), flag: bool, vec: vec3, count: integer(), bytes: integer() });
 const readback = object({}, { position: vec3, yawDeg: number(), rotationDeg: vec3, scale: union(positive, positiveVec3), name, color: text(32), hidden: bool, modelId: id, renderer: id,
-	parentId: nullable(id), childIds: ids(100, 0), childCount: integer(0), bounds: nullable(bounds), removed: bool, range, camera, keyId: id, frame: integer(), subjectIds: ids(24, 0), selection, activeCharacterId: nullable(id), shotId: nullable(id), view, token: id, takeId: nullable(id), statureM: positive,
+	parentId: nullable(id), childIds: ids(100, 0), childCount: integer(0), bounds: nullable(bounds), removed: bool, range, camera, keyId: id, frame: integer(), subjectIds: castIds, selection, activeCharacterId: nullable(id), shotId: nullable(id), view, token: id, takeId: nullable(id), statureM: positive,
 	patched: array(patchedValue, 32, 1) });
 const CAMERA_SIDES = ["left", "right", "on-axis"];
 const checks = object({ coverage: name }, { relationSatisfied: bool, overlapIds: ids(100, 0), actualGapM: number(), requestedGapM: number(0), maximumFootprintOverlapM: number(0),
@@ -273,8 +273,8 @@ const checks = object({ coverage: name }, { relationSatisfied: bool, overlapIds:
 const geometryFacts = object({
 	subjects: array(object({ id, position: vec3, yawDeg: number() }), 24),
 	pairs: array(object({ a: id, b: id, distanceM: number(0) }), 24),
-	shots: array(object({ shotId: id, subjectIds: ids(2, 0), camera: nullable(object({ position: vec3, lookAt: vec3 })), cameraSide: nullable(choices(CAMERA_SIDES)),
-		occluders: array(object({ subjectId: id, byObjectId: id }), 8) }), 8),
+	shots: array(object({ shotId: id, subjectIds: ids(24, 0), camera: nullable(object({ position: vec3, lookAt: vec3 })), cameraSide: nullable(choices(CAMERA_SIDES)),
+		occluders: array(object({ subjectId: id, byObjectId: id }), 8) }, { axisSubjectIds: ids(2, 0) }), 8),
 	axisConsistent: nullable(bool),
 });
 const warning = object({ code: id }, { id, message: name, suggestedOutwardDeltaM: number(), count: integer() });
