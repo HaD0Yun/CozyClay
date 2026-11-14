@@ -108,6 +108,17 @@ await act("view.select", { selection: { kind: "character", id: characterId } });
 await evaluate(`window.__cozyclay.frameEditorCam({ x: -1.7, y: 2.1, z: 3.6 }, { x: 0.05, y: 0.95, z: 0.2 })`);
 await evaluate("window.__cozyclay.scrub(47)");
 await frames(4);
+// motion.compile publishes an installed draft that intentionally fades for 1200 ms
+// (draft-ghost.js). Compare onion skins against the settled viewport, not that animation.
+await evaluate(`new Promise((resolve, reject) => {
+	let frame;
+	const timer = setTimeout(() => { cancelAnimationFrame(frame); reject(new Error("timed out waiting for the draft ghost to hide")); }, 60000);
+	const check = () => {
+		if (!window.__cozyclayDraftGhost?.on) { clearTimeout(timer); resolve(); }
+		else frame = requestAnimationFrame(check);
+	};
+	check();
+})`);
 await paneStats("keep");
 assert.equal((await ghosts())?.inScene ?? false, false, "off by default: nothing in the scene");
 const on = await act("view.setGhosts", { mode: "step", count: 3, step: 4 });
