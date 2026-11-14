@@ -35,7 +35,8 @@ export function setupInstall() {
 	const command = document.getElementById("install-command");
 	const via = installSource(location.search);
 	if (mobile) document.documentElement.dataset.touch = "";
-	if (detected) document.querySelectorAll("[data-install-label]").forEach((label) => { label.textContent = `Install on ${OS_NAME[detected]}`; });
+	// The button names no computer; the dialog asks which one, with the visitor's own marked and preselected.
+	if (detected) install.querySelector(`[data-os="${detected}"]`).insertAdjacentHTML("beforeend", "<small>This computer</small>");
 
 	const updateDownload = () => {
 		nodeLink.href = nodeInstaller(releases, os, winArch);
