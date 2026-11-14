@@ -91,6 +91,7 @@ const entries = [
 	{ path: "shot.cameraKeys", type: "array", persisted: true, undoDomain: "shot", normalizer: null, frameMin: 0 },
 	{ path: "shot.cameraRail", type: "array", persisted: true, undoDomain: "shot", normalizer: "repairCamera", actions: ["shot.setCameraRail", "shot.clearCameraRail"], note: "rail points; crane/dolly timing follow the shot's camera block" },
 	{ path: "shot.targetModel", type: "id", persisted: true, undoDomain: "shot", normalizer: "repairCamera" },
+	{ path: "shot.subjectIds", type: "array", persisted: true, undoDomain: "shot", normalizer: null, note: "visible cast members framed together; empty uses the active character" },
 	{ path: "shot.kind", type: "enum", persisted: true, undoDomain: "shot", normalizer: null, readOnly: true, enum: ["clip", "still"], note: "clip or still; a still holds one picture for endFrame - startFrame + 1 frames" },
 	{ path: "shot.caption", type: "string", persisted: true, undoDomain: "shot", normalizer: null, readOnly: true, note: "trimmed, at most 500 characters" },
 	{ path: "shot.cast", type: "array", persisted: true, undoDomain: "shot", normalizer: null, readOnly: true, note: "per-shot placement overrides keyed by character id: { x, z, rot, posture?, pose? }" },

@@ -91,7 +91,7 @@ test('2: a UI keyframe drag commits one history entry and one authored receipt; 
   } finally { f.dispose(); }
 });
 test('3: every patchable shot path shares normalization and readback with patch_elements', async () => {
-  const values = { 'shot.cameraKeys': [{ id: 'key-b', frame: 8, framing }], 'shot.targetModel': 'seedance-2.5' };
+  const values = { 'shot.cameraKeys': [{ id: 'key-b', frame: 8, framing }], 'shot.subjectIds': ['actor-a', 'actor-b'], 'shot.targetModel': 'seedance-2.5' };
   assert.deepEqual(Object.keys(values).sort(), [...STUDIO_PATCHABLE_PATHS.shot].sort());
   for (const [path, value] of Object.entries(values)) {
     const a = shotsFixture(), b = shotsFixture();

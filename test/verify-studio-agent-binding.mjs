@@ -406,7 +406,7 @@ const implementations={
   const image=await f.call('resolve_studio_image',{imageId:verified.visualRefs[0].imageId,receiptId:shot.receiptId,revision:verified.revision});
   assert.match(image.dataUrl,/^data:image\/png;base64,/);assert.equal(image.width,1280);
   protocol.validateStudioSchema(protocol.StudioSchemas.GeometryFacts,verified.geometry);
-  assert.deepEqual(verified.geometry.shots.map(s=>({shotId:s.shotId,subjectIds:s.subjectIds,cameraSide:s.cameraSide})),[{shotId:shot.affectedIds[0],subjectIds:['actor-a','actor-b'],cameraSide:'right'}]);
+   assert.deepEqual(verified.geometry.shots.map(s=>({shotId:s.shotId,subjectIds:s.subjectIds,axisSubjectIds:s.axisSubjectIds,cameraSide:s.cameraSide})),[{shotId:shot.affectedIds[0],subjectIds:['actor-a'],axisSubjectIds:['actor-a','actor-b'],cameraSide:'right'}]);
   assert.equal(verified.geometry.axisConsistent,null,'one shot has nothing to compare');
   // A target verify of the framing reports the same sight-line evidence; an editor without the port refuses the plan.
   const targets=await f.call('verify_result',f.request('verify_result',{targets:['actor-a'],checks:['framing'],visual:'none'}));
@@ -611,7 +611,7 @@ const implementations={
   assert.deepEqual(r.revision,{before,after:before+1});
   assert.equal(f.live.current.shots.length,1);const shot=f.live.current.shots[0];
   assert.deepEqual(r.affectedIds,[shot.id]);
-  assert.deepEqual(r.delta,[{id:shot.id,after:{patched:[{path:'shot.cameraKeys',count:1},{path:'shot.targetModel',text:null}]}}]);
+  assert.deepEqual(r.delta,[{id:shot.id,after:{patched:[{path:'shot.cameraKeys',count:1},{path:'shot.targetModel',text:null},{path:'shot.subjectIds',text:null}]}}]);
   assert.equal(f.scope.shotsDomain.documentStore.depths().past,1,'one owned Ctrl+Z entry');
   assert.equal(f.history.current.past.length,0,'shots leave native cast history');
   assert.equal((await f.call('reconcile_studio_command',{host:f.host(),commandId:r.commandId})).status,'applied');
