@@ -212,6 +212,21 @@ Superseded by §6 (#570): the bottom dock holds only the Sequencer and the shot
 preview, `clamp(220px, 30vh, 300px)` tall by default, and every panel edge has
 a drag handle.
 
+At 1000 px and below, Outliner and Details are optional full-width panels
+above the dock, opened and closed by the Studio panels buttons. Only one
+opens at a time. Their existing bodies own scrolling; neither covers the
+stage or timeline. Opening the Agent reveals that same region and temporarily
+replaces Details; collapsing it restores the previous panel choice. At 600 px and below,
+the dock uses a separate tab row and puts shot controls below the timeline;
+Look through replaces the thumbnail while space is limited. The tool rail
+scrolls within the remaining stage height. Export status uses the full
+window width rather than the space between desktop side columns.
+
+Shot-camera HUD labels and captions pair `--text-1` with the opaque
+`--surface-raised` in both themes; the exit hint has full opacity.
+Install commands stay on one line in their existing horizontal scroll
+region, preserving every flag and token for manual entry and copy.
+
 ### G12 — start and Preferences
 
 Screen 2b replaces the project browser/startup chooser with today's samples;
