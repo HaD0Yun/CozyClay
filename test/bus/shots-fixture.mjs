@@ -7,8 +7,7 @@ export const framing = { pos: { x: 0, y: 1.6, z: 5 }, yaw: 0, pitch: 0, fovDeg: 
 export function seedShot() {
   return { ...createShot('Hero', 0, 23, [{ id: 'key-a', frame: 0, framing }]), id: 'shot-a' };
 }
-export function shotsFixture() {
-  const f = appFixture();
+export function shotsFixture(f = appFixture()) {
   const scope = f.scope;
   scope.startupScene = { shotDocument: createShotAuthoringDocument({ shots: [seedShot()], frameCount: 120 }) };
   scope.markCraftAction = () => {};

@@ -43,6 +43,9 @@ function pointOnTrack(track, frame) {
 	const lo = Math.floor(at);
 	const hi = Math.min(lo + 1, track.length - 1);
 	const weight = at - lo;
+	if (!track[lo]) return null;
+	if (!weight) return copyPoint(track[lo]);
+	if (!track[hi]) return null;
 	return {
 		x: track[lo].x + (track[hi].x - track[lo].x) * weight,
 		z: track[lo].z + (track[hi].z - track[lo].z) * weight,
@@ -97,7 +100,7 @@ export function sampleAt(scene, shot, frame) {
 		const block = createCameraBlock(shot.camera);
 		const keyedCamera = () => sharedCamera(cameraMoveAt(
 			shot.cameraKeys,
-			source.cameraAnchor ?? source.subject ?? { x: 0, z: 0 },
+			source.cameraAnchorTrack ? pointOnTrack(source.cameraAnchorTrack, sampledFrame) ?? { x: 0, z: 0 } : source.cameraAnchor ?? source.subject ?? { x: 0, z: 0 },
 			sampledFrame,
 			source.filmback,
 		), source);

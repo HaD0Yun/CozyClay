@@ -166,7 +166,7 @@ const NODE_FILES = [
 	"test/verify-workflow-scene-asset-sync.mjs",
 	"test/verify-stable-ids.mjs",
 	"test/verify-storyboard.mjs",
-	"test/verify-shot-authoring.mjs", "test/verify-shot-subjects.mjs",
+	"test/verify-shot-authoring.mjs", "test/verify-shot-subjects.mjs", "test/verify-shot-readers.mjs",
 	"test/verify-shot-document-v5.mjs",
 	"test/verify-shot-meta.mjs",
 	"test/verify-shot-prompt.mjs",

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { aimAt } from '../controls.jsx';
 import { PRESETS, DEFAULT_DURATION_S, TIMELINE_FPS } from '../app-stage.jsx';
 import { usePlaybackFrameState } from '../motion/playback-frame-store.js';
-import { CAMERA_MOVES, SUBJECT_HEIGHT_M, focalMmToFov, fovToFocalMm } from '../shot.js';
-import { CAMERA_PRESETS, cameraPresetFraming } from '../camera-move.js';
+import { CAMERA_MOVES, focalMmToFov, fovToFocalMm } from '../shot.js';
+import { frameSubjectsAt, presetFrameArgs } from '../studio-frame-subject.js';
 import { createDocumentStore } from '../document-store.js';
 import { useDocumentDomain } from '../store/use-document-store.js';
 import { frameDraft } from '../studio-agent-commands.js';
@@ -11,6 +11,7 @@ import { StudioProtocolError } from '../studio-agent-protocol.js'; import { sett
 import { createShotAuthoringDocument, readShotAuthoring, readShotAuthoringDocument, SHOT_AUTHORING_KEY,
   SHOT_AUTHORING_LEGACY_KEYS, SHOT_AUTHORING_QUARANTINE_KEY } from '../shot-authoring.js';
 import { shotIndexAtFrame } from '../cuts.js';
+import { subjectsCenter } from '../shot-subjects.js';
 import { createCameraBlock, updateCameraBlock } from '../camera-block.js';
 import { followFramingFromCamera, craneHeightAt, buildRail, simplifyStroke } from '../camera-follow.js';
 import { defaultRailRange, clampRailRange } from '../camera-rail-schedule.js';
@@ -105,31 +106,27 @@ function createShotsDomain(appContext, initial = {}) {
     return [appContext.ports.read().host.sceneId];
   }
   function frame(args) {
-    const raw = appContext.ports.read(), filmback = raw.filmback, cameraPresetId = args.preset ?? null;
-    if (args.preset !== undefined) {
-      if (!CAMERA_PRESETS[args.preset]) throw new StudioProtocolError('INVALID_ARGUMENT', 'Unknown camera preset');
-      const subject = raw.characters.find(row => row.id === raw.activeCharacterId) ?? raw.characters[0];
-      const framing = cameraPresetFraming(args.preset, { x: subject?.x ?? 0, z: subject?.z ?? 0, height: SUBJECT_HEIGHT_M * (subject?.scale ?? 1) }, filmback);
-      args = { subjectIds: [subject?.id], framing: { exact: { position: framing.pos,
-        lookAt: { x: subject?.x ?? 0, y: SUBJECT_HEIGHT_M * (subject?.scale ?? 1) * 0.52, z: subject?.z ?? 0 }, focalMm: framing.focalMm } } };
-    }
-    const plan = frameDraft({ name: 'frame_shot', args }, { ...raw, camera: raw.camera ?? state().camera,
+    const raw = appContext.ports.read(), cameraPresetId = args.preset ?? null;
+    const preset = args.preset === undefined ? null : presetFrameArgs(args.preset, raw, read(), TIMELINE_FPS);
+    const plan = frameDraft({ name: 'frame_shot', args: preset?.args ?? args }, { ...raw, camera: raw.camera ?? state().camera,
       frame: raw.view.frame, shotDocument: { shots: read() } }, { bounds: appContext.ports.bounds });
+    if (preset?.namedSubjectIds?.length) plan.draft.shotDocument.shots = plan.draft.shotDocument.shots.map(shot => shot.id === plan.details.shotId ? { ...shot, subjectIds: [...preset.namedSubjectIds] } : shot);
     commitDraft(plan.draft);
     return { ...plan, affectedIds: [...plan.affectedIds, ...setPresetMetadata(cameraPresetId)] };
   }
   function captureCamera(shotId) {
     const shared = appContext.shared, mounted = shared.shotCamRef.current;
     if (!mounted) return;
-    const position = { x: mounted.position.x, y: mounted.position.y, z: mounted.position.z };
+    const raw = appContext.ports.read(), position = { x: mounted.position.x, y: mounted.position.y, z: mounted.position.z };
     const { yaw, pitch } = shared.look.current;
     const camera = { position, lookAt: { x: position.x - Math.sin(yaw) * Math.cos(pitch), y: position.y + Math.sin(pitch), z: position.z - Math.cos(yaw) * Math.cos(pitch) },
       focalMm: fovToFocalMm(mounted.fov * Math.PI / 180, appContext.live.state.filmback.sensorId, appContext.live.state.filmback.aspectRatio),
       sensorId: appContext.live.state.filmback.sensorId, slate: 'Shot camera' };
     writeState(before => {
-      const subject = shared.motionPos ?? shared.charA, subjectYaw = (shared.charA.rot * Math.PI) / 180;
       const shots = before.shots.map(shot => {
         if (shot.id !== shotId) return shot;
+        const subject = subjectsCenter(frameSubjectsAt(raw, read(), TIMELINE_FPS)(shot, raw.view.frame)); if (!subject) return shot;
+        const subjectYaw = (subject.rot * Math.PI) / 180;
         const followCam = createCameraBlock(shot.camera).followCam;
         const measured = followFramingFromCamera(position, pitch, subject, followCam.aimHeight, { x: Math.sin(subjectYaw), z: Math.cos(subjectYaw) });
         return { ...shot, camera: updateCameraBlock(shot.camera, { followCam: { ...followCam, ...measured } }) };

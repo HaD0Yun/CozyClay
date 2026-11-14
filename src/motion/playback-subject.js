@@ -1,7 +1,6 @@
-import { sampleAt } from "../sample-at.js";
+import { playbackProbe } from "./playback-probe.js";
 
 export function usePlaybackSubjectPosition({ motion, subjectCarry, scene, frame }) {
 	if (!motion && !subjectCarry) return null;
-	const subject = sampleAt(scene, null, frame).subject;
-	return subjectCarry ? subjectCarry(subject, frame) : subject;
+	return playbackProbe({ scene, carry: subjectCarry }, frame, null);
 }
