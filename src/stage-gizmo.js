@@ -26,8 +26,8 @@ export function characterGizmoObject(gizmoView, entry) {
 	};
 }
 
-export function playbackSceneWithTrack(base, subjectTrack, followTrack) {
-	return { ...base, subjectTrack, cameraTrack: followTrack };
+export function playbackSceneWithTrack(base, subjectTrack, followTrack, cameraAnchorTrack) {
+	return { ...base, subjectTrack, cameraTrack: followTrack, ...(cameraAnchorTrack ? { cameraAnchorTrack } : {}) };
 }
 
 export function followCameraActive(mode, track, frame, preview, ikMode, waypointMode, posing) {
