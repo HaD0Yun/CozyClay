@@ -3608,7 +3608,8 @@ export default function App() {
 	// (test/motion3/qa-motion3-*-browser.mjs). Harmless in normal use.
 	useEffect(() => {
 	window.__cozyclay = {
-			runStudioAction, setFrame: setTlFrame, setPlaying: setTlPlaying,
+			// The same UI action path, with machine refusals exposed for QA.
+			runStudioAction: (id, args) => runStudioAction(id, args, true), setFrame: setTlFrame, setPlaying: setTlPlaying,
 			rigA: activeRig, motion, tlFrame, frameCount: tlFrameCount, playing: tlPlaying, ikMode, ikChains, ikFocus, contactRadii: ikChains?.values().next().value?.contactRadii ?? null, ik: ikStateRef.current,
 			rangePins, rangePinResiduals,
 			rangePinApplySpec: motionDomain.rangePinApplySpec,
@@ -4366,16 +4367,16 @@ export default function App() {
 	 * model, so a person only ever sees the localized `uiMessage` a thrower
 	 * attached (studioActionRefusal); any other refusal stays silent, as the
 	 * controls always were. */
-	function runStudioAction(id, args = {}) {
+	function runStudioAction(id, args = {}, exposeRefusal = false) {
 		const refused = error => {
-			if (!(error instanceof StudioProtocolError)) throw error;
+			if (!(error instanceof StudioProtocolError) || exposeRefusal) throw error;
 			if (error.uiMessage) setToast(error.uiMessage);
 			return null;
 		};
 		try {
 			// A long-running action answers with a promise that refuses the same way.
 			const result = appContext.bus.run(id, args, { origin: "ui" });
-			const answer = receipt => receipt.ok ? receipt : null;
+			const answer = receipt => receipt.ok || exposeRefusal ? receipt : null;
 			return typeof result?.then === "function" ? result.then(answer, refused) : answer(result);
 		} catch (error) {
 			return refused(error);

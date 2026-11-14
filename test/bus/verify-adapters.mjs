@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { appFixture } from './app-fixture.mjs';
+import { readFileSync } from 'node:fs';
+import { appFixture, appProgram, appSource, parseJavaScript } from './app-fixture.mjs';
 import { deferred } from './fixture.mjs';
+import { StudioProtocolError } from '../../src/studio-agent-protocol.js';
 const f = appFixture();
 try {
  const completion = deferred();
@@ -27,5 +29,69 @@ try {
  const undo = await f.binding.bus.run('edit.undo', { receiptId: receipt.receiptId }, { origin: 'ui' });
  assert.equal(undo.status, 'undone', JSON.stringify(undo));
  assert.equal(f.live.current.shots.length, 0);
+ const source = appSource;
+ let publishedRun;
+ const visit = node => {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'AssignmentExpression' && node.left?.object?.name === 'window' && node.left?.property?.name === '__cozyclay') {
+   publishedRun = node.right.properties.find(property => property.key?.name === 'runStudioAction')?.value;
+  }
+  for (const [key, value] of Object.entries(node)) if (key !== 'parent') {
+   if (Array.isArray(value)) value.forEach(visit); else visit(value);
+  }
+ };
+ visit(appProgram);
+ assert.ok(publishedRun, 'the real browser QA action publisher is present');
+ const visibleRun = new Function('runStudioAction', `return (${source.slice(publishedRun.start, publishedRun.end)});`)(f.actual.runStudioAction);
+ f.registry.register({ id: 'test.refused', kind: 'job', domain: 'motion', input: inputs, available: () => true,
+  run: () => { throw new StudioProtocolError('TARGET_NOT_READY', 'Original machine refusal.'); } });
+ const refused = await visibleRun('test.refused');
+ assert.equal(refused?.ok, false, 'the test-visible UI path preserves a refused receipt');
+ assert.equal(refused.code, 'TARGET_NOT_READY');
+ assert.equal(refused.message, 'Original machine refusal.');
+ assert.equal(refused.phase, 'admission');
+ assert.equal(f.actual.runStudioAction('test.refused'), null, 'ordinary UI refusal behavior is retained');
+ f.registry.register({ id: 'test.refusedAsync', kind: 'job', domain: 'motion', input: inputs, available: () => true,
+  run: () => Promise.reject(new StudioProtocolError('STALE_TARGET', 'Original async refusal.')) });
+ const asyncRefused = await visibleRun('test.refusedAsync');
+ assert.equal(asyncRefused?.ok, false);
+ assert.equal(asyncRefused.code, 'STALE_TARGET');
+ assert.equal(asyncRefused.message, 'Original async refusal.');
+ const originalRun = f.binding.bus.run;
+ const thrown = new StudioProtocolError('STALE_SCENE', 'Original protocol exception.');
+ try {
+  f.binding.bus.run = () => { throw thrown; };
+  assert.throws(() => visibleRun('test.refused'), error => error === thrown, 'test-visible synchronous errors retain identity');
+  f.binding.bus.run = () => Promise.reject(thrown);
+  await assert.rejects(visibleRun('test.refused'), error => error === thrown, 'test-visible asynchronous errors retain identity');
+ } finally { f.binding.bus.run = originalRun; }
+ const browserSource = readFileSync(new URL('../motion3/qa-motion3-playback-browser.mjs', import.meta.url), 'utf8');
+ const browserParsed = parseJavaScript('qa-motion3-playback-browser.mjs', browserSource);
+ assert.deepEqual(browserParsed.errors, []);
+ let evaluator;
+ const findEvaluator = node => {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'VariableDeclarator' && node.id?.name === 'evaluate') evaluator = node.init;
+  for (const [key, value] of Object.entries(node)) if (key !== 'parent') {
+   if (Array.isArray(value)) value.forEach(findEvaluator); else findEvaluator(value);
+  }
+ };
+ findEvaluator(browserParsed.program);
+ assert.ok(evaluator);
+ const details = { targetId: 'actor-a', phase: 'commit' };
+ const remote = { name: 'StudioProtocolError', code: 'STALE_TARGET', message: 'Original browser protocol error.', details };
+ const evaluate = new Function('send', `return (${browserSource.slice(evaluator.start, evaluator.end)});`)(async (method, args) => {
+  if (method === 'Runtime.evaluate') return { exceptionDetails: { exception: { objectId: 'error-1', description: remote.message } } };
+  assert.equal(method, 'Runtime.callFunctionOn');
+  assert.equal(args.objectId, 'error-1');
+  const inspect = new Function(`return (${args.functionDeclaration});`)();
+  return { result: { value: inspect.call(remote) } };
+ });
+ await assert.rejects(evaluate('original UI action'), error => {
+  assert.equal(error.code, remote.code);
+  assert.equal(error.message, remote.message);
+  assert.deepEqual(error.details, details);
+  return true;
+ }, 'browser protocol error fields survive the CDP result boundary');
 } finally { f.dispose(); }
-console.log('PASS bus native adapters: deferred job lifecycle and nested atomic undo');
+console.log('PASS bus native adapters: deferred lifecycle, atomic undo and visible UI refusal results');
