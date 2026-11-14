@@ -221,4 +221,4 @@ expect("opening it shows the full transform", await waitFor(`(() => {
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-view-menu-browser: all checks passed");
-process.exit(0);
+ws.close();

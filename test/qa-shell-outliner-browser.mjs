@@ -159,4 +159,4 @@ if (externalErrors.length > 0) console.log(`WARN external QA network noise (out 
 expect("browser QA has no Studio console or page errors", studioErrors.length === 0, JSON.stringify(studioErrors));
 if (failures > 0) process.exit(1);
 console.log("qa-shell-outliner-browser: all checks passed");
-process.exit(0);
+ws.close();

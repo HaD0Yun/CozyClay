@@ -135,4 +135,4 @@ expect("clearing the target drops the badge", await waitFor("!document.querySele
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-shot-meta-browser: all checks passed");
-process.exit(0);
+ws.close();
