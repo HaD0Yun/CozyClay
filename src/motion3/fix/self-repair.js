@@ -82,7 +82,7 @@ function windowOf(out, clock, ra, rb) {
  * TRIES best, tried in place). The window is the frames within EASE of frame i on side k's clock; an FK move is tried
  * first held whole over the run of frames with a hit around i (gaps of up to 2 EASE joined), easing out beyond it, then
  * on that window (an arm hanging into the thigh all through a swing or a walk takes one angle, as if it were keyed to
- * hang wider, instead of a wave of eased moves that swing the hand in and out sideways). A move must take GAIN off the
+ * hang wider, instead of a wave of eased moves that swing the hand in and out sideways). A move must clear frame i or take GAIN off the
  * window's deepest hit, or off its summed depth past the limit without deepening that hit; of those that clear frame i
  * one held over the run wins, the arm raised out over the elbow bent, then the smaller move, else the larger gain.
  * `strict`: a move that adds a BODY or FACE subject QA did not report is not made at all. */
@@ -129,7 +129,7 @@ function bestMove(out, engine, body, k, i, h, hits, known, clock, { wide, strict
 			// (a new problem to QA, which the repair then has to clear too) only when no other move will do
 			if (!now || now.max > w.base.max + 1e-12) { no.add(worse || "a frame around it deeper"); continue; }
 			const r = { mv: c.mv, at: w.at, held: w === run, clean: now.fresh <= w.base.fresh, clear: clearI, size: c.size, gain: [w.base.max - now.max, w.base.sum - now.sum] };
-			if (!(r.gain[0] >= GAIN || r.gain[1] >= GAIN) || (strict && !r.clean)) { no.add(strict && !r.clean ? "a new BODY or FACE subject" : `under ${GAIN * 1000} mm off the frames around it`); continue; }
+			if (!(r.clear || r.gain[0] >= GAIN || r.gain[1] >= GAIN) || (strict && !r.clean)) { no.add(strict && !r.clean ? "a new BODY or FACE subject" : `under ${GAIN * 1000} mm off the frames around it`); continue; }
 			// of the moves that clear the frame, one held over the run wins (the arm hangs wider, one angle, rather than waving
 			// in and out as moves eased about single frames would), the arm raised out over the elbow bent (a bend held over
 			// a swing changes its reach), then the smaller
