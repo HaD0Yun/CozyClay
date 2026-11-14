@@ -26,7 +26,7 @@ export const SOLE = [0, -ANKLE_HEIGHT, 0];
 const MAX_STEP = 0.12; // m per frame a hand may move in the body frame unless its key says fast (2.9 m/s)
 
 /** Blend of two hand points along an arc about the shoulder (direction and distance apart), not through the body. */
-function arc(a, b, w, sh) {
+export function arc(a, b, w, sh) {
 	const da = sub(a, sh), db = sub(b, sh), d = mixV(norm(da), norm(db), w);
 	// straight line instead when the two directions oppose each other or a point sits on the shoulder
 	const k = clamp((len(d) - 0.1) / 0.3) * clamp((Math.min(len(da), len(db)) - 0.12) / 0.2);

@@ -105,15 +105,16 @@ function firstSide(st, D, dyaw) {
 }
 
 /** Steps without following a path: turn on the spot, short / side / back moves, a lunge (steps: 1), feet together.
- *  first: "L" | "R" foot that starts; end: { L: [left, forward], R: [...] } final foot offsets (a split finish). */
-export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, end } = {}) {
+ *  first: "L" | "R" foot that starts; end: { L: [left, forward], R: [...] } final foot offsets (a split finish);
+ *  stepFrames: frames per step; ease: name of the curve the pelvis follows ("in" = each step longer than the last). */
+export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, end, stepFrames, ease: curve } = {}) {
 	const dyaw = wrap(yaw - st.yaw), D = [to[0] - st.p[0], to[1] - st.p[1]], L = Math.hypot(D[0], D[1]);
 	const still = L < 0.03 && Math.abs(dyaw) < 0.05;
 	const away = [1, -1].filter((s, i) => dist2(st.feet[i].g, home(st.p, st.yaw, s)) > 0.02).length;
 	const n = steps ?? (still ? away : Math.max(2, Math.ceil(L / 0.4) + 1, Math.ceil(Math.abs(dyaw) / rad(45)) + 1));
 	if (!n || N < 4) return { frames: hold(st, N), st };
-	const sw = GAIT.walk.sw, stepT = Math.min(L > 0.03 ? 13 : 11, (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
-	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = burst ? EASE.out : smooth, side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
+	const sw = GAIT.walk.sw, stepT = Math.min(stepFrames ?? (L > 0.03 ? 13 : 11), (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
+	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = EASE[curve] ?? (burst ? EASE.out : smooth), side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
 	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t / Tm)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
@@ -216,6 +217,6 @@ function travel(st, segs) {
 export function locomote(st, segs) {
 	const s = segs[0];
 	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || s.end || s.first || dist2(st.p, s.to) < 0.5))
-		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end });
+		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end, stepFrames: s.stepFrames, ease: s.ease });
 	return travel(st, segs);
 }

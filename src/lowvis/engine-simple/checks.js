@@ -7,7 +7,7 @@ import { SOLE, TOE } from "./solve.js";
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand];
 
 export function checkClip(clip, aux) {
-	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [], headTurn: 0, elbow: 0, wrist: 0, releases: [] };
+	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [], headTurn: 0, elbow: 0, wrist: 0, releases: [], launches: [] };
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
 	// signed distance from a world point to a prop's box at frame f (negative = inside)
 	const toBox = (pt, p, f) => { const { c, q } = propAt(p, f), l = qRotate(qConj(q), [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2); return Math.hypot(...l.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...l)); };
@@ -32,6 +32,28 @@ export function checkClip(clip, aux) {
 			out.low = Math.min(out.low, h); out.high = Math.max(out.high, h);
 		}
 		r.releases.push(out);
+	}
+	// a launched prop (a ball of radius size[1] / 2): how far it moved up to its launch frame, how far the nearest foot
+	// (ankle-toe and heel-toe lines) is from its surface on that frame, its height over the floor, its clearance to
+	// every standing static prop (sampled along each frame's move, negative = inside) and the last frame it moves
+	for (const e of aux.launches ?? []) {
+		const p = clip.props.find(q => q.id === e.prop), c = f => propAt(p, f).c, d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]), rad = p.size[1] / 2;
+		const seg = (pt, a, b) => { const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], t = Math.min(1, Math.max(0, ((pt[0] - a[0]) * ab[0] + (pt[1] - a[1]) * ab[1] + (pt[2] - a[2]) * ab[2]) / (ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2))); return d(pt, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t]); };
+		const out = { prop: e.prop, f: e.f, before: 0, touch: null, speed: e.f + 1 < F ? d(c(e.f + 1), c(e.f)) : 0, low: Infinity, high: -Infinity, wall: null, stop: e.f, rest: c(F - 1) };
+		for (let f = 0; f <= e.f; f++) out.before = Math.max(out.before, d(c(f), c(0)));
+		for (const ch of clip.characters) FEET.forEach((j, side) => {
+			const [toe, sole] = contact(ch, e.f, j), dist = Math.min(seg(c(e.f), at(ch, e.f, j), toe), seg(c(e.f), sole, toe)) - rad;
+			if (!out.touch || dist < out.touch.dist) out.touch = { who: ch.id, foot: side ? "R" : "L", dist };
+		});
+		const walls = clip.props.filter(s => s.pos.length === 3 && s.pos[1] + s.size[1] / 2 > 0.3);
+		for (let f = 0; f < F; f++) {
+			out.low = Math.min(out.low, c(f)[1] - rad); out.high = Math.max(out.high, c(f)[1] - rad);
+			if (!f) continue;
+			const a = c(f - 1), b = c(f);
+			if (d(a, b) > 1e-6) out.stop = f;
+			for (const s of walls) for (let n = 0; n <= 16; n++) out.wall = Math.min(out.wall ?? Infinity, toBox(a.map((v, k) => v + (b[k] - v) * n / 16), s, 0) - rad);
+		}
+		r.launches.push(out);
 	}
 	for (const c of clip.characters) {
 		for (let f = 0; f < F; f++) for (let j = 0; j < JOINT_COUNT; j++) r.jointLow = Math.min(r.jointLow, c.pos[(f * JOINT_COUNT + j) * 3 + 1]);
