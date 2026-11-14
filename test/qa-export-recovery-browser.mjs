@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { SCENES_STORAGE_KEY } from "../src/scenes.js";
+import { waitForFrameState } from "./bus/browser-frame-state.mjs";
 
 const url = process.env.QA_URL || "http://127.0.0.1:5256/app/";
 const port = Number(process.env.CDP_PORT || 9526);
@@ -79,12 +80,19 @@ async function changeAndWait(expression, action, label) {
 	await evaluate("window.__qaRecovery.pendingState");
 }
 async function click(selector, { modifiers = 0, disabled = false } = {}) {
+	assert.ok(await waitForFrameState(evaluate, `(() => {
+		const element = document.querySelector(${JSON.stringify(selector)});
+		if (!element) return false;
+		const rect = element.getBoundingClientRect();
+		return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
+	})()`, timeout), `control is placed and visible: ${selector}`);
 	const box = await evaluate(`(() => {
 		const element = document.querySelector(${JSON.stringify(selector)});
 		if (!element || (element.disabled && !${disabled})) throw new Error('Missing or disabled control: ' + ${JSON.stringify(selector)});
 		element.scrollIntoView({ block: 'center', inline: 'center' });
 		const rect = element.getBoundingClientRect();
 		if (!rect.width || !rect.height) throw new Error('Invisible control: ' + ${JSON.stringify(selector)});
+		if (!${disabled} && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest(${JSON.stringify(selector)}) !== element) throw new Error('Covered control: ' + ${JSON.stringify(selector)});
 		return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
 	})()`);
 	for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, ...box, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1, modifiers });
@@ -338,7 +346,9 @@ listeners.set("Fetch.requestPaused", new Set([(request) => {
 
 const lifecycle = (events) => events.filter(({ event }) => event.startsWith("export:attempt_"));
 const durations = new Set(["lt1s", "1-3s", "3-10s", "10-30s", "gte30s"]);
-function assertAttempt(events, { kind, format, terminal = "succeeded", code }) {
+const stages = new Set(["preparing", "encoding", "finalizing", "handoff"]);
+const progress = new Set(["0", "1-25", "26-50", "51-75", "76-99"]);
+function assertAttempt(events, { kind, format, terminal = "succeeded", code, retryOf }) {
 	const attempts = lifecycle(events);
 	assert.equal(attempts.length, 2, `one start + one terminal per attempt: ${JSON.stringify(attempts)}`);
 	const [start, end] = attempts;
@@ -350,12 +360,16 @@ function assertAttempt(events, { kind, format, terminal = "succeeded", code }) {
 		assert.equal(record.properties.export_kind, kind);
 		assert.equal(record.properties.format, format);
 		assert.equal(record.properties.surface, "studio");
-		const keys = ["attempt_id", "export_kind", "format", "surface"];
-		if (record === end) keys.push("duration_bucket", ...(code ? ["failure_code"] : []));
-		assert.deepEqual(Object.keys(record.properties).sort(), keys.sort(), "exact sanitized allowlist; no retry/content properties");
+		// PR #914 added bounded retry/count metadata, never scene content.
+		assert.equal(record.properties.is_retry, Boolean(retryOf));
+		assert.equal(record.properties.objects, "0", "the authored fixture has no scene objects");
+		const keys = ["attempt_id", "export_kind", "format", "surface", "is_retry", "objects"];
+		if (retryOf) { keys.push("retry_of"); assert.equal(record.properties.retry_of, retryOf); }
+		if (record === end) keys.push("duration_bucket", ...(code ? ["failure_code", "stage", "progress"] : []));
+		assert.deepEqual(Object.keys(record.properties).sort(), keys.sort(), "exact sanitized allowlist; bounded metadata only, no content properties");
 	}
 	assert.ok(durations.has(end.properties.duration_bucket));
-	if (code) assert.equal(end.properties.failure_code, code);
+	if (code) { assert.equal(end.properties.failure_code, code); assert.ok(stages.has(end.properties.stage)); assert.ok(progress.has(end.properties.progress)); }
 	const legacy = events.filter(({ event }) => ["export:video_succeeded", "export:blocking_frame_succeeded", "export:keyframe_pack"].includes(event));
 	const expected = terminal === "succeeded" ? { video: "export:video_succeeded", frame: "export:blocking_frame_succeeded" }[kind] : null;
 	assert.equal(legacy.length, expected ? 1 : 0, "one legacy success only at its owning surface; no internal pack video event");
@@ -452,7 +466,8 @@ async function captureStatus(phase, kind, label = phase) {
 		const controls = await evaluate(`(() => {
 			return ['export-status', 'export-retry', 'export-cancel'].flatMap((id) => [...document.querySelectorAll('[data-testid="' + id + '"]')].map(element => {
 				const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
-				return { id, text: element.innerText, disabled: !!element.disabled, fontSize: parseFloat(style.fontSize), rect: { x:rect.x, y:rect.y, right:rect.right, bottom:rect.bottom, width:rect.width, height:rect.height }, overflow: element.scrollWidth > element.clientWidth + 1 };
+				const phaseLabel = element.querySelector('.statusbar-export-phase');
+				return { id, text: element.innerText, phaseText: phaseLabel?.textContent, phaseOverflow: phaseLabel ? phaseLabel.scrollWidth > phaseLabel.clientWidth + 1 : null, disabled: !!element.disabled, fontSize: parseFloat(style.fontSize), rect: { x:rect.x, y:rect.y, right:rect.right, bottom:rect.bottom, width:rect.width, height:rect.height }, overflow: element.scrollWidth > element.clientWidth + 1 };
 			}));
 		})()`);
 		console.log("QA_RECOVERY_CONTROLS", JSON.stringify({ device, phase, kind, controls }));
@@ -464,6 +479,7 @@ async function captureStatus(phase, kind, label = phase) {
 			assert.ok(control.rect.width > 0 && control.rect.height > 0 && control.fontSize >= 11, `${control.id} rendered at readable size`);
 			assert.ok(control.rect.x >= 0 && control.rect.y >= 0 && control.rect.right <= width + 1 && control.rect.bottom <= height + 1, `${control.id} remains inside ${width}px viewport`);
 			assert.equal(control.overflow, false, `${control.id} does not overflow horizontally`);
+			if (control.id === "export-status") { assert.ok(control.phaseText?.trim(), "export phase is present"); assert.equal(control.phaseOverflow, false, "export phase remains readable beside a long message"); }
 		}
 		const name = `${label}-${device}.png`;
 		const image = await send("Page.captureScreenshot", { format: "png" });
@@ -556,10 +572,11 @@ try {
 		assert.equal(proof.createdEncoders, 0, "unsupported encoding allocates no encoder");
 	});
 
+	let renderFailedId;
 	await nativeScenario({ failRender: true }, async () => {
 		const attempt = await arm("render-failure");
 		await exportMenu("export-video-shot");
-		await finish(attempt, failedVideo("render_failed"));
+		renderFailedId = (await finish(attempt, failedVideo("render_failed"))).attempt_id;
 		await captureStatus("failed", "video", "render-failure");
 		const proof = await nativeProof("render-failure", 0);
 		assert.equal(proof.createdEncoders, 1, "render failure happened inside the real offscreen capture");
@@ -567,7 +584,7 @@ try {
 	await nativeScenario({}, async () => {
 		const attempt = await arm("render-retry");
 		await menu(); await click('[data-testid="export-retry"]');
-		await finish(attempt, video, 1);
+		await finish(attempt, { ...video, retryOf: renderFailedId }, 1);
 		const proof = await nativeProof("render-retry", 4);
 		assert.deepEqual(proof.frames, baseline.frames, "render retry uses the original pixels/camera/range/settings");
 	});
@@ -616,7 +633,7 @@ try {
 		assert.equal(lifecycle(telemetry.slice(attempt.eventOffset)).length, 1, "duplicate/cross-kind requests add no attempts or premature cancellation");
 		assert.equal(await evaluate("window.__qaRecovery.downloads.length"), attempt.downloadOffset);
 		await evaluate("window.__qaRecovery.native.releaseSupport(); true");
-		const retried = await finish(attempt, video, 1);
+		const retried = await finish(attempt, { ...video, retryOf: failedId }, 1);
 		assert.notEqual(retried.attempt_id, failedId, "retry gets a fresh random attempt ID");
 		const proof = await nativeProof("immutable-retry", 4);
 		assert.deepEqual(proof.configs, baseline.configs, "retry encoder uses original resolution, fps, bitrate and codec, not edited settings");

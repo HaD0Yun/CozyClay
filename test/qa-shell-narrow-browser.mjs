@@ -1,8 +1,16 @@
 // QA_URL=<studio> CDP_PORT=<port> node tools/qa-browser.mjs -- node test/qa-shell-narrow-browser.mjs
 import assert from "node:assert/strict";
 import { cameraBrowser } from "./camera-browser-harness.mjs";
+import { waitForFrameState } from "./bus/browser-frame-state.mjs";
 
 const b = await cameraBrowser();
+const menuItemReady = selector => waitForFrameState(b.evaluate, `(() => {
+	const el = document.querySelector(${JSON.stringify(selector)});
+	if (!el) return false;
+	const r = el.getBoundingClientRect();
+	return r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && getComputedStyle(el).visibility !== "hidden"
+		&& document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest(${JSON.stringify(selector)}) === el;
+})()`, 30000);
 try {
 	await b.navigate(new URL("/app/", b.base));
 	await b.send("Page.bringToFront");
@@ -15,8 +23,10 @@ try {
 		await b.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width === 390 });
 		for (const theme of ["light", "dark"]) {
 			await b.evaluate("document.querySelector('[data-testid=menu-edit]').focus()");
-			await b.change("!!document.querySelector('[data-testid=menu-preferences]')", () => b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 }));
+			const preferencesReady = menuItemReady("[data-testid=menu-preferences]");
+			await b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
 			await b.send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
+			assert.ok(await preferencesReady, "Preferences menu item is placed and hittable");
 			await b.change("!!document.querySelector('.v2-preferences__dialog')", () => b.click("[data-testid=menu-preferences]"));
 			await b.click(`[data-testid="settings-theme-${theme}"]`);
 			await b.change("!document.querySelector('.v2-preferences__dialog')", () => b.click("[data-testid=preferences-close]"));
@@ -71,8 +81,10 @@ try {
 			await b.change("!document.querySelector('.app').hasAttribute('data-narrow-panel')", () => b.click('[aria-controls="shell-details"]'));
 			console.log(`PASS ${width}: Outliner and Details navigation, Camera performance reachable`);
 			await b.evaluate("document.querySelector('[data-testid=menu-window]').focus()");
-			await b.change("!!document.querySelector('[data-testid=menu-agent]')", () => b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 }));
+			const agentReady = menuItemReady("[data-testid=menu-agent]");
+			await b.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
 			await b.send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
+			assert.ok(await agentReady, "Agent menu item is placed and hittable");
 			await b.change("!!document.querySelector('.studio-agent-inspector:not([hidden])')", () => b.click("[data-testid=menu-agent]"));
 			const agent = await b.evaluate(`(() => {
 				const box = s => document.querySelector(s).getBoundingClientRect().toJSON();

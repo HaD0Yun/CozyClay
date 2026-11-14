@@ -220,7 +220,9 @@ replaces Details; collapsing it restores the previous panel choice. At 600 px an
 the dock uses a separate tab row and puts shot controls below the timeline;
 Look through replaces the thumbnail while space is limited. The tool rail
 scrolls within the remaining stage height. Export status uses the full
-window width rather than the space between desktop side columns.
+window width rather than the space between desktop side columns. Phase names
+keep their room while long detail messages truncate; Retry and Cancel keep
+their own widths.
 
 Shot-camera HUD labels and captions pair `--text-1` with the opaque
 `--surface-raised` in both themes; the exit hint has full opacity.

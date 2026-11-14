@@ -70,6 +70,10 @@
 		right: var(--shell-gap);
 		max-width: none;
 	}
+	.app[data-shell="glass"]:not([data-embed-mode]) .v2-statusbar .export-status strong {
+		flex-shrink: 0;
+		max-width: 50%;
+	}
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-look-through-exit { top: calc(var(--shell-stage-top) + 8px); }
 	.app[data-shell="glass"]:not([data-embed-mode]) .vp-overlay-rail {
 		max-height: calc(100dvh - var(--shell-center-bottom) - 6px);
