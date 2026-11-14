@@ -238,12 +238,10 @@ const previsRefusal = (toolName, { context } = {}) => {
 const scene = () => activeScene(state.doc.scenes, state.doc.activeSceneId);
 const stage = () => scene().stage;
 
-/** The cast of the active scene. A v3 stage carries an unbounded `characters`
- * list, so "character A/B" is simply index 0/1 of this array. */
+/** The active scene's unbounded cast, addressed by stable character IDs. */
 const cast = () => stage().characters;
 
-/** Resolve a character by id, by its A/B/C letter (an MCP handle by cast position;
- * the studio itself numbers them), or by 1-based slot. Returns null when nothing matches. */
+/** Stable IDs are primary; old letter and slot inputs resolve only at this boundary. */
 const findCharacter = (ref) => {
 	const list = cast();
 	if (ref === undefined || ref === null || ref === "") return list[0] ?? null;
@@ -263,13 +261,12 @@ const liveCharacterId = async ref => {
 	return findCharacter(ref)?.id ?? ref;
 };
 
-/** The MCP handle of a cast member: A, B, C… by position (the studio itself numbers them). */
-const letterFor = (character) => String.fromCharCode(65 + cast().indexOf(character));
+const labelFor = (character) => `Character ${cast().indexOf(character) + 1}`;
 
 /** What to say when a character reference does not resolve. */
 const castHint = () =>
 	`Cast: ${cast()
-		.map((c, i) => `${String.fromCharCode(65 + i)}=${c.id}`)
+		.map((c, i) => `Character ${i + 1}=${c.id}`)
 		.join(", ")}`;
 
 const filmback = () => ({
@@ -497,9 +494,9 @@ function sceneReport({ characterCursor = 0, objectCursor = 0, limit = 50 } = {})
 	];
 	const framed = findCharacter(state.focus) ?? st.characters[0];
 	for (const [offset, c] of characterPage.entries()) {
-		const letter = String.fromCharCode(65 + characterCursor + offset);
+		const label = `Character ${characterCursor + offset + 1}`;
 		lines.push(
-			`  ${letter} ${c.id}  "${characterName(c)}"  at x ${round(c.x)}, z ${round(c.z)}, ` +
+			`  ${label} ${c.id}  "${characterName(c)}"  at x ${round(c.x)}, z ${round(c.z)}, ` +
 				`facing ${round(c.rot, 1)}deg  [${c.model}]` +
 				`${c.pose ? " posed" : ""}${c.hidden ? " hidden" : ""}` +
 				`${c === framed ? "  <- framed" : ""}`,
@@ -896,7 +893,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				title: "Add a character to the cast",
 				description:
 					"Unlike place_character, add_character adds a new cast member instead of changing an existing one. " +
-					"The cast is unbounded — each one gets its own letter (A, B, C…), position and prompt description. " +
+					"The cast is unbounded; each member gets a stable character ID, a numbered display label, a position and a prompt description. " +
 					'model "proxy-figure" adds a capsule figure: a rigless stand-in for blocking that holds a posture (stand, sit or lie) ' +
 					"and refuses motion, takes, IK and posing with TARGET_NOT_READY.",
 				inputSchema: {
@@ -926,15 +923,10 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				}
 				const st = stage();
 				const index = st.characters.length;
-				// The default scene already owns "char-a", and createCharacterEntry only
-				// falls back to `char-<n>` when no id is supplied, so pick the first id
-				// the cast is not already using instead of assuming a naming scheme.
-				const taken = new Set(st.characters.map((c) => c.id));
-				let id = `char-${String.fromCharCode(97 + index)}`;
-				for (let n = index + 1; taken.has(id); n += 1) id = `char-${n}`;
+				const id = `character-${randomUUID()}`;
 				const entry = createCharacterEntry({ id, subject: desc, x, z: zPos, rot: facing, model, posture }, index);
 				st.characters = [...st.characters, entry];
-				return text(`Added ${String.fromCharCode(65 + index)} (${entry.id}).\n\n${sceneReport()}`);
+				return text(`Added Character ${index + 1} (${entry.id}).\n\n${sceneReport()}`);
 			},
 		),
 
@@ -948,8 +940,8 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				inputSchema: {
 					character: z
 						.string()
-						.default("A")
-						.describe('which character — a letter ("A"), a slot number ("2") or an id ("char-a")'),
+						.optional()
+						.describe('stable character ID; when omitted, the first cast member'),
 					x: z.number().optional().describe("floor position x in metres"),
 					z: z.number().optional().describe("floor position z in metres"),
 					y: z
@@ -980,7 +972,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				if (facing !== undefined) target.rot = facing;
 				if (desc !== undefined) target.subject = desc;
 				if (hidden !== undefined) target.hidden = hidden;
-				return text(`Character ${letterFor(target)} updated.\n\n${sceneReport()}`);
+				return text(`${labelFor(target)} updated.\n\n${sceneReport()}`);
 			},
 		),
 
@@ -990,7 +982,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				title: "Remove a character",
 				description: "Take a character out of the cast. The last character can go too: an empty cast is a legal stage.",
 				inputSchema: {
-					character: z.string().describe('which character — letter, slot number or id'),
+					character: z.string().describe('stable character ID'),
 				},
 			},
 			async ({ character, ...admission }) => {
@@ -1006,13 +998,13 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				const st = stage();
 				const target = findCharacter(character);
 				if (!target) return text(`No character "${character}". ${castHint()}`);
-				const letter = letterFor(target);
+				const label = labelFor(target);
 				st.characters = st.characters.filter((c) => c !== target);
 				if (state.focus && !findCharacter(state.focus)) {
 					state.focus = null;
 					state.focusLocked = false;
 				}
-				return text(`Removed ${letter}.\n\n${sceneReport()}`);
+				return text(`Removed ${label}.\n\n${sceneReport()}`);
 			},
 		),
 
@@ -1024,7 +1016,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					"Pick which character the shot is measured against. describe_shot, frame_shot and " +
 					"render_prompt all frame this character. Defaults to the first of the cast.",
 				inputSchema: {
-					character: z.string().describe('which character — letter, slot number or id'),
+					character: z.string().describe('stable character ID'),
 				},
 			},
 			async ({ character }) => {
@@ -1037,7 +1029,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				if (!target) return text(`No character "${character}". ${castHint()}`);
 				state.focus = target.id;
 				state.focusLocked = true;
-				return text(`Framing ${letterFor(target)} "${characterName(target)}".\n\n${shotReport()}`);
+				return text(`Framing ${labelFor(target)} "${characterName(target)}".\n\n${shotReport()}`);
 			},
 		),
 
@@ -1499,9 +1491,10 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 						.describe(`camera move. Known: ${CAMERA_MOVES.filter((m) => m !== "Custom…").join(", ")}`),
 					pose_phrase: z.string().default("").describe("what the framed character is doing"),
 					pose2_phrase: z.string().default("").describe("what the next visible character in cast order is doing"),
+					pose_phrases: z.record(z.string(), z.string()).default({}).describe("pose phrases keyed by stable character ID, for every described cast member"),
 				},
 			},
-			async ({ mode, model, environment, style, camera_move, pose_phrase, pose2_phrase }) => {
+			async ({ mode, model, environment, style, camera_move, pose_phrase, pose2_phrase, pose_phrases = {} }) => {
 				if (liveHub?.connected) {
 					try {
 						await refreshLiveDescription();
@@ -1512,14 +1505,14 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				const st = stage();
 				const known = CAMERA_MOVES.includes(camera_move);
 				// The prompt describes the framed character first (even when hidden), then every
-				// other visible character in cast order. pose_phrase and pose2_phrase go to the first two.
+				// other visible character in cast order. ID-keyed poses win; the old two fields remain boundary defaults.
 				const framed = findCharacter(state.focus) ?? st.characters[0];
-				const described = [framed, ...st.characters.filter((c) => c !== framed && !c.hidden)];
+				const described = [framed, ...st.characters.filter((c) => c !== framed && !c.hidden)].filter(Boolean);
 				const prompt = composePrompt({
 					mode,
 					model: modelById(model) ?? undefined,
 					shot: currentShot(),
-					subjects: described.map((c, i) => ({ description: promptDescription(c?.subject), posePhrase: [pose_phrase, pose2_phrase][i] ?? "" })),
+					subjects: described.map((c, i) => ({ description: promptDescription(c.subject), posePhrase: (Object.hasOwn(pose_phrases, c.id) ? pose_phrases[c.id] : undefined) ?? [pose_phrase, pose2_phrase][i] ?? "" })),
 					environment,
 					style,
 					cameraMove: known ? camera_move : "Custom…",

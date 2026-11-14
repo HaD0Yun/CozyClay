@@ -178,7 +178,7 @@ async function fresh(surface) {
 async function applyPose(id) {
 	await b.change("document.querySelector('[data-node-id=\"character:qa-character\"]')?.getAttribute('aria-selected') === 'true'", () =>
 		click('[data-node-id="character:qa-character"] .hierarchy-row'));
-	await b.change("!!document.querySelector('.pose-studio')", () => click('[aria-label="Open pose studio for Subject 1"]'));
+	await b.change("!!document.querySelector('.pose-studio')", () => click('[aria-label="Open pose studio for Character 1"]'));
 	await b.change(`document.querySelector('.pose-studio [data-pose-id="${id}"]')?.classList.contains('active')`, () =>
 		click(`.pose-studio [data-pose-id="${id}"]`));
 	await b.change("!document.querySelector('.pose-studio')", () => click('.pose-studio [data-pose-apply]'));

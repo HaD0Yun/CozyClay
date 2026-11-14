@@ -7,6 +7,8 @@ import { verifyCastIdentity } from './cast-identity-scenario.mjs';
 const url = process.env.QA_URL, out = process.env.QA_OUT;
 assert.ok(url && out, 'QA_URL and QA_OUT are required');
 const readerCase = process.env.QA_CAST_READER ?? 'all';
+const locale = process.env.QA_LOCALE ?? 'en';
+assert.ok(['en', 'ko', 'zh'].includes(locale));
 assert.ok(['all', 'basic', 'metrics', 'move', 'playback', 'preset', 'held', 'follow', 'prompt', 'caption', 'identity'].includes(readerCase));
 const checkReader = name => readerCase === 'all' || readerCase === name;
 const debuggerUrl = new URL(url);
@@ -101,7 +103,7 @@ try {
   ` });
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await navigate(`${new URL(url).origin}/favicon.ico`);
-  await evaluate(`localStorage.setItem('cozyclay.locale','en');localStorage.setItem('cozyclay.project-session.v1',JSON.stringify({name:'Cast list QA',updatedAt:Date.now()}));localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)},${JSON.stringify(JSON.stringify(seed))})`);
+  await evaluate(`localStorage.setItem('cozyclay.locale',${JSON.stringify(locale)});localStorage.setItem('cozyclay.project-session.v1',JSON.stringify({name:'Cast list QA',updatedAt:Date.now()}));localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)},${JSON.stringify(JSON.stringify(seed))})`);
   await navigate(url);
   await transition(`window.__cozyclay?.characters?.length===3 && document.querySelector('[data-node-id="character:cast-3"]')`);
   await transition(`window.__cozyclay.characters.every(entry=>!!window.__cozyclay.rigs[entry.id]?.parent) && !!window.__cozyclay.shotCam`);
