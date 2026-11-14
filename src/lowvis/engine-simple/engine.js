@@ -104,7 +104,7 @@ function buildBody(c, acts, F, ctx) {
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 
 function buildUpper(id, acts, props) {
-	const keys = { L: [], R: [], footL: [], footR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [] }, events = [];
+	const keys = { L: [], R: [], footL: [], footR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
 		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout", fast: o.fast };
@@ -131,6 +131,7 @@ function buildUpper(id, acts, props) {
 			if (o.bow !== undefined) keys.bow.push({ ...k, to: rad(o.bow) });
 			if (o.aim !== undefined) keys.aim.push({ ...k, to: o.aim });
 			if (o.hip !== undefined) keys.hip.push({ ...k, to: o.hip });
+			if (o.tilt !== undefined) keys.tilt.push({ ...k, to: [rad(o.tilt[0] ?? 0), rad(o.tilt[1] ?? 0), ...(o.shift ?? [0, 0, 0])], about: o.about ?? "hips" });
 			if (o.look !== undefined || o.nod) keys.look.push({ ...k, to: o.look ?? keys.look.at(-1)?.to ?? "fwd", nod: o.nod });
 		} else throw new Error(`engine-simple: unknown verb "${verb}"`);
 	}
@@ -243,6 +244,23 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		const w = EASE[k.ease](prog(k, f));
 		return (c.cur[name] = Array.isArray(zero) ? mixV(k.from, k.to, w) : mix(k.from, k.to, w));
 	};
+	// Tilt: the whole figure, as it is posed, turned about one point and then moved. The pose is solved untilted;
+	// targets given in the world are taken into that untilted space first, and the solved pose is turned at the end.
+	// Returns null for an upright figure, else { q, inv, pivot, shift }.
+	const tiltOf = (c, f) => {
+		const k = active(c.keys.tilt, f);
+		if (!k) return null;
+		const t = scalar(c, "tilt", f, [0, 0, 0, 0, 0]);
+		if (t.every(v => Math.abs(v) < 1e-9)) return null;
+		const B = c.body[f], yawQ = qY(B.yaw), ft = B.feet;
+		const pivot = Array.isArray(k.about) ? k.about : k.about === "feet" ? [(ft[0].a[0] + ft[1].a[0]) / 2, Math.min(ft[0].floor ?? 0, ft[1].floor ?? 0), (ft[0].a[2] + ft[1].a[2]) / 2] : add(B.p, qRotate(yawQ, scalar(c, "hip", f, [0, 0, 0])));
+		const q = qMul(qMul(yawQ, qMul(qX(t[0]), qAxisAngle([0, 0, 1], -t[1]))), qConj(yawQ));
+		return { q, inv: qConj(q), pivot, shift: [t[2], t[3], t[4]] };
+	};
+	const toBody = (T, p) => T ? add(T.pivot, qRotate(T.inv, sub(sub(p, T.shift), T.pivot))) : p;
+	const tilted = (T, pose) => T ? { ...pose, pos: pose.pos.map(p => add(add(T.pivot, qRotate(T.q, sub(p, T.pivot))), T.shift)), quat: pose.quat.map(q => qMul(T.q, q)) } : pose;
+	// a hand target in the space the pose is solved in: a body-frame target as it is, any other brought in from the world
+	const target = (c, i, to, f) => Array.isArray(to) ? handTarget(c, i, to, f) : toBody(c.tilt, handTarget(c, i, to, f));
 	const upper = (c, f, first) => {
 		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, noAssist: def.assist === false };
 		[c.keys.L, c.keys.R].forEach((list, i) => {
@@ -251,12 +269,12 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			if (k) {
 				if (k.from === undefined) {
 					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p));
-					const local = prev ? (prev.to === "rest" ? null : toLocal(handTarget(c, i, prev.to, f), B)) : c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
+					const local = prev ? (prev.to === "rest" ? null : toLocal(target(c, i, prev.to, f), B)) : c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
 					k.from = !prev && c.rest[i] ? null : local;
 					if (k.to === "keep") { k.to = local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
 				}
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
-				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : handTarget(c, i, k.to, f), w, key: k.f };
+				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u), 0];
 				if (k.to?.chest || k.to?.face) upTo = w;
@@ -274,10 +292,10 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			if (!k) return null;
 			const w = EASE[k.ease](prog(k, f));
 			if (k.to === "plant" && w >= 1) return null;
-			const at = t => t === "plant" ? bf : t.q ? t : { a: t.world ?? add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
+			const at = t => t === "plant" ? bf : t.q ? t : { a: t.world ? toBody(c.tilt, t.world) : add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
 			const a = at(k.from), b = at(k.to);
-			return { a: arc(a.a, b.a, w, add(B.p, qRotate(B.q, OFFSET[UPLEG[i]]))), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f };
+			return { a: arc(a.a, b.a, w, add(B.p, qRotate(B.q, OFFSET[UPLEG[i]]))), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, ...(c.tilt ? { floor: -1e9 } : {}) };
 		});
 		const ka = active(c.keys.aim, f);
 		if (ka) {
@@ -292,7 +310,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		}
 		// Head: angles relative to the chest, measured from the neck (which the look does not move). With no target
 		// the gaze stays level while the chest leans (not when lying down).
-		const now = c.poseNow ?? c.pose, chestQ = now?.quat[J.Spine2] ?? B.q, neck = now?.pos[J.Neck] ?? add(B.p, [0, 0.46, 0]);
+		const now = c.solved ?? c.pose, chestQ = now?.quat[J.Spine2] ?? B.q, neck = now?.pos[J.Neck] ?? add(B.p, [0, 0.46, 0]);
 		const angles = d => { // a target behind the head fades back to straight ahead instead of flipping sides
 			const l = qRotate(qConj(chestQ), d), yaw = Math.atan2(l[0], l[2]), fade = clamp((Math.PI - Math.abs(yaw)) / (Math.PI - 1.9));
 			return [clamp(yaw * fade, -1.2, 1.2), clamp(-Math.atan2(l[1], Math.hypot(l[0], l[2])), -0.7, 0.7) * fade];
@@ -305,7 +323,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			let t = level;
 			if (k.to !== "fwd") {
 				const o = byId[k.to], pr = props[k.to];
-				t = angles(sub(o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to, neck));
+				t = angles(sub(toBody(c.tilt, o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to), neck));
 			}
 			const u = clamp(prog(k, f));
 			U.look = c.cur.look = mixV(k.from, t, EASE[k.ease](u));
@@ -327,7 +345,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			}
 			if (e.roll) { p.vel = sub(p.h1, p.h2); p.fly = null; aux.releases.push({ prop: e.prop, f }); }
 			else if (e.holder) {
-				const h = handLine(byId[e.holder].pose ?? solve(c.body[f]));
+				const h = handLine(byId[e.holder].world ?? solve(c.body[f]));
 				if (e.slide) { p.off = sub(h.mid, p.c); aux.slid[e.prop] = true; }
 				else { p.yawOff = p.yaw - h.yaw; p.off = qRotate(qY(-p.yaw), sub(h.mid, p.c)); }
 			}
@@ -355,19 +373,21 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		}
 		for (let pass = 0; pass < 2; pass++) for (const c of chars) { // second pass: targets on other figures and props are current
 			c.restNext = [true, true];
+			c.tilt = tiltOf(c, f);
 			const U = upper(c, f, pass === 0);
 			c.bodyNow = U.feet.some(Boolean) ? { ...c.body[f], feet: c.body[f].feet.map((ft, i) => U.feet[i] ?? ft) } : c.body[f];
-			c.poseNow = solve(c.bodyNow, U);
+			c.solved = solve(c.bodyNow, U);
+			c.poseNow = tilted(c.tilt, c.solved);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
 			if (pass === 1) aux.reach[c.id].push([
-				...U.hands.map((h, i) => h.to && h.w >= 1 ? { key: h.key, d: len(sub(c.poseNow.pos[HAND[i]], h.offset ? add(h.to, h.offset) : h.to)) } : null),
-				...U.feet.map((ft, i) => ft?.to && ft.w >= 1 ? { key: ft.key, d: len(sub(c.poseNow.pos[FOOT[i]], ft.to)) } : null),
+				...U.hands.map((h, i) => h.to && h.w >= 1 ? { key: h.key, d: len(sub(c.solved.pos[HAND[i]], h.offset ? add(h.to, h.offset) : h.to)) } : null),
+				...U.feet.map((ft, i) => ft?.to && ft.w >= 1 ? { key: ft.key, d: len(sub(c.solved.pos[FOOT[i]], ft.to)) } : null),
 			]);
 		}
 		for (const c of chars) {
-			c.pose = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
-			setPose(c.out, f, c.pose);
-			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted));
+			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
+			setPose(c.out, f, c.world);
+			aux.contacts[c.id].push(c.bodyNow.feet.map(ft => ft.planted && !c.tilt)); // a tilted figure does not stand on its feet
 		}
 		for (const { p, out } of outProps) {
 			p.h2 = p.h1; p.h1 = p.c.slice();
