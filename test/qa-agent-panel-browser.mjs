@@ -638,4 +638,4 @@ if (failures > 0) {
 	process.exit(1);
 }
 console.log("qa-agent-panel-browser: all checks passed");
-process.exit(0);
+ws.close();

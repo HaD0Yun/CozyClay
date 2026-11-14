@@ -106,4 +106,4 @@ console.log(`4. menu "whole timeline": an mp4 was produced; status: ${toast ? to
 if (toast) assert.match(toast, /360 frames/, toast);
 
 console.log("export scope browser QA: whole timeline records every shot, this shot records one");
-process.exit(0);
+ws.close();
