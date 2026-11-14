@@ -109,7 +109,7 @@ const customPose = { ...DEFAULT_POSE, id: poseId, label: "QA pose", custom: true
 const sceneId = "qa-first-edit-scene";
 const shotId = "qa-first-edit-shot";
 const projectScene = async () => JSON.parse(await b.evaluate("window.__cozyclayProject.export()")).scenes.scenes[0];
-const currentPose = "window.__cozyclay.charA.pose";
+const currentPose = "window.__cozyclay.characters[0].pose";
 const poseBones = `JSON.stringify((() => {
 	const bones = [];
 	window.__cozyclay.rigA.traverse((bone) => { if (bone.isBone) bones.push([bone.name, ...bone.quaternion.toArray()]); });
@@ -176,8 +176,8 @@ async function fresh(surface) {
 	await expectEvents(surface, null, "restored pose, library and shot are not edits");
 }
 async function applyPose(id) {
-	await b.change("document.querySelector('[data-node-id=characterA]')?.getAttribute('aria-selected') === 'true'", () =>
-		click('[data-node-id="characterA"] .hierarchy-row'));
+	await b.change("document.querySelector('[data-node-id=\"character:qa-character\"]')?.getAttribute('aria-selected') === 'true'", () =>
+		click('[data-node-id="character:qa-character"] .hierarchy-row'));
 	await b.change("!!document.querySelector('.pose-studio')", () => click('[aria-label="Open pose studio for Subject 1"]'));
 	await b.change(`document.querySelector('.pose-studio [data-pose-id="${id}"]')?.classList.contains('active')`, () =>
 		click(`.pose-studio [data-pose-id="${id}"]`));

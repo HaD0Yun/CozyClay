@@ -2,11 +2,12 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { SCENES_STORAGE_KEY } from '../src/scenes.js';
+import { verifyCastIdentity } from './cast-identity-scenario.mjs';
 
 const url = process.env.QA_URL, out = process.env.QA_OUT;
 assert.ok(url && out, 'QA_URL and QA_OUT are required');
 const readerCase = process.env.QA_CAST_READER ?? 'all';
-assert.ok(['all', 'basic', 'metrics', 'move', 'playback', 'preset', 'held', 'follow', 'prompt', 'caption'].includes(readerCase));
+assert.ok(['all', 'basic', 'metrics', 'move', 'playback', 'preset', 'held', 'follow', 'prompt', 'caption', 'identity'].includes(readerCase));
 const checkReader = name => readerCase === 'all' || readerCase === name;
 const debuggerUrl = new URL(url);
 debuggerUrl.port = process.env.CDP_PORT; debuggerUrl.pathname = '/json';
@@ -208,6 +209,7 @@ try {
     assert.ok(notice.shown && notice.opacity > 0.95 && notice.width > 0 && notice.height > 0, 'the out-of-frame warning must actually be visible');
     assert.ok(notice.x >= notice.pane.x && notice.y >= notice.pane.y && notice.x + notice.width <= notice.pane.right && notice.y + notice.height <= notice.pane.bottom, 'the warning must be inside the actual viewport, not behind the timeline');
   }
+  if (checkReader('identity')) await verifyCastIdentity({ evaluate, transition, capture, record, send, events });
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await capture('group-mobile');
   assert.deepEqual(errors, []);

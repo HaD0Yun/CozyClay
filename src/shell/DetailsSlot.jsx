@@ -27,7 +27,7 @@ export default function DetailsSlot() {
 		inspectorActionsOpen, setInspectorActionsOpen, runStudioAction, deleteSelectedSceneObject, inspectorHasContent,
 		keyLightSelected, keyLight, lighting, isCameraSelection,
 		shot, moveSequence, cameraKeys, activeShot,
-		isCharacterSelection, showB, characters, openStudio,
+		isCharacterSelection, characters, openStudio,
 		posing, workflowMode, activeChar,
 		activeCharIndex,
 		selectablePoses, ikMode, ikApplyPoseAsKey, motion, setStudioPick,
@@ -46,7 +46,7 @@ export default function DetailsSlot() {
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
 		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		autoColor, recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
-		posingIndex, posingChar, charA, allPoses,
+		posingIndex, posingChar, allPoses,
 		studioPick, posingClosing, closeStudio, castDomain, setToast,
 		savePose, beginWorkspaceResize,
 	} = useStudioShell();
@@ -134,7 +134,6 @@ export default function DetailsSlot() {
 
 		<SubjectsPanel
 			isCharacterSelection={isCharacterSelection}
-			showB={showB}
 			characters={characters}
 			openStudio={openStudio}
 			posing={posing}
@@ -315,7 +314,7 @@ export default function DetailsSlot() {
 				<PoseStudioPanel
 					docked
 					subject={posingIndex >= 0 ? posingIndex + 1 : 1}
-					model={posingChar?.model ?? charA.model}
+					model={posingChar?.model ?? activeChar.model}
 					poses={allPoses}
 					selectedId={studioPick}
 					closing={posingClosing}

@@ -25,10 +25,9 @@ import { createStableItemId, removeStableItem } from "../stable-items.js";
 import { track, trackFeature } from "../analytics.js";
 
 import { shotAtFrame } from "../cuts.js";
+import { characterRowId, characterIdFromHierarchyId as charIdFromHierarchyId } from "../hierarchy-model.js";
 
 const sameCastValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-// Where the second cast slot stands: the placeholder and a newly shown extra share it.
-const B_SLOT_START = { x: 1.15, z: 0.1, rot: -14 };
 
 function createCastDomain(appContext, initial, customPoses = []) {
 	const normalize = value => ({ characters: (Array.isArray(value) ? value : value.characters).map(createCharacterEntry),
@@ -175,34 +174,13 @@ export function useCast(appContext) {
 
 	const [poseRevision, setPoseTick] = useState(0);
 
-	// Fallback second slot mirrors the old charB defaults so preset math and
-	// the two-subject inspector never see a hole before B exists. The
-	// placeholders are made once: a fresh object per render made charA, charB
-	// and waypoints new effect dependencies on every commit, so an empty or
-	// one-character cast re-ran App's dirty check after each playback frame and
-	// chained React into "Maximum update depth exceeded" (#1045).
-	const [[placeholderA, placeholderB]] = useState(() => [createCharacterEntry(null, 0), { ...createCharacterEntry(null, 1), ...B_SLOT_START }]);
-	const charA = characters[0] ?? placeholderA, charB = characters[1] ?? placeholderB;
-
-	const showB = characters.some((entry, index) => index > 0 && !entry.hidden);
+	// Empty-stage tools need a stable neutral editing layer, never a cast identity.
+	const [emptyLayer] = useState(() => ({ ...createCharacterEntry(), id: null }));
 
 	function updateCharacterAt(index, next) {
 		const base = domain.read()[index], raw = appContext.ports.read();
 		const entry = base && { ...base, ...shotAtFrame(raw.shots, raw.view.frame)?.cast[base.id] };
 		if (entry) return domain.edit('character.update', { characterId: entry.id, patch: typeof next === 'function' ? next(entry) : next });
-	}
-
-	function applyShowB(on) {
-		editCharacters((list) => {
-			const anyVisibleExtra = list.some((entry, i) => i > 0 && !entry.hidden);
-			if (on) {
-				if (anyVisibleExtra) return list;
-				const hiddenIdx = list.findIndex((entry, i) => i > 0 && entry.hidden);
-				if (hiddenIdx > 0) return list.map((entry, i) => (i === hiddenIdx ? { ...entry, hidden: false } : entry));
-				return [...list, createCharacterEntry({ id: nextCharacterId(list), ...B_SLOT_START, pose: DEFAULT_POSE }, list.length)];
-			}
-			return list.map((entry, i) => (i > 0 && !entry.hidden ? { ...entry, hidden: true } : entry));
-		});
 	}
 
 	function moveCharacter(charId, next) {
@@ -247,24 +225,11 @@ export function useCast(appContext) {
 		appContext.notify(ko("Character added to the scene", "인물을 씬에 추가했어요"));
 	};
 
-	// Viewport picks tag bodies with "A"/"B"/charId and surfaces route the
-	// result to a hierarchy row: the first two keep their legacy row ids.
-	const charKeyToHierarchyId = (key) => {
-		if (key === "A" || key === "a" || key === "char:A") return "characterA";
-		if (key === "B" || key === "b" || key === "char:B") return "characterB";
-		return `character:${key.startsWith("char:") ? key.slice(5) : key}`;
-	};
+	const charKeyToHierarchyId = key => characterRowId(key.startsWith("char:") ? key.slice(5) : key);
 
 	// Every character owns an animation layer (root path, prompt blocks,
 	// generated clip, IK keys). The studio's motion machinery edits ONE layer
 	// at a time — the ACTIVE character's — and selection decides who that is.
-	const charIdFromHierarchyId = (hierarchyId) => {
-		if (hierarchyId === "characterA") return characters[0]?.id ?? null;
-		if (hierarchyId === "characterB") return characters[1]?.id ?? null;
-		if (hierarchyId?.startsWith("character:")) return hierarchyId.slice(10);
-		return null;
-	};
-
 	// State, not a ref: a ref written inside an effect never re-renders, so
 	// with an idle app the active character silently stayed behind the row
 	// the user just clicked.
@@ -274,11 +239,9 @@ export function useCast(appContext) {
 		renderActiveCharacterId(domain.activeId);
 	}
 
-	/** The hierarchy row id a cast LIST index owns — mirror of
-	 * hierarchy-model's characterRowId, for building namespaced rig ids. */
-	const rowIdForCharIndex = (index) => index === 0 ? "characterA" : index === 1 ? "characterB" : characters[index] ? `character:${characters[index].id}` : "characterA";
+	const rowIdForCharIndex = index => characterRowId(characters[index]?.id);
 
-	const activeChar = characters.find((entry) => entry.id === activeCharacterId) ?? characters[0] ?? charA;
+	const activeChar = characters.find((entry) => entry.id === activeCharacterId) ?? characters[0] ?? emptyLayer;
 
 	// Root paths and prompt blocks are the active character's animation layer.
 	// With the Inspector driven by selection, showing those tools means putting
@@ -790,7 +753,6 @@ export function useCast(appContext) {
 	};
 	domain.loadView = () => { appContext.shared.loadedLayerCharRef.current = domain.activeId; setActiveCharacterId(domain.activeId); };
 	domain.poses = () => [...new Map([...appContext.ports.poses(), ...domain.state().customPoses].map(pose => [pose.id, pose])).values()];
-	domain.showExtras = applyShowB;
 	domain.setTimeline = frameCount => {
 		const shots = appContext.storeDomain('shot');
 		if (shots && frameCount !== shots.state().frameCount) appContext.recordAction('shot', () => shots.writeState(before => ({ ...before, frameCount })), null, true);
@@ -816,7 +778,7 @@ export function useCast(appContext) {
 		...domain,
 		applyExternalCharacters, publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain, removeLegacyRootWaypoint, switchActiveCharacterLayer, createLegacyCastHandlers, toggleCharacterHidden,
 		characters, editCharacters, customPoses, posing, setPosing, posingClosing,
-		studioPick, setStudioPick, commitPosedPose, rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
+		studioPick, setStudioPick, commitPosedPose, rigs, rigMountEpoch, setRigMountEpoch, setPoseTick,
 		updateCharacterAt, moveCharacter, removeCharacter, reportRig,
 		spawnCharacter, charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId,
 		rowIdForCharIndex, activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, waitForRig,

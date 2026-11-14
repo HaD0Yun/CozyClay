@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { readProjectDocument, createProjectDocument } from "../src/project.js";
+import { migrateScenesDocument } from "../src/scenes.js";
+import { buildHierarchyNodes } from "../src/hierarchy-model.js";
+import { createShot } from "../src/cuts.js";
+
+const serialized = await readFile(new URL("./fixtures/cast-pair-v2.cclayproject", import.meta.url), "utf8");
+const original = JSON.parse(serialized);
+const opened = readProjectDocument(serialized);
+assert.equal(opened.ok, true);
+const scenes = migrateScenesDocument(opened.project.scenesDocument);
+const cast = scenes.scenes[0].stage?.characters;
+assert.deepEqual(cast?.map(entry => entry.id), ["char-a", "char-b"], "a real old project file must retain both cast members");
+assert.deepEqual(cast.map(entry => [entry.x, entry.z, entry.rot]), [[-2, 0, 10], [2, 0, -10]]);
+assert.deepEqual(cast.map(entry => entry.pose.id), ["legacy-first-pose", "legacy-second-pose"]);
+assert.deepEqual(cast.map(entry => entry.subject), [original.scenes.stage.subject, original.scenes.stage.subject2]);
+assert.deepEqual(cast.map(entry => entry.layer.waypoints[0].frame), [12, 24], "legacy frames retime once after the cast is folded");
+const rows = buildHierarchyNodes([], cast)[0].children.find(node => node.id === "characters").children;
+assert.deepEqual(rows.map(row => row.id), ["character:char-a", "character:char-b"]);
+// The unchanged list-format file keeps references to the migrated identities.
+const referenced = createShot("Saved pair", 0, 47, [], { mode: "rail", cameraRail: [{ x: 0, z: 4 }, { x: 2, z: 4 }], aim: { ids: cast.map(entry => entry.id) } });
+referenced.optics = { focusTargetId: cast[1].id };
+scenes.scenes[0].shotDocument = { version: 5, frameCount: 48, shots: [referenced], waypoints: [] };
+const saved = createProjectDocument({ scenesDocument: scenes, name: opened.project.name });
+const reopened = readProjectDocument(JSON.stringify(saved));
+assert.equal(reopened.ok, true);
+assert.deepEqual(reopened.project.scenesDocument.scenes[0].shotDocument.shots[0].camera.aim.ids, ["char-a", "char-b"]);
+assert.equal(reopened.project.scenesDocument.scenes[0].shotDocument.shots[0].optics.focusTargetId, "char-b");
+assert.deepEqual(migrateScenesDocument(reopened.project.scenesDocument), scenes, "saving and reopening must not retime or reassign identities");
+console.log("PASS legacy cast file: identities, poses, positions, layers, shot references and second open");

@@ -7,7 +7,7 @@
 // blocks, root path) under the character it animates.
 /**
  * One character row's rig subtree, every node id namespaced under the row id
- * (#76): `characterA.rig`, `characterA.rig.leftArm`, `characterB.rig.torso`…
+ * (#76): `character:<id>.rig`, `character:<id>.rig.leftArm`…
  * The BONE TOKEN (`rig.leftArm`) stays the shared vocabulary: labels, IK
  * focus routing and attachment naming key off the token, never the full id,
  * so per-character trees can coexist without colliding selections.
@@ -34,22 +34,25 @@ export function rigSubtree(rowId) {
 	};
 }
 
-/** `characterB.rig.leftArm` → { rowId: "characterB", token: "rig.leftArm" };
+/** `character:cast-2.rig.leftArm` → { rowId: "character:cast-2", token: "rig.leftArm" };
  * anything that is not a namespaced rig node id returns null. */
 export function parseRigNodeId(id) {
 	if (typeof id !== "string") return null;
-	const match = id.match(/^(characterA|characterB|character:[^.]+)\.(rig(?:\.[A-Za-z]+)?)$/);
+	const match = id.match(/^(character:[^.]+)\.(rig(?:\.[A-Za-z]+)?)$/);
 	return match ? { rowId: match[1], token: match[2] } : null;
 }
 
-/** True when a character row id (characterA, characterB, character:<id>, or a rig node under one) names a character
- * the cast has. The default selection is characterA, which with an empty cast is no one: the Inspector showed a
- * "Character 1" that does not exist. */
+export const characterRowId = id => typeof id === "string" && id ? `character:${id}` : null;
+
+export function characterIdFromHierarchyId(id) {
+	const row = parseRigNodeId(id)?.rowId ?? id;
+	return typeof row === "string" && row.startsWith("character:") ? row.slice(10) : null;
+}
+
+/** True only when the row or its rig belongs to a member of this cast. */
 export function characterRowExists(id, characters = []) {
-	const rowId = parseRigNodeId(id)?.rowId ?? id;
-	if (rowId === "characterA") return characters.length > 0;
-	if (rowId === "characterB") return characters.length > 1;
-	return typeof rowId === "string" && characters.some((entry) => `character:${entry.id}` === rowId);
+	const characterId = characterIdFromHierarchyId(id);
+	return characters.some(entry => entry.id === characterId);
 }
 
 export const HIERARCHY_NODES = [
@@ -66,20 +69,7 @@ export const HIERARCHY_NODES = [
 				id: "characters",
 				label: "Characters",
 				kind: "group",
-				children: [
-					{
-						id: "characterA",
-						label: "Character 1",
-						kind: "character",
-						children: [rigSubtree("characterA")],
-					},
-					{
-						id: "characterB",
-						label: "Character 2",
-						kind: "character",
-						optional: "showB",
-					},
-				],
+				children: [],
 			},
 			{ id: "environment", label: "Environment", kind: "environment" },
 			{ id: "props", label: "Props", kind: "props" },
@@ -106,20 +96,15 @@ export function attachBoneLabel(bone) {
 		.join(" ");
 }
 
-/** The row id a character LIST index owns — see the cast comment below. */
-function characterRowId(entry, listIndex) {
-	return listIndex === 0 ? "characterA" : listIndex === 1 ? "characterB" : `character:${entry.id}`;
-}
-
 /** Every cast member as `characterId → row id`, including hidden ones.
  *  A prop attached to a hidden character stays under that row. An unknown
  *  characterId still has no row and falls back to Props. */
 function characterRows(characters) {
 	const rows = new Map();
 	if (!Array.isArray(characters)) return rows;
-	characters.forEach((entry, listIndex) => {
+	characters.forEach((entry) => {
 		if (!entry || typeof entry.id !== "string") return;
-		rows.set(entry.id, characterRowId(entry, listIndex));
+		rows.set(entry.id, characterRowId(entry.id));
 	});
 	return rows;
 }
@@ -135,7 +120,7 @@ function objectRow(object, label) {
 	};
 }
 
-export function buildHierarchyNodes(sceneObjects = [], characters = null) {
+export function buildHierarchyNodes(sceneObjects = [], characters = []) {
 	// An attached prop is carried BY a character, so it reads under that
 	// character rather than in the flat Props list it no longer follows.
 	const characterRowsById = characterRows(characters);
@@ -169,7 +154,7 @@ export function buildHierarchyNodes(sceneObjects = [], characters = null) {
 	if (Array.isArray(characters)) {
 		characters.forEach((entry, listIndex) => {
 			if (!entry) return;
-			const id = characterRowId(entry, listIndex);
+			const id = characterRowId(entry.id);
 			// Every cast member carries its own rig subtree (#78) — ids are
 			// namespaced per row (#76) and IK state is per character (#77), so
 			// the tree no longer needs the primary-only gate. Carried props
@@ -224,13 +209,9 @@ export function buildHierarchyNodes(sceneObjects = [], characters = null) {
 		return next;
 	};
 	const nodes = HIERARCHY_NODES.map(clone);
-	// The cast is list-driven: one row per character, hidden ones included. The first two
-	// keep the legacy row ids (characterA/characterB) that selection, IK and
-	// the inspector already route to; extras carry their character id.
+	// Hidden members and visible members keep the same stable identity.
 	if (Array.isArray(characters)) {
 		const group = nodes[0]?.children?.find((node) => node.id === "characters");
-		// Row ids follow the entry's LIST index so they match the viewport
-		// pickId (A/B/charId) stamped by the Character renderer in App.jsx.
 		if (group) group.children = castRows;
 	}
 	return nodes;

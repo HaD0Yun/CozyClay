@@ -15,43 +15,43 @@ function flatten(nodes, parent = null, depth = 0, out = []) {
 	return out;
 }
 
-const nodes = flatten(HIERARCHY_NODES);
+const nodes = flatten(buildHierarchyNodes([], [{ id: "cast-1" }, { id: "cast-2" }]));
 const byId = new Map(nodes.map((node) => [node.id, node]));
 expect("hierarchy IDs are unique", byId.size === nodes.length, `${byId.size}/${nodes.length}`);
 expect("Scene is the single hierarchy root", HIERARCHY_NODES.length === 1 && HIERARCHY_NODES[0].id === "shot" && HIERARCHY_NODES[0].label === "SCENE 01" && HIERARCHY_NODES[0].kind === "scene");
 expect("Camera belongs directly to Scene", byId.get("camera")?.parent === "shot");
-expect("Characters group owns Character 1", byId.get("characterA")?.parent === "characters");
+expect("Characters group owns Character 1", byId.get("character:cast-1")?.parent === "characters");
 // The tree lists scene entities only — workflow nodes (motion, prompt
 // blocks, IK, root path) moved to the sidebar's Shot/Motion tabs.
 expect(
 	"workflow nodes stay out of the scene tree",
-	["characterA.motion", "characterA.baseMotion", "characterA.promptBlocks", "characterA.ik", "rootPath", "characterA.character", "characterB.character"].every(
+	["character:cast-1.motion", "character:cast-1.baseMotion", "character:cast-1.promptBlocks", "character:cast-1.ik", "rootPath", "character:cast-1.character", "character:cast-2.character"].every(
 		(id) => !byId.has(id),
 	),
 );
-expect("Rig belongs to Character 1", byId.get("characterA.rig")?.parent === "characterA");
+expect("Rig belongs to Character 1", byId.get("character:cast-1.rig")?.parent === "character:cast-1");
 // #76: every rig node id is namespaced under its character row.
 expect(
 	"Rig exposes five human-readable body groups",
 	["rig.torso", "rig.leftArm", "rig.rightArm", "rig.leftLeg", "rig.rightLeg"].every(
-		(token) => byId.get(`characterA.${token}`)?.parent === "characterA.rig",
+		(token) => byId.get(`character:cast-1.${token}`)?.parent === "character:cast-1.rig",
 	),
 );
 expect(
 	"torso, head, shoulders, elbows, hands, knees, and feet are directly selectable",
 	["rig.hips", "rig.spine", "rig.chest", "rig.neck", "rig.head", "rig.leftShoulder", "rig.rightShoulder", "rig.leftElbow", "rig.rightElbow", "rig.leftHand", "rig.rightHand", "rig.leftKnee", "rig.rightKnee", "rig.leftFoot", "rig.rightFoot"]
-		.every((token) => byId.has(`characterA.${token}`)),
+		.every((token) => byId.has(`character:cast-1.${token}`)),
 );
 
 /* ------------------------------------------- rig id namespace (#76) --- */
 
 expect(
 	"a rig node id parses into its row and bone token",
-	JSON.stringify(parseRigNodeId("characterB.rig.leftArm")) === JSON.stringify({ rowId: "characterB", token: "rig.leftArm" }),
+	JSON.stringify(parseRigNodeId("character:cast-2.rig.leftArm")) === JSON.stringify({ rowId: "character:cast-2", token: "rig.leftArm" }),
 );
 expect(
 	"the rig ROOT parses with the bare rig token",
-	JSON.stringify(parseRigNodeId("characterA.rig")) === JSON.stringify({ rowId: "characterA", token: "rig" }),
+	JSON.stringify(parseRigNodeId("character:cast-1.rig")) === JSON.stringify({ rowId: "character:cast-1", token: "rig" }),
 );
 expect(
 	"extra cast rows parse through their character id",
@@ -59,17 +59,17 @@ expect(
 );
 expect(
 	"non-rig ids never parse",
-	["characterA", "camera", "rig.leftArm", "object:bat", null, undefined].every((id) => parseRigNodeId(id) === null),
+	["character:cast-1", "camera", "rig.leftArm", "object:bat", null, undefined].every((id) => parseRigNodeId(id) === null),
 );
 expect(
 	"rigSubtree namespaces every node under the row",
-	flatten([rigSubtree("characterB")]).every((node) => node.id.startsWith("characterB.rig")),
+	flatten([rigSubtree("character:cast-2")]).every((node) => node.id.startsWith("character:cast-2.rig")),
 );
 expect(
 	"two rows' subtrees never collide",
 	(() => {
-		const a = flatten([rigSubtree("characterA")]).map((node) => node.id);
-		const b = new Set(flatten([rigSubtree("characterB")]).map((node) => node.id));
+		const a = flatten([rigSubtree("character:cast-1")]).map((node) => node.id);
+		const b = new Set(flatten([rigSubtree("character:cast-2")]).map((node) => node.id));
 		return a.every((id) => !b.has(id));
 	})(),
 );
@@ -82,14 +82,19 @@ expect("tree depth stays scannable", Math.max(...nodes.map((node) => node.depth)
 const CAST = [{ id: "cast-1" }, { id: "cast-2" }];
 const findRow = (nodes, id) => flatten(nodes).find((node) => node.id === id);
 const rowIds = (node) => (node?.children ?? []).map((child) => child.id);
+const uniformCast = [{ id: "stable-first" }, { id: "stable-second" }, { id: "stable-third" }];
+const uniformRows = flatten(buildHierarchyNodes([], uniformCast)).filter(node => node.kind === "character");
+expect("all three cast members use their stable identity as the hierarchy row", uniformRows.map(row => row.id).join() === uniformCast.map(entry => `character:${entry.id}`).join());
+const reorderedRows = flatten(buildHierarchyNodes([], [uniformCast[2], uniformCast[0], uniformCast[1]])).filter(node => node.kind === "character");
+expect("reordering the cast never reassigns another member's row identity", reorderedRows.map(row => row.id).join() === [uniformCast[2], uniformCast[0], uniformCast[1]].map(entry => `character:${entry.id}`).join());
 
 const proxyTree = buildHierarchyNodes(
 	[{ id: "bag", name: "Bag", attach: { characterId: "proxy", bone: null } }],
 	[{ id: "rig" }, { id: "proxy", model: "proxy-figure" }, { id: "extra", model: "proxy-figure" }],
 );
-expect("proxy characters remain character rows without rig children", findRow(proxyTree, "characterB")?.kind === "character" && !findRow(proxyTree, "characterB.rig") && !findRow(proxyTree, "character:extra.rig"));
-expect("proxy root attachments remain in the character row", rowIds(findRow(proxyTree, "characterB")).join() === "object:bag");
-expect("rigged neighbors retain their rig subtree", !!findRow(proxyTree, "characterA.rig"));
+expect("proxy characters remain character rows without rig children", findRow(proxyTree, "character:proxy")?.kind === "character" && !findRow(proxyTree, "character:proxy.rig") && !findRow(proxyTree, "character:extra.rig"));
+expect("proxy root attachments remain in the character row", rowIds(findRow(proxyTree, "character:proxy")).join() === "object:bag");
+expect("rigged neighbors retain their rig subtree", !!findRow(proxyTree, "character:rig.rig"));
 
 // A prop attached to a character is carried BY it, so it leaves the flat Props
 // list and reads under the character row instead.
@@ -102,14 +107,14 @@ const attachedTree = buildHierarchyNodes(
 	],
 	CAST,
 );
-expect("attached object nests under its character row", rowIds(findRow(attachedTree, "characterA")).includes("object:bat"));
+expect("attached object nests under its character row", rowIds(findRow(attachedTree, "character:cast-1")).includes("object:bat"));
 expect("attached rows keep the object row id and kind", findRow(attachedTree, "object:bat")?.kind === "object");
 expect("attached object leaves the Props list", rowIds(findRow(attachedTree, "props")).join() === "object:crate");
 expect("bone attach carries the bone in the label", findRow(attachedTree, "object:bat")?.label === "Bat · Right Hand");
 expect("root attach keeps the plain object name", findRow(attachedTree, "object:hat")?.label === "Hat");
 // #78: every cast member carries its own rig subtree ahead of its luggage.
-expect("the second character carries its own attachments", rowIds(findRow(attachedTree, "characterB")).join() === "characterB.rig,object:ball");
-expect("the second character's rig expands with its body groups", rowIds(findRow(attachedTree, "characterB.rig")).length === 5);
+expect("the second character carries its own attachments", rowIds(findRow(attachedTree, "character:cast-2")).join() === "character:cast-2.rig,object:ball");
+expect("the second character's rig expands with its body groups", rowIds(findRow(attachedTree, "character:cast-2.rig")).length === 5);
 expect(
 	"extra cast rows carry namespaced rigs too",
 	(() => {
@@ -119,7 +124,7 @@ expect(
 );
 expect(
 	"attaching to Character 1 does not displace the rig subtree",
-	rowIds(findRow(attachedTree, "characterA")).join() === "characterA.rig,object:bat,object:hat",
+	rowIds(findRow(attachedTree, "character:cast-1")).join() === "character:cast-1.rig,object:bat,object:hat",
 );
 
 // The character row a prop lands under must exist: a dangling or hidden cast
@@ -133,11 +138,11 @@ const strayTree = buildHierarchyNodes(
 	[{ id: "cast-1" }, { id: "cast-2", hidden: true }],
 );
 expect("unknown characterId falls back to Props", rowIds(findRow(strayTree, "props")).includes("object:bat"));
-expect("a prop on a hidden character stays under that character", rowIds(findRow(strayTree, "characterB")).includes("object:hat"));
+expect("a prop on a hidden character stays under that character", rowIds(findRow(strayTree, "character:cast-2")).includes("object:hat"));
 expect("a null attach is an ordinary prop", rowIds(findRow(strayTree, "props")).includes("object:ball"));
 expect("the fallback label carries no bone", findRow(strayTree, "object:bat")?.label === "Bat");
-expect("a hidden character keeps its row", findRow(strayTree, "characterB")?.hidden === true);
-expect("a visible character row is not marked hidden", findRow(strayTree, "characterA")?.hidden !== true);
+expect("a hidden character keeps its row", findRow(strayTree, "character:cast-2")?.hidden === true);
+expect("a visible character row is not marked hidden", findRow(strayTree, "character:cast-1")?.hidden !== true);
 expect(
 	"a hidden prop keeps its row and a visible child keeps its own eye on",
 	(() => {
