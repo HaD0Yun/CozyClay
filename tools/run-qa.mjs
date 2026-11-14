@@ -16,7 +16,7 @@ if (!programs.length || programs.some((program) => program.startsWith("-"))) {
 // Helpers (camera-browser-harness, cast-identity-scenario, browser-* and the
 // HDR harness) are imported by programs, never executed as successful suites.
 for (const program of programs) {
-	if (!/^(?:qa-.+-browser|verify(?:-.+)?)\.mjs$/.test(basename(program)) || !statSync(program, { throwIfNoEntry: false })?.isFile()) {
+	if (!/^(?:qa-.+-browser|verify(?:-.+)?|cast-browser-smoke)\.mjs$/.test(basename(program)) || !statSync(program, { throwIfNoEntry: false })?.isFile()) {
 		console.error(`Not a standalone QA program: ${program}`);
 		process.exit(2);
 	}

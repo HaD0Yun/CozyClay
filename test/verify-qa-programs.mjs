@@ -43,6 +43,12 @@ try {
 	assert.equal(clean.status, 0, clean.stderr);
 	assert.equal(clean.stdout.split(`PASS ${pass} (exit 0)`).length - 1, 2);
 	console.log("PASS clean combined programs each report success");
+	const cast = join(directory, "cast-browser-smoke.mjs");
+	writeFileSync(cast, "console.log('CAST_PROGRAM_RAN');");
+	const selfOwned = run(cast);
+	assert.equal(selfOwned.status, 0, selfOwned.stderr);
+	assert.match(selfOwned.stdout, /CAST_PROGRAM_RAN/, "the self-owned cast program actually executes");
+	console.log("PASS self-owned cast smoke runs as a program rather than a helper");
 	for (const helper of ["test/camera-browser-harness.mjs", "test/cast-identity-scenario.mjs", "test/qa-stage-hdr-harness.mjs", "test/bus/browser-frame-state.mjs"]) {
 		const refused = run(pass, helper);
 		assert.equal(refused.status, 2, refused.stderr);

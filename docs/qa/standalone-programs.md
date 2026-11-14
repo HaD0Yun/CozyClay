@@ -24,8 +24,16 @@ For standalone programs that do not need a browser:
 node tools/run-qa.mjs --node test/verify-camera-follow.mjs test/verify-camera-block.mjs
 ```
 
-The command accepts existing standalone files named `qa-*-browser.mjs` or
-`verify.mjs` / `verify-*.mjs`. Helpers such as `camera-browser-harness.mjs`,
+Use `--node` for the self-owned cast browser gate too, with its normal
+`CHROME_PATH` and browser-flag configuration:
+
+```sh
+node tools/run-qa.mjs --node test/bus/cast-browser-smoke.mjs
+```
+
+The command accepts existing standalone files named `qa-*-browser.mjs`,
+`verify.mjs` / `verify-*.mjs` or `cast-browser-smoke.mjs`.
+Helpers such as `camera-browser-harness.mjs`,
 `cast-identity-scenario.mjs`, `qa-stage-hdr-harness.mjs` and `browser-*.mjs`
 are imported by programs; passing one directly is an error, detected before
 any program starts. An empty list or missing file is also an error.
