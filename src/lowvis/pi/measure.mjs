@@ -3,6 +3,8 @@
 // prints checkClip's own value and drops the frame of a row whose value here differs from it. One row is not in
 // checks.js: `clear`, the nearest joint to any prop (hands excluded), because the engine has no collision.
 //
+// The `reach:` rows are not in checks.js either: a hand or a foot that is not where its action put it (aux.reach).
+//
 // row: { key, label, short, value, unit, frame?, who?, prop?, note?, worse, spike?, word? }
 //   short: the row's name on a sheet label
 //   worse: 1 = a higher value is worse, -1 = a value below zero is worse, 0 = neither
@@ -123,6 +125,14 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	}
 	for (const p of aux.placed) rows.push({ key: `place:${p.prop}`, label: `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, worse: 1, spike: 30 });
 	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
+	// a hand or a foot off the target its action gave it, after that action's blend has ended: the worst frame of each limb
+	const LIMB = ["L hand", "R hand", "L foot", "R foot"];
+	for (const c of clip.characters) LIMB.forEach((limb, i) => {
+		let worst = null, frames = 0;
+		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (!at[i]) return; if (at[i].d > 0.01) frames++; if (at[i].d > (worst?.v ?? 0.001)) worst = { v: at[i].d, f, who: c.id, key: at[i].key }; });
+		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}`;
+		if (worst) row(`reach:${c.id}:${i}`, `${i < 2 ? "hand" : "foot"} off its target`, worst, "mm", MM, { short: i < 2 ? "hand off" : "foot off", worse: 1, spike: 60 });
+	});
 	return rows;
 }
 

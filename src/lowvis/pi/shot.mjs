@@ -215,7 +215,8 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${focus.join(" and ")}` : "the whole scene in frame"}` });
 			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
 		}
-		const told = feature.text === "lean" ? rows.filter(r => ASKED.test(r.key)) : rows;
+		const isReach = r => r.key.startsWith("reach:"); // measured for every variant (the run record keeps them), told only where the variant has them
+		const told = rows.filter(r => feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && isReach(r)) : !isReach(r));
 		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));

@@ -18,10 +18,12 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 
 // The parts that differ between the variants. "lean" tells only the numbers that are a difference between what was
 // asked and what came out (shot.mjs filters the rows the same way), and stops when the action reads. "patch" is lean
-// plus the edit argument of shot: single actions are changed without sending the whole spec again.
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true } };
+// plus the edit argument of shot: single actions are changed without sending the whole spec again. "reach" is patch
+// plus the rows that say how far a hand or a foot is from the target its action gave it.
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true } };
 /** What a variant turns on: { text: "base" | "lean", edit?: true }. Throws on an unknown name. */
 export function features(variant = "base") { if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`); return FEATURES[variant]; }
+const REACH = `\n- hand off its target, foot off its target: how far a wrist or an ankle is from the point its action gave it, on the frames after that action's blend has ended; the note names the side, the action and on how many frames it is over 10 mm off. A few frames: it arrives late. Many: it is out of reach or the body has moved away.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
 const NUMBERS = {
 	base: `Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse. Numbers and pictures are information, not a gate.
@@ -64,7 +66,7 @@ THE TOOL
 shot({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${features(variant).edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone. Only the images of your latest shot stay visible to you; the text of every shot stays.
 
 THE NUMBERS
-${NUMBERS[features(variant).text]}
+${NUMBERS[features(variant).text]}${features(variant).reach ? REACH : ""}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.

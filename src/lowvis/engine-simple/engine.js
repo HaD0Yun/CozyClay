@@ -44,7 +44,7 @@ import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
 
 const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
-const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
+const HAND = [J.LeftHand, J.RightHand], FOOT = [J.LeftFoot, J.RightFoot], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 const PAD = 0.03; // wrist centre to the surface it holds
 
 export const NOTES = [
@@ -137,7 +137,9 @@ function buildUpper(id, acts, props) {
 	return { keys, events };
 }
 
-/** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks. */
+/** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks.
+ *  aux.reach[characterId][frame] = [L hand, R hand, L foot, R foot], each null or { key, d }: d metres between the limb
+ *  and the target the action of frame `key` gave it, on the frames after that action's blend has ended. */
 export function buildClip(spec, def = DEMOS[spec.demo]) {
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
 	const props = Object.fromEntries(def.props.map(p => [p.id, {
@@ -156,6 +158,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
 		rolling: Object.fromEntries(def.props.map(p => [p.id, []])), releases: [], launches: [],
 		keyStarts: def.props.filter(p => props[p.id].keys.length).map(p => ({ prop: p.id, f: props[p.id].keys[0].f })),
+		reach: Object.fromEntries(chars.map(c => [c.id, []])),
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
@@ -233,7 +236,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 					if (k.to === "keep") { k.to = local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
 				}
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
-				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : handTarget(c, i, k.to, f), w };
+				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : handTarget(c, i, k.to, f), w, key: k.f };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u), 0];
 				if (k.to?.chest || k.to?.face) upTo = w;
@@ -254,7 +257,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 			const at = t => t === "plant" ? bf : t.q ? t : { a: t.world ?? add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
 			const a = at(k.from), b = at(k.to);
-			return { a: arc(a.a, b.a, w, add(B.p, qRotate(B.q, OFFSET[UPLEG[i]]))), q: qSlerp(a.q, b.q, w), planted: false };
+			return { a: arc(a.a, b.a, w, add(B.p, qRotate(B.q, OFFSET[UPLEG[i]]))), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f };
 		});
 		const ka = active(c.keys.aim, f);
 		if (ka) {
@@ -336,6 +339,10 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 			c.bodyNow = U.feet.some(Boolean) ? { ...c.body[f], feet: c.body[f].feet.map((ft, i) => U.feet[i] ?? ft) } : c.body[f];
 			c.poseNow = solve(c.bodyNow, U);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
+			if (pass === 1) aux.reach[c.id].push([
+				...U.hands.map((h, i) => h.to && h.w >= 1 ? { key: h.key, d: len(sub(c.poseNow.pos[HAND[i]], h.offset ? add(h.to, h.offset) : h.to)) } : null),
+				...U.feet.map((ft, i) => ft?.to && ft.w >= 1 ? { key: ft.key, d: len(sub(c.poseNow.pos[FOOT[i]], ft.to)) } : null),
+			]);
 		}
 		for (const c of chars) {
 			c.pose = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
