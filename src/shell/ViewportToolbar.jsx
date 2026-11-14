@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useStudioShell } from "./studio-shell-context.js";
+import { useStudioPlaybackFrame, useStudioShell } from "./studio-shell-context.js";
 import ShotPreviewHeader from "./ShotPreviewHeader.jsx";
 import { ko } from "../locale.js";
 import { PRESETS, SHOT_ASPECT_PRESETS } from "../app-stage.jsx";
@@ -114,16 +114,16 @@ export default function ViewportToolbar() {
 	const {
 		workflowMode, selectWorkflowMode, poseRefusal, gizmoMode, setGizmoMode, snapEnabled,
 		setSnapEnabled, preset, applyPreset, cameraPresetId,
-		runStudioAction, shotAspectKey, fovDeg, shotsDomain, shot, shots, activeShot,
+		runStudioAction, shotAspectKey, fovDeg, shotsDomain, shot: sceneShot, shots, activeShot,
 		setNonce, workspaceLayout, viewMenuTriggerRef, viewMenuOpen,
 		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode,
 		autoColor, setAutoColor, isCharacterSelection, partColoursChoice, embedMode,
 		agentCollapsed, addSceneObject, flySpeed, frameAll, setAxisView,
 		ikEditTool, setIkEditTool, motion, setRangePinPartPick,
 		previsMode, sculptView, requestSculptView, sculptParts,
+		cameraReadoutAt,
 	} = useStudioShell();
-	const menu = useOverlayMenu();
-	const viewportTools = useViewportTools();
+	const menu = useOverlayMenu(), viewportTools = useViewportTools(), shot = cameraReadoutAt(useStudioPlaybackFrame()).shot ?? sceneShot;
 
 	const setAutoColorOn = (next) => {
 		if (next === autoColor) return;

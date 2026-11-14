@@ -1,15 +1,17 @@
 import Foldout from "./Foldout.jsx";
 import { ko } from "../locale.js";
 import { Vector3Row } from "../ui.jsx";
-import { useStudioShell } from "../shell/studio-shell-context.js";
+import { useStudioPlaybackFrame, useStudioShell } from "../shell/studio-shell-context.js";
 
 // The shot camera's Transform, the same Position / Rotation rows every scene
 // object shows. Edits go through the gizmo's own path (setShotCameraTransform),
 // so typing, scrubbing and dragging all commit the same manual framing.
-// Rotation X is the tilt, Y the pan; the shot camera has no roll, so Z is shown
-// and held at 0.
+// Rotation X is the tilt, Y the pan; Z reports the rendered camera's roll and
+// stays read-only because rail/key playback owns it.
 export default function CameraTransformPanel({ isCameraSelection }) {
-	const { shotCameraTransform: camera, setShotCameraTransform } = useStudioShell();
+	const { cameraReadoutAt, shotCameraTransform, setShotCameraTransform } = useStudioShell();
+	const frame = useStudioPlaybackFrame();
+	const camera = cameraReadoutAt(frame).transform ?? shotCameraTransform;
 	if (!camera) return null;
 	const set = (patch) => setShotCameraTransform?.(patch);
 	return (
@@ -31,7 +33,7 @@ export default function CameraTransformPanel({ isCameraSelection }) {
 					fields={[
 						{ axis: "X", value: camera.pitch, step: 1, precision: 1, scrubRange: 85, onChange: (rotX) => set({ rotX }) },
 						{ axis: "Y", value: camera.yaw, step: 1, precision: 1, scrubRange: 180, onChange: (rot) => set({ rot }) },
-						{ axis: "Z", value: 0, step: 1, precision: 1, disabled: true, title: ko("The shot camera does not roll", "샷 카메라는 롤 회전이 없어요") },
+						{ axis: "Z", value: camera.roll, step: 1, precision: 1, disabled: true },
 					]}
 				/>
 			</div>
