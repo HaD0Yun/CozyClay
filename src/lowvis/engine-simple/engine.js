@@ -137,10 +137,30 @@ function buildUpper(id, acts, props) {
 	return { keys, events };
 }
 
+/** The spec with its repeat actions written out. [f, "repeat", { len, times }] in the list of an id copies the other
+ *  actions of that id with f <= frame < f + len to +len, +2 * len, ... so that the span plays `times` times in all.
+ *  Copies at or past `frames` are left out. Returns { spec, added, dropped }. */
+export function expandRepeats(spec, frames) {
+	const out = {};
+	let added = 0, dropped = 0;
+	for (const [id, acts] of Object.entries(spec)) {
+		if (!Array.isArray(acts) || !acts.some(a => a?.[1] === "repeat")) { out[id] = acts; continue; }
+		const plain = acts.filter(a => a[1] !== "repeat"), list = plain.slice();
+		for (const [f, , o = {}] of acts.filter(a => a[1] === "repeat")) {
+			if (!Number.isInteger(o.len) || o.len < 1 || !Number.isInteger(o.times) || o.times < 1) throw new Error(`engine-simple: repeat wants { len: frames, times: count }, got ${JSON.stringify(o)}`);
+			const span = plain.filter(a => a[0] >= f && a[0] < f + o.len);
+			for (let k = 1; k < o.times; k++) for (const a of span) { if (a[0] + k * o.len < frames) { list.push([a[0] + k * o.len, ...a.slice(1)]); added++; } else dropped++; }
+		}
+		out[id] = list;
+	}
+	return { spec: out, added, dropped };
+}
+
 /** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks.
  *  aux.reach[characterId][frame] = [L hand, R hand, L foot, R foot], each null or { key, d }: d metres between the limb
  *  and the target the action of frame `key` gave it, on the frames after that action's blend has ended. */
-export function buildClip(spec, def = DEMOS[spec.demo]) {
+export function buildClip(written, def = DEMOS[written.demo]) {
+	const repeat = expandRepeats(written, def.frames), spec = repeat.spec;
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
 	const props = Object.fromEntries(def.props.map(p => [p.id, {
 		id: p.id, size: p.size, c: p.at.slice(), yaw: 0, q: [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
@@ -158,7 +178,7 @@ export function buildClip(spec, def = DEMOS[spec.demo]) {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
 		rolling: Object.fromEntries(def.props.map(p => [p.id, []])), releases: [], launches: [],
 		keyStarts: def.props.filter(p => props[p.id].keys.length).map(p => ({ prop: p.id, f: props[p.id].keys[0].f })),
-		reach: Object.fromEntries(chars.map(c => [c.id, []])),
+		reach: Object.fromEntries(chars.map(c => [c.id, []])), repeat: { added: repeat.added, dropped: repeat.dropped },
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
