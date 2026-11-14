@@ -222,7 +222,8 @@ try {
 	writeFileSync(screenshot, Buffer.from(shot.data, "base64"));
 	console.log(`QA_SCREENSHOT ${screenshot} bytes=${statSync(screenshot).size}`);
 
-	// #635: rig-only features refuse the capsule figure; the rig keeps them.
+	// #1048: src/pose-entry.js selects the sole rig in a mixed cast.
+	// #635 still refuses Pose when the cast contains only the capsule.
 	const capture = async (name) => {
 		const image = await b.send("Page.captureScreenshot", { format: "png" });
 		const file = `${outputDir}/${name}.png`;
@@ -237,17 +238,27 @@ try {
 	const workflowMode = "document.querySelector('[data-mode][aria-selected=\"true\"]')?.dataset.mode";
 	const proxyRefusal = "Capsule figures have no rig - Pose mode works on rigged characters only.";
 	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'qa-proxy'", () => b.click('[data-node-id="character:qa-proxy"]'));
+	assert.equal(await b.evaluate("document.querySelector('[data-mode=\"pose\"]').dataset.disabledReason ?? null"), null);
+	const poseControls = "window.__cozyclay?.ikMode === true && !!window.__ikControlScreenPositions?.().hips";
+	await b.change(`window.__proxyContext.live.state?.activeCharacterId === 'char-a' && ${workflowMode} === 'pose' && ${poseControls}`, pressTwo);
+	console.log("PASS capsule active + 2 -> selects the sole rig and opens Pose controls");
+	await capture("task-7-proxy-selects-sole-rig");
+	await b.change(`${workflowMode} !== 'pose' && window.__cozyclay?.ikMode === false`, () => b.click('[data-mode-key="1"]'));
+	await b.change(`${workflowMode} === 'pose' && ${poseControls}`, pressTwo);
+	console.log("PASS rig active + 2 -> Pose controls open");
+	await capture("task-7-rig-pose-open");
+	await b.change(`${workflowMode} !== 'pose' && window.__cozyclay?.ikMode === false`, () => b.click('[data-mode-key="1"]'));
+	await b.change("window.__proxyBus.characters.length === 1 && window.__proxyBus.characters[0].id === 'qa-proxy'", async () => {
+		const receipt = await b.evaluate("window.__proxyBus.bus.run('character.remove', { characterId: 'char-a' })");
+		assert.equal(receipt.ok, true, JSON.stringify(receipt));
+	});
+	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'qa-proxy'", () => b.click('[data-node-id="character:qa-proxy"]'));
 	const modeBefore = await b.evaluate(workflowMode);
 	assert.equal(await b.evaluate("document.querySelector('[data-mode=\"pose\"]').dataset.disabledReason"), proxyRefusal);
 	await b.change(`[...document.querySelectorAll('.toast')].some(t => t.textContent === ${JSON.stringify(proxyRefusal)})`, pressTwo);
-	assert.equal(await b.evaluate(workflowMode), modeBefore, "mode stays after the refusal");
-	console.log(`PASS capsule active + 2 -> toast "${proxyRefusal}"; mode stays ${modeBefore}`);
+	assert.equal(await b.evaluate(workflowMode), modeBefore, "capsule-only cast stays in its mode after the refusal");
+	console.log(`PASS capsule-only cast + 2 -> toast "${proxyRefusal}"; mode stays ${modeBefore}`);
 	await capture("task-7-proxy-pose-refused");
-	await b.change("window.__proxyContext.live.state?.activeCharacterId === 'char-a'", () => b.click('[data-node-id="character:char-a"]'));
-	assert.equal(await b.evaluate("document.querySelector('[data-mode=\"pose\"]').dataset.disabledReason ?? null"), null);
-	await b.change(`${workflowMode} === 'pose'`, pressTwo);
-	console.log("PASS rig active + 2 -> Pose mode opens");
-	await capture("task-7-rig-pose-open");
 	assert.equal(errors.length, 0, errors.join("\n"));
 } finally {
 	observer.close();

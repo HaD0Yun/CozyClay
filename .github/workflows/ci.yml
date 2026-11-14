@@ -326,7 +326,7 @@ jobs:
       # OAuth nor the agent sidecar that `npm run dev` adds.
       - name: Start dev server (vite)
         run: |
-          npm run dev:ui -- --host 127.0.0.1 --port 5180 --strictPort &
+          npm run dev:ui -- --host 127.0.0.1 --port 5180 --strictPort > /tmp/qa-vite.log 2>&1 &
           for _ in $(seq 1 120); do
             curl -sf -o /dev/null http://127.0.0.1:5180/app/ && exit 0
             sleep 1
@@ -334,6 +334,8 @@ jobs:
           echo "dev server did not come up" >&2
           exit 1
       - name: Run ${{ matrix.suite }} (${{ matrix.tier }})
+        env:
+          QA_SERVER_LOG: /tmp/qa-vite.log
         run: |
           t="${{ matrix.suite }}"
           tier="${{ matrix.tier }}"
