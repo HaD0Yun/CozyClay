@@ -46,6 +46,9 @@ export async function verifyCastIdentity({ evaluate, transition, capture, record
 	await evaluate(`import('/src/theme.js').then(theme=>theme.saveTheme('light'))`);
 	await capture("identity-five-light");
 	await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+	const narrowNames = await evaluate("[...document.querySelectorAll('.subject-box .sb-name')].map(e=>({text:e.textContent,visible:e.clientWidth,content:e.scrollWidth}))");
+	assert.ok(narrowNames.every(name=>name.visible>0&&name.content<=name.visible+1), JSON.stringify(narrowNames));
+	record("identity-narrow-labels", { labels: narrowNames });
 	await capture("identity-five-light-mobile");
 	await evaluate(`import('/src/theme.js').then(theme=>theme.saveTheme('dark'))`);
 	await capture("identity-five-dark-mobile");

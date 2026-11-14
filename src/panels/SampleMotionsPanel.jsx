@@ -28,7 +28,7 @@ export default function SampleMotionsPanel({ hidden, activeChar }) {
 	return (
 		<Foldout hidden={hidden} title={ko("Sample motions", "샘플 동작", "示例动作")}>
 			<div className="sample-motions v2-details-panel" data-fid="sample_motions">
-				<p className="inspector-hint">{ko("One click makes the character move. It replaces the current take; Undo brings it back.", "한 번 누르면 캐릭터가 움직여요. 지금 테이크를 바꾸며, 실행 취소로 되돌릴 수 있어요.", "点一下角色就会动起来。会替换当前动作，可用撤销恢复。")}</p>
+				<p className="inspector-hint">{ko("One click makes the character move. It replaces the current take; Undo brings it back.", "한 번 누르면 인물이 움직여요. 지금 테이크를 바꾸며, 실행 취소로 되돌릴 수 있어요.", "点一下角色就会动起来。会替换当前动作，可用撤销恢复。")}</p>
 				<div className="sample-motions-list">
 					{SAMPLE_MOTIONS.map(sample => (
 						<button key={sample.id} type="button" className="secondary-button" data-sample-motion={sample.id} disabled={busy !== null} aria-busy={busy === sample.id} onClick={() => run(sample)}>
