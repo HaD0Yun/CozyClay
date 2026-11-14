@@ -22,4 +22,4 @@ await sleep(150);
 const count = await evaluate(`(()=>{const root=document.querySelector('.pose-details');if(!root)return 999;const vis=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>2&&r.height>2&&s.display!=="none"&&s.visibility!=="hidden"};return [...root.querySelectorAll("button,select,input[type=range],input[type=checkbox]")].filter(vis).length})()`);
 check("pose control count is at most 45", count <= 45, String(count));
 const screenshot = await send("Page.captureScreenshot", { format: "png" }); writeFileSync(`${out}/task-15-pose.png`, Buffer.from(screenshot.data, "base64"));
-writeFileSync(`${out}/report.json`, JSON.stringify({ checks, rigRow, count }, null, 2)); ws.close(); process.exit(checks.some((entry) => !entry.pass) ? 1 : 0);
+writeFileSync(`${out}/report.json`, JSON.stringify({ checks, rigRow, count }, null, 2)); ws.close(); if (checks.some((entry) => !entry.pass)) process.exitCode = 1;

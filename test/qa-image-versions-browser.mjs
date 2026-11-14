@@ -133,4 +133,3 @@ console.log("PASS Use as reference creates Upload -> Image 320px to the right");
 await writeFile(`${out}/reference-branch.png`, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
 console.log(`PASS qa-image-versions-browser: ${out}/ab.png, ${out}/reference-branch.png`);
 ws.close();
-process.exit(0);

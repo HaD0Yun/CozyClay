@@ -157,4 +157,4 @@ console.log("after 2 undos:", JSON.stringify(o.path.marks[0]));
 const mv = await center('[data-tool="move"]'); await click(mv.x, mv.y); await sleep(300);
 await png("ring-move-mode");
 console.log("ring probe: rings appear with E, drags write bank/pitch, W restores arrows");
-process.exit(0);
+ws.close();

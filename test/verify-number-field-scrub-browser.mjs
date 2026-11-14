@@ -197,4 +197,4 @@ expect("the page threw no uncaught errors", pageErrors.length === 0, pageErrors.
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 ws.close();
-process.exit(failures === 0 ? 0 : 1);
+if (failures) process.exitCode = 1;

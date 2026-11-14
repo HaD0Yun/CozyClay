@@ -115,4 +115,3 @@ console.log("PASS switching to Video and unchecking Reference owns camera rebuil
 await writeFile(`${out}/node.png`, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
 console.log(`PASS qa-shot-prompt-node-browser: ${out}/node.png`);
 ws.close();
-process.exit(0);

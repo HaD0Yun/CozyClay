@@ -93,10 +93,13 @@ const react = await evaluate(`(async () => {
 	root.unmount(); host.remove();
 	return { errors };
 })()`);
-if (!expectGuard) { console.log(`WITHOUT GUARD React errors: ${JSON.stringify(react.errors)}`); process.exit(react.errors.length ? 1 : 0); }
-if (react.skipped) console.log("SKIP React-level check: Vite's React modules are not served here (production build)");
-else assert.deepEqual(react.errors, [], `React re-renders over translated text without NotFoundError: ${JSON.stringify(react.errors)}`);
-assert.equal(await evaluate("!!document.querySelector('.crash-screen')"), false, "the studio is not on the crash screen");
-console.log(`PASS translated text nodes: guarded removeChild/insertBefore${react.skipped ? "" : " and React re-renders"} without NotFoundError`);
+if (!expectGuard) {
+	console.log(`WITHOUT GUARD React errors: ${JSON.stringify(react.errors)}`);
+	if (react.errors.length) process.exitCode = 1;
+} else {
+	if (react.skipped) console.log("SKIP React-level check: Vite's React modules are not served here (production build)");
+	else assert.deepEqual(react.errors, [], `React re-renders over translated text without NotFoundError: ${JSON.stringify(react.errors)}`);
+	assert.equal(await evaluate("!!document.querySelector('.crash-screen')"), false, "the studio is not on the crash screen");
+	console.log(`PASS translated text nodes: guarded removeChild/insertBefore${react.skipped ? "" : " and React re-renders"} without NotFoundError`);
+}
 ws.close();
-process.exit(0);

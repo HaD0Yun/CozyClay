@@ -87,4 +87,3 @@ assert.ok(await import("node:fs").then(({ existsSync }) => existsSync(`${out}/ge
 console.log(`evidence: ${out}/01-before.png, ${out}/02-after-turn.png, ${out}/generated.png`);
 console.log("PASS qa-node-first-browser");
 cdp.close();
-process.exit(0);
