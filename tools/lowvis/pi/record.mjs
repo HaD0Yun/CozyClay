@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Records the clips the pi harness wrote (public/lowvis/clips/pi/<name>.json) to lowvis-out/pi/<name>.mp4 with the
 // lowvis recorder. Starts the vite dev server on port 5193 (or uses one that answers there) and stops what it started.
-//   node tools/lowvis/pi/record.mjs [--names push,chop] [--size 1280x720] [--view three|front|side|top] [--port 5193]
+//   node tools/lowvis/pi/record.mjs [--names push,chop] [--size 1280x720] [--view three|front|side|top] [--port 5193] [--look box|block|man|...]
+// A look other than box writes lowvis-out/pi/<name>.<look>.mp4.
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -37,7 +38,7 @@ const stop = await ensureServer();
 let failed = 0;
 try {
 	for (const name of names) {
-		const out = join(ROOT, "lowvis-out/pi", `${name}.mp4`), url = `${ORIGIN}/lowvis/?panels=pi/${name}:box${opt.view ? `&view=${opt.view}` : ""}&autoplay=0`;
+		const look = opt.look ?? "box", out = join(ROOT, "lowvis-out/pi", look === "box" ? `${name}.mp4` : `${name}.${look}.mp4`), url = `${ORIGIN}/lowvis/?panels=pi/${name}:${look}${opt.view ? `&view=${opt.view}` : ""}&autoplay=0`;
 		if (!existsSync(join(CLIPS, `${name}.json`))) { failed++; console.error(`${name}: no clip`); continue; }
 		try { const r = await record({ url, out, size: opt.size ?? "1280x720" }); console.log(`${out}: ${r.frames} frames in ${r.seconds} s`); } catch (error) { failed++; console.error(`${name}: FAILED: ${error.message}`); }
 	}

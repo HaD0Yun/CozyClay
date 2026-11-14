@@ -29,8 +29,10 @@ the clips and prints `buildMs` per demo.
 ## Look interface (`src/lowvis/looks/index.js`)
 
 ```js
-export const LOOKS = { box, capsule, stick };          // each: ({ tint }) => look
-// look = { object3D, setPose(pos, quat, frame) }      // pos/quat: a clip character's flat arrays
+export const LOOKS = { box, capsule, stick, man, woman, block };  // each: ({ tint }) => look
+// look = { object3D, setPose(pos, quat, frame, grip) }  // pos/quat: a clip character's flat arrays
+// grip (optional) = { Left, Right }: truthy where that hand holds a prop at this frame, read from the clip by
+// src/lowvis/grip.js. A look may close such a hand (the block look shows a fist); a look may ignore it.
 ```
 
 ## Viewer page (`/lowvis/`)

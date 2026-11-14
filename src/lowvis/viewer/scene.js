@@ -1,6 +1,7 @@
 // One panel's three.js scene: floor grid, soft light with a shadow, clay box props and the clip's characters.
 import * as THREE from "three";
 import { JOINT_COUNT } from "../rig17.js";
+import { handGrips } from "../grip.js";
 import { DEFAULT_TINT, LOOKS } from "../looks/index.js";
 import { clayMaterial } from "../looks/parts.js";
 
@@ -94,7 +95,8 @@ export function createPanelScene({ clip, look, bounds, environment }) {
 		clip.characters.forEach((c, i) => {
 			const body = (LOOKS[look] ?? LOOKS.box)({ tint: TINTS[i % TINTS.length] });
 			scene.add(body.object3D);
-			actors.push(f => body.setPose(c.pos, c.quat, f));
+			const grip = handGrips(clip, i); // which hand holds a prop at each frame; a look may close it into a fist
+			actors.push(f => body.setPose(c.pos, c.quat, f, { Left: grip.Left[f], Right: grip.Right[f] }));
 		});
 		for (const p of clip.props ?? []) {
 			const mesh = new THREE.Mesh(p.shape === "sphere" ? new THREE.SphereGeometry(p.size[0] / 2, 24, 16) : new THREE.BoxGeometry(...p.size), clayMaterial(PROP_TINT));
