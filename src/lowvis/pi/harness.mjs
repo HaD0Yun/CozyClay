@@ -14,7 +14,7 @@ import { clampThinkingLevel, createModels } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { cliproxyBase, cliproxyLiveModel, cliproxyProvider, fetchModelList } from "../../../bin/agent/cliproxy-provider.mjs";
 import { auditCalls } from "./audit.mjs";
-import { SYSTEM_PROMPT } from "./prompt.mjs";
+import { VARIANTS, systemPrompt } from "./prompt.mjs";
 import { createShot } from "./shot.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -74,11 +74,14 @@ function markCache(payload) {
 /**
  * Runs one request to its end. Returns the run record (also written to <outDir>/run.json).
  * keepImages: "latest" (default) or "all". log(line) gets one line per event.
+ * variant: "base" (default) or "lean": the system prompt and the numbers the model is told (prompt.mjs, shot.mjs).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {} }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {} }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
-	const record = { name, request, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: SHOT_DESCRIPTION.length + JSON.stringify(SHOT_PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
+	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
+	const SYSTEM_PROMPT = systemPrompt(variant);
+	const record = { name, request, variant, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: SHOT_DESCRIPTION.length + JSON.stringify(SHOT_PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
 
@@ -93,7 +96,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const { models, model, entry } = resolved;
 	record.modelEntry = entry;
 
-	const shot = createShot({ name, outDir }), t0 = performance.now(), now = () => performance.now() - t0;
+	const shot = createShot({ name, outDir, variant }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map();
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };

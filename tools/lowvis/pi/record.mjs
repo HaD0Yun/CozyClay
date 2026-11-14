@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Records the clips the pi harness wrote (public/lowvis/clips/pi/<name>.json) to lowvis-out/pi/<name>.mp4 with the
 // lowvis recorder. Starts the vite dev server on port 5193 (or uses one that answers there) and stops what it started.
-//   node tools/lowvis/pi/record.mjs [--names push,chop] [--size 1280x720] [--view three|front|side|top]
+//   node tools/lowvis/pi/record.mjs [--names push,chop] [--size 1280x720] [--view three|front|side|top] [--port 5193]
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { record } from "../record.mjs";
 
-const ROOT = resolve(import.meta.dirname, "../../.."), PORT = 5193, ORIGIN = `http://127.0.0.1:${PORT}`, CLIPS = join(ROOT, "public/lowvis/clips/pi");
+const argv = process.argv.slice(2), opt = {};
+for (let i = 0; i < argv.length; i++) if (argv[i].startsWith("--")) opt[argv[i].slice(2)] = argv[++i];
+const ROOT = resolve(import.meta.dirname, "../../.."), PORT = Number(opt.port ?? 5193), ORIGIN = `http://127.0.0.1:${PORT}`, CLIPS = join(ROOT, "public/lowvis/clips/pi");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const answers = async () => { try { return (await fetch(`${ORIGIN}/lowvis/`)).ok; } catch { return false; } };
 
@@ -29,8 +31,6 @@ async function ensureServer() {
 	return stop;
 }
 
-const argv = process.argv.slice(2), opt = {};
-for (let i = 0; i < argv.length; i++) if (argv[i].startsWith("--")) opt[argv[i].slice(2)] = argv[++i];
 const names = opt.names ? opt.names.split(",") : existsSync(CLIPS) ? readdirSync(CLIPS).filter(f => f.endsWith(".json")).map(f => f.slice(0, -5)) : [];
 if (!names.length) { console.error(`no clips under ${CLIPS}`); process.exit(1); }
 const stop = await ensureServer();

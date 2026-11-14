@@ -16,6 +16,7 @@ import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -142,7 +143,8 @@ function spikes(rows, F) {
 	return picked;
 }
 
-export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`) }) {
+/** variant "lean": the model is told only the ASKED rows; every row is still measured and kept for the run record. */
+export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base" }) {
 	const state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, notesSaid: false, moversSaid: "", last: null };
 	mkdirSync(outDir, { recursive: true });
 
@@ -185,7 +187,8 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${focus.join(" and ")}` : "the whole scene in frame"}` });
 			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
 		}
-		const worst = changed ? spikes(rows, F) : [];
+		const told = variant === "lean" ? rows.filter(r => ASKED.test(r.key)) : rows;
+		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));
 			sheets.push({ file: `sheet-${n}-worst.png`, sheet: stackSheets(strips), says: `one row per spike, the frames around its worst frame: ${worst.map(w => `"${w.label}" f${w.frames[0]}-${w.frames.at(-1)}${w.who ? ` (${w.who})` : ""}`).join(", ")}` });
@@ -194,18 +197,18 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 		const images = sheets.map(s => { const png = encodePng(s.sheet.rgba, s.sheet.width, s.sheet.height); writeFileSync(join(outDir, s.file), png); return { data: png.toString("base64"), mimeType: "image/png" }; });
 		const renderMs = Math.round((performance.now() - t1) * 10) / 10;
 
-		const prev = state.prevRows && Object.fromEntries(state.prevRows.map(r => [r.key, r])), marks = rows.map(r => prev ? against(r, prev[r.key]) : { text: "", worse: false });
-		const same = prev && marks.every(m => m.text === " [same]") && rows.length === state.prevRows.length, worse = marks.filter(m => m.worse).length;
+		const prev = state.prevRows && Object.fromEntries(state.prevRows.map(r => [r.key, r])), marks = told.map(r => prev ? against(r, prev[r.key]) : { text: "", worse: false });
+		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length;
 		const text = [
 			`shot ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
-			same ? "checks: every number is the same as in the previous compile" : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
-			...(same ? [] : rows.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
+			!told.length ? "" : same ? "checks: every number is the same as in the previous compile" : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
+			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${NOTES.join("; ")}`,
 		].filter(Boolean).join("\n");
-		state.notesSaid = true; state.moversSaid = set.join(); state.prevRows = rows; state.compiles++;
+		state.notesSaid = true; state.moversSaid = set.join(); state.prevRows = told; state.compiles++;
 		state.last = { key, scene: def, spec: state.spec, rows, frames: F, buildMs };
 		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, shown, ms: performance.now() - t0 };
 	}

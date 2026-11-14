@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Authors one lowvis scene from a request with the pi harness (src/lowvis/pi/harness.mjs).
-//   node tools/lowvis/pi/run.mjs --name <name> [--model <id>] [--effort <level>] [--images latest|all] "<request>"
+//   node tools/lowvis/pi/run.mjs --name <name> [--model <id>] [--effort <level>] [--images latest|all] [--variant base|lean] "<request>"
 // Needs CLIPROXY_BASE_URL and CLIPROXY_API_KEY. Writes public/lowvis/clips/pi/<name>.json and lowvis-out/pi/<name>/.
 import { DEFAULT_EFFORT, DEFAULT_MODEL, runScene } from "../../../src/lowvis/pi/harness.mjs";
 
@@ -24,8 +24,8 @@ export function summary(run) {
 if (import.meta.url === new URL(process.argv[1], "file:").href) {
 	const argv = process.argv.slice(2), opt = {}, rest = [];
 	for (let i = 0; i < argv.length; i++) { if (argv[i].startsWith("--")) opt[argv[i].slice(2)] = argv[++i]; else rest.push(argv[i]); }
-	if (!opt.name || !rest.length) { console.error('usage: node tools/lowvis/pi/run.mjs --name <name> [--model <id>] [--effort <level>] [--images latest|all] "<request>"'); process.exit(2); }
-	const run = await runScene({ name: opt.name, request: rest.join(" "), model: opt.model ?? DEFAULT_MODEL, effort: opt.effort ?? DEFAULT_EFFORT, keepImages: opt.images ?? "latest", log: line => console.log(line) });
+	if (!opt.name || !rest.length) { console.error('usage: node tools/lowvis/pi/run.mjs --name <name> [--model <id>] [--effort <level>] [--images latest|all] [--variant base|lean] "<request>"'); process.exit(2); }
+	const run = await runScene({ name: opt.name, request: rest.join(" "), model: opt.model ?? DEFAULT_MODEL, effort: opt.effort ?? DEFAULT_EFFORT, keepImages: opt.images ?? "latest", variant: opt.variant ?? "base", log: line => console.log(line) });
 	console.log(summary(run).join("\n"));
 	if (run.report) console.log(`\n${run.report}`);
 	process.exit(run.infraError ? 1 : 0);
