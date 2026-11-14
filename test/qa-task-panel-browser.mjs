@@ -200,8 +200,8 @@ try {
 } finally {
 	ws.close();
 	for (const child of children) child.kill("SIGTERM");
-	await hub.close?.();
+	for (const client of hub.server.clients) client.terminate();
+	await new Promise((resolve) => hub.server.close(resolve));
+	sidecar.closeAllConnections();
 	sidecar.close();
 }
-// The hub's and Vite's sockets would keep the process alive; everything this script started is stopped above.
-process.exit(0);

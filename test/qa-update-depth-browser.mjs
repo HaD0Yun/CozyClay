@@ -74,4 +74,3 @@ assert.equal(run.steps, STEPS);
 assert.deepEqual(run.errors.filter((message) => depth.test(message)), [], "no #185 reaches window error");
 console.log(`PASS ${STEPS} starved playback frames with an empty cast: no React #185`);
 ws.close();
-process.exit(0);

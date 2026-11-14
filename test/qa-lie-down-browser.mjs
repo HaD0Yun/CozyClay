@@ -5,6 +5,7 @@
 // contact on: the feet come down instead of folding the legs, and the body rests on the floor (on its side, the shoulder).
 // Measured on the rig (hips, head, ankles, knees, skinned-mesh lowest point) after release, each case in a new project.
 // Run through tools/qa-browser.mjs with QA_URL pointing at `/app/` (QA_STARTUP_CHOOSER=1).
+import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -53,14 +54,16 @@ const evaluate = async (expression) => {
 	if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || "evaluate failed");
 	return result.result.value;
 };
-const waitFor = (condition, timeoutMs = 15000) => evaluate(`new Promise((resolve) => {
+const waitFor = (condition, timeoutMs = 15000) => evaluate(`new Promise((resolve, reject) => {
 	let settled = false;
 	const finish = (value) => {
 		if (settled) return;
 		settled = true;
 		observer.disconnect();
 		clearTimeout(timer);
-		resolve(value);
+		window.removeEventListener("qa:pose-state", check);
+		if (value) resolve(true);
+		else reject(new Error("QA prerequisite missing: " + ${JSON.stringify(condition)}));
 	};
 	const check = () => {
 		let value = false;
@@ -69,6 +72,7 @@ const waitFor = (condition, timeoutMs = 15000) => evaluate(`new Promise((resolve
 	};
 	const observer = new MutationObserver(check);
 	observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+	window.addEventListener("qa:pose-state", check);
 	const timer = setTimeout(() => finish(false), ${timeoutMs});
 	check();
 })`);
@@ -89,12 +93,19 @@ const setInput = (selector, value) => evaluate(`(() => {
 })()`);
 const click = (selector) => evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); if (!node) return false; node.click(); return true; })()`);
 const mouse = (type, x, y, buttons = 0) => send("Input.dispatchMouseEvent", { type, x, y, button: type === "mouseMoved" && !buttons ? "none" : "left", buttons, clickCount: type === "mouseMoved" ? 0 : 1 });
-// A condition on page state that no DOM change announces: polled, not observed.
-const poll = (condition, timeoutMs = 8000) => evaluate(`new Promise((resolve) => { const end = Date.now() + ${timeoutMs}; const tick = () => { let ok = false; try { ok = Boolean(${condition}); } catch {} if (ok) resolve(true); else if (Date.now() > end) resolve(false); else setTimeout(tick, 50); }; tick(); })`);
-const settle = () => evaluate("new Promise((r) => { let k = 4; const tick = () => (--k ? requestAnimationFrame(tick) : setTimeout(r, 80)); requestAnimationFrame(tick); })");
+const settle = () => evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
 const rigExpr = "window.__cozyclay.rigs[window.__cozyclay.characters[0].id]";
 await send("Page.enable"); await send("Runtime.enable"); const pageErrors = []; ws.addEventListener("message", (e) => { const m = JSON.parse(e.data); if (m.method === "Runtime.exceptionThrown") pageErrors.push(m.params.exceptionDetails?.exception?.description?.slice(0, 400)); if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") pageErrors.push(m.params.args.map((a) => a.value ?? a.description).join(" ").slice(0, 400)); });
 await send("Emulation.setDeviceMetricsOverride", { width: 1438, height: 979, deviceScaleFactor: 1, mobile: false });
+// App publishes this state after its React commit; observe it together with
+// DOM commits so a late-loading rig cannot be mistaken for a missing control.
+await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
+	let state;
+	Object.defineProperty(window, "__cozyclay", {
+		configurable: true, get: () => state,
+		set: value => { state = value; window.dispatchEvent(new Event("qa:pose-state")); },
+	});
+})()` });
 let failures = 0;
 const expect = (name, condition, detail = "") => {
 	console.log(`${condition ? "PASS" : "FAIL"} ${name}${condition ? "" : ` — ${detail}`}`);
@@ -117,10 +128,14 @@ const freshProject = async () => {
 	await waitFor("!!document.querySelector('.add-object-menu [data-add=character]')");
 	await click(".add-object-menu [data-add=character]");
 	await waitFor(`!!window.__cozyclay?.characters?.length && !!${rigExpr}`, 20000);
+	// Subscribe before switching modes. A failed prerequisite rejects here,
+	// before any pointer event can dereference a missing screen point.
+	const ready = waitFor("window.__cozyclay?.ikMode === true && !!window.__ikControlScreenPositions?.().hips", 15000);
 	await click(".vp-mode-key[data-mode=pose]");
-	expect("Pose mode shows the Root/Hips control", await poll("window.__cozyclay?.ikMode === true && !!window.__ikControlScreenPositions?.().hips", 15000));
+	expect("Pose mode shows the Root/Hips control", await ready);
 	await settle();
 	const at = await evaluate("window.__ikControlScreenPositions().hips");
+	assert.ok(at && Number.isFinite(at.x) && Number.isFinite(at.y), "QA prerequisite missing: Root/Hips control has no finite screen point");
 	await mouse("mouseMoved", at.x, at.y); await mouse("mousePressed", at.x, at.y, 1); await mouse("mouseReleased", at.x, at.y); await settle(); await settle();
 };
 
@@ -133,7 +148,7 @@ const joints = () => evaluate(`(() => { const rig = ${rigExpr}, out = {}; rig.up
 const meshMinY = () => evaluate(`(() => { const rig = ${rigExpr}; rig.updateMatrixWorld(true); const out = { body: Infinity, hands: Infinity }; rig.traverse((mesh) => { if (!mesh.isSkinnedMesh) return; const p = mesh.geometry.attributes.position, si = mesh.geometry.attributes.skinIndex, sw = mesh.geometry.attributes.skinWeight, t = mesh.position.clone(); for (let i = 0; i < p.count; i += 3) { let top = 0; for (let k = 1; k < 4; k++) if (sw.getComponent(i, k) > sw.getComponent(i, top)) top = k; const hand = /Hand/.test(mesh.skeleton.bones[si.getComponent(i, top)]?.name ?? ""); t.fromBufferAttribute(p, i); mesh.applyBoneTransform(i, t); t.applyMatrix4(mesh.matrixWorld); const key = hand ? "hands" : "body"; if (t.y < out[key]) out[key] = t.y; } }); return out; })()`);
 const dragPath = async (points) => {
 	await mouse("mouseMoved", points[0].x, points[0].y); await mouse("mousePressed", points[0].x, points[0].y, 1);
-	for (const p of points.slice(1)) { await mouse("mouseMoved", p.x, p.y, 1); await new Promise((r) => setTimeout(r, 16)); }
+	for (const p of points.slice(1)) { await mouse("mouseMoved", p.x, p.y, 1); await settle(); }
 	const last = points.at(-1); await mouse("mouseReleased", last.x, last.y); await settle(); await settle();
 };
 const tiltDeg = (a, b) => Math.asin(Math.min(1, Math.abs(b[1] - a[1]) / Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]))) * 180 / Math.PI;
@@ -190,13 +205,14 @@ const lieDown = async (axis, label, shot) => {
 	expect(`${label}: the feet come along, legs straight (each leg within 20 degrees of level, knees over 160)`, ["Left", "Right"].every((s) => tiltDeg(turned[`${s}UpLeg`], turned[`${s}Foot`]) < 20 && kneeDeg(turned[`${s}UpLeg`], turned[`${s}Leg`], turned[`${s}Foot`]) > 160), JSON.stringify(turned));
 	const yTip = (await hipsPicks()).find((p) => p.kind === "body" && p.part === "tip" && p.axis === "y");
 	await dragPath(Array.from({ length: 13 }, (_, i) => ({ x: yTip.x, y: yTip.y + i * 40 })));
-	await new Promise((r) => setTimeout(r, 400)); await settle();
+	await settle();
 	const lying = await joints(), mins = await meshMinY(), floor = mins.body, low = Math.min(lying.LeftFoot[1], lying.RightFoot[1]);
 	expect(`${label}: lowered onto the floor (hips and head under 0.3 m, the lower ankle under 0.2 m)`, lying.Hips[1] < 0.3 && lying.Head[1] < 0.3 && low < 0.2, JSON.stringify(lying));
 	expect(`${label}: still level, legs not folded (tilt under 15 degrees, knees over 150)`, tiltDeg(lying.Hips, lying.Head) < 15 && ["Left", "Right"].every((s) => kneeDeg(lying[`${s}UpLeg`], lying[`${s}Leg`], lying[`${s}Foot`]) > 150));
 	expect(`${label}: the body rests on the floor, not through it or above it (lowest point but the hands -2..+4 cm)`, floor > -0.02 && floor < 0.04, String(floor));
 	await screenshot(shot);
-	await new Promise((r) => setTimeout(r, 300));
+	// Persistence after release is the behavior measured here, not readiness.
+	await new Promise((resolve) => setTimeout(resolve, 300));
 	const kept = await joints();
 	expect(`${label}: the pose stays after the drags end (hips within 1 cm)`, Math.abs(kept.Hips[1] - lying.Hips[1]) < 0.01, `${lying.Hips[1]} -> ${kept.Hips[1]}`);
 	console.log(`MEASURE ${label}: ring ${axis} ${step * 5} deg on screen | hips ${lying.Hips[1].toFixed(3)} head ${lying.Head[1].toFixed(3)} ankles ${lying.LeftFoot[1].toFixed(3)}/${lying.RightFoot[1].toFixed(3)} | tilt ${tiltDeg(lying.Hips, lying.Head).toFixed(1)} deg | knees ${kneeDeg(lying.LeftUpLeg, lying.LeftLeg, lying.LeftFoot).toFixed(0)}/${kneeDeg(lying.RightUpLeg, lying.RightLeg, lying.RightFoot).toFixed(0)} | body min ${floor.toFixed(3)} hands min ${mins.hands.toFixed(3)}`);

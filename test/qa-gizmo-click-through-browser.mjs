@@ -142,4 +142,3 @@ expect("the page logged no errors", pageErrors.length === 0, pageErrors.join(" |
 ws.close();
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-gizmo-click-through-browser: all checks passed");
-process.exit(0);

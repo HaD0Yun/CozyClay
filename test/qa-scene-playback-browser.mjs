@@ -259,4 +259,3 @@ await writeFile(`${out}/video-node.png`, Buffer.from((await send("Page.captureSc
 
 console.log(`PASS qa-scene-playback-browser: ${out}/{before-run-playing-a,before-run-playing-b,playing-a,playing-b,paused,video-node}.png`);
 ws.close();
-process.exit(0);

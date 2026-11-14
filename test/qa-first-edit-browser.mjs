@@ -316,7 +316,7 @@ try {
 	console.log("COVERAGE NOTE Playground hides pose authoring: pose-only UI is tested in Studio; rail and navigation are tested on both surfaces.");
 	console.log(`Screenshots: ${shotDir}`);
 	console.log(`qa-first-edit-browser: ${failures ? `${failures} FAILED scenarios` : 'all 5 real-surface scenarios passed'}`);
-	process.exitCode = failures ? 1 : 0;
+	if (failures) process.exitCode = 1;
 } finally {
 	for (const request of pending.values()) clearTimeout(request.timer);
 	interception.close();

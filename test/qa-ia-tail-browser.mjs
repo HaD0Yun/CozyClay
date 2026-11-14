@@ -9,6 +9,12 @@
 //   QA_URL=http://127.0.0.1:5196/app/ CDP_PORT=9256 node tools/qa-browser.mjs \
 //     -- node test/qa-ia-tail-browser.mjs
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createSceneDocument, SCENES_STORAGE_KEY, serializeSceneDocument } from "../src/scenes.js";
+import { characterRowId } from "../src/hierarchy-model.js";
+
+const fixture = createSceneDocument({ seedCharacter: true });
+const characterId = fixture.scenes[0].stage.characters[0].id;
+const rowId = characterRowId(characterId);
 
 const out = process.env.QA_OUT || "/tmp/ia-tail-qa";
 mkdirSync(out, { recursive: true });
@@ -45,16 +51,17 @@ const evaluate = async (expression) => {
 	if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || "evaluate failed");
 	return result.result.value;
 };
-// Every wait is on the state the step produces, never on a fixed delay: React
-// commits when it commits, and a sleep would only decide how flaky this is.
-const waitFor = async (expression, timeoutMs = 20_000) => {
-	const deadline = Date.now() + timeoutMs;
-	for (;;) {
-		if (await evaluate(expression).catch(() => false)) return true;
-		if (Date.now() >= deadline) return false;
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-};
+// Observe DOM commits and the app's published QA state, never a polling delay.
+const waitFor = (expression, timeoutMs = 20_000) => evaluate(`new Promise((resolve, reject) => {
+	let timer;
+	const cleanup = () => { observer.disconnect(); clearTimeout(timer); window.removeEventListener("qa:state", check); };
+	const check = () => { if (${expression}) { cleanup(); resolve(true); } };
+	const observer = new MutationObserver(check);
+	observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+	window.addEventListener("qa:state", check);
+	timer = setTimeout(() => { cleanup(); reject(new Error("QA prerequisite missing: " + ${JSON.stringify(expression)})); }, ${timeoutMs});
+	check();
+})`);
 
 let failures = 0;
 const expect = (name, condition, detail = "") => {
@@ -105,9 +112,17 @@ await evaluate(`(() => {
 	localStorage.clear();
 	localStorage.setItem("cozyclay.locale", "en");
 	localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "QA", updatedAt: Date.now() }));
+	localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, ${JSON.stringify(serializeSceneDocument(fixture))});
 })()`);
+await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
+	let state;
+	Object.defineProperty(window, "__cozyclay", {
+		configurable: true, get: () => state,
+		set: value => { state = value; window.dispatchEvent(new Event("qa:state")); },
+	});
+})()` });
 await send("Page.reload");
-expect("the studio comes up", await waitFor("!!window.__cozyclay?.rigA", 60_000));
+expect("the studio comes up with the fixture rig", await waitFor(`!!window.__cozyclay?.rigs?.[${JSON.stringify(characterId)}]`, 60_000));
 expect("the tree is rendered", await waitFor(`!!document.querySelector("[data-node-id='shot']")`));
 
 /* --- (a) the scene root does not fold ---------------------------------------- */
@@ -126,18 +141,18 @@ expect(
 const labels = await rowLabels();
 expect("no Characters group row is rendered", !labels.includes("Characters"), JSON.stringify(labels));
 expect("the group node itself has no row", await evaluate(`!document.querySelector("[data-node-id='characters']")`));
-expect("Character 1 is still a row", await evaluate(`!!document.querySelector("[data-node-id='characterA']")`));
+expect("Character 1 is still a row", await evaluate(`!!document.querySelector("[data-node-id='${rowId}']")`));
 const cameraDepth = await rowDepth("camera");
-const characterDepth = await rowDepth("characterA");
-expect("Character 1 sits at the same indent as Camera", characterDepth === cameraDepth && cameraDepth === 1, `camera=${cameraDepth} characterA=${characterDepth}`);
+const characterDepth = await rowDepth(rowId);
+expect("Character 1 sits at the same indent as Camera", characterDepth === cameraDepth && cameraDepth === 1, `camera=${cameraDepth} ${rowId}=${characterDepth}`);
 expect(
 	"the character keeps its own caret and rig subtree",
-	await evaluate(`!!document.querySelector("[data-node-id='characterA'] .hierarchy-toggle") && !!document.querySelector("[data-node-id='characterA.rig']")`),
+	await evaluate(`!!document.querySelector("[data-node-id='${rowId}'] .hierarchy-toggle") && !!document.querySelector("[data-node-id='${rowId}.rig']")`),
 );
-await evaluate(`document.querySelector("[data-node-id='characterA'] .hierarchy-row").click()`);
+await evaluate(`document.querySelector("[data-node-id='${rowId}'] .hierarchy-row").click()`);
 expect(
 	"clicking Character 1 still selects it",
-	await waitFor(`document.querySelector("[data-node-id='characterA']").classList.contains("selected")`),
+	await waitFor(`document.querySelector("[data-node-id='${rowId}']")?.classList.contains("selected")`),
 );
 expect("the hierarchy screenshot has bytes", (await shotOf("hierarchy-scene-mode", `document.querySelector(".hierarchy-tree")`)) > 2000);
 
@@ -146,7 +161,7 @@ expect("the hierarchy screenshot has bytes", (await shotOf("hierarchy-scene-mode
 expect("Motion mode opens", await clickMode("Motion"));
 // #201: entering Motion selects the active character's ROW, so the character
 // panels are the ones on screen.
-expect("Motion lands on a character row, not the vanished group", await waitFor(`["characterA", "characterB"].some((id) => document.querySelector("[data-node-id='" + id + "']")?.classList.contains("selected"))`));
+expect("Motion lands on the fixture character row, not the vanished group", await waitFor(`document.querySelector("[data-node-id='${rowId}']")?.classList.contains("selected")`));
 expect("there is no Prompt Blocks panel", await evaluate(`!(${PROMPT_CARD})`));
 expect("the top bar has no Generate Motion", await evaluate(`!document.querySelector("[data-testid=topbar-generate], [data-testid=topbar-generate-menu]")`));
 expect("the Motion-mode details screenshot has bytes", (await shotOf("motion-details", `document.querySelector(".hierarchy-sidebar") ?? document.body`)) > 2000);
