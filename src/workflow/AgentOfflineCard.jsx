@@ -6,8 +6,9 @@ import AgentHostedDemos from "./AgentHostedDemos.jsx";
 // so Retry could only fail. `npx cozyclay` and a checkout serve http on loopback or the LAN; `?try` asks for the
 // hosted first run there.
 const hostedPage = () => globalThis.location?.protocol === "https:" || new URLSearchParams(globalThis.location?.search ?? "").has("try");
-// the landing page opens its install steps (the Node.js download, then the one command) on this hash
-const INSTALL_URL = "https://cozyclay.org/#install";
+// the landing page opens its install steps (the Node.js download, then the one command) on this hash; from=studio
+// makes that command say the install began here (src/install.js)
+const INSTALL_URL = "https://cozyclay.org/?from=studio#install";
 
 // No agent server answered. Self-served: say how to start it. Hosted: show what the agent does (a few requests
 // as buttons, AgentHostedDemos.jsx), then the way to use it for real: the agent needs CozyClay on the visitor's

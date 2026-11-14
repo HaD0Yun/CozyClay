@@ -106,7 +106,9 @@ cozyclay@<version>` on your machine, and only when you press it.
 The first npm launch may optionally answer a one-line channel question
 (`x`, `hn`, `reddit`, `github`, `site`, `friend`, `other`, or `skip`); `skip` sends no
 acquisition value. A copied `npx cozyclay --via site` (or `--via playground`)
-command supplies the same one label without the question. Session duration and action counts are buckets, and project
+command supplies the same one label without the question. Installer starts
+use `--via installer` to record the `installer` label with that first-launch receipt.
+Session duration and action counts are buckets, and project
 events never include names, paths, prompts, or timestamps.
 
 ## Controls

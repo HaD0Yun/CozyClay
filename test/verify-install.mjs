@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { launchCommand, nodeInstaller } from "../src/install.js";
+import { FIRST_LAUNCH_SOURCES } from "../bin/telemetry-state.mjs";
+import { installSource, launchCommand, nodeInstaller } from "../src/install.js";
+import { ctaTarget } from "../src/site/landing-analytics.js";
 
 const fallback = "https://nodejs.org/en/download";
 const release = (version, files, lts = "LTS") => ({ version, files, lts });
@@ -12,6 +14,17 @@ const releases = [
 assert.equal(launchCommand("win"), "npx.cmd --yes cozyclay@latest --via site");
 assert.equal(launchCommand("mac"), "npx --yes cozyclay@latest --via site");
 assert.equal(launchCommand("linux"), launchCommand("mac"));
+// #1183: the hosted Studio links to the page with ?from=studio, and only then the command says --via playground
+assert.equal(installSource("?from=studio"), "playground");
+assert.equal(installSource("?utm_source=x&from=studio"), "playground");
+for (const search of ["", "?from=", "?from=site", "?from=Studio", "?studio"]) assert.equal(installSource(search), "site", `${search || "no query"} stays the landing page's own source`);
+assert.equal(launchCommand("mac", installSource("?from=studio")), "npx --yes cozyclay@latest --via playground");
+assert.equal(launchCommand("win", installSource("?from=studio")), "npx.cmd --yes cozyclay@latest --via playground");
+const copyButton = (copy) => ({ closest: (selector) => (selector === "button.copy[data-copy]" ? { dataset: { copy } } : null) });
+for (const search of ["", "?from=studio"]) {
+	assert.ok(FIRST_LAUNCH_SOURCES.includes(installSource(search)), "the launcher records the source the page copies");
+	assert.equal(ctaTarget(copyButton(launchCommand("mac", installSource(search)))), "copy_npx", "either command counts as the same copy button");
+}
 assert.equal(nodeInstaller(releases, "mac"), "https://nodejs.org/dist/v24.2.0/node-v24.2.0.pkg");
 assert.equal(nodeInstaller(releases, "win", "x64"), "https://nodejs.org/dist/v24.2.0/node-v24.2.0-x64.msi");
 assert.equal(nodeInstaller(releases, "win", "arm64"), "https://nodejs.org/dist/v22.19.0/node-v22.19.0-arm64.msi");

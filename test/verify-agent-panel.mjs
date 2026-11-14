@@ -1131,8 +1131,10 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	const { FiDownload, FiPower, FiRotateCw } = await import("react-icons/fi");
 	// The card lives in its own module; hosted (an https page, no agent server to start) reads differently from self-served.
 	const cardFile = readFileSync(new URL("../src/workflow/AgentOfflineCard.jsx", import.meta.url), "utf8");
+	// the link the card ships, read from the file: a copy of it here would pass whatever the card links to
+	const installUrl = /^const INSTALL_URL = "([^"]+)";$/m.exec(cardFile)?.[1];
 	const build = (koImpl, hosted) => {
-		const scope = { React, FiDownload, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: "https://cozyclay.org/#install", AgentHostedDemos: () => React.createElement("div", { "data-fid": "agent_demos" }) };
+		const scope = { React, FiDownload, FiPower, FiRotateCw, ko: koImpl, hostedPage: () => hosted, INSTALL_URL: installUrl, AgentHostedDemos: () => React.createElement("div", { "data-fid": "agent_demos" }) };
 		const source = parseSync("AgentOfflineCard.jsx", cardFile).program.body.map((node) => node.declaration ?? node).find((node) => node.type === "FunctionDeclaration" && node.id.name === "OfflineCard");
 		return { scope, source: cardFile.slice(source.start, source.end) };
 	};
@@ -1155,7 +1157,8 @@ expect("no timer drives the auth transition", !/set(Interval|Timeout)\([^)]*(sig
 	const hosted = await render((english) => english, { probing: false, onRetry() {} }, true);
 	expect("hosted: the title offers a look at the agent, not a server that is down", hosted.includes("<h3>See what the agent does</h3>") && !hosted.includes("not running"), hosted);
 	expect("hosted: the ready-made requests come before the way to use it for real", hosted.indexOf('data-fid="agent_demos"') > 0 && hosted.indexOf('data-fid="agent_demos"') < hosted.indexOf("Install CozyClay</a>") && hosted.includes("These are ready-made results"), hosted);
-	expect("hosted: one Install button that opens the landing page's install steps, with no Retry that could only fail", hosted.includes('href="https://cozyclay.org/#install"') && hosted.includes("Install CozyClay</a>") && hosted.includes("agent-primary-button") && !hosted.includes("Retry") && !hosted.includes("<code>") && hosted.includes('data-agent-offline="hosted"'), hosted);
+	// #1183: ?from=studio tells the landing page the visitor came from the Studio, so the command it copies says so
+	expect("hosted: one Install button that opens the landing page's install steps and says it came from the Studio, with no Retry that could only fail", hosted.includes('href="https://cozyclay.org/?from=studio#install"') && hosted.includes("Install CozyClay</a>") && hosted.includes("agent-primary-button") && !hosted.includes("Retry") && !hosted.includes("<code>") && hosted.includes('data-agent-offline="hosted"'), hosted);
 	const hostedKo = await render((_english, koText) => koText, { probing: false, onRetry() {} }, true);
 	expect("hosted: the card reads in Korean under the Korean locale", hostedKo.includes("에이전트가 하는 일 보기") && hostedKo.includes("CozyClay 설치"), hostedKo);
 	// The demos: a walk and a flip from the sample motions, a street of eight buildings, and a chair to sit on.

@@ -88,6 +88,7 @@ assert.doesNotMatch(appSource, /latency_bucket/);
 assert.deepEqual(sanitizeProps("feature:used", { name: "pose_edit", prompt: "secret" }), { name: "pose_edit" });
 assert.deepEqual(sanitizeProps("feature:used", { name: "private-feature" }), {});
 assert.deepEqual(sanitizeProps("install:first_launch", { heard_from: "github" }), { heard_from: "github" });
+assert.deepEqual(sanitizeProps("install:first_launch", { heard_from: "installer" }), { heard_from: "installer" });
 assert.deepEqual(sanitizeProps("install:first_launch", { heard_from: "skip" }), {});
 assert.equal(bucketCount(0), "0");
 assert.equal(bucketCount(4), "4-10");
@@ -1797,7 +1798,7 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 
 	const { FIRST_LAUNCH_SOURCES } = await import("../bin/telemetry-state.mjs");
 	assert.deepEqual([...HEARD_FROM_SOURCES].sort(), [...FIRST_LAUNCH_SOURCES].sort(), "the CLI and the browser agree on install sources");
-	for (const heard_from of ["site", "playground"]) {
+	for (const heard_from of ["site", "playground", "installer"]) {
 		assert.deepEqual(sanitizeProps("install:first_launch", { heard_from }), { heard_from });
 		assert.ok(rowTokens("install:first_launch").has(heard_from), `install source ${heard_from} is disclosed`);
 	}
