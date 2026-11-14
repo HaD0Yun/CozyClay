@@ -269,7 +269,7 @@ function commandFixture({ frame = 8, still = false } = {}) {
 		capture: () => ({ pos: { x: 0, y: 1.6, z: 5 }, yaw: 0, pitch: 0, fovDeg: 40 }),
 		// This fixture measures the history boundary. The real framing planner
 		// and renderer publication are exercised by verify-shots-commands.
-		frame: () => { ports.writeShots([...state.shots]); return { affectedIds: ['shot-1'], checks: { coverage: 'same-frame-subject-bounds-projection', derivedSize: 'wide shot' }, warnings: [], details: { shotId: 'shot-1', frame: 0 } }; },
+		frame: () => { ports.writeShots([...state.shots]); return { affectedIds: ['shot-1'], checks: { coverage: 'same-frame-subject-bounds-projection', derivedSize: 'wide shot' }, warnings: [], details: { shotId: 'shot-1', frame: 0, subjectIds: [state.activeCharacterId] } }; },
 		setLens: fovDeg => ports.writeShotState({ fovDeg }),
 		captureCamera: () => ports.writeShotState({ manual: true }),
 		placeCamera: camera => ports.writeShotState({ camera }),

@@ -82,7 +82,8 @@ import { useUiTheme } from "./theme.js";
 import { Room, StageLights, StageAtmosphere } from "./room.jsx";
 import { createDocumentMirrors } from "./document-mirrors.js";
 import { buildRail, simplifyStroke } from "./camera-follow.js";
-import { useShotCameraTracks } from "./use-shot-camera-tracks.js";
+import { useShotCameraTracks, useShotSubjects } from "./use-shot-camera-tracks.js";
+import { subjectsCenter } from "./shot-subjects.js";
 import { ObjectCarrier, SetProps } from "./props.jsx";
 import {
 	CUTOUT_KIND,
@@ -2651,9 +2652,12 @@ export default function App() {
 		}));
 	}
 
+	const cameraSubjects = useShotSubjects({ characters, objects: sceneObjects, shots, frameCount: tlFrameCount, fps: tlFps, activeId: activeChar.id, motion });
+	const cameraSubjectsAt = cameraSubjects.at;
+	const framingSubject = useMemo(() => subjectsCenter(cameraSubjectsAt(shotAtFrame(shots, tlFrame), tlFrame)) ?? { x: 0, y: 0, z: 0, rot: 0 }, [cameraSubjectsAt, shots, tlFrame]);
 	const shot = useMemo(
-		() => deriveShot(cameraPos, charA, (fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback),
-		[cameraPos, charA, fovDeg, filmback],
+		() => deriveShot(cameraPos, framingSubject, (fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback),
+		[cameraPos, framingSubject, fovDeg, filmback],
 	);
 
 	// The derived move sequence: what the keyframings geometrically prove
@@ -2663,7 +2667,7 @@ export default function App() {
 		const segs = [];
 		for (let i = 0; i < cameraKeys.length - 1; i++) {
 			segs.push(
-				classifyMove(cameraKeys[i].framing, cameraKeys[i + 1].framing, charA, {
+				classifyMove(cameraKeys[i].framing, cameraKeys[i + 1].framing, subjectsCenter(cameraSubjectsAt(activeShot, cameraKeys[i].frame)) ?? { x: 0, z: 0, rot: 0 }, {
 					durationS: (cameraKeys[i + 1].frame - cameraKeys[i].frame) / tlFps,
 					...filmback,
 				}),
@@ -2677,7 +2681,7 @@ export default function App() {
 			fromShot: segs[0].from,
 			spanS: Math.round(((cameraKeys[cameraKeys.length - 1].frame - cameraKeys[0].frame) / tlFps) * 10) / 10,
 		};
-	}, [cameraKeys, charA, filmback, tlFps]);
+	}, [cameraKeys, activeShot, cameraSubjectsAt, filmback, tlFps]);
 
 	/* --------------------------- shot video export --------------------------- */
 	// Record is an offline frame-addressed export. It never starts playback and
@@ -3650,7 +3654,8 @@ export default function App() {
 			// the camera the main view renders through (poser in IK mode) — QA
 			// projections must use this one, not the frozen shot camera
 			activeCam: ikMode ? poserCamRef.current : lookThroughShot ? shotCamRef.current : editorCamRef.current,
-			get shotCam() { return shotCamRef.current; },
+			get shotCam() { return shotCamRef.current; }, get shotMetrics() { return shot; }, get moveMetrics() { return moveSequence; },
+			sampleStateAt: (frame) => appContext.ports.sampleStateAt(frame),
 			poserCam: poserCamRef.current,
 			planCam: planCamRef.current,
 			editorCam: editorCamRef.current,
@@ -3741,7 +3746,7 @@ export default function App() {
 			pathDraw,
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeRig, motion, tlFrame, tlFrameCount, ikMode, ikChains, ikFocus, ikTick, charA, rangePins, rangePinResiduals, committedIkEdits, waypoints, lookThroughShot, selectedSceneObject, sceneObjects, rigs, characters, pathPointIndex, preview, posing, playMode, pathDraw, pendingIkEdit, ikEditTool]);
+	}, [activeRig, motion, tlFrame, tlFrameCount, ikMode, ikChains, ikFocus, ikTick, charA, shot, moveSequence, rangePins, rangePinResiduals, committedIkEdits, waypoints, lookThroughShot, selectedSceneObject, sceneObjects, rigs, characters, pathPointIndex, preview, posing, playMode, pathDraw, pendingIkEdit, ikEditTool]);
 	// QA hook (plan §6.5): exposes history depth and the present === objects
 	// invariant so the browser suite can assert undo entry counts directly.
 	// Reads live store state at call time; re-registered after every render.
@@ -3775,31 +3780,24 @@ export default function App() {
 	const playbackSceneBase = useMemo(() => ({
 		frameCount: tlFrameCount,
 		fps: tlFps,
-		subject: charA,
+		subject: activeChar,
 		motion,
-		cameraAnchor: charA,
+		cameraAnchor: activeChar,
 		fovDeg,
 		filmback,
-	}), [tlFrameCount, tlFps, charA, motion, fovDeg, filmback]);
+	}), [tlFrameCount, tlFps, activeChar, motion, fovDeg, filmback]);
 	// The camera's subject grouped under a routed object (#655) stands where
 	// that object carries it: its played root through the object's carry,
 	// frame by frame — the same carry the renderer gives the body. Null when it
 	// rides nothing, so every reader below keeps the plain played root.
 	const subjectCarry = useMemo(() => {
-		if (!charA.parent) return null;
 		const objects = new Map(sceneObjects.map((object) => [object.id, object]));
-		const take = { frameCount: tlFrameCount, fps: tlFps };
-		return (point, frame) => {
-			if (!point) return point;
-			const at = carriedPointAt(objects, charA.parent, { x: point.x, y: charA.y ?? 0, z: point.z }, frame, take);
-			return { x: at.x, z: at.z };
-		};
-	}, [charA.parent, charA.y, sceneObjects, tlFrameCount, tlFps]);
+		return activeChar.parent ? (point, frame) => { const at = carriedPointAt(objects, activeChar.parent, { ...point, y: activeChar.y ?? 0 }, frame, { frameCount: tlFrameCount, fps: tlFps }); return { x: at.x, z: at.z }; } : null;
+	}, [activeChar.parent, activeChar.y, sceneObjects, tlFrameCount, tlFps]);
 	const motionPos = usePlaybackSubjectPosition({ motion, subjectCarry, scene: playbackSceneBase, frame: tlFrame });
 
-	// The subject's full per-frame scene trajectory — what the follow camera
-	// is derived from. Without a loaded motion, and riding nothing, the subject
-	// stands still and the follow camera simply composes a static frame.
+	// The active editing layer keeps its own played root. Camera anchors are
+	// sampled separately from each shot's named cast, including inactive takes.
 	const subjectTrack = useMemo(() => {
 		if (!shots.some((shot) => shot.camera?.mode === "follow" || shot.camera?.mode === "rail")) return null;
 		const frames = Math.max(tlFrameCount, 1);
@@ -3814,9 +3812,10 @@ export default function App() {
 	const railCurve = useMemo(() => (cameraRail ? buildRail(cameraRail) : null), [cameraRail]);
 
 	// A rail shot with an aim holds its cast (or a world point) instead of the subject.
-	const followTrack = useShotCameraTracks({ shots, subjectTrack, subjectId: charA.id, fps: tlFps, yawDeg: charA.rot, filmback, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion });
+	const cameraAnchorTrack = cameraSubjects.track;
+	const followTrack = useShotCameraTracks({ shots, fps: tlFps, filmback, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion, subjects: cameraSubjects });
 
-	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack), [playbackSceneBase, subjectTrack, followTrack]);
+	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack), [playbackSceneBase, subjectTrack, followTrack, cameraAnchorTrack]);
 
 	// Browser acceptance seam: it invokes the exact production exporter but
 	// suppresses the download, returning only serializable evidence.
@@ -4047,9 +4046,7 @@ export default function App() {
 			: trackedFramings;
 		const framingA = blockFramings[0] ?? null;
 		const framingB = blockFramings.length > 1 ? blockFramings[blockFramings.length - 1] : null;
-		const promptSubject = activeShot && subjectTrack?.[activeShot.startFrame]
-			? { ...charA, ...subjectTrack[activeShot.startFrame] }
-			: charA;
+		const promptSubject = subjectsCenter(cameraSubjectsAt(activeShot, activeShot?.startFrame ?? tlFrame)) ?? { x: 0, z: 0, rot: 0 };
 		const blockMove = mode === "video" && activeShot && activeCamera.mode !== "keys"
 			? activeCamera.mode === "rail"
 				? "a continuous rail tracking move following the subject"
@@ -4061,7 +4058,7 @@ export default function App() {
 			shot: movePlan?.fromShot ?? (framingA
 				? deriveShot(framingA.pos, promptSubject, (framingA.fovDeg * Math.PI) / 180, SUBJECT_HEIGHT_M, filmback)
 				: shot),
-			subjects: promptSubjects(characters, charA),
+			subjects: promptSubjects(characters, activeChar),
 			environment,
 			style,
 			cameraMove: movePlan || blockMove ? CUSTOM_MOVE : cameraMove,
@@ -4755,8 +4752,8 @@ export default function App() {
 								appliedPresetRef={shotPresetAppliedRef}
 								lastPosRef={shotCameraPosRef}
 								fovDeg={fovDeg}
-								charA={charA}
-								probe={{ scene: playbackSceneBase, frameRef: propFrameRef, carry: subjectCarry }}
+								subject={framingSubject}
+								subjectsAt={(frame) => cameraSubjectsAt(shotAtFrame(shots, frame), frame)} frameRef={propFrameRef}
 								camRef={shotCamRef}
 								look={look}
 								onMetrics={(p, visible) => updateShotMetrics({ position: p, visible, playing: tlPlaying, setCameraPos, setSubjectVisible, cameraRef: shotCameraPosRef, visibleRef: subjectVisibleRef })}
@@ -5076,7 +5073,11 @@ export default function App() {
 							</div>
 						)}
 
-						<div ref={mainPaneRef} className="vp-pane vp-main" />
+						<div ref={mainPaneRef} className="vp-pane vp-main">
+							<div className={"caption" + (subjectVisible ? "" : " off")} hidden={playMode || !lookThroughShot}>
+								{subjectVisible ? slateLineKo(shot) : ko("SUBJECT OUT OF FRAME", "피사체가 프레임 밖에 있어요")}
+							</div>
+						</div>
 						<div
 							ref={insetPaneRef}
 							hidden={playMode}
@@ -5178,9 +5179,6 @@ export default function App() {
 							<span />
 							<span />
 							<span />
-						</div>
-						<div className={"caption" + (subjectVisible ? "" : " off")} hidden={playMode || !lookThroughShot}>
-							{subjectVisible ? slateLineKo(shot) : ko("SUBJECT OUT OF FRAME", "피사체가 프레임 밖에 있어요")}
 						</div>
 
 						</div>
