@@ -73,13 +73,20 @@ function registerTests() {
 		assert.equal(protocol.validateStudioContext(value).marks[0].hit.id, "cube");
 	});
 	test("encoded hierarchy rows preserve valid character IDs in native context", () => {
-		for (const id of ["actor.v1", "actor.rig", "char:side"]) {
-			const value = contextFixture();
-			value.activeCharacterId = id;
-			value.entities[0].id = id;
-			value.selection = { kind: "character", id, hierarchyId: characterRowId(id) };
-			assert.deepEqual(protocol.validateStudioContext(value).selection, value.selection);
+		for (const id of ["actor.v1", "actor.rig", "char:side", `a${".".repeat(119)}`]) {
+			for (const suffix of ["", ".rig.rightShoulder"]) {
+				const value = contextFixture();
+				value.activeCharacterId = id;
+				value.entities[0].id = id;
+				value.selection = { kind: "character", id, hierarchyId: characterRowId(id) + suffix };
+				assert.deepEqual(protocol.validateStudioContext(value).selection, value.selection);
+			}
 		}
+		const overlong = contextFixture(), rawId = `a${".".repeat(120)}`;
+		overlong.activeCharacterId = rawId;
+		overlong.entities[0].id = rawId;
+		overlong.selection = { kind: "character", id: rawId, hierarchyId: characterRowId(rawId) };
+		rejects(() => protocol.validateStudioContext(overlong), "INVALID_CONTEXT");
 	});
 	test("D2 HTTP uses turnId and rejects turn_id as a Studio identity alias", async () => {
 		protocol.validateStudioTurnEnvelope(envelopeFixture());

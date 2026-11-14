@@ -63,6 +63,9 @@ events.set('Runtime.consoleAPICalled', new Set([event => {
   if (event.type === 'error') console.log(`CONSOLE ${event.args.map(arg => arg.description ?? arg.value ?? '').join(' ').slice(0, 1500)}`);
 }]));
 const record = (name, measurement) => { report.push({ name, ...measurement }); console.log(`MEASURE ${name} ${JSON.stringify(measurement)}`); };
+const requests = new Map();
+events.set('Network.requestWillBeSent', new Set([event => requests.set(event.requestId, event.request.url)]));
+events.set('Network.loadingFailed', new Set([event => record('network-failure', { url: requests.get(event.requestId), error: event.errorText, canceled: event.canceled })]));
 const capture = async name => {
   await evaluate(`(async()=>{const running=()=>document.getAnimations().filter(a=>a.playState==='running'&&a.effect.getComputedTiming().iterations!==Infinity);
     for(let pending=running();pending.length;pending=running())await Promise.all(pending.map(a=>a.finished.catch(error=>{if(error.name!=='AbortError')throw error;})));})()`);
@@ -91,7 +94,7 @@ const projection = id => evaluate(`(() => {
 
 try {
   await mkdir(out, { recursive: true });
-  await send('Runtime.enable'); await send('Page.enable'); await send('Log.enable');
+  await send('Runtime.enable'); await send('Page.enable'); await send('Log.enable'); await send('Network.enable');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `
     window.__castQaErrors=[];window.addEventListener('error',e=>window.__castQaErrors.push(e.message));window.addEventListener('unhandledrejection',e=>window.__castQaErrors.push(String(e.reason?.stack??e.reason)));
     let qa;Object.defineProperty(window,'__cozyclay',{configurable:true,enumerable:true,get:()=>qa,set:value=>{qa=value;window.dispatchEvent(new Event('cast-qa:state'));}});
@@ -101,9 +104,9 @@ try {
   await evaluate(`localStorage.setItem('cozyclay.locale','en');localStorage.setItem('cozyclay.project-session.v1',JSON.stringify({name:'Cast list QA',updatedAt:Date.now()}));localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)},${JSON.stringify(JSON.stringify(seed))})`);
   await navigate(url);
   await transition(`window.__cozyclay?.characters?.length===3 && document.querySelector('[data-node-id="character:cast-3"]')`);
+  await transition(`window.__cozyclay.characters.every(entry=>!!window.__cozyclay.rigs[entry.id]?.parent) && !!window.__cozyclay.shotCam`);
   await transition(`window.__cozyclay?.tlFrame===1 && !!window.__cozyclay.shotCam`, 'window.__cozyclay.scrub(1)');
   await transition(`window.__cozyclay?.tlFrame===0`, 'window.__cozyclay.scrub(0)');
-  await transition(`window.__cozyclay.characters.every(entry=>!!window.__cozyclay.rigs[entry.id]?.parent)`);
   await capture('ready-desktop');
   await transition(`Math.abs(window.__cozyclay.shotCam.position.x-3)<0.001`, frame(['cast-3']));
   await capture('third-desktop');

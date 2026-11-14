@@ -79,7 +79,7 @@ const identityFields = { workspaceId: id, documentEpoch: id, sceneId: id, sceneE
 const identity = object(identityFields);
 const host = object({ surface: literal("studio"), ...identityFields, workspaceHandle: nullable(id) });
 const revision = object({ scene: integer(), physics: integer(), view: integer() });
-const selection = nullable(object({ kind: choices(STUDIO_VARIANTS.selectionKinds), id }, { hierarchyId: { ...id, pattern: "^[A-Za-z0-9](?:[A-Za-z0-9._:-]|%[0-9A-Fa-f]{2})*$" } }));
+const selection = nullable(object({ kind: choices(STUDIO_VARIANTS.selectionKinds), id }, { hierarchyId: { ...id, maxLength: id.maxLength * 3 + 32, pattern: "^[A-Za-z0-9](?:[A-Za-z0-9._:-]|%[0-9A-Fa-f]{2})*$" } }));
 const view = object({ mode: choices(STUDIO_VARIANTS.modes), frame: integer(), playing: bool, lookThrough: bool, grid: bool, autoColor: bool });
 const position = union(
 	object({ world: vec3 }),

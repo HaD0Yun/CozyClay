@@ -79,7 +79,7 @@ export async function verifyCastIdentity({ evaluate, transition, capture, record
 	record("identity-empty", empty);
 	await capture("identity-empty");
 
-	const punctuated = ["actor.v1", "actor", "actor.rig", "char:side"];
+	const punctuated = ["actor.v1", "actor", "actor.rig", "char:side", `a${".".repeat(119)}`];
 	for (const [index, id] of punctuated.entries()) {
 		const receipt = await evaluate(`window.__cozyclay.runStudioAction('character.add',{character:{id:${JSON.stringify(id)},model:'y-bot-tpose',x:${index * 3 - 4},z:0}})`);
 		assert.equal(receipt?.ok, true, JSON.stringify(receipt));
