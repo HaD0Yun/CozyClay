@@ -133,7 +133,7 @@
       .btn.ghost { border-color: var(--line-strong); color: var(--ink); }
       .btn.ghost:hover { border-color: var(--ink); }
       .btn.sm { min-height: 40px; padding: 0 16px; font-size: 15px; }
-      .btn.install-open { gap: 8px; background: rgba(15, 14, 13, .85); }
+      .btn.install-open { gap: 8px; }
       .linkish { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
       /* Guided desktop setup, with one task visible at a time. */
@@ -346,7 +346,6 @@
             <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
             <span class="gh-stars" hidden></span>
           </a>
-          <a class="btn primary sm" href="/app/">Try it</a>
         </div>
       </div>
     </header>
@@ -374,8 +373,7 @@
           <h1>Block the shot in 3D, then generate it</h1>
           <p>Free, open source previs in your browser. Stage the scene, pose characters, set the camera and cuts, then hand the same shot to an AI video model.</p>
           <div class="pitch-actions">
-            <a class="btn primary" href="/app/">Try it in your browser</a>
-            <button type="button" class="btn ghost install-open" data-install-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg><span data-install-label>Install on your computer</span></button>
+            <button type="button" class="btn primary install-open" data-install-open><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg><span data-install-label>Install on your computer</span></button>
           </div>
         </div>
         </div>
@@ -573,7 +571,6 @@ npm run dev</code></pre>
             <p>Free, open source, and running in your browser in under a minute.</p>
           </div>
           <div class="cta">
-            <a class="btn primary" href="/app/">Try it in your browser</a>
             <a class="btn ghost" href="https://discord.gg/Hp9V5wwgjF">Join the Discord</a>
           </div>
         </div>
