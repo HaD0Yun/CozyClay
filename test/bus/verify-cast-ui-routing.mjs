@@ -27,6 +27,23 @@ test('visibility edits name one member and preserve its two neighbors', () => {
   } finally { f.dispose(); }
 });
 
+test('row and raw-pick routing preserve dotted and prefixed stable IDs', () => {
+  const f = castFixture();
+  try {
+    const ids = ['actor.v1', 'char:side', 'side'];
+    f.cast.load(ids.map(id => ({ id })));
+    const cast = f.renderCast();
+    for (const [index, id] of ids.entries()) {
+      const row = cast.rowIdForCharIndex(index);
+      assert.equal(cast.charKeyToHierarchyId(id), row);
+      assert.equal(cast.charIdFromHierarchyId(row), id);
+      assert.equal(cast.charIdFromHierarchyId(`${row}.rig.rightHand`), id);
+    }
+    assert.equal(cast.rowIdForCharIndex(0), 'character:actor%2Ev1');
+    assert.equal(cast.rowIdForCharIndex(1), 'character:char%3Aside');
+  } finally { f.dispose(); }
+});
+
 test('cast panels route their authored handlers through run rather than native snapshot callbacks', () => {
   const panels = ['SubjectsPanel', 'CharacterTransformPanel', 'RigPanel', 'PosePanel'];
   let sites = 0;

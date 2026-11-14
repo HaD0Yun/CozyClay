@@ -13,6 +13,7 @@ import { POSTURES } from "../src/scenes.js";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import { toAgentTools } from "../bin/agent/pi-tools.mjs";
+import { characterRowId } from "../src/hierarchy-model.js";
 
 export const uuid = "00000000-0000-4000-8000-000000000001";
 export function contextFixture() {
@@ -70,6 +71,15 @@ function registerTests() {
 	test("D1b a context carrying annotation marks validates (the server reads the same schema)", () => {
 		const value = { ...contextFixture(), marks: [{ n: 1, kind: "pin", hit: { type: "object", id: "cube", name: "Cube" }, points: [{ x: 0, y: 1, z: 0 }], frame: 0 }] };
 		assert.equal(protocol.validateStudioContext(value).marks[0].hit.id, "cube");
+	});
+	test("encoded hierarchy rows preserve valid character IDs in native context", () => {
+		for (const id of ["actor.v1", "actor.rig", "char:side"]) {
+			const value = contextFixture();
+			value.activeCharacterId = id;
+			value.entities[0].id = id;
+			value.selection = { kind: "character", id, hierarchyId: characterRowId(id) };
+			assert.deepEqual(protocol.validateStudioContext(value).selection, value.selection);
+		}
 	});
 	test("D2 HTTP uses turnId and rejects turn_id as a Studio identity alias", async () => {
 		protocol.validateStudioTurnEnvelope(envelopeFixture());

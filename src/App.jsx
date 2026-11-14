@@ -4280,7 +4280,7 @@ export default function App() {
 		appContext.patchLive({ studioSelection: selection, studioView: view, studioShotId: shotId });
 		appContext.patchTimeline({ currentFrame: frame }); tlFrameRef.current = frame;
 		if (selection && ["character", "rig"].includes(selection.kind)) { appContext.patchLive({ activeCharacterId: selection.id }); setActiveCharacterId(selection.id); }
-		setSelectedHierarchyId(selection ? selection.kind === "object" ? `object:${selection.id}` : ["character", "rig"].includes(selection.kind) ? `character:${selection.id}` : selection.kind === "camera" ? "camera" : "shot" : "");
+		setSelectedHierarchyId(selection ? selection.kind === "object" ? `object:${selection.id}` : ["character", "rig"].includes(selection.kind) ? characterRowId(selection.id) : selection.kind === "camera" ? "camera" : "shot" : "");
 		// Sculpt is UI-only and publishes as Stage (below): a view write that
 		// names no mode keeps the editor in it.
 		setTlFrame(frame); setWorkflowMode((current) => (current === "sculpt" && !modeSet && view.mode === "scene" ? current : view.mode)); setLookThroughShot(view.lookThrough); setGridView(view.grid); setAutoColor(view.autoColor); setTlPlaying(view.playing);

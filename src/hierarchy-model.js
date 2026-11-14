@@ -42,11 +42,12 @@ export function parseRigNodeId(id) {
 	return match ? { rowId: match[1], token: match[2] } : null;
 }
 
-export const characterRowId = id => typeof id === "string" && id ? `character:${id}` : null;
+// A member's punctuation cannot become a rig namespace separator.
+export const characterRowId = id => typeof id === "string" && id ? `character:${encodeURIComponent(id).replaceAll(".", "%2E")}` : null;
 
 export function characterIdFromHierarchyId(id) {
 	const row = parseRigNodeId(id)?.rowId ?? id;
-	return typeof row === "string" && row.startsWith("character:") ? row.slice(10) : null;
+	return typeof row === "string" && row.startsWith("character:") ? decodeURIComponent(row.slice(10)) : null;
 }
 
 /** True only when the row or its rig belongs to a member of this cast. */

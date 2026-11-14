@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { HIERARCHY_NODES, buildHierarchyNodes, attachBoneLabel, parseRigNodeId, rigSubtree } from "../src/hierarchy-model.js";
+import { HIERARCHY_NODES, buildHierarchyNodes, attachBoneLabel, parseRigNodeId, rigSubtree, characterRowId, characterIdFromHierarchyId, characterRowExists } from "../src/hierarchy-model.js";
 
 let failures = 0;
 function expect(name, condition, detail = "") {
@@ -87,6 +87,14 @@ const uniformRows = flatten(buildHierarchyNodes([], uniformCast)).filter(node =>
 expect("all three cast members use their stable identity as the hierarchy row", uniformRows.map(row => row.id).join() === uniformCast.map(entry => `character:${entry.id}`).join());
 const reorderedRows = flatten(buildHierarchyNodes([], [uniformCast[2], uniformCast[0], uniformCast[1]])).filter(node => node.kind === "character");
 expect("reordering the cast never reassigns another member's row identity", reorderedRows.map(row => row.id).join() === [uniformCast[2], uniformCast[0], uniformCast[1]].map(entry => `character:${entry.id}`).join());
+const punctuatedCast = ["actor.v1", "actor", "actor.rig", "actor:side"].map(id => ({ id }));
+const punctuatedRows = flatten(buildHierarchyNodes([], punctuatedCast));
+expect("valid character IDs never collide with another member's rig namespace", new Set(punctuatedRows.map(row => row.id)).size === punctuatedRows.length);
+for (const entry of punctuatedCast) {
+	const row = characterRowId(entry.id), bone = `${row}.rig.rightHand`;
+	expect(`row and bone IDs round-trip ${entry.id}`, characterIdFromHierarchyId(row) === entry.id && characterIdFromHierarchyId(bone) === entry.id);
+	expect(`the rig parser and Inspector recognize ${entry.id}`, parseRigNodeId(bone)?.rowId === row && characterRowExists(bone, punctuatedCast));
+}
 
 const proxyTree = buildHierarchyNodes(
 	[{ id: "bag", name: "Bag", attach: { characterId: "proxy", bone: null } }],

@@ -221,11 +221,11 @@ export function useCast(appContext) {
 		const id = nextCharacterId(domain.read());
 		domain.run('character.add', { character: { id, model, x, z, pose: DEFAULT_POSE } });
 		if (model === PROXY_FIGURE_MODEL) track("cast:proxy_added", { surface: "assets" });
-		appContext.shared.setSelectedHierarchyId(`character:${id}`);
+		appContext.shared.setSelectedHierarchyId(characterRowId(id));
 		appContext.notify(ko("Character added to the scene", "인물을 씬에 추가했어요"));
 	};
 
-	const charKeyToHierarchyId = key => characterRowId(key.startsWith("char:") ? key.slice(5) : key);
+	const charKeyToHierarchyId = key => characterRowId(characters.some(entry => entry.id === key) ? key : key.startsWith("char:") ? key.slice(5) : key);
 
 	// Every character owns an animation layer (root path, prompt blocks,
 	// generated clip, IK keys). The studio's motion machinery edits ONE layer
@@ -248,7 +248,7 @@ export function useCast(appContext) {
 	// that character in the hierarchy selection.
 	const selectActiveCharacterInHierarchy = () => {
 		const id = activeCharacterId ?? characters[0]?.id;
-		if (id) appContext.shared.setSelectedHierarchyId(`character:${id}`);
+		if (id) appContext.shared.setSelectedHierarchyId(characterRowId(id));
 	};
 
 	const activeCharIndex = Math.max(0, characters.findIndex((entry) => entry.id === activeChar.id));

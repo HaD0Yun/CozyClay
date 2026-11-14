@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { characterRowId } from "../src/hierarchy-model.js";
 
 export async function verifyCastIdentity({ evaluate, transition, capture, record, send, events }) {
 	const members = await evaluate("window.__cozyclay.characters.map(c=>c.id)");
-	const row = id => `[data-node-id="character:${id}"]`;
+	const row = id => `[data-node-id="${characterRowId(id)}"]`;
 	for (const id of members) {
 		assert.ok(await evaluate(`!!document.querySelector(${JSON.stringify(row(id))})`), `stable row exists for ${id}`);
 		await transition(`window.__cozyclay.activeChar.id===${JSON.stringify(id)}`, `document.querySelector(${JSON.stringify(row(id) + " .hierarchy-row")}).click()`);
@@ -77,4 +78,32 @@ export async function verifyCastIdentity({ evaluate, transition, capture, record
 	assert.deepEqual(empty, { ids: [], active: null, rig: false, rows: [] });
 	record("identity-empty", empty);
 	await capture("identity-empty");
+
+	const punctuated = ["actor.v1", "actor", "actor.rig", "char:side"];
+	for (const [index, id] of punctuated.entries()) {
+		const receipt = await evaluate(`window.__cozyclay.runStudioAction('character.add',{character:{id:${JSON.stringify(id)},model:'y-bot-tpose',x:${index * 3 - 4},z:0}})`);
+		assert.equal(receipt?.ok, true, JSON.stringify(receipt));
+	}
+	await transition("window.__cozyclay.characters.every(c=>!!window.__cozyclay.rigs[c.id]?.parent)");
+	const prop = await evaluate("window.__cozyclay.sceneObject.place({kind:'cube',name:'Bone attachment proof',x:0,y:0.5,z:1}).id");
+	await transition(`!!document.querySelector('[data-node-id="object:${prop}"]')`, `(()=>{if(!document.querySelector('[data-node-id="object:${prop}"]'))document.querySelector('[data-node-id="props"] .hierarchy-toggle')?.click();})()`);
+	for (const id of punctuated) {
+		const root = characterRowId(id), bone = `${root}.rig.rightHand`;
+		await transition(`window.__cozyclay.activeChar.id===${JSON.stringify(id)}`, `document.querySelector(${JSON.stringify(row(id) + " .hierarchy-row")}).click()`);
+		for (const [parent, child] of [[root, `${root}.rig`], [`${root}.rig`, `${root}.rig.rightArm`], [`${root}.rig.rightArm`, bone]]) {
+			const childSelector = JSON.stringify(`[data-node-id="${child}"]`), toggle = JSON.stringify(`[data-node-id="${parent}"] .hierarchy-toggle`);
+			await transition(`!!document.querySelector(${childSelector})`, `(()=>{if(!document.querySelector(${childSelector}))document.querySelector(${toggle})?.click();})()`);
+		}
+		await transition(`document.querySelector('[data-node-id="${bone}"]')?.classList.contains('selected')`, `document.querySelector('[data-node-id="${bone}"] .hierarchy-row').click()`);
+		assert.equal(await evaluate("window.__cozyclay.activeChar.id"), id);
+		for (const [target, expectedBone] of [[bone, "rightHand"], [root, null]]) {
+			await transition(`(()=>{const a=window.__cozyclay.objects.find(o=>o.id===${JSON.stringify(prop)})?.attach;return a?.characterId===${JSON.stringify(id)}&&a.bone===${JSON.stringify(expectedBone)};})()`, `(()=>{
+				const source=document.querySelector('[data-node-id="object:${prop}"]'),target=document.querySelector(${JSON.stringify(`[data-node-id="${target}"]`)}),dataTransfer=new DataTransfer();
+				for(const [node,type]of [[source,'dragstart'],[target,'dragenter'],[target,'dragover'],[target,'drop'],[source,'dragend']])node.dispatchEvent(new DragEvent(type,{bubbles:true,cancelable:true,dataTransfer}));
+			})()`);
+			record("identity-bone-drop", { id, target, bone: expectedBone });
+		}
+	}
+	record("identity-punctuated-rows", { ids: punctuated, rows: punctuated.map(characterRowId) });
+	await capture("identity-punctuated-bones");
 }
