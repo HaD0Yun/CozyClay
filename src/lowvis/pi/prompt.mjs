@@ -16,8 +16,13 @@ export function specFormat() {
 const m = v => v.toFixed(2);
 const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.abs(REST[INDEX.LeftHand][0] - REST[INDEX.LeftArm][0]), head = TIPS.Head[1];
 
-// The two parts that differ between the variants. "lean" tells only the numbers that are a difference between what
-// was asked and what came out (shot.mjs filters the rows the same way), and stops when the action reads.
+// The parts that differ between the variants. "lean" tells only the numbers that are a difference between what was
+// asked and what came out (shot.mjs filters the rows the same way), and stops when the action reads. "patch" is lean
+// plus the edit argument of shot: single actions are changed without sending the whole spec again.
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true } };
+/** What a variant turns on: { text: "base" | "lean", edit?: true }. Throws on an unknown name. */
+export function features(variant = "base") { if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`); return FEATURES[variant]; }
+const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
 const NUMBERS = {
 	base: `Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse. Numbers and pictures are information, not a gate.
 - foot slide: how far a planted foot drifts; near 0 is right.
@@ -36,7 +41,7 @@ const WORK = {
 	lean: `2. Send the scene and the spec. Read the numbers and the pictures. Fix what came out different from what you asked or does not read, and change only that.
 3. Stop when the action reads. A difference that two fixes have not removed is the engine's: leave it and name it in the Missing line.`,
 };
-export const VARIANTS = Object.keys(WORK);
+export const VARIANTS = Object.keys(FEATURES);
 
 /** The system prompt of a variant: "base" or "lean". */
 export const systemPrompt = (variant = "base") => `You block previs motion for a box figure with 17 joints. One tool, shot, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
@@ -56,14 +61,14 @@ ${specFormat()}
 ease names: ${Object.keys(EASE).join(", ")}.
 
 THE TOOL
-shot({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec. Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone. Only the images of your latest shot stay visible to you; the text of every shot stays.
+shot({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${features(variant).edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone. Only the images of your latest shot stay visible to you; the text of every shot stays.
 
 THE NUMBERS
-${NUMBERS[variant]}
+${NUMBERS[features(variant).text]}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.
-${WORK[variant]}
+${WORK[features(variant).text]}
 4. Then report in 2 or 3 sentences in the user's language, and end with one line:
 Missing: <what the engine could not express, or none>`;
 

@@ -11,6 +11,7 @@ import { JOINT_COUNT, INDEX as J, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip } from "../engine-simple/engine.js";
 import { badness, checkValue, isSpike, measure } from "./measure.mjs";
+import { features } from "./prompt.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -68,6 +69,28 @@ function withMovers(scene, spec) {
 	}
 	const set = (scene.props ?? []).filter(p => moved.has(p.id) && !p.moves).map(p => p.id);
 	return { def: { ...scene, props: (scene.props ?? []).map(p => set.includes(p.id) ? { ...p, moves: true } : p) }, set };
+}
+
+/** The spec with an edit applied: { <id>: [[frame, verb, options | null], ...] }. An entry replaces the first action of
+ *  that id with the same frame and verb, is added when there is none, and removes it when its options are null.
+ *  Returns { spec, said } (said: one line for the model) or { error }. */
+function applyEdit(spec, edit) {
+	if (!isObject(spec)) return { error: "edit: there is no spec yet. Send spec first" };
+	if (!isObject(edit)) return { error: `edit: want { <id>: [[frame, verb, options], ...] }, got ${JSON.stringify(edit)}` };
+	const out = structuredClone(spec), did = { replaced: 0, added: 0, removed: 0 }, missed = [];
+	for (const [id, entries] of Object.entries(edit)) {
+		if (!Array.isArray(entries)) return { error: `edit.${id}: want a list of [frame, verb, options]` };
+		const list = Array.isArray(out[id]) ? out[id] : (out[id] = []);
+		for (const e of entries) {
+			if (!Array.isArray(e) || !Number.isInteger(e[0]) || typeof e[1] !== "string") return { error: `edit.${id}: want [frame, verb, options], got ${JSON.stringify(e)}` };
+			const k = list.findIndex(a => Array.isArray(a) && a[0] === e[0] && a[1] === e[1]);
+			if (e[2] === null) { if (k < 0) missed.push(`${id} [${e[0]}, "${e[1]}"]`); else { list.splice(k, 1); did.removed++; } }
+			else if (k < 0) { list.push(e); did.added++; }
+			else { list[k] = e; did.replaced++; }
+		}
+	}
+	const count = Object.values(out).reduce((n, acts) => n + (Array.isArray(acts) ? acts.length : 0), 0);
+	return { spec: out, did, said: `edit: ${did.replaced} replaced, ${did.added} added, ${did.removed} removed; the spec now has ${count} actions${missed.length ? `; nothing to remove at ${missed.join(", ")}` : ""}` };
 }
 
 /** Builds and validates. Returns { clip, aux, parsed, valid, buildMs } or { error, where }. */
@@ -143,17 +166,22 @@ function spikes(rows, F) {
 	return picked;
 }
 
-/** variant "lean": the model is told only the ASKED rows; every row is still measured and kept for the run record. */
+/** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
+ *  variant with edit takes shot({ edit }). */
 export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base" }) {
-	const state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, notesSaid: false, moversSaid: "", last: null };
+	const feature = features(variant), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, notesSaid: false, moversSaid: "", last: null };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
-		const n = ++state.calls, t0 = performance.now(), sent = { scene: fromText(args.scene), spec: fromText(args.spec), look: fromText(args.look) };
+		const n = ++state.calls, t0 = performance.now(), sent = { scene: fromText(args.scene), spec: fromText(args.spec), look: fromText(args.look), edit: feature.edit ? fromText(args.edit) : undefined };
 		if (sent.scene !== undefined && sent.scene !== null) state.scene = sent.scene;
 		if (sent.spec !== undefined && sent.spec !== null) state.spec = sent.spec;
-		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0 };
-		const reject = (error, lines) => ({ ...base, status: "rejected", error, text: [`shot ${n}: rejected, nothing compiled`, ...lines, state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 });
+		// an edit is applied to the kept spec; when the call is rejected the spec goes back to what it was before the edit
+		const before = state.spec, edited = sent.edit !== undefined && sent.edit !== null ? applyEdit(state.spec, sent.edit) : null;
+		if (edited?.spec) state.spec = edited.spec;
+		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did };
+		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`shot ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
+		if (edited?.error) return reject(edited.error, [edited.error]);
 		const bad = problems(state.scene, state.spec);
 		if (bad.length) return reject(bad[0], bad.slice(0, 8));
 		const look = isObject(sent.look) ? sent.look : null;
@@ -187,7 +215,7 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${focus.join(" and ")}` : "the whole scene in frame"}` });
 			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
 		}
-		const told = variant === "lean" ? rows.filter(r => ASKED.test(r.key)) : rows;
+		const told = feature.text === "lean" ? rows.filter(r => ASKED.test(r.key)) : rows;
 		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));
@@ -201,6 +229,7 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length;
 		const text = [
 			`shot ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
+			edited?.said ?? "",
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			!told.length ? "" : same ? "checks: every number is the same as in the previous compile" : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),

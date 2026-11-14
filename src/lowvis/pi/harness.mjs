@@ -14,7 +14,7 @@ import { clampThinkingLevel, createModels } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { cliproxyBase, cliproxyLiveModel, cliproxyProvider, fetchModelList } from "../../../bin/agent/cliproxy-provider.mjs";
 import { auditCalls } from "./audit.mjs";
-import { VARIANTS, systemPrompt } from "./prompt.mjs";
+import { VARIANTS, features, systemPrompt } from "./prompt.mjs";
 import { createShot } from "./shot.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -35,6 +35,9 @@ const SHOT_PARAMETERS = Type.Object({
 	}, { description: "Other frames (at most 12), another view (three, side, front, top) or a close framing on one id, in place of the default sheet." })),
 });
 const SHOT_DESCRIPTION = "Compiles the scene and the motion spec, checks the clip and returns the check numbers and contact sheets. Keeps the last scene and spec, so send only what changed.";
+const EDIT_PARAMETER = Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "Changes to the kept spec, in place of spec: { <id>: [[frame, verb, options], ...] }. An entry replaces the action of that id with the same frame and verb, or adds it when there is none; [frame, verb, null] removes it." }));
+/** The tool parameters of a variant: the edit argument only where the variant has it. */
+const shotParameters = variant => features(variant).edit ? Type.Object({ ...SHOT_PARAMETERS.properties, edit: EDIT_PARAMETER }) : SHOT_PARAMETERS;
 
 /** The pi model for `id` on the CLIProxyAPI the environment names. Throws when the proxy does not list the id. */
 async function resolveModel(id, env) {
@@ -80,8 +83,8 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
-	const SYSTEM_PROMPT = systemPrompt(variant);
-	const record = { name, request, variant, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: SHOT_DESCRIPTION.length + JSON.stringify(SHOT_PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
+	const SYSTEM_PROMPT = systemPrompt(variant), PARAMETERS = shotParameters(variant);
+	const record = { name, request, variant, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: SHOT_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
 
@@ -102,18 +105,18 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };
 
 	const tool = {
-		name: "shot", label: "shot", description: SHOT_DESCRIPTION, parameters: SHOT_PARAMETERS,
+		name: "shot", label: "shot", description: SHOT_DESCRIPTION, parameters: PARAMETERS,
 		prepareArguments: args => { // a nested value sent as JSON text is read as JSON
 			if (!args || typeof args !== "object") return args;
 			const out = { ...args };
-			for (const k of ["scene", "spec", "look"]) if (typeof out[k] === "string") { try { out[k] = JSON.parse(out[k]); } catch { /* the schema check names it */ } }
+			for (const k of ["scene", "spec", "look", "edit"]) if (typeof out[k] === "string") { try { out[k] = JSON.parse(out[k]); } catch { /* the schema check names it */ } }
 			return out;
 		},
 		execute: async (toolCallId, params) => {
 			const started = now();
 			let r;
 			try { r = shot.call(params ?? {}); } catch (error) { r = { n: shot.state.calls, status: "rejected", error: `harness error: ${error?.message ?? error}`, text: `harness error (not yours): ${error?.message ?? error}`, images: [], files: [], scene: shot.state.scene, spec: shot.state.spec, shown: null, harnessError: true }; }
-			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, text: scrub(r.text) };
+			const entry = { n: r.n, toolCallId, status: r.status, error: r.error ? scrub(r.error) : undefined, atMs: round(started), ms: round(now() - started), buildMs: r.buildMs, renderMs: r.renderMs, images: r.images.length, files: r.files, sent: Object.keys(params ?? {}), edit: r.edit, lookAsked: params?.look != null, scene: r.scene, spec: r.spec, shown: r.shown, harnessError: r.harnessError, text: scrub(r.text) };
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
 			log(`  shot ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}`);
