@@ -195,7 +195,7 @@ function installBrowserFixture(sceneDocument, deadline, scenesKey) {
 		live.rigA.traverse((node) => { if (node.isBone) bones.push({ name: node.name, position: node.position.toArray(), quaternion: node.quaternion.toArray(), scale: node.scale.toArray() }); });
 		return {
 			frame: live.tlFrame, playing: live.playing, meta: live.captureMeta(), camera: qa.camera(),
-			character: live.charA, scale: live.characterScale, bones,
+			character: live.characters[0], scale: live.characterScale, bones,
 			selected: [...document.querySelectorAll('[aria-selected="true"][data-node-id]')].map((node) => node.dataset.nodeId),
 			history: window.__sceneHistory(),
 		};
@@ -455,6 +455,7 @@ async function captureStatus(phase, kind, label = phase) {
 				return { id, text: element.innerText, disabled: !!element.disabled, fontSize: parseFloat(style.fontSize), rect: { x:rect.x, y:rect.y, right:rect.right, bottom:rect.bottom, width:rect.width, height:rect.height }, overflow: element.scrollWidth > element.clientWidth + 1 };
 			}));
 		})()`);
+		console.log("QA_RECOVERY_CONTROLS", JSON.stringify({ device, phase, kind, controls }));
 		assert.ok(controls.some((control) => control.id === "export-status"));
 		if (["preparing", "encoding", "finalizing"].includes(phase)) assert.ok(controls.some((control) => control.id === "export-cancel" && !control.disabled), "cancellable video exposes its enabled cancel control");
 		if (phase === "failed" && label !== "unsupported-codec") assert.ok(controls.some((control) => control.id === "export-retry" && !control.disabled), "recoverable failure exposes enabled retry");
@@ -509,7 +510,7 @@ try {
 	await wait("!!window.__cozyclay?.rigA && !!window.__cozyclay?.shotCam && typeof window.__cozyclay.captureMeta === 'function' && window.__qaRecovery.events.some(({event}) => event === '$pageview')", "Studio WebGL rig and real analytics sanitizer ready");
 	assert.equal(await evaluate("typeof VideoEncoder"), "function", "real Chrome WebCodecs is required");
 	assert.equal(await evaluate("window.__cozyclay.motion"), null, "authored static-cut fixture has no auto-seeded demo motion");
-	await changeAndWait("document.querySelector('[data-node-id=characterA]')?.getAttribute('aria-selected') === 'true'", () => click("[data-node-id='characterA'] .hierarchy-row"), "ordinary editor selection");
+	await changeAndWait("document.querySelector('[data-node-id=\"character:char-a\"]')?.getAttribute('aria-selected') === 'true'", () => click('[data-node-id="character:char-a"] .hierarchy-row'), "ordinary editor selection");
 	await scrub(4);
 	pass("Studio, real WebGL/WebCodecs and sanitized analytics ready");
 

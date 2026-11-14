@@ -48,32 +48,32 @@ const cast = [
 	createCharacterEntry({ id: "walker", x: 3, z: 3 }, 1),
 ];
 const tree = buildHierarchyNodes(objects, cast);
-ok("a grouped character reads under its object's row", parentOf(tree, "characterA")?.id === "object:cube", JSON.stringify(parentOf(tree, "characterA")?.id));
+ok("a grouped character reads under its object's row", parentOf(tree, "character:driver")?.id === "object:cube", JSON.stringify(parentOf(tree, "character:driver")?.id));
 ok("after the object's own parts", (() => {
 	const children = find(tree, "object:cube").children.map((node) => node.id);
-	return children.indexOf("object:cube-2") < children.indexOf("characterA");
+	return children.indexOf("object:cube-2") < children.indexOf("character:driver");
 })());
 ok("the grouped row says so, keeps its rig and its row id", (() => {
-	const row = find(tree, "characterA");
-	return row.grouped === true && row.kind === "character" && row.children?.[0]?.id === "characterA.rig";
+	const row = find(tree, "character:driver");
+	return row.grouped === true && row.kind === "character" && row.children?.[0]?.id === "character:driver.rig";
 })());
-ok("an ungrouped character stays in the cast", parentOf(tree, "characterB")?.id === "characters" && find(tree, "characterB").grouped === undefined);
+ok("an ungrouped character stays in the cast", parentOf(tree, "character:walker")?.id === "characters" && find(tree, "character:walker").grouped === undefined);
 ok("a character under a part reads under that part", (() => {
 	const nested = buildHierarchyNodes(objects, [createCharacterEntry({ id: "driver", parent: "cube-2" }, 0)]);
-	return parentOf(nested, "characterA")?.id === "object:cube-2";
+	return parentOf(nested, "character:driver")?.id === "object:cube-2";
 })());
 ok("a missing parent leaves the character in the cast", (() => {
 	const orphan = buildHierarchyNodes(objects, [createCharacterEntry({ id: "driver", parent: "gone" }, 0)]);
-	return parentOf(orphan, "characterA")?.id === "characters";
+	return parentOf(orphan, "character:driver")?.id === "characters";
 })());
 ok("a parent a character carries leaves the character in the cast", (() => {
 	const carried = [record({ id: "tray", attach: { characterId: "walker", bone: null } })];
 	const rows = buildHierarchyNodes(carried, [createCharacterEntry({ id: "driver", parent: "tray" }, 0), createCharacterEntry({ id: "walker" }, 1)]);
-	return parentOf(rows, "characterA")?.id === "characters";
+	return parentOf(rows, "character:driver")?.id === "characters";
 })());
 ok("nothing grouped: the tree is the same as before", (() => {
 	const plain = buildHierarchyNodes(objects, [createCharacterEntry({ id: "a" }, 0)]);
-	return parentOf(plain, "characterA")?.id === "characters" && find(plain, "object:cube").children.length === 1;
+	return parentOf(plain, "character:a")?.id === "characters" && find(plain, "object:cube").children.length === 1;
 })());
 
 /* --- the carry ------------------------------------------------------------- */

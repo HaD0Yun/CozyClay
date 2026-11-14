@@ -407,7 +407,7 @@ export function readProjectDocument(raw) {
 			name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "Untitled",
 			previsMode: normalizePrevisMode(parsed.previsMode), castStyle: normalizeCastStyle(parsed.castStyle),
 			savedAt: Number.isFinite(parsed.savedAt) && parsed.savedAt > 0 ? parsed.savedAt : null,
-			scenesDocument: { version: scenes.version, activeSceneId: scenes.activeSceneId ?? null, scenes: scenes.scenes },
+			scenesDocument: { version: scenes.version, activeSceneId: scenes.activeSceneId ?? null, scenes: scenes.scenes, ...(scenes.version < 3 && plainRecord(scenes.stage) ? { stage: scenes.stage } : {}) },
 			workspaceLayout: parsed.workspace && typeof parsed.workspace === "object" ? parsed.workspace : null,
 			customPoses: Array.isArray(parsed.poseLibrary)
 				? parsed.poseLibrary.filter((p) => p && typeof p === "object" && typeof p.id === "string" && p.bones && typeof p.bones === "object")
