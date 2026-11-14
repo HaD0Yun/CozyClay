@@ -281,4 +281,4 @@ console.log(`TIMINGS ${JSON.stringify(report)}`);
 await writeFile(join(out, `${tag}poser-qa.json`), JSON.stringify({ view, ...report }, null, 1));
 ws.close();
 console.log(failures ? `${failures} FAILED` : "ALL PASSED");
-process.exit(failures ? 1 : 0);
+if (failures) process.exitCode = 1;

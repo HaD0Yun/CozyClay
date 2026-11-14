@@ -156,4 +156,3 @@ if (failures) {
 	process.exit(1);
 }
 console.log("PASS clipboard paste: composer attaches, stage cutouts");
-process.exit(0);

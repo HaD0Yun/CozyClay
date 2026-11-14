@@ -159,4 +159,4 @@ await writeFile(`${out}/checklist.md`, md.join("\n") + "\n");
 const shots = rows.reduce((n, r) => n + r.shots.length, 0), gaps = rows.filter(r => !r.pass);
 console.log(`${shots} screenshots, ${rows.length} rows, ${gaps.length} gap(s): ${out}/checklist.md`);
 ws.close();
-process.exit(shots >= 16 ? 0 : 1);
+if (shots < 16) process.exitCode = 1;

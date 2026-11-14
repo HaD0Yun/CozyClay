@@ -122,4 +122,4 @@ expect("the exporter sends clean renders without the frame stamp", !appSource.in
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-shot-guides-browser: all checks passed");
-process.exit(0);
+ws.close();

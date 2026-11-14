@@ -164,4 +164,3 @@ console.log("PASS the button returns to Send to AI when the export finishes");
 await writeFile(`${out}/after.png`, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
 console.log(`PASS qa-send-to-ai-browser: ${out}/after.png`);
 ws.close();
-process.exit(0);

@@ -334,4 +334,4 @@ expect("the browser console has no error entries", consoleErrors.length === 0, c
 
 console.log(failures === 0 ? "\nqa-shell-details-browser: all checks passed" : `\n${failures} FAILURE(S)`);
 ws.close();
-process.exit(failures === 0 ? 0 : 1);
+if (failures) process.exitCode = 1;

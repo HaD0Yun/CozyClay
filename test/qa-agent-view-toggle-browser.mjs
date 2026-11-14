@@ -152,4 +152,4 @@ expect("the top bar is still free of an agent button", await evaluate("document.
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-agent-view-toggle-browser: all checks passed");
-process.exit(0);
+ws.close();

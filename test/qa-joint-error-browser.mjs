@@ -9,4 +9,4 @@ for (const f of frames){ out[f]=await ev(`(()=>{const {rigA,motion,scrub}=window
  const pj=motion.posedJoints;const ff=${f};const af=Math.min(motion.anchorFrame||0,motion.frames-1);const ax=pj[(af*27)*3],az=pj[(af*27)*3+2];const o={};
  for(let j=0;j<27;j++){const n=names[j];if(!map[n])continue;const r=R(map[n]);if(!r)continue;const p=[pj[(ff*27+j)*3]-ax,pj[(ff*27+j)*3+1],pj[(ff*27+j)*3+2]-az];o[n]=+(Math.hypot(r[0]-p[0],r[1]-p[1],r[2]-p[2])*100).toFixed(1);}
  res(o);},600));})()`); }
-console.log(JSON.stringify(out)); ws.close(); process.exit(0);
+console.log(JSON.stringify(out)); ws.close();

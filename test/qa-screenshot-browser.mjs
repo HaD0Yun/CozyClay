@@ -13,4 +13,4 @@ for (const f of frames){
   const info=await ev(`(()=>{const c=window.__cozyclay; c.scrub(${f}); return new Promise(res=>{ let n=0; const tick=()=>{ const rig=c.rigA; rig.updateMatrixWorld(true); let hips=null; rig.traverse(o=>{if(!hips&&o.isBone&&/Hips$/.test(o.name))hips=o;}); const V=hips.position.constructor; const h=hips.getWorldPosition(new V()); const yaw = "${view}"==="front" ? 0 : "${view}"==="side" ? Math.PI/2 : "${view}"==="user" ? -Math.PI*0.75 : Math.PI*0.7; const dist = ("${view}"==="close"||"${view}"==="user") ? 1.9 : 3.0; const off=new V(Math.sin(yaw)*dist,0.35,Math.cos(yaw)*dist); const p=h.clone().add(off); c.frameEditorCam({x:p.x,y:p.y,z:p.z},{x:h.x,y:h.y*0.9,z:h.z}); n+=1; if(n<6) requestAnimationFrame(tick); else res({h:[h.x,h.y,h.z],cam:[p.x,p.y,p.z]}); }; requestAnimationFrame(tick); });})()`);
   await new Promise(r=>setTimeout(r,150));
   const shot=await send("Page.captureScreenshot",{format:"png"}); fs.writeFileSync(`${process.env.OUT}-${view}-f${f}.png`,Buffer.from(shot.data,"base64")); console.log("f"+f, JSON.stringify(info)); }
-console.log("saved"); ws.close(); process.exit(0);
+console.log("saved"); ws.close();
