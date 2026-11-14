@@ -643,6 +643,11 @@ try {
 		assert.deepEqual(proof.configs, baseline.configs, "retry encoder uses original resolution, fps, bitrate and codec, not edited settings");
 		assert.deepEqual(proof.frames, baseline.frames, "retry pixels and per-frame camera exactly match original shot despite changed shot/aspect/cast");
 	});
+	await wait(`(() => {
+		const pane = document.querySelector('.vp-pane.vp-main')?.getBoundingClientRect();
+		return !!pane && pane.height > 0
+			&& Math.abs(window.__cozyclay.shotCam.aspect - pane.width / pane.height) < 0.01;
+	})()`, "retry editor camera projection settled");
 	const afterRetry = await evaluate("window.__qaRecovery.editing()");
 	await writeFile(`${out}/retry-editing-state.json`, JSON.stringify({ beforeRetry, afterRetry }, null, 2));
 	assert.deepEqual(afterRetry, beforeRetry, "retry preserves new editing state, camera, bones, selection, playhead and history");
