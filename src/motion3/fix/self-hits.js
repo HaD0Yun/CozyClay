@@ -54,18 +54,22 @@ const activeAt = (k, f, c) => (Array.isArray(k.when) ? f >= k.when[0] && f <= k.
  * `clasp`: claspAt) }. */
 export function handHold(spec, { c, diag }, f, k, clasp = false) {
 	const fit = fitWeight(spec, c, k);
-	let anchored = 0, body = fit >= ON;
+	let anchored = 0, anchors = 0, body = fit >= ON;
 	for (const [ch, w] of Object.entries(c)) {
 		const m = /^w_(.+)_([lr])$/.exec(ch);
 		if (!m || m[2] !== k || !(w > 0)) continue;
 		anchored += w;
+		anchors++;
 		if (w >= ON && ON_BODY.has(spec.anchors?.[m[1]]?.kind)) body = true;
 	}
 	const hand = new RegExp(`(${SIDES[k]}Hand|hand_${k}\\b)`), props = Object.entries(spec.props ?? {}).filter(([, p]) => p.hand === k).map(([n]) => n);
 	const named = x => typeof x === "string" && (hand.test(x) || props.some(p => x.includes(`prop:${p}`) || x.startsWith(`${p}.`)));
 	const contact = (spec.checks?.contacts ?? []).some(e => activeAt(e, f, c) && (named(e.point) || named(e.target))) ? 1 : 0;
-	const held = Math.min(1, Math.max(fit, anchored, diag[`hold_${k}`]?.w ?? 0, contact, clasp ? 1 : 0));
-	const hold = body ? "body" : turnWeight(c[`armw_${k}`] ?? 0) < IK_MIN ? "fk" : held >= ON ? "pinned" : null;
+	// A blend travels between contacts, not on either one. Its route can clear the whole hand;
+	// full fits, single-anchor fades and explicit contacts still keep their own place.
+	const travel = anchors > 1 && fit < 1, fixed = Math.max(diag[`hold_${k}`]?.w ?? 0, contact, clasp ? 1 : 0);
+	const held = Math.min(1, Math.max(fit, travel ? 0 : anchored, fixed));
+	const hold = body && !travel ? "body" : turnWeight(c[`armw_${k}`] ?? 0) < IK_MIN ? "fk" : fixed >= ON || (!travel && held >= ON) ? "pinned" : null;
 	return { hold, held };
 }
 
