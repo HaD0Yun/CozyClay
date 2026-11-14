@@ -5,7 +5,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'vite';
+import { createSceneDocument, SCENES_STORAGE_KEY, serializeSceneDocument } from '../../src/scenes.js';
+import { characterRowId } from '../../src/hierarchy-model.js';
 
+const fixture = createSceneDocument({ seedCharacter: true });
+const rowId = characterRowId(fixture.scenes[0].stage.characters[0].id);
 process.env.COZYCLAY_LIVE_PORT = '5742';
 const server = await createServer({ server: { host: '127.0.0.1', port: 5222, strictPort: true, hmr: false } });
 const profile = mkdtempSync(join(tmpdir(), 'cast-browser-'));
@@ -40,6 +44,7 @@ try {
   await server.listen();
   chrome = spawn(process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
     '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1600,1100', 'about:blank',
+    ...String(process.env.QA_CHROME_FLAGS || '').trim().split(/\s+/).filter(Boolean),
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   const endpoint = await bounded(new Promise((resolve, reject) => {
     let output = '';
@@ -58,14 +63,18 @@ try {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' }, true);
   ({ sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }, true));
   await send('Runtime.enable'); await send('Page.enable');
-  await send('Page.addScriptToEvaluateOnNewDocument', { source: `localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({name:'Cast QA',updatedAt:Date.now()}));` });
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    localStorage.setItem('cozyclay.locale', 'en');
+    localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({name:'Cast QA',updatedAt:Date.now()}));
+    localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, ${JSON.stringify(serializeSceneDocument(fixture))});
+  ` });
   const loaded = bounded(new Promise(resolve => {
     const listener = event => { const message = JSON.parse(event.data); if (message.method === 'Page.loadEventFired' && message.sessionId === sessionId) { ws.removeEventListener('message', listener); resolve(); } };
     ws.addEventListener('message', listener);
   }), 'Page load');
   await send('Page.navigate', { url: 'http://127.0.0.1:5222/app/' }); await loaded;
-  await transition(`document.querySelector('[data-node-id="characterA"] .hierarchy-row')`);
-  await transition(`document.querySelector('.subjects-row') && !document.querySelector('.subjects-row').closest('[hidden]')`, `document.querySelector('[data-node-id="characterA"] .hierarchy-row').click()`);
+  await transition(`document.querySelector('[data-node-id="${rowId}"] .hierarchy-row')`);
+  await transition(`document.querySelector('.subjects-row') && !document.querySelector('.subjects-row').closest('[hidden]')`, `document.querySelector('[data-node-id="${rowId}"] .hierarchy-row').click()`);
   const initial = await evaluate(`document.querySelectorAll('.subject-box').length`);
   await transition(`document.querySelectorAll('.subject-box').length === ${initial + 1}`, `document.querySelector('.add-subject').click()`);
   console.log('PASS browser cast UI: add subject publishes the owned cast');

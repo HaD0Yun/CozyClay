@@ -243,4 +243,4 @@ for (const theme of ["light", "dark"]) {
 }
 
 console.log("speed graph browser QA: pins are handle-sized HTML, the fill is a tint, the clock is the ruler's, in both themes");
-process.exit(0);
+ws.close();

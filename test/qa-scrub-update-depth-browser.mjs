@@ -97,4 +97,3 @@ assert.deepEqual(run.errors.filter((message) => depth.test(message)), [], "no #1
 assert.ok(run.panel, "the Pin panel is still open after the scrub");
 console.log(`PASS ${STEPS} starved scrub steps with the Pose mode Pin tool open: no React #185`);
 ws.close();
-process.exit(0);

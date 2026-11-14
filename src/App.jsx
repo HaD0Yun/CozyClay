@@ -1087,7 +1087,9 @@ export default function App() {
 	const activeCapabilities = characterCapabilities(activeChar);
 	const poseRefusal = !activeCapabilities.pose ? capabilityRefusal(activeChar, "pose", isKo, isZh) : ikChains ? null : ko("Load a character to pose it — Pose mode edits its rig with IK", "인물을 불러와야 포즈를 잡을 수 있어요 — 포즈 모드는 IK로 리그를 편집합니다", "加载角色后才能摆姿势 — 姿势模式用 IK 编辑其骨骼");
 	// #1048: one rigged character is selected and posed; otherwise Pose points at what to do next.
-	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: setActiveCharacterId, enter: () => selectWorkflowMode("pose") });
+	// Keep the Outliner in step so its selection effect cannot restore the
+	// capsule while the fallback waits for the selected rig's IK chains.
+	const poseEntry = usePoseEntry({ characters, activeChar, refusal: poseRefusal, select: (id) => { if (id !== activeChar.id) setSelectedHierarchyId(characterRowId(id)); setActiveCharacterId(id); }, enter: () => selectWorkflowMode("pose") });
 	// False when the mode refuses (its reason shows as a toast): the 1-5 keys report that as shortcut:ignored.
 	// `hinted`: a pointer click on the disabled tab already showed the reason (friction-hint.js).
 	function selectWorkflowMode(next, { hinted = false } = {}) {

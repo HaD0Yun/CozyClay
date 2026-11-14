@@ -95,4 +95,4 @@ expect(
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-multichar-rig-browser: all checks passed");
-process.exit(0);
+ws.close();

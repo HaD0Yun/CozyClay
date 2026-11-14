@@ -46,10 +46,10 @@ export async function connectStudio(port) {
 		ws.close();
 		if (failures) {
 			console.log(`${name}: ${failures} failure(s)`);
-			process.exit(1);
+			process.exitCode = 1;
+			return;
 		}
 		console.log(`${name}: all checks passed`);
-		process.exit(0);
 	};
 	return { send, evaluate, act, sleep, waitFor, expect, finish };
 }

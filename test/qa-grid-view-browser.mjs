@@ -98,4 +98,4 @@ expect("OFF is stored", await evaluate(`localStorage.getItem("cozyclay.grid-view
 
 if (failures > 0) { console.error(`${failures} FAILURES`); process.exit(1); }
 console.log("qa-grid-view-browser: all checks passed");
-process.exit(0);
+ws.close();
