@@ -13,6 +13,7 @@ export default function CameraPanel({ isCameraSelection, shot, moveSequence, cam
 	const optics = activeShot?.optics ?? { shiftX: 0, shiftY: 0, focusTargetId: null };
 	const setOptics = patch => activeShot && runStudioAction("shot.setOptics", { shotId: activeShot.id, optics: { ...optics, ...patch } });
 	const focusId = optics.focusTargetId;
+	const rail = activeShot?.camera?.mode === "rail";
 	const focusCharacter = characters.find(entry => entry.id === focusId);
 	const focusObject = sceneObjects.find(entry => entry.id === focusId);
 	const cameraPosition = shotsDomain.state().camera?.position;
@@ -54,10 +55,19 @@ export default function CameraPanel({ isCameraSelection, shot, moveSequence, cam
 						    its delivery aspects. */}
 						<h3 className="move-head v2-details-subsection-title">{ko("Camera performance", "퍼포먼스")}</h3>
 						<button type="button" className="btn full" data-testid="camera-performance-record" disabled={!activeShot}
+							aria-pressed={cameraPerformanceRecording}
 							onClick={cameraPerformanceRecording ? stopCameraPerformance : startCameraPerformance}>
-							{cameraPerformanceRecording ? ko("Stop + save keys", "정지 + 키 저장") : ko("Record walk camera", "Walk 녹화")}
+							{rail
+								? cameraPerformanceRecording ? ko("Discard recording", "녹화 취소", "放弃录制") : activeShot.camera.aimTake ? ko("Record aim again", "시선 다시 녹화", "重新录制朝向") : ko("Record aim", "시선 녹화", "录制朝向")
+								: cameraPerformanceRecording ? ko("Stop + save keys", "정지 + 키 저장") : ko("Record walk camera", "Walk 녹화")}
 						</button>
-						<p className="inspector-hint">{ko("Enters Look through. Right-drag and WASD record the shot; Stop writes one undo step.", "샷 시점으로 전환됩니다. 오른쪽 드래그·WASD로 촬영하고 정지하면 한 번의 실행 취소로 저장됩니다.")}</p>
+						{rail && activeShot.camera.aimTake && <button type="button" className="btn full" data-testid="camera-take-discard" disabled={cameraPerformanceRecording}
+							onClick={() => runStudioAction("shot.setCamera", { shotId: activeShot.id, patch: { aimTake: null } })}>
+							{ko("Discard take", "촬영본 삭제", "放弃此条")}
+						</button>}
+						<p className="inspector-hint">{rail
+							? ko("Move the mouse to aim while the rail plays. Ends at the rail end; Esc discards this recording. Lens and roll stay unchanged.", "레일 재생 중 마우스로 시선을 조작합니다. 레일 끝에서 저장되며 Esc는 녹화를 취소합니다. 렌즈와 롤은 유지됩니다.", "轨道播放时移动鼠标控制朝向。到达轨道末端时保存；Esc 放弃本次录制。镜头和横滚保持不变。")
+							: ko("Enters Look through. Right-drag and WASD record the shot; Stop writes one undo step.", "샷 시점으로 전환됩니다. 오른쪽 드래그·WASD로 촬영하고 정지하면 한 번의 실행 취소로 저장됩니다.")}</p>
 
 						<h3 className="move-head v2-details-subsection-title">{ko("Optics", "광학")}</h3>
 						<div className="v2-details-grid-2">

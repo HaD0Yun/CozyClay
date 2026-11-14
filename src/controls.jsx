@@ -323,14 +323,14 @@ export function FlyControls({ enabled, cameraLocked = false, camRef, look, getPi
 		// Alt-tabbing away mid-fly must not leave keys stuck down.
 		window.addEventListener("blur", endGesture);
 		return () => {
+			const ownedLock = gesture.current || lockPending; keys.current.clear();
 			if (invalidateRaf.current) {
 				cancelAnimationFrame(invalidateRaf.current);
 				invalidateRaf.current = 0;
 			}
-			keys.current.clear();
 			gesture.current = null;
-			if (typeof window !== "undefined") window.__cozyclayCameraGesture = false;
-			releaseNavLock();
+			if (typeof window !== "undefined" && ownedLock) window.__cozyclayCameraGesture = false;
+			if (ownedLock) releaseNavLock();
 			element.style.cursor = "";
 			flyStateRef.current?.(false);
 			window.removeEventListener("keydown", onKeyDown);

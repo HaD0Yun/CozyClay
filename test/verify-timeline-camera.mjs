@@ -67,9 +67,9 @@ expect(
 	app.includes('if (event.key === "Escape") exitPreview();'),
 );
 expect(
-	"look-through keeps fly controls on the shot camera outside preview",
+	"look-through keeps fly controls on the shot camera outside preview and aim recording",
 	app.includes("camRef={ikMode ? poserCamRef : lookThroughShot ? shotCamRef : editorCamRef}") &&
-	app.includes("enabled={!posing && !playMode && !sculptMode}") &&
+	app.includes("enabled={!posing && !playMode && !sculptMode && !railRecording.active}") &&
 	app.includes("onCameraChange={lookThroughShot && !ikMode ? commitManualCameraFraming : undefined}"),
 );
 expect("preview always rides the camera move", app.includes("preview || (moveFollow && !ikMode && !waypointMode && !posing)"));

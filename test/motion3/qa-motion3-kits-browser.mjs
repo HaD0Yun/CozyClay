@@ -42,8 +42,11 @@ await evaluate(`localStorage.setItem("cozyclay.theme.v1", "light"); location.rel
 await new Promise((r) => setTimeout(r, 1500));
 await waitFor("the studio QA hook", "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclay.captureFraming && window.__cozyclay.rigA)");
 
-const act = (id, args) => evaluate(`(async () => { const r = await window.__cozyclay.runStudioAction(${JSON.stringify(id)}, ${JSON.stringify(args)});
-	return r && { affectedIds: r.affectedIds, output: r.output ?? r.receipt?.output, summary: r.summary }; })()`);
+const act = (id, args) => evaluate(`(async () => { try {
+	const r = await window.__cozyclay.runStudioAction(${JSON.stringify(id)}, ${JSON.stringify(args)});
+	if (r?.ok !== true) throw Object.assign(new Error(r?.message ?? "Action returned no receipt."), { code: r?.code ?? "ACTION_REFUSED" });
+	return r && { affectedIds: r.affectedIds, output: r.output ?? r.receipt?.output, summary: r.summary };
+} catch (error) { throw new Error((error.code ?? "STUDIO_ACTION_FAILED") + ": " + (error.message ?? String(error))); } })()`);
 const clear = async () => { const ids = await evaluate("window.__cozyclay.objects.map((o) => o.id)"); if (ids.length) assert.ok(await act("object.remove", { ids }), "clear the set"); };
 const aim = (pos, at, fovDeg) => {
 	const d = [at[0] - pos[0], at[1] - pos[1], at[2] - pos[2]];

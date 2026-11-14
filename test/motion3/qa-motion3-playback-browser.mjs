@@ -26,7 +26,14 @@ ws.onmessage = event => {
 const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++nextId; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); });
 const evaluate = async expression => {
 	const r = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
-	if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+	if (r.exceptionDetails) {
+		const exception = r.exceptionDetails.exception;
+		const details = exception?.objectId ? (await send("Runtime.callFunctionOn", {
+			objectId: exception.objectId, returnByValue: true,
+			functionDeclaration: "function(){return {name:this.name,message:this.message,code:this.code,details:this.details}}",
+		})).result?.value : null;
+		throw Object.assign(new Error(details?.message || exception?.description || r.exceptionDetails.text), details);
+	}
 	return r.result?.value;
 };
 const waitFor = async (expression, ms = 60_000) => {
@@ -53,8 +60,9 @@ const sk = skeletonFor(first.model), I = sk.index, P = sk.restWorldPos, ank = P[
 const spec = { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 150,
 	keys: [{ f: 0, set: { root: [0, P[I.Hips][1] - 0.01, 0], yaw: 0, foot_l: [0.09, ank, -0.03], foot_r: [-0.09, ank, 0.03], fyaw_l: 0, fyaw_r: 0, armw_r: 0 } }],
 	generators: [{ type: "walk", f0: 6, steps: 5, heading: [0, 35] }] };
-const receipt = await evaluate(`(async () => { const r = await window.__cozyclay.runStudioAction('motion.compile', { characterId: ${JSON.stringify(charId)}, spec: ${JSON.stringify(spec)} }); return r && { ok: r.ok, output: r.output ?? r.receipt?.output, error: r.error ?? null }; })()`);
+const receipt = await evaluate(`window.__cozyclay.runStudioAction('motion.compile', { characterId: ${JSON.stringify(charId)}, spec: ${JSON.stringify(spec)} })`);
 console.log("compile receipt", JSON.stringify(receipt).slice(0, 400));
+if (!receipt?.ok) console.error("motion.compile refusal", JSON.stringify(receipt));
 assert.ok(receipt?.ok, "motion.compile was refused");
 assert.ok(await waitFor("window.__cozyclay.motion?.schema === 'cozyclay.take.v3'", 20_000), "the take never became the visible motion");
 

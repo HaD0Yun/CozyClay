@@ -46,7 +46,11 @@ await evaluate(`localStorage.setItem("cozyclay.theme.v1", ${JSON.stringify(theme
 await new Promise((r) => setTimeout(r, 1500));
 await waitFor("the studio QA hook", "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclay.captureFraming && window.__cozyclay.rigA)");
 
-const act = (id, args) => evaluate(`(async () => { const r = await window.__cozyclay.runStudioAction(${JSON.stringify(id)}, ${JSON.stringify(args)}); return r && { affectedIds: r.affectedIds }; })()`);
+const act = (id, args) => evaluate(`(async () => { try {
+	const r = await window.__cozyclay.runStudioAction(${JSON.stringify(id)}, ${JSON.stringify(args)});
+	if (r?.ok !== true) throw Object.assign(new Error(r?.message ?? "Action returned no receipt."), { code: r?.code ?? "ACTION_REFUSED" });
+	return r && { affectedIds: r.affectedIds };
+} catch (error) { throw new Error((error.code ?? "STUDIO_ACTION_FAILED") + ": " + (error.message ?? String(error))); } })()`);
 /** Clears the set, then adds each { kind, name, parent?, placement, update?, set? }; answers name -> id. */
 async function build(specs) {
 	const ids = await evaluate("window.__cozyclay.objects.map((o) => o.id)");

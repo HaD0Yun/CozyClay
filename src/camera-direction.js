@@ -5,7 +5,7 @@
 import { createCameraBlock } from "./camera-block.js";
 import { buildFollowTrack, buildRail, buildRailFollowTrack } from "./camera-follow.js";
 import { shortestArc } from "./camera-move.js";
-import { RAIL_SCHEDULE_LEGACY, RAIL_SCHEDULE_RANGE, resolveRailSchedule } from "./camera-rail-schedule.js";
+import { RAIL_SCHEDULE_LEGACY, RAIL_SCHEDULE_RANGE, RAIL_SCHEDULE_TOO_SHORT, resolveRailSchedule } from "./camera-rail-schedule.js";
 import { shotAtFrame } from "./cuts.js";
 import { objectTransformAt } from "./object-path.js";
 import { placementAt } from "./root-path.js";
@@ -40,7 +40,12 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ya
 			buildFollowTrack(subjectSlice, fps, params).forEach((sample, offset) => { combined[start + offset] = sample; });
 			continue;
 		}
-		const schedule = resolveRailSchedule({ railFollow: camera.railFollow, cameraRail: camera.cameraRail, frameCount: subjectSlice.length });
+		let schedule = resolveRailSchedule({ railFollow: camera.railFollow, cameraRail: camera.cameraRail, frameCount: subjectSlice.length });
+		if (schedule.kind === RAIL_SCHEDULE_TOO_SHORT && camera.aimTake && camera.railFollow?.mode !== "off") {
+			const endFrame = Math.min(subjectSlice.length - 1, camera.aimTake.startFrame + camera.aimTake.samples.length - 1);
+			if (camera.aimTake.startFrame > endFrame) continue;
+			schedule = { kind: RAIL_SCHEDULE_RANGE, startFrame: camera.aimTake.startFrame, endFrame };
+		}
 		if (schedule.kind !== RAIL_SCHEDULE_RANGE && schedule.kind !== RAIL_SCHEDULE_LEGACY) continue;
 		const from = start + schedule.startFrame, length = schedule.endFrame - schedule.startFrame + 1;
 		const aim = camera.aim ? Array.from({ length }, (_, offset) => railAimPoint(camera.aim, from + offset, aimAt)) : null;

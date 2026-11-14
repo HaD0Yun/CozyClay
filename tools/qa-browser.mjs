@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
 	installSignalCleanup,
 	spawnOwned,
@@ -34,6 +34,10 @@ const port = Number(process.env.CDP_PORT || 9222);
 // The studio lives at /app/; "/" is the static landing page, and a QA run
 // pointed there fails every selector before a single assertion is useful.
 const pageUrl = process.env.QA_URL || "http://127.0.0.1:5180/app/";
+// This suite installs its saved scene before opening the app. Keep bootstrap
+// on the plain origin instead of starting an app lifetime it must replace.
+const ownsSceneStartup = commandArgs.some((arg) => basename(arg) === "qa-camera-record-browser.mjs");
+const bootstrapUrl = ownsSceneStartup ? `${new URL(pageUrl).origin}/favicon.ico` : pageUrl;
 const cdpUrl = `http://127.0.0.1:${port}/json/version`;
 
 /** Give the QA profile a project session before the studio opens, so QA drives
@@ -113,7 +117,7 @@ try {
 		`--user-data-dir=${profileDir}`,
 		`--window-size=${process.env.QA_WINDOW || "1600,1000"}`,
 		...chromeFlags,
-		pageUrl,
+		bootstrapUrl,
 	]);
 	children.push(chrome);
 	removeSignalCleanup = installSignalCleanup(() => children, cleanupProfile);
@@ -145,7 +149,7 @@ try {
 	// regression (#83). Seed a session before navigation so QA drives the
 	// studio a returning author sees. QA_STARTUP_CHOOSER=1 keeps the chooser
 	// for suites that exercise it.
-	if (process.env.QA_STARTUP_CHOOSER !== "1") await seedProjectSession(port, pageUrl);
+	if (process.env.QA_STARTUP_CHOOSER !== "1") await seedProjectSession(port, bootstrapUrl);
 
 	const runner = spawnOwned(command, commandArgs, {
 		env: { ...process.env, CDP_PORT: String(port) },
