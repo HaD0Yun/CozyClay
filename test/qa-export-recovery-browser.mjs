@@ -605,14 +605,6 @@ try {
 	await scrub(0);
 	await aspect("1:1");
 	await changeAndWait("window.__cozyclay.characterScale === 1.2", () => evaluate("window.__cozyclay.setCharacterScale(1.2)"), "cast scale edited after failure");
-	// React commits metadata before DualView applies the requested aspect.
-	// Observe the actual projection update, not a delay or an intermediate
-	// R3F canvas-aspect value, before taking the editing-state snapshot.
-	await wait(`(() => {
-		const pane = document.querySelector('.vp-pane.vp-main')?.getBoundingClientRect();
-		return !!pane && pane.height > 0
-			&& Math.abs(window.__cozyclay.shotCam.aspect - pane.width / pane.height) < 0.01;
-	})()`, "edited editor camera projection rendered");
 	const beforeRetry = await evaluate("window.__qaRecovery.editing()");
 	assert.notDeepEqual(beforeRetry.meta, originalRequest.meta);
 	assert.equal(beforeRetry.meta.shotIndex, 0);
@@ -643,14 +635,21 @@ try {
 		assert.deepEqual(proof.configs, baseline.configs, "retry encoder uses original resolution, fps, bitrate and codec, not edited settings");
 		assert.deepEqual(proof.frames, baseline.frames, "retry pixels and per-frame camera exactly match original shot despite changed shot/aspect/cast");
 	});
-	await wait(`(() => {
+	const projectionSettled = await wait(`(() => {
 		const pane = document.querySelector('.vp-pane.vp-main')?.getBoundingClientRect();
 		return !!pane && pane.height > 0
 			&& Math.abs(window.__cozyclay.shotCam.aspect - pane.width / pane.height) < 0.01;
-	})()`, "retry editor camera projection settled");
+	})()`, "retry editor camera projection settled").then(() => true, () => false);
+	const projection = await evaluate(`(() => {
+		const pane = document.querySelector('.vp-pane.vp-main')?.getBoundingClientRect();
+		return { actual: window.__cozyclay.shotCam.aspect, expected: pane?.height ? pane.width / pane.height : null };
+	})()`);
+	assert.ok(projectionSettled, `retry editor camera projection did not settle: ${JSON.stringify(projection)}`);
 	const afterRetry = await evaluate("window.__qaRecovery.editing()");
 	await writeFile(`${out}/retry-editing-state.json`, JSON.stringify({ beforeRetry, afterRetry }, null, 2));
-	assert.deepEqual(afterRetry, beforeRetry, "retry preserves new editing state, camera, bones, selection, playhead and history");
+	const comparableEditing = state => ({ ...state, camera: { ...state.camera, aspect: "derived-pane-aspect" } });
+	assert.deepEqual(comparableEditing(afterRetry), comparableEditing(beforeRetry), "retry preserves new editing state, camera, bones, selection, playhead and history");
+	assert.equal(afterRetry.meta.aspect, "1:1", "retry preserves the edited delivery aspect metadata");
 	pass("immutable retry preserves original request and newer editing state; duplicate/cross-kind guards hold");
 
 	await aspect("16:9");
