@@ -12,7 +12,7 @@ const menuItemReady = selector => waitForFrameState(b.evaluate, `(() => {
 		&& document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest(${JSON.stringify(selector)}) === el;
 })()`, 30000);
 try {
-	await b.navigate(new URL("/app/", b.base));
+	await b.seed();
 	await b.send("Page.bringToFront");
 	await b.arm("!!window.__cozyclay?.editorCam && !!document.querySelector('.stage canvas')");
 	await b.settled();
