@@ -34,7 +34,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	const done = await runMotion({ ...base, text: "he walks to the box and sits on it", memoryKey: "conv-1", onCompile: c => compiles.push(c) });
 	assert.equal(done.report, "He walks over.\nMissing: the fingers do not move.");
 	assert.equal(done.missing, "the fingers do not move.");
-	assert.deepEqual([done.frames, done.seconds, done.compiles], [48, 3, 1]);
+	assert.deepEqual([done.frames, done.clipSeconds, done.tookSeconds, done.compiles], [48, 2, 3, 1]); // 48 frames at 24 fps; making it took 3 s
 	assert.deepEqual(done.characterIds, ["c1"]);
 	assert.deepEqual(done.objectIds, ["obj-box"]);
 	assert.deepEqual(compiles.map(c => [c.n, c.ok]), [[1, true]]);

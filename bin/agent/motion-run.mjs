@@ -38,13 +38,14 @@ function requestOf(text, pictures, studio, before, allowAdd) {
 
 /**
  * runMotion({ text, images, memoryKey, hub, workspaceHandle, invoke, signal, env, onCompile, allowAdd })
- *   -> { name, report, missing, frames, seconds, compiles, characterIds, objectIds, switched }
+ *   -> { name, report, missing, frames, clipSeconds, tookSeconds, compiles, characterIds, objectIds, switched }
  * text: the user's words. images: [{ data: <base64>, mimeType }] (at most 4). hub.command("describe") reads the scene.
  * invoke(action, args): one editor action as the turn's tools run it (a refusal throws). onCompile({ n, ok, line }):
  * once per compile. allowAdd: false inside a task: the request tells the motion writer to add nothing, and a clip that
  * still needs a character or a prop the Studio scene does not have is not installed (code "studio").
  * characterIds: every Studio character the clip animated; objectIds: the objects it made or placed.
  * A motion writer that ends without a scene but with a report (it could not make the motion) answers with frames 0.
+ * frames and clipSeconds (one decimal) are the length of the clip; tookSeconds is how long making it took (wall time).
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
  * "aborted".
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
@@ -62,9 +63,9 @@ export async function runMotion({ text, images = [], memoryKey, hub, workspaceHa
 	} });
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
-	const seconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, seconds, compiles: record.compiles };
+	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles };
 	if (!record.final) {
-		if (record.report) return { ...base, frames: 0, characterIds: [], objectIds: [], switched: [] };
+		if (record.report) return { ...base, frames: 0, clipSeconds: 0, characterIds: [], objectIds: [], switched: [] };
 		throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
 	}
 	const clip = readClip(record.final.clip);
@@ -91,5 +92,5 @@ export async function runMotion({ text, images = [], memoryKey, hub, workspaceHa
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id).filter(Boolean);
 	const switched = result.switched ?? [];
 	const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;
-	return { ...base, report, frames: clip.frameCount, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched };
+	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched };
 }

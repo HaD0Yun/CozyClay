@@ -16,6 +16,8 @@ for (const motion of [true, false]) {
 	assert.deepEqual(FORBIDDEN.filter(token => text.includes(token)), [], `lowvis Studio prompt (motion ${motion})`);
 	assert.doesNotMatch(text, /previsMode|storyboard/i);
 	assert.ok(text.endsWith(`\n\n${motion ? MOTION_TOOL_PARAGRAPH : NO_MOTION_PARAGRAPH}`));
+	assert.match(text, /\n- rig: cast only the block figure \(model x-bot-tpose\)\.\n/);
+	assert.doesNotMatch(text, /Y Bot|y-bot-tpose/, "a new character is never the old Y Bot body");
 }
 const old = await studioSystemPrompt({ engine: "old" });
 assert.ok(old.startsWith(STUDIO_SYSTEM_PROMPT) && old.includes("<motion-reference>"), "the old engine keeps its prompt and reference");

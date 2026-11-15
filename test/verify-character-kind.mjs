@@ -42,7 +42,8 @@ assert.equal(createCharacterEntry({ model: "nope" }).model, DEFAULT_CHARACTER_MO
 assert.equal(createCharacterEntry({ model: "x-bot-tpose" }).model, "x-bot-tpose");
 
 // The element declarations mirror the normalizer's vocabulary.
-assert.deepEqual(elementByPath("character.model").enum, CHARACTER_KIND_IDS);
+// A saved Y Bot row loads (CHARACTER_KIND_IDS), but the settable model offers the block figure first and no Y Bot.
+assert.deepEqual(elementByPath("character.model").enum, [NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL]);
 const posture = elementByPath("character.posture");
 assert.equal(posture.type, "enum");
 assert.equal(posture.persisted, true);

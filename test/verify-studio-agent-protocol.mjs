@@ -226,7 +226,7 @@ function registerTests() {
 		assert.deepEqual(derived.stage.properties.spotlight, { type: "number", minimum: -2, maximum: 7 });
 		assert.equal(protocol.STUDIO_PATCH_SET_SCHEMAS.stage.properties.spotlight, undefined);
 		assert.equal(derived.character.properties.tint.pattern, "^#[0-9a-fA-F]{6}$");
-		assert.deepEqual(derived.character.properties.model.enum, ["y-bot-tpose", "x-bot-tpose", "proxy-figure"]);
+		assert.deepEqual(derived.character.properties.model.enum, ["x-bot-tpose", "proxy-figure"]);
 		assert.deepEqual(derived.character.properties.posture.enum, ["stand", "sit", "lie"]);
 		assert.equal(derived.character.properties.scale.minimum, 0.2);
 		assert.equal(derived.character.properties.scale.maximum, 3);

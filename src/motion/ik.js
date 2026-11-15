@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { normalizeBoneName, POSE_BONES, DEFAULT_POSE } from "../poses.js";
 import { resolveFingers } from "./fingers.js";
-import { findBone } from "./find-bone.js"; import { fixHeld, fixWeight } from "./fix-weight.js"; import { fixKeySample } from "./fix-keys.js";
+import { findBone } from "./find-bone.js"; import { fixHeld, fixWeight } from "./fix-weight.js"; import { fixKeySample, isRestKey } from "./fix-keys.js";
 export { findBone };
 
 /**
@@ -1029,7 +1029,8 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 	for (const id of [...ikState.tracked].filter(track => track !== "placement")) {
 		const chain = rig.get(id);
 		const kf = fixKeySample(ikState.keys, id, frame, ikState), sampled = kf ? (kf.delta ? withDeltas(kf.delta) : kf.sampled) : sampleChain(ikState.keys, id, frame, chain); // fix keys (fix-keys.js) play as keyframes
-		if (!sampled) continue;
+		// a lone fix rest key (fix-keys.js) on a track that also holds other keys is the take itself: nothing to apply
+		if (!sampled || isRestKey(sampled)) continue;
 		const joint = fkJoints?.get(id);
 		const w = kf ? kf.w : blendWindow > 0 ? (fixWeight(ikState.keys, id, frame, ikState) ?? correctionWeight(ikState.keys, id, frame, blendWindow)) : 1;
 		if (w <= 0) continue;
@@ -1059,13 +1060,14 @@ export function ikEvaluate(rig, ikState, frame, fkJoints, blendWindow = 0) {
 				}
 			} else {
 				if (!sampled.keepTranslations) restoreChainPositions(chain, w);
-				if (w >= 1) {
+				// a key without rotations (a rest key, a translation-only key) applies none, as the joint branch below
+				if (sampled.q && w >= 1) {
 					chain.bones[0].quaternion.copy(sampled.q[0]);
 					chain.bones[1].quaternion.copy(sampled.q[1]);
 					// The effector's authored rotation rides along when the key has it
 					// (pre-rotation keys hold only b0/b1 — apply whatever is stored).
 					if (sampled.q[2]) chain.bones[2].quaternion.copy(sampled.q[2]);
-				} else {
+				} else if (sampled.q) {
 					// current quats are the base layer's (motion) — ease toward the key
 					chain.bones[0].quaternion.slerp(sampled.q[0], w);
 					chain.bones[1].quaternion.slerp(sampled.q[1], w);
@@ -1241,8 +1243,9 @@ function sampleChain(keys, trackId, frame, chain) {
 	const a = keys.get(prevFrame).get(trackId);
 	const b = keys.get(nextFrame).get(trackId);
 	const t = (frame - prevFrame) / (nextFrame - prevFrame);
-	const deltasA = keyDeltas(a);
-	const deltasB = keyDeltas(b);
+	// A fix rest key stands for the take itself: next to a based key it is a zero correction, not an absolute pose.
+	const zero = (key, other) => (isRestKey(key) ? keyDeltas(other)?.map(() => new THREE.Quaternion()) ?? null : null);
+	const deltasA = keyDeltas(a) ?? zero(a, b), deltasB = keyDeltas(b) ?? zero(b, a);
 	// Missing chainP means raw clip for a new key, bind for a legacy key.
 	// A mixed pair must ease between those policies, not switch at an endpoint.
 	const positionsA = a.chainP ?? (a.keepTranslations ? null : chain?.bindPositions);
