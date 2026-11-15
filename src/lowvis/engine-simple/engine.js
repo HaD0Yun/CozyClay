@@ -9,7 +9,8 @@
 //     turn on the spot is added). `facing` keeps the body facing that way (back / side steps). `steps: 1` is a lunge.
 //     `push` is a low, leaning, short-step gait; `push {to: <where it stands>}` braces in place.
 //     With `steps`: `stepFrames` = frames per step (default: at most 13, then it stands), `ease` = how the pelvis
-//     covers the distance ("in" = it speeds up, so each step is longer than the one before; default "inout").
+//     covers the distance ("in" = it speeds up, so each step is longer than the one before; default: a steady speed
+//     with a speed-up and a slow-down of at most half a second each, so the steps between are the same length).
 //   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
 //     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
 //           aim:[x,y,z]|"off", fast:true, over, ease}     aim = where the long axis of the prop in the hand points, body frame

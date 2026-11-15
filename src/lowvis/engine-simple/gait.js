@@ -147,7 +147,11 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	const n = steps ?? (still ? away : Math.max(2, Math.ceil(L / 0.4) + 1, Math.ceil(Math.abs(dyaw) / rad(45)) + 1));
 	if (!n || N < 4) return { frames: hold(st, N), st };
 	const sw = GAIT.walk.sw, stepT = Math.min(stepFrames ?? (L > 0.03 ? 13 : 11), (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
-	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = EASE[curve] ?? (burst ? EASE.out : smooth), side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
+	// no named ease: a move of more than 36 frames speeds up and slows down over 12 frames each and keeps a steady speed
+	// between, as a walk does (every step the same length); a shorter one is all speeding up and slowing down
+	const W = !EASE[curve] && !burst && Tm > 36 ? warp(Math.ceil(Tm), 1, 0, 0) : null;
+	const steady = u => { const x = clamp(u) * (W.length - 1), i = Math.min(W.length - 2, Math.floor(x)); return mix(W[i], W[i + 1], x - i); };
+	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = EASE[curve] ?? (burst ? EASE.out : W ? steady : smooth), side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
 	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t / Tm)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
@@ -224,7 +228,7 @@ function travel(st, segs) {
 	});
 	const vb = i => i <= 0 || i >= n ? 0 : (lens[i - 1] / segs[i - 1].use + lens[i] / segs[i].use) / 2;
 	const S = [0], plan = [];
-	let side = firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
+	let side = segs[0].first ? (segs[0].first === "R" ? 1 : 0) : firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
 	segs.forEach((s, i) => {
 		const G = GAIT[s.kind], F0 = S.length - 1, base = S.at(-1);
 		const stepT = i === n - 1 ? (s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k;
@@ -233,6 +237,7 @@ function travel(st, segs) {
 		for (let t = 1; t <= s.use; t++) S.push(base + w[t]);
 		s.F0 = F0;
 	});
+	if (last.end && post == null) for (const s of plan.slice(-2)) s.off = last.end[s.side ? "R" : "L"]; // the last step of each foot lands off its home spot
 	const Tm = S.length - 1, tab = (A, t) => { t = clamp(t, 0, Tm); const i = Math.min(Tm - 1, Math.floor(t)); return mix(A[i], A[i + 1], t - i); };
 	let prev = st.yaw - wrap(st.yaw - path.yaw(0));
 	const yawRaw = S.map(s => (prev += wrap(path.yaw(s) - prev)));
@@ -243,15 +248,16 @@ function travel(st, segs) {
 	let r = stepper(st, Tm, plan, t => path.at(tab(S, t)), t => tab(yawTab, t), t => [share("run", t, 5), share("push", t - 9, 9)]); // the push posture comes on after its beat starts and goes after it ends
 	out.push(...r.frames);
 	const rest = last.N - last.use;
-	if (post != null) { r = shuffle(r.st, Nb + rest, { yaw: post }); out.push(...r.frames); }
+	if (post != null) { r = shuffle(r.st, Nb + rest, { yaw: post, end: last.end }); out.push(...r.frames); }
 	else out.push(...hold(r.st, rest));
 	return { frames: out, st: r.st };
 }
 
-/** One walk / run action or a chain of them. A single short, `facing` or `steps` move is a shuffle. */
+/** One walk / run action or a chain of them. A single short, `facing` or `steps` move is a shuffle. `first` and
+ *  `end` only choose the first foot and where the last steps land: they do not change how it walks. */
 export function locomote(st, segs) {
 	const s = segs[0];
-	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || s.end || s.first || dist2(st.p, s.to) < 0.5))
+	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || dist2(st.p, s.to) < 0.5))
 		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end, stepFrames: s.stepFrames, ease: s.ease });
 	return travel(st, segs);
 }
