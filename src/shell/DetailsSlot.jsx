@@ -1,4 +1,4 @@
-import { useStudioShell } from "./studio-shell-context.js";
+import { useStudioPlaybackFrame, useStudioShell } from "./studio-shell-context.js";
 import { ko } from "../locale.js";
 import { detailsSelection } from "./details-selection.js";
 import LightPanel from "../panels/LightPanel.jsx";
@@ -26,7 +26,7 @@ export default function DetailsSlot() {
 		buildStudioAgentContext, highlightAgentTargets, selectedSceneObject, rigSelection,
 		inspectorActionsOpen, setInspectorActionsOpen, runStudioAction, deleteSelectedSceneObject, inspectorHasContent,
 		keyLightSelected, keyLight, lighting, isCameraSelection,
-		shot, moveSequence, cameraKeys, activeShot,
+		shot: sceneShot, moveSequence, cameraKeys, activeShot, cameraReadoutAt,
 		isCharacterSelection, characters, openStudio,
 		posing, workflowMode, activeChar,
 		activeCharIndex,
@@ -49,7 +49,7 @@ export default function DetailsSlot() {
 		posingIndex, posingChar, allPoses,
 		studioPick, posingClosing, closeStudio, castDomain, setToast,
 		savePose, beginWorkspaceResize,
-	} = useStudioShell();
+	} = useStudioShell(), shot = cameraReadoutAt(useStudioPlaybackFrame()).shot ?? sceneShot;
 	const selection = detailsSelection({ selectedHierarchyId, selectedSceneObject, rigSelection, characters, shot, inspectorHasContent });
 	const { resetPose, fingerPanel } = posePanelControls(useStudioShell());
 	return (
