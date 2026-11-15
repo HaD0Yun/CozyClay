@@ -132,7 +132,7 @@ export function register(registry, ports) {
 	};
 	// one compile worker per editor in the browser, the calling thread elsewhere (motion3-compile.js)
 	const runner = createCompileRunner();
-	const workerWarning = () => { const note = runner.takeWarning(); return note ? { warnings: [note] } : {}; };
+	const workerWarning = () => { const note = runner.takeWarning(); return note ? { warnings: [{ code: "MOTION_COMPILE_WORKER_STOPPED", message: note.slice(0, 120) }] } : {}; };
 	/**
 	 * spec on the character's rig and the current scene (compile-job.js) -> { stored (the spec a take keeps and its specId
 	 * names), qa, ..., take when bake is given }, at once or as a promise. opts: probes, checks, lenient, repair.
