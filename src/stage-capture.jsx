@@ -27,8 +27,11 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 	const { gl, scene } = useThree();
 	useEffect(() => {
 		// The frame pass of the finish, shared by every capture of this rig; the look is the Studio's
-		// view setting (stage-finish-view.jsx puts it on scene.userData.finishLook).
+		// view setting (stage-finish-view.jsx puts it on scene.userData.finishLook). The rig and each capture it made
+		// hold it: an export still in flight when the editor resizes keeps drawing through it, and the last holder frees it.
 		const finish = createFinish();
+		let holders = 1;
+		const release = () => { holders -= 1; if (holders === 0) finish.dispose(); };
 		// Each attempt owns its target independently of the live output size.
 		// Resizing the editor cannot dispose an in-flight export's resources.
 		// `camera` makes the camera of each render: a clone of the shot camera unless a caller
@@ -39,9 +42,11 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 				samples: 4,
 			});
 			const buffer = new Uint8Array(width * height * 4);
+			let held = true;
+			holders += 1;
 			return {
 				scene,
-				dispose: () => target.dispose(),
+				dispose: () => { if (!held) return; held = false; target.dispose(); release(); },
 				render() {
 					const cam = camera();
 					if (!cam) return null;
@@ -152,7 +157,7 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			if (apiRef.current === api) apiRef.current = null;
 			if (width === MCP_CAPTURE_W && height === MCP_CAPTURE_H) window.__cozyclayMcpCaptureReady = false;
 			api.dispose();
-			finish.dispose();
+			release();
 		};
 	}, [gl, scene, camRef, apiRef, width, height]);
 	return null;
