@@ -207,7 +207,7 @@ import {
 	fovToFocalMm,
 } from "./shot.js";
 import { captureFraming, classifyMove, moveSequenceSlate, moveSequencePhrase } from "./camera-move.js";
-import { sampleAt } from "./sample-at.js";
+import { sampleAt } from "./sample-at.js"; import { createCameraReadout } from "./camera-readout.js";
 import { exportOffscreenVideo } from "./offscreen-export.js";
 import { characterRowExists, characterRowId, parseRigNodeId } from "./hierarchy-model.js";
 import { timelineContentExtent } from "./timeline-extent.js";
@@ -4503,10 +4503,10 @@ export default function App() {
 		exportStatus: exportStatus && { ...exportStatus, cancel: stopShotRecording, retry: retryExport },
 		subscribeToasts: (listener) => { toastSinkRef.current.add(listener); return () => toastSinkRef.current.delete(listener); },
 		enterShotLook, startCameraPerformance: () => cameraPerformance.start(), stopCameraPerformance: () => cameraPerformance.stop(), cameraPerformanceRecording: cameraPerformance.active,
-		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform,
-		// The shot camera's transform for Details › Transform; cameraLookTick keeps the angles fresh.
-		// eslint-disable-next-line react-hooks/refs -- the look ref is the camera's angle; cameraLookTick re-renders after every gizmo or Details edit
-		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), tick: cameraLookTick },
+		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform, cameraReadoutAt: createCameraReadout({ scene: playbackScene, shots, filmback, subjectAt: (sampledShot, sampledFrame) => subjectsCenter(cameraSubjectsAt(sampledShot, sampledFrame)), fallback: { shot, transform: null, camera: null } }),
+		// The no-shot fallback remains the live manual transform used by Details.
+		// eslint-disable-next-line react-hooks/refs
+		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), roll: 0, tick: cameraLookTick },
 	};
 
 	return (
