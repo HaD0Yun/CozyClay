@@ -47,7 +47,7 @@ new Function("localStorage", studioSeedScript(parsed.project))(storage);
 const session = loadProjectSession(storage);
 assert.equal(session.name, "Rig Shot");
 assert.equal(session.castStyle, "rig");
-assert.equal(session.previsMode, parsed.project.previsMode);
+assert.equal("previsMode" in session, false, "the seeded session holds no previs mode");
 assert.deepEqual(JSON.parse(store.get(SCENES_STORAGE_KEY)).scenes[0].objects[0].assetId, assetId);
 
 const written = [];
