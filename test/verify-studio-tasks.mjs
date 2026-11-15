@@ -32,6 +32,7 @@ import { doneClaimCorrection, mainContextText } from "../bin/agent/main-agent.mj
 
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-studio-tasks-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
+process.env.COZYCLAY_MOTION_ENGINE = "old"; // the prompts it checks are the old motion engine's (main-prompt.mjs, studio-prompt.mjs)
 process.on("exit", () => rmSync(sessionDir, { recursive: true, force: true }));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };

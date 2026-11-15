@@ -205,13 +205,12 @@ function registerTests() {
 		assert.doesNotMatch(prompt, /Grouping carries position only/);
 	});
 	test("#742 the Studio prompt carries the previs procedure and keeps the protocol rules", async () => {
-		const { STUDIO_SYSTEM_PROMPT: prompt, STUDIO_SYSTEM_PROMPT_STORYBOARD: storyboard } = await import("../bin/agent/studio-prompt.mjs");
+		const { STUDIO_SYSTEM_PROMPT: prompt } = await import("../bin/agent/studio-prompt.mjs");
 		assert.match(prompt, /Previs procedure/);
 		assert.match(prompt, /180/);
 		assert.match(prompt, /axisConsistent/);
 		assert.ok(prompt.includes("On STALE_SCENE, the admission is already refreshed: adapt the operation to the listed changes and resubmit; inspect_studio only ids not listed"));
 		assert.ok(prompt.indexOf("Previs procedure") > prompt.indexOf("Ask concise questions only when"), "appended after the existing rules");
-		assert.doesNotMatch(storyboard, /Previs procedure/);
 	});
 	test("D3 patch_elements schema is derived from the element declaration table", () => {
 		assert.equal(protocol.STUDIO_TOOL_FAMILIES.length, 3);

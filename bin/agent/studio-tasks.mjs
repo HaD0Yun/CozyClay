@@ -222,7 +222,8 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		}
 		else if (result.status === "lost") { task.status = "paused"; task.reason = "Studio disconnected; it resumes when Studio reconnects to the same scene"; task.sceneId = result.sceneId; tell("task.paused", task); }
 		else {
-			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts) };
+			// missing: the Missing text of the run's last motion tool call, under its fixed label, so it reaches the coordinator as written
+			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts), ...(typeof result.missing === "string" && result.missing.trim() ? { missing: `Missing: ${clip(result.missing.trim(), 600)}` } : {}) };
 			if (result.status === "done" || result.ended === "task.finish") task.changed = changedBy(task, result.receipts);
 			// A cancel that arrived after the run finished cannot take it back: it stays done (and can be undone).
 			let status = task.cancelled && result.status !== "done" ? "cancelled" : task.stopReason ? "failed" : result.status;
