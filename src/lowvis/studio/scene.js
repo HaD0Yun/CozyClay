@@ -1,8 +1,9 @@
 // The Studio scene as a lowvis scene (prototype): the objects and rig characters the Studio already has, written
 // as the props and characters a lowvis request may use, so a motion can sit on the bench or lift the box that a
 // build step (or the user) put there. install.js reads `ids` to move those instead of making them again.
-// A lowvis prop is a box that stands square to the axes: a turned object is given as the box around its footprint,
-// a tilted one and anything flat as a floor are left out. Browser-safe and node-safe.
+// A lowvis prop is a box: with the turn flag it is the object's own box turned as the object is about Y, without it the
+// box square to the axes around its footprint; a tilted object and anything flat as a floor are left out.
+// Browser-safe and node-safe.
 import { TRACK_RIG } from "./take.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
@@ -30,13 +31,14 @@ function whyNot(row) {
 }
 
 /**
- * studioScene(describe) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, shape? }], others: [{ id, why }] }, ids }
+ * studioScene(describe, { turn }) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, turn?, shape? }], others: [{ id, why }] }, ids }
  * describe: the editor's describe answer ({ characters, objects }). ids: { characters: { <lowvis id>: <Studio id> },
  * props: { <lowvis id>: { id: <Studio id>, x, y, z, rot } }, switch: [<Studio id>] } with each object's base pivot
  * and turn about Y as the Studio holds them. switch: the listed characters whose model the install changes to the
  * clip's rig before it animates them. others: visible characters the clip cannot animate (Studio id and why).
+ * turn: a prop is the object's own box [w, h, d] with turn = the object's turn about Y (degrees; left out at 0).
  */
-export function studioScene(describe) {
+export function studioScene(describe, { turn = false } = {}) {
 	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [];
 	for (const row of Array.isArray(describe?.characters) ? describe.characters : []) {
 		if (!row || row.hidden) continue;
@@ -55,8 +57,9 @@ export function studioScene(describe) {
 		const cs = Math.abs(Math.cos(finite(row.rot) * RAD)), sn = Math.abs(Math.sin(finite(row.rot) * RAD));
 		const id = idFor(row.name, taken, "prop");
 		ids.props[id] = { id: row.id, x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot) };
-		props.push({ id, size: row.renderer === "sphere" ? [round(w), round(w), round(w)] : [round(w * cs + d * sn), round(h), round(w * sn + d * cs)],
-			at: [round(finite(row.x)), round(finite(row.y) + h / 2), round(finite(row.z))], ...(row.renderer === "sphere" ? { shape: "sphere" } : {}) });
+		const sphere = row.renderer === "sphere", own = turn && !sphere, yaw = round(finite(row.rot));
+		props.push({ id, size: sphere ? [round(w), round(w), round(w)] : own ? [round(w), round(h), round(d)] : [round(w * cs + d * sn), round(h), round(w * sn + d * cs)],
+			at: [round(finite(row.x)), round(finite(row.y) + h / 2), round(finite(row.z))], ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
 	}
 	return { scene: { characters, props, others }, ids };
 }

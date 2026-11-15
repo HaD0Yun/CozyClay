@@ -9,6 +9,8 @@ const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand];
 export function checkClip(clip, aux) {
 	const F = clip.frameCount, r = { slide: 0, slideStep: 0, footLow: Infinity, jointLow: Infinity, carryMin: null, carryMax: null, carryFrames: 0, freeTravel: 0, bodyToBox: null, gripDrift: null, gripTurn: null, cuts: [], headTurn: 0, elbow: 0, wrist: 0, releases: [], launches: [] };
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
+	// a world point over (or under) a static prop's footprint, in the prop's own frame
+	const over = (pt, s) => { const l = qRotate(qConj(s.quat.slice(0, 4)), [pt[0] - s.pos[0], 0, pt[2] - s.pos[2]]); return Math.abs(l[0]) <= s.size[0] / 2 && Math.abs(l[2]) <= s.size[2] / 2; };
 	// signed distance from a world point to a prop's box at frame f (negative = inside)
 	const toBox = (pt, p, f) => { const { c, q } = propAt(p, f), l = qRotate(qConj(q), [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2); return Math.hypot(...l.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...l)); };
 	const at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
@@ -26,7 +28,7 @@ export function checkClip(clip, aux) {
 		const a = c(e.f - 2), b = c(e.f - 1), n = c(e.f), out = { prop: e.prop, f: e.f, posJump: Math.hypot(n[0] - 2 * b[0] + a[0], n[1] - 2 * b[1] + a[1], n[2] - 2 * b[2] + a[2]), speedJump: Math.abs(d(n, b) - d(b, a)), speed: d(n, b), low: Infinity, high: -Infinity, off: 0 };
 		for (let f = e.f; f < F; f++) {
 			if (!aux.rolling[e.prop][f]) continue;
-			const pc = c(f), under = clip.props.filter(s => s.pos.length === 3 && Math.abs(pc[0] - s.pos[0]) <= s.size[0] / 2 && Math.abs(pc[2] - s.pos[2]) <= s.size[2] / 2 && s.pos[1] + s.size[1] / 2 < 0.3);
+			const pc = c(f), under = clip.props.filter(s => s.pos.length === 3 && over(pc, s) && s.pos[1] + s.size[1] / 2 < 0.3);
 			if (!under.length) out.off++;
 			const h = pc[1] - p.size[1] / 2 - Math.max(0, ...under.map(s => s.pos[1] + s.size[1] / 2));
 			out.low = Math.min(out.low, h); out.high = Math.max(out.high, h);

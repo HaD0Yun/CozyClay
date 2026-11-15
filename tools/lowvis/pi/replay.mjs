@@ -54,6 +54,8 @@ if (mode === "build" && a) {
 		const ca = load(join(A, `${n}.json`)), cb = load(join(B, `${n}.json`));
 		let d = ca.characters.length === cb.characters.length ? 0 : Infinity;
 		ca.characters.forEach((c, i) => { const p = cb.characters[i]?.pos ?? []; if (p.length !== c.pos.length) d = Infinity; for (let k = 0; k < c.pos.length; k++) d = Math.max(d, Math.abs(c.pos[k] - p[k])); });
+		if ((ca.props ?? []).length !== (cb.props ?? []).length) d = Infinity; // and every prop: centre and rotation
+		(ca.props ?? []).forEach((p, i) => { for (const f of ["pos", "quat"]) { const o = cb.props[i]?.[f] ?? []; if (o.length !== p[f].length) d = Infinity; for (let k = 0; k < p[f].length; k++) d = Math.max(d, Math.abs(p[f][k] - o[k])); } });
 		if (d < 1e-6) { res.unchanged++; continue; }
 		res.changed++; console.log("changed:", n, "|", String(spec(n).request ?? "").slice(0, 50));
 		const x = checksOf(ca), y = checksOf(cb);

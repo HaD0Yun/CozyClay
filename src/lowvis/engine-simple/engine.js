@@ -47,6 +47,18 @@ import { kneel, lie, sit, stand } from "./posture.js";
 const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 const HAND = [J.LeftHand, J.RightHand], FOOT = [J.LeftFoot, J.RightFoot], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 const PAD = 0.03; // wrist centre to the surface it holds
+// A prop's own frame: the scene's turn about Y (radians) at its centre. A static prop keeps it; a moving prop starts with it.
+// toOwn / toWorld take a floor-plane offset [x, z] from the centre into that frame and back (exact at turn 0).
+const toOwn = (p, x, z) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn); return [x * cs - z * sn, x * sn + z * cs]; };
+const toWorld = (p, x, z) => { const cs = Math.cos(p.turn), sn = Math.sin(p.turn); return [x * cs + z * sn, z * cs - x * sn]; };
+/** The prop's width along world X as it stands (two hands hold it across that width). */
+const across = p => Math.abs(Math.cos(p.turn)) * p.size[0] + Math.abs(Math.sin(p.turn)) * p.size[2];
+/** The point of a static prop's box nearest to a world point, as the world offset from it (zero inside). */
+const offBox = (o, pt) => {
+	const [x, z] = toOwn(o, pt[0] - o.c[0], pt[2] - o.c[2]), l = [x, pt[1] - o.c[1], z];
+	const d = l.map((v, a) => v - clamp(v, -o.size[a] / 2, o.size[a] / 2)), [wx, wz] = toWorld(o, d[0], d[2]);
+	return [wx, d[1], wz];
+};
 
 export const NOTES = [
 	"simple engine: no collision between bodies, limbs and props; contacts are where the spec puts them",
@@ -110,7 +122,7 @@ function buildUpper(id, acts, props) {
 		if (BODY.has(verb)) continue;
 		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout", fast: o.fast };
 		if (verb === "carry") {
-			const half = props[o.prop].size[0] / 2 + PAD, at = o.at;
+			const half = across(props[o.prop]) / 2 + PAD, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
 		} else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1, grip: o.grip });
@@ -165,10 +177,11 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	const repeat = expandRepeats(written, def.frames), spec = repeat.spec;
 	const F = def.frames, clip = createClip({ demo: spec.demo, engine: "simple", frameCount: F });
 	const props = Object.fromEntries(def.props.map(p => [p.id, {
-		id: p.id, size: p.size, c: p.at.slice(), yaw: 0, q: [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
+		id: p.id, size: p.size, c: p.at.slice(), turn: rad(p.turn ?? 0), yaw: rad(p.turn ?? 0), q: p.turn ? qY(rad(p.turn)) : [0, 0, 0, 1], holder: null, hand: null, moves: !!p.moves, h1: p.at.slice(), h2: p.at.slice(),
 		keys: (spec[p.id] ?? []).map(([f, verb, o = {}]) => ({ f, verb, ...o })).sort((a, b) => a.f - b.f),
 	}]));
-	const ground = (x, z) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= 0.3 && Math.abs(x - p.c[0]) <= p.size[0] / 2 && Math.abs(z - p.c[2]) <= p.size[2] / 2).map(p => p.c[1] + p.size[1] / 2));
+	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };
+	const ground = (x, z) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= 0.3 && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]);
 		return { id: c.id, body: buildBody(c, acts, F, { props, ground }), ...buildUpper(c.id, acts, props), out: addCharacter(clip, c.id), rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
@@ -193,7 +206,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			floor = ground(p.c[0], p.c[2]) + r;
 			if (p.c[1] <= floor) { p.c[1] = floor; if (p.vel[1] < 0) p.vel[1] = -p.vel[1] * b > 0.02 ? -p.vel[1] * b : 0; } // a small rebound ends: it rolls
 			for (const o of walls) {
-				const d = p.c.map((v, a) => v - clamp(v, o.c[a] - o.size[a] / 2, o.c[a] + o.size[a] / 2)), l = len(d);
+				const d = offBox(o, p.c), l = len(d);
 				if (l >= r || l < 1e-9) continue;
 				const nrm = mul(d, 1 / l), vn = dot(p.vel, nrm);
 				p.c = add(p.c, mul(nrm, r - l));
@@ -214,17 +227,18 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	};
 	// where hand s of a character at B holds a box centred at c: on its left / right face, a little toward the holder
 	const grab = (c, p, B, s) => {
-		const d = [B.p[0] - c[0], B.p[2] - c[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l, half = p.size[0] / 2 + PAD;
+		const d = [B.p[0] - c[0], B.p[2] - c[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l, half = across(p) / 2 + PAD;
 		return [c[0] - dz * s * half + dx * 0.07, c[1], c[2] + dx * s * half + dz * 0.07];
 	};
 	const handTarget = (c, i, to, f) => {
 		const B = c.body[f], s = i ? -1 : 1;
 		if (Array.isArray(to)) return add(B.p, qRotate(qY(B.yaw), to));
 		if (to.world) return to.world;
-		if (to.face) { // palms on the face of the box that looks at the figure
-			const p = props[to.prop], d = [B.p[0] - p.c[0], B.p[2] - p.c[2]], alongX = Math.abs(d[0]) > Math.abs(d[1]);
+		if (to.face) { // palms on the face of the box that looks at the figure (in the prop's own frame)
+			const p = props[to.prop], d = toOwn(p, B.p[0] - p.c[0], B.p[2] - p.c[2]), alongX = Math.abs(d[0]) > Math.abs(d[1]);
 			const dx = alongX ? Math.sign(d[0]) : 0, dz = alongX ? 0 : Math.sign(d[1]), out = (alongX ? p.size[0] : p.size[2]) / 2 + PAD, w = to.w ?? 0.2;
-			return [p.c[0] + dx * out - dz * s * w, to.y ?? p.c[1], p.c[2] + dz * out + dx * s * w];
+			const [ox, oz] = toWorld(p, dx * out - dz * s * w, dz * out + dx * s * w);
+			return [p.c[0] + ox, to.y ?? p.c[1], p.c[2] + oz];
 		}
 		if (to.at) return grab(to.at, props[to.prop], B, s);
 		if (to.prop) return grab(props[to.prop].c, props[to.prop], B, s);

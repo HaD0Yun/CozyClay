@@ -23,6 +23,8 @@ export const isSpike = row => row.spike != null && row.frame != null && badness(
 export function measure(clip, aux, { stretch = 0 } = {}) {
 	const F = clip.frameCount, rows = [];
 	const propAt = (p, f) => { const i = p.pos.length === 3 ? 0 : f; return { c: p.pos.slice(i * 3, i * 3 + 3), q: p.quat.slice(i * 4, i * 4 + 4) }; };
+	// a world point over (or under) a static prop's footprint, in the prop's own frame
+	const over = (pt, s) => { const l = qRotate(qConj(s.quat.slice(0, 4)), [pt[0] - s.pos[0], 0, pt[2] - s.pos[2]]); return Math.abs(l[0]) <= s.size[0] / 2 && Math.abs(l[2]) <= s.size[2] / 2; };
 	const toBox = (pt, p, f) => { const { c, q } = propAt(p, f), l = qRotate(qConj(q), [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2); return Math.hypot(...l.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...l)); };
 	const at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
 	const rot = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 4; return [c.quat[i], c.quat[i + 1], c.quat[i + 2], c.quat[i + 3]]; };
@@ -113,7 +115,7 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 		let low = Infinity, high = -Infinity, off = 0;
 		for (let f = e.f; f < F; f++) {
 			if (!aux.rolling[e.prop][f]) continue;
-			const pc = c(f), under = clip.props.filter(s => s.pos.length === 3 && Math.abs(pc[0] - s.pos[0]) <= s.size[0] / 2 && Math.abs(pc[2] - s.pos[2]) <= s.size[2] / 2 && s.pos[1] + s.size[1] / 2 < 0.3);
+			const pc = c(f), under = clip.props.filter(s => s.pos.length === 3 && over(pc, s) && s.pos[1] + s.size[1] / 2 < 0.3);
 			if (!under.length) off++;
 			const h = pc[1] - p.size[1] / 2 - Math.max(0, ...under.map(s => s.pos[1] + s.size[1] / 2));
 			low = Math.min(low, h); high = Math.max(high, h);
