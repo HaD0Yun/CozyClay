@@ -28,14 +28,13 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 	useEffect(() => {
 		// The frame passes of the finish, shared by every capture of this rig.
 		const finish = createFinish();
-		// PROTOTYPE hook (proto/lowvis-bg-look): pick a candidate finish by name, or none.
+		// QA hook: put a finish on by name ("toon"), or none.
 		window.__cozyFinish = (name) => {
 			const chosen = FINISH_LOOKS[name] ?? null;
 			scene.userData.finishLook = chosen;
 			applySurfaceLook(scene, chosen?.surface ?? null);
 			return { on: chosen ? name : null, looks: Object.keys(FINISH_LOOKS) };
 		};
-		window.__cozyFinish.scene = scene;
 		// Each attempt owns its target independently of the live output size.
 		// Resizing the editor cannot dispose an in-flight export's resources.
 		// `camera` makes the camera of each render: a clone of the shot camera unless a caller
