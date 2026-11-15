@@ -4506,7 +4506,7 @@ export default function App() {
 		lookThroughShot, exitShotLook: exitPreview, setShotCameraTransform, cameraReadoutAt: createCameraReadout({ scene: playbackScene, shots, filmback, subjectAt: (sampledShot, sampledFrame) => subjectsCenter(cameraSubjectsAt(sampledShot, sampledFrame)), fallback: { shot, transform: null, camera: null } }),
 		// The no-shot fallback remains the live manual transform used by Details.
 		// eslint-disable-next-line react-hooks/refs
-		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), tick: cameraLookTick },
+		shotCameraTransform: { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z, pitch: THREE.MathUtils.radToDeg(look.current.pitch), yaw: THREE.MathUtils.radToDeg(look.current.yaw), roll: 0, tick: cameraLookTick },
 	};
 
 	return (
