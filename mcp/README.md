@@ -128,30 +128,18 @@ frame on the rig, answers the QA groups, and installs the take; `motion.sample` 
 `motion.qa` read it back. The spec format and the loop are in
 [`../docs/motion3-agent-guide.md`](../docs/motion3-agent-guide.md).
 
-## Storyboard projects and capsule figures
+## Capsule figures
 
 The tool list is fixed when the server starts, so it is the same 27 tools in every project. A
-tool that does not apply to the project or to its target answers a structured refusal instead
-of acting; nothing is sent to the editor and nothing changes. The refusal is the tool's only
-text content, with `isError: true`:
-
-```json
-{ "ok": false, "code": "NOT_IN_MODE", "reason": "This project is a Storyboard - mark_camera_move is available in Animation projects." }
-```
+tool that does not apply to its target answers a structured refusal instead of acting; nothing
+changes. The refusal is the tool's only text content, with `isError: true`:
 
 | code | when | tools |
 | --- | --- | --- |
-| `NOT_IN_MODE` | the project's `previsMode` is `storyboard` | `mark_camera_move` |
 | `TARGET_NOT_READY` | the target character is a capsule figure (`model: "proxy-figure"`) | `studio_run` motion, take, IK and pose actions |
 
-`describe_scene` reports `previsMode: storyboard` or `previsMode: animation` (the connected
-editor's project; `open_project` sets it without one) and marks each cast member
-`kind: rig` or `kind: proxy`, with a capsule figure's `posture`.
-
-A **storyboard project** is a sequence of still shots: one picture per panel, held for a
-number of frames, with a caption. Block it with the camera, cast and set tools, and run the
-still-shot commands (`shot.createStill`, `shot.setCaption`, `shot.setHold`, ...) through
-`studio_run`. Motion and named camera moves belong to Animation projects.
+`describe_scene` marks each cast member `kind: rig` or `kind: proxy`, with a capsule figure's
+`posture`.
 
 A **capsule figure** is a rigless stand-in for blocking: `add_character { subject, model:
 "proxy-figure", posture: "sit" }`. It places, turns and frames like any cast member and holds a

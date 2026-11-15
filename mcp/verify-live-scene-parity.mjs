@@ -26,7 +26,7 @@ try {
 	assert.match(remainder.content[0].text, /cube-51/);
 
 	const described = bounded.content[0].text;
-	assert.match(described, /^previsMode: animation$/m);
+	assert.doesNotMatch(described, /previsMode/);
 	assert.match(described, /model: y-bot-tpose  kind: rig/);
 	const before = s.describe().document;
 	const refused = await s.call("add_scene", { name: "REFUSED", expectedRevision: s.f.binding.refresh().revision + 1 });

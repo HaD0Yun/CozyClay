@@ -70,7 +70,7 @@ import {
 	updateSceneObject,
 } from "../src/scene-objects.js";
 import { classifyMove, captureFraming, moveSlate } from "../src/camera-move.js";
-import { DEFAULT_PREVIS_MODE, PREVIS_MODES, readProjectDocument } from "../src/project.js";
+import { readProjectDocument } from "../src/project.js";
 import { characterName, promptDescription } from "../src/character-name.js";
 import { splitSavedCamera, serializeSavedProject } from "./project-camera.mjs";
 
@@ -80,8 +80,6 @@ export const state = {
 	// studio's new project starts empty, and a connected editor reports its own.
 	doc: createSceneDocument({ seedCharacter: true }),
 	name: "Untitled",
-	/** the project's previs mode ("storyboard" | "animation"); the live editor reports it with every describe */
-	previsMode: DEFAULT_PREVIS_MODE,
 	camera: { x: 0, y: 1.6, z: 4.5, focalMm: 35 },
 	timeline: { currentFrame: 0, frameCount: 360, fps: 24 },
 	/** which character the camera frames against; null means the first of the cast */
@@ -222,19 +220,6 @@ const studioResult = (...receipts) => ({
 });
 const runStudioCommand = async options => studioResult(await executeStudioCommand(options));
 
-// The tool list is fixed when the server starts, so a tool the project's mode
-// or the target's kind cannot run answers a structured refusal instead of acting.
-const refusal = (code, reason) => ({ content: [{ type: "text", text: JSON.stringify({ ok: false, code, reason }) }], isError: true });
-
-/** NOT_IN_MODE in a storyboard project; null when the tool may run. `context` is
- * the connected editor's Studio context; without one the in-memory project answers. */
-const previsRefusal = (toolName, { context } = {}) => {
-	if ((context ? context.scene?.previsMode : state.previsMode) === "storyboard") {
-		return refusal("NOT_IN_MODE", `This project is a Storyboard - ${toolName} is available in Animation projects.`);
-	}
-	return null;
-};
-
 const scene = () => activeScene(state.doc.scenes, state.doc.activeSceneId);
 const stage = () => scene().stage;
 
@@ -332,7 +317,6 @@ const applyLiveDescription = (description) => {
 		if (!parsed.document) throw new Error("Live editor returned an invalid scene document.");
 		state.doc = parsed.document;
 	}
-	if (PREVIS_MODES.includes(description.previsMode)) state.previsMode = description.previsMode;
 	const sc = scene();
 	if (typeof description.sceneName === "string" && description.sceneName) sc.name = description.sceneName;
 	if (description.camera && typeof description.camera === "object") {
@@ -484,7 +468,6 @@ function sceneReport({ characterCursor = 0, objectCursor = 0, limit = 50 } = {})
 	const lines = [
 		`Project: ${state.name}`,
 		`Scene: ${sc.name}  (${state.doc.scenes.length} scene${state.doc.scenes.length === 1 ? "" : "s"} in project)`,
-		`previsMode: ${state.previsMode}`,
 		"",
 		"CAMERA",
 		`  position   x ${round(state.camera.x)}  y ${round(state.camera.y)}  z ${round(state.camera.z)}`,
@@ -1546,9 +1529,6 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				} catch (error) {
 					return liveError(error);
 				}
-				// describe carries the editor's previsMode into state.
-				const refused = previsRefusal("mark_camera_move");
-				if (refused) return refused;
 				state.markedFraming = framing();
 				return text(`Marked A position: ${slateLine(currentShot())}\n\nNow move the camera, then call describe_camera_move.`);
 			},
@@ -1704,7 +1684,6 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				}
 				state.doc = nextDocument;
 				Object.assign(state.camera, savedCamera);
-				state.previsMode = result.project.previsMode ?? DEFAULT_PREVIS_MODE;
 				state.name = result.project.name;
 				Object.assign(state, { focus: null, focusLocked: false, markedFraming: null });
 				return text(`Opened ${full}.\n\n${sceneReport()}`);

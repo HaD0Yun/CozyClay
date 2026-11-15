@@ -142,7 +142,7 @@ export function createStudioAppBinding(ports) {
 		return buildStudioContext({ schema: "studio-context-v1", host: { surface: "studio", ...s.host, workspaceHandle: s.workspaceHandle },
 			revision: { scene: s.revision, physics: s.physicsRevision, view: s.viewRevision },
 			units: { distance: "m", angle: "deg", up: "+Y", yawZero: "+Z", yawPositiveToward: "+X", pivot: "base", fps: 24, rangeEnd: "exclusive" },
-			scene: { name: s.sceneName, aspect: s.aspect, floorY: 0, frameCount: s.frameCount, objectCount: s.objects.length, characterCount: s.characters.length, ...(s.previsMode ? { previsMode: s.previsMode } : {}), ...(s.castStyle ? { castStyle: s.castStyle } : {}) },
+			scene: { name: s.sceneName, aspect: s.aspect, floorY: 0, frameCount: s.frameCount, objectCount: s.objects.length, characterCount: s.characters.length, ...(s.castStyle ? { castStyle: s.castStyle } : {}) },
 			// A removed character (the last one, too) is neither selected nor active.
 			selection: ["character", "rig"].includes(s.selection?.kind) && !cast(s.selection.id) ? null : s.selection, activeCharacterId: cast(s.activeCharacterId) ? s.activeCharacterId : null, view: s.view,
 			shot: shot ? { id: shot.id, name: shot.name, range: range(shot), mode: shot.camera?.mode ?? "keys" } : null, camera: s.camera,
@@ -151,8 +151,7 @@ export function createStudioAppBinding(ports) {
 			shots: s.shots.map(row => ({ id: row.id, name: row.name, range: range(row), keyCount: row.cameraKeys.length })), shotsTruncated: false,
 			assets: studioAssetList(s.objects), recentReceipts: [...receipts.values()].filter(r => r.ok).reverse().slice(0, 3).map(r => ({ id: r.receiptId, summary: r.status, canUndoDirect: ports.canUndo(r) })),
 			jobs: [], capabilities: { profile: "studio-slice-1", tools: STUDIO_TOOL_FAMILIES,
-				rigReady: Boolean(s.targets.get(s.activeCharacterId)?.rig), cameraReady: Boolean(s.camera), bridgeReady: s.bridgeReady,
-				...(s.previsMode ? { storyboard: s.previsMode === "storyboard" } : {}) },
+				rigReady: Boolean(s.targets.get(s.activeCharacterId)?.rig), cameraReady: Boolean(s.camera), bridgeReady: s.bridgeReady },
 			// Every registered command; buildStudioContext keeps only its id/label index.
 			...(registry ? { actions: registry.list() } : {}), ...marksForAgent() });
 	}

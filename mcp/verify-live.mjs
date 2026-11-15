@@ -47,7 +47,7 @@ export async function studio({ projectRoot, withCast = false } = {}) {
 	const describe = () => {
 		const live = f.actual.readStudioState();
 		return structuredClone({
-			sceneName: live.sceneName, previsMode: live.previsMode,
+			sceneName: live.sceneName,
 			camera: { ...live.camera.position, focalMm: live.camera.focalMm, sensorId: live.filmback.sensorId, aspectRatio: live.filmback.aspectRatio },
 			characters: live.characters, objects: live.objects, stage: live.stage,
 			activeCharacterId: live.activeCharacterId,
@@ -369,53 +369,20 @@ cases.cast = async () => {
 	} finally { await s.close(); }
 };
 
-// #652: the tool list is fixed at server start, so refusals replace removals.
+// #652: the tool list is fixed at server start.
 const RECORDED_TOOLS = [
 	"describe_scene", "live_status", "describe_shot", "capture_frame", "set_camera", "frame_shot", "add_character", "place_character",
 	"remove_character", "focus_character", "place_object", "import_mesh", "sculpt_object", "compare_sculpt", "group_objects",
 	"update_object", "remove_object", "apply_batch", "render_prompt", "mark_camera_move", "describe_camera_move",
 	"add_scene", "switch_scene", "open_project", "save_project", "studio_commands", "studio_run",
 ];
-const refusalOf = result => {
-	assert.equal(result.isError, true, JSON.stringify(result));
-	return JSON.parse(result.content[0].text);
-};
-
-cases.refusals = async () => {
+cases.toolList = async () => {
 	const s = await studio({ withCast: true });
-	const command = s.hub.command.bind(s.hub);
-	let reportedMode;
-	// The editor reports the project's previs mode in describe and in the Studio
-	// context; the fixture has no project-mode seam, so its answers carry it here.
-	s.hub.command = async (name, ...args) => {
-		const value = await command(name, ...args);
-		if (!reportedMode) return value;
-		if (name === "describe") return { ...value, previsMode: reportedMode };
-		// inspect_studio answers a head (revision, host) and the context is read apart; carry the mode wherever a context is.
-		const withMode = context => ({ ...context, scene: { ...context.scene, previsMode: reportedMode } });
-		if (name === "inspect_studio" && value?.context) return { ...value, context: withMode(value.context) };
-		if (name === "read_studio_context") return value?.context ? { ...value, context: withMode(value.context) } : value?.scene ? withMode(value) : value;
-		return value;
-	};
-	const actions = () => s.wire.filter(frame => frame.name === "run_action").map(frame => frame.args.args.action);
 	try {
 		assert.deepEqual(s.tools.map(row => row.name), RECORDED_TOOLS, "no tool is added, removed or renamed");
 		console.log(`tool list: ${s.tools.length} tools, identical to the recorded list`);
-
-		// Storyboard: the animation-only tool refuses by mode, whatever the target.
-		reportedMode = "storyboard";
-		const storyboardSent = actions().length;
-		for (const [name, args] of [["mark_camera_move", {}]]) {
-			const refused = refusalOf(await s.call(name, args));
-			assert.deepEqual(refused, { ok: false, code: "NOT_IN_MODE", reason: `This project is a Storyboard - ${name} is available in Animation projects.` });
-			console.log(`${name} in a storyboard: ${JSON.stringify(refused)}`);
-		}
-		assert.equal(actions().length, storyboardSent, "a refusal sends no command to the editor");
-		assert.match((await s.call("describe_scene")).content[0].text, /previsMode: storyboard/);
-		// Leave the shared MCP state in the fixture's default mode for later cases.
-		reportedMode = "animation";
-		assert.match((await s.call("describe_scene")).content[0].text, /previsMode: animation/);
-	} finally { s.hub.command = command; await s.close(); }
+		assert.doesNotMatch((await s.call("describe_scene")).content[0].text, /previsMode/);
+	} finally { await s.close(); }
 };
 
 cases["legacy-removed"] = async () => {

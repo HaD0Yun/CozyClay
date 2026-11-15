@@ -36,8 +36,8 @@ export function validateStudioCursor(cursor, context) {
 /** The compact command index the turn carries: id and label for every
  * registered command, plus the declared generation and hub timeout. The
  * description and input schema stay out; the agent reads them on request. */
-export function studioActionIndex(actions, { previsMode } = {}) {
-	const available = actions.filter(action => !action.agentHidden && (previsMode !== "storyboard" || (action.generation !== "motion" && action.domain !== "motion")));
+export function studioActionIndex(actions) {
+	const available = actions.filter(action => !action.agentHidden);
 	return available.map(({ id, label, generation, timeoutMs }) => ({ id, ...(label ? { label: [...label].slice(0, 120).join("") } : {}),
 		...(generation ? { generation } : {}), ...(timeoutMs === undefined ? {} : { timeoutMs }) }));
 }
@@ -48,7 +48,7 @@ export function studioActionIndex(actions, { previsMode } = {}) {
 // truncation so forbidden data cannot hide in an omitted row.
 export function buildStudioContext({ actions, ...input }) {
 	const c = structuredClone(input);
-	if (actions) c.actionIndex = studioActionIndex(actions, { previsMode: c.scene?.previsMode });
+	if (actions) c.actionIndex = studioActionIndex(actions);
 	const boundDisplay = value => {
 		if (!value || typeof value !== "object") return;
 		for (const [key, child] of Object.entries(value)) {
