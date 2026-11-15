@@ -43,6 +43,14 @@ export const LOOKS = { box, capsule, stick, man, woman, block };  // each: ({ ti
   frame f in every panel and resolves when it is on screen. A shorter clip holds its last frame.
 - Props are clay boxes; the floor has a 1 m grid.
 
+## Studio layer (prototype, `src/lowvis/studio/`)
+
+`/app/?lowvis[=<port>]` opens the Studio with a lowvis request box. A request goes to `tools/lowvis/pi/try.mjs` on
+that port (default 5201); the finished clip is drawn in the Studio's own scene at the Studio playhead (`layer.jsx`),
+so the timeline, the editor and shot cameras and the shot preview show it. The Studio's cast hides while a clip
+plays. The figures and props of a clip are not Studio cast members or objects: they cannot be selected, moved, posed
+or saved with the project, and the Studio's own agent box does not write lowvis scenes.
+
 ## Recorder
 
 `node tools/lowvis/record.mjs --url <viewer url> --out <file.mp4>`: headless Chrome, `seek` frame by frame, one

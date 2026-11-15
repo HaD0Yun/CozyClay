@@ -230,6 +230,8 @@ import {
 	shotIndexAtFrame,
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
+import { LowvisLayer, clipFrame } from "./lowvis/studio/layer.jsx";
+import { LowvisPanel, lowvisPort } from "./lowvis/studio/panel.jsx";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
@@ -569,6 +571,18 @@ export default function App() {
 	// Preview is the player for the finished motion: entering starts playback,
 	// leaving pauses it. The editor view stays the manipulation surface.
 	const [tlPlaying, setTlPlaying] = useState(false);
+	// lowvis prototype (?lowvis in the URL): a lowvis clip plays on the stage in place of the cast (lowvis/studio/).
+	const [lowvisPanelPort] = useState(lowvisPort);
+	const [lowvis, setLowvis] = useState(null);
+	function showLowvis(next) {
+		setLowvis(next);
+		if (!next) return setTlPlaying(false);
+		setTlFrameCount(next.clip.frameCount);
+		setTlFrame(0);
+		setTlPlaying(true);
+		const { target, radius } = clipFrame(next.clip);
+		frameWorldTarget(target, radius);
+	}
 	// Playback ticks stay outside React; stopping commits the live frame back to
 	// the edit-time state so exports and agent reads see the stopped frame.
 	useEffect(() => {
@@ -1495,6 +1509,7 @@ export default function App() {
 	}
 
 	function wholeSceneFrame() {
+		if (lowvis) return clipFrame(lowvis.clip);
 		const rows = [
 			...characters.map(entry => ({ x: entry.x, y: (entry.y ?? 0) + 0.9 * (entry.scale ?? 1), z: entry.z, radius: entry.scale ?? 1 })),
 			...sceneObjects.filter(entry => !isEffectivelyHidden(entry, sceneObjects, characters)).map(entry => ({ x: entry.x, y: (entry.y ?? 0) + (entry.height ?? 1) / 2, z: entry.z,
@@ -4554,6 +4569,7 @@ export default function App() {
 						}
 					}}>
 				<ViewportToolbar />
+				{lowvisPanelPort && !embedMode && <LowvisPanel port={lowvisPanelPort} loaded={lowvis?.name ?? null} onClip={showLowvis} />}
 				<ReviewOverlay />
 				{(embedMode || playgroundMode) && <CompositionGuideButton guideMode={guideMode} onCycle={(mode) => runStudioAction("view.setGuideMode", { mode })} />}
 				{sculptMode && !sculptTarget && (
@@ -4687,6 +4703,9 @@ export default function App() {
 								/>
 							)}
 
+							{lowvis && <LowvisLayer clip={lowvis.clip} />}
+							{/* The cast stays mounted (its rigs are held by the playback effects) and hides while a lowvis clip plays. */}
+							<group visible={!lowvis}>
 							{characterViews.map((view) => (
 								// Always wrapped, grouped or not: giving or taking a parent
 								// must not remount the rig the playback effects hold.
@@ -4715,6 +4734,7 @@ export default function App() {
 									/>
 								</ObjectCarrier>
 							))}
+							</group>
 							<ViewGhosts rig={rigs[activeChar.id]} take={motion} frame={tlFrame} objects={sceneObjects} propTake={{ frameCount: tlFrameCount, fps: tlFps, objectTracks }} /><PoseKeyGhosts app={appContext} rig={rigs[activeChar.id]} characterId={activeChar.id} frame={tlFrame} on={Boolean(ikMode)} hidden={lookThroughShot} /><FixOriginalGhost app={appContext} rig={rigs[activeChar.id]} characterId={activeChar.id} frame={tlFrame} on={Boolean(ikMode)} hidden={lookThroughShot} /><DraftGhost rigs={rigs} objects={sceneObjects} /><SculptSketch objects={sceneObjects} /><PhysicsOverlayLayer rig={rigs[activeChar.id]} take={motion} objects={sceneObjects} />
 
 							{/* Selection marker: XYZ tripod + ring on the picked cast

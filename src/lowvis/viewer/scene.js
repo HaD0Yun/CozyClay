@@ -90,28 +90,36 @@ export function createPanelScene({ clip, look, bounds, environment }) {
 	scene.environment = environment;
 	scene.environmentIntensity = 0.3; // three uses this for a scene environment, not the material's envMapIntensity
 	scene.add(floor(bounds), lights(bounds));
-	const actors = [];
-	if (clip) {
-		clip.characters.forEach((c, i) => {
-			const body = (LOOKS[look] ?? LOOKS.box)({ tint: TINTS[i % TINTS.length] });
-			scene.add(body.object3D);
-			const grip = handGrips(clip, i); // which hand holds a prop at each frame; a look may close it into a fist
-			actors.push(f => body.setPose(c.pos, c.quat, f, { Left: grip.Left[f], Right: grip.Right[f] }));
+	const body = clip ? createClipGroup(clip, look) : null;
+	if (body) scene.add(body.group);
+	return { scene, setFrame(f) { body?.setFrame(f); } };
+}
+
+/**
+ * The clip's characters (drawn with `look`) and its props in one group, for any three.js scene.
+ * Returns { group, setFrame(f) }; a frame past the clip's end holds its last frame.
+ */
+export function createClipGroup(clip, look) {
+	const group = new THREE.Group(), actors = [];
+	clip.characters.forEach((c, i) => {
+		const body = (LOOKS[look] ?? LOOKS.box)({ tint: TINTS[i % TINTS.length] });
+		group.add(body.object3D);
+		const grip = handGrips(clip, i); // which hand holds a prop at each frame; a look may close it into a fist
+		actors.push(f => body.setPose(c.pos, c.quat, f, { Left: grip.Left[f], Right: grip.Right[f] }));
+	});
+	for (const p of clip.props ?? []) {
+		const mesh = new THREE.Mesh(p.shape === "sphere" ? new THREE.SphereGeometry(p.size[0] / 2, 24, 16) : new THREE.BoxGeometry(...p.size), clayMaterial(PROP_TINT));
+		mesh.castShadow = mesh.receiveShadow = true;
+		group.add(mesh);
+		const n = p.pos.length / 3;
+		actors.push(f => {
+			const k = Math.min(f, n - 1);
+			mesh.position.fromArray(p.pos, k * 3);
+			mesh.quaternion.fromArray(p.quat, k * 4);
 		});
-		for (const p of clip.props ?? []) {
-			const mesh = new THREE.Mesh(p.shape === "sphere" ? new THREE.SphereGeometry(p.size[0] / 2, 24, 16) : new THREE.BoxGeometry(...p.size), clayMaterial(PROP_TINT));
-			mesh.castShadow = mesh.receiveShadow = true;
-			scene.add(mesh);
-			const n = p.pos.length / 3;
-			actors.push(f => {
-				const k = Math.min(f, n - 1);
-				mesh.position.fromArray(p.pos, k * 3);
-				mesh.quaternion.fromArray(p.quat, k * 4);
-			});
-		}
 	}
-	const last = clip ? clip.frameCount - 1 : 0;
-	return { scene, setFrame(f) { const k = Math.max(0, Math.min(f, last)); for (const a of actors) a(k); } };
+	const last = clip.frameCount - 1;
+	return { group, setFrame(f) { const k = Math.max(0, Math.min(f, last)); for (const a of actors) a(k); } };
 }
 
 /** True when a parsed clip has the array lengths the looks index into. */

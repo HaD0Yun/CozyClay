@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // A page to try the pi harness by hand: type a request, the model writes the scene, the viewer plays it.
-//   node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs [--port 5201] [--viewer 5199] [--model claude-opus-5-5] [--effort medium] [--variant tilt] [--look block]
+//   node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs [--port 5201] [--viewer 5199] [--live 5399] [--model claude-opus-5-5] [--effort medium] [--variant tilt] [--look block]
 // Starts the vite dev server for the viewer on --viewer (or uses one that answers there). Each try is a run of
 // tools/lowvis/pi/run.mjs named try-<time>; its record is lowvis-out/pi/<name>/run.json.
+// The same server answers the Studio's lowvis panel: http://127.0.0.1:<viewer>/app/?lowvis=<port> is the Studio with a
+// request box, and a finished try plays on the Studio stage (src/lowvis/studio/). The dev server gets --live as its
+// live hub port, so this Studio never joins the hub of another Studio on the default port.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -17,7 +20,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const answers = async () => { try { return (await fetch(`http://127.0.0.1:${VIEW}/lowvis/`)).ok; } catch { return false; } };
 
 if (!(await answers())) {
-	const vite = spawn(process.execPath, [join(ROOT, "node_modules/vite/bin/vite.js"), "--port", String(VIEW), "--strictPort", "--host", "127.0.0.1"], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
+	const vite = spawn(process.execPath, [join(ROOT, "node_modules/vite/bin/vite.js"), "--port", String(VIEW), "--strictPort", "--host", "127.0.0.1"],
+		{ cwd: ROOT, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, COZYCLAY_LIVE_PORT: String(opt.live ?? 5399) } });
 	process.on("exit", () => vite.kill("SIGTERM"));
 	for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(0));
 	for (let i = 0; !(await answers()); i++) { if (vite.exitCode !== null || i > 600) throw new Error(`the viewer server did not start on ${VIEW}`); await sleep(100); }
@@ -91,7 +95,10 @@ const PAGE = `<!doctype html>
 </script></body></html>`;
 
 createServer(async (req, res) => {
-	const send = (code, type, body) => { res.writeHead(code, { "content-type": type, "cache-control": "no-store" }); res.end(body); };
+	// the Studio page on the viewer server calls /tries and /run from its own origin
+	const origin = [`http://127.0.0.1:${VIEW}`, `http://localhost:${VIEW}`].includes(req.headers.origin) ? { "access-control-allow-origin": req.headers.origin, "access-control-allow-headers": "content-type", vary: "origin" } : {};
+	const send = (code, type, body) => { res.writeHead(code, { "content-type": type, "cache-control": "no-store", ...origin }); res.end(body); };
+	if (req.method === "OPTIONS") return send(204, "text/plain", "");
 	if (req.method === "GET" && req.url === "/") return send(200, "text/html; charset=utf-8", PAGE);
 	if (req.method === "GET" && req.url === "/tries") return send(200, "application/json", JSON.stringify(tries()));
 	if (req.method === "POST" && req.url === "/run") {
@@ -101,4 +108,4 @@ createServer(async (req, res) => {
 		return send(200, "application/json", JSON.stringify({ name: start(request.slice(0, 600)) }));
 	}
 	send(404, "text/plain", "not found");
-}).listen(PORT, "127.0.0.1", () => console.log(`try page: http://127.0.0.1:${PORT}/  (viewer on ${VIEW}, model ${MODEL} ${EFFORT}, variant ${VARIANT})`));
+}).listen(PORT, "127.0.0.1", () => console.log(`try page: http://127.0.0.1:${PORT}/  studio: http://127.0.0.1:${VIEW}/app/?lowvis=${PORT}  (model ${MODEL} ${EFFORT}, variant ${VARIANT})`));
