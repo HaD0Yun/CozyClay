@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { withFaded } from "./capture-fade.js";
 import { WORLD } from "./world-scale.js";
+import { FINISH_LOOKS, applySurfaceLook, createFinish } from "./stage-finish.js";
 
 export const CAPTURE_W = 1920;
 export const CAPTURE_H = 1080;
@@ -25,6 +26,16 @@ export const CAPTURE_FOG_FAR = WORLD.horizon.far;
 export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE_H }) {
 	const { gl, scene } = useThree();
 	useEffect(() => {
+		// The frame passes of the finish, shared by every capture of this rig.
+		const finish = createFinish();
+		// PROTOTYPE hook (proto/lowvis-bg-look): pick a candidate finish by name, or none.
+		window.__cozyFinish = (name) => {
+			const chosen = FINISH_LOOKS[name] ?? null;
+			scene.userData.finishLook = chosen;
+			applySurfaceLook(scene, chosen?.surface ?? null);
+			return { on: chosen ? name : null, looks: Object.keys(FINISH_LOOKS) };
+		};
+		window.__cozyFinish.scene = scene;
 		// Each attempt owns its target independently of the live output size.
 		// Resizing the editor cannot dispose an in-flight export's resources.
 		// `camera` makes the camera of each render: a clone of the shot camera unless a caller
@@ -69,18 +80,24 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 					// three tone-maps only the canvas, never a render target, so the
 					// viewport's exposure reaches an export as light: every light, and
 					// the environment light, is scaled by it for this draw and put back after.
+					// A finish (stage-finish.js) draws the frame as the canvas does, tone curve and exposure
+					// included, so nothing is scaled for it.
+					const finishLook = scene.userData.finishLook ?? null, expose = look && look.exposure !== 1 && !finishLook;
 					const scaled = [], environmentIntensity = scene.environmentIntensity, backgroundIntensity = scene.backgroundIntensity, fogColor = fog?.color.clone();
-					if (look && look.exposure !== 1) scene.traverse((node) => { if (node.isLight) scaled.push([node, node.intensity]); });
+					if (expose) scene.traverse((node) => { if (node.isLight) scaled.push([node, node.intensity]); });
 					for (const [light, intensity] of scaled) light.intensity = intensity * look.exposure;
-					if (look && look.exposure !== 1) scene.environmentIntensity = environmentIntensity * look.exposure;
+					if (expose) scene.environmentIntensity = environmentIntensity * look.exposure;
 					// An HDR backdrop (stage.lighting.hdrBackground) is light too, and so is the horizon the deck fades into.
-					if (look?.backdrop && look.exposure !== 1) {
+					if (look?.backdrop && expose) {
 						scene.backgroundIntensity = backgroundIntensity * look.exposure;
 						fog?.color.multiplyScalar(look.exposure);
 					}
 					try {
-						gl.setRenderTarget(target);
-						gl.render(scene, cam);
+						if (finishLook) finish.render(gl, scene, cam, target, finishLook);
+						else {
+							gl.setRenderTarget(target);
+							gl.render(scene, cam);
+						}
 						gl.readRenderTargetPixels(target, 0, 0, width, height, buffer);
 					} finally {
 						gl.setRenderTarget(previous);
@@ -142,6 +159,7 @@ export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE
 			if (apiRef.current === api) apiRef.current = null;
 			if (width === MCP_CAPTURE_W && height === MCP_CAPTURE_H) window.__cozyclayMcpCaptureReady = false;
 			api.dispose();
+			finish.dispose();
 		};
 	}, [gl, scene, camRef, apiRef, width, height]);
 	return null;
