@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { SWING_SPEC, SWING_KEYS, SCENE_OBJECTS as BAT_SCENE, BAT } from "./motion3/fixtures/bat-swing.mjs";
+import { SCENES_STORAGE_KEY } from "../src/scenes.js";
 
 const cdpPort = Number(process.env.CDP_PORT || 9222), out = process.env.QA_OUT || "/tmp/cozyclay-ghosts-qa", livePort = process.env.COZYCLAY_LIVE_PORT;
 await mkdir(out, { recursive: true });
@@ -42,8 +43,14 @@ const waitFor = async (label, expression, ms = 60000) => {
 await send("Runtime.enable");
 await send("Page.enable");
 await send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
+	localStorage.setItem(${JSON.stringify(SCENES_STORAGE_KEY)}, JSON.stringify({
+		version: 5, activeSceneId: "ghosts", scenes: [{ id: "ghosts", name: "Ghosts QA", objects: [],
+			stage: { characters: [{ id: "char-a", model: "y-bot-tpose", x: 0, z: 0, rot: 0, hidden: false, pose: null, subject: "a person" }],
+				hasCharSheet: false, shotAspect: "16:9" } }]
+	}));
+})()` });
 await evaluate(`localStorage.setItem("cozyclay.theme.v1", "light"); location.reload()`);
-await sleep(1500);
 await waitFor("the studio QA hook", "Boolean(window.__cozyclay?.runStudioAction && window.__cozyclay.captureFraming && window.__cozyclay.rigA)");
 
 const act = (id, args) => evaluate(`(async () => { try {
@@ -108,6 +115,17 @@ await act("view.select", { selection: { kind: "character", id: characterId } });
 await evaluate(`window.__cozyclay.frameEditorCam({ x: -1.7, y: 2.1, z: 3.6 }, { x: 0.05, y: 0.95, z: 0.2 })`);
 await evaluate("window.__cozyclay.scrub(47)");
 await frames(4);
+// motion.compile publishes an installed draft that intentionally fades for 1200 ms
+// (draft-ghost.js). Compare onion skins against the settled viewport, not that animation.
+await evaluate(`new Promise((resolve, reject) => {
+	let frame;
+	const timer = setTimeout(() => { cancelAnimationFrame(frame); reject(new Error("timed out waiting for the draft ghost to hide")); }, 60000);
+	const check = () => {
+		if (!window.__cozyclayDraftGhost?.on) { clearTimeout(timer); resolve(); }
+		else frame = requestAnimationFrame(check);
+	};
+	check();
+})`);
 await paneStats("keep");
 assert.equal((await ghosts())?.inScene ?? false, false, "off by default: nothing in the scene");
 const on = await act("view.setGhosts", { mode: "step", count: 3, step: 4 });
