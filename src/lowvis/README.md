@@ -47,33 +47,53 @@ export const LOOKS = { box, capsule, stick, man, woman, block };  // each: ({ ti
 
 A lowvis clip becomes ordinary Studio scene content (`install.js`): each prop a Studio object (a prop that moves
 rides a track of a take), each character an X Bot cast member whose take is the clip's motion (`take.js`: exact,
-because the 17 joints are X Bot bones). `skin.jsx` draws the block look over rig characters from their bones.
+because the 17 joints are X Bot bones). `skin.jsx` draws the block figure over every X Bot character from its bones;
+a new character is an X Bot, so the block figure is the one look of rig characters.
+
+The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, tops })`): the Studio's objects as boxes,
+each the object's own box turned about Y as the object stands (`turn`), with the flat heights it offers (`tops`, from
+`tops.js` over the editor's describe answer); the X Bot characters, and Y Bot characters at scale 1, which the install
+changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."). Capsule
+figures, imported rigs and rigs at another scale cannot be animated and stand as they are; the request says so. An
+existing character loses its root path before its new take goes in.
 
 The motion door. The Studio's default agent has one tool for body motion, `motion { request, images? }`
 (`bin/agent/motion-door.mjs`). It hands the user's words to `runMotion` (`bin/agent/motion-run.mjs`): the editor's
-describe answer becomes the props and characters of the scene (`scene.js`), the motion writer (`src/lowvis/pi/harness.mjs`,
+describe answer becomes the props and characters of the scene, the motion writer (`src/lowvis/pi/harness.mjs`,
 claude-opus-5-5 at effort medium on CLIProxyAPI, variant `studio`) writes and checks the motion, and the clip is
 installed. The tool answers the motion writer's report, which ends with a Missing line; the agent repeats it. Pictures
 the user attached go along when the agent sets `images: true`. The scene and spec of the conversation's last motion
 go with the next request. The agent's prompt under this engine has no guidance for the old motion engine
 (`bin/agent/studio-prompt-lowvis.mjs`), and the old motion and hand-fix actions are out of its view
 (`bin/agent/agent-view.mjs`, `HIDDEN_ACTIONS` in `bin/agent/motion-engine.mjs`); the editor and MCP keep them.
-In task mode a motion is an ordinary task whose agent calls the same tool; in a task the tool adds no character or
-prop (`bin/agent/main-prompt.mjs` rule 8).
+In task mode a motion is an ordinary task whose agent calls the same tool. In a task the tool adds no character or
+prop: a motion that needs one the scene does not have is not installed and the task is told to build it first. The
+task's summary carries the Missing line of its last motion call (`missing`), and the coordinator repeats it
+(`bin/agent/main-prompt.mjs` rule 8).
 
 Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent sidecar):
 
-- `COZYCLAY_MOTION_ENGINE=old`: the old motion engine comes back: the old prompt byte for byte, every action in view,
-  the v4 entries in the model picker and its motion tasks. Unset or anything else: the lowvis engine.
+- `COZYCLAY_MOTION_ENGINE=old`: the old motion engine comes back: the old prompt, every action in view, the v4
+  entries in the model picker and its motion tasks. Unset or anything else: the lowvis engine.
 - `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
-  straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`). `tools/lowvis/pi/try.mjs`
-  sets it for the Studio it starts.
+  straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`).
 - `COZYCLAY_MOTION_OFF=pace,turn,tops`: engine steps of the lowvis engine switched off by name
-  (`src/lowvis/pi/prompt.mjs` `OFF`).
+  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, flat heights.
 
-`node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs` starts the dev server with the agent sidecar (live hub on its
-own port, sidecar files in `lowvis-out/studio-config`). `/app/?lowvis[=<port>]` adds a prototype request box on the
-stage that asks `try.mjs` (default port 5201) and installs the finished clip.
+`node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs [--viewer <port>] [--live <port>] [--no-direct]` starts the dev
+Studio with the agent sidecar (live hub on its own port, sidecar files in `lowvis-out/studio-config`) and sets
+`COZYCLAY_MOTION_DIRECT=on` unless `--no-direct`. Requests go through the Studio's Agent box; there is no separate
+request panel.
+
+## Not done
+
+- Fingers and wrists: the hand is one piece.
+- Collisions between bodies and props, other than what an action aims at.
+- Attaching a prop to a body point, doors, support by a body point, stepping onto heights, pre-roll, elbow and knee
+  direction.
+- A block woman, a look per character, a look picker.
+- Removing the old motion engine (`src/motion3`, `src/motion-v4`, `bin/agent/v4`, `mcp/motionbricks`): it stays and
+  comes back with `COZYCLAY_MOTION_ENGINE=old`.
 
 ## Recorder
 
