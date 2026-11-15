@@ -65,11 +65,9 @@ export const EXECUTION_TELEMETRY_VALUES = Object.freeze({
 	outcome: new Set(["succeeded", "failed", "uncertain", "cancelled"]),
 });
 
-// Closed values for the storyboard and capsule-figure events. Counts only: no
-// caption, name, prompt or id ever rides along.
-const PREVIS_PROPERTY_VALUES = Object.freeze({
-	source: new Set(["agent", "manual"]),
-	outcome: new Set(["ok", "error"]),
+// Closed values for the capsule-figure events. Counts only: no name, prompt or
+// id ever rides along.
+const CAST_PROPERTY_VALUES = Object.freeze({
 	surface: new Set(["assets", "agent", "mcp"]),
 });
 
@@ -90,8 +88,8 @@ export const EDIT_GROUPS = Object.freeze({
 export const EDIT_BUCKET_KEYS = Object.freeze(Object.keys(EDIT_GROUPS).map((group) => `${group}_edit_bucket`));
 export const USE_CASE_VALUES = Object.freeze(["animation", "film", "game", "ad_mv", "personal", "other", "skip"]);
 export const TEAM_VALUES = Object.freeze(["team", "solo", "skip"]);
-// Mirror PREVIS_MODES and CAST_STYLES in project.js; kept local so analytics stays import-light.
-export const PREVIS_MODE_VALUES = new Set(["storyboard", "animation"]), CAST_STYLE_VALUES = new Set(["rig", "capsule", "hybrid"]);
+// Mirror CAST_STYLES in project.js; kept local so analytics stays import-light.
+export const CAST_STYLE_VALUES = new Set(["rig", "capsule", "hybrid"]);
 export const UPDATE_STATUS_VALUES = Object.freeze(["latest", "outdated", "unknown"]);
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze([
 	"https://cozyclay.org",
@@ -112,9 +110,7 @@ const EVENT_PROPERTIES = Object.freeze({
 	"hosted:ticket_created": [],
 	"hosted:result_opened": [],
 	"hosted:opened_in_studio": [],
-	"scene:created": ["scene_source", "previs_mode", "cast_style"],
-	"storyboard:panel_created": ["source"],
-	"storyboard:panel_stylized": ["outcome"],
+	"scene:created": ["scene_source", "cast_style"],
 	"cast:proxy_added": ["surface"],
 	"scene:loaded": ["scene_source"],
 	"project:saved": ["object_count_bucket", "shot_count_bucket"],
@@ -311,8 +307,8 @@ export function sanitizeProps(event, props) {
 			else if (key === "had_target" && typeof value === "boolean") sanitized[key] = value;
 			continue;
 		}
-		if ((key === "previs_mode" && !PREVIS_MODE_VALUES.has(props[key])) || (key === "cast_style" && !CAST_STYLE_VALUES.has(props[key]))) continue;
-		if ((event.startsWith("storyboard:") || event.startsWith("cast:")) && !PREVIS_PROPERTY_VALUES[key]?.has(props[key])) continue;
+		if (key === "cast_style" && !CAST_STYLE_VALUES.has(props[key])) continue;
+		if (event.startsWith("cast:") && !CAST_PROPERTY_VALUES[key]?.has(props[key])) continue;
 		if (event === "survey:use_case") {
 			if (key === "use_case" && !USE_CASE_VALUES.includes(props[key])) continue;
 			if (key === "team" && !TEAM_VALUES.includes(props[key])) continue;

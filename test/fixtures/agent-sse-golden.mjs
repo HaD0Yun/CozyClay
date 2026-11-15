@@ -97,38 +97,9 @@ async function recordStudio() {
 	);
 }
 
-async function recordStoryboard() {
-	const fakeLive = {
-		command: async (name) => ({ ok: true, commandId: `${name}-command`, receiptId: `${name}-receipt`, status: "applied", authored: true, action: name, summary: `Applied ${name}.`, revision: { before: 41, after: 42 }, affectedIds: [], delta: [], checks: {}, undo: { historyEntryId: `${name}-history`, entries: 1, canUndoDirect: true }, warnings: [], ops: [] }),
-		workspaceId: () => "tab-7",
-		resolveWorkspace: () => "handle-12",
-		handleForWorkspaceId: () => "handle-12",
-		connected: true,
-		workspaceHandles: ["handle-12"],
-	};
-	const fakeModel = createFakeModel();
-	fakeModel.script([
-		{ type: "toolCall", id: "b1", name: "run_action", arguments: { action: "shot.createStill", args: { caption: "Two people at a table" } } },
-		{ type: "toolCall", id: "b2", name: "run_action", arguments: { action: "character.add", args: { character: { id: "person-a", model: "proxy-figure", posture: "sit", x: -1, z: 0 } } } },
-		{ type: "toolCall", id: "b3", name: "run_action", arguments: { action: "character.add", args: { character: { id: "person-b", model: "proxy-figure", posture: "sit", x: 1, z: 0 } } } },
-		{ type: "toolCall", id: "b4", name: "frame_shot", arguments: { subjectIds: ["person-a"], framing: { intent: { size: "medium shot", view: "front", level: "eye", side: "right" } } } },
-		{ type: "toolCall", id: "b5", name: "verify_result", arguments: { targets: ["person-a", "person-b"], checks: ["placement", "framing"] } },
-		{ type: "text", text: "Panel created and verified." },
-	]);
-	const auth = { getAccessToken: async () => "token" };
-	const codex = { parseQuotaHeaders: () => ({ planType: "Plus", primary: {}, credits: { hasCredits: true } }) };
-	const base = contextFixture();
-	const storyboard = { ...base, scene: { ...base.scene, previsMode: "storyboard" }, capabilities: { ...base.capabilities, storyboard: true } };
-	return collectTurn(
-		{ auth, codex, models: fakeModel.models, fauxProvider: fakeModel.fauxProvider, liveHub: fakeLive, studioRuntime: { readContext: async () => storyboard } },
-		{ ...envelopeFixture(), context: storyboard, text: "two people at a table", model: "faux/scripted" },
-	);
-}
-
 export async function recordGolden() {
 	process.env.COZYCLAY_AGENT_SESSIONS_DIR = mkdtempSync(join(tmpdir(), "cozyclay-agent-sse-golden-"));
 	const W = (await recordWorkflow()).map(normaliseFrame);
 	const S = (await recordStudio()).map(normaliseFrame);
-	const B = (await recordStoryboard()).map(normaliseFrame);
-	return { W, S, B };
+	return { W, S };
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { fixture, result, sample } from './fixture.mjs';
 import { STUDIO_ACTIONS } from '../../src/studio-actions.js';
-const confirm = new Set(['scene.delete', 'export.shotVideo', 'project.save', 'project.exportAsAnimation']);
+const confirm = new Set(['scene.delete', 'export.shotVideo', 'project.save']);
 for (const action of STUDIO_ACTIONS) {
   const f = fixture(); let calls = 0;
   f.register(action.id, () => { calls++; if (action.kind === 'mutation') f.edit(1); return result(); });

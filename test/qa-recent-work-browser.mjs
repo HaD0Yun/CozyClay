@@ -123,7 +123,7 @@ await evaluate(`(async () => {
 	const base = JSON.parse(await window.__cozyclayProject.export("seed"));
 	const root = await navigator.storage.getDirectory();
 	const now = Date.now();
-	const demos = [["alley_chase", 25 * 60e3, { scenes: 3, shots: 12, previsMode: "animation", castStyle: "hybrid" }], ["rooftop_fight", 5 * 3600e3, { scenes: 2, shots: 7, previsMode: "animation", castStyle: "rig" }], ["cafe_board", 2 * 86400e3, null]];
+	const demos = [["alley_chase", 25 * 60e3, { scenes: 3, shots: 12, castStyle: "hybrid" }], ["rooftop_fight", 5 * 3600e3, { scenes: 2, shots: 7, castStyle: "rig" }], ["cafe_board", 2 * 86400e3, null]];
 	const recents = [];
 	for (const [name, ago, summary] of demos) {
 		const handle = await root.getFileHandle(name + ".cclayproject", { create: true });
@@ -140,7 +140,7 @@ await reload();
 expect("the list shows the three projects newest first", await waitFor("document.querySelectorAll('.v2-start-work-row').length === 3"), JSON.stringify(await rowNames()));
 expect("rows are in recents order", JSON.stringify(await rowNames()) === JSON.stringify(["alley_chase", "rooftop_fight", "cafe_board"]), JSON.stringify(await rowNames()));
 expect("the count badge reads 3", (await evaluate("document.querySelector('.v2-start-work-title small')?.textContent")) === "3");
-expect("a stored summary shows scenes and shots", /3 scenes · 12 shots · Animation/.test(await evaluate("document.querySelector('[data-recent-key=recent-alley_chase] .v2-start-work-copy span')?.textContent || ''")));
+expect("a stored summary shows scenes and shots", /^3 scenes · 12 shots$/.test(await evaluate("document.querySelector('[data-recent-key=recent-alley_chase] .v2-start-work-copy span')?.textContent || ''")));
 expect("a record without a summary is read from its file (one scene, no shots)", await waitFor("/^1 scene · 0 shots/.test(document.querySelector('[data-recent-key=recent-cafe_board] .v2-start-work-copy span')?.textContent || '')"));
 expect("relative time reads minutes ago", /minute/.test(await evaluate("document.querySelector('[data-recent-key=recent-alley_chase] time')?.textContent || ''")));
 await screenshot("recent-work-list-light.png");

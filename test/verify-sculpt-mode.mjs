@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * verify-sculpt-mode (#739): the pure parts of Sculpt mode — the fifth mode on
- * key 5 in both previs modes, the isolation helper, turntable framing, the
+ * key 5, the isolation helper, turntable framing, the
  * Place in scene placement, and the command tap a sculpt run listens to.
  */
 import assert from "node:assert/strict";
@@ -12,9 +12,8 @@ import { readFileSync } from "node:fs";
 const toolbar = readFileSync(new URL("../src/shell/ViewportToolbar.jsx", import.meta.url), "utf8");
 const modesBlock = toolbar.match(/const MODES = \[([\s\S]*?)\n\];/)?.[1] ?? "";
 const WORKFLOW_MODES = [...modesBlock.matchAll(/\{ id: "(\w+)", key: "(\d)"/g)].map(([, id, key]) => ({ id, key }));
-// The storyboard rule, as the toolbar states it (verify-layout pins the text).
-assert.ok(toolbar.includes('previsMode === "storyboard" ? MODES.filter((mode) => mode.id !== "motion") : MODES'));
-const modesFor = (previsMode) => (previsMode === "storyboard" ? WORKFLOW_MODES.filter((mode) => mode.id !== "motion") : WORKFLOW_MODES);
+// Every mode is offered (verify-layout pins the text).
+assert.ok(toolbar.includes("{MODES.map((mode) => {"));
 const {
 	SCULPT_LAYER, SCULPT_VIEWS, agentSessionReady, chatgptSignedIn, createCommandTap, isolatedObjectIds,
 	sculptAgentClient, sculptFraming, sculptPlacement, sculptTargetFromSelection,
@@ -34,11 +33,6 @@ const close = (actual, expected, label) => assert.ok(Math.abs(actual - expected)
 
 check("the mode list ends with Sculpt on key 5", () => {
 	assert.deepEqual(WORKFLOW_MODES.map((mode) => [mode.id, mode.key]), [["scene", "1"], ["pose", "2"], ["camera", "3"], ["motion", "4"], ["sculpt", "5"]]);
-});
-
-check("a storyboard keeps Sculpt and drops only Motion", () => {
-	assert.deepEqual(modesFor("storyboard").map((mode) => mode.id), ["scene", "pose", "camera", "sculpt"]);
-	assert.deepEqual(modesFor("animation").map((mode) => mode.id), ["scene", "pose", "camera", "motion", "sculpt"]);
 });
 
 check("App binds Digit5 to sculpt", () => {

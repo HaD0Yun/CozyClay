@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	CAST_STYLES, DEFAULT_CAST_STYLE, normalizeCastStyle, createProjectDocument, readProjectDocument,
-	buildAnimationProjectFromStoryboard, storeProjectSession, loadProjectSession,
+	animationCopyOfStoryboard, storeProjectSession, loadProjectSession,
 } from "../src/project.js";
 import { createSceneDocument, PROXY_FIGURE_MODEL } from "../src/scenes.js";
 import * as protocol from "../src/studio-agent-protocol.js";
@@ -39,16 +39,16 @@ test("the project file writes castStyle and an old file without it opens as hybr
 	assert.equal(readProjectDocument(JSON.stringify(legacy)).project.castStyle, "hybrid", "a file from before the choice opens as hybrid");
 	assert.equal(readProjectDocument(JSON.stringify({ ...written, castStyle: "giant" })).project.castStyle, "hybrid", "an unknown style reads as hybrid");
 	assert.equal(createProjectDocument({ scenesDocument, name: "Default" }).castStyle, "hybrid");
-	const storyboard = readProjectDocument(JSON.stringify(createProjectDocument({ scenesDocument, name: "Boards", previsMode: "storyboard", castStyle: "rig" }))).project;
-	assert.equal(buildAnimationProjectFromStoryboard(storyboard).castStyle, "rig", "Export as animation keeps the cast style");
+	const storyboard = readProjectDocument(JSON.stringify({ ...createProjectDocument({ scenesDocument, name: "Boards", castStyle: "rig" }), previsMode: "storyboard" })).project;
+	assert.equal(animationCopyOfStoryboard(storyboard).castStyle, "rig", "the animation copy of a storyboard file keeps the cast style");
 });
 
-test("the session record keeps castStyle beside previsMode", () => {
+test("the session record keeps castStyle", () => {
 	const storage = memoryStorage();
-	assert.equal(storeProjectSession("Boards", { previsMode: "storyboard", castStyle: "capsule" }, storage), true);
-	assert.deepEqual(({ ...loadProjectSession(storage), updatedAt: 0 }), { name: "Boards", previsMode: "storyboard", castStyle: "capsule", updatedAt: 0 });
-	assert.equal(storeProjectSession("Clips", "animation", storage), true);
-	assert.equal(loadProjectSession(storage).castStyle, "hybrid", "a previs-mode-only call stores the default style");
+	assert.equal(storeProjectSession("Boards", { castStyle: "capsule" }, storage), true);
+	assert.deepEqual(({ ...loadProjectSession(storage), updatedAt: 0 }), { name: "Boards", castStyle: "capsule", updatedAt: 0 });
+	assert.equal(storeProjectSession("Clips", undefined, storage), true);
+	assert.equal(loadProjectSession(storage).castStyle, "hybrid", "a call without a style stores the default style");
 });
 
 test("project.new, the agent context and analytics mirror CAST_STYLES", () => {
@@ -59,7 +59,7 @@ test("project.new, the agent context and analytics mirror CAST_STYLES", () => {
 	assert.deepEqual(protocol.StudioSchemas.StudioContextV1.properties.scene.properties.castStyle.enum, [...CAST_STYLES], "protocol mirrors CAST_STYLES");
 	assert.equal(protocol.StudioSchemas.StudioContextV1.properties.scene.required.includes("castStyle"), false, "castStyle is optional in the context");
 	assert.deepEqual([...CAST_STYLE_VALUES], [...CAST_STYLES], "analytics mirrors CAST_STYLES");
-	assert.deepEqual(sanitizeProps("scene:created", { scene_source: "new_project", previs_mode: "animation", cast_style: "capsule" }), { scene_source: "new_project", previs_mode: "animation", cast_style: "capsule" });
+	assert.deepEqual(sanitizeProps("scene:created", { scene_source: "new_project", previs_mode: "animation", cast_style: "capsule" }), { scene_source: "new_project", cast_style: "capsule" });
 	assert.equal(sanitizeProps("scene:created", { scene_source: "new_project", cast_style: "giant" }).cast_style, undefined, "an unknown style is dropped");
 });
 

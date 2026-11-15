@@ -348,24 +348,16 @@ expect(
   scrollRules.join(" | ").slice(0, 200),
 );
 
-// #650: the project's previs mode gates the shell. A storyboard drops Motion
-// from the mode pill, key 4, the Generate group, root-path authoring and the
-// motion timeline tools; the root carries the mode for the CSS gates.
+// No project mode gates the shell any more: no previs mode attribute, badge or storyboard CSS.
 const shellSource = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const appSource = shellSource("../src/App.jsx");
 const viewportToolbar = shellSource("../src/shell/ViewportToolbar.jsx");
 const topBar = shellSource("../src/shell/TopBar.jsx");
 const modeCss = shellSource("../src/shell/mode.css");
-expect("the studio root carries data-previs-mode beside data-workflow-mode", appSource.includes("data-workflow-mode={workflowMode} data-previs-mode={scenesDomain.previsMode}"));
-expect("the mode pill drops Motion in a storyboard", viewportToolbar.includes('previsMode === "storyboard" ? MODES.filter((mode) => mode.id !== "motion") : MODES') && viewportToolbar.includes("modesFor(previsMode).map("));
-expect("key 4 is ignored in a storyboard", appSource.includes('if (modeKey === "motion" && storyboardProject) return;'));
-expect("selectWorkflowMode refuses Motion in a storyboard with the shared toast", appSource.includes('if (next === "motion" && storyboardProject) {') && appSource.includes("setToast(ko(STORYBOARD_MOTION_REFUSAL.en, STORYBOARD_MOTION_REFUSAL.ko, STORYBOARD_MOTION_REFUSAL.zh))"));
-expect("the project head always shows the mode badge", topBar.includes('data-testid="topbar-previs-mode"') && topBar.includes("<PrevisModeBadge mode={previsMode} />") && !topBar.includes("previsEnabled"));
-expect("waypoint authoring and Top-View path drawing stay off in a storyboard", appSource.includes("toggleWaypointMode: storyboardProject ? undefined : toggleWaypointMode") && appSource.includes("if (waypointMode) setWaypointMode(false);") && appSource.includes("if (pathDraw) setPathDraw(false);"));
-expect(
-	"storyboard CSS hides the motion/pose tools, the waypoint switch and the prop path track",
-	[".tl-motion-tools", ".tl-pose-tools", ".tl-btn.wp", ".tl-wp-hint", ".tl-track.objmo"].every((selector) => modeCss.includes(`.app[data-previs-mode="storyboard"] ${selector}`)),
-);
+expect("the studio root carries no data-previs-mode", !appSource.includes("data-previs-mode"));
+expect("the mode pill shows every mode", viewportToolbar.includes("{MODES.map((mode) => {") && !viewportToolbar.includes("previsMode"));
+expect("the project head has no mode badge", !topBar.includes("topbar-previs-mode") && !topBar.includes("PrevisModeBadge"));
+expect("no storyboard CSS gate is left", !modeCss.includes("data-previs-mode"));
 
 // Add > Camera toasts the shot it made (its name and start frame); a refusal leaves the toast to runStudioAction.
 const addCameraShot = readFileSync(new URL("../src/shell/add-camera-shot.js", import.meta.url), "utf8");

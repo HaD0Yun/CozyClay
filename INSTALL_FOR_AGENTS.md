@@ -108,8 +108,7 @@ one).
 Motion is compiled in the browser, not generated. You write a motion spec (key poses, hand
 anchors, props, walks), compile it with `motion.compile`, and read the QA report (collisions, foot
 slide, reach, contacts). Spec format and loop: [`docs/motion3-agent-guide.md`](docs/motion3-agent-guide.md).
-Motion works on rigged characters in Animation projects. Capsule figures and Storyboard projects
-refuse it with `TARGET_NOT_READY` or `NOT_IN_MODE`.
+Motion works on rigged characters. Capsule figures refuse it with `TARGET_NOT_READY`.
 
 ## 5. Agent panel models (optional)
 

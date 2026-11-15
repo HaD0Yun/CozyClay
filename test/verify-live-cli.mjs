@@ -362,10 +362,10 @@ try {
 	assert.equal(readProjectDocument(readFileSync(projectPath, "utf8")).ok, true);
 	assert.equal((await run(["save"])).code, 2);
 	assert.equal((await run(["save", "--out", join(scratch, "bad.json")])).code, 2);
-	const richer = { ...describeValue(), name: "Full project", previsMode: "storyboard", workspaceLayout: { panels: [] }, customPoses: [{ id: "pose-a", name: "Pose A", bones: {} }] };
+	const richer = { ...describeValue(), name: "Full project", workspaceLayout: { panels: [] }, customPoses: [{ id: "pose-a", name: "Pose A", bones: {} }] };
 	const richProject = readProjectDocument(serializeSavedProject(richer));
 	assert.equal(richProject.ok, true);
-	assert.equal(richProject.project.previsMode, "storyboard");
+	assert.equal(richProject.project.wasStoryboard, undefined);
 	assert.deepEqual(richProject.project.workspaceLayout, richer.workspaceLayout);
 	assert.deepEqual(richProject.project.customPoses, richer.customPoses);
 	// Installed CLI files have neither .git nor scene-model dependencies. They

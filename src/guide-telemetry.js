@@ -1,13 +1,13 @@
 // guide:opened, guide:step, guide:dismissed, guide:completed: the first-60-seconds
-// guide (first-success-guide.jsx) as a funnel. The mode and step numbers are the
-// component's own (its STEPS_BY_MODE keys, 1-based step index); each event and step
+// guide (first-success-guide.jsx, mode "animation") and the camera tutorial (mode
+// "camera") as funnels, with a 1-based step index; each event and step
 // is sent at most once per session. Only the mode, a step number and a duration
 // bucket leave: never step text or what the user did.
 import { initAnalytics, track } from "./analytics.js";
 import { admit } from "./analytics-friction.js";
 import { bucketLong } from "./analytics-strict.js";
 
-const GUIDE_MODES = Object.freeze(["animation", "storyboard", "camera"]);
+const GUIDE_MODES = Object.freeze(["animation", "camera"]);
 const GUIDE_STEP_VALUES = Object.freeze(["1", "2", "3", "4", "5", "6", "7", "8"]);
 
 // The guide can open before the SDK has loaded; initAnalytics() is idempotent (main.jsx started

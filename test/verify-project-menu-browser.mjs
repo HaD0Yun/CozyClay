@@ -197,19 +197,7 @@ expect(
 	await waitFor("!document.querySelector('.project-browser') && (document.querySelector('.project-menu-trigger')?.textContent || '').includes('sample_create_check')"),
 );
 
-/* ------------------------ storyboard animation export ------------------ */
-await evaluate(`(() => {
-	const original = URL.createObjectURL.bind(URL);
-	const blobs = new Map();
-	URL.createObjectURL = blob => { const href = original(blob); blobs.set(href, blob); return href; };
-	window.__animationDownload = null;
-	const click = HTMLAnchorElement.prototype.click;
-	HTMLAnchorElement.prototype.click = function () {
-		if (this.download) window.__animationDownload = { name: this.download, blob: blobs.get(this.href) };
-		else click.call(this);
-	};
-	return true;
-})()`);
+/* ------------------- an old storyboard file opens as a copy ------------- */
 await evaluate(`(async () => {
 	const project = JSON.parse(await window.__cozyclayProject.export("Storyboard QA"));
 	project.name = "Storyboard QA";
@@ -218,7 +206,7 @@ await evaluate(`(async () => {
 	scene.objects = [];
 	project.resources = { assets: [], motions: [] };
 	scene.shotDocument = {
-		version: 5,
+		version: 6,
 		frameCount: 144,
 		waypoints: [],
 		shots: [0, 1, 2].map(index => ({
@@ -238,43 +226,19 @@ await evaluate(`(async () => {
 	return true;
 })()`);
 expect(
-	"the storyboard fixture opens with three still shots",
+	"the storyboard file opens as an animation copy with three plain shots",
 	await waitFor(`(async () => {
 		const project = JSON.parse(await window.__cozyclayProject.export());
 		const scene = project.scenes.scenes.find(row => row.id === project.scenes.activeSceneId) || project.scenes.scenes[0];
-		return project.previsMode === "storyboard" && scene.shotDocument.shots.length === 3 && scene.shotDocument.shots.every(shot => shot.kind === "still");
+		return !("previsMode" in project) && scene.shotDocument.shots.length === 3 && scene.shotDocument.shots.every(shot => !("kind" in shot) && !("caption" in shot));
 	})()`),
 );
+expect("the copy carries the new name", await waitFor("(document.querySelector('.project-menu-trigger')?.textContent || '').includes('Storyboard QA - Animation')"));
+expect("one toast says it is a copy", await waitFor("[...document.querySelectorAll('.toast, [role=status]')].some((node) => node.textContent.includes('This is a copy: the original file is unchanged.'))"));
 await clickAt(await rectCentre("[data-testid=menu-file]"));
-expect("storyboard File menu shows Export as Animation project", await waitFor("!!document.querySelector('[data-testid=export-animation-project]')"));
-const happyShot = await screenshot("task-17-previs-modes");
-console.log(`QA_SCREENSHOT ${happyShot}`);
-await evaluate("window.showSaveFilePicker = undefined; window.showOpenFilePicker = undefined; true");
-await evaluate("document.querySelector('[data-testid=export-animation-project]')?.click()");
-await evaluate("(async () => { await window.__cozyclay.runStudioAction('project.exportAsAnimation'); return true; })()");
-expect("animation project export downloads the suffixed project", await waitFor("!!window.__animationDownload"));
-const exported = await evaluate(`(async () => {
-	const download = window.__animationDownload;
-	return { name: download?.name, project: download?.blob ? JSON.parse(await download.blob.text()) : null };
-})()`);
-expect("download filename is <name> - Animation.cclayproject", exported?.name === "Storyboard QA - Animation.cclayproject");
-expect("download contains three clip shots and keeps the storyboard open", exported?.project?.previsMode === "animation" && exported.project.scenes.scenes[0].shotDocument.shots.length === 3 && exported.project.scenes.scenes[0].shotDocument.shots.every(shot => shot.kind === "clip"));
-expect("the source tab remains a clean storyboard", await evaluate(`(async () => {
-	const project = JSON.parse(await window.__cozyclayProject.export());
-	return project.previsMode === "storyboard" && !document.querySelector('[data-testid=project-save-status]')?.textContent.includes("Unsaved");
-})()`));
-
-await evaluate(`(async () => {
-	const project = JSON.parse(await window.__cozyclayProject.export("Animation QA"));
-	project.name = "Animation QA";
-	project.previsMode = "animation";
-	await window.__cozyclayProject.open(JSON.stringify(project));
-	return true;
-})()`);
-await clickAt(await rectCentre("[data-testid=menu-file]"));
-expect("animation File menu hides Export as Animation project", !(await evaluate("!!document.querySelector('[data-testid=export-animation-project]')")));
-const failureShot = await screenshot("task-17-animation-menu-absent");
-console.log(`QA_SCREENSHOT ${failureShot}`);
+expect("the File menu has no Export as Animation project", !(await evaluate("!!document.querySelector('[data-testid=export-animation-project]')")));
+const copyShot = await screenshot("storyboard-open-as-copy");
+console.log(`QA_SCREENSHOT ${copyShot}`);
 
 ws.close();
 if (failures > 0) {

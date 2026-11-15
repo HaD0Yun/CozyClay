@@ -56,9 +56,7 @@ expect(`${SWITCH} is exported and ships off`, switchModule[SWITCH] === false);
 
 // Both shell components read the SAME constant from the same module.
 const menuBar = inspect("src/shell/MenuBar.jsx");
-const boardSlot = inspect("src/shell/BoardSlot.jsx");
 expect(`the menu bar reads ${SWITCH} from ${SWITCH_MODULE}`, menuBar.switchImports.length === 1 && menuBar.switchImports[0] === "../workflow-entry.js");
-expect(`the panel card reads ${SWITCH} from ${SWITCH_MODULE}`, boardSlot.switchImports.length === 1 && boardSlot.switchImports[0] === "../workflow-entry.js");
 
 // Window menu: the Workflow link and the separator that only set it apart
 // from the Agent item render only under the switch.
@@ -68,14 +66,6 @@ const windowSeparators = windowMenu.filter(({ node }) => node.openingElement.nam
 expect("the Window menu's Workflow link code stays in place", workflowLinks.length === 1 && attr(workflowLinks[0].node, "href") === "/workflow/");
 expect("the Window menu's Workflow link renders only under the switch", workflowLinks.length > 0 && workflowLinks.every(({ ancestors }) => underSwitch(ancestors)));
 expect("the Window menu leaves no separator outside the switch", windowSeparators.every(({ ancestors }) => underSwitch(ancestors)));
-
-// Panel card: the "Send to Workflow" button and its stylized/greybox send menu.
-const sendButtons = boardSlot.elements.filter(({ node }) => attr(node, "data-action") === "workflow");
-const sendMenus = boardSlot.elements.filter(({ node }) => attr(node, "className") === "dock-board-menu");
-const sendSources = boardSlot.elements.filter(({ node }) => ["stylized", "greybox"].includes(attr(node, "data-send-source")));
-expect("the panel card's Send to Workflow code stays in place", sendButtons.length === 1 && sendMenus.length === 1 && sendSources.length === 2);
-expect("the panel card's Send to Workflow button renders only under the switch", sendButtons.length > 0 && sendButtons.every(({ ancestors }) => underSwitch(ancestors)));
-expect("the panel card's send menu renders only under the switch", sendMenus.length > 0 && [...sendMenus, ...sendSources].every(({ ancestors }) => underSwitch(ancestors)));
 
 if (failures) {
 	console.error(`${failures} Workflow entry check(s) failed`);

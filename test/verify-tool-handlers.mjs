@@ -34,7 +34,6 @@ const MEMORY_ONLY_TOOLS = new Set(["live_status"]);
 const REVISION = /revision: [0-9a-f]{12}/g;
 const DESCRIBE_SCENE_REPORT = `Project: Untitled
 Scene: SCENE 01  (1 scene in project)
-previsMode: animation
 
 CAMERA
   position   x 0  y 1.6  z 4.5

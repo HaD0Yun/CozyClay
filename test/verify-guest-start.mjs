@@ -51,7 +51,7 @@ const controls = readFileSync(new URL("../src/controls.jsx", import.meta.url), "
 expect("the fly camera reports look, walk, dolly and orbit", controls.includes('announceNav("walk", key)') && controls.includes("announceNav(kind)") && controls.includes('announceNav("dolly")'));
 for (const selector of [".tl-track.shots .tl-track-add", ".tl-shot-edge.end", ".tl-rail-draw", ".vp-inset", ".dock-shot-look", ".tl-transport .tl-btn.play"]) expect(`a beacon's target is named in the tutorial: ${selector}`, stepsSource.includes(selector));
 const telemetry = readFileSync(new URL("../src/guide-telemetry.js", import.meta.url), "utf8");
-expect("guide telemetry knows the camera tutorial and its eight steps", telemetry.includes('["animation", "storyboard", "camera"]') && telemetry.includes('["1", "2", "3", "4", "5", "6", "7", "8"]'));
+expect("guide telemetry knows the camera tutorial and its eight steps", telemetry.includes('["animation", "camera"]') && telemetry.includes('["1", "2", "3", "4", "5", "6", "7", "8"]'));
 expect("Play needs playback seen through the shot camera, not look-through alone", tutorial.includes('if (previewing && playing && next.has("rail")) next.add("play");'));
 expect("Length is done once a shot is longer than it was made", tutorial.includes('if (firstFrames && shotFrames > firstFrames) next.add("length");'));
 process.exit(failures ? 1 : 0);

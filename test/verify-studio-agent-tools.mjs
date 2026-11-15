@@ -22,7 +22,7 @@ const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-agent-sessions-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
 process.on("exit", () => rmSync(sessionDir, { recursive: true, force: true }));
 
-const CASES = new Set(["studio-tool-catalogue", "storyboard-tool-surface", "surface-context-and-images", "stale-host-and-post-install-rate-limit", "sequential-mutations-revision-chain", "external-revision-bump-refuses", "sequential-same-target-token-rotation", "rejection-receipt-surfaces-reason", "inspect-readmits-revision", "stale-scene-readmits-revision", "uncertain-apply-readmits-revision", "run-action-admission", "stale-scene-readmits-any-family", "run-action-job-timeout", "verify-motion-timeout", "scene-change-readmits-host"]);
+const CASES = new Set(["studio-tool-catalogue", "surface-context-and-images", "stale-host-and-post-install-rate-limit", "sequential-mutations-revision-chain", "external-revision-bump-refuses", "sequential-same-target-token-rotation", "rejection-receipt-surfaces-reason", "inspect-readmits-revision", "stale-scene-readmits-revision", "uncertain-apply-readmits-revision", "run-action-admission", "stale-scene-readmits-any-family", "run-action-job-timeout", "verify-motion-timeout", "scene-change-readmits-host"]);
 const index = process.argv.indexOf("--case");
 const selected = index >= 0 ? process.argv[index + 1] : null;
 if (selected && !CASES.has(selected)) { console.error(`unknown --case ${selected}`); process.exit(2); }
@@ -185,23 +185,6 @@ if (shouldRun("studio-tool-catalogue")) {
     assert.ok(/inspect_studio/.test(tool.description) && /resubmit|re-?issue/i.test(tool.description), `${tool.name} description teaches inspect-then-resubmit for STALE_SCENE`);
   }
   console.log("PASS the Studio tool list is exactly the nine families and patch_elements is admitted");
-}
-
-if (shouldRun("storyboard-tool-surface")) {
-  const { createStudioTools } = await import("../bin/agent/studio-tools.mjs");
-  const { STUDIO_ACTIONS } = await import("../src/studio-actions.js");
-  const { studioActionIndex } = await import("../src/studio-agent-context.js");
-  const liveHub = { command: async () => ({ ok: true, status: "applied", revision: { before: 1, after: 2 } }) };
-  const session = { admission: { commandId: () => "cmd-1", host: host(), revision: 1, refresh: async () => {} } };
-  const storyboardTools = createStudioTools({ liveHub, workspaceHandle: "handle-1", previsMode: "storyboard", session });
-  const animationTools = createStudioTools({ liveHub, workspaceHandle: "handle-1", previsMode: "animation", session });
-  assert.deepEqual(storyboardTools.map(tool => tool.name), STUDIO_TOOLS);
-  assert.deepEqual(animationTools.map(tool => tool.name), STUDIO_TOOLS);
-  const storyboardActions = studioActionIndex(STUDIO_ACTIONS, { previsMode: "storyboard" });
-  const animationActions = studioActionIndex(STUDIO_ACTIONS, { previsMode: "animation" });
-  assert(!storyboardActions.some(action => action.generation === "motion" || action.id.startsWith("motion.")));
-  assert.deepEqual(animationActions, studioActionIndex(STUDIO_ACTIONS));
-  console.log("PASS storyboard tools and actions match animation, with no motion actions in the catalogue");
 }
 
 if (shouldRun("run-action-admission")) {

@@ -76,7 +76,6 @@ for one launch; `cclay update --off` turns it off for good, and `cclay update --
 | **Move** | Describe the action. The agent writes a motion spec, and a deterministic compiler in the browser bakes every frame. QA checks collisions, foot slide, reach and hand contact before you see it. |
 | **Shoot** | Put shots on a timeline, draw dolly rails, look through the lens. Each shot knows the limits of the video model you target. |
 | **Export** | Keyframe pack (first and last frame, greybox clip, camera, prompt), mp4, depth and normal passes, contact sheet, OTIO cut list. |
-| **Storyboard** | Prefer stills? A Storyboard project is a row of panels with captions, an animatic and a contact sheet. |
 | **Undo anything** | Every edit, including each change the agent makes, is one undo step. |
 
 ## Direct it with AI

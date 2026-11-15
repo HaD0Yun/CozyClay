@@ -8,7 +8,6 @@ import * as protocol from "../src/studio-agent-protocol.js";
 import * as contextTools from "../src/studio-agent-context.js";
 import { STUDIO_ELEMENTS } from "../src/studio-elements.js";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
-import { PREVIS_MODES } from "../src/project.js";
 import { POSTURES } from "../src/scenes.js";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 import { validateToolArguments } from "@earendil-works/pi-ai";
@@ -110,9 +109,9 @@ function registerTests() {
 	test("D3 bogus typed object op, unknown nested fields and later variants cannot pass", () => {
 		for (const args of [{ ops: [{ op: "bogus" }] }, { ops: [] }, { ops: [createOp()], document: {} }, { ops: [{ ...createOp(), source: { imageId: "image-1", placeAs: "cutout" } }] }, { ops: [{ op: "attach", id: "a", characterId: "b", bone: null }] }, { ops: [{ ...createOp(), position: { world: { ...point(), password: "private" } } }] }, { ops: [{ op: "update", id: "a" }] }]) rejects(() => protocol.validateStudioCommand({ name: "arrange_objects", args }));
 	});
-	test("#637 context carries previsMode, character kind and storyboard capability, all optional", () => {
+	test("#637 context carries character kind; an older editor's previsMode and storyboard capability stay optional", () => {
 		const bare = contextFixture();
-		assert.deepEqual(protocol.StudioSchemas.StudioContextV1.properties.scene.properties.previsMode.enum, [...PREVIS_MODES], "protocol mirrors PREVIS_MODES");
+		assert.deepEqual(protocol.StudioSchemas.StudioContextV1.properties.scene.properties.previsMode.enum, ["storyboard", "animation"], "an older editor's previsMode still validates");
 		assert.deepEqual(protocol.StudioSchemas.Entity.properties.posture.enum, [...POSTURES], "protocol mirrors POSTURES");
 		assert.equal(protocol.validateStudioContext(bare).scene.previsMode, undefined, "a context without previsMode still validates");
 		const value = contextFixture();

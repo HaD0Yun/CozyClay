@@ -43,7 +43,7 @@ import { objectTransformAt } from '../src/object-path.js';
 import { dispatchLiveFrame } from '../src/live-control.js';
 import { studioBusy } from '../src/studio-busy.js';
 
-const cases = ['previs-mode-and-character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'still-frame-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
+const cases = ['character-kind', 'verify-plan-and-geometry', 'inspect-entity-transforms', 'targeted-commit-and-undo', 'stale-target-and-epoch', 'mid-gesture-target', 'lost-acknowledgement', 'camera-undo', 'held-shot-camera-key', 'clip-frame-shot-camera-key', 'rail-camera-undo', 'rail-camera-undo-after-object-undo', 'context-revisions', 'recreated-motion-read-and-verify', 'stale-receipt-undo', 'reverted-edit-invalidates-target', 'patch-character-tint-and-undo', 'patch-stage-key-light-and-undo', 'patch-partial-drop', 'patch-inside-agent-turn', 'patch-during-gesture', 'patch-shot-and-prompt-blocks', 'patch-stage-environment-text-and-undo', 'run-action-shot-create-and-undo', 'run-action-object-duplicate-and-undo', 'run-action-refusals', 'run-action-character-waypoints-and-undo', 'run-action-character-ik-keys-and-undo', 'run-action-object-attach-and-undo', 'ui-refusals-localized-or-silent', 'run-action-shot-camera-rail-and-undo', 'run-action-shot-camera-rail-aim-lens-and-key-stops', 'run-action-view-toggles', 'context-entity-index', 'context-character-names', 'context-assets', 'inspect-scopes', 'cursor-survives-edit', 'verify-stale-receipt', 'verify-result-targets', 'late-apply-inspect-patch', 'arrange-with-attached-prop', 'arrange-local-space', 'run-action-export-shot-video', 'run-action-scenes', 'run-action-project-save', 'run-action-asset-import-and-undo', 'run-action-ai-prepare-shot'];
 const argv = process.argv.slice(2);
 assert(!argv.length || (argv.length === 2 && argv[0] === '--case' && cases.includes(argv[1])), 'Unknown test arguments');
 import { readStudioSource } from './bus/verify-domain-modules.mjs';
@@ -147,7 +147,6 @@ function fixture(options={}) {
  scope.appContext=createAppContext({characters:characterRef,state:live,scenes:scope.scenesRef,getBus:()=>scope.studioBindingRef.current.bus,notify:(...args)=>scope.setToast(...args)}).forRender(scope);
  scope.stageDomain=scope;
  scope.scenesDomain=scope;
- scope.previsMode=options.previsMode;
  scope.shotsDomain=scope;
  scope.castDomain=scope;
  scope.motionDomain=scope;
@@ -421,22 +420,18 @@ const implementations={
   const refused=await f.call('verify_result',f.request('verify_result',{receiptId:shot.receiptId,checks:['framing'],visual:'plan'}));
   assert.equal(refused.code,'CAPABILITY_MISSING',JSON.stringify(refused));
  },
- async 'previs-mode-and-character-kind'(){
+ async 'character-kind'(){
   const proxy=createCharacterEntry({id:'actor-cap',model:'proxy-figure',x:2,z:2,posture:'lie'});
-  const g=fixture({previsMode:'storyboard',characters:[createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}),proxy]});
+  const g=fixture({characters:[createCharacterEntry({id:'actor-a',model:'y-bot-tpose',x:0,z:0}),proxy]});
   try{
    const c=g.binding.context();
-   assert.equal(c.scene.previsMode,'storyboard');
-   assert.equal(c.capabilities.storyboard,true);
+   assert.equal(c.scene.previsMode,undefined,'the editor no longer reports a previs mode');
+   assert.equal(c.capabilities.storyboard,undefined);
    const rigged=c.entities.find(e=>e.id==='actor-a'),proxy=c.entities.find(e=>e.id==='actor-cap');
    assert.deepEqual({kind:rigged.characterKind,posture:rigged.posture},{kind:'rig',posture:undefined});
    assert.deepEqual({kind:proxy.characterKind,posture:proxy.posture,rigReady:proxy.capabilities.rigReady},{kind:'proxy',posture:'lie',rigReady:false});
    assert.deepEqual(c.view.mode,'scene','tool modes are untouched');
   }finally{g.dispose();}
-  const h=fixture({previsMode:'animation'});
-  try{const c=h.binding.context();assert.equal(c.scene.previsMode,'animation');assert.equal(c.capabilities.storyboard,false);}finally{h.dispose();}
-  const bare=fixture();
-  try{const c=bare.binding.context();assert.equal(c.scene.previsMode,undefined);assert.equal(c.capabilities.storyboard,undefined);}finally{bare.dispose();}
  },
  async 'inspect-entity-transforms'(f){
   const created=await f.call('arrange_objects',f.request('arrange_objects',{ops:Array.from({length:30},(_,i)=>({op:'create',source:{kind:'cube'},name:`Prop ${i}`,position:{world:{x:i+2,y:1,z:3}},facing:{yawDeg:30},scale:{x:2,y:3,z:4}}))}));
@@ -1083,10 +1078,10 @@ const implementations={
  async 'mid-gesture-target'(f){f.scope.ikBodyDragRef.current=true;const r=await f.call('arrange_objects',f.request('arrange_objects',createArgs));assert.equal(r.code,'TARGET_BUSY');assert.equal(f.store.current.depths().past,0);},
  async 'lost-acknowledgement'(f){const request=f.request('arrange_objects',createArgs);const r=await f.call('arrange_objects',request);assert(r.ok);const replay=await f.call('reconcile_studio_command',{host:f.host(),commandId:request.commandId});assert.equal(replay.status,'applied');assert.deepEqual(replay.receipt,r);assert.deepEqual(await f.call('arrange_objects',request),r);assert.equal(f.store.current.depths().past,1);assert.equal((await f.call('reconcile_studio_command',{host:f.host(),commandId:'unknown'})).status,'unknown');},
  async 'camera-undo'(f){const before=f.actual.snapshotStudioDomain('shot');const r=await f.call('frame_shot',f.request('frame_shot',{subjectIds:['actor-a'],keyAtFrame:0,framing:{exact:{position:{x:0,y:1.6,z:5},lookAt:{x:0,y:1,z:0},focalMm:35}}}));assert.equal(r.ok,true,JSON.stringify(r));assert.equal(f.live.current.shots[0].cameraKeys.length,1);assert.equal(f.scope.shotsDomain.documentStore.depths().past,1);assert.equal(f.history.current.past.length,0);assert(f.actual.stepStudioHistory(false));assert.deepEqual(f.live.current.shots,before.shots);assert.deepEqual(f.scope.shotCamRef.current.position.toArray(),Object.values(before.camera.position));assert(Math.abs(f.scope.shotCamRef.current.fov-focalMmToFov(before.camera.focalMm,'fullFrame',16/9)*180/Math.PI)<1e-9);},
- async 'still-frame-shot-camera-key'(f){
+ async 'held-shot-camera-key'(f){
   const keyA={pos:{x:0,y:1.6,z:5},yaw:0,pitch:0,fovDeg:40}, keyB={pos:{x:0.5,y:1.6,z:3},yaw:0,pitch:0,fovDeg:40};
-  const first={...createShot('Still A',0,23,[{frame:0,framing:keyA}]),kind:'still'};
-  const second={...createShot('Still B',24,47,[{frame:24,framing:keyB}]),kind:'still'};
+  const first=createShot('Held A',0,23,[{frame:0,framing:keyA}]);
+  const second=createShot('Held B',24,47,[{frame:24,framing:keyB}]);
   f.scope.setShots([first,second]);f.live.current.shots=[first,second];
   const beforeFirst=structuredClone(f.live.current.shots[0].cameraKeys[0]), beforeSecond=structuredClone(f.live.current.shots[1].cameraKeys[0]);
   const r=await f.call('frame_shot',f.request('frame_shot',{shotId:first.id,subjectIds:['actor-a'],framing:{exact:{position:{x:2,y:2,z:4},lookAt:{x:0,y:1,z:0},focalMm:35}}}));
@@ -1098,10 +1093,10 @@ const implementations={
   // #863: the retained key's receipt delta is its shot readback, never a removal marker.
   const keyDelta=r.delta.find(row=>row.id===afterFirst.id);
   assert(keyDelta,JSON.stringify(r.delta));assert.deepEqual(keyDelta.after,{shotId:first.id,frame:0});
-  console.log(`STILL FRAME SHOT CAMERA KEY first=${JSON.stringify(afterFirst.framing.pos)} previous=${JSON.stringify(afterSecond.framing.pos)} keyIdPreserved=true untouched=true`);
+  console.log(`HELD SHOT CAMERA KEY first=${JSON.stringify(afterFirst.framing.pos)} previous=${JSON.stringify(afterSecond.framing.pos)} keyIdPreserved=true untouched=true`);
  },
  async 'clip-frame-shot-camera-key'(f){
-  const first={...createShot('Clip',0,23,[{id:'camera-key-clip-0',frame:0,framing:{pos:{x:0,y:1.6,z:5},yaw:0,pitch:0,fovDeg:40}}]),kind:'clip'};
+  const first={...createShot('Clip',0,23,[{id:'camera-key-clip-0',frame:0,framing:{pos:{x:0,y:1.6,z:5},yaw:0,pitch:0,fovDeg:40}}])};
   f.scope.setShots([first]);f.live.current.shots=[first];
   const before=f.live.current.shots[0].cameraKeys[0];
   const r=await f.call('frame_shot',f.request('frame_shot',{shotId:first.id,subjectIds:['actor-a'],keyAtFrame:12,framing:{exact:{position:{x:2,y:2,z:4},lookAt:{x:0,y:1,z:0},focalMm:35}}}));

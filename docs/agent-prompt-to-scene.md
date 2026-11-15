@@ -36,13 +36,9 @@ In the Studio, `verify_result` with a `framing` check returns code-measured `cam
 
 The names above are MCP tool names, defined in `mcp/tool-handlers.mjs` for MCP clients and the `cclay` live tool — they are not the Agent/Studio panel's current tools. The Studio panel itself drives the scene through the Studio families: `inspect_studio`, `operate_studio`, `arrange_objects`, `arrange_characters`, `frame_shot`, `verify_result`, `undo_edit`.
 
-## Storyboard projects: one panel per request
+## Capsule figures
 
-In a storyboard project the Studio Agent works on the Board, not the timeline, under its own system prompt. The rule is **one panel per request**: each user request becomes exactly one new still. The agent adds the cast and set pieces the panel needs (capsule figures are allowed), calls `shot.createStill` with the caption set to a one-line summary of the user's words, frames that still with `frame_shot`, sets per-panel placement through the normal placement actions, and finishes with `verify_result`. A request that describes several beats is still one panel; the user asks again for the next.
-
-- **No motion.** The `motion.*` actions are not in the agent's tool set, and the MCP motion tools answer `NOT_IN_MODE` in a storyboard project. The agent never asks about duration: a panel's hold is a Board field, not a question.
-- **Ask / infer / omit still applies** to what a frame needs (framing, relative placement), with the same short, defaulted questions.
-- **Capsule figures** have no rig. A rig-only tool aimed at one (pose, IK, motion, take import) answers `TARGET_NOT_READY` with the reason, so the agent changes `posture` (stand, sit, lie) and placement instead of retrying.
+Capsule figures have no rig. A rig-only tool aimed at one (pose, IK, motion, take import) answers `TARGET_NOT_READY` with the reason, so the agent changes `posture` (stand, sit, lie) and placement instead of retrying.
 
 ## Cast style: rig, capsule or hybrid
 

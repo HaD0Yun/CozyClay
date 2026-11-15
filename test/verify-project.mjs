@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs";
 import { webcrypto } from "node:crypto";
 import {
 	createProjectDocument,
-	buildAnimationProjectFromStoryboard,
 	readProjectDocument,
 	verifyEmbeddedAsset,
 	createWorkflowGraph,
@@ -37,7 +36,8 @@ const doc = createProjectDocument({
 });
 const parsed = readProjectDocument(JSON.stringify(doc));
 assert.equal(parsed.ok, true);
-assert.equal(buildAnimationProjectFromStoryboard({ ...parsed.project, previsMode: "storyboard" }).previsMode, "animation");
+assert.equal("previsMode" in doc, false, "a project file no longer writes previsMode");
+assert.equal(parsed.project.wasStoryboard, undefined);
 assert.equal(parsed.project.name, "Demo Reel");
 assert.equal(parsed.project.scenesDocument.scenes[0].stage.characters[0].model, "x-bot-tpose");
 assert.equal(parsed.project.scenesDocument.scenes[0].stage.characters[0].tint, "#a1b2c3");

@@ -117,7 +117,7 @@ const animation = bus.run("character.add", { character: { id: "character-2" } },
 assert.equal(animation.ok, true, JSON.stringify(animation));
 assert.equal(animation.undo.entries, 1);
 assert.notEqual(animation.undo.historyEntryId, finish.undo.historyEntryId);
-console.log("PASS storyboard agent turn composes cast and object mutations into one undo entry");
+console.log("PASS agent turn composes cast and object mutations into one undo entry");
 console.log(`PASS ordinary agent command remains per-command undo: ${animation.undo.entries} entry`);
 
 // #715: an animation project opens the same turn transaction. Every mutation of

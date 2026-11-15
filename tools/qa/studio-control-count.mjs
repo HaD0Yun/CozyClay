@@ -87,7 +87,7 @@ const states = [
 const out = {};
 const over = [];
 for (const [name, setup] of states) {
-  // A storyboard project (#650) has no Motion mode to measure.
+  // A build without a Motion mode tab skips the measure.
   if (name === "motion" && !(await ev("!!document.querySelector('[data-mode-key=\"4\"]')"))) { console.log("SKIP motion (no Motion mode in this project)"); continue; }
   await setup(); await settle();
   const shot = await send("Page.captureScreenshot", { format: "png" });

@@ -326,7 +326,7 @@ for (const event of lifecycleEvents) {
 		}
 	}
 }
-for (const export_kind of ["video", "depth_video", "frame", "keyframe_pack", "animation_project"]) {
+for (const export_kind of ["video", "depth_video", "frame", "keyframe_pack"]) {
 	for (const format of ["mp4", "png", "zip"]) {
 		for (const surface of ["studio", "workflow", "embed"]) {
 			const props = { export_kind, format, surface };
@@ -713,24 +713,24 @@ console.log("PASS agent:prompt_sent: device-side words, Jaccard grades, length b
 	assert.doesNotThrow(() => postTurn.closePostTurnWindow(), "a failing transport cannot break editing");
 	console.log("PASS bus friction schemas, and the post-turn window: 120 s, next turn, closed groups only");
 }
-// export:menu_opened: surface, mode, a synchronous WebCodecs check and the shot
-// (storyboard: panel) count bucket; nothing else leaves.
+// export:menu_opened: surface, a synchronous WebCodecs check and the shot count
+// bucket; nothing else leaves.
 {
 	const encoder = { VideoEncoder: class {}, VideoFrame: class {} };
-	const shots = [{ kind: "clip" }, { kind: "still" }, { kind: "still" }, { kind: "clip" }, { kind: "clip" }];
-	assert.deepEqual(exportMenuOpenedProps({ embedMode: false, previsMode: "animation", shots }, encoder),
-		{ surface: "studio", mode: "animation", webcodecs: true, shots: "4-10" });
-	assert.deepEqual(exportMenuOpenedProps({ embedMode: true, previsMode: "storyboard", shots }, {}),
-		{ surface: "embed", mode: "storyboard", webcodecs: false, shots: "1-3" }, "storyboard counts panels; no VideoEncoder reads false");
-	assert.deepEqual(exportMenuOpenedProps({ previsMode: undefined, shots: undefined }, { VideoEncoder: class {} }),
-		{ surface: "studio", mode: "animation", webcodecs: false, shots: "0" }, "VideoEncoder without VideoFrame is not WebCodecs");
-	const props = exportMenuOpenedProps({ embedMode: false, previsMode: "animation", shots }, encoder);
-	assert.deepEqual(sanitizeProps("export:menu_opened", { ...props, shot_id: "s1", name: "Private" }), props, "only the closed properties pass");
-	assert.deepEqual(STRICT_EVENT_KEYS["export:menu_opened"], ["surface", "mode", "webcodecs", "shots"]);
+	const shots = [{}, {}, {}, {}, {}];
+	assert.deepEqual(exportMenuOpenedProps({ embedMode: false, shots }, encoder),
+		{ surface: "studio", webcodecs: true, shots: "4-10" });
+	assert.deepEqual(exportMenuOpenedProps({ embedMode: true, shots: shots.slice(0, 2) }, {}),
+		{ surface: "embed", webcodecs: false, shots: "1-3" }, "no VideoEncoder reads false");
+	assert.deepEqual(exportMenuOpenedProps({ shots: undefined }, { VideoEncoder: class {} }),
+		{ surface: "studio", webcodecs: false, shots: "0" }, "VideoEncoder without VideoFrame is not WebCodecs");
+	const props = exportMenuOpenedProps({ embedMode: false, shots }, encoder);
+	assert.deepEqual(sanitizeProps("export:menu_opened", { ...props, mode: "animation", shot_id: "s1", name: "Private" }), props, "only the closed properties pass");
+	assert.deepEqual(STRICT_EVENT_KEYS["export:menu_opened"], ["surface", "webcodecs", "shots"]);
 	for (const [key, value] of [["surface", "workflow"], ["mode", "film"], ["webcodecs", "true"], ["shots", 5], ["shots", "2"]]) {
 		assert.deepEqual(sanitizeProps("export:menu_opened", { [key]: value }), {}, `export:menu_opened rejects ${key}=${value}`);
 	}
-	console.log("PASS export:menu_opened closed props: surface, mode, webcodecs, shots bucket");
+	console.log("PASS export:menu_opened closed props: surface, webcodecs, shots bucket");
 }
 // P2-b: shortcut:ignored, shortcut:unbound, help:shortcuts_opened, search:no_results,
 // nav:thrash and camera:thrash. Closed values only, input elements and IME never
@@ -872,12 +872,12 @@ console.log("PASS agent:prompt_sent: device-side words, Jaccard grades, length b
 console.log("PASS shortcut, search and thrash friction: closed combos and classes, input/IME guard, 1 s search, 10 s/20 s windows, 30 s cooldowns and caps");
 assert.deepEqual(sanitizeProps("export:blocking_frame_succeeded", { ...allProps, format: "png" }), { format: "png" });
 
-// Previs events (#653): closed values only, never a caption, name or prompt.
-for (const previs_mode of ["storyboard", "animation"]) assert.deepEqual(sanitizeProps("scene:created", { scene_source: "ui", previs_mode }), { scene_source: "ui", previs_mode });
-assert.deepEqual(sanitizeProps("scene:created", { scene_source: "ui", previs_mode: "private mode" }), { scene_source: "ui" });
+// Cast events (#653): closed values only, never a name or prompt; a scene:created
+// previs_mode from an older caller is dropped.
+assert.deepEqual(sanitizeProps("scene:created", { scene_source: "ui", previs_mode: "animation" }), { scene_source: "ui" });
+assert.deepEqual(sanitizeProps("scene:created", { scene_source: "new_project", cast_style: "rig" }), { scene_source: "new_project", cast_style: "rig" });
+for (const event of ["storyboard:panel_created", "storyboard:panel_stylized"]) assert.deepEqual(sanitizeProps(event, { source: "agent", outcome: "ok" }), {}, `${event} is no longer an event`);
 const previsContracts = {
-	"storyboard:panel_created": { key: "source", good: ["agent", "manual"], bad: ["mcp", "private", true, 1, null] },
-	"storyboard:panel_stylized": { key: "outcome", good: ["ok", "error"], bad: ["succeeded", "private", true, 1, null] },
 	"cast:proxy_added": { key: "surface", good: ["assets", "agent", "mcp"], bad: ["studio", "private", true, 1, null] },
 };
 for (const [event, { key, good, bad }] of Object.entries(previsContracts)) {
@@ -890,8 +890,11 @@ for (const [event, { key, good, bad }] of Object.entries(previsContracts)) {
 	);
 	assert.deepEqual(sanitizeProps(event, { caption: "A man opens the door" }), {}, `${event} with only a caption sends nothing`);
 }
-for (const export_kind of ["contact_sheet", "panel_pack", "animatic", "animation_project", "workflow_send"]) {
+for (const export_kind of ["workflow_send"]) {
 	assert.deepEqual(sanitizeProps("export:attempt_started", { export_kind }), { export_kind }, `export_kind ${export_kind}`);
+}
+for (const export_kind of ["contact_sheet", "panel_pack", "animatic", "animation_project"]) {
+	assert.deepEqual(sanitizeProps("export:attempt_started", { export_kind }), {}, `export_kind ${export_kind} is no longer sent`);
 }
 assert.deepEqual(sanitizeProps("export:attempt_started", { export_kind: "panel pack" }), {});
 
@@ -1695,8 +1698,8 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 		for (const { event, props } of guide) assert.deepEqual(sanitizeProps(event, { ...props, text: "private" }), props, `${event} passes its closed schema`);
 		assert.deepEqual(sanitizeProps("guide:step", { mode: "film", step: 9, step_ms: 4000 }), {}, "guide values are closed");
 		const guideSource = readFileSync(new URL("../src/first-success-guide.jsx", import.meta.url), "utf8");
-		assert.match(guideSource, /const STEPS_BY_MODE = \{ animation: ANIMATION_STEPS, storyboard: STORYBOARD_STEPS \};/, "the schema's modes are the component's own");
-		for (const name of ["ANIMATION_STEPS", "STORYBOARD_STEPS"]) {
+		assert.match(guideSource, /const mode = "animation";/, "the guide reports the schema's animation mode");
+		for (const name of ["ANIMATION_STEPS"]) {
 			const block = guideSource.slice(guideSource.indexOf(`const ${name} = [`), guideSource.indexOf("];", guideSource.indexOf(`const ${name} = [`)));
 			assert.equal(block.match(/^\t\ten: /gm)?.length, 4, `${name} has the schema's 4 steps`);
 		}

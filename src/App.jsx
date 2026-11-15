@@ -3624,7 +3624,7 @@ export default function App() {
 				if (!result.ok) return result;
 				await rehydrateProjectAssets(result.project, result.warnings);
 				applyProject(result.project);
-				setToast(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems)}`);
+				setToast(`${ko(`Project opened: ${result.project.name}`, `프로젝트 열림: ${result.project.name}`, `项目已打开：${result.project.name}`)}${projectProblemsNotice(result.problems, result.project)}`);
 				return result;
 			},
 			manifest: () => projectManifest,

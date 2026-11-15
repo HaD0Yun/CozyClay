@@ -15,7 +15,7 @@ import { STUDIO_SYSTEM_PROMPT } from "../bin/agent/studio-prompt.mjs";
 import { contextFixture } from "./verify-studio-agent-protocol.mjs";
 
 const actionIndex = studioActionIndex([
-	{ id: "shot.createStill", label: "New still" },
+	{ id: "shot.split", label: "Split shot" },
 	{ id: "character.add", label: "Add character" },
 	{ id: "motion.generate", label: "Generate motion", timeoutMs: 300000 },
 ]);
