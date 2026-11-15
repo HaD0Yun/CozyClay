@@ -36,6 +36,7 @@ const REACH = `\n- hand off its target, foot off its target: how far a wrist or 
 const REPEAT = `\nAny list: repeat {len, times}   the actions of this id from this frame up to len frames later play times times in a row: the engine copies them to +len, +2 * len and so on. Write the span once.`;
 const TILT = `\nIn pose: tilt: [pitch, roll], about: "hips" | "feet" | [x,y,z], shift: [x,y,z]   turns the whole figure, as it is posed, about one point, then moves it by shift (world metres). pitch > 0 tips it forward (90 = face down, 180 = upside down), roll > 0 tips it toward its own left; an angle may pass 360 for a full turn. about is the point that stays in place: the Hips joint (default), the floor between the feet, or a world point. Hand and foot targets given as world points or on props keep their place; body-frame targets and the feet of the body layer turn with the figure. tilt, about and shift keep their values until a later tilt; tilt: [0, 0] stands it up again. The floor does not hold a tilted figure: place it with shift.`;
 const TURN = ` turn: degrees about Y; at 0 its d side lies along Z, at 90 along X.`;
+const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
 const NUMBERS = {
@@ -72,7 +73,7 @@ SCENE (you define it)
 A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.turn ? TURN : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
-${specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}
+${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}
 ease names: ${Object.keys(EASE).join(", ")}.
 
 THE TOOL

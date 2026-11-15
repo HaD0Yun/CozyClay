@@ -9,7 +9,7 @@ import { TRACK_RIG } from "./take.js";
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
 /** Rig models whose skeleton the clip can drive at scale 1; any but TRACK_RIG is changed to TRACK_RIG by the install. */
 const SWITCHABLE = new Set(["y-bot-tpose"]);
-const MAX_PROPS = 40, RAD = Math.PI / 180;
+const MAX_PROPS = 40, RAD = Math.PI / 180, BAND = 0.03; // BAND: a top this far under the box's top is lower than it
 const round = v => Math.round(v * 1000) / 1000;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
 
@@ -22,6 +22,13 @@ function idFor(name, taken, fallback) {
 	return id;
 }
 
+/** A flat rectangle of tops.js (the object's own frame) in the world, as a prop's heights entry. */
+function heightOf(t, row, own) {
+	const a = finite(row.rot) * RAD, cs = Math.cos(a), sn = Math.sin(a), cx = (t.x0 + t.x1) / 2, cz = (t.z0 + t.z1) / 2, w = t.x1 - t.x0, d = t.z1 - t.z0;
+	return { y: round(finite(row.y) + t.y), at: [round(finite(row.x) + cx * cs + cz * sn), round(finite(row.z) - cx * sn + cz * cs)],
+		size: own ? [round(w), round(d)] : [round(w * Math.abs(cs) + d * Math.abs(sn)), round(w * Math.abs(sn) + d * Math.abs(cs))] };
+}
+
 /** Why a visible character row cannot be animated by a clip, or null when it can. */
 function whyNot(row) {
 	if (row.model === "proxy-figure") return "capsule figure";
@@ -31,14 +38,17 @@ function whyNot(row) {
 }
 
 /**
- * studioScene(describe, { turn }) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, turn?, shape? }], others: [{ id, why }] }, ids }
+ * studioScene(describe, { turn, tops }) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, turn?, shape?, heights? }], others: [{ id, why }] }, ids }
  * describe: the editor's describe answer ({ characters, objects }). ids: { characters: { <lowvis id>: <Studio id> },
  * props: { <lowvis id>: { id: <Studio id>, x, y, z, rot } }, switch: [<Studio id>] } with each object's base pivot
  * and turn about Y as the Studio holds them. switch: the listed characters whose model the install changes to the
  * clip's rig before it animates them. others: visible characters the clip cannot animate (Studio id and why).
  * turn: a prop is the object's own box [w, h, d] with turn = the object's turn about Y (degrees; left out at 0).
+ * tops: describe was asked with { tops: true } (tops.js): a prop whose object offers more than one flat height, or one
+ * lower than its top, gets heights: [{ y, at: [x, z], size: [w, d] }], each a flat rectangle in the world: y over the
+ * floor, at its centre; size along the prop's own sides when the prop has its turn, else the square box around it.
  */
-export function studioScene(describe, { turn = false } = {}) {
+export function studioScene(describe, { turn = false, tops = false } = {}) {
 	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [];
 	for (const row of Array.isArray(describe?.characters) ? describe.characters : []) {
 		if (!row || row.hidden) continue;
@@ -60,6 +70,8 @@ export function studioScene(describe, { turn = false } = {}) {
 		const sphere = row.renderer === "sphere", own = turn && !sphere, yaw = round(finite(row.rot));
 		props.push({ id, size: sphere ? [round(w), round(w), round(w)] : own ? [round(w), round(h), round(d)] : [round(w * cs + d * sn), round(h), round(w * sn + d * cs)],
 			at: [round(finite(row.x)), round(finite(row.y) + h / 2), round(finite(row.z))], ...(own && yaw ? { turn: yaw } : {}), ...(sphere ? { shape: "sphere" } : {}) });
+		const flat = tops && Array.isArray(row.tops) ? row.tops : [];
+		if (flat.length > 1 || (flat.length === 1 && flat[0].y < h - BAND)) props.at(-1).heights = flat.map(t => heightOf(t, row, own));
 	}
 	return { scene: { characters, props, others }, ids };
 }
