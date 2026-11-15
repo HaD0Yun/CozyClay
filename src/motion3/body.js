@@ -121,7 +121,8 @@ export function bodyDistance(body, s, p, skip = null) {
 	// written out (no arrays per grid): the same arithmetic as len(sub(p, c)) and apply(T(R), sub(p, P)), so the same doubles
 	for (let i = 0; i < grids.length; i++) {
 		const g = grids[i], q = c[i];
-		if (skip?.has(g.b) || Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) - g.reach > best) continue;
+		const dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2], limit = best + g.reach;
+		if (skip?.has(g.b) || dx * dx + dy * dy + dz * dz > limit * limit) continue;
 		const R = s.R[g.b], o = s.P[g.b], v0 = p[0] - o[0], v1 = p[1] - o[1], v2 = p[2] - o[2];
 		const d = sample(body, g, [R[0][0] * v0 + R[1][0] * v1 + R[2][0] * v2, R[0][1] * v0 + R[1][1] * v1 + R[2][1] * v2, R[0][2] * v0 + R[1][2] * v1 + R[2][2] * v2]);
 		if (d < best) { best = d; bone = g.b; }
