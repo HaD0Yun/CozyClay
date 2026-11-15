@@ -97,21 +97,16 @@ try {
 	let nextId = 1;
 	const pending = new Map();
 	let liveHello;
-	let xBotRequested;
 	let xBotDescribed;
 	const editorFrames = [];
 	const editorHello = new Promise((resolve) => {
 		liveHello = resolve;
-	});
-	const xBotRequest = new Promise((resolve) => {
-		xBotRequested = resolve;
 	});
 	const xBotDescription = new Promise((resolve) => {
 		xBotDescribed = resolve;
 	});
 	socket.addEventListener("message", (event) => {
 		const frame = JSON.parse(event.data);
-		if (frame.method === "Network.requestWillBeSent" && frame.params.request.url.endsWith("/models/x-bot-tpose.fbx")) xBotRequested();
 		if (frame.method === "Network.webSocketFrameSent") {
 			const payload = frame.params.response.payloadData;
 			try {
@@ -145,13 +140,22 @@ try {
 		return response.result.value;
 	};
 	await send("Network.enable");
-	// Requests paused by the Fetch domain (enabled further down, only for the
-	// x-bot mesh) collect here until the suite releases them.
+	// Requests paused by the Fetch domain (enabled before navigation, only for
+	// the x-bot mesh) collect here until the suite releases them.
 	const heldModelRequests = [];
+	let resolveXBotInterception;
+	const xBotInterception = new Promise((resolve) => {
+		resolveXBotInterception = resolve;
+	});
 	socket.addEventListener("message", (event) => {
 		const frame = JSON.parse(event.data);
-		if (frame.method === "Fetch.requestPaused") heldModelRequests.push(frame.params.requestId);
+		if (frame.method === "Fetch.requestPaused") {
+			const responseStage = Number.isInteger(frame.params.responseStatusCode);
+			heldModelRequests.push({ requestId: frame.params.requestId, responseStage });
+			resolveXBotInterception();
+		}
 	});
+	await send("Fetch.enable", { patterns: [{ urlPattern: "*/models/x-bot-tpose.fbx*", requestStage: "Response" }] });
 	await send("Page.enable");
 	await seedCharacterStage(send); await send("Page.navigate", { url: `http://127.0.0.1:${vitePort}/app/` });
 
@@ -191,15 +195,13 @@ try {
 	// scene graph and remounts every sibling rig when it resolves; that order is
 	// exactly what a slow runner produces by accident, so it is produced here
 	// on purpose to prove a shot framed in the meantime survives it (#86).
-	await send("Fetch.enable", { patterns: [{ urlPattern: "*/models/x-bot-tpose.fbx*", requestStage: "Request" }] });
-
 	// Given the actual browser editor is connected over its live WebSocket
 	// When MCP adds an explicit non-default mannequin
 	const added = await client.callTool({
 		name: "add_character",
 		arguments: { subject: "an x-bot performer", model: "x-bot-tpose" },
 	});
-	await withTimeout(xBotRequest, "x-bot mesh request", 5_000);
+	await withTimeout(xBotInterception, "x-bot mesh request interception", 5_000);
 	const described = await client.callTool({ name: "describe_scene", arguments: {} });
 	// Then the real editor loads and reports X Bot through the live describe frame.
 	assert.equal(added.isError, undefined, JSON.stringify({ added, editorFrames }));
@@ -240,7 +242,9 @@ try {
 		`(window.__cozyclayMcpRigReady ?? []).length >= 2 ? true : new Promise((resolve) => window.addEventListener('cozyclay:mcp-rig-ready', () => resolve(true), { once: true }))`,
 		"late rig ready",
 	);
-	for (const requestId of heldModelRequests) await send("Fetch.continueRequest", { requestId });
+	for (const { requestId, responseStage } of heldModelRequests) {
+		await send(responseStage ? "Fetch.continueResponse" : "Fetch.continueRequest", { requestId });
+	}
 	await send("Fetch.disable");
 	await withTimeout(lateRigReady, "x-bot rig mount", 20_000);
 	// Then until the shot camera holds still for two frames (at most a second): the
