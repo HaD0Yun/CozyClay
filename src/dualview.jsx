@@ -189,7 +189,7 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 
 	useEffect(() => () => { edgePass.target.dispose(); edgePass.normalMaterial.dispose(); edgePass.material.dispose(); edgePass.passScene.children[0].geometry.dispose(); }, [edgePass]);
 	// The finish (stage-finish-view.jsx): with a look on, a perspective pane draws the set through it instead of the ink pass.
-	const viewFinish = useMemo(createViewFinish, []);
+	const viewFinish = useMemo(() => createViewFinish(), []);
 	useEffect(() => viewFinish.dispose, [viewFinish]);
 
 	// Layer masks are set once. The shot camera must never pick up the plan
