@@ -76,6 +76,7 @@ assert.deepEqual([scene.fog.near, scene.fog.far], [20, 50]);
 cleanup();
 assert.equal(targets[0].disposals, 1, "editor resize releases its own target");
 assert.equal(targets[1].disposals, 0, "in-flight export target survives editor resize");
+assert.equal(finishes[0].disposals, 0, "a resize during an export does not dispose the finish the export draws through");
 CaptureRig({ apiRef, camRef, width: 9, height: 16 });
 assert.equal(apiRef.current.render().byteLength, 9 * 16 * 4);
 assert.equal(exportApi.render().byteLength, 12 * 7 * 4, "retry settings remain independent of live dimensions");
@@ -97,6 +98,9 @@ assert.equal(currentTarget, initialTarget, "failed capture restores render targe
 assert.deepEqual([scene.fog.near, scene.fog.far], [20, 50], "failed capture restores fog");
 exportApi.dispose();
 assert.equal(targets[1].disposals, 1, "attempt cleanup releases the export target");
+assert.equal(finishes[0].disposals, 1, "the export was the last holder of the old rig's finish: its cleanup frees it");
+exportApi.dispose();
+assert.equal(finishes[0].disposals + targets[1].disposals, 2, "a second dispose frees nothing twice");
 assert.equal(targets[2].disposals, 0, "attempt cleanup does not dispose the live preview");
 cleanup();
 assert.ok(targets.every((target) => target.disposals === 1));
