@@ -146,3 +146,34 @@ export function checkValue(key, c) {
 		bodyToBox: c.bodyToBox == null ? undefined : c.bodyToBox * MM, freeTravel: c.freeTravel * MM, gripDrift: c.gripDrift == null ? undefined : c.gripDrift * MM, gripTurn: c.gripTurn == null ? undefined : c.gripTurn * DEG,
 		headTurn: c.headTurn, elbow: c.elbow * 100, wrist: c.wrist * 100 }[key];
 }
+
+const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+/**
+ * What each stretch of travel came out as: one record per character and run of consecutive walk / run / push actions
+ * of its body layer. spec: the spec as built (repeats written out). The Hips joint's path on the floor plane counts
+ * while it moves faster than 0.05 m/s (seconds are those frames); steps are the foot plants (aux.contacts, the test
+ * the foot-slide row uses) that begin inside the stretch.
+ * -> [{ who, a, b, verb, distance (m), seconds, speed (m/s), steps, cadence (per minute, null under 2 steps) }]
+ */
+export function travel(clip, aux, spec) {
+	const F = clip.frameCount, fps = clip.fps ?? 24, out = [];
+	for (const c of clip.characters) {
+		const body = (Array.isArray(spec[c.id]) ? spec[c.id] : []).filter(x => Array.isArray(x) && BODY.has(x[1])).sort((x, y) => x[0] - y[0]);
+		for (let i = 0; i < body.length; i++) {
+			if (!MOVING.has(body[i][1])) continue;
+			const a = body[i][0], verbs = new Set();
+			while (MOVING.has(body[i + 1]?.[1])) verbs.add(body[i++][1]);
+			verbs.add(body[i][1]);
+			const b = Math.min(F - 1, body[i + 1]?.[0] ?? F - 1);
+			let distance = 0, moving = 0, steps = 0;
+			for (let f = a + 1; f <= b; f++) {
+				const p = f * JOINT_COUNT * 3, q = (f - 1) * JOINT_COUNT * 3, d = Math.hypot(c.pos[p] - c.pos[q], c.pos[p + 2] - c.pos[q + 2]);
+				if (d * fps > 0.05) { distance += d; moving++; }
+				for (let side = 0; side < 2; side++) if (aux.contacts[c.id][f][side] && !aux.contacts[c.id][f - 1][side]) steps++;
+			}
+			const seconds = moving / fps;
+			out.push({ who: c.id, a, b, verb: [...verbs].join("+"), distance, seconds, speed: seconds ? distance / seconds : 0, steps, cadence: steps >= 2 && seconds ? steps / seconds * 60 : null });
+		}
+	}
+	return out;
+}

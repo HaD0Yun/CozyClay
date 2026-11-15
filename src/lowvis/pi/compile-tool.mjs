@@ -9,8 +9,8 @@ import { join, resolve } from "node:path";
 import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINT_COUNT, INDEX as J, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
-import { NOTES, buildClip } from "../engine-simple/engine.js";
-import { badness, checkValue, isSpike, measure } from "./measure.mjs";
+import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
+import { badness, checkValue, isSpike, measure, travel } from "./measure.mjs";
 import { features } from "./prompt.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
@@ -167,6 +167,12 @@ function spikes(rows, F) {
 	return picked;
 }
 
+/** The travel block (feature pace): one line per character and stretch of walk, run or push; none without one. */
+function travelLines(clip, aux, spec) {
+	const list = travel(clip, aux, spec);
+	return list.length ? ["travel (what each stretch of walk, run or push came out as):", ...list.map(t => `- ${t.who} f${t.a}-${t.b} ${t.verb}: ${num(t.distance)} m in ${num(t.seconds)} s = ${num(t.speed)} m/s, ${t.steps} step${t.steps === 1 ? "" : "s"}${t.cadence == null ? "" : ` = ${Math.round(t.cadence)} per minute`}`)] : [];
+}
+
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features). */
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [] }) {
@@ -236,6 +242,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			!told.length ? "" : same ? "checks: every number is the same as in the previous compile" : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
+			...(feature.pace ? travelLines(parsed, aux, expandRepeats(state.spec, F).spec) : []),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,
