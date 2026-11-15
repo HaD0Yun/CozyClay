@@ -179,12 +179,15 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		signal.addEventListener("abort", stop, { once: true });
 		task.steer = text => session()?.modelSession?.steer(text, []);
 		let pending = 0, seenRead = Promise.resolve();
+		// the motion tool's calls (motion-door.mjs): the Missing text of the last one that answered rides in the summary
+		const motionCalls = new Set();
 		// The Studio reloaded on the same handle: its document epoch is new (POST .../reconnect), so this run's commands
 		// answer STALE_SCENE. That is a lost Studio too: pause, and resume on the new epoch.
 		const reloaded = frame => String(frame.error ?? "").startsWith("STALE_SCENE") && main.host && main.host.documentEpoch !== context.host.documentEpoch;
 		const observe = frame => {
 			task.onFrame?.(frame);
-			if (frame.type === "tool.start") pending++;
+			if (frame.type === "tool.start") { pending++; if (frame.name === "motion") motionCalls.add(frame.callId); }
+			if (frame.type === "tool.done" && frame.ok && motionCalls.has(frame.callId)) { out.motion = true; out.missing = typeof frame.result?.missing === "string" ? frame.result.missing : null; }
 			if (frame.type === "tool.done") pending = Math.max(0, pending - 1);
 			// What the task last wrote: read again after each of its authored edits, while Studio is there to answer.
 			if (frame.type === "tool.done" && frame.ok && frame.result?.authored) seenRead = seenRead.then(() => readContext(main.host)).then(c => scopeFingerprint(c, task.scope)).then(seen => { task.seen = seen; }, () => {});
@@ -210,7 +213,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		if (adopted && main.host && adopted.workspaceId === main.host.workspaceId && adopted.sceneId !== main.host.sceneId) main.host = { ...main.host, ...adopted };
 		await seenRead;
 		if (out.lost && pending > 0) task.midCommand = true;
-		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}) };
+		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}), ...(out.motion ? { missing: out.missing } : {}) };
 		if (out.lost) return { status: "lost", sceneId: context.host.sceneId, ...common };
 		if (out.busy) return { status: "scopeBusy", error: out.error, ...common };
 		if (signal.aborted && out.ended !== "task.finish") return { status: "cancelled", ...common };

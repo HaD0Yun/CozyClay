@@ -133,7 +133,7 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 // no longer fit the model (prompt too long). Repeats fold into one line with a count; the newest lines win.
 const MAX_EVENTS = 50, MAX_EVENT_BYTES = 20_000, MAX_BOARD = 24, MAX_BOARD_BYTES = 20_000;
 const cut = (text, n) => (typeof text === "string" && text.length > n ? `${text.slice(0, n - 1)}…` : text);
-const slim = ({ timing: _timing, usage: _usage, summary, reason, ...view }) => ({ ...view, ...(reason ? { reason: cut(reason, 400) } : {}), ...(summary ? { summary: { reply: cut(summary.reply, 1200) } } : {}) });
+const slim = ({ timing: _timing, usage: _usage, summary, reason, ...view }) => ({ ...view, ...(reason ? { reason: cut(reason, 400) } : {}), ...(summary ? { summary: { reply: cut(summary.reply, 1200), ...(summary.missing ? { missing: summary.missing } : {}) } } : {}) });
 const capped = (items, max, bytes) => {
 	const kept = items.slice(-max);
 	while (kept.length > 1 && JSON.stringify(kept).length > bytes) kept.shift();
