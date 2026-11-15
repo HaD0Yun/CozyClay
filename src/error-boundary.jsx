@@ -2,6 +2,10 @@ import { Component } from "react";
 import { ko } from "./locale.js";
 import { reportRenderCrash } from "./crash-telemetry.js";
 
+const DYNAMIC_IMPORT_ERROR = "Failed to fetch dynamically imported module:";
+const DYNAMIC_IMPORT_RETRY_KEY = "cozyclay.dynamic-import-retry.v1";
+const isDynamicImportFailure = (error) => typeof error?.message === "string" && error.message.startsWith(DYNAMIC_IMPORT_ERROR);
+
 /**
  * Last line of defense for the whole tree. A render-time throw anywhere in
  * App unmounts everything React manages, and over an autosaving document
@@ -23,6 +27,17 @@ export default class ErrorBoundary extends Component {
 	}
 
 	componentDidCatch(error, info) {
+		if (isDynamicImportFailure(error)) {
+			try {
+				if (!sessionStorage.getItem(DYNAMIC_IMPORT_RETRY_KEY)) {
+					sessionStorage.setItem(DYNAMIC_IMPORT_RETRY_KEY, "1");
+					window.location.reload();
+					return;
+				}
+			} catch {
+				// Keep the crash screen when session storage is unavailable.
+			}
+		}
 		console.error("[cozyclay] render crash", error, info?.componentStack ?? "");
 		reportRenderCrash(error);
 	}

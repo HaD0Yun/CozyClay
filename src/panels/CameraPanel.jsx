@@ -3,20 +3,23 @@ import { ko } from "../locale.js";
 import { Field } from "../ui.jsx";
 import { VIDEO_MODEL_PRESETS } from "../model-presets.js";
 import { useBus } from "../app-context.js";
-import { useStudioShell } from "../shell/studio-shell-context.js";
+import { useStudioPlaybackFrame, useStudioShell } from "../shell/studio-shell-context.js";
 import { focusDistance } from "../camera-optics.js";
 import CameraTransformPanel from "./CameraTransformPanel.jsx";
 
-export default function CameraPanel({ isCameraSelection, shot, moveSequence, cameraKeys, activeShot }) {
+export default function CameraPanel({ isCameraSelection, shot: sceneShot, moveSequence, cameraKeys, activeShot }) {
 	const { run } = useBus();
-	const { startCameraPerformance, stopCameraPerformance, cameraPerformanceRecording, characters, sceneObjects, shotsDomain, runStudioAction } = useStudioShell();
+	const { startCameraPerformance, stopCameraPerformance, cameraPerformanceRecording, characters, sceneObjects, shotsDomain, runStudioAction, cameraReadoutAt } = useStudioShell();
+	const frame = useStudioPlaybackFrame();
+	const readout = cameraReadoutAt(frame);
+	const shot = readout.shot ?? sceneShot;
 	const optics = activeShot?.optics ?? { shiftX: 0, shiftY: 0, focusTargetId: null };
 	const setOptics = patch => activeShot && runStudioAction("shot.setOptics", { shotId: activeShot.id, optics: { ...optics, ...patch } });
 	const focusId = optics.focusTargetId;
 	const rail = activeShot?.camera?.mode === "rail";
 	const focusCharacter = characters.find(entry => entry.id === focusId);
 	const focusObject = sceneObjects.find(entry => entry.id === focusId);
-	const cameraPosition = shotsDomain.state().camera?.position;
+	const cameraPosition = readout.camera?.pos ?? shotsDomain.state().camera?.position;
 	const focusTarget = focusCharacter ? { x: focusCharacter.x, y: 1.3 * (focusCharacter.scale ?? 1), z: focusCharacter.z }
 		: focusObject ? { x: focusObject.x, y: (focusObject.y ?? 0) + (focusObject.height ?? 0) / 2, z: focusObject.z } : null;
 	const focusMeters = focusDistance(cameraPosition, focusTarget);
