@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
 import { createAgentRunner } from "../bin/agent/agent-runner.mjs";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
+import { withTurnControls } from "./fixtures/turn-controls.mjs";
 
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-agent-steer-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
@@ -133,7 +134,7 @@ async function startServer(options) {
 	const slow = deferred();
 	const fauxStudio = createFakeModel();
 	fauxStudio.script([{ type: "toolCall", id: "s1", name: "inspect_studio", arguments: { scope: "scene" } }, "acknowledged"]);
-	const fakeLive = { command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } };
+	const fakeLive = withTurnControls({ command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } });
 	const studioRuntime = { readContext: async () => contextFixture() };
 	const { server, origin } = await startServer({ codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: fauxStudio.models, fauxProvider: fauxStudio.fauxProvider, liveHub: fakeLive, studioRuntime });
 	const envelope = envelopeFixture();
@@ -172,7 +173,7 @@ async function startServer(options) {
 	let now = 1_000_000;
 	const fauxStudio = createFakeModel();
 	fauxStudio.script([{ type: "toolCall", id: "p1", name: "inspect_studio", arguments: { scope: "scene" } }, "other session done", "long turn done"]);
-	const fakeLive = { command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } };
+	const fakeLive = withTurnControls({ command: async (name) => { if (name === "inspect_studio") { await slow.promise; return { context: { revision: { scene: 41 } } }; } return { assetId: "a1", objectId: "o1" }; } });
 	const { server, origin } = await startServer({ codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: fauxStudio.models, fauxProvider: fauxStudio.fauxProvider, liveHub: fakeLive, studioRuntime: { readContext: async () => contextFixture() }, clock: () => now });
 	const envelope = envelopeFixture(), other = { ...envelopeFixture(), sessionId: "00000000-0000-4000-8000-000000000003", turnId: "00000000-0000-4000-8000-000000000004", text: "another session" };
 	const post = (body) => fetch(`${origin}/agent/turn`, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body) });

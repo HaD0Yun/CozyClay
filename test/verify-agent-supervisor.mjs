@@ -340,6 +340,7 @@ let authoredTypes;
 // autofix switch only marks the note.
 {
 	process.env.COZYCLAY_SUPERVISOR_AUTOFIX = "blocker";
+	process.env.COZYCLAY_MOTION_ENGINE = "old"; // the index here holds character.setPose, which the lowvis engine hides (agent-view.mjs; next block)
 	const fix = { action: "object.update", args: { id: "chair", position: { x: -1.4, y: 0, z: 0 } } };
 	const reply = { ...VERDICT, issues: [{ ...VERDICT.issues[0], kind: "spatial", fix }, { ...VERDICT.issues[1], fix: { action: "chair.teleport", args: { id: "chair" } } }] };
 	const f = await fixture({ supervisorReply: `Verdict:\n${JSON.stringify(reply)}`, actionIndex: ACTION_INDEX });
@@ -364,6 +365,25 @@ let authoredTypes;
 	for (const id of ["character.setPose", "shot.frame", "object.update", "scene.rename"]) assert.ok(digest.includes(id), `the digest lists ${id}`);
 	assert.ok(digest.includes("\"required\":[\"characterId\",\"posture\"]"), "the digest carries the pre-selected schemas");
 	delete process.env.COZYCLAY_SUPERVISOR_AUTOFIX;
+	delete process.env.COZYCLAY_MOTION_ENGINE;
 	await f.close();
 	console.log("PASS a verdict's valid fix lands on the note, an unknown one is dropped, and autofix only marks the note");
+}
+
+// Under the lowvis engine (the default) the reviewer sees the agent's own action view: a hidden body-motion action
+// (character.setPose) is neither read nor listed, the others are.
+{
+	const reply = { ...VERDICT, issues: [{ ...VERDICT.issues[0], kind: "spatial", fix: { action: "object.update", args: { id: "chair", position: { x: -1.4, y: 0, z: 0 } } } }] };
+	const f = await fixture({ supervisorReply: `Verdict:\n${JSON.stringify(reply)}`, actionIndex: ACTION_INDEX });
+	f.gate.resolve();
+	const { turnId, cookie } = await f.turn(undefined, { supervisor: true });
+	const response = await bounded(f.get(`/agent/turn/${encodeURIComponent(turnId)}/supervisor`, cookie), "supervisor long-poll");
+	assert.equal(response.status, 200);
+	const schemaRead = f.commands.find(command => command.name === "inspect_studio" && command.args.scope === "actions");
+	assert.deepEqual(schemaRead.args.ids, ["shot.frame", "object.update"], "the hidden character.setPose is not read");
+	const digest = f.modelCalls.find(call => call.supervisor).context.messages.find(message => message.role === "user").content.find(part => part.type === "text").text;
+	assert.ok(!digest.includes("character.setPose"), "the digest does not list the hidden action");
+	for (const id of ["shot.frame", "object.update", "scene.rename"]) assert.ok(digest.includes(id), `the digest lists ${id}`);
+	await f.close();
+	console.log("PASS under the lowvis engine the reviewer's action index is the agent's view, without hidden actions");
 }

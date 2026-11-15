@@ -11,6 +11,7 @@ import { createAgentHandler } from "../bin/agent/agent-routes.mjs";
 import { createSessionStore } from "../bin/agent/session-store.mjs";
 import { createFakeModel } from "./fixtures/fake-model.mjs";
 import { contextFixture, envelopeFixture } from "./verify-studio-agent-protocol.mjs";
+import { withTurnControls } from "./fixtures/turn-controls.mjs";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const scratch = mkdtempSync(join(tmpdir(), "cozyclay-agent-plan-attach-"));
@@ -18,11 +19,11 @@ const faux = createFakeModel();
 const commands = [];
 let context = contextFixture();
 let failPlan = false;
-const hub = { command: async (name) => {
+const hub = withTurnControls({ command: async (name) => {
   commands.push(name);
   if (name === "capture_plan_png" && failPlan) throw new Error("The plan renderer is not ready");
   return name === "capture_plan_png" || name === "capture_framing_png" ? { dataUrl: png, width: 1280, height: 720 } : {};
-} };
+} });
 const handler = createAgentHandler({ auth: { getAccessToken: async () => "token" }, codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: faux.models, fauxProvider: faux.fauxProvider,
   liveHub: hub, sessionStore: createSessionStore(scratch), studioRuntime: { readContext: async () => context }, port: () => server.address().port });
 const server = createServer((req, res) => handler(req, res).catch((error) => { if (!res.headersSent) res.writeHead(500); res.end(error.message); }));

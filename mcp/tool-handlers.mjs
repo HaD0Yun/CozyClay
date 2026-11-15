@@ -48,7 +48,8 @@ import {
 	slateLine,
 } from "../src/shot.js";
 import {
-	CHARACTER_KIND_IDS,
+	NEW_CHARACTER_MODEL,
+	PROXY_FIGURE_MODEL,
 	POSTURES,
 	activeScene,
 	isProxyFigure,
@@ -880,6 +881,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				description:
 					"Unlike place_character, add_character adds a new cast member instead of changing an existing one. " +
 					"The cast is unbounded — each one gets its own letter (A, B, C…), position and prompt description. " +
+					"A new rig character is the block figure (x-bot-tpose). " +
 					'model "proxy-figure" adds a capsule figure: a rigless stand-in for blocking that holds a posture (stand, sit or lie) ' +
 					"and refuses motion, takes, IK and posing with TARGET_NOT_READY.",
 				inputSchema: {
@@ -887,10 +889,11 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 					x: z.number().default(0).describe("floor position x in metres"),
 					z: z.number().default(0).describe("floor position z in metres"),
 					facing: z.number().default(0).describe("yaw in degrees; 0 faces the default camera"),
+					// an older caller's "y-bot-tpose" becomes the block figure, as the editor's character.add maps it
 					model: z
-						.enum(CHARACTER_KIND_IDS)
+						.preprocess((value) => (value === "y-bot-tpose" ? NEW_CHARACTER_MODEL : value), z.enum([NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL]))
 						.optional()
-						.describe('which mannequin to use; "proxy-figure" is a rigless capsule figure for blocking'),
+						.describe('the body: "x-bot-tpose" is the block figure (the default), "proxy-figure" a rigless capsule figure for blocking'),
 					posture: z
 						.enum(POSTURES)
 						.optional()
@@ -915,7 +918,7 @@ export const createToolHandlers = ({ projectRootPromise } = {}) => {
 				const taken = new Set(st.characters.map((c) => c.id));
 				let id = `char-${String.fromCharCode(97 + index)}`;
 				for (let n = index + 1; taken.has(id); n += 1) id = `char-${n}`;
-				const entry = createCharacterEntry({ id, subject: desc, x, z: zPos, rot: facing, model, posture }, index);
+				const entry = createCharacterEntry({ id, subject: desc, x, z: zPos, rot: facing, model: model ?? NEW_CHARACTER_MODEL, posture }, index);
 				st.characters = [...st.characters, entry];
 				return text(`Added ${String.fromCharCode(65 + index)} (${entry.id}).\n\n${sceneReport()}`);
 			},

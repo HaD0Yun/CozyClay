@@ -22,6 +22,7 @@ process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
 delete process.env.CLIPROXY_API_KEY; delete process.env.CLIPROXY_BASE_URL;
 const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 const { createFakeModel } = await import("./fixtures/fake-model.mjs");
+const { withTurnControls } = await import("./fixtures/turn-controls.mjs");
 const { contextFixture, envelopeFixture, uuid } = await import("./verify-studio-agent-protocol.mjs");
 const report = process.env.COZYCLAY_TOKENS_REPORT === "1", legacy = process.env.COZYCLAY_TOKENS_LEGACY === "1";
 // What a provider would be sent: role and content (tool results also carry a
@@ -48,7 +49,7 @@ const inspectResult = args => {
 };
 const receipt = payload => ({ ok: true, commandId: payload.commandId, receiptId: `receipt-${world.revision}`, host: host(), status: "applied", authored: true, mutated: true, revision: { before: world.revision, after: world.revision + 1 },
 	affectedIds: ["char-alex"], delta: [], checks: { coverage: "fixture" }, undo: { historyEntryId: `history-${world.revision}`, entries: 1, canUndoDirect: true }, warnings: [] });
-const hub = {
+const hub = withTurnControls({
 	async command(name, payload) {
 		if (name === "read_studio_context") return context();
 		if (name === "inspect_studio") {
@@ -61,7 +62,7 @@ const hub = {
 		const done = receipt(payload); world.revision += 1; world.applied.push(payload.expectedRevision); return done;
 	},
 	workspaceId: () => host().workspaceId, resolveWorkspace: () => host().workspaceHandle, handleForWorkspaceId: () => host().workspaceHandle, connected: true, workspaceHandles: [host().workspaceHandle],
-};
+});
 const update = x => ({ type: "toolCall", name: "arrange_objects", arguments: { ops: [{ op: "update", id: "char-alex", position: { world: { x, y: 0, z: 0 } } }] } });
 const inspect = scope => ({ type: "toolCall", name: "inspect_studio", arguments: { scope } });
 const turnsScript = [

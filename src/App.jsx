@@ -583,8 +583,7 @@ export default function App() {
 		const made = await installClip(next ? next.clip : { characters: [], props: [] }, runStudioAction, { label: next?.request ?? next?.name, remove: lowvisBefore() });
 		lowvisMade.current = made.objectIds;
 		if (!next) return setLowvis(null);
-		setLowvis(next);
-		setTlFrameCount(next.clip.frameCount);
+		setLowvis(next); // the installed takes set the timeline length (shots domain syncTimelineExtent)
 		setTlFrame(0);
 		setTlPlaying(true);
 		const { target, radius } = clipFrame(next.clip);

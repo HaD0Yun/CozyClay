@@ -72,7 +72,7 @@ generated frame matches the blocking instead of drifting off into a generic shot
 | `capture_frame` | a compressed live render with camera-plane, visibility and occlusion assertions |
 | `set_camera` | move the lens / change focal length directly |
 | `frame_shot` | frame by intent — size, view, level, side |
-| `add_character` / `place_character` / `remove_character` | the cast (`add_character { model: "proxy-figure", posture: "stand" \| "sit" \| "lie" }` adds a rigless capsule figure) |
+| `add_character` / `place_character` / `remove_character` | the cast: a new rig character is the block figure (`x-bot-tpose`; an older `y-bot-tpose` is added as one); `add_character { model: "proxy-figure", posture: "stand" \| "sit" \| "lie" }` adds a rigless capsule figure |
 | `focus_character` | choose who the camera frames |
 | `place_object` / `update_object` / `remove_object` | the set — `place_object` also accepts `name` and `parent`, so multi-part assets like "Building A" land as one named assembly |
 | `import_mesh` | load a local GLB, OBJ or FBX from a filesystem path as a mesh prop (live editor required); optional floor position, yaw, standing height, clay |
@@ -147,7 +147,7 @@ posture (`stand`, `sit` or `lie`), but it has no skeleton, so motion and takes a
 `TARGET_NOT_READY` and the reason, for example `<name> is a proxy-figure body, which motion
 compile cannot drive; use an X Bot or Y Bot character.` for `motion.compile`. The editor refuses its own IK, pose, physics,
 collision and line-edit commands on a capsule figure with the same code when they arrive
-through `studio_run`. Use a rigged model for anything that moves a body.
+through `studio_run`. Use the block figure for anything that moves a body.
 
 ## Round-trips with the studio
 

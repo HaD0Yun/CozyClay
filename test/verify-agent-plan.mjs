@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { withTurnControls } from "./fixtures/turn-controls.mjs";
 
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-agent-plan-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
@@ -134,11 +135,11 @@ const context = () => ({
 	capabilities: { profile: "studio-slice-1", tools: [...STUDIO_TOOL_FAMILIES], rigReady: true, cameraReady: false, bridgeReady: false },
 });
 const commands = [];
-const liveHub = { command: async (name) => {
+const liveHub = withTurnControls({ command: async (name) => {
 	commands.push(name);
 	if (name === "inspect_studio") return { context: { revision: { scene: 7 } } };
 	throw new Error(`unexpected hub command ${name}`);
-} };
+} });
 
 async function readSse(response) {
 	const text = await response.text();

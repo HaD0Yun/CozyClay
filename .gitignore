@@ -28,3 +28,6 @@ native/pose-rs/target/
 
 # Auto Pose network (83 MB): not in git. The npm package ships it; copy it here before a release build (src/poser/config.js)
 public/models/cozy-poser-v1.onnx
+# lowvis motion harness output: run records and the clips it writes (the tracked demo clips stay tracked)
+lowvis-out/
+public/lowvis/clips/pi/
