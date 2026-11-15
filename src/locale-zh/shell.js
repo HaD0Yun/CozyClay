@@ -159,6 +159,8 @@ export const ZH_SHELL = {
 	"Viewport display": "视口显示",
 	"Blender-style viewport — themed background with a reference grid instead of the deck": "Blender 风格视口 — 用主题背景和参考网格替代台面",
 	"Reference grid": "参考网格",
+	"Flat two-tone shading with black lines, in the viewport and in every capture and export": "黑色描线与两阶明暗的平涂画面 — 用于视口及所有截图和导出",
+	"Toon look": "卡通外观",
 	"Distinct display colors per object — captures include them while on": "每个物体使用区分色 — 开启时捕捉也会包含",
 	"Auto Color": "自动配色",
 	"Composition guides": "构图参考线",

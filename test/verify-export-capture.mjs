@@ -36,11 +36,19 @@ const gl = {
 let cleanup;
 const browser = {};
 const page = { visibilityState: "visible" };
+// The finish (stage-finish.js) is the toon look's frame pass; it draws only when scene.userData.finishLook is set,
+// so this stub records its calls and the checks below run with the look off, as the Studio's setting can.
+const finishes = [];
+const createFinish = () => {
+	const finish = { renders: [], disposals: 0, render(...args) { finish.renders.push(args); }, dispose() { finish.disposals += 1; } };
+	finishes.push(finish);
+	return finish;
+};
 const CaptureRig = new Function("THREE", "useThree", "useEffect", "window", "document", "GIZMO_LAYER",
-	"CAPTURE_W", "CAPTURE_H", "MCP_CAPTURE_W", "MCP_CAPTURE_H", "CAPTURE_FOG_NEAR", "CAPTURE_FOG_FAR",
+	"CAPTURE_W", "CAPTURE_H", "MCP_CAPTURE_W", "MCP_CAPTURE_H", "CAPTURE_FOG_NEAR", "CAPTURE_FOG_FAR", "createFinish",
 	`${component.replace("export function", "function")}; return CaptureRig;`)(
 	{ ...THREE, WebGLRenderTarget: RenderTarget }, () => ({ gl, scene }), (effect) => { cleanup = effect(); },
-	browser, page, 5, 1920, 1080, 640, 360, 55, 95,
+	browser, page, 5, 1920, 1080, 640, 360, 55, 95, createFinish,
 );
 const camera = new THREE.PerspectiveCamera(45, 16 / 9, 0.1, 100);
 camera.position.set(1, 2, 3);
@@ -72,6 +80,17 @@ CaptureRig({ apiRef, camRef, width: 9, height: 16 });
 assert.equal(apiRef.current.render().byteLength, 9 * 16 * 4);
 assert.equal(exportApi.render().byteLength, 12 * 7 * 4, "retry settings remain independent of live dimensions");
 
+// With a look set, the frame goes through the finish into the attempt's own target, and is read back from it.
+scene.userData.finishLook = { name: "toon" };
+assert.equal(exportApi.render().byteLength, 12 * 7 * 4);
+const drawn = finishes[0].renders.at(-1); // exportApi came from the first rig
+assert.equal(drawn[0], gl);
+assert.equal(drawn[1], scene);
+assert.equal(drawn[3], targets[1], "the finish draws into the export's own target");
+assert.equal(drawn[4], scene.userData.finishLook);
+assert.equal(currentTarget, initialTarget, "a finished capture restores the render target");
+delete scene.userData.finishLook;
+
 readbackError = new Error("injected readback failure");
 assert.throws(() => exportApi.render(), (error) => error === readbackError);
 assert.equal(currentTarget, initialTarget, "failed capture restores render target");
@@ -81,4 +100,5 @@ assert.equal(targets[1].disposals, 1, "attempt cleanup releases the export targe
 assert.equal(targets[2].disposals, 0, "attempt cleanup does not dispose the live preview");
 cleanup();
 assert.ok(targets.every((target) => target.disposals === 1));
+assert.ok(finishes.length >= 1 && finishes.every((finish) => finish.disposals === 1), "every rig's finish is released with it");
 console.log("PASS independent export capture dimensions, resize survival, failure restoration and resource disposal");
