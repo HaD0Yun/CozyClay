@@ -98,6 +98,19 @@ test('cast: every patchable path matches patch_elements normalization and field 
   }
 });
 
+test('cast: a new rig character is the block figure; a saved Y Bot row keeps its body', () => {
+  const f = castFixture();
+  try {
+    owned(f);
+    ok(f.run('character.add', { character: { id: 'asked-y', model: 'y-bot-tpose' } }, 'agent'));
+    assert.equal(f.cast.read().find(row => row.id === 'asked-y').model, 'x-bot-tpose', 'an add asking for Y Bot is given the block figure');
+    ok(f.run('character.add', { character: { id: 'no-model' } }, 'agent'));
+    assert.equal(f.cast.read().find(row => row.id === 'no-model').model, 'x-bot-tpose');
+    assert.equal(f.run('character.add', { character: { id: 'unknown', model: 'nope' } }, 'agent').ok, false, 'an unknown body is refused, not turned into a Y Bot');
+    assert.equal(f.cast.read().find(row => row.id === 'actor-a').model, 'y-bot-tpose', 'a saved Y Bot row keeps its body');
+  } finally { f.dispose(); }
+});
+
 test('cast: a character groups only under an object that is in the scene (#655)', () => {
   const f = castFixture();
   try {
