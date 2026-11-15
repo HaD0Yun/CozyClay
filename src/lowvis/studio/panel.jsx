@@ -35,18 +35,24 @@ const S = {
 	list: { listStyle: "none", margin: 0, padding: 0, overflowY: "auto", minHeight: 0, maxHeight: 170, display: "flex", flexDirection: "column", gap: 4 },
 	item: on => ({ padding: "5px 8px", borderRadius: 6, border: `1px solid ${on ? "#8db4dc" : "#45484c"}`, background: on ? "#22364a" : "#232527", cursor: "pointer" }),
 	mute: { opacity: 0.7, fontSize: 12 },
+	check: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" },
 	note: { whiteSpace: "pre-wrap", fontSize: 12, maxHeight: 96, flexShrink: 0, overflowY: "auto", padding: "5px 8px", borderRadius: 6, background: "#232527" },
 };
 
-export function LowvisPanel({ port, loaded, onClip }) {
+/**
+ * cast: whether the loaded clip's characters are Studio cast members; block: whether rig characters wear the block look.
+ * onClip({ name, request, clip } | null, { cast }) loads or clears a clip; onBlock(on) switches the look.
+ */
+export function LowvisPanel({ port, loaded, cast, block, onClip, onBlock }) {
 	const base = `http://127.0.0.1:${port}`;
 	const [tries, setTries] = useState([]), [error, setError] = useState(null), [open, setOpen] = useState(true), [text, setText] = useState(""), [busy, setBusy] = useState(false);
-	const wanted = useRef(null), onClipRef = useRef(onClip);
-	useEffect(() => { onClipRef.current = onClip; });
+	const [asCast, setAsCast] = useState(true);
+	const wanted = useRef(null), onClipRef = useRef(onClip), asCastRef = useRef(asCast), current = useRef(null);
+	useEffect(() => { onClipRef.current = onClip; asCastRef.current = asCast; });
 
-	async function show(entry) {
+	async function show(entry, options = { cast: asCastRef.current }) {
 		const clip = entry?.state === "done" ? await loadClip(entry.name) : null;
-		if (clip) onClipRef.current({ name: entry.name, clip });
+		if (clip) { current.current = entry; onClipRef.current({ name: entry.name, request: entry.request, clip }, options); }
 		return !!clip;
 	}
 
@@ -85,7 +91,7 @@ export function LowvisPanel({ port, loaded, onClip }) {
 		setBusy(false);
 	}
 
-	const current = tries.find(entry => entry.name === loaded);
+	const shown = tries.find(entry => entry.name === loaded);
 	const label = entry => entry.state === "running" ? ko(`writing · ${entry.seconds}s`, `만드는 중 · ${entry.seconds}초`)
 		: entry.state === "done" ? ko(`done · ${entry.seconds}s · ${entry.compiles} compiles`, `완성 · ${entry.seconds}초 · 지시문 ${entry.compiles}번`)
 		: entry.state === "failed" ? ko("failed", "실패") : "";
@@ -105,9 +111,18 @@ export function LowvisPanel({ port, loaded, onClip }) {
 							onKeyDown={event => { event.stopPropagation(); if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(event); }} />
 						<button type="submit" style={{ ...S.button, opacity: busy || !text.trim() ? 0.5 : 1 }} disabled={busy || !text.trim()}>{ko("Make", "만들기")}</button>
 					</form>
+					<label style={S.check}>
+						<input type="checkbox" checked={asCast} onChange={event => { setAsCast(event.target.checked); if (loaded && current.current) show(current.current, { cast: event.target.checked }); }} />
+						{ko("As Studio characters (select, move, save)", "Studio 캐릭터로 넣기 (선택·이동·저장)")}
+					</label>
+					<label style={S.check}>
+						<input type="checkbox" checked={block} onChange={event => onBlock(event.target.checked)} />
+						{ko("Block figure look", "블록 인형 모습")}
+					</label>
+					{loaded && asCast && !cast && <div style={{ ...S.note, color: "#ffb3a8" }}>{ko("The Studio refused the characters; the clip is drawn as a layer.", "Studio가 캐릭터를 받지 않아 층으로만 그렸습니다.")}</div>}
 					{error && <div style={{ ...S.note, color: "#ffb3a8" }}>{error}</div>}
-					{current && (current.report || current.missing) && (
-						<div style={S.note}>{current.report}{current.missing ? `\n\n${ko("Not done", "못 한 것")}: ${current.missing}` : ""}</div>
+					{shown && (shown.report || shown.missing) && (
+						<div style={S.note}>{shown.report}{shown.missing ? `\n\n${ko("Not done", "못 한 것")}: ${shown.missing}` : ""}</div>
 					)}
 					<ul style={S.list}>
 						{tries.map(entry => (

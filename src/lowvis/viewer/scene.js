@@ -97,11 +97,12 @@ export function createPanelScene({ clip, look, bounds, environment }) {
 
 /**
  * The clip's characters (drawn with `look`) and its props in one group, for any three.js scene.
+ * figures: false draws the props alone (the characters are drawn by someone else).
  * Returns { group, setFrame(f) }; a frame past the clip's end holds its last frame.
  */
-export function createClipGroup(clip, look) {
+export function createClipGroup(clip, look, { figures = true } = {}) {
 	const group = new THREE.Group(), actors = [];
-	clip.characters.forEach((c, i) => {
+	if (figures) clip.characters.forEach((c, i) => {
 		const body = (LOOKS[look] ?? LOOKS.box)({ tint: TINTS[i % TINTS.length] });
 		group.add(body.object3D);
 		const grip = handGrips(clip, i); // which hand holds a prop at each frame; a look may close it into a fist

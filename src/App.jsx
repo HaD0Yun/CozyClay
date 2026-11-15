@@ -230,7 +230,10 @@ import {
 	shotIndexAtFrame,
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
-import { LowvisLayer, clipFrame } from "./lowvis/studio/layer.jsx";
+import { LowvisLayer, clipFrame, clipStart } from "./lowvis/studio/layer.jsx";
+import { LowvisSkin } from "./lowvis/studio/skin.jsx";
+import { TRACK_RIG, clipTrack } from "./lowvis/studio/take.js";
+import { encodeRawTrack } from "./motion-v4/track/codec.js";
 import { LowvisPanel, lowvisPort } from "./lowvis/studio/panel.jsx";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
@@ -573,10 +576,29 @@ export default function App() {
 	const [tlPlaying, setTlPlaying] = useState(false);
 	// lowvis prototype (?lowvis in the URL): a lowvis clip plays on the stage in place of the cast (lowvis/studio/).
 	const [lowvisPanelPort] = useState(lowvisPort);
+	// lowvis: { name, clip, cast } - cast true when the clip's characters are Studio cast members (X Bot rigs whose take is
+	// the clip's motion, ids "lowvis-<id>"), false when the layer draws them. lowvisBlock: the block look over rig characters.
 	const [lowvis, setLowvis] = useState(null);
-	function showLowvis(next) {
-		setLowvis(next);
-		if (!next) return setTlPlaying(false);
+	const [lowvisBlock, setLowvisBlock] = useState(() => Boolean(lowvisPanelPort));
+	const LOWVIS_ID = /^lowvis-/;
+	async function clearLowvisCast() {
+		for (const row of appContext.live.characters.filter(row => LOWVIS_ID.test(row.id))) await runStudioAction("character.remove", { characterId: row.id });
+	}
+	/** The clip's characters as cast members: an X Bot at each one's start with the clip's motion as its take. */
+	async function castLowvis(next) {
+		await clearLowvisCast();
+		for (const [index, figure] of next.clip.characters.entries()) {
+			const characterId = `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+			if (!await runStudioAction("character.add", { character: { id: characterId, model: TRACK_RIG, ...clipStart(next.clip, index) } })) return false;
+			if (!await runStudioAction("motion.v4.install", { characterId, raw: encodeRawTrack(clipTrack(next.clip, index)), label: String(next.request ?? next.name).slice(0, 80) })) return false;
+		}
+		return true;
+	}
+	async function showLowvis(next, { cast = true } = {}) {
+		if (!next) { setLowvis(null); setTlPlaying(false); await clearLowvisCast(); return; }
+		setTlPlaying(false);
+		const done = cast ? await castLowvis(next) : (await clearLowvisCast(), false);
+		setLowvis({ ...next, cast: done });
 		setTlFrameCount(next.clip.frameCount);
 		setTlFrame(0);
 		setTlPlaying(true);
@@ -4569,7 +4591,7 @@ export default function App() {
 						}
 					}}>
 				<ViewportToolbar />
-				{lowvisPanelPort && !embedMode && <LowvisPanel port={lowvisPanelPort} loaded={lowvis?.name ?? null} onClip={showLowvis} />}
+				{lowvisPanelPort && !embedMode && <LowvisPanel port={lowvisPanelPort} loaded={lowvis?.name ?? null} cast={lowvis?.cast ?? true} block={lowvisBlock} onClip={showLowvis} onBlock={setLowvisBlock} />}
 				<ReviewOverlay />
 				{(embedMode || playgroundMode) && <CompositionGuideButton guideMode={guideMode} onCycle={(mode) => runStudioAction("view.setGuideMode", { mode })} />}
 				{sculptMode && !sculptTarget && (
@@ -4703,9 +4725,10 @@ export default function App() {
 								/>
 							)}
 
-							{lowvis && <LowvisLayer clip={lowvis.clip} />}
-							{/* The cast stays mounted (its rigs are held by the playback effects) and hides while a lowvis clip plays. */}
-							<group visible={!lowvis}>
+							{lowvis && <LowvisLayer clip={lowvis.clip} figures={!lowvis.cast} />}
+							{lowvisBlock && characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} />)}
+							{/* The cast stays mounted (its rigs are held by the playback effects) and hides while the layer draws a lowvis clip's own figures. */}
+							<group visible={!lowvis || lowvis.cast}>
 							{characterViews.map((view) => (
 								// Always wrapped, grouped or not: giving or taking a parent
 								// must not remount the rig the playback effects hold.

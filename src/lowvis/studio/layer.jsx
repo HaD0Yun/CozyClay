@@ -13,8 +13,16 @@ export function clipFrame(clip) {
 	return { target: { x: centre.x, y: centre.y, z: centre.z }, radius: Math.max(1, box.getSize(new THREE.Vector3()).length() / 2) };
 }
 
-export function LowvisLayer({ clip, look = "block" }) {
-	const body = useMemo(() => createClipGroup(clip, look), [clip, look]);
+/** The start of clip character `index` as a Studio placement: { x, z, rot (degrees about Y, 0 faces +Z) }. */
+export function clipStart(clip, index) {
+	const c = clip.characters[index], q = new THREE.Quaternion(c.quat[0], c.quat[1], c.quat[2], c.quat[3]); // the Hips joint at frame 0
+	const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+	return { x: c.pos[0], z: c.pos[2], rot: Math.round(THREE.MathUtils.radToDeg(Math.atan2(forward.x, forward.z)) * 10) / 10 };
+}
+
+/** figures: false draws the clip's props alone: its characters are Studio cast members then (take.js). */
+export function LowvisLayer({ clip, look = "block", figures = true }) {
+	const body = useMemo(() => createClipGroup(clip, look, { figures }), [clip, look, figures]);
 	const frame = usePlaybackSnapshot(playbackFrame), invalidate = useThree(state => state.invalidate);
 	useLayoutEffect(() => {
 		body.setFrame(Math.round(frame));
