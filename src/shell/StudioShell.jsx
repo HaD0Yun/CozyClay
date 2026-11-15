@@ -15,6 +15,7 @@ import "./glass.css";
 import "./glass-regions.css";
 import "./agent-glass.css";
 import "./type-scale.css";
+import "./narrow.css";
 
 const DOCK_TAB_KEY = "cozyclay.dock.tab.v1";
 const LEFT_COLLAPSED_KEY = "cozyclay.shell.left-collapsed.v1";
@@ -40,14 +41,16 @@ function readDockTab() {
 // the left edge to the right column: the dock, switching between Animation
 // (the Sequencer with the shot preview at its right end) and Assets.
 export default function StudioShell({ viewport, children, ...props }) {
-	const { beginWorkspaceResize } = useStudioShell();
+	const { beginWorkspaceResize, agentOpen, toggleAgent } = useStudioShell();
 	const [dockTab, setDockTab] = useState(readDockTab);
 	// The Outliner column folds to a 44px rail (--shell-left in shell.css), and
 	// the viewport's overlays follow it because they all hang off that width.
 	const [leftCollapsed, setLeftCollapsed] = useState(readLeftCollapsed);
+	const [narrowPanel, setNarrowPanel] = useState(null);
 	// Embeds (playview, playground) keep the Sequencer-only dock.
 	const embedded = Boolean(props["data-embed-mode"]);
 	const shownTab = embedded ? "animation" : dockTab;
+	const shownPanel = agentOpen ? "details" : narrowPanel;
 	// Rage and dead clicks on the primary controls (data-fid): one capture-phase listener for the whole shell.
 	useEffect(() => installClickFriction(), []);
 	useEffect(() => installWheelNumber(), []);
@@ -72,12 +75,18 @@ export default function StudioShell({ viewport, children, ...props }) {
 		}
 	}
 	return (
-		<div {...props} data-shell="glass" data-dock-tab={shownTab} data-left-collapsed={!embedded && leftCollapsed ? "" : undefined}>
+		<div {...props} data-shell="glass" data-dock-tab={shownTab} data-left-collapsed={!embedded && leftCollapsed ? "" : undefined} data-narrow-panel={!embedded ? shownPanel : undefined}>
 			<TopBar preferences={<PreferencesSlot />} />
+			{!embedded && <nav className="shell-panel-tabs" aria-label={ko("Studio panels", "스튜디오 패널")}>
+				{[["outliner", ko("Outliner", "아웃라이너")], ["details", ko("Details", "세부 정보")]].map(([panel, label]) => (
+					<button key={panel} type="button" aria-expanded={shownPanel === panel} aria-controls={`shell-${panel}`}
+						onClick={() => { if (agentOpen) toggleAgent(); setNarrowPanel(shownPanel === panel ? null : panel); }}>{label}</button>
+				))}
+			</nav>}
 			<div className="main">
 				<div className="workspace">
 					{viewport}
-					<div className="studio-left-column">
+					<div className="studio-left-column" id="shell-outliner">
 						<button
 							type="button"
 							className="shell-left-toggle"
@@ -101,7 +110,7 @@ export default function StudioShell({ viewport, children, ...props }) {
 						aria-label={ko("Resize hierarchy panel", "계층 패널 크기 조절")}
 						onPointerDown={(event) => beginWorkspaceResize("left", event)}
 					/>
-					<div className="studio-right-column">
+					<div className="studio-right-column" id="shell-details">
 						<DetailsSlot />
 					</div>
 					<div
