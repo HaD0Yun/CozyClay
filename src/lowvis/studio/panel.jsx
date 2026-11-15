@@ -13,7 +13,8 @@ export function lowvisPort(search = globalThis.location?.search ?? "") {
 	return Number.isInteger(port) && port > 1023 && port < 65536 ? port : 5201;
 }
 
-async function loadClip(name) {
+/** The clip public/lowvis/clips/pi/<name>.json, or null when it is missing or not a usable lowvis clip. */
+export async function loadLowvisClip(name) {
 	const res = await fetch(`${import.meta.env.BASE_URL}lowvis/clips/pi/${encodeURIComponent(name)}.json`, { cache: "no-store" });
 	if (!res.ok) return null;
 	try {
@@ -51,7 +52,7 @@ export function LowvisPanel({ port, loaded, cast, block, onClip, onBlock }) {
 	useEffect(() => { onClipRef.current = onClip; asCastRef.current = asCast; });
 
 	async function show(entry, options = { cast: asCastRef.current }) {
-		const clip = entry?.state === "done" ? await loadClip(entry.name) : null;
+		const clip = entry?.state === "done" ? await loadLowvisClip(entry.name) : null;
 		if (clip) { current.current = entry; onClipRef.current({ name: entry.name, request: entry.request, clip }, options); }
 		return !!clip;
 	}
