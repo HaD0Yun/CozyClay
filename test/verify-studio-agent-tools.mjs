@@ -10,6 +10,7 @@ import { createStudioTools } from "../bin/agent/studio-tools.mjs";
 // The model-facing Studio tool list, as the sidecar builds it.
 const studioToolSchemas = () => createStudioTools({ liveHub: { command: async () => ({}) }, workspaceHandle: "schemas" });
 import { createFakeModel } from "./fixtures/fake-model.mjs";
+import { isTurnControl, turnControlReceipt } from "./fixtures/turn-controls.mjs";
 import { fauxAssistantMessage, fauxToolCall, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -44,7 +45,7 @@ async function liveFixture({ bridge = null, command = null } = {}) {
   const hub = await startLiveHub(0); assert.ok(hub);
   const socket = new WebSocket(`ws://127.0.0.1:${hub.server.address().port}/live`);
   const ready = deferred();
-  socket.on("message", raw => { const frame = JSON.parse(raw); if (frame.type === "workspace") ready.resolve(frame.handle); else if (frame.type === "cmd") void (async () => { const value = await command(frame.name, frame.args); if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "result", id: frame.id, ok: true, value })); })(); });
+  socket.on("message", raw => { const frame = JSON.parse(raw); if (frame.type === "workspace") ready.resolve(frame.handle); else if (frame.type === "cmd") void (async () => { const value = isTurnControl(frame.name, frame.args) ? turnControlReceipt(frame.args) : await command(frame.name, frame.args); if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "result", id: frame.id, ok: true, value })); })(); });
   await once(socket, "open"); socket.send(JSON.stringify({ type: "hello", role: "editor", version: 1, workspaceId: "tab-7" }));
   const handle = await bounded(ready.promise);
   return { hub, socket, handle, async close() { socket.terminate(); for (const peer of hub.server.clients) peer.terminate(); await new Promise(resolve => hub.server.close(resolve)); if (bridge) await new Promise(resolve => bridge.close(resolve)); } };

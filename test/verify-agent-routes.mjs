@@ -7,7 +7,10 @@ import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai";
 import { createAgentHandler as createHandler, REASONING_EFFORTS } from "../bin/agent/agent-routes.mjs";
 import { scriptedEditorJobs } from './fixtures/scripted-editor-jobs.mjs';
+import { withTurnControls } from './fixtures/turn-controls.mjs';
 function createAgentHandler(options) {
+  // every fake editor answers the turn transaction a Studio turn runs in
+  if (typeof options.liveHub?.command === 'function') withTurnControls(options.liveHub);
   if (!options.studioRuntime?.admit) return createHandler(options);
   const { studioRuntime, ...rest } = options;
   const liveHub = scriptedEditorJobs(rest.liveHub, studioRuntime);
