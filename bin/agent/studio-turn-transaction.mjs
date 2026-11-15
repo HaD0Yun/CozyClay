@@ -20,7 +20,7 @@ export const LOST_STUDIO = new Set(["LIVE_HUB_UNAVAILABLE", "STALE_HANDLE", "NO_
 
 export function studioTransaction({ hub, context, turnId, admission, task = null, signal, plain = false, onWait }) {
 	// The main agent holds no transaction (plain): its one quick edit opens a task of its own.
-	const wrapped = !plain && Boolean(task || context.scene?.previsMode);
+	const wrapped = !plain && Boolean(task || context.scene);
 	const host = Object.fromEntries(["workspaceId", "documentEpoch", "sceneId", "sceneEpoch"].map(key => [key, context.host[key]]));
 	const verb = name => task ? `task.${name === "begin" ? "begin" : name}` : `agent.turn.${name}`;
 	// A control the user's drag refuses (a task's cancel or rollback writes its keys back) waits for the drag to end.
