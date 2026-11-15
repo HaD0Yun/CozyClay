@@ -12,7 +12,6 @@ import {
 	removeRecentProject,
 	requestHandlePermission,
 	storeProjectsDirectory,
-	DEFAULT_PREVIS_MODE,
 	DEFAULT_CAST_STYLE,
 } from "./project.js";
 import { BrandMark, TemplateThumb } from "./project-browser-art.jsx";
@@ -186,11 +185,11 @@ export default function ProjectBrowser({ currentName, onOpen, onOpenFile, onNew,
 		const projectName = name.trim();
 		if (!projectName) return;
 		if (selectedTemplate?.starterId) {
-			onStarter?.(selectedTemplate.starterId, projectName, { previsMode: DEFAULT_PREVIS_MODE, castStyle: DEFAULT_CAST_STYLE });
+			onStarter?.(selectedTemplate.starterId, projectName, { castStyle: DEFAULT_CAST_STYLE });
 			return;
 		}
 		stagePendingProjectName(projectName);
-		onNew(projectName, { previsMode: DEFAULT_PREVIS_MODE, castStyle: DEFAULT_CAST_STYLE });
+		onNew(projectName, { castStyle: DEFAULT_CAST_STYLE });
 	};
 
 	const recentEntries = useRecentSummaries(useMemo(() => [

@@ -2,18 +2,11 @@ import Foldout from "./Foldout.jsx";
 import { ko } from "../locale.js";
 import { Vector3Row, Slider } from "../ui.jsx";
 import { useCastTransaction } from '../domains/cast.js';
-import { useContext } from "react";
-import { AppContext } from "../app-context.js";
-import { shotAtFrame } from "../cuts.js";
 import SampleMotionsPanel from "./SampleMotionsPanel.jsx";
 
 export default function CharacterTransformPanel({ workflowMode, isCharacterSelection, activeChar }) {
 	const { run, begin, commit } = useCastTransaction();
-	const app = useContext(AppContext);
-	const live = app?.ports.read?.();
-	const still = live ? shotAtFrame(live.shots, live.view.frame) : null;
-	const shown = live?.targets?.get?.(activeChar.id)?.motion || activeChar.layer?.waypoints?.length
-		? activeChar : { ...activeChar, ...(still?.cast?.[activeChar.id] ?? {}) };
+	const shown = activeChar;
 	return (<>
 <Foldout
 					key={workflowMode === "motion" ? "placement" : "transform"}
@@ -34,11 +27,6 @@ export default function CharacterTransformPanel({ workflowMode, isCharacterSelec
 								]}
 							/>
 							<Slider compact label={ko("Rotation", "회전")} min={-180} max={180} step={1} value={shown.rot ?? 0} unit="°" onChange={(rot) => run('character.update', { characterId: activeChar.id, patch: { rot } })} />
-							{still?.kind === "still" && (
-								<button type="button" className="secondary-button" onClick={() => run("shot.setCastOverride", { shotId: still.id, characterId: activeChar.id, override: null })}>
-									{ko("Use stage placement", "무대 배치 사용")}
-								</button>
-							)}
 						</div>
 					) : (
 						<>
@@ -55,11 +43,6 @@ export default function CharacterTransformPanel({ workflowMode, isCharacterSelec
 							/>
 							<Slider compact label={ko("Rotation", "회전")} min={-180} max={180} step={1} value={shown.rot ?? 0} unit="°" onChange={(rot) => run('character.update', { characterId: activeChar.id, patch: { rot } })} />
 							<Slider compact label={ko("Scale", "크기")} min={0.2} max={3} step={0.05} value={activeChar.scale ?? 1} unit="×" onChange={(scale) => run('character.update', { characterId: activeChar.id, patch: { scale } })} />
-							{still?.kind === "still" && (
-								<button type="button" className="secondary-button" onClick={() => run("shot.setCastOverride", { shotId: still.id, characterId: activeChar.id, override: null })}>
-									{ko("Use stage placement", "무대 배치 사용")}
-								</button>
-							)}
 						</>
 					)}
 				</Foldout>

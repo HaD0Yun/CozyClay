@@ -2,7 +2,6 @@ import { useStudioShell } from "./studio-shell-context.js";
 import ProjectPanel from "../panels/ProjectPanel.jsx";
 import MenuBar from "./MenuBar.jsx";
 import { SaveState } from "./StatusBar.jsx";
-import { ko } from "../locale.js";
 import UpdateChip from "../update/UpdateChip.jsx";
 import "./topbar.css";
 
@@ -38,7 +37,7 @@ export default function TopBar({ preferences }) {
 export function ProjectHead() {
 	const {
 		projectMenuOpen, setProjectMenuOpen, projectDirty, projectName, projectStartupOpen,
-		projectManifest, saveStatus, previsMode,
+		projectManifest, saveStatus,
 	} = useStudioShell();
 	return (
 		<div className="topbar-project studio-project-head">
@@ -51,20 +50,7 @@ export function ProjectHead() {
 				projectManifest={projectManifest}
 			/>
 			<SaveState status={saveStatus} />
-			<PrevisModeBadge mode={previsMode} />
 		</div>
 	);
 }
 
-// The project's previs mode, a quiet label under the save state.
-function previsModeLabel(mode) {
-	return mode === "storyboard" ? ko("Storyboard", "스토리보드") : ko("Animation", "애니메이션");
-}
-
-function PrevisModeBadge({ mode }) {
-	return (
-		<span className="topbar-previs-mode" data-testid="topbar-previs-mode" data-previs-mode={mode}>
-			{previsModeLabel(mode)}
-		</span>
-	);
-}

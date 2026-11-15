@@ -72,7 +72,6 @@ export const ZH_WORKSPACE = {
 	"Drag into the scene to place": "拖入场景以放置",
 	"New project": "新建项目",
 	"Start from an empty stage.": "从空舞台开始。",
-	"Storyboard": "故事板",
 	"Animation": "动画",
 	"Recently": "最近",
 	"Project name": "项目名称",

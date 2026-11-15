@@ -21,11 +21,9 @@ const MODES = [
 	{ id: "pose", key: "2", label: ko("Pose", "포즈") },
 	{ id: "camera", key: "3", label: ko("Camera", "카메라") },
 	{ id: "motion", key: "4", label: ko("Motion", "모션") },
-	// #739: an isolated turntable for one sculpt. Every previs mode has it.
+	// #739: an isolated turntable for one sculpt.
 	{ id: "sculpt", key: "5", label: ko("Sculpt", "조형") },
 ];
-// A storyboard project has no Motion department: its pill reads 1 2 3 5.
-const modesFor = (previsMode) => (previsMode === "storyboard" ? MODES.filter((mode) => mode.id !== "motion") : MODES);
 
 // #570 line icons (16px, 1.3 stroke) for the floating rails.
 const ICON = {
@@ -120,7 +118,7 @@ export default function ViewportToolbar() {
 		autoColor, setAutoColor, isCharacterSelection, partColoursChoice, embedMode,
 		agentCollapsed, addSceneObject, flySpeed, frameAll, setAxisView,
 		ikEditTool, setIkEditTool, motion, setRangePinPartPick,
-		previsMode, sculptView, requestSculptView, sculptParts,
+		sculptView, requestSculptView, sculptParts,
 	} = useStudioShell();
 	const menu = useOverlayMenu();
 	const viewportTools = useViewportTools();
@@ -251,7 +249,7 @@ export default function ViewportToolbar() {
 		<div className="viewport-titlebar" data-testid="viewport-overlays">
 			<div className="vp-mode-toolbar" role="toolbar" data-testid="mode-toolbar" aria-label={ko("Mode and tools", "모드와 도구")}>
 				<div className="vp-mode-keys" role="tablist" aria-label={ko("Mode", "모드", "模式")}>
-					{modesFor(previsMode).map((mode) => {
+					{MODES.map((mode) => {
 						const active = workflowMode === mode.id;
 						const refused = mode.id === "pose" ? poseRefusal : null;
 						return (

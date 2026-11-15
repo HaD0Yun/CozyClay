@@ -122,7 +122,7 @@ export function effortOptions(entry) {
 
 export const SUGGESTION_CHIPS = [
 	"Block a two-shot conversation in this scene",
-	"Render this frame as a storyboard panel",
+	"Render this frame as an ink sketch",
 	"Suggest a camera move for the current shot",
 ];
 
@@ -170,7 +170,7 @@ const STUDIO_TOOL_LABELS = {
  * One panel, two hosts. The conversation, the transport, the composer and the
  * activity line are identical on both surfaces; everything below is what each
  * host shows AROUND them. A Workflow-only affordance (the image cost hint, the
- * image entitlement gate, the storyboard chips, the History placeholder, the
+ * image entitlement gate, the suggestion chips, the History placeholder, the
  * dock's stored width) is absent from the Studio column rather than rendered
  * dead, because the Studio turn cannot produce an image at all.
  */
@@ -796,7 +796,7 @@ const MOCK_SCRIPT = [
 	{ delay: 260, event: { type: "tool.done", callId: "call-1", ok: true, elapsedMs: 268, result: { width: 1280, height: 720 } } }, { delay: 0, event: { type: "context", tokens: 41_200, window: 1_000_000 } },
 	{ delay: 90, event: { type: "tool.start", callId: "call-2", name: "run_workflow", label: "Run workflow", args: {} } },
 	{ delay: 420, event: { type: "tool.done", callId: "call-2", ok: true, elapsedMs: 1412, result: { imageId: "img-1" } } },
-	{ delay: 80, event: { type: "image", imageId: "img-1", dataUrl: MOCK_IMAGE, width: 512, height: 288, prompt: "wide two-shot, storyboard ink" } },
+	{ delay: 80, event: { type: "image", imageId: "img-1", dataUrl: MOCK_IMAGE, width: 512, height: 288, prompt: "wide two-shot, ink sketch" } },
 	{ delay: 60, event: { type: "quota", plan: "Plus", primary: { usedPercent: 46, windowMinutes: 300, resetAt: null }, credits: { has: true } } }, { delay: 0, event: { type: "context", tokens: 95_900, window: 1_000_000 } },
 	{ delay: 40, event: { type: "done" } },
 ];
