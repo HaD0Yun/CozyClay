@@ -18,3 +18,14 @@ export function motionOff(env = process.env) {
 	if (bad.length) throw new Error(`COZYCLAY_MOTION_OFF: want any of ${STEPS.join(", ")}, got ${bad.join(", ")}`);
 	return [...new Set(list)];
 }
+
+/**
+ * The editor actions the Studio agent does not see while the lowvis engine is on (agent-view.mjs): the old motion
+ * engine's actions and the hand-fix actions of a rig body. Body motion is the motion tool's work (motion-door.mjs).
+ * The editor, MCP and the old engine keep them.
+ */
+export const HIDDEN_ACTIONS = Object.freeze([
+	"motion.compile", "motion.describe", "motion.report", "motion.keyObject", "motion.fill", "motion.primitive", "motion.qa",
+	"character.setIkKey", "character.removeIkKey", "character.clearIkKeys", "objects.batch", "character.setPose", "ik.applyPose",
+	"motion.rangePin.apply", "motion.rangePin.remove", "ik.setKey", "ik.removeKey", "ik.clearKeys", "ik.moveKey",
+]);
