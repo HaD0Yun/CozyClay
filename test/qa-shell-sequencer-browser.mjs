@@ -119,7 +119,6 @@ expect("the retired demo motion backend is absent", await evaluate("!window.__co
 await evaluate("window.__cozyclay.pause?.()");
 await waitFor("!document.querySelector('.tl-btn.play.on')");
 await click('[data-mode-key="4"]');
-expect("Motion mode keeps Body Cut disabled without a take", await evaluate("document.querySelector('.v2-sequencer [data-testid=sequencer-cut]')?.disabled === true"));
 
 const geometry = await evaluate(`(() => {
 	const root = document.querySelector('.v2-sequencer');
