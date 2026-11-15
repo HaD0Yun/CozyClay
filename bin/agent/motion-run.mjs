@@ -8,7 +8,8 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionOff } from "./motion-engine.mjs";
 
-export const MOTION_MODEL = "claude-opus-5-5", MOTION_EFFORT = "medium", MOTION_VARIANT = "studio";
+export const MOTION_MODEL = "claude-opus-5-5";
+const MOTION_EFFORT = "medium", MOTION_VARIANT = "studio";
 const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };

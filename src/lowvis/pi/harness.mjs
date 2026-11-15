@@ -20,7 +20,7 @@ import { createCompileTool } from "./compile-tool.mjs";
 const ROOT = resolve(import.meta.dirname, "../../..");
 export const DEFAULT_MODEL = "claude-fable-5-2", DEFAULT_EFFORT = "medium";
 export const SAFETY = Object.freeze({ shots: 40, ms: 30 * 60_000 });
-export const MAX_IMAGES = 4;
+const MAX_IMAGES = 4;
 const DROPPED = "[the sheet images of this call are no longer shown: only the latest call's images are kept]";
 const round = v => Math.round(v);
 
