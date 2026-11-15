@@ -19,6 +19,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCal
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-main-idle-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
 process.env.COZYCLAY_AGENT_REVIEW = "off";
+process.env.COZYCLAY_MOTION_ENGINE = "old"; // the coordinator prompt it checks is the old motion engine's (main-prompt.mjs)
 process.on("exit", () => rmSync(sessionDir, { recursive: true, force: true }));
 const { createAgentHandler } = await import("../bin/agent/agent-routes.mjs");
 const { MAIN_SYSTEM_PROMPT } = await import("../bin/agent/main-prompt.mjs");

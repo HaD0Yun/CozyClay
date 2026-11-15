@@ -2,7 +2,7 @@
 // The Studio prompts teach the three cast styles (context scene.castStyle) and the hybrid "capsules for this shot?" proposal.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { STUDIO_SYSTEM_PROMPT as prompt, STUDIO_SYSTEM_PROMPT_STORYBOARD as storyboard } from "../bin/agent/studio-prompt.mjs";
+import { STUDIO_SYSTEM_PROMPT as prompt } from "../bin/agent/studio-prompt.mjs";
 import { studioSystemPrompt } from "../bin/agent/studio-motion-reference.mjs";
 import { SUPERVISOR_RUBRIC } from "../bin/agent/supervisor.mjs";
 import { MAIN_SYSTEM_PROMPT } from "../bin/agent/main-prompt.mjs";
@@ -48,9 +48,7 @@ test("the block sits after the proxy sentence and before the motion reference", 
 	assert.ok(full.indexOf("Previs procedure") > full.indexOf("Ask concise questions only when"), "the procedure still follows the rules");
 });
 
-test("the storyboard prompt, supervisor rubric and coordinator read the cast style", () => {
-	assert.ok(storyboard.endsWith("Cast style is context scene.castStyle; in a capsule project add only proxy-figure characters."));
-	assert.doesNotMatch(storyboard, /- hybrid:/);
+test("the supervisor rubric and coordinator read the cast style", () => {
 	assert.match(SUPERVISOR_RUBRIC, /In a hybrid project \(castStyle hybrid, or no castStyle given\), capsule figures the user approved in place of rigs for a shot \(previousExchange holds the proposal the request answers\) are not a coverage miss\./);
 	assert.match(MAIN_SYSTEM_PROMPT, /Carry the project's cast style \(context scene\.castStyle: rig, capsule or hybrid\)/);
 });

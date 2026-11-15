@@ -365,7 +365,7 @@ const v4Root = join(tmp, "v4");
 	const liveHub = { command: async name => { hubCommands.push(name); throw new Error(`unexpected hub command ${name}`); } };
 	const { createServer } = await import("node:http");
 	let server;
-	const handler = createAgentHandler({ auth: { getAccessToken: async () => "token" }, codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: registry, liveHub, env: {},
+	const handler = createAgentHandler({ auth: { getAccessToken: async () => "token" }, codex: { parseQuotaHeaders: () => ({ primary: {}, credits: {} }) }, models: registry, liveHub, env: { COZYCLAY_MOTION_ENGINE: "old" }, // v4 is listed under the old motion engine only
 		studioRuntime: { readContext: async () => context() }, sessionStore: createSessionStore(join(tmp, "route-sessions")), port: () => server.address().port });
 	server = createServer((req, res) => handler(req, res).catch(error => { if (!res.headersSent) { res.writeHead(500); res.end(error.stack); } else if (!res.writableEnded) res.end(); }));
 	await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));

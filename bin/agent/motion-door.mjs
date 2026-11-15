@@ -77,16 +77,16 @@ const pictures = new Map(); // the user turn's conversation (a task's: its main 
  * motion tool of its conversation (a task's run reads its main session's); a later user turn without pictures drops
  * them, so old pictures never go with a later request. The main agent's hidden report turn changes nothing.
  * tools: the turn's Studio tools (their internal.invoke runs the install); transaction: the turn's
- * studioTransaction (mark, rollback).
+ * studioTransaction (mark, rollback). deps: runMotion's (tests).
  */
-export async function turnMotionDoor({ value, env = process.env, hub, tools, transaction, signal }) {
+export async function turnMotionDoor({ value, env = process.env, hub, tools, transaction, signal, deps = null }) {
 	const key = value.task?.parentId ?? value.sessionId;
 	if (value.attachments?.length) pictures.set(key, picturesOf(value.attachments));
 	else if (!value.task && !value.hidden) pictures.delete(key);
 	if (value.main || motionEngine(env) !== "lowvis" || !await motionAvailable(env)) return null;
 	return createMotionDoor({
 		run: ({ request, images, signal: callSignal, onCompile }) => runMotion({ text: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
-			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal ? AbortSignal.any([callSignal, signal]) : signal, env, onCompile, allowAdd: !value.task }),
+			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, allowAdd: !value.task, deps }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
 	});
 }

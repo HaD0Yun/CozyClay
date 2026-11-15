@@ -11,7 +11,7 @@ import { describe } from "../../src/motion3/describe.js";
 import { MOTION_REFERENCE_TOPICS, motionReference, studioSystemPrompt } from "../../bin/agent/studio-motion-reference.mjs";
 
 const check = (name, fn) => { fn(); console.log(`ok - ${name}`); };
-const motion = prompt.slice(prompt.indexOf("Motion is computed"), prompt.indexOf("The context scene.previsMode"));
+const motion = prompt.slice(prompt.indexOf("Motion is computed"), prompt.indexOf("In the context, an entity with characterKind"));
 const sentences = text => text.split(/(?<=[.;:])\s+/).map(s => s.trim()).filter(s => s.length >= 40);
 
 // +291 characters for the efficiency round (the motion reference, describe topics, one script for sweeps): budgets +300

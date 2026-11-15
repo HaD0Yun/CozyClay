@@ -24,6 +24,7 @@ import { MAIN_SYSTEM_PROMPT } from "../bin/agent/main-prompt.mjs";
 
 const sessionDir = mkdtempSync(join(tmpdir(), "cozyclay-task-dispatch-"));
 process.env.COZYCLAY_AGENT_SESSIONS_DIR = sessionDir;
+process.env.COZYCLAY_MOTION_ENGINE = "old"; // the coordinator prompt it checks is the old motion engine's (main-prompt.mjs)
 process.on("exit", () => rmSync(sessionDir, { recursive: true, force: true }));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
