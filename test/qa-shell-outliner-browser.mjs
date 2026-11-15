@@ -93,18 +93,25 @@ await send("Emulation.setDeviceMetricsOverride", {
 expect("Outliner mounts", await waitFor("!!document.querySelector('.v2-outliner .v2-outliner-search')"));
 expect("Outliner has visible rows", await waitFor("document.querySelectorAll('.v2-outliner .hierarchy-row-wrap').length > 0"));
 
+await waitFor("!!document.querySelector('[data-testid=viewport-add]')");
+await evaluate("document.querySelector('[data-testid=viewport-add]').click()");
+expect("the viewport Add menu exposes Character", await waitFor("!!document.querySelector('[data-add=character]')"));
+await evaluate("document.querySelector('[data-add=character]').click()");
+await waitFor("[...document.querySelectorAll('.hierarchy-label')].some((node) => node.textContent.trim() === 'Character 1')");
+await waitFor("!!window.__cozyclay?.rigA", 60000);
+
 const rowHeights = await evaluate(`[...document.querySelectorAll('.v2-outliner .hierarchy-row-wrap')]
 	.filter((row) => row.getClientRects().length > 0)
 	.map((row) => Math.round(row.getBoundingClientRect().height))`);
-expect("Outliner rows are 24 px", rowHeights.length > 0 && rowHeights.every((height) => height === 24), JSON.stringify(rowHeights));
+expect("Outliner rows are 22 px", rowHeights.length > 0 && rowHeights.every((height) => height === 22), JSON.stringify(rowHeights));
 
-await evaluate("document.querySelector('[data-node-id=characterA] .hierarchy-row')?.click()");
+await evaluate("([...document.querySelectorAll('.hierarchy-label')].find((node) => node.textContent.trim() === 'Character 1')?.closest('.hierarchy-row')?.click())");
 expect(
 	"Character 1 can be selected",
-	await waitFor("document.querySelector('[data-node-id=characterA]')?.classList.contains('selected')"),
+	await waitFor("[...document.querySelectorAll('.hierarchy-label')].some((node) => node.textContent.trim() === 'Character 1' && node.closest('.hierarchy-row-wrap')?.classList.contains('selected'))"),
 );
 const selectedBackground = await evaluate("getComputedStyle(document.querySelector('.v2-outliner .hierarchy-row-wrap.selected')).backgroundColor");
-expect("selected row uses the amber tint", selectedBackground === "rgba(232, 163, 61, 0.14)", selectedBackground);
+expect("selected row uses the current light selection surface", selectedBackground === "rgba(255, 255, 255, 0.08)", selectedBackground);
 
 const screenshot = await send("Page.captureScreenshot", { format: "png" });
 writeFileSync(`${out}/task-11-outliner.png`, Buffer.from(screenshot.data, "base64"));

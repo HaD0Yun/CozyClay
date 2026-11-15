@@ -167,32 +167,32 @@ await clickAndWait(trigger, `!!document.querySelector(${JSON.stringify(dialog)})
 const koreanTitle = await evaluate(`document.querySelector('.v2-preferences__nav-title')?.textContent.trim()`);
 const koreanNav = await evaluate(`JSON.stringify([...document.querySelectorAll(${JSON.stringify(nav)})].map((item) => item.textContent.trim()))`);
 expect("switching language changes the dialog title", koreanTitle === "환경설정", koreanTitle || "missing");
-expect("switching language changes the dialog nav labels", koreanNav.includes("입력 및 카메라") && !koreanNav.includes("Input & Camera"), koreanNav);
+expect("switching language changes the dialog nav labels", koreanNav === JSON.stringify(["모양", "뷰포트", "내보내기", "단축키"]), koreanNav);
 await pressEscape();
 await waitForDom(`!document.querySelector(${JSON.stringify(dialog)})`);
 await evaluate(`localStorage.setItem("cozyclay.locale", "en")`);
 await reload();
 
-// Invert Y is a viewer preference: author it, reload the actual editor, and
-// reopen Preferences to prove the stored state is read on a fresh mount.
+// Auto colour is an editor preference: author it, reload the actual editor,
+// and reopen Preferences to prove the stored state is read on a fresh mount.
 await clickAndWait(trigger, `!!document.querySelector(${JSON.stringify(dialog)})`);
-await clickTextAndWait(nav, "Input & Camera", `([...document.querySelectorAll(${JSON.stringify(nav)})].find((item) => item.textContent.trim() === "Input & Camera"))?.getAttribute("aria-current") === "page"`);
-const invert = "[data-testid=\"preferences-invert-y\"]";
-const invertFlip = waitForDom(`document.querySelector(${JSON.stringify(invert)})?.getAttribute("aria-pressed") === "true"`);
-await evaluate(`document.querySelector(${JSON.stringify(invert)})?.click()`);
-await invertFlip;
+await clickTextAndWait(nav, "Appearance", `([...document.querySelectorAll(${JSON.stringify(nav)})].find((item) => item.textContent.trim() === "Appearance"))?.getAttribute("aria-current") === "page"`);
+const autoColor = "[data-testid=\"preferences-auto-color\"]";
+const autoColorFlip = waitForDom(`document.querySelector(${JSON.stringify(autoColor)})?.getAttribute("aria-pressed") === "true"`);
+await evaluate(`document.querySelector(${JSON.stringify(autoColor)})?.click()`);
+await autoColorFlip;
 await pressEscape();
 await waitForDom(`!document.querySelector(${JSON.stringify(dialog)})`);
 await reload();
 await clickAndWait(trigger, `!!document.querySelector(${JSON.stringify(dialog)})`);
-await clickTextAndWait(nav, "Input & Camera", `([...document.querySelectorAll(${JSON.stringify(nav)})].find((item) => item.textContent.trim() === "Input & Camera"))?.getAttribute("aria-current") === "page"`);
-expect("Invert Y persists after reload", await evaluate(`document.querySelector(${JSON.stringify(invert)})?.getAttribute("aria-pressed") === "true"`));
+await clickTextAndWait(nav, "Appearance", `([...document.querySelectorAll(${JSON.stringify(nav)})].find((item) => item.textContent.trim() === "Appearance"))?.getAttribute("aria-current") === "page"`);
+expect("Auto colour persists after reload", await evaluate(`document.querySelector(${JSON.stringify(autoColor)})?.getAttribute("aria-pressed") === "true"`));
 
 // Capture the reference-size Preferences surface after the functional checks.
-await clickTextAndWait(nav, "Input & Camera", `([...document.querySelectorAll(${JSON.stringify(nav)})].find((item) => item.textContent.trim() === "Input & Camera"))?.getAttribute("aria-current") === "page"`);
-const invertOff = waitForDom(`document.querySelector(${JSON.stringify(invert)})?.getAttribute("aria-pressed") === "false"`);
-await evaluate(`document.querySelector(${JSON.stringify(invert)})?.click()`);
-await invertOff;
+await clickTextAndWait(nav, "Appearance", `([...document.querySelectorAll(${JSON.stringify(nav)})].find((item) => item.textContent.trim() === "Appearance"))?.getAttribute("aria-current") === "page"`);
+const autoColorOff = waitForDom(`document.querySelector(${JSON.stringify(autoColor)})?.getAttribute("aria-pressed") === "false"`);
+await evaluate(`document.querySelector(${JSON.stringify(autoColor)})?.click()`);
+await autoColorOff;
 const prefsPath = await screenshot("task-18-prefs.png");
 console.log(`SCREENSHOT ${prefsPath}`);
 

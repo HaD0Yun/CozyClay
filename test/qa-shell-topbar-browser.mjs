@@ -164,7 +164,7 @@ const geometry = await evaluate(`(() => {
 	const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height, width: r.width }; };
 	return { top: box('.topbar'), status: !!document.querySelector('.v2-statusbar') };
 })()`);
-expect("the top bar is 32px tall", Math.abs(geometry.top.height - 32) < 0.5, JSON.stringify(geometry.top));
+expect("the top bar is 22px tall", Math.abs(geometry.top.height - 22) < 0.5, JSON.stringify(geometry.top));
 expect("with nothing to report there is no standing status bar", geometry.status === false);
 
 const buttons = await evaluate(`[...document.querySelectorAll('header.topbar button')].filter((b) => {
