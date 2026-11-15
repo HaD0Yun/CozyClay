@@ -1,5 +1,5 @@
 // The check numbers of a clip as rows, each with the frame of its worst value.
-// checks.js (frozen) returns the numbers without frames, so this repeats its formulas and keeps the frame; shot.mjs
+// checks.js (frozen) returns the numbers without frames, so this repeats its formulas and keeps the frame; compile-tool.mjs
 // prints checkClip's own value and drops the frame of a row whose value here differs from it. One row is not in
 // checks.js: `clear`, the nearest joint to any prop (hands excluded), because the engine has no collision.
 //
@@ -8,7 +8,7 @@
 // row: { key, label, short, value, unit, frame?, who?, prop?, note?, worse, spike?, word? }
 //   short: the row's name on a sheet label
 //   worse: 1 = a higher value is worse, -1 = a value below zero is worse, 0 = neither
-//   spike: the value past which the row counts as a spike (shot.mjs then shows the frames around `frame`)
+//   spike: the value past which the row counts as a spike (compile-tool.mjs then shows the frames around `frame`)
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { SOLE, TOE } from "../engine-simple/solve.js";

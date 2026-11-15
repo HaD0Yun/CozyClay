@@ -1,5 +1,5 @@
 // One Studio turn on the lowvis motion engine (prototype). The request goes to the lowvis authoring loop
-// (src/lowvis/pi/harness.mjs: Opus 5.5 on CLIProxyAPI with one tool, shot), and the clip it ends with is installed
+// (src/lowvis/pi/harness.mjs: Opus 5.5 on CLIProxyAPI with one tool, motion), and the clip it ends with is installed
 // in the Studio as scene content (src/lowvis/studio/install.js): its props as objects, its characters as X Bot cast
 // members with the clip's motion as their take.
 // The key "lowvis/claude-opus-5-5" is listed in the Agent box's model picker while CLIProxyAPI is signed in; the
@@ -62,14 +62,14 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 			const [{ runScene }, { installClip }, { studioScene }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js")]);
 			const name = `agent-${stamp()}`;
 			const studio = studioScene(await hub.command("describe", {}, value.context.host.workspaceHandle));
-			let shots = 0;
+			let compiles = 0;
 			const record = await runScene({ name, request: requestOf(value.text, studio.scene, last.get(value.sessionId)), model: MODEL.id, effort: value.effort ?? MODEL.defaultEffort, variant: VARIANT, env, signal, log: line => {
 				// one tool row per compile, as the panel shows any tool call
-				const shot = /^\s*shot (\d+): (\w+)/.exec(line);
-				if (!shot) return;
-				const callId = `${name}-shot-${++shots}`, ok = shot[2] === "ok";
-				send({ type: "tool.start", callId, name: "shot", label: "compile the motion", args: { n: Number(shot[1]) } });
-				send(ok ? { type: "tool.done", callId, ok: true, elapsedMs: 0, result: { n: Number(shot[1]) } } : { type: "tool.done", callId, ok: false, elapsedMs: 0, error: line.trim() });
+				const call = /^\s*motion (\d+): (\w+)/.exec(line);
+				if (!call) return;
+				const callId = `${name}-motion-${++compiles}`, ok = call[2] === "ok";
+				send({ type: "tool.start", callId, name: "motion", label: "compile the motion", args: { n: Number(call[1]) } });
+				send(ok ? { type: "tool.done", callId, ok: true, elapsedMs: 0, result: { n: Number(call[1]) } } : { type: "tool.done", callId, ok: false, elapsedMs: 0, error: line.trim() });
 			} });
 			if (signal.aborted) throw new Error("aborted");
 			if (record.infraError) throw Object.assign(new Error(`The model or the proxy failed: ${record.infraError.message}`), { code: "upstream" });

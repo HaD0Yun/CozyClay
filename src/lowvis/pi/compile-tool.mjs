@@ -1,6 +1,6 @@
 // The one tool of the lowvis authoring harness. Every call compiles the scene and spec with engine-simple,
 // validates and checks the clip, and renders contact sheets; the caller asks for none of that.
-//   const shot = createShot({ name });   const result = shot.call({ scene?, spec?, look? });
+//   const motion = createCompileTool({ name });   const result = motion.call({ scene?, spec?, look? });
 // result: { status: "ok" | "rejected", text, images: [{ data (base64 png), mimeType }], error?, buildMs, renderMs,
 //           scene, spec, shown: [{ frames, view, focus }] (one per sheet but the spike rows), rows, files }
 // A call may send only what changed; the last scene and spec are kept. A thrown engine error comes back as text.
@@ -168,9 +168,9 @@ function spikes(rows, F) {
 }
 
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
- *  variant with edit takes shot({ edit }). */
-export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base" }) {
-	const feature = features(variant), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, notesSaid: false, moversSaid: "", last: null };
+ *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features). */
+export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [] }) {
+	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, notesSaid: false, moversSaid: "", last: null };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
@@ -181,7 +181,7 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 		const before = state.spec, edited = sent.edit !== undefined && sent.edit !== null ? applyEdit(state.spec, sent.edit) : null;
 		if (edited?.spec) state.spec = edited.spec;
 		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did };
-		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`shot ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
+		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
 		if (edited?.error) return reject(edited.error, [edited.error]);
 		const bad = problems(state.scene, state.spec);
 		if (bad.length) return reject(bad[0], bad.slice(0, 8));
@@ -230,7 +230,7 @@ export function createShot({ name, outDir = join(ROOT, "lowvis-out/pi", name), c
 		const prev = state.prevRows && Object.fromEntries(state.prevRows.map(r => [r.key, r])), marks = told.map(r => prev ? against(r, prev[r.key]) : { text: "", worse: false });
 		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length;
 		const text = [
-			`shot ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
+			`motion ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
 			edited?.said ?? "",
 			aux.repeat?.added || aux.repeat?.dropped ? `repeat: ${aux.repeat.added} actions added by the repeats${aux.repeat.dropped ? `, ${aux.repeat.dropped} left out because they fall after the last frame` : ""}` : "",
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
