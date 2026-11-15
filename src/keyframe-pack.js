@@ -88,9 +88,7 @@ export function keyframePackEntries({ shot, fps, firstFramePng, lastFramePng, cl
 	if (lastFramePng != null) entries.push({ name: `${folder}/last.png`, data: lastFramePng });
 	if (clip != null) entries.push({ name: `${folder}/clip.${clip.ext}`, data: clip.data });
 	if (stylizedPng != null) entries.push({ name: `${folder}/stylized.png`, data: stylizedPng });
-	const range = shot.kind === "still"
-		? { startFrame: shot.startFrame, endFrame: shot.startFrame, hold: shot.endFrame - shot.startFrame + 1, kind: "still" }
-		: { startFrame: shot.startFrame, endFrame: shot.endFrame };
+	const range = { startFrame: shot.startFrame, endFrame: shot.endFrame };
 	entries.push(
 		{ name: `${folder}/camera.json`, data: JSON.stringify({ ...camera, fps, ...range }, null, 2) + "\n" },
 		{ name: `${folder}/prompt.txt`, data: `${prompt}\n` },

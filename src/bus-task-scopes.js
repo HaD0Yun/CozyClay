@@ -32,7 +32,7 @@ export function keysOverlap(a, b) {
 }
 
 const SCENE = ['cast.replace', 'cast.setCustomPoses', 'cast.showExtras', 'cast.removePose', 'objects.replace', 'shot.replace', 'ai.prepareShot'];
-const TIMELINE = ['shot.create', 'shot.createStill', 'shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
+const TIMELINE = ['shot.create', 'shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
 const CREATE = ['object.add', 'object.createKit', 'asset.import', 'character.add'];
 const CHARACTER = /^(character\.|characters?\b|cast\.(savePose|setLayer)$|ik\.|motion\.)/;
 // The layers each character command writes, read from what it changes: a compile installs a take and clears the IK

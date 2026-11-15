@@ -24,7 +24,6 @@ import { studioActionRefusal } from "../studio-actions.js";
 import { createStableItemId, removeStableItem } from "../stable-items.js";
 import { track, trackFeature } from "../analytics.js";
 
-import { shotAtFrame } from "../cuts.js";
 
 const sameCastValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // Where the second cast slot stands: the placeholder and a newly shown extra share it.
@@ -70,20 +69,7 @@ function createCastDomain(appContext, initial, customPoses = []) {
 	function update(characterId, patch) {
 		const entry = read().find(entry => entry.id === characterId);
 		if (!entry) throw new StudioProtocolError('STALE_TARGET', `Character ${characterId} is not in this scene.`);
-		const raw = appContext.ports.read(), shot = shotAtFrame(raw.shots, raw.view.frame);
-		const fields = ['x', 'z', 'rot', 'posture', 'pose'];
-		const panelPatch = Object.fromEntries(Object.entries(patch).filter(([key, value]) => fields.includes(key) && value !== undefined));
-		if (shot?.kind === 'still' && !raw.targets?.get?.(characterId)?.motion && Object.keys(panelPatch).length) {
-			const current = { ...entry, ...shot.cast[characterId] };
-			const normalized = createCharacterEntry({ ...current, ...panelPatch });
-			const override = { x: normalized.x, z: normalized.z, rot: normalized.rot };
-			for (const key of ['posture', 'pose']) if (normalized[key] != null) override[key] = normalized[key];
-			// Enlist the shot owner in the already-open command/drag session:
-			// even a mixed scale + placement edit is one shared Undo entry.
-			const shots = appContext.storeDomain('shot');
-			appContext.recordAction('shot', () => shots.setCastOverride(shot.id, characterId, override), null, true);
-			patch = Object.fromEntries(Object.entries(patch).filter(([key]) => !fields.includes(key)));
-		}
+		const raw = appContext.ports.read();
 		// A character keyed in Pose mode (placement keys, no take) moves at the playhead: the move keys its placement there.
 		patch = placements.redirect(appContext, characterId, raw.view.frame, patch, motions.has(characterId)); if (Object.keys(patch).length) write(rows => rows.map(row => row.id === characterId ? { ...row, ...patch } : row));
 	}
@@ -187,8 +173,7 @@ export function useCast(appContext) {
 	const showB = characters.some((entry, index) => index > 0 && !entry.hidden);
 
 	function updateCharacterAt(index, next) {
-		const base = domain.read()[index], raw = appContext.ports.read();
-		const entry = base && { ...base, ...shotAtFrame(raw.shots, raw.view.frame)?.cast[base.id] };
+		const entry = domain.read()[index];
 		if (entry) return domain.edit('character.update', { characterId: entry.id, patch: typeof next === 'function' ? next(entry) : next });
 	}
 
@@ -206,8 +191,7 @@ export function useCast(appContext) {
 	}
 
 	function moveCharacter(charId, next) {
-		const base = domain.read().find(entry => entry.id === charId), raw = appContext.ports.read();
-		const entry = { ...base, ...shotAtFrame(raw.shots, raw.view.frame)?.cast[charId] };
+		const entry = domain.read().find(row => row.id === charId);
 		return domain.edit('character.update', { characterId: charId, patch: typeof next === 'function' ? next(entry) : next });
 	}
 

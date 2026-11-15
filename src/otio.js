@@ -5,7 +5,6 @@ import { isEffectivelyHidden } from "./scene-objects.js";
 import { sampleAt } from "./sample-at.js";
 import { TIMELINE_FRAME_FPS } from "./scenes.js";
 import { usedSensorHeightMm } from "./shot.js";
-import { shotHold } from "./shot-authoring.js";
 
 const OTIO_TIMELINE_FPS = TIMELINE_FRAME_FPS;
 const OTIO_START_TIMECODE = "00:00:00:00";
@@ -144,10 +143,6 @@ function gap(startFrame, durationFrames) {
 
 function clip(scene, shot) {
 	const metadata = shotMetadata(scene, shot);
-	// A still (storyboard panel) is one picture held for its hold: the clip
-	// runs exactly that many frames and says so.
-	const still = shot.kind === "still";
-	if (still) Object.assign(metadata, { kind: "still", hold: shotHold(shot), caption: typeof shot.caption === "string" ? shot.caption : "" });
 	return {
 		OTIO_SCHEMA: "Clip.1",
 		effects: [],
@@ -161,7 +156,7 @@ function clip(scene, shot) {
 		},
 		metadata: { cozyclay: metadata },
 		name: typeof shot.name === "string" && shot.name.trim() ? shot.name.trim() : "Shot",
-		source_range: timeRange(0, still ? shotHold(shot) : shot.endFrame - shot.startFrame + 1),
+		source_range: timeRange(0, shot.endFrame - shot.startFrame + 1),
 	};
 }
 

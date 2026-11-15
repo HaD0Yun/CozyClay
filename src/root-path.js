@@ -26,27 +26,23 @@ export function sampleRootPath(character, frame, { fps = 24 } = {}) {
 }
 
 // takeRoot is an already sampled world-space { x, z, rot? } supplied by the
-// take owner. Shot lookup is injected so this module does not own a timeline.
-export function resolveCharacterPlacement(character, frame, { shotAt = () => null, takeRoot = null } = {}) {
+// take owner.
+export function resolveCharacterPlacement(character, frame, { takeRoot = null } = {}) {
 	const base = { x: character.x, z: character.z, rot: character.rot, posture: character.posture, pose: character.pose };
 	if (takeRoot) return { ...base, ...takeRoot };
 	const root = sampleRootPath(character, frame);
 	if (root) return { ...base, x: root.x, z: root.z, rot: root.heading };
-	return { ...base, ...shotAt(frame)?.cast?.[character.id] };
+	return base;
 }
 
 // Rendering and export share the same placement policy. A rigged character's
 // authored waypoints belong to its take, not its world transform; only proxy
-// figures use the root-path sampler without a take. Still cast overrides are
-// editorial placement and apply to either kind while the playhead is inside a
-// still.
-export function placementAt(character, frame, { shotAt = () => null, takeRoot = null } = {}) {
+// figures use the root-path sampler without a take.
+export function placementAt(character, frame, { takeRoot = null } = {}) {
 	if (takeRoot) return resolveCharacterPlacement(character, frame, { takeRoot });
 	// Pose-mode placement keys (motion/placement-keys.js) move a character without a take between its keyed spots.
 	const keyed = samplePlacement(character.placementKeys, frame);
 	if (keyed) return { ...character, ...keyed };
-	const shot = shotAt(frame);
-	if (isProxyFigure(character)) return resolveCharacterPlacement(character, frame, { shotAt: () => shot });
-	if (shot?.kind === "still") return { ...character, ...shot.cast?.[character.id] };
+	if (isProxyFigure(character)) return resolveCharacterPlacement(character, frame);
 	return character;
 }
