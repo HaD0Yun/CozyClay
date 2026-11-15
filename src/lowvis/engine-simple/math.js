@@ -29,7 +29,6 @@ export const EASE = {
 
 export const qX = a => qAxisAngle(X, a);
 export const qY = a => qAxisAngle(Y, a);
-export const qZ = a => qAxisAngle(Z, a);
 
 export function qSlerp(a, b, t) {
 	let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
