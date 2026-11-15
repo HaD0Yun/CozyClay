@@ -76,6 +76,7 @@ import { autoColorHex, loadAutoColor } from "./auto-color.js";
 import { DualRender, GIZMO_LAYER } from "./dualview.jsx";
 import { GridFloor } from "./grid-floor.jsx";
 import { readStoredGridView, writeStoredGridView } from "./grid-view.js";
+import { FinishSetting, useToonLook } from "./stage-finish-view.jsx";
 import { useUiTheme } from "./theme.js";
 
 import { Room, StageLights, StageAtmosphere } from "./room.jsx";
@@ -544,6 +545,8 @@ export default function App() {
 	useEffect(() => {
 		writeStoredGridView(globalThis.localStorage, gridView);
 	}, [gridView]);
+	// The toon look (stage-finish-view.jsx): a viewer preference like the grid; viewport, captures and exports follow it.
+	const [toonLook, setToonLook] = useToonLook();
 
 	const [camGlide, setCamGlide] = useState(null);
 	const filmback = useMemo(
@@ -4341,7 +4344,7 @@ export default function App() {
 		preset, applyPreset, cameraPresetId, shotAspectKey,
 		fovDeg, shotsDomain, shot, setNonce, workspaceLayout,
 		viewMenuTriggerRef, viewMenuOpen, setViewMenuOpen, viewLooksActive,
-		gridView, setGridView, autoColor, setAutoColor,
+		gridView, setGridView, autoColor, setAutoColor, toonLook, setToonLook,
 		guideMode,
 		isCharacterSelection, partColoursChoice, embedMode, agentCollapsed, sceneSaveError,
 		studioAgentError, studioAgentMode, setStudioAgentMode, AgentPanel, setAgentCollapsed,
@@ -4466,6 +4469,7 @@ export default function App() {
 							/>
 							{/* Sky, fog and exposure of the stage look (stage-sky.jsx), for every pane and export. */}
 							<StageAtmosphere lighting={lighting} keyLight={keyLight} theme={uiTheme} grid={gridView} />
+							<FinishSetting on={toonLook} onChange={setToonLook} />
 							<StageLights keyLight={keyLight} lighting={lighting} neutral={gridView} light={uiTheme === "light"} />
 							<KeyLightPuck
 								keyLight={keyLight}

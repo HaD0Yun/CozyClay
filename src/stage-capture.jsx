@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { GIZMO_LAYER } from "./dualview.jsx";
 import { withFaded } from "./capture-fade.js";
 import { WORLD } from "./world-scale.js";
-import { FINISH_LOOKS, applySurfaceLook, createFinish } from "./stage-finish.js";
+import { createFinish } from "./stage-finish.js";
 
 export const CAPTURE_W = 1920;
 export const CAPTURE_H = 1080;
@@ -26,15 +26,9 @@ export const CAPTURE_FOG_FAR = WORLD.horizon.far;
 export function CaptureRig({ apiRef, camRef, width = CAPTURE_W, height = CAPTURE_H }) {
 	const { gl, scene } = useThree();
 	useEffect(() => {
-		// The frame passes of the finish, shared by every capture of this rig.
+		// The frame pass of the finish, shared by every capture of this rig; the look is the Studio's
+		// view setting (stage-finish-view.jsx puts it on scene.userData.finishLook).
 		const finish = createFinish();
-		// QA hook: put a finish on by name ("toon"), or none.
-		window.__cozyFinish = (name) => {
-			const chosen = FINISH_LOOKS[name] ?? null;
-			scene.userData.finishLook = chosen;
-			applySurfaceLook(scene, chosen?.surface ?? null);
-			return { on: chosen ? name : null, looks: Object.keys(FINISH_LOOKS) };
-		};
 		// Each attempt owns its target independently of the live output size.
 		// Resizing the editor cannot dispose an in-flight export's resources.
 		// `camera` makes the camera of each render: a clone of the shot camera unless a caller

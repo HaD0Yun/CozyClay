@@ -114,7 +114,7 @@ export default function ViewportToolbar() {
 		setSnapEnabled, preset, applyPreset, cameraPresetId,
 		runStudioAction, shotAspectKey, fovDeg, shotsDomain, shot, shots, activeShot,
 		setNonce, workspaceLayout, viewMenuTriggerRef, viewMenuOpen,
-		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode,
+		setViewMenuOpen, viewLooksActive, gridView, setGridView, guideMode, toonLook, setToonLook,
 		autoColor, setAutoColor, isCharacterSelection, partColoursChoice, embedMode,
 		agentCollapsed, addSceneObject, flySpeed, frameAll, setAxisView,
 		ikEditTool, setIkEditTool, motion, setRangePinPartPick,
@@ -473,6 +473,11 @@ export default function ViewportToolbar() {
 								>
 									<span className="view-menu-mark" aria-hidden="true">{gridView ? "✓" : ""}</span>
 									{ko("Reference grid", "기준 그리드")}
+								</button>
+								<button type="button" role="menuitemcheckbox" className={"view-menu-item toon-look-switch" + (toonLook ? " active" : "")} aria-checked={toonLook} aria-pressed={toonLook}
+									title={ko("Flat two-tone shading with black lines, in the viewport and in every capture and export", "검은 선과 2단 명암의 평평한 그림 — 뷰포트와 모든 캡처·내보내기에 적용")} onClick={() => setToonLook((v) => !v)}>
+									<span className="view-menu-mark" aria-hidden="true">{toonLook ? "✓" : ""}</span>
+									{ko("Toon look", "툰 룩")}
 								</button>
 								<button
 									type="button"

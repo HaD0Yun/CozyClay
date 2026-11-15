@@ -206,7 +206,7 @@ export function createFinish() {
 	function render(renderer, scene, camera, output, look) {
 		const { drawn, prepass } = targetsFor(output.width, output.height);
 		const before = { target: renderer.getRenderTarget(), tone: renderer.toneMapping, exposure: renderer.toneMappingExposure, autoClear: renderer.autoClear, alpha: renderer.getClearAlpha(),
-			background: scene.background, override: scene.overrideMaterial, mask: camera.layers.mask, shadowAuto: renderer.shadowMap.autoUpdate, shadowNeeds: renderer.shadowMap.needsUpdate, after: scene.onAfterRender };
+			background: scene.background, override: scene.overrideMaterial, mask: camera.layers.mask, shadowAuto: renderer.shadowMap.autoUpdate, shadowNeeds: renderer.shadowMap.needsUpdate, after: scene.onAfterRender, before: scene.onBeforeRender };
 		renderer.getClearColor(clearColor);
 		const hidden = [];
 		try {
@@ -220,7 +220,9 @@ export function createFinish() {
 			scene.onAfterRender = before.after;
 			// lines read the normals and depth of the solid set
 			scene.traverse((node) => { if (node.visible && noLine(node)) { hidden.push(node); node.visible = false; } });
+			// no backdrop: the stage sky's hook (stage-sky.jsx) would put one back and clear the prepass with it
 			scene.background = null;
+			scene.onBeforeRender = () => {};
 			scene.overrideMaterial = normalMaterial;
 			camera.layers.disable(GIZMO_LAYER);
 			camera.layers.disable(POSER_LAYER);
@@ -230,6 +232,7 @@ export function createFinish() {
 			renderer.render(scene, camera);
 			for (const node of hidden.splice(0)) node.visible = true;
 			scene.background = before.background;
+			scene.onBeforeRender = before.before;
 			scene.overrideMaterial = before.override;
 			camera.layers.mask = before.mask;
 			const u = finish.uniforms;
@@ -252,6 +255,7 @@ export function createFinish() {
 		} finally {
 			for (const node of hidden) node.visible = true;
 			scene.onAfterRender = before.after;
+			scene.onBeforeRender = before.before;
 			scene.background = before.background;
 			scene.overrideMaterial = before.override;
 			camera.layers.mask = before.mask;

@@ -5,6 +5,7 @@ import { fitAspect } from "./shot-frame.js";
 import { updateVisibleViewOffsets } from "./viewport-visible-rect.js";
 import { applyCameraOptics } from "./camera-optics.js";
 import { useViewportTools } from "./viewport-tools.js";
+import { createViewFinish } from "./stage-finish-view.jsx";
 
 /**
  * Two live viewports out of one scene.
@@ -186,12 +187,10 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 		return { target, normalMaterial, material, passScene, passCamera };
 	}, []);
 
-	useEffect(() => () => {
-		edgePass.target.dispose();
-		edgePass.normalMaterial.dispose();
-		edgePass.material.dispose();
-		edgePass.passScene.children[0].geometry.dispose();
-	}, [edgePass]);
+	useEffect(() => () => { edgePass.target.dispose(); edgePass.normalMaterial.dispose(); edgePass.material.dispose(); edgePass.passScene.children[0].geometry.dispose(); }, [edgePass]);
+	// The finish (stage-finish-view.jsx): with a look on, a perspective pane draws the set through it instead of the ink pass.
+	const viewFinish = useMemo(createViewFinish, []);
+	useEffect(() => viewFinish.dispose, [viewFinish]);
 
 	// Layer masks are set once. The shot camera must never pick up the plan
 	// overlay, or exported frames would carry pucks across the floor.
@@ -319,9 +318,11 @@ export function DualRender({ stageRef, mainRef, insetRef, shotPreviewRef, shotCa
 			gl.clear(true, true, false);
 			const img = imageRect ?? pane;
 			const imgY = size.height - (img.y + img.h);
+			const targetWidth = Math.max(1, Math.round(img.w * gl.getPixelRatio()));
+			const targetHeight = Math.max(1, Math.round(img.h * gl.getPixelRatio()));
+			const look = !camera.isOrthographicCamera && scene.userData.finishLook;
+			if (look) { gl.setScissor(img.x, imgY, img.w, img.h); gl.setViewport(img.x, imgY, img.w, img.h); viewFinish.draw(gl, scene, camera, look, targetWidth, targetHeight); return; }
 			if (ink) {
-				const targetWidth = Math.max(1, Math.round(img.w * gl.getPixelRatio()));
-				const targetHeight = Math.max(1, Math.round(img.h * gl.getPixelRatio()));
 				edgePass.target.setSize(targetWidth, targetHeight);
 				edgePass.material.uniforms.texel.value.set(1 / targetWidth, 1 / targetHeight);
 				gl.setRenderTarget(edgePass.target);
