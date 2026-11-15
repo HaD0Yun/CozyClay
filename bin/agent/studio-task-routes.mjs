@@ -14,7 +14,8 @@
 import { randomUUID } from "node:crypto";
 import { createTaskBoard, taskHeader, TASK_LIMITS } from "./studio-tasks.mjs";
 import { createMainTools, doneClaimCorrection, mainContextText } from "./main-agent.mjs";
-import { MAIN_SYSTEM_PROMPT } from "./main-prompt.mjs";
+import { MAIN_SYSTEM_PROMPT, mainSystemPrompt } from "./main-prompt.mjs";
+import { motionEngine } from "./motion-engine.mjs";
 import { motionHeader, motionMainPrompt, motionScope, motionSubject } from "./motion-tasks.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
 import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
@@ -100,7 +101,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		const userText = value.text, guard = watchMain(main, value.turnId);
 		// hidden: the main agent reporting on its own is no user message (a panel that reattaches to it shows no prompt)
 		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
-			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : MAIN_SYSTEM_PROMPT,
+			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : mainSystemPrompt({ engine: motionEngine() }), // lowvis: motion is an ordinary task with the motion tool (main-prompt.mjs)
 			// The live host, not this turn's: a reload mid-turn moves the Studio to a new handle (POST .../reconnect).
 			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, designs: main.designs }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },

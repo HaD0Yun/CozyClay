@@ -21,9 +21,10 @@ const answers = async () => { try { return (await fetch(`http://127.0.0.1:${VIEW
 
 if (!(await answers())) {
 	// tools/dev-full.mjs: the dev server with the Studio's agent sidecar (the Agent box) and its live hub. The sidecar
-	// keeps its sessions and sign-ins in a folder of its own, not in the user's CozyClay config.
+	// keeps its sessions and sign-ins in a folder of its own, not in the user's CozyClay config. The direct key of the
+	// motion writer is listed in its model picker (COZYCLAY_MOTION_DIRECT, bin/agent/motion-engine.mjs).
 	const vite = spawn(process.execPath, [join(ROOT, "tools/dev-full.mjs"), "--port", String(VIEW), "--host", "127.0.0.1"],
-		{ cwd: ROOT, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, COZYCLAY_LIVE_PORT: String(opt.live ?? 5399), COZYCLAY_CONFIG_DIR: process.env.COZYCLAY_CONFIG_DIR ?? join(ROOT, "lowvis-out/studio-config") } });
+		{ cwd: ROOT, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, COZYCLAY_MOTION_DIRECT: "on", COZYCLAY_LIVE_PORT: String(opt.live ?? 5399), COZYCLAY_CONFIG_DIR: process.env.COZYCLAY_CONFIG_DIR ?? join(ROOT, "lowvis-out/studio-config") } });
 	process.on("exit", () => vite.kill("SIGTERM"));
 	for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(0));
 	for (let i = 0; !(await answers()); i++) { if (vite.exitCode !== null || i > 600) throw new Error(`the viewer server did not start on ${VIEW}`); await sleep(100); }

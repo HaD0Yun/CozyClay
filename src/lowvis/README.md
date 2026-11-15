@@ -43,25 +43,37 @@ export const LOOKS = { box, capsule, stick, man, woman, block };  // each: ({ ti
   frame f in every panel and resolves when it is on screen. A shorter clip holds its last frame.
 - Props are clay boxes; the floor has a 1 m grid.
 
-## Studio layer (prototype, `src/lowvis/studio/`)
+## Studio layer (`src/lowvis/studio/`, `bin/agent/motion-*.mjs`)
 
 A lowvis clip becomes ordinary Studio scene content (`install.js`): each prop a Studio object (a prop that moves
 rides a track of a take), each character an X Bot cast member whose take is the clip's motion (`take.js`: exact,
 because the 17 joints are X Bot bones). `skin.jsx` draws the block look over rig characters from their bones.
 
-Two ways in, both started by `node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs` (dev server with the agent
-sidecar, live hub on its own port, sidecar files in `lowvis-out/studio-config`):
+The motion door. The Studio's default agent has one tool for body motion, `motion { request, images? }`
+(`bin/agent/motion-door.mjs`). It hands the user's words to `runMotion` (`bin/agent/motion-run.mjs`): the editor's
+describe answer becomes the props and characters of the scene (`scene.js`), the motion writer (`src/lowvis/pi/harness.mjs`,
+claude-opus-5-5 at effort medium on CLIProxyAPI, variant `studio`) writes and checks the motion, and the clip is
+installed. The tool answers the motion writer's report, which ends with a Missing line; the agent repeats it. Pictures
+the user attached go along when the agent sets `images: true`. The scene and spec of the conversation's last motion
+go with the next request. The agent's prompt under this engine has no guidance for the old motion engine
+(`bin/agent/studio-prompt-lowvis.mjs`), and the old motion and hand-fix actions are out of its view
+(`bin/agent/agent-view.mjs`, `HIDDEN_ACTIONS` in `bin/agent/motion-engine.mjs`); the editor and MCP keep them.
+In task mode a motion is an ordinary task whose agent calls the same tool; in a task the tool adds no character or
+prop (`bin/agent/main-prompt.mjs` rule 8).
 
-- The Studio's Agent box with the model "Opus 5.5 (lowvis motion)" (`bin/agent/lowvis-turn.mjs`). The turn reads
-  the Studio's objects and X Bot characters (`scene.js`) and hands them to the model as the props and characters of
-  its scene, so a set made by a build step or by the user is the set the motion plays in; it also hands over the
-  scene and spec of the conversation's last lowvis turn.
-- `/app/?lowvis[=<port>]`: a request box on the stage that asks `try.mjs` (default port 5201) and installs the
-  finished clip. With "As Studio characters" off, the clip is only drawn over the stage (`layer.jsx`).
+Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent sidecar):
 
-Not done: a Studio object reaches the model as one upright box (a bench with a backrest is a solid block, a turned
-object the box around it); Y Bot characters are not used; the task coordinator's motion tasks still run on the
-other motion engine.
+- `COZYCLAY_MOTION_ENGINE=old`: the old motion engine comes back: the old prompt byte for byte, every action in view,
+  the v4 entries in the model picker and its motion tasks. Unset or anything else: the lowvis engine.
+- `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
+  straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`). `tools/lowvis/pi/try.mjs`
+  sets it for the Studio it starts.
+- `COZYCLAY_MOTION_OFF=pace,turn,tops`: engine steps of the lowvis engine switched off by name
+  (`src/lowvis/pi/prompt.mjs` `OFF`).
+
+`node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs` starts the dev server with the agent sidecar (live hub on its
+own port, sidecar files in `lowvis-out/studio-config`). `/app/?lowvis[=<port>]` adds a prototype request box on the
+stage that asks `try.mjs` (default port 5201) and installs the finished clip.
 
 ## Recorder
 

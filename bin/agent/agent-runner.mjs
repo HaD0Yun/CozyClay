@@ -408,7 +408,8 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 
 		const ensureAgent = async (input) => {
 			const { pi, models: registry } = await ensureModels();
-			const activePrompt = input.systemPrompt || (input.surface === "studio" ? await (await import("./studio-motion-reference.mjs")).studioSystemPrompt() : systemPrompt);
+			// Studio: the motion engine and whether this session has the motion tool decide the prompt, once, when the Agent is made (motion-door.mjs).
+			const activePrompt = input.systemPrompt || (input.surface === "studio" ? await (await import("./studio-motion-reference.mjs")).studioSystemPrompt({ engine: (await import("./motion-engine.mjs")).motionEngine(env), motion: Boolean(input.motionTool) }) : systemPrompt);
 			const { resolveModel, resolveEffort } = await import("./providers.mjs");
 			const requested = input.model || DEFAULT_MODEL;
 			const slash = requested.indexOf("/");

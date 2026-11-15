@@ -1,6 +1,6 @@
 // The lowvis authoring loop on CozyClay's pi agent loop (pi-agent-core's Agent on a pi-ai model), not on Claude Code.
-//   const run = await runScene({ name, request, model, effort });   // also written to lowvis-out/pi/<name>/run.json
-// The model gets the system prompt (prompt.mjs), the user's request and one tool, motion (compile-tool.mjs). It has no files.
+//   const run = await runScene({ name, request, model, effort, images });   // also written to lowvis-out/pi/<name>/run.json
+// The model gets the system prompt (prompt.mjs), the user's request (with the pictures given with it) and one tool, motion (compile-tool.mjs). It has no files.
 // Context: the system prompt, the request and the conversation. Only the latest call's images stay in it: older
 // tool results are sent as their text. The prompt-cache mark sits on the last assistant message, the last block
 // that is the same in the next request, so the conversation before it is read from the cache.
@@ -20,6 +20,7 @@ import { createCompileTool } from "./compile-tool.mjs";
 const ROOT = resolve(import.meta.dirname, "../../..");
 export const DEFAULT_MODEL = "claude-fable-5-2", DEFAULT_EFFORT = "medium";
 export const SAFETY = Object.freeze({ shots: 40, ms: 30 * 60_000 });
+export const MAX_IMAGES = 4;
 const DROPPED = "[the sheet images of this call are no longer shown: only the latest call's images are kept]";
 const round = v => Math.round(v);
 
@@ -79,13 +80,15 @@ function markCache(payload) {
  * keepImages: "latest" (default) or "all". log(line) gets one line per event.
  * variant: one of VARIANTS (default "base"): the system prompt and the numbers the model is told (prompt.mjs, compile-tool.mjs).
  * off: the feature flags of the variant switched off by name (prompt.mjs OFF).
+ * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, signal = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, signal = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
+	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
 	const SYSTEM_PROMPT = systemPrompt(variant, off), PARAMETERS = motionParameters(variant);
-	const record = { name, request, variant, off, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
+	const record = { name, request, images: images.length, variant, off, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
 
@@ -170,7 +173,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const timer = setTimeout(() => { record.safety.hit ??= "time"; agent.abort(); }, safety.ms);
 	const stop = () => agent.abort(); // the caller's signal (a Studio turn the user stopped) ends the run like the time limit does
 	signal?.addEventListener("abort", stop, { once: true });
-	try { if (!signal?.aborted) await agent.prompt(request); } catch (error) { fail(error?.message ?? error); } finally { clearTimeout(timer); signal?.removeEventListener("abort", stop); }
+	try { if (!signal?.aborted) await (images.length ? agent.prompt(request, images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))) : agent.prompt(request)); } catch (error) { fail(error?.message ?? error); } finally { clearTimeout(timer); signal?.removeEventListener("abort", stop); }
 
 	const wallMs = round(now()), sum = k => modelCalls.reduce((n, c) => n + (c[k] ?? 0), 0), contexts = modelCalls.map(c => c.context ?? 0).filter(Boolean);
 	const last = transcript.at(-1), finished = last && modelCalls.at(-1)?.stopReason === "stop", finalText = finished ? last.text : null;

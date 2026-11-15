@@ -16,8 +16,14 @@ export async function motionReference() {
 	return reference;
 }
 
-/** The Studio animation-mode system prompt: the rules and procedure, then the motion reference. */
-export async function studioSystemPrompt() {
+/**
+ * The Studio animation-mode system prompt.
+ * engine "old": the rules and procedure, then the motion reference. engine "lowvis" (studio-prompt-lowvis.mjs): the
+ * same without the old motion guidance and without the reference, then the motion tool's paragraph when motion is true
+ * (the session has the motion tool) or the sentence that body motion is not available.
+ */
+export async function studioSystemPrompt({ engine = "old", motion = false } = {}) {
 	const { STUDIO_SYSTEM_PROMPT } = await import("./studio-prompt.mjs");
+	if (engine === "lowvis") return (await import("./studio-prompt-lowvis.mjs")).lowvisStudioPrompt(STUDIO_SYSTEM_PROMPT, { motion });
 	return `${STUDIO_SYSTEM_PROMPT}\n\n${await motionReference()}`;
 }

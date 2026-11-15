@@ -504,13 +504,15 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				return refreshed;
 			},
 		};
+		// What the agent sees of the editor's actions under the lowvis engine (agent-view.mjs); tools.internal stays whole.
+		const agentView = (await import("./agent-view.mjs")).turnAgentView({ env, value, current, invoke: (name, args) => tools.internal.invoke(name, args) });
 		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, previsMode: value.context.scene?.previsMode, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
 		const turnTransaction = studioTransaction({ hub, context: current, turnId: value.turnId, admission, task: value.task, signal: controller.signal, plain: Boolean(value.main), onWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }); // the user mid-drag (studio-busy-wait.mjs)
 		// The lowvis motion engine (bin/agent/lowvis-turn.mjs, prototype) runs its own model key: the lowvis authoring loop, then the clip installed as scene content.
 		if (await (await import("./lowvis-turn.mjs")).runLowvisTurn({ value, session, send, close, res, controller, studioTools: tools, hub, studioRunners, env, studioIdentity, admission })) return true;
 		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner (a motion task's run: inside its task transaction). Every other model goes on below.
 		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, transaction: turnTransaction, fauxProvider, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
-		const modelTools = tools.map(tool => ({
+		const modelTools = agentView.tools(tools.map(tool => ({
 			...tool,
 			handler: async (args, call) => {
 				const result = await tool.handler(args, call);
@@ -520,7 +522,9 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				const visual = await tools.resolveImage(ref.imageId || ref.id, { receiptId: result.receiptId, revision: result.revision });
 				return { ...result, visualStatus: visual.visualStatus, imageId: visual.imageId, revision: visual.revision, receiptId: visual.receiptId, ...(visual.dataUrl ? { dataUrl: visual.dataUrl } : {}) };
 			},
-		}));
+		})));
+		// The motion tool (motion-door.mjs): body motion of rig characters goes to the motion environment.
+		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, hub, tools, transaction: turnTransaction, signal: controller.signal });
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.
 		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: [...modelTools, plan.nested], signal: controller.signal, emit: send });
 		const scriptTool = {
@@ -605,7 +609,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
 				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
-				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan], systemPrompt: value.main?.systemPrompt ?? (value.context.scene?.previsMode === "storyboard" ? STUDIO_SYSTEM_PROMPT_STORYBOARD : undefined), signal: controller.signal, emit: send,
+				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan, ...(motionDoor ? [motionDoor] : [])], motionTool: Boolean(motionDoor), systemPrompt: value.main?.systemPrompt ?? (value.context.scene?.previsMode === "storyboard" ? STUDIO_SYSTEM_PROMPT_STORYBOARD : undefined), signal: controller.signal, emit: send,
 				meta: persistenceMeta,
 				quotaEvent: headers => codex?.parseQuotaHeaders ? quotaEvent(codex, headers) : { type: "quota", plan: null, primary: { usedPercent: null, windowMinutes: null, resetAt: null }, credits: { has: null } },
 			})) emitFrame(frame);
@@ -732,8 +736,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		}
 		if (path === "/agent/models" && req.method === "GET") {
 			try {
-				// withV4Models: the v4 motion engine's picker entry (bin/agent/v4/models.mjs), listed while CLIProxyAPI is signed in.
-				const [{ listAgentModels }, { withV4Models }, { withLowvisModels }] = await Promise.all([import("./providers.mjs"), import("./v4/models.mjs"), import("./lowvis-turn.mjs")]); json(res, 200, withLowvisModels(withV4Models(await listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }))));
+				// withMotionModels: the motion engines' picker entries for the engine that is on (lowvis-turn.mjs).
+				const [{ listAgentModels }, { withMotionModels }] = await Promise.all([import("./providers.mjs"), import("./lowvis-turn.mjs")]); json(res, 200, await withMotionModels(await listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env));
 			} catch (error) { json(res, error.status === 401 ? 401 : 502, { error: errorInfo(error) }); }
 			return true;
 		}
