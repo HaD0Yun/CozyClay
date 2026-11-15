@@ -79,7 +79,7 @@ function markCache(payload) {
  * keepImages: "latest" (default) or "all". log(line) gets one line per event.
  * variant: "base" (default) or "lean": the system prompt and the numbers the model is told (prompt.mjs, shot.mjs).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {} }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, signal = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
@@ -167,7 +167,9 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	});
 
 	const timer = setTimeout(() => { record.safety.hit ??= "time"; agent.abort(); }, safety.ms);
-	try { await agent.prompt(request); } catch (error) { fail(error?.message ?? error); } finally { clearTimeout(timer); }
+	const stop = () => agent.abort(); // the caller's signal (a Studio turn the user stopped) ends the run like the time limit does
+	signal?.addEventListener("abort", stop, { once: true });
+	try { if (!signal?.aborted) await agent.prompt(request); } catch (error) { fail(error?.message ?? error); } finally { clearTimeout(timer); signal?.removeEventListener("abort", stop); }
 
 	const wallMs = round(now()), sum = k => modelCalls.reduce((n, c) => n + (c[k] ?? 0), 0), contexts = modelCalls.map(c => c.context ?? 0).filter(Boolean);
 	const last = transcript.at(-1), finished = last && modelCalls.at(-1)?.stopReason === "stop", finalText = finished ? last.text : null;
