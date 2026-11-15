@@ -29,7 +29,7 @@ export const PROJECT_VERSION = 5;
 export const CAST_STYLES = Object.freeze(["rig", "capsule", "hybrid"]), DEFAULT_CAST_STYLE = "hybrid";
 export const normalizeCastStyle = (value) => (CAST_STYLES.includes(value) ? value : DEFAULT_CAST_STYLE);
 export const PROJECT_EXTENSION = ".cclayproject";
-export const WORKFLOW_VERSION = 1;
+const WORKFLOW_VERSION = 1;
 export const WORKFLOW_STORAGE_KEY = "cozyclay.workflow.v1";
 const IDB_NAME = "cozyclay.project-handle.v1";
 const IDB_STORE = "kv";
