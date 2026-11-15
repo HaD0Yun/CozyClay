@@ -5,7 +5,8 @@ import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
 import { GIZMO_LAYER, POSER_LAYER } from "./dualview.jsx";
-import { FINISH_LOOKS, applySurfaceLook, createFinish } from "./stage-finish.js";
+import { FINISH_LOOKS, createFinish } from "./stage-finish.js";
+import { applySurfaceLook } from "./stage-finish-surface.js";
 
 const STORAGE_KEY = "cozyclay.toon-look.v1";
 
