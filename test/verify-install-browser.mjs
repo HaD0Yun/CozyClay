@@ -22,6 +22,26 @@ if (!await waitFor('document.querySelector("#install")?.open')) throw new Error(
 
 expect("hash opens setup with runtime step visible", await evaluate('!document.querySelector(\'[data-install-step="1"]\').hidden && document.querySelector(\'[data-install-step="2"]\').hidden'));
 expect("failed release lookup retains official download fallback", await evaluate('document.querySelector("#install-node").href === "https://nodejs.org/en/download"'));
+async function verifyTokens(label) {
+	for (const width of [390, 768, 1180, 1440]) {
+		await send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width === 390 });
+		const command = await evaluate(`(() => {
+			const code = document.querySelector("#install-command"), node = code.firstChild;
+			const tokens = [...node.textContent.matchAll(/\\S+/g)].map(match => {
+				const range = document.createRange();
+				range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+				return { token: match[0], lines: range.getClientRects().length };
+			});
+			const pre = code.closest("pre");
+			pre.scrollLeft = pre.scrollWidth;
+			const last = document.createRange(); last.setStart(node, node.textContent.lastIndexOf(" ") + 1); last.setEnd(node, node.length);
+			const end = last.getBoundingClientRect(), box = pre.getBoundingClientRect();
+			return { tokens, endReachable: end.right <= box.right + 1, visible: box.width > 0 && box.height > 0 };
+		})()`);
+		expect(`${label} at ${width}px keeps every command token intact`, command.visible && command.tokens.every(token => token.lines === 1), JSON.stringify(command));
+		expect(`${label} at ${width}px can reach the command end`, command.endReachable, JSON.stringify(command));
+	}
+}
 for (const os of ["mac", "win", "linux"]) {
 	await evaluate(`document.querySelector('[data-os="${os}"]').click(); document.querySelector('[data-install-next="2"]').click();`);
 	const command = `${os === "win" ? "npx.cmd" : "npx"} --yes cozyclay@latest --via site`;
@@ -29,6 +49,7 @@ for (const os of ["mac", "win", "linux"]) {
 	expect(`${os} Quick start shows the same command`, await evaluate(`document.querySelector("[data-launch-command]").textContent === ${JSON.stringify(command)} && document.querySelector("[data-launch-copy]").dataset.copy === ${JSON.stringify(command)}`));
 	expect(`${os} next focuses the visible heading`, await evaluate('document.activeElement.id === "install-launch-title"'));
 	expect(`${os} setup overrides landing section spacing`, await evaluate('getComputedStyle(document.querySelector(\'[data-install-step="2"]\')).paddingTop === "0px" && getComputedStyle(document.querySelector("#install details")).marginTop === "0px"'));
+	await verifyTokens(`${os} site`);
 	await evaluate('document.querySelector("[data-install-copy]").click()');
 	expect(`${os} copy uses the shown command`, await waitFor(`window.__installCopy.at(-1) === ${JSON.stringify(command)}`));
 	expect(`${os} copy reports success`, await evaluate('document.querySelector("#install-status").dataset.state === "copied"'));
@@ -57,8 +78,10 @@ for (const os of ["mac", "win", "linux"]) {
 	const command = `${os === "win" ? "npx.cmd" : "npx"} --yes cozyclay@latest --via playground`;
 	expect(`from the Studio: ${os} shows the playground command`, await evaluate(`document.querySelector("#install-command").textContent === ${JSON.stringify(command)}`), await evaluate('document.querySelector("#install-command").textContent'));
 	expect(`from the Studio: ${os} Quick start shows the same command`, await evaluate(`document.querySelector("[data-launch-command]").textContent === ${JSON.stringify(command)} && document.querySelector("[data-launch-copy]").dataset.copy === ${JSON.stringify(command)}`));
+	await verifyTokens(`${os} playground`);
 	await evaluate('document.querySelector("[data-install-copy]").click()');
 	expect(`from the Studio: ${os} copy uses the shown command`, await waitFor(`window.__installCopy.at(-1) === ${JSON.stringify(command)}`, 5000), await evaluate("window.__installCopy.at(-1)"));
 }
 expect("from the Studio: the page shows one command, never the landing page's own", await evaluate('!document.body.textContent.includes("--via site") && !document.querySelector(\'[data-copy*="--via site"]\')'));
+
 finish("install browser flow");
