@@ -1,4 +1,4 @@
-// The Studio scene as a lowvis scene (prototype): the objects and X Bot characters the Studio already has, written
+// The Studio scene as a lowvis scene (prototype): the objects and rig characters the Studio already has, written
 // as the props and characters a lowvis request may use, so a motion can sit on the bench or lift the box that a
 // build step (or the user) put there. install.js reads `ids` to move those instead of making them again.
 // A lowvis prop is a box that stands square to the axes: a turned object is given as the box around its footprint,
@@ -6,6 +6,8 @@
 import { TRACK_RIG } from "./take.js";
 
 const SOLID = new Set(["cube", "sphere", "capsule", "cylinder", "cone", "sculpt", "mesh"]);
+/** Rig models whose skeleton the clip can drive at scale 1; any but TRACK_RIG is changed to TRACK_RIG by the install. */
+const SWITCHABLE = new Set(["y-bot-tpose"]);
 const MAX_PROPS = 40, RAD = Math.PI / 180;
 const round = v => Math.round(v * 1000) / 1000;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
@@ -19,18 +21,30 @@ function idFor(name, taken, fallback) {
 	return id;
 }
 
+/** Why a visible character row cannot be animated by a clip, or null when it can. */
+function whyNot(row) {
+	if (row.model === "proxy-figure") return "capsule figure";
+	if (row.model !== TRACK_RIG && !SWITCHABLE.has(row.model)) return /^rig-/.test(String(row.model ?? "")) ? "imported rig" : `model ${row.model ?? "unknown"}`;
+	if (Math.abs(finite(row.scale, 1) - 1) > 1e-6) return `scale ${round(finite(row.scale, 1))}`;
+	return null;
+}
+
 /**
- * studioScene(describe) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, shape? }] }, ids }
+ * studioScene(describe) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, shape? }], others: [{ id, why }] }, ids }
  * describe: the editor's describe answer ({ characters, objects }). ids: { characters: { <lowvis id>: <Studio id> },
- * props: { <lowvis id>: { id: <Studio id>, x, y, z, rot } } } with each object's base pivot and turn about Y as the
- * Studio holds them.
+ * props: { <lowvis id>: { id: <Studio id>, x, y, z, rot } }, switch: [<Studio id>] } with each object's base pivot
+ * and turn about Y as the Studio holds them. switch: the listed characters whose model the install changes to the
+ * clip's rig before it animates them. others: visible characters the clip cannot animate (Studio id and why).
  */
 export function studioScene(describe) {
-	const taken = new Set(), ids = { characters: {}, props: {} }, characters = [], props = [];
+	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [];
 	for (const row of Array.isArray(describe?.characters) ? describe.characters : []) {
-		if (!row || row.hidden || row.model !== TRACK_RIG || Math.abs(finite(row.scale, 1) - 1) > 1e-6) continue;
+		if (!row || row.hidden) continue;
+		const why = whyNot(row);
+		if (why) { others.push({ id: String(row.id), why }); continue; }
 		const id = idFor(String(row.id).replace(/^lowvis-/, ""), taken, "person");
 		ids.characters[id] = row.id;
+		if (row.model !== TRACK_RIG) ids.switch.push(row.id);
 		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)) });
 	}
 	for (const row of Array.isArray(describe?.objects) ? describe.objects : []) {
@@ -44,5 +58,5 @@ export function studioScene(describe) {
 		props.push({ id, size: row.renderer === "sphere" ? [round(w), round(w), round(w)] : [round(w * cs + d * sn), round(h), round(w * sn + d * cs)],
 			at: [round(finite(row.x)), round(finite(row.y) + h / 2), round(finite(row.z))], ...(row.renderer === "sphere" ? { shape: "sphere" } : {}) });
 	}
-	return { scene: { characters, props }, ids };
+	return { scene: { characters, props, others }, ids };
 }

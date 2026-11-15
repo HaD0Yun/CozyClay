@@ -37,16 +37,19 @@ function moves(prop) {
 }
 
 /**
- * installClip(clip, run, { label, remove }) -> { characterIds, objectIds, ok }: what it made; ok false when the Studio refused a step.
+ * installClip(clip, run, { label, remove, existing }) -> { characterIds, objectIds, switched, ok }: what it made and
+ * the Studio ids of the cast members whose model it changed; ok false when the Studio refused a step.
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
  * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
- * character with a listed id IS that Studio object or cast member, so it is moved or animated, not made again.
+ * character with a listed id IS that Studio object or cast member, so it is moved or animated, not made again. Such a
+ * cast member loses its root path before its take goes in (the take holds the whole motion), and one listed in
+ * existing.switch is changed to the clip's rig first. Characters the clip does not animate keep everything.
  */
 export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, ok: false });
+	const objectIds = [], characterIds = [], switched = [], tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, ok: false });
 	for (const prop of clip.props ?? []) {
 		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
 		let id = known?.id, turn = null;
@@ -76,10 +79,16 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		if (!known) {
 			if (!await run("character.add", { character: { id: characterId, model: TRACK_RIG, ...clipStart(clip, index) } })) return stop();
 			characterIds.push(characterId);
+		} else {
+			if (existing?.switch?.includes(known)) {
+				if (!await run("character.update", { characterId, patch: { model: TRACK_RIG } })) return stop();
+				switched.push(characterId);
+			}
+			if (!await run("character.clearWaypoints", { characterId })) return stop();
 		}
 		const raw = clipTrack(clip, index);
 		if (index === 0) raw.objects = tracks; // one take draws the props that move
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
-	return { characterIds, objectIds, ok: true };
+	return { characterIds, objectIds, switched, ok: true };
 }
