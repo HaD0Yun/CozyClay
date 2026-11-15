@@ -3,7 +3,7 @@
  *
  * A project is ONE file (`.cclayproject`, JSON) holding the full authoring
  * state: the scene document (scenes + cast + animation layers), the
-  * workspace layout, the custom pose library, the workflow graph, and the
+  * workspace layout, the workflow graph, and the
  * embedded resources (images and meshes) the scenes point at. A compiled
  * take travels inside the scene document as its motion spec. Editor
  * preferences (theme, locale) deliberately stay OUT — they belong to the
@@ -301,7 +301,7 @@ function readEmbeddedAssets(value, report) {
  * assetRef references them. Throws `resources-too-large` when the whole
  * manifest exceeds its budget.
  */
-export function createProjectDocument({ scenesDocument, workspaceLayout, customPoses, name, castStyle, assets, savedAt, workflow }) {
+export function createProjectDocument({ scenesDocument, workspaceLayout, name, castStyle, assets, savedAt, workflow }) {
 	const assetRecords = new Map();
 	for (const record of Array.isArray(assets) ? assets : []) {
 		const asset = embeddedAsset(record);
@@ -327,7 +327,6 @@ export function createProjectDocument({ scenesDocument, workspaceLayout, customP
 		...(Number.isFinite(savedAt) && savedAt > 0 ? { savedAt } : {}),
 		scenes: scenesDocument,
 		workspace: workspaceLayout ?? null,
-		poseLibrary: Array.isArray(customPoses) ? customPoses : [],
 		workflow: normalizeWorkflowGraph(workflow),
 		resources: { assets: embeddedAssets },
 	};
@@ -393,9 +392,6 @@ export function readProjectDocument(raw) {
 			savedAt: Number.isFinite(parsed.savedAt) && parsed.savedAt > 0 ? parsed.savedAt : null,
 			scenesDocument: { version: scenes.version, activeSceneId: scenes.activeSceneId ?? null, scenes: scenes.scenes },
 			workspaceLayout: parsed.workspace && typeof parsed.workspace === "object" ? parsed.workspace : null,
-			customPoses: Array.isArray(parsed.poseLibrary)
-				? parsed.poseLibrary.filter((p) => p && typeof p === "object" && typeof p.id === "string" && p.bones && typeof p.bones === "object")
-				: [],
 						assets,
 			workflow,
 		},

@@ -340,7 +340,6 @@ const FOLDERS = [
 	{ id: "props", label: () => ko("Props", "소품") },
 	{ id: "cameras", label: () => ko("Cameras", "카메라") },
 	{ id: "motions", label: () => ko("Motions", "모션") },
-	{ id: "poses", label: () => ko("Poses", "포즈") },
 	{ id: "sculpts", label: () => ko("Sculpts", "조형물", "雕塑") },
 ];
 
@@ -367,7 +366,7 @@ function catalogueTile(entry, props) {
 const EmptyNote = ({ children }) => <p className="content-empty">{children}</p>;
 
 const FolderView = ({ folder, ...props }) => (folder === "all" ? <AllFolders folders={FOLDERS.slice(1)} Grid={FolderGrid} {...props} /> : <FolderGrid folder={folder} {...props} />); export function FolderGrid({ folder, query, ...props }) {
-	const { imageAssetIds, meshAssetIds, shots = [], takeVersions = [], poses = [], onShotOpen, onTakeOpen, selectedKey, onSelect } = props;
+	const { imageAssetIds, meshAssetIds, shots = [], takeVersions = [], onShotOpen, onTakeOpen, selectedKey, onSelect } = props;
 	let tiles = [];
 	let empty = null;
 	if (folder === "sculpts") return <SculptShelf query={query} {...props} />;
@@ -450,25 +449,6 @@ const FolderView = ({ folder, ...props }) => (folder === "all" ? <AllFolders fol
 				);
 			});
 		if (!takeVersions.length) empty = ko("No takes for this character yet. Ask the agent to compile one.", "이 인물의 테이크가 아직 없어요. 에이전트에게 모션 컴파일을 요청하세요.");
-	} else if (folder === "poses") {
-		tiles = poses.map((pose, index) => ({ pose, index, label: pose?.name || pose?.label || ko(`Pose ${index + 1}`, `포즈 ${index + 1}`, `姿势 ${index + 1}`) }))
-			.filter(({ label }) => matchesQuery(label, query))
-			.map(({ pose, index, label }) => {
-				const key = `pose:${pose?.id ?? index}`;
-				return (
-					<ContentTile
-						key={key}
-						assetKey={key}
-						label={label}
-						type={ko("Pose", "포즈")}
-						title={label}
-						preview={<CharacterPreview model="y-bot-tpose" />}
-						selected={selectedKey === key}
-						onSelect={onSelect}
-					/>
-				);
-			});
-		if (!poses.length) empty = ko("No saved poses yet. Save one from the pose studio.", "저장된 포즈가 아직 없어요. 포즈 스튜디오에서 저장하세요.");
 	}
 	if (empty) return <EmptyNote>{empty}</EmptyNote>;
 	if (query && folder !== "props" && !tiles.length) return <SearchEmpty surface="assets" query={query}><EmptyNote>{ko("Nothing matches this search.", "검색 결과가 없어요.")}</EmptyNote></SearchEmpty>;
@@ -535,7 +515,7 @@ function Chevron({ open }) {
 export default function AssetPane({
 	onAssetGrab, onAssetPlace, imageAssetIds, meshAssetIds = null, manageStorage, onManageStorageToggle,
 	unusedAssetIds, usedAssetIds, usageCounts, graphSignature, trashCount, onDeleteUnusedAsset, onUndoDelete,
-	deletingAssetId, resourceManifest, shots, takeVersions, poses, onShotOpen, onTakeOpen,
+	deletingAssetId, resourceManifest, shots, takeVersions, onShotOpen, onTakeOpen,
 	collapsed, onCollapsedChange, onShelfVisibleChange,
 }) {
 	const [tab, setTab] = useState("content");
@@ -625,7 +605,6 @@ export default function AssetPane({
 								meshAssetIds={meshAssetIds}
 								shots={shots}
 								takeVersions={takeVersions}
-								poses={poses}
 								onShotOpen={onShotOpen}
 								onTakeOpen={onTakeOpen}
 								selectedKey={selectedKey}

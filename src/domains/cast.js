@@ -3,15 +3,12 @@ import { useState, useMemo, useEffect, useSyncExternalStore, useContext } from "
 import { AppContext } from '../app-context.js';
 import { createDocumentStore } from "../document-store.js";
 import { createSceneUndo } from "./scene-undo.js";
-import { useDocumentDomain } from "../store/use-document-store.js";
 import { arrangement } from "../studio-agent-commands.js";
 import { timelineContentExtent, timelineSpan } from '../timeline-extent.js';
 import {
-	loadCustomPoses,
 	DEFAULT_POSE,
 	capturePose,
 	captureHipsOffset,
-	saveCustomPoses,
 } from "../poses.js";
 import { createCharacterEntry, createCharacterLayer, isProxyFigure, PROXY_FIGURE_MODEL } from "../scenes.js";
 import { nextCharacterId, MAX_WAYPOINTS } from "../app-stage.jsx"; import { characterName } from "../character-name.js";
@@ -22,16 +19,17 @@ import { judgeNextWaypoint } from "../motion/waypoints.js";
 import { StudioProtocolError } from "../studio-agent-protocol.js"; import { settleUiRefusal } from "./ui-refusal.js";
 import { studioActionRefusal } from "../studio-actions.js";
 import { createStableItemId, removeStableItem } from "../stable-items.js";
-import { track, trackFeature } from "../analytics.js";
+import { track } from "../analytics.js";
 
 
 const sameCastValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // Where the second cast slot stands: the placeholder and a newly shown extra share it.
 const B_SLOT_START = { x: 1.15, z: 0.1, rot: -14 };
 
-function createCastDomain(appContext, initial, customPoses = []) {
-	const normalize = value => ({ characters: (Array.isArray(value) ? value : value.characters).map(createCharacterEntry),
-		customPoses: Array.isArray(value) ? customPoses : value.customPoses ?? customPoses });
+// The cast document holds the characters only. A saved pose library from an
+// older build is dropped on load without an error.
+function createCastDomain(appContext, initial) {
+	const normalize = value => ({ characters: (Array.isArray(value) ? value : value.characters).map(createCharacterEntry) });
 	let native = createDocumentStore({ owned: { cast: normalize(initial) } });
 	const listeners = new Set(), motions = new Map(), placements = createCastPlacements(() => { publish(); notify(); });
 	const notify = () => { for (const listener of listeners) listener(); };
@@ -39,14 +37,12 @@ function createCastDomain(appContext, initial, customPoses = []) {
 	const documentStore = { ...Object.fromEntries(Object.keys(native).map(key => [key, (...args) => native[key](...args)])),
 		subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); } };
 	const state = () => documentStore.read('cast'), read = () => state().characters;
-	let projection = read(), previous = state();
+	let projection = read();
 	function publish() {
 		projection = read().map(entry => motions.has(entry.id) ? { ...placements.withKeys(entry), sessionMotion: motions.get(entry.id) } : placements.withKeys(entry));
 		appContext.publishCharacters(projection);
 		if (appContext.live.state) appContext.patchLive({ characters: projection });
 		domain.syncLayer?.();
-		if (!sameCastValue(previous.customPoses, state().customPoses) && !saveCustomPoses(state().customPoses)) console.warn('[cozyclay] could not save the pose library');
-		previous = state();
 	}
 	const unsubscribe = documentStore.subscribe(publish);
 	function writeState(update) {
@@ -113,7 +109,7 @@ function createCastDomain(appContext, initial, customPoses = []) {
 		bindRender(context) { appContext = context; },
 		beginAction: () => documentStore.beginAction('cast'), canUndo: id => documentStore.canUndo(id),
 		stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },
-		document: () => ({ characters: read(), customPoses: state().customPoses }), publish: value => write(value.characters), commitDraft: write,
+		document: () => ({ characters: read() }), publish: value => write(value.characters), commitDraft: write,
 		arrange(args) {
 			const current = appContext.ports.read();
 			const plan = arrangement({ name: 'arrange_characters', args }, { ...current, characters: read(), frame: current.view.frame }, { bounds: appContext.ports.bounds });
@@ -122,7 +118,7 @@ function createCastDomain(appContext, initial, customPoses = []) {
 		load(value) {
 			finishGesture(true);
 			release(); native.dispose(); motions.clear();
-			const next = normalize(Array.isArray(value) ? { characters: value, customPoses: state().customPoses } : value);
+			const next = normalize(value);
 			native = createDocumentStore({ owned: { cast: next } }); release = native.subscribe(notify);
 			domain.activeId = read()[0]?.id ?? null; domain.loadView?.(); notify();
 		},
@@ -138,9 +134,8 @@ export function useCastTransaction() {
 }
 
 export function useCast(appContext) {
-	const [domain] = useState(() => appContext.storeDomain('cast') ?? createCastDomain(appContext, appContext.shared.startupStage.characters, loadCustomPoses()));
+	const [domain] = useState(() => appContext.storeDomain('cast') ?? createCastDomain(appContext, appContext.shared.startupStage.characters));
 	domain.bindRender(appContext);
-	const { customPoses } = useDocumentDomain(domain.documentStore, 'cast');
 	const characters = useSyncExternalStore(domain.documentStore.subscribe, domain.projection, domain.projection);
 	const editCharacters = value => domain.write(value);
 	useEffect(() => {
@@ -354,16 +349,9 @@ export function useCast(appContext) {
 
 	
 
-	// The library is the user's own material: poses read from photographs and
-	// poses saved off the rig, accumulating across sessions and projects. No
-	// presets ship in it — DEFAULT_POSE is the character's spawn state, not a
-	// library entry.
-	const allPoses = customPoses;
-
-	// The dropdowns must be able to show and re-select the pose a character is
-	// actually in, and a fresh character is in the default — which is not a
-	// library entry. An empty library would otherwise render a blank select.
-	const selectablePoses = useMemo(() => [DEFAULT_POSE, ...customPoses], [customPoses]);
+	// The pose tiles: the default standing pose a character spawns in and
+	// "Reset pose" returns to. There is no saved-pose library.
+	const selectablePoses = useMemo(() => [DEFAULT_POSE], []);
 
 	// The pose studio follows the character it was opened for: `posing` is a
 	// charId, so every cast member gets the same studio, not just the first two.
@@ -599,37 +587,10 @@ export function useCast(appContext) {
 		}, 190);
 	}
 
-	/** Save the ACTIVE character's rig exactly as it stands — the motion frame
-	 * with any IK corrections already composited — into the pose library.
-	 * Unlike savePose (the studio's FK author), this never writes back onto the
-	 * character: a running take must survive having its best frame bottled. */
-	function saveCurrentPose() {
-		if (!activeRig) return;
-		// Saving to the library, not editing: real bone edits are `pose_edit`
-		// from the semantic boundary (#466).
-		trackFeature("pose_save");
-		const pose = {
-			id: `custom_${Date.now()}`,
-			label: ko(`My Pose ${customPoses.length + 1}`, `내 포즈 ${customPoses.length + 1}`, `我的姿势 ${customPoses.length + 1}`),
-			prompt: "in the exact body pose shown in the blocking frame",
-			bones: capturePose(activeRig),
-			// A take frame carries its measured hips height; bottling the frame
-			// without it would save every crouch as a float.
-			rootY: captureHipsOffset(activeRig),
-			custom: true,
-		};
-		domain.run('cast.savePose', { pose });
-		setStudioPick(pose.id);
-		appContext.notify(appContext.shared.motion
-			? ko(`Saved this frame's pose to the library as “${pose.label}”`, `지금 프레임의 자세를 “${pose.label}”로 라이브러리에 저장했어요`, `已将当前帧的姿势以“${pose.label}”保存到姿势库`)
-			: ko(`Saved the current pose to the library as “${pose.label}”`, `지금 자세를 “${pose.label}”로 라이브러리에 저장했어요`, `已将当前姿势以“${pose.label}”保存到姿势库`));
-	}
-
 	/** A handle drag is an authored pose. When it ends, the rig as it now
 	 * stands becomes the posed character's own pose — so the scene autosaves
 	 * it and undo can step it back — instead of living only on the rig until
-	 * a reload re-applies the stored pose over it. The library is untouched;
-	 * Save pose still bottles a pose there. */
+	 * a reload re-applies the stored pose over it. */
 	function commitPosedPose() {
 		const rig = posedRig();
 		if (!rig || !posingChar) return;
@@ -640,27 +601,6 @@ export function useCast(appContext) {
 			bones: capturePose(rig),
 			rootY: captureHipsOffset(rig),
 		} });
-	}
-
-	function savePose() {
-		const rig = posedRig();
-		if (!rig) return;
-		trackFeature("pose_save");
-		const pose = {
-			id: `custom_${Date.now()}`,
-		label: ko(`My Pose ${customPoses.length + 1}`, `내 포즈 ${customPoses.length + 1}`, `我的姿势 ${customPoses.length + 1}`),
-			prompt: "in the exact body pose shown in the blocking frame",
-			bones: capturePose(rig),
-			custom: true,
-		};
-		domain.run('cast.savePose', { pose, ...(posingChar ? { characterId: posingChar.id } : {}) });
-		setStudioPick(pose.id);
-		appContext.notify(ko("Pose saved", "포즈 저장됨"));
-	}
-
-	function removePose(id) {
-		domain.run('cast.removePose', { id });
-		if (studioPick === id) setStudioPick(DEFAULT_POSE.id);
 	}
 
 	// Runs from the cross-tab scene subscription: a refusal ends here, logged, never in window.onerror (#1040).
@@ -773,7 +713,7 @@ export function useCast(appContext) {
 		setActiveWaypointId(id => entry.layer.waypoints.some(waypoint => waypoint.id === id) ? id : null);
 	};
 	domain.loadView = () => { appContext.shared.loadedLayerCharRef.current = domain.activeId; setActiveCharacterId(domain.activeId); };
-	domain.poses = () => [...new Map([...appContext.ports.poses(), ...domain.state().customPoses].map(pose => [pose.id, pose])).values()];
+	domain.poses = () => appContext.ports.poses();
 	domain.showExtras = applyShowB;
 	domain.setTimeline = frameCount => {
 		const shots = appContext.storeDomain('shot');
@@ -799,7 +739,7 @@ export function useCast(appContext) {
 	return {
 		...domain,
 		applyExternalCharacters, publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain, removeLegacyRootWaypoint, switchActiveCharacterLayer, createLegacyCastHandlers, toggleCharacterHidden,
-		characters, editCharacters, customPoses, posing, setPosing, posingClosing,
+		characters, editCharacters, posing, setPosing, posingClosing,
 		studioPick, setStudioPick, commitPosedPose, rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
 		updateCharacterAt, moveCharacter, removeCharacter, reportRig,
 		spawnCharacter, charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId,
@@ -807,10 +747,9 @@ export function useCast(appContext) {
 		ghostLayers, snapshotCast, changeInspectorCharacter, hasCharSheet,
 		setHasCharSheet, waypointMode,
 		setWaypointMode, waypoints, setWaypoints, activeWaypointId, setActiveWaypointId, pendingWaypointFrame,
-		setPendingWaypointFrame, allPoses, selectablePoses,
+		setPendingWaypointFrame, selectablePoses,
 		posingIndex, posingChar, posedRig, rootStart, queueRootWaypointFrame, castMemberOf,
 		addCharacterWaypoint, moveCharacterWaypoint, removeCharacterWaypoint, clearCharacterWaypoints,
 		addFloorWaypoint, moveWaypoint, removeWaypoint, toggleWaypointMode, openStudio, closeStudio,
-		saveCurrentPose, savePose, removePose,
 	};
 }

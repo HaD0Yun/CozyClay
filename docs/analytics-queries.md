@@ -1112,7 +1112,8 @@ contract report it: before that release the new events are **unknown, not 0**.
 
 - `feature:used name = 'pose_edit'` meant **a pose saved to the library** before
   this release. From this release it means a real pose change through the
-  semantic boundary, and library saves are `pose_save`. Split by `app_version`;
+  semantic boundary, and library saves were `pose_save` (the library is gone; no
+  new `pose_save` rows). Split by `app_version`;
   never add the two eras together.
 - `action_count_bucket` no longer counts passive signals (`motion:backend_state`,
   `app:error`, `device:profile`). Earlier npm sessions always counted at least

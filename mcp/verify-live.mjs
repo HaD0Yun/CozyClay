@@ -262,7 +262,7 @@ cases.confirmation = async () => {
 		replacement.activeSceneId = "replacement-scene";
 		const document = readSceneDocument(serializeSceneDocument(replacement)).document;
 		const path = join(root, "replacement.cclayproject");
-		await writeFile(path, JSON.stringify(createProjectDocument({ scenesDocument: document, name: "Replacement project", customPoses: [], workspaceLayout: null })));
+		await writeFile(path, JSON.stringify(createProjectDocument({ scenesDocument: document, name: "Replacement project", workspaceLayout: null })));
 		const assertRefused = (result, code) => {
 			assert.equal(result.isError, true, JSON.stringify(result));
 			let refused;

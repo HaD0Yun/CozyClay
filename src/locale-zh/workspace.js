@@ -48,7 +48,6 @@ export const ZH_WORKSPACE = {
 	"Motion": "动作",
 	"No takes for this character yet. Ask the agent to compile one.": "此角色还没有动作片段。请让智能体编译一个。",
 	"Pose": "姿势",
-	"No saved poses yet. Save one from the pose studio.": "还没有保存的姿势。请在姿势工作室中保存。",
 	"Nothing matches this search.": "没有匹配此搜索的结果。",
 	"Note": "通知",
 	"Generate": "生成",

@@ -31,7 +31,6 @@ scenesDocument.scenes[0].stage = createSceneStage({
 const doc = createProjectDocument({
 	scenesDocument,
 	workspaceLayout: { hierarchyWidth: 320, sidebarWidth: 400 },
-	customPoses: [projectPose],
 	name: "Demo Reel",
 });
 const parsed = readProjectDocument(JSON.stringify(doc));
@@ -42,7 +41,7 @@ assert.equal(parsed.project.name, "Demo Reel");
 assert.equal(parsed.project.scenesDocument.scenes[0].stage.characters[0].model, "x-bot-tpose");
 assert.equal(parsed.project.scenesDocument.scenes[0].stage.characters[0].tint, "#a1b2c3");
 assert.equal(parsed.project.workspaceLayout.hierarchyWidth, 320);
-assert.equal(parsed.project.customPoses.length, 1);
+assert.equal("poseLibrary" in doc, false, "a project file no longer writes a pose library");
 assert.deepEqual(parsed.project.scenesDocument.scenes[0].stage.characters[0].pose, projectPose, "a project scene keeps its embedded pose data after a file round-trip");
 
 // --- workflow graph envelope + migration ---------------------------------
@@ -245,8 +244,9 @@ assert.equal(
 // name fallback + pose filtering
 const unnamed = readProjectDocument(JSON.stringify(createProjectDocument({ scenesDocument, name: "  " })));
 assert.equal(unnamed.project.name, "Untitled");
-const dirtyPoses = readProjectDocument(JSON.stringify({ ...doc, poseLibrary: [{ id: "ok", bones: {} }, { nope: true }, null, { id: 3, bones: {} }] }));
-assert.equal(dirtyPoses.project.customPoses.length, 1, "pose library entries without id+bones are dropped");
+const olderPoses = readProjectDocument(JSON.stringify({ ...doc, poseLibrary: [{ id: "ok", bones: {} }, { nope: true }, null, { id: 3, bones: {} }] }));
+assert.equal(olderPoses.ok, true, "an older file with a pose library still opens");
+assert.equal("customPoses" in olderPoses.project, false, "its pose library is dropped");
 
 const { resources: _v4Resources, ...v1Document } = { ...doc, version: 1 };
 const parsedV1 = readProjectDocument(JSON.stringify(v1Document));

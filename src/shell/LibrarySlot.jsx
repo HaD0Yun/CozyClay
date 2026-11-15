@@ -29,7 +29,7 @@ export default function LibrarySlot({ active = true }) {
 		setBottomTab, beginAssetDrag, shelfImageIds, shelfMeshIds,
 		manageAssetStorage, setManageAssetStorage, unusedAssetIds, usedAssetIds, usageCounts,
 		projectAssetGraphSignature, assetTrash, deleteUnusedAsset, undoDeletedAsset, deletingAssetId,
-		projectManifest, shots, selectTimelineShot, allPoses,
+		projectManifest, shots, selectTimelineShot,
 		spawnCharacter, addSceneObject, runStudioAction, setSelectedHierarchyId,
 	} = useStudioShell();
 	const [collapsed, setCollapsed] = useState(readContentCollapsed);
@@ -68,7 +68,6 @@ export default function LibrarySlot({ active = true }) {
 				deletingAssetId={deletingAssetId}
 				resourceManifest={projectManifest}
 				shots={shots}
-				poses={allPoses}
 				onShotOpen={selectTimelineShot}
 				collapsed={collapsed}
 				onCollapsedChange={(next) => {

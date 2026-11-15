@@ -167,9 +167,6 @@ const COMMAND_INPUTS = {
 	'character.setPose': { characterId: 'actor', pose: { id: 'new-pose', bones: {} } },
 	'characters.arrange': { ops: [{ op: 'remove', characterId: 'actor-other' }] },
 	'cast.replace': { characters: [createCharacterEntry({ id: 'replacement' })] },
-	'cast.setCustomPoses': { poses: [] },
-	'cast.savePose': { pose: { id: 'saved', bones: {} }, characterId: 'actor' },
-	'cast.removePose': { id: 'saved' },
 	'cast.showExtras': { show: true },
 	'cast.setLayer': { characterId: 'actor', layer: { waypoints: [] } },
 	'motion.clear': { characterId: 'actor' },
@@ -328,7 +325,7 @@ const cases = {
 	},
 	async "every command mutation writes inside one entry of its undo domain"() {
 		const mutations = Object.values(COMMAND_MODULES).flatMap(module => module.declarations).filter(entry => entry.kind === "mutation");
-		assert.equal(mutations.length, 78);
+		assert.equal(mutations.length, 75);
 		for (const declaration of mutations) {
 			// A new shot needs free room at the playhead; the others act inside shot-1.
 			const f = commandFixture({ frame: declaration.id === "shot.create" ? 24 : 8 }), [name] = Object.entries(COMMAND_MODULES).find(([, module]) => module.declarations.includes(declaration));

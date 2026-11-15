@@ -49,9 +49,7 @@ import { internWorkflowOutputs, workflowOutputRefs, resolveWorkflowOutputs } fro
 import { resourceManifest } from "../project-resources.js";
 import { ko } from "../locale.js"; import { checkAfterWrite } from "./save-deadline.js";
 import { track, bucketCount, bucketProjectAge } from "../analytics.js";
-import { mergeProjectCustomPoses } from "../project-poses.js";
 import { DEFAULT_WORKSPACE_LAYOUT, DEFAULT_DURATION_S, TIMELINE_FPS } from "../app-stage.jsx";
-import { saveCustomPoses } from "../poses.js";
 import { readShotAuthoringDocument } from "../shot-authoring.js";
 import { initialShots } from "../cuts.js";
 import { createIkState } from "../motion/ik.js";
@@ -233,7 +231,6 @@ export function useScenes(appContext) {
 				scenes: snapshotActiveScene(),
 			},
 			workspaceLayout: appContext.shared.projectStateRef.current.workspaceLayout,
-			customPoses: appContext.shared.projectStateRef.current.customPoses,
 			workflow: loadWorkflowGraph(),
 			name,
 			castStyle: domain.metadata().castStyle,
@@ -254,7 +251,7 @@ export function useScenes(appContext) {
 			const workflowResult = await internWorkflowOutputs(input.workflow);
 			const allAssets = [...assets.filter(Boolean), ...workflowResult.assets];
 			const nextInput = { ...input, scenesDocument, workflow: workflowResult.graph, assets: allAssets };
-			const manifest = resourceManifest({ scenesDocument: nextInput.scenesDocument, workflow: nextInput.workflow, poseLibrary: nextInput.customPoses, assets: allAssets, workflowOutputRefs });
+			const manifest = resourceManifest({ scenesDocument: nextInput.scenesDocument, workflow: nextInput.workflow, assets: allAssets, workflowOutputRefs });
 			setProjectManifest(manifest);
 			if (manifest.missing.length) {
 				const error = new Error("Project has missing resources");
@@ -368,15 +365,12 @@ export function useScenes(appContext) {
 		// storage reader, so the 20 fps → 24 fps clock migration is applied here
 		// too — otherwise an older .cozyclay would open a sixth too fast.
 		const doc = migrateToCurrentScenes(source);
-		const mergedCustomPoses = mergeProjectCustomPoses(appContext.shared.customPoses, project.customPoses);
 		const projectCastStyle = normalizeCastStyle(project.castStyle);
 		if (fromStoryboard) { appContext.shared.projectHandleRef.current = null; void clearStoredProjectHandle(); }
 		domain.replaceDocument(doc.scenes, doc.activeSceneId, project.name, projectCastStyle);
 		if (project.workspaceLayout) appContext.shared.setWorkspaceLayout({ ...DEFAULT_WORKSPACE_LAYOUT, ...project.workspaceLayout });
-		appContext.bus.run('cast.setCustomPoses', { poses: mergedCustomPoses });
 		const resolvedWorkflow = resolveWorkflowOutputs(normalizeWorkflowGraph(project.workflow), new Map((project.assets ?? []).map((asset) => [asset.id, asset])));
 		storeWorkflowGraph(resolvedWorkflow);
-		saveCustomPoses(mergedCustomPoses);
 		persistScenes(doc.scenes, doc.activeSceneId);
 		openScene(doc.scenes[activeSceneIndex(doc.scenes, doc.activeSceneId)], doc.scenes);
 		appContext.shared.projectSnapshotRef.current = collectProjectSnapshot(project.name);
@@ -384,7 +378,7 @@ export function useScenes(appContext) {
 		domain.setDirty(false);
 		storeProjectSession(project.name, { castStyle: projectCastStyle });
 		setProjectStartupOpen(false);
-		setProjectManifest(resourceManifest({ scenesDocument: doc, workflow: resolvedWorkflow, poseLibrary: mergedCustomPoses, assets: project.assets ?? [], workflowOutputRefs }));
+		setProjectManifest(resourceManifest({ scenesDocument: doc, workflow: resolvedWorkflow, assets: project.assets ?? [], workflowOutputRefs }));
 		track("project:opened", { age_bucket: bucketProjectAge(Date.now() - (project.savedAt ?? Date.now())) });
 	}
 

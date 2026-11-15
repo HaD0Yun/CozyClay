@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
-// The pose library is the user's own material. Nothing ships in it: it fills
-// with poses read out of photographs and poses saved off the rig, and those
-// persist across sessions and projects. These checks pin that contract —
-// no presets, a default that is NOT a library entry, and storage that keeps
-// what the user put there.
+// There is no saved-pose library: the pose tiles hold the default standing
+// pose a character spawns in, and Pose mode's hand posing stays. A project
+// file no longer writes a pose library, and one from an older file is dropped
+// without an error.
 
 import { readFileSync } from "node:fs";
-import { DEFAULT_POSE, POSE_BONES, deleteCustomPose, loadCustomPoses, saveCustomPoses } from "../src/poses.js";
-import { mergeProjectCustomPoses } from "../src/project-poses.js";
+import { DEFAULT_POSE, POSE_BONES } from "../src/poses.js";
+import { createProjectDocument, readProjectDocument } from "../src/project.js";
+import { createSceneDocument } from "../src/scenes.js";
 
 const failures = [];
 const expect = (name, condition, detail = "") => {
@@ -30,10 +30,7 @@ const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url),
 
 expect("no built-in pose preset list remains", !posesSource.includes("BUILT_IN_POSES"));
 expect("App no longer seeds the library with presets", !appSource.includes("BUILT_IN_POSES"));
-expect(
-	"the library shown to the user is exactly the user's own poses",
-	appSource.includes("const allPoses = customPoses;"),
-);
+expect("no saved-pose library is left", !appSource.includes("customPoses") && !appSource.includes("savePose") && !appSource.includes("removePose") && !posesSource.includes("loadCustomPoses"));
 
 /* --- the default is a spawn state, not a library entry --------------------- */
 
@@ -49,81 +46,17 @@ for (const [boneId, value] of Object.entries(DEFAULT_POSE.bones ?? {})) {
 	);
 }
 expect(
-	"the default stays selectable even with an empty library",
-	appSource.includes("const selectablePoses = useMemo(() => [DEFAULT_POSE, ...customPoses]"),
+	"the default is the one pose tile",
+	appSource.includes("const selectablePoses = useMemo(() => [DEFAULT_POSE], []);"),
 );
 
-/* --- user poses accumulate and persist ------------------------------------- */
+/* --- a project file carries no pose library ------------------------------- */
 
-const store = new Map();
-globalThis.localStorage = {
-	getItem: (key) => (store.has(key) ? store.get(key) : null),
-	setItem: (key, value) => { store.set(key, String(value)); },
-	removeItem: (key) => { store.delete(key); },
-};
-
-expect("an untouched library is empty", loadCustomPoses().length === 0);
-
-const photoPose = { id: "photo_1", label: "Photo Pose 1", prompt: "in the exact body pose shown in the reference photograph", bones: { lArm: [1, 0, 0] }, custom: true };
-const savedPose = { id: "custom_1", label: "My Pose 1", prompt: "in the exact body pose shown in the blocking frame", bones: { rArm: [0, 1, 0] }, custom: true };
-
-expect("saving a pose reports success", saveCustomPoses([photoPose]) === true);
-expect("a saved pose survives a reload", loadCustomPoses().length === 1);
-
-saveCustomPoses([photoPose, savedPose]);
-const reloaded = loadCustomPoses();
-expect("poses accumulate rather than replace", reloaded.length === 2, reloaded.map((p) => p.id).join(", "));
-expect("both sources land in the same library", reloaded.map((p) => p.id).join(",") === "photo_1,custom_1");
-
-const afterDelete = deleteCustomPose("photo_1", reloaded);
-expect("deleting removes only the named pose", afterDelete.length === 1 && afterDelete[0].id === "custom_1");
-expect("the deletion is persisted", loadCustomPoses().length === 1);
-
-/* --- project imports preserve the local library --------------------------- */
-
-const localOnlyPose = { id: "local-only", label: "Local only", bones: { hips: [1, 0, 0] }, custom: true };
-const localConflictPose = { id: "shared", label: "Stale local", bones: { hips: [2, 0, 0] }, custom: true };
-const projectOnlyPose = { id: "project-only", label: "Project only", bones: { hips: [3, 0, 0] }, custom: true };
-const projectConflictPose = { id: "shared", label: "Project wins", bones: { hips: [4, 0, 0] }, custom: true };
-
-// Given: a local library with one unrelated pose and one stale shared pose.
-const localLibrary = [localOnlyPose, localConflictPose];
-// When: a project with one unrelated pose and a replacement for the shared id opens.
-const mergedProjectLibrary = mergeProjectCustomPoses(localLibrary, [projectOnlyPose, projectConflictPose]);
-// Then: local-only and project-only entries remain, and exactly one project-owned shared entry wins.
-expect(
-	"project import merges local and project-only poses in stable source order",
-	JSON.stringify(mergedProjectLibrary) === JSON.stringify([localOnlyPose, projectOnlyPose, projectConflictPose]),
-	JSON.stringify(mergedProjectLibrary),
-);
-expect(
-	"project import keeps exactly one project-owned conflicting pose",
-	mergedProjectLibrary.filter((pose) => pose.id === "shared").length === 1 && mergedProjectLibrary.find((pose) => pose.id === "shared")?.label === "Project wins",
-	JSON.stringify(mergedProjectLibrary),
-);
-saveCustomPoses(mergedProjectLibrary);
-expect(
-	"the merged project library persists both sources",
-	JSON.stringify(loadCustomPoses()) === JSON.stringify([localOnlyPose, projectOnlyPose, projectConflictPose]),
-	JSON.stringify(loadCustomPoses()),
-);
-
-// Given: a local library.
-const localLibraryForEmptyProject = [localOnlyPose, localConflictPose];
-// When: a project without custom poses opens.
-const mergedEmptyProjectLibrary = mergeProjectCustomPoses(localLibraryForEmptyProject, []);
-// Then: the local library is unchanged.
-expect(
-	"an empty project pose library preserves every local pose",
-	JSON.stringify(mergedEmptyProjectLibrary) === JSON.stringify(localLibraryForEmptyProject),
-	JSON.stringify(mergedEmptyProjectLibrary),
-);
-
-const malformed = JSON.stringify([{ id: "ok", bones: {} }, { id: 5 }, null, { bones: {} }]);
-store.set("cozyclay_poses", malformed);
-expect("a corrupted library degrades to only its valid entries", loadCustomPoses().length === 1);
-
-/* --- the studio tells an empty library what to do -------------------------- */
+const written = createProjectDocument({ scenesDocument: createSceneDocument(), name: "Poses" });
+expect("a saved project writes no pose library", !("poseLibrary" in written));
+const older = readProjectDocument(JSON.stringify({ ...written, poseLibrary: [{ id: "custom_1", label: "My Pose 1", bones: { hips: [1, 0, 0] }, custom: true }] }));
+expect("an older file with a pose library still opens", older.ok === true);
+expect("its pose library is dropped", older.ok && !("customPoses" in older.project) && !("poseLibrary" in older.project));
 
 /* --- the Inspector picks poses by shape, and the rig is free ---------------- */
 
@@ -146,10 +79,9 @@ expect("the rig options preview the character's own pose", appSource.includes("<
 expect("the rig picker is styled as a radio group", appSource.includes('role="radiogroup"') && stylesSource.includes(".rig-picker"));
 
 expect("Pose Studio exposes stable pose id hook", studioSource.includes("data-pose-id={pose.id}"));
-expect("Pose Studio exposes save custom hook", studioSource.includes('data-pose-id="save-custom"'));
+expect("Pose Studio has no save tile", !studioSource.includes('data-pose-id="save-custom"'));
 expect("Pose Studio no longer offers a photo source", !studioSource.includes('data-pose-id="photo-pose"'));
-expect("Pose Studio keeps custom pose labels", studioSource.includes("pose.custom ? pose.label"));
-expect("Pose Studio explains an empty library", studioSource.includes("data-pose-empty"));
+expect("Pose Studio has no empty-library note", !studioSource.includes("data-pose-empty"));
 expect("Pose Studio applies its synchronous draft selection", studioSource.includes("onApply(selectedIdRef.current)"));
 expect(
 	"Pose Studio explains motion ownership",
@@ -171,4 +103,4 @@ if (failures.length) {
 	process.exit(1);
 }
 
-console.log("pose library checks PASS (user-owned library, no shipped presets)");
+console.log("pose checks PASS (no saved-pose library; the default pose tile and pose studio stay)");

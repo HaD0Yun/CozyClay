@@ -1788,14 +1788,14 @@ console.log("PASS Workflow, Agent and MCP execution allowlists and disclosure sc
 	const frictionTokens = rowTokens("app:friction_summary");
 	for (const key of friction.FRICTION_SUMMARY_KEYS) assert.ok(frictionTokens?.has(key), `the privacy page discloses friction summary ${key}`);
 	for (const value of ["4-5", "6-10", "gte11", "150-500", "gte2000", "5-20", "gte50"]) assert.ok(frictionTokens.has(value), `the privacy page lists friction value ${value}`);
-	assert.ok(FEATURE_USAGE_NAMES.includes("pose_save"));
+	assert.equal(FEATURE_USAGE_NAMES.includes("pose_save"), false, "the saved-pose library is gone");
 	for (const name of ["export_depth_video", "export_keyframe_pack", "export_render_pass", "export_storyboard"]) assert.ok(FEATURE_USAGE_NAMES.includes(name), `${name} is no longer silently dropped`);
-	assert.deepEqual(sanitizeProps("feature:used", { name: "pose_save" }), { name: "pose_save" });
-	for (const name of ["pose_edit", "pose_save"]) {
+	assert.deepEqual(sanitizeProps("feature:used", { name: "pose_save" }), {});
+	for (const name of ["pose_edit"]) {
 		assert.ok(FEATURE_USAGE_NAMES.includes(name), `${name} is a closed feature name`);
 		assert.ok(rowTokens("feature:used").has(name), `feature:used discloses ${name}`);
 	}
-	console.log("PASS per-group edit gestures, real pose_edit vs pose_save, and session-end disclosure");
+	console.log("PASS per-group edit gestures, real pose_edit, and session-end disclosure");
 
 
 	const { FIRST_LAUNCH_SOURCES } = await import("../bin/telemetry-state.mjs");

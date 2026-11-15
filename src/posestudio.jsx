@@ -1201,14 +1201,8 @@ export function RangePinMarker({ chains, track, target = null, enabled = false }
 	);
 }
 
-/**
- * Pose Studio overlay panel. `poses` is the merged list (built-ins + custom)
- * the caller owns; every pose has `{ id, label, bones }` and custom poses add
- * `{ thumb, custom: true }`. The tile entry animation cascades with the same
- * stagger as the reference.
- */
 /** Pose tile preview: generated lazily per model+pose and cached for the
- * session (see pose-thumbs.js); user-saved poses keep their stored thumb. */
+ * session (see pose-thumbs.js); a pose that carries a thumb keeps it. */
 function PoseThumb({ model, pose, alt }) {
 	const [url, setUrl] = useState(pose.thumb ?? null);
 	useEffect(() => {
@@ -1244,7 +1238,12 @@ export function warmPoseThumbnails() {
 	warmThumbnailModels(["y-bot-tpose", "x-bot-tpose"]);
 }
 
-export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, onApply, onReset, onSave, onDelete, onClose, closing, motionActive = false, ikCorrection = false, docked = false }) {
+/**
+ * Pose Studio overlay panel. `poses` is the list the caller owns; every pose
+ * has `{ id, label, bones }`. The tile entry animation cascades with the same
+ * stagger as the reference.
+ */
+export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, onApply, onReset, onClose, closing, motionActive = false, ikCorrection = false, docked = false }) {
 	const poseLabelsKo = {
 		"T-pose": ko("T-pose", "T 포즈"),
 		Relaxed: ko("Relaxed", "편안한 자세"),
@@ -1269,10 +1268,9 @@ export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, o
 		gesture: ko("Gesture", "제스처"),
 		action: ko("Action", "동작"),
 		floor: ko("Floor", "바닥"),
-		custom: ko("My poses", "내 포즈"),
 	};
-	const displayPoseLabel = (pose) => pose.custom ? pose.label : poseLabelsKo[pose.label] ?? pose.label;
-	const poseCategory = (pose) => pose.custom ? "custom" : pose.category ?? "basic";
+	const displayPoseLabel = (pose) => poseLabelsKo[pose.label] ?? pose.label;
+	const poseCategory = (pose) => pose.category ?? "basic";
 	const [category, setCategory] = useState("all");
 	const selectedIdRef = useRef(selectedId);
 	useEffect(() => {
@@ -1324,21 +1322,11 @@ export function PoseStudioPanel({ subject, model, poses, selectedId, onSelect, o
 					))}
 				</div>
 			)}
-			{poses.length === 0 && (
-				<p className="studio-hint" data-pose-empty role="status">
-					{ko(
-						"Your pose library is empty. Pose the character and save it — it stays here for every project.",
-						"포즈 라이브러리가 비어 있어요. 캐릭터 자세를 잡아 저장하면, 모든 프로젝트에서 계속 쓸 수 있어요.",
-					)}
-				</p>
-			)}
 			<PoseTileGrid
 				poses={visiblePoses}
 				model={model}
 				selectedId={selectedId}
 				onSelect={selectPose}
-				onDelete={onDelete}
-				onSave={onSave}
 				categoryOf={poseCategory}
 				labelOf={displayPoseLabel}
 			/>
@@ -1359,9 +1347,7 @@ export function PoseTileGrid({
 	model,
 	selectedId,
 	onSelect,
-	onDelete,
-	onSave,
-	categoryOf = () => "custom",
+	categoryOf = () => "basic",
 	labelOf = (pose) => pose.label,
 }) {
 	return (
@@ -1378,26 +1364,8 @@ export function PoseTileGrid({
 					>
 						<PoseThumb model={model} pose={pose} alt={labelOf(pose)} />
 						<span>{labelOf(pose)}</span>
-						{pose.custom && onDelete && (
-							<em
-								className="del"
-								title={ko("Delete", "삭제")}
-								onClick={(e) => {
-									e.stopPropagation();
-									onDelete(pose.id);
-								}}
-							>
-								✕
-							</em>
-						)}
 					</button>
 				))}
-				{onSave && (
-				<button type="button" className="pose-tile add" data-pose-id="save-custom" title={ko("Save the character's current pose", "현재 캐릭터 포즈 저장")} onClick={onSave}>
-					<span className="add-plus">＋</span>
-					<span className="add-text">{ko("Save pose", "포즈 저장")}</span>
-				</button>
-				)}
 			</div>
 	);
 }

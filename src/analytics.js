@@ -133,7 +133,7 @@ const EVENT_PROPERTIES = Object.freeze({
 	...EXECUTION_TELEMETRY_PROPERTY_KEYS,
 });
 const FEATURE_NAMES = new Set([
-	"pose_edit", "pose_save", "camera_fly", "orbit", "dolly_rail", "crane_graph", "timeline_scrub",
+	"pose_edit", "camera_fly", "orbit", "dolly_rail", "crane_graph", "timeline_scrub",
 	"export_frame", "export_video",
 	"export_depth_video", "export_keyframe_pack", "export_render_pass", "export_storyboard",
 	"auto_color", "sample_motion", "agent_demo",
@@ -478,8 +478,7 @@ export function describeError({ error, filename, lineno, colno, kind = "error" }
 /**
  * Count one authored edit by its closed semantic kind (FIRST_EDIT_KINDS). Edits
  * of the same group closer than EDIT_GESTURE_GAP_MS count as one gesture. The
- * first real pose edit of a session is also the `pose_edit` feature signal;
- * saving a pose to the library is `pose_save`.
+ * first real pose edit of a session is also the `pose_edit` feature signal.
  */
 export function recordSemanticEdit(kind, now = Date.now()) {
 	const group = EDIT_GROUP_BY_KIND.get(kind);

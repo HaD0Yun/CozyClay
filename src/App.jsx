@@ -955,17 +955,17 @@ export default function App() {
 		get shotsDomain() { return shotsDomain; },
 	}));
 	const {
-		characters, customPoses, posing, posingClosing, studioPick, setStudioPick,
+		characters, posing, posingClosing, studioPick, setStudioPick,
 		rigs, rigMountEpoch, setRigMountEpoch, setPoseTick, charA, charB, showB,
 		updateCharacterAt, moveCharacter, removeCharacter, reportRig, spawnCharacter,
 		charKeyToHierarchyId, charIdFromHierarchyId, activeCharacterId, setActiveCharacterId, rowIdForCharIndex,
 		activeChar, selectActiveCharacterInHierarchy, activeCharIndex, activeRig, ghostLayers,
 		snapshotCast, hasCharSheet, setHasCharSheet,
 		waypointMode, setWaypointMode, waypoints, setWaypoints,
-		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, allPoses, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
+		activeWaypointId, setActiveWaypointId, pendingWaypointFrame, setPendingWaypointFrame, selectablePoses, posingIndex, posingChar, posedRig, rootStart, commitPosedPose,
 		queueRootWaypointFrame, castMemberOf, addCharacterWaypoint, moveCharacterWaypoint,
 		removeCharacterWaypoint, clearCharacterWaypoints, addFloorWaypoint, moveWaypoint, removeWaypoint,
-		toggleWaypointMode, openStudio, closeStudio, saveCurrentPose, savePose, removePose,
+		toggleWaypointMode, openStudio, closeStudio,
 		
 	} = castDomain;
 	const { publishStudioCharacters, syncStudioLayerBuffer, undoScene, redoScene, snapshotStudioDomain } = castDomain;
@@ -1286,7 +1286,6 @@ export default function App() {
 	const scenesDomain = useScenes(appContext.forRender({
 		get activeSceneIdRef() { return activeSceneIdRef; },
 		get actorStageRef() { return actorStageRef; },
-		get customPoses() { return customPoses; },
 		get dirtyRef() { return dirtyRef; },
 		get exportShotIdRef() { return exportShotIdRef; },
 		get ikStateRef() { return ikStateRef; },
@@ -2192,7 +2191,7 @@ export default function App() {
 
 	const projectSnapshotRef = useRef("");
 	const projectStateRef = useRef(null);
-	projectStateRef.current = { workspaceLayout, customPoses, scenes, activeSceneId, sceneObjects };
+	projectStateRef.current = { workspaceLayout, scenes, activeSceneId, sceneObjects };
 
 	useEffect(() => {
 		const onStorage = (event) => {
@@ -2491,7 +2490,7 @@ export default function App() {
 	appContext.patchLive({ setTlFrameCount });
 
 	// Dirty tracking: any divergence from the last saved file lights the dot.
-	useEffect(scenesDomain.refreshProjectDirty, [scenes, activeSceneId, workspaceLayout, customPoses, characters, shots, waypoints, projectName, keyLight, sceneObjects, shotAspectKey, environmentImage, environment, style, hasEnvSheet, sensorId, tlFrameCount, workflowRevision]);
+	useEffect(scenesDomain.refreshProjectDirty, [scenes, activeSceneId, workspaceLayout, characters, shots, waypoints, projectName, keyLight, sceneObjects, shotAspectKey, environmentImage, environment, style, hasEnvSheet, sensorId, tlFrameCount, workflowRevision]);
 
 	// The untrimmed take per CHARACTER. Trims are non-destructive views of the
 	// full take, so re-trimming and "restore full" always cut from the
@@ -4196,8 +4195,8 @@ export default function App() {
 			return { data, width: output.width, height: output.height };
 		},
 		encodePng: (buffer, output) => bufferToPng(buffer, output),
-		// The pose library a character.pose patch resolves its id against.
-		poses: () => [DEFAULT_POSE, ...customPoses],
+		// The poses a character.pose patch resolves its id against.
+		poses: () => [DEFAULT_POSE],
 		
 		ikRevision: (id, stamp) => {
 			const prior = studioIkStampsRef.current.get(id);
@@ -4355,7 +4354,7 @@ export default function App() {
 		cameraKeys, activeShot, openStudio,
 		posing, activeChar,
 		selectablePoses, ikApplyPoseAsKey,
-		setStudioPick, appContext, removePose, activeRig, saveCurrentPose,
+		setStudioPick, appContext, activeRig,
 		setTlFrame, tlFrameCount,
 		tlFrame, isRigSelection, ikChains, ikFocus, footSnap, poseObjectOpacity, setPoseObjectOpacity, capturePoseImage,
 		ikEditTool, setIkEditTool, ikSolve, ikDragEnd, ikTick, autoKey, setAutoKey, ikMoveKeyframe, handFingers, fingerEditing, setFingerEdit,
@@ -4369,8 +4368,8 @@ export default function App() {
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
 		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
-		posingIndex, posingChar, charA, allPoses, studioPick,
-		posingClosing, closeStudio, castDomain, setToast, savePose,
+		posingIndex, posingChar, charA, studioPick,
+		posingClosing, closeStudio, castDomain, setToast,
 		setBottomTab, beginAssetDrag, shelfImageIds, shelfMeshIds,
 		manageAssetStorage, setManageAssetStorage, unusedAssetIds, usedAssetIds, usageCounts,
 		projectAssetGraphSignature, assetTrash, deleteUnusedAsset, undoDeletedAsset, deletingAssetId,

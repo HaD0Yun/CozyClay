@@ -68,8 +68,6 @@ export const DEFAULT_POSE = {
 	},
 };
 
-const STORAGE_KEY = "cozyclay_poses";
-
 /* --- quaternion helpers (plain math, no three.js import) ------------------
  * Pose values are Euler triples in radians, in the bone's local frame, applied
  * as a rotation delta on top of the character's rest (bind) pose. That keeps
@@ -134,7 +132,7 @@ function qToEuler(q) {
  * only writer, and it mounts long after Character's own effect has already
  * applied the default pose -- so the snapshot baked the default's deltas
  * (~90 degrees on the arms) and called them "rest". Everything downstream that
- * expresses a pose as a delta -- capturePose and savePose --
+ * expresses a pose as a delta -- capturePose --
  * then measured against a pose instead of against the bind, and a default
  * character exported arms as identity.
  */
@@ -314,34 +312,4 @@ export function applyHipsOffset(root, rootY = 0) {
 	if (!bind?.position) return;
 	bone.position.y = bind.position.y + (Number.isFinite(rootY) ? rootY : 0);
 	bone.updateMatrixWorld(true);
-}
-
-export function loadCustomPoses() {
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return [];
-		const parsed = JSON.parse(raw);
-		if (!Array.isArray(parsed)) return [];
-		return parsed.filter(
-			(p) => p && typeof p === "object" && typeof p.id === "string" && p.bones && typeof p.bones === "object"
-		);
-	} catch {
-		// Private mode / quota errors degrade to an empty list.
-		return [];
-	}
-}
-
-export function saveCustomPoses(list) {
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-export function deleteCustomPose(id, list) {
-	const next = list.filter((p) => p.id !== id);
-	saveCustomPoses(next);
-	return next;
 }

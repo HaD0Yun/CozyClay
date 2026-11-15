@@ -31,7 +31,7 @@ export default function DetailsSlot() {
 		posing, workflowMode, activeChar,
 		activeCharIndex,
 		selectablePoses, ikMode, ikApplyPoseAsKey, motion, setStudioPick,
-		appContext, removePose, activeRig, saveCurrentPose,
+		appContext, activeRig,
 		tlFrame,
 		isRigSelection, ikChains, ikFocus, footSnap, poseObjectOpacity, setPoseObjectOpacity, capturePoseImage,
 		ikEditTool, setIkEditTool,
@@ -46,9 +46,9 @@ export default function DetailsSlot() {
 		matteTolerance, setMatteTolerance, matteBrush, setMatteBrush, matteShrink,
 		setMatteShrink, matteFeather, setMatteFeather, matteBusy,
 		autoColor, recentObjectColors, rememberSceneObjectColor, objectColorDraft, setObjectColorDraft,
-		posingIndex, posingChar, charA, allPoses,
+		posingIndex, posingChar, charA,
 		studioPick, posingClosing, closeStudio, castDomain, setToast,
-		savePose, beginWorkspaceResize,
+		beginWorkspaceResize,
 	} = useStudioShell();
 	const selection = detailsSelection({ selectedHierarchyId, selectedSceneObject, rigSelection, characters, shot, inspectorHasContent });
 	const { resetPose, fingerPanel } = posePanelControls(useStudioShell());
@@ -174,9 +174,7 @@ export default function DetailsSlot() {
 			motion={motion}
 			setStudioPick={setStudioPick}
 			setToast={appContext.notify}
-			removePose={removePose}
 			activeRig={activeRig}
-			saveCurrentPose={saveCurrentPose}
 		/>
 
 
@@ -316,7 +314,7 @@ export default function DetailsSlot() {
 					docked
 					subject={posingIndex >= 0 ? posingIndex + 1 : 1}
 					model={posingChar?.model ?? charA.model}
-					poses={allPoses}
+					poses={selectablePoses}
 					selectedId={studioPick}
 					closing={posingClosing}
 					motionActive={Boolean(motion)}
@@ -340,8 +338,6 @@ export default function DetailsSlot() {
 						}
 					}}
 					onReset={() => { if (posingChar) resetPose(posingChar.id); }}
-					onSave={savePose}
-					onDelete={removePose}
 					onClose={closeStudio}
 				/>
 			)}
