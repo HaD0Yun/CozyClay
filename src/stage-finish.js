@@ -110,9 +110,10 @@ export function applySurfaceLook(scene, surface) {
 }
 
 // The line width, in pixels of a frame 1080 rows tall: every frame scales it by its own height, so the viewport (any pane
-// size, any device pixel ratio) and the exports show the same share of the frame. 1.4 is the width of the pictures the
-// owner approved (2026-11-16).
-const LINE_WIDTH = 1.4;
+// size, any device pixel ratio) and the exports show the same share of the frame. 1 is the width of the pictures the
+// owner approved (2026-11-16: they asked for 1.4, which the old whole-pixel taps drew as 1 at 1080 rows). The owner
+// picks the width from lowvis-out/toon-lines (1, 0.7, 0.5 of it).
+const LINE_WIDTH = 1;
 
 // tone: three's curve for the draw; exposure: a multiplier on the stage's own (Neutral lacks the 1/0.6 that three's ACES
 // applies); occlusion false: no soft contact darkening (stage-occlusion.js), a ramp the flat look has no place for.
@@ -147,9 +148,20 @@ float linearDepth( float value ) {
 	float z = value * 2.0 - 1.0;
 	return ( 2.0 * cameraNear * cameraFar ) / ( cameraFar + cameraNear - z * ( cameraFar - cameraNear ) );
 }
-float depthAt( vec2 uv ) { return linearDepth( texture2D( tDepth, uv ).x ); }
+float depthTexel( vec2 uv ) { return linearDepth( texture2D( tDepth, uv ).x ); }
 // an empty pixel of the prepass (alpha 0) faces the camera
-vec3 normalAt( vec2 uv ) { vec4 n = texture2D( tNormal, uv ); return mix( vec3( 0.0, 0.0, 1.0 ), n.xyz * 2.0 - 1.0, step( 0.5, n.a ) ); }
+vec3 normalTexel( vec2 uv ) { vec4 n = texture2D( tNormal, uv ); return mix( vec3( 0.0, 0.0, 1.0 ), n.xyz * 2.0 - 1.0, step( 0.5, n.a ) ); }
+// The kernel's taps sit a fraction of a pixel out as often as not (the width follows the frame's height), so they blend
+// the four texels around them: a nearest lookup would round every width to whole pixels, thicker or thinner than asked.
+// Depth texels are not filterable, hence by hand.
+float depthAt( vec2 uv ) {
+	vec2 p = uv / texel - 0.5, f = fract( p ), o = ( floor( p ) + 0.5 ) * texel;
+	return mix( mix( depthTexel( o ), depthTexel( o + vec2( texel.x, 0.0 ) ), f.x ), mix( depthTexel( o + vec2( 0.0, texel.y ) ), depthTexel( o + texel ), f.x ), f.y );
+}
+vec3 normalAt( vec2 uv ) {
+	vec2 p = uv / texel - 0.5, f = fract( p ), o = ( floor( p ) + 0.5 ) * texel;
+	return mix( mix( normalTexel( o ), normalTexel( o + vec2( texel.x, 0.0 ) ), f.x ), mix( normalTexel( o + vec2( 0.0, texel.y ) ), normalTexel( o + texel ), f.x ), f.y );
+}
 vec3 toLinear( vec3 c ) { return mix( c / 12.92, pow( ( c + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, c ) ); }
 // An object's own line (line geometry the set carries, drawn as it is) within the kernel's reach: the edge there is that
 // line's, so the pass leaves it alone. The reach is the kernel's and a pixel and a half more (a one-pixel line may land
