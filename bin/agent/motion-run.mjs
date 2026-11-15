@@ -13,14 +13,23 @@ const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote 
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
 const failure = (code, message) => Object.assign(new Error(message), { code });
+// loaded on a call only: they read src/
+async function realDeps() {
+	const [{ runScene }, { installClip }, { studioScene }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js")]);
+	return { runScene, installClip, studioScene, readClip: file => JSON.parse(readFileSync(file, "utf8")) };
+}
 
 /** The request the motion writer reads: the user's words, the pictures' count, the Studio's scene and the last motion. */
 function requestOf(text, pictures, studio, before, allowAdd) {
 	const parts = [text];
 	if (pictures) parts.push(`The user attached ${pictures} picture${pictures === 1 ? "" : "s"}.`);
 	if (studio.characters.length || studio.props.length || !allowAdd) {
-		parts.push(`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.${allowAdd ? "" : " Add no character and no prop: use the listed ones only."}\n${JSON.stringify(studio)}`);
+		// the scene JSON holds what a scene line holds; the flat heights go as lines of their own
+		const scene = { characters: studio.characters, props: studio.props.map(({ heights, ...prop }) => prop) };
+		const heights = studio.props.filter(prop => prop.heights?.length).map(prop => `${prop.id} offers these flat heights (world): ${JSON.stringify(prop.heights)}`);
+		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.${allowAdd ? "" : " Add no character and no prop: use the listed ones only."}`, JSON.stringify(scene), ...heights].join("\n"));
 	}
+	if (studio.others?.length) parts.push(`These characters cannot be animated by the engine and stand as they are: ${studio.others.map(other => `${other.id} (${other.why})`).join(", ")}.`);
 	if (before) {
 		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
@@ -32,21 +41,22 @@ function requestOf(text, pictures, studio, before, allowAdd) {
  *   -> { name, report, missing, frames, seconds, compiles, characterIds, objectIds, switched }
  * text: the user's words. images: [{ data: <base64>, mimeType }] (at most 4). hub.command("describe") reads the scene.
  * invoke(action, args): one editor action as the turn's tools run it (a refusal throws). onCompile({ n, ok, line }):
- * once per compile. allowAdd: false inside a task (the request tells the motion writer to add nothing).
+ * once per compile. allowAdd: false inside a task: the request tells the motion writer to add nothing, and a clip that
+ * still needs a character or a prop the Studio scene does not have is not installed (code "studio").
  * characterIds: every Studio character the clip animated; objectIds: the objects it made or placed.
  * A motion writer that ends without a scene but with a report (it could not make the motion) answers with frames 0.
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
  * "aborted".
+ * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ text, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, allowAdd = true }) {
-	const [{ runScene }, { installClip }, { studioScene }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js")]);
+export async function runMotion({ text, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, allowAdd = true, deps = null }) {
+	const { runScene, installClip, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
-	// Bridge options another change adds (turn, tops): pass them here once studioScene takes them, and ask describe for tops.
-	const studio = studioScene(await hub.command("describe", {}, workspaceHandle));
-	// The request text: once the bridge answers scene.others, add the sentence about characters the engine cannot animate.
+	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops");
+	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops });
 	const request = requestOf(text, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), allowAdd);
-	const record = await runScene({ name, request, model: MOTION_MODEL, effort: MOTION_EFFORT, variant: MOTION_VARIANT, off: motionOff(env), images, env, signal, log: line => {
+	const record = await runScene({ name, request, model: MOTION_MODEL, effort: MOTION_EFFORT, variant: MOTION_VARIANT, off, images, env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	} });
@@ -57,7 +67,11 @@ export async function runMotion({ text, images = [], memoryKey, hub, workspaceHa
 		if (record.report) return { ...base, frames: 0, characterIds: [], objectIds: [], switched: [] };
 		throw failure("upstream", `The motion writer ended without a scene or a report (${record.endedBy}).`);
 	}
-	const clip = JSON.parse(readFileSync(record.final.clip, "utf8"));
+	const clip = readClip(record.final.clip);
+	if (!allowAdd) {
+		const unknown = [...clip.characters.filter(figure => !Object.hasOwn(studio.ids.characters, figure.id)), ...(clip.props ?? []).filter(prop => !Object.hasOwn(studio.ids.props, prop.id))].map(item => item.id);
+		if (unknown.length) throw failure("studio", `The motion needs ${unknown.join(", ")} that the scene does not have. Build them first, then call motion again.`);
+	}
 	let refused = null;
 	// A scene that changed while the motion was written (a build task finished, the user moved something) answers
 	// STALE_SCENE once: the tools re-admit at the live revision, and the same step is sent again.
@@ -70,12 +84,12 @@ export async function runMotion({ text, images = [], memoryKey, hub, workspaceHa
 			}
 		}
 	};
-	// Bridge options another change adds (turn, switched): pass them to installClip here.
-	const result = await installClip(clip, run, { label: text, existing: studio.ids });
+	const result = await installClip(clip, run, { label: text, existing: studio.ids, turn });
 	if (!result.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
 	const animated = clip.characters.map((figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`)).filter(Boolean);
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id).filter(Boolean);
-	// The report: once installClip answers switched, end it with "Changed to the block figure: <ids>."
-	return { ...base, frames: clip.frameCount, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched: result.switched ?? [] };
+	const switched = result.switched ?? [];
+	const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;
+	return { ...base, report, frames: clip.frameCount, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched };
 }
