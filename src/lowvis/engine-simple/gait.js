@@ -13,12 +13,15 @@ const HIP_FWD = REST[J.Hips][2], FOOT_X = REST[J.LeftFoot][0], FOOT_Z = REST[J.L
 const SETTLE = 3; // frames kept still at the end of a move
 const GAIT = {
 	// stepFrames: frames per step; sw: swing time / step time (over 1 = flight phase); base, bobA: pelvis height
-	walk: { stepFrames: 12, sw: 0.8, maxStride: 0.62, lift: 0.07, base: -0.035, bobA: 0.018, bobPh: 0.4, lean: 0.05, heelOff: 0.55, strike: -0.3, armZ: 0.2, armUp: 0, armFwd: 0, twist: 0.1, drop: 0, pitch: 0, bow: 0, trail: 0, toe: 0, pulse: 0 },
-	run: { stepFrames: 9, sw: 1.25, maxStride: 1.2, lift: 0.15, base: -0.04, bobA: 0.035, bobPh: 0.15, lean: 0.26, heelOff: 0.45, strike: -0.05, armZ: 0.3, armUp: 0.2, armFwd: 0.06, twist: 0.18, drop: 0, pitch: 0, bow: 0, trail: 0, toe: 0, pulse: 0 },
+	// sway: m the pelvis moves toward the standing foot; list: rad it drops on the swinging side
+	walk: { stepFrames: 12, sw: 0.8, maxStride: 0.62, lift: 0.07, base: -0.035, bobA: 0.018, bobPh: 0.4, lean: 0.05, heelOff: 0.55, strike: -0.3, armZ: 0.2, armUp: 0, armFwd: 0, twist: 0.1, drop: 0, pitch: 0, bow: 0, trail: 0, toe: 0, pulse: 0, sway: 0, list: 0 },
+	run: { stepFrames: 9, sw: 1.25, maxStride: 1.2, lift: 0.15, base: -0.04, bobA: 0.035, bobPh: 0.15, lean: 0.26, heelOff: 0.45, strike: -0.05, armZ: 0.3, armUp: 0.2, armFwd: 0.06, twist: 0.18, drop: 0, pitch: 0, bow: 0, trail: 0, toe: 0, pulse: 0, sway: 0, list: 0 },
 	// push: a low, steep lean on the balls of the feet, which trail the hips; short steps; speed pulses with each step
-	push: { stepFrames: 12, sw: 0.6, maxStride: 0.4, lift: 0.02, base: 0, bobA: 0.012, bobPh: 0.4, lean: 0, heelOff: 0, strike: 0, armZ: 0, armUp: 0, armFwd: 0, twist: 0, drop: 0.27, pitch: 0.62, bow: 0.22, trail: 0.6, toe: 0.5, pulse: 0.6 },
+	push: { stepFrames: 12, sw: 0.6, maxStride: 0.4, lift: 0.02, base: 0, bobA: 0.012, bobPh: 0.4, lean: 0, heelOff: 0, strike: 0, armZ: 0, armUp: 0, armFwd: 0, twist: 0, drop: 0.27, pitch: 0.62, bow: 0.22, trail: 0.6, toe: 0.5, pulse: 0.6, sway: 0, list: 0 },
 };
-const KEYS = Object.keys(GAIT.walk);
+const KEYS = Object.keys(GAIT.walk), WALK0 = { ...GAIT.walk };
+/** Trial only (the user picks one walk, then its values become the defaults and this goes): walk values over the defaults. */
+export function tuneWalk(over = {}) { Object.assign(GAIT.walk, WALK0, over); }
 const blend = ([r, p]) => Object.fromEntries(KEYS.map(k => [k, GAIT.walk[k] + r * (GAIT.run[k] - GAIT.walk[k]) + p * (GAIT.push[k] - GAIT.walk[k])]));
 
 const dir2 = yaw => [Math.sin(yaw), Math.cos(yaw)];
@@ -60,7 +63,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 		cur[s.side] = to;
 	});
 	const speed = t => dist2(posAt(t + 0.5), posAt(t - 0.5)) * 24;
-	const frames = [], was = [0, 0];
+	const frames = [], was = [0, 0], weight = []; // weight: per frame [which foot stands (+1 left only, -1 right only), act, sway, list, left direction]
 	for (let t = 0; t < T; t++) {
 		const [r, pw] = mixAt(t), P = blend([r, pw]), yaw = yawAt(t), c = posAt(t), [sn, cs] = dir2(yaw);
 		const feet = swings.map((list, side) => {
@@ -92,6 +95,14 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 			q: qMul(qY(yaw - 0.5 * P.twist * w), qX(0.35 * lean + P.pitch)), yaw, lean: 0.65 * lean + P.bow, twist: 1.2 * P.twist * w, feet,
 			hands: [1, -1].map(s => [s * (0.22 - 0.03 * r), -0.13 + act * P.armUp + 0.03 * Math.abs(w), 0.02 + act * P.armFwd - s * w * P.armZ]),
 		});
+		weight.push([(feet[0].planted ? 1 : 0) - (feet[1].planted ? 1 : 0), act, P.sway, P.list, [cs, -sn]]);
+	}
+	// the body's weight over the standing foot: the pelvis moves toward it and drops on the swinging side, eased
+	// through the double support (both off unless the gait asks for them)
+	if (weight.some(x => x[2] || x[3])) {
+		let s = weight.map(x => x[0]);
+		for (let pass = 0; pass < 2; pass++) s = s.map((_, t) => { let a = 0, n = 0; for (let d = -4; d <= 4; d++) if (t + d >= 0 && t + d < T) { a += s[t + d]; n++; } return a / n; });
+		frames.forEach((B, t) => { const [, act, sway, list, left] = weight[t], k = s[t] * act; B.p[0] += left[0] * sway * k; B.p[2] += left[1] * sway * k; B.roll = list * k; });
 	}
 	return { frames, st: { p: posAt(T), yaw: yawAt(T), feet: cur } };
 }

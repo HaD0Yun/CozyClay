@@ -11,7 +11,7 @@
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
 //       assist: the previous frame's { bend, drop } of the reach assist }
 import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS } from "../rig17.js";
-import { Y, Z, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, sub } from "./math.js";
+import { Y, Z, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
 
 export const SIDES = [
 	{ s: 1, arm: J.LeftArm, fore: J.LeftForeArm, hand: J.LeftHand, up: J.LeftUpLeg, leg: J.LeftLeg, foot: J.LeftFoot },
@@ -67,8 +67,10 @@ export function solve(B, U = {}) {
 	const torso = (extraDrop = 0) => {
 		const b = bend + (U.bow ?? 0); // bow: a hinge at the hips asked for by the spec; bend: the same hinge added by the reach assist
 		const hips = [hips0[0] + fwd[0] * 0.12 * bend, hips0[1] - drop - extraDrop, hips0[2] + fwd[2] * 0.12 * bend];
-		const qP = qMul(qMul(qY(U.hipTurn ?? 0), B.q), qX(0.6 * b)), lean = lean0 + 0.4 * b;
-		const q1 = qMul(qP, qMul(qY(0.4 * twist), qX(0.4 * lean))), q2 = qMul(qP, qMul(qY(twist), qX(lean)));
+		// roll: the pelvis drops on one side (B.roll, rad, + = left side up); the chest rolls back so the shoulders stay level
+		const roll = B.roll ?? 0, qB = roll ? qMul(B.q, qZ(roll)) : B.q;
+		const qP = qMul(qMul(qY(U.hipTurn ?? 0), qB), qX(0.6 * b)), lean = lean0 + 0.4 * b;
+		const q1 = qMul(roll ? qMul(qP, qZ(-0.5 * roll)) : qP, qMul(qY(0.4 * twist), qX(0.4 * lean))), q2 = qMul(roll ? qMul(qP, qZ(-roll)) : qP, qMul(qY(twist), qX(lean)));
 		const p2 = add(add(hips, qRotate(qP, OFFSET[J.Spine])), qRotate(q1, OFFSET[J.Spine2]));
 		const sh = SIDES.map(S => add(p2, qRotate(q2, OFFSET[S.arm])));
 		const hand = SIDES.map((S, i) => {
