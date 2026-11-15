@@ -26,7 +26,8 @@ export const FINISH_LOOKS = Object.freeze({
 	toon: Object.freeze({
 		tone: THREE.NeutralToneMapping, exposure: 1.3,
 		surface: { bands: { level: 0.75, fill: 2.2, pool: 0.6, poolAt: 0.5, poolSoft: 0.35, reach: 8 } },
-		line: { color: "#0a0a0c", amount: 1, width: LINE_WIDTH, crease: 1 },
+		// own: how far an object's own line spreads, in kernel widths (1: as wide as a crease)
+		line: { color: "#0a0a0c", amount: 1, width: LINE_WIDTH, crease: 1, own: 1 },
 		occlusion: false,
 		saturation: 1.1,
 	}),
@@ -40,6 +41,7 @@ uniform sampler2D tNormal;
 uniform sampler2D tDepth;
 uniform sampler2D tMarks;
 uniform float hasMarks;
+uniform float markReach;
 uniform vec2 texel;
 uniform vec3 lineColor;
 uniform float lineAmount;
@@ -68,21 +70,15 @@ vec3 normalAt( vec2 uv ) {
 	return mix( mix( normalTexel( o ), normalTexel( o + vec2( texel.x, 0.0 ) ), f.x ), mix( normalTexel( o + vec2( 0.0, texel.y ) ), normalTexel( o + texel ), f.x ), f.y );
 }
 vec3 toLinear( vec3 c ) { return mix( c / 12.92, pow( ( c + 0.055 ) / 1.055, vec3( 2.4 ) ), step( 0.04045, c ) ); }
-// An object's own line (line geometry the set carries, drawn as it is) within the kernel's reach: the edge there is that
-// line's, so the pass leaves it alone. The reach is the kernel's and a pixel and a half more (a one-pixel line may land
-// on either side of the edge it traces), in steps of at most a pixel along eight directions.
-float ownLine() {
+// An object's own lines (line geometry, drawn one pixel wide into tMarks where they are seen) in the look's ink: spread
+// over the kernel's own reach, so a line drawn on a flat face comes out as wide as a crease the normals give.
+float ink( vec2 x, vec2 y ) {
 	if ( hasMarks < 0.5 ) return 0.0;
-	float found = texture2D( tMarks, vUv ).r;
-	float reach = lineWidth + 1.5, steps = ceil( reach );
-	for ( int i = 1; i <= 12; i ++ ) {
-		if ( float( i ) > steps ) break;
-		float k = reach * float( i ) / steps;
-		vec2 a = vec2( texel.x * k, 0.0 ), b = vec2( 0.0, texel.y * k );
-		found = max( found, max( max( texture2D( tMarks, vUv + a ).r, texture2D( tMarks, vUv - a ).r ), max( texture2D( tMarks, vUv + b ).r, texture2D( tMarks, vUv - b ).r ) ) );
-		found = max( found, max( max( texture2D( tMarks, vUv + a + b ).r, texture2D( tMarks, vUv - a - b ).r ), max( texture2D( tMarks, vUv + a - b ).r, texture2D( tMarks, vUv - a + b ).r ) ) );
-	}
-	return found;
+	vec2 a = x * markReach, b = y * markReach;
+	float m = max( texture2D( tMarks, vUv ).r, max( max( texture2D( tMarks, vUv + a ).r, texture2D( tMarks, vUv - a ).r ), max( texture2D( tMarks, vUv + b ).r, texture2D( tMarks, vUv - b ).r ) ) );
+	m = max( m, max( max( texture2D( tMarks, vUv + a + b ).r, texture2D( tMarks, vUv - a - b ).r ), max( texture2D( tMarks, vUv + a - b ).r, texture2D( tMarks, vUv - a + b ).r ) ) );
+	// a one-pixel line that falls between two pixels covers each by half: that is still the whole line
+	return smoothstep( 0.1, 0.5, m );
 }
 void main() {
 	vec3 color = texture2D( tColor, vUv ).rgb;
@@ -98,7 +94,7 @@ void main() {
 	vec3 nTL = normalAt( vUv - x + y ), nTR = normalAt( vUv + x + y ), nBL = normalAt( vUv - x - y ), nBR = normalAt( vUv + x - y );
 	vec3 normalX = nTL + 2.0 * nL + nBL - nTR - 2.0 * nR - nBR, normalY = nTL + 2.0 * nT + nTR - nBL - 2.0 * nB - nBR;
 	float normalEdge = sqrt( dot( normalX, normalX ) + dot( normalY, normalY ) );
-	float edge = max( smoothstep( 0.055, 0.16, depthEdge ) * owner, smoothstep( 0.7, 1.7, normalEdge ) * creaseAmount ) * ( 1.0 - ownLine() );
+	float edge = max( max( smoothstep( 0.055, 0.16, depthEdge ) * owner, smoothstep( 0.7, 1.7, normalEdge ) * creaseAmount ), ink( x, y ) );
 	color = mix( color, lineColor, edge * lineAmount * fade );
 	color = mix( vec3( dot( color, vec3( 0.2126, 0.7152, 0.0722 ) ) ), color, saturation );
 	// the output target stores sRGB and encodes on write: hand it linear
@@ -109,8 +105,8 @@ const value = (initial) => ({ value: initial });
 // What the line prepass leaves out, as the viewport's does (dualview.jsx): picture cards, the deck, glow halos.
 // A see-through pane is left out too, so the things behind it get their lines.
 const seeThrough = (node) => node.isMesh && [node.material].flat().every((material) => material?.transmission > 0 || material?.userData?.cozyGlass);
-// Line geometry is a line the object already has: the prepass leaves it out (it has no surface to take a normal from), and
-// the mark pass below keeps the look from drawing a second line on top of it.
+// Line geometry is a line the object already has. Under the look it is drawn in the look's ink, like every outline and
+// crease: it leaves the colour draw and the prepass (it has no surface to take a normal from) for the mark pass below.
 const ownLines = (node) => node.isLine === true;
 const noLine = (node) => node.userData?.cutoutTexture !== undefined || node.userData?.noInk || node.userData?.beautyOnly || seeThrough(node) || ownLines(node);
 // A layer no camera of the Studio uses: for the mark pass, the set's own lines alone.
@@ -125,7 +121,7 @@ export function createFinish() {
 	const finish = new THREE.ShaderMaterial({ vertexShader: VERTEX, fragmentShader: FINISH, depthTest: false, depthWrite: false, toneMapped: false, uniforms: {
 		tColor: value(null), tNormal: value(null), tDepth: value(null), texel: value(new THREE.Vector2()), cameraNear: value(0.1), cameraFar: value(100),
 		lineColor: value(new THREE.Vector3()), lineAmount: value(0), lineWidth: value(1), creaseAmount: value(0.68), saturation: value(1),
-		tMarks: value(null), hasMarks: value(0),
+		tMarks: value(null), hasMarks: value(0), markReach: value(1),
 	} });
 	// the mark pass: the solid set as depth only, then the own lines in white where they are seen. The surfaces sit a
 	// hair back, as a line's own surface does in the draw (a line on a face is level with it and would fight it).
@@ -142,7 +138,8 @@ export function createFinish() {
 			const drawn = new THREE.WebGLRenderTarget(width, height, { type: THREE.HalfFloatType, colorSpace: THREE.SRGBColorSpace, samples: 4, depthTexture: depthTexture(width, height) });
 			drawn.isXRRenderTarget = true;
 			const prepass = new THREE.WebGLRenderTarget(width, height, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, samples: 4, depthTexture: depthTexture(width, height) });
-			const marks = new THREE.WebGLRenderTarget(width, height, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+			// multisampled and read filtered: the one-pixel lines come out smooth, and the ink reads between pixels
+			const marks = new THREE.WebGLRenderTarget(width, height, { samples: 4 });
 			set = { drawn, prepass, marks };
 		}
 		sizes.set(key, set);
@@ -165,6 +162,14 @@ export function createFinish() {
 			renderer.toneMapping = look.tone;
 			renderer.toneMappingExposure = before.exposure * look.exposure;
 			renderer.autoClear = true;
+			// the set's own lines (on the layers this draw shows, not the editor's) are ink: out of the colour draw
+			const lines = [], set = camera.layers.mask & ~((1 << GIZMO_LAYER) | (1 << POSER_LAYER));
+			scene.traverse((node) => {
+				if (!node.visible || !ownLines(node) || !(node.layers.mask & set)) return;
+				lines.push(node);
+				hidden.push(node);
+				node.visible = false;
+			});
 			renderer.setRenderTarget(drawn);
 			if (look.occlusion === false) scene.onAfterRender = () => {};
 			renderer.render(scene, camera);
@@ -172,10 +177,8 @@ export function createFinish() {
 			// lines read the normals and depth of the solid set
 			camera.layers.disable(GIZMO_LAYER);
 			camera.layers.disable(POSER_LAYER);
-			const lines = [];
 			scene.traverse((node) => {
 				if (!node.visible || !noLine(node)) return;
-				if (ownLines(node) && node.layers.test(camera.layers)) lines.push(node);
 				hidden.push(node);
 				node.visible = false;
 			});
@@ -213,6 +216,7 @@ export function createFinish() {
 			u.tDepth.value = prepass.depthTexture;
 			u.tMarks.value = marks.texture;
 			u.hasMarks.value = lines.length ? 1 : 0;
+			u.markReach.value = look.line.own;
 			u.texel.value.set(1 / output.width, 1 / output.height);
 			u.cameraNear.value = camera.near;
 			u.cameraFar.value = camera.far;
