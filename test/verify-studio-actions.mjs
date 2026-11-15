@@ -13,7 +13,7 @@ import { IMAGE_MODELS } from "../src/shot.js";
 const code = expected => error => error?.code === expected;
 
 /* The first batch is declared once, as data. */
-const firstBatch = ["shot.create", "shot.createStill", "shot.setCaption", "shot.setCastOverride", "shot.setHold", "shot.split", "shot.duplicate", "shot.remove", "shot.setRange", "shot.reorder", "object.duplicate"];
+const firstBatch = ["shot.create", "shot.split", "shot.duplicate", "shot.remove", "shot.setRange", "shot.reorder", "object.duplicate"];
 const castActions = ["character.move"];
 const waypointActions = ["character.addWaypoint", "character.moveWaypoint", "character.removeWaypoint", "character.clearWaypoints"];
 const ikKeyActions = ["character.setIkKey", "character.removeIkKey", "character.clearIkKeys"];
@@ -23,7 +23,7 @@ const shotNameActions = ["shot.rename"];
 const viewActions = ["view.setPartColours", "view.setGuideMode", "view.setInset", "view.setGhosts", "view.frame"];
 const exportActions = ["export.shotVideo"];
 const sceneActions = ["scene.create", "scene.duplicate", "scene.rename", "scene.delete", "scene.switch"];
-const projectActions = ["project.save", "project.exportAsAnimation"];
+const projectActions = ["project.save"];
 const assetActions = ["asset.import"];
 const aiActions = ["ai.prepareShot"];
 assert.deepEqual([...STUDIO_ACTION_IDS].sort(), [...firstBatch, ...castActions, ...waypointActions, ...ikKeyActions, ...attachActions, ...railActions, ...shotNameActions, ...viewActions, ...exportActions, ...sceneActions, ...projectActions, ...assetActions, ...aiActions].sort());

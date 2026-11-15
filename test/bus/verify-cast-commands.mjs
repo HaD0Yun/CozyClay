@@ -119,10 +119,7 @@ test('cast: a pose with a bone outside POSE_BONES is refused and leaves the cast
     assert.match(refused.message, /mixamorigRightArm.*rArm/);
     assert.equal(f.run('character.set', { id: 'actor-a', set: { pose: { id: 'probe', bones: { __probe__: [0, 0, 0] } } } }, 'agent').code, 'INVALID_ARGUMENT');
     assert.deepEqual(f.cast.read(), before);
-    const library = structuredClone(f.cast.state().customPoses);
-    assert.equal(f.run('cast.savePose', { pose: { id: 'bad', bones: { mixamorigRightArm: [0, 0, 1] } } }).code, 'INVALID_ARGUMENT');
-    assert.equal(f.run('cast.setCustomPoses', { poses: [...library, { id: 'bad', bones: { __probe__: [0, 0, 0] } }] }).code, 'INVALID_ARGUMENT');
-    assert.deepEqual(f.cast.state().customPoses, library, 'no malformed entry reaches the pose library');
+    for (const id of ['cast.savePose', 'cast.setCustomPoses', 'cast.removePose']) assert.equal(f.run(id, {}).ok, false, `${id} is gone`);
     ok(f.run('character.setPose', { characterId: 'actor-a', pose: { id: 'probe', bones: { rArm: [0, 0, 1] } } }, 'agent'));
   } finally { f.dispose(); }
 });

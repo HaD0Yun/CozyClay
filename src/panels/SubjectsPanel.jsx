@@ -5,7 +5,7 @@ import SubjectBox from "./SubjectBox.jsx";
 import { useCastTransaction } from '../domains/cast.js';
 import { CHARACTER_MODEL_LABELS } from "../stage-startup-defaults.js";
 
-// The body as one letter (X Bot, Y Bot); the full name is the tooltip. A capsule figure shows its glyph only.
+// The body as one letter (Block figure, Y Bot (old)); the full name is the tooltip. A capsule figure shows its glyph only.
 const modelLetter = (model) => CHARACTER_MODEL_LABELS[model]?.[0] ?? null;
 
 export default function SubjectsPanel({

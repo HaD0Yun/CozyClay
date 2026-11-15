@@ -7,7 +7,8 @@ import { ko } from "./locale.js";
 
 // The body labels live here, not in stage-startup-defaults.js (which imports three), so Node-side
 // callers such as the MCP handlers can name a character without loading the stage.
-export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };
+// Every X Bot character draws as the block figure; a Y Bot row is an old character until it changes to one.
+export const CHARACTER_MODEL_LABELS = { "y-bot-tpose": ko("Y Bot (old)", "Y Bot (이전)", "Y Bot（旧）"), "x-bot-tpose": ko("Block figure", "블록 인형", "积木人") };
 CHARACTER_MODEL_LABELS["proxy-figure"] = ko("Capsule figure", "캡슐 인물");
 
 /** The display name of one cast row: its subject, else "<model label> <id suffix>". */

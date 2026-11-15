@@ -31,7 +31,7 @@ export const commandGroup = id => GROUPS.find(([pattern]) => pattern.test(String
 // does for object_insert. Everything else is no edit kind.
 const EDIT_KINDS = [
 	[/^shot\.captureCamera$/, null],
-	[/^shot\.(create|createStill|duplicate|split)$/, 'shot_add'],
+	[/^shot\.(create|duplicate|split)$/, 'shot_add'],
 	[/^shot\.(setCameraRail|clearCameraRail)$/, 'rail_edit'],
 	[/^shot\.addKey$/, 'camera_key_record'],
 	[/^shot\./, 'shot_edit'],

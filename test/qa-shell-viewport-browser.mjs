@@ -231,12 +231,10 @@ await click('[data-mode-key="1"]');
 await waitFor("document.querySelector('.app')?.dataset.workflowMode === 'scene'");
 save("task-10-1280", await capture());
 
-// #650: the project mode gates the shell. Each project is opened fresh in the
-// light and the dark theme: a storyboard shows 1 2 3 5 (no Motion), ignores
-// key 4 and badges "Storyboard"; an animation project shows 1 2 3 4 5 with the
-// badge "Animation". Neither has a top-bar Generate in CozyClay 3.
+// The shell in the light and the dark theme: mode tabs 1 2 3 4 5, no project
+// mode badge, no top-bar Generate in CozyClay 3, and key 4 enters Motion.
 const nextFrame = () => evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
-const openPrevisProject = async (previsMode, theme) => {
+const openShellProject = async (theme) => {
 	await send("Page.navigate", { url: `${origin}/favicon.ico` });
 	await evaluate(`(() => {
 		const scene = {
@@ -251,103 +249,46 @@ const openPrevisProject = async (previsMode, theme) => {
 		localStorage.clear();
 		localStorage.setItem("cozyclay.locale", "en");
 		localStorage.setItem("cozyclay.theme.v1", ${JSON.stringify(theme)});
-		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Task 19", previsMode: ${JSON.stringify(previsMode)}, updatedAt: Date.now() }));
+		localStorage.setItem("cozyclay.project-session.v1", JSON.stringify({ name: "Task 19", updatedAt: Date.now() }));
 		localStorage.setItem("${SCENES_STORAGE_KEY}", JSON.stringify(scene));
 	})()`);
 	await send("Page.navigate", { url: appUrl });
-	const ready = await waitFor(`!!window.__cozyclay && document.querySelector('.app')?.dataset.previsMode === '${previsMode}' && !!document.querySelector('[data-testid=mode-toolbar] [data-mode-key]') && !!document.querySelector('[data-testid=topbar-previs-mode]')`, 60000);
-	expect(`${previsMode}/${theme}: the studio opens the ${previsMode} project`, ready);
+	const ready = await waitFor("!!window.__cozyclay && !!document.querySelector('[data-testid=mode-toolbar] [data-mode-key]')", 60000);
+	expect(`${theme}: the studio opens the project`, ready);
 	await evaluate("window.__cozyclay.pause?.()");
 	await evaluate("document.activeElement?.blur()");
 };
-const readPrevisShell = () => evaluate(`(() => {
-	const badge = document.querySelector('[data-testid=topbar-previs-mode]');
-	return {
-		previsMode: document.querySelector('.app')?.dataset.previsMode,
-		theme: document.documentElement.dataset.theme,
-		keys: [...document.querySelectorAll('[data-testid=mode-toolbar] [data-mode-key]')].map((key) => key.dataset.modeKey).join(''),
-		badge: badge?.textContent.trim() ?? null,
-		badgeColor: badge ? getComputedStyle(badge).color : null,
-		generate: !!document.querySelector('[data-testid=topbar-generate]'),
-		workflowMode: document.querySelector('.app')?.dataset.workflowMode,
-		agentTitle: document.querySelector('.agent-title')?.textContent.trim() ?? null,
-		// Task 25: a storyboard has no prompt-block lane, chips or edit controls.
-		promptLane: !!document.querySelector('.tl-track[data-track-id="Prompts"]'),
-		promptChips: document.querySelectorAll('.tl-chip-input').length,
-		promptAdd: !!document.querySelector('[data-testid=sequencer-add-block], .tl-track-add[title*="prompt clip"]'),
-		promptPanel: [...document.querySelectorAll('.foldout')].some((node) => node.textContent.includes('Prompt Blocks')),
-		bodyLane: !!document.querySelector('.tl-track[data-track-id="Full-Body"]'),
-	};
-})()`);
+const readShell = () => evaluate(`(() => ({
+	previsMode: document.querySelector('.app')?.dataset.previsMode ?? null,
+	theme: document.documentElement.dataset.theme,
+	keys: [...document.querySelectorAll('[data-testid=mode-toolbar] [data-mode-key]')].map((key) => key.dataset.modeKey).join(''),
+	badge: !!document.querySelector('[data-testid=topbar-previs-mode]'),
+	generate: !!document.querySelector('[data-testid=topbar-generate]'),
+	workflowMode: document.querySelector('.app')?.dataset.workflowMode,
+}))()`);
 const pressDigit4 = async () => {
 	await send("Input.dispatchKeyEvent", { type: "keyDown", key: "4", code: "Digit4", windowsVirtualKeyCode: 52 });
 	await send("Input.dispatchKeyEvent", { type: "keyUp", key: "4", code: "Digit4", windowsVirtualKeyCode: 52 });
 	await nextFrame();
 };
-const previsReport = {};
+const shellReport = {};
 for (const theme of ["light", "dark"]) {
-	await openPrevisProject("storyboard", theme);
-	const storyboard = await readPrevisShell();
-	expect(`storyboard/${theme}: mode tabs read 1 2 3 5`, storyboard.keys === "1235", JSON.stringify(storyboard));
-	expect(`storyboard/${theme}: the badge reads Storyboard`, storyboard.badge === "Storyboard", JSON.stringify(storyboard));
-	expect(`storyboard/${theme}: no topbar-generate`, storyboard.generate === false, JSON.stringify(storyboard));
-	expect(`storyboard/${theme}: no prompt lane, chip, add control or Prompt Blocks panel despite an existing block`, storyboard.promptLane === false && storyboard.promptChips === 0 && storyboard.promptAdd === false && storyboard.promptPanel === false, JSON.stringify(storyboard));
-	expect(`storyboard/${theme}: the other lanes stay`, storyboard.bodyLane === true, JSON.stringify(storyboard));
-	expect(`storyboard/${theme}: the theme is ${theme}`, storyboard.theme === theme, JSON.stringify(storyboard));
-	await pressDigit4();
-	const afterKey = await readPrevisShell();
-	expect(`storyboard/${theme}: key 4 does nothing`, afterKey.workflowMode === storyboard.workflowMode && afterKey.workflowMode !== "motion", JSON.stringify({ before: storyboard.workflowMode, after: afterKey.workflowMode }));
-	previsReport[`storyboard-${theme}`] = { ...storyboard, afterDigit4: afterKey.workflowMode };
-	console.log(`QA_PREVIS storyboard/${theme} ${JSON.stringify(previsReport[`storyboard-${theme}`])}`);
-	save(`task-19-storyboard-${theme}`, await capture());
-	if (theme === "light") save("task-19-previs-modes", await capture());
-
-	await openPrevisProject("animation", theme);
-	const animation = await readPrevisShell();
-	expect(`animation/${theme}: mode tabs read 1 2 3 4 5`, animation.keys === "12345", JSON.stringify(animation));
-	expect(`animation/${theme}: the badge reads Animation`, animation.badge === "Animation", JSON.stringify(animation));
-	expect(`animation/${theme}: no topbar-generate`, animation.generate === false, JSON.stringify(animation));
-	previsReport[`animation-${theme}`] = animation;
-	console.log(`QA_PREVIS animation/${theme} ${JSON.stringify(animation)}`);
-	save(`task-19-animation-${theme}`, await capture());
+	await openShellProject(theme);
+	const shell = await readShell();
+	expect(`${theme}: mode tabs read 1 2 3 4 5`, shell.keys === "12345", JSON.stringify(shell));
+	expect(`${theme}: no project mode badge or previs mode attribute`, shell.badge === false && shell.previsMode === null, JSON.stringify(shell));
+	expect(`${theme}: no topbar-generate`, shell.generate === false, JSON.stringify(shell));
+	expect(`${theme}: the theme is ${theme}`, shell.theme === theme, JSON.stringify(shell));
+	shellReport[theme] = shell;
+	console.log(`QA_SHELL ${theme} ${JSON.stringify(shell)}`);
+	save(`task-19-shell-${theme}`, await capture());
 	await evaluate("document.activeElement?.blur()");
 	await pressDigit4();
-	const animationMotion = await waitFor("document.querySelector('.app')?.dataset.workflowMode === 'motion'", 10000);
-	expect(`animation/${theme}: key 4 enters Motion`, animationMotion === true, String(animationMotion));
+	const motion = await waitFor("document.querySelector('.app')?.dataset.workflowMode === 'motion'", 10000);
+	expect(`${theme}: key 4 enters Motion`, motion === true, String(motion));
 }
-
-// Failure path: Motion through every door of a storyboard is refused. The bus
-// answers view.setMode {mode:"motion"} with the toast text and the mode stays;
-// the UI door (selectWorkflowMode) shows the same text as a toast.
-await openPrevisProject("storyboard", "light");
-const refusal = await evaluate(`(() => {
-	const element = document.querySelector('.app');
-	let fiber = element[Object.keys(element).find((key) => key.startsWith('__reactFiber'))];
-	while (fiber && !fiber.memoizedProps?.value?.bus) fiber = fiber.return;
-	if (!fiber) throw new Error('AppContext provider not found');
-	const context = fiber.memoizedProps.value;
-	let shell = element[Object.keys(element).find((key) => key.startsWith('__reactFiber'))];
-	while (shell && !shell.memoizedProps?.value?.selectWorkflowMode) shell = shell.return;
-	if (!shell) throw new Error('StudioShellContext provider not found');
-	window.__previsShell = shell.memoizedProps.value;
-	const before = element.dataset.workflowMode;
-	let receipt;
-	try { receipt = context.bus.run('view.setMode', { mode: 'motion' }); } catch (error) { receipt = { ok: false, code: error.code, message: error.message, uiMessage: error.uiMessage }; }
-	return { before, receipt };
-})()`);
-await nextFrame();
-const modeAfterBus = await evaluate("document.querySelector('.app').dataset.workflowMode");
-console.log(`QA_PREVIS bus view.setMode motion ${JSON.stringify({ ...refusal, after: modeAfterBus })}`);
-expect("storyboard: view.setMode {mode:motion} is refused with the toast text", refusal.receipt?.ok === false && refusal.receipt.message === "Motion tools are not part of a Storyboard project.", JSON.stringify(refusal));
-expect("storyboard: the refused mode leaves the workflow mode unchanged", modeAfterBus === refusal.before, JSON.stringify({ before: refusal.before, after: modeAfterBus }));
-await evaluate("window.__previsShell.selectWorkflowMode('motion')");
-const toast = await waitFor("[...document.querySelectorAll('.toast')].some((node) => node.textContent.includes('Motion tools are not part of a Storyboard project.'))");
-const modeAfterUi = await evaluate("document.querySelector('.app').dataset.workflowMode");
-console.log(`QA_PREVIS ui selectWorkflowMode motion ${JSON.stringify({ toast, after: modeAfterUi })}`);
-expect("storyboard: selectWorkflowMode('motion') toasts the refusal and keeps the mode", toast && modeAfterUi === refusal.before, JSON.stringify({ toast, modeAfterUi }));
-save("task-19-storyboard-refusal", await capture());
-writeFileSync(`${outputDir}/task-19-previs.json`, JSON.stringify(previsReport, null, 2));
-console.log(`QA_EVIDENCE ${outputDir}/task-19-previs.json`);
+writeFileSync(`${outputDir}/task-19-shell.json`, JSON.stringify(shellReport, null, 2));
+console.log(`QA_EVIDENCE ${outputDir}/task-19-shell.json`);
 
 // Compare: the studio viewport beside the owner's 2a viewport region.
 await viewportSize(1920, 1080);

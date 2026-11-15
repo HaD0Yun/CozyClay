@@ -8,7 +8,7 @@ import TutorialLanguage from "./camera-tutorial-language.jsx";
 import { guestStart } from "./guest-start.js";
 import { ko, localeChosen } from "./locale.js";
 import { sampleMotionSpec } from "./motion/sample-motions.js";
-import { CHARACTER_MODEL_IDS } from "./scenes.js";
+import { NEW_CHARACTER_MODEL } from "./scenes.js";
 import { useStudioShell } from "./shell/studio-shell-context.js";
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,7 +25,7 @@ export default function GuestStart() {
 		void (async () => {
 			const receipt = await run("project.new", { name: ko("Untitled Project", "제목 없는 프로젝트", "未命名项目") });
 			if (!receipt?.ok) return;
-			shell?.spawnCharacter?.(CHARACTER_MODEL_IDS[0], 0, 0);
+			shell?.spawnCharacter?.(NEW_CHARACTER_MODEL, 0, 0);
 			// The cast row lands with the add's commit, and the compile needs the rig loaded, which on a first visit is
 			// a download. Both are waited for: a walk that misses its moment leaves the camera steps nobody to follow.
 			let character = null;

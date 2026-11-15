@@ -19,7 +19,7 @@
 4. Apply one semantic batch with `cclay live arrange-objects`, `arrange-characters`, `frame-shot`, or `patch`.
 5. Verify the result. For a whole shot, use `cclay live verify --targets <id> --checks framing --range whole_clip --visual contact_sheet --out verify.png`.
 6. Use `--strict` when sampled framing findings should make the command fail. A sampled result is evidence for the returned frames, not proof of every frame.
-7. Read the receipt before retrying. `UNCERTAIN_APPLY` means reconcile or inspect first. `STALE_HANDLE` means status and workspace selection again. `NOT_IN_MODE` means switch Storyboard/Animation before using motion tools.
+7. Read the receipt before retrying. `UNCERTAIN_APPLY` means reconcile or inspect first. `STALE_HANDLE` means status and workspace selection again.
 
 The Studio, MCP server and `cclay live` use the same command contract. `script` can call several tools in one QuickJS transaction for computed layouts. Every authored edit returns a receipt and can be undone.
 

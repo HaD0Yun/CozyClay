@@ -5,15 +5,13 @@
 import { useEffect } from "react";
 import { bucketCount, track } from "./analytics.js";
 
-/** The closed properties for one open: surface, mode, webcodecs and the shot (storyboard: panel) count bucket. */
-export function exportMenuOpenedProps({ embedMode, previsMode, shots }, scope = globalThis) {
-	const storyboard = previsMode === "storyboard";
+/** The closed properties for one open: surface, webcodecs and the shot count bucket. */
+export function exportMenuOpenedProps({ embedMode, shots }, scope = globalThis) {
 	const list = Array.isArray(shots) ? shots : [];
 	return {
 		surface: embedMode ? "embed" : "studio",
-		mode: storyboard ? "storyboard" : "animation",
 		webcodecs: typeof scope.VideoEncoder === "function" && typeof scope.VideoFrame === "function",
-		shots: bucketCount(storyboard ? list.filter((entry) => entry.kind === "still").length : list.length),
+		shots: bucketCount(list.length),
 	};
 }
 

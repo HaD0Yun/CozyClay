@@ -48,7 +48,7 @@ async function check(label, run, options) {
   finally { t.f.dispose(); }
 }
 
-for (const id of ['project.save', 'project.saveAs', 'project.exportAsAnimation']) {
+for (const id of ['project.save', 'project.saveAs']) {
   await check(`${id} survives 30 s of injected time in the file picker`, async t => {
     const answer = t.f.run(id);
     await settle();
@@ -58,7 +58,7 @@ for (const id of ['project.save', 'project.saveAs', 'project.exportAsAnimation']
     const receipt = await answer;
     assert.equal(receipt.ok, true, `${id}: a user who stays 30 s in the Save dialog is not refused (${receipt.code}: ${receipt.message})`);
     assert.equal(t.written.length, 1, `${id}: the project file is written`);
-  }, id === 'project.exportAsAnimation' ? { session: { name: 'Heist', previsMode: 'storyboard' } } : undefined);
+  });
 }
 
 const expireOnWrite = t => { t.handle.onClose = () => { for (const timer of t.timers) if (!timer.cleared) { timer.cleared = true; timer.run(); } }; };

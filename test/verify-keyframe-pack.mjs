@@ -68,7 +68,7 @@ console.log("PASS keyframe pack: optional entries are omitted and the README say
 		.filter(Boolean)
 		.sort();
 	const members = (entries) => entries.map((entry) => entry.name.split("/")[1]).filter((name) => name !== "README.txt").sort();
-	for (const variant of [args, { ...args, lastFramePng: null }, { ...args, clip: null }, { ...args, lastFramePng: null, clip: null }, { ...args, stylizedPng: png }]) {
+	for (const variant of [args, { ...args, lastFramePng: null }, { ...args, clip: null }, { ...args, lastFramePng: null, clip: null }]) {
 		const entries = keyframePackEntries(variant);
 		const readmeText = text(entries.find((entry) => entry.name.endsWith("/README.txt")).data);
 		assert.deepEqual(listed(readmeText), members(entries), "README lists exactly the pack members as included");
@@ -76,37 +76,6 @@ console.log("PASS keyframe pack: optional entries are omitted and the README say
 		assert.match(readmeText, /Not in this pack: [^]*blocking-depth\.mp4[^]*separate export/, "README says the depth video is a separate export");
 	}
 	console.log("PASS keyframe pack: README lists exactly the pack members; depth is a separate export");
-}
-
-// A still (storyboard panel) pack: one picture held for its hold, no clip.
-{
-	const still = { title: "Panel one", index: 1, startFrame: 48, endFrame: 71, kind: "still" };
-	const stylized = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
-	const stillArgs = { shot: still, fps: 24, firstFramePng: png, lastFramePng: null, clip: null, camera, prompt: "SHOT: wide\nCAPTION: she enters", folder: "panel-01" };
-	const plain = keyframePackEntries(stillArgs);
-	assert.deepEqual(plain.map((entry) => entry.name), ["panel-01/first.png", "panel-01/camera.json", "panel-01/prompt.txt", "panel-01/README.txt"], "a still pack has no clip.* or last.png");
-	const withStylized = keyframePackEntries({ ...stillArgs, stylizedPng: stylized });
-	assert.deepEqual(withStylized.map((entry) => entry.name), ["panel-01/first.png", "panel-01/stylized.png", "panel-01/camera.json", "panel-01/prompt.txt", "panel-01/README.txt"], "stylized.png joins the pack when given");
-	assert.ok(!withStylized.some((entry) => /\/(clip\.[a-z0-9]+|last\.png)$/.test(entry.name)), "no clip.* or last.png entry");
-	const stillFiles = Object.fromEntries(withStylized.map((entry) => [entry.name.split("/")[1], entry.data]));
-	assert.equal(stillFiles["stylized.png"], stylized, "stylized.png is the stylized bytes");
-	const stillCamera = JSON.parse(text(stillFiles["camera.json"]));
-	assert.deepEqual([stillCamera.startFrame, stillCamera.endFrame, stillCamera.hold, stillCamera.kind, stillCamera.fps], [48, 48, 24, "still", 24], "camera.json: startFrame === endFrame === panel start, hold frames, kind still");
-	assert.equal(text(stillFiles["prompt.txt"]), "SHOT: wide\nCAPTION: she enters\n");
-	assert.match(text(stillFiles["README.txt"]), /stylized\.png/, "README names stylized.png when it is in the pack");
-	assert.match(text(stillFiles["README.txt"]), /clip\.mp4: not included/i, "README uses the no-clip branch");
-	assert.doesNotMatch(text(plain.at(-1).data), /stylized\.png/, "README does not mention stylized.png when it is absent");
-	assert.equal("hold" in JSON.parse(text(byName["3-runs-jumps/camera.json"])), false, "a clip pack's camera.json is unchanged");
-	const stillZip = buildKeyframePack({ ...stillArgs, stylizedPng: stylized });
-	const stillDir = await mkdtemp(join(tmpdir(), "cozyclay-still-pack-"));
-	try {
-		await writeFile(join(stillDir, "panel.zip"), stillZip);
-		const { stdout } = await run("unzip", ["-t", join(stillDir, "panel.zip")]);
-		assert.match(stdout, /No errors detected/);
-	} finally {
-		await rm(stillDir, { recursive: true, force: true });
-	}
-	console.log("PASS keyframe pack: still pack = first.png, optional stylized.png, camera.json (start===end, hold, kind still), prompt.txt, README; no clip/last");
 }
 
 assert.equal(keyframePackName(shot), "cozyclay-shot-3-runs-jumps.zip", "pack file name is cozyclay-shot-<index>-<slug>.zip");

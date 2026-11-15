@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Studio
+
+- Storyboard projects are removed. A saved storyboard file opens as a new,
+  unsaved animation project; saving it never writes to the original file. The
+  Storyboard (PNG) shot-grid export of animation projects stays.
+
 Site
 
 - On macOS the Install dialog leads with one download, `CozyClay.dmg`: a

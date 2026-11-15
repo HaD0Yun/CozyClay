@@ -149,8 +149,6 @@ const COMMAND_INPUTS = {
 	"shot.create": {}, "shot.split": { shotId: "shot-1" }, "shot.duplicate": { shotId: "shot-1" }, "shot.remove": { shotId: "shot-1" },
 	"shot.setRange": { shotId: "shot-1", range: { startFrame: 1, endFrameExclusive: 15 } }, "shot.reorder": { shotId: "shot-1", startFrame: 2 },
 	"shot.setCameraRail": { shotId: "shot-1", points: [{ x: -2, z: 4 }, { x: 3, z: 4 }] }, "shot.clearCameraRail": { shotId: "shot-1" },
-	"shot.createStill": { caption: "Panel" }, "shot.setCaption": { shotId: "shot-1", caption: "Panel" },
-	"shot.setCastOverride": { shotId: "shot-1", characterId: "actor", override: { x: 1, z: 2, rot: 0 } }, "shot.setHold": { shotId: "shot-1", hold: 24 },
 	"shot.set": { id: "shot-1", set: { targetModel: "seedance-2.5" } }, "shot.rename": { shotId: "shot-1", name: "Renamed" },
 	"shot.setCamera": { shotId: "shot-1", patch: { mode: "follow" } }, "shot.setCameraMode": { shotId: "shot-1", mode: "follow" }, "shot.addKey": { shotId: "shot-1", frame: 8 },
 	"shot.moveKey": { shotId: "shot-1", keyId: "key-1", frame: 8 }, "shot.removeKey": { shotId: "shot-1", keyId: "key-1" },
@@ -160,7 +158,7 @@ const COMMAND_INPUTS = {
 	"ik.moveKey": { characterId: "actor", from: 8, to: 12 },
 	"shot.clearKeys": { shotId: "shot-1" }, "shot.setTimeline": { frameCount: 96 }, "shot.setLens": { fovDeg: 35 },
 	"shot.frame": { preset: "mocapInteraction" }, "shot.replace": { shots: [createShot("Replacement", 0, 23)] },
-	"shot.captureCamera": { shotId: "shot-1" }, "shot.placeCamera": { x: 2 }, "shot.setStylized": { shotId: "shot-1", assetId: `img-${"e".repeat(32)}` },
+	"shot.captureCamera": { shotId: "shot-1" }, "shot.placeCamera": { x: 2 },
 	'character.set': { id: 'actor', set: { subject: 'Generic' } },
 	'character.add': { character: { id: 'actor-new', subject: 'New' } },
 	'character.remove': { characterId: 'actor-other' },
@@ -169,9 +167,6 @@ const COMMAND_INPUTS = {
 	'character.setPose': { characterId: 'actor', pose: { id: 'new-pose', bones: {} } },
 	'characters.arrange': { ops: [{ op: 'remove', characterId: 'actor-other' }] },
 	'cast.replace': { characters: [createCharacterEntry({ id: 'replacement' })] },
-	'cast.setCustomPoses': { poses: [] },
-	'cast.savePose': { pose: { id: 'saved', bones: {} }, characterId: 'actor' },
-	'cast.removePose': { id: 'saved' },
 	'cast.showExtras': { show: true },
 	'cast.setLayer': { characterId: 'actor', layer: { waypoints: [] } },
 	'motion.clear': { characterId: 'actor' },
@@ -196,7 +191,7 @@ const COMMAND_INPUTS = {
 	"scene.create": {}, "scene.duplicate": { sceneId: "scene-1" }, "scene.rename": { sceneId: "scene-1", name: "Renamed" },
 	"scene.delete": { sceneId: "scene-2" }, "scene.switch": { sceneId: "scene-2" }, "project.save": {},
 	"scene.set": { id: "scene-1", set: { name: "Generic" } }, "scene.reorder": { sceneId: "scene-1", order: 1 },
-	"project.rename": { name: "Renamed project" }, "project.saveAs": {}, "project.exportAsAnimation": {}, "project.new": { name: "New project" },
+	"project.rename": { name: "Renamed project" }, "project.saveAs": {}, "project.new": { name: "New project" },
 	"project.open": { serialized: "project" }, "project.openStarter": { id: "starter" }, "project.restore": { handleToken: "handle" }, "project.browse": {},
 	"load_scenes": { document: { version: 4, activeSceneId: "scene-1", scenes: [{ id: "scene-1", name: "ONE" }] } },
 };
@@ -204,15 +199,15 @@ const COMMAND_INPUTS = {
 // Every command module registered over one generic port object and driven
 // through the real command bus. The history stand-in records which domain each
 // entry is opened in, and the ports record whether a write landed inside it.
-function commandFixture({ frame = 8, still = false } = {}) {
+function commandFixture({ frame = 8 } = {}) {
 	const host = { workspaceId: "workspace", documentEpoch: "document", sceneId: "scene-1", sceneEpoch: "epoch" };
 	const state = {
-		shots: [{ ...createShot("Shot 1", 0, 15, [{ id: "key-1", frame: 0, framing: { pos: { x: 0, y: 1.6, z: 5 }, yaw: 0, pitch: 0, fovDeg: 40 } }], { mode: "rail", cameraRail: [{ x: -2, z: 4 }, { x: 2, z: 4 }] }), id: "shot-1", ...(still ? { kind: "still" } : {}) }],
+		shots: [{ ...createShot("Shot 1", 0, 15, [{ id: "key-1", frame: 0, framing: { pos: { x: 0, y: 1.6, z: 5 }, yaw: 0, pitch: 0, fovDeg: 40 } }], { mode: "rail", cameraRail: [{ x: -2, z: 4 }, { x: 2, z: 4 }] }), id: "shot-1" }],
 		objects: [{ ...createSceneObject("sphere"), id: "parent-1" }, { ...createSceneObject("cube"), id: "object-1", parent: "parent-1" }, { ...createSceneObject("cylinder"), id: "group-2" }],
 		characters: [createCharacterEntry({ id: 'actor', subject: 'Ada', layer: { waypoints: [] } }), createCharacterEntry({ id: 'actor-other' })], customPoses: [], frame, frameCount: 48, selectedObjectId: null, activeCharacterId: "actor",
 		promptBlockCount: 0, generating: false, motionReady: true, exporting: false, canExportVideo: true,
 		scenes: [{ id: "scene-1", name: "ONE" }, { id: "scene-2", name: "TWO" }], activeSceneId: "scene-1",
-		project: { name: "Heist", previsMode: "animation", hasFile: true, fileAccess: false, gesture: false },
+		project: { name: "Heist", hasFile: true, fileAccess: false, gesture: false },
 		aiShot: { mode: "image", imageModel: "gpt_image_2" }, i2vMotion: { enabled: false, status: "idle", dailyRemaining: null },
 	};
 	const entries = [], writes = [];
@@ -273,7 +268,6 @@ function commandFixture({ frame = 8, still = false } = {}) {
 		setLens: fovDeg => ports.writeShotState({ fovDeg }),
 		captureCamera: () => ports.writeShotState({ manual: true }),
 		placeCamera: camera => ports.writeShotState({ camera }),
-		setCastOverride: (shotId, characterId, override) => ports.writeShots(state.shots.map(shot => shot.id === shotId ? { ...shot, cast: { ...shot.cast, [characterId]: override } } : shot)),
 	};
 	objectDomain = {
 		read: () => state.objects,
@@ -287,11 +281,10 @@ function commandFixture({ frame = 8, still = false } = {}) {
 	sceneDomain = {
 		read: () => state.scenes,
 		write: rows => ports.writeScenes(rows),
-		metadata: () => ({ name: state.project.name, activeSceneId: state.activeSceneId, previsMode: state.project.previsMode }),
+		metadata: () => ({ name: state.project.name, activeSceneId: state.activeSceneId }),
 		renameProject: name => ports.writeProject(name),
 		fileState: () => state.project,
 		save: args => ports.saveProject(args.saveAs),
-		exportAsAnimationProject: async () => ({ saved: true, name: "Heist - Animation", fileName: "Heist - Animation.cclayproject", downloaded: true }),
 		projectAction: (...args) => ports.projectAction(...args),
 		loadScenes: args => ports.loadScenes(args),
 	};
@@ -332,10 +325,10 @@ const cases = {
 	},
 	async "every command mutation writes inside one entry of its undo domain"() {
 		const mutations = Object.values(COMMAND_MODULES).flatMap(module => module.declarations).filter(entry => entry.kind === "mutation");
-		assert.equal(mutations.length, 83);
+		assert.equal(mutations.length, 75);
 		for (const declaration of mutations) {
 			// A new shot needs free room at the playhead; the others act inside shot-1.
-			const f = commandFixture({ frame: declaration.id === "shot.create" ? 24 : 8, still: ["shot.setHold", "shot.createStill"].includes(declaration.id) }), [name] = Object.entries(COMMAND_MODULES).find(([, module]) => module.declarations.includes(declaration));
+			const f = commandFixture({ frame: declaration.id === "shot.create" ? 24 : 8 }), [name] = Object.entries(COMMAND_MODULES).find(([, module]) => module.declarations.includes(declaration));
 			const receipt = await f.bus(f.registries[name]).run(declaration.id, COMMAND_INPUTS[declaration.id]);
 			assert.equal(receipt.ok, true, `${declaration.id}: ${JSON.stringify(receipt)}`);
 			assert.deepEqual(f.entries.map(entry => entry.domain), [declaration.undoDomain], `${declaration.id} opens one ${declaration.undoDomain} entry`);

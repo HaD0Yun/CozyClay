@@ -28,8 +28,8 @@ expect("the v2 screen keeps the fixed 232px and 340px columns", css.includes("va
 // for either; every new project is an Animation project with the Hybrid cast.
 const project = readFileSync(new URL("../src/project.js", import.meta.url), "utf8");
 expect("the start screen has no mode or cast-style picker", !browser.includes("start-previs-mode") && !browser.includes("start-cast-style") && !browser.includes("StartChoiceGroup"));
-expect("Animation is the default mode and Hybrid the default cast style", project.includes('DEFAULT_PREVIS_MODE = "animation"') && project.includes('DEFAULT_CAST_STYLE = "hybrid"'));
-expect("Create always sends the default mode and the Hybrid cast", browser.includes("onNew(projectName, { previsMode: DEFAULT_PREVIS_MODE, castStyle: DEFAULT_CAST_STYLE })") && browser.includes("onStarter?.(selectedTemplate.starterId, projectName, { previsMode: DEFAULT_PREVIS_MODE, castStyle: DEFAULT_CAST_STYLE })"));
+expect("Hybrid is the default cast style and there is no previs mode", !project.includes("DEFAULT_PREVIS_MODE") && project.includes('DEFAULT_CAST_STYLE = "hybrid"'));
+expect("Create always sends the Hybrid cast", browser.includes("onNew(projectName, { castStyle: DEFAULT_CAST_STYLE })") && browser.includes("onStarter?.(selectedTemplate.starterId, projectName, { castStyle: DEFAULT_CAST_STYLE })"));
 
 if (failures) process.exitCode = 1;
 else console.log("all v2 start-screen checks PASS");

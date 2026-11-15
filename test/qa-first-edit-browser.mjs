@@ -103,8 +103,10 @@ interception.onmessage = (event) => {
 
 const firstEvents = "window.__qaFirstEditEvents.filter(({ event }) => /^(craft|playground):first_edit$/.test(event))";
 const legacyEvents = "window.__qaFirstEditEvents.filter(({ event }) => /^(craft|playground):first_action$/.test(event))";
-const poseId = "qa-first-edit-pose";
-const customPose = { ...DEFAULT_POSE, id: poseId, label: "QA pose", custom: true,
+// The fixture character stands in a non-default pose; the real Apply of the
+// default pose tile is the first edit (there is no saved-pose library).
+const poseId = "default";
+const startPose = { ...DEFAULT_POSE, id: "qa-first-edit-pose", label: "QA pose",
 	bones: { ...DEFAULT_POSE.bones, lArm: [0.2, 0.3, -1.1] } };
 const sceneId = "qa-first-edit-scene";
 const shotId = "qa-first-edit-shot";
@@ -142,7 +144,6 @@ async function fresh(surface) {
 		localStorage.setItem('cozyclay.locale', 'en');
 		localStorage.setItem('cozyclay.analyticsOptOut', '1');
 		localStorage.setItem('cozyclay.project-session.v1', JSON.stringify({ name: 'First-edit QA', updatedAt: Date.now() }));
-		localStorage.setItem('cozyclay_poses', ${JSON.stringify(JSON.stringify([customPose]))});
 		localStorage.setItem('${SCENES_STORAGE_KEY}', JSON.stringify({ version: 4, activeSceneId: ${JSON.stringify(sceneId)}, scenes: [{
 			id: ${JSON.stringify(sceneId)}, name: 'First-edit QA', objects: [],
 			shotDocument: { version: 4, frameCount: 144, waypoints: [], shots: [{
@@ -150,12 +151,12 @@ async function fresh(surface) {
 				camera: { mode: 'keys' }, cameraKeys: [],
 			}] },
 			stage: { characters: [{ id: 'qa-character', model: 'y-bot-tpose', x: 0, z: 0, rot: 0, hidden: false,
-				pose: ${JSON.stringify(DEFAULT_POSE)}, subject: 'a person' }], hasCharSheet: false, shotAspect: '16:9' },
+				pose: ${JSON.stringify(startPose)}, subject: 'a person' }], hasCharSheet: false, shotAspect: '16:9' },
 		}] }));
 	})()`);
 	fixtureProject = createProjectDocument({
 		scenesDocument: await b.evaluate(`JSON.parse(localStorage.getItem('${SCENES_STORAGE_KEY}'))`),
-		customPoses: [customPose], name: "First-edit QA",
+		name: "First-edit QA",
 	});
 	const url = new URL(b.base);
 	url.search = "";
@@ -196,7 +197,7 @@ async function poseSession(surface) {
 	assert.equal((await projectScene()).stage.characters[0].pose.id, poseId, "real Apply pose changed the serialized character pose");
 	assert.notEqual(await b.evaluate(poseBones), before, "Apply pose changed the rendered rig's bone quaternions");
 	await expectEvents(surface, "pose_edit", "pose-only emits once with numeric version 1");
-	await b.change(`(${currentPose}).id === 'default'`, () => historyKey(false));
+	await b.change(`(${currentPose}).id === '${startPose.id}'`, () => historyKey(false));
 	assert.equal(await b.evaluate(poseBones), before, "Undo restores the actual rig");
 	await expectEvents(surface, "pose_edit", "undo does not duplicate");
 	await b.change(`(${currentPose}).id === '${poseId}'`, () => historyKey(true));

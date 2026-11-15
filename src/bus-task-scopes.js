@@ -31,10 +31,10 @@ export function keysOverlap(a, b) {
 	return Boolean(x && y && x.id === y.id && (!x.layer || !y.layer));
 }
 
-const SCENE = ['cast.replace', 'cast.setCustomPoses', 'cast.showExtras', 'cast.removePose', 'objects.replace', 'shot.replace', 'ai.prepareShot'];
-const TIMELINE = ['shot.create', 'shot.createStill', 'shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
+const SCENE = ['cast.replace', 'cast.showExtras', 'objects.replace', 'shot.replace', 'ai.prepareShot'];
+const TIMELINE = ['shot.create', 'shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
 const CREATE = ['object.add', 'object.createKit', 'asset.import', 'character.add'];
-const CHARACTER = /^(character\.|characters?\b|cast\.(savePose|setLayer)$|ik\.|motion\.)/;
+const CHARACTER = /^(character\.|characters?\b|cast\.setLayer$|ik\.|motion\.)/;
 // The layers each character command writes, read from what it changes: a compile installs a take and clears the IK
 // keys on it (motion domain replace), a timing edit moves the IK keys with the frames they address, a pose that clears
 // motion clears both, and attaching a prop changes what she holds. A command this table does not name writes all four.
@@ -56,7 +56,7 @@ function characterKeys(id, args) {
 	if (WRITES[id]) return WRITES[id];
 	if (id === 'character.update') return fieldLayers(Object.keys(args.patch ?? {}));
 	if (id === 'character.set') return fieldLayers(Object.keys(args.set ?? {}));
-	if (id === 'character.setPose' || id === 'cast.savePose') return poseLayers(args);
+	if (id === 'character.setPose') return poseLayers(args);
 	return CHARACTER_LAYERS;
 }
 

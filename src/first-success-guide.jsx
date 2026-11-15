@@ -9,9 +9,9 @@ const ANIMATION_STEPS = [
 		en: "Add a character.",
 		ko: "캐릭터를 추가하세요.",
 		zh: "添加一个角色。",
-		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Y Bot.",
-		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 Y Bot을 고르세요.",
-		hintZh: "点击右侧工具栏顶部高亮的“添加”按钮，然后选择 Y Bot。",
+		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Block figure.",
+		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 블록 인형을 고르세요.",
+		hintZh: "点击右侧工具栏顶部高亮的“添加”按钮，然后选择积木人。",
 	},
 	{
 		en: "Move it in the Scene view.",
@@ -39,58 +39,20 @@ const ANIMATION_STEPS = [
 	},
 ];
 
-const STORYBOARD_STEPS = [
-	{
-		en: "Open the Agent panel (Cmd/Ctrl+B).",
-		ko: "에이전트 패널을 여세요 (Cmd/Ctrl+B).",
-		zh: "打开智能体面板（Cmd/Ctrl+B）。",
-		hintEn: "The Agent panel is where you describe each panel.",
-		hintKo: "에이전트 패널에서 각 패널을 설명합니다.",
-		hintZh: "在智能体面板中逐个描述每个面板。",
-	},
-	{
-		en: "Describe one scene in a sentence.",
-		ko: "장면 하나를 한 문장으로 설명하세요.",
-		zh: "用一句话描述一个场景。",
-		hintEn: "One sentence per turn is enough for one panel.",
-		hintKo: "패널 하나에는 한 문장이면 충분합니다.",
-		hintZh: "每个面板一轮只说一句话就够了。",
-	},
-	{
-		en: "Your panel appears on the Board.",
-		ko: "패널이 보드에 나타납니다.",
-		zh: "你的面板会出现在看板上。",
-		hintEn: "Open the Board tab to see the new panel card.",
-		hintKo: "보드 탭에서 새 패널 카드를 확인하세요.",
-		hintZh: "打开看板标签页查看新的面板卡片。",
-	},
-	{
-		en: "Stylize it, or export the panel pack.",
-		ko: "스타일을 입히거나 패널 팩으로 내보내세요.",
-		zh: "对它进行风格化，或导出面板包。",
-		hintEn: "Use Stylize on the card, or export the panel pack.",
-		hintKo: "카드에서 스타일을 입히거나 패널 팩으로 내보내세요.",
-		hintZh: "在卡片上使用风格化，或导出面板包。",
-	},
-];
-
-const STEPS_BY_MODE = { animation: ANIMATION_STEPS, storyboard: STORYBOARD_STEPS };
-
 const ADD_BUTTON = "[data-testid='viewport-add']";
 
 /** A compact, dismissible first-run checklist that follows the v2 shell grammar. */
-export default function FirstSuccessGuide({ open, onDismiss, previsMode = "animation", castCount = 0 }) {
-	const storyboard = previsMode === "storyboard";
-	const mode = storyboard ? "storyboard" : "animation";
-	const STEPS = STEPS_BY_MODE[mode];
+export default function FirstSuccessGuide({ open, onDismiss, castCount = 0 }) {
+	const mode = "animation";
+	const STEPS = ANIMATION_STEPS;
 	const [marked, setStep] = useState(0);
 	useEffect(() => {
 		if (open) { setStep(0); noteGuideOpened(mode); }
-	}, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- the mode at opening time
+	}, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- reported once per opening
 	// Step 1 is done while a character exists, whether it was added now or was already there.
-	const castDone = mode === "animation" && castCount > 0;
+	const castDone = castCount > 0;
 	const step = castDone ? Math.max(marked, 1) : marked;
-	const addStep = open && mode === "animation" && step === 0;
+	const addStep = open && step === 0;
 	useEffect(() => {
 		if (open && castDone && marked === 0) noteGuideStep(mode, 1, STEPS.length);
 	}, [open, castDone]); // eslint-disable-line react-hooks/exhaustive-deps -- reported once, when it ticks
@@ -118,8 +80,8 @@ export default function FirstSuccessGuide({ open, onDismiss, previsMode = "anima
 			{complete ? (
 				<div className="v2-first-success-guide-complete first-success-guide-complete" id="first-success-guide-description" role="status">
 					<div className="v2-first-success-guide-check first-success-guide-check">✓</div>
-					<strong>{storyboard ? ko("You made your first panel.", "첫 패널을 만들었어요.") : ko("You made your first shot.", "첫 샷을 만들었어요.")}</strong>
-					<p>{storyboard ? ko("Describe, review on the Board, then stylize or export. You can close this guide and keep adding panels.", "설명하고, 보드에서 확인한 뒤 스타일을 입히거나 내보내세요. 가이드를 닫고 패널을 계속 추가하세요.") : ko("Add, move, ask, and play are the core CozyClay loop. You can close this guide and keep blocking.", "추가하고, 움직이고, 요청하고, 재생하는 것이 CozyClay의 핵심 흐름입니다. 가이드를 닫고 계속 블로킹하세요.")}</p>
+					<strong>{ko("You made your first shot.", "첫 샷을 만들었어요.")}</strong>
+					<p>{ko("Add, move, ask, and play are the core CozyClay loop. You can close this guide and keep blocking.", "추가하고, 움직이고, 요청하고, 재생하는 것이 CozyClay의 핵심 흐름입니다. 가이드를 닫고 계속 블로킹하세요.")}</p>
 					<button type="button" className="v2-first-success-guide-next first-success-guide-next btn primary" onClick={dismiss}>{ko("Continue editing", "편집 계속하기")}</button>
 				</div>
 			) : (

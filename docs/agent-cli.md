@@ -469,10 +469,9 @@ cclay live patch --target stage --set '{"keyLight.intensity":2.4,"keyLight.warmt
 That one receipt is one Cmd+Z in the editor: `undo --receipt receipt-mu9p1c2-7`
 and the key light goes back exactly where it was.
 
-A registry tool that does not apply to the project or to its target answers a
-structured refusal instead of acting: `NOT_IN_MODE` for an animation-only tool
-in a Storyboard project, `TARGET_NOT_READY` for motion or a take on a capsule
-figure (`model: "proxy-figure"`). Branch on `code`; `reason` is the sentence to
+A registry tool that does not apply to its target answers a structured refusal
+instead of acting: `TARGET_NOT_READY` for motion or a take on a capsule figure
+(`model: "proxy-figure"`). Branch on `code`; `reason` is the sentence to
 show. Here a capsule figure is cast and asked to move:
 
 ```sh

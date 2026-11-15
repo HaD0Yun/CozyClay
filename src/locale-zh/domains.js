@@ -6,7 +6,6 @@ export const ZH_DOMAINS = {
 	"The path already fills the clip — extend the duration or clear a waypoint": "路径已填满整个片段 — 请延长时长或清除一个路径点",
 	"Root path constraints off": "根路径约束已关闭",
 	"Edited pose": "已编辑的姿势",
-	"Pose saved": "姿势已保存",
 	"Nothing to undo": "没有可撤销的操作",
 	"IK edit undone": "已撤销 IK 修改",
 	"Nothing to redo": "没有可重做的操作",

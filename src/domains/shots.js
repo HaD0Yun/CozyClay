@@ -141,25 +141,6 @@ function createShotsDomain(appContext, initial = {}) {
     const before = state(), filmback = appContext.live.state.filmback;
     writeState({ ...before, fovDeg, camera: before.camera && { ...before.camera, focalMm: fovToFocalMm(fovDeg * Math.PI / 180, filmback.sensorId, filmback.aspectRatio) } });
   }
-  function setCastOverride(shotId, characterId, override) {
-    if (!read().some(shot => shot.id === shotId)) throw new StudioProtocolError('STALE_TARGET', `Shot ${shotId} is not in this scene.`);
-    if (!appContext.live.characters.some(entry => entry.id === characterId)) throw new StudioProtocolError('STALE_TARGET', `Character ${characterId} is not in this scene.`);
-    if (override !== null && (!override || !Number.isFinite(override.x) || !Number.isFinite(override.z) || !Number.isFinite(override.rot)
-      || (override.posture !== undefined && !['stand', 'sit', 'lie'].includes(override.posture))
-      || (override.pose !== undefined && (!override.pose || typeof override.pose !== 'object' || Array.isArray(override.pose))))) {
-      throw new StudioProtocolError('INVALID_ARGUMENT', 'Cast override requires finite x, z and rot and valid posture/pose fields.');
-    }
-    return writeState(before => ({
-      ...before,
-      shots: before.shots.map(shot => {
-        if (shot.id !== shotId) return shot;
-        const cast = { ...shot.cast };
-        if (override === null) delete cast[characterId];
-        else cast[characterId] = structuredClone(override);
-        return { ...shot, cast };
-      }),
-    }));
-  }
   function placeCamera(args) {
     const before = appContext.ports.read().camera ?? state().camera;
     const position = { ...before.position, ...Object.fromEntries(['x', 'y', 'z'].filter(key => args[key] !== undefined).map(key => [key, args[key]])) };
@@ -201,7 +182,7 @@ function createShotsDomain(appContext, initial = {}) {
     }
     return run('run.update', { txId: gesture.txId, args });
   }
-  const domain = { documentStore, state, read, write, writeState, setCastOverride, beginAction, run, edit, beginGesture, finishGesture,
+  const domain = { documentStore, state, read, write, writeState, beginAction, run, edit, beginGesture, finishGesture,
     bindRender(context) { appContext = context; },
     capture: () => appContext.shared.captureCurrentFraming(), frame, captureCamera, placeCamera, setLens, renderCamera,
     canUndo: id => documentStore.canUndo(id), stepHistory: redo => { finishGesture(); return Boolean((redo ? documentStore.redo : documentStore.undo)()); },

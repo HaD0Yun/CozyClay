@@ -7,6 +7,7 @@ import {
 	CHARACTER_MODEL_IDS,
 	DEFAULT_CHARACTER_MODEL,
 	LEGACY_SCENES_STORAGE_KEYS,
+	NEW_CHARACTER_MODEL,
 	POSTURES,
 	PROXY_FIGURE_MODEL,
 	SCENES_STORAGE_KEY,
@@ -22,6 +23,8 @@ import { elementByPath } from "../src/studio-elements.js";
 
 assert.equal(PROXY_FIGURE_MODEL, "proxy-figure");
 assert.deepEqual(CHARACTER_MODEL_IDS, ["y-bot-tpose", "x-bot-tpose"], "the FBX rig ids stay the two shipped rigs");
+assert.equal(NEW_CHARACTER_MODEL, "x-bot-tpose", "a new character is the block figure on the X Bot skeleton");
+assert.equal(createCharacterEntry({ id: "old" }).model, "y-bot-tpose", "a saved row without a model still loads as before");
 assert.deepEqual(CHARACTER_KIND_IDS, [...CHARACTER_MODEL_IDS, PROXY_FIGURE_MODEL]);
 assert.deepEqual(POSTURES, ["stand", "sit", "lie"]);
 

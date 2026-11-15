@@ -10,6 +10,7 @@
 // origin and follows its joint rigidly.
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
+import { MAN } from "./block-shapes.js";
 import { DEFAULT_TINT, createJointRig, restOf, span } from "./parts.js";
 
 // The Studio's blockout grey (GREY_BOX in src/object-colors.js), copied here: src/lowvis imports no Studio module.
@@ -100,84 +101,124 @@ function fist(at, start) {
 	];
 }
 
-/** The parts as { joint, geometry, line, marks, dark, hand }: `line` asks for the centre line on the part's front, `marks`
- * are pairs of points to join with a line, `dark` is a core, `hand` is [side, "open" | "fist"] for a hand shape. */
-function layoutParts() {
+/** The parts of the figure with proportions `S` (block-shapes.js) as { joint, geometry, line, marks, dark, hand }:
+ * `line` asks for the centre line on the part's front, `marks` are pairs of points to join with a line, `dark` is a
+ * core, `hand` is [side, "open" | "fist"] for a hand shape. */
+function layoutParts(S) {
 	const parts = [], add = (joint, geometry, options = {}) => parts.push({ joint, geometry, ...options });
 	// Torso, top down: the chest is the long box and the pelvis the short one.
-	// The head tells where it faces by its form: the face is the narrower end, and the chin is 5.5 cm lower than the
-	// back of the skull, so the jaw line slopes in the side view. Two cuts round it a little: the jaw narrows from the
-	// cheeks to the chin, and the top of the back of the skull is cut off. On the face, the cross of a drawing class: a
-	// centre line and an eye line. The head sits 4 cm under the rig's head, for a short neck.
-	const FACE_Z = 0.105, BACK_Z = -0.095, TOP = 1.775, CROSS_Z = FACE_Z + 0.001, BACK_CUT = 0.032;
-	// Half widths of the face at the cheeks and at the chin; the back is 0.09. The sides narrow only 1 cm each toward the
-	// face, so the head does not grow much toward the back of the skull.
-	const FACE_HALF = 0.08, CHIN_HALF = 0.058;
-	const half = b => 0.09 - ((0.09 - FACE_HALF) / 0.2) * b; // the head's half width b metres in front of the back
+	// The head tells where it faces by its form: the face is the narrower end, and the chin is lower than the back of
+	// the skull, so the jaw line slopes in the side view. Two cuts round it a little: the jaw narrows from the cheeks to
+	// the chin, and the top of the back of the skull is cut off. The sides narrow only a little toward the face, so the
+	// head does not grow much toward the back of the skull. On the face, the cross of a drawing class: a centre line and
+	// an eye line. The head sits under the rig's head, for a short neck.
+	const { back, face, chin, top: FULL_TOP, low: LOW, front: FACE_Z, rear: BACK_Z } = S.head;
+	const at = k => LOW + (FULL_TOP - LOW) * (k / 0.215); // a height on the head, k metres above the chin on a 0.215 m head
+	const TOP = FULL_TOP - (S.head.crown ?? 0); // `crown` (optional) shortens the head from the top alone
+	const CROSS_Z = FACE_Z + 0.001, BACK_CUT = (S.head.backCut ?? 0.16) * (FACE_Z - BACK_Z);
+	const half = b => back - ((back - face) / (FACE_Z - BACK_Z)) * b; // the head's half width b metres in front of the back
+	// Optional cuts: `brow` off the top edge of the face (the forehead slopes back), `nape` off the lower edge of the back
+	// (the skull tucks in toward the neck).
+	// `temple` (optional) cuts the two top side edges along the whole head at 45 degrees, for a rounder head.
+	const brow = S.head.brow ?? 0, nape = S.head.nape ?? 0, temple = S.head.temple ?? 0, base = at(0.055);
+	/** A point on the top edge of the head, x its half width there: with a temple cut, the two ends of the cut. */
+	const top = (x, z) => (temple ? [[x - temple, TOP, z], [x, TOP - temple, z]] : [[x, TOP, z]]);
 	add("Head", hull([1, -1].flatMap(i => [
-		[i * FACE_HALF, TOP, FACE_Z], [i * FACE_HALF, 1.64, FACE_Z], [i * CHIN_HALF, 1.56, FACE_Z], // the face: cheeks, then the jaw to the chin
-		[i * half(BACK_CUT), TOP, BACK_Z + BACK_CUT], [i * 0.09, TOP - BACK_CUT, BACK_Z], [i * 0.09, 1.615, BACK_Z], // the back, its top edge cut
+		...(brow ? [[i * face, TOP - brow, FACE_Z], ...top(half(FACE_Z - BACK_Z - brow), FACE_Z - brow).map(([x, y, z]) => [i * x, y, z])] : top(face, FACE_Z).map(([x, y, z]) => [i * x, y, z])),
+		[i * face, at(S.head.cheek ?? 0.08), FACE_Z], [i * chin, LOW, FACE_Z], // the face: cheeks, then the jaw to the chin
+		...top(half(BACK_CUT), BACK_Z + BACK_CUT).map(([x, y, z]) => [i * x, y, z]), [i * back, TOP - BACK_CUT, BACK_Z], // the back, its top edge cut
+		...(nape ? [[i * back, base + nape, BACK_Z], [i * half(nape), base, BACK_Z + nape]] : [[i * back, base, BACK_Z]]),
 	])), {
-		marks: [[0, 1.56, CROSS_Z], [0, TOP, CROSS_Z], [-FACE_HALF, 1.685, CROSS_Z], [FACE_HALF, 1.685, CROSS_Z]],
+		marks: [[0, LOW, CROSS_Z], [0, TOP - brow, CROSS_Z], [-face, at(0.125), CROSS_Z], [face, at(0.125), CROSS_Z]],
 	});
-	add("Neck", taperBox([0, 1.5, -0.03], [0, 1.61, -0.02], [0.1, 0.1], [0.085, 0.09])); // its top is inside the head
-	// The chest is an inverted triangle: wide and deep at the shoulders, narrow at the lower ribs. Its front stands
-	// 2.5 cm out at the pectoral line (a crease across the chest), so the side view tells front from back; the back is
-	// one straight plane.
-	add("Spine2", loftBox([[[0, 1.17, -0.006], [0.19, 0.15]], [[0, 1.375, -0.0085], [0.294, 0.217]], [[0, 1.505, -0.035], [0.36, 0.21]]], OUT, UP), { line: true });
-	add("Spine", rod([0, 1.1, 0.008], [0, 1.22, -0.006], 0.05), { dark: true });
-	// The pelvis answers the chest with a slight taper of its own: narrow at the waist, wide at the hips. It is short
-	// (13.5 cm), so a band of the dark waist dowel shows above it and of the dark hip balls below it.
-	add("Hips", taperBox([0, 0.985, 0], [0, 1.12, 0.006], [0.29, 0.18], [0.235, 0.162]), { line: true });
+	// The neck starts just inside the chest's top and ends inside the head.
+	add("Neck", taperBox([0, S.chest.at(-1)[0] - 0.005, -0.03], [0, 1.61, -0.02], ...S.neck));
+	if (!S.bust) add("Spine2", loftBox(S.chest.map(([y, z, w, d]) => [[0, y, z], [w, d]]), OUT, UP), { line: true });
+	else {
+		// With a bust the chest is one hull, so the bust is made of the chest's own planes, not a part added to it: the
+		// corners of the chest's rings and level strips across the whole front (from side to side, each at a height y and
+		// a depth z), which push the front out. From the side the front comes forward quickly under the collar, runs
+		// nearly straight down over the bust and turns back under it to the ribs; seen from the front the chest keeps its
+		// straight sides. The centre line runs over the strips.
+		const strips = [...S.bust].sort((a, b) => b[0] - a[0]), first = S.chest[0], last = S.chest.at(-1);
+		/** Half the chest's width at height y, from its rings, a few millimetres in so a strip stays inside the sides. */
+		const halfWidth = y => {
+			const i = Math.max(0, S.chest.findIndex(([ry]) => ry >= y) - 1), [ya, , wa] = S.chest[i], [yb, , wb] = S.chest[i + 1];
+			return (wa + ((wb - wa) * (y - ya)) / (yb - ya)) / 2 - 0.004;
+		};
+		const corners = S.chest.flatMap(([y, cz, w, d]) => [-1, 1].flatMap(i => [-1, 1].map(j => [(i * w) / 2, y, cz + (j * d) / 2])));
+		const ridge = strips.flatMap(([y, z]) => [[-halfWidth(y), y, z], [halfWidth(y), y, z]]);
+		const front = ([y, cz, , d]) => [0, y, cz + d / 2 + 0.001];
+		const path = [front(last), ...strips.map(([y, z]) => [0, y, z + 0.001]), front(first)];
+		const line = path.slice(1).flatMap((p, i) => [path[i], p]);
+		add("Spine2", hull([...corners, ...ridge]), { marks: line });
+	}
+	// The waist dowel runs from inside the pelvis to 2 cm inside the chest (at least to 1.22).
+	add("Spine", rod([0, 1.1, 0.008], [0, Math.max(1.22, S.chest[0][0] + 0.02), -0.006], S.waist), { dark: true });
+	// The pelvis answers the chest with a taper of its own: narrow at the waist, wide at the hips. It is short, so a band
+	// of the dark waist dowel shows above it and of the dark hip balls below it.
+	if (!S.pelvis.briefs) add("Hips", taperBox([0, S.pelvis.from, 0], [0, S.pelvis.to, 0.006], S.pelvis.low, S.pelvis.high), { line: true });
+	else {
+		// The briefs: one hull through four levels, each a rectangle [y, width, depth]: the waist, the hips (widest), the
+		// leg line at the sides and the crotch. As the crotch is lower and narrower than the leg line, the leg openings
+		// are cut on the diagonal, and the thighs, which start inside, carry on the line of the hips.
+		const levels = S.pelvis.briefs, z = 0.004;
+		const points = levels.flatMap(([y, w, d]) => [-1, 1].flatMap(i => [-1, 1].map(j => [(i * w) / 2, y, z + (j * d) / 2])));
+		const [top, , , crotch] = levels, front = ([y, , d]) => [0, y, z + d / 2 + 0.001];
+		add("Hips", hull(points), { marks: [front(crotch), front(levels[2]), front(levels[2]), front(levels[1]), front(levels[1]), front(top)] });
+	}
 	for (const side of ["Left", "Right"]) {
 		const k = side === "Left" ? 1 : -1, J = name => restOf(`${side}${name}`), put = (joint, ...rest) => add(`${side}${joint}`, ...rest);
 		const along = (p, d) => [p[0] + k * d, p[1], p[2]]; // d metres further out along the T-pose arm
 		const down = (p, d) => [p[0], p[1] - d, p[2]]; // d metres down the standing leg
-		const shoulder = along(J("Arm"), 0.03), elbow = J("ForeArm"), wrist = J("Hand"), hip = J("UpLeg"), knee = J("Leg"), ankle = J("Foot");
-		const H = { elbow: 0.034, wrist: 0.02, knee: 0.042, ankle: 0.03 }; // half the length of a joint box along its limb
+		const shoulder = along(J("Arm"), S.shoulder.out), elbow = J("ForeArm"), wrist = J("Hand"), hip = J("UpLeg"), knee = J("Leg"), ankle = J("Foot");
+		// Half the length of a joint box along its limb.
+		const H = { elbow: S.elbow[0] / 2, wrist: S.wrist[0] / 2, knee: S.knee[1] / 2, ankle: S.ankle[1] / 2 };
 		// The shoulder is a plain box that belongs to the chest: it stays at the chest's upper corner whatever the arm
 		// does, so the shoulders stay wide. The rig's joint is inside it: the arm starts there.
-		add("Spine2", cube(shoulder, [0.104, 0.104, 0.104]));
+		add("Spine2", cube(shoulder, [S.shoulder.size, S.shoulder.size, S.shoulder.size]));
 		// The arm is angular like the leg: two tapered boxes, thick at the body end. It leaves the shoulder box as a short
-		// wedge that widens from the joint. Its top is set 3 cm up in the T-pose, which is outward once the arm hangs:
-		// under the shoulder box and clear of the chest's side. It tapers back to the elbow, which stays on the rig's joint.
-		const armTop = down(along(J("Arm"), 0.065), -0.03), armAxis = [k, 0, 0];
-		put("Arm", taperBox(down(J("Arm"), -0.012), armTop, [0.05, 0.05], [0.096, 0.1], UP, armAxis));
-		put("Arm", taperBox(armTop, along(elbow, CUP - H.elbow), [0.096, 0.1], [0.082, 0.086], UP, armAxis));
+		// wedge that widens from the joint. Its top is set armLift (3 cm on the man) up in the T-pose, which is outward
+		// once the arm hangs: under the shoulder box and clear of the chest's side. It tapers back to the elbow, which
+		// stays on the rig's joint.
+		const lift = S.armLift ?? 0.03, armAxis = [k, 0, 0], [armRoot, armFull, armLow] = S.upperArm;
+		const armTop = down(along(J("Arm"), 0.065), -lift);
+		put("Arm", taperBox(down(J("Arm"), -0.4 * lift), armTop, armRoot, armFull, UP, armAxis));
+		put("Arm", taperBox(armTop, along(elbow, CUP - H.elbow), armFull, armLow, UP, armAxis));
 		// The elbow box is square in the plane the elbow bends in, so it fits both arm pieces at a right angle too. It is
 		// a little thinner than the arm ends, so it reads as the joint between them.
-		put("ForeArm", cube(elbow, [H.elbow * 2, 0.066, H.elbow * 2]));
-		put("ForeArm", taperBox(along(elbow, H.elbow + GAP), along(wrist, CUP - H.wrist), [0.086, 0.09], [0.06, 0.068], UP));
-		put("Hand", cube(wrist, [H.wrist * 2, 0.04, 0.048]));
+		put("ForeArm", cube(elbow, [S.elbow[0], S.elbow[1], S.elbow[0]]));
+		put("ForeArm", taperBox(along(elbow, H.elbow + GAP), along(wrist, CUP - H.wrist), ...S.foreArm, UP));
+		put("Hand", cube(wrist, S.wrist));
 		// The hand has two shapes, both mittens, and setPose shows one: a half-closed hand, which reads as relaxed when
 		// it hangs and is the default, and a fist for a hand that holds something. In the T-pose the hand runs along u,
 		// its back faces up (+t) and the thumb side is the front (+z).
-		const at = (u, t, z = 0) => [wrist[0] + k * u, wrist[1] + t, wrist[2] + z];
-		for (const g of mitten(at, H.wrist + GAP)) put("Hand", g, { hand: [side, "open"] });
-		for (const g of fist(at, H.wrist + GAP)) put("Hand", g, { hand: [side, "fist"] });
+		const at = (u, t, z = 0) => [wrist[0] + k * u * S.hand, wrist[1] + t * S.hand, wrist[2] + z * S.hand];
+		for (const g of mitten(at, (H.wrist + GAP) / S.hand)) put("Hand", g, { hand: [side, "open"] });
+		for (const g of fist(at, (H.wrist + GAP) / S.hand)) put("Hand", g, { hand: [side, "fist"] });
 		// The hip core is a ball on the joint, not a dowel: it looks the same however the thigh turns.
-		put("UpLeg", ball(hip, 0.05), { dark: true });
-		put("UpLeg", taperBox([hip[0], 0.95, hip[2]], down(knee, CUP - H.knee), [0.14, 0.15], [0.1, 0.11]));
+		put("UpLeg", ball(hip, S.hip), { dark: true });
+		put("UpLeg", taperBox([hip[0] + k * (S.thighOut ?? 0), S.thighTop ?? 0.95, hip[2]], down(knee, CUP - H.knee), ...S.thigh));
 		// The knee box is square in the plane the knee bends in, like the elbow's.
-		put("Leg", cube(knee, [0.08, H.knee * 2, H.knee * 2]));
+		put("Leg", cube(knee, [S.knee[0], S.knee[1], S.knee[1]]));
 		// The ankle box stands 1.2 cm over the joint, so a band of it shows between the shin and the foot.
 		const ankleBox = down(ankle, -0.012);
-		put("Leg", taperBox(down(knee, H.knee + GAP), down(ankleBox, CUP - H.ankle), [0.1, 0.11], [0.06, 0.07]));
-		put("Foot", cube(ankleBox, [0.048, H.ankle * 2, 0.056]));
+		put("Leg", taperBox(down(knee, H.knee + GAP), down(ankleBox, CUP - H.ankle), ...S.shin));
+		put("Foot", cube(ankleBox, S.ankle));
 		// A wedge on the floor from behind the ankle to the toe tip: high at the heel, low at the toe.
-		put("Foot", taperBox([ankle[0], 0.045, ankle[2] - 0.06], [ankle[0], 0.0175, 0.172], [0.085, 0.09], [0.095, 0.035]));
+		put("Foot", taperBox([ankle[0], 0.045, ankle[2] - 0.06], [ankle[0], 0.0175, S.foot.toe], S.foot.heel, S.foot.tip));
 	}
 	return parts;
 }
 
-export function block({ tint = DEFAULT_TINT } = {}) {
+function blockFigure(shape, { tint = DEFAULT_TINT } = {}) {
 	const rig = createJointRig(), lean = new THREE.Color(tint);
 	// The faces sit a little behind their edge lines in depth, so the lines do not flicker.
 	const matte = (base, share) => new THREE.MeshStandardMaterial({ color: new THREE.Color(base).lerp(lean, share), roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 	const body = matte(GREY_BOX, LEAN), dowel = matte(DOWEL_GREY, DOWEL_LEAN), ink = new THREE.LineBasicMaterial({ color: LINE_GREY });
 	const draw = (joint, geometry) => { const lines = rig.attach(joint, new THREE.LineSegments(geometry, ink), ORIGIN); lines.castShadow = false; return lines; };
 	const hands = { Left: { open: [], fist: [] }, Right: { open: [], fist: [] } };
-	for (const { joint, geometry, line, marks, dark, hand } of layoutParts()) {
+	for (const { joint, geometry, line, marks, dark, hand } of layoutParts(shape)) {
 		const objects = [rig.attach(joint, new THREE.Mesh(geometry, dark ? dowel : body), ORIGIN)];
 		if (!dark && geometry.type !== "SphereGeometry") objects.push(draw(joint, new THREE.EdgesGeometry(geometry, EDGE_ANGLE)));
 		if (line) objects.push(draw(joint, new THREE.BufferGeometry().setFromPoints(geometry.userData.front)));
@@ -195,3 +236,5 @@ export function block({ tint = DEFAULT_TINT } = {}) {
 	}
 	return { object3D: rig.object3D, setPose };
 }
+
+export const block = options => blockFigure(MAN, options);

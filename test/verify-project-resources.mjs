@@ -115,18 +115,10 @@ const poseStage = createSceneStage({
 });
 const poseDocument = createSceneDocument();
 poseDocument.scenes[0].stage = poseStage;
-const poses = resourceManifest({ scenesDocument: poseDocument, poseLibrary: [wave, crouch, { id: "broken" }, null, { id: "custom_1", bones: {} }] });
-const waveItem = itemOf(poses, "pose", "custom_1");
-const crouchItem = itemOf(poses, "pose", "photo_1");
-expect("every library pose is an embedded item", waveItem?.status === "embedded" && crouchItem?.status === "embedded", JSON.stringify(poses.items));
-expect("a library entry without bones is not a pose", !itemOf(poses, "pose", "broken") && poses.items.filter((item) => item.kind === "pose").length === 2);
-expect(
-	"a character whose bones deep-equal a library pose is a ref, key order aside",
-	waveItem?.refs.length === 2 && waveItem.refs.map((ref) => ref.characterId).join() === "char-a,char-c" && waveItem.refs.every((ref) => ref.field === "pose" && ref.sceneId === poseDocument.scenes[0].id),
-	JSON.stringify(waveItem?.refs),
-);
-expect("a character in a pose the library does not hold is not a ref", crouchItem?.refs.length === 0 && poses.items.every((item) => item.kind !== "pose" || item.refs.every((ref) => ref.characterId !== "char-b")));
-expect("a pose sharing an id but not bones is not matched", resourceManifest({ scenesDocument: poseDocument, poseLibrary: [{ ...wave, bones: { lArm: [9, 9, 9] } }] }).items[0].refs.length === 0);
+// There is no pose library: a character's pose travels inside the scene
+// document, and an older caller's poseLibrary adds no item.
+const poses = resourceManifest({ scenesDocument: poseDocument, poseLibrary: [wave, crouch] });
+expect("a pose library adds no item", poses.items.every((item) => item.kind !== "pose"), JSON.stringify(poses.items));
 
 /* ------------------------------------------------- workflow outputs ---- */
 
@@ -168,7 +160,6 @@ expect("a walker returning garbage contributes nothing", resourceManifest({ scen
 const everything = resourceManifest({
 	scenesDocument: { version: 4, activeSceneId: "s1", scenes: [{ ...scene, stage: poseStage }] },
 	workflow,
-	poseLibrary: [wave, crouch],
 	assets: [asset(RENDER_ID, 100), asset(SOURCE_ID, 250)],
 	storedAssetIds: [STORED_ONLY_ID],
 	workflowOutputRefs,
@@ -184,8 +175,8 @@ expect(
 	JSON.stringify([everything.totals, counted]),
 );
 expect(
-	"the expected split: 2 images + 2 poses + 2 outputs embedded, 1 output external, 2 images + 2 outputs missing",
-	everything.totals.embedded === 6 && everything.totals.external === 1 && everything.totals.missing === 4,
+	"the expected split: 2 images + 2 outputs embedded, 1 output external, 2 images + 2 outputs missing",
+	everything.totals.embedded === 4 && everything.totals.external === 1 && everything.totals.missing === 4,
 	JSON.stringify(everything.totals),
 );
 expect("bytes sum the embedded payloads", everything.totals.bytes === 100 + 250 + 3, String(everything.totals.bytes));
@@ -196,8 +187,8 @@ expect(
 	JSON.stringify(everything.missing.map((item) => item.id)),
 );
 expect(
-	"items are grouped image, pose, workflow-output",
-	everything.items.map((item) => item.kind).join() === "image,image,image,image,pose,pose,workflow-output,workflow-output,workflow-output,workflow-output,workflow-output",
+	"items are grouped image, workflow-output",
+	everything.items.map((item) => item.kind).join() === "image,image,image,image,workflow-output,workflow-output,workflow-output,workflow-output,workflow-output",
 	everything.items.map((item) => item.kind).join(),
 );
 expect("every item has a unique (kind, id)", new Set(everything.items.map((item) => `${item.kind}\u0000${item.id}`)).size === everything.items.length);

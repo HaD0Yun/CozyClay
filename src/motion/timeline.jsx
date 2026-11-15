@@ -1956,7 +1956,6 @@ export default function Timeline({
 											<div
 												key={shot.id}
 												className={"tl-shot-block" + (index === cameraBlockIdx ? " selected" : "") + (index === activeShotIdx ? " active" : "") + (movingShotId === shot.id ? " moving" : "") + (!railOff && railRange && railLengthByShot.has(shot.id) ? " has-dolly" : "")}
-												data-shot-kind={shot.kind === "still" ? "still" : undefined}
 												style={{ "--tl-f-start": geometry.startPct, "--tl-f-end": geometry.endPct }}
 												title={ko(`${shot.name} · frames ${shot.startFrame}–${lastFrame} · drag to reorder, trim cuts at either edge, click the empty lower strip to add a camera key`, `${shot.name} · ${shot.startFrame}–${lastFrame}프레임 · 드래그해 순서 이동, 양끝으로 컷 조절, 아래 빈 줄을 클릭해 카메라 키 추가`, `${shot.name} · 第 ${shot.startFrame}–${lastFrame} 帧 · 拖动调整顺序，拖动两端修剪剪辑，点击下方空条添加摄影机关键帧`)}
 												onPointerDown={(e) => beginShotMove(e, shot, index)}
@@ -2004,7 +2003,6 @@ export default function Timeline({
 													<span className="tl-shot-label">
 														<b>{shot.name}</b>
 														<small>{shot.startFrame}–{lastFrame} · {durationS.toFixed(1)}{ko("s", "초")}</small>
-														{shot.kind === "still" && shot.caption && <small className="tl-shot-caption" title={shot.caption}>{shot.caption}</small>}
 													</span>
 												)}
 												{modelWarnings.length > 0 && (

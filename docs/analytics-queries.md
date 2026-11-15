@@ -18,16 +18,15 @@ handoff. A handoff does not prove that the operating system saved the file.
 - `attempt_id`: fresh random 32-character lowercase hexadecimal value, held only
   by that attempt. It is not persisted or derived from an installation, filename,
   URL, path, prompt, scene content or message/request identifier.
-- `export_kind`: `video`, `depth_video`, `frame`, `keyframe_pack`, `contact_sheet`,
-  `panel_pack`, `animatic`, `animation_project`, `workflow_send`, `storyboard`,
-  `render_pass`, `otio`. `contact_sheet` through `workflow_send` arrived with
-  storyboard projects (#653); older data only holds the first four.
-  `storyboard` (storyboard PNG), `render_pass` (depth + normal PNGs) and `otio`
+- `export_kind`: `video`, `depth_video`, `frame`, `keyframe_pack`, `workflow_send`,
+  `storyboard`, `render_pass`, `otio`. Rows from older builds can also hold
+  `contact_sheet`, `panel_pack`, `animatic` and `animation_project`.
+  `storyboard` (the shot-grid PNG), `render_pass` (depth + normal PNGs) and `otio`
   (OpenTimelineIO timeline) arrived with the analytics hygiene release; before
   it those exports emitted no attempt at all, so their earlier rows are
   **unknown, not 0**.
-- `format`: `mp4` for video/depth video, `png` for frames, storyboards and render
-  passes, `zip` for packs, `cclayproject` for an animation project file, `otio`
+- `format`: `mp4` for video/depth video, `png` for frames, the shot-grid PNG and
+  render passes, `zip` for packs, `cclayproject` (older rows only), `otio`
   for an OpenTimelineIO file.
 - `surface`: `studio`, `workflow`, `embed`; this identifies the initiator, not
   the renderer. Workflow owns its iframe request through its own download
@@ -67,8 +66,8 @@ lifecycle numerator. A multi-file export emits several.
 
 `export:menu_opened` fires once each time the Export flyout opens, by click or
 keyboard; reopening counts again and there is no session cap. `surface` is
-`studio` or `embed`, `mode` is `animation` or `storyboard`, `shots` the shot
-count bucket (panels in a storyboard; `0`, `1-3`, `4-10`, `gte11`), and
+`studio` or `embed`, `shots` the shot count bucket (`0`, `1-3`, `4-10`,
+`gte11`; rows from older builds also carry a `mode`), and
 `webcodecs` is `true` when the window has both `VideoEncoder` and `VideoFrame`.
 That is a synchronous presence check, not `isConfigSupported`, so `true` does
 not promise an MP4 export will encode. For menu -> attempt conversion, join
@@ -1113,7 +1112,8 @@ contract report it: before that release the new events are **unknown, not 0**.
 
 - `feature:used name = 'pose_edit'` meant **a pose saved to the library** before
   this release. From this release it means a real pose change through the
-  semantic boundary, and library saves are `pose_save`. Split by `app_version`;
+  semantic boundary, and library saves were `pose_save` (the library is gone; no
+  new `pose_save` rows). Split by `app_version`;
   never add the two eras together.
 - `action_count_bucket` no longer counts passive signals (`motion:backend_state`,
   `app:error`, `device:profile`). Earlier npm sessions always counted at least
@@ -1300,7 +1300,7 @@ Exclude `internal_qa = true` with
 | | `max_catchup` | `1`, `2`, `3-5`, `gte6` | The most frames one tick caught up | |
 | | `fps`, `speed` | `12`, `24`, `30`, `60`, `other`; `0.5`, `1`, `2`, `other` | The take's frame rate and the playback speed | |
 | | `measured_fps` | `device:profile.frame_rate_bucket` set: `lt20`, `20-40`, `40-55`, `gte55`, `unknown` | rAF frames counted during the same run | |
-| `guide:opened` | `mode` | `animation`, `storyboard`, `camera` | `src/first-success-guide.jsx` (`STEPS_BY_MODE` keys); `camera` is the camera tutorial (`src/camera-tutorial.jsx`, eight steps) | 1 per session |
+| `guide:opened` | `mode` | `animation`, `camera` | `src/first-success-guide.jsx` (`animation`); `camera` is the camera tutorial (`src/camera-tutorial.jsx`, eight steps) | 1 per session |
 | `guide:step` | `mode`, `step`, `step_ms` | `step` `1`-`4` (`1`-`8` in `camera`); `step_ms` the `duration` set | "I did this" / "Mark complete"; in `camera`, the studio reporting the step done; `step_ms` since opening or the previous step | 1 per step per session |
 | `guide:dismissed` | `mode`, `reached` | `reached` `1`-`4` (`1`-`8` in `camera`): the step showing | Close or Skip before the last step. Closing the completed guide is not a dismissal | 1 per session |
 | `guide:completed` | `mode` | | The last step marked done | 1 per session |
@@ -1507,7 +1507,7 @@ release have no rows (**unknown, not 0**).
 | --- | --- | --- |
 | `undo`, `redo` | `empty_history` | Ctrl/Cmd+Z or Ctrl/Cmd+Shift+Z with nothing to step (bus `noop`) |
 | `undo`, `redo` | `busy` | The bus refused the step (the last edit belongs to a running task) |
-| `mode` | `workflow_mode` | 2 with no rig to pose (4 in a storyboard is a key with no binding there, not a refusal, and is not counted) |
+| `mode` | `workflow_mode` | 2 with no rig to pose |
 | `transform` | `wrong_mode` | E in Pose mode (W and R are its IK tools; E has none) |
 | `frame`, `duplicate`, `delete` | `no_selection` | F, Ctrl/Cmd+D, Delete/Backspace with nothing selected that the key acts on, and no other handler claimed it |
 
@@ -2255,46 +2255,25 @@ GROUP BY error_class, duration
 ORDER BY installs DESC
 ```
 
-# Storyboard and capsule-figure events (issue #653)
+# Capsule-figure and new-project events (issue #653)
 
-Counts only. None of these events carries a caption, a panel or character name,
-an id, a prompt, an image or a position (`DENIED_PROPERTY_KEYS` and the closed
-value sets in `sanitizeProps` drop anything else).
+Counts only. None of these events carries a character name, an id, a prompt,
+an image or a position (`DENIED_PROPERTY_KEYS` and the closed value sets in
+`sanitizeProps` drop anything else).
 
 ## Event contract
 
 | Event | Properties | Meaning |
 | --- | --- | --- |
-| `scene:created` | `scene_source`, `previs_mode`, `cast_style` | `previs_mode` is `storyboard` or `animation`; absent on events from before modes existed. `cast_style` is `rig`, `capsule` or `hybrid`, sent with `scene_source: new_project` only |
-| `storyboard:panel_created` | `source` | `agent` (Studio Agent, MCP or any non-UI command) or `manual` (Board `+ Panel`, timeline add in a storyboard project) |
-| `storyboard:panel_stylized` | `outcome` | `ok` (the stylized picture is stored on the panel) or `error` (renderer not ready, entitlement or network refusal, storage failure) |
+| `scene:created` | `scene_source`, `cast_style` | `cast_style` is `rig`, `capsule` or `hybrid`, sent with `scene_source: new_project` only. Rows from older builds can also carry `previs_mode` |
 | `cast:proxy_added` | `surface` | `assets` (Capsule figure tile), `agent` (Studio Agent or another non-UI command) or `mcp` (`add_character` live tool) |
 
-## Panels per source and stylize success rate (7 days)
-
-Events carrying the explicit `internal_qa` boolean marker are excluded the same
-way the external cohort queries do.
+## Capsule figures by surface, and new projects by cast style (7 days)
 
 ```sql
 SELECT
     event,
-    coalesce(nullIf(properties.source, ''), properties.outcome) AS value,
-    count() AS events,
-    count(DISTINCT distinct_id) AS users
-FROM events
-WHERE event IN ('storyboard:panel_created', 'storyboard:panel_stylized')
-  AND timestamp >= now() - INTERVAL 7 DAY
-  AND JSONExtractRaw(properties, 'internal_qa') != 'true'
-GROUP BY event, value
-ORDER BY event, value
-```
-
-## Capsule figures by surface, and new projects by mode (7 days)
-
-```sql
-SELECT
-    event,
-    if(event = 'cast:proxy_added', properties.surface, properties.previs_mode) AS value,
+    if(event = 'cast:proxy_added', properties.surface, properties.cast_style) AS value,
     count() AS events
 FROM events
 WHERE event IN ('cast:proxy_added', 'scene:created')
@@ -2304,5 +2283,5 @@ GROUP BY event, value
 ORDER BY event, value
 ```
 
-An empty `value` on `scene:created` is a scene made before project modes
-existed (builds older than the Storyboard/Animation release). Undo and redo never emit a second event.
+An empty `value` on `scene:created` is a scene that was not made from the
+start screen's new-project path. Undo and redo never emit a second event.

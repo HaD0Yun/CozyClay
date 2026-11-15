@@ -50,7 +50,7 @@ assert.deepEqual(placementAt(rigged, 12, {
 }), rigged);
 assert.deepEqual(placementAt(rigged, 12, {
 	shotAt: () => ({ kind: "still", cast: { proxy: { x: 4, z: 5, rot: 33 } } }),
-}), { ...rigged, x: 4, z: 5, rot: 33 });
+}), rigged, "an old still's per-shot cast override no longer moves a character");
 assert.equal(placementAt({ ...pathCharacter, model: "proxy-figure" }, 12, {
 	shotAt: () => ({ kind: "clip", cast: { proxy: { x: 4, z: 5, rot: 33 } } }),
 }).x, 1.5);

@@ -5,10 +5,9 @@ import { studioActionDeclaration } from "../studio-actions.js";
 import { characterOf, fail, changedIds, checkPoseBones } from "./shared.js";
 import { elementSetSchema, registerElementSet } from './elements.js';
 import './elements/character.js';
-import { createCharacterEntry, CHARACTER_KIND_IDS, POSTURES, PROXY_FIGURE_MODEL, isProxyFigure } from '../scenes.js';
+import { createCharacterEntry, CHARACTER_KIND_IDS, NEW_CHARACTER_MODEL, POSTURES, PROXY_FIGURE_MODEL, isProxyFigure } from '../scenes.js';
 import { KIND_FIXED_REFUSAL } from '../character-kind.js';
 import { track } from '../analytics.js';
-import { DEFAULT_POSE } from '../poses.js';
 import { createStableItemId } from '../stable-items.js';
 import { STUDIO_TOOL_SCHEMAS, StudioSchemas } from '../studio-agent-protocol.js';
 import { characterName } from '../character-name.js';
@@ -35,9 +34,6 @@ const semantic = [
 	// An empty cast is a legal stage (character.remove may empty it too); the UI replaces the cast with [] when the
 	// last character goes or an empty scene loads, and a minItems refusal there was thrown uncaught (#1040).
 	mutation('cast.replace', 'Replace cast', input({ characters: { type: 'array', items: record } }), 'ui-only'),
-	mutation('cast.setCustomPoses', 'Set pose library', input({ poses: { type: 'array', items: record } }), 'ui-only'),
-	mutation('cast.savePose', 'Save pose', input({ pose: record, characterId: id, clearMotion: { type: 'boolean' } }, ['pose']), 'ui-only'),
-	mutation('cast.removePose', 'Remove saved pose', input({ id }), 'ui-only'),
 	mutation('cast.showExtras', 'Show extra subjects', input({ show: { type: 'boolean' } }), 'ui-only'),
 	mutation('cast.setLayer', 'Set character layer', input({ characterId: id, layer: record }), 'ui-only'),
 ];
@@ -72,7 +68,8 @@ export function register(registry, ports) {
 			const { position, yawDeg, ...value } = sent;
 			if (position && typeof position === 'object') { if (Number.isFinite(position.x) && value.x === undefined) value.x = position.x; if (Number.isFinite(position.z) && value.z === undefined) value.z = position.z; }
 			if (Number.isFinite(yawDeg) && value.rot === undefined) value.rot = yawDeg;
-			const row = createCharacterEntry({ ...value, id: value.id ?? createStableItemId('character') }, owner().read().length);
+			// A character.add without a model is a new block figure (NEW_CHARACTER_MODEL).
+			const row = createCharacterEntry({ ...value, model: value.model ?? NEW_CHARACTER_MODEL, id: value.id ?? createStableItemId('character') }, owner().read().length);
 			if (owner().read().some(entry => entry.id === row.id)) fail('INVALID_ARGUMENT', 'Character id already exists.');
 			owner().write(rows => [...rows, row]);
 		},
@@ -88,17 +85,6 @@ export function register(registry, ports) {
 		'character.setPose': ({ characterId, pose: value, clearMotion }) => { character(characterId); owner().applyPose(characterId, pose(value), clearMotion); },
 		
 		'cast.replace': ({ characters }) => owner().write(characters),
-		'cast.setCustomPoses': ({ poses }) => { for (const entry of poses) checkPoseBones(entry?.bones); owner().writeState(before => ({ ...before, customPoses: poses })); },
-		'cast.savePose': ({ pose, characterId, clearMotion }) => {
-			checkPoseBones(pose?.bones);
-			if (characterId) character(characterId);
-			owner().writeState(before => ({ ...before, customPoses: [...before.customPoses.filter(entry => entry.id !== pose.id), pose] }));
-			if (characterId) owner().applyPose(characterId, pose, clearMotion);
-		},
-		'cast.removePose': ({ id }) => owner().writeState(before => ({
-			characters: before.characters.map(entry => entry.pose?.id === id ? { ...entry, pose: DEFAULT_POSE } : entry),
-			customPoses: before.customPoses.filter(entry => entry.id !== id),
-		})),
 
 		'cast.showExtras': ({ show }) => owner().showExtras(show),
 		'cast.setLayer': ({ characterId, layer }) => patch(characterId, { layer: { ...character(characterId).layer, ...layer } }),

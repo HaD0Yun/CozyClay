@@ -80,15 +80,15 @@ const SCHEMAS = Object.freeze({
 		fps: oneOf("12", "24", "30", "60", "other"), speed: oneOf("0.5", "1", "2", "other"),
 		measured_fps: oneOf("lt20", "20-40", "40-55", "gte55", "unknown"),
 	},
-	// mode and step: first-success-guide.jsx's STEPS_BY_MODE keys and its 4 steps per mode.
-	"guide:opened": { mode: oneOf("animation", "storyboard", "camera") },
-	"guide:step": { mode: oneOf("animation", "storyboard", "camera"), step: oneOf("1", "2", "3", "4", "5", "6", "7", "8"), step_ms: long },
-	"guide:dismissed": { mode: oneOf("animation", "storyboard", "camera"), reached: oneOf("1", "2", "3", "4", "5", "6", "7", "8") },
-	"guide:completed": { mode: oneOf("animation", "storyboard", "camera") },
+	// mode and step: the first-run guide ("animation", first-success-guide.jsx) and the camera tutorial ("camera").
+	"guide:opened": { mode: oneOf("animation", "camera") },
+	"guide:step": { mode: oneOf("animation", "camera"), step: oneOf("1", "2", "3", "4", "5", "6", "7", "8"), step_ms: long },
+	"guide:dismissed": { mode: oneOf("animation", "camera"), reached: oneOf("1", "2", "3", "4", "5", "6", "7", "8") },
+	"guide:completed": { mode: oneOf("animation", "camera") },
 	"agent:panel_toggled": { open: bool, via: oneOf("key", "button") },
 	// The Export flyout opening (export-menu-telemetry.js); shots is analytics.js bucketCount.
 	"export:menu_opened": {
-		surface: oneOf("studio", "embed"), mode: oneOf("animation", "storyboard"), webcodecs: bool, shots: oneOf("0", "1-3", "4-10", "gte11"),
+		surface: oneOf("studio", "embed"), webcodecs: bool, shots: oneOf("0", "1-3", "4-10", "gte11"),
 	},
 	"object:deleted_soon": { age: inSet(AGE_BUCKETS) },
 	"object:delete_undone": { age: inSet(AGE_BUCKETS) },

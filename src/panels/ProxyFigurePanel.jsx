@@ -1,9 +1,7 @@
 import Foldout from "./Foldout.jsx";
 import { ko } from "../locale.js";
 import { POSTURES, isProxyFigure } from "../scenes.js";
-import { useBus, AppContext } from "../app-context.js";
-import { useContext } from "react";
-import { shotAtFrame } from "../cuts.js";
+import { useBus } from "../app-context.js";
 
 const POSTURE_LABELS = {
 	stand: () => ko("Stand", "서기"),
@@ -22,11 +20,7 @@ const POSTURE_GLYPHS = {
  * choice is its posture. Rig figures never see this panel. */
 export default function ProxyFigurePanel({ isCharacterSelection, activeChar }) {
 	const { run } = useBus();
-	const app = useContext(AppContext);
-	const live = app?.ports.read?.();
-	const shot = live ? shotAtFrame(live.shots, live.view.frame) : null;
-	const selectedPosture = live?.targets?.get?.(activeChar.id)?.motion || activeChar.layer?.waypoints?.length
-		? activeChar.posture : shot?.cast?.[activeChar.id]?.posture ?? activeChar.posture;
+	const selectedPosture = activeChar.posture;
 	if (!isProxyFigure(activeChar)) return null;
 	return (
 		<Foldout hidden={!isCharacterSelection} title={ko("Capsule figure", "캡슐 인물")}>

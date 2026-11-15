@@ -1050,16 +1050,6 @@
 	font-weight: 600;
 }
 
-.v2-start-screen .v2-start-work-badge.animation {
-	background: color-mix(in srgb, var(--primary, #7258a0) 22%, transparent);
-	color: var(--camera, #a78bfa);
-}
-
-.v2-start-screen .v2-start-work-badge.storyboard {
-	background: color-mix(in srgb, var(--select, #e8a33d) 22%, transparent);
-	color: var(--select, #e8a33d);
-}
-
 .v2-start-screen .v2-start-work-copy {
 	min-width: 0;
 	display: flex;

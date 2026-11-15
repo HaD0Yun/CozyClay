@@ -13,9 +13,6 @@ export default {
 			narration: t("브라우저에 시작 화면이 열립니다. 왼쪽은 최근 프로젝트·새 프로젝트·배우기, 가운데가 새 프로젝트 설정입니다.", "The start screen opens. Left: Recent, New Project, Learn. Center: the new project settings."),
 			wait: ".v2-start-screen",
 		},
-		spot("1.2", "[data-testid=\"start-previs-mode\"]", t("스토리보드 / 애니메이션", "Storyboard / Animation"), t("스토리보드는 이미지 패널을 한 장씩, 애니메이션은 연속 모션과 카메라를", "Storyboard directs one image panel at a time, Animation blocks continuous motion"), {
-			caption: t("프로젝트 종류입니다. 이 가이드는 기본값인 애니메이션으로 갑니다.", "The project kind. This guide uses the default, Animation."),
-		}),
 		spot("1.3", "[data-testid=\"start-new-project-card\"]", t("새 프로젝트", "New project"), t("빈 무대에서 시작", "Start from an empty stage"), {
 			caption: t("새 프로젝트는 빈 무대에서 시작합니다. 캐릭터 한 명, 카메라, 조명이 들어 있습니다.", "New project starts from an empty stage with one character, a camera and a light."),
 		}),
