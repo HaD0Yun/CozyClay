@@ -149,29 +149,7 @@ await mouse("mouseReleased", { x: ruler.x, y: ruler.y, button: "left", buttons: 
 const midpoint = await waitFor(`window.__cozyclay.tlFrame >= Math.floor(${frameCount} * 0.45) && window.__cozyclay.tlFrame <= Math.ceil(${frameCount} * 0.55)`, 10000);
 expect("ruler midpoint moves the playhead to about half", midpoint, String(await evaluate("window.__cozyclay.tlFrame")));
 
-// Older builds exposed a Body take and Cut button here. Keep that behavior
-// covered when present, but the current browser compiler has no demo take.
-const cutAvailable = await evaluate("document.querySelector('[data-testid=sequencer-cut]')?.disabled === false && document.querySelectorAll('.v2-sequencer .tl-motion-clip').length > 0");
-if (cutAvailable) {
-await evaluate(`window.__cozyclay.scrub(Math.max(1, Math.floor(${frameCount} * 0.5)))`);
-await waitFor(`window.__cozyclay.tlFrame > 0`);
-const beforeCuts = await evaluate("document.querySelectorAll('.v2-sequencer .tl-motion-clip').length");
-expect("one Body clip exists before Cut", beforeCuts === 1, String(beforeCuts));
-expect("Cut control is enabled away from frame zero", await evaluate("document.querySelector('[data-testid=sequencer-cut]')?.disabled === false"));
-await click("[data-testid=sequencer-cut]");
-expect("Cut splits the Body clip", await waitFor(`document.querySelectorAll('.v2-sequencer .tl-motion-clip').length === ${beforeCuts + 1}`), String(await evaluate("document.querySelectorAll('.v2-sequencer .tl-motion-clip').length")));
-
-const afterSplit = await evaluate("document.querySelectorAll('.v2-sequencer .tl-motion-clip').length");
-await evaluate("window.__cozyclay.scrub(0)");
-await waitFor("window.__cozyclay.tlFrame === 0");
-expect("Cut at frame 0 is disabled", await evaluate("document.querySelector('[data-testid=sequencer-cut]')?.disabled === true"));
-expect("Cut at frame 0 creates no zero-length clip", await evaluate(`(() => {
-	const clips = [...document.querySelectorAll('.v2-sequencer .tl-motion-clip')];
-	return clips.length === ${afterSplit} && clips.every((clip) => clip.getBoundingClientRect().width > 0);
-})()`));
-} else {
-	expect("the current Sequencer has no Body clip without a take", await evaluate("document.querySelectorAll('.v2-sequencer .tl-motion-clip').length === 0"));
-}
+expect("the current Sequencer has no Body clip without a take", await evaluate("document.querySelectorAll('.v2-sequencer .tl-motion-clip').length === 0"));
 
 // Selecting the seeded shot enters Camera mode through the existing App
 // callback. Scroll the real lane workspace to the camera group first: the
@@ -193,10 +171,9 @@ const keyStrip = await evaluate(`(() => {
 	return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, top: rect.top, bottom: rect.bottom, bodyTop: body?.getBoundingClientRect().top ?? 0, bodyBottom: body?.getBoundingClientRect().bottom ?? 0 };
 })()`);
 expect("crane key strip is visible after scrolling", !!keyStrip && keyStrip.top >= keyStrip.bodyTop && keyStrip.bottom <= keyStrip.bodyBottom, JSON.stringify(keyStrip));
-if (keyStrip) {
-	await mouse("mousePressed", { x: keyStrip.x, y: keyStrip.y, button: "left", buttons: 1, clickCount: 1 });
-	await mouse("mouseReleased", { x: keyStrip.x, y: keyStrip.y, button: "left", buttons: 0, clickCount: 1 });
-}
+if (!keyStrip) throw new Error("Sequencer crane key strip is not measurable");
+await mouse("mousePressed", { x: keyStrip.x, y: keyStrip.y, button: "left", buttons: 1, clickCount: 1 });
+await mouse("mouseReleased", { x: keyStrip.x, y: keyStrip.y, button: "left", buttons: 0, clickCount: 1 });
 expect("the locked crane graph keeps its two points", await waitFor(`document.querySelectorAll('.v2-sequencer .tl-crane-knob').length === ${craneBefore}`), String(await evaluate("document.querySelectorAll('.v2-sequencer .tl-crane-knob').length")));
 await screenshot("task-14-compare");
 

@@ -136,7 +136,13 @@ expect("All view lists the Basic Shapes catalogue primitives", await waitFor(`!!
 await click(cubeTile);
 expect("selected asset wears the amber ring", await waitFor(`(() => {
 	const tile = document.querySelector(${JSON.stringify(cubeTile)});
-	return tile?.getAttribute('aria-pressed') === 'true';
+	const thumb = tile?.querySelector('.content-tile-thumb');
+	const style = thumb ? getComputedStyle(thumb) : null;
+	return tile?.getAttribute('aria-pressed') === 'true'
+		&& style?.backgroundColor === 'rgba(255, 255, 255, 0.08)'
+		&& style.boxShadow !== 'none'
+		&& style.boxShadow.includes('1.5px')
+		&& style.boxShadow.includes('rgba(255, 255, 255, 0.5)');
 })()`));
 await screenshot("task-13-content");
 
@@ -180,77 +186,13 @@ const legacyControls = await evaluate(`(() => {
 	return { collapse: rect('[data-testid=content-collapse]'), resize: rect('[data-testid=dock-resize-handle]') };
 })()`);
 expect("the current full-width Content surface hides the legacy collapse control and keeps its resize edge", legacyControls.collapse.width === 0 && legacyControls.resize.height === 7, JSON.stringify(legacyControls));
-if (legacyControls.collapse.width > 0) {
-// ---- Collapse gives the Sequencer the full width ----
-await click("[data-testid=content-collapse]");
-expect("Content collapses to its 48 px header", await waitFor("document.querySelector('.v2-dock')?.hasAttribute('data-content-collapsed') && Math.abs(document.querySelector('.v2-dock > .assets-pane').getBoundingClientRect().height - 48) < 0.5"));
-const collapsed = await evaluate(`(() => {
-	const dock = document.querySelector('.v2-dock').getBoundingClientRect();
-	const seq = document.querySelector('.bottom-timeline').getBoundingClientRect();
-	const v2 = document.querySelector('.v2-sequencer')?.getBoundingClientRect();
-	// The Sequencer column may carry its own vertical scrollbar; the Sequencer
-	// fills that column's client width.
-	return { dock: dock.width, timeline: seq.width, timelineClient: document.querySelector('.bottom-timeline').clientWidth, sequencer: v2?.width ?? 0, left: seq.left - dock.left };
+const dock = await evaluate(`(() => {
+	const node = document.querySelector('.v2-dock');
+	const rect = node.getBoundingClientRect();
+	return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
 })()`);
-expect("collapse gives the Sequencer the full width", Math.abs(collapsed.timeline - collapsed.dock) < 0.5 && collapsed.left < 0.5 && Math.abs(collapsed.sequencer - collapsed.timelineClient) < 1, JSON.stringify(collapsed));
-expect("collapse persists", await evaluate("localStorage.getItem('cozyclay.dock.content-collapsed.v1') === '1'"));
-await screenshot("task-13-collapsed");
-await click("[data-testid=content-collapse]");
-expect("Content expands back to the full dock width", await waitFor("Math.abs(document.querySelector('.v2-dock > .assets-pane').getBoundingClientRect().width - document.querySelector('.v2-dock').getBoundingClientRect().width) < 0.5"));
-
-// ---- Dock resize within [220, 480], persisted ----
-const handle = await rectOf("[data-testid=dock-resize-handle]");
-await drag({ x: handle.x, y: handle.y }, { x: handle.x, y: handle.y - 400 });
-const tall = await evaluate("({ height: document.querySelector('.v2-dock').getBoundingClientRect().height, stored: localStorage.getItem('cozyclay.dock.height.v2') })");
-expect("dragging the top edge up caps the dock at 480 px", Math.abs(tall.height - 480) < 0.5 && tall.stored === "480", JSON.stringify(tall));
-const handleTall = await rectOf("[data-testid=dock-resize-handle]");
-await drag({ x: handleTall.x, y: handleTall.y }, { x: handleTall.x, y: handleTall.y + 500 });
-const short = await evaluate("({ height: document.querySelector('.v2-dock').getBoundingClientRect().height, stored: localStorage.getItem('cozyclay.dock.height.v2') })");
-expect("dragging the top edge down floors the dock at 220 px", Math.abs(short.height - 220) < 0.5 && short.stored === "220", JSON.stringify(short));
-await send("Page.reload");
-expect("the dock size survives a reload", await waitFor("!!document.querySelector('.v2-dock') && Math.abs(document.querySelector('.v2-dock').getBoundingClientRect().height - 220) < 0.5"));
-expect("the studio reloads with its take", await waitFor("!!window.__cozyclay?.motion && window.__cozyclay.motion.frames > 0"));
-await evaluate("window.__cozyclay.pause?.()");
-expect("the Sequencer follows a 220 px dock", await evaluate("Math.abs(document.querySelector('.v2-sequencer').getBoundingClientRect().bottom - document.querySelector('.v2-dock').getBoundingClientRect().bottom) < 1"),
-	JSON.stringify(await evaluate("[document.querySelector('.v2-sequencer').getBoundingClientRect().bottom, document.querySelector('.v2-dock').getBoundingClientRect().bottom]")));
-// Leave the tallest stored size behind for the small-screen check below.
-const handleAfter = await rectOf("[data-testid=dock-resize-handle]");
-await drag({ x: handleAfter.x, y: handleAfter.y }, { x: handleAfter.x, y: handleAfter.y - 400 });
-await waitFor("localStorage.getItem('cozyclay.dock.height.v2') === '480'");
-expect("the Sequencer follows a 480 px dock", await evaluate("Math.abs(document.querySelector('.v2-sequencer').getBoundingClientRect().height - document.querySelector('.bottom-timeline').clientHeight) < 1"),
-	JSON.stringify(await evaluate("[document.querySelector('.v2-sequencer').getBoundingClientRect().height, document.querySelector('.bottom-timeline').clientHeight]")));
-
-// ---- 1280x800: the viewport stays usable even with a 480 px stored dock ----
-await setViewport(1280, 800);
-await waitFor("innerWidth === 1280 && innerHeight === 800");
-await waitFor("document.querySelector('.viewport').getBoundingClientRect().height >= 480");
-// The renderer has taken the new size once its drawing buffer matches the box.
-await waitFor("(() => { const canvas = document.querySelector('.viewport canvas'); return canvas && canvas.height === Math.round(canvas.getBoundingClientRect().height * devicePixelRatio); })()");
-const small = await evaluate(`(() => {
-	const box = (selector) => { const node = document.querySelector(selector); if (!node) return null; const r = node.getBoundingClientRect(); return { width: Math.round(r.width * 10) / 10, height: Math.round(r.height * 10) / 10, top: Math.round(r.top * 10) / 10 }; };
-	return { viewportSize: [innerWidth, innerHeight], viewport: box('.viewport'), canvas: box('.viewport canvas'), dock: box('.v2-dock'), content: box('.v2-dock > .assets-pane'), storedDock: localStorage.getItem('cozyclay.dock.height.v2') };
-})()`);
-writeFileSync(`${outputDir}/task-13-1280.json`, `${JSON.stringify(small, null, 2)}\n`);
-console.log(`QA_EVIDENCE ${outputDir}/task-13-1280.json ${JSON.stringify(small)}`);
-expect("at 1280x800 the viewport is >= 480 px tall", (small.viewport?.height ?? 0) >= 480, JSON.stringify(small.viewport));
-expect("at 1280x800 the 3D canvas is >= 480 px tall", (small.canvas?.height ?? 0) >= 480, JSON.stringify(small.canvas));
-expect("at 1280x800 the viewport is >= 900 px wide", (small.viewport?.width ?? 0) >= 900, JSON.stringify(small.viewport));
-// A demand-mode canvas repaints on the frames after its resize; let two pass.
-await evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-await screenshot("task-13-1280");
-
-// ---- Compare: our dock beside the owner's 2a dock ----
-await setViewport(1920, 1080);
-await waitFor("innerWidth === 1920 && Math.abs(document.querySelector('.v2-dock').getBoundingClientRect().height - 480) < 0.5");
-await evaluate("localStorage.removeItem('cozyclay.dock.height.v2')");
-await send("Page.reload");
-await waitFor("!!document.querySelector('.v2-dock') && Math.abs(document.querySelector('.v2-dock').getBoundingClientRect().height - 220) < 0.5");
-await click(cubeTile);
-await waitFor(`document.querySelector(${JSON.stringify(cubeTile)})?.getAttribute('aria-pressed') === 'true'`);
-const ours = await rectOf(".v2-dock > .assets-pane");
-await screenshot("task-13-ours", { x: ours.left, y: ours.top, width: ours.width, height: ours.height });
-expect("the current All view screenshot fills the dock", ours.width > 1500 && ours.height > 200, JSON.stringify(ours));
-}
+expect("the current All view screenshot fills the measured dock", Math.abs(dock.width - geometry.dock.width) < 0.5 && Math.abs(dock.height - geometry.dock.height) < 0.5, JSON.stringify({ dock, measured: geometry.dock }));
+await screenshot("task-13-current", dock);
 
 ws.close();
 if (failures) {
