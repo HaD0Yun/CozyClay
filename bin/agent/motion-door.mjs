@@ -64,7 +64,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [] }) {
 				if (error?.code === "studio") await rollback();
 				throw error;
 			}
-			return { ok: true, report: done.report, missing: done.missing, frames: done.frames, seconds: done.seconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched };
+			return { ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched };
 		},
 	};
 }

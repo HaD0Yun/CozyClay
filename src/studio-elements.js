@@ -24,9 +24,9 @@ const entries = [
 	{ path: "character.subject", type: "string", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry" },
 	{ path: "character.hidden", type: "boolean", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry" },
 	{ path: "character.parent", type: "id", nullable: true, persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", note: "scene object id the character is grouped under and rides; null stands in the world" },
-	// The model and posture enums mirror scenes.js CHARACTER_KIND_IDS and
-	// POSTURES; they are literal because scenes.js imports this module.
-	{ path: "character.model", type: "enum", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", enum: ["y-bot-tpose", "x-bot-tpose", "proxy-figure"] },
+	// The model and posture enums mirror scenes.js NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL and POSTURES; they are
+	// literal because scenes.js imports this module. A saved Y Bot row still loads (CHARACTER_KIND_IDS), but is not offered.
+	{ path: "character.model", type: "enum", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", enum: ["x-bot-tpose", "proxy-figure"] },
 	{ path: "character.posture", type: "enum", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", enum: ["stand", "sit", "lie"] },
 	{ path: "character.tint", type: "color", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry" },
 	{ path: "character.identityImage", type: "image", persisted: true, undoDomain: "cast", normalizer: "createCharacterEntry", note: "data:image only" },

@@ -24,7 +24,7 @@ function jointBones(rig) {
 	});
 }
 
-export function LowvisSkin({ rig, tint, look = "block" }) {
+export function LowvisSkin({ rig, tint, pickId = null, look = "block" }) {
 	const body = useMemo(() => (LOOKS[look] ?? LOOKS.block)({ tint }), [look, tint]);
 	const bones = useMemo(() => (rig ? jointBones(rig) : null), [rig]);
 	const frame = useMemo(() => ({
@@ -59,5 +59,6 @@ export function LowvisSkin({ rig, tint, look = "block" }) {
 		});
 		body.setPose(frame.pos, frame.quat, 0);
 	});
-	return rig && bones?.every(Boolean) ? <primitive object={body.object3D} /> : null;
+	// the stage picker walks up from a hit mesh to a characterPick tag (object-gizmo.jsx): the figure is the click target the rig's meshes were
+	return rig && bones?.every(Boolean) ? <primitive object={body.object3D} userData={pickId ? { characterPick: pickId } : {}} /> : null;
 }

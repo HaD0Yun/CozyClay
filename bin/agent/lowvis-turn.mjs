@@ -55,7 +55,7 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 				send({ type: "tool.start", callId, name: "motion", label: "compile the motion", args: { n } });
 				send(ok ? { type: "tool.done", callId, ok: true, elapsedMs: 0, result: { n } } : { type: "tool.done", callId, ok: false, elapsedMs: 0, error: line });
 			} });
-			send({ type: "text.delta", text: `${done.report ?? "The motion is installed."}\n\n(${done.frames} frames, ${done.characterIds.length} character(s), ${done.objectIds.length} object(s), ${done.seconds} s, ${done.compiles} compile(s))` });
+			send({ type: "text.delta", text: `${done.report ?? "The motion is installed."}\n\n(${done.frames} frames = ${done.clipSeconds} s of motion, ${done.characterIds.length} character(s), ${done.objectIds.length} object(s), made in ${done.tookSeconds} s, ${done.compiles} compile(s))` });
 		} catch (error) {
 			if (!signal.aborted) send({ type: "error", code: typeof error?.code === "string" && error.code ? error.code : "upstream", message: String(error?.message ?? error) });
 		}

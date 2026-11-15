@@ -12,7 +12,7 @@ const CUTS = [
 ];
 // [from, through, replacement]: lines of the cast-style gate
 const LINES = [
-	["- rig: cast only X Bot or Y Bot", "keep the rig.", "- rig: cast only X Bot or Y Bot (model y-bot-tpose or x-bot-tpose). Never add a proxy-figure."],
+	["- rig: cast only X Bot or Y Bot", "keep the rig.", "- rig: cast only the block figure (model x-bot-tpose)."],
 	["- hybrid: the cast gate decides", "Ask once per shot.", "- hybrid: rig characters move through the motion tool; capsule figures are placed and moved as before."],
 	["\nProposal: \"This shot needs", "(yes = capsules, no = keep the rig)\"", ""],
 ];
