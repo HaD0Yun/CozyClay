@@ -17,6 +17,11 @@ import { fetchPlaygroundProject, isPlaygroundEmbed, playgroundSceneUrl, stashPla
 import { preloadBodies } from "./motion3/body.js";
 import { installDomMutationGuard } from "./dom-mutation-guard.js";
 
+window.addEventListener("pagehide", () => {
+	delete window.__cozyclay;
+	delete window.__cozyclayProject;
+}, { once: true });
+
 // Before the first render: a translator can rewrite text nodes at any time (#1046).
 installDomMutationGuard();
 registerPwa();

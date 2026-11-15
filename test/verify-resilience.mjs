@@ -13,11 +13,14 @@ const read = (path) => readFile(new URL(`../src/${path}`, import.meta.url), "utf
 const main = await read("main.jsx");
 // StudioReadyMark (studio:ready) sits beside App inside the boundary, so a crashed first render never reports ready.
 assert.match(main, /<ErrorBoundary>\s*<App \/>\s*(?:\{\/\*[^}]*\*\/\}\s*)?(?:<StudioReadyMark \/>\s*)?<\/ErrorBoundary>/, "App must render inside the error boundary");
+assert.match(main, /addEventListener\("pagehide"[\s\S]*delete window\.__cozyclay/, "reload must clear stale studio QA globals");
 
 const boundary = await read("error-boundary.jsx");
 assert.match(boundary, /static getDerivedStateFromError/, "the boundary must derive fallback state from the error");
 assert.match(boundary, /componentDidCatch/, "the crash must reach the console, not vanish");
 assert.match(boundary, /window\.location\.reload/, "the crash screen must offer the reload recovery");
+assert.match(boundary, /Failed to fetch dynamically imported module/, "a transient module fetch failure must be recognized");
+assert.match(boundary, /sessionStorage/, "a module fetch retry must be bounded per browser session");
 assert.match(boundary, /role="alert"/, "the crash screen announces itself to assistive tech");
 
 // --- a lost GL context is handled, not ignored -----------------------------

@@ -23,7 +23,7 @@ export const Character = memo(function Character({ character, ...props }) {
 	if (isProxyFigure(props)) return <ProxyFigure {...props} />;
 	// a model file that fails to load falls back to the proxy figure instead of crashing the stage
 	return (
-		<CharacterLoadBoundary key={props.url} url={props.url} fallback={<ProxyFigure {...props} />}>
+		<CharacterLoadBoundary key={props.url} url={props.url} fallback={<ProxyFigure {...props} />} onLoadFailure={() => useFBX.clear(props.url)}>
 			<RiggedCharacter {...props} />
 		</CharacterLoadBoundary>
 	);
