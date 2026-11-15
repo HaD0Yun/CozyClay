@@ -192,7 +192,7 @@ const dock = await evaluate(`(() => {
 	return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
 })()`);
 expect("the current All view screenshot fills the measured dock", Math.abs(dock.width - geometry.dock.width) < 0.5 && Math.abs(dock.height - geometry.dock.height) < 0.5, JSON.stringify({ dock, measured: geometry.dock }));
-await screenshot("task-13-current", dock);
+await screenshot("task-13-current", { x: dock.left, y: dock.top, width: dock.width, height: dock.height });
 
 ws.close();
 if (failures) {
