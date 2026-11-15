@@ -4,15 +4,29 @@
 // members with the clip's motion as their take.
 // The key "lowvis/claude-opus-5-5" is listed in the Agent box's model picker while CLIProxyAPI is signed in; the
 // route sends that key here and every other key on (agent-routes.mjs).
-// What the last lowvis turn of a conversation made is taken out by the next one. The model does not see the objects
-// the Studio already has: it writes a scene of its own.
+// A turn starts from the Studio's own scene (src/lowvis/studio/scene.js reads the editor's describe answer): the
+// objects and X Bot characters it has go to the model as props and characters it may use, and the install moves or
+// animates those instead of making them again. So a set that a build step or the user made is the set the motion
+// plays in. The model also gets the scene and spec it wrote last in this conversation, to change or continue them.
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const LOWVIS_MODEL_KEY = "lowvis/claude-opus-5-5";
 const MODEL = { id: "claude-opus-5-5", key: LOWVIS_MODEL_KEY, label: "Opus 5.5 (lowvis motion)", efforts: ["medium", "high", "low"], defaultEffort: "medium", input: ["text"] };
 const ROOT = resolve(import.meta.dirname, "../.."), VARIANT = "tilt";
-const made = new Map(); // Studio sessionId -> { characterIds, objectIds } of that conversation's last install
+const last = new Map(); // Studio sessionId -> { scene, spec } the model wrote last in that conversation
+
+/** The request the authoring loop reads: the user's words, then the Studio's scene and the conversation's last motion. */
+function requestOf(text, studio, before) {
+	const parts = [text];
+	if (studio.characters.length || studio.props.length) {
+		parts.push(`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.\n${JSON.stringify(studio)}`);
+	}
+	if (before) {
+		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
+	}
+	return parts.join("\n\n");
+}
 
 /** True for the model key the lowvis engine runs. */
 export const isLowvisModel = key => key === LOWVIS_MODEL_KEY;
@@ -28,12 +42,12 @@ export function withLowvisModels(listing) {
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
 
 /**
- * runLowvisTurn({ value, session, send, close, res, controller, studioTools, studioRunners, env, studioIdentity,
+ * runLowvisTurn({ value, session, send, close, res, controller, studioTools, hub, studioRunners, env, studioIdentity,
  *                 admission }) -> true when the lowvis engine ran the turn, false for any other model key.
  * Ends the record with a done frame, then closes the stream and clears the session's running turn the way
  * agent-routes.mjs does.
  */
-export async function runLowvisTurn({ value, session, send, close, res, controller, studioTools, studioRunners, env = process.env, studioIdentity, admission }) {
+export async function runLowvisTurn({ value, session, send, close, res, controller, studioTools, hub, studioRunners, env = process.env, studioIdentity, admission }) {
 	if (!isLowvisModel(value.model)) return false;
 	// a conversation that ran on another engine: its pi runner keeps that engine's prompt, so it is closed (v4/dispatch.mjs)
 	if (session.modelSession && (session.turnEngine ?? "studio") !== "lowvis") {
@@ -45,10 +59,11 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 	const signal = controller.signal;
 	try {
 		try {
-			const [{ runScene }, { installClip }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js")]);
+			const [{ runScene }, { installClip }, { studioScene }] = await Promise.all([import("../../src/lowvis/pi/harness.mjs"), import("../../src/lowvis/studio/install.js"), import("../../src/lowvis/studio/scene.js")]);
 			const name = `agent-${stamp()}`;
+			const studio = studioScene(await hub.command("describe", {}, value.context.host.workspaceHandle));
 			let shots = 0;
-			const record = await runScene({ name, request: value.text, model: MODEL.id, effort: value.effort ?? MODEL.defaultEffort, variant: VARIANT, env, signal, log: line => {
+			const record = await runScene({ name, request: requestOf(value.text, studio.scene, last.get(value.sessionId)), model: MODEL.id, effort: value.effort ?? MODEL.defaultEffort, variant: VARIANT, env, signal, log: line => {
 				// one tool row per compile, as the panel shows any tool call
 				const shot = /^\s*shot (\d+): (\w+)/.exec(line);
 				if (!shot) return;
@@ -61,9 +76,19 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 			if (!record.final) throw new Error(`The motion engine ended without a scene (${record.endedBy}).`);
 			const clip = JSON.parse(readFileSync(join(ROOT, "public/lowvis/clips/pi", `${name}.json`), "utf8"));
 			let refused = null;
-			const run = async (action, args) => { try { return await studioTools.internal.invoke("run_action", { action, args }); } catch (error) { refused = error; return null; } };
-			const result = await installClip(clip, run, { label: value.text, remove: made.get(value.sessionId) });
-			made.set(value.sessionId, { characterIds: result.characterIds, objectIds: result.objectIds });
+			// A scene that changed while the motion was written (a build task finished, the user moved something) answers
+			// STALE_SCENE once: the tools re-admit at the live revision, and the same step is sent again.
+			const run = async (action, args) => {
+				for (let tries = 0; ; tries++) {
+					try { return await studioTools.internal.invoke("run_action", { action, args }); } catch (error) {
+						if (error?.code === "STALE_SCENE" && tries < 2) continue;
+						refused = error;
+						return null;
+					}
+				}
+			};
+			const result = await installClip(clip, run, { label: value.text, existing: studio.ids });
+			if (result.ok) last.set(value.sessionId, { scene: record.final.scene, spec: record.final.spec });
 			if (!result.ok) throw Object.assign(new Error(`The motion was made (${name}) but the Studio refused to install it: ${refused?.message ?? "unknown reason"}`), { code: refused?.code ?? "studio" });
 			send({ type: "text.delta", text: `${record.report ?? "The motion is installed."}\n\n(${clip.frameCount} frames, ${clip.characters.length} character(s), ${(clip.props ?? []).length} prop(s), ${Math.round(record.wallMs / 1000)} s, ${record.compiles} compile(s))` });
 		} catch (error) {

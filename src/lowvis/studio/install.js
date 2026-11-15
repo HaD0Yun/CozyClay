@@ -5,7 +5,7 @@
 // installClip(clip, run, options) is the same for the Studio page (run = its own action runner) and for the agent
 // sidecar (run = the turn's run_action). Browser-safe and node-safe: no three.js, no node:* import.
 import { encodeRawTrack } from "../../motion-v4/track/codec.js";
-import { qRotate } from "../rig17.js";
+import { qMul, qRotate } from "../rig17.js";
 import { TRACK_RIG, clipTrack } from "./take.js";
 
 /** Ids of the cast members a clip made: "lowvis-<clip character id>". */
@@ -40,32 +40,43 @@ function moves(prop) {
  * installClip(clip, run, { label, remove }) -> { characterIds, objectIds, ok }: what it made; ok false when the Studio refused a step.
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
+ * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
+ * character with a listed id IS that Studio object or cast member, so it is moved or animated, not made again.
  */
-export async function installClip(clip, run, { label = "lowvis", remove = null } = {}) {
+export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
 	const objectIds = [], characterIds = [], tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, ok: false });
 	for (const prop of clip.props ?? []) {
-		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS;
-		const size = prop.shape === "sphere" ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
-		const added = await run("object.add", { kind: prop.shape === "sphere" ? "sphere" : "cube", name: String(prop.id),
-			placement: { x: at.pos[0], y: at.pos[1], z: at.pos[2], rot: upright ? Math.round(2 * Math.atan2(at.quat[1], at.quat[3]) * DEG * 100) / 100 : 0 } });
-		const id = added?.affectedIds?.[0];
-		if (!id) return stop();
-		objectIds.push(id);
-		if (!await run("object.update", { id, patch: { scaleX: size[0], scaleY: size[1], scaleZ: size[2] } })) return stop();
-		// a prop that moves, or stands tilted (an object's own fields hold a turn about Y only here), follows a track
-		if (moves(prop) || !upright) {
+		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
+		let id = known?.id, turn = null;
+		if (known) {
+			// the scene the model wrote is where the motion happens: an object it stood elsewhere goes there
+			if (Math.hypot(at.pos[0] - known.x, at.pos[1] - known.y, at.pos[2] - known.z) > 0.005 && !await run("object.update", { id, patch: { x: at.pos[0], y: at.pos[1], z: at.pos[2] } })) return stop();
+			if (known.rot) turn = [0, Math.sin(known.rot / DEG / 2), 0, Math.cos(known.rot / DEG / 2)]; // the object's own turn about Y, which the clip's box does not have
+		} else {
+			const size = prop.shape === "sphere" ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
+			const added = await run("object.add", { kind: prop.shape === "sphere" ? "sphere" : "cube", name: String(prop.id),
+				placement: { x: at.pos[0], y: at.pos[1], z: at.pos[2], rot: upright ? Math.round(2 * Math.atan2(at.quat[1], at.quat[3]) * DEG * 100) / 100 : 0 } });
+			id = added?.affectedIds?.[0];
+			if (!id) return stop();
+			objectIds.push(id);
+			if (!await run("object.update", { id, patch: { scaleX: size[0], scaleY: size[1], scaleZ: size[2] } })) return stop();
+		}
+		// a prop that moves, or a new one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
+		if (moves(prop) || (!known && !upright)) {
 			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
-			for (let f = 0; f < F; f++) { const p = pivot(prop, f); pos.set(p.pos, f * 3); quat.set(p.quat, f * 4); }
+			for (let f = 0; f < F; f++) { const p = pivot(prop, f); pos.set(p.pos, f * 3); quat.set(turn ? qMul(p.quat, turn) : p.quat, f * 4); }
 			tracks[id] = { pos, quat };
 		}
 	}
 
 	for (const [index, figure] of clip.characters.entries()) {
-		const characterId = `lowvis-${safe(figure.id ?? index)}`;
-		if (!await run("character.add", { character: { id: characterId, model: TRACK_RIG, ...clipStart(clip, index) } })) return stop();
-		characterIds.push(characterId);
+		const known = existing?.characters?.[figure.id], characterId = known ?? `lowvis-${safe(figure.id ?? index)}`;
+		if (!known) {
+			if (!await run("character.add", { character: { id: characterId, model: TRACK_RIG, ...clipStart(clip, index) } })) return stop();
+			characterIds.push(characterId);
+		}
 		const raw = clipTrack(clip, index);
 		if (index === 0) raw.objects = tracks; // one take draws the props that move
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();

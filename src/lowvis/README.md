@@ -45,11 +45,23 @@ export const LOOKS = { box, capsule, stick, man, woman, block };  // each: ({ ti
 
 ## Studio layer (prototype, `src/lowvis/studio/`)
 
-`/app/?lowvis[=<port>]` opens the Studio with a lowvis request box. A request goes to `tools/lowvis/pi/try.mjs` on
-that port (default 5201); the finished clip is drawn in the Studio's own scene at the Studio playhead (`layer.jsx`),
-so the timeline, the editor and shot cameras and the shot preview show it. The Studio's cast hides while a clip
-plays. The figures and props of a clip are not Studio cast members or objects: they cannot be selected, moved, posed
-or saved with the project, and the Studio's own agent box does not write lowvis scenes.
+A lowvis clip becomes ordinary Studio scene content (`install.js`): each prop a Studio object (a prop that moves
+rides a track of a take), each character an X Bot cast member whose take is the clip's motion (`take.js`: exact,
+because the 17 joints are X Bot bones). `skin.jsx` draws the block look over rig characters from their bones.
+
+Two ways in, both started by `node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs` (dev server with the agent
+sidecar, live hub on its own port, sidecar files in `lowvis-out/studio-config`):
+
+- The Studio's Agent box with the model "Opus 5.5 (lowvis motion)" (`bin/agent/lowvis-turn.mjs`). The turn reads
+  the Studio's objects and X Bot characters (`scene.js`) and hands them to the model as the props and characters of
+  its scene, so a set made by a build step or by the user is the set the motion plays in; it also hands over the
+  scene and spec of the conversation's last lowvis turn.
+- `/app/?lowvis[=<port>]`: a request box on the stage that asks `try.mjs` (default port 5201) and installs the
+  finished clip. With "As Studio characters" off, the clip is only drawn over the stage (`layer.jsx`).
+
+Not done: a Studio object reaches the model as one upright box (a bench with a backrest is a solid block, a turned
+object the box around it); Y Bot characters are not used; the task coordinator's motion tasks still run on the
+other motion engine.
 
 ## Recorder
 
