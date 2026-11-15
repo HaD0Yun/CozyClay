@@ -117,3 +117,31 @@ test('the runner: a worker that fails hands its jobs to the calling thread and s
 	assert.equal(refusing.takeWarning(), null, 'a refusal is not a worker failure');
 	assert.equal(createCompileRunner({ spawn: () => null }).run(job).frameCount, 24, 'no worker: the calling thread');
 });
+
+test('motion.compile keeps a worker fallback warning schema-valid at the receipt boundary', async () => {
+	const previousWorker = globalThis.Worker;
+	class CrashingWorker {
+		postMessage() { setTimeout(() => this.onerror?.({ message: 'forced worker failure', preventDefault() {} }), 0); }
+		terminate() { this.terminated = true; }
+	}
+	globalThis.Worker = CrashingWorker;
+	const f = motionFixture();
+	const logged = [], previousWarn = console.warn;
+	console.warn = (...args) => logged.push(args);
+	try {
+		const spec = { schema: 'cozyclay.motion-spec.v1', fps: 24, frames: 24, use: [{ skill: 'standIdle', f0: 0, args: { at: [0, 0] } }] };
+		const receipt = await f.run('motion.compile', { characterId: 'actor-a', spec }, 'ui');
+		const fullNote = 'The motion compile worker stopped (forced worker failure); compiling on the main thread, which is slower and blocks the editor while it runs.';
+		assert.equal(receipt.ok, true, JSON.stringify(receipt).slice(0, 1000));
+		assert.deepEqual(receipt.warnings, [{
+			code: 'MOTION_COMPILE_WORKER_STOPPED',
+			message: fullNote.slice(0, 120),
+		}]);
+		assert.deepEqual(logged, [['[cozyclay] motion compile worker stopped', fullNote]]);
+	} finally {
+		console.warn = previousWarn;
+		f.dispose();
+		if (previousWorker === undefined) delete globalThis.Worker;
+		else globalThis.Worker = previousWorker;
+	}
+});
