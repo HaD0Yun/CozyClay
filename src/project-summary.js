@@ -12,7 +12,6 @@ export function projectSummary(project) {
 	return {
 		scenes: scenes.length,
 		shots: scenes.reduce((total, scene) => total + (Array.isArray(scene?.shotDocument?.shots) ? scene.shotDocument.shots.length : 0), 0),
-		previsMode: typeof project?.previsMode === "string" ? project.previsMode : null,
 		castStyle: typeof project?.castStyle === "string" ? project.castStyle : null,
 	};
 }

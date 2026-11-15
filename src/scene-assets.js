@@ -315,10 +315,8 @@ export async function importImageFile(file, {
  */
 export function referencedAssetIds(scenes) {
 	const ids = new Set(assetUsageCounts(scenes).keys());
-	// A storyboard panel's stylized picture is held by its shot, not by an object;
-	// a scene's HDR environment file by its stage look (stage.lighting.hdr).
+	// A scene's HDR environment file is held by its stage look (stage.lighting.hdr).
 	for (const scene of Array.isArray(scenes) ? scenes : []) {
-		for (const shot of Array.isArray(scene?.shotDocument?.shots) ? scene.shotDocument.shots : []) if (isImageAssetId(shot?.stylizedAssetId)) ids.add(shot.stylizedAssetId);
 		// and an imported character's file by the character (character-rig.js rigImport.assetId)
 		if (isHdrAssetId(scene?.stage?.lighting?.hdr)) ids.add(scene.stage.lighting.hdr); for (const c of Array.isArray(scene?.stage?.characters) ? scene.stage.characters : []) if (isMeshAssetId(c?.rigImport?.assetId)) ids.add(c.rigImport.assetId);
 	}

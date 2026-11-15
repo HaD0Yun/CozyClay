@@ -20,12 +20,9 @@ import { ASSET_MAX_SOURCE_BYTES, assetIdForBytes, isAssetId, isImageAssetId, isM
 import { ko } from "./locale.js"; import { hdrIdForBytes, isHdrAssetId } from "./stage-hdr.js";
 
 export const PROJECT_VERSION = 5;
-// A project is authored either as a storyboard (stills) or as animation
-// (clips). v5 records the choice on the envelope; v2-v4 files are animation.
-export const PREVIS_MODES = Object.freeze(["storyboard", "animation"]);
-export const DEFAULT_PREVIS_MODE = "animation";
-
-export const normalizePrevisMode = (value) => (PREVIS_MODES.includes(value) ? value : DEFAULT_PREVIS_MODE);
+// Every project is an animation project. A v5 file written by an older build
+// may say `previsMode: "storyboard"`: it is read as `wasStoryboard` and opened
+// as an unsaved animation copy (animationCopyOfStoryboard).
 // Which bodies the project is cast with: rigged humanoids for detailed previs,
 // capsule figures for simple previs, or a mix. A file without the field
 // predates the choice and already holds a rig character, so it reads as hybrid.
@@ -304,7 +301,7 @@ function readEmbeddedAssets(value, report) {
  * assetRef references them. Throws `resources-too-large` when the whole
  * manifest exceeds its budget.
  */
-export function createProjectDocument({ scenesDocument, workspaceLayout, customPoses, name, previsMode, castStyle, assets, savedAt, workflow }) {
+export function createProjectDocument({ scenesDocument, workspaceLayout, customPoses, name, castStyle, assets, savedAt, workflow }) {
 	const assetRecords = new Map();
 	for (const record of Array.isArray(assets) ? assets : []) {
 		const asset = embeddedAsset(record);
@@ -326,7 +323,7 @@ export function createProjectDocument({ scenesDocument, workspaceLayout, customP
 		kind: "project",
 		version: PROJECT_VERSION,
 		name: typeof name === "string" && name.trim() ? name.trim() : "Untitled",
-		previsMode: normalizePrevisMode(previsMode), castStyle: normalizeCastStyle(castStyle),
+		castStyle: normalizeCastStyle(castStyle),
 		...(Number.isFinite(savedAt) && savedAt > 0 ? { savedAt } : {}),
 		scenes: scenesDocument,
 		workspace: workspaceLayout ?? null,
@@ -336,33 +333,18 @@ export function createProjectDocument({ scenesDocument, workspaceLayout, customP
 	};
 }
 
-/** Convert a normalized storyboard project into a fresh animation envelope.
- * The source remains untouched: still shot records are copied with their
- * ranges, camera keys, captions, cast overrides and stylized asset references.
+/** The animation copy of a project read from an old storyboard file: the same
+ * scenes under a new name, unsaved (no savedAt). Still shots open as ordinary
+ * shots with their ranges (the shot reader drops the storyboard-only fields).
+ * The source object is not changed and nothing is written to its file.
  */
-export function buildAnimationProjectFromStoryboard(project) {
-	const scenesDocument = structuredClone(project?.scenesDocument ?? { version: SCENES_VERSION, activeSceneId: null, scenes: [] });
-	scenesDocument.scenes = (scenesDocument.scenes ?? []).map((scene) => ({
-		...scene,
-		shotDocument: scene.shotDocument && typeof scene.shotDocument === "object"
-			? {
-				...scene.shotDocument,
-				shots: Array.isArray(scene.shotDocument.shots)
-					? scene.shotDocument.shots.map((shot) => ({ ...shot, ...(shot.kind === "still" ? { kind: "clip" } : {}) }))
-					: scene.shotDocument.shots,
-			}
-			: scene.shotDocument,
-	}));
-	return createProjectDocument({
-		scenesDocument,
-		workspaceLayout: structuredClone(project?.workspaceLayout ?? null),
-		customPoses: structuredClone(project?.customPoses ?? []),
+export function animationCopyOfStoryboard(project) {
+	return {
+		...project,
 		name: `${project?.name || "Untitled"} - ${ko("Animation", "애니메이션")}`,
-		previsMode: "animation", castStyle: project?.castStyle,
-				assets: project?.assets ?? [],
-		workflow: structuredClone(project?.workflow ?? createWorkflowGraph()),
-		savedAt: Date.now(),
-	});
+		savedAt: null,
+		wasStoryboard: false,
+	};
 }
 
 /**
@@ -370,8 +352,9 @@ export function buildAnimationProjectFromStoryboard(project) {
  * problems?, project? }. Invalid embedded records are skipped, each one
  * reported as a warning string and a `{ kind, id, code, message }` problem.
  * v2/v3 files carry images at the top-level `assets`; v4 moves everything
- * under `resources`; v5 adds the top-level `previsMode` and `castStyle`
- * (absent or unknown reads as the default). Older files are read as-is, never rewritten.
+ * under `resources`; v5 adds the top-level `castStyle` (absent or unknown reads
+ * as the default). A v5 file that says `previsMode: "storyboard"` reads with
+ * `wasStoryboard: true`. Older files are read as-is, never rewritten.
  */
 export function readProjectDocument(raw) {
 	let parsed;
@@ -405,7 +388,8 @@ export function readProjectDocument(raw) {
 		problems,
 		project: {
 			name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "Untitled",
-			previsMode: normalizePrevisMode(parsed.previsMode), castStyle: normalizeCastStyle(parsed.castStyle),
+			castStyle: normalizeCastStyle(parsed.castStyle),
+			...(parsed.previsMode === "storyboard" ? { wasStoryboard: true } : {}),
 			savedAt: Number.isFinite(parsed.savedAt) && parsed.savedAt > 0 ? parsed.savedAt : null,
 			scenesDocument: { version: scenes.version, activeSceneId: scenes.activeSceneId ?? null, scenes: scenes.scenes },
 			workspaceLayout: parsed.workspace && typeof parsed.workspace === "object" ? parsed.workspace : null,
@@ -552,18 +536,18 @@ export function loadProjectSession(storage = globalThis.localStorage) {
 		const value = JSON.parse(storage?.getItem(PROJECT_SESSION_KEY) || "null");
 		if (!value || typeof value !== "object") return null;
 		const name = typeof value.name === "string" ? value.name.trim() : "";
-		return name ? { name, previsMode: normalizePrevisMode(value.previsMode), castStyle: normalizeCastStyle(value.castStyle), updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0 } : null;
+		return name ? { name, castStyle: normalizeCastStyle(value.castStyle), updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0 } : null;
 	} catch {
 		return null;
 	}
 }
 
-// `identity` is the previs mode, or `{ previsMode, castStyle }`.
-export function storeProjectSession(name, identity = DEFAULT_PREVIS_MODE, storage = globalThis.localStorage) {
+// `identity` is `{ castStyle }`.
+export function storeProjectSession(name, identity = {}, storage = globalThis.localStorage) {
 	const normalized = typeof name === "string" ? name.trim() : "";
 	if (!normalized) return false;
 	try {
-		storage?.setItem(PROJECT_SESSION_KEY, JSON.stringify({ name: normalized, previsMode: normalizePrevisMode(identity?.previsMode ?? identity), castStyle: normalizeCastStyle(identity?.castStyle), updatedAt: Date.now() }));
+		storage?.setItem(PROJECT_SESSION_KEY, JSON.stringify({ name: normalized, castStyle: normalizeCastStyle(identity?.castStyle), updatedAt: Date.now() }));
 		return true;
 	} catch {
 		return false;
