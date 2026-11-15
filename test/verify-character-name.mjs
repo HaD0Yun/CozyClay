@@ -41,9 +41,9 @@ test("a reference by a model-built name resolves to that character", () => {
 	const place = (relativeTo) => arrangement(validateStudioCommand({ name: "arrange_objects", args: { ops: [
 		{ op: "create", source: { kind: "cube" }, name: "Crate", position: { relativeTo, basis: "world", side: "left", gapM: 0.5, support: "floor" } },
 	] } }), state(cast), ports).draft.find((row) => row.name === "Crate");
-	const nearOne = place("Y Bot 1"), nearTwo = place("Y Bot 2");
-	assert.ok(nearOne.x < 0, `"Y Bot 1" resolves to char-1 at x 0 (crate x ${nearOne.x})`);
-	assert.ok(nearTwo.x > 1, `"Y Bot 2" resolves to char-2 at x 3 (crate x ${nearTwo.x})`);
+	const nearOne = place("Y Bot (old) 1"), nearTwo = place("Y Bot (old) 2");
+	assert.ok(nearOne.x < 0, `"Y Bot (old) 1" resolves to char-1 at x 0 (crate x ${nearOne.x})`);
+	assert.ok(nearTwo.x > 1, `"Y Bot (old) 2" resolves to char-2 at x 3 (crate x ${nearTwo.x})`);
 });
 
 test("the name helper is a leaf module, so Node-side callers such as the MCP handlers can import it", async () => {

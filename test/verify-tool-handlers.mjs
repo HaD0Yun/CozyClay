@@ -43,7 +43,7 @@ CAMERA
   distance   4.51m to the subject's centre of mass
 
 CAST (total: 1, returned: 1, truncated: false, revision: <rev>)
-  A char-a  "Y Bot a"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
+  A char-a  "Y Bot (old) a"  at x 0, z 0, facing 0deg  [y-bot-tpose]  <- framed
     model: y-bot-tpose  kind: rig  pose: null  tint: null  scale: 1
     layer: {"waypoints":[]}
 
@@ -145,7 +145,7 @@ assert.deepEqual(
 console.log("PASS handler arguments and the memory-only live path behave as they do over MCP");
 
 /* ------------- 5. a character without a subject (#1212) ------------------- */
-// The name shown is built from the model (the report above: "Y Bot a"). A prompt
+// The name shown is built from the model (the report above: "Y Bot (old) a"). A prompt
 // still needs a description, so it gets the neutral phrase, never an empty one,
 // and a second character without a subject is still the prompt's second subject.
 

@@ -9,9 +9,9 @@ const ANIMATION_STEPS = [
 		en: "Add a character.",
 		ko: "캐릭터를 추가하세요.",
 		zh: "添加一个角色。",
-		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Y Bot.",
-		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 Y Bot을 고르세요.",
-		hintZh: "点击右侧工具栏顶部高亮的“添加”按钮，然后选择 Y Bot。",
+		hintEn: "Click the lit Add button at the top of the tool rail on the right, then Block figure.",
+		hintKo: "오른쪽 도구 막대 맨 위에 빛나는 추가 버튼을 누르고 블록 인형을 고르세요.",
+		hintZh: "点击右侧工具栏顶部高亮的“添加”按钮，然后选择积木人。",
 	},
 	{
 		en: "Move it in the Scene view.",

@@ -2,7 +2,7 @@
 // history, gesture fences and semantic revision/telemetry. No UI callbacks here.
 import { Euler, Vector3, Quaternion, PerspectiveCamera } from 'three';
 import { createSceneObject, updateSceneObject, removeSceneObject, setSceneObjectParent, descendantsOf, isEffectivelyHidden, supportHeightForObject, OBJECT_MENU_ENTRIES } from './scene-objects.js';
-import { createCharacterEntry } from './scenes.js'; import { characterName } from './character-name.js';
+import { createCharacterEntry, NEW_CHARACTER_MODEL } from './scenes.js'; import { characterName } from './character-name.js';
 import { createShot, shotAtFrame } from './cuts.js';
 import { captureFraming } from './camera-move.js';
 import { createStableItemId } from './stable-items.js';
@@ -285,7 +285,7 @@ export function arrangement(command, before, ports) {
         parentId = rows.some(e => e.id === op.parent) ? op.parent : createdByName.get(normalizedName(op.parent));
         if (!parentId) fail('AMBIGUOUS_TARGET', `Create parent '${op.parent}' is neither an existing object id nor an object created earlier in this batch; create the parent first.`);
       }
-      entity = isObject ? createSceneObject(op.source.kind, rows) : createCharacterEntry({ id: createStableItemId('character'), subject: normalizedName(op.name) });
+      entity = isObject ? createSceneObject(op.source.kind, rows) : createCharacterEntry({ id: createStableItemId('character'), model: NEW_CHARACTER_MODEL, subject: normalizedName(op.name) });
       if (!entity) fail('INVALID_ARGUMENT', 'Unsupported object library kind.');
       rows = [...rows, entity];
       // Parent before placing, so avoidance and overlap checks see one body.

@@ -491,8 +491,8 @@ const implementations={
  async 'context-character-names'(f){
   // #1212: a character without a subject is named from its model and id, and the agent can use exactly that name.
   const c=f.binding.context(), names=c.entityIndex.filter(e=>e.kind==='character').map(e=>[e.id,e.name]);
-  assert.deepEqual(names,[['actor-a','Y Bot actor-a'],['actor-b','Y Bot actor-b']],'the context names each subject-less Y Bot from its model and id');
-  const placed=await f.call('arrange_objects',f.request('arrange_objects',{ops:[{op:'create',source:{kind:'cube'},name:'Marker',position:{relativeTo:'Y Bot actor-b',basis:'world',side:'left',gapM:0.5,support:'floor'}}]}));
+  assert.deepEqual(names,[['actor-a','Y Bot (old) actor-a'],['actor-b','Y Bot (old) actor-b']],'the context names each subject-less Y Bot from its model and id');
+  const placed=await f.call('arrange_objects',f.request('arrange_objects',{ops:[{op:'create',source:{kind:'cube'},name:'Marker',position:{relativeTo:'Y Bot (old) actor-b',basis:'world',side:'left',gapM:0.5,support:'floor'}}]}));
   assert.equal(placed.status,'applied',JSON.stringify(placed));
   assert.ok(f.store.current.objects.find(o=>o.name==='Marker').x>2,'the context name resolves to actor-b at x 4');
  },

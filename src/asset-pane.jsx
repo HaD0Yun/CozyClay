@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ko } from "./locale.js";
-import { CHARACTER_MODEL_IDS, PROXY_FIGURE_MODEL } from "./scenes.js";
+import { NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL } from "./scenes.js";
 import { OBJECT_LIBRARY } from "./scene-objects.js";
 import { displayObjectLabel } from "./object-catalog.jsx";
 import { assetAspect, isImageAssetId, isMeshAssetId, isSupportedMeshType } from "./scene-assets.js";
@@ -13,13 +13,10 @@ import { logStore } from "./shell/log-store.js";
 import { SearchEmpty } from "./search-friction.js";
 import "./asset-pane.css";
 
-/** Casting assets offered in the Content browser's Characters folder. A rig's `id` doubles as
- * the FBX file stem and the motion3 rig name (see scenes.js); the capsule figure has no FBX. */
+/** Casting assets offered in the Content browser's Characters folder: the one rig, the block figure
+ * (NEW_CHARACTER_MODEL, the X Bot skeleton), and the capsule figure, which has no FBX. */
 export const CHARACTER_ASSETS = [
-	...CHARACTER_MODEL_IDS.map((id) => ({
-		id,
-		label: id === "y-bot-tpose" ? "Y Bot" : "X Bot",
-	})),
+	{ id: NEW_CHARACTER_MODEL, label: ko("Block figure", "블록 인형", "积木人") },
 	{ id: PROXY_FIGURE_MODEL, label: ko("Capsule figure", "캡슐 인물") },
 ];
 

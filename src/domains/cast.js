@@ -10,7 +10,7 @@ import {
 	capturePose,
 	captureHipsOffset,
 } from "../poses.js";
-import { createCharacterEntry, createCharacterLayer, isProxyFigure, PROXY_FIGURE_MODEL } from "../scenes.js";
+import { createCharacterEntry, createCharacterLayer, isProxyFigure, NEW_CHARACTER_MODEL, PROXY_FIGURE_MODEL } from "../scenes.js";
 import { nextCharacterId, MAX_WAYPOINTS } from "../app-stage.jsx"; import { characterName } from "../character-name.js";
 import { ko } from "../locale.js";
 import { createIkState } from "../motion/ik.js";
@@ -179,7 +179,7 @@ export function useCast(appContext) {
 				if (anyVisibleExtra) return list;
 				const hiddenIdx = list.findIndex((entry, i) => i > 0 && entry.hidden);
 				if (hiddenIdx > 0) return list.map((entry, i) => (i === hiddenIdx ? { ...entry, hidden: false } : entry));
-				return [...list, createCharacterEntry({ id: nextCharacterId(list), ...B_SLOT_START, pose: DEFAULT_POSE }, list.length)];
+				return [...list, createCharacterEntry({ id: nextCharacterId(list), model: NEW_CHARACTER_MODEL, ...B_SLOT_START, pose: DEFAULT_POSE }, list.length)];
 			}
 			return list.map((entry, i) => (i > 0 && !entry.hidden ? { ...entry, hidden: true } : entry));
 		});
@@ -670,7 +670,7 @@ export function useCast(appContext) {
 			const live = appContext.live.state;
 			const patch = finitePatch(args, ["x", "z", "rot"]);
 			const id = nextCharacterId(live.characters);
-			const entry = createCharacterEntry({ id, model: args.model, subject: args.subject, pose: DEFAULT_POSE, ...patch }, live.characters.length);
+			const entry = createCharacterEntry({ id, model: args.model ?? NEW_CHARACTER_MODEL, subject: args.subject, pose: DEFAULT_POSE, ...patch }, live.characters.length);
 			replaceCharacters([...live.characters, entry]);
 			if (isProxyFigure(entry)) track("cast:proxy_added", { surface: "mcp" });
 			return { id };

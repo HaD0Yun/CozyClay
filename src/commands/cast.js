@@ -5,7 +5,7 @@ import { studioActionDeclaration } from "../studio-actions.js";
 import { characterOf, fail, changedIds, checkPoseBones } from "./shared.js";
 import { elementSetSchema, registerElementSet } from './elements.js';
 import './elements/character.js';
-import { createCharacterEntry, CHARACTER_KIND_IDS, POSTURES, PROXY_FIGURE_MODEL, isProxyFigure } from '../scenes.js';
+import { createCharacterEntry, CHARACTER_KIND_IDS, NEW_CHARACTER_MODEL, POSTURES, PROXY_FIGURE_MODEL, isProxyFigure } from '../scenes.js';
 import { KIND_FIXED_REFUSAL } from '../character-kind.js';
 import { track } from '../analytics.js';
 import { createStableItemId } from '../stable-items.js';
@@ -68,7 +68,8 @@ export function register(registry, ports) {
 			const { position, yawDeg, ...value } = sent;
 			if (position && typeof position === 'object') { if (Number.isFinite(position.x) && value.x === undefined) value.x = position.x; if (Number.isFinite(position.z) && value.z === undefined) value.z = position.z; }
 			if (Number.isFinite(yawDeg) && value.rot === undefined) value.rot = yawDeg;
-			const row = createCharacterEntry({ ...value, id: value.id ?? createStableItemId('character') }, owner().read().length);
+			// A character.add without a model is a new block figure (NEW_CHARACTER_MODEL).
+			const row = createCharacterEntry({ ...value, model: value.model ?? NEW_CHARACTER_MODEL, id: value.id ?? createStableItemId('character') }, owner().read().length);
 			if (owner().read().some(entry => entry.id === row.id)) fail('INVALID_ARGUMENT', 'Character id already exists.');
 			owner().write(rows => [...rows, row]);
 		},

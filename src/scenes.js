@@ -39,6 +39,10 @@ export { TIMELINE_FRAME_FPS };
  * file stem and the motion3 rig name (src/motion3/rigs/<id>.json). */
 export const CHARACTER_MODEL_IDS = Object.freeze(["y-bot-tpose", "x-bot-tpose"]);
 export const DEFAULT_CHARACTER_MODEL = "y-bot-tpose";
+/** The model every add path gives a new character: the X Bot skeleton, drawn
+ * as the block figure. DEFAULT_CHARACTER_MODEL stays the reading of a saved
+ * row without a model, so old documents load as before. */
+export const NEW_CHARACTER_MODEL = "x-bot-tpose";
 /** A rig-free capsule stand-in for blocking. It has no FBX and no motion3
  * rig, so it extends the accepted kinds without joining
  * CHARACTER_MODEL_IDS. */

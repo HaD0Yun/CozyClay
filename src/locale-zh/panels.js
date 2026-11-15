@@ -169,7 +169,6 @@ export const ZH_PANELS = {
 	"Apply range": "应用到区间",
 	"Grab a hand, foot, elbow or knee handle in the viewport.": "在视口中抓住手、脚、肘或膝的控制点。",
 	"Rig": "骨骼",
-	"Character rig": "角色骨骼",
 	"Measure": "测量",
 	"Score": "评分",
 	"Refine": "精修",

@@ -1220,15 +1220,6 @@ function PoseThumb({ model, pose, alt }) {
 	return url ? <img src={url} alt={alt} /> : <div className="tile-blank" />;
 }
 
-/** The tile preview on its own, for surfaces that show a rig rather than a
- * pose library — the rig picker renders each model in the character's own
- * current pose so the choice is a like-for-like comparison. */
-export function PoseThumbPreview({ model, pose, alt }) {
-	// The stored thumb belongs to the model it was captured on, so a rig
-	// comparison must always re-render rather than reuse it.
-	return <PoseThumb model={model} pose={{ ...pose, thumb: undefined }} alt={alt} />;
-}
-
 // Warm the thumbnail rigs while the studio sits idle: the first pose-studio
 // open then pays no FBX parse. Both shipped models, one idle render each.
 let thumbnailsWarmed = false;

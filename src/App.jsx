@@ -229,11 +229,10 @@ import {
 	shotIndexAtFrame,
 } from "./cuts.js";
 import { playbackFrame } from "./motion/playback-frame-store.js";
-import { LowvisLayer, clipFrame } from "./lowvis/studio/layer.jsx";
 import { LowvisSkin } from "./lowvis/studio/skin.jsx";
 import { TRACK_RIG } from "./lowvis/studio/take.js";
 import { LOWVIS_ID, installClip } from "./lowvis/studio/install.js";
-import { LowvisPanel, loadLowvisClip, lowvisPort } from "./lowvis/studio/panel.jsx";
+import { clipFrame, loadLowvisClip } from "./lowvis/studio/clip-load.js";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
@@ -573,21 +572,17 @@ export default function App() {
 	// Preview is the player for the finished motion: entering starts playback,
 	// leaving pauses it. The editor view stays the manipulation surface.
 	const [tlPlaying, setTlPlaying] = useState(false);
-	// lowvis prototype (?lowvis in the URL): a lowvis clip plays on the stage in place of the cast (lowvis/studio/).
-	const [lowvisPanelPort] = useState(lowvisPort);
-	// lowvis: { name, clip, cast } - cast true when the clip is Studio scene content (lowvis/studio/install.js: its props are
-	// objects, its characters X Bot cast members with ids "lowvis-<id>"), false when the layer draws it over the stage.
-	// lowvisBlock: the block look over rig characters. lowvisMade: the objects the last install made, to take out again.
+	// lowvis: { name, clip } - a lowvis clip installed as Studio scene content (lowvis/studio/install.js: its props are
+	// objects, its characters X Bot cast members with ids "lowvis-<id>"). lowvisMade: the objects the last install made.
 	const [lowvis, setLowvis] = useState(null);
-	const [lowvisBlock, setLowvisBlock] = useState(() => Boolean(lowvisPanelPort));
 	const lowvisMade = useRef([]);
 	const lowvisBefore = () => ({ characterIds: appContext.live.characters.filter(row => LOWVIS_ID.test(row.id)).map(row => row.id), objectIds: lowvisMade.current });
-	async function showLowvis(next, { cast = true } = {}) {
+	async function showLowvis(next) {
 		setTlPlaying(false);
-		const made = await installClip(next && cast ? next.clip : { characters: [], props: [] }, runStudioAction, { label: next?.request ?? next?.name, remove: lowvisBefore() });
+		const made = await installClip(next ? next.clip : { characters: [], props: [] }, runStudioAction, { label: next?.request ?? next?.name, remove: lowvisBefore() });
 		lowvisMade.current = made.objectIds;
 		if (!next) return setLowvis(null);
-		setLowvis({ ...next, cast: cast && made.ok });
+		setLowvis(next);
 		setTlFrameCount(next.clip.frameCount);
 		setTlFrame(0);
 		setTlPlaying(true);
@@ -3496,8 +3491,8 @@ export default function App() {
 	useEffect(() => {
 	window.__cozyclay = {
 			runStudioAction, setFrame: setTlFrame, setPlaying: setTlPlaying,
-			// lowvis prototype: any clip of public/lowvis/clips/pi by name, as the panel loads a finished try
-			showLowvisClip: async (name, options) => { const clip = await loadLowvisClip(name); if (clip) await showLowvis({ name, clip }, options); return Boolean(clip); },
+			// lowvis QA: any clip of public/lowvis/clips/pi by name, installed as Studio scene content
+			showLowvisClip: async (name) => { const clip = await loadLowvisClip(name); if (clip) await showLowvis({ name, clip }); return Boolean(clip); },
 			rigA: activeRig, motion, tlFrame, frameCount: tlFrameCount, playing: tlPlaying, ikMode, ikChains, ikFocus, contactRadii: ikChains?.values().next().value?.contactRadii ?? null, ik: ikStateRef.current,
 			rangePins, rangePinResiduals,
 			rangePinApplySpec: motionDomain.rangePinApplySpec,
@@ -4405,7 +4400,7 @@ export default function App() {
 	return (
 		<AppContext.Provider value={appContext}>
 		<StudioShellContext.Provider value={shellContext}>
-		<StudioShell className={"app" + (renderActive ? "" : " render-idle")} style={workspaceStyle} data-workflow-mode={workflowMode} data-embed-mode={embedMode ? "playview" : playgroundMode ? "playground" : undefined} data-rail-draw={railDraw ? 1 : undefined} data-shot-look={lookThroughShot && !embedMode ? 1 : undefined} data-plan-draw={railDraw || pathDraw || waypointMode ? 1 : undefined}
+		<StudioShell className={"app" + (renderActive ? "" : " render-idle")} style={workspaceStyle} data-workflow-mode={workflowMode} data-lowvis-skins={characterViews.filter((view) => view.model === TRACK_RIG && rigs[view.id]).length || undefined} data-embed-mode={embedMode ? "playview" : playgroundMode ? "playground" : undefined} data-rail-draw={railDraw ? 1 : undefined} data-shot-look={lookThroughShot && !embedMode ? 1 : undefined} data-plan-draw={railDraw || pathDraw || waypointMode ? 1 : undefined}
 			viewport={
 				<div className="viewport" data-drop={viewportDrop.over ? "over" : undefined} {...viewportDrop.handlers}
 					onWheel={(event) => {
@@ -4416,7 +4411,6 @@ export default function App() {
 						}
 					}}>
 				<ViewportToolbar />
-				{lowvisPanelPort && !embedMode && <LowvisPanel port={lowvisPanelPort} loaded={lowvis?.name ?? null} cast={lowvis?.cast ?? true} block={lowvisBlock} onClip={showLowvis} onBlock={setLowvisBlock} />}
 				<ReviewOverlay />
 				{(embedMode || playgroundMode) && <CompositionGuideButton guideMode={guideMode} onCycle={(mode) => runStudioAction("view.setGuideMode", { mode })} />}
 				{sculptMode && !sculptTarget && (
@@ -4550,10 +4544,9 @@ export default function App() {
 								/>
 							)}
 
-							{lowvis && !lowvis.cast && <LowvisLayer clip={lowvis.clip} />}
-							{lowvisBlock && characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} />)}
-							{/* The cast stays mounted (its rigs are held by the playback effects) and hides while the layer draws a lowvis clip's own figures. */}
-							<group visible={!lowvis || lowvis.cast}>
+							{/* Every X Bot character draws as the block figure; its own meshes hide. Y Bots and imported rigs keep their mesh. */}
+							{characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} />)}
+							<group>
 							{characterViews.map((view) => (
 								// Always wrapped, grouped or not: giving or taking a parent
 								// must not remount the rig the playback effects hold.

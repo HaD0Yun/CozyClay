@@ -70,13 +70,12 @@ expect(
 );
 expect("picking a tile clears a running take first", appSource.includes("const hadMotion = Boolean(motion);"));
 expect(
-	"both shipped rigs are selectable per character",
-	appSource.includes("CHARACTER_MODEL_IDS.map((id) => (") &&
-	appSource.includes("run('character.update', { characterId: activeChar.id, patch: { model: id } })") &&
-	appSource.includes('const CHARACTER_MODEL_LABELS = { "y-bot-tpose": "Y Bot", "x-bot-tpose": "X Bot" };'),
+	"an old Y Bot changes to the block figure with one button; an X Bot row has no rig choice",
+	appSource.includes("run('character.update', { characterId: activeChar.id, patch: { model: NEW_CHARACTER_MODEL } })") &&
+	appSource.includes("if (activeChar.model === NEW_CHARACTER_MODEL) return null;") &&
+	appSource.includes('"x-bot-tpose": ko("Block figure", "블록 인형", "积木人")'),
 );
-expect("the rig options preview the character's own pose", appSource.includes("<PoseThumbPreview model={id}") && studioSource.includes("export function PoseThumbPreview({"));
-expect("the rig picker is styled as a radio group", appSource.includes('role="radiogroup"') && stylesSource.includes(".rig-picker"));
+expect("the posture picker keeps the radio-group style", appSource.includes('role="radiogroup"') && stylesSource.includes(".rig-picker"));
 
 expect("Pose Studio exposes stable pose id hook", studioSource.includes("data-pose-id={pose.id}"));
 expect("Pose Studio has no save tile", !studioSource.includes('data-pose-id="save-custom"'));

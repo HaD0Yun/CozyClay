@@ -4,12 +4,13 @@
 // rig walks, a prop does not); objects, cutouts, meshes and sculpts take the
 // ROOM_LIMIT clamp their creators already apply.
 import { elementByPath } from "./studio-elements.js";
+import { NEW_CHARACTER_MODEL } from "./scenes.js";
 
 const CHARACTER_BOUNDS = elementByPath("character.position").gizmo;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const DROPS = {
-	character: (payload, at, spawn) => spawn.spawnCharacter(payload.id,
+	character: (payload, at, spawn) => spawn.spawnCharacter(payload.id ?? NEW_CHARACTER_MODEL,
 		clamp(at.x, CHARACTER_BOUNDS.min.x, CHARACTER_BOUNDS.max.x),
 		clamp(at.z, CHARACTER_BOUNDS.min.z, CHARACTER_BOUNDS.max.z)),
 	object: (payload, at, spawn) => spawn.addSceneObject(payload.objectKind, at),
