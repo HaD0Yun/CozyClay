@@ -9,7 +9,7 @@ import { FINISH_LOOKS, applySurfaceLook, createFinish } from "./stage-finish.js"
 
 const STORAGE_KEY = "cozyclay.toon-look.v1";
 
-export function readStoredToonLook(storage) {
+function readStoredToonLook(storage) {
 	try { return storage?.getItem(STORAGE_KEY) !== "0"; } catch { return true; }
 }
 

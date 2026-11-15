@@ -62,7 +62,7 @@ const FILL_GAIN = `
 `;
 
 /** Patch three's chunks once, before any material compiles; answers whether the surface look is in. */
-export function installSurfaceLooks(chunks = THREE.ShaderChunk) {
+function installSurfaceLooks(chunks = THREE.ShaderChunk) {
 	if (chunks.lights_physical_pars_fragment.includes("COZY_BANDS")) return true;
 	// A three upgrade that rewrites the direct light leaves the stock one in place.
 	if (!chunks.lights_physical_pars_fragment.includes(DIRECT)) return false;
