@@ -9,8 +9,8 @@ import { join, resolve } from "node:path";
 import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINT_COUNT, INDEX as J, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
-import { NOTES, buildClip } from "../engine-simple/engine.js";
-import { badness, checkValue, isSpike, measure } from "./measure.mjs";
+import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
+import { badness, checkValue, isSpike, measure, travel } from "./measure.mjs";
 import { features } from "./prompt.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
@@ -23,8 +23,8 @@ const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
 
-/** Reasons a scene or spec cannot go to the engine, in plain words; empty when it can. */
-function problems(scene, spec) {
+/** Reasons a scene or spec cannot go to the engine, in plain words; empty when it can. turn: props may stand turned. */
+function problems(scene, spec, { turn = false } = {}) {
 	const out = [];
 	if (!isObject(scene)) return ["scene: missing. Send scene: { frames, characters: [{ id, at: [x, z], heading }], props: [...] }"];
 	if (!isObject(spec)) return ["spec: missing. Send spec: { <characterId>: [[frame, verb, options], ...] }"];
@@ -44,6 +44,8 @@ function problems(scene, spec) {
 			} else {
 				if (!pair(e.size, 3) || e.size.some(v => v <= 0)) out.push(`${where}.size: want [w, h, d] over 0, got ${JSON.stringify(e.size)}`);
 				if (!pair(e.at, 3)) out.push(`${where}.at: want the centre [x, y, z], got ${JSON.stringify(e.at)}`);
+				if (e.turn !== undefined && !turn && e.turn !== 0) out.push(`${where}.turn: a prop stands square to the axes here; give the box around it with turn left out`);
+				else if (e.turn !== undefined && !Number.isFinite(e.turn)) out.push(`${where}.turn: want degrees about Y, got ${JSON.stringify(e.turn)}`);
 			}
 		});
 	}
@@ -167,6 +169,12 @@ function spikes(rows, F) {
 	return picked;
 }
 
+/** The travel block (feature pace): one line per character and stretch of walk, run or push; none without one. */
+function travelLines(clip, aux, spec) {
+	const list = travel(clip, aux, spec);
+	return list.length ? ["travel (what each stretch of walk, run or push came out as):", ...list.map(t => `- ${t.who} f${t.a}-${t.b} ${t.verb}: ${num(t.distance)} m in ${num(t.seconds)} s = ${num(t.speed)} m/s, ${t.steps} step${t.steps === 1 ? "" : "s"}${t.cadence == null ? "" : ` = ${Math.round(t.cadence)} per minute`}`)] : [];
+}
+
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features). */
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [] }) {
@@ -183,7 +191,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		const base = { n, scene: state.scene, spec: state.spec, shown: null, images: [], files: [], buildMs: 0, renderMs: 0, edit: edited?.did };
 		const reject = (error, lines) => { if (edited) state.spec = before; return { ...base, spec: state.spec, status: "rejected", error, text: [`motion ${n}: rejected, nothing compiled`, ...lines, edited ? "The edit was not kept: the spec is as it was before this call." : "", state.last ? "The last compiled clip is unchanged." : ""].filter(Boolean).join("\n"), ms: performance.now() - t0 }; };
 		if (edited?.error) return reject(edited.error, [edited.error]);
-		const bad = problems(state.scene, state.spec);
+		const bad = problems(state.scene, state.spec, { turn: !!feature.turn });
 		if (bad.length) return reject(bad[0], bad.slice(0, 8));
 		const look = isObject(sent.look) ? sent.look : null;
 		if (look?.view !== undefined && !VIEWS[look.view]) return reject(`look.view "${look.view}"`, [`look.view: want one of ${Object.keys(VIEWS).join(", ")}, got ${JSON.stringify(look.view)}`]);
@@ -236,6 +244,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			!told.length ? "" : same ? "checks: every number is the same as in the previous compile" : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
+			...(feature.pace ? travelLines(parsed, aux, expandRepeats(state.spec, F).spec) : []),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,

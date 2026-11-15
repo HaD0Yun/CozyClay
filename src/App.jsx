@@ -237,6 +237,7 @@ import { LOWVIS_ID, installClip } from "./lowvis/studio/install.js";
 import { LowvisPanel, loadLowvisClip, lowvisPort } from "./lowvis/studio/panel.jsx";
 import { usePlaybackSubjectPosition } from "./motion/playback-subject.js";
 import { studioBusy } from "./studio-busy.js";
+import { withTops } from "./lowvis/studio/tops.js";
 import { characterGizmoObject as buildCharacterGizmoObject, characterGizmoView, followCameraActive, playbackSceneWithTrack, updateShotMetrics } from "./stage-gizmo.js";
 import {
 	CameraGlide,
@@ -2423,6 +2424,7 @@ export default function App() {
 			// footprints and every shot camera drawn from state (src/plan-diagram.js).
 			capture_plan_png: (args = {}) => appContext.live.state.capturePlanPng(requestedCaptureOutput(args) ?? undefined),
 	};
+	liveQueries.describe = withTops(liveQueries.describe, () => mcpCaptureRef.current?.scene); // describe { tops: true }: the flat heights of each solid object (tops.js)
 
 	const liveSceneName = scenes.find((entry) => entry.id === activeSceneId)?.name ?? "";
 	const liveMeta = () => ({
