@@ -130,7 +130,7 @@ includesAll("src/result-modal.jsx", ["장면이 준비됐어요", "프롬프트 
 includesAll("src/App.jsx", ["장면", "샷 카메라 시점으로 보기", "속성", "변환", "카메라 레일 완성"]);
 includesAll("src/hierarchy-panel.jsx", ["이름 바꾸기", "장면 구조", "장면 계층", "프레임 맞추기", "장면 선택", "+ 새 장면", "장면은 최소 하나 필요합니다"]);
 includesAll("src/motion/timeline.jsx", ["애니메이션 타임라인", "타임라인 펼치기"]);
-includesAll("src/posestudio.jsx", ["포즈 스튜디오", "포즈 적용", "포즈 저장"]);
+includesAll("src/posestudio.jsx", ["포즈 스튜디오", "포즈 적용"]); // "포즈 저장" went with the saved-pose library
 includesAll("src/motion/waypoints.js", ["핀 사이에는 최소", "자연스럽게 걷기엔 너무 느려요", "이전 구간보다 속도가"]);
 
 // English is the default, so the document and manifest metadata are English.

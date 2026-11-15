@@ -57,3 +57,34 @@ assert.deepEqual(shots.state.shots.map(({ startFrame, endFrame, cameraKeys }) =>
 for (const shot of shots.state.shots) for (const field of ["kind", "caption", "cast", "stylizedAssetId"]) assert.equal(field in shot, false, `${field} is dropped`);
 console.log("storyboard open-as-copy PASS: 3 stills read as 3 shots with their ranges and keys; the storyboard fields are dropped");
 console.log("storyboard open-as-copy PASS: the copy is renamed and unsaved, and the source project is unchanged");
+
+// Through the real open path (project.open with the browser's file picker, src/domains/scenes.js openProject ->
+// applyProject): a storyboard file leaves no file handle, and a following save asks for a new file and never calls
+// createWritable of the original handle.
+const { readFileSync } = await import("node:fs");
+const { projectFixture, ok } = await import("./bus/project-fixture.mjs");
+const fixtureText = readFileSync(new URL("./fixtures/previs-v5.cclayproject", import.meta.url), "utf8");
+assert.equal(JSON.parse(fixtureText).previsMode, "storyboard", "the fixture is a storyboard file");
+const f = projectFixture(), previousWindow = globalThis.window, notices = [], originalWrites = [], copyWrites = [];
+f.scope.setToast = (message) => notices.push(typeof message === "function" ? message(false, (english) => english) : String(message));
+const original = {
+	name: "Previs v5.cclayproject", kind: "file",
+	getFile: async () => ({ name: "Previs v5.cclayproject", text: async () => fixtureText, lastModified: 1791504000000 }),
+	createWritable: async () => { originalWrites.push("createWritable"); return { write: async () => {}, close: async () => {} }; },
+};
+const copyHandle = { name: "Previs v5 - Animation.cclayproject", kind: "file", createWritable: async () => ({ write: async (text) => { copyWrites.push(text); }, close: async () => {} }) };
+let savePicks = 0;
+try {
+	globalThis.window = { showOpenFilePicker: async () => [original], showSaveFilePicker: async () => { savePicks += 1; return copyHandle; } };
+	ok(await f.run("project.open"));
+	assert.equal(f.scope.projectHandleRef.current, null, "a storyboard file opened through the picker leaves no file handle");
+	assert.equal(f.project.metadata().name, "Previs v5 - Animation", "it opens as the renamed animation copy");
+	assert.ok(notices.some((notice) => /This is a copy: the original file is unchanged/.test(notice)), `the user is told it is a copy (${notices.join(" | ")})`);
+	ok(await f.run("project.save"));
+	assert.deepEqual(originalWrites, [], "the save never calls createWritable of the original handle");
+	assert.equal(savePicks, 1, "the save asks for a new file");
+	assert.equal(copyWrites.length, 1, "the copy is written to the new file");
+	assert.equal(JSON.parse(copyWrites[0]).name, "Previs v5 - Animation");
+	assert.equal(f.scope.projectHandleRef.current, copyHandle, "later saves go to the new file");
+} finally { globalThis.window = previousWindow; f.dispose(); }
+console.log("storyboard open-as-copy PASS: opened through the picker it keeps no file handle; the next save asks for a new file and never writes the original");

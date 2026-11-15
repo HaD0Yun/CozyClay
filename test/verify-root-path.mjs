@@ -39,7 +39,7 @@ assert.deepEqual(resolveCharacterPlacement(pathCharacter, 12, { shotAt, takeRoot
 	{ x: 8, z: 9, rot: 77, posture: "sit", pose: { name: "base" } });
 assert.deepEqual(resolveCharacterPlacement({ ...placementCharacter, layer: { waypoints: [] } }, 12, {
 	shotAt: () => ({ cast: { proxy: { x: 4, z: 5, rot: 33, posture: "lie", pose: { name: "shot" } } } }),
-}), { x: 4, z: 5, rot: 33, posture: "lie", pose: { name: "shot" } });
+}), { x: 1, z: 1, rot: 10, posture: "sit", pose: { name: "base" } }, "an old shot's per-shot cast override no longer places a character");
 assert.deepEqual(sampleRootPath(character, -10), { x: 0, z: 0, heading: 12 });
 assert.deepEqual(sampleRootPath(character, 12, { fps: 48 }), sampleRootPath(character, 12));
 const stationary = { ...character, layer: { waypoints: [{ frame: 24, x: 0, z: 0, heading: null }] } };

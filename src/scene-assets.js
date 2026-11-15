@@ -75,7 +75,7 @@ export function assetIdFromDigest(hex) {
 	return idFromDigest(ASSET_ID_PREFIX, hex);
 }
 
-export function meshIdFromDigest(hex) {
+function meshIdFromDigest(hex) {
 	return idFromDigest(MESH_ID_PREFIX, hex);
 }
 

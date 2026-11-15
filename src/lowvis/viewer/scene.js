@@ -99,7 +99,7 @@ export function createPanelScene({ clip, look, bounds, environment }) {
  * The clip's characters (drawn with `look`) and its props in one group, for any three.js scene.
  * Returns { group, setFrame(f) }; a frame past the clip's end holds its last frame.
  */
-export function createClipGroup(clip, look) {
+function createClipGroup(clip, look) {
 	const group = new THREE.Group(), actors = [];
 	clip.characters.forEach((c, i) => {
 		const body = (LOOKS[look] ?? LOOKS.box)({ tint: TINTS[i % TINTS.length] });

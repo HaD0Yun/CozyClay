@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnOwned } from "./process-supervisor.mjs";
-import { PROJECT_SESSION_KEY, WORKFLOW_STORAGE_KEY, normalizeCastStyle, normalizePrevisMode } from "../src/project.js";
+import { PROJECT_SESSION_KEY, WORKFLOW_STORAGE_KEY, normalizeCastStyle } from "../src/project.js";
 import { SCENES_STORAGE_KEY } from "../src/scenes.js";
 import { WORKSPACE_LAYOUT_KEY } from "../src/stage-startup-defaults.js";
 
@@ -136,9 +136,9 @@ async function connect(wsUrl) {
 }
 
 /** The localStorage writes the Studio reads on boot: scenes, project session
- * (name, previs mode, cast style), workflow and workspace layout. */
+ * (name, cast style), workflow and workspace layout. */
 export function studioSeedScript(project) {
-	const session = { name: String(project.name || "Headless Project"), previsMode: normalizePrevisMode(project.previsMode), castStyle: normalizeCastStyle(project.castStyle), updatedAt: Date.now() };
+	const session = { name: String(project.name || "Headless Project"), castStyle: normalizeCastStyle(project.castStyle), updatedAt: Date.now() };
 	const entries = [
 		[SCENES_STORAGE_KEY, project.scenesDocument],
 		[PROJECT_SESSION_KEY, session],
