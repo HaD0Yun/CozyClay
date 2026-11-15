@@ -39,6 +39,7 @@ const NODE_FILES = [
 	"test/ik/translation-step.mjs",
 	"test/ik/verify-ik-drag-delta.mjs",
 	"test/ik/verify-ik-blend-range.mjs",
+	"test/ik/verify-ik-rest-key.mjs",
 	"test/ik/verify-range-pin.mjs",
 	"test/ik/verify-range-pin-ui.mjs",
 	"test/ik/verify-range-pin-object-transform.mjs",
