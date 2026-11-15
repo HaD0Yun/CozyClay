@@ -88,6 +88,22 @@ try {
 	root.render(h(CrashScreen, { key: "other-error" }, h(CharacterLoadBoundary, { url: "broken", fallback: null }, h(Broken))));
 	await new Promise((resolve) => setTimeout(resolve, 200));
 	ok("a render error that is not a load failure still reaches the root crash screen", crashes.some((c) => c?.message === "not a load failure"), JSON.stringify(crashes.map((c) => c?.message)));
+
+	let attempts = 0, retries = 0, allowRecovery = false;
+	const RecoversAfterRetry = () => {
+		if (!allowRecovery) {
+			attempts += 1;
+			throw new Error("Could not load /models/retry.fbx: Failed to fetch");
+		}
+		return h("group", { userData: { characterPick: "recovered" } });
+	};
+	crashes.length = 0;
+	root.render(h(CrashScreen, { key: "retry" }, h(CharacterLoadBoundary, {
+		url: "retry", fallback: null, onLoadFailure: () => { retries += 1; allowRecovery = true; },
+	}, h(RecoversAfterRetry))));
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	const recovered = picks();
+	ok("a transient load failure retries once before the proxy fallback", retries === 1 && recovered.includes("recovered"), JSON.stringify({ attempts, retries, recovered }));
 	root.unmount();
 } finally {
 	process.off("uncaughtException", onUncaught);
