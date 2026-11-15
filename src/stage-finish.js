@@ -16,10 +16,9 @@ import { GIZMO_LAYER, POSER_LAYER } from "./dualview.jsx";
 import { applySurfaceLook } from "./stage-finish-surface.js";
 
 // The line width, in pixels of a frame 1080 rows tall: every frame scales it by its own height, so the viewport (any pane
-// size, any device pixel ratio) and the exports show the same share of the frame. 1 is the width of the pictures the
-// owner approved (2026-11-16: they asked for 1.4, which the old whole-pixel taps drew as 1 at 1080 rows). The owner
-// picks the width from lowvis-out/toon-lines (1, 0.7, 0.5 of it).
-const LINE_WIDTH = 1;
+// size, any device pixel ratio) and the exports show the same share of the frame. 1 was the width of the pictures the
+// owner approved first (2026-11-16); seeing it in the Studio, the owner picked half of it, for the exports too.
+const LINE_WIDTH = 0.5;
 
 // tone: three's curve for the draw; exposure: a multiplier on the stage's own (Neutral lacks the 1/0.6 that three's ACES
 // applies); occlusion false: no soft contact darkening (stage-occlusion.js), a ramp the flat look has no place for.
