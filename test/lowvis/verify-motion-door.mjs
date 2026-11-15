@@ -9,7 +9,7 @@ import { createMotionDoor, turnMotionDoor } from "../../bin/agent/motion-door.mj
 import { createTaskBoard } from "../../bin/agent/studio-tasks.mjs";
 import { mainContextText } from "../../bin/agent/main-agent.mjs";
 
-const DONE = { report: "She waves.\nMissing: the wave has no wrist.", missing: "the wave has no wrist.", frames: 72, seconds: 31, compiles: 2, characterIds: ["c1"], objectIds: [], switched: [] };
+const DONE = { report: "She waves.\nMissing: the wave has no wrist.", missing: "the wave has no wrist.", frames: 72, clipSeconds: 3, tookSeconds: 31, compiles: 2, characterIds: ["c1"], objectIds: [], switched: [] };
 const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	const calls = { mark: 0, rollback: 0, runs: [] };
 	const tool = createMotionDoor({ run: async args => { calls.runs.push(args); return run(args); }, mark: async () => { calls.mark++; return null; }, rollback: async () => { calls.rollback++; return null; }, images });
@@ -25,7 +25,7 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	const answer = await tool.handler({ request: "she waves" }, { toolCallId: "call-1", emit: frame => frames.push(frame) });
 	assert.equal(answer.report, DONE.report);
 	assert.equal(answer.missing, DONE.missing);
-	assert.deepEqual({ ...answer }, { ok: true, report: DONE.report, missing: DONE.missing, frames: 72, seconds: 31, compiles: 2, characters: ["c1"], objects: [], switched: [] });
+	assert.deepEqual({ ...answer }, { ok: true, report: DONE.report, missing: DONE.missing, frames: 72, clipSeconds: 3, tookSeconds: 31, compiles: 2, characters: ["c1"], objects: [], switched: [] });
 	assert.equal(calls.mark, 1);
 	assert.equal(calls.runs[0].request, "she waves");
 	assert.deepEqual(frames.map(f => [f.type, f.callId, f.index, f.status]), [["tool.progress", "call-1", 1, "failed"], ["tool.progress", "call-1", 2, "done"]]);
