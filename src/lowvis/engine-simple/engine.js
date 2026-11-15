@@ -40,7 +40,7 @@ import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
 import { addCharacter, addProp, createClip, setPose } from "../clip.js";
 import { EASE, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
 import { arc, solve } from "./solve.js";
-import { hold, home, locomote, shuffle, walkAmounts } from "./gait.js";
+import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
 
 const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
@@ -52,7 +52,7 @@ export const NOTES = [
 	"no fingers and no wrist detail: a hand is one box aligned with the forearm",
 	"kneel is symmetric (both knees together); lying down is one blended roll, not a hand-supported descent",
 	"reach assist bends the hips and knees toward low targets only; it does not step toward a far target",
-	"a walk slower than about 0.2 m/s arrives early and stands; slower walks down to that speed take shorter, slower steps",
+	"a slow walk beat arrives early and stands; it is not stretched to fill the beat",
 	"run is a short-stride jog at the demo's speed (about 1.2 m/s)",
 	"a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis",
 	"a pushed prop slides with the hands; friction and weight are in the gait's timing, not simulated",
@@ -66,7 +66,7 @@ function buildBody(c, acts, F, ctx) {
 	if (!list.length || list[0].f > 0) list.unshift({ f: 0, verb: "idle", o: {} });
 	let st = { p: c.at.slice(), yaw, feet: [1, -1].map(s => ({ g: home(c.at, yaw, s), yaw })) };
 	const out = [], end = i => list[i + 1]?.f ?? F, moving = a => a && (a.verb === "walk" || a.verb === "run" || a.verb === "push");
-	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, stride: a.o.stride, amt: walkAmounts(a.o), steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
+	const seg = (a, N) => ({ kind: a.verb, to: a.o.to, N, steps: a.o.steps, burst: a.o.burst, first: a.o.first, end: a.o.end, stepFrames: a.o.stepFrames, ease: a.o.ease, heading: a.o.heading == null ? null : rad(a.o.heading), facing: a.o.facing == null ? null : rad(a.o.facing) });
 	const special = a => a.o.steps != null || a.o.facing != null || a.o.end != null || a.o.first != null;
 	for (let i = 0; i < list.length; i++) {
 		const a = list[i], N = end(i) - a.f, prop = ctx.props[a.o.on];

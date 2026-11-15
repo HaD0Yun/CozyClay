@@ -21,13 +21,12 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // plus the edit argument of shot: single actions are changed without sending the whole spec again. "reach" is patch
 // plus the rows that say how far a hand or a foot is from the target its action gave it. "noassist" is patch with the
 // engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target.
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, gait: { text: "lean", edit: true, repeat: true, tilt: true, gait: true } };
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true } };
 /** What a variant turns on: { text: "base" | "lean", edit?: true }. Throws on an unknown name. */
 export function features(variant = "base") { if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`); return FEATURES[variant]; }
 const REACH = `\n- hand off its target, foot off its target: how far a wrist or an ankle is from the point its action gave it, on the frames after that action's blend has ended; the note names the side, the action and on how many frames it is over 10 mm off. A few frames: it arrives late. Many: it is out of reach or the body has moved away.`;
 const REPEAT = `\nAny list: repeat {len, times}   the actions of this id from this frame up to len frames later play times times in a row: the engine copies them to +len, +2 * len and so on. Write the span once.`;
 const TILT = `\nIn pose: tilt: [pitch, roll], about: "hips" | "feet" | [x,y,z], shift: [x,y,z]   turns the whole figure, as it is posed, about one point, then moves it by shift (world metres). pitch > 0 tips it forward (90 = face down, 180 = upside down), roll > 0 tips it toward its own left; an angle may pass 360 for a full turn. about is the point that stays in place: the Hips joint (default), the floor between the feet, or a world point. Hand and foot targets given as world points or on props keep their place; body-frame targets and the feet of the body layer turn with the figure. tilt, about and shift keep their values until a later tilt; tilt: [0, 0] stands it up again. The floor does not hold a tilted figure: place it with shift.`;
-const GAIT = `\nIn walk: stride: m (the length of one step; the default is an ordinary step for the speed, so shorter steps over the same time are quicker ones), swing: the arms' swing, sway: the hips' side shift, drop and turn, lift: how high the feet rise and roll over the toes. swing, sway and lift are amounts: 1 is an ordinary adult walk (the default), 0 none, 2 twice as much. Each walk action has its own; they ease from one walk to the next.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
 const NUMBERS = {
 	base: `Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse. Numbers and pictures are information, not a gate.
@@ -63,7 +62,7 @@ SCENE (you define it)
 A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
-${specFormat()}${features(variant).repeat ? REPEAT : ""}${features(variant).tilt ? TILT : ""}${features(variant).gait ? GAIT : ""}
+${specFormat()}${features(variant).repeat ? REPEAT : ""}${features(variant).tilt ? TILT : ""}
 ease names: ${Object.keys(EASE).join(", ")}.
 
 THE TOOL
