@@ -1,8 +1,8 @@
 // The editor transaction a Studio run holds while its model works.
 //
 // A single turn (the default): one user message is one editor transaction. Every Studio turn whose editor reports a
-// previsMode opens agent.turn.begin and closes agent.turn.finish, so all of its mutations land as ONE history entry and
-// one receipt frame. A context without a previsMode runs unwrapped (an editor that predates turn transactions).
+// scene opens agent.turn.begin and closes agent.turn.finish, so all of its mutations land as ONE history entry and
+// one receipt frame. A context without a scene runs unwrapped (an editor that predates turn transactions).
 //
 // A task (parallel Studio tasks, P2): the run holds task.begin { taskId, scope, reads, title } instead, so other tasks
 // edit other keys of the same scene meanwhile. Its commands carry the taskId and commit one by one (src/bus-tasks.js).

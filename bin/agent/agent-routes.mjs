@@ -11,7 +11,6 @@ import { createVideoAdapters, validateFalVideoRequest } from "./video-adapters.m
 import { createSessionStore, transcriptFromHistory } from "./session-store.mjs";
 import { createAgentRunner } from "./agent-runner.mjs";
 import { createProviderRoutes } from "./provider-routes.mjs";
-import { STUDIO_SYSTEM_PROMPT_STORYBOARD } from "./studio-prompt.mjs";
 import { studioTransaction } from "./studio-turn-transaction.mjs";
 import { agentFailureCode, failureCodeOf, frameCodeOf } from "./agent-failure-codes.mjs";
 
@@ -506,7 +505,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		};
 		// What the agent sees of the editor's actions under the lowvis engine (agent-view.mjs); tools.internal stays whole.
 		const agentView = (await import("./agent-view.mjs")).turnAgentView({ env, value, current, invoke: (name, args) => tools.internal.invoke(name, args) });
-		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, previsMode: value.context.scene?.previsMode, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
+		const tools = createStudioTools({ liveHub: hub, workspaceHandle: value.context.host.workspaceHandle, session: { signal: controller.signal, admission, actionIndex: current?.actionIndex ?? [], baseline: value.context, onGestureWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }, resolveImage: async (id, correlation) => hub.command("resolve_studio_image", { imageId: id, ...correlation }, value.context.host.workspaceHandle) });
 		const turnTransaction = studioTransaction({ hub, context: current, turnId: value.turnId, admission, task: value.task, signal: controller.signal, plain: Boolean(value.main), onWait: waiting => send({ type: "studio.waiting", reason: "gesture", waiting }) }); // the user mid-drag (studio-busy-wait.mjs)
 		// The lowvis motion engine (bin/agent/lowvis-turn.mjs, prototype) runs its own model key: the lowvis authoring loop, then the clip installed as scene content.
 		if (await (await import("./lowvis-turn.mjs")).runLowvisTurn({ value, session, send, close, res, controller, studioTools: tools, hub, studioRunners, env, studioIdentity, admission })) return true;
@@ -609,7 +608,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			for await (const frame of turnTransaction.run(reviewing ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
 				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
-				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan, ...(motionDoor ? [motionDoor] : [])], motionTool: Boolean(motionDoor), systemPrompt: value.main?.systemPrompt ?? (value.context.scene?.previsMode === "storyboard" ? STUDIO_SYSTEM_PROMPT_STORYBOARD : undefined), signal: controller.signal, emit: send,
+				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan, ...(motionDoor ? [motionDoor] : [])], motionTool: Boolean(motionDoor), systemPrompt: value.main?.systemPrompt, signal: controller.signal, emit: send,
 				meta: persistenceMeta,
 				quotaEvent: headers => codex?.parseQuotaHeaders ? quotaEvent(codex, headers) : { type: "quota", plan: null, primary: { usedPercent: null, windowMinutes: null, resetAt: null }, credits: { has: null } },
 			})) emitFrame(frame);
