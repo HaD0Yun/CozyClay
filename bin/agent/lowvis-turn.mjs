@@ -49,7 +49,7 @@ export async function runLowvisTurn({ value, session, send, close, res, controll
 		try {
 			let compiles = 0;
 			const { runMotion } = await import("./motion-run.mjs");
-			const done = await runMotion({ text: value.text, memoryKey: value.sessionId, hub, workspaceHandle: value.context.host.workspaceHandle, invoke: (action, args) => studioTools.internal.invoke("run_action", { action, args }), signal, env, onCompile: ({ n, ok, line }) => {
+			const done = await runMotion({ words: value.text, memoryKey: value.sessionId, hub, workspaceHandle: value.context.host.workspaceHandle, invoke: (action, args) => studioTools.internal.invoke("run_action", { action, args }), signal, env, onCompile: ({ n, ok, line }) => {
 				// one tool row per compile, as the panel shows any tool call
 				const callId = `lowvis-motion-${value.turnId}-${++compiles}`;
 				send({ type: "tool.start", callId, name: "motion", label: "compile the motion", args: { n } });

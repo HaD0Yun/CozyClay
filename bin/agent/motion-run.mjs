@@ -20,9 +20,18 @@ async function realDeps() {
 	return { runScene, installClip, studioScene, readClip: file => JSON.parse(readFileSync(file, "utf8")) };
 }
 
-/** The request the motion writer reads: the user's words, the pictures' count, the Studio's scene and the last motion. */
-function requestOf(text, pictures, studio, before, allowAdd) {
-	const parts = [text];
+// The labels of the two texts of a request. The user's words come as typed; the Studio agent's note is its own text.
+const WORDS = {
+	turn: "USER'S WORDS (the user's message of this turn, exactly as typed):",
+	task: "USER'S WORDS (the user's last message to the Studio, exactly as typed; this task may do only part of it):",
+};
+const NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters and objects, what to keep):";
+
+/** The request the motion writer reads: the user's words, the agent's note, the pictures' count, the Studio's scene and the last motion. */
+function requestOf({ words, wordsOf, note }, pictures, studio, before, allowAdd) {
+	const parts = [];
+	if (words) parts.push(`${WORDS[wordsOf] ?? WORDS.turn}\n${words}`);
+	if (note) parts.push(`${NOTE}\n${note}`);
 	if (pictures) parts.push(`The user attached ${pictures} picture${pictures === 1 ? "" : "s"}.`);
 	if (studio.characters.length || studio.props.length || !allowAdd) {
 		// the scene JSON holds what a scene line holds; the flat heights go as lines of their own
@@ -38,9 +47,11 @@ function requestOf(text, pictures, studio, before, allowAdd) {
 }
 
 /**
- * runMotion({ text, images, memoryKey, hub, workspaceHandle, invoke, signal, env, onCompile, allowAdd })
+ * runMotion({ words, wordsOf, note, images, memoryKey, hub, workspaceHandle, invoke, signal, env, onCompile, allowAdd })
  *   -> { name, report, missing, frames, clipSeconds, tookSeconds, compiles, characterIds, objectIds, switched }
- * text: the user's words. images: [{ data: <base64>, mimeType }] (at most 4). hub.command("describe") reads the scene.
+ * words: the user's message exactly as typed; wordsOf: "turn" (this turn's message, the default) or "task" (the
+ * message the coordinator's task came from). note: the Studio agent's own text (the motion tool's request), or none
+ * when the words go alone (the direct key). images: [{ data: <base64>, mimeType }] (at most 4). hub.command("describe") reads the scene.
  * invoke(action, args): one editor action as the turn's tools run it (a refusal throws). onCompile({ n, ok, line }):
  * once per compile. allowAdd: false inside a task: the request tells the motion writer to add nothing, and a clip that
  * still needs a character or a prop the Studio scene does not have is not installed (code "studio").
@@ -51,13 +62,13 @@ function requestOf(text, pictures, studio, before, allowAdd) {
  * "aborted".
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ text, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, allowAdd = true, deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, allowAdd = true, deps = null }) {
 	const { runScene, installClip, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops");
 	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops });
-	const request = requestOf(text, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), allowAdd);
+	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), allowAdd);
 	const record = await runScene({ name, request, model: MOTION_MODEL, effort: MOTION_EFFORT, variant: MOTION_VARIANT, off, images, env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
@@ -86,7 +97,7 @@ export async function runMotion({ text, images = [], memoryKey, hub, workspaceHa
 			}
 		}
 	};
-	const result = await installClip(clip, run, { label: text, existing: studio.ids, turn });
+	const result = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn });
 	if (!result.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
 	const animated = clip.characters.map((figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`)).filter(Boolean);
