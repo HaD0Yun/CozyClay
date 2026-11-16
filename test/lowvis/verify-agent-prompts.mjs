@@ -28,8 +28,33 @@ console.log("PASS the lowvis Studio prompt has none of the forbidden tokens; the
 
 const coordinator = mainSystemPrompt({ engine: "lowvis" });
 for (const token of ["QA problems", "motion.compile", "design_motion"]) assert.equal(coordinator.includes(token), false, token);
-assert.match(coordinator, /\n8\. Body motion of rig characters is one ordinary task that calls its motion tool/);
-assert.match(coordinator, /When other tasks build what the motion needs, it dependsOn them\./);
+assert.match(coordinator, /\n8\. Body motion of rig characters is one task that calls its motion tool/);
+// the order: the motion task sets up what the bodies use; what needs its result depends on it, light needs only the request
+assert.match(coordinator, /adds the characters and every object a body touches, stands on, sits on, holds or moves that the scene lacks/);
+assert.match(coordinator, /so their tasks dependsOn the motion task \(not each other\), and no task builds an object a body uses before it; light, sky and ground need only the request\./);
+assert.match(coordinator, /which objects the motion uses \(ids and boxes\) and the floor region the bodies cross\./);
+assert.match(coordinator, /A task that only makes new things needs no scope key: send an empty scope/);
+for (const gone of ["In a task the motion tool adds nothing", "When other tasks build what the motion needs", "\"make a cup, then have her pick it up\"", "a camera that frames a motion still being made", "still needs one scope key"]) assert.equal(coordinator.includes(gone), false, gone);
+assert.ok(MAIN_SYSTEM_PROMPT.includes("\"make a cup, then have her pick it up\" is one task") && MAIN_SYSTEM_PROMPT.includes("still needs one scope key"), "the old coordinator keeps its text");
+// the Studio agent: motion first, dress in place, the report is the check of the motion
+assert.match(MOTION_TOOL_PARAGRAPH, /When the user asks for body motion, call motion \{ request \} first, before you build or change the set\./);
+assert.match(MOTION_TOOL_PARAGRAPH, /give a stand-in its look in place with object\.sculpt \{ id, recipe \}/);
+assert.match(MOTION_TOOL_PARAGRAPH, /An edit of such an object answers motionFit/);
+assert.match(MOTION_TOOL_PARAGRAPH, /do not check the body motion again with verify_result\./);
+assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /once the set and the characters the motion needs exist|outside a task/);
+{
+	const lowvis = await studioSystemPrompt({ engine: "lowvis", motion: true });
+	assert.match(lowvis, /\n2\. Staging first, before any camera: the motion tool places the rig characters that move and the objects their bodies use; place the rest of the cast and the set around them\./);
+	assert.match(lowvis, /verify_result checks placement and framing for targets/);
+	assert.ok(STUDIO_SYSTEM_PROMPT.includes("2. Staging first: place and face the cast") && STUDIO_SYSTEM_PROMPT.includes("verify_result checks placement, framing and motion"), "the old prompt keeps both");
+	const { taskHeader } = await import("../../bin/agent/studio-tasks.mjs");
+	const task = { taskId: "t1", scope: [], instructions: "x" };
+	assert.match(taskHeader(task), /A motion is done at its first take/, "the old task header keeps its take check");
+	const header = taskHeader(task, { lowvis: true, deps: [{ taskId: "m", title: "motion", summary: { reply: "Done.", used: "The motion uses these objects as boxes (...)." }, changed: ["sculpt-2"] }] });
+	assert.doesNotMatch(header, /contact_sheet|A motion is done/);
+	assert.match(header, /\(anchor 7 cm off the bar\)\.\n/);
+	assert.match(header, /Earlier task m \(motion\) is done: Done\. It changed: sculpt-2\. The motion uses these objects as boxes \(\.\.\.\)\./);
+}
 assert.match(coordinator, /missing field \("Missing: \.\.\."\) is the motion tool's own Missing line: repeat it to the user unchanged in meaning\./);
 assert.equal(mainSystemPrompt({ engine: "old" }), MAIN_SYSTEM_PROMPT);
 console.log("PASS the lowvis coordinator prompt has no QA problems, motion.compile or design_motion; the old one is unchanged");

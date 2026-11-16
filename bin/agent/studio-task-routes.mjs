@@ -57,7 +57,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			if (event.type === "task.paused" && main.host && main.board.get(event.taskId)?.host !== main.host) queueMicrotask(() => main.board.reconnect(main.host.sceneId));
 			if (TERMINAL.has(event.type)) eventTurnSoon(main);
 		};
-		main.board = createTaskBoard({ limits, run: (task, options) => runTask(main, task, options), emit: main.notify });
+		main.board = createTaskBoard({ limits, run: (task, options) => runTask(main, task, options), emit: main.notify, createOnly: motionEngine() === "lowvis" });
 		mains.set(sessionId, main);
 		return main;
 	}
@@ -106,7 +106,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
 			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : mainSystemPrompt({ engine: motionEngine() }), // lowvis: motion is an ordinary task with the motion tool (main-prompt.mjs)
 			// The live host, not this turn's: a reload mid-turn moves the Studio to a new handle (POST .../reconnect).
-			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, designs: main.designs }),
+			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, createOnly: !motion && motionEngine() === "lowvis", designs: main.designs }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
 			check: reply => (guard.tell() ? "" : doneClaimCorrection(reply, main.board.board(), userText)),
 		}, observe: guard.observe }, "/agent/turn").finally(guard.stop);
@@ -190,7 +190,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		const observe = frame => {
 			task.onFrame?.(frame);
 			if (frame.type === "tool.start") { pending++; if (frame.name === "motion") motionCalls.add(frame.callId); }
-			if (frame.type === "tool.done" && frame.ok && motionCalls.has(frame.callId)) { out.motion = true; out.missing = typeof frame.result?.missing === "string" ? frame.result.missing : null; }
+			if (frame.type === "tool.done" && frame.ok && motionCalls.has(frame.callId)) { out.motion = true; out.missing = typeof frame.result?.missing === "string" ? frame.result.missing : null; out.used = typeof frame.result?.used === "string" ? frame.result.used : null; }
 			if (frame.type === "tool.done") pending = Math.max(0, pending - 1);
 			// What the task last wrote: read again after each of its authored edits, while Studio is there to answer.
 			if (frame.type === "tool.done" && frame.ok && frame.result?.authored) seenRead = seenRead.then(() => readContext(main.host)).then(c => scopeFingerprint(c, task.scope)).then(seen => { task.seen = seen; }, () => {});
@@ -204,7 +204,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			else if (frame.type === "receipt" && /^task\.(cancel|finish)$/.test(frame.receipt?.action ?? "")) { out.ended = frame.receipt.action; if (engine && out.ended === "task.finish" && !out.receipts.length && frame.receipt.affectedIds?.length) out.receipts.push({ receiptId: frame.receipt.receiptId, action: "motion.v4.install", affectedIds: frame.receipt.affectedIds.slice(0, 6) }); } // the engine's tools carry no receipts: what it changed is in the task's own
 		};
 		try {
-			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: (engine ? motionHeader : taskHeader)(task, { deps, resume }), context: withTaskActions(context), model: engine ?? main.model, effort: engine ? undefined : main.effort, observe,
+			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: (engine ? motionHeader : taskHeader)(task, { deps, resume, lowvis: motionEngine() === "lowvis" }), context: withTaskActions(context), model: engine ?? main.model, effort: engine ? undefined : main.effort, observe,
 				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, words: task.words ?? null, ...(engine ? { motion: { characterId: task.motion.characterId } } : {}), get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
@@ -216,7 +216,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		if (adopted && main.host && adopted.workspaceId === main.host.workspaceId && adopted.sceneId !== main.host.sceneId) main.host = { ...main.host, ...adopted };
 		await seenRead;
 		if (out.lost && pending > 0) task.midCommand = true;
-		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}), ...(out.motion ? { missing: out.missing } : {}) };
+		const common = { reply: out.reply, receipts: out.receipts, usage: out.usage, ...(out.ended ? { ended: out.ended } : {}), ...(out.motion ? { missing: out.missing, used: out.used } : {}) };
 		if (out.lost) return { status: "lost", sceneId: context.host.sceneId, ...common };
 		if (out.busy) return { status: "scopeBusy", error: out.error, ...common };
 		if (signal.aborted && out.ended !== "task.finish") return { status: "cancelled", ...common };

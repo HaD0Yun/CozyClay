@@ -44,7 +44,8 @@ const fn = (name, description, properties, required) => ({ type: "function", nam
  * motion: the motion engine is available, so there is design_motion and a dispatch takes motion: { designId,
  * characterId } (motion-tasks.mjs, motion-design.mjs). designs: the main session's Map of designId -> design text.
  */
-export function createMainTools({ board, studio, hub, admission, workspaceHandle, liveHandle = () => null, motion = false, designs }) {
+// createOnly: a task that only makes new things may have an empty scope (the lowvis engine: main-prompt.mjs rule 8).
+export function createMainTools({ board, studio, hub, admission, workspaceHandle, liveHandle = () => null, motion = false, createOnly = false, designs }) {
 	const studioInspect = studio.find(tool => tool.name === "inspect_studio");
 	const fail = (code, message) => { throw Object.assign(new Error(`${code}: ${message}`), { code }); };
 	const handle = () => liveHandle() || workspaceHandle;
@@ -74,7 +75,7 @@ export function createMainTools({ board, studio, hub, admission, workspaceHandle
 		if (!design) fail("INVALID_ARGUMENT", `motion.designId${step.motion.designId ? ` ${step.motion.designId}` : ""}: no such design. Design the motion first: call design_motion (rule M10), then dispatch with the designId it answers.`);
 		return { ...step, motion: { ...(step.motion.characterId ? { characterId: step.motion.characterId } : { known: rigIds(context) }), design } };
 	};
-	const scope = motion ? { ...keys, minItems: 0, description: `${KEYS_HELP}${MOTION_SCOPE_HELP}` } : keys, more = motion ? { motion: MOTION_FIELD } : {};
+	const scope = motion ? { ...keys, minItems: 0, description: `${KEYS_HELP}${MOTION_SCOPE_HELP}` } : createOnly ? { ...keys, minItems: 0, description: KEYS_HELP.replace("adding one with nothing else changed -> stage.", "a task that only makes new things -> [] (an empty scope).") } : keys, more = motion ? { motion: MOTION_FIELD } : {};
 	return [
 		inspect,
 		...(motion ? [{ ...fn(DESIGN_TOOL.name, DESIGN_TOOL.description, DESIGN_TOOL.properties, DESIGN_TOOL.required), handler: async args => designed.add(args) }] : []),

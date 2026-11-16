@@ -116,12 +116,30 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: an aborted signal throws code aborted");
 }
 
-// a task run: the clip needs a character the scene does not have
+// a task run (words of the task): a clip with a character and a prop the scene does not have is installed, and the
+// answer names the boxes the motion used and the floor the bodies cross; the boxes are kept for the fit lines
 {
-	const { seen, base } = harness({ clip: { frameCount: 48, characters: [{ id: "c1" }, { id: "stranger" }], props: [{ id: "box" }, { id: "chair" }] } });
-	await assert.rejects(runMotion({ ...base, words: "x", allowAdd: false }),
-		error => error.code === "studio" && error.message === "The motion needs stranger, chair that the scene does not have. Build them first, then call motion again.");
-	assert.equal(seen.installs.length, 0, "nothing is installed");
-	assert.match(seen.runs[0].request, /Add no character and no prop: use the listed ones only\./);
-	console.log("PASS runMotion: allowAdd false refuses unknown ids before the install");
+	const pos = [];
+	for (let f = 0; f < 2; f++) for (let j = 0; j < 17; j++) pos.push(f ? 1.5 : -0.5, 0.9, f ? 2 : 0.25);
+	const final = { clip: "clip.json", scene: { characters: [{ id: "c1", at: [0, 0] }, { id: "stranger", at: [1, 1] }], props: [{ id: "box", size: [1, 0.9, 0.5], at: [1, 0.45, 2], turn: 30 }, { id: "chair", size: [0.5, 0.45, 0.5], at: [-1, 0.225, 0] }] }, spec: SPEC };
+	const { seen, base } = harness({ clip: { frameCount: 2, characters: [{ id: "c1", pos }, { id: "stranger", pos }], props: [{ id: "box" }, { id: "chair" }] }, record: { final },
+		install: async (clip, run, options) => { seen.installs.push(options); return { characterIds: ["lowvis-stranger"], objectIds: ["sculpt-1"], switched: [], placed: { box: "obj-box", chair: "sculpt-1" }, ok: true }; } });
+	const done = await runMotion({ ...base, words: "x", wordsOf: "task", note: "she sits", memoryKey: "task-conv" });
+	assert.equal(seen.installs.length, 1, "installed in a task too");
+	assert.doesNotMatch(seen.runs[0].request, /Add no character/);
+	assert.ok(seen.runs[0].request.includes("What your scene adds becomes Studio content") && seen.runs[0].request.includes("After you, the Studio agent gives your props a look"), "the writer hears what becomes of its props");
+	assert.deepEqual(done.characterIds, ["c1", "lowvis-stranger"]);
+	assert.equal(done.used, "The motion uses these objects as boxes (id: width x height x depth m, base [x, y, z], turn): obj-box (box): 1 x 0.9 x 0.5, [1, 0, 2], 30°; sculpt-1 (chair): 0.5 x 0.45 x 0.5, [-1, 0, 0]. The bodies cross the floor within x -0.5 to 1.5, z 0.25 to 2.");
+	const { boxesOf } = await import("../../bin/agent/motion-fit.mjs");
+	assert.deepEqual([...boxesOf("task-conv").keys()], ["obj-box", "sculpt-1"]);
+	assert.deepEqual(boxesOf("task-conv").get("sculpt-1"), { id: "sculpt-1", name: "chair", size: [0.5, 0.45, 0.5], base: [-1, 0, 0], turn: 0, sphere: false });
+	console.log("PASS runMotion: a task adds what the scene lacks; used names the boxes and the floor the bodies cross");
+}
+
+// the direct key (no note): the writer is not told of a later dressing step
+{
+	const { seen, base } = harness();
+	await runMotion({ ...base, words: "x" });
+	assert.ok(seen.runs[0].request.includes("What your scene adds becomes Studio content") && !seen.runs[0].request.includes("After you, the Studio agent"));
+	console.log("PASS runMotion: the direct key's request has no dressing line");
 }

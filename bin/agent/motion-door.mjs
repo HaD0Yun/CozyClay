@@ -6,7 +6,7 @@ import { cliproxyBase, fetchModelList } from "./cliproxy-provider.mjs";
 import { motionEngine } from "./motion-engine.mjs";
 import { MOTION_MODEL, runMotion } from "./motion-run.mjs";
 
-const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, writes and installs the motion and moves the objects it handles. Its report ends with a Missing line. images: true sends the user's pictures.";
+const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. Its report ends with a Missing line. images: true sends the user's pictures.";
 const PARAMETERS = {
 	type: "object",
 	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, images: { type: "boolean" } },
@@ -64,7 +64,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [] }) {
 				if (error?.code === "studio") await rollback();
 				throw error;
 			}
-			return { ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched };
+			return { ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null };
 		},
 	};
 }
@@ -87,7 +87,7 @@ export async function turnMotionDoor({ value, env = process.env, hub, tools, tra
 	return createMotionDoor({
 		// the user's message as typed goes with the agent's request; a task's is the message its coordinator had (studio-task-routes.mjs)
 		run: ({ request, images, signal: callSignal, onCompile }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
-			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, allowAdd: !value.task, deps }),
+			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, deps }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
 	});
 }

@@ -453,7 +453,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		if (await (await import("./lowvis-turn.mjs")).runLowvisTurn({ value, session, send, close, res, controller, studioTools: tools, hub, studioRunners, env, studioIdentity, admission })) return true;
 		// The v4 motion engine (bin/agent/v4/dispatch.mjs) runs its own model keys: one Claude Code agent with the v4 tools, or the same tools on the pi runner (a motion task's run: inside its task transaction). Every other model goes on below.
 		if (await (await import("./v4/dispatch.mjs")).runV4Turn({ value, session, send, close, res, controller, studioTools: tools, hub, sessionStore, models: ensureWorkflowModels, env, clock, studioIdentity, admission, studioRunners, transaction: turnTransaction, fauxProvider, makeRunner: async () => createAgentRunner({ models: await ensureWorkflowModels(), fauxProvider, sessionStore, clock, codexBaseUrl, cliproxyBaseUrl, auth, env }) })) return true;
-		const modelTools = agentView.tools(tools.map(tool => ({
+		// An edit of an object the last motion uses answers how it now differs from the motion's box (motion-fit.mjs).
+		const modelTools = (await import("./motion-fit.mjs")).turnFitView({ value, env, hub }).tools(agentView.tools(tools.map(tool => ({
 			...tool,
 			handler: async (args, call) => {
 				const result = await tool.handler(args, call);
@@ -463,7 +464,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 				const visual = await tools.resolveImage(ref.imageId || ref.id, { receiptId: result.receiptId, revision: result.revision });
 				return { ...result, visualStatus: visual.visualStatus, imageId: visual.imageId, revision: visual.revision, receiptId: visual.receiptId, ...(visual.dataUrl ? { dataUrl: visual.dataUrl } : {}) };
 			},
-		})));
+		}))));
 		// The motion tool (motion-door.mjs): body motion of rig characters goes to the motion environment.
 		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, hub, tools, transaction: turnTransaction, signal: controller.signal });
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.

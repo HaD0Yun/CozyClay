@@ -61,8 +61,11 @@ const eventName = frame => (/^tool\./.test(frame.type) ? `${frame.type} ${callNa
  * "scopeBusy", reply, receipts, usage, error }; it calls task.onFrame(frame) for every frame. emit(event) tells the
  * main agent (task.queued, task.started, task.review, task.done, task.failed, task.cancelled, task.paused, task.resumed).
  */
-export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, limits = {} } = {}) {
-	const L = { ...TASK_LIMITS, ...limits }, tasks = new Map();
+// onPlanEnded({ planId, tasks }): once, when every task a dispatch_plan queued has ended (done, incomplete, failed or
+// cancelled; one in review has not); tasks are their board views. A hook for a check of the whole request.
+// createOnly: a task may have an empty scope (it only makes new things, which join it; the lowvis engine).
+export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, limits = {}, onPlanEnded = () => {}, createOnly = false } = {}) {
+	const L = { ...TASK_LIMITS, ...limits }, tasks = new Map(), plans = new Map(); // planId -> the taskIds it queued
 	let lastStart = null, scheduled = null, planning = false;
 	const list = () => [...tasks.values()];
 	const running = () => list().filter(task => ["starting", "running"].includes(task.status));
@@ -80,7 +83,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	const invalid = message => Object.assign(new Error(message), { code: "INVALID_ARGUMENT" });
 	function check({ instructions, scope, motion }) {
 		if (typeof instructions !== "string" || !instructions.trim()) throw invalid("A task needs instructions.");
-		if (!Array.isArray(scope) || (!scope.length && !motion) || scope.some(key => !isScopeKey(key))) throw invalid("scope: one or more keys object:<id>, character:<id>, shot:<id>, stage, timeline or scene.");
+		if (!Array.isArray(scope) || (!scope.length && !motion && !createOnly) || scope.some(key => !isScopeKey(key))) throw invalid("scope: one or more keys object:<id>, character:<id>, shot:<id>, stage, timeline or scene.");
 	}
 
 	function dispatch({ title, instructions, scope, reads = [], dependsOn = [], verify = false, motion = null }) {
@@ -124,7 +127,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 				const queued = dispatch({ ...step, dependsOn: [...new Set(dependsOn.map(dep => ids.get(dep) ?? dep))] });
 				ids.set(ref, queued.duplicateOf ?? queued.taskId); out.set(ref, queued);
 			}
-		} finally { planning = false; }
+		} finally { planning = false; if (ids.size) plans.set(randomUUID(), [...new Set(ids.values())]); }
 		schedule();
 		// Answered after the one schedule pass, so each step reads as the board sees it now (running, waiting with why).
 		return { tasks: steps.map(({ ref }) => ({ ref, ...(out.get(ref).duplicateOf ? { duplicateOf: ids.get(ref) } : {}), ...view(tasks.get(ids.get(ref))) })) };
@@ -223,7 +226,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		else if (result.status === "lost") { task.status = "paused"; task.reason = "Studio disconnected; it resumes when Studio reconnects to the same scene"; task.sceneId = result.sceneId; tell("task.paused", task); }
 		else {
 			// missing: the Missing text of the run's last motion tool call, under its fixed label, so it reaches the coordinator as written
-			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts), ...(typeof result.missing === "string" && result.missing.trim() ? { missing: `Missing: ${clip(result.missing.trim(), 600)}` } : {}) };
+			const summary = { reply: clip(String(result.reply ?? "").trim(), L.summaryChars), receipts: (result.receipts ?? []).slice(-L.receipts), ...(typeof result.missing === "string" && result.missing.trim() ? { missing: `Missing: ${clip(result.missing.trim(), 600)}` } : {}), ...(typeof result.used === "string" && result.used ? { used: clip(result.used, 1500) } : {}) };
 			if (result.status === "done" || result.ended === "task.finish") task.changed = changedBy(task, result.receipts);
 			// A cancel that arrived after the run finished cannot take it back: it stays done (and can be undone).
 			let status = task.cancelled && result.status !== "done" ? "cancelled" : task.stopReason ? "failed" : result.status;
@@ -255,6 +258,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		closeWait(task); task.status = status; task.reason = reason; task.endedAt ??= now();
 		if (summary) task.summary = summary;
 		tell(`task.${status === "done" ? "done" : status}`, task);
+		for (const [planId, ids] of plans) if (ids.includes(task.taskId) && ids.every(id => ENDED.has(tasks.get(id)?.status))) { plans.delete(planId); try { onPlanEnded({ planId, tasks: ids.map(id => view(tasks.get(id))) }); } catch { /* a hook never fails the board */ } }
 	}
 
 	// What the run was waiting on when it was stopped, and its last event: the board says why, not only that it stopped.
@@ -310,16 +314,19 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 	};
 }
 
+// Under the lowvis engine a motion is the motion tool's (motion-door.mjs): its report is the check, so the header's
+// sentence on judging a take by a contact sheet goes (lowvis: true).
+const TAKE_CHECK = / A motion is done at its first take.* comparison scripts\./;
 /** The header a task's run reads before its instructions (after the cached system prompt and motion reference). */
-export function taskHeader(task, { deps = [], resume = null } = {}) {
+export function taskHeader(task, { deps = [], resume = null, lowvis = false } = {}) {
 	return [`<task id="${task.taskId}">`,
 		`You are one of several tasks working on this scene at once. Your scope (the only things you may change): ${task.scope.join(", ")}.`,
 		"Everything else is read-only for you: another task or the user may be changing it. A command outside your scope is refused with SCOPE_DENIED; ask for more with run_action task.requestScope { taskId, scope }, and if that answers SCOPE_BUSY, do what you can inside your scope and say what is left.",
 		"Making something new (character.add, object.add, including a text object, a kit) needs no scope key and is never refused for scope: make it, and it joins your scope. Ask for more only for an existing id the job changes. Undoing an earlier task's work is the coordinator's undo_task: never rebuild an old state by hand; say so in your report.",
 		"When you finish, end with a short report for the coordinator in English: what you changed (receipt ids, ids), the QA problems left, and anything not done. The coordinator talks to the user.",
-		"Before you finish, check each visible criterion in the instructions (the user's words) and report it as met, unmet or not measurable by QA, with the measured value when there is one (anchor 7 cm off the bar). A motion is done at its first take with 0 blocking QA problems (qa.blocking), every visible criterion met, and ONE look: verify_result { visual: \"contact_sheet\", frames: \"beats\" } once, checking only that the action reads at a glance (the defining move is there, held poses are locked, contacts look like contacts, effort matches the load). If it does not read, fix that; else stop at once: install that take and report its warnings in one line. Warnings and verify_result physics findings are reported, never a reason to go on; after done, no variants or comparison scripts.",
+		(criteria => lowvis ? criteria.replace(TAKE_CHECK, "") : criteria)("Before you finish, check each visible criterion in the instructions (the user's words) and report it as met, unmet or not measurable by QA, with the measured value when there is one (anchor 7 cm off the bar). A motion is done at its first take with 0 blocking QA problems (qa.blocking), every visible criterion met, and ONE look: verify_result { visual: \"contact_sheet\", frames: \"beats\" } once, checking only that the action reads at a glance (the defining move is there, held poses are locked, contacts look like contacts, effort matches the load). If it does not read, fix that; else stop at once: install that take and report its warnings in one line. Warnings and verify_result physics findings are reported, never a reason to go on; after done, no variants or comparison scripts."),
 		"End the report with one line: \"Unmet criteria: none\" when every criterion is met or not measurable, or \"Unmet criteria: <the unmet ones>\". A task with an unmet criterion ends incomplete, not done.",
-		...deps.map(dep => `Earlier task ${dep.taskId} (${dep.title}) is done: ${dep.summary?.reply ?? ""}${dep.changed?.length ? ` It changed: ${dep.changed.join(", ")}.` : ""}`),
+		...deps.map(dep => `Earlier task ${dep.taskId} (${dep.title}) is done: ${dep.summary?.reply ?? ""}${dep.changed?.length ? ` It changed: ${dep.changed.join(", ")}.` : ""}${dep.summary?.used ? ` ${dep.summary.used}` : ""}`),
 		...(resume?.note ? [resume.note] : []),
 		"</task>", "", task.instructions].join("\n");
 }

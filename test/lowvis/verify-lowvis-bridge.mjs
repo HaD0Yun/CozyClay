@@ -90,13 +90,18 @@ function recorder(refuse = null) {
 const known = { chair: { id: "S-chair", x: 0, y: 0, z: 1.6, rot: 0 }, mat: { id: "S-mat", x: 2, y: 0, z: 1.6, rot: 0 } };
 {
 	const r = recorder(), out = await installClip(clip, r.run);
-	assert.deepEqual(r.names(), ["object.add", "object.update", "object.add", "object.update", "character.add", "motion.v4.install"], "a new clip makes its props and its character, then the take");
+	assert.deepEqual(r.names(), ["object.sculpt", "object.sculpt", "character.add", "motion.v4.install"], "a new clip makes its props (boxes: sculpts of one box) and its character, then the take");
 	assert.equal(out.ok, true);
 	assert.deepEqual(out.characterIds, ["lowvis-a"]);
-	assert.deepEqual(out.objectIds, ["obj-1", "obj-3"]);
+	assert.deepEqual(out.objectIds, ["obj-1", "obj-2"]);
+	assert.deepEqual(out.placed, { chair: "obj-1", mat: "obj-2" });
 	assert.deepEqual(out.switched, []);
-	assert.equal(r.calls[4].args.character.model, "x-bot-tpose");
-	assert.equal(r.calls[5].args.characterId, "lowvis-a");
+	// the stand-in: one sharp box of the prop's size standing on the object's base, at scale 1 (object.sculpt { id, recipe } re-sculpts it in place)
+	assert.deepEqual(r.calls[1].args.recipe, { version: 1, parts: [{ id: "box", shape: "box", size: clip.props[1].size, position: [0, clip.props[1].size[1] / 2, 0], roundness: 0 }] });
+	assert.equal(r.calls[1].args.name, "mat");
+	assert.deepEqual(Object.keys(r.calls[1].args.placement), ["x", "y", "z", "rot"]);
+	assert.equal(r.calls[2].args.character.model, "x-bot-tpose");
+	assert.equal(r.calls[3].args.characterId, "lowvis-a");
 	console.log("ok installClip, new clip:", r.names().join(", "));
 }
 {
@@ -104,7 +109,7 @@ const known = { chair: { id: "S-chair", x: 0, y: 0, z: 1.6, rot: 0 }, mat: { id:
 	assert.deepEqual(r.names(), ["character.clearWaypoints", "motion.v4.install"], "a known character loses its root path before the take; nothing is added");
 	assert.deepEqual(r.calls[0].args, { characterId: "C1" });
 	assert.equal(r.calls[1].args.characterId, "C1");
-	assert.deepEqual(out, { characterIds: [], objectIds: [], switched: [], ok: true });
+	assert.deepEqual(out, { characterIds: [], objectIds: [], switched: [], placed: { chair: "S-chair", mat: "S-mat" }, ok: true });
 	console.log("ok installClip, known character:", r.names().join(", "));
 }
 {
@@ -115,7 +120,18 @@ const known = { chair: { id: "S-chair", x: 0, y: 0, z: 1.6, rot: 0 }, mat: { id:
 	assert.equal(out.ok, true);
 	console.log("ok installClip, Y Bot switched:", r.names().join(", "));
 }
-for (const refuse of ["object.update", "character.add", "character.clearWaypoints", "character.update"]) {
+// a ball and a box under 0.05 m tall stay a sphere and a scaled cube (a sculpt measures at least 0.05 m tall)
+{
+	const still = (pos, n) => ({ pos: Array.from({ length: n }, () => pos).flat(), quat: Array.from({ length: n }, () => [0, 0, 0, 1]).flat() });
+	const small = { ...clip, characters: [], props: [{ id: "ball", shape: "sphere", size: [0.3, 0.3, 0.3], ...still([0, 0.15, 0], clip.frameCount) }, { id: "plate", size: [0.3, 0.02, 0.3], ...still([1, 0.01, 0], clip.frameCount) }] };
+	const r = recorder(), out = await installClip(small, r.run);
+	assert.deepEqual(r.names(), ["object.add", "object.update", "object.add", "object.update"]);
+	assert.deepEqual([r.calls[0].args.kind, r.calls[2].args.kind], ["sphere", "cube"]);
+	assert.deepEqual(r.calls[3].args.patch, { scaleX: 0.3, scaleY: 0.02, scaleZ: 0.3 });
+	assert.deepEqual(out.placed, { ball: "obj-1", plate: "obj-3" });
+	console.log("ok installClip, a ball and a thin box stay primitives");
+}
+for (const refuse of ["object.sculpt", "character.add", "character.clearWaypoints", "character.update"]) {
 	const existing = refuse === "character.clearWaypoints" || refuse === "character.update" ? { characters: { a: "Y1" }, props: known, switch: ["Y1"] } : null;
 	const r = recorder(refuse), out = await installClip(clip, r.run, { existing });
 	assert.equal(out.ok, false, `${refuse} refused: ok false`);
