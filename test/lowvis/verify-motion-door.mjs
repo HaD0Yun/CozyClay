@@ -169,11 +169,11 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	console.log("PASS a task's done summary carries the motion tool's Missing line for the coordinator");
 }
 
-// the motion task's used line reaches its summary; an empty scope is a task that only makes new things; a plan's end is told once
+// the motion task's used line reaches its summary; an empty scope is a task that only makes new things
 {
-	const ended = [], gate = {};
+	const gate = {};
 	assert.throws(() => createTaskBoard({}).dispatch({ title: "plain", instructions: "do it", scope: [] }), /scope: one or more keys/, "without createOnly a task needs a key");
-	const board = createTaskBoard({ limits: { staggerMs: 0 }, createOnly: true, onPlanEnded: plan => ended.push(plan), run: async task => {
+	const board = createTaskBoard({ limits: { staggerMs: 0 }, createOnly: true, run: async task => {
 		if (task.title === "dress") await new Promise(resolve => { gate.open = resolve; });
 		return { status: "done", reply: `${task.title} done.`, receipts: [], ...(task.title === "motion" ? { missing: "none", used: "The motion uses these objects as boxes (sculpt: 1 x 0.45 x 0.4, [0, 0, 1])." } : {}) };
 	} });
@@ -182,10 +182,8 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	const byTitle = title => board.board().find(t => t.title === title);
 	for (let i = 0; i < 100 && !gate.open; i++) await new Promise(resolve => setTimeout(resolve, 10));
 	assert.equal(byTitle("motion").summary.used, "The motion uses these objects as boxes (sculpt: 1 x 0.45 x 0.4, [0, 0, 1]).");
-	assert.equal(ended.length, 0, "the plan has not ended while a task runs");
 	gate.open();
-	for (let i = 0; i < 100 && !ended.length; i++) await new Promise(resolve => setTimeout(resolve, 10));
-	assert.equal(ended.length, 1);
-	assert.deepEqual(ended[0].tasks.map(t => [t.title, t.status]).sort(), [["dress", "done"], ["light", "done"], ["motion", "done"]]);
-	console.log("PASS the motion task's used line, empty scopes and the plan-ended hook");
+	for (let i = 0; i < 100 && byTitle("dress").status !== "done"; i++) await new Promise(resolve => setTimeout(resolve, 10));
+	assert.deepEqual(board.board().map(t => [t.title, t.status]).sort(), [["dress", "done"], ["light", "done"], ["motion", "done"]]);
+	console.log("PASS the motion task's used line and empty scopes");
 }

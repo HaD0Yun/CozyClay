@@ -61,11 +61,9 @@ const eventName = frame => (/^tool\./.test(frame.type) ? `${frame.type} ${callNa
  * "scopeBusy", reply, receipts, usage, error }; it calls task.onFrame(frame) for every frame. emit(event) tells the
  * main agent (task.queued, task.started, task.review, task.done, task.failed, task.cancelled, task.paused, task.resumed).
  */
-// onPlanEnded({ planId, tasks }): once, when every task a dispatch_plan queued has ended (done, incomplete, failed or
-// cancelled; one in review has not); tasks are their board views. A hook for a check of the whole request.
 // createOnly: a task may have an empty scope (it only makes new things, which join it; the lowvis engine).
-export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, limits = {}, onPlanEnded = () => {}, createOnly = false } = {}) {
-	const L = { ...TASK_LIMITS, ...limits }, tasks = new Map(), plans = new Map(); // planId -> the taskIds it queued
+export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, limits = {}, createOnly = false } = {}) {
+	const L = { ...TASK_LIMITS, ...limits }, tasks = new Map();
 	let lastStart = null, scheduled = null, planning = false;
 	const list = () => [...tasks.values()];
 	const running = () => list().filter(task => ["starting", "running"].includes(task.status));
@@ -127,7 +125,7 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 				const queued = dispatch({ ...step, dependsOn: [...new Set(dependsOn.map(dep => ids.get(dep) ?? dep))] });
 				ids.set(ref, queued.duplicateOf ?? queued.taskId); out.set(ref, queued);
 			}
-		} finally { planning = false; if (ids.size) plans.set(randomUUID(), [...new Set(ids.values())]); }
+		} finally { planning = false; }
 		schedule();
 		// Answered after the one schedule pass, so each step reads as the board sees it now (running, waiting with why).
 		return { tasks: steps.map(({ ref }) => ({ ref, ...(out.get(ref).duplicateOf ? { duplicateOf: ids.get(ref) } : {}), ...view(tasks.get(ids.get(ref))) })) };
@@ -258,7 +256,6 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 		closeWait(task); task.status = status; task.reason = reason; task.endedAt ??= now();
 		if (summary) task.summary = summary;
 		tell(`task.${status === "done" ? "done" : status}`, task);
-		for (const [planId, ids] of plans) if (ids.includes(task.taskId) && ids.every(id => ENDED.has(tasks.get(id)?.status))) { plans.delete(planId); try { onPlanEnded({ planId, tasks: ids.map(id => view(tasks.get(id))) }); } catch { /* a hook never fails the board */ } }
 	}
 
 	// What the run was waiting on when it was stopped, and its last event: the board says why, not only that it stopped.
