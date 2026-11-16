@@ -3,13 +3,15 @@
 // layer of a character, below), shot:<id> (its camera, rail and keys), or one of the singletons stage (light,
 // environment, lens), timeline (frame count, shot order and ranges) and scene (documents, the cast library, a replace of
 // a whole kind). timeline and scene are exclusive: no other task runs beside them. A command that only creates
-// (object.add, a kit, character.add) needs no key: what it makes joins its task. A command this table does not know
-// writes scene, so a new command is safe until it is named here.
+// (object.add, a kit, character.add, a shot.create that fits in free frames) needs no key: what it makes joins its task.
+// A shot.create that must lengthen the take to fit writes timeline (the frame count every shot and take reads). A
+// command this table does not know writes scene, so a new command is safe until it is named here.
 // A character is four layers, so one task can place her while another makes her motion: placement (where she stands,
 // her scale, parent, visibility, tint, static pose: every cast field the others do not own), take (the motion take, its
 // timing edit and the root path), ik (the IK keys and range pins on top of the take) and props (what she holds; the
 // held object's own key goes with it). Playback already stacks them placement < take < ik; the split only says who may
 // write which. A plain character:<id> is all four (the scope a task names; a receipt's id): it overlaps every layer.
+import { addShotAtFrame } from './cuts.js';
 const EXCLUSIVE_KEYS = new Set(['timeline', 'scene']);
 const CHARACTER_LAYERS = Object.freeze(['placement', 'take', 'ik', 'props']);
 const ID = '[A-Za-z0-9][A-Za-z0-9._:-]*';
@@ -32,7 +34,7 @@ export function keysOverlap(a, b) {
 }
 
 const SCENE = ['cast.replace', 'cast.showExtras', 'objects.replace', 'shot.replace', 'ai.prepareShot'];
-const TIMELINE = ['shot.create', 'shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
+const TIMELINE = ['shot.split', 'shot.duplicate', 'shot.remove', 'shot.reorder', 'shot.setRange', 'shot.setTimeline'];
 const CREATE = ['object.add', 'object.createKit', 'asset.import', 'character.add'];
 const CHARACTER = /^(character\.|characters?\b|cast\.setLayer$|ik\.|motion\.)/;
 // The layers each character command writes, read from what it changes: a compile installs a take and clears the IK
@@ -84,6 +86,7 @@ export function commandKeys(id, args = {}, state = {}, entry = {}) {
 	// A set or a take edit of several characters at once names each one (an op is { id, set }).
 	if ((id === 'character.set' || id === 'motion.set') && args.ops) return [...new Set(args.ops.flatMap(op => layers(op.id, characterKeys(id, op))))];
 	if (id.startsWith('stage.') || id === 'shot.setLens') return ['stage'];
+	if (id === 'shot.create') return addShotAtFrame(state.shots, state.frame ?? state.view?.frame ?? 0, state.frameCount, null) !== state.shots ? [] : ['timeline'];
 	if (TIMELINE.includes(id)) return ['timeline'];
 	if (id.startsWith('shot.')) {
 		const shot = args.shotId ?? args.id ?? state.selectedShotId;

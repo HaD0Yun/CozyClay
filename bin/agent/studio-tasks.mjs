@@ -238,7 +238,8 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 				: task.stopReason ? `${task.stopReason}; ${said}; ask the user whether to continue`
 				: unmet ? `criteria unmet: ${unmet}`
 				: result.status === "failed" ? clip(String(result.error?.message ?? result.error ?? "the run failed"), 300) : undefined;
-			end(task, status === "done" && task.verify ? "review" : status, { reason, summary });
+			// a run that ended on the motion tool's report (missing: its Missing line) has had its review: that report says what it could not do
+			end(task, status === "done" && task.verify && !Object.hasOwn(result, "missing") ? "review" : status, { reason, summary });
 		}
 		rescheduleNow();
 	}

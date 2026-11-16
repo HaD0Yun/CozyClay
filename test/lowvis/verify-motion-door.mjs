@@ -187,3 +187,14 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	assert.deepEqual(board.board().map(t => [t.title, t.status]).sort(), [["dress", "done"], ["light", "done"], ["motion", "done"]]);
 	console.log("PASS the motion task's used line and empty scopes");
 }
+
+// verify on a task that ran the motion tool: its report is the review, so it ends done and its dependents start at once;
+// verify on any other task still ends in review
+{
+	const board = createTaskBoard({ limits: { staggerMs: 0 }, createOnly: true, run: async task => ({ status: "done", reply: `${task.title} done.`, receipts: [], ...(task.title === "motion" ? { missing: "none", used: null } : {}) }) });
+	board.dispatchPlan({ tasks: [{ ref: "m", title: "motion", instructions: "she sits", scope: [], verify: true }, { ref: "set", title: "set", instructions: "a room", scope: [], verify: true }, { ref: "d", title: "dress", instructions: "a bench look", scope: [], dependsOn: ["m"] }] });
+	const status = title => board.board().find(t => t.title === title)?.status;
+	for (let i = 0; i < 100 && status("dress") !== "done"; i++) await new Promise(resolve => setTimeout(resolve, 10));
+	assert.deepEqual(["motion", "set", "dress"].map(status), ["done", "review", "done"]);
+	console.log("PASS a motion task with verify ends done on the motion tool's report; its dependents start without an accept");
+}
