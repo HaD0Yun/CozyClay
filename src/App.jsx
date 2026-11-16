@@ -3677,7 +3677,7 @@ export default function App() {
 	const railCurve = useMemo(() => (cameraRail ? buildRail(cameraRail) : null), [cameraRail]);
 
 	// A rail shot with an aim holds its cast (or a world point) instead of the subject.
-	const followTrack = useShotCameraTracks({ shots, subjectTrack, subjectId: charA.id, fps: tlFps, yawDeg: charA.rot, filmback, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion });
+	const followTrack = useShotCameraTracks({ shots, subjectTrack, subjectId: charA.id, fps: tlFps, yawDeg: charA.rot, filmback, fovDeg, characters, objects: sceneObjects, frameCount: tlFrameCount, activeId: activeChar.id, motion });
 
 	const playbackScene = useMemo(() => playbackSceneWithTrack(playbackSceneBase, subjectTrack, followTrack), [playbackSceneBase, subjectTrack, followTrack]);
 

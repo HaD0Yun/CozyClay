@@ -1,7 +1,10 @@
 // Rail shots that aim and carry a lens, and the camera-key stops the agent hears about.
 import assert from "node:assert/strict";
 import { createCameraBlock, updateCameraBlock, removeCameraRail } from "../src/camera-block.js";
-import { buildShotCameraTracks, cameraKeyStops, cameraKeyWarnings, castAimPoint, followSubjectTrack } from "../src/camera-direction.js";
+import { buildShotCameraTracks, cameraKeyStops, cameraKeyWarnings, castAimPoint, castBodyPoints, followSubjectTrack } from "../src/camera-direction.js";
+import { screenBox } from "../src/camera-hold-body.js";
+import { skeletonFor } from "../src/motion3/rigs/index.js";
+import { restState, toLocal } from "../src/motion3/compiler/skeleton.js";
 import { createShotAuthoringDocument } from "../src/shot-authoring.js";
 import { focalMmToFov, SUBJECT_HEIGHT_M } from "../src/shot.js";
 
@@ -86,5 +89,51 @@ const path = followSubjectTrack([{ x: -4, z: 0 }, { x: -4, z: 0 }, { x: -4, z: 0
 assert.deepEqual(path.map((point) => Math.round(point.x)), [-4, -3, -2], "the follow subject walks with the take");
 const still = [{ x: 1, z: 2 }];
 assert.equal(followSubjectTrack(still, "char-a", { characters, clipOf: () => null }), still, "no take v3: the subject keeps its path");
+
+// A follow camera holds the body as each frame poses it, not one standing point. The take walks 3 m on +z, then its
+// hips sink 0.9 m (a pose far below the chest height the follow aims at): every joint stays in the picture.
+const sk = skeletonFor("x-bot-tpose"), rest = toLocal(sk, restState(sk)), F = 72;
+const quats = new Float32Array(F * rest.quats.length * 4), hips = new Float32Array(F * 3);
+for (let f = 0; f < F; f += 1) {
+	rest.quats.forEach((q, b) => quats.set(q, (f * rest.quats.length + b) * 4));
+	const walk = Math.min(f, 48) / 48, sink = Math.max(0, f - 48) / 23;
+	hips.set([rest.hips[0], rest.hips[1] - 0.9 * sink, rest.hips[2] + 3 * walk], f * 3);
+}
+const posed = { schema: "cozyclay.take.v3", frameCount: F, frames: F, rig: "x-bot-tpose", bones: sk.names.slice(), rot: quats, hips };
+const actor = { id: "actor", model: "x-bot-tpose", x: 0, y: 0, z: 0, rot: 0, scale: 1 }, cast = { characters: [actor], clipOf: () => posed };
+assert.equal(castBodyPoints("actor", 0, cast).length, sk.names.length, "every joint of the posed body");
+assert.equal(castBodyPoints("actor", 0, { characters: [actor], clipOf: () => null }), null, "no take v3, no body");
+const lens = { fovDeg: 45, aspect: 16 / 9 }, tanV = Math.tan((lens.fovDeg * DEG) / 2);
+const walkPath = followSubjectTrack(Array.from({ length: F }, () => ({ x: 0, z: 0 })), "actor", cast);
+const followShot = (followCam = {}) => ({ id: "shot-f", startFrame: 0, endFrame: F - 1, cameraKeys: [], camera: createCameraBlock({ mode: "follow", followCam }) });
+const tracksOf = (shotOf, body = true) => buildShotCameraTracks({ shots: [shotOf], subjectTrack: walkPath, fps: 24, filmback: { aspectRatio: lens.aspect }, fovDeg: lens.fovDeg,
+	...(body ? { bodyAt: (frame) => castBodyPoints("actor", frame, cast) } : {}) });
+const outside = (track) => track.flatMap((sample, frame) => {
+	const box = screenBox(sample, castBodyPoints("actor", frame, cast), { tanV, aspect: lens.aspect });
+	return !box || box.xMin < -1 || box.xMax > 1 || box.yMin < -1 || box.yMax > 1 ? [frame] : [];
+});
+assert(outside(tracksOf(followShot(), false)).length > 0, "the point-only follow loses the sunk body (the old camera)");
+const kept = tracksOf(followShot());
+assert.deepEqual(outside(kept), [], "the follow keeps every joint in the picture at every frame");
+const plain = tracksOf(followShot(), false), dolly = (sample, frame) => Math.hypot(sample.pos.x - walkPath[frame].x, sample.pos.z - walkPath[frame].z);
+assert(kept.every((sample, frame) => Math.abs(dolly(sample, frame) - dolly(plain[frame], frame)) < 1e-6 && sample.pos.y === plain[frame].pos.y),
+	"at the user's 3 m the body fits by tilting: the camera keeps its distance and height");
+for (let f = 1; f < F; f += 1) assert(Math.abs(kept[f].pitch - kept[f - 1].pitch) < 2 * DEG, `the tilt eases, frame ${f}`);
+// A close follow the body cannot fit at: the camera backs away only as far as the body needs, on the same side.
+const close = tracksOf(followShot({ distance: 0.8 }));
+assert.deepEqual(outside(close), [], "a close follow backs off until the body fits");
+const closePlain = tracksOf(followShot({ distance: 0.8 }), false);
+assert(close.every((sample, frame) => dolly(sample, frame) >= dolly(closePlain[frame], frame) - 1e-6 && dolly(sample, frame) < 4), "never closer than asked, never far off");
+// A body that already fits leaves the camera exactly as it was (a wide lens here).
+const wide = { ...lens, fovDeg: 80 }, wideOf = (body) => buildShotCameraTracks({ shots: [followShot({ distance: 5 })], subjectTrack: walkPath.slice(0, 40), fps: 24, filmback: { aspectRatio: wide.aspect }, fovDeg: wide.fovDeg,
+	...(body ? { bodyAt: (frame) => castBodyPoints("actor", frame, cast) } : {}) });
+assert.deepEqual(wideOf(true), wideOf(false), "a framing that holds the body is untouched");
+const bare = (bodyAt) => buildShotCameraTracks({ shots: [followShot()], subjectTrack: walkPath, fps: 24, filmback: { aspectRatio: lens.aspect }, fovDeg: lens.fovDeg, bodyAt });
+assert.deepEqual(bare((frame) => castBodyPoints("actor", frame, { characters: [actor], clipOf: () => null })), bare(undefined), "a character without a take frames as before");
+// An aimless rail cannot move off its rail: it only re-aims, and still holds the body.
+const railShot = { id: "shot-r", startFrame: 0, endFrame: F - 1, cameraKeys: [], camera: createCameraBlock({ mode: "rail", cameraRail: [{ x: 3, z: -1 }, { x: 3, z: 4 }] }) };
+const railKept = tracksOf(railShot), railPlain = tracksOf(railShot, false);
+assert(railKept.every((sample, frame) => Math.hypot(sample.pos.x - railPlain[frame].pos.x, sample.pos.z - railPlain[frame].pos.z) < 1e-9), "the rail keeps its dolly");
+assert.deepEqual(outside(railKept), [], "and its aim holds the body");
 
 console.log("camera direction: ok");
