@@ -108,10 +108,39 @@ export async function turnRelations(hub, workspaceHandle) {
 const addUp = (a = {}, b = {}) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(k => [k, typeof a[k] === "number" || typeof b[k] === "number" ? (a[k] ?? 0) + (b[k] ?? 0) : b[k] ?? a[k]]));
 const addDone = (a, b) => (a ? { ...a, ...b, ...(a.usage || b.usage ? { usage: addUp(a.usage, b.usage) } : {}), ...(a.cost !== undefined || b.cost !== undefined ? { cost: (a.cost ?? 0) + (b.cost ?? 0) } : {}) } : b);
 
-/** start, wrapped: the model's runs and the reviews between them read as one run with one done frame. A failed or stopped run is not reviewed. */
-export function reviewedStart({ start, review, signal, now = Date.now }) {
+const ENDED_TASK = new Set(["done", "incomplete", "failed", "cancelled"]);
+/** The edits of a finished request in Tasks mode, once no task of the board is still to run: { edited, ids, motionIds, stage } for one
+ * review of the whole scene, else null. board: the task views (studio-tasks.mjs board()); pending: a Set of the scope keys and ids the
+ * ended tasks and the coordinator changed, emptied when handed over. A cup is "floating" until the table task lands and a body
+ * "overlaps" a stand-in a dress task is about to replace: a half-built scene is not judged. */
+export function settledEdits(board, pending) {
+	if (!pending?.size || board.some(task => !ENDED_TASK.has(task.status))) return null;
+	const keys = [...pending], idOf = key => layerOf(key)?.id ?? key.replace(/^(object|character):/, "");
+	pending.clear();
+	return { edited: true, ids: [...new Set(keys.map(idOf))].slice(0, MAX_TARGETS), motionIds: [...new Set(keys.filter(key => key.startsWith("character:")).map(idOf))], stage: false };
+}
+const settledNote = findings => `\n<scene-review>The tasks of this request are all done. Checks on the finished scene failed:\n${findings.map(line => `- ${line}`).join("\n")}\nDispatch one repair task for what a task can fix, or tell the user plainly what stays as it is.</scene-review>`;
+
+/**
+ * start, wrapped: the model's runs and the reviews between them read as one run with one done frame. A failed or stopped run is not reviewed.
+ * A plain turn: the review runs when the model stops after editing, and again after each repair, at most MAX_REVIEWS times; a review that
+ * finds the same failures as the one before ends the loop (the repair made no progress) and tells the user what is left (rule 7).
+ * settled (the coordinator's turn in Tasks mode): { take() -> settledEdits(...) or null, note(ids) }. The finished request is reviewed
+ * once before the coordinator answers and its failures ride in the coordinator's context; the coordinator's own edits join the pending
+ * ones and are reviewed only when no task is still running.
+ */
+export function reviewedStart({ start, review, signal, now = Date.now, settled = null }) {
 	return async function* (input) {
-		let next = input, done = null;
+		let next = input, done = null, last = null;
+		const finished = settled?.take();
+		if (finished) {
+			const started = now();
+			yield { type: "tool.start", callId: "review-0", name: "verify_result", label: "Check the finished scene", args: { review: 0 }, review: true };
+			let result = null;
+			try { result = await review(finished, ""); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
+			yield { type: "tool.done", callId: "review-0", ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: 0 } } : { error: "The review could not run." }) };
+			if (result?.findings?.length) next = { ...input, contextText: `${input.contextText ?? ""}${settledNote(result.findings)}` };
+		}
 		for (let round = 0; ; round++) {
 			const frames = [];
 			let failed = false;
@@ -121,8 +150,9 @@ export function reviewedStart({ start, review, signal, now = Date.now }) {
 				if (frame.type === "tool.start" || frame.type === "tool.done") frames.push(frame);
 				yield frame;
 			}
-			const edits = turnEdits(frames);
+			let edits = turnEdits(frames);
 			if (failed || signal?.aborted || !edits.edited || round >= MAX_REVIEWS) break;
+			if (settled) { settled.note(edits.ids); edits = settled.take(); if (!edits) break; }
 			const callId = `review-${round + 1}`, started = now();
 			// review: true: not the model's own call, so what it wrote before stays its reply (a task's summary, the main agent's claim check)
 			yield { type: "tool.start", callId, name: "verify_result", label: "Check the result", args: { review: round + 1 }, review: true };
@@ -131,6 +161,9 @@ export function reviewedStart({ start, review, signal, now = Date.now }) {
 			try { result = await Promise.race([review(edits, input.text), new Promise(resolve => signal?.addEventListener("abort", () => resolve(null), { once: true }))]); } catch (error) { console.warn(`[agent] review skipped: ${error.message}`); }
 			yield { type: "tool.done", callId, ok: Boolean(result), elapsedMs: Math.round(now() - started), ...(result ? { result: { findings: result.findings, images: result.images } } : { error: "The review could not run." }) };
 			if (!result?.content || signal?.aborted) break;
+			const key = JSON.stringify(result.findings);
+			if (result.findings.length && key === last) { yield { type: "text.delta", text: `\n\nStill failing after a repair, left as it is:\n${result.findings.map(line => `- ${line}`).join("\n")}` }; break; }
+			last = key;
 			next = { ...input, text: "", attachments: [], frameObservation: undefined, review: result.content };
 		}
 		if (done) yield done;

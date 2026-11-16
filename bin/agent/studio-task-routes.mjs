@@ -18,6 +18,7 @@ import { MAIN_SYSTEM_PROMPT, mainSystemPrompt } from "./main-prompt.mjs";
 import { motionEngine } from "./motion-engine.mjs";
 import { motionHeader, motionMainPrompt, motionScope, motionSubject } from "./motion-tasks.mjs";
 import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
+import { settledEdits } from "./studio-review.mjs";
 import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
 
 const TERMINAL = new Set(["task.review", "task.done", "task.incomplete", "task.failed", "task.cancelled", "task.paused"]);
@@ -46,10 +47,11 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		let main = mains.get(sessionId);
 		if (main) return main;
 		const feedId = `main:${sessionId}`;
-		main = { sessionId, feedId, feed: newRecord(), events: [], host: null, model: undefined, effort: undefined, eventTimer: null, designs: new Map() };
+		main = { sessionId, feedId, feed: newRecord(), events: [], host: null, model: undefined, effort: undefined, eventTimer: null, designs: new Map(), changed: new Set() };
 		studioEvents.set(feedId, main.feed);
 		main.notify = event => {
 			main.events.push(event);
+			for (const key of event.changed ?? []) main.changed.add(key); // reviewed once the request's tasks are all done (studio-review.mjs settledEdits)
 			emitStudioEvent(feedId, event);
 			// a new task keeps the user's last message as typed: its run's motion tool hands it to the motion writer (motion-door.mjs)
 			if (event.type === "task.queued" && main.board.get(event.taskId)) main.board.get(event.taskId).words ??= main.words ?? null;
@@ -109,6 +111,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			tools: ({ studio, hub, admission }) => createMainTools({ board: main.board, studio, hub, admission, workspaceHandle: value.context.host.workspaceHandle, liveHandle: () => main.host?.workspaceHandle, motion, designs: main.designs }),
 			contextText: () => { const told = main.events.splice(0); if (eventTurn) eventTurn.told = told; return mainContextText(main.board, told); },
 			check: reply => (guard.tell() ? "" : doneClaimCorrection(reply, main.board.board(), userText)),
+			settled: { take: () => settledEdits(main.board.board(), main.changed), note: ids => ids.forEach(id => main.changed.add(id)) },
 		}, observe: guard.observe }, "/agent/turn").finally(guard.stop);
 	}
 

@@ -3,9 +3,12 @@
 // measured on the same world AABB proxies.
 //
 // A group is one unit: the union AABB of its solid parts, judged through its root (a part names
-// its root group). Its support is the floor, or the highest top among the other solid objects
-// whose footprint overlaps the unit's and whose top lies below the unit's middle height.
-// supportGapM is the unit's bottom above that top (0 when it rests on it or sinks into it).
+// its root group). Its support is the floor, or the highest drawn surface of the other solid
+// objects straight under the unit's footprint and below its middle height (solid-contact.js: a
+// counter's top beside the counter's own machine, a bench seat under its backrest's top). Without
+// shapes (bodyOf) it is the highest box top below the middle among the boxes whose footprint
+// overlaps the unit's. supportGapM is the unit's bottom above that top (0 when it rests on it or
+// sinks into it).
 // These are measurements, not failures: unsupportedIds lists the gaps over 1 cm.
 //
 // Not measured: characters, lights, effects, a group with no solid part, records on a route or
@@ -15,8 +18,9 @@
 import { descendantsOf, isEffectivelyHidden, isEmptyObject } from './scene-objects.js';
 import { EFFECT_KIND } from './effects/effect-record.js';
 import { isCarried, movesRecord } from './motion3/carried.js';
+import { topIn } from './solid-contact.js';
 
-const UNSUPPORTED_M = 0.01, EPS = 1e-6;
+const UNSUPPORTED_M = 0.01, EPS = 1e-6, EDGE_M = 0.002; // a neighbour standing flush against the unit's side holds nothing up
 const round = v => Number(v.toFixed(4));
 
 /** Ids the installed takes move (spec.objects keys of each target's take v3), from the binding's targets map. */
@@ -52,9 +56,10 @@ const footprintsOverlap = (a, b) => ['x', 'z'].every(a2 => Math.min(a.max[a2], b
 /**
  * { supportGapM: { unitId: metres }, unsupportedIds } for the objects among `ids` (each unit once).
  * boxOf(entity) answers its world { min, max } or null (studio-agent-commands.js entityWorldBounds);
- * takes is the binding's targets map (characterId -> { motion }), or undefined.
+ * takes is the binding's targets map (characterId -> { motion }), or undefined. bodyOf(entity)
+ * answers its contact body (solid-contact.js contactBody) or null; without it the boxes' tops count.
  */
-export function supportGaps(ids, state, takes, boxOf) {
+export function supportGaps(ids, state, takes, boxOf, bodyOf = null) {
   const byId = new Map(state.objects.map(o => [o.id, o])), moved = takeMovedIds(takes);
   const rootOf = id => chainOf(id, byId).at(-1)?.id;
   // A part counts when nothing above it rides a character, a route or a take.
@@ -67,7 +72,10 @@ export function supportGaps(ids, state, takes, boxOf) {
     const own = union(parts.map(o => boxes.get(o.id)));
     if (!own) continue;
     const middle = (own.min.y + own.max.y) / 2;
-    const tops = [...boxes].filter(([id, box]) => rootOf(id) !== root && box.max.y <= middle && footprintsOverlap(own, box)).map(([, box]) => box.max.y);
+    const under = [...boxes].filter(([id, box]) => rootOf(id) !== root && box.min.y < middle && footprintsOverlap(own, box));
+    const region = { min: [own.min.x + EDGE_M, (state.floorY ?? 0) - 1, own.min.z + EDGE_M], max: [own.max.x - EDGE_M, middle, own.max.z - EDGE_M] };
+    const drawn = ([id]) => { const body = bodyOf?.(byId.get(id)); if (!body) return null; const top = topIn(body, region); return top === null || top >= middle - EPS ? [] : [top]; }; // reaching above the middle: beside or around the unit, not under it
+    const tops = under.flatMap(row => drawn(row) ?? (row[1].max.y <= middle ? [row[1].max.y] : []));
     supportGapM[root] = round(Math.max(0, own.min.y - Math.max(state.floorY ?? 0, ...tops)));
   }
   return { supportGapM, unsupportedIds: Object.keys(supportGapM).filter(id => supportGapM[id] > UNSUPPORTED_M) };
