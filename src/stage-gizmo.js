@@ -1,13 +1,36 @@
 import { placementAt } from "./root-path.js";
 import { shotAtFrame } from "./cuts.js";
+import { sampleAt } from "./sample-at.js";
 
+/**
+ * Where the selected cast member's gizmo stands. A character with a take is drawn where the take puts it at this
+ * frame (the render's placement) with its body moved by the take's hips track inside it, so the gizmo stands at the
+ * hips' floor place at the playhead, not at the take's start. A move still moves the whole take: `offset` is the
+ * gizmo's distance from the character's own x/z, and a drag writes x/z minus that offset (the dragged amount).
+ */
 export function characterGizmoView({ selected, characters, activeCharacterId, activeCharacter, motion, shots, activeId, frame }) {
 	if (!selected) return null;
 	const entry = characters.find((item) => item.id === activeId);
 	if (!entry || entry.hidden) return null;
-	const hasTake = activeId === activeCharacterId ? Boolean(motion) : Boolean(activeCharacter.sessionMotion);
-	const placement = hasTake ? entry : placementAt(entry, frame, { shotAt: (at) => shotAtFrame(shots, at) });
-	return { position: [placement.x, entry.y ?? 0, placement.z], rot: placement.rot };
+	const clip = activeId === activeCharacterId ? motion : activeCharacter.sessionMotion;
+	if (!clip) {
+		const placement = placementAt(entry, frame, { shotAt: (at) => shotAtFrame(shots, at) });
+		return { position: [placement.x, entry.y ?? 0, placement.z], rot: placement.rot, offset: [0, 0] };
+	}
+	const at = placementAt(entry, frame, { takeRoot: sampleAt({ frameCount: clip.frames, motion: clip }, null, frame).subject });
+	const body = takeBodyOffset(clip, frame, at.rot ?? 0, entry.scale ?? 1);
+	const x = at.x + body[0], z = at.z + body[1];
+	return { position: [x, entry.y ?? 0, z], rot: at.rot, offset: [x - entry.x, z - entry.z] };
+}
+
+/** The take's hips at `frame` across the floor, turned and scaled as the character draws its rig: [x, z] metres. */
+function takeBodyOffset(clip, frame, rotDeg, scale = 1) {
+	const n = Number.isFinite(clip?.frames) ? clip.frames : 0;
+	if (!clip?.hips || n < 1) return [0, 0];
+	const f = Math.max(0, Math.min(n - 1, Math.round(Number.isFinite(frame) ? frame : 0)));
+	const hx = clip.hips[f * 3] * scale, hz = clip.hips[f * 3 + 2] * scale, a = (rotDeg * Math.PI) / 180;
+	if (!Number.isFinite(hx) || !Number.isFinite(hz)) return [0, 0];
+	return [hx * Math.cos(a) + hz * Math.sin(a), -hx * Math.sin(a) + hz * Math.cos(a)];
 }
 
 export function characterGizmoObject(gizmoView, entry) {
