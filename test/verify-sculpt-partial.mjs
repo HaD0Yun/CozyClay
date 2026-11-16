@@ -117,6 +117,41 @@ await check("object.sculpt with a cube's id: refused before; now the cube become
 	}
 });
 
+await check("digit ids: a refusal by position never takes a valid part whose id equals that position", () => {
+	const unknownKey = normalizeSculptRecipeKeeping({ parts: [blob("a"), blob("2"), blob("c", { wobble: 1 }), blob("d")] });
+	assert.equal(unknownKey.ok, true);
+	assert.deepEqual(ids(unknownKey.recipe), ["a", "2", "d"]);
+	assert.deepEqual(unknownKey.skipped.map((item) => [item.id, item.path]), [["c", "parts[2].wobble"]]);
+	const noId = normalizeSculptRecipeKeeping({ parts: [{ shape: "blob", size: [0.3, 0.3, 0.3] }, blob("0"), blob("a")] });
+	assert.deepEqual(ids(noId.recipe), ["0", "a"]);
+	assert.deepEqual(noId.skipped.map((item) => [item.id, item.path]), [[undefined, "parts[0].id"]]);
+	const digits = normalizeSculptRecipeKeeping({ parts: [blob("1"), blob("2"), blob("3", { wobble: 1 })] });
+	assert.equal(digits.ok, true, JSON.stringify(digits));
+	assert.deepEqual(ids(digits.recipe), ["1", "2"]);
+	// A bad size names the part by its id; the second part with the same id is the one refused for the size.
+	const sameId = normalizeSculptRecipeKeeping({ parts: [blob("a"), blob("a", { size: [0, 1, 1] }), blob("b")] });
+	assert.deepEqual(ids(sameId.recipe), ["a", "b"]);
+	assert.deepEqual(sameId.skipped.map((item) => item.path), ["parts[a].size[0]"]);
+});
+
+await check("a recipe-wide limit after parts were left out: every left-out part is listed, none called 'every part'", () => {
+	const f = objectsFixture();
+	try {
+		const parts = [blob("bad1", { size: [0, 1, 1] }), ...Array.from({ length: 49 }, (_, i) => blob(`p${i}`)), blob("bad2", { size: [0, 1, 1] })];
+		const kept = normalizeSculptRecipeKeeping({ parts });
+		assert.equal(kept.ok, false);
+		assert.equal(kept.allRefused, undefined);
+		const receipt = f.run("object.sculpt", { recipe: { parts } });
+		assert.equal(receipt.ok, false);
+		assert.match(receipt.message, /the limit is 48 Also refused: parts\[bad1\]\.size\[0\]: extent .* \| parts\[bad2\]\.size\[0\]: extent/);
+		assert.doesNotMatch(receipt.message, /Every part was refused/);
+		const all = f.run("object.sculpt", { recipe: { parts: [blob("a", { size: [0, 1, 1] }), blob("b", { size: [1, 0, 1] })] } });
+		assert.match(all.message, /Recipe refused at parts\[a\]\.size\[0\].* Every part was refused; the others: parts\[b\]\.size\[1\]/);
+	} finally {
+		f.dispose();
+	}
+});
+
 if (failures) {
 	console.log(`\n${failures} check(s) failed`);
 	process.exit(1);

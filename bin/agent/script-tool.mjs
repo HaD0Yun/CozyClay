@@ -18,6 +18,9 @@ function callSummary(name, result, error) {
 		affectedIds: Array.isArray(result?.affectedIds) ? result.affectedIds.slice(0, MAX_AFFECTED_IDS) : [], code: result?.code ?? null, message: result?.message ?? null };
 }
 
+/** A failed script whose nested calls moved the scene revision: its edits are rolled back (agent-routes.mjs). */
+export const scriptEditedBeforeFailing = result => !result.ok && result.calls.some(call => call.ok && Number.isSafeInteger(call.revision?.after) && call.revision.after !== call.revision.before);
+
 function description(names) {
 	return [
 		"Run a JavaScript body that calls Studio tools in code. Use script whenever a request needs 3 or more commands or any computed placement (circles, rows, symmetric coverage, repeated objects): one script replaces many tool calls.",

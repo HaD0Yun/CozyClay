@@ -48,4 +48,45 @@ sent.length = 0;
 const nested = await tools().internal.invoke("patch_elements", mixed, "c4");
 assert.equal(nested.commands.length, 2);
 
+// The consumers read receipt fields at the top level: the split answer folds them over its commands.
+let scene = 11;
+const revisedTools = (refuse = () => null) => createStudioTools({ workspaceHandle: "w", liveHub: { command: async (name, args) => {
+	if (name !== "patch_elements") return { ok: false, code: "INVALID_ARGUMENT", message: "$.args: missing required field" };
+	const code = refuse(args);
+	if (code) return { ok: false, code, message: `${code} for ${args.ops[0].target.kind}` };
+	scene++;
+	return { ok: true, status: "applied", authored: true, receiptId: `rev-${scene}`, revision: { before: scene - 1, after: scene }, affectedIds: args.ops.map((op) => op.target.id), summary: `Moved ${args.ops[0].target.kind}` };
+} } });
+const folded = await patch(revisedTools()).handler(mixed, { callId: "c5" });
+assert.deepEqual([folded.status, folded.receiptId, folded.receiptIds, folded.revision, folded.affectedIds, folded.authored, folded.code],
+	["applied", "rev-13", ["rev-12", "rev-13"], { before: 11, after: 13 }, ["cube", "cone", "char-a"], true, undefined]);
+assert.equal(folded.summary, "Moved object Moved character");
+
+const { createScriptTool, scriptEditedBeforeFailing } = await import("../bin/agent/script-tool.mjs");
+const { turnEdits } = await import("../bin/agent/studio-review.mjs");
+const scriptOver = (set) => createScriptTool({ tools: set.filter((tool) => ["patch_elements", "run_action"].includes(tool.name)) });
+const mixedSource = JSON.stringify(mixed);
+
+// (a) A script that edits with a split patch and then fails is rolled back, as a one-domain patch is.
+scene = 11;
+const failing = await scriptOver(revisedTools()).handler({ code: `await tools.patch_elements(${mixedSource}); await tools.run_action({ action: "x", args: {} }); return 1;` });
+assert.equal(failing.ok, false);
+assert.deepEqual(failing.calls[0].revision, { before: 11, after: 13 });
+assert.equal(failing.calls[0].receiptId, "rev-13");
+assert.equal(scriptEditedBeforeFailing(failing), true, "the rollback gate sees the split patch's edits");
+
+// (b) A refused domain inside a script reaches the calls summary: status partial with its code and message.
+scene = 11;
+const partly = await scriptOver(revisedTools((args) => (args.ops[0].target.kind === "character" ? "STALE_TARGET" : null))).handler({ code: `await tools.patch_elements(${mixedSource}); return "placed";` });
+assert.equal(partly.ok, true);
+assert.deepEqual([partly.calls[0].ok, partly.calls[0].status, partly.calls[0].code, partly.calls[0].revision], [true, "partial", "STALE_TARGET", { before: 11, after: 12 }]);
+assert.match(partly.calls[0].message, /^Refused: character \(ops 1\): STALE_TARGET: STALE_TARGET for character/);
+assert.deepEqual(partly.calls[0].affectedIds, ["cube", "cone"], "only the applied domain's ids");
+
+// (c) turnEdits counts a split patch's edits, direct and nested in a script.
+const frames = (result) => [{ type: "tool.start", callId: "t", name: "patch_elements", args: mixed }, { type: "tool.done", callId: "t", ok: true, result }];
+assert.deepEqual(turnEdits(frames(folded)).ids, ["cube", "cone", "char-a"]);
+assert.equal(turnEdits(frames(folded)).edited, true);
+assert.deepEqual(turnEdits(frames(partly)).ids, ["cube", "cone"]);
+
 console.log("verify-patch-domains: all checks passed");

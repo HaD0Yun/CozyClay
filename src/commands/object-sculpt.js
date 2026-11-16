@@ -44,7 +44,9 @@ export function sculptMethod({ owned, objectOf, changed }) {
 		} else refused = normalizeSculptRecipeKeeping(args.recipe);
 		// The failing recipe field rides on the refusal for studio:refused (#1042); a shape's refusal adds a valid example of it.
 		if (!refused.ok) {
-			const more = refused.skipped.length > 1 ? ` Every ${args.edits ? 'edit' : 'part'} was refused; the others: ${refused.skipped.slice(1, 6).map(item => item.error).join(' | ')}`.slice(0, 900) : '';
+			// Every item refused: the head names one, the rest follow. A recipe-wide limit: every item left out before it is listed too.
+			const others = refused.skipped.filter(item => item.error !== refused.error).slice(0, 6).map(item => item.error).join(' | ');
+			const more = !others ? '' : (refused.allRefused ? ` Every ${args.edits ? 'edit' : 'part'} was refused; the others: ${others}` : ` Also refused: ${others}`).slice(0, 900);
 			throw new StudioProtocolError('INVALID_ARGUMENT', `Recipe refused at ${refused.error}${sculptRefusalExample(refused.example)}${more}`, { path: sculptRefusalPath(refused.path), rule: 'recipe' });
 		}
 		const patch = { ...(args.placement ?? {}), ...(args.name === undefined ? {} : { name: args.name }) };

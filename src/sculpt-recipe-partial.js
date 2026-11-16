@@ -13,21 +13,24 @@
  */
 import { normalizeSculptRecipe, patchSculptRecipe } from "./sculpt-recipe.js";
 
-/** The index of the raw part a refusal path names: `parts[<id>]` by id, else `parts[<n>]` by position. */
+/**
+ * The index of the refused raw part. A refusal inside one part carries its position (partIndex); only a
+ * check across parts (duplicate ids, parents, cutters, repeats) names a part by id alone, `parts[<id>]`.
+ * A digit id ("2") is never read as a position.
+ */
 function refusedPartIndex(result, parts) {
+	if (Number.isInteger(result.partIndex)) return result.partIndex < parts.length ? result.partIndex : -1;
 	const match = /^parts\[([^\]]*)\]/.exec(result.path ?? "");
 	if (!match) return -1;
 	const ids = parts.map((part) => (part && typeof part === "object" ? part.id : undefined));
 	// A second part with the same id is the one refused; the first stays.
-	const byId = / is used twice$/.test(result.error) ? ids.lastIndexOf(match[1]) : ids.indexOf(match[1]);
-	if (byId >= 0) return byId;
-	const index = /^\d+$/.test(match[1]) ? Number(match[1]) : -1;
-	return index < parts.length ? index : -1;
+	return / is used twice$/.test(result.error) ? ids.lastIndexOf(match[1]) : ids.indexOf(match[1]);
 }
 
 /**
  * Returns `{ ok: true, recipe, skipped }` with `skipped` = [{ id, error, path, example? }] for every part left out,
- * or the usual `{ ok: false, error, path, example?, skipped }` when nothing (or no single part) can be kept.
+ * or the usual `{ ok: false, error, path, example?, skipped }` when nothing (or no single part) can be kept;
+ * `allRefused: true` marks the case where every part was refused (not a recipe-wide limit).
  */
 export function normalizeSculptRecipeKeeping(input) {
 	const whole = normalizeSculptRecipe(input);
@@ -42,13 +45,12 @@ export function normalizeSculptRecipeKeeping(input) {
 		const orphan = typeof part?.parent === "string" && leftOut.has(part.parent) && !parts.some((other) => other?.id === part.parent);
 		// A path by position names the part as the caller listed it, not as the shortened list does.
 		const own = (text) => String(text).replace(`parts[${at}]`, `parts[${origin[at]}]`);
-		const byPosition = !parts.some((other) => other?.id === /^parts\[([^\]]*)\]/.exec(result.path)?.[1]);
-		const path = byPosition ? own(result.path) : result.path, error = byPosition ? own(result.error) : result.error;
+		const path = result.byPosition ? own(result.path) : result.path, error = result.byPosition ? own(result.error) : result.error;
 		skipped.push({ id, path, error: orphan ? `parts[${id}]: left out with its parent ${part.parent}` : error, ...(result.example && !orphan ? { example: result.example } : {}) });
 		if (id !== undefined) leftOut.add(id);
 		parts = parts.filter((_, index) => index !== at);
 		origin = origin.filter((_, index) => index !== at);
-		if (!parts.length) return { ...whole, skipped };
+		if (!parts.length) return { ...whole, skipped, allRefused: true };
 	}
 	return { ...result, skipped };
 }
@@ -87,6 +89,6 @@ export function patchSculptRecipeKeeping(recipe, edits) {
 		const result = refusals.get(index), path = String(result.path ?? "").replace(/^edits\[0\]/, `edits[${index}]`);
 		return { index, id: editTarget(edit), path, error: String(result.error).replace(/^edits\[0\]/, `edits[${index}]`), ...(result.example ? { example: result.example } : {}) };
 	});
-	if (skipped.length === edits.length) return { ...whole, skipped };
+	if (skipped.length === edits.length) return { ...whole, skipped, allRefused: true };
 	return { ok: true, recipe: current, changed: [...changed], skipped };
 }

@@ -33,6 +33,28 @@ export function splitPatchByDomain(run) {
 		const failed = commands.filter(row => row.error);
 		const note = `The ops spanned ${groups.length} domains (${groups.map(group => group.kind).join(", ")}), so they ran as ${groups.length} patch_elements commands, one per domain, each with its own receipt and undo entry; ${failed.length ? `${failed.length} refused (${failed.map(row => row.kind).join(", ")}), the others applied` : "all applied"}. opIndices are positions in your ops.`;
 		if (failed.length === commands.length) throw Object.assign(new Error(`${note} ${failed.map(row => `${row.kind}: ${row.error.code}: ${row.error.message}`).join(" | ")}`.slice(0, 1800)), { code: failed[0].error.code });
-		return { ok: true, splitByDomain: true, note, commands };
+		return { ...splitReceipt(commands), splitByDomain: true, note, commands };
+	};
+}
+
+/**
+ * The receipt fields every consumer reads at the top level (the script's calls summary and rollback gate,
+ * turnEdits, the task's receipts, the session transcript), folded over the commands that applied:
+ * revision from the first one's before to the last one's after, the union of affectedIds, and the
+ * refused domains as code/message with status "partial", so a script's calls summary names them too.
+ */
+function splitReceipt(commands) {
+	const applied = commands.map(row => row.receipt).filter(Boolean), failed = commands.filter(row => row.error);
+	const first = applied[0]?.revision, last = applied.at(-1)?.revision;
+	const list = key => applied.flatMap(receipt => (Array.isArray(receipt[key]) ? receipt[key] : []));
+	return {
+		ok: true, status: failed.length ? "partial" : "applied",
+		receiptId: applied.at(-1)?.receiptId ?? null, receiptIds: applied.map(receipt => receipt.receiptId ?? null),
+		revision: first || last ? { before: first?.before ?? null, after: last?.after ?? null } : null,
+		affectedIds: [...new Set(list("affectedIds"))],
+		authored: applied.some(receipt => receipt.authored === true || (Number.isSafeInteger(receipt.revision?.after) && receipt.revision.after !== receipt.revision.before)),
+		// delta and warnings stay in commands[].receipt only: a copy here would double them in the model's context
+		summary: applied.map(receipt => receipt.summary).filter(text => typeof text === "string" && text).join(" "),
+		...(failed.length ? { code: failed[0].error.code, message: `Refused: ${failed.map(row => `${row.kind} (ops ${row.opIndices.join(", ")}): ${row.error.code}: ${row.error.message}`).join(" | ")}`.slice(0, 900) } : {}),
 	};
 }
