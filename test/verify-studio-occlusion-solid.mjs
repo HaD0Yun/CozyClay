@@ -8,6 +8,7 @@ import { createSceneObject, createSculptObject } from "../src/scene-objects.js";
 import { createCharacterEntry } from "../src/scenes.js";
 import { framingChecks } from "../src/studio-agent-commands.js";
 import { occludersOf } from "../src/studio-geometry-facts.js";
+import { studioRelations } from "../src/studio-relations.js";
 import { motionScene } from "../src/motion3/scene.js";
 import { blockersAt } from "../src/motion3/sightline.js";
 import { solidOf, solidsOf } from "../src/solid-shape.js";
@@ -51,6 +52,20 @@ test("a hidden figure names the prop nearest the camera on each sight line, not 
 	const objects = [{ ...sculpt(STAIRS), id: "stairs" }, { ...sculpt(BLOCK, { x: 1.4, rot: 90 }), id: "wall" }];
 	const state = { frame: 0, objects, characters: [createCharacterEntry({ id: "ann", subject: "Ann", x: -1.2, z: 0 })] };
 	assert.deepEqual(occludersOf(state.characters[0], { x: 2.5, y: 0.5, z: 0 }, state, portsWith()).map(o => o.byObjectId), ["wall"]);
+});
+
+test("the Relations rows and the framing check give the same answer for the same camera, character and frame", () => {
+	const cases = [[sculpt(STAIRS), { x: -1.2, z: 0 }, { x: 2.5, y: 0.5, z: 0 }, false], [sculpt(ARCH, { z: 1.5 }), { x: 0, z: 0 }, FRONT, false],
+		[primitive("cube", { z: 1.5, scaleX: 1.9, scaleY: 2.5, scaleZ: 0.3 }), { x: 0, z: 0 }, FRONT, true], [sculpt(BLOCK, { z: 1.5 }), { x: 0, z: 0 }, FRONT, true]];
+	for (const [set, at, camera, expected] of cases) {
+		const state = { frame: 0, frameCount: 24, objects: [set], characters: [createCharacterEntry({ id: "ann", subject: "Ann", ...at })], shotDocument: { shots: [] },
+			camera: { position: camera, lookAt: { x: at.x, y: 1, z: at.z }, focalMm: 35, sensorId: "fullFrame" }, filmback: { sensorId: "fullFrame", aspectRatio: 16 / 9 } };
+		const framing = framingChecks(["ann"], state, portsWith()), rows = studioRelations(state, portsWith()).relations;
+		const named = rows.flatMap(line => /OCCLUDED_BY [^#]*#(\S+)/.exec(line)?.[1] ?? []);
+		assert.equal(framing.occluded, expected, `${set.name}: framing`);
+		assert.equal(named.length > 0, framing.occluded, `${set.name}: relations ${rows.join(" | ")}`);
+		assert.deepEqual(named, occludersOf(state.characters[0], camera, state, portsWith()).map(o => o.byObjectId), `${set.name}: the same props named`);
+	}
 });
 
 test("the body counts by share: a hand's many bones are one point, so a small box over the hand hides nothing", () => {

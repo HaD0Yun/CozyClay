@@ -239,8 +239,8 @@ function overlapsOf(ids, state, ports) {
 /** World AABB of one entity as {min,max}, or null when its evaluated bounds are unavailable (a prop whose renderer is not mounted). */
 export function entityWorldBounds(entity, state, ports) {
   try {
-    const box = aabb(geometry(entity, state, ports)), round = v => Number(v.toFixed(4));
-    return { min: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].min)])), max: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].max)])) };
+    const corners = geometry(entity, state, ports), box = aabb(corners), round = v => Number(v.toFixed(4)); // posed bone points ride along unlisted (no JSON, no spread) for the sight-line check
+    return Object.defineProperty({ min: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].min)])), max: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].max)])) }, 'points', { value: corners.body });
   } catch { return null; }
 }
 const overlapEvidence = overlaps => ({ coverage: 'same-frame-world-AABB-proxies', overlapIds: [...new Set(overlaps.map(o => o.id))].slice(0, 100), maximumFootprintOverlapM: Math.max(0, ...overlaps.map(o => o.depth)) });

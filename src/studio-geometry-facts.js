@@ -83,13 +83,14 @@ function bodyPoints(subject, state, ports, bounds) {
   return GRID.flatMap(i => GRID.flatMap(j => GRID.map(k => [at('x', i), at('y', j), at('z', k)])));
 }
 
-/** Props that hide the subject from the camera. The subject is several points of its posed body (bodyPoints); a prop
- * hides a point when the sight line to it crosses the prop's solid (solid-shape.js: what the viewport draws), else its
- * box. The subject is hidden when HIDDEN_SHARE of its points are, and then the prop nearest the camera on each hidden
- * point's sight line is listed.
- * The subject itself, props attached to it, hidden props and a box the camera stands inside (a room set) never count. */
-export function occludersOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
-  if (!subjectBounds) return [];
+/** How much the props hide the subject from the camera: { share (0..1 of its points hidden), hidden (share >= HIDDEN_SHARE),
+ * by: [{ id, share }] in scene order }. The one answer the framing check (occludersOf) and the Relations rows
+ * (studio-relations.js) both give. The subject is several points of its posed body (bodyPoints); a prop hides a point when
+ * the sight line to it crosses the prop's solid (solid-shape.js: what the viewport draws), else its box, and each hidden
+ * point counts for the prop nearest the camera on its sight line (feet behind both a wall and the steps beyond it are the
+ * wall's). The subject itself, props attached to it, hidden props and a box the camera stands inside (a room set) never count. */
+export function occlusionOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
+  if (!subjectBounds) return { share: 0, hidden: false, by: [] };
   const eye = [cameraPosition.x, cameraPosition.y, cameraPosition.z], boxes = {}, solids = {}, skip = new Set();
   for (const o of state.objects) {
     if (o.id === subject.id || o.attach?.characterId === subject.id || isEffectivelyHidden(o, state.objects, state.characters)) continue;
@@ -99,10 +100,17 @@ export function occludersOf(subject, cameraPosition, state, ports, subjectBounds
     if (body.solid) solids[o.id] = body.solid; else if (entry(eye, eye, body.box) !== null) skip.add(o.id);
   }
   const points = bodyPoints(subject, state, ports, subjectBounds), by = points.map(p => Object.keys(hiddenBy(boxes, eye, [p], skip, solids)));
-  if (by.filter(ids => ids.length).length < HIDDEN_SHARE * points.length) return [];
-  // A point is the nearest prop's to name: feet behind both a wall and the steps beyond it are the wall's.
-  const ids = new Set(by.flatMap((hiders, i) => hiders.length ? [hiders.reduce((a, b) => (entry(eye, points[i], boxes[b]) < entry(eye, points[i], boxes[a]) ? b : a))] : []));
-  return state.objects.filter(o => ids.has(o.id)).map(o => ({ subjectId: subject.id, byObjectId: o.id }));
+  const count = {}, nearest = (hiders, p) => hiders.reduce((a, b) => (entry(eye, p, boxes[b]) < entry(eye, p, boxes[a]) ? b : a));
+  by.forEach((hiders, i) => { if (hiders.length) { const id = nearest(hiders, points[i]); count[id] = (count[id] ?? 0) + 1; } });
+  const hiddenPoints = by.filter(ids => ids.length).length;
+  return { share: hiddenPoints / points.length, hidden: hiddenPoints >= HIDDEN_SHARE * points.length,
+    by: state.objects.filter(o => count[o.id]).map(o => ({ id: o.id, share: count[o.id] / points.length })) };
+}
+
+/** Props that hide the subject from the camera (occlusionOf): the props it names when the subject counts as hidden, else none. */
+export function occludersOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
+  const { hidden, by } = occlusionOf(subject, cameraPosition, state, ports, subjectBounds);
+  return hidden ? by.map(({ id }) => ({ subjectId: subject.id, byObjectId: id })) : [];
 }
 
 /** A shot's camera as position + aim: the live camera for the shot under the
