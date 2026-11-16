@@ -56,14 +56,25 @@ export function topIn(body, region) {
 	return Math.min(hi(1), region.max[1]);
 }
 
-const near = (box, p) => ['x', 'y', 'z'].every((a, i) => p[i] >= box[a].min - TOUCH_M && p[i] <= box[a].max + TOUCH_M);
-/** A body's bone points and, where its bones are known ([parent, child] index pairs), points every LIMB_STEP_M along each
- * bone: a shin through a bench seat lies between the knee and the ankle. */
-const limbs = ({ points, bones = [] }) => {
-	const p = points.map(pointOf), along = (a, b) => { const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / LIMB_STEP_M); return Array.from({ length: Math.max(0, n - 1) }, (_, s) => a.map((v, k) => v + ((s + 1) / n) * (b[k] - v))); };
+const near = (box, p, pad = TOUCH_M) => ['x', 'y', 'z'].every((a, i) => p[i] >= box[a].min - pad && p[i] <= box[a].max + pad);
+const gap = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+/** A body's bone points as [x, y, z, r] and, where its bones are known ([parent, child] index pairs), points every LIMB_STEP_M
+ * along each bone: a shin through a bench seat lies between the knee and the ankle. r: the drawn radius round the point (a
+ * capsule figure's radii), else 0 (a rig's bones lie under flesh the editor does not measure). */
+const limbs = ({ points, bones = [], radii = null }) => {
+	const p = points.map((q, i) => [...pointOf(q), radii?.[i] ?? 0]), along = (a, b) => { const n = Math.ceil(gap(a, b) / LIMB_STEP_M); return Array.from({ length: Math.max(0, n - 1) }, (_, s) => a.map((v, k) => v + ((s + 1) / n) * (b[k] - v))); };
 	return [...p, ...bones.flatMap(([i, j]) => (p[i] && p[j] ? along(p[i], p[j]) : []))];
 };
-const shares = (a, b) => a.filter(p => b.some(q => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < BODY_GAP_M)).length >= BODY_SHARE * a.length;
+// The share counts the body, not its bone count: bones closer than BODY_GAP_M are one point first, or two hands that meet
+// (a rig's 65 bones hold 40 finger bones) read as two bodies standing in each other. Two bone points meet within BODY_GAP_M;
+// a point with a drawn radius reaches that much further (half of BODY_GAP_M stands for the flesh round a rig's bone).
+const thin = points => points.reduce((kept, p) => (kept.some(q => gap(p, q) < BODY_GAP_M) ? kept : [...kept, p]), []);
+const reach = p => p[3] || BODY_GAP_M / 2;
+const shares = (a, b) => { const own = thin(a); return own.filter(p => b.some(q => gap(p, q) < reach(p) + reach(q))).length >= BODY_SHARE * own.length; };
+/** How deep a ball of radius r round p reaches into the body: its centre's depth plus r when the centre is inside, else the
+ * deepest of its six surface points along the world axes. */
+const AXES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const ballDepth = (body, p) => { const at = depthIn(body, p.slice(0, 3)); return at > 0 || !p[3] ? at + (at > 0 ? p[3] : 0) : Math.max(...AXES.map(e => depthIn(body, [0, 1, 2].map(k => p[k] + e[k] * p[3])))); };
 
 /**
  * How deep two posed things stand inside each other, in metres: 0 when they only touch (TOUCH_M or less). a and b are
@@ -74,12 +85,15 @@ const shares = (a, b) => a.filter(p => b.some(q => Math.hypot(p[0] - q[0], p[1] 
 export function interpenetration(a, b, boxA, boxB) {
 	if (!a || !b || (!a.body && !a.points?.length) || (!b.body && !b.points?.length)) return null;
 	const within = Object.fromEntries(['x', 'y', 'z'].map(k => [k, { min: Math.max(boxA[k].min, boxB[k].min), max: Math.min(boxA[k].max, boxB[k].max) }]));
-	const pts = x => x.points.map(pointOf);
+	// Two drawn bodies (capsule figures: centre lines and radii) are inside each other where their surfaces cross by more than TOUCH_M.
+	if (a.radii && b.radii) { const pa = limbs(a), pb = limbs(b), deepest = Math.max(0, ...pa.flatMap(p => pb.map(q => p[3] + q[3] - gap(p, q)))); return deepest > TOUCH_M ? deepest : 0; }
+	const pts = x => limbs({ points: x.points, radii: x.radii });
 	if (a.points && b.points) return shares(pts(a), pts(b)) || shares(pts(b), pts(a)) ? 1 : 0;
 	if (a.points || b.points) {
-		const [points, body] = a.points ? [limbs(a), b.body] : [limbs(b), a.body];
-		const deepest = Math.max(0, ...points.filter(p => near(within, p)).map(p => depthIn(body, p)));
-		return deepest > BONE_M ? deepest : 0;
+		// a bone point counts BONE_M deep (the skin is already inside); a drawn surface counts past TOUCH_M, as two solids do
+		const [own, body] = a.points ? [a, b.body] : [b, a.body], points = limbs(own), floor = own.radii ? TOUCH_M : BONE_M;
+		const deepest = Math.max(0, ...points.filter(p => near(within, p, TOUCH_M + p[3])).map(p => ballDepth(body, p)));
+		return deepest > floor ? deepest : 0;
 	}
 	// The space both boxes share, sampled on a grid: where a point is inside both shapes, the deeper of its two depths. Two
 	// faces pressed together share a layer as thin as the overlap, so both depths stay under its thickness; a table top

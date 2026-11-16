@@ -269,7 +269,7 @@ const readback = object({}, { position: vec3, yawDeg: number(), rotationDeg: vec
 const CAMERA_SIDES = ["left", "right", "on-axis"];
 const checks = object({ coverage: name }, { relationSatisfied: bool, overlapIds: ids(100, 0), actualGapM: number(), requestedGapM: number(0), maximumFootprintOverlapM: number(0),
 	basis: choices(STUDIO_VARIANTS.positionBases), clipped: bool, occluded: bool, behindCamera: bool, screenFraction: number(0), derivedSize: choices(STUDIO_VARIANTS.framingSizes), held: object({ frames: array(integer(), 64), hidden: array(integer(), 64), outOfFrame: array(integer(), 64) }, { askedDeg: number(), chosenDeg: number() }), support: name, baseY: number(), facesTargetId: id,
-	cameraSide: choices(CAMERA_SIDES), axisConsistent: bool, evaluatedFrames: integer(1), sampledFrames: array(integer(), 64, 1), sampledChecks: array(object({ frame: integer(), screenFraction: number(), clipped: bool, behindCamera: bool, occluded: bool }), 64, 1), issueFrames: array(object({ frame: integer(), codes: array(name, 4, 1), screenFraction: number() }), 64, 0) });
+	cameraSide: choices(CAMERA_SIDES), axisConsistent: bool, evaluatedFrames: integer(1), sampledFrames: array(integer(), 64, 1), sampledChecks: array(object({ frame: integer(), screenFraction: number(), clipped: bool, behindCamera: bool, occluded: bool }, { shot: id }), 64, 1), issueFrames: array(object({ frame: integer(), codes: array(name, 4, 1), screenFraction: number() }, { subjects: array(object({ id, codes: array(name, 4, 1), inFrame: number(0, 1), hidden: number(0, 1) }), 24, 0) }), 64, 0) });
 // Code-computed shot geometry verify_result carries beside a framing check
 // (src/studio-geometry-facts.js): bounded to 8 shots and 24 subjects.
 const geometryFacts = object({

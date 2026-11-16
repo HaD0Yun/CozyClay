@@ -29,16 +29,39 @@ export function proxyFigureBounds(character, placement = character) {
 		// Sit reaches forward (local +z, the facing direction) with its legs.
 		: [[-PROXY_BODY_RADIUS, 0, -PROXY_BODY_RADIUS], [PROXY_BODY_RADIUS, top, posture === "sit" ? PROXY_SIT_LEG_REACH : PROXY_BODY_RADIUS]];
 	const min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
-	for (const lx of [minCorner[0], maxCorner[0]]) for (const ly of [minCorner[1], maxCorner[1]]) for (const lz of [minCorner[2], maxCorner[2]]) {
+	const world = ([lx, ly, lz]) => {
 		const sx = lx * stature, sy = ly * stature, sz = lz * stature;
-		const wx = x + sx * Math.cos(yaw) + sz * Math.sin(yaw);
-		const wz = z - sx * Math.sin(yaw) + sz * Math.cos(yaw);
-		min.x = Math.min(min.x, wx); max.x = Math.max(max.x, wx);
-		min.y = Math.min(min.y, y + sy); max.y = Math.max(max.y, y + sy);
-		min.z = Math.min(min.z, wz); max.z = Math.max(max.z, wz);
+		return { x: x + sx * Math.cos(yaw) + sz * Math.sin(yaw), y: y + sy, z: z - sx * Math.sin(yaw) + sz * Math.cos(yaw) };
+	};
+	for (const lx of [minCorner[0], maxCorner[0]]) for (const ly of [minCorner[1], maxCorner[1]]) for (const lz of [minCorner[2], maxCorner[2]]) {
+		const w = world([lx, ly, lz]);
+		for (const a of ["x", "y", "z"]) { min[a] = Math.min(min[a], w[a]); max[a] = Math.max(max[a], w[a]); }
 	}
-	return { min, max };
+	return { min, max, ...proxyFigureCore(posture, bodyHeight, world, stature) };
 }
+
+/** The drawn capsules' centre lines as points and [from, to] pairs, the way a rigged body's bones are, and radii: the drawn
+ * radius round each point (the body capsule's, the head sphere's, the neck between them), so the contact and frame-edge checks
+ * read a capsule figure's surface, which the engine knows, and the sight line reads its core as it reads a rig's bones. */
+function proxyFigureCore(posture, bodyHeight, world, stature) {
+	const R = PROXY_BODY_RADIUS, head = bodyHeight + PROXY_HEAD_LIFT, shoulder = bodyHeight - R;
+	// lie: the standing figure turned onto its back, its axis along local -z one radius above the floor (proxy-figure.jsx)
+	const local = posture === "lie" ? p => [p[0], R + p[2], -p[1]] : p => p;
+	const lines = [[[0, R, 0], [0, shoulder, 0]], [[0, shoulder, 0], [0, head, 0]], ...(posture === "sit" ? [[[0, R, 0], [0, R, PROXY_SIT_LEG_REACH - R]]] : [])];
+	// above the shoulder the body capsule's cap and the head sphere are what is drawn round the centre line
+	const radiusAt = p => (p[1] <= shoulder ? R : Math.max(0, Math.sqrt(Math.max(0, R * R - (p[1] - shoulder) ** 2)), Math.sqrt(Math.max(0, PROXY_HEAD_RADIUS ** 2 - (p[1] - head) ** 2))));
+	const points = [], bones = [], radii = [];
+	for (const [a, b] of lines) {
+		const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / CORE_STEP_M));
+		for (let i = 0; i <= steps; i++) {
+			const p = a.map((v, k) => v + (i / steps) * (b[k] - v));
+			points.push(world(local(p))); radii.push(radiusAt(p) * stature);
+			if (i) bones.push([points.length - 2, points.length - 1]);
+		}
+	}
+	return { points, bones, radii };
+}
+const CORE_STEP_M = 0.1;
 
 const IMPORTED_OFF = new Set(["ik", "pose"]);
 
