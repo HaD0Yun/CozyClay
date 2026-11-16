@@ -146,7 +146,7 @@ const NODE_FILES = [
 	"test/verify-mesh-graph-clone.mjs",
 	"test/verify-scene-objects.mjs",
 	"test/verify-studio-agent-geometry.mjs",
-	"test/verify-studio-geometry-facts.mjs", "test/verify-studio-occlusion-solid.mjs",
+	"test/verify-studio-geometry-facts.mjs", "test/verify-studio-occlusion-solid.mjs", "test/verify-studio-contact.mjs", "test/verify-review-settled.mjs",
 	"test/verify-plan-diagram.mjs",
 	"test/verify-agent-plan-attach.mjs",
 	"test/verify-local-placement.mjs",
