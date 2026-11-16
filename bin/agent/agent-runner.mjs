@@ -413,6 +413,15 @@ export function createAgentRunner({ models: suppliedModels, sessionStore, tools 
 					// CozyClay's requests, and pi 0.99 sent no attribution, so none is sent.
 					identity: { attribution: null },
 					toolExecution: "sequential",
+					// Work a tool left running (input.unfinished, motion-door.mjs): a run that would end first hands its result to the model as a message.
+					finishTurn: async (turn) => {
+						const unfinished = state.lastInput?.unfinished;
+						if (typeof unfinished !== "function" || turn.toolResults.length) return undefined;
+						const failed = turn.message.stopReason === "error" || turn.message.stopReason === "aborted" || Boolean(state.lastInput?.signal?.aborted);
+						const text = await unfinished({ failed });
+						if (text && !failed) state.agent.followUp({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() });
+						return undefined;
+					},
 					steeringMode: "one-at-a-time",
 					maxRetryDelayMs: RETRY_MAX_DELAY_MS,
 					...(codexBaseUrl ? { transport: "sse" } : {}),

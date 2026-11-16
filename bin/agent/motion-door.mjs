@@ -1,13 +1,18 @@
 // The motion tool of the Studio agent: the user's message of the turn, as typed, and the agent's note go to the motion
 // environment (motion-run.mjs runMotion) and a report comes back. The route builds one door per turn
 // (agent-routes.mjs) and adds it to the agent's tools while the lowvis engine is the motion engine and the motion
-// writer's model is reachable (motionAvailable).
+// writer's model is reachable (motionAvailable). In a plain turn the motion is written while the agent goes on, and its
+// result reaches the agent before the turn can end (createMotionDoor background).
 import { cliproxyBase, fetchModelList } from "./cliproxy-provider.mjs";
 import { motionEngine } from "./motion-engine.mjs";
 import { motionWriter } from "./motion-engine.mjs";
 import { runMotion } from "./motion-run.mjs";
 
 const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. Its report ends with a Missing line. images: true sends the user's pictures.";
+// A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
+const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used. motion_result answers that result, waiting only for what is left of the motion. Work that does not depend on the result can be done meanwhile. Until the motion is installed, a call that changes a character or object it was written against is undone and refused. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
+const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it. A motion that failed answers its error.";
+const ENDED = "The motion started in this turn has ended. Its result, as motion_result answers it:";
 const PARAMETERS = {
 	type: "object",
 	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, images: { type: "boolean" } },
@@ -38,36 +43,97 @@ export async function motionAvailable(env = process.env) {
 	return ok;
 }
 
+const coded = (code, message) => Object.assign(new Error(message), { code });
+const answerOf = done => ({ ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null });
+// The ids a tool call changed: its own, and those of each call of a script (script-tool.mjs calls).
+const touched = result => [...(Array.isArray(result?.affectedIds) ? result.affectedIds : []), ...(Array.isArray(result?.calls) ? result.calls.flatMap(call => (Array.isArray(call?.affectedIds) ? call.affectedIds : [])) : [])];
+
 /**
- * createMotionDoor({ run, mark, rollback, images }) -> the model-facing `motion` tool (bin/agent/pi-tools.mjs
- * toAgentTools shape).
- * run({ request, images, signal, onCompile }) -> runMotion's answer (the route binds the rest of runMotion's arguments).
+ * createMotionDoor({ run, mark, rollback, images, background, sceneOf }) -> the model-facing `motion` tool
+ * (bin/agent/pi-tools.mjs toAgentTools shape), plus with(list) (the turn's tools and the motion's) and unfinished.
+ * run({ request, images, signal, onCompile, onScene, exclusive }) -> runMotion's answer (the route binds the rest).
  * mark() / rollback(): the turn transaction's (studio-turn-transaction.mjs); both answer null when the turn is not wrapped.
  * images(): the pictures the user attached to this request ([{ data, mimeType }]).
+ * background false: the call waits for the motion (a task's run). background true: the call answers started once the
+ * scene is read and motion_result collects the result. Until the install, with(list)'s tools and the install hold the
+ * scene one at a time, and a call that changed an id the motion was written against (onScene) is rolled back and
+ * refused. sceneOf(): the scene the turn's tools act on; the install is refused once it is another than at the start.
+ * unfinished({ failed }) -> null, or the text of a result the agent has not collected, which the runner hands to the
+ * model before the turn may end (agent-runner.mjs); failed (the turn ended on an error or a stop) stops the motion instead.
  */
-export function createMotionDoor({ run, mark, rollback, images = () => [] }) {
-	return {
-		name: "motion",
-		label: "Make the motion",
-		description: DESCRIPTION,
-		parameters: PARAMETERS,
-		handler: async (args, { signal, toolCallId, emit } = {}) => {
-			await mark();
-			let compiles = 0;
-			// one progress frame per compile (the shape of script-tool.mjs progressFrame); a failing view never fails the call
-			const onCompile = ({ n, ok, line }) => {
-				if (toolCallId && typeof emit === "function") try { emit({ type: "tool.progress", callId: toolCallId, index: ++compiles, name: "motion", status: ok ? "done" : "failed", summary: (ok ? `compile ${n}` : line).slice(0, 160) }); } catch { /* advisory */ }
-			};
-			let done;
+export function createMotionDoor({ run, mark, rollback, images = () => [], background = false, sceneOf = () => null }) {
+	const progress = (toolCallId, emit) => {
+		let compiles = 0; // one progress frame per compile (the shape of script-tool.mjs progressFrame); a failing view never fails the call
+		return ({ n, ok, line }) => { if (toolCallId && typeof emit === "function") try { emit({ type: "tool.progress", callId: toolCallId, index: ++compiles, name: "motion", status: ok ? "done" : "failed", summary: (ok ? `compile ${n}` : line).slice(0, 160) }); } catch { /* advisory */ } };
+	};
+	const waiting = async (args, { signal, toolCallId, emit } = {}) => {
+		await mark();
+		try {
+			return answerOf(await run({ request: args.request, images: args.images ? images() : [], signal, onCompile: progress(toolCallId, emit) }));
+		} catch (error) {
+			if (error?.code === "studio") await rollback();
+			throw error;
+		}
+	};
+	let job = null; // this turn's motion: { result, stop, held, installed, collected, scene }
+	let tail = Promise.resolve(); // the scene's holder: one guarded call or the install at a time
+	const hold = step => { const next = tail.then(step); tail = next.catch(() => {}); return next; };
+	const collect = async current => { try { return answerOf(await current.result); } finally { current.collected = true; } };
+	const starting = async (args, { signal, toolCallId, emit } = {}) => {
+		if (job && !job.collected) throw coded("MOTION_RUNNING", "A motion of this turn is still being written: motion_result answers it; a change to it is another motion call after that.");
+		const current = { stop: new AbortController(), held: null, installed: false, collected: false, scene: sceneOf() };
+		let read;
+		const scene = new Promise(resolve => { read = resolve; });
+		// the install holds the scene alone, under its own mark, and is rolled back when the Studio refused it
+		const exclusive = install => hold(async () => {
 			try {
-				done = await run({ request: args.request, images: args.images ? images() : [], signal, onCompile });
-			} catch (error) {
-				if (error?.code === "studio") await rollback();
-				throw error;
-			}
-			return { ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null };
+				if (sceneOf() !== current.scene) throw coded("studio", "Another scene was opened while the motion was written, so it was not installed. Call motion again in the scene it belongs to.");
+				await mark();
+				try { return await install(); } catch (error) { if (error?.code === "studio") await rollback(); throw error; }
+			} finally { current.installed = true; }
+		});
+		const onScene = ids => { current.held = new Set([...Object.values(ids?.characters ?? {}), ...Object.values(ids?.props ?? {}).map(prop => prop?.id)]); read(); };
+		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, onCompile: progress(toolCallId, emit), onScene, exclusive });
+		current.result.catch(() => {}).finally(() => { current.installed = true; read(); });
+		job = current;
+		await scene;
+		// a motion that ended before it read the scene: its answer or its error is this call's
+		return current.held ? { ok: true, started: true } : collect(current);
+	};
+	const guard = tool => ({ ...tool, handler: async (args, call) => {
+		const current = job;
+		if (!current || current.installed) return tool.handler(args, call);
+		return hold(async () => {
+			if (current.installed || !current.held?.size) return tool.handler(args, call);
+			await mark();
+			const result = await tool.handler(args, call), hit = [...new Set(touched(result).filter(id => current.held.has(id)))];
+			if (!hit.length) return result;
+			const undone = await rollback();
+			throw coded("MOTION_RUNNING", `This call changed ${hit.join(", ")}, which the motion being written uses as it was when the motion started; ${undone ? "its edits were undone" : "its edits could not be undone"}. Such a change works once the motion is installed, which motion_result waits for.`);
+		});
+	} });
+	const resultTool = {
+		name: "motion_result", label: "Motion result", description: RESULT_DESCRIPTION, parameters: { type: "object", properties: {}, additionalProperties: false },
+		handler: async () => {
+			if (!job) throw coded("NO_MOTION", "No motion was started in this turn.");
+			return collect(job);
 		},
 	};
+	const door = {
+		name: "motion",
+		label: "Make the motion",
+		description: background ? `${DESCRIPTION}${STARTED}` : DESCRIPTION,
+		parameters: PARAMETERS,
+		handler: background ? starting : waiting,
+		with: list => (background ? [...list.map(guard), door, resultTool] : [...list, door]),
+		unfinished: async ({ failed = false } = {}) => {
+			const current = job;
+			if (!current || current.collected) return null;
+			if (failed) { current.stop.abort(); await current.result.catch(() => {}); current.collected = true; return null; }
+			try { return `${ENDED}\n${JSON.stringify(await collect(current))}`; } catch (error) { return `${ENDED}\n${error?.code ?? "error"}: ${error?.message ?? String(error)}`; }
+		},
+	};
+	return door;
 }
 
 const pictures = new Map(); // the user turn's conversation (a task's: its main session) -> the pictures of its last request
@@ -77,18 +143,20 @@ const pictures = new Map(); // the user turn's conversation (a task's: its main 
  * while the old motion engine is on or the motion writer cannot run. A user turn with pictures keeps them for the
  * motion tool of its conversation (a task's run reads its main session's); a later user turn without pictures drops
  * them, so old pictures never go with a later request. The main agent's hidden report turn changes nothing.
+ * A plain turn's door runs the motion in the background; a task's run waits for it (its dependents wait on the task).
  * tools: the turn's Studio tools (their internal.invoke runs the install); transaction: the turn's
- * studioTransaction (mark, rollback). deps: runMotion's (tests).
+ * studioTransaction (mark, rollback); admission: the turn's (its host names the scene the tools act on). deps: runMotion's (tests).
  */
-export async function turnMotionDoor({ value, env = process.env, hub, tools, transaction, signal, deps = null }) {
+export async function turnMotionDoor({ value, env = process.env, hub, tools, transaction, admission = null, signal, deps = null }) {
 	const key = value.task?.parentId ?? value.sessionId;
 	if (value.attachments?.length) pictures.set(key, picturesOf(value.attachments));
 	else if (!value.task && !value.hidden) pictures.delete(key);
 	if (value.main || motionEngine(env) !== "lowvis" || !await motionAvailable(env)) return null;
 	return createMotionDoor({
 		// the user's message as typed goes with the agent's request; a task's is the message its coordinator had (studio-task-routes.mjs)
-		run: ({ request, images, signal: callSignal, onCompile }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
-			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, deps }),
+		run: ({ request, images, signal: callSignal, onCompile, onScene, exclusive }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
+			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, onScene, exclusive, deps }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
+		background: !value.task, sceneOf: () => admission?.host?.sceneId ?? null,
 	});
 }

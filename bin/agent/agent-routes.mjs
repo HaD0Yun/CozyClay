@@ -474,7 +474,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			},
 		}))));
 		// The motion tool (motion-door.mjs): body motion of rig characters goes to the motion environment.
-		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, hub, tools, transaction: turnTransaction, signal: controller.signal });
+		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, hub, tools, transaction: turnTransaction, admission, signal: controller.signal });
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.
 		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: [...modelTools, plan.nested], signal: controller.signal, emit: send });
 		const scriptTool = {
@@ -559,7 +559,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			for await (const frame of turnTransaction.run(reviewing && !value.task ? reviewedStart({ start: input => session.modelSession.start(input), signal: controller.signal, settled: value.main?.settled, review: createTurnReview({ invoke: tools.internal.invoke, resolveImage: tools.resolveImage, hub, workspaceHandle: value.context.host.workspaceHandle, scope: value.task?.scope }) }) : input => session.modelSession.start(input))({
 				surface: "studio", sessionId: value.sessionId, model: modelKey, effort: value.effort,
 				text: value.text, attachments: value.attachments, contextText: encodeStudioContext(value.context, { relations: reviewing ? await turnRelations(hub, value.context.host.workspaceHandle) : null }) + (value.main?.contextText() ?? ""), frameObservation,
-				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : [...modelTools, plan.track(scriptTool), plan, ...(motionDoor ? [motionDoor] : [])], motionTool: Boolean(motionDoor), systemPrompt: value.main?.systemPrompt, signal: controller.signal, emit: send,
+				reportCost: Boolean(value.task || value.main), context: value.context, tools: value.main ? value.main.tools({ studio: modelTools, hub, admission }) : motionDoor ? motionDoor.with([...modelTools, plan.track(scriptTool), plan]) : [...modelTools, plan.track(scriptTool), plan], motionTool: Boolean(motionDoor), unfinished: motionDoor?.unfinished, systemPrompt: value.main?.systemPrompt, signal: controller.signal, emit: send,
 				meta: persistenceMeta,
 				quotaEvent: headers => codex?.parseQuotaHeaders ? quotaEvent(codex, headers) : { type: "quota", plan: null, primary: { usedPercent: null, windowMinutes: null, resetAt: null }, credits: { has: null } },
 			})) emitFrame(frame);
