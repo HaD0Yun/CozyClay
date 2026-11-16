@@ -9,6 +9,7 @@ import { shotAtFrame } from "../cuts.js";
 import { sampleContactSheetFrames } from "../studio-contact-sheet.js";
 import { FRAMING_ANGLES, FRAMING_FRACTIONS, FRAMING_LEVELS } from "../studio-agent-commands.js";
 import { focalMmToFov } from "../shot.js";
+import { solidsOf } from "../solid-shape.js";
 import { fail } from "./shared.js";
 
 const SAMPLES = 24, FPS = 24;
@@ -40,7 +41,7 @@ export function resolveOverShot(args, { raw, shots, ports }) {
 	if (!out) fail("TARGET_NOT_READY", 'over: "shot" reads the subject\'s installed take; run motion.compile with install: true first, or frame one pose without over.');
 	const shot = args.shotId ? shots.find(s => s.id === args.shotId) : shotAtFrame(shots, raw.view?.frame ?? 0), frames = shotFrames(shot, raw.frameCount);
 	const lens = lensOf(raw, intent.focalMm), turn = (intent.side === "right" ? -1 : 1) * FRAMING_ANGLES[intent.view], asked = (character.rot ?? 0) + turn;
-	const fit = fitHeld(out, frames, { asked, mirror: (character.rot ?? 0) - turn, fixedLens: intent.focalMm !== undefined, ...lens, fraction: FRAMING_FRACTIONS[intent.size], levelShare: FRAMING_LEVELS[intent.level] });
+	const fit = fitHeld(out, frames, { asked, mirror: (character.rot ?? 0) - turn, fixedLens: intent.focalMm !== undefined, ...lens, solids: solidsOf(ports.state().objects), fraction: FRAMING_FRACTIONS[intent.size], levelShare: FRAMING_LEVELS[intent.level] });
 	if (!fit) fail("TARGET_NOT_READY", "The subject's take has no compiled frame in this shot.");
 	const point = ([x, y, z]) => ({ x, y, z }), focalMm = Math.round((intent.focalMm ?? raw.camera?.focalMm ?? DEFAULT_FOCAL_MM) * fit.lensFactor);
 	return { args: { ...rest, framing: { exact: { position: point(fit.eye), lookAt: point(fit.lookAt), focalMm } } },
@@ -53,7 +54,7 @@ export function heldReport(plan, shot, { raw, ports, over }) {
 	const character = raw.characters.find(c => c.id === plan.details.subjectIds?.[0]), out = character && compiledTake(character, ports);
 	if (!out && !over) return {};
 	const { framing } = plan.details, cam = { eye: [framing.pos.x, framing.pos.y, framing.pos.z], lookAt: lookOf(framing) };
-	const frames = over?.frames ?? shotFrames(shot, raw.frameCount), { hidden, outOfFrame } = over ?? heldIssues(out, cam, frames, { tanV: Math.tan((framing.fovDeg * Math.PI) / 360), aspect: raw.filmback.aspectRatio });
+	const frames = over?.frames ?? shotFrames(shot, raw.frameCount), { hidden, outOfFrame } = over ?? heldIssues(out, cam, frames, { tanV: Math.tan((framing.fovDeg * Math.PI) / 360), aspect: raw.filmback.aspectRatio, solids: solidsOf(ports.state().objects) });
 	if (!over && !hidden.length && !outOfFrame.length) return {};
 	const missing = hidden.length || outOfFrame.length;
 	return { held: { frames, hidden, outOfFrame, ...(over ? { askedDeg: over.askedDeg, chosenDeg: over.chosenDeg } : {}) },
