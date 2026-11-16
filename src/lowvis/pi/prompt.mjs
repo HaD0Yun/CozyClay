@@ -21,8 +21,9 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // plus the edit argument of motion: single actions are changed without sending the whole spec again. "reach" is patch
 // plus the rows that say how far a hand or a foot is from the target its action gave it. "noassist" is patch with the
 // engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target. "studio" is tilt
-// plus three engine steps, each of which can be switched off by name (OFF): pace, turn, tops.
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, pace: true, turn: true, tops: true } };
+// plus three engine steps, each of which can be switched off by name (OFF): pace, turn, tops, and it is told the parts
+// of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs).
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, pace: true, turn: true, tops: true, words: true } };
 /** The flags that can be switched off by name. */
 export const OFF = Object.freeze(["pace", "turn", "tops"]);
 /** What a variant turns on: { text: "base" | "lean", edit?: true, ... }, without the flags listed in off. Throws on an unknown name. */
@@ -38,6 +39,7 @@ const TILT = `\nIn pose: tilt: [pitch, roll], about: "hips" | "feet" | [x,y,z], 
 const TURN = ` turn: degrees about Y; at 0 its d side lies along Z, at 90 along X.`;
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
+const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
 const NUMBERS = {
 	base: `Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse. Numbers and pictures are information, not a gate.
@@ -62,7 +64,7 @@ export const VARIANTS = Object.keys(FEATURES);
 /** The system prompt of a variant (VARIANTS), without the flags listed in off. */
 export const systemPrompt = (variant = "base", off = []) => { const f = features(variant, off); return `You block previs motion for a box figure with 17 joints. One tool, motion, compiles your scene and motion spec with a small deterministic engine, measures the result and shows contact sheets. You have no files and no other tools.
 
-Make the action read at a glance. Weight, anticipation and contacts matter more than detail: where the weight is, what winds up before a fast move, what touches what and when, how the body settles after.
+Make the action read at a glance. Weight, anticipation and contacts matter more than detail: where the weight is, what winds up before a fast move, what touches what and when, how the body settles after.${f.words ? WORDS : ""}
 
 CONVENTIONS
 Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90 faces +X. At heading 0 the figure's left is +X. It stands ${m(head)} m tall, Hips joint ${m(hips)} m and shoulders ${m(shoulder)} m over the floor, ${m(arm)} m from shoulder to wrist.

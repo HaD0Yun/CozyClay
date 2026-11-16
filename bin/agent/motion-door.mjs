@@ -85,7 +85,8 @@ export async function turnMotionDoor({ value, env = process.env, hub, tools, tra
 	else if (!value.task && !value.hidden) pictures.delete(key);
 	if (value.main || motionEngine(env) !== "lowvis" || !await motionAvailable(env)) return null;
 	return createMotionDoor({
-		run: ({ request, images, signal: callSignal, onCompile }) => runMotion({ text: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
+		// the user's message as typed goes with the agent's request; a task's is the message its coordinator had (studio-task-routes.mjs)
+		run: ({ request, images, signal: callSignal, onCompile }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
 			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, allowAdd: !value.task, deps }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
 	});

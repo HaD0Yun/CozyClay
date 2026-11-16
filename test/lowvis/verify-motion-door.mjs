@@ -81,6 +81,79 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	console.log("PASS turnMotionDoor: pictures of an earlier turn are not passed after a turn without pictures");
 }
 
+// A plain turn: the user's message of the turn reaches the motion writer verbatim on every call of the turn, next to
+// the agent's request as its note; a task run's door hands on the words its task carries.
+const WORDS = "then he sits down on the floor  \n(그리고 바닥에 앉아)";
+const USER = "USER'S WORDS (the user's message of this turn, exactly as typed):\n", NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters and objects, what to keep):\n";
+const TASK_USER = "USER'S WORDS (the user's last message to the Studio, exactly as typed; this task may do only part of it):\n";
+const recordingDeps = requests => ({
+	studioScene: () => ({ scene: { characters: [], props: [], others: [] }, ids: { characters: {}, props: {}, switch: [] } }),
+	runScene: async options => { requests.push(options.request); return { wallMs: 0, compiles: 0, report: "Done.\nMissing: none", missing: "none", final: null }; },
+	readClip: () => null, installClip: async () => ({ ok: true }),
+});
+const proxyEnv = async () => {
+	const proxy = createServer((req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "claude-opus-5-5" }] })); });
+	proxy.listen(0, "127.0.0.1"); await once(proxy, "listening");
+	return { proxy, env: { CLIPROXY_BASE_URL: `http://127.0.0.1:${proxy.address().port}`, CLIPROXY_API_KEY: "test" } };
+};
+const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: { workspaceHandle: "ws" } }, ...value }, env, hub: { command: async () => ({}) },
+	tools: { internal: { invoke: async () => ({}) } }, transaction: { mark: async () => null, rollback: async () => null }, signal: new AbortController().signal, deps });
+{
+	const { proxy, env } = await proxyEnv(), requests = [];
+	try {
+		const door = await turnOf({ sessionId: "plain-1", text: WORDS }, env, recordingDeps(requests));
+		await door.handler({ request: "Keep the existing take as it is. Then, after the wave, he sits down on the floor." });
+		await door.handler({ request: "c1 sits on the floor; install it as c1's take." });
+		assert.equal(requests[0], `${USER}${WORDS}\n\n${NOTE}Keep the existing take as it is. Then, after the wave, he sits down on the floor.`, "an empty scene adds nothing after the two texts");
+		assert.equal(requests[1], `${USER}${WORDS}\n\n${NOTE}c1 sits on the floor; install it as c1's take.`, "a repeat call: the same words, the agent's new note");
+		const task = await turnOf({ sessionId: "task-1", text: "the coordinator's task text", task: { parentId: "plain-1", words: WORDS } }, env, recordingDeps(requests));
+		await task.handler({ request: "c1 sits." });
+		assert.ok(requests[2].startsWith(`${TASK_USER}${WORDS}\n\n${NOTE}c1 sits.\n\n`), requests[2]);
+		assert.ok(!requests[2].includes("the coordinator's task text"), "a task's words are the user's, not its task text");
+	} finally { proxy.close(); }
+	console.log("PASS turnMotionDoor: the turn's user message reaches runScene verbatim on every call, the agent's request as its note");
+}
+
+// Tasks mode end to end (studio-task-routes.mjs): each coordinator turn's user message is kept on the tasks it
+// dispatches, and the task run's motion tool hands it to runScene verbatim; a later message does not change an earlier task's.
+{
+	const { proxy, env } = await proxyEnv(), requests = [], taskTexts = [];
+	const { createStudioTaskRoutes } = await import("../../bin/agent/studio-task-routes.mjs");
+	const studioSessions = new Map([["main-1", { owner: "o" }]]);
+	let dispatched = 0;
+	const handleStudioTurn = async (req, res, value) => {
+		if (value.main) {
+			if (value.hidden) return true;
+			const tools = value.main.tools({ studio: [{ name: "inspect_studio", handler: async () => ({}) }], hub: { command: async () => ({}) }, admission: { host: {}, revision: 1 } });
+			await tools.find(tool => tool.name === "dispatch_task").handler({ title: `sit ${++dispatched}`, instructions: `The agent's own task text ${dispatched}: c1 sits.`, scope: ["stage"] });
+			return true;
+		}
+		taskTexts.push(value.text);
+		const door = await turnOf(value, env, recordingDeps(requests));
+		await door.handler({ request: `note for ${value.task.title}` });
+		await door.handler({ request: `second note for ${value.task.title}` });
+		return true;
+	};
+	const route = createStudioTaskRoutes({ enabled: () => true, handleStudioTurn, studioSessions, studioOwnerTokens: new Map(), studioEvents: new Map(), emitStudioEvent: () => {}, writeStudioStream: () => {},
+		newRecord: () => ({ events: [] }), readContext: async host => ({ host }), inspect: null, parseCookies: () => ({ studio_owner: "o" }), json: () => {}, readBody: async req => req.body, validateEnvelope: async body => body,
+		limits: { staggerMs: 0 }, eventTurnDelayMs: 60_000 });
+	const turn = text => route({ method: "POST", headers: {}, body: { surface: "studio", sessionId: "main-1", turnId: `t-${text.length}`, text, context: { host: { sceneId: "s1", workspaceHandle: "ws", documentEpoch: 1 } } } }, null, "/agent/main");
+	const LATER = "now make her wave too";
+	try {
+		await turn(WORDS);
+		for (let i = 0; i < 100 && requests.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 10));
+		await turn(LATER);
+		for (let i = 0; i < 100 && requests.length < 4; i++) await new Promise(resolve => setTimeout(resolve, 10));
+		assert.equal(requests.length, 4, "two tasks, two motion calls each");
+		assert.ok(taskTexts.every(text => !text.includes(WORDS) && !text.includes(LATER)), "the task's own text does not carry the user's message");
+		assert.ok(requests[0].startsWith(`${TASK_USER}${WORDS}\n\n${NOTE}note for sit 1\n\n`), requests[0]);
+		assert.ok(requests[1].startsWith(`${TASK_USER}${WORDS}\n\n${NOTE}second note for sit 1\n\n`), requests[1]);
+		assert.ok(requests[2].startsWith(`${TASK_USER}${LATER}\n\n${NOTE}note for sit 2\n\n`), requests[2]);
+		assert.ok(requests[3].startsWith(`${TASK_USER}${LATER}\n\n${NOTE}second note for sit 2\n\n`), requests[3]);
+	} finally { proxy.close(); }
+	console.log("PASS Tasks mode: a task's motion calls carry the user's message of the coordinator turn that dispatched it, verbatim");
+}
+
 // a task whose run called the motion tool: its Missing text reaches the coordinator under a fixed label
 {
 	const events = [];

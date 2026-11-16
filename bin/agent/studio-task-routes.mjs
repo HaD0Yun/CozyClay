@@ -51,6 +51,8 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		main.notify = event => {
 			main.events.push(event);
 			emitStudioEvent(feedId, event);
+			// a new task keeps the user's last message as typed: its run's motion tool hands it to the motion writer (motion-door.mjs)
+			if (event.type === "task.queued" && main.board.get(event.taskId)) main.board.get(event.taskId).words ??= main.words ?? null;
 			// Lost on the old handle after the panel already reconnected on a new one: resume there now, not at the next message.
 			if (event.type === "task.paused" && main.host && main.board.get(event.taskId)?.host !== main.host) queueMicrotask(() => main.board.reconnect(main.host.sceneId));
 			if (TERMINAL.has(event.type)) eventTurnSoon(main);
@@ -99,6 +101,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		const motion = Boolean(await motionNow());
 		main.board.reconnect(value.context.host.sceneId);
 		const userText = value.text, guard = watchMain(main, value.turnId);
+		if (userText !== EVENT_TURN_TEXT) main.words = userText; // the hidden event turn is no user message
 		// hidden: the main agent reporting on its own is no user message (a panel that reattaches to it shows no prompt)
 		return handleStudioTurn(req, res, { ...value, ...(userText === EVENT_TURN_TEXT ? { hidden: true } : {}), main: {
 			systemPrompt: motion ? motionMainPrompt(MAIN_SYSTEM_PROMPT) : mainSystemPrompt({ engine: motionEngine() }), // lowvis: motion is an ordinary task with the motion tool (main-prompt.mjs)
@@ -202,7 +205,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		};
 		try {
 			await handleStudioTurn(ownerRequest(owner), fakeResponse(), { surface: "studio", sessionId, turnId, text: (engine ? motionHeader : taskHeader)(task, { deps, resume }), context: withTaskActions(context), model: engine ?? main.model, effort: engine ? undefined : main.effort, observe,
-				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, ...(engine ? { motion: { characterId: task.motion.characterId } } : {}), get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
+				task: { taskId: task.taskId, scope: task.scope, reads: task.reads, title: task.title, parentId: main.sessionId, words: task.words ?? null, ...(engine ? { motion: { characterId: task.motion.characterId } } : {}), get lost() { return out.lost; }, get keep() { return Boolean(task.stopReason) && !task.cancelled; }, live: () => main.board.running().map(t => t.taskId).slice(0, 64) } }, "/agent/turn");
 		} catch (error) {
 			if (LOST_STUDIO.has(error?.code)) return { status: "lost", sceneId: context.host.sceneId };
 			return { status: "failed", error, usage: out.usage };
