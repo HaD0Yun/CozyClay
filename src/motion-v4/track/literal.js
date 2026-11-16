@@ -2,6 +2,7 @@
 // compileSpec and runCompileJob never run, so no flow, auto, fixes, retime, repair or thinning can touch it.
 //   rawOut           the `out` QA, measure and render read: takeOut plus empty diag/c and the tracked records moved
 //   placedTake       the take v3 the editor plays for a character at its placement (bakeTake's frame, take.js)
+//   rawCompile       what verify_result and frame_shot read of an installed raw take in place of a spec compile
 //   compileRawSource the reload hook: a saved source whose spec carries `raw` back into the installed take
 // Browser-safe: the editor loads it through install-action.js and take-source.js.
 import { takeOut, trackPose } from "../../motion3/physics-frames.js";
@@ -67,6 +68,17 @@ export function placedTake(raw, placement = { position: [0, 0, 0], yaw: 0 }, met
 	}
 	return { schema: TAKE_SCHEMA, fps: raw.fps ?? 24, frameCount: F, rig: raw.rig, bones: raw.bones.slice(), rot, hips, objects,
 		placement: { position: [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0], yaw }, ...meta };
+}
+
+/**
+ * What a reader of an installed take gets from a lenient compile of its spec ({ out, timeline, qa, expanded }), for a take
+ * whose spec carries `raw`: the track itself (rawOut over the Studio records), since that spec holds no keys to compile.
+ * out is in the world of take.placement. null for any other take.
+ */
+export function rawCompile(take, records = []) {
+	const sk = take?.spec?.raw ? skeletonFor(take.rig) : null;
+	const out = sk ? rawOut(decodeRawTrack(take.spec.raw, sk), records) : null;
+	return out && { out, timeline: [], qa: { groups: [] }, expanded: out.ctx.spec };
 }
 
 /** A saved take source whose spec carries `raw` -> the installed take (with `frames`), as compileTakeSource answers. */

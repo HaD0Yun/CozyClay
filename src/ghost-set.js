@@ -162,7 +162,8 @@ export class GhostSet {
 		const slot = { material: material(), rig: cloneRig(this.rig), props: new THREE.Group(), records: [], f: null, take: null, order: null };
 		const meshes = [];
 		slot.rig.traverse((node) => { if (node.isMesh) meshes.push(node); });
-		for (const mesh of meshes) { mesh.material = slot.material; mesh.frustumCulled = false; addDepthTwin(mesh, this.depthMaterial); }
+		// a mesh a look hides on the live rig (lowvis/studio/skin.jsx) draws in the ghost: the ghost is the pose, not the look
+		for (const mesh of meshes) { mesh.material = slot.material; mesh.frustumCulled = false; if (mesh.userData.underLook) mesh.visible = true; addDepthTwin(mesh, this.depthMaterial); }
 		slot.rig.traverse((node) => claim(node, this.layer));
 		claim(slot.props, this.layer);
 		this.body.add(slot.rig);

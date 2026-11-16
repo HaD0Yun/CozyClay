@@ -58,6 +58,22 @@ check("the cast, the stage and every saved scene answer a saved take's specId to
 	}
 	assert.ok(chars(read.document) < 3000, `${chars(read.document)}`);
 });
+check("a cast row answers the take the motion owner holds now, not the one the scene last saved (a fresh install read null)", () => {
+	const raw = { schema: "cozyclay.raw-track.v1", frames: 176, rot: "A".repeat(250_000) }; // a raw take's spec carries its encoded track
+	const rawSource = { ...source, spec: { schema: "cozyclay.motion-spec.v1", fps: 24, frames: 176, label: "push", raw } };
+	const live = [{ ...row("char-a"), take: { ...take, source: rawSource }, fullTake: { ...take, source: rawSource } }, { ...row("char-b"), take: null, fullTake: null }];
+	const cast = [{ id: "char-a", motionTake: null }, { id: "char-b", motionTake: { ...source, takeId: "old" } }];
+	const read = readElementDocument({ characters: cast, motion: live }, { ids: ["char-a", "char-b"] }, "scene-1");
+	assert.equal(read.omitted, undefined, JSON.stringify(read.omitted));
+	const [a, b] = read.document.characters;
+	assert.equal(a.motionTake.specId, specIdOf(rawSource.spec));
+	assert.equal(a.motionTake.takeId, "t1");
+	assert.equal(a.motionTake.spec.frames, 176);
+	assert.match(a.motionTake.spec.raw, /^left out \(the encoded track of 176 frames, \d+ characters\)$/);
+	assert.equal(b.motionTake, null, "a take the motion layer cleared is gone from the cast row too");
+	assert.match(read.document.motion[0].take.source.spec.raw, /^left out/);
+	assert.ok(chars(read.document) < 6000, `${chars(read.document)}`);
+});
 check("a read of several kinds keeps under its budget and names the kinds it left out; one kind alone answers whole", () => {
 	const objects = Array.from({ length: 900 }, (_, i) => ({ id: `cube-${i}`, name: `Part ${i} of a long truck body`, renderer: "cube", x: i, y: 0, z: 0, rot: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }));
 	assert.ok(chars(objects) > 90_000);
