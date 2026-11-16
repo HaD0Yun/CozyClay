@@ -56,7 +56,7 @@ Units are metres, angles are degrees, the floor is `y = 0`, front is `+z`, and t
 | `mirror` | `true` adds a reflected copy across `x = 0` of the parent frame. This is a reflection and never a rotation. |
 | `color` | `#rrggbb` clay colour. |
 
-Limits: at most 48 parts after mirroring, each extent between 0.005 and 20 m, and parent chains at most 8 deep. A recipe that breaks a limit is refused with the reason. It is never clamped into a different shape.
+Limits: at most 48 parts after mirroring, each extent between 0.001 and 240 m (the stage's object bounds), and parent chains at most 8 deep. A part that breaks a limit is left out and named with the reason in the receipt warnings (PART_REFUSED); the other parts are drawn. A limit no single part breaks (the part, item and copy totals) refuses the whole recipe. Nothing is clamped into a different shape.
 
 ### Shapes beyond primitives
 
@@ -149,7 +149,7 @@ A selected part gets a gizmo. While a part is selected, **W** moves it, **E** ro
 - Releasing the drag writes one `object.sculpt { id, edits: [{ set: part, position | rotation | size }] }` with only the fields that changed. One drag is one undo.
 - A mirrored copy drags where it is drawn. The edit goes to the recipe's part, reflected, so the pair stays a pair.
 - Scale changes the part's `size`. Hold **Shift** while dragging to scale all three axes by the same factor.
-- An edit the recipe refuses (a size dragged through zero, past 20 m or below 5 mm) puts the part back, and the refusal shows under the **Parts** tree.
+- An edit the recipe refuses (a size dragged through zero, past 240 m or below 1 mm) puts the part back, and the refusal shows under the **Parts** tree.
 - Delete or Backspace with a part selected does not delete the sculpt; it says so. Press Esc first to delete the whole sculpt.
 
 **The sculpt shelf**

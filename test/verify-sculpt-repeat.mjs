@@ -157,7 +157,7 @@ await check("every shape's refusal brings a valid example of that shape, and eve
 	assert.equal(refused([{ id: "t", shape: "tube", size: [0.3, 0.3, 0.3], path: [[0, 0, 0]], thickness: 0.02 }], /path/).example, "tube");
 	assert.equal(refused([{ id: "l", shape: "loft", size: [0.3, 0.3, 0.3], sections: [{ y: 0.2, w: 1, d: 1 }, { y: 1, w: 1, d: 1 }] }], /sections/).example, "loft");
 	assert.equal(refused([{ id: "e", shape: "extrude", size: [0.3, 0.3, 0.03], outline: [[0, 0], [0.1, 0]] }], /outline/).example, "extrude");
-	assert.equal(refused([{ id: "b", shape: "blob", size: [0.3, 40, 0.3] }], /size/).example, undefined, "a size refusal is not a shape refusal");
+	assert.equal(refused([{ id: "b", shape: "blob", size: [0.3, 400, 0.3] }], /size/).example, undefined, "a size refusal is not a shape refusal");
 });
 
 /* -------------------------------------------------------- the command ---- */

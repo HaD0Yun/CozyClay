@@ -82,9 +82,9 @@ await check("a recipe that cannot be drawn is refused with the reason, never cla
 	// capitals and _ are kept as written (models write camelCase ids); a space is still refused
 	refused({ parts: [blob("a b")] }, /parts\[0\]\.id/);
 	refused({ parts: [blob("a", { shape: "teapot" })] }, /parts\[a\]\.shape: must be one of blob, box, cylinder, torus, frame/);
-	refused({ parts: [blob("a", { size: [0.4, 40, 0.4] })] }, /parts\[a\]\.size\[1\]: extent must be/);
+	refused({ parts: [blob("a", { size: [0.4, 400, 0.4] })] }, /parts\[a\]\.size\[1\]: extent must be 0.001-240 m/);
 	refused({ parts: [blob("a", { size: [0.4, 0.4] })] }, /three numbers/);
-	refused({ parts: [blob("a", { position: [0, 25, 0] })] }, /within ±20/);
+	refused({ parts: [blob("a", { position: [0, 250, 0] })] }, /within ±240/);
 	refused({ parts: [blob("a", { roundness: 1.5 })] }, /roundness: must be a number from 0 to 1/);
 	refused({ parts: [{ id: "a", shape: "cylinder", size: [1, 1, 1], roundness: 0.2 }] }, /roundness: does not apply to a cylinder/);
 	refused({ parts: [blob("a", { color: "teal" })] }, /colour must be/);
@@ -150,7 +150,7 @@ await check("changing a shape drops the old shape's options instead of refusing 
 
 await check("a patch that breaks the recipe is refused with the path, and edits are checked", () => {
 	const base = accepted(turtle);
-	assert.match(patchSculptRecipe(base, [{ set: "head", size: [0.4, 40, 0.4] }]).error, /parts\[head\]\.size\[1\]/);
+	assert.match(patchSculptRecipe(base, [{ set: "head", size: [0.4, 400, 0.4] }]).error, /parts\[head\]\.size\[1\]/);
 	assert.match(patchSculptRecipe(base, [{ set: "ghost", size: [1, 1, 1] }]).error, /edits\[0\]\.set: no part named "ghost"/);
 	assert.match(patchSculptRecipe(base, [{ set: "head", add: blob("x") }]).error, /exactly one of set, add, remove/);
 	assert.match(patchSculptRecipe(base, [{ set: "head", id: "face" }]).error, /rename by remove \+ add/);

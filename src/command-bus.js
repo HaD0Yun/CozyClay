@@ -180,7 +180,7 @@ export function createCommandBus({ registry, ports }) {
     const changed = mutated ?? (ports.read().revision !== before.revision);
     return validateReceipt({ ok: false, commandId: request.commandId, host: before.host,
       code: refusalCode(error), phase: changed ? 'commit' : 'admission', affectedIds: [], expectedTargets: [], currentTargets: [],
-      mutated: changed, preserved: { authoredState: changed ? 'changed' : 'unchanged' }, recovery: { action: 'inspect', retryAllowed: false },
+      mutated: changed, preserved: { authoredState: changed ? 'changed' : 'unchanged' }, recovery: !changed && error?.details?.transient ? { action: 'retry', retryAllowed: true } : { action: 'inspect', retryAllowed: false }, // transient: a cause that clears by itself (a rig still loading)
       message: [...String(error.message || error)].slice(0, 2000).join('') });
   }
   /** Findings first, toasts after; past the schema's twelve, say how many were left out. */

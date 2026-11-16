@@ -90,7 +90,7 @@ await check("a tube refuses a bad path, thickness or loop with the field's path"
 	refused({ ...rope, path: [[0, 0, 0]] }, /parts\[rope\]\.path: must be a list of 2-32 points \[x, y, z\]/);
 	refused({ ...rope, path: [[0, 0, 0], [0.2, 0.1, 0], [0.3, 0.2, 0], [0.4, 0.6, 0]] }, /parts\[rope\]\.path\[3\]\[1\]: must be from -0\.5 to 0\.5/);
 	refused({ ...rope, thickness: undefined }, /parts\[rope\]\.thickness: must be the tube's diameter/);
-	refused({ ...rope, thickness: 0 }, /thickness: must be .* from 0\.005/);
+	refused({ ...rope, thickness: 0 }, /thickness: must be .* from 0\.001/);
 	refused({ ...rope, thickness: 0.07 }, /thickness: .*smallest size \(0\.06 m\), got 0\.07/);
 	refused({ ...rope, closed: true, taper: 0.5 }, /parts\[rope\]\.taper: a closed tube cannot taper/);
 	refused({ ...rope, closed: true, path: [[0, 0, 0], [0.5, 0, 0]] }, /closed tube needs at least 3 points/);

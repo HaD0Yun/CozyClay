@@ -167,7 +167,7 @@ export function createStudioAppBinding(ports) {
 		const words = [...String(error?.message ?? "").trim()];
 		return validateReceipt({ ok: false, commandId: request.commandId, host: request.host ?? request.binding?.host,
 			code: refusalCode(error), phase, affectedIds: [], expectedTargets: [], currentTargets: [], mutated: false,
-			preserved: { authoredState: "unchanged" }, recovery: { action: "inspect", retryAllowed: false },
+			preserved: { authoredState: "unchanged" }, recovery: error?.details?.transient ? { action: "retry", retryAllowed: true } : { action: "inspect", retryAllowed: false },
 			...(words.length ? { message: words.length > 120 ? `${words.slice(0, 119).join("")}…` : words.join("") } : {}) });
 	}
 	function admit(request) {

@@ -8,9 +8,9 @@
  * transforms, and measures the standing box. It is importable without three.js
  * so the scene record, the MCP server and the tests all read one truth.
  *
- * A recipe that breaks a rule is REFUSED with the reason, never clamped into a
- * different shape: an agent that asked for a 40 m head should hear why, not
- * see a 20 m one and believe it.
+ * A bad part is REFUSED with the reason, never clamped (sculpt-recipe-partial.js
+ * keeps the other parts). Part and offset bounds are the stage's object bounds
+ * (object.position, ±240 m).
  *
  * Contract: docs/sculpt-from-image.md.
  */
@@ -26,9 +26,9 @@ const SCULPT_RECIPE_VERSION = 1;
 export const SCULPT_LIMITS = Object.freeze({
 	/** after mirrors are expanded */
 	maxParts: 48,
-	minExtent: 0.005,
-	maxExtent: 20,
-	maxOffset: 20,
+	minExtent: 0.001,
+	maxExtent: 240,
+	maxOffset: 240,
 	maxDepth: 8,
 	/** scatter items across the whole recipe, after mirrors */
 	maxScatterItems: 12000,

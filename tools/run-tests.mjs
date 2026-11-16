@@ -85,6 +85,7 @@ const NODE_FILES = [
 	"test/verify-empty-object.mjs",
 	"test/verify-sculpt-recipe.mjs", "test/verify-sculpt-shapes.mjs", "test/verify-sculpt-loft-convex.mjs", "test/verify-sculpt-detail.mjs",
 	"test/verify-sculpt-object.mjs", "test/verify-shared-sculpt.mjs",
+	"test/verify-sculpt-partial.mjs", "test/verify-patch-domains.mjs", "test/verify-wait-not-ready.mjs",
 	"test/verify-sculpt-compare.mjs",
 	"test/verify-sculpt-run.mjs",
 	"test/verify-sculpt-compare-command.mjs",
