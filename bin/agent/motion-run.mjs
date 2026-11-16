@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionOff } from "./motion-engine.mjs";
-import { boxesOf, rememberBoxes, usedText } from "./motion-fit.mjs";
+import { boxesOf, floorCells, rememberBoxes, usedText } from "./motion-fit.mjs";
 
 export const MOTION_MODEL = "claude-opus-5-5";
 const MOTION_EFFORT = "medium", MOTION_VARIANT = "studio";
@@ -112,7 +112,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const result = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn });
 	if (!result.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
-	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {});
+	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
 	const animated = clip.characters.map((figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`)).filter(Boolean);
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id).filter(Boolean);
 	const switched = result.switched ?? [];

@@ -49,14 +49,23 @@ const box = { id: "s1", name: "seat", size: [1.2, 0.45, 0.4], base: [0, 0, 1], t
 const row = extra => ({ id: "s1", x: 0, y: 0, z: 1, rot: 90, footprint: { width: 1.2, depth: 0.4 }, height: 0.45, scaleX: 1, scaleY: 1, scaleZ: 1, tops: [{ y: 0.45, x0: -0.6, z0: -0.2, x1: 0.6, z1: 0.2 }], ...extra });
 {
 	assert.deepEqual(fitOf(box, row()), [], "a look that keeps its box fits");
-	assert.deepEqual(fitOf(box, row({ height: 0.9, tops: [{ y: 0.42, x0: -0.6, z0: -0.2, x1: 0.6, z1: 0.15 }, { y: 0.9, x0: -0.6, z0: 0.15, x1: 0.6, z1: 0.2 }] })),
-		["height 0.9 m, the box's 0.45 m", "widest flat top 0.42 m over its base, the box's top 0.45 m; its flat tops (height over its base: width x depth m): 0.42: 1.2 x 0.35, 0.9: 1.2 x 0.05"]);
-	assert.deepEqual(fitOf(box, row({ x: 0.3, rot: 0, footprint: { width: 1.5, depth: 0.4 } })), ["base at [0.3, 0, 1], the box's at [0, 0, 1]", "turn 0°, the box's 90°", "width (x) 1.5 m, the box's 1.2 m"]);
+	assert.deepEqual(fitOf(box, row({ x: 0.3, rot: 0 })), ["base at [0.3, 0, 1], the box's at [0, 0, 1]", "turn 0°, the box's 90°"]);
 	assert.deepEqual(fitOf(box, row({ tops: [{ y: 0.46, x0: -0.6, z0: -0.2, x1: 0.6, z1: 0.2 }] })), [], "1 cm is inside the tolerance");
 	assert.deepEqual(fitOf(box, undefined), ["removed: the motion uses it"]);
 	assert.deepEqual(fitOf(box, row({ hidden: true })), ["hidden: the motion uses it"]);
 	assert.deepEqual(fitOf({ ...box, moves: true }, row({ x: 2, y: 0.9, rot: 0, footprint: { width: 1.5, depth: 0.4 } })), ["width (x) 1.5 m, the box's 1.2 m"], "a prop that moves: its track has its place and turn, so only the size counts");
-	console.log("PASS fitOf: place, turn, size and the widest flat top against the box the motion used");
+	// a box 0.45 m on a side the body sits on; the feet stand on the floor in front of it (+z) and walk in along x = -2..0
+	const seat = { id: "s2", name: "block", size: [0.45, 0.45, 0.45], base: [0, 0, 0], turn: 0, sphere: false };
+	const feet = [[0.05, 0.35], [-0.05, 0.35], [0.05, 0.45], ...[-2, -1.5, -1, -0.5].map(x => [x, 0.35])];
+	const look = extra => ({ id: "s2", x: 0, y: 0, z: 0, rot: 0, footprint: { width: 0.45, depth: 0.45 }, height: 0.88, scaleX: 1, scaleY: 1, scaleZ: 1, ...extra });
+	const withBack = [{ y: 0.45, x0: -0.225, z0: -0.17, x1: 0.225, z1: 0.225 }, { y: 0.88, x0: -0.225, z0: -0.225, x1: 0.225, z1: -0.17 }];
+	assert.deepEqual(fitOf(seat, look({ tops: withBack }), feet), [], "a part rising above the box away from the body is no difference");
+	assert.deepEqual(fitOf(seat, look({ tops: withBack.map((t, k) => (k ? t : { ...t, y: 0.4 })) }), feet),
+		["no flat top at the box's top (0.45 m over its base, within 0.02 m) over half its footprint; its flat tops (height over its base: width x depth m): 0.4: 0.45 x 0.4, 0.88: 0.45 x 0.05"], "a top 5 cm lower is a difference");
+	assert.deepEqual(fitOf(seat, look({ tops: withBack, footprint: { width: 0.45, depth: 0.8 } }), feet),
+		["footprint 0.45 x 0.8 m reaches past the box (0.45 x 0.45 m) onto floor the feet use (2 cells of 0.1 m)"], "a footprint grown into where the feet stand is a difference");
+	assert.deepEqual(fitOf(seat, look({ tops: withBack, footprint: { width: 0.8, depth: 0.45 } }), feet), [], "grown away from the feet: no difference");
+	console.log("PASS fitOf: only where the body meets the object: place, turn, the flat top at its height, the floor the feet use; a moving prop by its size");
 }
 
 // --- turnFitView ---
@@ -72,7 +81,7 @@ const row = extra => ({ id: "s1", x: 0, y: 0, z: 1, rot: 90, footprint: { width:
 	const told = await wrapped.handler({});
 	assert.deepEqual(asked[0], ["describe", { tops: true }, "ws"]);
 	assert.equal(told.motionFit.fits, false);
-	assert.deepEqual(told.motionFit.objects, [{ id: "s1", name: "seat", differs: ["widest flat top 0.5 m over its base, the box's top 0.45 m; its flat tops (height over its base: width x depth m): 0.5: 1.2 x 0.4"] }]);
+	assert.deepEqual(told.motionFit.objects, [{ id: "s1", name: "seat", differs: ["no flat top at the box's top (0.45 m over its base, within 0.02 m) over half its footprint; its flat tops (height over its base: width x depth m): 0.5: 1.2 x 0.4"] }]);
 	assert.match(told.motionFit.note, /fit the look to the box/);
 	describe = { objects: [row()] };
 	assert.deepEqual((await wrapped.handler({})).motionFit, { fits: true, ids: ["s1"] });
