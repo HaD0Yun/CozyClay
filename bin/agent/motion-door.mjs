@@ -1,12 +1,12 @@
-// The motion tool of the Studio agent: the agent hands the user's words about what the characters do to the motion
-// environment (motion-run.mjs runMotion) and gets a report back. The route builds one door per turn
+// The motion tool of the Studio agent: the user's message of the turn, as typed, and the agent's note go to the motion
+// environment (motion-run.mjs runMotion) and a report comes back. The route builds one door per turn
 // (agent-routes.mjs) and adds it to the agent's tools while the lowvis engine is the motion engine and the motion
 // writer's model is reachable (motionAvailable).
 import { cliproxyBase, fetchModelList } from "./cliproxy-provider.mjs";
 import { motionEngine } from "./motion-engine.mjs";
 import { MOTION_MODEL, runMotion } from "./motion-run.mjs";
 
-const DESCRIPTION = "Makes the body motion of rig characters. Give it the user's request in their own words. It reads the scene itself (characters, objects), writes the motion, installs it as the characters' takes and moves the objects the motion handles. It answers a report that ends with a Missing line. images: true passes the pictures the user attached.";
+const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, writes and installs the motion and moves the objects it handles. Its report ends with a Missing line. images: true sends the user's pictures.";
 const PARAMETERS = {
 	type: "object",
 	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, images: { type: "boolean" } },

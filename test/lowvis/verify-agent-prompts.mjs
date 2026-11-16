@@ -19,6 +19,9 @@ for (const motion of [true, false]) {
 	assert.match(text, /\n- rig: cast only the block figure \(model x-bot-tpose\)\.\n/);
 	assert.doesNotMatch(text, /Y Bot|y-bot-tpose/, "a new character is never the old Y Bot body");
 }
+// the motion tool takes the agent's note; the user's message goes to it by itself (motion-door.mjs)
+assert.match(MOTION_TOOL_PARAGRAPH, /The user's message of this turn reaches the tool by itself, as typed; request is your own note:/);
+assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /own words/);
 const old = await studioSystemPrompt({ engine: "old" });
 assert.ok(old.startsWith(STUDIO_SYSTEM_PROMPT) && old.includes("<motion-reference>"), "the old engine keeps its prompt and reference");
 console.log("PASS the lowvis Studio prompt has none of the forbidden tokens; the old one keeps its reference");

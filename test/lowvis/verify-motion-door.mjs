@@ -21,6 +21,7 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	const { tool, calls } = door({ run: async ({ onCompile }) => { onCompile({ n: 1, ok: false, line: "motion 1: problems" }); onCompile({ n: 2, ok: true, line: "motion 2: ok" }); return DONE; } });
 	assert.equal(tool.name, "motion");
 	assert.deepEqual(tool.parameters.required, ["request"]);
+	assert.match(tool.description, /The user's message of this turn reaches it by itself, as typed; request is your note:/, "request is the agent's note");
 	const frames = [];
 	const answer = await tool.handler({ request: "she waves" }, { toolCallId: "call-1", emit: frame => frames.push(frame) });
 	assert.equal(answer.report, DONE.report);
