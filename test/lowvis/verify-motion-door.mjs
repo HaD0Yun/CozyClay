@@ -187,3 +187,17 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	assert.deepEqual(board.board().map(t => [t.title, t.status]).sort(), [["dress", "done"], ["light", "done"], ["motion", "done"]]);
 	console.log("PASS the motion task's used line and empty scopes");
 }
+
+// verify on a task that ran the motion tool: its report is the review, so it ends done and its dependents start at once;
+// verify on any other task still ends in review
+{
+	const reply = { motion: "She sits.\nUnmet criteria: a true running pace", set: "A room.", dress: "A bench.", plain: "Done.\nUnmet criteria: the lamp is missing" };
+	const board = createTaskBoard({ limits: { staggerMs: 0 }, createOnly: true, run: async task => ({ status: "done", reply: reply[task.title], receipts: [], ...(task.title === "motion" ? { missing: "a true running pace", used: null } : {}) }) });
+	board.dispatchPlan({ tasks: [{ ref: "m", title: "motion", instructions: "she sits", scope: [], verify: true }, { ref: "set", title: "set", instructions: "a room", scope: [], verify: true }, { ref: "d", title: "dress", instructions: "a bench look", scope: [], dependsOn: ["m"] }, { ref: "p", title: "plain", instructions: "a lamp", scope: [] }] });
+	const task = title => board.board().find(t => t.title === title);
+	for (let i = 0; i < 100 && task("dress")?.status !== "done"; i++) await new Promise(resolve => setTimeout(resolve, 10));
+	assert.deepEqual(["motion", "set", "dress", "plain"].map(title => task(title).status), ["done", "review", "done", "incomplete"]);
+	assert.equal(task("motion").reason, "criteria unmet: a true running pace", "what it could not do stays in its reason");
+	assert.equal(task("motion").summary.missing, "Missing: a true running pace");
+	console.log("PASS a motion task ends done on the motion tool's report, with verify or an unmet line; its dependents start without an accept");
+}
