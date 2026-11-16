@@ -1,4 +1,5 @@
-// A lowvis clip as Studio scene content (prototype): its props become Studio objects (cubes and spheres), its
+// A lowvis clip as Studio scene content (prototype): its new props become Studio objects (a box: a sculpt of that one
+// box, which object.sculpt can re-sculpt in place; a sphere or a box under 0.05 m tall: a sphere or a cube), its
 // characters X Bot cast members whose take is the clip's motion (take.js), and a prop that moves rides a track of
 // the first character's take, as any object a Studio take moves. Everything goes through editor actions, so the
 // Studio's undo, save, selection, cameras and export see ordinary scene content.
@@ -29,6 +30,11 @@ function pivot(prop, f) {
 /** The turn about Y (degrees, 2 decimals) of an upright rotation. */
 const yawOf = q => Math.round(2 * Math.atan2(q[1], q[3]) * DEG * 100) / 100;
 
+// A sculpt measures at least 0.05 m tall (sculpt-recipe.js MIN_HEIGHT), so a thinner box stays a scaled cube.
+const STAND_IN_MIN_HEIGHT = 0.05;
+/** The recipe of a stand-in box [w, h, d]: one sharp box standing on the object's base, centred on it. */
+const standInRecipe = size => ({ version: 1, parts: [{ id: "box", shape: "box", size: [...size], position: [0, size[1] / 2, 0], roundness: 0 }] });
+
 /** True when the prop changes place or turns during the clip. */
 function moves(prop) {
 	const n = prop.pos.length / 3;
@@ -40,8 +46,9 @@ function moves(prop) {
 }
 
 /**
- * installClip(clip, run, { label, remove, existing }) -> { characterIds, objectIds, switched, ok }: what it made and
- * the Studio ids of the cast members whose model it changed; ok false when the Studio refused a step.
+ * installClip(clip, run, { label, remove, existing }) -> { characterIds, objectIds, switched, placed, ok }: what it made,
+ * the Studio ids of the cast members whose model it changed and placed: { <clip prop id>: <Studio object id> } for
+ * every prop, made or known; ok false when the Studio refused a step.
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
  * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
@@ -54,7 +61,7 @@ function moves(prop) {
 export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], switched = [], tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, ok: false });
+	const objectIds = [], characterIds = [], switched = [], placed = {}, tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
 	for (const prop of clip.props ?? []) {
 		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
 		const own = turned && prop.shape !== "sphere"; // the clip box is the object's own, turned as it is
@@ -67,13 +74,17 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			if (known.rot && !own) turn = [0, Math.sin(known.rot / DEG / 2), 0, Math.cos(known.rot / DEG / 2)]; // the object's own turn about Y, which the clip's box does not have
 		} else {
 			const size = prop.shape === "sphere" ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
-			const added = await run("object.add", { kind: prop.shape === "sphere" ? "sphere" : "cube", name: String(prop.id),
-				placement: { x: at.pos[0], y: at.pos[1], z: at.pos[2], rot: upright ? yawOf(at.quat) : 0 } });
+			const placement = { x: at.pos[0], y: at.pos[1], z: at.pos[2], rot: upright ? yawOf(at.quat) : 0 };
+			// a box is a sculpt of that one box at scale 1, so object.sculpt { id, recipe } can give it a look in place
+			const sculpt = prop.shape !== "sphere" && size[1] >= STAND_IN_MIN_HEIGHT;
+			const added = sculpt ? await run("object.sculpt", { name: String(prop.id), placement, recipe: standInRecipe(size) })
+				: await run("object.add", { kind: prop.shape === "sphere" ? "sphere" : "cube", name: String(prop.id), placement });
 			id = added?.affectedIds?.[0];
 			if (!id) return stop();
 			objectIds.push(id);
-			if (!await run("object.update", { id, patch: { scaleX: size[0], scaleY: size[1], scaleZ: size[2] } })) return stop();
+			if (!sculpt && !await run("object.update", { id, patch: { scaleX: size[0], scaleY: size[1], scaleZ: size[2] } })) return stop();
 		}
+		placed[prop.id] = id;
 		// a prop that moves, or a new one that stands tilted (an object's own fields hold a turn about Y only here), follows a track
 		if (moves(prop) || (!known && !upright)) {
 			const pos = new Float32Array(F * 3), quat = new Float32Array(F * 4);
@@ -98,5 +109,5 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		if (index === 0) raw.objects = tracks; // one take draws the props that move
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
-	return { characterIds, objectIds, switched, ok: true };
+	return { characterIds, objectIds, switched, placed, ok: true };
 }

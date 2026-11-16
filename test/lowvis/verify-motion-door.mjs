@@ -26,7 +26,7 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	const answer = await tool.handler({ request: "she waves" }, { toolCallId: "call-1", emit: frame => frames.push(frame) });
 	assert.equal(answer.report, DONE.report);
 	assert.equal(answer.missing, DONE.missing);
-	assert.deepEqual({ ...answer }, { ok: true, report: DONE.report, missing: DONE.missing, frames: 72, clipSeconds: 3, tookSeconds: 31, compiles: 2, characters: ["c1"], objects: [], switched: [] });
+	assert.deepEqual({ ...answer }, { ok: true, report: DONE.report, missing: DONE.missing, frames: 72, clipSeconds: 3, tookSeconds: 31, compiles: 2, characters: ["c1"], objects: [], switched: [], used: null });
 	assert.equal(calls.mark, 1);
 	assert.equal(calls.runs[0].request, "she waves");
 	assert.deepEqual(frames.map(f => [f.type, f.callId, f.index, f.status]), [["tool.progress", "call-1", 1, "failed"], ["tool.progress", "call-1", 2, "done"]]);
@@ -87,6 +87,8 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 const WORDS = "then he sits down on the floor  \n(그리고 바닥에 앉아)";
 const USER = "USER'S WORDS (the user's message of this turn, exactly as typed):\n", NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters and objects, what to keep):\n";
 const TASK_USER = "USER'S WORDS (the user's last message to the Studio, exactly as typed; this task may do only part of it):\n";
+// with a note (the Studio agent called), the writer hears that its props become stand-ins the agent dresses after it
+const ADDED = "What your scene adds becomes Studio content: a new character a block figure, a new prop a plain object named by its id, at the place, size and turn you give. After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
 const recordingDeps = requests => ({
 	studioScene: () => ({ scene: { characters: [], props: [], others: [] }, ids: { characters: {}, props: {}, switch: [] } }),
 	runScene: async options => { requests.push(options.request); return { wallMs: 0, compiles: 0, report: "Done.\nMissing: none", missing: "none", final: null }; },
@@ -105,8 +107,8 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 		const door = await turnOf({ sessionId: "plain-1", text: WORDS }, env, recordingDeps(requests));
 		await door.handler({ request: "Keep the existing take as it is. Then, after the wave, he sits down on the floor." });
 		await door.handler({ request: "c1 sits on the floor; install it as c1's take." });
-		assert.equal(requests[0], `${USER}${WORDS}\n\n${NOTE}Keep the existing take as it is. Then, after the wave, he sits down on the floor.`, "an empty scene adds nothing after the two texts");
-		assert.equal(requests[1], `${USER}${WORDS}\n\n${NOTE}c1 sits on the floor; install it as c1's take.`, "a repeat call: the same words, the agent's new note");
+		assert.equal(requests[0], `${USER}${WORDS}\n\n${NOTE}Keep the existing take as it is. Then, after the wave, he sits down on the floor.\n\n${ADDED}`, "an empty scene adds only the line on what becomes of what the writer adds");
+		assert.equal(requests[1], `${USER}${WORDS}\n\n${NOTE}c1 sits on the floor; install it as c1's take.\n\n${ADDED}`, "a repeat call: the same words, the agent's new note");
 		const task = await turnOf({ sessionId: "task-1", text: "the coordinator's task text", task: { parentId: "plain-1", words: WORDS } }, env, recordingDeps(requests));
 		await task.handler({ request: "c1 sits." });
 		assert.ok(requests[2].startsWith(`${TASK_USER}${WORDS}\n\n${NOTE}c1 sits.\n\n`), requests[2]);
@@ -165,4 +167,23 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	assert.equal(task.summary.missing, "Missing: the hands do not hold the table edge.");
 	assert.ok(mainContextText(board, events).includes("\"missing\":\"Missing: the hands do not hold the table edge.\""), "the coordinator's context carries it");
 	console.log("PASS a task's done summary carries the motion tool's Missing line for the coordinator");
+}
+
+// the motion task's used line reaches its summary; an empty scope is a task that only makes new things
+{
+	const gate = {};
+	assert.throws(() => createTaskBoard({}).dispatch({ title: "plain", instructions: "do it", scope: [] }), /scope: one or more keys/, "without createOnly a task needs a key");
+	const board = createTaskBoard({ limits: { staggerMs: 0 }, createOnly: true, run: async task => {
+		if (task.title === "dress") await new Promise(resolve => { gate.open = resolve; });
+		return { status: "done", reply: `${task.title} done.`, receipts: [], ...(task.title === "motion" ? { missing: "none", used: "The motion uses these objects as boxes (sculpt: 1 x 0.45 x 0.4, [0, 0, 1])." } : {}) };
+	} });
+	const plan = board.dispatchPlan({ tasks: [{ ref: "m", title: "motion", instructions: "she sits", scope: [] }, { ref: "light", title: "light", instructions: "evening light", scope: ["stage"] }, { ref: "d", title: "dress", instructions: "a bench look", scope: [], dependsOn: ["m"] }] });
+	assert.equal(plan.tasks.length, 3);
+	const byTitle = title => board.board().find(t => t.title === title);
+	for (let i = 0; i < 100 && !gate.open; i++) await new Promise(resolve => setTimeout(resolve, 10));
+	assert.equal(byTitle("motion").summary.used, "The motion uses these objects as boxes (sculpt: 1 x 0.45 x 0.4, [0, 0, 1]).");
+	gate.open();
+	for (let i = 0; i < 100 && byTitle("dress").status !== "done"; i++) await new Promise(resolve => setTimeout(resolve, 10));
+	assert.deepEqual(board.board().map(t => [t.title, t.status]).sort(), [["dress", "done"], ["light", "done"], ["motion", "done"]]);
+	console.log("PASS the motion task's used line and empty scopes");
 }
