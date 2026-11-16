@@ -2,10 +2,11 @@
 // "contact_sheet" tiles frames spread evenly, picked from the installed take's beats
 // (frames: "beats") or named (frames: [f, ...]), seen by the shot camera or by views of its own
 // (views, focus, trail); "closeup" shows 1-4 objects from three cameras of its own; "trace" plots hand heights and distances of the take over the range (C11).
-// The beats, the views and the trace read one lenient compile of the take's stored spec, as motion.qa does.
+// The beats, the views and the trace read one lenient compile of the take's stored spec, as motion.qa does (a raw take: its track).
 import { StudioProtocolError } from "./studio-agent-protocol.js";
 import { buildContactSheet, paintDots, sampleContactSheetFrames, sheetGrid, viewTileSide } from "./studio-contact-sheet.js";
 import { compileSpec } from "./motion3/pipeline.js";
+import { rawCompile } from "./motion-v4/track/literal.js";
 import { motionScene } from "./motion3/scene.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
 import { actionFrames, beatFrames, grabReleases, traceSeries, TRACE_COLORS } from "./motion3/beats.js";
@@ -35,7 +36,9 @@ function takeCompile(args, s, receipt) {
 		const sk = take?.schema === "cozyclay.take.v3" && take.spec ? skeletonFor(take.rig ?? character?.model) : null;
 		if (!character || !sk) continue;
 		try {
-			return { ...compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true }), characterId: id, placement: take.placement };
+			// a raw take (motion.v4.install) is read as its own track: its spec has no keys to compile
+			const compiled = rawCompile(take, s.objects) ?? compileSpec({ fps: TIMELINE_FPS, ...take.spec }, { sk, scene: motionScene(s.objects) }, { lenient: true });
+			return { ...compiled, characterId: id, placement: take.placement };
 		} catch { return null; }
 	}
 	return null;

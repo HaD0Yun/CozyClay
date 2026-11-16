@@ -3,6 +3,7 @@
 import { patchValueSchema, validateStudioSchema, StudioProtocolError, StudioSchemas, utf8ByteLength } from '../studio-agent-protocol.js';
 
 import { isSettableElement } from '../studio-elements.js';
+import { withLiveTakes } from './elements/take-read.js';
 
 const kinds = new Map();
 // Each kind registers its declared elements and persistence normalizer once.
@@ -48,7 +49,7 @@ export function elementTarget(kind, value, id, sceneId) {
 // their size, to select alone or by ids. One kind alone answers whole (ids narrow it).
 const DOCUMENT_READ_CHARS = 90_000;
 export function readElementDocument(projection, { ids, select, named = ids } = {}, sceneId) {
-  const entries = Object.entries(projection).flatMap(([key, value]) => {
+  const entries = Object.entries(withLiveTakes(projection)).flatMap(([key, value]) => {
     const kind = projectionKind(key);
     if (select && !select.includes(key) && !select.includes(kind)) return [];
     if (!ids || ids.includes(key) || ids.includes(kind) || ids.includes(sceneId)) return [[key, value]];
