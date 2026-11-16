@@ -15,6 +15,11 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	const tool = createMotionDoor({ run: async args => { calls.runs.push(args); return run(args); }, mark: async () => { calls.mark++; return null; }, rollback: async () => { calls.rollback++; return null; }, images });
 	return { tool, calls };
 };
+// A plain turn's door answers started and its motion_result answers the motion (verify-motion-background.mjs); a task's answers at once.
+const call = async (tool, args) => {
+	const answer = await tool.handler(args);
+	return answer?.started ? tool.with([]).find(next => next.name === "motion_result").handler() : answer;
+};
 
 // the answer is the run's, unchanged
 {
@@ -70,11 +75,11 @@ const door = ({ run = async () => DONE, images = () => [] } = {}) => {
 	try {
 		const first = await turn({ attachments: [{ dataUrl: "data:image/png;base64,QUJD", name: "pose.png" }] });
 		assert.ok(first, "the door is there while the proxy lists the motion writer's model");
-		await first.handler({ request: "like the picture", images: true });
+		await call(first, { request: "like the picture", images: true });
 		const task = await turn({ sessionId: "task-session", task: { parentId: "conv-1" } });
 		await task.handler({ request: "like the picture", images: true });
 		const later = await turn();
-		await later.handler({ request: "now jump", images: true });
+		await call(later, { request: "now jump", images: true });
 		assert.deepEqual(seen, [[{ data: "QUJD", mimeType: "image/png" }], [{ data: "QUJD", mimeType: "image/png" }], []], "a task reads its main session's pictures; a later turn without pictures passes none");
 		assert.equal(await turn({ main: {} }), null, "the coordinator gets no motion tool");
 		assert.equal(await turnMotionDoor({ value: { sessionId: "x", context: { host: {} } }, env: { ...env, COZYCLAY_MOTION_ENGINE: "old" } }), null, "nor the old engine");
@@ -105,8 +110,8 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 	const { proxy, env } = await proxyEnv(), requests = [];
 	try {
 		const door = await turnOf({ sessionId: "plain-1", text: WORDS }, env, recordingDeps(requests));
-		await door.handler({ request: "Keep the existing take as it is. Then, after the wave, he sits down on the floor." });
-		await door.handler({ request: "c1 sits on the floor; install it as c1's take." });
+		await call(door, { request: "Keep the existing take as it is. Then, after the wave, he sits down on the floor." });
+		await call(door, { request: "c1 sits on the floor; install it as c1's take." });
 		assert.equal(requests[0], `${USER}${WORDS}\n\n${NOTE}Keep the existing take as it is. Then, after the wave, he sits down on the floor.\n\n${ADDED}`, "an empty scene adds only the line on what becomes of what the writer adds");
 		assert.equal(requests[1], `${USER}${WORDS}\n\n${NOTE}c1 sits on the floor; install it as c1's take.\n\n${ADDED}`, "a repeat call: the same words, the agent's new note");
 		const task = await turnOf({ sessionId: "task-1", text: "the coordinator's task text", task: { parentId: "plain-1", words: WORDS } }, env, recordingDeps(requests));

@@ -75,14 +75,18 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before) {
  * frames and clipSeconds (one decimal) are the length of the clip; tookSeconds is how long making it took (wall time).
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
  * "aborted".
+ * onScene(ids): once the Studio scene is read, with the ids of the characters and objects the motion is written against
+ * (scene.js studioScene ids). exclusive(install): runs the install (the editor steps, up to the "studio" failure) and
+ * answers what it answers; the motion door holds the scene for it there while other work goes on (motion-door.mjs).
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, exclusive = install => install(), deps = null }) {
 	const { runScene, installClip, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops");
 	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops });
+	onScene(studio.ids);
 	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey));
 	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
@@ -108,8 +112,12 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			}
 		}
 	};
-	const result = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn });
-	if (!result.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
+	const result = await exclusive(async () => {
+		if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
+		const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn });
+		if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
+		return done;
+	});
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
 	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
 	const animated = clip.characters.map((figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`)).filter(Boolean);

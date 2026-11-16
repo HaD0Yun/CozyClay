@@ -45,6 +45,14 @@ assert.match(MOTION_TOOL_PARAGRAPH, /give a stand-in its look in place with obje
 assert.match(MOTION_TOOL_PARAGRAPH, /An edit of such an object answers motionFit/);
 assert.match(MOTION_TOOL_PARAGRAPH, /do not check the body motion again with verify_result\./);
 assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /once the set and the characters the motion needs exist|outside a task/);
+// only what depends on where the body goes is put after the motion's result; used is in the result (a plain turn's call answers started)
+{
+	const after = MOTION_TOOL_PARAGRAPH.slice(MOTION_TOOL_PARAGRAPH.indexOf("waits for its result"), MOTION_TOOL_PARAGRAPH.indexOf("Do not move, resize"));
+	assert.ok(after.length > 0 && /object\.sculpt/.test(after) && /camera/.test(after), after);
+	assert.doesNotMatch(after, /light|does not touch/, "light and what the body does not touch do not wait for the result");
+	assert.match(MOTION_TOOL_PARAGRAPH, /its result names in used/);
+	assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /its answer names in used/);
+}
 {
 	const lowvis = await studioSystemPrompt({ engine: "lowvis", motion: true });
 	assert.match(lowvis, /\n2\. Staging first, before any camera: the motion tool places the rig characters that move and the objects their bodies use; place the rest of the cast and the set around them\./);

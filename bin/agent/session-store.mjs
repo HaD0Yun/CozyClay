@@ -193,7 +193,7 @@ function receiptSummary(value) {
 }
 
 const ATTACHMENT_LABEL = "User attachment ";
-const OBSERVATION_LABEL = /^Studio (frame|plan) observation\b/; // the editor's own frame or top-view plan, never the user's text
+const OBSERVATION_LABEL = /^Studio (frame|plan|motion) observation\b/; // the editor's own frame, top-view plan or motion result (motion-door.mjs), never the user's text
 
 /** A pasted picture the sidecar put in front of the turn text (#367): its label
  * plus the inline image, or the label alone when the image was too large to keep. */
