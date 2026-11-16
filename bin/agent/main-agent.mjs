@@ -46,7 +46,7 @@ const fn = (name, description, properties, required) => ({ type: "function", nam
  */
 // createOnly: a task that only makes new things may have an empty scope, and a new shot that fits in free frames needs
 // no key (src/bus-task-scopes.js); the lowvis engine, main-prompt.mjs rule 8.
-const CREATE_ONLY_HELP = [["a new shot, or shot order, ranges or frame count -> timeline (a new shot takes timeline, never stage or scene);", "shot order, ranges or frame count -> timeline; a new shot needs no key (it joins the task) unless the take must grow to fit it, which takes timeline;"],
+const CREATE_ONLY_HELP = [["a new shot, or shot order, ranges or frame count -> timeline (a new shot takes timeline, never stage or scene);", "a new shot -> no key (it joins the task), and its range over free frames -> its shot:<id>; shot order, other ranges, frame count or a new shot that must grow the take -> timeline;"],
 	["(or timeline when the shot is new)", "(no key when the shot is new)"], ["adding one with nothing else changed -> stage.", "a task that only makes new things -> [] (an empty scope)."]]
 	.reduce((text, [from, to]) => { if (!text.includes(from)) throw new Error(`main-agent: KEYS_HELP no longer has ${from}`); return text.replace(from, to); }, KEYS_HELP);
 export function createMainTools({ board, studio, hub, admission, workspaceHandle, liveHandle = () => null, motion = false, createOnly = false, designs }) {

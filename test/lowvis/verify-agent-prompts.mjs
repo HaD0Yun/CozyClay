@@ -35,7 +35,7 @@ assert.match(coordinator, /so their tasks dependsOn the motion task \(not each o
 assert.match(coordinator, /which objects the motion uses \(ids and boxes\) and the floor region the bodies cross\./);
 assert.match(coordinator, /A task that only makes new things needs no scope key: send an empty scope/);
 assert.match(coordinator, /its report is the check of the motion, so it ends done even with verify or an unmet criterion \(its summary carries them\), and the tasks that depend on it start then\./);
-assert.match(coordinator, / shot ranges take timeline, a new shot needs no key \(unless the take must grow to fit it, which takes timeline\),/);
+assert.match(coordinator, / a new shot needs no key and a range for it over free frames only its shot:<id> \(growing the take, re-timing or moving into frames another shot uses takes timeline\),/);
 assert.ok(MAIN_SYSTEM_PROMPT.includes(" a new shot or shot ranges take timeline,"), "the old coordinator keeps its shot rule");
 for (const gone of ["In a task the motion tool adds nothing", "When other tasks build what the motion needs", "\"make a cup, then have her pick it up\"", "a camera that frames a motion still being made", "still needs one scope key"]) assert.equal(coordinator.includes(gone), false, gone);
 assert.ok(MAIN_SYSTEM_PROMPT.includes("\"make a cup, then have her pick it up\" is one task") && MAIN_SYSTEM_PROMPT.includes("still needs one scope key"), "the old coordinator keeps its text");

@@ -14,6 +14,10 @@ const refused = (receipt, code) => { assert.equal(receipt.ok, false, JSON.string
 {
 	assert.deepEqual(commandKeys("shot.create", {}, { shots: [], frameCount: 48 }), [], "an empty timeline has free frames");
 	assert.deepEqual(commandKeys("shot.create", {}, { shots: [{ id: "s1", startFrame: 0, endFrame: 47 }], frameCount: 48, view: { frame: 10 } }), ["timeline"], "a full timeline must grow");
+	const two = { shots: [{ id: "s1", startFrame: 0, endFrame: 47 }, { id: "s2", startFrame: 100, endFrame: 147 }], frameCount: 240 };
+	assert.deepEqual(commandKeys("shot.setRange", { shotId: "s1", range: { startFrame: 0, endFrameExclusive: 100 } }, two), ["shot:s1"], "a range over free frames writes the shot alone");
+	assert.deepEqual(commandKeys("shot.setRange", { shotId: "s1", range: { startFrame: 0, endFrameExclusive: 101 } }, two), ["timeline"], "into another shot's frames");
+	assert.deepEqual(commandKeys("shot.setRange", { shotId: "s1", range: { startFrame: 0, endFrameExclusive: 241 } }, two), ["timeline"], "past the frame count");
 	for (const id of ["shot.setRange", "shot.remove", "shot.reorder", "shot.setTimeline", "shot.split", "shot.duplicate"]) assert.deepEqual(commandKeys(id, { shotId: "s1" }, { shots: [] }), ["timeline"], id);
 	console.log("PASS commandKeys: shot.create in free frames needs no key; one that grows the take, and every re-timing, writes timeline");
 }
@@ -35,6 +39,11 @@ const refused = (receipt, code) => { assert.equal(receipt.ok, false, JSON.string
 		ok(run("task-cam")("shot.rename", { shotId: shot, name: "Wide" }));
 		ok(run("task-dress")("object.set", { id: cube, set: { position: { x: 1, y: 0, z: 0 } } }));
 		refused(run("task-cam2")("shot.rename", { shotId: shot, name: "Mine" }), "SCOPE_DENIED");
+		const own = state().shots.find(s => s.id === shot), next = state().shots.filter(s => s.startFrame > own.endFrame).map(s => s.startFrame);
+		const end = Math.min(state().frameCount, ...next);
+		ok(run("task-cam")("shot.setRange", { shotId: shot, range: { startFrame: own.startFrame, endFrameExclusive: end } }));
+		assert.equal(state().shots.find(s => s.id === shot).endFrame, end - 1, "the camera task stretched its shot over the free frames");
+		ok(run("task-cam")("shot.setRange", { shotId: shot, range: { startFrame: own.startFrame, endFrameExclusive: own.endFrame + 1 } }));
 		console.log("PASS a camera task makes and names its shot while a dress task edits its object; the shot is the camera task's");
 		// a second creator beside the first: shots never overlap, the frame count stays, until no free frames are left
 		let made = 1, guard = 0;

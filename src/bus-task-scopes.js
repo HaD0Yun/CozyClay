@@ -4,8 +4,9 @@
 // environment, lens), timeline (frame count, shot order and ranges) and scene (documents, the cast library, a replace of
 // a whole kind). timeline and scene are exclusive: no other task runs beside them. A command that only creates
 // (object.add, a kit, character.add, a shot.create that fits in free frames) needs no key: what it makes joins its task.
-// A shot.create that must lengthen the take to fit writes timeline (the frame count every shot and take reads). A
-// command this table does not know writes scene, so a new command is safe until it is named here.
+// A shot.create that must lengthen the take to fit writes timeline (the frame count every shot and take reads), and so
+// does a shot.setRange into frames another shot uses; within free frames it writes that shot alone. A command this
+// table does not know writes scene, so a new command is safe until it is named here.
 // A character is four layers, so one task can place her while another makes her motion: placement (where she stands,
 // her scale, parent, visibility, tint, static pose: every cast field the others do not own), take (the motion take, its
 // timing edit and the root path), ik (the IK keys and range pins on top of the take) and props (what she holds; the
@@ -73,6 +74,16 @@ const arrangeKeys = (ops, state) => ops.flatMap(op => op.op === 'create' ? [] : 
 	: op.op === 'ungroup' ? objectKeys(op.childIds, state) : objectKeys([op.id], state));
 
 /**
+ * True when shot.setRange moves a shot only within free frames: inside the frame count and over no other shot. It then
+ * writes that shot alone; any other range (one that pushes or overlaps another shot) writes timeline.
+ */
+function rangeIsFree({ shotId, range } = {}, state = {}) {
+	const shots = Array.isArray(state.shots) ? state.shots : [];
+	if (!range || !shots.some(shot => shot.id === shotId) || !(range.startFrame >= 0) || !(range.endFrameExclusive <= state.frameCount)) return false;
+	return !shots.some(shot => shot.id !== shotId && shot.startFrame < range.endFrameExclusive && shot.endFrame >= range.startFrame);
+}
+
+/**
  * The keys command `id` with validated `args` writes against state `state` (the bus's read), or [] when it writes
  * none (a read, a view change, a pure creation). `entry` is its registry entry (kind, readOnly).
  */
@@ -87,6 +98,7 @@ export function commandKeys(id, args = {}, state = {}, entry = {}) {
 	if ((id === 'character.set' || id === 'motion.set') && args.ops) return [...new Set(args.ops.flatMap(op => layers(op.id, characterKeys(id, op))))];
 	if (id.startsWith('stage.') || id === 'shot.setLens') return ['stage'];
 	if (id === 'shot.create') return addShotAtFrame(state.shots, state.frame ?? state.view?.frame ?? 0, state.frameCount, null) !== state.shots ? [] : ['timeline'];
+	if (id === 'shot.setRange' && rangeIsFree(args, state)) return [`shot:${args.shotId}`];
 	if (TIMELINE.includes(id)) return ['timeline'];
 	if (id.startsWith('shot.')) {
 		const shot = args.shotId ?? args.id ?? state.selectedShotId;

@@ -35,7 +35,7 @@ const LOWVIS_EDITS = [
 	// what the motion task sets up is no longer built in the same task as the motion, nor framed while it is made (rule 8)
 	[" (\"make a cup, then have her pick it up\" is one task with the cup and her)", ""],
 	[", a camera that frames a motion still being made.", "."],
-	[" a new shot or shot ranges take timeline,", " shot ranges take timeline, a new shot needs no key (unless the take must grow to fit it, which takes timeline),"],
+	[" a new shot or shot ranges take timeline,", " a new shot needs no key and a range for it over free frames only its shot:<id> (growing the take, re-timing or moving into frames another shot uses takes timeline),"],
 	[" A task that only makes new things still needs one scope key: give it stage, and it makes the things and may set the light.", " A task that only makes new things needs no scope key: send an empty scope, and what it makes joins it; light and environment take stage."],
 ];
 
