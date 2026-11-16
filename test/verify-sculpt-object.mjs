@@ -130,11 +130,11 @@ await check("object.sculpt with an id re-sculpts in place, keeping the transform
 	}
 });
 
-await check("object.sculpt refuses a bad recipe and a non-sculpt target with the reason", () => {
+await check("object.sculpt refuses a bad recipe and edits on a non-sculpt target with the reason", () => {
 	const f = objectsFixture();
 	try {
 		const before = structuredClone(f.objects.read());
-		const bad = f.run("object.sculpt", { recipe: { parts: [{ id: "head", shape: "blob", size: [0.4, 40, 0.4] }] } });
+		const bad = f.run("object.sculpt", { recipe: { parts: [{ id: "head", shape: "blob", size: [0.4, 400, 0.4] }] } });
 		assert.equal(bad.ok, false);
 		assert.equal(bad.code, "INVALID_ARGUMENT");
 		assert.match(bad.message, /Recipe refused at parts\[head\]\.size\[1\]/);
@@ -144,9 +144,9 @@ await check("object.sculpt refuses a bad recipe and a non-sculpt target with the
 		assert.equal(sculptRefusalPath("edits[2].set"), "$.args.edits[].set");
 		const neither = f.run("object.sculpt", {});
 		assert.match(neither.message, /give exactly one of recipe .* or edits .*neither was sent/);
-		const wrong = f.run("object.sculpt", { id: "cube", recipe: pillar });
+		const wrong = f.run("object.sculpt", { id: "cube", edits: [{ remove: "body" }] });
 		assert.equal(wrong.ok, false);
-		assert.match(wrong.message, /cube is a cube, not a sculpt/);
+		assert.match(wrong.message, /cube is a cube, not a sculpt; edits patch a sculpt only/);
 		assert.deepEqual(f.objects.read(), before, "a refusal writes nothing");
 	} finally {
 		f.dispose();

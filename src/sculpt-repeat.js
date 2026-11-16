@@ -17,8 +17,9 @@ import { isMirrorCopy, partSeed, seededRandom } from "./sculpt-noise.js";
 
 const KEYS = ["count", "step", "turn", "pivot", "jitter"];
 const JITTER_KEYS = ["position", "rotation", "scale", "seed"];
-const MAX_STEP = 5;
-const MAX_PIVOT = 20;
+// Step and pivot share the part offset bound (SCULPT_LIMITS.maxOffset): nothing else reads them.
+const MAX_STEP = 240;
+const MAX_PIVOT = 240;
 const JITTER_RANGES = { position: [0, 0.5], rotation: [0, 180], scale: [0, 0.5] };
 
 /** A refusal under `repeat`; it brings the repeat example with it (sculpt-shape-examples.js). */

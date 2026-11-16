@@ -4128,7 +4128,7 @@ export default function App() {
 			});
 			return proxyFigureBounds(original, placement);
 		}
-		if (!target?.rig) throw new StudioProtocolError("TARGET_NOT_READY", "Character bounds require its loaded rig.");
+		if (!target?.rig) throw new StudioProtocolError("TARGET_NOT_READY", "Character bounds require its loaded rig.", { transient: true });
 		const rig = cloneSkeleton(target.rig), parent = new THREE.Group();
 		const originals = [], copies = [];
 		target.rig.traverse(node => originals.push(node)); rig.traverse(node => copies.push(node));

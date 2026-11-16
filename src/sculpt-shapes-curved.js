@@ -15,7 +15,7 @@ import { RecipeError, isFiniteNumber, readUnit, tidy } from "./sculpt-recipe-rea
 import { earClip, insideLoop, loopCrossing, monotoneCurve, signedArea } from "./sculpt-curve.js";
 
 /** The thinnest tube: the same floor as a part's extent (SCULPT_LIMITS.minExtent). */
-const MIN_THICKNESS = 0.005;
+const MIN_THICKNESS = 0.001;
 const RING = 24;
 const half = (part) => part.size.map((value) => value / 2);
 

@@ -57,7 +57,7 @@ const refusals = {
 	'no format': JSON.stringify({ version: 1, recipe }),
 	'wrong format': JSON.stringify({ format: 'cozyscene', version: 1, recipe }),
 	'version 2': JSON.stringify({ format: 'cozysculpt', version: 2, name: 'x', recipe }),
-	'bad recipe': JSON.stringify({ format: 'cozysculpt', version: 1, name: 'x', recipe: { version: 1, parts: [{ id: 'a', shape: 'blob', size: [40, 1, 1], position: [0, 0, 0], color: '#ffffff' }] } }),
+	'bad recipe': JSON.stringify({ format: 'cozysculpt', version: 1, name: 'x', recipe: { version: 1, parts: [{ id: 'a', shape: 'blob', size: [400, 1, 1], position: [0, 0, 0], color: '#ffffff' }] } }),
 	'no recipe': JSON.stringify({ format: 'cozysculpt', version: 1, name: 'x' }),
 	'too large': JSON.stringify({ format: 'cozysculpt', version: 1, recipe, pad: 'x'.repeat(5 * 1024 * 1024) }),
 };

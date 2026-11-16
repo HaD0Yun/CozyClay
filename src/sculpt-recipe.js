@@ -8,14 +8,14 @@
  * transforms, and measures the standing box. It is importable without three.js
  * so the scene record, the MCP server and the tests all read one truth.
  *
- * A recipe that breaks a rule is REFUSED with the reason, never clamped into a
- * different shape: an agent that asked for a 40 m head should hear why, not
- * see a 20 m one and believe it.
+ * A bad part is REFUSED with the reason, never clamped (sculpt-recipe-partial.js
+ * keeps the other parts). Part and offset bounds are the stage's object bounds
+ * (object.position, ±240 m).
  *
  * Contract: docs/sculpt-from-image.md.
  */
 
-import { RecipeError, forgiveSculptPart, readHexColor, readVector, tidy } from "./sculpt-recipe-read.js";
+import { RecipeError, byPosition, forgiveSculptPart, readHexColor, readVector, tidy } from "./sculpt-recipe-read.js";
 import { SCULPT_SHAPES, SCULPT_SHAPE_KEYS, SCULPT_SHAPE_SPECS } from "./sculpt-shapes.js";
 import { SCULPT_PART_FIELDS } from "./sculpt-part-fields.js";
 import { checkSculptCutters } from "./sculpt-cutters.js";
@@ -26,9 +26,9 @@ const SCULPT_RECIPE_VERSION = 1;
 export const SCULPT_LIMITS = Object.freeze({
 	/** after mirrors are expanded */
 	maxParts: 48,
-	minExtent: 0.005,
-	maxExtent: 20,
-	maxOffset: 20,
+	minExtent: 0.001,
+	maxExtent: 240,
+	maxOffset: 240,
 	maxDepth: 8,
 	/** scatter items across the whole recipe, after mirrors */
 	maxScatterItems: 12000,
@@ -53,12 +53,12 @@ const readColor = (value, path) => (value === undefined ? SCULPT_DEFAULT_COLOR :
 
 function normalizePart(input, index) {
 	const raw = forgiveSculptPart(input), at = `parts[${index}]`;
-	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new RecipeError(at, "must be an object");
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw byPosition(at, "must be an object");
 	for (const key of Object.keys(raw)) {
-		if (!PART_KEYS.has(key)) throw new RecipeError(`${at}.${key}`, `unknown key (allowed: ${[...PART_KEYS].join(", ")})`);
+		if (!PART_KEYS.has(key)) throw byPosition(`${at}.${key}`, `unknown key (allowed: ${[...PART_KEYS].join(", ")})`);
 	}
 	if (typeof raw.id !== "string" || !ID_PATTERN.test(raw.id)) {
-		throw new RecipeError(`${at}.id`, `must be 1-40 letters, digits, - and _, starting with a letter or digit; got ${JSON.stringify(raw.id)}`);
+		throw byPosition(`${at}.id`, `must be 1-40 letters, digits, - and _, starting with a letter or digit; got ${JSON.stringify(raw.id)}`);
 	}
 	const where = `parts[${raw.id}]`;
 	if (!SCULPT_SHAPES.includes(raw.shape)) {
@@ -142,7 +142,8 @@ export function normalizeSculptRecipe(input) {
 			throw new RecipeError("recipe.version", `only version ${SCULPT_RECIPE_VERSION} is understood, got ${JSON.stringify(input.version)}`);
 		}
 		if (!Array.isArray(input.parts) || input.parts.length === 0) throw new RecipeError("recipe.parts", "must be a non-empty array");
-		const parts = input.parts.map(normalizePart);
+		// A refusal inside one part names its position (partIndex): `parts[2]` may be a position or a part whose id is "2".
+		const parts = input.parts.map((part, index) => { try { return normalizePart(part, index); } catch (error) { throw Object.assign(error, { partIndex: index }); } });
 		const seen = new Set();
 		for (const part of parts) {
 			if (seen.has(part.id)) throw new RecipeError(`parts[${part.id}].id`, "is used twice");
@@ -167,7 +168,7 @@ export function normalizeSculptRecipe(input) {
 		}
 		return { ok: true, recipe };
 	} catch (error) {
-		if (error instanceof RecipeError) return { ok: false, error: error.message, path: error.path, ...(error.example ? { example: error.example } : {}) };
+		if (error instanceof RecipeError) return { ok: false, error: error.message, path: error.path, ...(error.example ? { example: error.example } : {}), ...(Number.isInteger(error.partIndex) ? { partIndex: error.partIndex, byPosition: error.byPosition === true } : {}) };
 		throw error;
 	}
 }

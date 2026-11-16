@@ -369,7 +369,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	};
 	const handleStudioTurn = async (req, res, value, path) => {
 		const { StudioProtocolError, validateStudioContextFreshness } = await import("../../src/studio-agent-protocol.js");
-		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
+		const [{ createStudioTools }, { encodeStudioContext }, { createScriptTool, scriptEditedBeforeFailing }, { runSupervisor, shouldSupervise }, { createPlanTool }, { reviewedStart, createTurnReview, turnRelations }, { followUpExchange }] = await Promise.all([
 			import("./studio-tools.mjs"), import("../../src/studio-agent-context.js"), import("./script-tool.mjs"), import("./supervisor.mjs"), import("./plan-tool.mjs"), import("./studio-review.mjs"), import("./supervisor-followup.mjs"),
 		]);
 		const hubDeps = await runtime; const hub = hubDeps.liveHub || liveHub;
@@ -486,7 +486,7 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 			handler: async (args, options) => {
 				await turnTransaction.mark();
 				const result = await script.handler(args, options);
-				if (result.ok || !result.calls.some(call => call.ok && Number.isSafeInteger(call.revision?.after) && call.revision.after !== call.revision.before)) return result;
+				if (!scriptEditedBeforeFailing(result)) return result;
 				const rollback = await turnTransaction.rollback();
 				return rollback ? { ...result, rollback: { status: "rolled_back", receiptId: rollback.receiptId, revision: rollback.revision, affectedIds: rollback.affectedIds.slice(0, 8) } } : result;
 			},

@@ -122,7 +122,11 @@ await check("bad repeat values are refused with the allowed values, never clampe
 	assert.match(at({ count: 1, step: [0.1, 0, 0] }).error, /repeat\.count: must be a whole number from 2 to 64/);
 	assert.match(at({ count: 65, step: [0.1, 0, 0] }).error, /from 2 to 64, got 65/);
 	assert.match(at({ count: 4 }).error, /needs a non-zero step/);
-	assert.match(at({ count: 4, step: [6, 0, 0] }).error, /step\[0\]: must be within ±5 m/);
+	// step and pivot share the part offset bound (±240 m); a ring around a 34 m part with a 25 m pivot is drawn
+	assert.match(at({ count: 4, step: [300, 0, 0] }).error, /step\[0\]: must be within ±240 m/);
+	assert.match(at({ count: 4, turn: [0, 90, 0], pivot: [0, 0, 300] }).error, /pivot\[2\]: must be within ±240 m/);
+	assert.equal(normalizeSculptRecipe({ parts: [{ ...picket, repeat: { count: 4, step: [6, 0, 0] } }] }).ok, true);
+	assert.equal(normalizeSculptRecipe({ parts: [{ ...picket, repeat: { count: 8, turn: [0, 45, 0], pivot: [0, 0, 25] } }] }).ok, true);
 	assert.match(at({ count: 4, turn: [0, 400, 0] }).error, /turn\[1\]: must be within ±360 degrees/);
 	assert.match(at({ count: 4, step: [0.1, 0, 0], jitter: { scale: 0.9 } }).error, /jitter\.scale: must be a number from 0 to 0\.5/);
 	assert.match(at({ count: 4, step: [0.1, 0, 0], spin: 3 }).error, /repeat\.spin: unknown key \(allowed: count, step, turn, pivot, jitter\)/);
@@ -157,7 +161,7 @@ await check("every shape's refusal brings a valid example of that shape, and eve
 	assert.equal(refused([{ id: "t", shape: "tube", size: [0.3, 0.3, 0.3], path: [[0, 0, 0]], thickness: 0.02 }], /path/).example, "tube");
 	assert.equal(refused([{ id: "l", shape: "loft", size: [0.3, 0.3, 0.3], sections: [{ y: 0.2, w: 1, d: 1 }, { y: 1, w: 1, d: 1 }] }], /sections/).example, "loft");
 	assert.equal(refused([{ id: "e", shape: "extrude", size: [0.3, 0.3, 0.03], outline: [[0, 0], [0.1, 0]] }], /outline/).example, "extrude");
-	assert.equal(refused([{ id: "b", shape: "blob", size: [0.3, 40, 0.3] }], /size/).example, undefined, "a size refusal is not a shape refusal");
+	assert.equal(refused([{ id: "b", shape: "blob", size: [0.3, 400, 0.3] }], /size/).example, undefined, "a size refusal is not a shape refusal");
 });
 
 /* -------------------------------------------------------- the command ---- */
@@ -242,6 +246,8 @@ await check("the object.sculpt description's worked example validates, builds an
 	assert.ok(description.length < 5300, `${description.length} characters`);
 	assert.match(description, /blob 0 = ellipsoid, 1 = rounded box/);
 	assert.match(description, /Use for: lathe/);
+	// every bound a logged refusal hit is in the text the model reads before the call
+	for (const bound of [/size: \[x,y,z\] m 0\.001-240/, /position ±240 m/, /thickness m <= smallest size/, /border < half the smaller side/, /step \[x,y,z\] ±240 m/, /pivot ±240 m/, /jitter \{position one number 0\.\.0\.5 m, rotation 0\.\.180 deg, scale 0\.\.0\.5/, /count 2-64/, /at most 48 drawn parts/, /256 copies per recipe/]) assert.match(description, bound);
 });
 
 await check("patchSculptRecipe replaces a repeat whole", () => {

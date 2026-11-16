@@ -2,7 +2,7 @@ import { createObjectPath } from "../object-path.js";
 import { useState, useRef } from "react";
 import { createDocumentStore } from "../document-store.js";
 import { useDocumentDomain } from "../store/use-document-store.js";
-import { arrangement } from "../studio-agent-commands.js";
+import { arrangement } from "../studio-agent-commands.js"; import { refuseRigOnly } from "../character-kind.js";
 import { noteObjectCreated, noteObjectDeleted } from "../studio-telemetry.js";
 import {
 	readStoredObjectColors,
@@ -666,7 +666,7 @@ export function useObjects(appContext) {
 	function attachSceneObject(id, attach) {
 		const object = storeRef.current.objects.find((entry) => entry.id === id);
 		if (!object) throw new StudioProtocolError("STALE_TARGET", `Object ${id} is not in this scene.`);
-		if (attach) appContext.shared.castMemberOf(attach.characterId);
+		if (attach) refuseRigOnly(appContext.shared.castMemberOf(attach.characterId), "attaching a prop");
 		// Where the prop is on screen right now, expressed in the frame it is
 		// joining (or left as world when it joins none). ONE conversion, whether
 		// the prop is coming from the world or from another frame.
@@ -678,7 +678,7 @@ export function useObjects(appContext) {
 		if (!placement) {
 			throw new StudioProtocolError("TARGET_NOT_READY", attach
 				? `The ${attach.bone ?? "root"} frame of character ${attach.characterId} is not on stage (its rig has not loaded).`
-				: `${object.name || id} is not on stage, so where it is now cannot be read.`);
+				: `${object.name || id} is not on stage, so where it is now cannot be read.`, attach ? { transient: true } : {});
 		}
 		// ONE atomic: a single undo puts back both the field and the numbers.
 		storeRef.current.applyAtomic((objects) => {
