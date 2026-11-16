@@ -231,15 +231,16 @@ export function createTaskBoard({ run, emit = () => {}, now = Date.now, setTimer
 			// What the bus did with its edits, as the run saw the task close: finish keeps them, cancel puts them back.
 			task.edits = result.ended === "task.finish" ? "kept" : result.ended === "task.cancel" ? "reverted" : status === "cancelled" ? "reverted" : undefined;
 			const said = { kept: "its edits were kept", reverted: "its edits were reverted" }[task.edits] ?? "whether its edits landed is unknown";
-			// The run ended, but its own report says a visible criterion is unmet: that is not done (nor up for review).
-			const unmet = status === "done" ? unmetCriteria(result.reply) : null;
-			if (unmet) status = "incomplete";
+			// The run ended, but its own report says a visible criterion is unmet: that is not done (nor up for review). A run
+			// that ended on the motion tool's report (reported: it carries its Missing line) has had its review: that report says
+			// what it could not do, the coordinator repeats it, so it ends done (unmet stays in its reason) and its dependents start.
+			const unmet = status === "done" ? unmetCriteria(result.reply) : null, reported = Object.hasOwn(result, "missing");
+			if (unmet && !reported) status = "incomplete";
 			const reason = status === "cancelled" ? `cancelled by the user; ${said}`
 				: task.stopReason ? `${task.stopReason}; ${said}; ask the user whether to continue`
 				: unmet ? `criteria unmet: ${unmet}`
 				: result.status === "failed" ? clip(String(result.error?.message ?? result.error ?? "the run failed"), 300) : undefined;
-			// a run that ended on the motion tool's report (missing: its Missing line) has had its review: that report says what it could not do
-			end(task, status === "done" && task.verify && !Object.hasOwn(result, "missing") ? "review" : status, { reason, summary });
+			end(task, status === "done" && task.verify && !reported ? "review" : status, { reason, summary });
 		}
 		rescheduleNow();
 	}
