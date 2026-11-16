@@ -715,17 +715,18 @@ export function useCast(appContext) {
 	domain.loadView = () => { appContext.shared.loadedLayerCharRef.current = domain.activeId; setActiveCharacterId(domain.activeId); };
 	domain.poses = () => appContext.ports.poses();
 	domain.showExtras = applyShowB;
-	domain.setTimeline = frameCount => {
+	// follow(shots) -> shots: the shot ranges to write with the length, in the same entry
+	domain.setTimeline = (frameCount, follow = null) => {
 		const shots = appContext.storeDomain('shot');
-		if (shots && frameCount !== shots.state().frameCount) appContext.recordAction('shot', () => shots.writeState(before => ({ ...before, frameCount })), null, true);
+		if (shots && (follow || frameCount !== shots.state().frameCount)) appContext.recordAction('shot', () => shots.writeState(before => ({ ...before, frameCount, ...(follow && { shots: follow(before.shots) }) })), null, true);
 	};
-	domain.syncTimeline = () => {
+	domain.syncTimeline = (follow = null) => {
 		const shots = appContext.storeDomain('shot');
 		if (!shots) return;
 		const current = domain.projection(), active = current.find(entry => entry.id === domain.activeId) ?? current[0];
 		const extent = timelineContentExtent(current, active?.id ?? null, appContext.shared.bufferRef.current.motion, null);
 		// grow only: a take shorter than the timeline (or a 43-frame fill) never cuts the frames the user set
-		domain.setTimeline(Math.max(24, shots.state().frameCount, timelineSpan(extent, shots.read(), shots.state().frameCount)));
+		domain.setTimeline(Math.max(24, shots.state().frameCount, timelineSpan(extent, follow ? follow(shots.read()) : shots.read(), shots.state().frameCount)), follow);
 	};
 	domain.extendTimeline = domain.syncTimeline;
 	domain.applyPose = (characterId, pose, clearMotion) => {

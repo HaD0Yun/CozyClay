@@ -41,3 +41,17 @@ export function timelineSpan(extent, shots = [], currentCount = 0) {
 	);
 	return Math.max(extent > 0 ? extent : currentCount, shotEnd);
 }
+
+/**
+ * Return `shots` after a timing edit moved a take's last frame from `oldEnd`
+ * to `newEnd`: a shot that ended with the take keeps ending with it (never
+ * before its own first frame). Other shots keep their authored range. Without
+ * this a shot laid over the whole take holds the timeline at the old length
+ * (timelineSpan never ends under a shot) after a trim or a speed-up.
+ */
+export function shotsFollowingTake(shots = [], oldEnd, newEnd) {
+	if (oldEnd === newEnd) return shots;
+	return shots.map(shot => (shot?.endFrame === oldEnd
+		? { ...shot, endFrame: Math.max(shot.startFrame, newEnd) }
+		: shot));
+}

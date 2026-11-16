@@ -76,12 +76,12 @@ expect("a broken edit is dropped on load, the take still loads", normalizeTakeSo
 
 // --- the commands through the registry ------------------------------------------------------------
 const rows = new Map([["char-1", { id: "char-1", take: { resourceId: "r1", frames: 96, source }, ikKeys: [{ frame: 60, tracks: {} }] }]]);
-let synced = 0;
+let synced = 0, follow = null;
 // replace: an install puts a new take without an edit and drops the IK keys, as the motion domain does
 const owner = { layer: id => rows.get(id), writeLayer: (id, patch) => rows.set(id, { ...rows.get(id), ...patch }), fullMotionFor: id => (rows.get(id)?.take ? compiled : null), motionFor: () => compiled,
 	replace: (id, take) => rows.set(id, { id, take: { resourceId: "r2", frames: take.frames, source }, ikKeys: [] }) };
 const ports = { state: () => ({ characters: [{ id: "char-1", model: "x-bot-tpose", x: 0, y: 0, z: 0, rot: 0, scale: 1 }], objects: [], frameCount: 96 }),
-	storeDomain: name => (name === "motion" ? owner : name === "cast" ? { syncTimeline: () => { synced += 1; } } : null) };
+	storeDomain: name => (name === "motion" ? owner : name === "cast" ? { syncTimeline: shots => { synced += 1; follow = shots; } } : null) };
 const registry = createStudioAppActions(ports), run = (id, args) => registry.run(id, args);
 const fails = (id, args, code) => { try { run(id, args); return false; } catch (error) { return error.code === code; } };
 let r = run("motion.cut", { characterId: "char-1", frame: 40 });
@@ -96,6 +96,12 @@ r = run("motion.resetTiming", { characterId: "char-1" });
 expect("motion.resetTiming restores the compiled timing and clears the edit", r.output.frames === 96 && rows.get("char-1").take.edit === undefined);
 r = run("motion.trim", { characterId: "char-1", start: 10, end: 69 });
 expect("motion.trim keeps the range", r.output.frames === 60 && rows.get("char-1").take.edit[0].sourceStart === 10);
+// a shot laid over the whole take ends with it again, or it holds the timeline at the old length (timelineSpan)
+const overTake = [{ id: "s1", startFrame: 0, endFrame: 40 }, { id: "s2", startFrame: 41, endFrame: 95 }];
+expect("motion.trim pulls the shot that ended with the take to the take's new end", typeof follow === "function" && JSON.stringify(follow(overTake).map(s => s.endFrame)) === "[40,59]", String(follow));
+run("motion.resetTiming", { characterId: "char-1" });
+expect("motion.resetTiming stretches that shot back with the take", typeof follow === "function" && follow([{ id: "s1", startFrame: 0, endFrame: 59 }])[0].endFrame === 95);
+run("motion.trim", { characterId: "char-1", start: 10, end: 69 });
 
 // --- a recompile keeps the timing edit of the take it replaces (edit-carry.js) ----------------------
 const edited = setSegmentSpeed(splitTakeEdit(createTakeEdit(96), 40), "motion-0-b", 0.5);
