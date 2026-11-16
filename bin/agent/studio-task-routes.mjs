@@ -52,6 +52,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 		studioEvents.set(feedId, main.feed);
 		main.notify = event => {
 			main.events.push(event);
+			main.arrived = (main.arrived ?? 0) + 1;
 			for (const key of event.changed ?? []) main.changed.add(key); // reviewed once the request's tasks are all done (studio-review.mjs settledEdits)
 			emitStudioEvent(feedId, event);
 			// a new task keeps the user's last message as typed: its run's motion tool hands it to the motion writer (motion-door.mjs)
@@ -74,7 +75,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			const session = studioSessions.get(main.sessionId);
 			if (!session?.owner || !main.host || !main.events.length || main.eventTurn) return;
 			if (session.activeTurnId) return eventTurnSoon(main);
-			const turn = main.eventTurn = { turnId: randomUUID(), told: [], preempted: false, done: null };
+			const turn = main.eventTurn = { turnId: randomUUID(), told: [], preempted: false, done: null }, arrivedBefore = main.arrived;
 			let context;
 			try { context = await readContext(main.host); } catch { main.eventTurn = null; return; }
 			// a user turn began while the context was read: it carries the events, or a later event turn does
@@ -85,7 +86,9 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			if (main.eventTurn === turn) main.eventTurn = null;
 			// A task that ended while this turn ran: its event came after the turn read its context, and the timer it set
 			// found this turn running and stopped. The next turn tells it (and runs the review of a request now all done).
-			if (main.events.length) eventTurnSoon(main);
+			// Only an event that arrived during this turn starts another: a turn that failed before it took its events
+			// leaves them for the next user turn instead of running again and again.
+			if (main.events.length && main.arrived !== arrivedBefore) eventTurnSoon(main);
 		}, eventTurnDelayMs);
 	}
 
