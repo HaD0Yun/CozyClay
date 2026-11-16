@@ -4149,10 +4149,10 @@ export default function App() {
 			parent.updateMatrixWorld(true);
 			const transform = c => new THREE.Matrix4().compose(new THREE.Vector3(c.x, c.y ?? 0, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (c.rot ?? 0) * Math.PI / 180), new THREE.Vector3().setScalar(c.scale ?? 1));
 			const delta = transform(entity).multiply(transform(original).invert());
-			const box = new THREE.Box3().setFromObject(rig, true).applyMatrix4(delta), points = [];
-			// The posed bones as world points: a sight-line check reads the body, not its box (studio-geometry-facts.js).
-			rig.traverse(node => { if (node.isBone) { const p = node.getWorldPosition(new THREE.Vector3()).applyMatrix4(delta); points.push({ x: p.x, y: p.y, z: p.z }); } });
-			return { min: { ...box.min }, max: { ...box.max }, points };
+			const box = new THREE.Box3().setFromObject(rig, true).applyMatrix4(delta), points = [], index = new Map();
+			// The posed bones as world points and the [parent, child] index pairs that join them: the sight-line, contact and frame-edge checks read the body, not its box.
+			rig.traverse(node => { if (node.isBone) { const p = node.getWorldPosition(new THREE.Vector3()).applyMatrix4(delta); index.set(node, points.push({ x: p.x, y: p.y, z: p.z }) - 1); } });
+			return { min: { ...box.min }, max: { ...box.max }, points, bones: [...index].filter(([node]) => index.has(node.parent)).map(([node, i]) => [index.get(node.parent), i]) };
 		} finally {
 			const skeletons = new Set(); rig.traverse(n => { if (n.isSkinnedMesh) skeletons.add(n.skeleton); });
 			for (const skeleton of skeletons) skeleton.dispose(); parent.remove(rig);

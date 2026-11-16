@@ -5,17 +5,15 @@
 import { entityWorldBounds } from './studio-agent-commands.js';
 import { isEffectivelyHidden } from './scene-objects.js';
 import { shotAtFrame } from './cuts.js';
-import { objectSize } from './object-size.js';
-import { solidOf } from './solid-shape.js';
+import { contactBody } from './solid-contact.js';
 import { entry, hiddenBy, HIDDEN_SHARE } from './motion3/sightline.js';
-import { mul, rx, ry, rz } from './motion3/compiler/math.js';
 
 export const GEOMETRY_FACTS_LIMITS = Object.freeze({ shots: 8, subjects: 24, pairs: 24, occluders: 8 });
 /** Closer to the action line than this (m) is "on-axis", neither side. */
 const ON_AXIS_M = 0.05;
 const EPS = 1e-9;
 /** Bones closer than this share of the body's height are one point; GRID places the points of a body with no bones. */
-const BODY_GAP = 1 / 20, GRID = [1 / 6, 1 / 2, 5 / 6], IDENTITY = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+const BODY_GAP = 1 / 20, GRID = [1 / 6, 1 / 2, 5 / 6];
 const round = v => Math.round(v * 1000) / 1000 + 0;
 const point = p => ({ x: round(p.x), y: round(p.y ?? 0), z: round(p.z) });
 const visibleCharacters = state => state.characters.filter(c => !isEffectivelyHidden(c, state.objects, state.characters));
@@ -59,18 +57,6 @@ export function primarySubjects(ids, cameraPosition, state) {
   return [...chosen, ...rest].slice(0, 2).sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
 }
 
-/** Where a prop stands for a sight line: a motion box (motion3/scene.js) from its record, or, for a carried or routed prop,
- * the world box its evaluated bounds give (no solid then: its record's pose is not where it is drawn). */
-function sightBody(o, state, ports) {
-  if (o.attach || o.path) {
-    const box = entityWorldBounds(o, state, ports);
-    return box && { box: { pos: [(box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2], R: IDENTITY, half: ['x', 'y', 'z'].map(a => (box.max[a] - box.min[a]) / 2) } };
-  }
-  const size = objectSize(o);
-  if (!(size.width > 0 && size.height > 0 && size.depth > 0)) return null;
-  return { box: { pos: [o.x ?? 0, o.y ?? 0, o.z ?? 0], R: mul(rx(o.rotX ?? 0), mul(ry(o.rot ?? 0), rz(o.rotZ ?? 0))), half: [size.width / 2, size.height / 2, size.depth / 2] }, solid: solidOf(o) };
-}
-
 /** The subject as points: the posed body's bones its bounds carry (the editor's bounds port), thinned to one per
  * BODY_GAP of its height so a hand's finger bones count as one point, not twenty; else a 3 x 3 x 3 grid inside its box. */
 function bodyPoints(subject, state, ports, bounds) {
@@ -94,7 +80,7 @@ export function occlusionOf(subject, cameraPosition, state, ports, subjectBounds
   const eye = [cameraPosition.x, cameraPosition.y, cameraPosition.z], boxes = {}, solids = {}, skip = new Set();
   for (const o of state.objects) {
     if (o.id === subject.id || o.attach?.characterId === subject.id || isEffectivelyHidden(o, state.objects, state.characters)) continue;
-    const body = sightBody(o, state, ports);
+    const body = contactBody(o, () => entityWorldBounds(o, state, ports));
     if (!body) continue;
     boxes[o.id] = body.box;
     if (body.solid) solids[o.id] = body.solid; else if (entry(eye, eye, body.box) !== null) skip.add(o.id);
