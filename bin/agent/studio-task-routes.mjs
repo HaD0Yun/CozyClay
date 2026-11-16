@@ -21,6 +21,7 @@ import { LOST_STUDIO } from "./studio-turn-transaction.mjs";
 import { settledEdits } from "./studio-review.mjs";
 import { TASK_SCOPE_ACTION } from "../../src/bus-tasks.js";
 
+const ENDED = new Set(["done", "incomplete", "failed", "cancelled"]);
 const TERMINAL = new Set(["task.review", "task.done", "task.incomplete", "task.failed", "task.cancelled", "task.paused"]);
 const PREEMPT_WAIT_MS = 5000;
 // A main turn with no model or tool event for idleMs ends with the reason (#1058), like a task's idle watchdog (studio-tasks.mjs).
@@ -82,6 +83,9 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			turn.done = runMain(main, ownerRequest(session.owner), fakeResponse(), { surface: "studio", sessionId: main.sessionId, turnId: turn.turnId, text: EVENT_TURN_TEXT, context, model: main.model, effort: main.effort }, turn).catch(() => {});
 			await turn.done;
 			if (main.eventTurn === turn) main.eventTurn = null;
+			// A task that ended while this turn ran: its event came after the turn read its context, and the timer it set
+			// found this turn running and stopped. The next turn tells it (and runs the review of a request now all done).
+			if (main.events.length) eventTurnSoon(main);
 		}, eventTurnDelayMs);
 	}
 
@@ -246,7 +250,7 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 	const owned = (req, sessionId) => sessionId && ownerOf(sessionId) && parseCookies(req).studio_owner === ownerOf(sessionId);
 	const taskOwner = taskId => [...mains.values()].find(main => main.board.get(taskId));
 
-	return async function route(req, res, path) {
+	async function route(req, res, path) {
 		// Off unless the flag is on, or the panel's Tasks switch opted this session in: a main turn sent with the header
 		// x-cozyclay-tasks: on, after which that session's board and its tasks answer too.
 		const optedIn = path === "/agent/main" ? req.headers?.["x-cozyclay-tasks"] === "on" : [...mains.keys()].some(id => path.startsWith(`/agent/main/${encodeURIComponent(id)}/`)) || /^\/agent\/task\//.test(path) && mains.size > 0;
@@ -295,5 +299,11 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			json(res, 200, { ok: true, queued: true }); return true;
 		}
 		json(res, 404, { error: "not found" }); return true;
-	};
+	}
+	// A coordinator is busy while a task of its board has not ended or its event turn is due: its session is not stale.
+	const busy = sessionId => { const main = mains.get(sessionId); return Boolean(main && (main.eventTurn || main.eventTimer || main.board.board().some(task => !ENDED.has(task.status)))); };
+	// Its stale session (agent-routes.mjs pruneStudioSessions): the board, its events and its feed go. The tasks' sessions go
+	// on their own; their edits stay undoable in the editor (task.undo), which keeps them by taskId.
+	const retire = sessionId => { const main = mains.get(sessionId); if (!main || busy(sessionId)) return; mains.delete(sessionId); studioEvents.delete(main.feedId); };
+	return Object.assign(route, { busy, retire });
 }

@@ -283,11 +283,19 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 	const studioEvents = new Map();
 	const studioOwnerTokens = new Map();
 	const parseCookies = req => Object.fromEntries(String(req.headers.cookie || "").split(";").map(part => part.trim().split("=")).filter(([key, value]) => key && value).map(([key, value]) => [key, decodeURIComponent(value)]));
+	// A running turn keeps its session, and so does a coordinator whose tasks have not all ended (studio-task-routes.mjs busy).
+	const idle = (id, session) => !(session.activeTurnId && session.controller && !session.controller.signal.aborted) && !taskRouter?.busy(id);
+	// A stale session lets go of what only it used: its turns' event records, its model runner (the transcript with every
+	// picture; a later turn opens a new one from the session file), and a coordinator's board and feed (studio-task-routes.mjs).
+	const retire = (id, session) => {
+		studioSessions.delete(id); studioOwnerTokens.delete(id); for (const turn of session.turns.keys()) studioEvents.delete(turn);
+		void studioRunners.get(id)?.close?.(); studioRunners.delete(id); taskRouter?.retire(id);
+	};
 	const pruneStudioSessions = () => {
-		const now = clock(), idle = session => !(session.activeTurnId && session.controller && !session.controller.signal.aborted); // a running turn keeps its session
-		for (const [id, session] of studioSessions) if (idle(session) && now - session.updatedAt > 600_000) { studioSessions.delete(id); studioOwnerTokens.delete(id); for (const turn of session.turns.keys()) studioEvents.delete(turn); }
-		const retired = [...studioSessions.entries()].filter(([, session]) => idle(session)).sort((a, b) => a[1].updatedAt - b[1].updatedAt);
-		while (studioSessions.size > 256 && retired.length) { const [id, session] = retired.shift(); studioSessions.delete(id); studioOwnerTokens.delete(id); for (const turn of session.turns.keys()) studioEvents.delete(turn); }
+		const now = clock();
+		for (const [id, session] of studioSessions) if (idle(id, session) && now - session.updatedAt > 600_000) retire(id, session);
+		const retired = [...studioSessions.entries()].filter(([id, session]) => idle(id, session)).sort((a, b) => a[1].updatedAt - b[1].updatedAt);
+		while (studioSessions.size > 256 && retired.length) retire(...retired.shift());
 	};
 	const studioOwner = (req, sessionId, create = false) => {
 		pruneStudioSessions();
@@ -586,8 +594,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		return true;
 	};
 	// Lazy, like every src/ import here: the minimal legacy-sidecar package omits src/.
-	let taskRoutesReady;
-	const taskRoutes = async (...args) => (await (taskRoutesReady ??= import("./studio-task-routes.mjs").then(({ createStudioTaskRoutes }) => createStudioTaskRoutes({ enabled: studioTasks, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, parseCookies, json, readBody: req => readBody(req, TURN_BODY_LIMIT), limits: taskLimits, motionModel: motionModel ?? (async () => (fauxProvider ? null : (await import("./v4/models.mjs")).motionTaskModel(await (await import("./providers.mjs")).listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env))),
+	let taskRoutesReady, taskRouter = null;
+	const taskRoutes = async (...args) => (await (taskRoutesReady ??= import("./studio-task-routes.mjs").then(({ createStudioTaskRoutes }) => taskRouter = createStudioTaskRoutes({ enabled: studioTasks, handleStudioTurn, studioSessions, studioOwnerTokens, studioEvents, emitStudioEvent, writeStudioStream, parseCookies, json, readBody: req => readBody(req, TURN_BODY_LIMIT), limits: taskLimits, motionModel: motionModel ?? (async () => (fauxProvider ? null : (await import("./v4/models.mjs")).motionTaskModel(await (await import("./providers.mjs")).listAgentModels({ auth, codex, models: await ensureWorkflowModels(), env }), env))),
 		newRecord: () => ({ next: 0, events: [], listeners: new Set(), terminal: false }),
 		validateEnvelope: async value => (await import("../../src/studio-agent-protocol.js")).validateStudioTurnEnvelope(value),
 		inspect: async (host, args) => ((await runtime).liveHub || liveHub).command("inspect_studio", args, host.workspaceHandle),
