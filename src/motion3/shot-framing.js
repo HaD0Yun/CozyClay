@@ -2,10 +2,10 @@
 // and then lost the character behind a wall for 4 of 6 sheet tiles (door kick scene, 2026-11-01). fitHeld frames every pose of the
 // shot and turns the camera off the asked view only as far as the sightlines need; heldIssues says what any held camera misses.
 // Pure over a compile result (compileSpec .out). Angles are degrees of azimuth: 0 looks from +z, 90 from +x.
-import { blockersAt } from "./sightline.js";
+import { blockersAt, HIDDEN_SHARE } from "./sightline.js";
 
 const NEAR_DEG = 45, LENS_FACTORS = [1, 1.5, 2, 3], MIN_TAN_V = Math.tan((7.5 * Math.PI) / 180);
-const CLEAR = 0.25, STEP = 3, MARGIN = 1.1, PAD = 0.12, HIDDEN_SHARE = 0.5, DEG = Math.PI / 180;
+const CLEAR = 0.25, STEP = 3, MARGIN = 1.1, PAD = 0.12, DEG = Math.PI / 180;
 const jointsAt = (out, f) => out.frames?.[f - (out.f0 ?? 0)]?.s.P ?? [];
 const dotOf = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -34,7 +34,7 @@ function fitAt(points, deg, { tanV, aspect, fraction, levelShare }) {
 }
 
 /** What a camera that holds still misses: { hidden: [frames], outOfFrame: [frames] }, frames where a body hides most of the character or a joint leaves the picture. */
-export function heldIssues(out, { eye, lookAt }, frames, { tanV, aspect }) {
+export function heldIssues(out, { eye, lookAt }, frames, { tanV, aspect, solids }) {
 	const f = [lookAt[0] - eye[0], lookAt[1] - eye[1], lookAt[2] - eye[2]], len = Math.hypot(...f) || 1, ahead = f.map(v => v / len);
 	const flat = Math.hypot(ahead[0], ahead[2]) || 1, right = [-ahead[2] / flat, 0, ahead[0] / flat];
 	const up = [right[1] * ahead[2] - right[2] * ahead[1], right[2] * ahead[0] - right[0] * ahead[2], right[0] * ahead[1] - right[1] * ahead[0]];
@@ -43,7 +43,7 @@ export function heldIssues(out, { eye, lookAt }, frames, { tanV, aspect }) {
 		return depth > 0 && Math.abs(dotOf(rel, right)) <= depth * tanV * aspect && Math.abs(dotOf(rel, up)) <= depth * tanV;
 	};
 	return {
-		hidden: frames.filter(frame => blockersAt(out, eye, frame).share >= HIDDEN_SHARE),
+		hidden: frames.filter(frame => blockersAt(out, eye, frame, [], solids).share >= HIDDEN_SHARE),
 		outOfFrame: frames.filter(frame => jointsAt(out, frame).some(p => !inside(p))),
 	};
 }
@@ -53,13 +53,13 @@ export function heldIssues(out, { eye, lookAt }, frames, { tanV, aspect }) {
  * its mirror, profile from the other side) is tried from farther back on a longer lens first: same framing, flatter picture. Failing
  * that, every STEP degrees on the asked lens; a frame counts as blocked when a body hides CLEAR or more of the character, and the first
  * clear camera wins, else the one blocked least.
- * opts: { asked (deg), mirror (deg), tanV, aspect, fraction (of the picture's height the poses' height fills), levelShare, fixedLens }.
+ * opts: { asked (deg), mirror (deg), tanV, aspect, fraction (of the picture's height the poses' height fills), levelShare, fixedLens, solids (sightline.js) }.
  * Answers { eye, lookAt, chosen (deg, -180..180), lensFactor (focal length multiple), hidden, outOfFrame }, or null with no poses.
  */
 export function fitHeld(out, frames, opts) {
 	const points = frames.flatMap(f => jointsAt(out, f));
 	if (!points.length) return null;
-	const score = cam => frames.reduce((sum, f) => { const { share } = blockersAt(out, cam.eye, f); return sum + (share >= CLEAR ? share : 0); }, 0);
+	const score = cam => frames.reduce((sum, f) => { const { share } = blockersAt(out, cam.eye, f, [], opts.solids); return sum + (share >= CLEAR ? share : 0); }, 0);
 	const wrap = d => ((((d + 180) % 360) + 360) % 360) - 180, off = d => Math.min(Math.abs(wrap(d - opts.asked)), Math.abs(wrap(d - (opts.mirror ?? opts.asked))));
 	const around = Array.from({ length: 360 / STEP }, (_, k) => wrap(opts.asked + k * STEP)).sort((a, b) => off(a) - off(b) || Math.abs(wrap(a - opts.asked)) - Math.abs(wrap(b - opts.asked)));
 	const near = around.filter(d => off(d) <= NEAR_DEG), factors = opts.fixedLens ? [1] : LENS_FACTORS.filter(k => opts.tanV / k >= MIN_TAN_V);

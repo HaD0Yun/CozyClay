@@ -5,11 +5,17 @@
 import { entityWorldBounds } from './studio-agent-commands.js';
 import { isEffectivelyHidden } from './scene-objects.js';
 import { shotAtFrame } from './cuts.js';
+import { objectSize } from './object-size.js';
+import { solidOf } from './solid-shape.js';
+import { entry, hiddenBy, HIDDEN_SHARE } from './motion3/sightline.js';
+import { mul, rx, ry, rz } from './motion3/compiler/math.js';
 
 export const GEOMETRY_FACTS_LIMITS = Object.freeze({ shots: 8, subjects: 24, pairs: 24, occluders: 8 });
 /** Closer to the action line than this (m) is "on-axis", neither side. */
 const ON_AXIS_M = 0.05;
 const EPS = 1e-9;
+/** Bones closer than this share of the body's height are one point; GRID places the points of a body with no bones. */
+const BODY_GAP = 1 / 20, GRID = [1 / 6, 1 / 2, 5 / 6], IDENTITY = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const round = v => Math.round(v * 1000) / 1000 + 0;
 const point = p => ({ x: round(p.x), y: round(p.y ?? 0), z: round(p.z) });
 const visibleCharacters = state => state.characters.filter(c => !isEffectivelyHidden(c, state.objects, state.characters));
@@ -30,7 +36,6 @@ export function segmentIntersectsAabb(p0, p1, box) {
   }
   return true;
 }
-const contains = (box, p) => ['x', 'y', 'z'].every(a => p[a] >= box.min[a] && p[a] <= box.max[a]);
 
 /** Which side of the horizontal line a->b the point p stands on, seen from above
  * (+Y up) looking along a->b: the sign of (axis x (p - a)).y with the axis
@@ -54,17 +59,58 @@ export function primarySubjects(ids, cameraPosition, state) {
   return [...chosen, ...rest].slice(0, 2).sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
 }
 
-/** Props whose world box crosses the sight line from the camera to the centre of
- * the subject's box. The subject itself, props attached to it, hidden props and
- * an enclosure the camera stands inside (a room set) never count. */
+/** Where a prop stands for a sight line: a motion box (motion3/scene.js) from its record, or, for a carried or routed prop,
+ * the world box its evaluated bounds give (no solid then: its record's pose is not where it is drawn). */
+function sightBody(o, state, ports) {
+  if (o.attach || o.path) {
+    const box = entityWorldBounds(o, state, ports);
+    return box && { box: { pos: [(box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2], R: IDENTITY, half: ['x', 'y', 'z'].map(a => (box.max[a] - box.min[a]) / 2) } };
+  }
+  const size = objectSize(o);
+  if (!(size.width > 0 && size.height > 0 && size.depth > 0)) return null;
+  return { box: { pos: [o.x ?? 0, o.y ?? 0, o.z ?? 0], R: mul(rx(o.rotX ?? 0), mul(ry(o.rot ?? 0), rz(o.rotZ ?? 0))), half: [size.width / 2, size.height / 2, size.depth / 2] }, solid: solidOf(o) };
+}
+
+/** The subject as points: the posed body's bones its bounds carry (the editor's bounds port), thinned to one per
+ * BODY_GAP of its height so a hand's finger bones count as one point, not twenty; else a 3 x 3 x 3 grid inside its box. */
+function bodyPoints(subject, state, ports, bounds) {
+  let posed = bounds.points;
+  if (!posed && !subject.renderer && ports?.bounds) try { posed = ports.bounds({ entity: subject, frame: state.frame, state })?.points; } catch { posed = null; }
+  const gap = (bounds.max.y - bounds.min.y) * BODY_GAP, kept = [];
+  for (const p of posed ?? []) if (kept.every(q => Math.hypot(p.x - q[0], p.y - q[1], p.z - q[2]) >= gap)) kept.push([p.x, p.y, p.z]);
+  if (kept.length) return kept;
+  const at = (a, k) => bounds.min[a] + (bounds.max[a] - bounds.min[a]) * k;
+  return GRID.flatMap(i => GRID.flatMap(j => GRID.map(k => [at('x', i), at('y', j), at('z', k)])));
+}
+
+/** How much the props hide the subject from the camera: { share (0..1 of its points hidden), hidden (share >= HIDDEN_SHARE),
+ * by: [{ id, share }] in scene order }. The one answer the framing check (occludersOf) and the Relations rows
+ * (studio-relations.js) both give. The subject is several points of its posed body (bodyPoints); a prop hides a point when
+ * the sight line to it crosses the prop's solid (solid-shape.js: what the viewport draws), else its box, and each hidden
+ * point counts for the prop nearest the camera on its sight line (feet behind both a wall and the steps beyond it are the
+ * wall's). The subject itself, props attached to it, hidden props and a box the camera stands inside (a room set) never count. */
+export function occlusionOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
+  if (!subjectBounds) return { share: 0, hidden: false, by: [] };
+  const eye = [cameraPosition.x, cameraPosition.y, cameraPosition.z], boxes = {}, solids = {}, skip = new Set();
+  for (const o of state.objects) {
+    if (o.id === subject.id || o.attach?.characterId === subject.id || isEffectivelyHidden(o, state.objects, state.characters)) continue;
+    const body = sightBody(o, state, ports);
+    if (!body) continue;
+    boxes[o.id] = body.box;
+    if (body.solid) solids[o.id] = body.solid; else if (entry(eye, eye, body.box) !== null) skip.add(o.id);
+  }
+  const points = bodyPoints(subject, state, ports, subjectBounds), by = points.map(p => Object.keys(hiddenBy(boxes, eye, [p], skip, solids)));
+  const count = {}, nearest = (hiders, p) => hiders.reduce((a, b) => (entry(eye, p, boxes[b]) < entry(eye, p, boxes[a]) ? b : a));
+  by.forEach((hiders, i) => { if (hiders.length) { const id = nearest(hiders, points[i]); count[id] = (count[id] ?? 0) + 1; } });
+  const hiddenPoints = by.filter(ids => ids.length).length;
+  return { share: hiddenPoints / points.length, hidden: hiddenPoints >= HIDDEN_SHARE * points.length,
+    by: state.objects.filter(o => count[o.id]).map(o => ({ id: o.id, share: count[o.id] / points.length })) };
+}
+
+/** Props that hide the subject from the camera (occlusionOf): the props it names when the subject counts as hidden, else none. */
 export function occludersOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
-  if (!subjectBounds) return [];
-  const centre = Object.fromEntries(['x', 'y', 'z'].map(a => [a, (subjectBounds.min[a] + subjectBounds.max[a]) / 2]));
-  return state.objects.filter(o => o.id !== subject.id && o.attach?.characterId !== subject.id && !isEffectivelyHidden(o, state.objects, state.characters))
-    .flatMap(o => {
-      const box = entityWorldBounds(o, state, ports);
-      return box && !contains(box, cameraPosition) && segmentIntersectsAabb(cameraPosition, centre, box) ? [{ subjectId: subject.id, byObjectId: o.id }] : [];
-    });
+  const { hidden, by } = occlusionOf(subject, cameraPosition, state, ports, subjectBounds);
+  return hidden ? by.map(({ id }) => ({ subjectId: subject.id, byObjectId: id })) : [];
 }
 
 /** A shot's camera as position + aim: the live camera for the shot under the

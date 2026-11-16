@@ -121,12 +121,17 @@ export function createMeshSceneCache({
 		announce(entry);
 	}
 
+	/** The parsed scene if it is already here, else null; never starts a load (a sight-line test reads it). */
+	function loadedMeshScene(id) {
+		return entries.get(id)?.scene ?? null;
+	}
+
 	/** Drop everything (a test harness, or a hard document reload). */
 	function clearMeshScenes() {
 		entries.clear();
 	}
 
-	return { loadMeshScene, subscribeToMeshScene, evictMeshScene, clearMeshScenes };
+	return { loadMeshScene, loadedMeshScene, subscribeToMeshScene, evictMeshScene, clearMeshScenes };
 }
 
 let dbPromise = null;
@@ -139,3 +144,4 @@ const cache = createMeshSceneCache();
 export const loadMeshScene = cache.loadMeshScene;
 export const subscribeToMeshScene = cache.subscribeToMeshScene;
 export const evictMeshScene = cache.evictMeshScene;
+export const loadedMeshScene = cache.loadedMeshScene;

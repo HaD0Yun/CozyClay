@@ -62,7 +62,7 @@ function resolveOpRefs(op, state, selfId) {
 }
 function boxPoints(bounds) {
   if (!bounds || ['x', 'y', 'z'].some(a => !Number.isFinite(bounds.min?.[a]) || !Number.isFinite(bounds.max?.[a]) || bounds.min[a] > bounds.max[a])) fail('TARGET_NOT_READY', 'Evaluated bounds are unavailable.');
-  return [bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y => [bounds.min.z, bounds.max.z].map(z => new Vector3(x, y, z))));
+  return Object.assign([bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y => [bounds.min.z, bounds.max.z].map(z => new Vector3(x, y, z)))), { body: bounds.points }); // body: posed bone points, when the port has them
 }
 function geometry(entity, state, ports) {
   // Attached/path objects need evaluated world geometry, never local channels.
@@ -239,8 +239,8 @@ function overlapsOf(ids, state, ports) {
 /** World AABB of one entity as {min,max}, or null when its evaluated bounds are unavailable (a prop whose renderer is not mounted). */
 export function entityWorldBounds(entity, state, ports) {
   try {
-    const box = aabb(geometry(entity, state, ports)), round = v => Number(v.toFixed(4));
-    return { min: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].min)])), max: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].max)])) };
+    const corners = geometry(entity, state, ports), box = aabb(corners), round = v => Number(v.toFixed(4)); // posed bone points ride along unlisted (no JSON, no spread) for the sight-line check
+    return Object.defineProperty({ min: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].min)])), max: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].max)])) }, 'points', { value: corners.body });
   } catch { return null; }
 }
 const overlapEvidence = overlaps => ({ coverage: 'same-frame-world-AABB-proxies', overlapIds: [...new Set(overlaps.map(o => o.id))].slice(0, 100), maximumFootprintOverlapM: Math.max(0, ...overlaps.map(o => o.depth)) });
@@ -390,7 +390,7 @@ const boundsOf = points => { const box = aabb(points); return { min: { x: box.x.
  * crosses the sight line to any subject, and the camera's side of the line between
  * the two leading characters (the subjects, else the ones nearest the camera). */
 function sightChecks(subjects, boxes, cameraPosition, state, ports) {
-  const occluders = subjects.flatMap((subject, index) => occludersOf(subject, cameraPosition, state, ports, boundsOf(boxes[index])));
+  const occluders = subjects.flatMap((subject, index) => occludersOf(subject, cameraPosition, state, ports, { ...boundsOf(boxes[index]), points: boxes[index].body }));
   const pair = primarySubjects(subjects.map(subject => subject.id), cameraPosition, state);
   const cameraSide = pair.length === 2 ? sideOfAxis(pair[0], pair[1], cameraPosition) : null;
   return { occluders, checks: { occluded: occluders.length > 0, ...(cameraSide ? { cameraSide } : {}) } };

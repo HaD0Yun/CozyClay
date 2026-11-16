@@ -10,7 +10,8 @@ import { rawCompile } from "./motion-v4/track/literal.js";
 import { motionScene } from "./motion3/scene.js";
 import { skeletonFor } from "./motion3/rigs/index.js";
 import { actionFrames, beatFrames, grabReleases, traceSeries, TRACE_COLORS } from "./motion3/beats.js";
-import { blockersAt } from "./motion3/sightline.js";
+import { blockersAt, HIDDEN_SHARE } from "./motion3/sightline.js";
+import { solidsOf } from "./solid-shape.js";
 import { placedOut } from "./motion3/shot-framing.js";
 import { cameraAt, depthViews, focusPoints, projectPoint, trailPoints, viewCameras } from "./motion3/views.js";
 import { checkRef } from "./motion3/refs.js";
@@ -23,7 +24,7 @@ import { studioCloseup } from "./studio-closeup.js";
 // verify_result's lighting check also reads the rendered shot frame; the binding imports it from here.
 export { verifyLighting } from "./studio-lighting-check.js";
 
-const HIDDEN_SHARE = 0.5, TIMELINE_FPS = 24, TRACE_WIDTH = 960, TRACE_HEIGHT = 360, PAD = 12;
+const TIMELINE_FPS = 24, TRACE_WIDTH = 960, TRACE_HEIGHT = 360, PAD = 12;
 const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 /** [first, last] absolute frames of a verify_result range ("whole_clip" or none: the timeline). */
@@ -98,9 +99,9 @@ function viewSheet(args, r, { s, frames, span, grid, picks, ports, added }) {
 	if (!cameras.length) throw new StudioProtocolError("TARGET_NOT_READY", "views found no compiled frame of the take in the range.");
 	const cells = cameras.flatMap(cam => frames.map(frame => ({ cam, frame }))), target = args.ghosts ? s.targets.get(r.characterId) : null;
 	if (args.ghosts && !target?.rig) throw new StudioProtocolError("TARGET_NOT_READY", "ghosts pose a copy of the character's rig; it has not loaded in the editor yet.");
-	const seen = [];
+	const seen = [], solids = solidsOf(s.objects);
 	const sheet = buildContactSheet(cells, ({ cam: view, frame }) => {
-		const cam = cameraAt(view, frame), { by: fade } = blockersAt(r.out, cam.eye, frame, focusPoints(r.out, frame, focus));
+		const cam = cameraAt(view, frame), { by: fade } = blockersAt(r.out, cam.eye, frame, focusPoints(r.out, frame, focus), solids);
 		if (fade.length) seen.push({ view: view.name, frame, objects: fade });
 		const render = () => ports.renderFrameBuffer(frame, { eye: cam.eye, quaternion: cam.quaternion, fovDeg: cam.fovDeg, output: { width: side, height: side }, fade });
 		const tile = target ? renderWithGhosts({ rig: target.rig, take: target.motion, objects: s.objects }, frame, render) : render();
@@ -118,11 +119,11 @@ function viewSheet(args, r, { s, frames, span, grid, picks, ports, added }) {
 /** The sheet frames a scene body hides at least HIDDEN_SHARE of the character from the shot camera: { hidden, hint }, or nothing. */
 function shotHidden(r, frames, ports, scene) {
 	if (!r || !scene || typeof ports.sampleStateAt !== "function") return {};
-	const character = scene.characters?.find(c => c.id === r.characterId), out = character ? placedOut(r.out, r.placement, character) : r.out;
+	const character = scene.characters?.find(c => c.id === r.characterId), out = character ? placedOut(r.out, r.placement, character) : r.out, solids = solidsOf(scene.objects);
 	const hidden = frames.flatMap(f => {
 		const at = (ports.sampleStateAt(f, scene)?.camera ?? scene.camera)?.position;
 		if (!at) return [];
-		const { share, by } = blockersAt(out, [at.x, at.y, at.z], f);
+		const { share, by } = blockersAt(out, [at.x, at.y, at.z], f, [], solids);
 		return share >= HIDDEN_SHARE ? [{ f, share, by }] : [];
 	});
 	return hidden.length ? { hidden, hint: "Scene bodies hide the character from the shot camera on these frames, so these tiles do not show the motion. Add views (own cameras draw what blocks them see-through) to check it, and move the shot camera if the export must show it." } : {};
