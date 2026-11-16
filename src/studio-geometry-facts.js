@@ -85,7 +85,8 @@ function bodyPoints(subject, state, ports, bounds) {
 
 /** Props that hide the subject from the camera. The subject is several points of its posed body (bodyPoints); a prop
  * hides a point when the sight line to it crosses the prop's solid (solid-shape.js: what the viewport draws), else its
- * box. The subject is hidden when HIDDEN_SHARE of its points are, and then every prop that hides one of them is listed.
+ * box. The subject is hidden when HIDDEN_SHARE of its points are, and then the prop nearest the camera on each hidden
+ * point's sight line is listed.
  * The subject itself, props attached to it, hidden props and a box the camera stands inside (a room set) never count. */
 export function occludersOf(subject, cameraPosition, state, ports, subjectBounds = entityWorldBounds(subject, state, ports)) {
   if (!subjectBounds) return [];
@@ -99,7 +100,8 @@ export function occludersOf(subject, cameraPosition, state, ports, subjectBounds
   }
   const points = bodyPoints(subject, state, ports, subjectBounds), by = points.map(p => Object.keys(hiddenBy(boxes, eye, [p], skip, solids)));
   if (by.filter(ids => ids.length).length < HIDDEN_SHARE * points.length) return [];
-  const ids = new Set(by.flat());
+  // A point is the nearest prop's to name: feet behind both a wall and the steps beyond it are the wall's.
+  const ids = new Set(by.flatMap((hiders, i) => hiders.length ? [hiders.reduce((a, b) => (entry(eye, points[i], boxes[b]) < entry(eye, points[i], boxes[a]) ? b : a))] : []));
   return state.objects.filter(o => ids.has(o.id)).map(o => ({ subjectId: subject.id, byObjectId: o.id }));
 }
 

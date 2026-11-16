@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { createSceneObject, createSculptObject } from "../src/scene-objects.js";
 import { createCharacterEntry } from "../src/scenes.js";
 import { framingChecks } from "../src/studio-agent-commands.js";
+import { occludersOf } from "../src/studio-geometry-facts.js";
 import { motionScene } from "../src/motion3/scene.js";
 import { blockersAt } from "../src/motion3/sightline.js";
 import { solidOf, solidsOf } from "../src/solid-shape.js";
@@ -44,6 +45,12 @@ test("a wall, a closed sculpt and a thick pillar between the camera and the figu
 	assert.equal(occluded(sculpt(BLOCK, { z: 1.5 }), { x: 0, z: 0 }, FRONT), true, "a closed sculpt box");
 	assert.equal(occluded(primitive("cylinder", { z: 1.5, scaleX: 0.9, scaleY: 2.5, scaleZ: 0.9 }), { x: 0, z: 0 }, FRONT), true, "a thick pillar");
 	assert.equal(occluded(sculpt(ARCH, { x: 1.5, rot: 90 }), { x: 0, z: 0.8 }, { x: 5, y: 1.4, z: 0.8 }), true, "the turned arch's post in front of the figure");
+});
+
+test("a hidden figure names the prop nearest the camera on each sight line, not the steps behind the wall", () => {
+	const objects = [{ ...sculpt(STAIRS), id: "stairs" }, { ...sculpt(BLOCK, { x: 1.4, rot: 90 }), id: "wall" }];
+	const state = { frame: 0, objects, characters: [createCharacterEntry({ id: "ann", subject: "Ann", x: -1.2, z: 0 })] };
+	assert.deepEqual(occludersOf(state.characters[0], { x: 2.5, y: 0.5, z: 0 }, state, portsWith()).map(o => o.byObjectId), ["wall"]);
 });
 
 test("the body counts by share: a hand's many bones are one point, so a small box over the hand hides nothing", () => {
