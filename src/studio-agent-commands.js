@@ -9,7 +9,7 @@ import { createStableItemId } from './stable-items.js';
 import { focalMmToFov, SENSOR_FORMATS } from './shot.js';
 import { coplanarConflicts } from './coplanar-depth.js';
 import { clampWarning } from './receipt-findings.js';
-import { occludersOf, primarySubjects, sideOfAxis } from './studio-geometry-facts.js';
+import { occludersOf, primarySubjects, sideOfAxis, framingCodes, subjectIssues } from './studio-geometry-facts.js';
 import { frameSubject } from './studio-frame-subject.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
@@ -417,11 +417,12 @@ export function sampledFramingChecks(ids, state, ports, frames) {
   const samples = frames.map(frame => {
     const sampledState = ports.sampleStateAt(frame, state);
     if (!sampledState) fail('TARGET_NOT_READY', `The editor could not read timeline frame ${frame}.`);
-    const checks = framingChecks(ids, sampledState, ports), codes = [checks.clipped ? 'CLIPPED' : null, checks.behindCamera ? 'BEHIND_CAMERA' : null, checks.occluded ? 'OCCLUDED' : null].filter(Boolean);
-    return { frame, checks, codes };
+    const checks = framingChecks(ids, sampledState, ports), codes = framingCodes(checks);
+    // which subject each failure is about, and how much of it is seen: a figure out of this shot is not cut by its edge
+    return { frame, checks, codes, ...(codes.length ? { subjects: subjectIssues(ids, sampledState, ports, framingChecks) } : {}) };
   });
   const sampledChecks = samples.map(({ frame, checks }) => ({ frame, screenFraction: checks.screenFraction, clipped: checks.clipped, behindCamera: checks.behindCamera, occluded: checks.occluded }));
-  const issueFrames = samples.filter(sample => sample.codes.length).map(({ frame, checks, codes }) => ({ frame, codes, screenFraction: checks.screenFraction }));
+  const issueFrames = samples.filter(sample => sample.codes.length).map(({ frame, checks, codes, subjects }) => ({ frame, codes, screenFraction: checks.screenFraction, subjects }));
   return { ...samples.at(-1).checks, coverage: 'sampled-timeline-subject-bounds-projection', evaluatedFrames: frames.length, sampledFrames: frames, sampledChecks, issueFrames };
 }
 export function sampledFramingResult(args, scene, ports, frameCount, measured, receipt) {

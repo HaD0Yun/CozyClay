@@ -63,7 +63,10 @@ const limbs = ({ points, bones = [] }) => {
 	const p = points.map(pointOf), along = (a, b) => { const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / LIMB_STEP_M); return Array.from({ length: Math.max(0, n - 1) }, (_, s) => a.map((v, k) => v + ((s + 1) / n) * (b[k] - v))); };
 	return [...p, ...bones.flatMap(([i, j]) => (p[i] && p[j] ? along(p[i], p[j]) : []))];
 };
-const shares = (a, b) => a.filter(p => b.some(q => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < BODY_GAP_M)).length >= BODY_SHARE * a.length;
+// The share counts the body, not its bone count: bones closer than BODY_GAP_M are one point first, or two hands that meet
+// (a rig's 65 bones hold 40 finger bones) read as two bodies standing in each other.
+const thin = points => points.reduce((kept, p) => (kept.some(q => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < BODY_GAP_M) ? kept : [...kept, p]), []);
+const shares = (a, b) => { const own = thin(a); return own.filter(p => b.some(q => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < BODY_GAP_M)).length >= BODY_SHARE * own.length; };
 
 /**
  * How deep two posed things stand inside each other, in metres: 0 when they only touch (TOUCH_M or less). a and b are
