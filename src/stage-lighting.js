@@ -17,11 +17,12 @@ const limits = (path) => elementByPath(path);
 const finite = (value, fallback, { min, max }) => (typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback);
 
 // The key a new project opens with, and what Reset light and the studio look
-// return to: a bright neutral sun (brightness 4, warmth 0). Saved stages keep
+// return to: a neutral sun (brightness 0.9, warmth 0; the owner's pick for the
+// toon look, 2026-11-16: 4 was too bright under it). Saved stages keep
 // their own key; only a record with no key at all picks this up. The 1.12
 // still used as a ratio elsewhere (dim, practical lights) is the old key's
 // brightness, kept as the scale those were tuned against.
-const DEFAULT_KEY_LIGHT = Object.freeze({ x: 6, y: 9, z: 4, intensity: 4, warmth: 0, color: null });
+const DEFAULT_KEY_LIGHT = Object.freeze({ x: 6, y: 9, z: 4, intensity: 0.9, warmth: 0, color: null });
 // envLight and ao are 0 in the studio look: no environment map, no occlusion pass.
 // No look names an HDR environment (stage-hdr.js); the user or the agent picks one.
 const DEFAULT_LIGHTING = Object.freeze({ preset: "studio", sky: null, skyTop: null, ambient: 1, hemiSky: "#ffffff", hemiGround: "#5a5d64", fill: 1, fog: 0, exposure: 1, shadowSoftness: 0, envLight: 0, ao: 0, ...normalizeHdrFields() });

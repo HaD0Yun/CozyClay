@@ -56,8 +56,8 @@ expect(
 		look.includes('hemiSky: "#ffffff", hemiGround: "#5a5d64"') &&
 		look.includes("(neutral ? 0.34 : lightTheme ? 0.32 : 0.18)") &&
 		// the key colour is now the user's warmth dial (or an explicit colour),
-		// defaulting to the bright neutral key (brightness 4, warmth 0) the default keyLight shape carries
-		look.includes("{ x: 6, y: 9, z: 4, intensity: 4, warmth: 0, color: null }"),
+		// defaulting to the neutral key (brightness 0.9, warmth 0) the default keyLight shape carries
+		look.includes("{ x: 6, y: 9, z: 4, intensity: 0.9, warmth: 0, color: null }"),
 );
 
 if (failures) process.exit(1);

@@ -52,7 +52,7 @@ SET (total: 0, returned: 0, truncated: false, revision: <rev>)
 
 STAGE
   shotAspect: 16:9  sensorId: fullFrame  hasCharSheet: false
-  keyLight: x 6  y 9  z 4  intensity 4
+  keyLight: x 6  y 9  z 4  intensity 0.9
 
 TIMELINE
   currentFrame: 0  frameCount: 360  fps: 24`;
