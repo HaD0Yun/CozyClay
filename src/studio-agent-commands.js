@@ -14,6 +14,7 @@ import { frameSubject } from './studio-frame-subject.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
 import { supportGaps, liftOffDeck, floorLiftWarnings } from './studio-support-gap.js';
+import { contactBody, interpenetration } from './solid-contact.js';
 
 const DEG = Math.PI / 180, EPS = 1e-8, CHARACTER_SUPPORT_TOLERANCE = 5e-3;
 const fail = (code, message) => { throw new StudioProtocolError(code, message); };
@@ -62,7 +63,7 @@ function resolveOpRefs(op, state, selfId) {
 }
 function boxPoints(bounds) {
   if (!bounds || ['x', 'y', 'z'].some(a => !Number.isFinite(bounds.min?.[a]) || !Number.isFinite(bounds.max?.[a]) || bounds.min[a] > bounds.max[a])) fail('TARGET_NOT_READY', 'Evaluated bounds are unavailable.');
-  return Object.assign([bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y => [bounds.min.z, bounds.max.z].map(z => new Vector3(x, y, z)))), { body: bounds.points }); // body: posed bone points, when the port has them
+  return Object.assign([bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y => [bounds.min.z, bounds.max.z].map(z => new Vector3(x, y, z)))), { body: bounds.points, bones: bounds.bones }); // body: posed bone points and bones their [parent, child] pairs, when the port has them
 }
 function geometry(entity, state, ports) {
   // Attached/path objects need evaluated world geometry, never local channels.
@@ -225,17 +226,18 @@ function groupRootOf(id, objects) {
   }
   return current?.id ?? id;
 }
+// What solid-contact.js reads of an entity: an object's drawn body, a character's posed bones (geometry's corners.body and .bones).
+const pieceOf = (e, corners, state, ports) => (e.renderer ? { body: contactBody(e, () => entityWorldBounds(e, state, ports)) } : { points: corners.body, bones: corners.bones });
 function overlapsFor(entity, state, ports) {
-  const own = aabb(geometry(entity, state, ports));
-  // Parts of one grouped object are built to touch; only other bodies count.
-  const root = groupRootOf(entity.id, state.objects);
-  return [...state.objects, ...state.characters].filter(e => e.id !== entity.id && !isEffectivelyHidden(e, state.objects, state.characters)
-    && groupRootOf(e.id, state.objects) !== root).map(other => ({ id: other.id, bounds: aabb(geometry(other, state, ports)) })).map(other => ({ ...other, of: entity.id, depth: overlap(own, other.bounds) })).filter(o => o.depth > EPS);
+  const corners = geometry(entity, state, ports), own = aabb(corners), mine = pieceOf(entity, corners, state, ports), root = groupRootOf(entity.id, state.objects);
+  // Parts of one grouped object are built to touch; only other bodies count. Boxes that cross count only where the drawn
+  // shapes or the posed body stand inside each other (solid-contact.js): a chair under a table, a body on a seat touch.
+  return [...state.objects, ...state.characters].filter(e => e.id !== entity.id && !isEffectivelyHidden(e, state.objects, state.characters) && groupRootOf(e.id, state.objects) !== root).map(other => {
+    const theirs = geometry(other, state, ports), bounds = aabb(theirs), depth = overlap(own, bounds);
+    return { id: other.id, bounds, of: entity.id, depth: depth > EPS && interpenetration(mine, pieceOf(other, theirs, state, ports), own, bounds) === 0 ? 0 : depth };
+  }).filter(o => o.depth > EPS);
 }
-function overlapsOf(ids, state, ports) {
-  const entities = [...state.objects, ...state.characters];
-  return ids.flatMap(id => { const e = entities.find(row => row.id === id); return e ? overlapsFor(e, state, ports) : []; });
-}
+const overlapsOf = (ids, state, ports) => ids.flatMap(id => { const e = [...state.objects, ...state.characters].find(row => row.id === id); return e ? overlapsFor(e, state, ports) : []; });
 /** World AABB of one entity as {min,max}, or null when its evaluated bounds are unavailable (a prop whose renderer is not mounted). */
 export function entityWorldBounds(entity, state, ports) {
   try {
@@ -245,7 +247,7 @@ export function entityWorldBounds(entity, state, ports) {
 }
 const overlapEvidence = overlaps => ({ coverage: 'same-frame-world-AABB-proxies', overlapIds: [...new Set(overlaps.map(o => o.id))].slice(0, 100), maximumFootprintOverlapM: Math.max(0, ...overlaps.map(o => o.depth)) });
 // Placement evidence for entity ids: the AABB overlap an arrangement receipt reports, and each object's support gap (studio-support-gap.js).
-export const placementChecks = (ids, state, ports) => ({ ...overlapEvidence(overlapsOf(ids, state, ports)), ...supportGaps(ids, state, ports.takes, entity => entityWorldBounds(entity, state, ports)) });
+export const placementChecks = (ids, state, ports) => ({ ...overlapEvidence(overlapsOf(ids, state, ports)), ...supportGaps(ids, state, ports.takes, entity => entityWorldBounds(entity, state, ports), entity => contactBody(entity, () => entityWorldBounds(entity, state, ports))) });
 function avoid(entity, relation, state, ports) {
   const blocked = overlapsFor(entity, state, ports);
   if (!blocked.length) return entity;
@@ -399,9 +401,10 @@ function sightChecks(subjects, boxes, cameraPosition, state, ports) {
  * current frame: the same subject-bounds projection and sight line frame_shot reports. */
 export function framingChecks(ids, state, ports) {
   if (!state.camera || !SENSOR_FORMATS[state.filmback?.sensorId] || !(state.filmback.aspectRatio > 0)) fail('TARGET_NOT_READY', 'The shot camera and filmback must be available.');
-  const subjects = ids.map(id => entityById(state, id)), boxes = subjects.map(entity => geometry(entity, state, ports));
-  const projected = projectSubject(boxes.flat(), state.camera, focalMmToFov(state.camera.focalMm, state.filmback.sensorId, state.filmback.aspectRatio), state.filmback.aspectRatio).checks;
-  return { ...projected, ...sightChecks(subjects, boxes, state.camera.position, state, ports).checks };
+  const subjects = ids.map(id => entityById(state, id)), boxes = subjects.map(entity => geometry(entity, state, ports)), fov = focalMmToFov(state.camera.focalMm, state.filmback.sensorId, state.filmback.aspectRatio);
+  // Cut by the frame edge: a posed body's bones (its box's corners stand off the body), anything else's box. The size is the boxes'.
+  const project = points => projectSubject(points, state.camera, fov, state.filmback.aspectRatio).checks, cut = project(boxes.flatMap(b => (b.body?.length ? b.body.map(vector) : b)));
+  return { ...project(boxes.flat()), clipped: cut.clipped, behindCamera: cut.behindCamera, ...sightChecks(subjects, boxes, state.camera.position, state, ports).checks };
 }
 
 /** Framing evidence over explicit timeline samples. The caller supplies the
