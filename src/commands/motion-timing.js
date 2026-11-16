@@ -3,6 +3,7 @@
 // is; the edit rides its descriptor, so Undo, save/load and export all see the same timing.
 // IK correction keys pinned to timeline frames move with the poses they address.
 import { fail, characterOf } from "./shared.js";
+import { shotsFollowingTake } from "../timeline-extent.js";
 import { createTakeEdit, isIdentityEdit, remapFrameKeys, removeSegment, setSegmentSpeed, splitTakeEdit, takeEditDuration, takeEditLayout, trimTakeEdit } from "../motion3/take-edit.js";
 
 const id = { type: "string", minLength: 1 }, frame = { type: "integer", minimum: 0 };
@@ -50,7 +51,8 @@ export function registerTiming(registry, ports, available) {
 		const previous = row.take.edit ?? createTakeEdit(full.frames), edit = nextEdit(declaration.id, previous, args, full.frames);
 		if (edit !== previous) {
 			owner().writeLayer(characterId, { take: withEdit(row.take, edit, full.frames), ikKeys: remapFrameKeys(row.ikKeys, previous, edit) });
-			ports.storeDomain("cast")?.syncTimeline?.();
+			// a shot that ended with the take ends with it again, so the timeline length follows the take both ways
+			ports.storeDomain("cast")?.syncTimeline?.(shots => shotsFollowingTake(shots, takeEditDuration(previous) - 1, takeEditDuration(edit) - 1));
 		}
 		return { affectedIds: [characterId], summary: declaration.label, output: { frames: takeEditDuration(edit), segments: takeEditLayout(edit) } };
 	} });

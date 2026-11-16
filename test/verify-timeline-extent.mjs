@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { timelineContentExtent, timelineSpan } from "../src/timeline-extent.js";
+import { shotsFollowingTake, timelineContentExtent, timelineSpan } from "../src/timeline-extent.js";
 
 const charA = { id: "characterA", sessionMotion: { frames: 136 } };
 const charB = { id: "characterB", sessionMotion: { frames: 192 } };
@@ -44,5 +44,16 @@ assert.equal(timelineSpan(0, shots, 120), 240, "an empty scene still grows to co
 assert.equal(timelineSpan(0, [{ startFrame: 0, endFrame: 47 }], 120), 120, "an empty scene never shrinks under its authored duration");
 assert.equal(timelineSpan(0, [], 120), 120, "no content and no shots keep the existing duration");
 assert.equal(timelineSpan(136, [{ startFrame: 0 }, null]), 136, "a shot without an end frame sets no floor");
+
+// a timing edit moves the take's last frame: the shot that ended with it follows, so the span follows the take
+const overTake = [{ startFrame: 0, endFrame: 99 }, { startFrame: 100, endFrame: 229 }];
+const trimmed = shotsFollowingTake(overTake, 229, 110);
+assert.deepEqual(trimmed.map(shot => shot.endFrame), [99, 110], "a trim pulls the shot that ended with the take to the new end");
+assert.equal(timelineSpan(111, trimmed), 111, "after a trim the timeline is the trimmed take's length");
+assert.equal(timelineSpan(111, overTake), 230, "without the follow the old shot holds the old length");
+assert.equal(shotsFollowingTake(overTake, 229, 329)[1].endFrame, 329, "a slow-down stretches it with the take");
+assert.equal(shotsFollowingTake(overTake, 229, 50)[1].endFrame, 100, "a shot never ends before its own first frame");
+assert.equal(shotsFollowingTake(overTake, 239, 110)[1], overTake[1], "a shot that did not end with the take keeps its range");
+assert.equal(shotsFollowingTake(overTake, 229, 229), overTake, "no change in length leaves the shots as they are");
 
 console.log("verify-timeline-extent: all checks passed");
