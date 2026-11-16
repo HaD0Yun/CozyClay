@@ -49,10 +49,11 @@ export default function ViewportMeasurement({ camRef }) {
 		</span>
 	</Html>
 	{points.length > 0 && <group layers={GIZMO_LAYER} userData={{ noMeasure: true, noXray: true }}>
-		{points.map((point, index) => <mesh key={index} position={point} userData={{ noMeasure: true, noXray: true }}>
+		{/* layers do not pass down to children: each drawn part names the gizmo layer itself, or the frame look draws it as set */}
+		{points.map((point, index) => <mesh key={index} position={point} layers={GIZMO_LAYER} userData={{ noMeasure: true, noXray: true }}>
 			<sphereGeometry args={[0.045, 12, 8]} /><meshBasicMaterial color="#ffbf47" depthTest={false} />
 		</mesh>)}
-		{points.length === 2 && <Line points={points} color="#ffbf47" lineWidth={2} depthTest={false} />}
+		{points.length === 2 && <Line points={points} color="#ffbf47" lineWidth={2} depthTest={false} layers={GIZMO_LAYER} />}
 		<Html position={middle} center zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
 			<span className="viewport-measure-readout">{distance === null ? ko("Pick second point", "두 번째 점 선택", "选择第二个点") : `${distance.toFixed(3)} m`}</span>
 		</Html>
