@@ -2,11 +2,18 @@
 //   COZYCLAY_MOTION_ENGINE=old      the old motion engine comes back; anything else (or unset) is the lowvis engine
 //   COZYCLAY_MOTION_DIRECT=on       the motion request goes straight to the motion writer
 //   COZYCLAY_MOTION_OFF=pace,turn   engine steps of the lowvis engine switched off by name (src/lowvis/pi/prompt.mjs OFF)
+//   COZYCLAY_MOTION_MODEL=<id>      the motion writer's model (default claude-opus-5-5); COZYCLAY_MOTION_EFFORT its effort (default medium)
 
 import { OFF as STEPS } from "../../src/lowvis/pi/prompt.mjs";
 
 /** "old" only when COZYCLAY_MOTION_ENGINE is "old", else "lowvis". */
 export const motionEngine = (env = process.env) => env?.COZYCLAY_MOTION_ENGINE === "old" ? "old" : "lowvis";
+
+/**
+ * The motion writer's model and effort: claude-opus-5-5 at medium unless COZYCLAY_MOTION_MODEL / COZYCLAY_MOTION_EFFORT
+ * name others. The engine and the manual stay as they are, so the same requests can be run on another model.
+ */
+export const motionWriter = (env = process.env) => ({ model: env?.COZYCLAY_MOTION_MODEL || "claude-opus-5-5", effort: env?.COZYCLAY_MOTION_EFFORT || "medium" });
 
 /** Whether COZYCLAY_MOTION_DIRECT is "on". */
 export const motionDirect = (env = process.env) => env?.COZYCLAY_MOTION_DIRECT === "on";

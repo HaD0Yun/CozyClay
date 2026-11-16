@@ -6,11 +6,10 @@
 // Used by the motion tool of the Studio agent (motion-door.mjs) and by the direct key (lowvis-turn.mjs).
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { motionOff } from "./motion-engine.mjs";
+import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { boxesOf, floorCells, rememberBoxes, usedText } from "./motion-fit.mjs";
 
-export const MOTION_MODEL = "claude-opus-5-5";
-const MOTION_EFFORT = "medium", MOTION_VARIANT = "studio";
+const MOTION_VARIANT = "studio";
 const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
@@ -85,7 +84,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops");
 	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops });
 	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey));
-	const record = await runScene({ name, request, model: MOTION_MODEL, effort: MOTION_EFFORT, variant: MOTION_VARIANT, off, images, env, signal, log: line => {
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	} });

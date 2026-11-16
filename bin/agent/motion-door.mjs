@@ -4,7 +4,8 @@
 // writer's model is reachable (motionAvailable).
 import { cliproxyBase, fetchModelList } from "./cliproxy-provider.mjs";
 import { motionEngine } from "./motion-engine.mjs";
-import { MOTION_MODEL, runMotion } from "./motion-run.mjs";
+import { motionWriter } from "./motion-engine.mjs";
+import { runMotion } from "./motion-run.mjs";
 
 const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. Its report ends with a Missing line. images: true sends the user's pictures.";
 const PARAMETERS = {
@@ -31,7 +32,7 @@ export async function motionAvailable(env = process.env) {
 	if (known && Date.now() - known.at < AVAILABLE_MS) return known.ok;
 	let ok = false;
 	try {
-		if (env?.CLIPROXY_BASE_URL && env?.CLIPROXY_API_KEY) ok = (await fetchModelList(`${cliproxyBase({ env })}/v1`, env.CLIPROXY_API_KEY, "CLIProxyAPI")).some(entry => (typeof entry === "string" ? entry : entry?.id) === MOTION_MODEL);
+		if (env?.CLIPROXY_BASE_URL && env?.CLIPROXY_API_KEY) ok = (await fetchModelList(`${cliproxyBase({ env })}/v1`, env.CLIPROXY_API_KEY, "CLIProxyAPI")).some(entry => (typeof entry === "string" ? entry : entry?.id) === motionWriter(env).model);
 	} catch { ok = false; }
 	known = { at: Date.now(), ok };
 	return ok;
