@@ -7,7 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
-import { boxesOf, floorCells, rememberBoxes, usedText } from "./motion-fit.mjs";
+import { boxesOf, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 
 const MOTION_VARIANT = "studio";
 const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
@@ -28,6 +28,8 @@ const WORDS = {
 const NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters and objects, what to keep):";
 // What becomes of what the motion writer adds; DRESSED only when the Studio agent called (it dresses the set after)
 const ADDED = "What your scene adds becomes Studio content: a new character a block figure, a new prop a plain object named by its id, at the place, size and turn you give.";
+// said while the body step is on (motion-engine.mjs motionOff): what a character's scale and tint are in the Studio
+const BODIES = "A character's scale and tint are the Studio character's own scale and tint: the ones your scene gives are set on it, one it leaves out stays as the Studio has it.";
 const DRESSED = "After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
 
 /** The floor region every joint of every body crosses during the clip: { x: [min, max], z: [min, max] } (metres), or null. */
@@ -41,7 +43,7 @@ function travelOf(clip) {
 }
 
 /** The request the motion writer reads: the user's words, the agent's note, the pictures' count, the Studio's scene and the last motion. */
-function requestOf({ words, wordsOf, note }, pictures, studio, before) {
+function requestOf({ words, wordsOf, note }, pictures, studio, before, body = false) {
 	const parts = [];
 	if (words) parts.push(`${WORDS[wordsOf] ?? WORDS.turn}\n${words}`);
 	if (note) parts.push(`${NOTE}\n${note}`);
@@ -53,7 +55,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before) {
 		parts.push([`The Studio scene already has these (the user or an earlier step put them there). Use them in your scene with the same id, size and place, and add others only when the request needs them. A prop the request does not ask to move stays where it is.`, JSON.stringify(scene), ...heights].join("\n"));
 	}
 	if (studio.others?.length) parts.push(`These characters cannot be animated by the engine and stand as they are: ${studio.others.map(other => `${other.id} (${other.why})`).join(", ")}.`);
-	parts.push(`${ADDED}${note ? ` ${DRESSED}` : ""}`);
+	parts.push(`${ADDED}${body ? ` ${BODIES}` : ""}${note ? ` ${DRESSED}` : ""}`);
 	if (before) {
 		parts.push(`Your last scene and spec in this conversation (the Studio plays them now). When the request changes or continues that motion, start from them and keep what it does not mention.\nscene: ${JSON.stringify(before.scene)}\nspec: ${JSON.stringify(before.spec)}`);
 	}
@@ -62,7 +64,7 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before) {
 
 /**
  * runMotion({ words, wordsOf, note, images, memoryKey, hub, workspaceHandle, invoke, signal, env, onCompile })
- *   -> { name, report, missing, frames, clipSeconds, tookSeconds, compiles, characterIds, objectIds, switched, used }
+ *   -> { name, report, missing, frames, clipSeconds, tookSeconds, compiles, characterIds, objectIds, switched, used, bodies?, bodiesSet? }
  * words: the user's message exactly as typed; wordsOf: "turn" (this turn's message, the default) or "task" (the
  * message the coordinator's task came from). note: the Studio agent's own text (the motion tool's request), or none
  * when the words go alone (the direct key). images: [{ data: <base64>, mimeType }] (at most 4). hub.command("describe") reads the scene.
@@ -71,6 +73,9 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before) {
  * main-prompt.mjs rule 8). The boxes of the props it used are kept per memoryKey for the fit lines (motion-fit.mjs).
  * characterIds: every Studio character the clip animated; objectIds: the objects it made or placed. used: one line
  * naming the objects the motion uses as boxes and the floor region the bodies cross (motion-fit.mjs usedText), or null.
+ * bodies (only when a body the clip animated has another scale than 1, or a tint): [{ id, scale, tint }], the scale and
+ * tint each animated Studio character has after the install (tint null: the default colour). bodiesSet (only when the
+ * install set a scale or a tint): [{ id, scale?, tint? }], the fields it set (install.js); onBodies(bodiesSet): once, then.
  * A motion writer that ends without a scene but with a report (it could not make the motion) answers with frames 0.
  * frames and clipSeconds (one decimal) are the length of the clip; tookSeconds is how long making it took (wall time).
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
@@ -80,15 +85,17 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before) {
  * answers what it answers; the motion door holds the scene for it there while other work goes on (motion-door.mjs).
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, exclusive = install => install(), deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, onBodies = () => {}, exclusive = install => install(), deps = null }) {
 	const { runScene, installClip, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
-	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops");
-	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops });
+	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body");
+	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops, body });
+	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
+	const has = Object.fromEntries(studio.scene.characters.filter(c => c.scale !== undefined || c.tint !== undefined).map(c => [c.id, { scale: c.scale, tint: c.tint }]));
 	onScene(studio.ids);
-	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey));
-	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, env, signal, log: line => {
+	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body);
+	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
 	} });
@@ -120,9 +127,14 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	});
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
 	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
-	const animated = clip.characters.map((figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`)).filter(Boolean);
+	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`);
+	const animated = clip.characters.map(studioId).filter(Boolean);
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id).filter(Boolean);
 	const switched = result.switched ?? [];
+	// the body each animated character now has; the next edit of one is measured against it (motion-fit.mjs)
+	const got = clip.characters.map((figure, k) => ({ id: studioId(figure, k), scale: figure.scale ?? 1, tint: figure.tint ?? null })).filter(b => b.id);
+	rememberBodies(memoryKey ?? name, got);
+	if (result.bodies?.length) try { onBodies(result.bodies); } catch { /* a failing view never fails the run */ }
 	const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;
-	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(memoryKey ?? name), travelOf(clip)) };
+	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(memoryKey ?? name), travelOf(clip)), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}) };
 }

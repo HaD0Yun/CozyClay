@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { JOINT_COUNT } from "../rig17.js";
 import { handGrips } from "../grip.js";
-import { DEFAULT_TINT, LOOKS } from "../looks/index.js";
+import { DEFAULT_TINT, LOOKS, sizedLook } from "../looks/index.js";
 import { clayMaterial } from "../looks/parts.js";
 
 export const BACKGROUND = "#e8e5df";
@@ -102,7 +102,7 @@ export function createPanelScene({ clip, look, bounds, environment }) {
 function createClipGroup(clip, look) {
 	const group = new THREE.Group(), actors = [];
 	clip.characters.forEach((c, i) => {
-		const body = (LOOKS[look] ?? LOOKS.box)({ tint: TINTS[i % TINTS.length] });
+		const body = sizedLook((LOOKS[look] ?? LOOKS.box)({ tint: c.tint ?? TINTS[i % TINTS.length], colour: c.tint ?? null }), c.scale ?? 1); // the character's own size and colour (clip.js)
 		group.add(body.object3D);
 		const grip = handGrips(clip, i); // which hand holds a prop at each frame; a look may close it into a fist
 		actors.push(f => body.setPose(c.pos, c.quat, f, { Left: grip.Left[f], Right: grip.Right[f] }));

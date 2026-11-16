@@ -14,9 +14,11 @@ const BONES = xBot.bones, NAMES = BONES.map(bone => bone.name), JOINT_OF = BONES
  * clipTrack(clip, index) -> RawTrack { schema, fps, frameCount, rig, bones, rot, hips, objects } for character `index`
  * of a lowvis.clip.v1: rot holds 65 local quaternions per frame (the Hips one is its world rotation), hips the world
  * place of the Hips joint in metres. objects is empty: the clip's props are not Studio objects here.
+ * A character with a scale (clip.js) gives a track with that scale (codec.js): the unit skeleton's motion, its hips
+ * divided by the scale, which the Studio plays on the character at that scale.
  */
 export function clipTrack(clip, index) {
-	const character = clip.characters[index], F = clip.frameCount, B = BONES.length;
+	const character = clip.characters[index], F = clip.frameCount, B = BONES.length, s = character.scale ?? 1;
 	const rot = new Float32Array(F * B * 4), hips = new Float32Array(F * 3), world = new Array(B);
 	for (let f = 0; f < F; f++) {
 		for (let b = 0; b < B; b++) {
@@ -28,7 +30,7 @@ export function clipTrack(clip, index) {
 			const n = Math.hypot(local[0], local[1], local[2], local[3]) || 1;
 			for (let k = 0; k < 4; k++) rot[(f * B + b) * 4 + k] = local[k] / n;
 		}
-		for (let k = 0; k < 3; k++) hips[f * 3 + k] = character.pos[f * JOINT_COUNT * 3 + k]; // joint 0 is the Hips
+		for (let k = 0; k < 3; k++) hips[f * 3 + k] = character.pos[f * JOINT_COUNT * 3 + k] / s; // joint 0 is the Hips
 	}
-	return { schema: "cozyclay.take.v3", fps: clip.fps ?? 24, frameCount: F, rig: TRACK_RIG, bones: NAMES.slice(), rot, hips, objects: {} };
+	return { schema: "cozyclay.take.v3", fps: clip.fps ?? 24, frameCount: F, rig: TRACK_RIG, bones: NAMES.slice(), rot, hips, objects: {}, ...(s === 1 ? {} : { scale: s }) };
 }

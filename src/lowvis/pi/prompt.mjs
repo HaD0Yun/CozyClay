@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { INDEX, REST, TIPS } from "../rig17.js";
 import { EASE } from "../engine-simple/math.js";
+import { elementByPath } from "../../studio-elements.js";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {
@@ -21,11 +22,12 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // plus the edit argument of motion: single actions are changed without sending the whole spec again. "reach" is patch
 // plus the rows that say how far a hand or a foot is from the target its action gave it. "noassist" is patch with the
 // engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target. "studio" is tilt
-// plus three engine steps, each of which can be switched off by name (OFF): pace, turn, tops, and it is told the parts
-// of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs).
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, pace: true, turn: true, tops: true, words: true } };
+// plus four engine steps, each of which can be switched off by name (OFF): pace, turn, tops, body, and it is told the
+// parts of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs). body: a
+// character of the scene may have a scale and a tint (engine-simple/size.js, clip.js).
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, pace: true, turn: true, tops: true, body: true, words: true } };
 /** The flags that can be switched off by name. */
-export const OFF = Object.freeze(["pace", "turn", "tops"]);
+export const OFF = Object.freeze(["pace", "turn", "tops", "body"]);
 /** What a variant turns on: { text: "base" | "lean", edit?: true, ... }, without the flags listed in off. Throws on an unknown name. */
 export function features(variant = "base", off = []) {
 	if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`);
@@ -37,6 +39,9 @@ const REACH = `\n- hand off its target, foot off its target: how far a wrist or 
 const REPEAT = `\nAny list: repeat {len, times}   the actions of this id from this frame up to len frames later play times times in a row: the engine copies them to +len, +2 * len and so on. Write the span once.`;
 const TILT = `\nIn pose: tilt: [pitch, roll], about: "hips" | "feet" | [x,y,z], shift: [x,y,z]   turns the whole figure, as it is posed, about one point, then moves it by shift (world metres). pitch > 0 tips it forward (90 = face down, 180 = upside down), roll > 0 tips it toward its own left; an angle may pass 360 for a full turn. about is the point that stays in place: the Hips joint (default), the floor between the feet, or a world point. Hand and foot targets given as world points or on props keep their place; body-frame targets and the feet of the body layer turn with the figure. tilt, about and shift keep their values until a later tilt; tilt: [0, 0] stands it up again. The floor does not hold a tilted figure: place it with shift.`;
 const TURN = ` turn: degrees about Y; at 0 its d side lies along Z, at 90 along X.`;
+/** The sizes a body may have: the Studio's own limits of a character's scale (src/studio-elements.js). */
+export const BODY_SCALE = Object.freeze({ min: elementByPath("character.scale").min, max: elementByPath("character.scale").max });
+const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.min} to ${BODY_SCALE.max}; at 1 it is the figure of CONVENTIONS. The engine multiplies every length that belongs to that body by it: its joints and feet, its steps, where it sits and lies, the space between a wrist and what the hand holds, the most a hand moves per frame, every length the SPEC text gives as the engine's own. Lengths you write stay metres of the world, in the body frame too. tint is its colour, "#rrggbb". Left out, a character keeps the scale and tint it has; a new one has scale 1 and the default grey. The sheets draw each body at its scale, and in its tint when it has one (else in a colour of the sheet's own); the tool's bodies line says both.`;
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
@@ -71,8 +76,8 @@ Metres, Y up, floor at y = 0, 24 fps. Heading is degrees about Y: 0 faces +Z, 90
 In a sheet: 1 m floor grid; from the world origin a red line runs 0.5 m along +X and a blue one along +Z; the face has a dark visor; the figure's right arm and leg are darker than its left. The three-quarter camera of the sheet and of the final video looks down from the +X, +Z side, so a figure that faces +Z or +X shows its face.
 
 SCENE (you define it)
-{ frames, characters: [{ id, at: [x, z], heading }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape? }] }
-A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.turn ? TURN : ""}
+{ frames, characters: [{ id, at: [x, z], heading${f.body ? ", scale?, tint?" : ""} }], props: [{ id, size: [w, h, d], at: [x, y, z], ${f.turn ? "turn?, " : ""}moves?, shape? }] }
+A prop is a box, w along X, h along Y, d along Z; at is its CENTRE, so a box standing on the floor has y = h / 2. moves: true for a prop that is carried, held, pushed or keyed. shape: "sphere" is a ball of diameter w.${f.turn ? TURN : ""}${f.body ? BODY : ""}
 
 SPEC (the engine's own description; leave out demo, the scene is yours)
 ${f.tops ? specFormat().replace("sit {on:propId}", "sit {on:propId} | sit {height}") : specFormat()}${f.repeat ? REPEAT : ""}${f.tilt ? TILT : ""}${f.tops ? TOPS : ""}

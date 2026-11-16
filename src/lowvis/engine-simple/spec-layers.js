@@ -5,7 +5,7 @@ import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
 import { PAD, across } from "./prop-frame.js";
 
-const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 
 export function buildBody(c, acts, F, ctx) {
 	const yaw = rad(c.heading), list = acts.filter(a => BODY.has(a[1])).map(([f, verb, o = {}]) => ({ f, verb, o }));
@@ -49,13 +49,14 @@ export function buildBody(c, acts, F, ctx) {
 }
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 
-export function buildUpper(id, acts, props) {
+/** s: the size of the body (size.js): the pad between a wrist and what it holds grows with the hand. */
+export function buildUpper(id, acts, props, s = 1) {
 	const keys = { L: [], R: [], footL: [], footR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
 		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout", fast: o.fast };
 		if (verb === "carry") {
-			const half = across(props[o.prop]) / 2 + PAD, at = o.at;
+			const half = across(props[o.prop]) / 2 + PAD * s, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
 		} else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1, grip: o.grip });

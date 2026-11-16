@@ -40,9 +40,9 @@ import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
 import { addCharacter, addProp, createClip, setPose } from "../clip.js";
 import { EASE, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qMul, qRotate, qSlerp, qX, qY, rad, sub } from "./math.js";
-import { arc, solve } from "./solve.js";
+import { arcSized, buildBodySized, solveSized } from "./size.js";
 import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
-import { buildBody, buildUpper, expandRepeats } from "./spec-layers.js";
+import { buildUpper, expandRepeats } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 
 export { NOTES, expandRepeats };
@@ -61,10 +61,11 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		keys: (spec[p.id] ?? []).map(([f, verb, o = {}]) => ({ f, verb, ...o })).sort((a, b) => a.f - b.f),
 	}]));
 	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };
-	const ground = (x, z) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= 0.3 && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
+	const ground = (x, z, step = 0.3) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= step && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
 	const chars = def.characters.map(c => {
-		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]);
-		return { id: c.id, body: buildBody(c, acts, F, { props, ground }), ...buildUpper(c.id, acts, props), out: addCharacter(clip, c.id), rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
+		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
+		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
+		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s) }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}) }));
@@ -106,27 +107,28 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		p.yaw = h.yaw + p.yawOff; p.q = qY(p.yaw); p.c = sub(h.mid, qRotate(p.q, p.off));
 	};
 	// where hand s of a character at B holds a box centred at c: on its left / right face, a little toward the holder
-	const grab = (c, p, B, s) => {
-		const d = [B.p[0] - c[0], B.p[2] - c[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l, half = across(p) / 2 + PAD;
-		return [c[0] - dz * s * half + dx * 0.07, c[1], c[2] + dx * s * half + dz * 0.07];
+	// k (here and below): the size of the body whose hand, chest or head a length belongs to
+	const grab = (c, p, B, s, k) => {
+		const d = [B.p[0] - c[0], B.p[2] - c[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l, half = across(p) / 2 + PAD * k;
+		return [c[0] - dz * s * half + dx * 0.07 * k, c[1], c[2] + dx * s * half + dz * 0.07 * k];
 	};
 	const handTarget = (c, i, to, f) => {
-		const B = c.body[f], s = i ? -1 : 1;
+		const B = c.body[f], s = i ? -1 : 1, k = c.s;
 		if (Array.isArray(to)) return add(B.p, qRotate(qY(B.yaw), to));
 		if (to.world) return to.world;
 		if (to.face) { // palms on the face of the box that looks at the figure (in the prop's own frame)
 			const p = props[to.prop], d = toOwn(p, B.p[0] - p.c[0], B.p[2] - p.c[2]), alongX = Math.abs(d[0]) > Math.abs(d[1]);
-			const dx = alongX ? Math.sign(d[0]) : 0, dz = alongX ? 0 : Math.sign(d[1]), out = (alongX ? p.size[0] : p.size[2]) / 2 + PAD, w = to.w ?? 0.2;
+			const dx = alongX ? Math.sign(d[0]) : 0, dz = alongX ? 0 : Math.sign(d[1]), out = (alongX ? p.size[0] : p.size[2]) / 2 + PAD * k, w = to.w ?? 0.2 * k;
 			const [ox, oz] = toWorld(p, dx * out - dz * s * w, dz * out + dx * s * w);
 			return [p.c[0] + ox, to.y ?? p.c[1], p.c[2] + oz];
 		}
-		if (to.at) return grab(to.at, props[to.prop], B, s);
-		if (to.prop) return grab(props[to.prop].c, props[to.prop], B, s);
+		if (to.at) return grab(to.at, props[to.prop], B, s, k);
+		if (to.prop) return grab(props[to.prop].c, props[to.prop], B, s, k);
 		const o = byId[to.meet ?? to.chest], oB = o.body[f];
 		const d = [oB.p[0] - B.p[0], oB.p[2] - B.p[2]], l = Math.hypot(d[0], d[1]) || 1, dx = d[0] / l, dz = d[1] / l;
-		if (to.meet) return [(B.p[0] + oB.p[0]) / 2 - dx * 0.06, to.y ?? 1.1, (B.p[2] + oB.p[2]) / 2 - dz * 0.06];
-		const ch = (o.poseNow ?? solve(oB)).pos[J.Spine2]; // palms on the other figure's chest
-		return [ch[0] - dx * 0.15 + dz * s * 0.1, ch[1] + 0.03, ch[2] - dz * 0.15 - dx * s * 0.1];
+		if (to.meet) return [(B.p[0] + oB.p[0]) / 2 - dx * 0.06 * k, to.y ?? 1.1 * (k + o.s) / 2, (B.p[2] + oB.p[2]) / 2 - dz * 0.06 * k]; // one height for both bodies of the pair
+		const ch = (o.poseNow ?? solveSized(oB, {}, o.s)).pos[J.Spine2]; // palms on the other figure's chest
+		return [ch[0] - dx * 0.15 * o.s + dz * s * 0.1 * o.s, ch[1] + 0.03 * o.s, ch[2] - dz * 0.15 * o.s - dx * s * 0.1 * o.s];
 	};
 	const active = (list, f) => list.findLast(k => k.f <= f);
 	const prog = (k, f) => k.over > 0 ? (f - k.f) / k.over : 1; // over: 0 = at once
@@ -171,7 +173,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
-				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u), 0];
+				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0];
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;
 				c.restNext[i] = k.to === "rest" && w >= 1;
@@ -190,7 +192,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			const at = t => t === "plant" ? bf : t.q ? t : { a: t.world ? toBody(c.tilt, t.world) : add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
 			const a = at(k.from), b = at(k.to);
-			return { a: arc(a.a, b.a, w, add(B.p, qRotate(B.q, OFFSET[UPLEG[i]]))), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, ...(c.tilt ? { floor: -1e9 } : {}) };
+			return { a: arcSized(a.a, b.a, w, add(B.p, qRotate(B.q, mul(OFFSET[UPLEG[i]], c.s))), c.s), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, ...(c.tilt ? { floor: -1e9 } : {}) };
 		});
 		const ka = active(c.keys.aim, f);
 		if (ka) {
@@ -205,7 +207,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		}
 		// Head: angles relative to the chest, measured from the neck (which the look does not move). With no target
 		// the gaze stays level while the chest leans (not when lying down).
-		const now = c.solved ?? c.pose, chestQ = now?.quat[J.Spine2] ?? B.q, neck = now?.pos[J.Neck] ?? add(B.p, [0, 0.46, 0]);
+		const now = c.solved ?? c.pose, chestQ = now?.quat[J.Spine2] ?? B.q, neck = now?.pos[J.Neck] ?? add(B.p, [0, 0.46 * c.s, 0]);
 		const angles = d => { // a target behind the head fades back to straight ahead instead of flipping sides
 			const l = qRotate(qConj(chestQ), d), yaw = Math.atan2(l[0], l[2]), fade = clamp((Math.PI - Math.abs(yaw)) / (Math.PI - 1.9));
 			return [clamp(yaw * fade, -1.2, 1.2), clamp(-Math.atan2(l[1], Math.hypot(l[0], l[2])), -0.7, 0.7) * fade];
@@ -218,7 +220,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			let t = level;
 			if (k.to !== "fwd") {
 				const o = byId[k.to], pr = props[k.to];
-				t = angles(sub(toBody(c.tilt, o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to), neck));
+				t = angles(sub(toBody(c.tilt, o ? (o.poseNow?.pos[J.Head] ?? add(o.body[f].p, [0, 0.56 * o.s, 0])) : pr ? add(pr.c, [0, pr.size[1] / 2, 0]) : k.to), neck));
 			}
 			const u = clamp(prog(k, f));
 			U.look = c.cur.look = mixV(k.from, t, EASE[k.ease](u));
@@ -236,11 +238,11 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			if (e.at) aux.placed.push({ prop: e.prop, f, miss: Math.hypot(...sub(p.c, e.at)) });
 			if (e.hand != null) { // a stick lies along the thumb side, anything else sits in front of the palm
 				const s = e.hand ? -1 : 1, stick = p.size[2] > 2 * Math.max(p.size[0], p.size[1]);
-				p.grip = e.grip ?? (stick ? [s * 0.04, 0, p.size[2] / 2 - 0.15] : [s * (0.02 + p.size[0] / 2), 0, 0]); c.gripHand = e.hand;
+				p.grip = e.grip ?? (stick ? [s * 0.04 * c.s, 0, p.size[2] / 2 - 0.15 * c.s] : [s * (0.02 * c.s + p.size[0] / 2), 0, 0]); c.gripHand = e.hand;
 			}
 			if (e.roll) { p.vel = sub(p.h1, p.h2); p.fly = null; aux.releases.push({ prop: e.prop, f }); }
 			else if (e.holder) {
-				const h = handLine(byId[e.holder].world ?? solve(c.body[f]));
+				const h = handLine(byId[e.holder].world ?? solveSized(c.body[f], {}, c.s));
 				if (e.slide) { p.off = sub(h.mid, p.c); aux.slid[e.prop] = true; }
 				else { p.yawOff = p.yaw - h.yaw; p.off = qRotate(qY(-p.yaw), sub(h.mid, p.c)); }
 			}
@@ -271,7 +273,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			c.tilt = tiltOf(c, f);
 			const U = upper(c, f, pass === 0);
 			c.bodyNow = U.feet.some(Boolean) ? { ...c.body[f], feet: c.body[f].feet.map((ft, i) => U.feet[i] ?? ft) } : c.body[f];
-			c.solved = solve(c.bodyNow, U);
+			c.solved = solveSized(c.bodyNow, U, c.s);
 			c.poseNow = tilted(c.tilt, c.solved);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
 			if (pass === 1) aux.reach[c.id].push([

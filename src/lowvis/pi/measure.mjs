@@ -47,7 +47,7 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 		FEET.forEach((j, side) => {
 			let sum = 0, prev = null;
 			for (let f = 0; f < F; f++) {
-				const pts = [TOE, SOLE].map(o => { const a = at(c, f, j), d = qRotate(rot(c, f, j), o); return [a[0] + d[0], a[1] + d[1], a[2] + d[2]]; });
+				const pts = [TOE, SOLE].map(o => { const a = at(c, f, j), d = qRotate(rot(c, f, j), o), s = c.scale ?? 1; return [a[0] + d[0] * s, a[1] + d[1] * s, a[2] + d[2] * s]; }); // the toe tip and the sole of a foot of the body's size
 				footLow = best(footLow, { v: Math.min(pts[0][1], pts[1][1]), f, who: c.id, note: SIDE[side] }, -1);
 				if (!aux.contacts[c.id][f][side]) { sum = 0; prev = null; continue; }
 				if (prev) {

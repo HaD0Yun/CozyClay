@@ -1,7 +1,8 @@
 // The one place that says which motion engine the Studio agent uses, read from the environment.
 //   COZYCLAY_MOTION_ENGINE=old      the old motion engine comes back; anything else (or unset) is the lowvis engine
 //   COZYCLAY_MOTION_DIRECT=on       the motion request goes straight to the motion writer
-//   COZYCLAY_MOTION_OFF=pace,turn   engine steps of the lowvis engine switched off by name (src/lowvis/pi/prompt.mjs OFF)
+//   COZYCLAY_MOTION_OFF=pace,turn   engine steps of the lowvis engine switched off by name (src/lowvis/pi/prompt.mjs OFF);
+//                                   body off: a character has no scale or tint in a motion, and one at another scale than 1 is not animated
 //   COZYCLAY_MOTION_MODEL=<id>      the motion writer's model (default claude-opus-5-5); COZYCLAY_MOTION_EFFORT its effort (default medium)
 
 import { OFF as STEPS } from "../../src/lowvis/pi/prompt.mjs";
@@ -18,7 +19,7 @@ export const motionWriter = (env = process.env) => ({ model: env?.COZYCLAY_MOTIO
 /** Whether COZYCLAY_MOTION_DIRECT is "on". */
 export const motionDirect = (env = process.env) => env?.COZYCLAY_MOTION_DIRECT === "on";
 
-/** The engine steps listed in COZYCLAY_MOTION_OFF (comma separated, of pace, turn, tops). Throws on any other name. */
+/** The engine steps listed in COZYCLAY_MOTION_OFF (comma separated, of pace, turn, tops, body). Throws on any other name. */
 export function motionOff(env = process.env) {
 	const list = String(env?.COZYCLAY_MOTION_OFF ?? "").split(",").map(s => s.trim()).filter(Boolean);
 	const bad = list.filter(s => !STEPS.includes(s));

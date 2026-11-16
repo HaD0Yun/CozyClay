@@ -3,6 +3,8 @@
 // characters X Bot cast members whose take is the clip's motion (take.js), and a prop that moves rides a track of
 // the first character's take, as any object a Studio take moves. Everything goes through editor actions, so the
 // Studio's undo, save, selection, cameras and export see ordinary scene content.
+// A clip character's scale and tint (clip.js) are the cast member's own scale and tint fields: set when it is added, or
+// with character.update when the Studio holds other values; its take is of a body of that scale (take.js).
 // installClip(clip, run, options) is the same for the Studio page (run = its own action runner) and for the agent
 // sidecar (run = the turn's run_action). Browser-safe and node-safe: no three.js, no node:* import.
 import { encodeRawTrack } from "../../motion-v4/track/codec.js";
@@ -46,22 +48,24 @@ function moves(prop) {
 }
 
 /**
- * installClip(clip, run, { label, remove, existing }) -> { characterIds, objectIds, switched, placed, ok }: what it made,
- * the Studio ids of the cast members whose model it changed and placed: { <clip prop id>: <Studio object id> } for
- * every prop, made or known; ok false when the Studio refused a step.
+ * installClip(clip, run, { label, remove, existing }) -> { characterIds, objectIds, switched, placed, ok, bodies? }: what
+ * it made, the Studio ids of the cast members whose model it changed and placed: { <clip prop id>: <Studio object id> }
+ * for every prop, made or known; ok false when the Studio refused a step. bodies (only when there is one):
+ * [{ id, scale?, tint? }], the cast members whose scale or tint it set, with the fields it set.
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
  * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
  * character with a listed id IS that Studio object or cast member, so it is moved or animated, not made again. Such a
  * cast member loses its root path before its take goes in (the take holds the whole motion), and one listed in
  * existing.switch is changed to the clip's rig first. Characters the clip does not animate keep everything.
+ * existing.bodies: { <Studio id>: { scale, tint } } as the Studio holds them (1 and none when it is not listed).
  * turn: the clip was written over studioScene(describe, { turn: true }), so a listed object's box stands turned as the
  * object does and the clip's rotation already holds that turn (it is not added again; a turn the model changed is set).
  */
 export async function installClip(clip, run, { label = "lowvis", remove = null, existing = null, turn: turned = false } = {}) {
 	for (const characterId of remove?.characterIds ?? []) await run("character.remove", { characterId });
 	if (remove?.objectIds?.length) await run("object.remove", { ids: remove.objectIds });
-	const objectIds = [], characterIds = [], switched = [], placed = {}, tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
+	const objectIds = [], characterIds = [], switched = [], bodies = [], placed = {}, tracks = {}, F = clip.frameCount, stop = () => ({ characterIds, objectIds, switched, placed, ok: false });
 	for (const prop of clip.props ?? []) {
 		const at = pivot(prop, 0), upright = Math.abs(at.quat[0]) < EPS && Math.abs(at.quat[2]) < EPS, known = existing?.props?.[prop.id];
 		const own = turned && prop.shape !== "sphere"; // the clip box is the object's own, turned as it is
@@ -95,19 +99,26 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 
 	for (const [index, figure] of clip.characters.entries()) {
 		const known = existing?.characters?.[figure.id], characterId = known ?? `lowvis-${safe(figure.id ?? index)}`;
+		// the body the clip is of, against the one the Studio holds: only what differs is set
+		const has = (known && existing?.bodies?.[known]) || { scale: 1, tint: null }, scale = figure.scale ?? 1, body = {};
+		if (Math.abs(scale - (has.scale ?? 1)) > 1e-6) body.scale = scale;
+		if (figure.tint && figure.tint.toLowerCase() !== String(has.tint ?? "").toLowerCase()) body.tint = figure.tint;
+		const sized = Object.keys(body).length > 0;
+		if (sized) bodies.push({ id: characterId, ...body });
 		if (!known) {
-			if (!await run("character.add", { character: { id: characterId, model: TRACK_RIG, ...clipStart(clip, index) } })) return stop();
+			if (!await run("character.add", { character: { id: characterId, model: TRACK_RIG, ...clipStart(clip, index), ...body } })) return stop();
 			characterIds.push(characterId);
 		} else {
 			if (existing?.switch?.includes(known)) {
 				if (!await run("character.update", { characterId, patch: { model: TRACK_RIG } })) return stop();
 				switched.push(characterId);
 			}
+			if (sized && !await run("character.update", { characterId, patch: body })) return stop();
 			if (!await run("character.clearWaypoints", { characterId })) return stop();
 		}
 		const raw = clipTrack(clip, index);
 		if (index === 0) raw.objects = tracks; // one take draws the props that move
 		if (!await run("motion.v4.install", { characterId, raw: encodeRawTrack(raw), label: String(label).slice(0, 80) })) return stop();
 	}
-	return { characterIds, objectIds, switched, placed, ok: true };
+	return { characterIds, objectIds, switched, placed, ok: true, ...(bodies.length ? { bodies } : {}) };
 }

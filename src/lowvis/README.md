@@ -8,7 +8,7 @@ question: **how does the figure move?** The user judges side-by-side videos. No 
 | File | What it fixes |
 |---|---|
 | `src/lowvis/rig17.json`, `rig17.js` | The 17 joints, parents, rest positions (m), tips, `fk()`, quaternion helpers |
-| `src/lowvis/clip.js` | `lowvis.clip.v1`: the only thing an engine hands to the viewer; `validateClip` |
+| `src/lowvis/clip.js` | `lowvis.clip.v1`: the only thing an engine hands to the viewer; `validateClip`. A character may carry `scale` and `tint` (see "Body size and colour") |
 | `src/lowvis/demos.js` | The four demos: scene, beats, frame ranges |
 | `tools/lowvis/sample-clip.mjs` | Example use; writes `public/lowvis/clips/sample/*.json` |
 
@@ -52,10 +52,30 @@ a new character is an X Bot, so the block figure is the one look of rig characte
 
 The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, tops })`): the Studio's objects as boxes,
 each the object's own box turned about Y as the object stands (`turn`), with the flat heights it offers (`tops`, from
-`tops.js` over the editor's describe answer); the X Bot characters, and Y Bot characters at scale 1, which the install
-changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."). Capsule
-figures, imported rigs and rigs at another scale cannot be animated and stand as they are; the request says so. An
-existing character loses its root path before its new take goes in.
+`tops.js` over the editor's describe answer); the X Bot characters, and the Y Bot characters, which the install
+changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."), each with
+the scale and tint the Studio holds for it (`body`). Capsule figures and imported rigs cannot be animated and stand as
+they are; the request says so. An existing character loses its root path before its new take goes in.
+
+Body size and colour. A character of the motion writer's scene may have `scale` (0.2 to 3, the limits of the Studio's
+`character.scale`) and `tint` ("#rrggbb"). They are the cast member's own `scale` and `tint` fields: the scene the
+motion writer reads lists them, a value its scene leaves out is the one the Studio holds (a new character: scale 1, no
+tint), and the install sets what differs (`character.add`, `character.update`). The engine never chooses either.
+- The motion is of a body of that size: `engine-simple/size.js` builds the body layer and solves each frame for the
+  rig's own figure in a world divided by the scale and multiplies the result by it, and the lengths `engine.js` keeps
+  for a body (the pad between a wrist and what it holds, the grip offsets, the default heights) are multiplied by the
+  scale of the body they belong to. Lengths in a spec stay world metres. The clip character carries `scale` and `tint`;
+  `validateClip`, the checks (`checks.js`, `pi/measure.mjs`) and the sheets (`pi/render.mjs`) read them.
+- The Studio take of a sized body (`studio/take.js`, `motion-v4/track/codec.js` `scale`) holds the unit skeleton's
+  motion; `motion.v4.install` installs it on a character at that scale and refuses another, the rig plays it at the
+  character's scale, and the readers of a take (`motion3/physics-frames.js`, `studio-export-framing.js`) multiply by it.
+  `skin.jsx` draws the block figure at the character's scale and, when it has a tint, in that colour.
+- The motion tool's result names each animated character's scale and tint (`bodies`) when one is not the default, and
+  the scale and tint the install set (`bodiesSet`, also the first word of a progress line of the tool, only when it set
+  one). An edit that changes the scale of an animated
+  character answers with `motionFit.bodies` (`bin/agent/motion-fit.mjs`): the take then plays that many times as large.
+- Not following the size: the timing of a move (frames are as written; `travel` says the speed and steps that came
+  out), the old engine's readers of other people's takes (`motion3/people.js`) and its QA numbers.
 
 The motion door. The Studio's default agent has one tool for body motion, `motion { request, images? }`
 (`bin/agent/motion-door.mjs`). It hands the user's words to `runMotion` (`bin/agent/motion-run.mjs`): the editor's
@@ -77,8 +97,9 @@ Switches (`bin/agent/motion-engine.mjs`, read from the environment of the agent 
   entries in the model picker and its motion tasks. Unset or anything else: the lowvis engine.
 - `COZYCLAY_MOTION_DIRECT=on`: the model picker also lists "Opus 5.5 (lowvis motion)", which sends the whole request
   straight to the motion writer with no Studio agent around it (`bin/agent/lowvis-turn.mjs`).
-- `COZYCLAY_MOTION_OFF=pace,turn,tops`: engine steps of the lowvis engine switched off by name
-  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, flat heights.
+- `COZYCLAY_MOTION_OFF=pace,turn,tops,body`: engine steps of the lowvis engine switched off by name
+  (`src/lowvis/pi/prompt.mjs` `OFF`): the travel line of the tool result, turned props, flat heights, a body's scale
+  and tint (off: a character at another scale than 1 is not animated, as before).
 
 `node --env-file=<cliproxy env> tools/lowvis/pi/try.mjs [--viewer <port>] [--live <port>] [--no-direct]` starts the dev
 Studio with the agent sidecar (live hub on its own port, sidecar files in `lowvis-out/studio-config`) and sets

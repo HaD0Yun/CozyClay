@@ -44,8 +44,8 @@ function jointsAt(sk, take, f) {
 	const B = take.bones.length, ff = Math.max(0, Math.min(take.frameCount - 1, Math.round(f)));
 	const quats = Array.from({ length: B }, (_, b) => Array.from(take.rot.subarray((ff * B + b) * 4, (ff * B + b) * 4 + 4)));
 	const state = fk(sk, quats, Array.from(take.hips.subarray(ff * 3, ff * 3 + 3)));
-	const yaw = ry(take.placement?.yaw ?? 0), at = take.placement?.position ?? [0, 0, 0];
-	return state.P.map(p => add(at, apply(yaw, p)));
+	const yaw = ry(take.placement?.yaw ?? 0), at = take.placement?.position ?? [0, 0, 0], size = take.scale ?? 1; // a take of a body of another scale: its joints times it
+	return state.P.map(p => add(at, apply(yaw, size === 1 ? p : p.map(v => v * size))));
 }
 
 /** Scene object ids a spec names: spec.objects keys, object:<id> refs and any string value that is an object id. */

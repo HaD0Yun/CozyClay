@@ -2,6 +2,7 @@
 // the encoded raw track (codec.js), bakes the take v3 the editor plays for the character's placement (literal.js
 // placedTake) and installs it on the motion owner like motion.compile does. The encoded track stays at
 // take.spec.raw, so a save keeps it (take-source.js copies the spec) and a reload rebuilds it (compileRawSource).
+// A track is of a body of one scale (codec.js; 1 unless it says another): it installs on a character at that scale.
 // agentHidden: the old engine's action index and inspect leave it out, so its prompt does not change.
 // A command module in the shape src/commands/index.js loads: declarations and register(registry, ports).
 import { fail, characterOf } from "../../commands/shared.js";
@@ -27,7 +28,8 @@ export function register(registry, ports) {
 		const character = characterOf(ports, characterId);
 		const sk = skeletonFor(character.model);
 		if (!sk) fail("TARGET_NOT_READY", `${characterName(character)} is a ${character.model} body, which a raw take cannot drive; use an X Bot or Y Bot character.`);
-		if (Math.abs((character.scale ?? 1) - 1) > 1e-6) fail("TARGET_NOT_READY", "Set the character's scale back to 1 before installing motion.");
+		const of = Number.isFinite(encoded?.scale) ? encoded.scale : 1, scale = character.scale ?? 1;
+		if (Math.abs(scale - of) > 1e-6) fail("TARGET_NOT_READY", of === 1 ? "Set the character's scale back to 1 before installing motion." : `This take is of a body of scale ${of} and the character's scale is ${scale}: set the character's scale to ${of} first.`);
 		let raw;
 		try { raw = decodeRawTrack(encoded, sk); } catch (error) { fail("INVALID_ARGUMENT", error.message); }
 		const F = raw.frameCount, placement = { position: [character.x ?? 0, character.y ?? 0, character.z ?? 0], yaw: character.rot ?? 0 };

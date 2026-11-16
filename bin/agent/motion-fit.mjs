@@ -9,7 +9,12 @@
 //     passing through a drawn part is the final review's finding (src/solid-contact.js).
 //   - a prop that moves (carried, pushed): where its track has it, so only its size, held by the hands, against the box's.
 // Only geometry: no object kinds or names.
+// A body is as large as its character's scale: the motion is written for one scale, and a character whose scale is
+// then changed plays its take that many times as large about its place, off the floor spots and objects it was put on.
+// An edit of an animated character answers with motionFit.bodies when its scale is no longer the motion's.
 //   rememberBoxes(key, scene, placed, floor)  the boxes of one motion and the floor its feet use, per conversation
+//   rememberBodies(key, list), bodiesOf(key)  the scale each animated character's motion was written for
+//   bodyFitOf(body, row)                      the difference of one describe character row from that body: [text]
 //   boxesOf(key), floorOf(key)                Map(<Studio id> -> box) and [[x, z], ...] floor cells, empty when none
 //   fitOf(box, row, floor)                    the differences of one describe row from its box: [text]
 //   usedText(boxes, travel)                   one line for the agent: the objects the motion uses and the floor the bodies cross
@@ -21,6 +26,7 @@ const PLACE = 0.01, SIZE = 0.02, TURN = 0.5; // metres, metres, degrees: smaller
 const TOP = 0.02, COVER = 0.5; // a flat top within 2 cm of the box's top height, over at least half of its footprint
 const FLOOR_CELL = 0.1, FOOT = 0.15; // metres: the floor cells, and a joint lower than this is a foot on the floor
 const RAD = Math.PI / 180;
+const bodies = new Map(); // conversation -> Map(<Studio character id> -> { id, scale, tint })
 const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves? }), [[x, z]]
 const r2 = v => Math.round(v * 100) / 100;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
@@ -41,6 +47,15 @@ export function rememberBoxes(key, scene, placed = {}, floor = []) {
 	}
 	boxes.set(key, next);
 	floors.set(key, floor);
+}
+
+/** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key. */
+export function rememberBodies(key, list = []) { if (key != null) bodies.set(key, new Map(list.map(body => [body.id, body]))); }
+export const bodiesOf = key => bodies.get(key) ?? new Map();
+/** What differs between a describe character row and the body its motion was written for, as short texts. */
+export function bodyFitOf(body, row) {
+	const scale = finite(row?.scale, 1);
+	return row && Math.abs(scale - body.scale) > 1e-6 ? [`scale ${r2(scale)}, the motion's ${r2(body.scale)}: the take plays ${r2(scale / body.scale)} times as large about the character's place`] : [];
 }
 
 export const boxesOf = key => boxes.get(key) ?? new Map();
@@ -100,20 +115,25 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * turnFitView({ value, env, hub, delayMs }) -> { tools(list) }. Under the lowvis engine, a tool whose result names in
  * affectedIds an object the conversation's last motion uses answers with motionFit: { fits: true, ids } or
- * { fits: false, objects: [{ id, name, differs: [text] }], note }. The scene is read again with flat tops after delayMs
+ * { fits: false, objects: [{ id, name, differs: [text] }], note }; one that names an animated character whose scale is no
+ * longer its motion's answers with motionFit: { fits: false, bodies: [{ id, differs: [text] }] } (beside objects and
+ * note when an object differs too). The scene is read again with flat tops after delayMs
  * (the Studio draws an edit on its next frame), or at once when a closeup was attached (it waited for the drawing).
  */
 export function turnFitView({ value, env = process.env, hub, delayMs = 300 }) {
 	if (motionEngine(env) !== "lowvis" || value?.main) return { tools: list => list };
 	const key = value.task?.parentId ?? value.sessionId, handle = value.context?.host?.workspaceHandle;
 	const fit = async result => {
-		const used = boxesOf(key), ids = [...new Set((Array.isArray(result?.affectedIds) ? result.affectedIds : []).filter(id => used.has(id)))];
-		if (!ids.length || result?.ok === false) return result;
+		const used = boxesOf(key), cast = bodiesOf(key), named = [...new Set(Array.isArray(result?.affectedIds) ? result.affectedIds : [])];
+		const ids = named.filter(id => used.has(id)), people = named.filter(id => cast.has(id));
+		if ((!ids.length && !people.length) || result?.ok === false) return result;
 		try {
 			if (result.look?.status !== "attached") await wait(delayMs);
-			const rows = new Map(((await hub.command("describe", { tops: true }, handle))?.objects ?? []).map(row => [row?.id, row]));
+			const scene = await hub.command("describe", { tops: true }, handle), rows = new Map((scene?.objects ?? []).map(row => [row?.id, row]));
 			const objects = ids.map(id => ({ id, name: used.get(id).name, differs: fitOf(used.get(id), rows.get(id), floorOf(key)) })).filter(entry => entry.differs.length);
-			return { ...result, motionFit: objects.length ? { fits: false, objects, note: NOTE } : { fits: true, ids } };
+			const sized = people.map(id => ({ id, differs: bodyFitOf(cast.get(id), (scene?.characters ?? []).find(row => row?.id === id)) })).filter(entry => entry.differs.length);
+			if (!sized.length) return ids.length ? { ...result, motionFit: objects.length ? { fits: false, objects, note: NOTE } : { fits: true, ids } } : result;
+			return { ...result, motionFit: { fits: false, ...(objects.length ? { objects, note: NOTE } : {}), bodies: sized } };
 		} catch (error) {
 			return { ...result, motionFit: { status: "unavailable", reason: error?.message ?? String(error) } };
 		}

@@ -1,5 +1,6 @@
 // Self-checks measured from a finished (parsed) clip. `aux` is buildClip's per-frame flags: which feet the engine
-// calls planted and who holds each prop. Positions and rotations come from the clip only.
+// calls planted and who holds each prop. Positions and rotations come from the clip only; a foot is as large as its
+// character's scale (clip.js) says.
 import { INDEX as J, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "./math.js";
 import { SOLE, TOE } from "./solve.js";
@@ -15,7 +16,7 @@ export function checkClip(clip, aux) {
 	const toBox = (pt, p, f) => { const { c, q } = propAt(p, f), l = qRotate(qConj(q), [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]]).map((v, k) => Math.abs(v) - p.size[k] / 2); return Math.hypot(...l.map(v => Math.max(v, 0))) + Math.min(0, Math.max(...l)); };
 	const at = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
 	const rot = (c, f, j) => { const i = (f * JOINT_COUNT + j) * 4; return [c.quat[i], c.quat[i + 1], c.quat[i + 2], c.quat[i + 3]]; };
-	const contact = (c, f, j) => [TOE, SOLE].map(o => { const a = at(c, f, j), d = qRotate(rot(c, f, j), o); return [a[0] + d[0], a[1] + d[1], a[2] + d[2]]; });
+	const contact = (c, f, j) => [TOE, SOLE].map(o => { const a = at(c, f, j), d = qRotate(rot(c, f, j), o), s = c.scale ?? 1; return [a[0] + d[0] * s, a[1] + d[1] * s, a[2] + d[2] * s]; });
 	for (const c of clip.characters) for (let f = 1; f < F; f++) { // fastest head turn (deg per frame) and elbow / wrist move (m per frame)
 		const q = rot(c, f, J.Head), p = rot(c, f - 1, J.Head), sp = j => Math.hypot(...at(c, f, j).map((v, k) => v - at(c, f - 1, j)[k]));
 		r.headTurn = Math.max(r.headTurn, 2 * Math.acos(Math.min(1, Math.abs(q[0] * p[0] + q[1] * p[1] + q[2] * p[2] + q[3] * p[3]))) * 180 / Math.PI);
