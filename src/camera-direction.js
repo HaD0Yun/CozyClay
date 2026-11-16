@@ -12,6 +12,9 @@ import { placementAt } from "./root-path.js";
 import { sampleAt } from "./sample-at.js";
 import { SUBJECT_HEIGHT_M, focalMmToFov } from "./shot.js";
 import { takeHips } from "./motion3/take.js";
+import { skeletonFor } from "./motion3/rigs/index.js";
+import { fk } from "./motion3/compiler/skeleton.js";
+import { holdBody } from "./camera-hold-body.js";
 
 const DEG = Math.PI / 180;
 /** where a character's aim sits on its body: chest height, as a share of its stature, or above a take's hips */
@@ -23,10 +26,13 @@ const CHEST = 0.75, HIPS_TO_CHEST = 0.35;
  * an aim holds that aim instead of the follow subject and runs its rail on
  * schedule (no distance pull, no pitch offset), with its own lens when the
  * block names one. aimAt(id, frame) answers one cast member's aim point.
+ * bodyAt(frame) answers the follow subject's posed joints at a frame (or null): a follow camera, and a rail camera
+ * that frames the subject, keep them in the picture of fovDeg (the lens a sample without its own renders with).
  */
-export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, aimAt = () => null, filmback = {} }) {
+export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, aimAt = () => null, filmback = {}, bodyAt = () => null, fovDeg = 45 }) {
 	const combined = new Array(subjectTrack.length).fill(null);
 	const initialDir = { x: Math.sin(yawDeg * DEG), z: Math.cos(yawDeg * DEG) };
+	const held = (track, from, dolly) => holdBody(track, track.map((_, offset) => bodyAt(from + offset)), { fovDeg, aspect: filmback.aspectRatio, dolly, fps });
 	for (const shot of shots) {
 		const camera = createCameraBlock(shot.camera);
 		if (camera.mode === "keys") continue;
@@ -34,7 +40,7 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ai
 		const params = { ...camera.followCam, craneHeight: camera.craneHeight, dollyTiming: camera.dollyTiming, initialDir };
 		const rail = camera.mode === "rail" ? buildRail(camera.cameraRail) : null;
 		if (!rail) {
-			buildFollowTrack(subjectSlice, fps, params).forEach((sample, offset) => { combined[start + offset] = sample; });
+			held(buildFollowTrack(subjectSlice, fps, params), start, true).forEach((sample, offset) => { combined[start + offset] = sample; });
 			continue;
 		}
 		const schedule = resolveRailSchedule({ railFollow: camera.railFollow, cameraRail: camera.cameraRail, frameCount: subjectSlice.length });
@@ -45,9 +51,11 @@ export function buildShotCameraTracks({ shots, subjectTrack, fps, yawDeg = 0, ai
 		const track = aimed
 			? buildRailFollowTrack(aimed, fps, rail, { ...params, aimPerFrame: true, distanceInfluence: 0, pitchOffsetDeg: 0 })
 			: buildRailFollowTrack(subjectSlice.slice(schedule.startFrame, schedule.endFrame + 1), fps, rail, params);
-		const fovDeg = camera.focalMm ? focalMmToFov(camera.focalMm, filmback.sensorId, filmback.aspectRatio) / DEG : null;
-		const lens = { ...(fovDeg ? { fovDeg } : {}), ...(camera.rollDeg ? { rollDeg: camera.rollDeg } : {}) };
-		track.forEach((sample, offset) => { combined[from + offset] = { ...sample, ...lens }; });
+		const lensDeg = camera.focalMm ? focalMmToFov(camera.focalMm, filmback.sensorId, filmback.aspectRatio) / DEG : null;
+		const lens = { ...(lensDeg ? { fovDeg: lensDeg } : {}), ...(camera.rollDeg ? { rollDeg: camera.rollDeg } : {}) };
+		// a rail aimed at a cast or a point holds what it was asked to; an aimless rail frames the subject's body
+		const framed = track.map((sample) => ({ ...sample, ...lens }));
+		(aimed ? framed : held(framed, from, false)).forEach((sample, offset) => { combined[from + offset] = sample; });
 	}
 	return combined;
 }
@@ -83,6 +91,17 @@ export function castAimPoint(id, frame, { characters = [], objects = [], shots =
 	if (!object) return null;
 	const at = objectTransformAt(object, frame, { frameCount, fps }) ?? object;
 	return { x: at.x, y: at.y + ((object.height ?? 0) * (object.scaleY ?? 1)) / 2, z: at.z };
+}
+
+/** A cast member's joints at a frame, posed by its take v3 and placed where the character stands (null without one). */
+export function castBodyPoints(id, frame, { characters = [], clipOf = () => null }) {
+	const character = characters.find((entry) => entry.id === id), clip = character && clipOf(character);
+	const sk = clip?.hips && clip.rot && Array.isArray(clip.bones) ? skeletonFor(clip.rig ?? character.model) : null;
+	if (!sk || sk.names.length !== clip.bones.length) return null;
+	const B = clip.bones.length, f = Math.max(0, Math.min(clip.frameCount - 1, Math.round(frame)));
+	const quats = Array.from({ length: B }, (_, b) => Array.from(clip.rot.subarray((f * B + b) * 4, (f * B + b) * 4 + 4)));
+	const scale = character.scale ?? 1, yaw = (character.rot ?? 0) * DEG, c = Math.cos(yaw), s = Math.sin(yaw);
+	return fk(sk, quats, takeHips(clip, f)).P.filter(Boolean).map(([x, y, z]) => [character.x + (x * c + z * s) * scale, (character.y ?? 0) + y * scale, character.z + (-x * s + z * c) * scale]);
 }
 
 /** The follow subject's path, where its take v3 moves its body rather than its root (a follow or
