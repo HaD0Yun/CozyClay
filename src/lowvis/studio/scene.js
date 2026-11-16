@@ -29,13 +29,14 @@ function heightOf(t, row, own) {
 		size: own ? [round(w), round(d)] : [round(w * Math.abs(cs) + d * Math.abs(sn)), round(w * Math.abs(sn) + d * Math.abs(cs))] };
 }
 
-/** Why a visible character row cannot be animated by a clip, or null when it can. body: a clip may be of a body of any scale. */
-function whyNot(row, body) {
-	if (row.model === "proxy-figure") return "capsule figure";
+/** Why a visible character row cannot be animated by a clip, or null when it can. */
+function whyNot(row) {
+	if (row.model === "proxy-figure") return "box figure";
 	if (row.model !== TRACK_RIG && !SWITCHABLE.has(row.model)) return /^rig-/.test(String(row.model ?? "")) ? "imported rig" : `model ${row.model ?? "unknown"}`;
-	if (!body && Math.abs(finite(row.scale, 1) - 1) > 1e-6) return `scale ${round(finite(row.scale, 1))}`;
 	return null;
 }
+/** Why a row's scale keeps a clip from it when a clip is of a body at scale 1 only (the body step off), or null at scale 1. */
+const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${round(finite(row.scale, 1))}` : null);
 
 /**
  * studioScene(describe, { turn, tops, body }) -> { scene: { characters: [{ id, at, heading, scale?, tint? }], props: [{ id, size, at, turn?, shape?, heights? }], others: [{ id, why }] }, ids }
@@ -55,7 +56,7 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [];
 	for (const row of Array.isArray(describe?.characters) ? describe.characters : []) {
 		if (!row || row.hidden) continue;
-		const why = whyNot(row, body);
+		const why = whyNot(row) ?? (body ? null : whyScale(row));
 		if (why) { others.push({ id: String(row.id), why }); continue; }
 		const id = idFor(String(row.id).replace(/^lowvis-/, ""), taken, "person");
 		ids.characters[id] = row.id;

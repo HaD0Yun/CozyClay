@@ -54,7 +54,7 @@ The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, top
 each the object's own box turned about Y as the object stands (`turn`), with the flat heights it offers (`tops`, from
 `tops.js` over the editor's describe answer); the X Bot characters, and the Y Bot characters, which the install
 changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."), each with
-the scale and tint the Studio holds for it (`body`). Capsule figures and imported rigs cannot be animated and stand as
+the scale and tint the Studio holds for it (`body`). Box figures and imported rigs cannot be animated and stand as
 they are; the request says so. An existing character loses its root path before its new take goes in.
 
 Body size and colour. A character of the motion writer's scene may have `scale` (0.2 to 3, the limits of the Studio's
