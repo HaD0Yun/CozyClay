@@ -154,7 +154,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 		if (event.type === "message_end" && event.message.role === "assistant") {
 			const msg = event.message, u = msg.usage ?? {}, text = msg.content.filter(c => c.type === "text").map(c => c.text).join("\n").trim();
 			const call = open ?? {};
-			Object.assign(call, { ms: round(now() - (call.atMs ?? 0)), stopReason: msg.stopReason, input: u.input ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, output: u.output ?? 0 });
+			Object.assign(call, { ms: round(now() - (call.atMs ?? 0)), stopReason: msg.stopReason, input: u.input ?? 0, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, cacheWrite1h: u.cacheWrite1h ?? 0, output: u.output ?? 0 });
 			call.context = call.input + call.cacheRead + call.cacheWrite;
 			if (msg.responseModel) call.served = msg.responseModel;
 			transcript.push({ modelCall: call.n, text, thinkingChars: msg.content.filter(c => c.type === "thinking").reduce((n, c) => n + (c.thinking?.length ?? 0), 0), shots: msg.content.filter(c => c.type === "toolCall").map(c => ({ toolCallId: c.id, arguments: c.arguments })) });
@@ -183,7 +183,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 		served: { models: [...new Set(modelCalls.map(c => c.served).filter(Boolean))], effort: null, effortNote: "the response does not expose the effort; the request carried the asked one", sent: modelCalls[0]?.sent ?? null },
 		wallMs, firstCompileMs, modelCalls: modelCalls.length, shots: shots.length, compiles: motion.state.compiles,
 		modelMs: sum("ms"), toolMs: shots.reduce((n, s) => n + s.ms, 0),
-		tokens: { inputFresh: sum("input"), cacheRead: sum("cacheRead"), cacheWrite: sum("cacheWrite"), output: sum("output") },
+		tokens: { inputFresh: sum("input"), cacheRead: sum("cacheRead"), cacheWrite: sum("cacheWrite"), cacheWrite1h: sum("cacheWrite1h"), output: sum("output") },
 		context: { perCall: modelCalls.map(c => c.context ?? 0), average: contexts.length ? round(contexts.reduce((a, b) => a + b, 0) / contexts.length) : 0, max: Math.max(0, ...contexts) },
 		unnecessary: auditCalls(calls),
 		final: motion.state.last ? { scene: motion.state.last.scene, spec: motion.state.last.spec, specChars: JSON.stringify(motion.state.last.spec).length, sceneChars: JSON.stringify(motion.state.last.scene).length, frames: motion.state.last.frames, buildMs: motion.state.last.buildMs, checks: motion.state.last.rows.map(({ key, label, value, unit, frame, who, note }) => ({ key, label, value: Math.round(value * 100) / 100, unit, frame, who, note })), clip: motion.clipFile } : null,
