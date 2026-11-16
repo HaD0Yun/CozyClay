@@ -12,7 +12,8 @@ const DESCRIPTION = "Makes the body motion of rig characters. The user's message
 // A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
 const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used. motion_result answers that result, waiting only for what is left of the motion. Work that does not depend on the result can be done meanwhile. Until the motion is installed, a call that changes a character or object it was written against is undone and refused. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
 const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it. A motion that failed answers its error.";
-const ENDED = "The motion started in this turn has ended. Its result, as motion_result answers it:";
+// labelled as the editor's own message (session-store.mjs OBSERVATION_LABEL): a restored transcript does not show it as the user's words
+const ENDED = "Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:";
 const PARAMETERS = {
 	type: "object",
 	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, images: { type: "boolean" } },
@@ -100,18 +101,31 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		// a motion that ended before it read the scene: its answer or its error is this call's
 		return current.held ? { ok: true, started: true } : collect(current);
 	};
+	let seen = null; // the full ids the nested calls of the guarded call changed (nested): a script's summary keeps 8 per call
 	const guard = tool => ({ ...tool, handler: async (args, call) => {
 		const current = job;
 		if (!current || current.installed) return tool.handler(args, call);
 		return hold(async () => {
 			if (current.installed || !current.held?.size) return tool.handler(args, call);
 			await mark();
-			const result = await tool.handler(args, call), hit = [...new Set(touched(result).filter(id => current.held.has(id)))];
+			const ids = seen = new Set();
+			let result;
+			try { result = await tool.handler(args, call); } finally { seen = null; }
+			const hit = [...new Set([...touched(result), ...ids].filter(id => current.held.has(id)))];
 			if (!hit.length) return result;
-			const undone = await rollback();
-			throw coded("MOTION_RUNNING", `This call changed ${hit.join(", ")}, which the motion being written uses as it was when the motion started; ${undone ? "its edits were undone" : "its edits could not be undone"}. Such a change works once the motion is installed, which motion_result waits for.`);
+			// a failed script already rolled back its own edits (agent-routes.mjs scriptTool), or changed nothing; the mark is spent
+			const failed = result?.ok === false ? `This call failed (${result.error?.message ?? result.message ?? "no message"}) and ${result.rollback ? "its edits were undone" : "changed nothing"}. It also changed` : null;
+			let undone = Boolean(result?.rollback), why = "";
+			if (!failed) try { undone = Boolean(await rollback()); } catch (error) { why = ` (${error?.code ?? "error"}: ${error?.message ?? String(error)})`; }
+			throw coded("MOTION_RUNNING", `${failed ?? "This call changed"} ${hit.join(", ")}, which the motion being written uses as it was when the motion started${failed ? "" : `; ${undone ? "its edits were undone" : `its edits could not be undone${why}`}`}. Such a change works once the motion is installed, which motion_result waits for.`);
 		});
 	} });
+	// the tools a script calls: each records the full ids it changed for the guarded call around the script
+	const nested = list => (background ? list.map(tool => ({ ...tool, handler: async (args, call) => {
+		const result = await tool.handler(args, call);
+		if (seen && Array.isArray(result?.affectedIds)) for (const id of result.affectedIds) seen.add(id);
+		return result;
+	} })) : list);
 	const resultTool = {
 		name: "motion_result", label: "Motion result", description: RESULT_DESCRIPTION, parameters: { type: "object", properties: {}, additionalProperties: false },
 		handler: async () => {
@@ -126,6 +140,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		parameters: PARAMETERS,
 		handler: background ? starting : waiting,
 		with: list => (background ? [...list.map(guard), door, resultTool] : [...list, door]),
+		nested,
 		unfinished: async ({ failed = false } = {}) => {
 			const current = job;
 			if (!current || current.collected) return null;

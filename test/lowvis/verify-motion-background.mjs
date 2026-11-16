@@ -79,7 +79,7 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	assert.equal(requests.length, 3, "the run went on after the model tried to end");
 	const handed = requests[2].context.messages.at(-1);
 	assert.equal(handed.role, "user");
-	assert.equal(textOf(handed), `The motion started in this turn has ended. Its result, as motion_result answers it:\n${JSON.stringify(ANSWER)}`);
+	assert.equal(textOf(handed), `Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:\n${JSON.stringify(ANSWER)}`);
 	assert.ok(requests[2].at >= motion.log.find(entry => entry[0] === "motion.end")[1], "the last request came after the motion ended");
 	assert.equal(await door.unfinished(), null, "nothing is left uncollected");
 	assert.ok(frames.at(-1).type === "done");
@@ -144,4 +144,89 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	assert.deepEqual(await pending, ANSWER);
 	assert.equal(await door.unfinished(), null);
 	console.log("PASS a waiting door answers the full result in the call itself");
+}
+
+// 5. Repair round. The editor's mark has one slot (src/agent-turn-mark.js): a rollback without a mark throws.
+const oneSlot = () => {
+	const calls = []; let slot = null;
+	return { calls, mark: async () => { calls.push("mark"); slot = {}; return {}; }, rollback: async () => { calls.push("rollback"); if (!slot) throw Object.assign(new Error("The agent turn has no mark to roll back to."), { code: "STALE_TARGET" }); slot = null; return { receiptId: "r", revision: 3, affectedIds: ["bench"] }; } };
+};
+// The route's script wrapper (agent-routes.mjs scriptTool): mark, run, and roll back a failed script that edited.
+const routeScript = (tx, script) => ({ ...script, handler: async (args, options) => {
+	await tx.mark();
+	const result = await script.handler(args, options);
+	if (result.ok || !result.calls.some(call => call.ok && Number.isSafeInteger(call.revision?.after) && call.revision.after !== call.revision.before)) return result;
+	const rollback = await tx.rollback();
+	return rollback ? { ...result, rollback: { status: "rolled_back", receiptId: rollback.receiptId, revision: rollback.revision, affectedIds: rollback.affectedIds.slice(0, 8) } } : result;
+} });
+
+// 5a. A failed script that touched a held id: one rollback (the script's own), and the answer names both the script's
+// error and why the held id is refused.
+{
+	const motion = stubMotion(), tx = oneSlot();
+	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const failing = routeScript(tx, { name: "script", handler: async () => ({ ok: false, error: { kind: "runtime", message: "STALE_TARGET: The object moved." }, output: [], calls: [{ ok: true, revision: { before: 1, after: 2 }, affectedIds: ["bench"] }, { ok: false, code: "STALE_TARGET", affectedIds: [] }] }) });
+	const [guarded] = door.with([failing]);
+	await door.handler({ request: "c1 sits" });
+	await assert.rejects(guarded.handler({}), error => error.code === "MOTION_RUNNING" && /bench/.test(error.message) && /The object moved/.test(error.message) && /undone/.test(error.message), "the script's error and the reason the held id is refused, together");
+	assert.deepEqual(tx.calls, ["mark", "mark", "rollback"], "the script's edits are rolled back once");
+	motion.gate.release();
+	await door.unfinished();
+	console.log("PASS repair: a failed script that touched what the motion uses answers its own error and the refusal, rolled back once");
+}
+
+// 5b. A script whose one command changes more ids than the call summary keeps (8): a held id after the 8th is still seen.
+{
+	const { createScriptTool } = await import("../../bin/agent/script-tool.mjs");
+	const motion = stubMotion(), tx = oneSlot(), moved = [];
+	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const patch = { name: "patch_elements", description: "moves elements", parameters: { type: "object" }, handler: async ({ ids }) => { moved.push(...ids); return { ok: true, revision: { before: 1, after: 2 }, affectedIds: ids }; } };
+	const nested = typeof door.nested === "function" ? door.nested([patch]) : [patch];
+	const [guarded] = door.with([routeScript(tx, createScriptTool({ tools: nested }))]);
+	await door.handler({ request: "c1 sits" });
+	const ids = [...Array.from({ length: 8 }, (_, i) => `o${i + 1}`), "bench"];
+	await assert.rejects(guarded.handler({ code: `await tools.patch_elements({ ids: ${JSON.stringify(ids)} });` }), error => error.code === "MOTION_RUNNING" && /bench/.test(error.message), "the 9th id is seen");
+	assert.ok(tx.calls.includes("rollback"), "the batch is rolled back");
+	assert.equal(await guarded.handler({ code: `await tools.patch_elements({ ids: ["o1", "o2"] });` }).then(result => result.ok), true, "a batch of other ids runs");
+	motion.gate.release();
+	await door.unfinished();
+	console.log("PASS repair: a held id beyond the 8 ids of the call summary is refused");
+}
+
+// 5c. A run whose loop throws (the session store fails at turn_end) never leaves the motion running past the turn.
+{
+	const fake = createFakeModel(), motion = stubMotion(), tx = transaction();
+	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	fake.fauxProvider.setResponses([fauxAssistantMessage([fauxToolCall("motion", { request: "c1 sits" }, { id: "m1" })]), fauxAssistantMessage([fauxText("unused")])]);
+	const sessionStore = { read: () => null, append: async () => { throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" }); } };
+	const runner = createAgentRunner({ models: fake.models, fauxProvider: fake.fauxProvider, sessionStore });
+	const session = await runner.openSession("bg-throw");
+	const frames = await collect(session, { text: "she sits", model: "faux/scripted", tools: door.with([]), unfinished: door.unfinished });
+	assert.ok(frames.some(frame => frame.type === "error"), `the loop failed: ${frames.map(frame => frame.type).join(",")}`);
+	if (motion.gate.release) motion.gate.release();
+	await tick(); await tick();
+	await runner.close();
+	assert.ok(!motion.log.some(entry => entry[0] === "install"), "nothing is installed after the run ended");
+	assert.equal(await door.unfinished(), null, "nothing is left uncollected");
+	console.log("PASS repair: a run that ends on a thrown loop stops its motion before it returns");
+}
+
+// 5d. The result handed to a turn that would end first is not a user bubble in the restored transcript.
+{
+	const { createSessionStore, transcriptFromHistory } = await import("../../bin/agent/session-store.mjs");
+	const store = createSessionStore(mkdtempSync(join(tmpdir(), "cozyclay-motion-transcript-")));
+	const fake = createFakeModel(), motion = stubMotion(), tx = transaction();
+	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	fake.fauxProvider.setResponses([
+		fauxAssistantMessage([fauxToolCall("motion", { request: "c1 sits" }, { id: "m1" })]),
+		async () => { setTimeout(() => motion.gate.release(), 20); return fauxAssistantMessage([fauxText("Done.")]); },
+		fauxAssistantMessage([fauxText("She sits. Missing: the hands do not rest on the knees.")]),
+	]);
+	const runner = createAgentRunner({ models: fake.models, fauxProvider: fake.fauxProvider, sessionStore: store });
+	const session = await runner.openSession("bg-transcript");
+	await collect(session, { text: "she sits on the bench", model: "faux/scripted", tools: door.with([]), unfinished: door.unfinished });
+	await runner.close();
+	const users = transcriptFromHistory(store.read("bg-transcript").history).filter(entry => entry.kind === "user").map(entry => entry.text);
+	assert.deepEqual(users, ["she sits on the bench"], "only the user's own message is a user bubble");
+	console.log("PASS repair: the handed motion result is not shown as the user's message");
 }

@@ -476,7 +476,8 @@ export function createAgentHandler({ auth = defaultAuth, codex, models, codexBas
 		// The motion tool (motion-door.mjs): body motion of rig characters goes to the motion environment.
 		const motionDoor = await (await import("./motion-door.mjs")).turnMotionDoor({ value, env, hub, tools, transaction: turnTransaction, admission, signal: controller.signal });
 		// The turn's step checklist (plan-tool.mjs): the model calls it directly or inside a script, and the panel shows it.
-		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: [...modelTools, plan.nested], signal: controller.signal, emit: send });
+		// A script's tools tell the motion door every id they change (motionDoor.nested), so a running motion's guard sees past the summary.
+		const plan = createPlanTool({ emit: send }), script = createScriptTool({ tools: motionDoor ? motionDoor.nested([...modelTools, plan.nested]) : [...modelTools, plan.nested], signal: controller.signal, emit: send });
 		const scriptTool = {
 			...script,
 			// A script that fails after it edited the scene rolls back its own edits, so
