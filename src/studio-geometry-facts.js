@@ -98,6 +98,16 @@ export function occlusionOf(subject, cameraPosition, state, ports, subjectBounds
 /** The failure codes of one framing check, in a fixed order. */
 export const framingCodes = checks => [checks.clipped ? 'CLIPPED' : null, checks.behindCamera ? 'BEHIND_CAMERA' : null, checks.occluded ? 'OCCLUDED' : null].filter(Boolean);
 
+/** Posed points as Vector3s, each with a drawn radius (radii[i] > 0, a capsule figure) replaced by the four points of its outline
+ * across the camera's view (right and up of the camera, through the point): what a viewer sees of it at the frame edge. */
+export function outlinePoints(points, radii, camera) {
+  const ahead = new Vector3().subVectors(new Vector3(camera.lookAt.x, camera.lookAt.y, camera.lookAt.z), new Vector3(camera.position.x, camera.position.y, camera.position.z)).normalize();
+  const right = new Vector3().crossVectors(ahead, new Vector3(0, 1, 0));
+  if (right.lengthSq() < 1e-9) right.set(1, 0, 0);
+  const across = [right.normalize(), new Vector3().crossVectors(right, ahead).normalize()];
+  return points.flatMap((p, i) => (radii?.[i] > 0 ? across.flatMap(e => [1, -1].map(s => new Vector3(p.x, p.y, p.z).addScaledVector(e, s * radii[i]))) : [new Vector3(p.x, p.y, p.z)]));
+}
+
 /** How much of the subject the shot camera shows: { inFrame (0..1 of its body points inside the picture, in front of the
  * lens), hidden (0..1 of them behind props, occlusionOf) }. The points are the ones the sight line reads (bodyPoints). */
 function subjectView(subject, state, ports, bounds = entityWorldBounds(subject, state, ports)) {
@@ -105,7 +115,9 @@ function subjectView(subject, state, ports, bounds = entityWorldBounds(subject, 
   const { sensorId, aspectRatio } = state.filmback, lens = new PerspectiveCamera(focalMmToFov(state.camera.focalMm, sensorId, aspectRatio) * 180 / Math.PI, aspectRatio, 0.01, 10000);
   lens.position.set(state.camera.position.x, state.camera.position.y, state.camera.position.z);
   lens.lookAt(state.camera.lookAt.x, state.camera.lookAt.y, state.camera.lookAt.z); lens.updateMatrixWorld(true);
-  const points = bodyPoints(subject, state, ports, bounds), inside = points.map(p => new Vector3(...p).project(lens)).filter(q => Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1 && q.z >= -1 && q.z <= 1);
+  // a drawn radius round the posed points (a capsule figure): its outline across the view, the points the frame-edge check reads
+  const points = bounds.radii?.length ? outlinePoints(bounds.points, bounds.radii, state.camera).map(p => p.toArray()) : bodyPoints(subject, state, ports, bounds);
+  const inside = points.map(p => new Vector3(...p).project(lens)).filter(q => Math.abs(q.x) <= 1 && Math.abs(q.y) <= 1 && q.z >= -1 && q.z <= 1);
   return { inFrame: round(inside.length / points.length), hidden: round(occlusionOf(subject, state.camera.position, state, ports, bounds).share) };
 }
 

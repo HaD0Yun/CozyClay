@@ -9,7 +9,7 @@ import { createStableItemId } from './stable-items.js';
 import { focalMmToFov, SENSOR_FORMATS } from './shot.js';
 import { coplanarConflicts } from './coplanar-depth.js';
 import { clampWarning } from './receipt-findings.js';
-import { occludersOf, primarySubjects, sideOfAxis, framingCodes, subjectIssues } from './studio-geometry-facts.js';
+import { occludersOf, primarySubjects, sideOfAxis, framingCodes, subjectIssues, outlinePoints } from './studio-geometry-facts.js';
 import { frameSubject } from './studio-frame-subject.js';
 import { StudioProtocolError, StudioSchemas, STUDIO_PATCH_KINDS, STUDIO_PATCH_DESCRIPTORS, validateStudioSchema, validateStudioIdentity, validateReceipt, freezeStudioData } from './studio-agent-protocol.js';
 import { sampleContactSheetFrames } from './studio-contact-sheet.js';
@@ -63,7 +63,7 @@ function resolveOpRefs(op, state, selfId) {
 }
 function boxPoints(bounds) {
   if (!bounds || ['x', 'y', 'z'].some(a => !Number.isFinite(bounds.min?.[a]) || !Number.isFinite(bounds.max?.[a]) || bounds.min[a] > bounds.max[a])) fail('TARGET_NOT_READY', 'Evaluated bounds are unavailable.');
-  return Object.assign([bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y => [bounds.min.z, bounds.max.z].map(z => new Vector3(x, y, z)))), { body: bounds.points, bones: bounds.bones }); // body: posed bone points and bones their [parent, child] pairs, when the port has them
+  return Object.assign([bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y => [bounds.min.z, bounds.max.z].map(z => new Vector3(x, y, z)))), { body: bounds.points, bones: bounds.bones, radii: bounds.radii }); // body: posed bone points, bones their [parent, child] pairs, radii a drawn radius round each point, when the port has them
 }
 function geometry(entity, state, ports) {
   // Attached/path objects need evaluated world geometry, never local channels.
@@ -227,7 +227,7 @@ function groupRootOf(id, objects) {
   return current?.id ?? id;
 }
 // What solid-contact.js reads of an entity: an object's drawn body, a character's posed bones (geometry's corners.body and .bones).
-const pieceOf = (e, corners, state, ports) => (e.renderer ? { body: contactBody(e, () => entityWorldBounds(e, state, ports)) } : { points: corners.body, bones: corners.bones });
+const pieceOf = (e, corners, state, ports) => (e.renderer ? { body: contactBody(e, () => entityWorldBounds(e, state, ports)) } : { points: corners.body, bones: corners.bones, radii: corners.radii });
 function overlapsFor(entity, state, ports) {
   const corners = geometry(entity, state, ports), own = aabb(corners), mine = pieceOf(entity, corners, state, ports), root = groupRootOf(entity.id, state.objects);
   // Parts of one grouped object are built to touch; only other bodies count. Boxes that cross count only where the drawn
@@ -242,7 +242,7 @@ const overlapsOf = (ids, state, ports) => ids.flatMap(id => { const e = [...stat
 export function entityWorldBounds(entity, state, ports) {
   try {
     const corners = geometry(entity, state, ports), box = aabb(corners), round = v => Number(v.toFixed(4)); // posed bone points ride along unlisted (no JSON, no spread) for the sight-line check
-    return Object.defineProperty({ min: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].min)])), max: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].max)])) }, 'points', { value: corners.body });
+    return Object.defineProperties({ min: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].min)])), max: Object.fromEntries(['x', 'y', 'z'].map(a => [a, round(box[a].max)])) }, { points: { value: corners.body }, radii: { value: corners.radii } });
   } catch { return null; }
 }
 const overlapEvidence = overlaps => ({ coverage: 'same-frame-world-AABB-proxies', overlapIds: [...new Set(overlaps.map(o => o.id))].slice(0, 100), maximumFootprintOverlapM: Math.max(0, ...overlaps.map(o => o.depth)) });
@@ -402,8 +402,9 @@ function sightChecks(subjects, boxes, cameraPosition, state, ports) {
 export function framingChecks(ids, state, ports) {
   if (!state.camera || !SENSOR_FORMATS[state.filmback?.sensorId] || !(state.filmback.aspectRatio > 0)) fail('TARGET_NOT_READY', 'The shot camera and filmback must be available.');
   const subjects = ids.map(id => entityById(state, id)), boxes = subjects.map(entity => geometry(entity, state, ports)), fov = focalMmToFov(state.camera.focalMm, state.filmback.sensorId, state.filmback.aspectRatio);
-  // Cut by the frame edge: a posed body's bones (its box's corners stand off the body), anything else's box. The size is the boxes'.
-  const project = points => projectSubject(points, state.camera, fov, state.filmback.aspectRatio).checks, cut = project(boxes.flatMap(b => (b.body?.length ? b.body.map(vector) : b)));
+  // Cut by the frame edge: a posed body's bones (its box's corners stand off the body) with the outline of any drawn radius round them
+  // (a capsule figure, outlinePoints), anything else's box. The size is the boxes'.
+  const project = points => projectSubject(points, state.camera, fov, state.filmback.aspectRatio).checks, cut = project(boxes.flatMap(b => (b.body?.length ? outlinePoints(b.body, b.radii, state.camera) : b)));
   return { ...project(boxes.flat()), clipped: cut.clipped, behindCamera: cut.behindCamera, ...sightChecks(subjects, boxes, state.camera.position, state, ports).checks };
 }
 
@@ -421,7 +422,7 @@ export function sampledFramingChecks(ids, state, ports, frames) {
     // which subject each failure is about, and how much of it is seen: a figure out of this shot is not cut by its edge
     return { frame, checks, codes, ...(codes.length ? { subjects: subjectIssues(ids, sampledState, ports, framingChecks) } : {}) };
   });
-  const sampledChecks = samples.map(({ frame, checks }) => ({ frame, screenFraction: checks.screenFraction, clipped: checks.clipped, behindCamera: checks.behindCamera, occluded: checks.occluded }));
+  const shotOf = frame => shotAtFrame(state.shotDocument?.shots ?? [], frame)?.id, sampledChecks = samples.map(({ frame, checks }) => ({ frame, ...(shotOf(frame) ? { shot: shotOf(frame) } : {}), screenFraction: checks.screenFraction, clipped: checks.clipped, behindCamera: checks.behindCamera, occluded: checks.occluded })); // shot: which cut the sample is in
   const issueFrames = samples.filter(sample => sample.codes.length).map(({ frame, checks, codes, subjects }) => ({ frame, codes, screenFraction: checks.screenFraction, subjects }));
   return { ...samples.at(-1).checks, coverage: 'sampled-timeline-subject-bounds-projection', evaluatedFrames: frames.length, sampledFrames: frames, sampledChecks, issueFrames };
 }

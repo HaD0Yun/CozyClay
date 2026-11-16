@@ -37,25 +37,29 @@ export function proxyFigureBounds(character, placement = character) {
 		const w = world([lx, ly, lz]);
 		for (const a of ["x", "y", "z"]) { min[a] = Math.min(min[a], w[a]); max[a] = Math.max(max[a], w[a]); }
 	}
-	return { min, max, ...proxyFigureCore(posture, bodyHeight, world) };
+	return { min, max, ...proxyFigureCore(posture, bodyHeight, world, stature) };
 }
 
-/** The drawn capsules' centre lines as points and [from, to] pairs, the way a rigged body's bones are: inside the flesh, one
- * capsule radius under the skin, so the contact, frame-edge and sight-line checks read a capsule figure as they read a rig. */
-function proxyFigureCore(posture, bodyHeight, world) {
-	const R = PROXY_BODY_RADIUS, head = bodyHeight + PROXY_HEAD_LIFT;
+/** The drawn capsules' centre lines as points and [from, to] pairs, the way a rigged body's bones are, and radii: the drawn
+ * radius round each point (the body capsule's, the head sphere's, the neck between them), so the contact and frame-edge checks
+ * read a capsule figure's surface, which the engine knows, and the sight line reads its core as it reads a rig's bones. */
+function proxyFigureCore(posture, bodyHeight, world, stature) {
+	const R = PROXY_BODY_RADIUS, head = bodyHeight + PROXY_HEAD_LIFT, shoulder = bodyHeight - R;
 	// lie: the standing figure turned onto its back, its axis along local -z one radius above the floor (proxy-figure.jsx)
 	const local = posture === "lie" ? p => [p[0], R + p[2], -p[1]] : p => p;
-	const lines = [[[0, R, 0], [0, bodyHeight - R, 0]], [[0, bodyHeight - R, 0], [0, head, 0]], ...(posture === "sit" ? [[[0, R, 0], [0, R, PROXY_SIT_LEG_REACH - R]]] : [])];
-	const points = [], bones = [];
+	const lines = [[[0, R, 0], [0, shoulder, 0]], [[0, shoulder, 0], [0, head, 0]], ...(posture === "sit" ? [[[0, R, 0], [0, R, PROXY_SIT_LEG_REACH - R]]] : [])];
+	// above the shoulder the body capsule's cap and the head sphere are what is drawn round the centre line
+	const radiusAt = p => (p[1] <= shoulder ? R : Math.max(0, Math.sqrt(Math.max(0, R * R - (p[1] - shoulder) ** 2)), Math.sqrt(Math.max(0, PROXY_HEAD_RADIUS ** 2 - (p[1] - head) ** 2))));
+	const points = [], bones = [], radii = [];
 	for (const [a, b] of lines) {
 		const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / CORE_STEP_M));
 		for (let i = 0; i <= steps; i++) {
-			points.push(world(local(a.map((v, k) => v + (i / steps) * (b[k] - v)))));
+			const p = a.map((v, k) => v + (i / steps) * (b[k] - v));
+			points.push(world(local(p))); radii.push(radiusAt(p) * stature);
 			if (i) bones.push([points.length - 2, points.length - 1]);
 		}
 	}
-	return { points, bones };
+	return { points, bones, radii };
 }
 const CORE_STEP_M = 0.1;
 

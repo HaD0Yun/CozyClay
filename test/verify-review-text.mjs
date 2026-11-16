@@ -45,7 +45,7 @@ const inside = { a: rigBody(0, 0.5), b: rigBody(0.05, 0.55) };
 assert.deepEqual(placementChecks(["a", "b"], handOff, { bounds: ({ entity }) => inside[entity.id] }).overlapIds.sort(), ["a", "b"], "a body standing in another still overlaps");
 // 2c. two shots: frames 0-10 frame A, frame 20 frames B; each figure is out of the other's shot
 const camOn = x => ({ position: { x, y: 1, z: 5 }, lookAt: { x, y: 0.9, z: 0 }, focalMm: 35, sensorId: "fullFrame" });
-const two = (b, cameraAt20, pose = {}) => ({ frame: 0, floorY: 0, objects: [], characters: [capsule("A", 0), capsule("B", b, pose)], camera: camOn(0), filmback: { sensorId: "fullFrame", aspectRatio: 16 / 9 }, cameraAt20 });
+const two = (b, cameraAt20, pose = {}) => ({ frame: 0, floorY: 0, objects: [], characters: [capsule("A", 0), capsule("B", b, pose)], camera: camOn(0), filmback: { sensorId: "fullFrame", aspectRatio: 16 / 9 }, cameraAt20, shotDocument: { shots: [{ id: "s1", startFrame: 0, endFrame: 19 }, { id: "s2", startFrame: 20, endFrame: 30 }] } });
 const sampleStateAt = (frame, state) => (frame < 20 ? state : { ...state, frame, camera: state.cameraAt20 });
 const ports = { bounds: ({ entity }) => proxyFigureBounds(entity), sampleStateAt };
 const review = state => sampledFramingChecks(["A", "B"], state, ports, [0, 10, 20]);
@@ -56,7 +56,7 @@ assert.deepEqual(reviewFindings({ framing: { checks: { framing: shots } } }), []
 const never = review(two(20, camOn(0)));
 assert.deepEqual(reviewFindings({ framing: { checks: { framing: never } } }), ["framing: not in the picture at any of the 3 sampled frames: B"], "a figure no sample shows is said once");
 // B lies from x 2 to 3.7: a quarter of it in A's shot (frames 0-10), all of it in its own (frame 20)
-const edge = review(two(2, camOn(2.5), { posture: "lie", rot: 90 }));
+const edge = review(two(2, camOn(3), { posture: "lie", rot: 90 }));
 const edgeLines = reviewFindings({ framing: { checks: { framing: edge } } });
 assert.equal(edgeLines.length, 1, JSON.stringify(edge.issueFrames));
 assert.match(edgeLines[0], /^framing: B cut by the frame edge at frames 0–10 \(least in the picture: \d+% of its body\)$/, "a figure the frame edge cuts is still a failure");
@@ -68,7 +68,7 @@ const turnReview = createTurnReview({ invoke: async () => failing, hub, workspac
 const edits = { edited: true, ids: ["cube-1"], motionIds: [], stage: false };
 const plain = await turnReview(edits, "go");
 assert.deepEqual(plain.findings, ["placement: footprints overlap for cube-1 (deepest 0.3 m)", "framing: hero mostly hidden behind props at frame 0 (most hidden: 70%)"]);
-const ownCheck = { revision: 7, checks: { placement: { overlapIds: ["cube-1"] } } };
+const ownCheck = { revision: 7, checks: { placement: { overlapIds: ["cube-1"], maximumFootprintOverlapM: 0.3 } } };
 assert.deepEqual((await turnReview(edits, "go", { own: [ownCheck] })).findings, [plain.findings[1]], "the model's own check of this revision already gave it the overlap");
 assert.deepEqual((await turnReview(edits, "go", { own: [{ ...ownCheck, revision: 6 }] })).findings, plain.findings, "a check of an earlier revision does not count");
 const allTold = await turnReview(edits, "go", { told: new Set(plain.keys) });
@@ -87,5 +87,6 @@ assert.equal(again.inputs.length, 2, "one review turn: the second review has not
 assert.match(again.text, /Still failing after a repair, left as it is:\n- placement: footprints overlap for cube-1/, "the user hears what stays (rule 7)");
 const verified = [{ type: "tool.start", callId: "v", name: "verify_result", args: {} }, { type: "tool.done", callId: "v", ok: true, result: failing.checks && { revision: 7, checks: failing.checks } }];
 const knew = await loop([[...edit("a", verified), { type: "done" }]], turnReview);
-assert.deepEqual([knew.inputs.length, knew.text], [1, ""], "the model's own check of this revision found the same: no review turn");
+assert.equal(knew.inputs.length, 1, "the model's own check of this revision found the same: no review turn");
+assert.match(knew.text, /^\n\nStill failing, left as it is:\n- placement: footprints overlap for cube-1/, "the user still hears what fails (rule 7)");
 console.log("PASS review text");
