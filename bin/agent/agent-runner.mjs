@@ -4,6 +4,7 @@ import { sanitizeUpstreamDetail } from "./agent-routes.mjs";
 import { budgetStudioRequest } from "./studio-context-budget.mjs";
 import { createRetryingStream, retryAfterMs } from "./agent-stream.mjs";
 import { NETWORK_CODES, frameCodeOf } from "./agent-failure-codes.mjs";
+import { withAnthropicCacheBreakpoints } from "./anthropic-cache.mjs";
 
 const DEFAULT_MODEL = "gpt-6-astra";
 
@@ -211,31 +212,7 @@ function studioContextDiet({ messages, systemPrompt }) {
 	};
 }
 
-/** Anthropic prompt-cache breakpoints on the stable prefix (#716): pi-ai's
- * anthropic-messages builder already marks the system blocks, the last tool
- * and the last user block by default; this only fills a missing mark on the
- * last system block and the last tool, never past the API's 4 breakpoints,
- * and never on tools for a model whose compat declares them unsupported. */
-export function withAnthropicCacheBreakpoints(payload, model) {
-	if (!payload || typeof payload !== "object") return undefined;
-	const marked = (block) => Boolean(block?.cache_control);
-	const system = Array.isArray(payload.system) ? payload.system : [];
-	const tools = Array.isArray(payload.tools) ? payload.tools : [];
-	const messageBlocks = (Array.isArray(payload.messages) ? payload.messages : []).flatMap((message) => Array.isArray(message?.content) ? message.content : []);
-	let count = [...system, ...tools, ...messageBlocks].filter(marked).length;
-	const cacheControl = { type: "ephemeral" };
-	let next = payload;
-	if (system.length && !marked(system.at(-1)) && count < 4) {
-		next = { ...next, system: [...system.slice(0, -1), { ...system.at(-1), cache_control: cacheControl }] };
-		count += 1;
-	}
-	// pi-ai 1.4 appends a defer_loading placeholder tool; the API rejects cache_control on deferred tools.
-	const lastTool = tools.findLastIndex((tool) => !tool?.defer_loading);
-	if (lastTool !== -1 && !marked(tools[lastTool]) && model?.compat?.supportsCacheControlOnTools !== false && count < 4) {
-		next = { ...next, tools: tools.map((tool, index) => index === lastTool ? { ...tool, cache_control: cacheControl } : tool) };
-	}
-	return next === payload ? undefined : next;
-}
+export { withAnthropicCacheBreakpoints };
 
 function studioObservationMessage(observation) {
 	return {
