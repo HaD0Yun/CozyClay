@@ -82,6 +82,9 @@ export function createStudioTaskRoutes({ enabled, handleStudioTurn, studioSessio
 			turn.done = runMain(main, ownerRequest(session.owner), fakeResponse(), { surface: "studio", sessionId: main.sessionId, turnId: turn.turnId, text: EVENT_TURN_TEXT, context, model: main.model, effort: main.effort }, turn).catch(() => {});
 			await turn.done;
 			if (main.eventTurn === turn) main.eventTurn = null;
+			// A task that ended while this turn ran: its event came after the turn read its context, and the timer it set
+			// found this turn running and stopped. The next turn tells it (and runs the review of a request now all done).
+			if (main.events.length) eventTurnSoon(main);
 		}, eventTurnDelayMs);
 	}
 

@@ -603,7 +603,15 @@ async function routesFixture(step, taskLimits) {
 	const board = async () => (await (await fetch(`${origin}/agent/main/${sessionId}/board`, { headers: { origin, cookie } })).json()).tasks;
 	const until = async (test, what) => { for (let i = 0; i < 400; i++) { const value = await test(); if (value) return value; await new Promise(r => setTimeout(r, 15)); } assert.fail(`timed out waiting for ${what}`); };
 	const close = async () => { await handler.close?.(); await new Promise(resolve => server.close(resolve)); f.dispose(); };
-	return { f, commands, post, board, until, close };
+	// a stream of this session (the main feed never ends): what arrived within ms
+	const stream = async (path, ms = 300) => {
+		const controller = new AbortController(), timer = setTimeout(() => controller.abort(), ms);
+		let text = "";
+		try { const response = await fetch(`${origin}${path}`, { headers: { origin, cookie }, signal: controller.signal }); for await (const chunk of response.body) text += Buffer.from(chunk).toString("utf8"); } catch { /* aborted */ }
+		clearTimeout(timer);
+		return [...text.matchAll(/^data: (.+)$/gm)].map(match => JSON.parse(match[1]));
+	};
+	return { f, commands, post, board, until, close, fakeModel, stream, sessionId };
 }
 const isMain = context => getCurrentSystemPrompt(context.messages) === MAIN_SYSTEM_PROMPT;
 const lastText = context => JSON.stringify(context.messages.at(-1) ?? {});
@@ -661,5 +669,52 @@ const hang = options => new Promise(resolve => { if (options?.signal?.aborted) r
 	assert.match(userSaw ?? "", /<task-events>.*task\.done/, "the events the hidden turn was telling reach the user's turn");
 	await r.close();
 	console.log("PASS preempt: a user message during the hidden event turn aborts it, is answered (no busy), and carries the pending task events");
+}
+{
+	// A task that ends while the coordinator's event turn runs: that turn already read its context, so the next event turn
+	// must tell it, and the whole-scene review of the now finished request runs in that turn, once.
+	let cube, sphere;
+	const eventStarted = deferred(), releaseEvent = deferred(), releaseSphere = deferred(), told = [];
+	const step = async context => {
+		if (isMain(context)) {
+			const last = lastText(context);
+			if (context.messages.at(-1).role !== "user") return fauxAssistantMessage([fauxText("ok")]);
+			if (last.includes("Move both")) return fauxAssistantMessage([
+				fauxToolCall("dispatch_task", { title: "cube", instructions: `Move ${cube} to x 1.`, scope: [`object:${cube}`] }, { id: `m-${randomUUID()}` }),
+				fauxToolCall("dispatch_task", { title: "sphere", instructions: `Move ${sphere} to x 2.`, scope: [`object:${sphere}`] }, { id: `m-${randomUUID()}` }),
+			]);
+			if (last.includes("Task events arrived")) {
+				told.push(last);
+				if (told.length === 1) { eventStarted.resolve(); await releaseEvent.promise; }
+				return fauxAssistantMessage([fauxText("A task ended.")]);
+			}
+			return fauxAssistantMessage([fauxText("ok")]);
+		}
+		const target = JSON.stringify(context.messages).includes(`Move ${cube}`) ? cube : sphere, to = target === cube ? 1 : 2;
+		if (target === sphere) await releaseSphere.promise;
+		if (!context.messages.some(message => message.role === "toolResult")) return fauxAssistantMessage([fauxToolCall("run_action", { action: "object.set", args: { id: target, set: { position: { x: to, y: 0, z: 0 } } } }, { id: `t-${randomUUID()}` })]);
+		return fauxAssistantMessage([fauxText(`Moved ${target}.`)]);
+	};
+	const r = await routesFixture(step, {});
+	r.fakeModel.fauxProvider.review = true; // the coordinator's turns run the whole-scene review (agent-routes.mjs reviewing)
+	cube = r.f.store.current.objects.find(o => o.renderer === "cube").id; sphere = r.f.store.current.objects.find(o => o.renderer === "sphere").id;
+	await r.post("Move both");
+	await r.until(async () => (await r.board()).find(task => task.title === "cube")?.status === "done", "the cube task to end");
+	await eventStarted.promise; // the event turn telling the cube task has read its context and is running
+	releaseSphere.resolve();
+	await r.until(async () => (await r.board()).find(task => task.title === "sphere")?.status === "done", "the sphere task to end");
+	await new Promise(resolve => setTimeout(resolve, 1000)); // the event turn outlasts the event delay (400 ms) after that end
+	releaseEvent.resolve();
+	await r.until(() => told.length >= 2, "a second event turn (the sphere task's end was never told)");
+	const boardOf = text => JSON.parse(JSON.parse(text).content.map(part => part.text ?? "").join("").match(/<task-board>(.*?)<\/task-board>/s)[1]);
+	assert.deepEqual(["cube", "sphere"].map(title => boardOf(told[0]).find(row => row.title === title)?.status !== "done"), [false, true], "the first event turn read the board before the sphere task ended");
+	assert.equal(boardOf(told[1]).find(row => row.title === "sphere")?.status, "done", "the coordinator's next board shows the sphere task ended");
+	await new Promise(resolve => setTimeout(resolve, 800)); // no further turn waits
+	const turns = (await r.stream(`/agent/main/${r.sessionId}/events`)).filter(event => event.type === "main.turn").map(event => event.turnId);
+	const reviews = [];
+	for (const turnId of turns) reviews.push((await r.stream(`/agent/turn/${turnId}/events`, 2000)).filter(frame => frame.type === "tool.start" && frame.callId === "review-0").length);
+	assert.deepEqual(reviews, [0, 1], `the whole-scene review runs once, in the turn after the last task ended: ${JSON.stringify(reviews)}`);
+	await r.close();
+	console.log("PASS a task that ends during the coordinator's event turn is told in the next event turn, whose board shows it ended; the whole-scene review runs once, there");
 }
 process.exit(0);
