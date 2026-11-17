@@ -9,6 +9,7 @@
 // the first pass of every character and the fit of every shared prop.
 import { INDEX as J, qAxisAngle } from "../rig17.js";
 import { add, cross, dot, len, mul, qConj, qMul, qRotate, qY, sub } from "./math.js";
+import { PAD } from "./prop-frame.js";
 import { solveSized } from "./size.js";
 
 const HAND = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
@@ -64,20 +65,26 @@ export function shareEvent(p, c, e, f, byId) {
 const label = p => p.grips.map(g => `${g.c.id}:${SIDE[g.i]}`).join("+");
 
 /** Between the two passes: every body's pose of this frame is kept for the second pass, a hand that took hold this
- *  frame gets its place (the one asked, else where it is on the prop now; g.took: how far it was from it), and every
- *  shared prop is fitted to its holding hands. A hand that took hold short of its place pulls the prop to it. */
+ *  frame gets its place (the one asked, else the point of the prop nearest to it, a wrist's pad off its surface;
+ *  g.took: how far it was from it), and every shared prop is fitted to its holding hands. A hand that took hold short
+ *  of its place pulls the prop to it. */
 export function afterFirstPass(props, chars, f) {
 	for (const c of chars) { c.snap = c.poseNow; c.snapF = f; }
 	for (const p of Object.values(props)) {
 		if (p.grips) {
 			const hand = g => g.c.poseNow.pos[HAND[g.i]];
-			for (const g of p.grips) if (!g.g) { const now = qRotate(qConj(p.q), sub(hand(g), p.c)); g.g = g.ask ?? now; g.took = { f, d: len(sub(g.g, now)) }; }
+			for (const g of p.grips) if (!g.g) {
+				const now = qRotate(qConj(p.q), sub(hand(g), p.c)), pad = PAD * g.c.s;
+				g.g = g.ask ?? now.map((v, k) => Math.max(-p.size[k] / 2 - pad, Math.min(p.size[k] / 2 + pad, v)));
+				g.took = { f, d: len(sub(g.g, now)) };
+			}
 			const set = label(p);
+			if (p.set !== set) p.ref = p.q; // the turn the prop has when this set of hands takes it
 			if (p.grips.length === 1) { // one hand: the prop is fixed in it as it was when this hand came to hold it alone
 				const g = p.grips[0], hq = g.c.poseNow.quat[HAND[g.i]];
 				if (p.set !== set) p.rel = qMul(qConj(hq), p.q);
 				p.q = qMul(hq, p.rel);
-			} else p.q = fitTurn(p.q, p.grips.map(g => g.g), p.grips.map(hand));
+			} else p.q = fitTurn(p.q, p.ref, p.grips.map(g => g.g), p.grips.map(hand));
 			const gc = mean(p.grips.map(g => g.g)), hc = mean(p.grips.map(hand));
 			p.c = sub(hc, qRotate(p.q, gc));
 			const z = qRotate(p.q, [0, 0, 1]);
@@ -106,9 +113,12 @@ export function otherReach(c, row, byId, f, toBody, solved) {
 }
 
 const mean = list => mul(list.reduce(add, [0, 0, 0]), 1 / list.length);
-/** The turn nearest q0 that best lays the places g (prop frame) on the points P (world), in the least-squares sense:
- *  Gauss-Newton steps from q0. A turn the points do not fix (about the line through two places) stays as in q0. */
-function fitTurn(q0, g, P) {
+/** The turn that best lays the places g (prop frame) on the points P (world), in the least-squares sense, plus a small
+ *  pull (STIFF of the places' spread) toward ref, the turn the prop had when these hands took it: about an axis the
+ *  places hardly fix (all of them on or near one line) the prop keeps that turn instead of rolling on small differences
+ *  between the hands. Gauss-Newton steps from q0, the last frame's turn. */
+const STIFF = 0.005;
+function fitTurn(q0, ref, g, P) {
 	const gc = mean(g), Pc = mean(P);
 	let q = q0;
 	for (let it = 0; it < 12; it++) {
@@ -117,13 +127,18 @@ function fitTurn(q0, g, P) {
 			const r = qRotate(q, sub(gi, gc)), t = sub(P[n], Pc), rr = dot(r, r), rt = cross(r, t);
 			for (let x = 0; x < 3; x++) { b[x] += rt[x]; for (let y = 0; y < 3; y++) A[x][y] += (x === y ? rr : 0) - r[x] * r[y]; }
 		});
-		const eps = 1e-9 + 1e-3 * (A[0][0] + A[1][1] + A[2][2]);
-		for (let x = 0; x < 3; x++) A[x][x] += eps;
+		const lambda = 1e-9 + STIFF * (A[0][0] + A[1][1] + A[2][2]), off = turnOf(qMul(q, qConj(ref)));
+		for (let x = 0; x < 3; x++) { A[x][x] += lambda; b[x] -= lambda * off[x]; }
 		const w = solve3(A, b), a = len(w);
 		if (a < 1e-10) break;
 		q = qMul(qAxisAngle(mul(w, 1 / a), Math.min(a, 1)), q);
 	}
 	return q;
+}
+/** A turn as a rotation vector (axis times angle, radians). */
+function turnOf(q) {
+	const s = q[3] < 0 ? -1 : 1, v = [q[0] * s, q[1] * s, q[2] * s], l = len(v);
+	return l < 1e-12 ? [0, 0, 0] : mul(v, 2 * Math.atan2(l, q[3] * s) / l);
 }
 function solve3(A, b) {
 	const det = m => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);

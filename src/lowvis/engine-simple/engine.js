@@ -38,10 +38,11 @@
 //       of other characters that hold it hold on too. One hand alone with no `at`: the prop is fixed in it, its long z
 //       axis along the thumb side. at = each hand's place on the prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both):
 //       the hands go there over `over` frames and take hold on arrival (a hand short of its place pulls the prop to
-//       it); no at = where they are. A holding hand stays where it took hold in the body frame until a later pose moves
-//       it. The prop follows its hands: in one hand fixed in it; in more, the place and turn that best put each hand's
-//       place on that hand, turning as little as it can from the frame before. Each hand is then put on its place; its
-//       reach row is how far it is from it (hands that pull apart, a place out of reach, the pull when taking hold)
+//       it); no at = the point of the prop nearest each hand. A holding hand stays where it took hold in the body frame
+//       until a later pose moves it. The prop follows its hands: in one hand fixed in it; in more, the place and turn
+//       that best put each hand's place on that hand; about an axis its places hardly fix (all on one line) it keeps the
+//       turn it had when they took it. Each hand is then put on its place; its reach row is how far it is from it
+//       (hands that pull apart, a place out of reach, the pull when taking hold)
 //     release {prop, hand?, roll?}     this character lets go (hand: only that hand); with no hand on it the prop stays
 //                                      where it is; roll:true = it keeps the hand's velocity, drops to
 //                                      the floor under it and rolls on until one of its own keys starts
