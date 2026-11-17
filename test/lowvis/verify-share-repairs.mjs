@@ -42,7 +42,11 @@ part(1, () => {
 	assert.ok(pulled.length === 2 && pulled.every(r => r.frame === 30 && r.value > 100), `without fast the hands arrive short and that is told: ${pulled.map(r => `${r.key} ${r.value.toFixed(0)} mm @f${r.frame}`).join(", ")}`);
 	const r = build({ a: [[30, "hold", { prop: "crate", hand: "R", at: [-0.28, 0, 0], over: 0, fast: true }]] }, one(crate, 60));
 	assert.ok(worstGap(r, "a", "R", "crate", [-0.28, 0, 0], 30, 60) < 0.01, "over 0, one hand: on its place at once");
-	console.log(`ok hold {at, over: 0}: the hands take hold at once on their places; short without fast, told (${pulled.map(r => r.value.toFixed(0)).join(" / ")} mm)`);
+	// a pose of the holding hands on the very frame they take hold, then another: the hands stay on their places
+	const hid = build({ a: [[10, "hold", { prop: "crate", hand: "both", at: AT, over: 10 }], [20, "pose", { hands: [0.25, 0.2, 0.4], over: 6 }], [40, "pose", { hands: [0.25, 0.05, 0.45], over: 10 }]] }, one(crate, 70));
+	const hw = Math.max(worstGap(hid, "a", "L", "crate", AT.L, 20, 70), worstGap(hid, "a", "R", "crate", AT.R, 20, 70));
+	assert.ok(hw < 0.01, `a pose on the take frame: the hands stay on their places (worst ${mm(hw)} mm)`);
+	console.log(`ok hold {at, over: 0}: the hands take hold at once on their places; short without fast, told (${pulled.map(r => r.value.toFixed(0)).join(" / ")} mm); a pose on the take frame compiles`);
 });
 
 // 2. a second hold by the other hand of the same character: both hands hold until they let go

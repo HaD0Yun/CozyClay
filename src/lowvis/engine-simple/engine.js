@@ -202,10 +202,11 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			let h = { from: null, to: null, w: 1 }, upTo = 0;
 			if (k) {
 				if (k.from === undefined) {
-					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p));
-					const local = prev ? (prev.to === "rest" ? null : toLocal(target(c, i, prev.to, f), B)) : c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
+					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p)), here = c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
+					const at = q => (q.to === "rest" ? null : q.to === "keep" ? (q.place ? toLocal(target(c, i, q.place, f), B) : here) : toLocal(target(c, i, q.to, f), B)); // a keep that a later key of its frame hid: its place, else where the hand is
+					const local = prev ? at(prev) : here;
 					k.from = !prev && c.rest[i] ? null : local;
-					if (k.to === "keep") { k.to = k.place ? toLocal(target(c, i, k.place, f), B) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
+					if (k.to === "keep") { k.to = k.place ? at(k) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
 				}
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f };
