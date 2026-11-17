@@ -112,8 +112,8 @@ function holdShared(id, f, k, o, keys, events) {
 	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"];
 	const point = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
 	for (const i of hands) {
-		at[i] = o.at === undefined ? null : hands.length === 2 ? o.at?.[name[i]] : o.at;
-		if (o.at !== undefined && !point(at[i])) throw new Error(`engine-simple: ${id} hold at frame ${f}: at wants [x, y, z] for one hand or {L: [x, y, z], R: [x, y, z]} for both, got ${JSON.stringify(o.at)}`);
+		at[i] = o.at === undefined ? null : Array.isArray(o.at) && hands.length === 1 ? o.at : o.at?.[name[i]];
+		if (o.at !== undefined && !point(at[i])) throw new Error(`engine-simple: ${id} hold at frame ${f}: at wants [x, y, z] for one hand or {L: [x, y, z], R: [x, y, z]} for the hands named, got ${JSON.stringify(o.at)}`);
 	}
 	const take = o.at === undefined ? f : f + k.over;
 	for (const i of hands) {

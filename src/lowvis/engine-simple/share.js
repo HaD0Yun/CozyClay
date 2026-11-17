@@ -64,13 +64,14 @@ export function shareEvent(p, c, e, f, byId) {
 const label = p => p.grips.map(g => `${g.c.id}:${SIDE[g.i]}`).join("+");
 
 /** Between the two passes: every body's pose of this frame is kept for the second pass, a hand that took hold this
- *  frame gets its place (where it is on the prop now), and every shared prop is fitted to its holding hands. */
+ *  frame gets its place (the one asked, else where it is on the prop now; g.took: how far it was from it), and every
+ *  shared prop is fitted to its holding hands. A hand that took hold short of its place pulls the prop to it. */
 export function afterFirstPass(props, chars, f) {
 	for (const c of chars) { c.snap = c.poseNow; c.snapF = f; }
 	for (const p of Object.values(props)) {
 		if (p.grips) {
 			const hand = g => g.c.poseNow.pos[HAND[g.i]];
-			for (const g of p.grips) if (!g.g) { g.g = qRotate(qConj(p.q), sub(hand(g), p.c)); g.ask ??= g.g; }
+			for (const g of p.grips) if (!g.g) { const now = qRotate(qConj(p.q), sub(hand(g), p.c)); g.g = g.ask ?? now; g.took = { f, d: len(sub(g.g, now)) }; }
 			const set = label(p);
 			if (p.grips.length === 1) { // one hand: the prop is fixed in it as it was when this hand came to hold it alone
 				const g = p.grips[0], hq = g.c.poseNow.quat[HAND[g.i]];
@@ -87,12 +88,13 @@ export function afterFirstPass(props, chars, f) {
 }
 
 /** Second pass: each hand of c that holds a shared prop goes to its place on it (toBody: a world point into the space
- *  the pose is solved in). h.ask is the place the spec asked for, which the reach row measures it against. */
-export function onPlaces(props, c, U, toBody) {
+ *  the pose is solved in), which its reach row measures it against; on the frame it took hold, h.took is how far it
+ *  was from that place (the prop then moved to it). */
+export function onPlaces(props, c, U, f, toBody) {
 	for (const p of Object.values(props)) for (const g of p.grips ?? []) {
 		if (g.c !== c) continue;
 		const h = U.hands[g.i], to = toBody(add(p.c, qRotate(p.q, g.g)));
-		Object.assign(h, { from: to, to, w: 1, line: true, key: g.key, offset: undefined, ask: toBody(add(p.c, qRotate(p.q, g.ask))) });
+		Object.assign(h, { from: to, to, w: 1, line: true, key: g.key, offset: undefined, took: g.took.f === f ? g.took.d : 0 });
 	}
 }
 

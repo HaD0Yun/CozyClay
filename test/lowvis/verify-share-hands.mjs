@@ -62,6 +62,15 @@ const holdList = Object.entries(PLACES).flatMap(([who, s]) => Object.entries(s).
 	// one holder takes hold later than the other: the board waits for no one, the early pair holds it alone meanwhile
 	const late = build({ p: lift("p"), q: lift("q", 6) }, BOARD), lw = worstOn(late.parsed, holdList, 40, 175);
 	assert.ok(lw < 0.01, `a late second holder: every hand still on its place (worst ${mm(lw)} mm)`);
+
+	// the board low on the floor and no bow: the hands take hold short of their places; the board comes up to them at
+	// once, the reach rows say how far on the take frame, and it stays level after (the places are the asked ones)
+	const low = { ...BOARD, props: [{ ...BOARD.props[0], at: [0, 0.03, 0] }] }, noBow = who => lift(who).filter(a => !(a[0] === 10 && a[1] === "pose"));
+	const s = build({ p: noBow("p"), q: noBow("q") }, low), sw = worstOn(s.parsed, holdList, 35, 175), told = reachRows(s).filter(r => r.value > 10);
+	const roll = f => { const x = qRotate(prop(s.parsed, "board", f).q, [1, 0, 0]), z = qRotate(prop(s.parsed, "board", f).q, [0, 0, 1]); return Math.max(Math.abs(x[1]), Math.abs(z[1])) * 180 / Math.PI; };
+	assert.ok(told.length === 4 && told.every(r => r.frame === 34 && /on 1 frame/.test(r.note)), `the four hands short of their places are told on the take frame:\n${told.map(r => `${r.key} ${r.value.toFixed(0)} mm @f${r.frame} ${r.note}`).join("\n")}`);
+	assert.ok(sw < 0.01 && roll(100) < 1, `then every hand is on its place (worst ${mm(sw)} mm) and the board level (${roll(100).toFixed(2)} deg)`);
+	console.log(`ok hands that take hold short of their places: the board comes up to them, ${told.map(r => r.value.toFixed(0)).join(" / ")} mm told on the take frame; level after`);
 }
 
 // --- 2. one character, a pole in both hands ---

@@ -62,7 +62,7 @@ export function elbowsOf(c, f, U, t) {
 export function ownReach(c, f, U, row, t) {
 	const self = (i, to) => t.target(c, i, to, f);
 	U.hands.forEach((h, i) => { if (row[i] && h.self) row[i].d = len(sub(c.solved.pos[HAND[i]], h.offset ? add(self(i, h.self), h.offset) : self(i, h.self))); });
-	U.hands.forEach((h, i) => { if (row[i] && h.ask) row[i].d = len(sub(c.solved.pos[HAND[i]], h.ask)); }); // a hand that holds a shared prop: against the place the spec asked for (share.js)
+	U.hands.forEach((h, i) => { if (row[i] && h.took) row[i].d = Math.max(row[i].d, h.took); }); // a hand that took hold of a shared prop short of its place (share.js)
 	if (!c.keys.elbowL.length && !c.keys.elbowR.length) return row;
 	return [...row, ...U.hands.map(({ elbow: e }, i) => (e?.to && e.w >= 1 ? { key: e.key, d: len(sub(c.solved.pos[ELBOW[i]], e.self ? self(i, e.self) : e.to)) } : null))];
 }
