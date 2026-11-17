@@ -154,7 +154,7 @@ try {
 		const [{ createAgentHandler }, { createSessionStore }] = await Promise.all([import("../bin/agent/agent-routes.mjs"), import("../bin/agent/session-store.mjs")]);
 		createSessionStore(sessionsDir).append("host-contract", [{ role: "user", content: "block the chase" }], { surface: "studio", sceneName: "Chase" });
 
-		// A ComfyUI double, so POST /agent/video answers with a real result.
+		// A stand-in for the local video provider ("comfy"), so POST /agent/video answers with a real result.
 		const comfy = createServer((req, res) => {
 			const send = (body) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
 			if (req.url.startsWith("/upload/image")) { req.resume(); req.on("end", () => send({ name: "cozyclay-frame.png" })); return; }
@@ -192,22 +192,32 @@ try {
 				["POST", "/agent/video", { ...video, provider: "fal" }, 409, { error: "string" }],
 			];
 			const typeOf = (value) => (value === null ? "null" : Array.isArray(value) ? "array" : typeof value);
-			const assertShape = (value, shape, where) => {
+			// A list may be empty (a provider with no models), so every pinned field
+			// must also turn up at least once, or the pin would check nothing.
+			const seen = new Set();
+			const leaves = (shape, key) => (Array.isArray(shape) ? leaves(shape[0], `${key}[]`)
+				: typeof shape === "object" ? Object.entries(shape).flatMap(([name, inner]) => leaves(inner, `${key}.${name}`)) : [key]);
+			const assertShape = (value, shape, where, key) => {
 				if (Array.isArray(shape)) {
-					assert.ok(Array.isArray(value) && value.length > 0, `${where} is a non-empty list`);
-					value.forEach((item, index) => assertShape(item, shape[0], `${where}[${index}]`));
+					assert.ok(Array.isArray(value), `${where} is a list`);
+					value.forEach((item, index) => assertShape(item, shape[0], `${where}[${index}]`, `${key}[]`));
 				} else if (typeof shape === "object") {
 					assert.equal(typeOf(value), "object", `${where} is an object`);
-					for (const [key, inner] of Object.entries(shape)) {
-						assert.ok(Object.hasOwn(value, key), `${where}.${key} is gone: installed hosts read it`);
-						assertShape(value[key], inner, `${where}.${key}`);
+					for (const [name, inner] of Object.entries(shape)) {
+						assert.ok(Object.hasOwn(value, name), `${where}.${name} is gone: installed hosts read it`);
+						assertShape(value[name], inner, `${where}.${name}`, `${key}.${name}`);
 					}
-				} else assert.ok(shape.split("|").includes(typeOf(value)), `${where} is ${typeOf(value)}, hosts read ${shape}`);
+				} else {
+					assert.ok(shape.split("|").includes(typeOf(value)), `${where} is ${typeOf(value)}, hosts read ${shape}`);
+					seen.add(key);
+				}
 			};
 			for (const [method, path, body, status, shape] of pinned) {
 				const response = await fetch(`${origin}${path}`, body ? { method, headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) } : { method });
 				assert.equal(response.status, status, `${method} ${path} answers ${status}`);
-				assertShape(await response.json(), shape, `${method} ${path}`);
+				const route = `${method} ${path}`;
+				assertShape(await response.json(), shape, route, route);
+				for (const leaf of leaves(shape, route)) assert.ok(seen.has(leaf), `${leaf} never appeared, so the pin checked nothing`);
 			}
 			console.log(`PASS contract ${HOST_CONTRACT_VERSION}: the agent-route fields hosts read are all still there`);
 		} finally {
