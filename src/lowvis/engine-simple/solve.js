@@ -12,20 +12,22 @@
 //       hipTurn: pelvis turn about Y over planted feet (rad), bow: forward hinge at the hips (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
 //       assist: the previous frame's { bend, drop } of the reach assist }
-import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS } from "../rig17.js";
-import { Y, Z, add, clamp, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
+import { ANKLE_HEIGHT, INDEX as J, JOINT_COUNT, OFFSET, PARENT, REST, TIPS, qAxisAngle } from "../rig17.js";
+import { Y, Z, add, clamp, cross, dot, len, mix, mixV, mul, norm, qConj, qFrame, qMul, qRotate, qSlerp, qX, qY, qZ, sub } from "./math.js";
 
 export const SIDES = [
 	{ s: 1, arm: J.LeftArm, fore: J.LeftForeArm, hand: J.LeftHand, up: J.LeftUpLeg, leg: J.LeftLeg, foot: J.LeftFoot },
 	{ s: -1, arm: J.RightArm, fore: J.RightForeArm, hand: J.RightHand, up: J.RightUpLeg, leg: J.RightLeg, foot: J.RightFoot },
 ];
 export const ARM_LEN = len(OFFSET[J.LeftForeArm]) + len(OFFSET[J.LeftHand]);
-export const LEG_LEN = len(OFFSET[J.LeftLeg]) + len(OFFSET[J.LeftFoot]);
+const UPPER_LEN = len(OFFSET[J.LeftForeArm]);
+export const LEG_LEN =len(OFFSET[J.LeftLeg]) + len(OFFSET[J.LeftFoot]);
 /** Toe tip and heel (sole point under the ankle) relative to the ankle joint, in the foot's rest frame. */
 export const TOE = sub(TIPS.LeftFoot, REST[J.LeftFoot]);
 export const SOLE = [0, -ANKLE_HEIGHT, 0];
 
-const MAX_STEP = 0.12; // m per frame a hand may move in the body frame unless its key says fast (2.9 m/s)
+export const MAX_STEP = 0.12; // m per frame a hand may move in the body frame unless its key says fast (2.9 m/s)
+export const ASSIST_BEND = 1.5; // rad: the most the reach assist hinges at the hips
 
 /** Blend of two hand points along an arc about the shoulder (direction and distance apart), not through the body. */
 export function arc(a, b, w, sh) {
@@ -51,6 +53,16 @@ function aimTurn(list, fore, long) {
 }
 /** The pole that bends an elbow from `root` toward `p` (the part of it across the line to the hand `dir`). */
 const toward = (p, root, dir, fallback) => { const v = sub(p, root), across = sub(v, mul(dir, dot(v, dir))); return len(across) > 1e-6 ? norm(across) : fallback; };
+
+/** A wrist with no target of its own (free: 0..1, the part of it that is not aimed) under an elbow target e: the whole
+ *  arm turns about the shoulder `sh`, keeping its bend, so that the elbow points at e's blend of targets; so the elbow
+ *  lies on a target as far from the shoulder as the upper arm. */
+function freeWrist(sh, w, pole, e, free, S) {
+	const own = norm(sub(limb(sh, w, pole, S.fore, S.hand, [0, 0, -1]).mid, sh)), at = q => (q ? norm(sub(q, sh)) : own);
+	const goal = norm(mixV(at(e.from), at(e.to), e.w)), axis = cross(own, goal), turn = Math.atan2(len(axis), dot(own, goal));
+	if (len(axis) < 1e-9) return w;
+	return mixV(w, add(sh, qRotate(qAxisAngle(norm(axis), turn), sub(w, sh))), free);
+}
 
 /** Two-bone IK: joints jm (middle) and je (end) hang from `root`; the middle joint bends toward `pole`. */
 function limb(root, target, pole, jm, je, restPole) {
@@ -85,25 +97,32 @@ export function solve(B, U = {}) {
 		const q2 = qMul(roll || rollC ? qMul(qP, qZ(rollC - roll)) : qP, qMul(qY(twist), qX(lean)));
 		const p2 = add(add(hips, qRotate(qP, OFFSET[J.Spine])), qRotate(q1, OFFSET[J.Spine2]));
 		const sh = SIDES.map(S => add(p2, qRotate(q2, OFFSET[S.arm])));
-		const hand = SIDES.map((S, i) => {
+		const slow = [false, false], hand = SIDES.map((S, i) => {
 			const rest = add(hips, qRotate(B.q, B.hands[i])), h = H[i];
 			if (!h) return rest;
 			let t = h.line ? mixV(h.from ?? rest, h.to ?? rest, h.w) : arc(h.from ?? rest, h.to ?? rest, h.w, sh0?.[i] ?? sh[i]); // about the shoulder of the unbent body
 			if (h.offset) t = add(t, h.offset);
-			if (h.prev) { const d = sub(t, h.prev), l = len(d); if (l > MAX_STEP) t = add(h.prev, mul(d, MAX_STEP / l)); }
+			if (h.prev) { const d = sub(t, h.prev), l = len(d); if (l > MAX_STEP) { t = add(h.prev, mul(d, MAX_STEP / l)); slow[i] = true; } }
 			return t;
 		});
-		return { hips, qP, q1, q2, hand, sh };
+		return { hips, qP, q1, q2, hand, sh, slow };
 	};
 	let sh0 = null, T = torso();
 	sh0 = T.sh;
-	if (!U.noAssist && active.some(Boolean)) for (let it = 0; it < 14; it++) {
+	// Each low target counts: a wrist's beyond 0.95 of the arm, and the elbow's of an arm whose wrist is free beyond the
+	// upper arm (an elbow is always that far from the shoulder; a wrist with its own target keeps the arm where it is).
+	// It stops early when a step leaves the hinge and the drop as they are.
+	const elbows = H.map((h, i) => h?.elbow?.to && h.elbow.w > 0 && aimed[i] < 1 ? { to: h.elbow.to, w: h.elbow.w * (1 - aimed[i]) } : null);
+	if (!U.noAssist && (active.some(Boolean) || elbows.some(Boolean))) for (let it = 0; it < 14; it++) {
 		let d = 0, ahead = 0; // ahead: bending forward only helps a target in front of the hips
-		SIDES.forEach((S, i) => {
-			const di = active[i] && T.hand[i][1] < T.sh[i][1] + 0.1 ? (len(sub(T.hand[i], T.sh[i])) - 0.95 * ARM_LEN) * aimed[i] : 0;
-			if (di > d) { d = di; ahead = clamp((dot(sub(T.hand[i], T.hips), fwd) + 0.1) / 0.3); }
-		});
-		bend = Math.min(1.5, bend + 1.4 * d * ahead); drop = Math.min(0.58, Math.max(0, hips0[1] - 0.45), drop + 0.6 * d);
+		const low = (p, i, reach, w) => {
+			const di = p[1] < T.sh[i][1] + 0.1 ? (len(sub(p, T.sh[i])) - reach) * w : 0;
+			if (di > d) { d = di; ahead = clamp((dot(sub(p, T.hips), fwd) + 0.1) / 0.3); }
+		};
+		SIDES.forEach((S, i) => { if (active[i]) low(T.hand[i], i, 0.95 * ARM_LEN, aimed[i]); if (elbows[i]) low(elbows[i].to, i, UPPER_LEN, elbows[i].w); });
+		const was = [bend, drop];
+		bend = Math.min(ASSIST_BEND, bend + 1.4 * d * ahead); drop = Math.min(0.58, Math.max(0, hips0[1] - 0.45), drop + 0.6 * d);
+		if (bend === was[0] && drop === was[1]) break;
 		T = torso();
 	}
 	// straighten up gradually when the target comes back into reach
@@ -111,7 +130,7 @@ export function solve(B, U = {}) {
 	// Feet: keep the toe tip and the heel on or over the floor, then lower the pelvis until planted feet are in reach.
 	const feet = B.feet.map(f => {
 		const low = Math.min(0, qRotate(f.q, TOE)[1], qRotate(f.q, SOLE)[1]);
-		return { q: f.q, a: [f.a[0], Math.max(f.a[1], (f.floor ?? 0) - low), f.a[2]] };
+		return { q: f.q, a: [f.a[0], Math.max(f.a[1], (f.floor ?? 0) - low), f.a[2]], lift: Math.max(0, (f.floor ?? 0) - low - f.a[1]) };
 	});
 	let lower = 0;
 	SIDES.forEach((S, i) => {
@@ -130,10 +149,10 @@ export function solve(B, U = {}) {
 	for (let j = 1; j <= 4; j++) place(j);
 	SIDES.forEach((S, i) => {
 		place(S.arm);
-		let bend = elbowPole(S, pos[S.arm], T.hand[i], T.q2);
-		const e = H[i]?.elbow;
-		if (e) { const dir = norm(sub(T.hand[i], pos[S.arm])), own = toward(add(pos[S.arm], bend), pos[S.arm], dir, bend), at = q => (q ? toward(q, pos[S.arm], dir, own) : own); bend = mixV(at(e.from), at(e.to), e.w); }
-		const A = limb(pos[S.arm], T.hand[i], bend, S.fore, S.hand, [0, 0, -1]);
+		const e = H[i]?.elbow, wrist = e && aimed[i] < 1 ? freeWrist(pos[S.arm], T.hand[i], elbowPole(S, pos[S.arm], T.hand[i], T.q2), e, 1 - aimed[i], S) : T.hand[i];
+		let bend = elbowPole(S, pos[S.arm], wrist, T.q2);
+		if (e) { const dir = norm(sub(wrist, pos[S.arm])), own = toward(add(pos[S.arm], bend), pos[S.arm], dir, bend), at = q => (q ? toward(q, pos[S.arm], dir, own) : own); bend = mixV(at(e.from), at(e.to), e.w); }
+		const A = limb(pos[S.arm], wrist, bend, S.fore, S.hand, [0, 0, -1]);
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
 		quat[S.hand] = qMul(qFrame(dir, A.perp), qConj(qFrame(OFFSET[S.hand], [0, 0, -1])));
@@ -147,5 +166,5 @@ export function solve(B, U = {}) {
 		quat[S.up] = L.qU; quat[S.leg] = L.qL; quat[S.foot] = feet[i].q;
 		place(S.leg); place(S.foot);
 	});
-	return { pos, quat, assist: { bend, drop } };
+	return { pos, quat, assist: { bend, drop }, slow: T.slow, lift: feet.map(f => f.lift) };
 }

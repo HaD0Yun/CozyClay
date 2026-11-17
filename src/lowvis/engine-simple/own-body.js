@@ -2,10 +2,11 @@
 // character's joints ({joint, at}), the elbow targets (pose elbowL / elbowR), and aim, the way the hand that holds a
 // prop turns it. engine.js calls these inside its frame loop; `t` is its { active, prog, ended, target } helpers.
 import { INDEX as J } from "../rig17.js";
-import { EASE, X, Y, Z, add, len, mix, mixV, norm, qMul, qRotate, qY, sub } from "./math.js";
+import { EASE, X, Y, Z, add, mix, mixV, norm, qMul, qRotate, qY, sub } from "./math.js";
 import { solveSized } from "./size.js";
+import { reachEntry } from "./reach.js";
 
-const HAND = [J.LeftHand, J.RightHand], ELBOW = [J.LeftForeArm, J.RightForeArm], AXES = { x: X, y: Y, z: Z };
+const AXES = { x: X, y: Y, z: Z };
 
 /** A place on the own body in the space the pose is solved in: joint `to.joint`, offset by `to.at` in that joint's own
  *  frame (the body frame at rest). On the first pass of a frame the joint is where the last solved pose had it, carried
@@ -52,7 +53,7 @@ export function elbowsOf(c, f, U, t) {
 		const list = c.keys[name], k = t.active(list, f);
 		if (!k) return;
 		const at = to => (to && to !== "rest" ? t.target(c, i, to, f) : null), prev = list[list.indexOf(k) - 1];
-		U.hands[i].elbow = { from: at(prev?.to), to: at(k.to), w: EASE[k.ease](t.prog(k, f)), key: k.f, self: k.to?.joint ? k.to : null };
+		U.hands[i].elbow = { from: at(prev?.to), to: at(k.to), w: EASE[k.ease](t.prog(k, f)), key: k.f, done: t.prog(k, f) >= 1, self: k.to?.joint ? k.to : null };
 	});
 }
 
@@ -61,7 +62,7 @@ export function elbowsOf(c, f, U, t) {
  *  keys, [L elbow, R elbow] after the feet. */
 export function ownReach(c, f, U, row, t) {
 	const self = (i, to) => t.target(c, i, to, f);
-	U.hands.forEach((h, i) => { if (row[i] && h.self) row[i].d = len(sub(c.solved.pos[HAND[i]], h.offset ? add(self(i, h.self), h.offset) : self(i, h.self))); });
+	U.hands.forEach((h, i) => { if (row[i] && h.self) row[i] = reachEntry(c, i, row[i].key, h.offset ? add(self(i, h.self), h.offset) : self(i, h.self), { slow: row[i].slow }); });
 	if (!c.keys.elbowL.length && !c.keys.elbowR.length) return row;
-	return [...row, ...U.hands.map(({ elbow: e }, i) => (e?.to && e.w >= 1 ? { key: e.key, d: len(sub(c.solved.pos[ELBOW[i]], e.self ? self(i, e.self) : e.to)) } : null))];
+	return [...row, ...U.hands.map(({ elbow: e, to }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to }) : null))];
 }

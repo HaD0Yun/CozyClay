@@ -13,6 +13,7 @@
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
 import { SOLE, TOE } from "../engine-simple/solve.js";
+import { reachWhy } from "./reach-why.mjs";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
 const MM = 1000, DEG = 180 / Math.PI;
@@ -134,8 +135,9 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	const LIMB = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], PART = ["hand", "foot", "elbow"]; // elbows only for a character with elbow keys
 	for (const c of clip.characters) LIMB.forEach((limb, i) => {
 		let worst = null, frames = 0;
-		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (!at[i]) return; if (at[i].d > 0.01) frames++; if (at[i].d > (worst?.v ?? 0.001)) worst = { v: at[i].d, f, who: c.id, key: at[i].key }; });
-		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}`;
+		const list = (aux.reach?.[c.id] ?? []).map(at => at[i] ?? null);
+		list.forEach((e, f) => { if (!e) return; if (e.d > 0.01) frames++; if (e.d > (worst?.v ?? 0.001)) worst = { v: e.d, f, who: c.id, key: e.key }; });
+		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}${worst.v > 0.01 ? `; ${reachWhy(list, worst.f, i, c.scale ?? 1)}` : ""}`;
 		if (worst) row(`reach:${c.id}:${i}`, `${PART[i >> 1]} off its target`, worst, "mm", MM, { short: `${PART[i >> 1]} off`, worse: 1, spike: 60 });
 	});
 	return rows;
