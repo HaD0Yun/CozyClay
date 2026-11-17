@@ -18,7 +18,7 @@ const ROOT = resolve(import.meta.dirname, "../../..");
 const MAX_FRAMES = 1440, MAX_LOOK = 12, SHEET = 8, SMALL_FIGURE = 105; // px: under this the default sheet gets a close row
 const MOVERS = new Set(["carry", "hold", "release", "place"]);
 const NO_ASSIST = "the body does not bend or lower itself toward a hand target: a target out of arm's reach stays out of reach until the spec lowers or leans the body";
-const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:)/; // the rows that are a difference between what the spec asked and what came out
+const ASKED = /^(carryGap|carryIn|gripDrift|gripTurn|cut:|place:|seat:)/; // the rows that are a difference between what the spec asked and what came out
 const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const fromText = v => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } };
 const num = (v, d = 2) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d);
@@ -237,8 +237,8 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 			sheets.push({ file: `sheet-${n}-look.png`, sheet: asked, says: `your look, frames ${asked.frames.join(" ")}, view ${view}, ${focus ? `framed on ${focus.join(" and ")}` : "the whole scene in frame"}` });
 			shown.push({ frames: asked.frames, view, focus: focus ?? [] });
 		}
-		const isReach = r => r.key.startsWith("reach:"); // measured for every variant (the run record keeps them), told only where the variant has them
-		const told = rows.filter(r => feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && isReach(r)) : !isReach(r));
+		const isReach = r => r.key.startsWith("reach:"); // measured for every variant (the run record keeps them), told only where the variant has them and over 10 mm
+		const told = rows.filter(r => feature.text === "lean" ? ASKED.test(r.key) || (feature.reach && isReach(r) && r.value > 10) : !isReach(r));
 		const worst = changed ? spikes(told, F) : [];
 		if (worst.length) {
 			const strips = worst.map(w => drawSheet(parsed, { frames: w.frames, view: "three", focus: w.focus.length ? w.focus : undefined, cols: 3, label: w.label }));

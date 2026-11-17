@@ -29,8 +29,9 @@ try {
 
 	assert.match(place(tool.call({ spec: spec(2.4) }).text), /\[was \d+\.\d; spike 2 compiles in a row\]$/, "second compile: 2 in a row");
 	assert.match(place(tool.call({ spec: spec(2.3, 44) }).text), /\[was \d+\.\d; spike 3 compiles in a row\]$/, "the place moved 4 frames: the same difference, 3 in a row");
-	assert.match(tool.call({ look: { view: "side" } }).text, /^checks: every number is the same as in the previous compile; 1 past its spike for 3 compiles in a row$/m, "a look does not count");
-	assert.match(tool.call({ spec: spec(2.3, 44) }).text, /^checks: every number is the same as in the previous compile; 1 past its spike for 3 compiles in a row$/m, "the same spec again does not count");
+	// three: the place and both hands off the place's target (reach rows, told in studio)
+	assert.match(tool.call({ look: { view: "side" } }).text, /^checks: every number is the same as in the previous compile; 3 past their spike for 3 compiles in a row$/m, "a look does not count");
+	assert.match(tool.call({ spec: spec(2.3, 44) }).text, /^checks: every number is the same as in the previous compile; 3 past their spike for 3 compiles in a row$/m, "the same spec again does not count");
 	assert.match(place(tool.call({ spec: spec(2.2) }).text), /spike 4 compiles in a row\]$/, "a changed spec counts again");
 
 	const fixed = tool.call({ spec: spec(0.7) });

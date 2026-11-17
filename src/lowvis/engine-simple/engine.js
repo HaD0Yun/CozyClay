@@ -191,7 +191,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
 				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
-					if (k.to?.joint) h.self = k.to;
+				if (k.to?.joint) h.self = k.to;
 				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0];
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;

@@ -19,7 +19,7 @@ function harness({ clip = { frameCount: 48, characters: [{ id: "c1" }], props: [
 	const hub = { command: async (name, args, handle) => { seen.describe.push({ name, args, handle }); return DESCRIBE; } };
 	const deps = {
 		studioScene,
-		runScene: async options => { seen.runs.push(options); options.log("  motion 1: ok frames 48"); return { wallMs: 3200, compiles: 1, report: "He walks over.\nMissing: the fingers do not move.", missing: "the fingers do not move.", final: { clip: "clip.json", scene: SCENE, spec: SPEC }, ...record }; },
+		runScene: async options => { seen.runs.push(options); options.log("  motion 1: ok frames 48"); options.onCompiled({ n: 1, scene: { characters: clip.characters, props: clip.props } }); return { wallMs: 3200, compiles: 1, report: "He walks over.\nMissing: the fingers do not move.", missing: "the fingers do not move.", final: { clip: "clip.json", scene: SCENE, spec: SPEC }, ...record }; },
 		readClip: () => clip,
 		installClip: install ?? (async (c, run, options) => { seen.installs.push(options); return { characterIds: [], objectIds: [], switched: [], ok: true }; }),
 	};
@@ -152,7 +152,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	const deps = { ...base.deps, readClip: file => { clips.push(file); return base.deps.readClip(file); } };
 	const done = await runMotion({ ...base, hub, deps, words: "he walks", memoryKey: "conv-fit", onNamed: ids => named.push(ids), changed: () => ["obj-box", "stool-1", "rug-1", "shelf-1", "stool-1"] });
 	assert.deepEqual(named, [["c1", "lowvis-guest", "obj-box"]], "one compile: the scene's character and box it names, and the cast member it adds");
-	assert.match(clips[0], /public\/lowvis\/clips\/pi\/agent-[^/]+\.json$/, "read from where the compile tool writes the clip");
+	assert.deepEqual(clips, ["clip.json"], "the compiled scene comes from the writer's harness (onCompiled); only the final clip is read");
 	assert.deepEqual(seen.describe[1].args, { tops: true });
 	assert.deepEqual(done.motionFit.objects.map(entry => entry.id), ["obj-box", "stool-1"], "the moved box and the stool on the walk; the flat rug and the far shelf are not named");
 	assert.match(done.motionFit.objects[0].differs[0], /^base at \[1\.5, 0, 2\], the box's at \[1, 0, 2\]$/);

@@ -4,6 +4,7 @@
 // checks.js: `clear`, the nearest joint to any prop (hands excluded), because the engine has no collision.
 //
 // The `reach:` rows are not in checks.js either: a hand, a foot or an elbow that is not where its action put it (aux.reach).
+// Nor the `seat:` rows: a sit on a prop whose hips end off the prop's top or whose feet stand inside it (aux.seats).
 //
 // row: { key, label, short, value, unit, frame?, who?, prop?, note?, worse, spike?, word? }
 //   short: the row's name on a sheet label
@@ -126,6 +127,8 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 		rows.push({ key: `release:${e.prop}:speedJump`, label: `release of ${e.prop}: speed jump`, short: "release jump", value: Math.abs(dist(n, b) - dist(b, a)) * MM, unit: "mm/frame", ...tag, worse: 1, spike: 10 });
 	}
 	for (const p of aux.placed) rows.push({ key: `place:${p.prop}`, label: `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, worse: 1, spike: 30 });
+	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
+	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
 	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
 	// a hand or a foot off the target its action gave it, after that action's blend has ended: the worst frame of each limb
 	const LIMB = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], PART = ["hand", "foot", "elbow"]; // elbows only for a character with elbow keys

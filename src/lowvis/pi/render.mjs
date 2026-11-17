@@ -19,7 +19,9 @@ export const VIEWS = {
 	top: { dir: [0, 1, 0], up: [0, 0, -1] }, // +X to the right, +Z down the sheet
 };
 const BACKGROUND = [232, 229, 223], FLOOR = [199, 201, 202], GRID = [146, 150, 153];
-const TINTS = [[201, 183, 164], [143, 168, 194], [169, 191, 152], [199, 154, 166]], PROP = [176, 170, 160];
+// an untinted figure in the Studio's colours by its place in the clip: the first the blockout grey, the others the
+// cast colours in turn (src/stage-startup-defaults.js defaultCharacterColour, copied: src/lowvis imports no Studio module)
+const GREY = [194, 198, 200], CAST = [[143, 168, 194], [169, 191, 152], [199, 154, 166], [201, 183, 164]], PROP = [176, 170, 160];
 const LIGHT = norm([-0.45, 1, 0.55]);
 const SS = 2, GAP = 4, NEAR = 0.05;
 const CORNERS = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
@@ -129,7 +131,7 @@ const tint = (c, k) => [Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.m
 function sceneAt(clip, f) {
 	const list = [];
 	clip.characters.forEach((ch, n) => {
-		const base = ch.tint ? [1, 3, 5].map(k => parseInt(ch.tint.slice(k, k + 2), 16)) : TINTS[n % TINTS.length], o = f * JOINT_COUNT, s = ch.scale ?? 1;
+		const base = ch.tint ? [1, 3, 5].map(k => parseInt(ch.tint.slice(k, k + 2), 16)) : n ? CAST[(n - 1) % CAST.length] : GREY, o =f * JOINT_COUNT, s = ch.scale ?? 1;
 		for (const part of FIGURE_PARTS) {
 			const i = (o + part.joint) * 3, k = (o + part.joint) * 4, q = [ch.quat[k], ch.quat[k + 1], ch.quat[k + 2], ch.quat[k + 3]], d = qRotate(q, part.off);
 			list.push({ c: [ch.pos[i] + d[0] * s, ch.pos[i + 1] + d[1] * s, ch.pos[i + 2] + d[2] * s], q: qMul(q, part.q), size: s === 1 ? part.size : part.size.map(v => v * s), color: tint(base, part.dark ? 0.42 : part.right ? 0.72 : 1) });

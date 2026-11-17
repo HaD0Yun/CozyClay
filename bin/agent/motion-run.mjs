@@ -6,16 +6,14 @@
 // Used by the motion tool of the Studio agent (motion-door.mjs) and by the direct key (lowvis-turn.mjs).
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 
 const MOTION_VARIANT = "studio";
-// where the motion writer's compile tool writes the clip of its last compile (src/lowvis/pi/compile-tool.mjs clipFile)
-const CLIPS = join(import.meta.dirname, "../../public/lowvis/clips/pi");
 const cast = (figure, index) => `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`;
-/** The Studio ids a compiled clip is written against: the scene's characters and objects it names, and the cast members it adds. */
-const namedOf = (clip, ids) => [...(clip.characters ?? []).map((figure, index) => ids.characters[figure.id] ?? cast(figure, index)), ...(clip.props ?? []).map(prop => ids.props[prop.id]?.id).filter(Boolean)];
+/** The Studio ids a compiled scene (and so its clip, which keeps its ids and order) is written against: the scene's
+ *  characters and objects it names, and the cast members it adds. */
+const namedOf = (scene, ids) => [...(scene.characters ?? []).map((figure, index) => ids.characters[figure.id] ?? cast(figure, index)), ...(scene.props ?? []).map(prop => ids.props[prop.id]?.id).filter(Boolean)];
 const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
@@ -107,9 +105,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
-		// a clip that cannot be read leaves the hold as it was (the whole scene before the first compile)
-		if (call?.[2] === "ok") try { onNamed(namedOf(readClip(join(CLIPS, `${name}.json`)), studio.ids)); } catch { /* the hold stays */ }
-	} });
+	}, onCompiled: ({ scene }) => onNamed(namedOf(scene, studio.ids)) }); // the clip of a compile keeps its scene's ids and order
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
 	const tookSeconds = Math.round(record.wallMs / 1000), base = { name, report: record.report, missing: record.missing, tookSeconds, compiles: record.compiles };
