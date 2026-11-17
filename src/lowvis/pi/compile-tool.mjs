@@ -10,7 +10,7 @@ import { CLIP_FPS, serializeClip, validateClip } from "../clip.js";
 import { JOINT_COUNT, INDEX as J, TIPS, qRotate } from "../rig17.js";
 import { checkClip } from "../engine-simple/checks.js";
 import { NOTES, buildClip, expandRepeats } from "../engine-simple/engine.js";
-import { badness, checkValue, isSpike, measure, travel } from "./measure.mjs";
+import { badness, checkValue, inARow, isSpike, measure, rowId, travel } from "./measure.mjs";
 import { BODY_SCALE, features } from "./prompt.mjs";
 import { VIEWS, drawSheet, encodePng, stackSheets } from "./render.mjs";
 
@@ -191,7 +191,7 @@ function travelLines(clip, aux, spec) {
  *  variant with edit takes motion({ edit }). off: the feature flags switched off (prompt.mjs features).
  *  bodies: { <character id>: { scale?, tint? } }: what a character has before this motion (withBodies). */
 export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", name), clipFile = join(ROOT, "public/lowvis/clips/pi", `${name}.json`), variant = "base", off = [], bodies = {} }) {
-	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, notesSaid: false, moversSaid: "", bodiesSaid: "", last: null };
+	const feature = features(variant, off), state = { scene: null, spec: null, calls: 0, compiles: 0, prevRows: null, streak: null, notesSaid: false, moversSaid: "", bodiesSaid: "", last: null };
 	mkdirSync(outDir, { recursive: true });
 
 	function call(args = {}) {
@@ -248,22 +248,25 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		const images = sheets.map(s => { const png = encodePng(s.sheet.rgba, s.sheet.width, s.sheet.height); writeFileSync(join(outDir, s.file), png); return { data: png.toString("base64"), mimeType: "image/png" }; });
 		const renderMs = Math.round((performance.now() - t1) * 10) / 10;
 
+		// in a row: compiles of a changed scene or spec in a row with the same difference past its spike value (a look alone does not count)
+		const streak = changed || !state.streak ? inARow(told, state.streak) : state.streak, row = told.map(r => streak[rowId(r)]), many = row.filter(k => k > 1);
 		const prev = state.prevRows && Object.fromEntries(state.prevRows.map(r => [r.key, r])), marks = told.map(r => prev ? against(r, prev[r.key]) : { text: "", worse: false });
 		const same = prev && marks.every(m => m.text === " [same]") && told.length === state.prevRows.length, worse = marks.filter(m => m.worse).length;
+		marks.forEach((m, k) => { if (row[k] > 1) m.text = m.text.replace(/\]$/, `; spike ${row[k]} compiles in a row]`); });
 		const text = [
 			`motion ${n}: compiled, ${F} frames = ${num(F / CLIP_FPS, 1)} s at ${CLIP_FPS} fps, build ${buildMs} ms, clip valid`,
 			edited?.said ?? "",
 			aux.repeat?.added || aux.repeat?.dropped ? `repeat: ${aux.repeat.added} actions added by the repeats${aux.repeat.dropped ? `, ${aux.repeat.dropped} left out because they fall after the last frame` : ""}` : "",
 			set.length && set.join() !== state.moversSaid ? `note: moves: true was set on ${set.join(", ")} because the spec moves ${set.length > 1 ? "them" : "it"}` : "",
 			bodiesText(def) !== state.bodiesSaid ? bodiesText(def) || "bodies: every character at scale 1, none with a tint" : "",
-			!told.length ? "" : same ? "checks: every number is the same as in the previous compile" : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
+			!told.length ? "" : same ? `checks: every number is the same as in the previous compile${many.length ? `; ${many.length} past ${many.length === 1 ? "its" : "their"} spike for ${Math.min(...many) === Math.max(...many) ? many[0] : `${Math.min(...many)} to ${Math.max(...many)}`} compiles in a row` : ""}` : `checks, each at its worst frame${prev ? `; [was ..] is the previous compile${worse ? `, ${worse} got worse` : ""}` : ""}:`,
 			...(same ? [] : told.map((r, k) => `- ${rowText(r)}${marks[k].text}`)),
 			...(feature.pace ? travelLines(parsed, aux, expandRepeats(state.spec, F).spec) : []),
 			`at the frames of image ${table} (world metres, yaw in degrees):`, stateTable(parsed, tableFrames),
 			...sheets.map((s, k) => `image ${k + 1}: ${s.says}`),
 			state.notesSaid ? "" : `engine limits (said once): ${(feature.assist === false ? [...NOTES.filter(n => !n.startsWith("reach assist")), NO_ASSIST] : NOTES).join("; ")}`,
 		].filter(Boolean).join("\n");
-		state.notesSaid = true; state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def); state.prevRows = told; state.compiles++;
+		state.notesSaid = true; state.moversSaid = set.join(); state.bodiesSaid = bodiesText(def); state.prevRows = told; state.streak = streak; state.compiles++;
 		state.last = { key, scene: def, spec: state.spec, rows, frames: F, buildMs };
 		return { ...base, status: "ok", text, images, files: sheets.map(s => join(outDir, s.file)), buildMs, renderMs, rows, shown, ms: performance.now() - t0 };
 	}
