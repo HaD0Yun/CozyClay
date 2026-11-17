@@ -47,14 +47,14 @@ const PACE = `\n- travel: for every stretch of walk, run or push, the distance, 
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
 const NUMBERS = {
-	base: `Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse. Numbers and pictures are information, not a gate.
+	base: `Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse; a spike (a value past the check's own limit) that was a spike before also says for how many compiles in a row it has been one (a call that only looks, with the scene and spec unchanged, does not count). Numbers and pictures are information, not a gate.
 - foot slide: how far a planted foot drifts; near 0 is right.
 - lowest foot point, lowest joint: below 0 is under the floor.
 - carry: wrist to the surface of a carried or pushed prop; about 30 mm is a hand on it, more is a gap, below 0 is inside.
 - body to the pushed prop, nearest joint to a prop: below 0 is inside it; the engine has no collision.
 - prop in one hand: how much it slips in the grip. cut: blade to target at the frame a keyed prop starts to move. release: speed and jumps when a prop is let go into a roll.
 - fastest head turn, elbow, wrist: a high value is a snap; right for a strike, wrong in a calm move.`,
-	lean: `Only where the result differs from what you asked; a call with no such difference has no numbers. Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse. Numbers and pictures are information, not a gate.
+	lean: `Only where the result differs from what you asked; a call with no such difference has no numbers. Each has the frame of its worst value and, after the first compile, its previous value and a mark when it got worse; a spike (a value past the check's own limit) that was a spike before also says for how many compiles in a row it has been one (a call that only looks, with the scene and spec unchanged, does not count). Numbers and pictures are information, not a gate.
 - carry: wrist to the surface of a carried or pushed prop; about 30 mm is a hand on it, more is a gap, below 0 is inside.
 - prop in one hand: how much it slips in the grip. cut: blade to target at the frame a keyed prop starts to move. place: how far from its target a prop is let go.`,
 };
@@ -62,7 +62,7 @@ const WORK = {
 	base: `2. Send the scene and the spec. Read the numbers and the pictures. Fix what is wrong or does not read, and change only that.
 3. Stop when the action reads and you can name no defect in it. Fix a defect you can name; when two fixes have not removed it, it is the engine's: leave it and name it in the Missing line.`,
 	lean: `2. Send the scene and the spec. Read the numbers and the pictures. Fix what came out different from what you asked or does not read, and change only that.
-3. Stop when the action reads. A difference that two fixes have not removed is the engine's: leave it and name it in the Missing line.`,
+3. Stop when the action reads. A difference that two fixes have not removed (a spike says 3 compiles in a row) is the engine's: leave it and name it in the Missing line.`,
 };
 export const VARIANTS = Object.keys(FEATURES);
 

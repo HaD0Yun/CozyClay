@@ -138,6 +138,13 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	return rows;
 }
 
+/** A difference's own identity: the check (the row key, which names the limb, the cut or the release where it has
+ *  one), the character and the prop; not the frame, so a difference that moves a few frames stays the same one. */
+export const rowId = r => `${r.key}|${r.who ?? ""}|${r.prop ?? ""}`;
+/** For how many compiles in a row each row has been past its spike value: { <rowId>: n }, only the rows past it now;
+ *  before is the map of the last compile. A row in its normal range (a hand on a carried prop) is no difference. */
+export const inARow = (rows, before) => Object.fromEntries(rows.filter(r => r.spike != null && badness(r) > r.spike).map(r => [rowId(r), (before?.[rowId(r)] ?? 0) + 1]));
+
 /** checkClip's value for a row key, in the row's unit; undefined when checks.js has no such number. */
 export function checkValue(key, c) {
 	const cut = /^cut:.*#(\d+)$/.exec(key);
