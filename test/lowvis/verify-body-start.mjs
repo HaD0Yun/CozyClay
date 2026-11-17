@@ -23,11 +23,16 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 
 // --- 1. nothing said: the demos are the clips of before ---
 {
+	// the elbow note that came later (verify-hands-digest.mjs) is put back to its old text before hashing
+	const OLD_NOTE = "elbow and knee directions come from one fixed pole hint; there is no hands-on-hips or crossed-arms pose";
+	const LATER_NOTE = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
 	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "7161b3b6dec47653", push: "ff755b870529e06d", chop: "0a274e59fda21b52", bowl: "4667a47117f935bb" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
-		assert.equal(hash(serializeClip(buildClip(structuredClone(spec)).clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
+		const { clip } = buildClip(structuredClone(spec));
+		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n));
+		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}
 	console.log(`ok digests: ${DEMO_IDS.length} demos compile to the clips of before`);
 }

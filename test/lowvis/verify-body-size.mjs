@@ -35,10 +35,16 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	// sha256 (16 hex) of every variant's system prompt at the commit before this change; studio: with the body step off
 	const BEFORE = { base: "ad7da48a7d38ba4f", lean: "ed66ee00e280670b", patch: "5f6fb9cb9fb09b36", reach: "c2336e02e54d6806", noassist: "5f6fb9cb9fb09b36", repeat: "ea7cb302a6343b37", kept: "ea7cb302a6343b37", tilt: "315a82f58f56ecf6", studio: "4f001578b8a61907" };
 	// Words that came later are taken out before the hash: the repeat count of a spike (verify-repeat-count.mjs) and
-	// the SPEC lines on the body layer's `over` (verify-body-start.mjs). The two cut texts are disjoint.
+	// the SPEC lines on the body layer's `over` (verify-body-start.mjs), and the SPEC words for aim per axis, own-body
+	// and elbow targets, a level carry and ride, put back to the old lines (verify-hands-words.mjs). The cut texts are disjoint.
 	const noCount = text => text.replace("; a spike (a value past the check's own limit) that was a spike before also says for how many compiles in a row it has been one (a call that only looks, with the scene and spec unchanged, does not count).", ".").replace(" (a spike says 3 compiles in a row)", "");
 	const withoutOver = text => text.replace(/\n {4}sit \/ stand \/ kneel \/ lie \{over\}:[^]*?as at the end of the change\./, "");
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutOver(noCount(systemPrompt(variant, variant === "studio" ? ["body"] : [])))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	const withoutHands = text => text
+		.replace(/aim:\[x,y,z\]\|\{x\?,y\?,z\?:\[x,y,z\], world\?:true\}\|"off", elbowL\|elbowR: target, fast:true, over, ease\}\n[^]*?as near the forearm as it can/, `aim:[x,y,z]|"off", fast:true, over, ease}     aim = where the long axis of the prop in the hand points, body frame`)
+		.replace(/\n {19}\| \{joint:name[^]*?and the arm's length allow/, "")
+		.replace(/ from this frame, level, turning with the line\n +between them;/, " from this frame;")
+		.replace(/\n {4}ride \{on:propId\}[^]*?from the let-go\)/, "");
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutHands(withoutOver(noCount(systemPrompt(variant, variant === "studio" ? ["body"] : []))))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");
