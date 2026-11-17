@@ -78,10 +78,11 @@ import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { moveRiders, propKey } from "./ride.js";
 import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, shareEvent, startFrame } from "./share.js";
+import { reachEntry } from "./reach.js";
 
 export { NOTES, expandRepeats };
 
-const HAND = [J.LeftHand, J.RightHand], FOOT = [J.LeftFoot, J.RightFoot], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
+const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 
 
 /** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks.
@@ -209,7 +210,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 					if (k.to === "keep") { k.to = k.place ? at(k) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
 				}
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
-				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f };
+				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f, done: u >= 1 };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
 				if (k.to?.joint || k.to?.on) h.self = k.to; // a target that follows something: measured again as it ended (share.js)
 				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0];
@@ -231,7 +232,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			const at = t => t === "plant" ? bf : t.q ? t : { a: t.place ? target(c, i, t.place, f) : t.world ? toBody(c.tilt, t.world) : add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
 			const a = at(k.from), b = at(k.to);
-			return { a: arcSized(a.a, b.a, w, add(B.p, qRotate(B.q, mul(OFFSET[UPLEG[i]], c.s))), c.s), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, self: k.to.place, ...(c.tilt ? { floor: -1e9 } : {}) };
+			return { a: arcSized(a.a, b.a, w, add(B.p, qRotate(B.q, mul(OFFSET[UPLEG[i]], c.s))), c.s), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, done: prog(k, f) >= 1, self: k.to.place, ...(c.tilt ? { floor: -1e9 } : {}) };
 		});
 		const helpers = { active, prog, ended, target };
 		aimOf(c, f, U, helpers); elbowsOf(c, f, U, helpers);
@@ -311,12 +312,12 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			c.poseNow = tilted(c.tilt, c.solved);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
 			if (pass === 1) aux.reach[c.id].push(ownReach(c, f, U, [
-				...U.hands.map((h, i) => h.to && h.w >= 1 ? { key: h.key, d: len(sub(c.solved.pos[HAND[i]], h.offset ? add(h.to, h.offset) : h.to)) } : null),
-				...U.feet.map((ft, i) => ft?.to && ft.w >= 1 ? { key: ft.key, d: len(sub(c.solved.pos[FOOT[i]], ft.to)) } : null),
+				...U.hands.map((h, i) => h.to && h.done ? reachEntry(c, i, h.key, h.offset ? add(h.to, h.offset) : h.to, { slow: c.solved.slow[i] }) : null),
+				...U.feet.map((ft, i) => ft?.to && ft.done ? reachEntry(c, 2 + i, ft.key, ft.to, { floor: c.solved.lift[i] > 0.001 && c.solved.lift[i] }) : null),
 			], { target }));
 		}
 		moveRiders(props, f);
-		for (const c of chars) otherReach(c, aux.reach[c.id].at(-1), byId, props, f, p => toBody(c.tilt, p));
+		for (const c of chars) otherReach(c, aux.reach[c.id].at(-1), byId, props, f, p => toBody(c.tilt, p), reachEntry);
 		for (const c of chars) {
 			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
 			setPose(c.out, f, c.world);
