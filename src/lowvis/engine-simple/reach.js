@@ -1,7 +1,8 @@
 // The facts of one reach entry (aux.reach[characterId][frame][slot]): how far a limb is from the target its action gave
 // it and what the engine knows on that frame about why: the target's distance from the joint the limb hangs from
-// against the limb's length, whether the wrist was held back by its top speed, whether the wrist's own place keeps an
-// elbow off its target, how far under the lowest an ankle can be a foot's target lies. engine.js and own-body.js build
+// against the limb's length, how far the wrist was held back by its top speed, whether the wrist's own place keeps an
+// elbow off its target, how far under the lowest an ankle can be a foot's target lies, how far an own-body target moved
+// with the pose that reached for it. engine.js and own-body.js build
 // the entries; src/lowvis/pi/measure.mjs turns them into the reasons of the "reach:" rows. Nothing here knows a motion.
 import { INDEX as J, OFFSET } from "../rig17.js";
 import { add, dot, len, mul, norm, sub } from "./math.js";
@@ -33,16 +34,18 @@ function elbowCircle(sh, w, t, s = 1) {
 
 /**
  * One reach entry of slot `slot` for character c on its solved pose c.solved (the space the pose is solved in; all
- * points in metres). t: the target. more: { slow: the wrist was held back by its top speed on this frame, wrist: the
- * wrist's own target is set (for an elbow), floor: metres the target lies under the lowest the ankle can be }.
+ * points in metres). t: the target. more: { slow: metres the wrist was held back by its top speed on this frame, wrist:
+ * the wrist's own target is set (for an elbow), floor: metres the target lies under the lowest the ankle can be, drift:
+ * metres an own-body target moved from where the solver aimed to where that joint ended up }.
  * -> { key, d, t, r: the root joint, beyond: metres the target lies past the limb's length from the root (below 0:
- *      inside it), circle?: for an elbow whose wrist has a target, the nearest the elbow can come to t, bend: for an
- *      arm, the reach assist's hinge (rad), spent?: it was hinged as far as it goes, ...more }
+ *      inside it), circle?: for an elbow whose wrist has a target, the nearest the elbow can come to t, bend, drop: for
+ *      an arm, the reach assist's hinge (rad) and how far it lowered the hips, spent?: it was hinged as far as it goes,
+ *      ...more }
  */
 export function reachEntry(c, slot, key, t, more = {}) {
 	const S = LIMBS[slot], pos = c.solved.pos, r = pos[S.root], out = { key, d: len(sub(pos[S.end], t)), t, r, beyond: len(sub(t, r)) - S.length * c.s };
 	if (S.exact && more.wrist) out.circle = elbowCircle(r, pos[slot === 4 ? J.LeftHand : J.RightHand], t, c.s);
-	if (S.part !== "leg" && c.solved.assist) { out.bend = c.solved.assist.bend; if (out.bend >= ASSIST_BEND - 1e-6) out.spent = true; }
+	if (S.part !== "leg" && c.solved.assist) { out.bend = c.solved.assist.bend; out.drop = c.solved.assist.drop; if (out.bend >= ASSIST_BEND - 1e-6) out.spent = true; }
 	for (const [k, v] of Object.entries(more)) if (v) out[k] = v;
 	return out;
 }

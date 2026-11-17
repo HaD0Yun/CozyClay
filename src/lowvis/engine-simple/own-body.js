@@ -2,7 +2,7 @@
 // character's joints ({joint, at}), the elbow targets (pose elbowL / elbowR), and aim, the way the hand that holds a
 // prop turns it. engine.js calls these inside its frame loop; `t` is its { active, prog, ended, target } helpers.
 import { INDEX as J } from "../rig17.js";
-import { EASE, X, Y, Z, add, mix, mixV, norm, qMul, qRotate, qY, sub } from "./math.js";
+import { EASE, X, Y, Z, add, len, mix, mixV, norm, qMul, qRotate, qY, sub } from "./math.js";
 import { solveSized } from "./size.js";
 import { reachEntry } from "./reach.js";
 
@@ -62,7 +62,7 @@ export function elbowsOf(c, f, U, t) {
  *  keys, [L elbow, R elbow] after the feet. */
 export function ownReach(c, f, U, row, t) {
 	const self = (i, to) => t.target(c, i, to, f);
-	U.hands.forEach((h, i) => { if (row[i] && h.self) row[i] = reachEntry(c, i, row[i].key, h.offset ? add(self(i, h.self), h.offset) : self(i, h.self), { slow: row[i].slow }); });
+	U.hands.forEach((h, i) => { if (row[i] && h.self) { const t = h.offset ? add(self(i, h.self), h.offset) : self(i, h.self); row[i] = reachEntry(c, i, row[i].key, t, { slow: row[i].slow, drift: len(sub(row[i].t, t)) }); } });
 	if (!c.keys.elbowL.length && !c.keys.elbowR.length) return row;
-	return [...row, ...U.hands.map(({ elbow: e, to }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to }) : null))];
+	return [...row, ...U.hands.map(({ elbow: e, to }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to, drift: e.self && len(sub(e.to, self(i, e.self))) }) : null))];
 }

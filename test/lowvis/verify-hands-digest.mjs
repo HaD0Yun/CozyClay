@@ -5,6 +5,7 @@
 // The one note that changed with them (notes.js, stored in every clip) is put back to its old text before hashing.
 // Pinned again when the reach entries got the facts of their reasons (aux.reach: t, r, beyond, bend, ...; the object
 // demo's two rows from frames inside an overshooting blend are gone); the clips stayed byte for byte (verify-body-start.mjs).
+// Pinned again when an arm's entries also carried the reach assist's drop; clips and every entry's {key, d} the same.
 // The aux numbers are rounded to 5 decimals (10 µm), as serializeClip rounds the clip: arm64 and x86_64 differ in the
 // last bit of some doubles (aux.reach distances near 0 differ by up to 5e-16 m), which raw doubles would hash apart.
 import assert from "node:assert/strict";
@@ -21,11 +22,11 @@ assert.ok(NOTES.includes(NEW_NOTE), "the clip's notes say that an elbow can be g
 const BEFORE = {
 	locomotion: "4b102ce748c4e84499e261466067abbde83b27c9a4becd9f80d39b888f21a016",
 	sit: "1da2ec2bfab4cd8e9764ad743f8d1d145feff0fe01d2713dbf3da69e2c05f025",
-	object: "2354fe409bb5dca327bbab10e261e737b55eaf4aacaaca920da85827cd017772",
-	duo: "dbd8f6fc4c75c80d771ec80a6b724d78f9ec2bb5f10ecb852f91aed5a8b3e5a4",
-	push: "b73812c008ec7528aaeee16452a49259beb45e44fd2098251205392327797f6b",
-	chop: "eaf062928f806b7769cc364540ff0839abc1fcff2402086148fd1cd6a7c29867",
-	bowl: "ec1dacec73abed79e1c600515f01b8d5ba89ebcae9d5be60e965b48267620ac5",
+	object: "cfc84d1f2b2823ae7662f69566b62e5251dec5b67738305e756c349558fccba7",
+	duo: "0a1c779150672ec2c891670b7c4afc942f7bc2dd9536d7f10c13b0ff11fb470f",
+	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
+	chop: "623cc406072ba4ca9e52af4cc5d5364ed9fff4acf78d9b9d46ab7562388ab314",
+	bowl: "9cda1765b58f6cd17d298d94167df94e453b6ac4b2c8517086136c2ef6fe28dc",
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};
