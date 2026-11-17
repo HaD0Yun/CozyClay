@@ -6,10 +6,16 @@
 // Used by the motion tool of the Studio agent (motion-door.mjs) and by the direct key (lowvis-turn.mjs).
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
-import { boxesOf, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
+import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 
 const MOTION_VARIANT = "studio";
+// where the motion writer's compile tool writes the clip of its last compile (src/lowvis/pi/compile-tool.mjs clipFile)
+const CLIPS = join(import.meta.dirname, "../../public/lowvis/clips/pi");
+const cast = (figure, index) => `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+/** The Studio ids a compiled clip is written against: the scene's characters and objects it names, and the cast members it adds. */
+const namedOf = (clip, ids) => [...(clip.characters ?? []).map((figure, index) => ids.characters[figure.id] ?? cast(figure, index)), ...(clip.props ?? []).map(prop => ids.props[prop.id]?.id).filter(Boolean)];
 const last = new Map(); // memoryKey -> { scene, spec } the motion writer wrote last
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
@@ -81,11 +87,14 @@ function requestOf({ words, wordsOf, note }, pictures, studio, before, body = fa
  * Throws an Error whose code is "upstream" (the model or the proxy), "studio" (the Studio refused the install) or
  * "aborted".
  * onScene(ids): once the Studio scene is read, with the ids of the characters and objects the motion is written against
- * (scene.js studioScene ids). exclusive(install): runs the install (the editor steps, up to the "studio" failure) and
- * answers what it answers; the motion door holds the scene for it there while other work goes on (motion-door.mjs).
+ * (scene.js studioScene ids). onNamed(ids): after each compile, the Studio ids its clip is written against (the scene's
+ * characters and objects it names, and the "lowvis-" cast members it adds). exclusive(install): runs the install (the
+ * editor steps, up to the "studio" failure) and answers what it answers; the motion door holds the scene for it there
+ * while other work goes on (motion-door.mjs). changed(): the ids other calls changed while the motion was written; the
+ * objects among them that differ where the body goes are the answer's motionFit (motion-fit.mjs changedFit).
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
-export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, onBodies = () => {}, exclusive = install => install(), deps = null }) {
+export async function runMotion({ words = null, wordsOf = "turn", note = null, images = [], memoryKey, hub, workspaceHandle, invoke, signal = null, env = process.env, onCompile = () => {}, onScene = () => {}, onNamed = () => {}, changed = () => [], onBodies = () => {}, exclusive = install => install(), deps = null }) {
 	const { runScene, installClip, studioScene, readClip } = deps ?? await realDeps();
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
@@ -98,6 +107,8 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
 		const call = /^\s*motion (\d+): (\w+)/.exec(line);
 		if (call) try { onCompile({ n: Number(call[1]), ok: call[2] === "ok", line: line.trim() }); } catch { /* a failing view never fails the run */ }
+		// a clip that cannot be read leaves the hold as it was (the whole scene before the first compile)
+		if (call?.[2] === "ok") try { onNamed(namedOf(readClip(join(CLIPS, `${name}.json`)), studio.ids)); } catch { /* the hold stays */ }
 	} });
 	if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 	if (record.infraError) throw failure("upstream", `The model or the proxy failed: ${record.infraError.message}`);
@@ -127,7 +138,11 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	});
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
 	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
-	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === `lowvis-${String(figure.id ?? index).replace(/[^A-Za-z0-9_-]/g, "_")}`);
+	// what other calls changed or added while the motion was written, against the boxes and the floor it used
+	const meanwhile = [...new Set(changed())];
+	let motionFit = null;
+	if (meanwhile.length) try { motionFit = changedFit(meanwhile, (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? [], boxesOf(memoryKey ?? name), floorCells(clip)); } catch (error) { motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
+	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
 	const animated = clip.characters.map(studioId).filter(Boolean);
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id).filter(Boolean);
 	const switched = result.switched ?? [];
@@ -136,5 +151,5 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	rememberBodies(memoryKey ?? name, got);
 	if (result.bodies?.length) try { onBodies(result.bodies); } catch { /* a failing view never fails the run */ }
 	const report = switched.length ? `${record.report ? `${record.report}\n\n` : ""}Changed to the block figure: ${switched.join(", ")}.` : record.report;
-	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(memoryKey ?? name), travelOf(clip)), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}) };
+	return { ...base, report, frames: clip.frameCount, clipSeconds: Math.round(clip.frameCount / (clip.fps ?? 24) * 10) / 10, characterIds: animated, objectIds: [...result.objectIds, ...placed], switched, used: usedText(boxesOf(memoryKey ?? name), travelOf(clip)), ...(motionFit ? { motionFit } : {}), ...(got.some(b => b.scale !== 1 || b.tint) ? { bodies: got } : {}), ...(result.bodies?.length ? { bodiesSet: result.bodies } : {}) };
 }

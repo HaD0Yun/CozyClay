@@ -18,6 +18,7 @@
 //   boxesOf(key), floorOf(key)                Map(<Studio id> -> box) and [[x, z], ...] floor cells, empty when none
 //   fitOf(box, row, floor)                    the differences of one describe row from its box: [text]
 //   usedText(boxes, travel)                   one line for the agent: the objects the motion uses and the floor the bodies cross
+//   changedFit(ids, rows, boxes, floor)       the motion result's motionFit: objects changed or added while it was written
 //   turnFitView({ value, env, hub })          { tools(list) }: under the lowvis engine, a tool result that changed a used
 //                                             object gains motionFit
 import { motionEngine } from "./motion-engine.mjs";
@@ -107,6 +108,29 @@ export function usedText(used, travel) {
 	if (used.size) parts.push(`The motion uses these objects as boxes (id: width x height x depth m, base [x, y, z], turn): ${[...used.values()].map(b => `${b.id} (${b.name}): ${b.size.join(" x ")}, [${b.base.join(", ")}]${b.turn ? `, ${r2(b.turn)}°` : ""}`).join("; ")}.`);
 	if (travel) parts.push(`The bodies cross the floor within x ${travel.x.join(" to ")}, z ${travel.z.join(" to ")}.`);
 	return parts.length ? parts.join(" ") : null;
+}
+
+/** Where an object the motion does not use stands on floor the feet use: [text], or [] (a hidden, attached or flat-as-floor object, under 0.03 m, stands nowhere). */
+function onFeetOf(row, floor) {
+	const size = [finite(row.footprint?.width, 1) * finite(row.scaleX, 1), finite(row.height, 1) * finite(row.scaleY, 1), finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1)];
+	if (row.hidden || row.attach || size[1] < 0.03) return [];
+	const cells = floor.filter(p => inside(p, [finite(row.x), finite(row.z)], finite(row.rot), [size[0] / 2, size[2] / 2])).length;
+	return cells ? [`footprint ${r2(size[0])} x ${r2(size[2])} m, ${r2(size[1])} m tall, at [${r2(finite(row.x))}, ${r2(finite(row.z))}] stands on floor the feet use (${cells} cell${cells === 1 ? "" : "s"} of ${FLOOR_CELL} m); the motion was written without it`] : [];
+}
+
+/**
+ * The objects that other calls changed or added while a motion was written (ids), as the Studio now has them (rows:
+ * describe objects with flat tops), against the boxes the motion used and the floor its feet use: motionFit
+ * { fits: false, objects: [{ id, name, differs }], note } as turnFitView answers it, or null when none differs there.
+ */
+export function changedFit(ids, rows, used, floor) {
+	const byId = new Map(rows.map(row => [row?.id, row])), objects = [];
+	for (const id of ids) {
+		const row = byId.get(id), box = used.get(id);
+		const differs = box ? fitOf(box, row, floor) : row ? onFeetOf(row, floor) : [];
+		if (differs.length) objects.push({ id, name: box?.name ?? String(row?.name ?? id), differs });
+	}
+	return objects.length ? { fits: false, objects, note: NOTE } : null;
 }
 
 const NOTE = "The motion was written against these boxes. Where the body meets an object (its top, the floor around it, a prop the hands hold), its look should match its box: fit the look to the box there.";

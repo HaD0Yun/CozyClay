@@ -21,8 +21,9 @@ const until = async test => { for (let i = 0; i < 400 && !test(); i++) await tic
 /** A stub motion writer: it reads the scene (onScene), waits for release(), then installs under exclusive. */
 function stubMotion({ held = { characters: { c1: "c1" }, props: { bench: { id: "bench" } } }, fail = null } = {}) {
 	const log = [], gate = {};
-	const run = async ({ signal, onScene, exclusive }) => {
+	const run = async ({ signal, onScene, onNamed, changed, exclusive }) => {
 		log.push(["motion.start", performance.now()]);
+		Object.assign(gate, { onNamed, changed });
 		onScene?.(held);
 		await new Promise((resolve, reject) => { gate.release = resolve; signal?.addEventListener("abort", () => reject(Object.assign(new Error("The turn was stopped."), { code: "aborted" })), { once: true }); });
 		const done = await (exclusive ?? (install => install()))(async () => { log.push(["install", performance.now()]); if (fail) throw fail; return DONE; });
@@ -131,6 +132,28 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	moved.gate.release();
 	await assert.rejects(door4.with([])[1].handler(), error => error.code === "studio" && /Another scene was opened/.test(error.message));
 	console.log("PASS background motion: a stop stops it, a refusal rolls back its own edits, another scene refuses the install");
+}
+
+// 3b. The hold is the whole scene the motion read until the writer's first compile, then only what its compiled scenes
+// name (they grow): an edit of anything else goes through and is told to the motion (changed) for its motionFit.
+{
+	const motion = stubMotion({ held: { characters: { c1: "c1" }, props: { bench: { id: "bench" }, shelf: { id: "shelf" } } } }), tx = transaction();
+	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const [edit] = door.with([{ name: "edit", handler: async ({ id }) => ({ ok: true, affectedIds: [id] }) }]);
+	await door.handler({ request: "c1 sits on the bench" });
+	await assert.rejects(edit.handler({ id: "shelf" }), error => error.code === "MOTION_RUNNING", "before the first compile the whole scene is held");
+	motion.gate.onNamed(["c1", "bench"]);
+	assert.deepEqual(await edit.handler({ id: "shelf" }), { ok: true, affectedIds: ["shelf"] }, "the shelf the compiled scene does not name goes through");
+	assert.deepEqual(await edit.handler({ id: "rug-1" }), { ok: true, affectedIds: ["rug-1"] }, "a new object goes through");
+	await assert.rejects(edit.handler({ id: "bench" }), error => error.code === "MOTION_RUNNING" && /bench/.test(error.message), "the bench it names stays held");
+	await assert.rejects(edit.handler({ id: "c1" }), error => error.code === "MOTION_RUNNING", "the character it animates stays held");
+	motion.gate.onNamed(["lowvis-guest"]);
+	await assert.rejects(edit.handler({ id: "lowvis-guest" }), error => error.code === "MOTION_RUNNING", "a cast member it will add is held");
+	await assert.rejects(edit.handler({ id: "bench" }), error => error.code === "MOTION_RUNNING", "what an earlier compile named stays held");
+	assert.deepEqual(motion.gate.changed(), ["shelf", "rug-1"], "the motion is told what changed meanwhile");
+	motion.gate.release();
+	assert.deepEqual(await door.with([])[1].handler(), ANSWER);
+	console.log("PASS background motion: the hold narrows to what the compiled scenes name; other edits go through and are told to the motion");
 }
 
 // 4. A task's run (background false) waits for the motion as before and has no motion_result.
