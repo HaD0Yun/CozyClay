@@ -107,7 +107,7 @@ export function buildUpper(id, acts, props, s = 1) {
 
 /** A hold that can share the prop (share.js): with `at` the hands go to their places on the prop over `over` frames
  *  and take hold when they arrive; without it they take hold where they are. From then on each hand is held where it
- *  is in the body frame (a "keep" key) until a later pose of that hand. */
+ *  is in the body frame (a "keep" key, at its place when it has one) until a later pose of that hand. */
 function holdShared(id, f, k, o, keys, events) {
 	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"];
 	const point = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
@@ -116,9 +116,10 @@ function holdShared(id, f, k, o, keys, events) {
 		if (o.at !== undefined && !point(at[i])) throw new Error(`engine-simple: ${id} hold at frame ${f}: at wants [x, y, z] for one hand or {L: [x, y, z], R: [x, y, z]} for the hands named, got ${JSON.stringify(o.at)}`);
 	}
 	const take = o.at === undefined ? f : f + k.over;
-	for (const i of hands) {
-		if (at[i]) keys[name[i]].push({ ...k, to: { on: o.prop, at: at[i] } });
-		keys[name[i]].push({ f: take, over: 0, ease: "inout", to: "keep", auto: true });
+	for (const i of hands) { // the keep key is held at the place itself (over: 0 = there at once, with no blend key)
+		const place = at[i] ? { on: o.prop, at: at[i] } : undefined;
+		if (place && k.over > 0) keys[name[i]].push({ ...k, to: place });
+		keys[name[i]].push({ f: take, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true });
 	}
 	events.push({ f: take, prop: o.prop, holder: id, hands, at, share: true, key: f });
 }

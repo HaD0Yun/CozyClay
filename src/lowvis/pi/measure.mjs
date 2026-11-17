@@ -130,6 +130,12 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
 	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
+	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that frame
+	for (const c of clip.characters) [0, 1].forEach(i => {
+		let worst = null;
+		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.took > (worst?.v ?? 0.01)) worst = { v: at[i].took, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand, the action at f${at[i].key}` }; });
+		row(`reach:${c.id}:${i}:took`, "hand took hold short of its place; the prop was pulled to the hand", worst, "mm", MM, { short: "pulled", worse: 1, spike: 60 });
+	});
 	// a hand or a foot off the target its action gave it, after that action's blend has ended: the worst frame of each limb
 	const LIMB = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], PART = ["hand", "foot", "elbow"]; // elbows only for a character with elbow keys
 	for (const c of clip.characters) LIMB.forEach((limb, i) => {

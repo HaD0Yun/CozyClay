@@ -68,7 +68,8 @@ const holdList = Object.entries(PLACES).flatMap(([who, s]) => Object.entries(s).
 	const low = { ...BOARD, props: [{ ...BOARD.props[0], at: [0, 0.03, 0] }] }, noBow = who => lift(who).filter(a => !(a[0] === 10 && a[1] === "pose"));
 	const s = build({ p: noBow("p"), q: noBow("q") }, low), sw = worstOn(s.parsed, holdList, 35, 175), told = reachRows(s).filter(r => r.value > 10);
 	const roll = f => { const x = qRotate(prop(s.parsed, "board", f).q, [1, 0, 0]), z = qRotate(prop(s.parsed, "board", f).q, [0, 0, 1]); return Math.max(Math.abs(x[1]), Math.abs(z[1])) * 180 / Math.PI; };
-	assert.ok(told.length === 4 && told.every(r => r.frame === 34 && /on 1 frame/.test(r.note)), `the four hands short of their places are told on the take frame:\n${told.map(r => `${r.key} ${r.value.toFixed(0)} mm @f${r.frame} ${r.note}`).join("\n")}`);
+	// (the pull is a row of its own, reach:<who>:<hand>:took; the hand is on its place on that frame: verify-share-repairs.mjs)
+	assert.ok(told.length === 4 && told.every(r => r.frame === 34 && /:took$/.test(r.key) && /the action at f20/.test(r.note)), `the four hands short of their places are told on the take frame:\n${told.map(r => `${r.key} ${r.value.toFixed(0)} mm @f${r.frame} ${r.note}`).join("\n")}`);
 	assert.ok(sw < 0.01 && roll(100) < 1, `then every hand is on its place (worst ${mm(sw)} mm) and the board level (${roll(100).toFixed(2)} deg)`);
 	console.log(`ok hands that take hold short of their places: the board comes up to them, ${told.map(r => r.value.toFixed(0)).join(" / ")} mm told on the take frame; level after`);
 }
