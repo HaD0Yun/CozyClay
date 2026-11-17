@@ -10,12 +10,13 @@
 // the first pass of every character and the fit of every shared prop. Props that ride on others are moved onto their
 // carriers before each pass reads them.
 import { INDEX as J, qAxisAngle } from "../rig17.js";
-import { add, cross, dot, len, mul, qConj, qMul, qRotate, qY, sub } from "./math.js";
+import { add, cross, dot, len, mul, norm, qConj, qMul, qRotate, qY, sub, wrap } from "./math.js";
 import { PAD } from "./prop-frame.js";
 import { moveRiders } from "./ride.js";
 import { solveSized } from "./size.js";
+import { ARM_LEN } from "./solve.js";
 
-const HAND = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
+const HAND = [J.LeftHand, J.RightHand], ARM = [J.LeftArm, J.RightArm], SIDE = ["L", "R"];
 const END = [J.LeftHand, J.RightHand, J.LeftFoot, J.RightFoot, J.LeftForeArm, J.RightForeArm]; // the joint of each reach slot
 const pointOf = (P, j, at) => add(P.pos[j], qRotate(P.quat[j], at ?? [0, 0, 0]));
 const jointOf = name => { const j = J[name]; if (j == null) throw new Error(`engine-simple: unknown joint "${name}"; want one of ${Object.keys(J).join(", ")}`); return j; };
@@ -64,8 +65,9 @@ export function shareEvent(p, c, e, f, byId) {
 			if (p.hand == null) p.grips = alone(true);
 		}
 		if (!p.grips) return false;
+		const push = p.slide; // a push goes on with the hand that is left: the prop slides on the floor with it
 		p.grips = p.grips.filter(g => g.c !== c || (e.lets != null && g.i !== e.lets));
-		if (p.grips.length) return held(p);
+		if (p.grips.length) { held(p); p.slide = push; return true; }
 		free(p);
 		return false;
 	}
@@ -76,6 +78,14 @@ export function shareEvent(p, c, e, f, byId) {
 	for (const i of hands) p.grips.push({ c, i, key: e.key ?? f, since: f, ask: e.at?.[i] ?? null, g: null });
 	p.takenAt = f;
 	return held(p);
+}
+/** A place's entry of aux.placed, one per prop and frame its hands let go on: how far the prop is from the place's
+ *  target (the worst of the places that end on that frame), who placed it and whether any of them held it. */
+export function placed(list, p, c, e, f) {
+	const holds = p.holder === c.id || !!p.grips?.some(g => g.c === c);
+	let row = list.find(r => r.prop === e.prop && r.f === f);
+	if (!row) list.push(row = { prop: e.prop, f, miss: 0, who: [], held: false });
+	Object.assign(row, { miss: Math.max(row.miss, len(sub(p.c, e.at))), who: [...row.who, c.id], held: row.held || holds });
 }
 const label = p => p.grips.map(g => `${g.c.id}:${SIDE[g.i]}`).join("+");
 const held = p => { p.holder = label(p); p.hand = null; p.slide = false; return true; };
@@ -88,27 +98,35 @@ const free = p => { p.grips = null; p.set = null; };
  *  g.took: how far it was from it), and every shared prop is fitted to its holding hands. A hand that took hold short
  *  of its place pulls the prop to it. A prop in one hand alone keeps the turn it had in that hand when it came to hold
  *  it alone (c.gripTurn: that turn, for aim; g.hq: a hand that held it on the last frame, as it was then). In more
- *  hands, about an axis the places hardly fix it keeps the turn it had on the last frame, turned only as the places
- *  turn it. */
+ *  hands, about an axis the places hardly fix it keeps the turn it had on the last frame, turned about the vertical as
+ *  far as its holders' headings turned since then (spin) and otherwise only as the places turn it. */
 export function afterFirstPass(props, chars, f) {
-	for (const c of chars) { c.snap = c.poseNow; c.snapF = f; c.gripTurn = [null, null]; }
+	for (const c of chars) {
+		const facing = c.body[f].yaw; // the heading: the frame a holding hand's place in the body frame turns with
+		Object.assign(c, { snap: c.poseNow, snapF: f, gripTurn: [null, null], spun: c.facing == null ? 0 : wrap(facing - c.facing), facing });
+	}
 	for (const p of Object.values(props)) {
 		if (!p.grips) continue;
 		const hand = g => g.c.poseNow.pos[HAND[g.i]];
 		for (const g of p.grips) if (!g.g) {
 			const now = qRotate(qConj(p.q), sub(hand(g), p.c)), pad = PAD * g.c.s;
 			g.g = g.ask ?? (g.here ? now : now.map((v, k) => Math.max(-p.size[k] / 2 - pad, Math.min(p.size[k] / 2 + pad, v))));
-			g.took = { f, d: len(sub(g.g, now)) };
+			// why: slow: how far the top speed held this hand back; beyond: how far the place lay past the arm's reach;
+			// near: no place was asked, so it is the prop's nearest point to the hand
+			const why = { slow: g.c.solved.slow[g.i], beyond: len(sub(add(p.c, qRotate(p.q, g.g)), g.c.poseNow.pos[ARM[g.i]])) - ARM_LEN * g.c.s, near: !g.ask && !g.here };
+			g.took = { f, d: len(sub(g.g, now)), why };
 		}
-		const set = label(p), fresh = p.set !== set;
-		if (p.grips.length === 1) { // one hand: the prop is fixed in it as it was when this hand came to hold it alone
+		const set = label(p), fresh = p.set !== set, y = p.c[1];
+		if (p.slide) ; // pushed by the hand left of a push: it keeps its turn and height and slides with the hand
+		else if (p.grips.length === 1) { // one hand: the prop is fixed in it as it was when this hand came to hold it alone
 			const g = p.grips[0], hq = g.c.poseNow.quat[HAND[g.i]];
 			if (fresh) { p.gripTurn = qMul(qConj(g.hq ?? hq), p.q); g.c.gripHand = g.i; }
 			p.q = qMul(hq, p.gripTurn); g.c.gripTurn[g.i] = p.gripTurn;
-		} else p.q = fitTurn(p.q, p.grips.map(g => g.g), p.grips.map(hand));
+		} else p.q = heldTurn(p.q, p.grips.map(g => g.g), p.grips.map(hand), spin(p.grips));
 		for (const g of p.grips) g.hq = null;
 		const gc = mean(p.grips.map(g => g.g)), hc = mean(p.grips.map(hand));
 		p.c = sub(hc, qRotate(p.q, gc));
+		if (p.slide) p.c[1] = y;
 		for (const g of p.grips) g.kept = len(sub(add(p.c, qRotate(p.q, g.g)), hand(g))); // how far the fit keeps the place from where this pass put the hand
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); p.set = set; p.holder = set;
@@ -129,7 +147,7 @@ export function onPlaces(props, c, U, f, toBody) {
 		if (g.c !== c) continue;
 		const h = U.hands[g.i], to = toBody(add(p.c, qRotate(p.q, g.g)));
 		const own = g.kept > PAD * c.s && g.took.f !== f && h.done && h.key >= (g.since ?? g.key) ? h.to ?? "rest" : null;
-		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, prop: p.id, own, ownKey: h.key });
+		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, tookWhy: g.took.f === f ? g.took.why : null, prop: p.id, own, ownKey: h.by ?? h.key });
 	}
 }
 
@@ -150,10 +168,35 @@ export function otherReach(c, row, byId, props, f, toBody, entry = plainEntry) {
 const plainEntry = (c, k, key, t) => ({ key, d: len(sub(c.solved.pos[END[k]], t)) });
 
 const mean = list => mul(list.reduce(add, [0, 0, 0]), 1 / list.length);
+/** How far the bodies of the hands that hold a prop turned their heading since the last frame (c.spun; rad, the mean
+ *  over the hands). */
+const spin = grips => grips.reduce((sum, g) => sum + g.c.spun, 0) / grips.length;
+/** The turn of a prop held at places g (prop frame) by hands at P (world), from its turn q0 on the last frame: the fit
+ *  from q0 turned by the holders' heading (spun); then fitted again from that turn rolled about the line through the
+ *  two places farthest apart (when it is not near vertical) back to the roll about it, against the vertical, that the
+ *  prop had on the last frame. As far as the places fix that roll the fit keeps theirs; as far as they hardly do (all
+ *  on or near one line) the prop keeps its roll against the vertical, whichever way the line got where it is. */
+function heldTurn(q0, g, P, spun) {
+	const q1 = fitTurn(qMul(qY(spun), q0), g, P);
+	let a = g[0], b = g[0];
+	for (const x of g) for (const y of g) if (len(sub(x, y)) > len(sub(a, b))) { a = x; b = y; }
+	if (len(sub(a, b)) < 1e-6) return q1;
+	const l = norm(sub(b, a));
+	// the roll against the vertical is not defined for a vertical line: none of it near one, on this frame or the last
+	const level = q => Math.min(1, Math.max(0, (0.97 - Math.abs(qRotate(q, l)[1])) / 0.07)), k = level(q0) * level(q1);
+	return k > 0 ? fitTurn(qMul(qAxisAngle(qRotate(q1, l), k * wrap(rollOf(q0, l) - rollOf(q1, l))), q1), g, P) : q1;
+}
+/** The roll of a prop at turn q about its own line l: the angle about that line, seen in the world, from the vertical
+ *  to a prop axis square to l. */
+function rollOf(q, l) {
+	const L = qRotate(q, l), u = qRotate(q, cross(l, Math.abs(l[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]));
+	const up = [-L[0] * L[1], 1 - L[1] * L[1], -L[2] * L[1]], w = sub(u, mul(L, dot(L, u)));
+	return Math.atan2(dot(cross(up, w), L), dot(up, w));
+}
 /** The turn that best lays the places g (prop frame) on the points P (world), in the least-squares sense, plus a small
- *  pull (STIFF of the places' spread) toward q0, the turn the prop had on the last frame: about an axis the places
- *  hardly fix (all of them on or near one line) the prop keeps that turn, turned only as the places turn it, instead of
- *  rolling on small differences between the hands. Gauss-Newton steps from q0. */
+ *  pull (STIFF of the places' spread) toward q0, the turn the prop had on the last frame turned as its holders turned:
+ *  about an axis the places hardly fix (all of them on or near one line) the prop keeps that turn, turned only as the
+ *  places turn it, instead of rolling on small differences between the hands. Gauss-Newton steps from q0. */
 const STIFF = 0.005;
 function fitTurn(q0, g, P) {
 	const ref = q0;

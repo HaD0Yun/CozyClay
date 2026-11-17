@@ -67,11 +67,11 @@ export function elbowsOf(c, f, U, t) {
 export function ownReach(c, f, U, row, t) {
 	const self = (i, to) => t.target(c, i, to, f);
 	U.hands.forEach((h, i) => { if (row[i] && h.self) { const t = h.offset ? add(self(i, h.self), h.offset) : self(i, h.self); row[i] = reachEntry(c, i, row[i].key, t, { slow: row[i].slow, drift: len(sub(row[i].t, t)) }); } });
-	U.hands.forEach((h, i) => { if (row[i] && h.took) Object.assign(row[i], { took: h.took, prop: h.prop }); }); // took hold of a shared prop this short of its place (share.js)
+	U.hands.forEach((h, i) => { if (row[i] && h.took) Object.assign(row[i], { took: h.took, tookWhy: h.tookWhy, prop: h.prop }); }); // took hold of a shared prop this short of its place (share.js)
 	U.hands.forEach((h, i) => { // a hand on its place on a shared prop: how far it ends from where its own action puts it
 		const own = h.own === "rest" ? add(c.solved.pos[J.Hips], qRotate(c.body[f].q, c.body[f].hands[i])) : h.own;
 		if (row[i] && own) Object.assign(row[i], { held: len(sub(c.solved.pos[HAND[i]], own)), heldKey: h.ownKey, prop: h.prop });
 	});
 	if (!c.keys.elbowL.length && !c.keys.elbowR.length) return row;
-	return [...row, ...U.hands.map(({ elbow: e, to }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to, slow: c.solved.late[i], drift: e.self && len(sub(e.to, self(i, e.self))) }) : null))];
+	return [...row, ...U.hands.map(({ elbow: e, to, from, w }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to || (!!from && w < 1), slow: c.solved.late[i], drift: e.self && len(sub(e.to, self(i, e.self))) }) : null))];
 }

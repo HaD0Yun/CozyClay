@@ -26,7 +26,7 @@ assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by se
 const BEFORE = {
 	locomotion: "4b102ce748c4e84499e261466067abbde83b27c9a4becd9f80d39b888f21a016",
 	sit: "1da2ec2bfab4cd8e9764ad743f8d1d145feff0fe01d2713dbf3da69e2c05f025",
-	object: "cfc84d1f2b2823ae7662f69566b62e5251dec5b67738305e756c349558fccba7",
+	object: "45d87982c3dba561fb7ac78ae3e28cc2f510bd2535ed4dd98922b1a7d9a6e4f4", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	duo: "0a1c779150672ec2c891670b7c4afc942f7bc2dd9536d7f10c13b0ff11fb470f",
 	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
 	chop: "623cc406072ba4ca9e52af4cc5d5364ed9fff4acf78d9b9d46ab7562388ab314",

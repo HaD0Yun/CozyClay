@@ -119,7 +119,7 @@ function holdShared(id, f, k, o, keys, events) {
 	for (const i of hands) { // the keep key is held at the place itself (over: 0 = there at once, with no blend key)
 		const place = at[i] ? { on: o.prop, at: at[i] } : undefined;
 		if (place && k.over > 0) keys[name[i]].push({ ...k, to: place });
-		keys[name[i]].push({ f: take, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true });
+		keys[name[i]].push({ f: take, over: 0, ease: "inout", fast: k.fast, to: "keep", place, auto: true, by: f }); // by: the spec's action that added it
 	}
 	events.push({ f: take, prop: o.prop, holder: id, hands, at, share: true, key: f });
 }

@@ -128,14 +128,22 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 		rows.push({ key: `release:${e.prop}:posJump`, label: `release of ${e.prop}: position jump`, short: "release jump", value: Math.hypot(n[0] - 2 * b[0] + a[0], n[1] - 2 * b[1] + a[1], n[2] - 2 * b[2] + a[2]) * MM, unit: "mm", ...tag, worse: 1, spike: 10 });
 		rows.push({ key: `release:${e.prop}:speedJump`, label: `release of ${e.prop}: speed jump`, short: "release jump", value: Math.abs(dist(n, b) - dist(b, a)) * MM, unit: "mm/frame", ...tag, worse: 1, spike: 10 });
 	}
-	for (const p of aux.placed) rows.push({ key: `place:${p.prop}`, label: `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, worse: 1, spike: 30 });
+	// a place: how far the prop is from its target on the frame the place ends; who placed it, whether they held it, who holds it on
+	for (const p of aux.placed) {
+		const on = aux.holders?.[p.prop]?.[p.f], who = p.who?.join(" and "), note = [p.held === false && `${who} did not hold ${p.prop}, so the place did not move it`, on && `${on} hold it on`].filter(Boolean).join("; ");
+		rows.push({ key: `place:${p.prop}`, label: p.held === false ? `place: ${p.prop} is this far from its target` : `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, ...(note ? { note } : {}), worse: 1, spike: 30 });
+	}
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
 	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
-	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that frame
+	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that
+	// frame; why (share.js): no place was asked (the prop's nearest point), the hands' top speed, a place past the arm's reach
+	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point of ${prop} nearest the hand, a wrist's pad off its surface`,
+		w?.slow > 0.005 && `late: a wrist moves at most ${Math.round(MAX_STEP * s * MM)} mm a frame in the body frame unless its key says fast, and that held it ${Math.round(w.slow * MM)} mm short of its place on that frame`,
+		w?.beyond > 0.005 && `the place was ${Math.round(w.beyond * MM)} mm beyond the arm's reach from the shoulder`].filter(Boolean).map(t => `; ${t}`).join("");
 	for (const c of clip.characters) [0, 1].forEach(i => {
 		let worst = null;
-		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.took > (worst?.v ?? 0.01)) worst = { v: at[i].took, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand, the action at f${at[i].key}${at[i].slow > 0.005 ? `; late: a wrist moves at most ${Math.round(MAX_STEP * (c.scale ?? 1) * MM)} mm a frame in the body frame unless its key says fast, and it was still ${Math.round(at[i].slow * MM)} mm short of where its blend had it` : ""}` }; });
+		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.took > (worst?.v ?? 0.01)) worst = { v: at[i].took, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand, the action at f${at[i].key}${tookWhy(at[i].tookWhy, c.scale ?? 1, at[i].prop)}` }; });
 		row(`reach:${c.id}:${i}:took`, "hand took hold short of its place; the prop was pulled to the hand", worst, "mm", MM, { short: "pulled", worse: 1, spike: 60 });
 		// a hand kept on its place on a prop that more hands hold, off where its own action (the hold or a later pose) puts it
 		// by more than the pad a holding wrist keeps off the prop's surface

@@ -167,13 +167,16 @@ export function solve(B, U = {}) {
 	SIDES.forEach((S, i) => {
 		place(S.arm);
 		const e = H[i]?.elbow, sh = pos[S.arm];
+		// the pole that bends the elbow toward e's blend of targets about the line from the shoulder to the wrist w
+		const aimPole = w => { const p = elbowPole(S, sh, w, T.q2), dir = norm(sub(w, sh)), own = toward(add(sh, p), sh, dir, p), at = q => (q ? toward(q, sh, dir, own) : own); return mixV(at(e.from), at(e.to), e.w); };
 		let wrist = T.hand[i], bend = elbowPole(S, sh, wrist, T.q2);
 		if (turned[i]) { // the free wrist turned by its elbow target; the cap holds it back unless the hand's or the elbow's key says fast
 			const side = qRotate(T.q2, X), free = freeWrist(sh, wrist, bend, e, 1 - aimed[i], S, side);
 			const held = H[i].prev && !e.fast && len(sub(free.wrist, H[i].prev)) > MAX_STEP ? swingCapped(sh, H[i].prev, free.wrist, free.pole, side) : free;
 			wrist = held.wrist; bend = held.pole;
 			if (held !== free) { T.slow[i] = len(sub(free.wrist, wrist)); late[i] = len(sub(limb(sh, free.wrist, free.pole, S.fore, S.hand, [0, 0, -1]).mid, limb(sh, wrist, bend, S.fore, S.hand, [0, 0, -1]).mid)); }
-		} else if (e) { const dir = norm(sub(wrist, sh)), own = toward(add(sh, bend), sh, dir, bend), at = q => (q ? toward(q, sh, dir, own) : own); bend = mixV(at(e.from), at(e.to), e.w); }
+			if (aimed[i] > 0) bend = mixV(bend, aimPole(wrist), aimed[i]); // the aimed part of the wrist bends the elbow as a wrist on its target does
+		} else if (e) bend = aimPole(wrist);
 		const A = limb(sh, wrist, bend, S.fore, S.hand, [0, 0, -1]);
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
