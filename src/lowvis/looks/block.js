@@ -211,11 +211,12 @@ function layoutParts(S) {
 	return parts;
 }
 
-function blockFigure(shape, { tint = DEFAULT_TINT } = {}) {
+/** colour: the character's own colour, when it has one: the body is then of that colour, not the blockout grey leaning toward the tint. */
+function blockFigure(shape, { tint = DEFAULT_TINT, colour = null } = {}) {
 	const rig = createJointRig(), lean = new THREE.Color(tint);
 	// The faces sit a little behind their edge lines in depth, so the lines do not flicker.
 	const matte = (base, share) => new THREE.MeshStandardMaterial({ color: new THREE.Color(base).lerp(lean, share), roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-	const body = matte(GREY_BOX, LEAN), dowel = matte(DOWEL_GREY, DOWEL_LEAN), ink = new THREE.LineBasicMaterial({ color: LINE_GREY });
+	const body = colour ? matte(colour, 0) : matte(GREY_BOX, LEAN), dowel = matte(DOWEL_GREY, DOWEL_LEAN), ink = new THREE.LineBasicMaterial({ color: LINE_GREY });
 	const draw = (joint, geometry) => { const lines = rig.attach(joint, new THREE.LineSegments(geometry, ink), ORIGIN); lines.castShadow = false; return lines; };
 	const hands = { Left: { open: [], fist: [] }, Right: { open: [], fist: [] } };
 	for (const { joint, geometry, line, marks, dark, hand } of layoutParts(shape)) {

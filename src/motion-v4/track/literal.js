@@ -55,19 +55,21 @@ export function rawOut(raw, records = []) {
  */
 export function placedTake(raw, placement = { position: [0, 0, 0], yaw: 0 }, meta = {}) {
 	const F = raw.frameCount, B = raw.bones.length, h = raw.bones.indexOf("Hips"), yaw = placement.yaw ?? 0, at = placement.position ?? [0, 0, 0];
+	// a track of a body of another scale (codec.js) is in units of that body: so is the placement it is taken from
+	const s = raw.scale ?? 1, origin = s === 1 ? at : at.map(v => (v ?? 0) / s);
 	const unYaw = ry(-yaw), rot = new Float32Array(raw.rot), hips = new Float32Array(F * 3);
 	for (let f = 0; f < F; f++) {
 		const i = (f * B + h) * 4, p = [raw.hips[f * 3], raw.hips[f * 3 + 1], raw.hips[f * 3 + 2]];
 		// at yaw 0 the world rotation is the local one: keep its bytes
 		if (yaw !== 0) rot.set(quatFromMat(mul(unYaw, matFromQuat([raw.rot[i], raw.rot[i + 1], raw.rot[i + 2], raw.rot[i + 3]]))), i);
-		hips.set(apply(unYaw, sub(p, at)), f * 3);
+		hips.set(apply(unYaw, sub(p, origin)), f * 3);
 	}
 	const objects = {};
 	for (const [id, track] of Object.entries(raw.objects ?? {})) {
 		objects[id] = { pos: new Float32Array(track.pos), quat: new Float32Array(track.quat), world: new Uint8Array(F).fill(1) };
 	}
 	return { schema: TAKE_SCHEMA, fps: raw.fps ?? 24, frameCount: F, rig: raw.rig, bones: raw.bones.slice(), rot, hips, objects,
-		placement: { position: [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0], yaw }, ...meta };
+		placement: { position: [at[0] ?? 0, at[1] ?? 0, at[2] ?? 0], yaw }, ...(s === 1 ? {} : { scale: s }), ...meta };
 }
 
 /**

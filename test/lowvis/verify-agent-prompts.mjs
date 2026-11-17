@@ -16,7 +16,8 @@ for (const motion of [true, false]) {
 	assert.deepEqual(FORBIDDEN.filter(token => text.includes(token)), [], `lowvis Studio prompt (motion ${motion})`);
 	assert.doesNotMatch(text, /previsMode|storyboard/i);
 	assert.ok(text.endsWith(`\n\n${motion ? MOTION_TOOL_PARAGRAPH : NO_MOTION_PARAGRAPH}`));
-	assert.match(text, /\n- rig: cast only the block figure \(model x-bot-tpose\)\.\n/);
+	assert.ok(text.includes(" People are block figures: rig characters of model x-bot-tpose. Their body motion comes from the motion tool.\nAsk concise questions"), "one line on people where the cast-style gate was");
+	assert.doesNotMatch(text, /capsule|proxy|hybrid|cast style|castStyle|cast gate|stand-in figure/i, "nothing on capsule figures or cast styles");
 	assert.doesNotMatch(text, /Y Bot|y-bot-tpose/, "a new character is never the old Y Bot body");
 }
 // the motion tool takes the agent's note; the user's message goes to it by itself (motion-door.mjs)
@@ -27,7 +28,8 @@ assert.ok(old.startsWith(STUDIO_SYSTEM_PROMPT) && old.includes("<motion-referenc
 console.log("PASS the lowvis Studio prompt has none of the forbidden tokens; the old one keeps its reference");
 
 const coordinator = mainSystemPrompt({ engine: "lowvis" });
-for (const token of ["QA problems", "motion.compile", "design_motion"]) assert.equal(coordinator.includes(token), false, token);
+for (const token of ["QA problems", "motion.compile", "design_motion", "capsule", "castStyle", "cast style"]) assert.equal(coordinator.includes(token), false, token);
+assert.ok(MAIN_SYSTEM_PROMPT.includes("Carry the project's cast style"), "the old coordinator keeps its cast style");
 assert.match(coordinator, /\n8\. Body motion of rig characters is one task that calls its motion tool/);
 // the order: the motion task sets up what the bodies use; what needs its result depends on it, light needs only the request
 assert.match(coordinator, /adds the characters and every object a body touches, stands on, sits on, holds or moves that the scene lacks/);

@@ -23,7 +23,7 @@ if (opt.direct !== false) env.COZYCLAY_MOTION_DIRECT = "on";
 const switches = () => [
 	`  COZYCLAY_MOTION_ENGINE=${env.COZYCLAY_MOTION_ENGINE ?? ""}  (old: the old motion engine; anything else: lowvis)`,
 	`  COZYCLAY_MOTION_DIRECT=${env.COZYCLAY_MOTION_DIRECT ?? ""}  (on: the direct key "Opus 5.5 (lowvis motion)" is in the model picker)`,
-	`  COZYCLAY_MOTION_OFF=${env.COZYCLAY_MOTION_OFF ?? ""}  (engine steps switched off, of pace, turn, tops)`,
+	`  COZYCLAY_MOTION_OFF=${env.COZYCLAY_MOTION_OFF ?? ""}  (engine steps switched off, of pace, turn, tops, body)`,
 ].join("\n");
 
 if (await answers()) {

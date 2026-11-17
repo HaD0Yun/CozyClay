@@ -5,6 +5,8 @@
 //   schema: "lowvis.clip.v1", demo, engine, fps: 24, frameCount: F,
 //   joints: [17 names]                               // rig17.js JOINTS, in this order
 //   characters: [{ id, pos: [F*17*3], quat: [F*17*4] }]   // WORLD space, metres, Y up; quat = rotation from rest (rig17.js)
+//                                                    // optional scale: the body's size (1 when left out): every rest
+//                                                    // length of rig17.js times it; optional tint: its colour "#rrggbb"
 //   props: [{ id, size: [w,h,d], pos: [N*3], quat: [N*4] }] // boxes, pos = box CENTRE; N is F (animated) or 1 (static)
 //                                                    // optional shape: "sphere" draws a ball of diameter size[0]
 //   stats: { buildMs, ... }                          // free form; buildMs = time to compute the clip
@@ -49,14 +51,15 @@ const round = a => Array.from(a, v => Math.round(v * 1e5) / 1e5);
 export function serializeClip(clip) {
 	return JSON.stringify({
 		...clip,
-		characters: clip.characters.map(c => ({ id: c.id, pos: round(c.pos), quat: round(c.quat) })),
+		characters: clip.characters.map(c => ({ id: c.id, ...((c.scale ?? 1) === 1 ? {} : { scale: c.scale }), ...(c.tint ? { tint: c.tint } : {}), pos: round(c.pos), quat: round(c.quat) })),
 		props: clip.props.map(p => ({ id: p.id, size: p.size, ...(p.shape ? { shape: p.shape } : {}), pos: round(p.pos), quat: round(p.quat) })),
 	});
 }
 
 /**
  * Checks a parsed clip. Returns { ok, errors: [strings], stretch } where stretch is the largest change of a
- * joint-to-parent distance from rest (m) over all frames: a rigid 17-joint figure keeps it near 0.
+ * joint-to-parent distance from rest (m; the rest of a character's own scale) over all frames: a rigid 17-joint figure
+ * keeps it near 0.
  */
 export function validateClip(clip, { maxStretch = 0.005 } = {}) {
 	const errors = [];
@@ -70,6 +73,7 @@ export function validateClip(clip, { maxStretch = 0.005 } = {}) {
 		if (c.pos?.length !== F * JOINT_COUNT * 3) { errors.push(`${c.id}: pos length ${c.pos?.length}, want ${F * JOINT_COUNT * 3}`); continue; }
 		if (c.quat?.length !== F * JOINT_COUNT * 4) { errors.push(`${c.id}: quat length ${c.quat?.length}, want ${F * JOINT_COUNT * 4}`); continue; }
 		if (!c.pos.every(Number.isFinite) || !c.quat.every(Number.isFinite)) { errors.push(`${c.id}: non-finite value`); continue; }
+		if (c.scale !== undefined && !(Number.isFinite(c.scale) && c.scale > 0)) { errors.push(`${c.id}: scale ${c.scale}`); continue; }
 		for (let i = 0; i < c.quat.length; i += 4) {
 			const n = Math.hypot(c.quat[i], c.quat[i + 1], c.quat[i + 2], c.quat[i + 3]);
 			if (Math.abs(n - 1) > 1e-3) { errors.push(`${c.id}: quaternion ${i / 4} has length ${n.toFixed(4)}`); break; }
@@ -77,7 +81,7 @@ export function validateClip(clip, { maxStretch = 0.005 } = {}) {
 		for (let f = 0; f < F; f++) for (let j = 1; j < JOINT_COUNT; j++) {
 			const a = (f * JOINT_COUNT + j) * 3, b = (f * JOINT_COUNT + PARENT[j]) * 3;
 			const d = Math.hypot(c.pos[a] - c.pos[b], c.pos[a + 1] - c.pos[b + 1], c.pos[a + 2] - c.pos[b + 2]);
-			const rest = Math.hypot(...REST[j].map((v, k) => v - REST[PARENT[j]][k]));
+			const rest = Math.hypot(...REST[j].map((v, k) => v - REST[PARENT[j]][k])) * (c.scale ?? 1);
 			stretch = Math.max(stretch, Math.abs(d - rest));
 		}
 	}

@@ -93,7 +93,9 @@ const WORDS = "then he sits down on the floor  \n(그리고 바닥에 앉아)";
 const USER = "USER'S WORDS (the user's message of this turn, exactly as typed):\n", NOTE = "STUDIO AGENT'S NOTE (the Studio agent's own text: which characters and objects, what to keep):\n";
 const TASK_USER = "USER'S WORDS (the user's last message to the Studio, exactly as typed; this task may do only part of it):\n";
 // with a note (the Studio agent called), the writer hears that its props become stand-ins the agent dresses after it
-const ADDED = "What your scene adds becomes Studio content: a new character a block figure, a new prop a plain object named by its id, at the place, size and turn you give. After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
+// ADDED_BEFORE: the line as it was before a body could have a scale and a tint; it is still the line while that step is off
+const ADDED_BEFORE = "What your scene adds becomes Studio content: a new character a block figure, a new prop a plain object named by its id, at the place, size and turn you give. After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
+const ADDED = ADDED_BEFORE.replace(" After you,", " A character's scale and tint are the Studio character's own scale and tint: the ones your scene gives are set on it, one it leaves out stays as the Studio has it. After you,");
 const recordingDeps = requests => ({
 	studioScene: () => ({ scene: { characters: [], props: [], others: [] }, ids: { characters: {}, props: {}, switch: [] } }),
 	runScene: async options => { requests.push(options.request); return { wallMs: 0, compiles: 0, report: "Done.\nMissing: none", missing: "none", final: null }; },
@@ -114,6 +116,9 @@ const turnOf = (value, env, deps) => turnMotionDoor({ value: { context: { host: 
 		await call(door, { request: "c1 sits on the floor; install it as c1's take." });
 		assert.equal(requests[0], `${USER}${WORDS}\n\n${NOTE}Keep the existing take as it is. Then, after the wave, he sits down on the floor.\n\n${ADDED}`, "an empty scene adds only the line on what becomes of what the writer adds");
 		assert.equal(requests[1], `${USER}${WORDS}\n\n${NOTE}c1 sits on the floor; install it as c1's take.\n\n${ADDED}`, "a repeat call: the same words, the agent's new note");
+		const before = [], off = await turnOf({ sessionId: "plain-off", text: WORDS }, { ...env, COZYCLAY_MOTION_OFF: "body" }, recordingDeps(before));
+		await call(off, { request: "c1 sits." });
+		assert.equal(before[0], `${USER}${WORDS}\n\n${NOTE}c1 sits.\n\n${ADDED_BEFORE}`, "with the body step off the request is the one of before, byte for byte");
 		const task = await turnOf({ sessionId: "task-1", text: "the coordinator's task text", task: { parentId: "plain-1", words: WORDS } }, env, recordingDeps(requests));
 		await task.handler({ request: "c1 sits." });
 		assert.ok(requests[2].startsWith(`${TASK_USER}${WORDS}\n\n${NOTE}c1 sits.\n\n`), requests[2]);

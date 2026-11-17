@@ -270,7 +270,7 @@ import {
 	attachFrameMatrix,
 	captureMcpFrame,
 	characterModelUrl,
-	defaultCharacterTint,
+	defaultCharacterColour, defaultCharacterTint,
 	loadSceneStartup,
 	loadWorkspaceLayout,
 	moveSequenceSlateKo,
@@ -2521,7 +2521,7 @@ export default function App() {
 			...(isProxyFigure(entry) ? {} : { url: characterModelUrl(entry.model) }),
 			position: [placement.x, entry.y ?? 0, placement.z],
 			rot: placement.rot,
-			tint: entry.tint ?? defaultCharacterTint(entry, index),
+			tint: entry.tint ?? defaultCharacterTint(entry, index), colour: entry.tint ?? defaultCharacterColour(entry, index),
 			partColoursEnabled,
 			partColoursMode,
 			pose: clip ? null : (placement.pose ?? DEFAULT_POSE),
@@ -4552,7 +4552,7 @@ export default function App() {
 							)}
 
 							{/* Every X Bot character draws as the block figure; its own meshes hide. Y Bots and imported rigs keep their mesh. */}
-							{characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} pickId={view.pickId} />)}
+							{characterViews.map((view) => view.model === TRACK_RIG && rigs[view.id] && <LowvisSkin key={`${view.id}:${rigMountEpoch}`} rig={rigs[view.id]} tint={view.tint} colour={view.colour} scale={view.scale} pickId={view.pickId} />)}
 							<group>
 							{characterViews.map((view) => (
 								// Always wrapped, grouped or not: giving or taking a parent

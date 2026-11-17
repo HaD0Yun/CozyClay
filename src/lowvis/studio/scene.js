@@ -33,12 +33,13 @@ function heightOf(t, row, own) {
 function whyNot(row) {
 	if (row.model === "proxy-figure") return "capsule figure";
 	if (row.model !== TRACK_RIG && !SWITCHABLE.has(row.model)) return /^rig-/.test(String(row.model ?? "")) ? "imported rig" : `model ${row.model ?? "unknown"}`;
-	if (Math.abs(finite(row.scale, 1) - 1) > 1e-6) return `scale ${round(finite(row.scale, 1))}`;
 	return null;
 }
+/** Why a row's scale keeps a clip from it when a clip is of a body at scale 1 only (the body step off), or null at scale 1. */
+const whyScale = row => (Math.abs(finite(row.scale, 1) - 1) > 1e-6 ? `scale ${round(finite(row.scale, 1))}` : null);
 
 /**
- * studioScene(describe, { turn, tops }) -> { scene: { characters: [{ id, at, heading }], props: [{ id, size, at, turn?, shape?, heights? }], others: [{ id, why }] }, ids }
+ * studioScene(describe, { turn, tops, body }) -> { scene: { characters: [{ id, at, heading, scale?, tint? }], props: [{ id, size, at, turn?, shape?, heights? }], others: [{ id, why }] }, ids }
  * describe: the editor's describe answer ({ characters, objects }). ids: { characters: { <lowvis id>: <Studio id> },
  * props: { <lowvis id>: { id: <Studio id>, x, y, z, rot } }, switch: [<Studio id>] } with each object's base pivot
  * and turn about Y as the Studio holds them. switch: the listed characters whose model the install changes to the
@@ -47,17 +48,22 @@ function whyNot(row) {
  * tops: describe was asked with { tops: true } (tops.js): a prop whose object offers more than one flat height, or one
  * lower than its top, gets heights: [{ y, at: [x, z], size: [w, d] }], each a flat rectangle in the world: y over the
  * floor, at its centre; size along the prop's own sides when the prop has its turn, else the square box around it.
+ * body: a character at any scale is offered, with its scale (left out at 1) and its tint (left out when it has none), the
+ * character's own fields; ids.bodies: { <Studio id>: { scale, tint } } as the Studio holds them. Without it a
+ * character at another scale than 1 is one of the others, as before.
  */
-export function studioScene(describe, { turn = false, tops = false } = {}) {
+export function studioScene(describe, { turn = false, tops = false, body = false } = {}) {
 	const taken = new Set(), ids = { characters: {}, props: {}, switch: [] }, characters = [], props = [], others = [];
 	for (const row of Array.isArray(describe?.characters) ? describe.characters : []) {
 		if (!row || row.hidden) continue;
-		const why = whyNot(row);
+		const why = whyNot(row) ?? (body ? null : whyScale(row));
 		if (why) { others.push({ id: String(row.id), why }); continue; }
 		const id = idFor(String(row.id).replace(/^lowvis-/, ""), taken, "person");
 		ids.characters[id] = row.id;
 		if (row.model !== TRACK_RIG) ids.switch.push(row.id);
-		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)) });
+		const scale = finite(row.scale, 1), tint = typeof row.tint === "string" ? row.tint : null;
+		if (body) (ids.bodies ??= {})[row.id] = { scale, tint };
+		characters.push({ id, at: [round(finite(row.x)), round(finite(row.z))], heading: round(finite(row.rot)), ...(body && scale !== 1 ? { scale } : {}), ...(body && tint ? { tint } : {}) });
 	}
 	for (const row of Array.isArray(describe?.objects) ? describe.objects : []) {
 		if (props.length >= MAX_PROPS) break;

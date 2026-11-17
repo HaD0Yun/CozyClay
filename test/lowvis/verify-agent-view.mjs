@@ -54,6 +54,34 @@ const refused = (promise, pattern) => assert.rejects(promise, error => error.cod
 	console.log("PASS lowvis: hidden actions out of both indexes and the actions read, refused by run_action; root paths refused for rigs only; the internal path passes");
 }
 
+// lowvis: block figures only; the agent cannot cast a capsule figure, and what it reads has none
+{
+	const decl = Object.fromEntries(commandDeclarations().map(row => [row.id, row]));
+	const rows = ["character.add", "character.update", "character.set", "project.new"].map(id => decl[id]);
+	const { value, ran } = setup({});
+	value.context.scene = { name: "s", castStyle: "hybrid" };
+	const env = {}, current = { actionIndex: rows };
+	const view = turnAgentView({ env, value, current, invoke: async () => ({}) });
+	assert.equal("castStyle" in value.context.scene, false, "the context has no cast style");
+	assert.doesNotMatch(JSON.stringify(current.actionIndex), /proxy-figure|posture|castStyle/, "the actions read have no capsule model, posture or cast style");
+	assert.match(JSON.stringify(current.actionIndex), /x-bot-tpose \(the default\) or the model id of a rig imported/);
+	assert.match(JSON.stringify(rows), /proxy-figure/, "the editor's declarations stay whole");
+	const viewed = Object.fromEntries(view.tools([{ name: "run_action", handler: async args => { ran.push(args.action); return { ok: true }; } }, { name: "patch_elements", handler: async () => ({ ok: true }) }]).map(tool => [tool.name, tool]));
+	const BLOCK = /^This version has block figures only: the agent cannot add a capsule figure \(model proxy-figure\) or change a character into one\.$/;
+	await refused(viewed.run_action.handler({ action: "character.add", args: { character: { model: "proxy-figure" } } }), BLOCK);
+	await refused(viewed.run_action.handler({ action: "character.update", args: { characterId: "rig-1", patch: { model: "proxy-figure" } } }), BLOCK);
+	await refused(viewed.run_action.handler({ action: "character.set", args: { ops: [{ id: "rig-1", set: { model: "proxy-figure" } }] } }), BLOCK);
+	await refused(viewed.patch_elements.handler({ ops: [{ target: { kind: "character", id: "rig-1" }, set: { model: "proxy-figure" } }] }), BLOCK);
+	assert.deepEqual(ran, [], "none ran");
+	await viewed.run_action.handler({ action: "character.add", args: { character: { model: "x-bot-tpose" } } });
+	await viewed.run_action.handler({ action: "character.update", args: { characterId: "cap-1", patch: { x: 1 } } });
+	assert.deepEqual(ran, ["character.add", "character.update"], "a block figure is added; a capsule figure already there is still moved");
+	const old = { context: { scene: { castStyle: "hybrid" } } };
+	turnAgentView({ env: { COZYCLAY_MOTION_ENGINE: "old" }, value: old, current: {} });
+	assert.equal(old.context.scene.castStyle, "hybrid", "the old engine keeps the cast style");
+	console.log("PASS lowvis: the agent cannot add or make a capsule figure; the actions read and the context have no capsule fields");
+}
+
 // old engine: nothing filtered
 {
 	const { value, current, ran, tools } = setup({ COZYCLAY_MOTION_ENGINE: "old" });

@@ -5,7 +5,9 @@
 //       pelvis (rad), feet: [L, R] of { a: ankle world position, q: foot world quaternion, planted, floor },
 //       hands: [L, R] rest hand positions in the pelvis frame, relative to the Hips joint }
 // U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
-//                          aim: world direction of the hand's thumb side, aimW: 0..1,
+//                          aim: world direction of the hand's thumb side, aimW: 0..1, or axes: { a, b, w } two
+//                          lists of [hand axis, world direction] blended a to b by w (aimW still weighs them),
+//                          elbow: { from, to, w } world points the elbow bends toward (null = its own direction),
 //                          prev: where the hand was last frame, carried with the body (limits its speed) },
 //       hipTurn: pelvis turn about Y over planted feet (rad), bow: forward hinge at the hips (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
@@ -40,6 +42,15 @@ function elbowPole(S, sh, hand, q2) {
 	const n = mul(qRotate(qConj(q2), sub(hand, sh)), 1 / ARM_LEN), up = clamp(n[1] + 0.2), fold = clamp(1 - len(n));
 	return qRotate(q2, [S.s * (0.2 + 1.1 * up + 0.9 * fold + 0.5 * Math.max(0, -S.s * n[0])), -0.6 + 0.3 * up, -0.7 * (1 - up)]);
 }
+
+/** The hand turn that sends each [hand axis, direction] pair of `list` that way: the first exactly, the second as near
+ *  as it can; with one pair the hand's long axis stays as near the forearm `fore` as it can (rest axis `long`). */
+function aimTurn(list, fore, long) {
+	const [a1, d1] = list[0], [a2, d2] = list[1] ?? (Math.abs(dot(a1, norm(long))) > 0.9 ? [Y, qRotate(qFrame(fore, Y), Y)] : [long, fore]);
+	return qMul(qFrame(d1, d2), qConj(qFrame(a1, a2)));
+}
+/** The pole that bends an elbow from `root` toward `p` (the part of it across the line to the hand `dir`). */
+const toward = (p, root, dir, fallback) => { const v = sub(p, root), across = sub(v, mul(dir, dot(v, dir))); return len(across) > 1e-6 ? norm(across) : fallback; };
 
 /** Two-bone IK: joints jm (middle) and je (end) hang from `root`; the middle joint bends toward `pole`. */
 function limb(root, target, pole, jm, je, restPole) {
@@ -119,12 +130,16 @@ export function solve(B, U = {}) {
 	for (let j = 1; j <= 4; j++) place(j);
 	SIDES.forEach((S, i) => {
 		place(S.arm);
-		const A = limb(pos[S.arm], T.hand[i], elbowPole(S, pos[S.arm], T.hand[i], T.q2), S.fore, S.hand, [0, 0, -1]);
+		let bend = elbowPole(S, pos[S.arm], T.hand[i], T.q2);
+		const e = H[i]?.elbow;
+		if (e) { const dir = norm(sub(T.hand[i], pos[S.arm])), own = toward(add(pos[S.arm], bend), pos[S.arm], dir, bend), at = q => (q ? toward(q, pos[S.arm], dir, own) : own); bend = mixV(at(e.from), at(e.to), e.w); }
+		const A = limb(pos[S.arm], T.hand[i], bend, S.fore, S.hand, [0, 0, -1]);
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
 		quat[S.hand] = qMul(qFrame(dir, A.perp), qConj(qFrame(OFFSET[S.hand], [0, 0, -1])));
 		// aim: the hand's thumb side (rest +Z, the long axis of a prop held in it) points along a world direction
-		if (H[i]?.aimW > 0) quat[S.hand] = qSlerp(quat[S.hand], qMul(qFrame(H[i].aim, sub(A.end, A.mid)), qConj(qFrame(Z, OFFSET[S.hand]))), H[i].aimW);
+		if (H[i]?.aimW > 0 && !H[i].axes) quat[S.hand] = qSlerp(quat[S.hand], qMul(qFrame(H[i].aim, sub(A.end, A.mid)), qConj(qFrame(Z, OFFSET[S.hand]))), H[i].aimW);
+		else if (H[i]?.aimW > 0) { const fore = norm(sub(A.end, A.mid)), x = H[i].axes; quat[S.hand] = qSlerp(quat[S.hand], qSlerp(aimTurn(x.a, fore, OFFSET[S.hand]), aimTurn(x.b, fore, OFFSET[S.hand]), x.w), H[i].aimW); }
 		place(S.fore); place(S.hand);
 		place(S.up);
 		const pole = add(qRotate(T.qP, Z), mul(qRotate(feet[i].q, Z), 0.5));

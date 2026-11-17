@@ -37,8 +37,12 @@ const MOTION_PARAMETERS = Type.Object({
 });
 const MOTION_DESCRIPTION = "Compiles the scene and the motion spec, checks the clip and returns the check numbers and contact sheets. Keeps the last scene and spec, so send only what changed.";
 const EDIT_PARAMETER = Type.Optional(Type.Record(Type.String(), Type.Array(Type.Any()), { description: "Changes to the kept spec, in place of spec: { <id>: [[frame, verb, options], ...] }. An entry replaces the action of that id with the same frame and verb, or adds it when there is none; [frame, verb, null] removes it." }));
-/** The tool parameters of a variant: the edit argument only where the variant has it. */
-const motionParameters = variant => features(variant).edit ? Type.Object({ ...MOTION_PARAMETERS.properties, edit: EDIT_PARAMETER }) : MOTION_PARAMETERS;
+const BODY_CHARACTER = Type.Object({ id: Type.String(), at: Type.Array(Type.Number()), heading: Type.Number(), scale: Type.Optional(Type.Number()), tint: Type.Optional(Type.String()) });
+/** The tool parameters of a variant: the edit argument, and a character's scale and tint, only where the variant has them. */
+function motionParameters(variant, off = []) {
+	const f = features(variant, off), scene = f.body ? Type.Optional(Type.Object({ ...MOTION_PARAMETERS.properties.scene.properties, characters: Type.Array(BODY_CHARACTER) }, { description: MOTION_PARAMETERS.properties.scene.description })) : MOTION_PARAMETERS.properties.scene;
+	return f.edit || f.body ? Type.Object({ ...MOTION_PARAMETERS.properties, scene, ...(f.edit ? { edit: EDIT_PARAMETER } : {}) }) : MOTION_PARAMETERS;
+}
 
 /** The pi model for `id` on the CLIProxyAPI the environment names. Throws when the proxy does not list the id. */
 async function resolveModel(id, env) {
@@ -81,13 +85,15 @@ function markCache(payload) {
  * variant: one of VARIANTS (default "base"): the system prompt and the numbers the model is told (prompt.mjs, compile-tool.mjs).
  * off: the feature flags of the variant switched off by name (prompt.mjs OFF).
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
+ * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs).
+ * onCompiled({ n, scene }): after each compile that went through (after its log line), with the scene it compiled.
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, signal = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
 	if (!Array.isArray(images) || images.length > MAX_IMAGES || images.some(i => typeof i?.data !== "string" || !i.data || typeof i?.mimeType !== "string")) throw new Error(`images: want at most ${MAX_IMAGES} of { data: <base64>, mimeType }`);
-	const SYSTEM_PROMPT = systemPrompt(variant, off), PARAMETERS = motionParameters(variant);
+	const SYSTEM_PROMPT = systemPrompt(variant, off), PARAMETERS = motionParameters(variant, off);
 	const record = { name, request, images: images.length, variant, off, asked: { model: modelId, effort }, startedAt: new Date().toISOString(), prompt: { systemChars: SYSTEM_PROMPT.length, toolChars: MOTION_DESCRIPTION.length + JSON.stringify(PARAMETERS).length }, keepImages, safety: { ...safety, hit: null }, infraError: null };
 	mkdirSync(outDir, { recursive: true });
 	const save = () => { writeFileSync(join(outDir, "run.json"), scrub(JSON.stringify(record, null, "\t"))); if (record.infraError) writeFileSync(join(outDir, `infra-error-${record.startedAt.replace(/[:.]/g, "-")}.json`), scrub(JSON.stringify(record, null, "\t"))); return record; };
@@ -103,7 +109,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 	const { models, model, entry } = resolved;
 	record.modelEntry = entry;
 
-	const motion = createCompileTool({ name, outDir, variant, off }), t0 = performance.now(), now = () => performance.now() - t0;
+	const motion = createCompileTool({ name, outDir, variant, off, bodies }), t0 = performance.now(), now = () => performance.now() - t0;
 	const modelCalls = [], shots = [], transcript = [], byToolCall = new Map();
 	let open = null, firstCompileMs = null, blocked = 0, agent = null;
 	const fail = message => { record.infraError ??= { at: `model call ${open?.n ?? 0}`, message: scrub(message) }; agent?.abort(); };
@@ -124,6 +130,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
 			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}`);
+			if (r.status === "ok") try { onCompiled({ n: r.n, scene: r.scene }); } catch { /* a failing listener never fails the run */ }
 			return { content: [{ type: "text", text: r.text }, ...r.images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))], details: { n: r.n, status: r.status } };
 		},
 	};

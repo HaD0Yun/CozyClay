@@ -4,7 +4,8 @@
 // Every cell shows one frame with the same camera. The figure is the box look (figure.mjs), props are boxes or
 // balls, faces are flat shaded by their normal, a depth buffer sorts them, every box gets a dark outline, the floor
 // has a 1 m grid and soft drop shadows. A red line runs 0.5 m along +X and a blue one along +Z from the world origin.
-// The figure's right arm and leg are drawn darker so left and right read in a still.
+// The figure's right arm and leg are drawn darker so left and right read in a still. A character with a scale is drawn
+// that large, one with a tint in that colour (clip.js); one without a tint gets a colour of the sheet's own.
 import { crc32, deflateSync } from "node:zlib";
 import { paintLabel } from "../../motion-v4/render/font.js";
 import { JOINT_COUNT, qMul, qRotate } from "../rig17.js";
@@ -18,7 +19,9 @@ export const VIEWS = {
 	top: { dir: [0, 1, 0], up: [0, 0, -1] }, // +X to the right, +Z down the sheet
 };
 const BACKGROUND = [232, 229, 223], FLOOR = [199, 201, 202], GRID = [146, 150, 153];
-const TINTS = [[201, 183, 164], [143, 168, 194], [169, 191, 152], [199, 154, 166]], PROP = [176, 170, 160];
+// an untinted figure in the Studio's colours by its place in the clip: the first the blockout grey, the others the
+// cast colours in turn (src/stage-startup-defaults.js defaultCharacterColour, copied: src/lowvis imports no Studio module)
+const GREY = [194, 198, 200], CAST = [[143, 168, 194], [169, 191, 152], [199, 154, 166], [201, 183, 164]], PROP = [176, 170, 160];
 const LIGHT = norm([-0.45, 1, 0.55]);
 const SS = 2, GAP = 4, NEAR = 0.05;
 const CORNERS = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
@@ -128,10 +131,10 @@ const tint = (c, k) => [Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.m
 function sceneAt(clip, f) {
 	const list = [];
 	clip.characters.forEach((ch, n) => {
-		const base = TINTS[n % TINTS.length], o = f * JOINT_COUNT;
+		const base = ch.tint ? [1, 3, 5].map(k => parseInt(ch.tint.slice(k, k + 2), 16)) : n ? CAST[(n - 1) % CAST.length] : GREY, o =f * JOINT_COUNT, s = ch.scale ?? 1;
 		for (const part of FIGURE_PARTS) {
 			const i = (o + part.joint) * 3, k = (o + part.joint) * 4, q = [ch.quat[k], ch.quat[k + 1], ch.quat[k + 2], ch.quat[k + 3]], d = qRotate(q, part.off);
-			list.push({ c: [ch.pos[i] + d[0], ch.pos[i + 1] + d[1], ch.pos[i + 2] + d[2]], q: qMul(q, part.q), size: part.size, color: tint(base, part.dark ? 0.42 : part.right ? 0.72 : 1) });
+			list.push({ c: [ch.pos[i] + d[0] * s, ch.pos[i + 1] + d[1] * s, ch.pos[i + 2] + d[2] * s], q: qMul(q, part.q), size: s === 1 ? part.size : part.size.map(v => v * s), color: tint(base, part.dark ? 0.42 : part.right ? 0.72 : 1) });
 		}
 	});
 	for (const p of clip.props ?? []) list.push({ ...propAt(p, f), size: p.size, color: PROP, ball: p.shape === "sphere" });
@@ -219,7 +222,7 @@ export function encodePng(rgba, width, height) {
  * Draws frames of a clip as one sheet: { rgba, width, height, frames, view, figurePx, ms }.
  * `view`: three | side | front | top. `focus`: ids of the characters and props to frame (over the frames shown);
  * none = the whole clip's travel and every prop. `label` goes before the frame number of every cell.
- * `figurePx` is the height in pixels a standing figure has in a cell.
+ * `figurePx` is the height in pixels a standing figure (the smallest of the clip) has in a cell.
  */
 export function drawSheet(clip, { frames, view = "three", focus, cols, cell = [384, 320], label } = {}) {
 	const t0 = performance.now(), F = clip.frameCount;
@@ -240,7 +243,7 @@ export function drawSheet(clip, { frames, view = "three", focus, cols, cell = [3
 		}
 		paintLabel(rgba, width, height, ox + 6, oy + 6, `${label ? `${label} ` : ""}f${f}`, { scale: 2, pad: 3, bottomUp: false });
 	});
-	return { rgba, width, height, frames: list, view: VIEWS[view] ? view : "three", figurePx: Math.round(1.8 / (2 * (depth / (points.length / 3)) * cam.ty) * ch), ms: Math.round((performance.now() - t0) * 10) / 10 };
+	return { rgba, width, height, frames: list, view: VIEWS[view] ? view : "three", figurePx: Math.round(1.8 * Math.min(...clip.characters.map(c => c.scale ?? 1)) / (2 * (depth / (points.length / 3)) * cam.ty) * ch), ms: Math.round((performance.now() - t0) * 10) / 10 };
 }
 
 /** Sheets one under the other (each may have its own camera), as one { rgba, width, height }. */
