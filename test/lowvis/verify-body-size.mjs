@@ -32,9 +32,11 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 
 // --- 2. the manual and the schema: with nothing said about bodies they are those of before ---
 {
-	// sha256 (16 hex) of every variant's system prompt at the commit before this change; studio: with the body step off
+	// sha256 (16 hex) of every variant's system prompt at the commit before this change; studio: with the body step off.
+	// The SPEC lines on the body layer's `over` came later (verify-body-start.mjs) and are taken out before hashing.
 	const BEFORE = { base: "ad7da48a7d38ba4f", lean: "ed66ee00e280670b", patch: "5f6fb9cb9fb09b36", reach: "c2336e02e54d6806", noassist: "5f6fb9cb9fb09b36", repeat: "ea7cb302a6343b37", kept: "ea7cb302a6343b37", tilt: "315a82f58f56ecf6", studio: "4f001578b8a61907" };
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(systemPrompt(variant, variant === "studio" ? ["body"] : [])), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	const withoutOver = text => text.replace(/\n {4}sit \/ stand \/ kneel \/ lie \{over\}:[^]*?as at the end of the change\./, "");
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutOver(systemPrompt(variant, variant === "studio" ? ["body"] : []))), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");

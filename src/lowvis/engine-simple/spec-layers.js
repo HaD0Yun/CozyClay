@@ -3,7 +3,7 @@
 import { clamp, rad } from "./math.js";
 import { hold, home, locomote, shuffle } from "./gait.js";
 import { kneel, lie, sit, stand } from "./posture.js";
-import { PAD, across } from "./prop-frame.js";
+import { PAD, across, offBox } from "./prop-frame.js";
 
 export const BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 
@@ -22,14 +22,12 @@ export function buildBody(c, acts, F, ctx) {
 			while (moving(list[i + 1]) && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
 			r = locomote(st, segs);
 		} else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
-		else if (a.verb === "sit") {
-			const top = prop ? prop.c[1] + prop.size[1] / 2 : a.o.height, d = prop ? Math.hypot(prop.c[0] - st.p[0], prop.c[2] - st.p[1]) : 0.33;
-			r = sit(st, N, { y: top, back: Math.min(0.35, d) });
-		} else if (a.verb === "stand") r = st.seat ? stand(st, N) : { frames: hold(st, N), st };
-		else if (a.verb === "kneel") r = kneel(st, N, ctx.ground);
-		else if (a.verb === "lie") {
-			const head = rad(a.o.head ?? c.heading), at = prop ? [prop.c[0] + Math.sin(head) * 0.1, prop.c[2] + Math.cos(head) * 0.1] : a.o.at;
-			r = lie(st, N, { at, head, floor: ctx.ground(at[0], at[1]) });
+		else if (POSTURE.has(a.verb)) { // over: frames of the change (default: the whole span), then the posture holds; 0 = at once
+			if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
+			if (a.o.over != null && !(Number.isFinite(a.o.over) && a.o.over >= 0)) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: over wants a number of frames >= 0, got ${JSON.stringify(a.o.over)}`);
+			const T = a.o.over == null ? N : Math.min(N, Math.round(a.o.over));
+			r = posture(c, a, st, a.o.over == null ? N : Math.max(1, T), prop, ctx);
+			if (a.o.over != null) r.frames = [...r.frames.slice(0, T), ...hold(r.st, N - T)];
 		} else { // idle: hold the posture, breathe
 			r = { frames: hold(st, N), st };
 			r.frames.forEach((B, k) => { B.lean += 0.012 * Math.sin(2 * Math.PI * k / 84) * smoothEdge(k, N); });
@@ -48,6 +46,25 @@ export function buildBody(c, acts, F, ctx) {
 	return out;
 }
 const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
+const POSTURE = new Set(["sit", "stand", "kneel", "lie"]);
+const flat = (p, x, z) => { const d = offBox(p, [x, p.c[1], z]); return Math.hypot(d[0], d[2]); }; // floor-plane distance to a prop's footprint
+
+/** One posture change of n frames from state st. A sit on a prop tells ctx.note how far its hips end from the seat's
+ *  top and how many feet stand inside the prop's footprint. */
+function posture(c, a, st, n, prop, ctx) {
+	if (a.verb === "sit") {
+		if (!prop && !Number.isFinite(a.o.height)) throw new Error(`engine-simple: ${c.id} sit at frame ${a.f}: wants {on: propId} or {height}`);
+		const top = prop ? prop.c[1] + prop.size[1] / 2 : a.o.height, d = prop ? Math.hypot(prop.c[0] - st.p[0], prop.c[2] - st.p[1]) : 0.33;
+		const r = sit(st, n, { y: top, back: Math.min(0.35, d) }), h = r.frames.at(-1)?.p;
+		if (prop && h) ctx.note?.({ f: a.f, verb: "sit", prop: prop.id, off: flat(prop, h[0], h[2]), feetIn: st.feet.filter(ft => flat(prop, ft.g[0], ft.g[1]) === 0).length });
+		return r;
+	}
+	if (a.verb === "stand") return st.seat ? stand(st, n) : { frames: hold(st, n), st };
+	if (a.verb === "kneel") return kneel(st, n, ctx.ground);
+	if (!prop && !Array.isArray(a.o.at)) throw new Error(`engine-simple: ${c.id} lie at frame ${a.f}: wants {on: propId} or {at: [x, z]}`);
+	const head = rad(a.o.head ?? c.heading), at = prop ? [prop.c[0] + Math.sin(head) * 0.1, prop.c[2] + Math.cos(head) * 0.1] : a.o.at;
+	return lie(st, n, { at, head, floor: ctx.ground(at[0], at[1]) });
+}
 
 /** s: the size of the body (size.js): the pad between a wrist and what it holds grows with the hand. */
 export function buildUpper(id, acts, props, s = 1) {
