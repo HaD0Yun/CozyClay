@@ -76,8 +76,9 @@ export function buildUpper(id, acts, props, s = 1) {
 			const half = across(props[o.prop]) / 2 + PAD * s, at = o.at;
 			keys.L.push({ ...k, pair: true, to: at ? [at[0] + half, at[1], at[2]] : "keep" }); keys.R.push({ ...k, pair: true, to: at ? [at[0] - half, at[1], at[2]] : "keep" });
 			events.push({ f, prop: o.prop, holder: id, slide: !!o.slide });
-		} else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1, grip: o.grip });
-		else if (verb === "release") events.push({ f, prop: o.prop, holder: null, roll: o.roll });
+		} else if (verb === "hold" && (o.hand === "both" || o.at !== undefined)) holdShared(id, f, k, o, keys, events);
+		else if (verb === "hold") events.push({ f, prop: o.prop, holder: id, hand: o.hand === "L" ? 0 : 1, grip: o.grip });
+		else if (verb === "release") events.push({ f, prop: o.prop, holder: null, roll: o.roll, lets: o.hand === "L" ? 0 : o.hand === "R" ? 1 : undefined });
 		else if (verb === "place") {
 			keys.L.push({ ...k, pair: true, to: { at: o.at, prop: o.prop } }); keys.R.push({ ...k, pair: true, to: { at: o.at, prop: o.prop } });
 			events.push({ f: f + k.over, prop: o.prop, holder: null, at: o.at });
@@ -87,7 +88,7 @@ export function buildUpper(id, acts, props, s = 1) {
 			if (R !== undefined) keys.R.push({ ...k, to: R, shake: o.shake });
 			for (const side of ["footL", "footR"]) if (o[side] !== undefined) {
 				const t = o[side];
-				keys[side].push({ ...k, to: t === "plant" ? t : { at: Array.isArray(t) ? t : t.at, world: t.world, pitch: rad(t.pitch ?? 0) } });
+				keys[side].push({ ...k, to: t === "plant" ? t : t.joint ? { place: { joint: t.joint, at: t.at, of: t.of }, pitch: rad(t.pitch ?? 0) } : { at: Array.isArray(t) ? t : t.at, world: t.world, pitch: rad(t.pitch ?? 0) } });
 			}
 			for (const side of ["elbowL", "elbowR"]) if (o[side] !== undefined) keys[side].push({ ...k, to: o[side] });
 			if (o.lean !== undefined) keys.lean.push({ ...k, to: rad(o.lean) });
@@ -100,7 +101,26 @@ export function buildUpper(id, acts, props, s = 1) {
 			if (o.look !== undefined || o.nod) keys.look.push({ ...k, to: o.look ?? keys.look.at(-1)?.to ?? "fwd", nod: o.nod });
 		} else throw new Error(`engine-simple: unknown verb "${verb}"`);
 	}
+	for (const list of Object.values(keys)) list.sort((a, b) => a.f - b.f || (a.auto ? 0 : 1) - (b.auto ? 0 : 1)); // a key the engine adds comes before the spec's own at the same frame
 	return { keys, events };
+}
+
+/** A hold that can share the prop (share.js): with `at` the hands go to their places on the prop over `over` frames
+ *  and take hold when they arrive; without it they take hold where they are. From then on each hand is held where it
+ *  is in the body frame (a "keep" key) until a later pose of that hand. */
+function holdShared(id, f, k, o, keys, events) {
+	const hands = o.hand === "both" ? [0, 1] : [o.hand === "L" ? 0 : 1], at = [null, null], name = ["L", "R"];
+	const point = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+	for (const i of hands) {
+		at[i] = o.at === undefined ? null : hands.length === 2 ? o.at?.[name[i]] : o.at;
+		if (o.at !== undefined && !point(at[i])) throw new Error(`engine-simple: ${id} hold at frame ${f}: at wants [x, y, z] for one hand or {L: [x, y, z], R: [x, y, z]} for both, got ${JSON.stringify(o.at)}`);
+	}
+	const take = o.at === undefined ? f : f + k.over;
+	for (const i of hands) {
+		if (at[i]) keys[name[i]].push({ ...k, to: { on: o.prop, at: at[i] } });
+		keys[name[i]].push({ f: take, over: 0, ease: "inout", to: "keep", auto: true });
+	}
+	events.push({ f: take, prop: o.prop, holder: id, hands, at, share: true, key: f });
 }
 
 /** The spec with its repeat actions written out. [f, "repeat", { len, times }] in the list of an id copies the other

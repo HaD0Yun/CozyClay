@@ -6,7 +6,7 @@ export const NOTES = [
 	"reach assist bends the hips and knees toward low targets only; it does not step toward a far target",
 	"a slow walk beat arrives early and stands; it is not stretched to fill the beat",
 	"run is a short-stride jog at the demo's speed (about 1.2 m/s)",
-	"a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis",
+	"a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis",
 	"a pushed prop slides with the hands; friction and weight are in the gait's timing, not simulated",
 	"a keyed prop (the falling trunk, the pins) follows its keys; nothing checks that it misses the figure, and the frame a rolling prop hits something is written in the spec by hand",
 	"a released prop keeps the hand's velocity exactly, so a swing that is not straight sends it off line",

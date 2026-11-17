@@ -15,6 +15,10 @@ import { NOTES } from "../../src/lowvis/engine-simple/notes.js";
 const OLD_NOTE = "elbow and knee directions come from one fixed pole hint; there is no hands-on-hips or crossed-arms pose";
 const NEW_NOTE = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
 assert.ok(NOTES.includes(NEW_NOTE), "the clip's notes say that an elbow can be given a target");
+// the note that changed with a prop held by several hands (share.js) goes back to its old text too
+const OLD_HELD = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
+const NEW_HELD = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis";
+assert.ok(NOTES.includes(NEW_HELD), "the clip's notes say what a prop held by several hands does");
 
 const BEFORE = {
 	locomotion: "4b102ce748c4e84499e261466067abbde83b27c9a4becd9f80d39b888f21a016",
@@ -31,7 +35,7 @@ for (const demo of DEMO_IDS) {
 	const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 	const { clip, aux: { seats, ...aux } } = buildClip(spec); // aux.seats came later (verify-body-start.mjs pins it)
 	assert.ok(Array.isArray(seats), `${demo}: aux.seats is a list`);
-	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n));
+	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n));
 	now[demo] = createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex");
 }
 if (process.argv.includes("--print")) { console.log(JSON.stringify(now, null, "\t")); process.exit(0); }
