@@ -5,6 +5,9 @@
 //   Body layer (feet and pelvis):
 //     idle | walk {to:[x,z], heading?, facing?, steps?, burst?, first?:"L"|"R", end?:{L:[left,fwd],R:[..]}, stepFrames?, ease?} | run {to} | push {to} | turn {heading}
 //     sit {on:propId} | stand | kneel | lie {on:propId, head:deg}
+//     sit / stand / kneel / lie {over}: `over` = frames the change takes (default and most: up to the next body
+//     action), then the posture holds. `over: 0` = in it at once: at frame 0 the figure begins the clip in it, placed
+//     from its scene `at` and `heading` as at the end of the change.
 //     Consecutive walk / run actions are one flowing path. `heading` is the arrival heading (the path curves, or a
 //     turn on the spot is added). `facing` keeps the body facing that way (back / side steps). `steps: 1` is a lunge.
 //     `push` is a low, leaning, short-step gait; `push {to: <where it stands>}` braces in place.
@@ -62,10 +65,11 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	}]));
 	const inside = (p, x, z) => { const [lx, lz] = toOwn(p, x - p.c[0], z - p.c[2]); return Math.abs(lx) <= p.size[0] / 2 && Math.abs(lz) <= p.size[2] / 2; };
 	const ground = (x, z, step = 0.3) => Math.max(0, ...Object.values(props).filter(p => !p.moves && p.c[1] + p.size[1] / 2 <= step && inside(p, x, z)).map(p => p.c[1] + p.size[1] / 2));
+	const seats = []; // every sit on a prop: how far its hips end from the seat top, how many feet stand inside the prop
 	const chars = def.characters.map(c => {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), s = c.scale ?? 1; // s: the body's size (size.js); a floor it stands on is at most 0.3 m x s high
 		const out = Object.assign(addCharacter(clip, c.id), s === 1 ? {} : { scale: s }, c.tint ? { tint: c.tint } : {});
-		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s) }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
+		return { id: c.id, s, body: buildBodySized(c, acts, F, { props, ground: (x, z) => ground(x, z, 0.3 * s), note: e => seats.push({ who: c.id, ...e }) }, s), ...buildUpper(c.id, acts, props, s), out, rest: [true, true], up: [0, 0], last: {}, cur: {}, pose: null };
 	});
 	const byId = Object.fromEntries(chars.map(c => [c.id, c]));
 	const outProps = def.props.map(p => ({ p: props[p.id], out: Object.assign(addProp(clip, p.id, p.size, p.moves ? F : 1), p.shape ? { shape: p.shape } : {}) }));
@@ -74,7 +78,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
 		rolling: Object.fromEntries(def.props.map(p => [p.id, []])), releases: [], launches: [],
 		keyStarts: def.props.filter(p => props[p.id].keys.length).map(p => ({ prop: p.id, f: props[p.id].keys[0].f })),
-		reach: Object.fromEntries(chars.map(c => [c.id, []])), repeat: { added: repeat.added, dropped: repeat.dropped },
+		reach: Object.fromEntries(chars.map(c => [c.id, []])), repeat: { added: repeat.added, dropped: repeat.dropped }, seats,
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
