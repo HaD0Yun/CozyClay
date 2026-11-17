@@ -60,9 +60,9 @@ function recorder() {
 	const { scene, ids } = studioScene(describe, { body: true });
 	assert.deepEqual(scene.characters, [{ id: "c1", at: [1, 2], heading: 90, scale: 0.8, tint: "#aa3311" }, { id: "c2", at: [0, 0], heading: 0 }], "a character at another scale is offered with its scale and tint; one at the defaults has neither field");
 	assert.deepEqual(ids.bodies, { c1: { scale: 0.8, tint: "#aa3311" }, c2: { scale: 1, tint: null } });
-	assert.deepEqual(scene.others, [{ id: "cap", why: "box figure" }], "the stand-in figure is named as every other text names it, at any scale");
+	assert.deepEqual(scene.others, [{ id: "cap", why: "capsule figure" }], "the stand-in figure is named as every other text names it, at any scale");
 	const before = studioScene(describe);
-	assert.deepEqual(before.scene.others, [{ id: "c1", why: "scale 0.8" }, { id: "cap", why: "box figure" }], "without the body step a character at another scale stands as it is, as before");
+	assert.deepEqual(before.scene.others, [{ id: "c1", why: "scale 0.8" }, { id: "cap", why: "capsule figure" }], "without the body step a character at another scale stands as it is, as before");
 	assert.deepEqual(before.scene.characters, [{ id: "c2", at: [0, 0], heading: 0 }]);
 	assert.equal(before.ids.bodies, undefined);
 	console.log("ok studioScene { body }: a character's scale and tint are read from its own fields");

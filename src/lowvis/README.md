@@ -54,7 +54,7 @@ The scene the motion writer reads (`scene.js` `studioScene(describe, { turn, top
 each the object's own box turned about Y as the object stands (`turn`), with the flat heights it offers (`tops`, from
 `tops.js` over the editor's describe answer); the X Bot characters, and the Y Bot characters, which the install
 changes to the block figure before it animates them (the report ends "Changed to the block figure: <ids>."), each with
-the scale and tint the Studio holds for it (`body`). Box figures and imported rigs cannot be animated and stand as
+the scale and tint the Studio holds for it (`body`). Capsule figures and imported rigs cannot be animated and stand as
 they are; the request says so. An existing character loses its root path before its new take goes in.
 
 Body size and colour. A character of the motion writer's scene may have `scale` (0.2 to 3, the limits of the Studio's
@@ -86,6 +86,11 @@ the user attached go along when the agent sets `images: true`. The scene and spe
 go with the next request. The agent's prompt under this engine has no guidance for the old motion engine
 (`bin/agent/studio-prompt-lowvis.mjs`), and the old motion and hand-fix actions are out of its view
 (`bin/agent/agent-view.mjs`, `HIDDEN_ACTIONS` in `bin/agent/motion-engine.mjs`); the editor and MCP keep them.
+Under this engine the agent works with the human form only. Its prompt says people are block figures (model
+x-bot-tpose) moved by the motion tool, with no cast-style gate and nothing on capsule figures; the actions it reads have
+no capsule model, posture or cast style, its context has no `scene.castStyle`, and `run_action` / `patch_elements`
+refuse its adding a capsule figure (model proxy-figure) or changing a character into one. A capsule figure the user
+adds in the editor stays and the motion tool lists it with the characters it cannot animate.
 In task mode a motion is an ordinary task whose agent calls the same tool. In a task the tool adds no character or
 prop: a motion that needs one the scene does not have is not installed and the task is told to build it first. The
 task's summary carries the Missing line of its last motion call (`missing`), and the coordinator repeats it

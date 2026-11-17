@@ -45,7 +45,7 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	assert.ok(run.request.startsWith("USER'S WORDS (the user's message of this turn, exactly as typed):\nhe walks to the box and sits on it\n\n"), "words alone (the direct key): no note");
 	assert.doesNotMatch(run.request, /STUDIO AGENT'S NOTE/);
 	assert.match(run.request, /\nbox offers these flat heights \(world\): \[\{"y":0\.45,/);
-	assert.match(run.request, /These characters cannot be animated by the engine and stand as they are: cap \(box figure\)\./);
+	assert.match(run.request, /These characters cannot be animated by the engine and stand as they are: cap \(capsule figure\)\./);
 	const scene = sceneJson(run.request);
 	assert.deepEqual(Object.keys(scene), ["characters", "props"], "the scene JSON has no others");
 	assert.equal(scene.props[0].turn, 30, "the box stands turned");

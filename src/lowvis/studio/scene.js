@@ -31,7 +31,7 @@ function heightOf(t, row, own) {
 
 /** Why a visible character row cannot be animated by a clip, or null when it can. */
 function whyNot(row) {
-	if (row.model === "proxy-figure") return "box figure";
+	if (row.model === "proxy-figure") return "capsule figure";
 	if (row.model !== TRACK_RIG && !SWITCHABLE.has(row.model)) return /^rig-/.test(String(row.model ?? "")) ? "imported rig" : `model ${row.model ?? "unknown"}`;
 	return null;
 }

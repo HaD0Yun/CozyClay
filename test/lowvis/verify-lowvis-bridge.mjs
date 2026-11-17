@@ -37,7 +37,7 @@ const near = (a, b, what) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 
 	assert.deepEqual(scene.characters.map(c => c.id), ["xb", "yb"], "an X Bot and a Y Bot at scale 1 are offered; a hidden one is not");
 	assert.deepEqual(ids.characters, { xb: "xb", yb: "yb" });
 	assert.deepEqual(ids.switch, ["yb"], "the Y Bot is listed to be switched");
-	assert.deepEqual(scene.others, [{ id: "cap", why: "box figure" }, { id: "imp", why: "imported rig" }, { id: "big", why: "scale 1.2" }], "the others say why");
+	assert.deepEqual(scene.others, [{ id: "cap", why: "capsule figure" }, { id: "imp", why: "imported rig" }, { id: "big", why: "scale 1.2" }], "the others say why");
 	assert.deepEqual(scene.characters[0], { id: "xb", at: [1, 2], heading: 90 });
 	// without the turn flag a prop is the square box around the footprint
 	const table = scene.props[0], c = Math.cos(Math.PI / 6), s = Math.sin(Math.PI / 6);

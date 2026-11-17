@@ -10,11 +10,11 @@ const CUTS = [
 	["A route's marks can carry", "never duplicate it."],
 	["For a held prop use object.createKit", "never key its wrist."],
 ];
-// [from, through, replacement]: lines of the cast-style gate
+// [from, through, replacement]: the capsule figure and the cast-style gate give way to one line on people
+const PEOPLE_LINE = "People are block figures: rig characters of model x-bot-tpose. Their body motion comes from the motion tool.";
 const LINES = [
-	["- rig: cast only X Bot or Y Bot", "keep the rig.", "- rig: cast only the block figure (model x-bot-tpose)."],
-	["- hybrid: the cast gate decides", "Ask once per shot.", "- hybrid: rig characters move through the motion tool; capsule figures are placed and moved as before."],
-	["\nProposal: \"This shot needs", "(yes = capsules, no = keep the rig)\"", ""],
+	["In the context, an entity with characterKind \"proxy\"", "(yes = capsules, no = keep the rig)\"", PEOPLE_LINE],
+	[" In a hybrid project run the cast gate", "before step 2 places anyone.", ""],
 	// the motion tool places what the body uses (MOTION_TOOL_PARAGRAPH), and its report is the check of the motion
 	["2. Staging first: place and face the cast", "before any camera.", "2. Staging first, before any camera: the motion tool places the rig characters that move and the objects their bodies use; place the rest of the cast and the set around them."],
 	["verify_result checks placement, framing and motion", "and motion", "verify_result checks placement and framing"],
