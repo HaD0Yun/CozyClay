@@ -136,6 +136,32 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: a task adds what the scene lacks; used names the boxes and the floor the bodies cross");
 }
 
+// while the motion is written: each compile names what its clip is written against (onNamed), and the objects other
+// calls changed or added meanwhile (changed) that differ where the body goes are the answer's motionFit
+{
+	const pos = [];
+	for (let f = 0; f < 2; f++) for (let j = 0; j < 17; j++) pos.push(f ? 1 : 0, j ? 0.9 : 0.05, 0);
+	const final = { clip: "clip.json", scene: { characters: [{ id: "c1", at: [0, 0] }], props: [{ id: "box", size: [1, 0.9, 0.5], at: [1, 0.45, 2], turn: 30 }] }, spec: SPEC };
+	const { seen, base } = harness({ clip: { frameCount: 2, characters: [{ id: "c1", pos }, { id: "guest", pos }], props: [{ id: "box" }] }, record: { final },
+		install: async () => ({ characterIds: ["lowvis-guest"], objectIds: [], switched: [], placed: { box: "obj-box" }, ok: true }) });
+	const now = { ...DESCRIBE, objects: [{ ...DESCRIBE.objects[0], x: 1.5 }, { id: "stool-1", name: "stool", renderer: "cube", x: 0, y: 0, z: 0, rot: 0, footprint: { width: 0.4, depth: 0.4 }, height: 0.5 },
+		{ id: "rug-1", name: "rug", renderer: "cube", x: 0.5, y: 0, z: 0, rot: 0, footprint: { width: 2, depth: 2 }, height: 0.01 }, { id: "shelf-1", name: "shelf", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 0.3 }, height: 2 }] };
+	let reads = 0;
+	const hub = { command: async (name, args, handle) => { seen.describe.push({ name, args, handle }); return reads++ ? now : DESCRIBE; } };
+	const named = [], clips = [];
+	const deps = { ...base.deps, readClip: file => { clips.push(file); return base.deps.readClip(file); } };
+	const done = await runMotion({ ...base, hub, deps, words: "he walks", memoryKey: "conv-fit", onNamed: ids => named.push(ids), changed: () => ["obj-box", "stool-1", "rug-1", "shelf-1", "stool-1"] });
+	assert.deepEqual(named, [["c1", "lowvis-guest", "obj-box"]], "one compile: the scene's character and box it names, and the cast member it adds");
+	assert.match(clips[0], /public\/lowvis\/clips\/pi\/agent-[^/]+\.json$/, "read from where the compile tool writes the clip");
+	assert.deepEqual(seen.describe[1].args, { tops: true });
+	assert.deepEqual(done.motionFit.objects.map(entry => entry.id), ["obj-box", "stool-1"], "the moved box and the stool on the walk; the flat rug and the far shelf are not named");
+	assert.match(done.motionFit.objects[0].differs[0], /^base at \[1\.5, 0, 2\], the box's at \[1, 0, 2\]$/);
+	assert.match(done.motionFit.objects[1].differs[0], /^footprint 0\.4 x 0\.4 m, 0\.5 m tall, at \[0, 0\] stands on floor the feet use \(\d+ cells? of 0\.1 m\); the motion was written without it$/);
+	const quiet = await runMotion({ ...harness().base, words: "x" });
+	assert.equal("motionFit" in quiet, false, "nothing changed meanwhile: no motionFit and no second describe");
+	console.log("PASS runMotion: onNamed per compile; objects changed or added meanwhile answer motionFit");
+}
+
 // the direct key (no note): the writer is not told of a later dressing step
 {
 	const { seen, base } = harness();

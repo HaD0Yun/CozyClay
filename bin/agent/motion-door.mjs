@@ -10,7 +10,7 @@ import { runMotion } from "./motion-run.mjs";
 
 const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. Its report ends with a Missing line. images: true sends the user's pictures.";
 // A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
-const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used. motion_result answers that result, waiting only for what is left of the motion. Work that does not depend on the result can be done meanwhile. Until the motion is installed, a call that changes a character or object it was written against is undone and refused. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
+const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used. motion_result answers that result, waiting only for what is left of the motion. Until the motion is installed, a call that changes a character or object it is written against is undone and refused: until the motion writer's first compile every character and solid object of the scene, then the ones its compiled scenes name and the characters it adds. Any other call goes through, so work that does not depend on where the body goes can be done meanwhile; the result's motionFit names an object changed or added meanwhile that differs from the box the motion used or stands on floor the feet use. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
 const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it. A motion that failed answers its error.";
 // labelled as the editor's own message (session-store.mjs OBSERVATION_LABEL): a restored transcript does not show it as the user's words
 const ENDED = "Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:";
@@ -45,7 +45,7 @@ export async function motionAvailable(env = process.env) {
 }
 
 const coded = (code, message) => Object.assign(new Error(message), { code });
-const answerOf = done => ({ ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null, ...(done.bodies ? { bodies: done.bodies } : {}), ...(done.bodiesSet ? { bodiesSet: done.bodiesSet } : {}) });
+const answerOf = done => ({ ok: true, report: done.report, missing: done.missing, frames: done.frames, clipSeconds: done.clipSeconds, tookSeconds: done.tookSeconds, compiles: done.compiles, characters: done.characterIds, objects: done.objectIds, switched: done.switched, used: done.used ?? null, ...(done.motionFit ? { motionFit: done.motionFit } : {}), ...(done.bodies ? { bodies: done.bodies } : {}), ...(done.bodiesSet ? { bodiesSet: done.bodiesSet } : {}) });
 // The ids a tool call changed: its own, and those of each call of a script (script-tool.mjs calls).
 const touched = result => [...(Array.isArray(result?.affectedIds) ? result.affectedIds : []), ...(Array.isArray(result?.calls) ? result.calls.flatMap(call => (Array.isArray(call?.affectedIds) ? call.affectedIds : [])) : [])];
 
@@ -57,8 +57,10 @@ const touched = result => [...(Array.isArray(result?.affectedIds) ? result.affec
  * images(): the pictures the user attached to this request ([{ data, mimeType }]).
  * background false: the call waits for the motion (a task's run). background true: the call answers started once the
  * scene is read and motion_result collects the result. Until the install, with(list)'s tools and the install hold the
- * scene one at a time, and a call that changed an id the motion was written against (onScene) is rolled back and
- * refused. sceneOf(): the scene the turn's tools act on; the install is refused once it is another than at the start.
+ * scene one at a time, and a call that changed an id the motion is written against is rolled back and refused: every
+ * id of the scene it read (onScene) until the writer's first compile, then the ids its compiled scenes name (onNamed,
+ * which grows). changed(): the ids the calls that went through changed meanwhile (motion-run.mjs checks them after the
+ * install). sceneOf(): the scene the turn's tools act on; the install is refused once it is another than at the start.
  * unfinished({ failed }) -> null, or the text of a result the agent has not collected, which the runner hands to the
  * model before the turn may end (agent-runner.mjs); failed (the turn ended on an error or a stop) stops the motion instead.
  */
@@ -84,7 +86,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	const collect = async current => { try { return answerOf(await current.result); } finally { current.collected = true; } };
 	const starting = async (args, { signal, toolCallId, emit } = {}) => {
 		if (job && !job.collected) throw coded("MOTION_RUNNING", "A motion of this turn is still being written: motion_result answers it; a change to it is another motion call after that.");
-		const current = { stop: new AbortController(), held: null, installed: false, collected: false, scene: sceneOf() };
+		const current = { stop: new AbortController(), held: null, named: null, changed: new Set(), installed: false, collected: false, scene: sceneOf() };
 		let read;
 		const scene = new Promise(resolve => { read = resolve; });
 		// the install holds the scene alone, under its own mark, and is rolled back when the Studio refused it
@@ -96,7 +98,8 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			} finally { current.installed = true; }
 		});
 		const onScene = ids => { current.held = new Set([...Object.values(ids?.characters ?? {}), ...Object.values(ids?.props ?? {}).map(prop => prop?.id)]); read(); };
-		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, exclusive });
+		const onNamed = list => { current.named = new Set([...(current.named ?? []), ...list]); current.held = current.named; };
+		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, onNamed, changed: () => [...current.changed], exclusive });
 		current.result.catch(() => {}).finally(() => { current.installed = true; read(); });
 		job = current;
 		await scene;
@@ -108,13 +111,17 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		const current = job;
 		if (!current || current.installed) return tool.handler(args, call);
 		return hold(async () => {
-			if (current.installed || !current.held?.size) return tool.handler(args, call);
-			await mark();
+			if (current.installed) return tool.handler(args, call);
+			const guarded = current.held?.size > 0;
+			if (guarded) await mark();
 			const ids = seen = new Set();
 			let result;
 			try { result = await tool.handler(args, call); } finally { seen = null; }
-			const hit = [...new Set([...touched(result), ...ids].filter(id => current.held.has(id)))];
-			if (!hit.length) return result;
+			const all = [...new Set([...touched(result), ...ids])], hit = guarded ? all.filter(id => current.held.has(id)) : [];
+			if (!hit.length) {
+				if (result?.ok !== false) for (const id of all) current.changed.add(id);
+				return result;
+			}
 			// a failed script already rolled back its own edits (agent-routes.mjs scriptTool), or changed nothing; the mark is spent
 			const failed = result?.ok === false ? `This call failed (${result.error?.message ?? result.message ?? "no message"}) and ${result.rollback ? "its edits were undone" : "changed nothing"}. It also changed` : null;
 			let undone = Boolean(result?.rollback), why = "";
@@ -171,8 +178,8 @@ export async function turnMotionDoor({ value, env = process.env, hub, tools, tra
 	if (value.main || motionEngine(env) !== "lowvis" || !await motionAvailable(env)) return null;
 	return createMotionDoor({
 		// the user's message as typed goes with the agent's request; a task's is the message its coordinator had (studio-task-routes.mjs)
-		run: ({ request, images, signal: callSignal, onCompile, onBodies, onScene, exclusive }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
-			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, onBodies, onScene, exclusive, deps }),
+		run: ({ request, images, signal: callSignal, onCompile, onBodies, onScene, onNamed, changed, exclusive }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
+			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, onBodies, onScene, onNamed, changed, exclusive, deps }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
 		background: !value.task, sceneOf: () => admission?.host?.sceneId ?? null,
 	});
