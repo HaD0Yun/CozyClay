@@ -32,8 +32,9 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 
 // --- 2. the manual and the schema: with nothing said about bodies they are those of before ---
 {
-	// sha256 (16 hex) of every variant's system prompt at the commit before this change; studio: with the body step off
-	const BEFORE = { base: "ad7da48a7d38ba4f", lean: "ed66ee00e280670b", patch: "5f6fb9cb9fb09b36", reach: "c2336e02e54d6806", noassist: "5f6fb9cb9fb09b36", repeat: "ea7cb302a6343b37", kept: "ea7cb302a6343b37", tilt: "315a82f58f56ecf6", studio: "4f001578b8a61907" };
+	// sha256 (16 hex) of every variant's system prompt at the commit before this change; studio: with the body step off.
+	// Taken again when the engine's SPEC FORMAT gained the words for the own body, elbows, aim per axis and ride.
+	const BEFORE = { base: "3989c6cb62144503", lean: "d850794078912364", patch: "37b521d200716755", reach: "d40b26b41350a140", noassist: "37b521d200716755", repeat: "f5ec89ba905013f9", kept: "f5ec89ba905013f9", tilt: "887914e9edf925a5", studio: "ba17a31511bf437f" };
 	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(systemPrompt(variant, variant === "studio" ? ["body"] : [])), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");

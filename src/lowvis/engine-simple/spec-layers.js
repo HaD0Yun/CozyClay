@@ -51,7 +51,7 @@ const smoothEdge = (k, N) => clamp(Math.min(k, N - 1 - k) / 12);
 
 /** s: the size of the body (size.js): the pad between a wrist and what it holds grows with the hand. */
 export function buildUpper(id, acts, props, s = 1) {
-	const keys = { L: [], R: [], footL: [], footR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
+	const keys = { L: [], R: [], footL: [], footR: [], elbowL: [], elbowR: [], lean: [], twist: [], hipTurn: [], bow: [], hip: [], look: [], aim: [], tilt: [] }, events = [];
 	for (const [f, verb, o = {}] of acts) {
 		if (BODY.has(verb)) continue;
 		const k = { f, over: o.over ?? 12, ease: o.ease ?? "inout", fast: o.fast };
@@ -72,6 +72,7 @@ export function buildUpper(id, acts, props, s = 1) {
 				const t = o[side];
 				keys[side].push({ ...k, to: t === "plant" ? t : { at: Array.isArray(t) ? t : t.at, world: t.world, pitch: rad(t.pitch ?? 0) } });
 			}
+			for (const side of ["elbowL", "elbowR"]) if (o[side] !== undefined) keys[side].push({ ...k, to: o[side] });
 			if (o.lean !== undefined) keys.lean.push({ ...k, to: rad(o.lean) });
 			if (o.twist !== undefined) keys.twist.push({ ...k, to: rad(o.twist) });
 			if (o.hipTurn !== undefined) keys.hipTurn.push({ ...k, to: rad(o.hipTurn) });
