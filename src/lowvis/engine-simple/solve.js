@@ -7,7 +7,7 @@
 // U = { hands: [L, R] of { from, to: world points or null (= rest), w: blend, up: 0..1 hand turned up, offset,
 //                          aim: world direction of the hand's thumb side, aimW: 0..1, or axes: { a, b, w } two
 //                          lists of [hand axis, world direction] blended a to b by w (aimW still weighs them),
-//                          elbow: { from, to, w } world points the elbow bends toward (null = its own direction),
+//                          elbow: { from, to, w, fast } world points the elbow bends toward (null = its own direction),
 //                          prev: where the hand was last frame, carried with the body (limits its speed) },
 //       hipTurn: pelvis turn about Y over planted feet (rad), bow: forward hinge at the hips (rad),
 //       lean, twist (rad), hip: [x, y, z] pelvis shift in the heading frame, look: [yaw, pitch] of the head,
@@ -58,13 +58,24 @@ const toward = (p, root, dir, fallback) => { const v = sub(p, root), across = su
 const turnPart = (a, b, w, side) => { const ax = cross(a, b), s = len(ax); return qAxisAngle(s > 1e-9 ? mul(ax, 1 / s) : side, w * Math.atan2(s, dot(a, b))); };
 
 /** A wrist with no target of its own (free: 0..1, the part of it that is not aimed) under an elbow target e: the whole
- *  arm turns about the shoulder `sh`, keeping its bend, so that the elbow points at e's blend of targets; so the elbow
- *  lies on a target as far from the shoulder as the upper arm. The blend turns the direction by angle, so the arm swings
- *  through the frames of the blend; side: the turn's axis when two directions point opposite ways. */
+ *  arm turns about the shoulder `sh` as one piece, keeping its bend, so that the elbow points at e's blend of targets;
+ *  so the elbow lies on a target as far from the shoulder as the upper arm. The turn is the one that takes the arm's own
+ *  elbow to the key's first target and then turns it by angle toward its second (one axis for the whole blend), so the
+ *  arm swings through the frames of the blend; side: the turn's axis when two directions point opposite ways.
+ *  -> { wrist, pole: the elbow's bend direction turned with the arm } */
 function freeWrist(sh, w, pole, e, free, S, side) {
-	const own = norm(sub(limb(sh, w, pole, S.fore, S.hand, [0, 0, -1]).mid, sh)), at = q => (q ? norm(sub(q, sh)) : own);
-	const from = at(e.from), goal = qRotate(turnPart(from, at(e.to), e.w, side), from);
-	return mixV(w, add(sh, qRotate(turnPart(own, goal, 1, side), sub(w, sh))), free);
+	const arm = limb(sh, w, pole, S.fore, S.hand, [0, 0, -1]), own = norm(sub(arm.mid, sh)), at = q => (q ? norm(sub(q, sh)) : own);
+	const from = at(e.from), q = qSlerp([0, 0, 0, 1], qMul(turnPart(from, at(e.to), e.w, side), turnPart(own, from, 1, side)), free);
+	return { wrist: add(sh, qRotate(q, sub(w, sh))), pole: qRotate(q, arm.perp) };
+}
+/** A turned arm held to the hands' top speed: its wrist goes from `prev` toward `w` along an arc about the shoulder `sh`,
+ *  at most MAX_STEP, and the arm turns with it. -> { wrist, pole } */
+function swingCapped(sh, prev, w, pole, side) {
+	const a = sub(prev, sh), b = sub(w, sh), at = k => add(sh, mul(qRotate(turnPart(norm(a), norm(b), k, side), norm(a)), mix(len(a), len(b), k)));
+	let lo = 0, hi = 1;
+	for (let n = 0; n < 20; n++) { const k = (lo + hi) / 2; if (len(sub(at(k), prev)) > MAX_STEP) hi = k; else lo = k; }
+	const wrist = at(lo);
+	return { wrist, pole: qRotate(turnPart(norm(b), norm(sub(wrist, sh)), 1, side), pole) };
 }
 
 /** Two-bone IK: joints jm (middle) and je (end) hang from `root`; the middle joint bends toward `pole`. */
@@ -152,17 +163,18 @@ export function solve(B, U = {}) {
 	pos[0] = T.hips; quat[0] = T.qP; quat[1] = T.q1; quat[2] = T.q2;
 	quat[3] = qMul(T.q2, qMul(qY(0.5 * ly), qX(0.5 * lp))); quat[4] = qMul(T.q2, qMul(qY(ly), qX(lp)));
 	for (let j = 1; j <= 4; j++) place(j);
+	const late = [0, 0]; // metres the top speed held a turned arm's elbow from where its blend had it
 	SIDES.forEach((S, i) => {
 		place(S.arm);
-		const e = H[i]?.elbow;
-		let wrist = T.hand[i];
-		if (turned[i]) {
-			wrist = freeWrist(pos[S.arm], wrist, elbowPole(S, pos[S.arm], wrist, T.q2), e, 1 - aimed[i], S, qRotate(T.q2, X));
-			if (H[i].prev) [wrist, T.slow[i]] = capped(wrist, H[i].prev, pos[S.arm]);
-		}
-		let bend = elbowPole(S, pos[S.arm], wrist, T.q2);
-		if (e) { const dir = norm(sub(wrist, pos[S.arm])), own = toward(add(pos[S.arm], bend), pos[S.arm], dir, bend), at = q => (q ? toward(q, pos[S.arm], dir, own) : own); bend = mixV(at(e.from), at(e.to), e.w); }
-		const A = limb(pos[S.arm], wrist, bend, S.fore, S.hand, [0, 0, -1]);
+		const e = H[i]?.elbow, sh = pos[S.arm];
+		let wrist = T.hand[i], bend = elbowPole(S, sh, wrist, T.q2);
+		if (turned[i]) { // the free wrist turned by its elbow target; the cap holds it back unless the hand's or the elbow's key says fast
+			const side = qRotate(T.q2, X), free = freeWrist(sh, wrist, bend, e, 1 - aimed[i], S, side);
+			const held = H[i].prev && !e.fast && len(sub(free.wrist, H[i].prev)) > MAX_STEP ? swingCapped(sh, H[i].prev, free.wrist, free.pole, side) : free;
+			wrist = held.wrist; bend = held.pole;
+			if (held !== free) { T.slow[i] = len(sub(free.wrist, wrist)); late[i] = len(sub(limb(sh, free.wrist, free.pole, S.fore, S.hand, [0, 0, -1]).mid, limb(sh, wrist, bend, S.fore, S.hand, [0, 0, -1]).mid)); }
+		} else if (e) { const dir = norm(sub(wrist, sh)), own = toward(add(sh, bend), sh, dir, bend), at = q => (q ? toward(q, sh, dir, own) : own); bend = mixV(at(e.from), at(e.to), e.w); }
+		const A = limb(sh, wrist, bend, S.fore, S.hand, [0, 0, -1]);
 		quat[S.arm] = A.qU; quat[S.fore] = A.qL;
 		const dir = norm(mixV(norm(sub(A.end, A.mid)), Y, H[i]?.up ?? 0));
 		quat[S.hand] = qMul(qFrame(dir, A.perp), qConj(qFrame(OFFSET[S.hand], [0, 0, -1])));
@@ -176,5 +188,5 @@ export function solve(B, U = {}) {
 		quat[S.up] = L.qU; quat[S.leg] = L.qL; quat[S.foot] = feet[i].q;
 		place(S.leg); place(S.foot);
 	});
-	return { pos, quat, assist: { bend, drop }, slow: T.slow, lift: feet.map(f => f.lift) };
+	return { pos, quat, assist: { bend, drop }, slow: T.slow, late, lift: feet.map(f => f.lift) };
 }

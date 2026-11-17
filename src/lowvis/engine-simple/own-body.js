@@ -6,7 +6,7 @@ import { EASE, X, Y, Z, add, len, mix, mixV, norm, qMul, qRotate, qY, sub } from
 import { solveSized } from "./size.js";
 import { reachEntry } from "./reach.js";
 
-const AXES = { x: X, y: Y, z: Z };
+const AXES = { x: X, y: Y, z: Z }, HAND = [J.LeftHand, J.RightHand];
 
 /** A place on the own body in the space the pose is solved in: joint `to.joint`, offset by `to.at` in that joint's own
  *  frame (the body frame at rest). On the first pass of a frame the joint is where the last solved pose had it, carried
@@ -56,7 +56,7 @@ export function elbowsOf(c, f, U, t) {
 		const list = c.keys[name], k = t.active(list, f);
 		if (!k) return;
 		const at = to => (to && to !== "rest" ? t.target(c, i, to, f) : null), prev = list[list.indexOf(k) - 1];
-		U.hands[i].elbow = { from: at(prev?.to), to: at(k.to), w: EASE[k.ease](t.prog(k, f)), key: k.f, done: t.prog(k, f) >= 1, self: k.to?.joint || k.to?.on ? k.to : null };
+		U.hands[i].elbow = { from: at(prev?.to), to: at(k.to), w: EASE[k.ease](t.prog(k, f)), key: k.f, fast: k.fast, done: t.prog(k, f) >= 1, self: k.to?.joint || k.to?.on ? k.to : null };
 	});
 }
 
@@ -68,6 +68,10 @@ export function ownReach(c, f, U, row, t) {
 	const self = (i, to) => t.target(c, i, to, f);
 	U.hands.forEach((h, i) => { if (row[i] && h.self) { const t = h.offset ? add(self(i, h.self), h.offset) : self(i, h.self); row[i] = reachEntry(c, i, row[i].key, t, { slow: row[i].slow, drift: len(sub(row[i].t, t)) }); } });
 	U.hands.forEach((h, i) => { if (row[i] && h.took) Object.assign(row[i], { took: h.took, prop: h.prop }); }); // took hold of a shared prop this short of its place (share.js)
+	U.hands.forEach((h, i) => { // a hand on its place on a shared prop: how far it ends from where its own action puts it
+		const own = h.own === "rest" ? add(c.solved.pos[J.Hips], qRotate(c.body[f].q, c.body[f].hands[i])) : h.own;
+		if (row[i] && own) Object.assign(row[i], { held: len(sub(c.solved.pos[HAND[i]], own)), heldKey: h.ownKey, prop: h.prop });
+	});
 	if (!c.keys.elbowL.length && !c.keys.elbowR.length) return row;
-	return [...row, ...U.hands.map(({ elbow: e, to }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to, drift: e.self && len(sub(e.to, self(i, e.self))) }) : null))];
+	return [...row, ...U.hands.map(({ elbow: e, to }, i) => (e?.to && e.done ? reachEntry(c, 4 + i, e.key, e.self ? self(i, e.self) : e.to, { wrist: !!to, slow: c.solved.late[i], drift: e.self && len(sub(e.to, self(i, e.self))) }) : null))];
 }

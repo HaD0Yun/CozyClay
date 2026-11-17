@@ -24,9 +24,12 @@ function facts(e, e0, first, S, s) {
 		out.push({ v: off, text: `on that frame the target is ${where}${since}${e.spent ? "; the reach assist was hinged at the hips as far as it goes" : ""}` });
 	}
 	if (e.circle > NAMED) out.push({ v: e.circle, text: `the wrist's own target holds the elbow: with the wrist there the elbow comes no nearer than ${mm(e.circle)}` });
-	if (e.slow > NAMED) out.push({ v: e.slow, text: `late: a wrist moves at most ${mm(MAX_STEP * s)} a frame in the body frame unless its key says fast, and on that frame it was still ${mm(e.slow)} short of where its blend had it` });
+	if (e.slow > NAMED) out.push({ v: e.slow, text: S.exact ? `late: this elbow turns its free wrist with it, a wrist moves at most ${mm(MAX_STEP * s)} a frame in the body frame unless the key says fast, and that held the elbow ${mm(e.slow)} from where its blend had it on that frame`
+		: `late: a wrist moves at most ${mm(MAX_STEP * s)} a frame in the body frame unless its key says fast, and on that frame it was still ${mm(e.slow)} short of where its blend had it` });
 	if (e.floor > NAMED) out.push({ v: e.floor, text: `the floor holds the foot: the target is ${mm(e.floor)} lower than the floor lets the ankle go` });
-	if (e.drift > NAMED) out.push({ v: e.drift, text: `the target is on the own body and moved ${mm(e.drift)} with the pose that reached for it` });
+	if (e.drift > NAMED) out.push({ v: e.drift, text: e.on == null ? `the target is on the own body and moved ${mm(e.drift)} with the pose that reached for it`
+		: `the target is on ${e.on}, which moved it ${mm(e.drift)} on that frame after this pose was aimed at it${e.back ? `; ${e.on} has a target on this body too, so each aims at where the other was` : ""}${
+			(e.bend ?? 0) >= 0.01 || (e.drop ?? 0) >= NAMED ? `; on that frame the reach assist has this body hinged ${e.bend.toFixed(2)} rad at the hips and its hips ${mm(e.drop)} lower` : ""}` });
 	return out.sort((x, y) => y.v - x.v);
 }
 

@@ -29,7 +29,8 @@
 //                    | {on:propId, at?:[x,y,z]}   a place on a prop that follows it; at = offset from its centre in
 //                      its own frame (the axes of its size)
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
-//         and the arm's length allow
+//         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
+//         shoulder as one piece, keeping its bend, so the elbow points at the target
 //     carry {prop, at:[x,y,z], over}   the prop follows both hands from this frame, level, turning with the line
 //                                      between them; no `at` = hands stay as they are;
 //                                      slide:true = the prop only slides on the floor with the hands (a push);
@@ -37,14 +38,16 @@
 //     hold {prop, hand:"R"|"L"|"both", at?, over}   these hands of this character hold the prop until they let go;
 //       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). One hand alone
 //       with no `at`: the prop is fixed in it, its long z axis along the thumb side. at = each hand's place on the
-//       prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = at once) and
-//       take hold on arrival; no at = the point of the prop nearest each hand. A holding hand stays where it took hold
-//       in the body frame until a later pose moves it. The prop follows its hands: in one hand fixed in it, as it lay in
-//       the hand when that hand came to hold it alone (aim turns it); in more, the place and turn that best put each
-//       hand's place on that hand; about an axis its places hardly fix (all on one line) it keeps the turn it had when
-//       they took it, turned as far as its holders have turned. Each hand is then put on its place; its reach row is how
-//       far it is from it (hands that pull apart, a place out of reach). A hand that arrives short of its place pulls
-//       the prop to it on that frame: told as its own row, how far
+//       prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
+//       hand speed limit below still holds) and take hold when they end; no at = the point of the prop nearest each hand.
+//       A holding hand stays where it took hold in the body frame until a later pose moves it. The prop follows its
+//       hands: in one hand fixed in it, as it lay in the hand when that hand came to hold it alone (aim turns it); in
+//       more, the place and turn that best put each hand's place on that hand; about an axis its places hardly fix (all
+//       on one line) it keeps the turn it had on the frame before, turned only as its places turn it. Each hand is then
+//       put on its place; its reach row is how far it is from it (a place out of reach); its `held` row is how far that
+//       keeps it from where its own action (the hold, or a later pose of that hand) puts it (hands that pull apart). A
+//       hand that arrives short of its place pulls the prop to it on that frame, told as its own row, and then takes
+//       it on to where it holds it
 //     release {prop, hand?, roll?}     this character lets go (hand: only that hand, of a hold or a carry; the other
 //                                      keeps the prop as it is); with no hand on it the prop stays
 //                                      where it is; roll:true = it keeps the hand's velocity, drops to
@@ -55,7 +58,8 @@
 //       (a place on a body as for a hand) | "plant". The point is the ankle
 //       joint; `at` is in the body frame from the floor point under the Hips joint (y = height over the floor);
 //       pitch > 0 points the toes down. The other foot keeps the body; nothing checks the balance.
-//     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast.
+//     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast
+//     (a wrist an elbow key turns: unless that key or its hand's key says fast).
 //     look: a character id, a prop id (its top), a world point or "fwd"; with no target the gaze stays level.
 //     place {prop, at:[x,y,z] world, over}   the hands take the prop there and let go
 //   Prop layer: <propId>: [[frame, verb, options], ...] moves a free prop by keys:
@@ -265,9 +269,9 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	for (let f = 0; f < F; f++) {
 		for (const [c, e] of chars.flatMap(c => c.events.filter(e => e.f === f).map(e => [c, e])).sort((a, b) => (a[1].holder != null) - (b[1].holder != null))) { // lets-go first
 			const p = props[e.prop];
+			if (e.at && e.holder == null) aux.placed.push({ prop: e.prop, f, miss: Math.hypot(...sub(p.c, e.at)) }); // also where other hands still hold it
 			if (shareEvent(p, c, e, f, byId)) continue;
 			p.holder = e.holder; p.hand = e.hand ?? null; p.slide = !!e.slide; if (e.holder) p.takenAt = f;
-			if (e.at) aux.placed.push({ prop: e.prop, f, miss: Math.hypot(...sub(p.c, e.at)) });
 			if (e.hand != null) { // a stick lies along the thumb side, anything else sits in front of the palm
 				const s = e.hand ? -1 : 1, stick = p.size[2] > 2 * Math.max(p.size[0], p.size[1]);
 				p.grip = e.grip ?? (stick ? [s * 0.04 * c.s, 0, p.size[2] / 2 - 0.15 * c.s] : [s * (0.02 * c.s + p.size[0] / 2), 0, 0]); c.gripHand = e.hand;

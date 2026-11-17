@@ -50,11 +50,13 @@ export function otherPoint(byId, to, f, final = false) {
 /** The shared side of a prop event (buildUpper's events) of character c at frame f. Returns true when it is handled
  *  here; false lets engine.js run the event as a single holder's (carry, a hold in one hand, a let-go of it). */
 export function shareEvent(p, c, e, f, byId) {
-	// the hands that held it alone, as grips, each where it is (a carry of c's own only when c lets go of one hand of it)
+	// the hands that held it alone, as grips, each where it held it at the end of the last frame (so the prop goes on
+	// moving with them on this one), a carry of c's own only when c lets go of one hand of it
 	const alone = own => {
 		const o = byId[p.holder];
 		if (!o || (o === c && p.hand == null && !own)) return [];
-		return (p.hand != null ? [p.hand] : [0, 1]).map(i => ({ c: o, i, key: p.takenAt ?? f, ask: null, here: true, g: null }));
+		const at = i => o.world && qRotate(qConj(p.q), sub(o.world.pos[HAND[i]], p.c)), hq = i => o.world?.quat[HAND[i]];
+		return (p.hand != null ? [p.hand] : [0, 1]).map(i => ({ c: o, i, key: p.takenAt ?? f, ask: null, here: true, g: at(i), hq: hq(i), took: { f: -1, d: 0 } }));
 	};
 	if (e.holder == null) { // release / place: this character lets go (e.lets: only that hand)
 		if (!p.grips && e.lets != null && p.holder === c.id) {
@@ -71,7 +73,7 @@ export function shareEvent(p, c, e, f, byId) {
 	const hands = e.hands ?? [e.hand];
 	if (!e.share && !p.grips && !(p.holder && (p.holder !== c.id || (p.hand != null && p.hand !== e.hand)))) { free(p); return false; }
 	p.grips = (p.grips ?? alone(false)).filter(g => g.c !== c || !hands.includes(g.i)); // these hands take hold again, the others hold on
-	for (const i of hands) p.grips.push({ c, i, key: e.key ?? f, ask: e.at?.[i] ?? null, g: null });
+	for (const i of hands) p.grips.push({ c, i, key: e.key ?? f, since: f, ask: e.at?.[i] ?? null, g: null });
 	p.takenAt = f;
 	return held(p);
 }
@@ -79,15 +81,15 @@ const label = p => p.grips.map(g => `${g.c.id}:${SIDE[g.i]}`).join("+");
 const held = p => { p.holder = label(p); p.hand = null; p.slide = false; return true; };
 /** No hand holds the prop through here any more: nothing of the last set of hands is kept for the next. */
 const free = p => { p.grips = null; p.set = null; };
-const wrap = a => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
 
 /** Between the two passes: every body's pose of this frame is kept for the second pass, a hand that took hold this
  *  frame gets its place (the one asked; a hand that held it alone: where it is; else the point of the prop nearest to
  *  it, a wrist's pad off its surface;
  *  g.took: how far it was from it), and every shared prop is fitted to its holding hands. A hand that took hold short
  *  of its place pulls the prop to it. A prop in one hand alone keeps the turn it had in that hand when it came to hold
- *  it alone (c.gripTurn: that turn, for aim). In more hands, about an axis the places hardly fix it keeps the turn it
- *  had when these hands took it, turned about the vertical as far as its holders' bodies have turned since. */
+ *  it alone (c.gripTurn: that turn, for aim; g.hq: a hand that held it on the last frame, as it was then). In more
+ *  hands, about an axis the places hardly fix it keeps the turn it had on the last frame, turned only as the places
+ *  turn it. */
 export function afterFirstPass(props, chars, f) {
 	for (const c of chars) { c.snap = c.poseNow; c.snapF = f; c.gripTurn = [null, null]; }
 	for (const p of Object.values(props)) {
@@ -98,16 +100,16 @@ export function afterFirstPass(props, chars, f) {
 			g.g = g.ask ?? (g.here ? now : now.map((v, k) => Math.max(-p.size[k] / 2 - pad, Math.min(p.size[k] / 2 + pad, v))));
 			g.took = { f, d: len(sub(g.g, now)) };
 		}
-		const set = label(p), fresh = p.set !== set || p.grips.some(g => g.yaw == null);
-		for (const g of p.grips) { const y = g.c.body[f].yaw; g.turned = fresh ? 0 : g.turned + wrap(y - g.yaw); g.yaw = y; }
-		if (fresh) p.ref = p.q; // the turn the prop has when this set of hands takes it
+		const set = label(p), fresh = p.set !== set;
 		if (p.grips.length === 1) { // one hand: the prop is fixed in it as it was when this hand came to hold it alone
 			const g = p.grips[0], hq = g.c.poseNow.quat[HAND[g.i]];
-			if (fresh) { p.gripTurn = qMul(qConj(hq), p.q); g.c.gripHand = g.i; }
+			if (fresh) { p.gripTurn = qMul(qConj(g.hq ?? hq), p.q); g.c.gripHand = g.i; }
 			p.q = qMul(hq, p.gripTurn); g.c.gripTurn[g.i] = p.gripTurn;
-		} else p.q = fitTurn(p.q, qMul(qY(p.grips.reduce((s, g) => s + g.turned, 0) / p.grips.length), p.ref), p.grips.map(g => g.g), p.grips.map(hand));
+		} else p.q = fitTurn(p.q, p.grips.map(g => g.g), p.grips.map(hand));
+		for (const g of p.grips) g.hq = null;
 		const gc = mean(p.grips.map(g => g.g)), hc = mean(p.grips.map(hand));
 		p.c = sub(hc, qRotate(p.q, gc));
+		for (const g of p.grips) g.kept = len(sub(add(p.c, qRotate(p.q, g.g)), hand(g))); // how far the fit keeps the place from where this pass put the hand
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); p.set = set; p.holder = set;
 	}
@@ -117,23 +119,30 @@ export function afterFirstPass(props, chars, f) {
 
 /** Second pass: each hand of c that holds a shared prop goes to its place on it (toBody: a world point into the space
  *  the pose is solved in), which its reach entry measures it against, finished on every frame of the hold; on the frame
- *  it took hold, h.took is how far it was from that place (the prop then moved to it): a fact of the entry's own. */
+ *  it took hold, h.took is how far it was from that place (the prop then moved to it): a fact of the entry's own.
+ *  h.own: on a frame the fit kept the place more than a wrist's pad off where the first pass put the hand (more hands
+ *  pull on the prop; not the frame it took hold), where the hand's own action of the hold or after it puts it once its
+ *  blend has ended ("rest" for the rest pose), which the place on the prop has taken over (own-body.js measures how far
+ *  the hand ends from it). */
 export function onPlaces(props, c, U, f, toBody) {
 	for (const p of Object.values(props)) for (const g of p.grips ?? []) {
 		if (g.c !== c) continue;
 		const h = U.hands[g.i], to = toBody(add(p.c, qRotate(p.q, g.g)));
-		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, prop: p.id });
+		const own = g.kept > PAD * c.s && g.took.f !== f && h.done && h.key >= (g.since ?? g.key) ? h.to ?? "rest" : null;
+		Object.assign(h, { from: to, to, w: 1, done: true, line: true, key: g.key, offset: undefined, self: undefined, took: g.took.f === f ? g.took.d : 0, prop: p.id, own, ownKey: h.key });
 	}
 }
 
 /** The reach row of c, made again where a limb's target is on another body or on a prop: against that body or prop as
  *  it ended this frame. entry(c, slot, key, target, facts) makes one entry (engine.js passes its own); the facts kept
- *  are those that do not depend on the target. */
+ *  are those that do not depend on the target, plus drift: how far the target moved after the pose was solved toward
+ *  it (that body or prop moved on in the second pass), on: what it is on, and back: that body has a target on c's. */
 export function otherReach(c, row, byId, props, f, toBody, entry = plainEntry) {
+	const aims = o => !!o?.U && [...o.U.hands.flatMap(h => [h.self, h.elbow?.self]), ...o.U.feet.map(ft => ft?.self)].some(t => t?.of === c.id);
 	const at = (k, to, offset) => {
 		if (!row[k] || !(to?.of || to?.on)) return;
-		const end = to.of ? otherPoint(byId, to, f, true) : onPoint(props, to, true), { key, slow, floor } = row[k];
-		row[k] = entry(c, k, key, toBody(offset ? add(end, offset) : end), { slow, floor, wrist: k >= 4 && !!c.U.hands[k - 4].to });
+		const end = to.of ? otherPoint(byId, to, f, true) : onPoint(props, to, true), { key, slow, floor } = row[k], t = toBody(offset ? add(end, offset) : end);
+		row[k] = entry(c, k, key, t, { slow, floor, wrist: k >= 4 && !!c.U.hands[k - 4].to, drift: row[k].t && len(sub(row[k].t, t)), on: to.of ?? to.on, back: !!to.of && aims(byId[to.of]) });
 	};
 	c.U.hands.forEach((h, i) => { at(i, h.self, h.offset); at(4 + i, h.elbow?.self); });
 	c.U.feet.forEach((ft, i) => at(2 + i, ft?.self));
@@ -142,11 +151,12 @@ const plainEntry = (c, k, key, t) => ({ key, d: len(sub(c.solved.pos[END[k]], t)
 
 const mean = list => mul(list.reduce(add, [0, 0, 0]), 1 / list.length);
 /** The turn that best lays the places g (prop frame) on the points P (world), in the least-squares sense, plus a small
- *  pull (STIFF of the places' spread) toward ref, the turn the prop had when these hands took it (turned with its
- *  holders): about an axis the places hardly fix (all of them on or near one line) the prop keeps that turn instead of
- *  rolling on small differences between the hands. Gauss-Newton steps from q0, the last frame's turn. */
+ *  pull (STIFF of the places' spread) toward q0, the turn the prop had on the last frame: about an axis the places
+ *  hardly fix (all of them on or near one line) the prop keeps that turn, turned only as the places turn it, instead of
+ *  rolling on small differences between the hands. Gauss-Newton steps from q0. */
 const STIFF = 0.005;
-function fitTurn(q0, ref, g, P) {
+function fitTurn(q0, g, P) {
+	const ref = q0;
 	const gc = mean(g), Pc = mean(P);
 	let q = q0;
 	for (let it = 0; it < 12; it++) {
