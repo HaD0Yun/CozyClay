@@ -7,7 +7,7 @@
 import { ANKLE_HEIGHT, INDEX as J, REST } from "../rig17.js";
 import { clamp, mix, qMul, qRotate, qX, qY, rad, smooth, sub, wrap } from "./math.js";
 import { LEG_LEN, SOLE, TOE } from "./solve.js";
-import { endSplit, fitCount as fitSteps, pace, warp } from "./pace.js";
+import { endSplit, fitCount as fitSteps, floorStep, pace, warp } from "./pace.js";
 
 export const STAND_Y = REST[J.Hips][1] - 0.012;
 const HIP_FWD = REST[J.Hips][2], FOOT_X = REST[J.LeftFoot][0], FOOT_Z = REST[J.LeftFoot][2];
@@ -103,7 +103,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 		const to = { g: [h[0] + o[0] * cs + o[1] * sn, h[1] - o[0] * sn + o[1] * cs], yaw: from.yaw + wrap(yaw - from.yaw) }, d = dist2(from.g, to.g);
 		// sf: how much heel-toe roll a forward step gets, sb: a step of a backward move (the roll in reverse); small and side steps stay flat
 		const ahead = ((to.g[0] - from.g[0]) * sn + (to.g[1] - from.g[1]) * cs) / 0.5;
-		swings[s.side].push({ t0: s.t0, t1: s.t0 + s.dur, from, to, d, sf: clamp(ahead), sb: back ? clamp(-ahead) : 0, ...(s.off && { home: h, other: cur[1 - s.side].g }) });
+		swings[s.side].push({ t0: s.t0, t1: s.t0 + s.dur, from, to, d, sf: clamp(ahead), sb: back ? clamp(-ahead) : 0, ...(s.off && { home: h }) });
 		cur[s.side] = to;
 	});
 	if (plan.length) swings[plan.at(-1).side].at(-1).fin = true; // the last plant of the move: it lands under the stopped pelvis
@@ -154,12 +154,13 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 			}),
 		});
 	}
-	// ends: the plants onto off spots as they land: the ankle, where it would be at home, the other ankle, the hips
-	const ends = swings.flatMap((list, side) => list.filter(s => s.home).map(s => {
+	// lands: every plant as it lands, in order: its ankle, the other ankle (in the air: where it last landed), the hips, and
+	// on an off spot where it would be at home
+	const lastAt = st.feet.map(f => f.g), lands = swings.flatMap((list, side) => list.map(s => {
 		const B = frames[clamp(Math.ceil(s.t1), 0, T - 1)], a = B.feet[side].a, o = B.feet[1 - side], dx = a[0] - s.to.g[0], dz = a[2] - s.to.g[1];
-		return { g: [a[0], a[2]], home: [s.home[0] + dx, s.home[1] + dz], other: o.planted ? [o.a[0], o.a[2]] : s.other, hip: [B.p[0], B.p[2]] };
-	}));
-	return { frames, st: { p: posAt(T), yaw: yawAt(T), feet: cur }, ends };
+		return { side, t: s.t1, g: [a[0], a[2]], other: o.planted ? [o.a[0], o.a[2]] : null, hip: [B.p[0], B.p[2]], ...(s.home && { home: [s.home[0] + dx, s.home[1] + dz] }) };
+	})).sort((x, y) => x.t - y.t).map(e => { e.other ??= lastAt[1 - e.side]; lastAt[e.side] = e.g; return e; });
+	return { frames, st: { p: posAt(T), yaw: yawAt(T), feet: cur }, lands };
 }
 
 function firstSide(st, D, dyaw) {
@@ -186,8 +187,8 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
 	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"] ?? [0, 0]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
-	const split = end ? endsTold(r.ends, way, "walk") : null; // its steps are a walk's
-	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st, told: fit && (fit.told || split) ? { ...fit.info, split } : null, split, plants: n };
+	const split = end ? endsTold(r.lands, way, "walk") : null; // its steps are a walk's
+	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st, told: fit && (fit.told || split) ? { ...fit.info, stepWalked: floorStep(r.lands), split } : null, split, plants: n };
 }
 
 /** Smooth path through points with unit tangents; at(d) and yaw(d) by arc length. */
@@ -279,11 +280,11 @@ function travel(st, segs) {
 	out.push(...r.frames);
 	const rest = last.N - last.use;
 	const turns = [turnA];
-	let split = post == null && last.end ? endsTold(r.ends, [0, 1], last.kind) : null; // the end spots, as the path steps onto them
+	let split = post == null && last.end ? endsTold(r.lands, [0, 1], last.kind) : null, stepWalked = floorStep(r.lands); // the end spots and its plants' longest step, as the path steps onto them
 	if (post != null) { r = shuffle(r.st, Nb + rest, { yaw: post, end: last.end }); out.push(...r.frames); turns.push({ when: "at the end", plants: r.plants, frames: Nb }); split = r.split && { ...r.split, turn: true }; }
 	else out.push(...hold(r.st, rest));
 	// a counted walk tells how it differs from what was written, its end spots, and the turns on the spot added to it
-	const f = last.fit, told = f && (f.told || split || turns.some(Boolean)) ? { ...f.info, split, stepsRoom: f.info.room, room: f.info.room + Nb + (turnA?.frames ?? 0), turns: turns.filter(Boolean) } : null;
+	const f = last.fit, told = f && (f.told || split || turns.some(Boolean)) ? { ...f.info, stepWalked, split, stepsRoom: f.info.room, room: f.info.room + Nb + (turnA?.frames ?? 0), turns: turns.filter(Boolean) } : null;
 	return { frames: out, st: r.st, told };
 }
 

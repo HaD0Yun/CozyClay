@@ -52,7 +52,7 @@ for (const [way, to] of Object.entries(WAYS)) for (const d of [1, 1.6, 2.4, 3.4,
 	if (told) assert.equal(c.plants, told.steps[1], `${name}: the plants walked are the plants told (${c.plants} vs ${told.steps[1]})`);
 	else assert.equal(c.plants, steps, `${name}: ${steps} plants as written, or told (${c.plants} walked)`);
 	// a count is raised only when the steps it makes at its pace are too long, to the fewest whose steps are not
-	if (told && told.steps[1] !== steps) assert.ok(told.step > told.longest && told.stepWalked <= told.longest + 1e-6 && told.longest <= (way === "side" ? 0.437 : 0.75), `${name}: a count is raised only when its steps are too long (${told.step.toFixed(2)} m of ${told.longest.toFixed(2)})`);
+	if (told && told.steps[1] !== steps) assert.ok(told.step > told.longest && told.stepPlan <= told.longest + 1e-6 && told.longest <= (way === "side" ? 0.437 : 0.75), `${name}: a count is raised only when its steps are too long (${told.step.toFixed(2)} m of ${told.longest.toFixed(2)})`);
 	worst = { bob: Math.max(worst.bob, c.bob - plain.bob), jerk: Math.max(worst.jerk, c.jerk - plain.jerk) };
 	n++;
 }
@@ -85,7 +85,7 @@ try {
 	const r = tool.call({ scene, spec: { a: [[0, "walk", { to: [0, 3.4], steps: 4, stepFrames: 13 }]], b: [[0, "walk", { to: [2, -1.6], facing: 0, steps: 4, stepFrames: 13 }], [30, "idle", {}]] } });
 	assert.equal(r.status, "ok", r.text);
 	const lines = r.text.split("\n"), a = lines.find(l => l.startsWith("- a f0-")), b = lines.find(l => l.startsWith("- b f0-"));
-	assert.ok(a.endsWith("; the walk at f0: steps 4 asked: 4 plants over 3.40 m make 3 steps of up to 1.18 m (the last plant brings the feet together), longer than the longest step of a walk that way, 0.75 m, so it took 6 plants, steps of up to 0.70 m"), a);
+	assert.ok(a.endsWith("; the walk at f0: steps 4 asked: 4 plants over 3.40 m make 3 steps of up to 1.18 m (the last plant brings the feet together), longer than the longest step of a walk that way, 0.75 m, so it took 6 plants, steps of up to 0.67 m"), a);
 	assert.ok(b.endsWith("; the walk at f0: stepFrames 13 asked: 4 plants at 13 frames need 49 frames to land, the action has 27 (up to the next body action, less 3 to stand still), so each step took 7.1"), b);
 	const plain = tool.call({ spec: { a: [[0, "walk", { to: [0, 3.4], steps: 6 }]], b: [[0, "walk", { to: [2, -1.6], facing: 0, steps: 4 }]] } });
 	assert.ok(!/ asked: /.test(plain.text), `a count that fits says nothing more:\n${plain.text}`);
