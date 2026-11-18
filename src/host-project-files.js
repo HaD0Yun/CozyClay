@@ -66,13 +66,21 @@ export async function writeHostProjectFile(handle, text) {
 	await requireBridge().write(handle.hostToken, text);
 }
 
+// How many projects the host asked for are still being opened. A brief for
+// one of them waits until this says false (src/host-agent-brief.js).
+let opening = 0;
+export const hostProjectOpening = () => opening > 0;
+
 // Projects the host asks the Studio to open. Returns the unsubscribe function.
+// A listener that returns a promise keeps the project "opening" until it settles.
 export function subscribeHostProjectOpen(listener) {
 	const files = bridge();
 	if (typeof files?.onOpen !== "function") return () => {};
 	const unsubscribe = files.onOpen((value) => {
 		try {
-			listener(hostFile(value));
+			const opened = listener(hostFile(value));
+			opening += 1;
+			Promise.resolve(opened).catch(() => {}).finally(() => { opening -= 1; });
 		} catch (error) {
 			console.warn(`cozyclay: ${error.message}`);
 		}
