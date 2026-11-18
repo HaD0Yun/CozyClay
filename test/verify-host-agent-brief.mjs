@@ -275,6 +275,49 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 	console.log("PASS a turn that ran to its end with a failed tool call is done, and its reply is its longest text");
 }
 {
+	// The host asks for a project and hands the brief over in the same moment. The open is over, but the editor is
+	// still putting the document in place: its name for the document changes once more. The brief waits until that
+	// name holds still, so its turn does not start on a document that is about to be replaced.
+	const store = fakeStore();
+	const names = [{ workspaceId: "w", documentEpoch: "old", sceneId: "s-old", sceneEpoch: "e-old" }, { workspaceId: "w", documentEpoch: "new", sceneId: "s-old", sceneEpoch: "e-new" }, { workspaceId: "w", documentEpoch: "new", sceneId: "s-new", sceneEpoch: "e-new" }];
+	let looks = 0, at = 0, sentAt = null;
+	const panel = fakePanel({ context: () => { looks += 1; return at === null ? null : { host: names[at] }; } });
+	const send = store.send;
+	store.send = async (...args) => { sentAt = { looks, name: at }; return send(...args); };
+	await running({ store, panel: () => panel, pollMs: 5 }, async () => {
+		// A name that holds still: the brief goes once it was read the same twice.
+		push({ kind: "brief", id: "document-still", text: "Build it." });
+		await until(() => of("document-still").length === 1, "started");
+		assert.ok(sentAt.looks >= 2, "the document's name was read twice before the turn started");
+		store.end("done");
+		await final("document-still");
+		// A name that changes while the brief waits: the turn starts on the last one.
+		looks = 0; sentAt = null;
+		const changing = setInterval(() => { at = Math.min(names.length - 1, at + 1); }, 4);
+		push({ kind: "brief", id: "document-settled", text: "Build it." });
+		await until(() => of("document-settled").length === 1, "started");
+		clearInterval(changing);
+		assert.equal(sentAt.name, names.length - 1, "the turn started only on the document's last name");
+		store.end("done");
+		await final("document-settled");
+		// An editor that cannot say what it has open yet is waited for, and reported when it never can.
+		at = null;
+		push({ kind: "brief", id: "document-unknown", text: "Build it." });
+		await sleep(40);
+		assert.deepEqual(of("document-unknown"), [], "no turn while the editor cannot name its document");
+		at = 2;
+		await until(() => of("document-unknown").length === 1, "started");
+		store.end("done");
+		await final("document-unknown");
+	});
+	at = null;
+	await running({ store, panel: () => panel, waitMs: 30, pollMs: 5 }, async () => {
+		push({ kind: "brief", id: "document-never", text: "Build it." });
+		assert.deepEqual(await final("document-never"), { id: "document-never", state: "failed", code: "not-ready", message: "The Studio's agent was not ready in time." });
+	});
+	console.log("PASS a brief waits until the editor's name for the open document holds still");
+}
+{
 	// Whether a turn changed the project: only a tool call that authored something counts, not one that looked.
 	const transport = scriptedTransport();
 	const store = studioStore(transport);
@@ -569,7 +612,7 @@ await quiet(async () => {
 	// Whatever happened above, each brief was answered once.
 	await sleep(150);
 	const ids = [...new Set(reports.map((report) => report.id))];
-	assert.ok(ids.length >= 47, `every brief above reported (${ids.length})`);
+	assert.ok(ids.length >= 51, `every brief above reported (${ids.length})`);
 	for (const id of ids) {
 		const states = of(id).map((report) => report.state);
 		assert.equal(states.filter((state) => state !== "started").length, 1, `${id} has exactly one final report: ${states.join(", ")}`);

@@ -692,7 +692,7 @@ export default function AgentPanel({
 	// models loading, a project opening) sees the panel as it is then, and a
 	// re-render never restarts it.
 	const briefPanelRef = useRef(null);
-	useEffect(() => { briefPanelRef.current = { ready: hostBriefReadiness({ authState, modelsState, model, restoreReady, editorReady: shell?.liveHubStatus !== "disconnected" }), project: shell?.hostProject, turn: { model, effort: effort ?? undefined }, newChat: newSession, loadChat: (sessionId) => transport.loadSession(sessionId), open: () => { if (!embedded) setCollapsed(false); else if (hidden) onCollapsedChange?.(false); } }; });
+	useEffect(() => { briefPanelRef.current = { ready: hostBriefReadiness({ authState, modelsState, model, restoreReady, editorReady: shell?.liveHubStatus !== "disconnected" }), project: shell?.hostProject, turn: { model, effort: effort ?? undefined }, newChat: newSession, loadChat: (sessionId) => transport.loadSession(sessionId), context: () => buildContextRef.current?.() ?? null, open: () => { if (!embedded) setCollapsed(false); else if (hidden) onCollapsedChange?.(false); } }; });
 	useEffect(() => (surface === "studio" ? runHostBriefs({ store, panel: () => briefPanelRef.current }) : undefined), [store, surface]);
 
 	const openHistory = useCallback(async () => {

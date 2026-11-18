@@ -181,6 +181,17 @@ function turnEnd(store) {
 	});
 }
 
+// The workspace, document and scene the editor says it has open now, as one
+// text; null while it cannot say.
+function documentName(context) {
+	try {
+		const host = context()?.host;
+		return host ? JSON.stringify(host) : null;
+	} catch {
+		return null;
+	}
+}
+
 // Only the host's own file is written without asking: any other project would
 // open a dialog.
 async function saveHostFile(request, file) {
@@ -232,19 +243,29 @@ async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
 		const chat = request.chat === "continue" ? lastChat : null;
 		const continues = () => chat !== null && store.getState().sessionId === chat;
 		let reopened = chat === null;
+		// The editor's own name for the open document, as it stood at the look before.
+		let seen = null;
 		while (true) {
 			if (brief.stopped) return finish({ state: "stopped" });
 			if (store.getState().streaming) return fail("busy", "An answer is already running in the Studio's agent panel.");
-			const { ready, project, loadChat } = panel();
+			const { ready, project, loadChat, context } = panel();
 			if (typeof ready === "string") return fail("not-ready", ready);
 			const here = !hostProjectOpening() && (!request.project || project?.token() === request.project);
 			if (ready === true && here) {
-				if (reopened || continues()) break;
-				// The panel has left the chat to continue. Opening it again takes a moment, so every check above runs once more.
-				reopened = true;
-				await reopenChat(store, loadChat, chat);
-				continue;
-			}
+				// The project is open by the host's word, but the editor may still be putting it in place. A turn that
+				// starts on the document from the moment before is refused as stale when it ends, with everything it did.
+				// So the editor's name for the document must hold still from one look to the next before the brief goes.
+				const now = typeof context === "function" ? documentName(context) : undefined;
+				const still = now === undefined || (now !== null && now === seen);
+				seen = now ?? null;
+				if (still) {
+					if (reopened || continues()) break;
+					// The panel has left the chat to continue. Opening it again takes a moment, so every check above runs once more.
+					reopened = true;
+					await reopenChat(store, loadChat, chat);
+					continue;
+				}
+			} else seen = null;
 			if (Date.now() >= deadline) {
 				if (here) return fail("not-ready", "The Studio's agent was not ready in time.");
 				return fail("project", request.project ? "That project is not the one open in the Studio." : "A project is still opening in the Studio.");
@@ -288,7 +309,8 @@ async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
 /** Runs the host's briefs through the agent panel. `store` is the panel's chat store; `panel()` answers with the
  * panel as it is now: { ready (hostBriefReadiness), project ({ token(), save() } of the open project, or
  * nothing), turn (the model options of a send), newChat(), loadChat(sessionId) (a chat of the Studio's history,
- * as { transcript }), open() }. Returns the unsubscribe function. */
+ * as { transcript }), context() (the editor's context of a turn, whose `host` names the open document; a panel
+ * without it is not asked), open() }. Returns the unsubscribe function. */
 export function runHostBriefs({ store, panel, preview = stageThumbDataUrl, waitMs = WAIT_MS, pollMs = POLL_MS }) {
 	return subscribeHostBriefs((request) => {
 		if (request.kind === "stop") {
