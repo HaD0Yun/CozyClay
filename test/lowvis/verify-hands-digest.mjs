@@ -28,7 +28,7 @@ const BEFORE = {
 	sit: "1da2ec2bfab4cd8e9764ad743f8d1d145feff0fe01d2713dbf3da69e2c05f025",
 	object: "45d87982c3dba561fb7ac78ae3e28cc2f510bd2535ed4dd98922b1a7d9a6e4f4", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
-	duo: "105d53d3a12cd5379e83a76fafcacbc46d3160cfc98e81d5dafea6bff21a9d63", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs)
+	duo: "45330261743f3cff00c318d14a504f84c3cb255f42c03be94b2c3bda5e0e76b6", // was 0a1c7791..., then a4a10796... (the counted walk before its repairs), then 105d53d3... (before a burst was fitted to how far its feet trail the hips)
 	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
 	chop: "a773f58421c01f745482f0621de9289d00c3f73e82f9f4eb9b61fc9bde7ec7fd", // was 623cc406..., then 3b131397...
 	bowl: "75232c8f0335c7fa4237ac482398d56413dd326ae89300910988e4a49fe9a0e5", // was 9cda1765..., then 8b1243fc...

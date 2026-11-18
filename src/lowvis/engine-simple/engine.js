@@ -16,7 +16,9 @@
 //     longer than the one before; default: a steady speed with a speed-up and a slow-down of half a second each, a
 //     little more than that when steps are slower than 13 frames, so the steps between are the same length). Steps
 //     longer than the gait's longest at that pace (a walk 0.75 m ahead or back, 0.44 m to the side; a run 1.2 m; a
-//     push 0.4 m; times the body's scale) become the fewest steps that fit; the travel line says what was walked.
+//     push 0.4 m; times the body's scale), or a pace that puts a foot further from the hips than a steady pace of those
+//     steps does (one that stops or starts at full speed), become the fewest steps that fit; the `end` spots are not
+//     fitted to. A run with `facing` or of under 0.5 m steps as a walk. The travel line says what was walked.
 //   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
 //     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
 //           aim:[x,y,z]|{x?,y?,z?:[x,y,z], world?:true}|"off", elbowL|elbowR: target, fast:true, over, ease}

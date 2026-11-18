@@ -5,9 +5,9 @@
 //
 // State between actions: st = { p: [x, z] pelvis ground point, yaw, feet: [L, R] of { g: [x, z], yaw } }.
 import { ANKLE_HEIGHT, INDEX as J, REST } from "../rig17.js";
-import { EASE, clamp, mix, qMul, qRotate, qX, qY, rad, smooth, sub, wrap } from "./math.js";
+import { clamp, mix, qMul, qRotate, qX, qY, rad, smooth, sub, wrap } from "./math.js";
 import { LEG_LEN, SOLE, TOE } from "./solve.js";
-import { pace, warp } from "./pace.js";
+import { fitCount as fitSteps, pace, warp } from "./pace.js";
 
 export const STAND_Y = REST[J.Hips][1] - 0.012;
 const HIP_FWD = REST[J.Hips][2], FOOT_X = REST[J.LeftFoot][0], FOOT_Z = REST[J.LeftFoot][2];
@@ -46,24 +46,12 @@ const walkStep = (v, max) => clamp(v * 60 / clamp(63.7 + 32.2 * v, 80, 130), 0.2
 // apart with flat feet while the hips stay at the walk's height (the side steps have no roll).
 const SIDE_STEP = 2 * Math.sqrt((0.998 * LEG_LEN) ** 2 - (REST[J.LeftUpLeg][1] - 0.012 + GAIT.walk.base - ANKLE_HEIGHT) ** 2);
 const longestStep = ([x, z], G) => { const l = Math.hypot(x, z) || 1; return 1 / Math.hypot(z / l / G.maxStride, x / l / SIDE_STEP); };
-// A written count of `steps` plants of gait G over L metres in direction `way` (the last plant brings the feet
-// together, so n plants make n - 1 steps; a move takes 2 at least): each step takes stepFrames (default a walk's at
-// most 13, else the gait's own), less when `room` frames do not hold them; the plants land where the pelvis is, at
-// its pace (how), in the middle of their stance (stepper); raised to the fewest plants whose steps so placed are no
-// longer than longestStep. told: what differs from what was written, with the steps' lengths so computed.
-function fitCount(L, steps, way, stepFrames, room, G = GAIT.walk, how = {}) {
-	const max = longestStep(way, G), sf = stepFrames ?? (G !== GAIT.walk ? G.stepFrames : L > 0.03 ? 13 : 11);
-	const plan = n => {
-		const stepT = Math.min(sf, room / (n - 1 + G.sw)), u = pace((n - 1 + G.sw) * stepT, stepT, how, G);
-		const at = [0, ...Array.from({ length: n - 2 }, (_, k) => u((k + 1 + G.sw / 2) * stepT)), 1];
-		return { n, stepT, step: Math.max(...at.slice(1).map((x, k) => L * Math.abs(x - at[k]))) };
-	};
-	const asked = plan(Math.max(2, steps));
-	let p = asked;
-	while (p.step > max + 1e-6 && p.n < Math.max(2, steps) + 64) p = plan(p.n + 1);
-	const info = { steps: [steps, p.n], distance: L, step: asked.step, stepWalked: p.step, longest: max, stepFrames: [stepFrames ?? null, p.stepT], need: (p.n - 1 + G.sw) * (stepFrames ?? p.stepT), room, pace: EASE[how.ease] ? how.ease : how.burst ? "burst" : null };
-	return { n: p.n, stepT: p.stepT, info, told: p.n !== steps || (stepFrames != null && p.stepT < stepFrames - 0.05) ? info : null };
-}
+// A written count of gait `kind` over L metres in direction `way` [left, ahead] (pace.js fitCount): stepFrames default
+// a walk's at most 13, else the gait's own; `end` offsets go to the last two plants, the first by foot `side`.
+const fitCount = (L, steps, way, { stepFrames, room, kind = "walk", how, end, side }) => {
+	const G = GAIT[kind], l = Math.hypot(...way) || 1, along = o => o ? (o[0] * way[0] + o[1] * way[1]) / l : 0;
+	return fitSteps(L, steps, { sf: stepFrames ?? (kind !== "walk" ? G.stepFrames : L > 0.03 ? 13 : 11), stepFrames, room, G, gait: kind, how, longest: longestStep(way, G), end: end ? n => [n - 2, n - 1].map(k => along(end[(side + k) % 2 ? "R" : "L"])) : null });
+};
 const KEYS = Object.keys(GAIT.walk);
 const blend = ([r, p]) => Object.fromEntries(KEYS.map(k => [k, GAIT.walk[k] + r * (GAIT.run[k] - GAIT.walk[k]) + p * (GAIT.push[k] - GAIT.walk[k])]));
 
@@ -180,11 +168,12 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	const dyaw = wrap(yaw - st.yaw), D = [to[0] - st.p[0], to[1] - st.p[1]], L = Math.hypot(D[0], D[1]);
 	const still = L < 0.03 && Math.abs(dyaw) < 0.05;
 	const away = [1, -1].filter((s, i) => dist2(st.feet[i].g, home(st.p, st.yaw, s)) > 0.02).length;
-	const [ys, yc] = dir2(yaw), fit = steps >= 2 && N >= 4 ? fitCount(L, steps, [D[0] * yc - D[1] * ys, D[0] * ys + D[1] * yc], stepFrames, N - SETTLE, GAIT.walk, { ease: curve, burst }) : null;
+	const [ys, yc] = dir2(yaw), side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
+	const fit = steps >= 2 && N >= 4 ? fitCount(L, steps, [D[0] * yc - D[1] * ys, D[0] * ys + D[1] * yc], { stepFrames, room: N - SETTLE, how: { ease: curve, burst }, end, side }) : null;
 	const n = fit?.n ?? steps ?? (still ? away : Math.max(2, Math.ceil(L / 0.4) + 1, Math.ceil(Math.abs(dyaw) / rad(45)) + 1));
 	if (!n || N < 4) return { frames: hold(st, N), st, plants: 0 };
 	const sw = GAIT.walk.sw, stepT = fit?.stepT ?? Math.min(stepFrames ?? (L > 0.03 ? 13 : 11), (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
-	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = pace(Tm, stepT, { ease: curve, burst }, GAIT.walk), side = first ? (first === "R" ? 1 : 0) : firstSide(st, D, dyaw);
+	const use = Math.min(N, Math.ceil(Tm + SETTLE)), ease = pace(Tm, stepT, { ease: curve, burst }, GAIT.walk);
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
 	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
@@ -223,15 +212,18 @@ function travel(st, segs) {
 	const all = [st.p, ...segs.map(s => s.to)];
 	// direction of leg i of the route; a leg of no length (push in place, feet together) takes the nearest real one
 	const legYaw = i => { for (let k = 0; k < n; k++) for (const j of [i + k, i - k]) if (j >= 0 && j < n && dist2(all[j], all[j + 1]) > 0.02) return yawTo(all[j], all[j + 1]); return st.yaw; };
+	// a turn on the spot takes frames from the walk; under 4 frames (a step and the stop) for either, the body turns as it walks
 	let d0 = wrap(legYaw(0) - st.yaw), turnA = null;
-	if (Math.abs(d0) > rad(100)) { // facing away: turn on the spot first
-		const Na = turnFrames(d0, segs[0].N), r = shuffle(st, Na, { yaw: st.yaw + d0 });
-		out.push(...r.frames); st = r.st; segs[0].N -= Na; d0 = 0; turnA = { when: "first", plants: r.plants, frames: Na };
+	const Na = Math.abs(d0) > rad(100) ? turnFrames(d0, segs[0].N) : 0;
+	if (Na >= 4) { // facing away: turn on the spot first
+		const r = shuffle(st, Na, { yaw: st.yaw + d0 });
+		out.push(...r.frames); st = r.st; segs[0].N -= Na; turnA = { when: "first", plants: r.plants, frames: Na };
 	}
+	if (Na) d0 = 0;
 	const pts = [st.p, ...segs.map(s => s.to)], yl = legYaw(n - 1);
 	let post = null, Nb = 0, endDir = dir2(yl);
 	if (last.heading != null) {
-		if (Math.abs(wrap(last.heading - yl)) > rad(100)) { post = last.heading; Nb = turnFrames(wrap(post - yl), last.N); last.N -= Nb; }
+		if (Math.abs(wrap(last.heading - yl)) > rad(100)) { Nb = turnFrames(wrap(last.heading - yl), last.N); if (Nb >= 4) { post = last.heading; last.N -= Nb; } else Nb = 0; }
 		else endDir = dir2(last.heading);
 	}
 	const dirs = pts.map((p, i) => {
@@ -240,6 +232,7 @@ function travel(st, segs) {
 		return dir2(segs[i - 1].heading ?? (dist2(pts[i - 1], pts[i + 1]) > 0.02 ? yawTo(pts[i - 1], pts[i + 1]) : legYaw(i)));
 	});
 	const path = buildPath(pts, dirs), lens = segs.map((_, i) => path.segEnd[i] - (i ? path.segEnd[i - 1] : 0));
+	let side = segs[0].first ? (segs[0].first === "R" ? 1 : 0) : firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
 	segs.forEach((s, i) => {
 		const G = GAIT[s.kind], end = i === n - 1;
 		// a walk takes the captured walks' step length for its speed, plus the step that closes the feet at a stop
@@ -247,7 +240,7 @@ function travel(st, segs) {
 		let k = Math.max(end ? 2 : 1, s.kind === "walk" ? Math.round(lens[i] / walkStep(vSteady, G.maxStride)) + (end ? 1 : 0) : Math.round(s.N / G.stepFrames));
 		s.use = s.N;
 		if (s.steps != null) { // a written count (a single action, so it ends here): its steps at stepFrames each, then it stands
-			const fit = fitCount(lens[i], s.steps, [0, 1], s.stepFrames, s.N - SETTLE, G, s);
+			const fit = fitCount(lens[i], s.steps, [0, 1], { stepFrames: s.stepFrames, room: s.N - SETTLE, kind: s.kind, how: s, end: post == null && s.end, side });
 			k = fit.n; s.stepT = fit.stepT; s.fit = fit; s.use = Math.min(s.N, Math.ceil((k - 1 + G.sw) * fit.stepT + SETTLE));
 		} else if (lens[i] / k > G.maxStride) k = Math.ceil(lens[i] / G.maxStride) + (end ? 1 : 0);
 		else if (end && lens[i] / k < 0.3) { k = Math.max(2, Math.ceil(lens[i] / 0.45) + 1); s.use = Math.min(s.N, Math.round(k * 13)); } // too slow: arrive early, then stand
@@ -255,10 +248,9 @@ function travel(st, segs) {
 	});
 	const vb = i => i <= 0 || i >= n ? 0 : (lens[i - 1] / segs[i - 1].use + lens[i] / segs[i].use) / 2;
 	const S = [0], plan = [];
-	let side = segs[0].first ? (segs[0].first === "R" ? 1 : 0) : firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
 	segs.forEach((s, i) => {
 		const G = GAIT[s.kind], F0 = S.length - 1, base = S.at(-1);
-		const stepT = s.stepT ?? (i === n - 1 ? (s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k), pulse = t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw));
+		const stepT = s.stepT ?? (i === n - 1 ? Math.max(1, s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k), pulse = t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw));
 		// a counted walk (alone in its chain) has its hips arrive as its last foot lands, at the pace its count was fitted to
 		const u = s.fit && pace((s.k - 1 + G.sw) * stepT, stepT, s, G), w = u ? Array.from({ length: s.use + 1 }, (_, t) => lens[i] * u(t)) : warp(s.use, lens[i], vb(i), vb(i + 1), pulse);
 		for (let j = 0; j < s.k; j++, side ^= 1) plan.push({ t0: F0 + j * stepT, dur: G.sw * stepT, stepT, side });

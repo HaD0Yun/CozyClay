@@ -50,8 +50,9 @@ const BEFORE = {
 	"demo object": { n: 40323, sum: 55091.27338733278, abs: 55316.25554604278 },
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs); were sum 33296.306707722404,
 	// 8217.462717724167, 24537.719764461508 and abs 34465.81906765248, 8963.464780009705, 35987.17491706315; again with its
-	// repairs (were sum 33293.887403702, 8220.99382688072, 24526.158710004675)
-	"demo duo": { n: 36720, sum: 33295.85354092025, abs: 34465.521872106176 },
+	// repairs (were sum 33293.887403702, 8220.99382688072, 24526.158710004675); duo again when a burst was fitted to how
+	// far its feet trail the hips (was sum 33295.85354092025, abs 34465.521872106176)
+	"demo duo": { n: 36720, sum: 33152.77082839731, abs: 34324.063255972105 },
 	"demo push": { n: 18144, sum: 16378.90072069702, abs: 16937.86911301625 },
 	"demo chop": { n: 17787, sum: 8219.455195052107, abs: 8965.554830944 },
 	"demo bowl": { n: 22179, sum: 24537.662118600478, abs: 35986.80608473104 },
