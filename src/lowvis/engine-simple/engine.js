@@ -13,9 +13,10 @@
 //     `push` is a low, leaning, short-step gait; `push {to: <where it stands>}` braces in place.
 //     With `steps` (the feet's plants; the last one brings the feet together): `stepFrames` = frames per step (default:
 //     at most 13, then it stands), `ease` = how the pelvis covers the distance ("in" = it speeds up, so each step is
-//     longer than the one before; default: a steady speed with a speed-up and a slow-down of at most half a second
-//     each, so the steps between are the same length). Steps longer than a walk's longest (0.75 m ahead or back, 0.44 m
-//     to the side, times the body's scale) become the fewest steps that fit; the travel line says what was walked.
+//     longer than the one before; default: a steady speed with a speed-up and a slow-down of half a second each, a
+//     little more than that when steps are slower than 13 frames, so the steps between are the same length). Steps
+//     longer than the gait's longest at that pace (a walk 0.75 m ahead or back, 0.44 m to the side; a run 1.2 m; a
+//     push 0.4 m; times the body's scale) become the fewest steps that fit; the travel line says what was walked.
 //   Upper layer (each field keeps its value until a later action changes it; `over` = blend frames, `ease` = name):
 //     pose {hands|L|R: target, lean:deg (chest), bow:deg (hinge at the hips), twist:deg, hipTurn:deg, hip:[x,y,z], look: id|[x,y,z]|"fwd", nod:n, shake:n,
 //           aim:[x,y,z]|{x?,y?,z?:[x,y,z], world?:true}|"off", elbowL|elbowR: target, fast:true, over, ease}

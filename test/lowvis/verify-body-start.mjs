@@ -30,8 +30,10 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	const HELD_WAS = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
 	const HELD_NOW = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis";
 	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs): a walk with steps takes the path
-	// as any walk does and a backward move rolls its feet in reverse (was duo 7161b3b6dec47653, chop 0a274e59fda21b52, bowl 4667a47117f935bb)
-	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "7aa86333d97a5ab1", push: "ff755b870529e06d", chop: "2d258b2a5d03117e", bowl: "660c2527df5ed7d7" };
+	// as any walk does and a backward move rolls its feet in reverse (was duo 7161b3b6dec47653, chop 0a274e59fda21b52, bowl 4667a47117f935bb);
+	// again with its repairs: the last plant of a backward move lands flat, a counted walk's hips arrive when its last foot
+	// lands (was duo 7aa86333d97a5ab1, chop 2d258b2a5d03117e, bowl 660c2527df5ed7d7)
+	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "166268fe9a9621fe", push: "ff755b870529e06d", chop: "6577f662ae05285a", bowl: "d85e95275202dc36" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);

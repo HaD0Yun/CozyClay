@@ -184,10 +184,14 @@ export function checkValue(key, c) {
 const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 const m2 = v => v.toFixed(2);
 /** How a written count or stepFrames of a walk (aux.walks, gait.js fitCount) differs from what it walked, as the writer reads it. */
-const toldText = w => [
-	w.steps[1] !== w.steps[0] && `steps ${w.steps[0]} asked: ${w.steps[0]} plants over ${m2(w.distance)} m are ${w.steps[0] - 1} step${w.steps[0] === 2 ? "" : "s"} of ${m2(w.step)} m (the last plant brings the feet together), longer than the longest step of a walk that way, ${m2(w.longest)} m, so it walked ${w.steps[1]} plants, steps of ${m2(w.distance / (w.steps[1] - 1))} m`,
-	w.stepFrames[0] != null && w.stepFrames[1] < w.stepFrames[0] - 0.05 && `stepFrames ${w.stepFrames[0]} asked: ${w.steps[1]} plants at ${w.stepFrames[0]} frames need ${Math.round(w.need)} frames to land, the action has ${Math.round(w.room)} (up to the next body action, less 3 to stand still), so each step took ${w.stepFrames[1].toFixed(1)}`,
-].filter(Boolean).map(t => `the ${w.verb} at f${w.f}: ${t}`).join("; ");
+const toldText = w => {
+	const [a, n] = w.steps, turned = (w.turns ?? []).reduce((k, t) => k + t.frames, 0);
+	return [
+		n !== a && `steps ${a} asked: ${a < 2 ? `a ${w.verb} of ${m2(w.distance)} m takes 2 plants at least (the last brings the feet together), steps no longer than the longest of a ${w.verb} that way, ${m2(w.longest)} m` : `${a} plants over ${m2(w.distance)} m make ${a - 1} step${a === 2 ? "" : "s"} of up to ${m2(w.step)} m${w.pace ? ` at the pace ${w.pace}` : ""} (the last plant brings the feet together), longer than the longest step of a ${w.verb} that way, ${m2(w.longest)} m`}, so it took ${n} plants, steps of up to ${m2(w.stepWalked)} m`,
+		w.stepFrames[0] != null && w.stepFrames[1] < w.stepFrames[0] - 0.05 && `stepFrames ${w.stepFrames[0]} asked: ${n} plants at ${w.stepFrames[0]} frames need ${Math.round(w.need)} frames to land, the action has ${Math.round(w.room)} (up to the next body action, less 3 to stand still)${turned ? ` and turns on the spot in ${turned} of them, leaving ${Math.round(w.stepsRoom)}` : ""}, so each step took ${w.stepFrames[1].toFixed(1)}`,
+		...(w.turns ?? []).map(t => `it turned on the spot ${t.when} (${t.plants} plants in ${t.frames} frames) besides its ${n} plants`),
+	].filter(Boolean).map(t => `the ${w.verb} at f${w.f}: ${t}`).join("; ");
+};
 /**
  * What each stretch of travel came out as: one record per character and run of consecutive walk / run / push actions
  * of its body layer. spec: the spec as built (repeats written out). The Hips joint's path on the floor plane counts
