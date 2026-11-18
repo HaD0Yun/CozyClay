@@ -31,8 +31,7 @@ export function pace(Tm, stepT, { ease, burst }, G) {
  *  are no further from the pelvis than a steady pace at steps of `longest` puts them (an ease that stops or starts at
  *  speed lands a foot far ahead or leaves one far behind). end: the writer puts the last two on end spots instead, a
  *  stance the count is not fitted to (endSplit tells what it did). told: what differs from what was written
- *  (stepFrames: as written), with the lengths so computed; stepPlan: the plan's longest step (what the plants walked
- *  is measured as they land: floorStep). */
+ *  (stepFrames: as written), with the lengths so computed; stepPlan: the plan's longest step along the pelvis path. */
 export function fitCount(L, steps, { sf, stepFrames, room, G, gait, how = {}, longest, end }) {
 	const reach = longest * (1 - G.sw / 2);
 	const plan = n => {
@@ -52,31 +51,32 @@ export function fitCount(L, steps, { sf, stepFrames, room, G, gait, how = {}, lo
 }
 
 const gap = (P, Q) => Math.hypot(P[0] - Q[0], P[1] - Q[1]);
-/** The longest step of a move's plants as the stepper lands them (gait.js stepper lands: { g: its ankle, other: the
- *  other ankle }), ankle to ankle: the one measure of a step the told lines use. */
-export const floorStep = lands => Math.max(0, ...lands.map(e => gap(e.g, e.other)));
+const most = (list, key) => list.reduce((a, b) => (b[key] > a[key] ? b : a));
 
 /** What a move's plants onto the writer's end spots did on the floor, against the same move without them (lands:
  *  every plant as the stepper lands it, in order: { side, g: its ankle, other: the other ankle, hip: the Hips joint,
  *  home: on an end spot, where the ankle lands without it }). Without them each end plant lands at home, and steps from
- *  the other foot's home when that foot's last plant was on an end spot too; nothing else of the move changes. Told
- *  (else null) only what the end spots do over tol (m) more than the move does without them, and past the bounds of
- *  gait G (named gait) that way: a step onto them longer than both a foot at home (H: [left, ahead] of the pelvis spot)
- *  stepping the longest, `longest`, in direction u past the other, and the longest step onto those plants without them
+ *  the other foot's home when that foot's last plant was on an end spot too; nothing else of the move changes. Each
+ *  plant is weighed against itself without them; the end spots made a plant when they moved its foot, or lengthened
+ *  its step, by over tol (m). Told (else null) only what a plant they made does over tol more than it does without them,
+ *  and past the bounds of gait G (named gait) that way: a step longer than both a foot at home (H: [left, ahead] of the
+ *  pelvis spot) stepping the longest, `longest`, in direction u past the other, and that plant's step without them
  *  (was, named when past that bound); a foot further from the Hips joint (hip) than both one that lands a steady pace's
- *  distance ahead of the pelvis, behind it by the gait's trail, and that same foot without its end spot (own, named
- *  when past that bound). step: the longest step onto them; far: that foot's distance (else the furthest foot's). */
+ *  distance ahead of the pelvis, behind it by the gait's trail, and that foot without its end spot (own, named when
+ *  past that bound). step: the longest step past the bound (else the longest of a plant they made); far: the foot
+ *  furthest past the bound (else the furthest foot they moved). */
 export function endSplit(lands, gait, longest, G, u, H, hip, tol = 0.04) {
 	const l = Math.hypot(...u), d = [u[0] / l, u[1] / l], ahead = (h, k, back = 0) => [h[0] + k * d[0], h[1] + k * d[1] - back];
 	const reach = longest * (1 - G.sw / 2), bound = { step: Math.max(longest, ...H.map((h, i) => gap(ahead(h, longest), H[1 - i]))), far: Math.max(reach, ...H.map(h => gap(ahead(h, reach, G.trail), hip))) };
-	const last = [null, null], ends = [];
+	const last = [null, null], made = [];
 	for (const e of lands ?? []) {
 		const o = last[1 - e.side], other = o?.home ? [e.other[0] + o.home[0] - o.g[0], e.other[1] + o.home[1] - o.g[1]] : e.other;
-		if (e.home) ends.push({ step: gap(e.g, e.other), was: gap(e.home, other), far: gap(e.g, e.hip), own: gap(e.home, e.hip) });
+		const p = e.home && { step: gap(e.g, e.other), was: gap(e.home, other), far: gap(e.g, e.hip), own: gap(e.home, e.hip), moved: gap(e.g, e.home) };
+		if (p && (p.moved > tol || p.step > p.was + tol)) made.push({ ...p, over: Math.min(p.far - bound.far, p.far - p.own - tol) });
 		last[e.side] = e;
 	}
-	if (!ends.length) return null;
-	const step = Math.max(...ends.map(e => e.step)), was = Math.max(...ends.map(e => e.was)), over = ends.map(e => Math.min(e.far - bound.far, e.far - e.own - tol)), k = over.indexOf(Math.max(...over));
-	const long = step > bound.step + 1e-6 && step > was + tol, wide = over[k] > 1e-6, f = wide ? ends[k] : ends.reduce((a, b) => (b.far > a.far ? b : a));
-	return long || wide ? { gait, step, far: f.far, longest, reach: bound.far, own: wide && f.own > bound.far ? f.own : null, was: long && was > bound.step ? was : null, long, wide } : null;
+	const longs = made.filter(e => e.step > bound.step + 1e-6 && e.step > e.was + tol), wides = made.filter(e => e.over > 1e-6);
+	if (!longs.length && !wides.length) return null;
+	const moved = made.filter(e => e.moved > tol), changed = made.filter(e => Math.abs(e.step - e.was) > tol), s = most(longs.length ? longs : changed.length ? changed : made, "step"), f =most(wides.length ? wides : moved.length ? moved : made, wides.length ? "over" : "far");
+	return { gait, step: s.step, far: f.far, longest, reach: bound.far, own: wides.length && f.own > bound.far ? f.own : null, was: longs.length && s.was > bound.step ? s.was : null, long: longs.length > 0, wide: wides.length > 0 };
 }

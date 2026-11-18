@@ -115,7 +115,8 @@ for (const [name, verb, o, scale, [lim, reach]] of [
 	const m = /its end spots, which the count is not fitted to, make a step of up to ([\d.]+) m onto them and put a foot ([\d.]+) m from the hips/.exec(r.text);
 	assert.equal(over, !name.startsWith("within"), `${name}: the case is ${over ? "over" : "within"} the gait's bounds (onto ${onto.toFixed(2)} m, lands ${lands.toFixed(2)} m)`);
 	if (over) assert.ok(m, `${name}: end spots over the bounds are told: ${r.text}`);
-	if (m) assert.ok(Math.abs(+m[1] - onto) <= 0.1 * s && Math.abs(+m[2] - lands) <= 0.1 * s, `${name}: the line gives the step ${m[1]} m and the foot ${m[2]} m, the floor ${onto.toFixed(2)} m and ${lands.toFixed(2)} m`);
+	// the line's step and foot are those of one of the last two plants (the one the end spots made, not the move's own)
+	if (m) assert.ok(last.some(x => Math.abs(+m[1] - x.step) <= 0.1 * s) && last.some(x => Math.abs(+m[2] - x.far) <= 0.1 * s), `${name}: the line gives the step ${m[1]} m and the foot ${m[2]} m, the floor ${last.map(x => `${x.step.toFixed(2)} / ${x.far.toFixed(2)}`).join(", ")} m`);
 	console.log(`ok X1 ${name}: onto the end spots ${onto.toFixed(2)} m, the foot ${lands.toFixed(2)} m from the hips; ${m ? `told ${m[1]} / ${m[2]} m` : "nothing told"}`);
 }
 
@@ -168,9 +169,10 @@ for (const [name, verb, o, scale, gait, heading = 0] of [
 	if (name.startsWith("within")) assert.ok(!over, `${name}: the case is within the bounds (onto ${onto.toFixed(2)} m, lands ${lands.toFixed(2)} m)`);
 	if (over) assert.ok(m, `${name}: end spots past the bounds are told: ${r.text}`);
 	if (m) {
-		assert.ok(Math.abs(+m[1] - onto) <= 0.05 * s && Math.abs(+m[2] - lands) <= 0.05 * s, `${name}: the line gives ${m[1]} / ${m[2]} m, the floor ${onto.toFixed(2)} / ${lands.toFixed(2)} m`);
+		const step = last.find(x => Math.abs(+m[1] - x.step) <= 0.05 * s), foot = last.find(x => Math.abs(+m[2] - x.far) <= 0.05 * s);
+		assert.ok(step && foot, `${name}: the line gives ${m[1]} / ${m[2]} m, the floor ${last.map(x => `${x.step.toFixed(2)} / ${x.far.toFixed(2)}`).join(", ")} m`);
 		const lg = /longer than the longest step of a \w+ that way(?: \([^)]*\))?, ([\d.]+) m/.exec(m[3]), fu = /further than a \w+ at a steady pace of its longest steps that way puts one, ([\d.]+) m/.exec(m[3]);
-		assert.ok((!lg || onto > +lg[1]) && (!fu || lands > +fu[1]) && (lg || fu), `${name}: what the line calls longer or further is so (onto ${onto.toFixed(2)}, lands ${lands.toFixed(2)}): ${m[3]}`);
+		assert.ok((!lg || step.step > +lg[1]) && (!fu || foot.far > +fu[1]) && (lg || fu), `${name}: what the line calls longer or further is so (onto ${onto.toFixed(2)}, lands ${lands.toFixed(2)}): ${m[3]}`);
 	}
 	console.log(`ok Y ${name}: onto ${onto.toFixed(2)} m, the foot ${lands.toFixed(2)} m from the hips; ${m ? `told ${m[1]} / ${m[2]} m` : "nothing told"}`);
 }

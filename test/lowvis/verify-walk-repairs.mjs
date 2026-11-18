@@ -76,14 +76,14 @@ for (const [to, steps, sf, facing] of [[[0, 2], 4, 24, null], [[0, 3.3], 6, 26, 
 	console.log(`ok W4 ${name}: longest ${slow.longest.toFixed(2)} m, fall ${slow.fall.toFixed(0)} mm, lowest ${slow.low.toFixed(0)} mm (${fast.low.toFixed(0)} at 13 frames)`);
 }
 
-// --- W5: an ease or a burst is fitted to the steps it makes; the line names the longest step walked ---
+// --- W5: an ease or a burst is fitted to the steps it makes; the line names the plants walked ---
 for (const [o, opts] of [
 	[{ to: [0, 3.4], steps: 4, ease: "in" }, {}], [{ to: [0, 2.6], steps: 3, ease: "out" }, {}],
 	[{ to: [1.5, 1.5], steps: 5, burst: true }, {}], [{ to: [0, -2], facing: 0, steps: 4, ease: "in" }, {}], [{ to: [0, 2.4], steps: 4, ease: "in" }, { scale: 0.8 }],
 ]) {
-	const r = run([I, [10, "walk", o]], { frames: 300, ...opts }), s = opts.scale ?? 1, said = [...r.text.matchAll(/so it took \d+ plants, steps of up to ([\d.]+) m/g)].map(m => +m[1]);
+	const r = run([I, [10, "walk", o]], { frames: 300, ...opts }), s = opts.scale ?? 1, said = [...r.text.matchAll(/so it took (\d+) plants/g)].map(m => +m[1]);
 	assert.ok(r.low < 150 * s && r.longest <= 0.8 * s && r.slide < 1, `${JSON.stringify(o)}: pelvis ${r.low.toFixed(0)} mm, longest step ${r.longest.toFixed(2)} m, slide ${r.slide.toFixed(1)} mm`);
-	assert.ok(said.length === 1 && Math.abs(said[0] - r.longest) <= 0.1, `${JSON.stringify(o)}: the line names the longest step walked (${r.longest.toFixed(2)}): ${r.text}`);
+	assert.ok(said.length === 1 && said[0] === r.plants.length, `${JSON.stringify(o)}: the line names the plants walked (${r.plants.length}): ${r.text}`);
 	console.log(`ok W5 ${JSON.stringify(o)}: ${r.plants.length} plants, longest ${r.longest.toFixed(2)} m, pelvis ${r.low.toFixed(0)} mm`);
 }
 

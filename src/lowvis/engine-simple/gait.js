@@ -7,7 +7,7 @@
 import { ANKLE_HEIGHT, INDEX as J, REST } from "../rig17.js";
 import { clamp, mix, qMul, qRotate, qX, qY, rad, smooth, sub, wrap } from "./math.js";
 import { LEG_LEN, SOLE, TOE } from "./solve.js";
-import { endSplit, fitCount as fitSteps, floorStep, pace, warp } from "./pace.js";
+import { endSplit, fitCount as fitSteps, pace, warp } from "./pace.js";
 
 export const STAND_Y = REST[J.Hips][1] - 0.012;
 const HIP_FWD = REST[J.Hips][2], FOOT_X = REST[J.LeftFoot][0], FOOT_Z = REST[J.LeftFoot][2];
@@ -188,7 +188,7 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"] ?? [0, 0]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
 	const split = end ? endsTold(r.lands, way, "walk") : null; // its steps are a walk's
-	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st, told: fit && (fit.told || split) ? { ...fit.info, stepWalked: floorStep(r.lands), split } : null, split, plants: n };
+	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st, told: fit && (fit.told || split) ? { ...fit.info, split } : null, split, plants: n };
 }
 
 /** Smooth path through points with unit tangents; at(d) and yaw(d) by arc length. */
@@ -280,11 +280,11 @@ function travel(st, segs) {
 	out.push(...r.frames);
 	const rest = last.N - last.use;
 	const turns = [turnA];
-	let split = post == null && last.end ? endsTold(r.lands, [0, 1], last.kind) : null, stepWalked = floorStep(r.lands); // the end spots and its plants' longest step, as the path steps onto them
+	let split = post == null && last.end ? endsTold(r.lands, [0, 1], last.kind) : null; // the end spots, as the path steps onto them
 	if (post != null) { r = shuffle(r.st, Nb + rest, { yaw: post, end: last.end }); out.push(...r.frames); turns.push({ when: "at the end", plants: r.plants, frames: Nb }); split = r.split && { ...r.split, turn: true }; }
 	else out.push(...hold(r.st, rest));
 	// a counted walk tells how it differs from what was written, its end spots, and the turns on the spot added to it
-	const f = last.fit, told = f && (f.told || split || turns.some(Boolean)) ? { ...f.info, stepWalked, split, stepsRoom: f.info.room, room: f.info.room + Nb + (turnA?.frames ?? 0), turns: turns.filter(Boolean) } : null;
+	const f = last.fit, told = f && (f.told || split || turns.some(Boolean)) ? { ...f.info, split, stepsRoom: f.info.room, room: f.info.room + Nb + (turnA?.frames ?? 0), turns: turns.filter(Boolean) } : null;
 	return { frames: out, st: r.st, told };
 }
 
