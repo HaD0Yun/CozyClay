@@ -27,17 +27,18 @@ const BEFORE = {
 	locomotion: "4b102ce748c4e84499e261466067abbde83b27c9a4becd9f80d39b888f21a016",
 	sit: "1da2ec2bfab4cd8e9764ad743f8d1d145feff0fe01d2713dbf3da69e2c05f025",
 	object: "45d87982c3dba561fb7ac78ae3e28cc2f510bd2535ed4dd98922b1a7d9a6e4f4", // pinned again when aux.placed entries named who placed (who, held); clip and miss the same
-	duo: "0a1c779150672ec2c891670b7c4afc942f7bc2dd9536d7f10c13b0ff11fb470f",
+	// duo, chop and bowl pinned again with the counted walk (verify-counted-walk.mjs; their walks with steps or facing changed)
+	duo: "a4a10796541ec5f157ba8657e707db0b2371d5c4e95f65bac099b12a591242dd", // was 0a1c779150672ec2c891670b7c4afc942f7bc2dd9536d7f10c13b0ff11fb470f
 	push: "4f65ce126b7e575aaaa3e8147b82ece3cb1ba583fb15e2e80d6e5d506d950935",
-	chop: "623cc406072ba4ca9e52af4cc5d5364ed9fff4acf78d9b9d46ab7562388ab314",
-	bowl: "9cda1765b58f6cd17d298d94167df94e453b6ac4b2c8517086136c2ef6fe28dc",
+	chop: "3b131397ac8b486a6cef6c195c4a31ba979d007d5aa85010e42a83d0e17c151b", // was 623cc406072ba4ca9e52af4cc5d5364ed9fff4acf78d9b9d46ab7562388ab314
+	bowl: "8b1243fcd50be3cac80e5820436e647681e716800f87491f6bd2ca10ad35e0ab", // was 9cda1765b58f6cd17d298d94167df94e453b6ac4b2c8517086136c2ef6fe28dc
 };
 const round5 = (_, v) => (typeof v === "number" ? Math.round(v * 1e5) / 1e5 : v);
 const now = {};
 for (const demo of DEMO_IDS) {
 	const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
-	const { clip, aux: { seats, ...aux } } = buildClip(spec); // aux.seats came later (verify-body-start.mjs pins it)
-	assert.ok(Array.isArray(seats), `${demo}: aux.seats is a list`);
+	const { clip, aux: { seats, walks, ...aux } } = buildClip(spec); // aux.seats came later (verify-body-start.mjs pins it), aux.walks too (verify-counted-walk.mjs)
+	assert.ok(Array.isArray(seats) && Array.isArray(walks), `${demo}: aux.seats and aux.walks are lists`);
 	clip.notes = clip.notes.map(n => (n === NEW_NOTE ? OLD_NOTE : n === NEW_HELD ? OLD_HELD : n));
 	now[demo] = createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex");
 }

@@ -4,9 +4,9 @@
 // and gathering the feet are the same stepper with different paths and step plans.
 //
 // State between actions: st = { p: [x, z] pelvis ground point, yaw, feet: [L, R] of { g: [x, z], yaw } }.
-import { INDEX as J, REST } from "../rig17.js";
+import { ANKLE_HEIGHT, INDEX as J, REST } from "../rig17.js";
 import { EASE, clamp, mix, qMul, qRotate, qX, qY, rad, smooth, sub, wrap } from "./math.js";
-import { SOLE, TOE } from "./solve.js";
+import { LEG_LEN, SOLE, TOE } from "./solve.js";
 
 export const STAND_Y = REST[J.Hips][1] - 0.012;
 const HIP_FWD = REST[J.Hips][2], FOOT_X = REST[J.LeftFoot][0], FOOT_Z = REST[J.LeftFoot][2];
@@ -40,6 +40,21 @@ const WALK_TRAIL = 0.06; // m a walking foot lands behind its standing spot, so 
 const curve = (c, ph) => c.slice(1).reduce((n, [a, b], i) => n + a * Math.cos(2 * Math.PI * (i + 1) * ph) + b * Math.sin(2 * Math.PI * (i + 1) * ph), 0);
 /** Walking step length at v m/s: the captured walks step 63.7 + 32.2 v times a minute. */
 const walkStep = (v, max) => clamp(v * 60 / clamp(63.7 + 32.2 * v, 80, 130), 0.25, max);
+// The longest step of the walk, in a direction [left, ahead] of the body frame: ahead and back the walk's own
+// (maxStride, on the heel and toe roll, which a back step plays in reverse); to the side as far as the two legs reach
+// apart with flat feet while the hips stay at the walk's height (the side steps have no roll).
+const SIDE_STEP = 2 * Math.sqrt((0.998 * LEG_LEN) ** 2 - (REST[J.LeftUpLeg][1] - 0.012 + GAIT.walk.base - ANKLE_HEIGHT) ** 2);
+const longestStep = ([x, z], G) => { const l = Math.hypot(x, z) || 1; return 1 / Math.hypot(z / l / G.maxStride, x / l / SIDE_STEP); };
+// A written count of `steps` plants of gait G over L metres in direction `way` (the last plant brings the feet
+// together, so n plants make n - 1 steps): raised to the fewest plants whose steps are no longer than longestStep;
+// each step takes stepFrames (default a walk's at most 13, else the gait's own), less when `room` frames do not hold
+// them. told: what differs from what was written.
+function fitCount(L, steps, way, stepFrames, room, G = GAIT.walk) {
+	const max = longestStep(way, G), n = steps >= 2 && L / (steps - 1) > max + 1e-6 ? Math.ceil(L / max - 1e-6) + 1 : steps;
+	const stepT = Math.min(stepFrames ?? (G !== GAIT.walk ? G.stepFrames : L > 0.03 ? 13 : 11), room / (n - 1 + G.sw));
+	const told = n !== steps || (stepFrames != null && stepT < stepFrames - 0.05) ? { steps: [steps, n], distance: L, step: L / Math.max(1, steps - 1), longest: max, stepFrames: [stepFrames ?? null, stepT], need: (n - 1 + G.sw) * (stepFrames ?? stepT), room } : null;
+	return { n, stepT, told };
+}
 const KEYS = Object.keys(GAIT.walk);
 const blend = ([r, p]) => Object.fromEntries(KEYS.map(k => [k, GAIT.walk[k] + r * (GAIT.run[k] - GAIT.walk[k]) + p * (GAIT.push[k] - GAIT.walk[k])]));
 
@@ -73,20 +88,24 @@ export const hold = (st, n) => Array.from({ length: Math.max(0, n) }, () => st.l
 function stepper(st, T, plan, posAt, yawAt, mixAt) {
 	const swings = [[], []], cur = st.feet.map(f => ({ g: f.g.slice(), yaw: f.yaw }));
 	const speed = t => dist2(posAt(t + 0.5), posAt(t - 0.5)) * 24;
+	// a move mostly backward plays the captured walk in reverse: the feet roll the other way, a foot lands where the
+	// forward walk lifts it (phase 1 - sw / 2) and the phase runs back
+	const D = [posAt(T)[0] - posAt(0)[0], posAt(T)[1] - posAt(0)[1]], [ys, yc] = dir2(yawAt(T / 2)), back = D[0] * ys + D[1] * yc < -Math.abs(D[0] * yc - D[1] * ys);
 	plan.forEach((s, k) => {
 		const nxt = plan[k + 2], tau = nxt ? (s.t0 + s.dur + nxt.t0) / 2 : T, yaw = yawAt(tau), [sn, cs] = dir2(yaw);
 		const [mr, mp] = mixAt(tau), c = posAt(tau), from = cur[s.side];
 		const trail = blend([mr, mp]).trail + WALK_TRAIL * clamp(1 - mr - mp) * clamp(speed(tau) / 0.6); // only while walking: the steps that stop land home
 		const o = s.off ?? [0, 0], h = home([c[0] - sn * trail, c[1] - cs * trail], yaw, s.side ? -1 : 1); // off: [left, forward] from the home spot
 		const to = { g: [h[0] + o[0] * cs + o[1] * sn, h[1] - o[0] * sn + o[1] * cs], yaw: from.yaw + wrap(yaw - from.yaw) }, d = dist2(from.g, to.g);
-		// sf: how much heel-toe roll the step gets (forward strides only); small and backward steps stay flat
-		swings[s.side].push({ t0: s.t0, t1: s.t0 + s.dur, from, to, d, sf: clamp(((to.g[0] - from.g[0]) * sn + (to.g[1] - from.g[1]) * cs) / 0.5) });
+		// sf: how much heel-toe roll a forward step gets, sb: a step of a backward move (the roll in reverse); small and side steps stay flat
+		const ahead = ((to.g[0] - from.g[0]) * sn + (to.g[1] - from.g[1]) * cs) / 0.5;
+		swings[s.side].push({ t0: s.t0, t1: s.t0 + s.dur, from, to, d, sf: clamp(ahead), sb: back ? clamp(-ahead) : 0 });
 		cur[s.side] = to;
 	});
 	const frames = [], was = [0, 0];
-	// gait-cycle phase from the heel strikes of the plan (0 = left strike, 0.5 = right strike)
+	// gait-cycle phase from the heel strikes of the plan (0 = left strike, 0.5 = right strike), run back in a backward move
 	const strikes = plan.map(s => ({ t: s.t0 + s.dur, side: s.side, stepT: s.stepT }));
-	const phaseAt = t => { const s = strikes[Math.max(0, strikes.findLastIndex(x => x.t <= t))]; return s ? ((s.side ? 0.5 : 0) + 0.5 * (t - s.t) / s.stepT + 2) % 1 : 0; };
+	const phaseAt = t => { const s = strikes[Math.max(0, strikes.findLastIndex(x => x.t <= t))], ph = s ? ((s.side ? 0.5 : 0) + 0.5 * (t - s.t) / s.stepT + 2) % 1 : 0; return back ? (2 - GAIT.walk.sw / 2 - ph) % 1 : ph; };
 	for (let t = 0; t < T; t++) {
 		const [r, pw] = mixAt(t), P = blend([r, pw]), yaw = yawAt(t), c = posAt(t), [sn, cs] = dir2(yaw);
 		const feet = swings.map((list, side) => {
@@ -95,7 +114,8 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 				const u = (t - sw.t0) / (sw.t1 - sw.t0), e = mix(0.4 * u + 0.6 * smooth(u), u ** 1.4, r); // a run foot trails, then snaps forward
 				const lift = (0.025 + P.lift * clamp(sw.d / 0.5)) * Math.sin(Math.PI * u ** P.liftSkew) ** 1.6 * smooth(u / 0.3); // eased lift-off: no knee pop on the first frame
 				was[side] = 0;
-				return { ...footPose(mix2(sw.from.g, sw.to.g, e), lift, mix(sw.from.yaw, sw.to.yaw, smooth(u)), Math.max(P.toe, mix(sw.t0 < 2 ? 0 : P.heelOff, pw ? 0 : P.strike, smooth(u)) * sw.sf)), planted: false }; // the first step has no heel-off before it
+				const roll = mix(sw.t0 < 2 ? 0 : P.heelOff, pw ? 0 : P.strike, smooth(u)) * sw.sf + mix(sw.t0 < 2 || pw ? 0 : P.strike, P.heelOff, smooth(u)) * sw.sb; // a back step: off the heel, onto the toe
+				return { ...footPose(mix2(sw.from.g, sw.to.g, e), lift, mix(sw.from.yaw, sw.to.yaw, smooth(u)), Math.max(P.toe, roll)), planted: false }; // the first step has no heel-off before it
 			}
 			const last = list.findLast(s => s.t1 <= t), next = list.find(s => s.t0 > t), at = last ? last.to : st.feet[side];
 			// heel strike rolls off, the foot lies flat for at least one frame, then the heel lifts before the next step
@@ -103,6 +123,8 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 			let pitch = 0;
 			if (last && t - last.t1 < on) pitch = P.strike * last.sf * (1 - (t - last.t1) / on);
 			if (next && next.t0 - t < off) { const h = 1 - (next.t0 - t) / off; pitch = P.heelOff * next.sf * (P.heelT ? h * h : smooth(h)); } // a walking heel rises slowly, then quickly
+				if (last?.sb) { const offL = Math.max(Math.min(4, 0.4 * stance), Math.min(P.heelT * (last.t1 - last.t0) / P.sw, 0.6 * stance)), h = 1 - (t - last.t1) / offL; if (h > 0) pitch = P.heelOff * last.sb * (P.heelT ? h * h : smooth(h)); } // a back step: the heel rise in reverse, the heel comes down
+				if (next?.sb && next.t0 - t < on) pitch = P.strike * next.sb * (1 - (next.t0 - t) / on); // and the heel strike in reverse: it rocks onto the heel to lift
 			if (pw > 0 && pitch >= 0) pitch = Math.max(pitch, P.toe); // pushing: on the balls of the feet
 			if (pitch * was[side] < 0) pitch = 0; // between rolling on the heel and on the toe the foot is flat for a frame
 			was[side] = pitch;
@@ -112,7 +134,7 @@ function stepper(st, T, plan, posAt, yawAt, mixAt) {
 		const step = plan.findLast(s => s.t0 <= t), ph = step ? (t - step.t0) / step.stepT : 0;
 		// w: +1 left foot ahead, -1 right foot ahead; drives the arm swing and the pelvis / chest counter-twist
 		const w = clamp(((feet[0].a[0] - feet[1].a[0]) * sn + (feet[0].a[2] - feet[1].a[2]) * cs) / 0.35, -1, 1) * act;
-		const lean = act * P.lean + clamp(0.05 * acc, -0.12, 0.12) * (1 - pw);
+		const lean = act * P.lean + clamp(0.05 * acc, -0.12, 0.12) * (1 - pw) * (back ? -1 : 1); // speeding up leans into the move
 		// the walking share of this frame follows the captured curves; arms swing with the speed
 		const gw = act * clamp(1 - r - pw), ga = gw * clamp(v / WALK_SPEED, 0.4, 1.4), cy = strikes.length ? phaseAt(t) : 0, C = n => gw ? curve(WALK_CURVES[n], cy) : 0;
 		const side = C("side"), surge = C("surge");
@@ -144,9 +166,10 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	const dyaw = wrap(yaw - st.yaw), D = [to[0] - st.p[0], to[1] - st.p[1]], L = Math.hypot(D[0], D[1]);
 	const still = L < 0.03 && Math.abs(dyaw) < 0.05;
 	const away = [1, -1].filter((s, i) => dist2(st.feet[i].g, home(st.p, st.yaw, s)) > 0.02).length;
-	const n = steps ?? (still ? away : Math.max(2, Math.ceil(L / 0.4) + 1, Math.ceil(Math.abs(dyaw) / rad(45)) + 1));
+	const [ys, yc] = dir2(yaw), fit = steps >= 2 ? fitCount(L, steps, [D[0] * yc - D[1] * ys, D[0] * ys + D[1] * yc], stepFrames, N - SETTLE) : null;
+	const n = fit?.n ?? steps ?? (still ? away : Math.max(2, Math.ceil(L / 0.4) + 1, Math.ceil(Math.abs(dyaw) / rad(45)) + 1));
 	if (!n || N < 4) return { frames: hold(st, N), st };
-	const sw = GAIT.walk.sw, stepT = Math.min(stepFrames ?? (L > 0.03 ? 13 : 11), (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
+	const sw = GAIT.walk.sw, stepT = fit?.stepT ?? Math.min(stepFrames ?? (L > 0.03 ? 13 : 11), (N - SETTLE) / (n - 1 + sw)), Tm = (n - 1 + sw) * stepT;
 	// no named ease: a move of more than 36 frames speeds up and slows down over 12 frames each and keeps a steady speed
 	// between, as a walk does (every step the same length); a shorter one is all speeding up and slowing down
 	const W = !EASE[curve] && !burst && Tm > 36 ? warp(Math.ceil(Tm), 1, 0, 0) : null;
@@ -155,7 +178,7 @@ export function shuffle(st, N, { to = st.p, yaw = st.yaw, steps, burst, first, e
 	const plan = Array.from({ length: n }, (_, k) => ({ t0: k * stepT, dur: sw * stepT, stepT, side: (side + k) % 2 }));
 	if (end) for (const s of plan.slice(-2)) s.off = end[s.side ? "R" : "L"]; // the last step of each foot lands off its home spot
 	const r = stepper(st, use, plan, t => mix2(st.p, to, ease(t / Tm)), t => st.yaw + dyaw * smooth(t / Tm), () => [0, 0]);
-	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st };
+	return { frames: [...r.frames, ...hold(r.st, N - use)], st: r.st, told: fit?.told };
 }
 
 /** Smooth path through points with unit tangents; at(d) and yaw(d) by arc length. */
@@ -222,7 +245,10 @@ function travel(st, segs) {
 		const Ta = Math.min(12, s.N / 3), vSteady = lens[i] / Math.max(1, s.N - (i === 0 ? Ta / 2 : 0) - (end ? Ta / 2 : 0)) * 24; // speed between speeding up and slowing down
 		let k = Math.max(end ? 2 : 1, s.kind === "walk" ? Math.round(lens[i] / walkStep(vSteady, G.maxStride)) + (end ? 1 : 0) : Math.round(s.N / G.stepFrames));
 		s.use = s.N;
-		if (lens[i] / k > G.maxStride) k = Math.ceil(lens[i] / G.maxStride) + (end ? 1 : 0);
+		if (s.steps != null) { // a written count (a single action, so it ends here): its steps at stepFrames each, then it stands
+			const fit = fitCount(lens[i], s.steps, [0, 1], s.stepFrames, s.N - SETTLE, G);
+			k = fit.n; s.stepT = fit.stepT; s.told = fit.told; s.use = Math.min(s.N, Math.ceil((k - 1 + G.sw) * fit.stepT + SETTLE));
+		} else if (lens[i] / k > G.maxStride) k = Math.ceil(lens[i] / G.maxStride) + (end ? 1 : 0);
 		else if (end && lens[i] / k < 0.3) { k = Math.max(2, Math.ceil(lens[i] / 0.45) + 1); s.use = Math.min(s.N, Math.round(k * 13)); } // too slow: arrive early, then stand
 		s.k = k;
 	});
@@ -231,8 +257,10 @@ function travel(st, segs) {
 	let side = segs[0].first ? (segs[0].first === "R" ? 1 : 0) : firstSide(st, [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], d0);
 	segs.forEach((s, i) => {
 		const G = GAIT[s.kind], F0 = S.length - 1, base = S.at(-1);
-		const stepT = i === n - 1 ? (s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k;
-		const w = warp(s.use, lens[i], vb(i), vb(i + 1), t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw)));
+		const stepT = s.stepT ?? (i === n - 1 ? (s.use - SETTLE) / (s.k - 1 + G.sw) : s.use / s.k), E = s.steps != null && (EASE[s.ease] ?? (s.burst ? EASE.out : null));
+		// a counted walk's hips arrive as its last foot lands (Tc, as a shuffle's do), along its named ease if it has one
+		const Tc = s.steps != null ? Math.ceil((s.k - 1 + G.sw) * stepT) : s.use, pulse = t => 1 + G.pulse * Math.cos(2 * Math.PI * (t / stepT - 0.5 * G.sw));
+		const w = (E ? Array.from({ length: Tc + 1 }, (_, t) => lens[i] * E(clamp(t / Tc))) : warp(Tc, lens[i], vb(i), vb(i + 1), pulse)).concat(Array(s.use - Tc).fill(lens[i]));
 		for (let j = 0; j < s.k; j++, side ^= 1) plan.push({ t0: F0 + j * stepT, dur: G.sw * stepT, stepT, side });
 		for (let t = 1; t <= s.use; t++) S.push(base + w[t]);
 		s.F0 = F0;
@@ -250,14 +278,15 @@ function travel(st, segs) {
 	const rest = last.N - last.use;
 	if (post != null) { r = shuffle(r.st, Nb + rest, { yaw: post, end: last.end }); out.push(...r.frames); }
 	else out.push(...hold(r.st, rest));
-	return { frames: out, st: r.st };
+	return { frames: out, st: r.st, told: last.told };
 }
 
-/** One walk / run action or a chain of them. A single short, `facing` or `steps` move is a shuffle. `first` and
- *  `end` only choose the first foot and where the last steps land: they do not change how it walks. */
+// One walk / run action or a chain of them. A single short, `facing`, lunge (steps: 1) or no-step move is a shuffle;
+// a counted walk takes the path as any walk does. `first` and `end` only choose the first foot and where the last
+// steps land: they do not change how it walks. told: how a written count or stepFrames differs from what was walked.
 export function locomote(st, segs) {
 	const s = segs[0];
-	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps != null || dist2(st.p, s.to) < 0.5))
+	if (segs.length === 1 && s.kind !== "push" && (s.facing != null || s.steps < 2 || dist2(st.p, s.to) < 0.5))
 		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end, stepFrames: s.stepFrames, ease: s.ease });
 	return travel(st, segs);
 }

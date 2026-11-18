@@ -19,7 +19,8 @@ export function buildBodySized(c, acts, F, ctx, s = 1) {
 	const k = 1 / s, props = Object.fromEntries(Object.entries(ctx.props).map(([id, p]) => [id, { ...p, c: by(p.c, k), size: by(p.size, k) }]));
 	const unit = acts.map(a => (BODY.has(a[1]) && a[2] ? [a[0], a[1], sizedOptions(a[2], k)] : a));
 	const note = ctx.note && (e => ctx.note({ ...e, off: e.off * s }));
-	return buildBody({ ...c, at: by(c.at, k) }, unit, F, { props, ground: (x, z) => ctx.ground(x * s, z * s) * k, note }).map(B => sizedB(B, s));
+	const walked = ctx.walked && (e => ctx.walked({ ...e, to: by(e.to, s), distance: e.distance * s, step: e.step * s, longest: e.longest * s }));
+	return buildBody({ ...c, at: by(c.at, k) }, unit, F, { props, ground: (x, z) => ctx.ground(x * s, z * s) * k, note, walked }).map(B => sizedB(B, s));
 }
 
 /** solve (solve.js) for a body of scale s: B, the points of U and the result are in world metres. */

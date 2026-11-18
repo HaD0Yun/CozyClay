@@ -182,12 +182,19 @@ export function checkValue(key, c) {
 }
 
 const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+const m2 = v => v.toFixed(2);
+/** How a written count or stepFrames of a walk (aux.walks, gait.js fitCount) differs from what it walked, as the writer reads it. */
+const toldText = w => [
+	w.steps[1] !== w.steps[0] && `steps ${w.steps[0]} asked: ${w.steps[0]} plants over ${m2(w.distance)} m are ${w.steps[0] - 1} step${w.steps[0] === 2 ? "" : "s"} of ${m2(w.step)} m (the last plant brings the feet together), longer than the longest step of a walk that way, ${m2(w.longest)} m, so it walked ${w.steps[1]} plants, steps of ${m2(w.distance / (w.steps[1] - 1))} m`,
+	w.stepFrames[0] != null && w.stepFrames[1] < w.stepFrames[0] - 0.05 && `stepFrames ${w.stepFrames[0]} asked: ${w.steps[1]} plants at ${w.stepFrames[0]} frames need ${Math.round(w.need)} frames to land, the action has ${Math.round(w.room)} (up to the next body action, less 3 to stand still), so each step took ${w.stepFrames[1].toFixed(1)}`,
+].filter(Boolean).join("; ");
 /**
  * What each stretch of travel came out as: one record per character and run of consecutive walk / run / push actions
  * of its body layer. spec: the spec as built (repeats written out). The Hips joint's path on the floor plane counts
  * while it moves faster than 0.05 m/s (seconds are those frames); steps are the foot plants (aux.contacts, the test
- * the foot-slide row uses) that begin inside the stretch.
- * -> [{ who, a, b, verb, distance (m), seconds, speed (m/s), steps, cadence (per minute, null under 2 steps) }]
+ * the foot-slide row uses) that begin inside the stretch. told: for each of its actions whose written count or
+ * stepFrames was not walked as written (aux.walks), the difference and why.
+ * -> [{ who, a, b, verb, distance (m), seconds, speed (m/s), steps, cadence (per minute, null under 2 steps), told: [text] }]
  */
 export function travel(clip, aux, spec) {
 	const F = clip.frameCount, fps = clip.fps ?? 24, out = [];
@@ -206,7 +213,8 @@ export function travel(clip, aux, spec) {
 				for (let side = 0; side < 2; side++) if (aux.contacts[c.id][f][side] && !aux.contacts[c.id][f - 1][side]) steps++;
 			}
 			const seconds = moving / fps;
-			out.push({ who: c.id, a, b, verb: [...verbs].join("+"), distance, seconds, speed: seconds ? distance / seconds : 0, steps, cadence: steps >= 2 && seconds ? steps / seconds * 60 : null });
+			const told = (aux.walks ?? []).filter(w => w.who === c.id && w.f >= a && w.f <= b).map(toldText);
+			out.push({ who: c.id, a, b, verb: [...verbs].join("+"), distance, seconds, speed: seconds ? distance / seconds : 0, steps, cadence: steps >= 2 && seconds ? steps / seconds * 60 : null, told });
 		}
 	}
 	return out;
