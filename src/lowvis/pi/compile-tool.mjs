@@ -184,7 +184,7 @@ function spikes(rows, F) {
 /** The travel block (feature pace): one line per character and stretch of walk, run or push; none without one. */
 function travelLines(clip, aux, spec) {
 	const list = travel(clip, aux, spec);
-	return list.length ? ["travel (what each stretch of walk, run or push came out as):", ...list.map(t => `- ${t.who} f${t.a}-${t.b} ${t.verb}: ${num(t.distance)} m in ${num(t.seconds)} s = ${num(t.speed)} m/s, ${t.steps} step${t.steps === 1 ? "" : "s"}${t.cadence == null ? "" : ` = ${Math.round(t.cadence)} per minute`}`)] : [];
+	return list.length ? ["travel (what each stretch of walk, run or push came out as):", ...list.map(t => `- ${t.who} f${t.a}-${t.b} ${t.verb}: ${num(t.distance)} m in ${num(t.seconds)} s = ${num(t.speed)} m/s, ${t.steps} step${t.steps === 1 ? "" : "s"}${t.cadence == null ? "" : ` = ${Math.round(t.cadence)} per minute`}${t.told.map(x => `; ${x}`).join("")}`)] : [];
 }
 
 /** A lean variant tells the model only the ASKED rows (every row is still measured and kept for the run record); a

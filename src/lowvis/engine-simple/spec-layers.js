@@ -21,6 +21,7 @@ export function buildBody(c, acts, F, ctx) {
 			const segs = [seg(a, N)];
 			while (moving(list[i + 1]) && !special(list[i]) && !special(list[i + 1])) { i++; segs.push(seg(list[i], end(i) - list[i].f)); }
 			r = locomote(st, segs);
+			if (r.told) ctx.walked?.({ f: a.f, verb: a.verb, to: segs.at(-1).to, ...r.told }); // a written count or stepFrames that was not walked as written
 		} else if (a.verb === "turn") r = shuffle(st, N, { yaw: rad(a.o.heading) });
 		else if (POSTURE.has(a.verb)) { // over: frames of the change (default: the whole span), then the posture holds; 0 = at once
 			if (a.o.on != null && !prop) throw new Error(`engine-simple: ${c.id} ${a.verb} at frame ${a.f}: no prop "${a.o.on}" in the scene`);
