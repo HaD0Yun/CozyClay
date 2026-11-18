@@ -77,8 +77,12 @@
 //       frame and flies from the next one under gravity, bounces off the floor and off static props (as a ball of
 //       diameter size[1]; bounce = speed kept), rolls with `friction` (m/s2) and stops. A later key of the prop ends it.
 //       The frame is written by hand; checks.js measures how far the nearest foot is from the prop on that frame.
-//     ride {on:propId}   from this frame the prop keeps its place and turn on that prop, however that one is carried,
-//       held or keyed, until a later key of its own or a hand takes it (written while it is held: from the let-go)
+//     ride {on:propId} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?   from this frame the prop keeps its
+//       place and turn on that prop, however that one is carried, held or keyed, or on that joint of that body (joints
+//       as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as {on} and
+//       {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at); no at =
+//       the place and turn it has on the carrier on the frame before the ride begins. Until a later key of its own or a
+//       hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
@@ -89,7 +93,7 @@ import { PAD, across, offBox, toOwn, toWorld } from "./prop-frame.js";
 import { buildUpper, expandRepeats } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
-import { moveRiders, propKey } from "./ride.js";
+import { moveRiders, propKey, ridesOf } from "./ride.js";
 import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shareEvent, startFrame } from "./share.js";
 import { reachEntry } from "./reach.js";
 
@@ -123,7 +127,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 		grips: Object.fromEntries(def.props.map(p => [p.id, []])), keyed: Object.fromEntries(def.props.map(p => [p.id, []])), slid: {},
 		rolling: Object.fromEntries(def.props.map(p => [p.id, []])), releases: [], launches: [],
 		keyStarts: def.props.filter(p => props[p.id].keys.length).map(p => ({ prop: p.id, f: props[p.id].keys[0].f })),
-		reach: Object.fromEntries(chars.map(c => [c.id, []])), repeat: { added: repeat.added, dropped: repeat.dropped }, seats, walks,
+		reach: Object.fromEntries(chars.map(c => [c.id, []])), repeat: { added: repeat.added, dropped: repeat.dropped }, seats, walks, ...ridesOf(props, byId), // rides: only with a ride key
 	});
 
 	// One frame of a launched prop: a ball of radius size[1] / 2 in small sub-steps, so it cannot pass through a wall.
@@ -298,7 +302,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				if (k.f === f) { p.vel = mul(k.vel, 1 / 24); p.fly = { bounce: k.bounce ?? 0.5, friction: (k.friction ?? 1.5) / 576, wait: true }; aux.launches.push({ prop: p.id, f }); }
 				k = null;
 			} else if (k || p.holder || p.ride) p.vel = null;
-			aux.keyed[p.id].push(!!k || !!p.vel || !!p.ride); aux.rolling[p.id].push(!!p.vel);
+			aux.keyed[p.id].push(!!k || !!p.vel || (!!p.ride && !p.holder)); aux.rolling[p.id].push(!!p.vel);
 			if (p.vel && p.fly?.wait) p.fly.wait = false; // the launch frame: still in place
 			else if (p.vel && p.fly) fly(p);
 			else if (p.vel) { // released with a velocity: it falls to the floor under it and rolls on at that speed
@@ -313,7 +317,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			p.c = k.verb === "tip" ? add(k.pivot, qRotate(r, sub(k.c0, k.pivot))) : k.to ? mixV(k.c0, k.to, u) : k.c0;
 			p.q = qMul(r, k.q0);
 		}
-		startFrame(props, f);
+		startFrame(props, f, byId);
 		for (let pass = 0; pass < 2; pass++) for (const c of chars) { // second pass: targets on other figures and props are current
 			if (pass === 1 && c === chars[0]) afterFirstPass(props, chars, f);
 			c.restNext = [true, true];
@@ -329,7 +333,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				...U.feet.map((ft, i) => ft?.to && ft.done ? reachEntry(c, 2 + i, ft.key, ft.to, { floor: c.solved.lift[i] > 0.001 && c.solved.lift[i] }) : null),
 			], { target }));
 		}
-		moveRiders(props, f);
+		moveRiders(props, f, byId, true); // riders on a body: on its joint as it ended this frame
 		for (const c of chars) otherReach(c, aux.reach[c.id].at(-1), byId, props, f, p => toBody(c.tilt, p), reachEntry);
 		for (const c of chars) {
 			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
