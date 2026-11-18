@@ -14,8 +14,8 @@ import { INDEX as J, JOINT_COUNT } from "../../src/lowvis/rig17.js";
 
 const I = [0, "idle", {}];
 /** One character's clip: hips depth and fall while moving, foot plants, the longest step along the hips' line, told text. */
-function run(acts, { frames = 260, scale = 1 } = {}) {
-	const spec = { demo: "x", a: acts }, { clip, aux } = buildClip(spec, { frames, characters: [{ id: "a", at: [0, 0], heading: 0, ...(scale === 1 ? {} : { scale }) }], props: [] });
+function run(acts, { frames = 260, scale = 1, heading = 0 } = {}) {
+	const spec = { demo: "x", a: acts }, { clip, aux } = buildClip(spec, { frames, characters: [{ id: "a", at: [0, 0], heading, ...(scale === 1 ? {} : { scale }) }], props: [] });
 	const c = clip.characters[0], at = (f, j) => { const i = (f * JOINT_COUNT + j) * 3; return [c.pos[i], c.pos[i + 1], c.pos[i + 2]]; };
 	const on = []; for (let f = 1; f < frames; f++) { const a = at(f - 1, J.Hips), b = at(f, J.Hips); if (Math.hypot(b[0] - a[0], b[2] - a[2]) * 24 > 0.05) on.push(f); }
 	const first = on[0] ?? 0, last = on.at(-1) ?? 0;
@@ -135,5 +135,43 @@ for (const [name, o, scale, reason] of [
 	if (reason) assert.ok(r.text.includes(`(this run steps as a walk: ${reason}`), `${name}: the reason is what the engine tests: ${r.text}`);
 	else assert.ok(!/steps as a walk/.test(r.text) && gaps.length && Math.max(...gaps) < 11, `${name}: it steps as a run (${gaps.join(", ")} frames apart): ${r.text}`);
 	console.log(`ok X2 ${name}: ${reason ? `told "${reason}"` : `run steps ${gaps.join(", ")} frames apart`}`);
+}
+// --- Y1-Y3: end spots are told as the feet land on the floor, wherever they are stepped onto: in place (a move of no
+// length), in the turn on the spot of an arrival heading, at the end of a path that curves into its heading, and by a
+// push, whose feet trail its hips. The line's step and foot are the floor's; "longer" / "further" are so; a stance past
+// the bounds is told. [name, verb, options, scale, the gait that steps onto them, the start
+// heading]; bounds: that gait's longest and reach ahead (in place and in a turn on the spot a walk's), as told for a push.
+const endLine = text => /its end spots, which the count is not fitted to, make a step of up to ([\d.]+) m onto them and put a foot ([\d.]+) m from the hips as it lands: ([^;]*)/.exec(text);
+const BOUND = { walk: [0.75, 0.45], run: [1.2, 0.45], push: [0.4, 0.37] };
+for (const [name, verb, o, scale, gait, heading = 0] of [
+	["review Y1: in place, steps 2, L 0.4 left, R 0.4 right", "walk", { to: [0, 0], steps: 2, end: { L: [0.4, 0], R: [-0.4, 0] } }, 1, "walk"],
+	["Y1: a run in place turning to facing 45, steps 3, L 0.5 ahead, R 0.45 behind, scale 0.9", "run", { to: [0, 0], facing: 45, steps: 3, end: { L: [0.1, 0.5], R: [-0.1, -0.45] } }, 0.9, "walk"],
+	["Y1: in place facing 200, steps 4, stepFrames 9, R 0.55 right, scale 1.15", "walk", { to: [0, 0], steps: 4, stepFrames: 9, end: { R: [-0.55, 0.1] } }, 1.15, "walk", 200],
+	["review Y1: 2 m ahead, heading 180, steps 4, L 0.4 left, R 0.4 right", "walk", { to: [0, 2], heading: 180, steps: 4, end: { L: [0.4, 0], R: [-0.4, 0] } }, 1, "walk"],
+	["Y1: a run to the back left that turns to heading 90 at the end, steps 3, L 0.45 left, scale 0.8", "run", { to: [-2.5, 1], heading: 90, steps: 3, end: { L: [0.45, 0.2] } }, 0.8, "walk"],
+	["Y1: a walk to the back left that turns to heading -20 at the end, steps 5, R 0.35 behind", "walk", { to: [1, -1.5], heading: -20, steps: 5, end: { R: [-0.3, -0.35] } }, 1, "walk"],
+	["review Y2: 2.6 m ahead, arrives heading -90, steps 4, R 0.3 right", "walk", { to: [0, 2.6], heading: -90, steps: 4, end: { R: [-0.3, 0] } }, 1, "walk"],
+	["review Y2: a run 3 m ahead, arrives heading 90, steps 3, L 0.5 left", "run", { to: [0, 3], heading: 90, steps: 3, end: { L: [0.5, 0] } }, 1, "run"],
+	["Y2: to the front left, arrives heading 120, steps 4, L 0.45 left 0.35 ahead, scale 1.1", "walk", { to: [1.2, 2], heading: 120, steps: 4, end: { L: [0.45, 0.35], R: [-0.1, 0] } }, 1.1, "walk"],
+	["Y2: a run to the back right, arrives heading -30, steps 4, 0.55 apart, scale 0.85", "run", { to: [-3, -1], heading: -30, steps: 4, end: { L: [0.55, 0], R: [-0.55, 0] } }, 0.85, "run"],
+	["review Y3: push 1.2 m, steps 4, L 0.3 ahead, R 0.2 behind", "push", { to: [0, 1.2], steps: 4, end: { L: [0, 0.3], R: [0, -0.2] } }, 1, "push"],
+	["Y3: push to the front left, steps 5, L 0.15 behind, scale 1.25", "push", { to: [0.5, 1.5], steps: 5, end: { L: [0, -0.15] } }, 1.25, "push"],
+	["Y3: push to the front right, steps 4, stepFrames 14, R 0.25 behind, scale 0.85", "push", { to: [-1, 0.6], steps: 4, stepFrames: 14, end: { R: [-0.05, -0.25] } }, 0.85, "push"],
+	["within: push 1.2 m, steps 5, L 0.02 ahead", "push", { to: [0, 1.2], steps: 5, end: { L: [0, 0.02] } }, 1, "push"],
+	["within: in place, steps 2, L 0.08 left, R 0.08 right", "walk", { to: [0, 0], steps: 2, end: { L: [0.08, 0], R: [-0.08, 0] } }, 1, "walk"],
+]) {
+	const s = scale, end = Object.fromEntries(Object.entries(o.end).map(([k, v]) => [k, v.map(x => x * s)])), act = { ...o, to: o.to.map(v => v * s), end };
+	const r = run([I, [10, verb, act]], { scale: s, heading }), last = r.floor.slice(-2), m = endLine(r.text);
+	const onto = Math.max(...last.map(x => x.step)), lands = Math.max(...last.map(x => x.far)), [lim, reach] = BOUND[gait];
+	const own = verb === "push" ? Math.max(...run([I, [10, verb, { ...act, end: undefined }]], { scale: s, heading }).floor.map(x => x.far)) : 0;
+	const over = onto > (lim + 0.1) * s || lands > Math.max(reach + 0.05, own / s + 0.05) * s;
+	if (name.startsWith("within")) assert.ok(!over, `${name}: the case is within the bounds (onto ${onto.toFixed(2)} m, lands ${lands.toFixed(2)} m)`);
+	if (over) assert.ok(m, `${name}: end spots past the bounds are told: ${r.text}`);
+	if (m) {
+		assert.ok(Math.abs(+m[1] - onto) <= 0.05 * s && Math.abs(+m[2] - lands) <= 0.05 * s, `${name}: the line gives ${m[1]} / ${m[2]} m, the floor ${onto.toFixed(2)} / ${lands.toFixed(2)} m`);
+		const lg = /longer than the longest step of a \w+ that way(?: \([^)]*\))?, ([\d.]+) m/.exec(m[3]), fu = /further than a \w+ at a steady pace of its longest steps that way puts one, ([\d.]+) m/.exec(m[3]);
+		assert.ok((!lg || onto > +lg[1]) && (!fu || lands > +fu[1]) && (lg || fu), `${name}: what the line calls longer or further is so (onto ${onto.toFixed(2)}, lands ${lands.toFixed(2)}): ${m[3]}`);
+	}
+	console.log(`ok Y ${name}: onto ${onto.toFixed(2)} m, the foot ${lands.toFixed(2)} m from the hips; ${m ? `told ${m[1]} / ${m[2]} m` : "nothing told"}`);
 }
 console.log("PASS verify-walk-fit-reach");
