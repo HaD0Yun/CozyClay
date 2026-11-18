@@ -74,8 +74,9 @@
 //     ride {on:propId} | {joint:name, of:characterId}, at?:[x,y,z], axis?, deg?   from this frame the prop keeps its
 //       place and turn on that prop, however that one is carried, held or keyed, or on that joint of that body (joints
 //       as for a hand target), however the body moves; at = its centre there in the carrier's own frame (as {on} and
-//       {joint} targets give it), its axes along the carrier's, turned deg about axis; no at = the place and turn it
-//       has when the ride begins. Until a later key of its own or a hand takes it (written while it is held: from the let-go)
+//       {joint} targets give it), its axes along the carrier's, turned deg about axis (axis, deg: only with at); no at =
+//       the place and turn it has on the carrier on the frame before the ride begins. Until a later key of its own or a
+//       hand takes it off. While a hand holds it the ride waits (written while it is held, or taken on its frame: from the let-go)
 // Angles in a spec are degrees; lengths are metres.
 import { DEMOS } from "../demos.js";
 import { INDEX as J, OFFSET, qAxisAngle } from "../rig17.js";
@@ -295,7 +296,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 				if (k.f === f) { p.vel = mul(k.vel, 1 / 24); p.fly = { bounce: k.bounce ?? 0.5, friction: (k.friction ?? 1.5) / 576, wait: true }; aux.launches.push({ prop: p.id, f }); }
 				k = null;
 			} else if (k || p.holder || p.ride) p.vel = null;
-			aux.keyed[p.id].push(!!k || !!p.vel || !!p.ride); aux.rolling[p.id].push(!!p.vel);
+			aux.keyed[p.id].push(!!k || !!p.vel || (!!p.ride && !p.holder)); aux.rolling[p.id].push(!!p.vel);
 			if (p.vel && p.fly?.wait) p.fly.wait = false; // the launch frame: still in place
 			else if (p.vel && p.fly) fly(p);
 			else if (p.vel) { // released with a velocity: it falls to the floor under it and rolls on at that speed

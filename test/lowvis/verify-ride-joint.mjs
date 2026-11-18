@@ -131,7 +131,7 @@ const PLACES = {
 	// held from the key to the end: the ride never began
 	const held = build({ u: [[0, "hold", { prop: "box", hand: "R" }]], box: [[10, "ride", { joint: "Head", of: "u" }]] }, scene);
 	const never = measure(held.parsed, held.aux).find(x => x.key === "ride:box:10");
-	assert.ok(never && never.label === "ride: box never rode on u's Head, the key at f10" && never.value === 50 && never.note === "u held it from that frame to the last frame", `a ride that never began is a row (${never && `${never.label}: ${never.value} ${never.unit} (${never.note})`})`);
+	assert.ok(never && never.label === "ride: box never rode on u's Head, the key at f10" && never.value === 50 && never.note === "who held it from that frame to the last frame: u f10-59", `a ride that never began is a row (${never && `${never.label}: ${never.value} ${never.unit} (${never.note})`})`);
 	// a ride with at that begins away from its place: the jump is a row
 	const jumped = build({ u: [[0, "walk", { to: [0, 1] }]], tag: [[20, "ride", { joint: "Spine2", of: "u", at: [0, 0, -0.12] }]] }, scene);
 	const jump = measure(jumped.parsed, jumped.aux).find(x => x.key === "ride:tag:20");
