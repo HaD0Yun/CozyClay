@@ -6,6 +6,7 @@
 // or starts at full speed is fitted to how far its feet land from the hips, so the body does not drop. Scenes and specs
 // are written here.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { STAND_Y } from "../../src/lowvis/engine-simple/gait.js";
 import { travel } from "../../src/lowvis/pi/measure.mjs";
@@ -24,8 +25,10 @@ function run(acts, { frames = 260, scale = 1 } = {}) {
 	const spot = [J.LeftFoot, J.RightFoot].map(j => { const p = at(0, j); return [p[0], p[2]]; });
 	const longest = plants.reduce((m, pl) => { const o = spot[1 - pl.s], d = Math.abs((pl.p[0] - o[0]) * dir[0] + (pl.p[1] - o[1]) * dir[1]); spot[pl.s] = pl.p; return Math.max(m, d); }, 0);
 	const nan = Array.from(c.pos).some(x => !Number.isFinite(x)) || Array.from(c.quat).some(x => !Number.isFinite(x));
-	const end = at(frames - 1, J.Hips);
-	return { low: low * 1000, fall: fall * 1000, plants, longest, nan, end: [end[0], end[2]], text: travel(clip, aux, spec).flatMap(t => t.told).join("; ") };
+	const end = at(frames - 1, J.Hips), was = [J.LeftFoot, J.RightFoot].map(j => { const p = at(0, j); return [p[0], p[2]]; });
+	// on the floor: each plant against the spot the other foot stood on then, and against the Hips joint as it lands
+	const floor = plants.map(pl => { const o = was[1 - pl.s], h = at(pl.f, J.Hips); was[pl.s] = pl.p; return { step: Math.hypot(pl.p[0] - o[0], pl.p[1] - o[1]), far: Math.hypot(pl.p[0] - h[0], pl.p[1] - h[2]) }; });
+	return { low: low * 1000, fall: fall * 1000, plants, floor, longest, nan, end: [end[0], end[2]], text: travel(clip, aux, spec).flatMap(t => t.told).join("; ") };
 }
 
 // --- V1: a turn on the spot never leaves a move without frames: every joint is a number, the body arrives ---
@@ -71,10 +74,10 @@ for (const [name, o, scale, first] of [
 for (const [name, o, scale, longest] of [
 	["review: 4 m back, facing 0, steps 4", { to: [0, -4], facing: 0, steps: 4 }, 1, 0.75],
 	["2 m to the left, facing 0, steps 3, scale 0.8", { to: [-2, 0], facing: 0, steps: 3 }, 0.8, 0.44],
-	["0.45 m to the right (under 0.5 m at scale 0.9: a short run), steps 2", { to: [0.45, 0], steps: 2 }, 0.9, null],
+	["0.414 m to the left (under 0.5 m at scale 0.9: a short run), steps 2", { to: [0.46, 0], steps: 2 }, 0.9, null],
 ]) {
 	const r = run([I, [10, "run", { ...o, to: o.to.map(v => v * scale) }]], { frames: 220, scale });
-	assert.ok(/of a walk that way \(this run steps as a walk: it has facing or goes under 0\.5 m\), [\d.]+ m/.test(r.text) && !/of a run that way/.test(r.text), `${name}: ${r.text}`);
+	assert.ok(/of a walk that way \(this run steps as a walk: (it has facing|it goes [\d.]+ m, under 0\.5 m times its body's scale, [\d.]+ m)\), [\d.]+ m/.test(r.text) && !/of a run that way/.test(r.text), `${name}: ${r.text}`);
 	if (longest) assert.ok(r.text.includes(`, ${(longest * scale).toFixed(2)} m, so it took`), `${name}: names the walk's longest that way times the scale: ${r.text}`);
 	console.log(`ok V3 ${name}: ${r.plants.length} plants, the line names a walk's longest step`);
 }
@@ -96,5 +99,41 @@ for (const [name, verb, o, scale] of [
 	const r = run([I, [10, "run", { to: [0, 2], steps: 3 }]], { frames: 200 });
 	assert.ok(/make 2 steps of up to 1\.00 m \(the last plant brings the feet together\), and put a foot up to [\d.]+ m from the hips as it lands or lifts, further than a run at a steady pace of its longest steps that way puts one, 0\.45 m, so it took \d+ plants/.test(r.text), `a run whose steps fit but whose feet land far from the hips is told why: ${r.text}`);
 	console.log("ok V4 a run 2 m, steps 3 (steps of 1 m): told the foot's distance from the hips");
+}
+// --- X1: end spots to the side, or ahead and to the side, are measured on the floor: the step onto them and the foot ---
+// [name, verb, options, scale, the gait's longest step and reach that way at scale 1]; the last case is within them
+for (const [name, verb, o, scale, [lim, reach]] of [
+	["review: 2 m, steps 4, L 0.4 left, R 0.4 right", "walk", { to: [0, 2], steps: 4, end: { L: [0.4, 0], R: [-0.4, 0] } }, 1, [0.75, 0.45]],
+	["1.8 m back facing front, steps 4, L 0.35 left 0.1 behind, scale 0.85", "walk", { to: [0, -1.8], facing: 0, steps: 4, end: { L: [0.35, -0.1], R: [0, 0] } }, 0.85, [0.75, 0.45]],
+	["a run 3.4 m to the front left, steps 4, R 0.5 right 0.1 ahead, scale 1.25", "run", { to: [1.5, 3], steps: 4, end: { L: [0, 0], R: [-0.5, 0.1] } }, 1.25, [1.2, 0.45]],
+	["1.5 m to the right facing front, steps 5, L 0.3 ahead, R 0.3 behind", "walk", { to: [-1.5, 0], facing: 0, steps: 5, end: { L: [0, 0.3], R: [0, -0.3] } }, 1, [0.44, 0.26]],
+	["within: 2.4 m, steps 5, L 0.08 left, R 0.08 right", "walk", { to: [0, 2.4], steps: 5, end: { L: [0.08, 0], R: [-0.08, 0] } }, 1, [0.75, 0.45]],
+]) {
+	const s = scale, end = Object.fromEntries(Object.entries(o.end).map(([k, v]) => [k, v.map(x => x * s)]));
+	const r = run([I, [10, verb, { ...o, to: o.to.map(v => v * s), end }]], { frames: 220, scale: s }), last = r.floor.slice(-2);
+	const onto = Math.max(...last.map(x => x.step)), lands = Math.max(...last.map(x => x.far)), over = onto > (lim + 0.1) * s || lands > (reach + 0.05) * s;
+	const m = /its end spots, which the count is not fitted to, make a step of up to ([\d.]+) m onto them and put a foot ([\d.]+) m from the hips/.exec(r.text);
+	assert.equal(over, !name.startsWith("within"), `${name}: the case is ${over ? "over" : "within"} the gait's bounds (onto ${onto.toFixed(2)} m, lands ${lands.toFixed(2)} m)`);
+	if (over) assert.ok(m, `${name}: end spots over the bounds are told: ${r.text}`);
+	if (m) assert.ok(Math.abs(+m[1] - onto) <= 0.1 * s && Math.abs(+m[2] - lands) <= 0.1 * s, `${name}: the line gives the step ${m[1]} m and the foot ${m[2]} m, the floor ${onto.toFixed(2)} m and ${lands.toFixed(2)} m`);
+	console.log(`ok X1 ${name}: onto the end spots ${onto.toFixed(2)} m, the foot ${lands.toFixed(2)} m from the hips; ${m ? `told ${m[1]} / ${m[2]} m` : "nothing told"}`);
+}
+
+// --- X2: why a run steps as a walk, by the body's scale: its facing, or a distance under 0.5 m times the scale ---
+{
+	const header = readFileSync(new URL("../../src/lowvis/engine-simple/engine.js", import.meta.url), "utf8").split("\n").filter(l => l.startsWith("//")).join(" ").replace(/\s*\/\/\s*/g, " ");
+	assert.ok(header.includes("A run with `facing` or of under 0.5 m times the body's scale steps as a walk."), "SPEC FORMAT names the scale of the short run");
+}
+for (const [name, o, scale, reason] of [
+	["review: a run 0.65 m to the left, steps 2, scale 1.4", { to: [0.65, 0], steps: 2 }, 1.4, "it goes 0.65 m, under 0.5 m times its body's scale, 0.70 m"],
+	["a run 0.58 m to the left facing front, steps 2, scale 1.2", { to: [0.58, 0], facing: 0, steps: 2 }, 1.2, "it has facing and it goes 0.58 m, under 0.5 m times its body's scale, 0.60 m"],
+	["a run 0.9 m to the right facing front, steps 2, scale 0.7", { to: [-0.9, 0], facing: 0, steps: 2 }, 0.7, "it has facing)"],
+	["a run 0.45 m ahead, steps 2, scale 0.8 (not short for its size)", { to: [0, 0.45], steps: 2 }, 0.8, null],
+	["a run 0.4 m to the left, steps 2, scale 0.7 (not short for its size)", { to: [0.4, 0], steps: 2 }, 0.7, null],
+]) {
+	const r = run([I, [10, "run", o]], { frames: 160, scale }), gaps = r.plants.slice(1).map((p, i) => p.f - r.plants[i].f);
+	if (reason) assert.ok(r.text.includes(`(this run steps as a walk: ${reason}`), `${name}: the reason is what the engine tests: ${r.text}`);
+	else assert.ok(!/steps as a walk/.test(r.text) && gaps.length && Math.max(...gaps) < 11, `${name}: it steps as a run (${gaps.join(", ")} frames apart): ${r.text}`);
+	console.log(`ok X2 ${name}: ${reason ? `told "${reason}"` : `run steps ${gaps.join(", ")} frames apart`}`);
 }
 console.log("PASS verify-walk-fit-reach");

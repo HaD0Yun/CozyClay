@@ -47,10 +47,12 @@ const walkStep = (v, max) => clamp(v * 60 / clamp(63.7 + 32.2 * v, 80, 130), 0.2
 const SIDE_STEP = 2 * Math.sqrt((0.998 * LEG_LEN) ** 2 - (REST[J.LeftUpLeg][1] - 0.012 + GAIT.walk.base - ANKLE_HEIGHT) ** 2);
 const longestStep = ([x, z], G) => { const l = Math.hypot(x, z) || 1; return 1 / Math.hypot(z / l / G.maxStride, x / l / SIDE_STEP); };
 // A written count of gait `kind` over L metres in direction `way` [left, ahead] (pace.js fitCount): stepFrames default
-// a walk's at most 13, else the gait's own; `end` offsets go to the last two plants, the first by foot `side`.
+// a walk's at most 13, else the gait's own; `end` offsets go to the last two plants, the first by foot `side`. The
+// feet stand at home ([left, ahead] of the pelvis spot) plus the end offsets, turned to [across, along] the way.
 const fitCount = (L, steps, way, { stepFrames, room, kind = "walk", how, end, side }) => {
-	const G = GAIT[kind], l = Math.hypot(...way) || 1, along = o => o ? (o[0] * way[0] + o[1] * way[1]) / l : 0;
-	return fitSteps(L, steps, { sf: stepFrames ?? (kind !== "walk" ? G.stepFrames : L > 0.03 ? 13 : 11), stepFrames, room, G, gait: kind, how, longest: longestStep(way, G), end: end ? n => [n - 2, n - 1].map(k => along(end[(side + k) % 2 ? "R" : "L"])) : null });
+	const G = GAIT[kind], l = Math.hypot(...way) || 1, turn = ([x, z]) => [(x * way[1] - z * way[0]) / l, (x * way[0] + z * way[1]) / l];
+	const foot = (k, n, off) => { const s = (side + k + 2) % 2, o = (off && k >= n - 2 && end[s ? "R" : "L"]) || [0, 0]; return turn([(s ? -FOOT_X : FOOT_X) + o[0], FOOT_Z + o[1]]); };
+	return fitSteps(L, steps, { sf: stepFrames ?? (kind !== "walk" ? G.stepFrames : L > 0.03 ? 13 : 11), stepFrames, room, G, gait: kind, how, longest: longestStep(way, G), end: end ? { foot, hip: turn([0, HIP_FWD]) } : null });
 };
 const KEYS = Object.keys(GAIT.walk);
 const blend = ([r, p]) => Object.fromEntries(KEYS.map(k => [k, GAIT.walk[k] + r * (GAIT.run[k] - GAIT.walk[k]) + p * (GAIT.push[k] - GAIT.walk[k])]));
@@ -279,10 +281,12 @@ function travel(st, segs) {
 // One walk / run action or a chain of them. A single short, `facing`, lunge (steps: 1) or no-step move is a shuffle,
 // and so is one of under 4 frames (it stands); a counted walk takes the path as any walk does. `first` and `end` only
 // choose the first foot and where the last steps land: they do not change how it walks. told: how a written count or
-// stepFrames differs from what was walked.
+// stepFrames differs from what was walked, and (as) why a run stepped as a walk: its facing, or under 0.5 m of the rig.
 export function locomote(st, segs) {
-	const s = segs[0];
-	if (segs.length === 1 && (s.N < 4 || s.kind !== "push" && (s.facing != null || s.steps < 2 || dist2(st.p, s.to) < 0.5)))
-		return shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end, stepFrames: s.stepFrames, ease: s.ease });
+	const s = segs[0], near = dist2(st.p, s.to) < 0.5;
+	if (segs.length === 1 && (s.N < 4 || s.kind !== "push" && (s.facing != null || s.steps < 2 || near))) {
+		const r = shuffle(st, s.N, { to: s.to, yaw: s.facing ?? s.heading ?? st.yaw, steps: s.steps, burst: s.burst, first: s.first, end: s.end, stepFrames: s.stepFrames, ease: s.ease });
+		return r.told ? { ...r, told: { ...r.told, as: { facing: s.facing != null, under: near ? 0.5 : null } } } : r;
+	}
 	return travel(st, segs);
 }

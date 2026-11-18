@@ -29,18 +29,23 @@ export function pace(Tm, stepT, { ease, burst }, G) {
  *  its pace (how), in the middle of its stance (gait.js stepper); the last two land on the end spot, the feet together.
  *  Raised to the fewest plants whose steps are no longer than `longest` and whose feet, as they land and as they lift,
  *  are no further from the pelvis than a steady pace at steps of `longest` puts them (an ease that stops or starts at
- *  speed lands a foot far ahead or leaves one far behind). end(n): where the writer puts the last two instead
- *  ([before last, last], metres along the way off the end spot), a stance the count is not fitted to: its step onto
- *  them and its foot's distance from the pelvis are told when over those bounds. told: what differs from what was
- *  written (stepFrames: as written), with the lengths so computed. */
+ *  speed lands a foot far ahead or leaves one far behind). end: where the writer puts the last two instead, a stance
+ *  the count is not fitted to: end.foot(k, n, off) = [across, along] the way of plant k's ankle off its pelvis spot
+ *  (k = -1: the foot it starts from; off: with the end spots, else at home), end.hip = the hips' [across, along] off
+ *  it. Its step onto them (ankle to the other ankle) and its foot's distance from the hips as it lands, on the floor,
+ *  are told when over what the same feet at home do at those bounds. told: what differs from what was written
+ *  (stepFrames: as written), with the lengths so computed. */
 export function fitCount(L, steps, { sf, stepFrames, room, G, gait, how = {}, longest, end }) {
-	const reach = longest * (1 - G.sw / 2);
+	const reach = longest * (1 - G.sw / 2), gap = (P, Q) => Math.hypot(P[0] - Q[0], P[1] - Q[1]), H = end && [0, 1].map(k => end.foot(k, 2, false));
+	const bound = end && { step: Math.max(longest, ...H.map((h, i) => gap([h[0], h[1] + longest], H[1 - i]))), far: Math.max(reach, ...H.map(h => gap([h[0], h[1] + reach], end.hip))) };
 	const plan = n => {
 		const stepT = Math.min(sf, room / (n - 1 + G.sw)), u = pace((n - 1 + G.sw) * stepT, stepT, how, G), land = k => L * u((k + G.sw) * stepT);
 		const spot = [0, ...Array.from({ length: n }, (_, k) => (k < n - 2 ? L * u((k + 1 + G.sw / 2) * stepT) : L))];
 		let far = L * u(stepT); // the other standing foot lifts one step in
 		for (let k = 0; k < n; k++) far = Math.max(far, Math.abs(spot[k + 1] - land(k)), k < n - 2 ? Math.abs(L * u((k + 2) * stepT) - spot[k + 1]) : 0);
-		const [a, b] = end?.(n) ?? [0, 0], split = end && { step: Math.max(Math.abs(L + a - spot[n - 2]), Math.abs(b - a)), far: Math.max(Math.abs(L + a - land(n - 2)), Math.abs(b)) };
+		const at = k => { const o = end.foot(k, n, true); return [o[0], spot[k + 1] + o[1]]; }, hip = y => [end.hip[0], y + end.hip[1]];
+		const sp = end && { step: Math.max(gap(at(n - 2), at(n - 3)), gap(at(n - 1), at(n - 2))), far: Math.max(gap(at(n - 2), hip(land(n - 2))), gap(at(n - 1), hip(L))) };
+		const split = sp && { ...sp, long: sp.step > bound.step + 1e-6, wide: sp.far > bound.far + 1e-6 };
 		return { n, stepT, far, split, step: Math.max(...spot.slice(1).map((x, k) => Math.abs(x - spot[k]))) };
 	};
 	const asked = plan(Math.max(2, steps)), top = Math.max(2, steps) + 64;
@@ -48,7 +53,7 @@ export function fitCount(L, steps, { sf, stepFrames, room, G, gait, how = {}, lo
 	while (q.step > longest + 1e-6 && q.n < top) q = plan(q.n + 1);
 	let p = q;
 	while ((p.step > longest + 1e-6 || p.far > reach + 1e-6) && p.n < top) p = plan(p.n + 1);
-	const split = p.split && (p.split.step > longest + 1e-6 || p.split.far > reach + 1e-6) ? p.split : null;
+	const split = p.split && (p.split.long || p.split.wide) ? p.split : null;
 	const info = { gait, steps: [steps, p.n], distance: L, step: asked.step, stepWalked: p.step, longest, far: p.n > q.n ? asked.far : null, reach, end: !!end, split, stepFrames: [stepFrames ?? null, p.stepT], need: (p.n - 1 + G.sw) * (stepFrames ?? p.stepT), room, pace: EASE[how.ease] ? how.ease : how.burst ? "burst" : null };
 	return { n: p.n, stepT: p.stepT, info, told: p.n !== steps || split || (stepFrames != null && p.stepT < stepFrames - 0.05) ? info : null };
 }

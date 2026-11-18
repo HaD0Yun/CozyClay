@@ -185,12 +185,12 @@ const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk",
 const m2 = v => v.toFixed(2);
 /** How a written count or stepFrames of a walk (aux.walks, gait.js fitCount) differs from what it walked, as the writer reads it. */
 const toldText = w => {
-	const [a, n] = w.steps, turned = (w.turns ?? []).reduce((k, t) => k + t.frames, 0), g = w.gait ?? w.verb, as = g === w.verb ? "" : ` (this ${w.verb} steps as a ${g}: it has facing or goes under 0.5 m)`;
+	const [a, n] = w.steps, turned = (w.turns ?? []).reduce((k, t) => k + t.frames, 0), g = w.gait ?? w.verb, because = [w.as?.facing && "it has facing", w.as?.under != null && `it goes ${m2(w.distance)} m, under 0.5 m times its body's scale, ${m2(w.as.under)} m`].filter(Boolean).join(" and "), as = g === w.verb ? "" : ` (this ${w.verb} steps as a ${g}${because ? `: ${because}` : ""})`;
 	const longer = `longer than the longest step of a ${g} that way${as}, ${m2(w.longest)} m`, further = `further than a ${g} at a steady pace of its longest steps that way puts one, ${m2(w.reach)} m`, sp = w.split;
 	const why = [w.step > w.longest + 1e-6 && longer, w.far != null && `and put a foot up to ${m2(w.far)} m from the hips as it lands or lifts, ${further}`].filter(Boolean).join(", ");
 	return [
 		n !== a && `steps ${a} asked: ${a < 2 ? `a ${w.verb} of ${m2(w.distance)} m takes 2 plants at least (the last brings the feet together), steps no longer than the longest of a ${g} that way${as}, ${m2(w.longest)} m` : `${a} plants over ${m2(w.distance)} m make ${a - 1} step${a === 2 ? "" : "s"} of up to ${m2(w.step)} m${w.pace ? ` at the pace ${w.pace}` : ""} (the last plant brings the feet ${w.end ? "to their end spots" : "together"}), ${why}`}, so it took ${n} plants, steps of up to ${m2(w.stepWalked)} m`,
-		sp && `its end spots, which the count is not fitted to, make a step of up to ${m2(sp.step)} m onto them and put a foot ${m2(sp.far)} m from the hips as it lands: ${[sp.step > w.longest + 1e-6 && longer, sp.far > w.reach + 1e-6 && further].filter(Boolean).join(", and ")}`,
+		sp && `its end spots, which the count is not fitted to, make a step of up to ${m2(sp.step)} m onto them and put a foot ${m2(sp.far)} m from the hips as it lands: ${[sp.long && longer, sp.wide && further].filter(Boolean).join(", and ")}`,
 		w.stepFrames[0] != null && w.stepFrames[1] < w.stepFrames[0] - 0.05 && `stepFrames ${w.stepFrames[0]} asked: ${n} plants at ${w.stepFrames[0]} frames need ${Math.round(w.need)} frames to land, the action has ${Math.round(w.room)} (up to the next body action, less 3 to stand still)${turned ? ` and turns on the spot in ${turned} of them, leaving ${Math.round(w.stepsRoom)}` : ""}, so each step took ${w.stepFrames[1].toFixed(1)}`,
 		...(w.turns ?? []).map(t => `it turned on the spot ${t.when} (${t.plants} plants in ${t.frames} frames) besides its ${n} plants`),
 	].filter(Boolean).map(t => `the ${w.verb} at f${w.f}: ${t}`).join("; ");
