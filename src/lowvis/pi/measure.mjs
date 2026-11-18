@@ -187,7 +187,7 @@ const m2 = v => v.toFixed(2);
 const toldText = w => [
 	w.steps[1] !== w.steps[0] && `steps ${w.steps[0]} asked: ${w.steps[0]} plants over ${m2(w.distance)} m are ${w.steps[0] - 1} step${w.steps[0] === 2 ? "" : "s"} of ${m2(w.step)} m (the last plant brings the feet together), longer than the longest step of a walk that way, ${m2(w.longest)} m, so it walked ${w.steps[1]} plants, steps of ${m2(w.distance / (w.steps[1] - 1))} m`,
 	w.stepFrames[0] != null && w.stepFrames[1] < w.stepFrames[0] - 0.05 && `stepFrames ${w.stepFrames[0]} asked: ${w.steps[1]} plants at ${w.stepFrames[0]} frames need ${Math.round(w.need)} frames to land, the action has ${Math.round(w.room)} (up to the next body action, less 3 to stand still), so each step took ${w.stepFrames[1].toFixed(1)}`,
-].filter(Boolean).join("; ");
+].filter(Boolean).map(t => `the ${w.verb} at f${w.f}: ${t}`).join("; ");
 /**
  * What each stretch of travel came out as: one record per character and run of consecutive walk / run / push actions
  * of its body layer. spec: the spec as built (repeats written out). The Hips joint's path on the floor plane counts
