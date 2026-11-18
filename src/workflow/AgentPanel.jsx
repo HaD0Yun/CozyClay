@@ -2,7 +2,7 @@ import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useS
 import { FiAlertTriangle, FiArrowUp, FiCamera, FiCheck, FiChevronRight, FiClock, FiDownload, FiImage, FiMoreHorizontal, FiPaperclip, FiPlus, FiRotateCw, FiX } from "react-icons/fi";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_FAILED_NOTICE, ATTACHMENT_MAX_COUNT, ATTACHMENT_LIMIT_NOTICE, ATTACHMENT_TYPE_NOTICE, attachmentFilesFromTransfer, attachmentFromFile, transferCarriesFiles } from "./attachment-image.js";
 import { isImeComposing } from "../ime.js";
-import { useStudioShell } from "../shell/studio-shell-context.js";
+import { useStudioShell } from "../shell/studio-shell-context.js"; import { hostBriefReadiness, runHostBriefs } from "../host-agent-brief.js";
 import { ko } from "../locale.js"; import { saveExport } from "../export-workspace.js"; import { AgentContextMeter } from "./AgentContextMeter.jsx";
 import { ContextChips } from "./ContextChips.jsx"; import { captureAnnotatedImage, consumeMarks, markStills } from "../context-chips.js";
 import {
@@ -249,7 +249,7 @@ export default function AgentPanel({
 	const mockState = transport.mock ? transport.state : null;
 
 	// Inside the studio the title names the project's previs mode (#650).
-	const previsMode = useStudioShell()?.previsMode;
+	const shell = useStudioShell(), previsMode = shell?.previsMode;
 	const titleMode = surface === "studio" && previsMode
 		? (previsMode === "storyboard" ? ko("Storyboard", "스토리보드") : ko("Animation", "애니메이션"))
 		: null;
@@ -331,12 +331,9 @@ export default function AgentPanel({
 
 	// The host's context builder and image-action handler are read through refs
 	// so a re-rendered host never rebuilds the conversation.
-	const buildContextRef = useRef(buildContext);
-	buildContextRef.current = buildContext;
-	const imageActionRef = useRef(onImageAction);
-	imageActionRef.current = onImageAction;
-	const receiptRef = useRef(onReceipt);
-	receiptRef.current = onReceipt;
+	const buildContextRef = useRef(buildContext); buildContextRef.current = buildContext;
+	const imageActionRef = useRef(onImageAction); imageActionRef.current = onImageAction;
+	const receiptRef = useRef(onReceipt); receiptRef.current = onReceipt;
 
 	const store = useMemo(() => createAgentChatStore({
 		transport,
@@ -688,6 +685,14 @@ export default function AgentPanel({
 		setMenuOpen(false);
 		composerRef.current?.focus();
 	}, [store, surface]);
+
+	// A brief a host app hands this panel's agent (src/host-agent-brief.js) runs
+	// as a message in a new chat. The runner reads the panel through this ref, so
+	// a brief that waits (the models loading, a project opening) sees the panel
+	// as it is then, and a re-render never restarts it.
+	const briefPanelRef = useRef(null);
+	useEffect(() => { briefPanelRef.current = { ready: hostBriefReadiness({ authState, modelsState, model, restoreReady, editorReady: shell?.liveHubStatus !== "disconnected" }), project: shell?.hostProject, turn: { model, effort: effort ?? undefined }, newChat: newSession, open: () => { if (!embedded) setCollapsed(false); else if (hidden) onCollapsedChange?.(false); } }; });
+	useEffect(() => (surface === "studio" ? runHostBriefs({ store, panel: () => briefPanelRef.current }) : undefined), [store, surface]);
 
 	const openHistory = useCallback(async () => {
 		if (surface !== "studio") return;

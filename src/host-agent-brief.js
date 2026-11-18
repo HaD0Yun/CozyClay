@@ -1,0 +1,223 @@
+// A brief for the Studio's own agent, handed over by a host app (#1319). A host
+// that shows the Studio in its own window (the desktop app) may expose
+// `window.cozyclayHost.agentBrief` from its preload. When it does, the host can
+// send the agent one message with pictures, and the Studio reports how that
+// turn ended; in a plain browser the object is absent and nothing changes.
+// The launcher advertises this as the "agent-brief" capability
+// (bin/host-contract.mjs).
+//
+// The bridge:
+//   onRequest(listener) -> unsubscribe   host -> page; a request made before a listener exists waits for one
+//   report(status)      -> void          page -> host
+//
+// Requests (unknown fields are ignored):
+//   { kind: "brief", id, text, attachments?, project?, save? }
+//   { kind: "stop", id }
+//   id           the host's name for the brief, 1 to 128 of [A-Za-z0-9._-]; one brief, one id
+//   text         the message for the agent, 1 to 100000 characters
+//   attachments  1 to 4 of { name, dataUrl }: a png, jpeg or webp data URL of at most 6,000,000 characters,
+//                the limits of a message typed in the panel
+//   project      a token from projectFiles.onOpen (src/host-project-files.js): the brief runs only in that
+//                project, and waits up to 60 s for it while it is still opening
+//   save         true: after a turn that ended "done" the project is saved to its host file, with no dialog
+//   stop         stops that brief's turn; an id that is not running is ignored
+//
+// The brief runs as a user message in the agent panel, in a new chat, as one
+// plain turn (never as parallel tasks), so the end of the turn is the end of
+// the work.
+//
+// Reports, each { id, state, ... }. A brief gets "started" at most once, and
+// exactly one of the other three:
+//   started   the agent took the message and its turn is running
+//   done      { reply?, saved?, preview? }: the turn ended normally. reply is the agent's last text, cut to 4000
+//             characters; saved is there when save was asked; preview is a small picture of the stage as a
+//             data URL (at most 1,500,000 characters) when the page has one
+//   failed    { code, message }. code: "invalid" (the request broke the limits above), "busy" (an answer or
+//             another brief is already running), "not-ready" (no model is connected, or the editor is not
+//             ready), "project" (that project is not the one open), "turn" (the turn failed; message is the
+//             panel's own words)
+//   stopped   the host or the user stopped the turn
+// A page that reloads mid-turn reports nothing more: the host treats a page
+// that went away as failed.
+import { hostProjectOpening } from "./host-project-files.js";
+import { stageThumbDataUrl } from "./project-thumbs.js";
+
+const ID = /^[A-Za-z0-9._-]{1,128}$/;
+const PICTURE = /^data:image\/(png|jpeg|webp);base64,/;
+const TEXT_MAX = 100_000;
+const ATTACHMENTS_MAX = 4;
+const ATTACHMENT_MAX_CHARS = 6_000_000;
+const ATTACHMENT_NAME_MAX = 120;
+const REPLY_MAX = 4000;
+const PREVIEW_MAX_CHARS = 1_500_000;
+const WAIT_MS = 60_000;
+const POLL_MS = 250;
+
+function bridge() {
+	const host = globalThis.window?.cozyclayHost?.agentBrief;
+	return typeof host?.onRequest === "function" && typeof host.report === "function" ? host : null;
+}
+
+/** A host request, checked once here: { request } holding only the fields above, or { message } saying why it is
+ * refused, with the `id` when it is a brief the page can still answer. An optional field may also be null. */
+export function parseHostBriefRequest(value) {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return { message: "A host brief request must be an object." };
+	const id = typeof value.id === "string" && ID.test(value.id) ? value.id : null;
+	const refuse = (message) => ({ message, ...(id && value.kind === "brief" ? { id } : {}) });
+	if (!id) return refuse("A host brief id is 1 to 128 characters of A-Z, a-z, 0-9, dot, underscore or hyphen.");
+	if (value.kind === "stop") return { request: { kind: "stop", id } };
+	if (value.kind !== "brief") return refuse("A host brief request is a brief or a stop.");
+	if (typeof value.text !== "string" || !value.text.trim() || value.text.length > TEXT_MAX) return refuse(`The brief text must be 1 to ${TEXT_MAX} characters.`);
+	const attachments = [];
+	if (value.attachments != null) {
+		if (!Array.isArray(value.attachments) || !value.attachments.length || value.attachments.length > ATTACHMENTS_MAX) return refuse(`A brief carries 1 to ${ATTACHMENTS_MAX} attachments.`);
+		for (const entry of value.attachments) {
+			if (typeof entry?.dataUrl !== "string" || entry.dataUrl.length > ATTACHMENT_MAX_CHARS || !PICTURE.test(entry.dataUrl)) return refuse(`Each attachment must be a png, jpeg or webp data URL of at most ${ATTACHMENT_MAX_CHARS} characters.`);
+			if (entry.name != null && typeof entry.name !== "string") return refuse("An attachment name must be text.");
+			attachments.push({ dataUrl: entry.dataUrl, ...(entry.name ? { name: entry.name.slice(0, ATTACHMENT_NAME_MAX) } : {}) });
+		}
+	}
+	if (value.project != null && (typeof value.project !== "string" || !value.project)) return refuse("The brief's project must be a host project token.");
+	if (value.save != null && typeof value.save !== "boolean") return refuse("The brief's save must be true or false.");
+	return { request: { kind: "brief", id, text: value.text, attachments, project: value.project ?? null, save: value.save === true } };
+}
+
+export function reportHostBrief(status) {
+	try {
+		bridge()?.report(status);
+	} catch (error) {
+		console.warn(`cozyclay: the host app did not take a brief report: ${error.message}`);
+	}
+}
+
+// The host's requests, each checked first: a brief that breaks the limits is
+// answered here, anything else that cannot be read is dropped. Returns the
+// unsubscribe function.
+export function subscribeHostBriefs(handler) {
+	const host = bridge();
+	if (!host) return () => {};
+	const unsubscribe = host.onRequest((value) => {
+		const { request, id, message } = parseHostBriefRequest(value);
+		try {
+			if (request) handler(request);
+			else if (id) reportHostBrief({ id, state: "failed", code: "invalid", message });
+			else console.warn(`cozyclay: ${message}`);
+		} catch (error) {
+			console.warn(`cozyclay: ${error.message}`);
+		}
+	});
+	return typeof unsubscribe === "function" ? unsubscribe : () => {};
+}
+
+/** Whether the agent panel can take a brief: true, null while it is still finding out (the model list loading, a
+ * chat being restored, the editor connecting), or the reason it cannot. */
+export function hostBriefReadiness({ authState, modelsState, model, restoreReady = true, editorReady = true }) {
+	if (authState === "loading" || modelsState === "loading" || !restoreReady) return null;
+	if (authState !== "ready" || !model) return "No model is connected in the Studio's agent panel.";
+	return editorReady ? true : null;
+}
+
+// The agent's last text in the turn that just ended.
+function lastReply(items) {
+	for (let index = items.length - 1; index >= 0 && items[index].kind !== "user"; index -= 1) {
+		const text = items[index].kind === "assistant" ? String(items[index].text ?? "").trim() : "";
+		if (text) return text.slice(0, REPLY_MAX);
+	}
+	return null;
+}
+
+// The store's state once no answer is streaming.
+function turnEnd(store) {
+	return new Promise((resolve) => {
+		let unsubscribe = () => {};
+		const check = (state) => { if (!state.streaming) { unsubscribe(); resolve(state); } };
+		unsubscribe = store.subscribe(check);
+		check(store.getState());
+	});
+}
+
+// Only the host's own file is written without asking: any other project would
+// open a dialog.
+async function saveHostFile(request, file) {
+	try {
+		const token = file?.token() ?? null;
+		return Boolean(token) && (!request.project || token === request.project) && (await file.save()) === true;
+	} catch {
+		return false;
+	}
+}
+
+// The brief this page is handling, and every brief id it has taken. They
+// belong to the page, not to one subscription: a panel that subscribes again
+// still knows the brief that is running.
+let active = null;
+const taken = new Set();
+
+async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
+	const brief = { id: request.id, stopped: false, stop() { brief.stopped = true; } };
+	active = brief;
+	let started = false;
+	// The one final report: whatever comes after it for this brief is dropped.
+	const finish = (status) => {
+		if (active !== brief) return;
+		active = null;
+		reportHostBrief({ id: brief.id, ...status });
+	};
+	const fail = (code, message) => finish({ state: "failed", code, message });
+	try {
+		panel().open();
+		// Wait for the panel and for the named project. A host sends the brief as
+		// soon as the page loads, while the model list, the editor and the project
+		// it just asked for are all still on their way.
+		const deadline = Date.now() + waitMs;
+		while (true) {
+			if (brief.stopped) return finish({ state: "stopped" });
+			if (store.getState().streaming) return fail("busy", "An answer is already running in the Studio's agent panel.");
+			const { ready, project } = panel();
+			if (typeof ready === "string") return fail("not-ready", ready);
+			const here = !hostProjectOpening() && (!request.project || project?.token() === request.project);
+			if (ready === true && here) break;
+			if (Date.now() >= deadline) {
+				if (here) return fail("not-ready", "The Studio's agent was not ready in time.");
+				return fail("project", request.project ? "That project is not the one open in the Studio." : "A project is still opening in the Studio.");
+			}
+			await new Promise((resolve) => setTimeout(resolve, pollMs));
+		}
+		const { newChat, turn } = panel();
+		if (store.getState().items.length) newChat();
+		// The store starts the turn before it first waits, so its state already says whether it took the message.
+		void store.send(request.text, { ...turn, attachFrame: false, attachments: request.attachments });
+		if (!store.getState().streaming) return fail("not-ready", store.getState().items.findLast((item) => item.kind === "failure")?.failure?.message || "The Studio's agent did not take the message.");
+		started = true;
+		reportHostBrief({ id: brief.id, state: "started" });
+		brief.stop = () => store.stop();
+		const ended = await turnEnd(store);
+		brief.stop = () => {};
+		if (ended.lastTurn?.status === "stopped") return finish({ state: "stopped" });
+		if (ended.lastTurn?.status !== "done") return fail("turn", ended.lastTurn?.failure?.message || "The turn failed.");
+		const reply = lastReply(ended.items);
+		const done = { state: "done", ...(reply ? { reply } : {}) };
+		if (request.save) done.saved = await saveHostFile(request, panel().project);
+		const picture = await Promise.resolve().then(preview).catch(() => null);
+		if (typeof picture === "string" && picture.startsWith("data:image/") && picture.length <= PREVIEW_MAX_CHARS) done.preview = picture;
+		finish(done);
+	} catch (error) {
+		fail(started ? "turn" : "not-ready", String(error?.message || error));
+	}
+}
+
+/** Runs the host's briefs through the agent panel. `store` is the panel's chat store; `panel()` answers with the
+ * panel as it is now: { ready (hostBriefReadiness), project ({ token(), save() } of the open project, or
+ * nothing), turn (the model options of a send), newChat(), open() }. Returns the unsubscribe function. */
+export function runHostBriefs({ store, panel, preview = stageThumbDataUrl, waitMs = WAIT_MS, pollMs = POLL_MS }) {
+	return subscribeHostBriefs((request) => {
+		if (request.kind === "stop") {
+			if (active?.id === request.id) active.stop();
+			return;
+		}
+		if (taken.has(request.id)) return;
+		taken.add(request.id);
+		if (active) reportHostBrief({ id: request.id, state: "failed", code: "busy", message: "Another brief is already running in the Studio." });
+		else void runBrief(request, { store, panel, preview, waitMs, pollMs });
+	});
+}
