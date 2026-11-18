@@ -36,7 +36,9 @@
 // Reports, each { id, state, ... }. A brief gets "started" at most once, and
 // exactly one of the other three:
 //   started   the agent took the message and its turn is running
-//   done      { reply?, saved?, preview? }: the turn ran to its end, also when a tool call failed on the way.
+//   done      { changed, reply?, saved?, preview? }: the turn ran to its end, also when a tool call failed on
+//             the way. changed says whether the turn changed the project: false for a turn that only looked,
+//             answered or asked something back, so a host that handed over work can tell that none was done.
 //             reply is the agent's text of that turn, cut to 4000 characters: the longest block when it wrote
 //             several; saved is there when save was asked; preview is a small picture of the stage as a data
 //             URL (at most 1,500,000 characters) when the page has one
@@ -153,6 +155,19 @@ function turnReply(items) {
 	return reply.slice(0, REPLY_MAX) || null;
 }
 
+// Whether the turn that just ended changed the project: one of its tool calls
+// authored something, by the rule the panel's own turn summary keeps
+// (src/workflow/agent-turn.js stoppedNote), or the turn earned an authored
+// receipt.
+function turnChanged(items) {
+	for (let index = items.length - 1; index >= 0 && items[index].kind !== "user"; index -= 1) {
+		const item = items[index];
+		if (item.kind === "tool" && (item.result?.authored === true || (item.result?.calls ?? []).some((call) => call?.revision && call.revision.after !== call.revision.before))) return true;
+		if (item.kind === "receipt" && item.receipt?.authored === true) return true;
+	}
+	return false;
+}
+
 // The store's state once the turn has ended. The end is the state that says
 // how the turn ended, not the first one without an answer streaming: a chat
 // the user picks from the history meanwhile stops the stream on screen, and the
@@ -260,7 +275,7 @@ async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
 		// Another project was opened while the turn ran: what is on the stage now is not this brief's work.
 		if (request.project && panel().project?.token() !== request.project) return fail("project", "Another project was opened in the Studio while the brief ran.");
 		const reply = turnReply(ended.items);
-		const done = { state: "done", ...(reply ? { reply } : {}) };
+		const done = { state: "done", changed: turnChanged(ended.items), ...(reply ? { reply } : {}) };
 		if (request.save) done.saved = await saveHostFile(request, panel().project);
 		const picture = await Promise.resolve().then(preview).catch(() => null);
 		if (typeof picture === "string" && picture.startsWith("data:image/") && picture.length <= PREVIEW_MAX_CHARS) done.preview = picture;

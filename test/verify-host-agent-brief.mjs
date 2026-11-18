@@ -179,7 +179,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		onEvent({ type: "text.delta", text: "Built the set " });
 		onEvent({ type: "text.delta", text: "and three views." });
 		finish();
-		assert.deepEqual(await final("real-done"), { id: "real-done", state: "done", reply: "Built the set and three views.", saved: true, preview: png });
+		assert.deepEqual(await final("real-done"), { id: "real-done", state: "done", changed: false, reply: "Built the set and three views.", saved: true, preview: png });
 		assert.equal(file.saves, 1);
 	});
 	console.log("PASS a brief runs as one message with its pictures and ends done, saved, with a preview");
@@ -253,7 +253,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		const { lastTurn, items } = store.getState();
 		assert.deepEqual([lastTurn.status, lastTurn.failure], ["done", null], "the store counts a failed call as part of a turn that ran to its end");
 		assert.ok(items.some((item) => item.kind === "tool" && item.status === "failed"), "the failed call stays in the chat: it is what gives the panel its error look");
-		assert.deepEqual(report, { id: "tool-failed", state: "done", reply: summary, preview: png }, "the reply is the longest text of the turn, not the note that came last");
+		assert.deepEqual(report, { id: "tool-failed", state: "done", changed: false, reply: summary, preview: png }, "the reply is the longest text of the turn, not the note that came last");
 
 		// The same failed call followed by the turn's own error is a failed turn.
 		push({ kind: "brief", id: "tool-then-error", text: "Build it." });
@@ -270,9 +270,33 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		await until(() => of("reply-tie").length === 1, "started");
 		ties.set({ items: [...ties.getState().items, { kind: "assistant", text: "  First.  " }, { kind: "tool", status: "done" }, { kind: "assistant", text: "Later." }, { kind: "tool", status: "done" }, { kind: "assistant", text: "End." }] });
 		ties.end("done");
-		assert.deepEqual(await final("reply-tie"), { id: "reply-tie", state: "done", reply: "Later." }, "blocks are measured without the space around them, and of two equally long ones the later is used");
+		assert.deepEqual(await final("reply-tie"), { id: "reply-tie", state: "done", changed: false, reply: "Later." }, "blocks are measured without the space around them, and of two equally long ones the later is used");
 	});
 	console.log("PASS a turn that ran to its end with a failed tool call is done, and its reply is its longest text");
+}
+{
+	// Whether a turn changed the project: only a tool call that authored something counts, not one that looked.
+	const transport = scriptedTransport();
+	const store = studioStore(transport);
+	const panel = fakePanel();
+	const run = async (id, frames) => {
+		push({ kind: "brief", id, text: "Build it." });
+		await until(() => of(id).length === 1, `${id} to start`);
+		const { onEvent, finish } = transport.turns.at(-1);
+		for (const frame of frames) onEvent(frame);
+		finish();
+		return (await final(id)).changed;
+	};
+	const call = (callId, result) => [{ type: "tool.start", callId, name: "edit", label: "Edit", args: {} }, { type: "tool.done", callId, ok: true, elapsedMs: 3, result }];
+	await running({ store, panel: () => panel }, async () => {
+		assert.equal(await run("changed-asked", [{ type: "text.delta", text: "Shall I use other figures instead? (yes / no)" }]), false, "a turn that only asked something back");
+		assert.equal(await run("changed-looked", [...call("look-1", { revision: 4, document: {} }), { type: "text.delta", text: "There are two characters." }]), false, "a turn that only looked");
+		assert.equal(await run("changed-authored", [...call("edit-1", { ok: true, status: "completed", authored: true, revision: { before: 4, after: 5 }, affectedIds: ["a"] }), { type: "text.delta", text: "Added one." }]), true, "a tool call that authored");
+		assert.equal(await run("changed-batch", [...call("edit-2", { calls: [{ revision: { before: 5, after: 5 } }, { revision: { before: 5, after: 6 } }] })]), true, "one call of a batch moved the revision");
+		assert.equal(await run("changed-batch-none", [...call("edit-3", { calls: [{ revision: { before: 6, after: 6 } }] }), { type: "text.delta", text: "Nothing to change." }]), false, "a batch that moved nothing");
+		assert.equal(await run("changed-after-authored", [{ type: "text.delta", text: "What next?" }]), false, "an earlier turn's edit is not this turn's");
+	});
+	console.log("PASS done says whether the turn changed the project");
 }
 {
 	// A long job handed over as several briefs: the first in a new chat, the others continuing it.
@@ -293,13 +317,13 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 	await running({ store, panel: () => panel }, async () => {
 		push({ kind: "brief", id: "sequence-1", text: "Build the set.", project: "t-1", save: true, chat: "new" });
 		const [first, report1] = await turnOf("sequence-1", "Built the set.");
-		assert.deepEqual(report1, { id: "sequence-1", state: "done", reply: "Built the set.", saved: true, preview: png });
+		assert.deepEqual(report1, { id: "sequence-1", state: "done", changed: false, reply: "Built the set.", saved: true, preview: png });
 		assert.equal(file.saves, 1);
 		push({ kind: "brief", id: "sequence-2", text: "Stage scene 1.", project: "t-1", save: true, chat: "continue" });
 		const [second, report2] = await turnOf("sequence-2", "Staged scene 1.");
 		assert.equal(second, first, "the next brief is posted with the chat id of the one before");
 		assert.deepEqual(texts(), ["Build the set.", "Stage scene 1."], "it is the next message of that chat");
-		assert.deepEqual(report2, { id: "sequence-2", state: "done", reply: "Staged scene 1.", saved: true, preview: png }, "the reply is this turn's, not the chat's longest");
+		assert.deepEqual(report2, { id: "sequence-2", state: "done", changed: false, reply: "Staged scene 1.", saved: true, preview: png }, "the reply is this turn's, not the chat's longest");
 		assert.equal(file.saves, 2, "each brief saves after its own turn");
 		assert.deepEqual([panel.chats, panel.loads.length], [0, 0], "the panel still shows that chat: nothing is started or opened");
 
@@ -366,7 +390,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		await until(() => of("wait-ready").length === 1, "started");
 		assert.equal(store.sends.length, 1, "a repeated id is not a second brief");
 		store.end("done");
-		assert.deepEqual(await final("wait-ready"), { id: "wait-ready", state: "done", preview: png }, "no text and no save asked: neither is reported");
+		assert.deepEqual(await final("wait-ready"), { id: "wait-ready", state: "done", changed: false, preview: png }, "no text and no save asked: neither is reported");
 		store.end("failed", { failure: { message: "a later turn" } });
 		push({ kind: "stop", id: "wait-ready" });
 		await sleep(10);
@@ -420,7 +444,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		await until(() => of("project-opening").length === 1, "started");
 		assert.equal(panel.chats, 1, "the brief starts a new chat");
 		store.end("done");
-		assert.deepEqual(await final("project-opening"), { id: "project-opening", state: "done", saved: true, preview: png }, "the agent wrote no text of its own");
+		assert.deepEqual(await final("project-opening"), { id: "project-opening", state: "done", changed: false, saved: true, preview: png }, "the agent wrote no text of its own");
 		assert.equal(file.saves, 1);
 		// Another project is opened while a brief's turn runs: its end is not this brief's work, and nothing is saved or shown in its name.
 		push({ kind: "brief", id: "project-replaced", text: "Build it.", project: "t-9", save: true });
@@ -449,7 +473,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 			push({ kind: "brief", id, text: "Build it.", save: true });
 			await until(() => of(id).length === 1, "started");
 			store.end("done", { reply: "r".repeat(4100) });
-			assert.deepEqual(await final(id), { id, state: "done", reply: "r".repeat(4000), saved: index === 0, ...(index === 0 ? { preview: png } : {}) });
+			assert.deepEqual(await final(id), { id, state: "done", changed: false, reply: "r".repeat(4000), saved: index === 0, ...(index === 0 ? { preview: png } : {}) });
 			assert.equal(file.saves, 1, "a host file is saved with or without a project named");
 		});
 	}
@@ -462,7 +486,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		push({ kind: "brief", id: "save-no-file-2", text: "Build it.", save: true });
 		await until(() => of("save-no-file-2").length === 1, "started");
 		store.end("done");
-		assert.deepEqual(await final("save-no-file-2"), { id: "save-no-file-2", state: "done", saved: false }, "a project that is not a host file is not saved: that would open a dialog");
+		assert.deepEqual(await final("save-no-file-2"), { id: "save-no-file-2", state: "done", changed: false, saved: false }, "a project that is not a host file is not saved: that would open a dialog");
 	});
 	console.log("PASS done reports the reply cut to 4000 characters, whether the save happened, and a preview that fits");
 }
@@ -531,7 +555,7 @@ await quiet(async () => {
 		await until(() => of("same-id-then-invalid").length === 1, "started");
 		push({ kind: "brief", id: "same-id-then-invalid", text: "" });
 		store.end("done");
-		assert.deepEqual(await final("same-id-then-invalid"), { id: "same-id-then-invalid", state: "done" });
+		assert.deepEqual(await final("same-id-then-invalid"), { id: "same-id-then-invalid", state: "done", changed: false });
 		assert.equal(of("same-id-then-invalid").length, 2, "started and done: the request that broke the limits is not answered");
 		push({ kind: "brief", id: "invalid-then-same-id", text: "" });
 		push({ kind: "brief", id: "invalid-then-same-id", text: "Build it." });
@@ -545,7 +569,7 @@ await quiet(async () => {
 	// Whatever happened above, each brief was answered once.
 	await sleep(150);
 	const ids = [...new Set(reports.map((report) => report.id))];
-	assert.ok(ids.length >= 41, `every brief above reported (${ids.length})`);
+	assert.ok(ids.length >= 47, `every brief above reported (${ids.length})`);
 	for (const id of ids) {
 		const states = of(id).map((report) => report.state);
 		assert.equal(states.filter((state) => state !== "started").length, 1, `${id} has exactly one final report: ${states.join(", ")}`);
