@@ -5,6 +5,8 @@
 import assert from "node:assert/strict";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+// A png data URL of exactly that many characters.
+const longPng = (chars) => "data:image/png;base64,".padEnd(chars, "A");
 
 // The host's side of both bridges, as a preload would expose them.
 const reports = [];
@@ -66,12 +68,14 @@ async function running(options, run) {
 	assert.deepEqual(parseHostBriefRequest({ ...brief, attachments: null, project: null, save: null, chat: null }).request, { ...brief, attachments: [], project: null, save: false, chat: "new" });
 	assert.equal(parseHostBriefRequest({ ...brief, chat: "new" }).request.chat, "new");
 	assert.deepEqual(parseHostBriefRequest({ kind: "stop", id: "build-1.a_B", text: 5 }), { request: { kind: "stop", id: "build-1.a_B" } });
-	assert.ok(parseHostBriefRequest({ ...brief, id: "i".repeat(128), text: "t".repeat(16_000), attachments: Array(4).fill({ dataUrl: png.padEnd(6_000_000, "A") }) }).request, "the limits themselves are allowed");
+	assert.ok(parseHostBriefRequest({ ...brief, id: "i".repeat(128), text: "t".repeat(16_000), attachments: Array(4).fill({ dataUrl: longPng(6_000_000) }) }).request, "the limits themselves are allowed");
 	const refused = [
 		{ ...brief, text: "" }, { ...brief, text: "   " }, { ...brief, text: "t".repeat(16_001) }, { ...brief, text: 5 },
 		{ ...brief, attachments: [] }, { ...brief, attachments: Array(5).fill({ dataUrl: png }) }, { ...brief, attachments: "x" },
 		{ ...brief, attachments: [{ dataUrl: png.replace("png", "svg+xml") }] }, { ...brief, attachments: [{ dataUrl: "https://example.com/a.png" }] },
-		{ ...brief, attachments: [{ dataUrl: png.padEnd(6_000_001, "A") }] }, { ...brief, attachments: [{ name: 5, dataUrl: png }] }, { ...brief, attachments: [null] },
+		{ ...brief, attachments: [{ dataUrl: longPng(6_000_001) }] }, { ...brief, attachments: [{ name: 5, dataUrl: png }] }, { ...brief, attachments: [null] },
+		// The agent's runner would drop these without a word, and the turn would run on the text alone.
+		{ ...brief, attachments: [{ dataUrl: `${png}\n` }] }, { ...brief, attachments: [{ dataUrl: png.replace("iVBOR", "iVB\nOR") }] }, { ...brief, attachments: [{ dataUrl: "data:image/png;base64," }] },
 		{ ...brief, project: "" }, { ...brief, project: 7 }, { ...brief, save: "yes" },
 		{ ...brief, chat: "resume" }, { ...brief, chat: "" }, { ...brief, chat: true },
 	];
@@ -189,16 +193,27 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		await until(() => transport.turns.length === 1, "the turn");
 		transport.turns[0].onEvent({ type: "error", code: "upstream", message: "The model refused the request." });
 		transport.turns[0].finish();
-		assert.deepEqual(await final("real-failed"), { id: "real-failed", state: "failed", code: "turn", message: "The model refused the request." });
+		assert.deepEqual(await final("real-failed"), { id: "real-failed", state: "failed", code: "turn", message: "The model refused the request.", retry: true }, "the provider failed on its side: the same brief may pass later");
 
 		push({ kind: "brief", id: "real-empty", text: "Build it." });
 		await until(() => transport.turns.length === 2, "the second turn");
 		assert.equal(panel.chats, 1, "a chat that already holds messages is left for a new one");
 		transport.turns[1].finish();
-		assert.deepEqual(await final("real-empty"), { id: "real-empty", state: "failed", code: "turn", message: "The turn ended without a response." });
+		assert.deepEqual(await final("real-empty"), { id: "real-empty", state: "failed", code: "turn", message: "The turn ended without a response.", retry: true });
+
+		// A refused key and a used-up quota do not pass on a second try: the report does not offer one.
+		for (const [index, code] of ["unauthorized", "rate_limit"].entries()) {
+			const id = `real-no-retry-${code}`;
+			push({ kind: "brief", id, text: "Build it." });
+			await until(() => transport.turns.length === 3 + index, `the turn of ${id}`);
+			transport.turns.at(-1).onEvent({ type: "error", code, message: "The provider said no." });
+			transport.turns.at(-1).finish();
+			const report = await final(id);
+			assert.deepEqual([report.state, report.code, typeof report.message, "retry" in report], ["failed", "turn", "string", false], id);
+		}
 
 		push({ kind: "brief", id: "real-stopped", text: "Build it.", save: true });
-		await until(() => transport.turns.length === 3, "the third turn");
+		await until(() => transport.turns.length === 5, "the turn to stop");
 		push({ kind: "stop", id: "some-other-brief" });
 		assert.equal(transport.stops.length, 0, "a stop for another id is ignored");
 		push({ kind: "stop", id: "real-stopped" });
@@ -247,7 +262,7 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		transport.turns[1].onEvent({ type: "tool.done", callId: "call-4", ok: false, elapsedMs: 4, error: "TARGET_BUSY" });
 		transport.turns[1].onEvent({ type: "error", code: "overloaded", message: "The model service is overloaded right now." });
 		transport.turns[1].finish();
-		assert.deepEqual(await final("tool-then-error"), { id: "tool-then-error", state: "failed", code: "turn", message: "The model service is overloaded right now." });
+		assert.deepEqual(await final("tool-then-error"), { id: "tool-then-error", state: "failed", code: "turn", message: "The model service is overloaded right now.", retry: true });
 	});
 	const ties = fakeStore();
 	await running({ store: ties, panel: () => panel, preview: () => null }, async () => {
@@ -404,15 +419,21 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 		opened();
 		await until(() => of("project-opening").length === 1, "started");
 		assert.equal(panel.chats, 1, "the brief starts a new chat");
-		file.current = "t-other";
 		store.end("done");
-		assert.deepEqual(await final("project-opening"), { id: "project-opening", state: "done", saved: false, preview: png }, "the agent wrote no text of its own, and another project is never saved in the brief's name");
-		assert.equal(file.saves, 0);
+		assert.deepEqual(await final("project-opening"), { id: "project-opening", state: "done", saved: true, preview: png }, "the agent wrote no text of its own");
+		assert.equal(file.saves, 1);
+		// Another project is opened while a brief's turn runs: its end is not this brief's work, and nothing is saved or shown in its name.
+		push({ kind: "brief", id: "project-replaced", text: "Build it.", project: "t-9", save: true });
+		await until(() => of("project-replaced").length === 1, "started");
+		file.current = "t-other";
+		store.end("done", { reply: "Built it." });
+		assert.deepEqual(await final("project-replaced"), { id: "project-replaced", state: "failed", code: "project", message: "Another project was opened in the Studio while the brief ran." });
+		assert.equal(file.saves, 1, "the other project is not saved");
 	});
 	await running({ store, panel: () => panel, waitMs: 30 }, async () => {
 		push({ kind: "brief", id: "project-other", text: "Build it.", project: "t-9" });
 		assert.deepEqual(await final("project-other"), { id: "project-other", state: "failed", code: "project", message: "That project is not the one open in the Studio." });
-		assert.equal(store.sends.length, 1);
+		assert.equal(store.sends.length, 2, "it never reached the agent");
 	});
 	console.log("PASS a brief waits for the project it names and fails when another one is open");
 }
@@ -464,10 +485,67 @@ const studioStore = (transport, context = { actionIndex: [] }) => createAgentCha
 	console.log("PASS a brief outlives the subscription that took it");
 }
 {
+	// The user picks another chat from the history while a brief's turn runs. The stream leaves the screen, the turn
+	// goes on: the brief ends when the turn itself does, not before, so the host never sends the message twice.
+	const transport = scriptedTransport();
+	const store = studioStore(transport);
+	const panel = fakePanel();
+	await running({ store, panel: () => panel }, async () => {
+		push({ kind: "brief", id: "chat-switched", text: "Build it." });
+		await until(() => transport.turns.length === 1, "the turn");
+		store.restore([{ kind: "user", text: "An older chat." }, { kind: "assistant", text: "An older answer." }], "older-chat");
+		assert.deepEqual([store.getState().streaming, store.getState().lastTurn], [false, null], "the store shows the other chat with no answer streaming");
+		await sleep(30);
+		assert.deepEqual(of("chat-switched"), [{ id: "chat-switched", state: "started" }], "the brief has not ended: its turn still runs");
+		transport.turns[0].onEvent({ type: "text.delta", text: "Built it." });
+		transport.turns[0].finish();
+		assert.equal((await final("chat-switched")).state, "done");
+		assert.equal(transport.turns.length, 1);
+	});
+	console.log("PASS a chat picked from the history during a brief's turn does not end the brief");
+}
+{
+	// What the user left in the composer is still there after a brief was sent.
+	const transport = scriptedTransport();
+	const store = studioStore(transport);
+	const panel = fakePanel();
+	await running({ store, panel: () => panel }, async () => {
+		store.setDraft("my own half-written message");
+		store.addAttachments([{ dataUrl: png, name: "mine.png" }]);
+		push({ kind: "brief", id: "composer-kept", text: "Build it.", attachments: [{ name: "storyboard-1.jpg", dataUrl: png.replace("png", "jpeg") }] });
+		await until(() => transport.turns.length === 1, "the turn");
+		assert.deepEqual(transport.turns[0].request.attachments, [{ dataUrl: png.replace("png", "jpeg"), name: "storyboard-1.jpg" }], "the brief carries its own pictures only");
+		assert.equal(store.getState().draft, "my own half-written message");
+		assert.deepEqual(store.getState().pendingAttachments.map(({ dataUrl, name }) => ({ dataUrl, name })), [{ dataUrl: png, name: "mine.png" }]);
+		transport.turns[0].finish();
+		await final("composer-kept");
+	});
+	console.log("PASS a brief leaves the user's unsent text and pictures in the composer");
+}
+await quiet(async () => {
+	// One id is one brief, also when the second request with it breaks the limits, or the first one did.
+	const store = fakeStore();
+	const panel = fakePanel();
+	await running({ store, panel: () => panel, preview: () => null }, async () => {
+		push({ kind: "brief", id: "same-id-then-invalid", text: "Build it." });
+		await until(() => of("same-id-then-invalid").length === 1, "started");
+		push({ kind: "brief", id: "same-id-then-invalid", text: "" });
+		store.end("done");
+		assert.deepEqual(await final("same-id-then-invalid"), { id: "same-id-then-invalid", state: "done" });
+		assert.equal(of("same-id-then-invalid").length, 2, "started and done: the request that broke the limits is not answered");
+		push({ kind: "brief", id: "invalid-then-same-id", text: "" });
+		push({ kind: "brief", id: "invalid-then-same-id", text: "Build it." });
+		await sleep(20);
+		assert.deepEqual(of("invalid-then-same-id"), [{ id: "invalid-then-same-id", state: "failed", code: "invalid", message: "The brief text must be 1 to 16000 characters." }]);
+		assert.equal(store.sends.length, 1, "the id was answered: the later request with it starts nothing");
+	});
+	console.log("PASS a second request with an id already answered is dropped");
+});
+{
 	// Whatever happened above, each brief was answered once.
 	await sleep(150);
 	const ids = [...new Set(reports.map((report) => report.id))];
-	assert.ok(ids.length >= 34, `every brief above reported (${ids.length})`);
+	assert.ok(ids.length >= 41, `every brief above reported (${ids.length})`);
 	for (const id of ids) {
 		const states = of(id).map((report) => report.state);
 		assert.equal(states.filter((state) => state !== "started").length, 1, `${id} has exactly one final report: ${states.join(", ")}`);

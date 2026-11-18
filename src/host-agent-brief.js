@@ -15,7 +15,8 @@
 //   { kind: "stop", id }
 //   id           the host's name for the brief, 1 to 128 of [A-Za-z0-9._-]; one brief, one id
 //   text         the message for the agent, 1 to 16000 characters
-//   attachments  1 to 4 of { name, dataUrl }: a png, jpeg or webp data URL of at most 6,000,000 characters
+//   attachments  1 to 4 of { name, dataUrl }: a png, jpeg or webp data URL of at most 6,000,000 characters, its
+//                base64 text in one piece (no space or line break)
 //   project      a token from projectFiles.onOpen (src/host-project-files.js): the brief runs only in that
 //                project, and waits up to 60 s for it while it is still opening
 //   save         true: after this brief's turn ended "done" the project is saved to its host file, with no
@@ -39,10 +40,13 @@
 //             reply is the agent's text of that turn, cut to 4000 characters: the longest block when it wrote
 //             several; saved is there when save was asked; preview is a small picture of the stage as a data
 //             URL (at most 1,500,000 characters) when the page has one
-//   failed    { code, message }. code: "invalid" (the request broke the limits above), "busy" (an answer or
-//             another brief is already running), "not-ready" (no model is connected, or the editor is not
-//             ready), "project" (that project is not the one open), "turn" (the turn itself ended in an
-//             error, for example the model provider refused; message is the panel's own words)
+//   failed    { code, message, retry? }. code: "invalid" (the request broke the limits above), "busy" (an
+//             answer or another brief is already running), "not-ready" (no model is connected, or the editor
+//             is not ready), "project" (that project is not the one open, before the turn or at its end),
+//             "turn" (the turn itself ended in an error, for example the model provider refused; message is
+//             the panel's own words). retry is true on a "turn" failure that the same brief may get past
+//             later: the model service was overloaded, failed on its side or gave no answer. It is absent
+//             when trying again cannot help, for example a refused key or a used-up quota
 //   stopped   the host or the user stopped the turn
 // A page that reloads mid-turn reports nothing more: the host treats a page
 // that went away as failed.
@@ -50,7 +54,10 @@ import { hostProjectOpening } from "./host-project-files.js";
 import { stageThumbDataUrl } from "./project-thumbs.js";
 
 const ID = /^[A-Za-z0-9._-]{1,128}$/;
-const PICTURE = /^data:image\/(png|jpeg|webp);base64,/;
+// The whole value: the agent's runner drops a picture whose data URL it cannot read, without a word.
+const PICTURE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+// How a turn can fail so that the same message may pass later (the chat store's failure codes).
+const PASSING = new Set(["overloaded", "upstream", "no_output"]);
 const TEXT_MAX = 16_000;
 const ATTACHMENTS_MAX = 4;
 const ATTACHMENT_MAX_CHARS = 6_000_000;
@@ -98,6 +105,15 @@ export function reportHostBrief(status) {
 	}
 }
 
+// Every brief id this page has answered or taken: one id is one brief, so a
+// second request with it is dropped, whatever it holds.
+const taken = new Set();
+function firstOf(id) {
+	if (taken.has(id)) return false;
+	taken.add(id);
+	return true;
+}
+
 // The host's requests, each checked first: a brief that breaks the limits is
 // answered here, anything else that cannot be read is dropped. Returns the
 // unsubscribe function.
@@ -108,7 +124,7 @@ export function subscribeHostBriefs(handler) {
 		const { request, id, message } = parseHostBriefRequest(value);
 		try {
 			if (request) handler(request);
-			else if (id) reportHostBrief({ id, state: "failed", code: "invalid", message });
+			else if (id) { if (firstOf(id)) reportHostBrief({ id, state: "failed", code: "invalid", message }); }
 			else console.warn(`cozyclay: ${message}`);
 		} catch (error) {
 			console.warn(`cozyclay: ${error.message}`);
@@ -137,11 +153,14 @@ function turnReply(items) {
 	return reply.slice(0, REPLY_MAX) || null;
 }
 
-// The store's state once no answer is streaming.
+// The store's state once the turn has ended. The end is the state that says
+// how the turn ended, not the first one without an answer streaming: a chat
+// the user picks from the history meanwhile stops the stream on screen, and the
+// turn still runs to its own end.
 function turnEnd(store) {
 	return new Promise((resolve) => {
 		let unsubscribe = () => {};
-		const check = (state) => { if (!state.streaming) { unsubscribe(); resolve(state); } };
+		const check = (state) => { if (!state.streaming && state.lastTurn) { unsubscribe(); resolve(state); } };
 		unsubscribe = store.subscribe(check);
 		check(store.getState());
 	});
@@ -169,13 +188,12 @@ async function reopenChat(store, load, sessionId) {
 	} catch { /* that chat is gone */ }
 }
 
-// The brief this page is handling, every brief id it has taken, and the chat
-// (the store's session id) the last brief ran its turn in, which a "continue"
-// brief goes on in. They belong to the page, not to one subscription: a panel
-// that subscribes again still knows the brief that is running. A page that
-// reloads forgets them all.
+// The brief this page is handling, and the chat (the store's session id) the
+// last brief ran its turn in, which a "continue" brief goes on in. Like the ids
+// taken, they belong to the page, not to one subscription: a panel that
+// subscribes again still knows the brief that is running. A page that reloads
+// forgets them all.
 let active = null;
-const taken = new Set();
 let lastChat = null;
 
 async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
@@ -220,8 +238,12 @@ async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
 		}
 		const { newChat, turn } = panel();
 		if (!continues() && store.getState().items.length) newChat();
+		// A send empties the composer. What the user left there, a text not sent yet and pictures, is put back.
+		const { draft, pendingAttachments } = store.getState();
 		// The store starts the turn before it first waits, so its state already says whether it took the message.
 		void store.send(request.text, { ...turn, attachFrame: false, attachments: request.attachments });
+		if (draft) store.setDraft?.(draft);
+		if (pendingAttachments?.length) store.addAttachments?.(pendingAttachments);
 		if (!store.getState().streaming) return fail("not-ready", store.getState().items.findLast((item) => item.kind === "failure")?.failure?.message || "The Studio's agent did not take the message.");
 		lastChat = store.getState().sessionId ?? null;
 		started = true;
@@ -231,7 +253,12 @@ async function runBrief(request, { store, panel, preview, waitMs, pollMs }) {
 		brief.stop = () => {};
 		if (ended.lastTurn?.status === "stopped") return finish({ state: "stopped" });
 		// A tool call that failed inside the turn leaves the status "done": only a turn that itself ended in an error has failed.
-		if (ended.lastTurn?.status !== "done") return fail("turn", ended.lastTurn?.failure?.message || "The turn failed.");
+		if (ended.lastTurn?.status !== "done") {
+			const failure = ended.lastTurn?.failure;
+			return finish({ state: "failed", code: "turn", message: failure?.message || "The turn failed.", ...(PASSING.has(failure?.code) ? { retry: true } : {}) });
+		}
+		// Another project was opened while the turn ran: what is on the stage now is not this brief's work.
+		if (request.project && panel().project?.token() !== request.project) return fail("project", "Another project was opened in the Studio while the brief ran.");
 		const reply = turnReply(ended.items);
 		const done = { state: "done", ...(reply ? { reply } : {}) };
 		if (request.save) done.saved = await saveHostFile(request, panel().project);
@@ -253,8 +280,7 @@ export function runHostBriefs({ store, panel, preview = stageThumbDataUrl, waitM
 			if (active?.id === request.id) active.stop();
 			return;
 		}
-		if (taken.has(request.id)) return;
-		taken.add(request.id);
+		if (!firstOf(request.id)) return;
 		if (active) reportHostBrief({ id: request.id, state: "failed", code: "busy", message: "Another brief is already running in the Studio." });
 		else void runBrief(request, { store, panel, preview, waitMs, pollMs });
 	});
