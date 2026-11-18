@@ -13,11 +13,12 @@ import { add, len, norm, qConj, qMul, qRotate, qY, rad, sub } from "./math.js";
 import { solveSized } from "./size.js";
 
 /** The key that drives free prop p on frame f (null while a hand holds it or while it rides) and its ride in p.ride.
- *  k.off: the frame a hand took the prop off that ride (it rode the frame before); the ride is over from then on. */
+ *  k.off: the frame a hand took the prop off that ride (it rode the frame before); the ride is over from then on. On
+ *  that frame the ride that carried it the frame before carries it once more (moveRiders), whatever key starts there. */
 export function propKey(p, f) {
-	const k = p.keys.findLast(k => k.f <= f), riding = k?.verb === "ride";
-	if (riding && p.holder && p.rideAt === f - 1 && p.rel?.k === k) k.off ??= f;
-	p.ride = riding && ((!p.holder && k.off == null) || k.off === f) ? k : null; // the take frame: carried once more (moveRiders)
+	const k = p.keys.findLast(k => k.f <= f), riding = k?.verb === "ride", took = p.holder && p.rideAt === f - 1 ? p.rel?.k : null;
+	if (took) took.off ??= f;
+	p.ride = took?.off === f ? took : riding && !p.holder && k.off == null ? k : null;
 	return p.holder || riding ? null : k;
 }
 
