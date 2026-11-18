@@ -22,23 +22,47 @@
 //         the world; one axis given: the hand stays as near the forearm as it can
 //       hand target: "rest" | [x,y,z] in the body frame from the Hips joint (x = own left, z = forward)
 //                    | {prop:id} | {prop:id, face:true, y, w} | {meet:id} | {chest:id} | {world:[x,y,z]}
-//                    | {joint:name, at?:[x,y,z]}   a place on the own body that follows that joint; at = offset in the
-//                      joint's own frame (the body frame at rest). Joints: Hips Spine Spine2 Neck Head and, with Left or
-//                      Right before them, Arm (shoulder) ForeArm (elbow) Hand (wrist) UpLeg (hip) Leg (knee) Foot (ankle)
+//                    | {joint:name, at?:[x,y,z], of?:characterId}   a place on the own body (of: on that character's
+//                      body) that follows that joint; at = offset in the joint's own frame (the body frame at rest).
+//                      Joints: Hips Spine Spine2 Neck Head and, with Left or Right before them, Arm (shoulder)
+//                      ForeArm (elbow) Hand (wrist) UpLeg (hip) Leg (knee) Foot (ankle)
+//                    | {on:propId, at?:[x,y,z]}   a place on a prop that follows it; at = offset from its centre in
+//                      its own frame (the axes of its size)
 //       elbowL|elbowR: a hand target form or "rest"; the elbow bends toward it and lies on it when the wrist's place
-//         and the arm's length allow
+//         and the arm's length allow; a wrist with no target of its own goes with it: the whole arm turns about the
+//         shoulder as one piece, keeping its bend (a wrist blending to or from its own target: by the part of the
+//         blend it is not on that target, and the elbow bends the rest of the way toward it), so the elbow points at the target
 //     carry {prop, at:[x,y,z], over}   the prop follows both hands from this frame, level, turning with the line
 //                                      between them; no `at` = hands stay as they are;
-//                                      slide:true = the prop only slides on the floor with the hands (a push)
-//     hold {prop, hand:"R"|"L"}        the prop is fixed in one hand (its long z axis along the thumb side)
-//     release {prop, roll?}            the prop stays where it is; roll:true = it keeps the hand's velocity, drops to
+//                                      slide:true = the prop only slides on the floor with the hands (a push);
+//                                      carry takes the prop from any other hands
+//     hold {prop, hand:"R"|"L"|"both", at?, over}   these hands of this character hold the prop until they let go;
+//       its other hand and hands of other characters that hold it hold on too (a carry of its own ends). One hand alone
+//       with no `at`: the prop is fixed in it, its long z axis along the thumb side. at = each hand's place on the
+//       prop, [x,y,z] as in {on} ({L:[..], R:[..]} for both): the hands go there over `over` frames (0 = no blend; the
+//       hand speed limit below still holds) and take hold when they end; no at = the point of the prop nearest each hand.
+//       A holding hand stays where it took hold in the body frame until a later pose moves it. The prop follows its
+//       hands: in one hand fixed in it, as it lay in the hand when that hand came to hold it alone (aim turns it); in
+//       more, the place and turn that best put each hand's place on that hand; about an axis its places hardly fix (all
+//       on one line) it keeps the turn it had on the frame before, turned about the vertical as far as its holders'
+//       headings turned (the mean over the hands) and otherwise only as its places turn it. Each hand is then
+//       put on its place; its reach row is how far it is from it (a place out of reach); its `held` row is how far that
+//       keeps it from where its own action (the hold, or a later pose of that hand) puts it (hands that pull apart). A
+//       hand that arrives short of its place pulls the prop to it on that frame, told as its own row, and then takes
+//       it on to where it holds it
+//     release {prop, hand?, roll?}     this character lets go (hand: only that hand, of a hold or a carry; the other
+//                                      keeps the prop as it is: a pushed one (slide) slides on with that hand at its
+//                                      height and turn, the hand on its place on it); with no hand on it the prop stays
+//                                      where it is; roll:true = it keeps the hand's velocity, drops to
 //                                      the floor under it and rolls on until one of its own keys starts
 //     pose {footL|footR: target, over, ease}   takes one foot off the floor: it leaves the body layer and goes to the
 //       target along an arc about its hip; "plant" gives it back to the body layer (blend it into a step or a stance).
-//       foot target: [x,y,z] | {at:[x,y,z], pitch:deg} | {world:[x,y,z], pitch:deg} | "plant". The point is the ankle
+//       foot target: [x,y,z] | {at:[x,y,z], pitch:deg} | {world:[x,y,z], pitch:deg} | {joint, at?, of?, pitch:deg}
+//       (a place on a body as for a hand) | "plant". The point is the ankle
 //       joint; `at` is in the body frame from the floor point under the Hips joint (y = height over the floor);
 //       pitch > 0 points the toes down. The other foot keeps the body; nothing checks the balance.
-//     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast.
+//     Hands blend along an arc about the shoulder and move at most 0.12 m per frame in the body frame unless fast
+//     (a wrist an elbow key turns: unless that key or its hand's key says fast).
 //     look: a character id, a prop id (its top), a world point or "fwd"; with no target the gaze stays level.
 //     place {prop, at:[x,y,z] world, over}   the hands take the prop there and let go
 //   Prop layer: <propId>: [[frame, verb, options], ...] moves a free prop by keys:
@@ -60,10 +84,12 @@ import { buildUpper, expandRepeats } from "./spec-layers.js";
 import { NOTES } from "./notes.js";
 import { aimOf, elbowsOf, ownPoint, ownReach } from "./own-body.js";
 import { moveRiders, propKey } from "./ride.js";
+import { afterFirstPass, onPlaces, onPoint, otherPoint, otherReach, placed, shareEvent, startFrame } from "./share.js";
+import { reachEntry } from "./reach.js";
 
 export { NOTES, expandRepeats };
 
-const HAND = [J.LeftHand, J.RightHand], FOOT = [J.LeftFoot, J.RightFoot], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
+const HAND = [J.LeftHand, J.RightHand], UPLEG = [J.LeftUpLeg, J.RightUpLeg];
 
 
 /** Builds a clip from a spec. Returns { clip, aux } where aux has the per-frame contact and carry flags for checks.
@@ -131,7 +157,8 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	};
 	const handTarget = (c, i, to, f) => {
 		const B = c.body[f], s = i ? -1 : 1, k = c.s;
-		if (to.joint) return ownPoint(c, to, f);
+		if (to.joint) return to.of ? otherPoint(byId, to, f) : ownPoint(c, to, f);
+		if (to.on) return onPoint(props, to);
 		if (Array.isArray(to)) return add(B.p, qRotate(qY(B.yaw), to));
 		if (to.world) return to.world;
 		if (to.face) { // palms on the face of the box that looks at the figure (in the prop's own frame)
@@ -175,7 +202,7 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	const toBody = (T, p) => T ? add(T.pivot, qRotate(T.inv, sub(sub(p, T.shift), T.pivot))) : p;
 	const tilted = (T, pose) => T ? { ...pose, pos: pose.pos.map(p => add(add(T.pivot, qRotate(T.q, sub(p, T.pivot))), T.shift)), quat: pose.quat.map(q => qMul(T.q, q)) } : pose;
 	// a hand target in the space the pose is solved in: a body-frame or own-body target as it is, any other brought in from the world
-	const target = (c, i, to, f) => Array.isArray(to) || to.joint ? handTarget(c, i, to, f) : toBody(c.tilt, handTarget(c, i, to, f));
+	const target = (c, i, to, f) => Array.isArray(to) || (to.joint && !to.of) ? handTarget(c, i, to, f) : toBody(c.tilt, handTarget(c, i, to, f));
 	const upper = (c, f, first) => {
 		const B = c.body[f], U = { lean: scalar(c, "lean", f, 0), twist: scalar(c, "twist", f, 0), hipTurn: scalar(c, "hipTurn", f, 0), bow: scalar(c, "bow", f, 0), hip: scalar(c, "hip", f, [0, 0, 0]), hands: [], assist: c.pose?.assist, noAssist: def.assist === false };
 		[c.keys.L, c.keys.R].forEach((list, i) => {
@@ -183,15 +210,16 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			let h = { from: null, to: null, w: 1 }, upTo = 0;
 			if (k) {
 				if (k.from === undefined) {
-					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p));
-					const local = prev ? (prev.to === "rest" ? null : toLocal(target(c, i, prev.to, f), B)) : c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
+					const prev = ended(list, k, f), toLocal = (p, b) => qRotate(qY(-b.yaw), sub(p, b.p)), here = c.pose ? toLocal(c.pose.pos[HAND[i]], c.prevB) : null;
+					const at = q => (q.to === "rest" ? null : q.to === "keep" ? (q.place ? toLocal(target(c, i, q.place, f), B) : here) : toLocal(target(c, i, q.to, f), B)); // a keep that a later key of its frame hid: its place, else where the hand is
+					const local = prev ? at(prev) : here;
 					k.from = !prev && c.rest[i] ? null : local;
-					if (k.to === "keep") { k.to = local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
+					if (k.to === "keep") { k.to = k.place ? at(k) : local ?? "rest"; k.keptUp = c.up[i] > 0.5; }
 				}
 				const u = clamp(prog(k, f)), w = EASE[k.ease](u);
-				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f };
+				h = { from: k.from && add(B.p, qRotate(qY(B.yaw), k.from)), to: k.to === "rest" ? null : target(c, i, k.to, f), w, key: k.f, by: k.by ?? k.f, done: u >= 1 };
 				if (k.pair) h.line = true; // two hands on one prop move as a pair, in a straight blend
-				if (k.to?.joint) h.self = k.to;
+				if (k.to?.joint || k.to?.on) h.self = k.to; // a target that follows something: measured again as it ended (share.js)
 				if (k.shake) h.offset = [0, 0.035 * Math.sin(2 * Math.PI * k.shake * u) * c.s, 0];
 				if (k.to?.chest || k.to?.face) upTo = w;
 				if (k.keptUp) upTo = 1;
@@ -208,10 +236,10 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			if (!k) return null;
 			const w = EASE[k.ease](prog(k, f));
 			if (k.to === "plant" && w >= 1) return null;
-			const at = t => t === "plant" ? bf : t.q ? t : { a: t.world ? toBody(c.tilt, t.world) : add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
+			const at = t => t === "plant" ? bf : t.q ? t : { a: t.place ? target(c, i, t.place, f) : t.world ? toBody(c.tilt, t.world) : add([B.p[0], 0, B.p[2]], qRotate(qY(B.yaw), t.at)), q: qMul(qY(B.yaw), qX(t.pitch)) };
 			if (k.from === undefined) k.from = list.indexOf(k) === 0 ? "plant" : ended(list, k, f)?.to ?? { a: c.feetPrev[i].a, q: c.feetPrev[i].q };
 			const a = at(k.from), b = at(k.to);
-			return { a: arcSized(a.a, b.a, w, add(B.p, qRotate(B.q, mul(OFFSET[UPLEG[i]], c.s))), c.s), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, ...(c.tilt ? { floor: -1e9 } : {}) };
+			return { a: arcSized(a.a, b.a, w, add(B.p, qRotate(B.q, mul(OFFSET[UPLEG[i]], c.s))), c.s), q: qSlerp(a.q, b.q, w), planted: false, to: k.to === "plant" ? null : b.a, w, key: k.f, done: prog(k, f) >= 1, self: k.to.place, ...(c.tilt ? { floor: -1e9 } : {}) };
 		});
 		const helpers = { active, prog, ended, target };
 		aimOf(c, f, U, helpers); elbowsOf(c, f, U, helpers);
@@ -242,10 +270,11 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 	};
 
 	for (let f = 0; f < F; f++) {
-		for (const c of chars) for (const e of c.events) if (e.f === f) {
+		for (const [c, e] of chars.flatMap(c => c.events.filter(e => e.f === f).map(e => [c, e])).sort((a, b) => (a[1].holder != null) - (b[1].holder != null))) { // lets-go first
 			const p = props[e.prop];
+			if (e.at && e.holder == null) placed(aux.placed, p, c, e, f); // also where other hands still hold it
+			if (shareEvent(p, c, e, f, byId)) continue;
 			p.holder = e.holder; p.hand = e.hand ?? null; p.slide = !!e.slide; if (e.holder) p.takenAt = f;
-			if (e.at) aux.placed.push({ prop: e.prop, f, miss: Math.hypot(...sub(p.c, e.at)) });
 			if (e.hand != null) { // a stick lies along the thumb side, anything else sits in front of the palm
 				const s = e.hand ? -1 : 1, stick = p.size[2] > 2 * Math.max(p.size[0], p.size[1]);
 				p.grip = e.grip ?? (stick ? [s * 0.04 * c.s, 0, p.size[2] / 2 - 0.15 * c.s] : [s * (0.02 * c.s + p.size[0] / 2), 0, 0]); c.gripHand = e.hand;
@@ -278,20 +307,24 @@ export function buildClip(written, def = DEMOS[written.demo]) {
 			p.c = k.verb === "tip" ? add(k.pivot, qRotate(r, sub(k.c0, k.pivot))) : k.to ? mixV(k.c0, k.to, u) : k.c0;
 			p.q = qMul(r, k.q0);
 		}
+		startFrame(props, f);
 		for (let pass = 0; pass < 2; pass++) for (const c of chars) { // second pass: targets on other figures and props are current
+			if (pass === 1 && c === chars[0]) afterFirstPass(props, chars, f);
 			c.restNext = [true, true];
 			c.tilt = tiltOf(c, f);
-			const U = upper(c, f, pass === 0);
+			const U = c.U = upper(c, f, pass === 0);
+			if (pass === 1) onPlaces(props, c, U, f, p => toBody(c.tilt, p));
 			c.bodyNow = U.feet.some(Boolean) ? { ...c.body[f], feet: c.body[f].feet.map((ft, i) => U.feet[i] ?? ft) } : c.body[f];
 			c.solved = solveSized(c.bodyNow, U, c.s); c.solvedF = f;
 			c.poseNow = tilted(c.tilt, c.solved);
 			for (const p of Object.values(props)) if (p.holder === c.id) follow(p, c.poseNow);
 			if (pass === 1) aux.reach[c.id].push(ownReach(c, f, U, [
-				...U.hands.map((h, i) => h.to && h.w >= 1 ? { key: h.key, d: len(sub(c.solved.pos[HAND[i]], h.offset ? add(h.to, h.offset) : h.to)) } : null),
-				...U.feet.map((ft, i) => ft?.to && ft.w >= 1 ? { key: ft.key, d: len(sub(c.solved.pos[FOOT[i]], ft.to)) } : null),
+				...U.hands.map((h, i) => h.to && h.done ? reachEntry(c, i, h.key, h.offset ? add(h.to, h.offset) : h.to, { slow: c.solved.slow[i] }) : null),
+				...U.feet.map((ft, i) => ft?.to && ft.done ? reachEntry(c, 2 + i, ft.key, ft.to, { floor: c.solved.lift[i] > 0.001 && c.solved.lift[i] }) : null),
 			], { target }));
 		}
 		moveRiders(props, f);
+		for (const c of chars) otherReach(c, aux.reach[c.id].at(-1), byId, props, f, p => toBody(c.tilt, p), reachEntry);
 		for (const c of chars) {
 			c.pose = c.solved; c.world = c.poseNow; c.prevB = c.body[f]; c.feetPrev = c.bodyNow.feet; c.rest = c.restNext; c.last = { ...c.last, ...c.cur };
 			setPose(c.out, f, c.world);

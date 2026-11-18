@@ -26,12 +26,15 @@ const worst = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0
 	// the elbow note that came later (verify-hands-digest.mjs) is put back to its old text before hashing
 	const OLD_NOTE = "elbow and knee directions come from one fixed pole hint; there is no hands-on-hips or crossed-arms pose";
 	const LATER_NOTE = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
+	// and so is the held-prop note that came with several hands on one prop (verify-share-hands.mjs)
+	const HELD_WAS = "a prop in one hand is held by that hand only (no second hand on the grip); its long axis must be its z axis";
+	const HELD_NOW = "a held prop has no weight and pulls no body: it goes where the hands that hold it put it; a prop fixed in one hand has its long axis along its z axis";
 	const BEFORE = { locomotion: "2d1a6d6afc122219", sit: "69ae9ec17d853bb6", object: "800f6742b10944e6", duo: "7161b3b6dec47653", push: "ff755b870529e06d", chop: "0a274e59fda21b52", bowl: "4667a47117f935bb" };
 	assert.deepEqual(DEMO_IDS.slice().sort(), Object.keys(BEFORE).sort(), "every demo has a digest");
 	for (const demo of DEMO_IDS) {
 		const { default: spec } = await import(`../../src/lowvis/engine-simple/demos/${demo}.js`);
 		const { clip } = buildClip(structuredClone(spec));
-		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n));
+		clip.notes = clip.notes.map(n => (n === LATER_NOTE ? OLD_NOTE : n === HELD_NOW ? HELD_WAS : n));
 		assert.equal(hash(serializeClip(clip)), BEFORE[demo], `demo ${demo}: the same clip as before, byte for byte`);
 	}
 	console.log(`ok digests: ${DEMO_IDS.length} demos compile to the clips of before`);

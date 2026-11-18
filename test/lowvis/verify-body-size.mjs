@@ -47,7 +47,16 @@ const masked = text => text.replace(/build [\d.]+ ms/, "build N ms");
 	// and the reach rows that later named elbows and came to the studio variant too (verify-reach-studio.mjs)
 	const reachWas = "\n- hand off its target, foot off its target: how far a wrist or an ankle is from the point its action gave it, on the frames after that action's blend has ended; the note";
 	const withoutReach = (text, variant) => text.replace(/\n- hand, foot, elbow off its target: [^]*?told when over 10 mm; the note[^]*?moved away\./, all => (variant === "studio" ? "" : all.replace(/^[^]*?; the note/, reachWas)));
-	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutOver(noCount(systemPrompt(variant, variant === "studio" ? ["body"] : [])))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
+	// and the SPEC words for a prop held by several hands and a place on a prop or on another body (verify-share-hands.mjs),
+	// put back to the old lines; their hand target forms go with the own-body block above
+	const withoutShare = text => text
+		.replace(/ \(a push\);\n[^]*?roll:true = it keeps the hand's velocity, drops to/, ` (a push)\n    hold {prop, hand:"R"|"L"}        the prop is fixed in one hand (its long z axis along the thumb side)\n    release {prop, roll?}            the prop stays where it is; roll:true = it keeps the hand's velocity, drops to`)
+		.replace(` | {joint, at?, of?, pitch:deg}\n      (a place on a body as for a hand) | "plant"`, ` | "plant"`);
+	// and the reasons the reach rows later gave (verify-reach-why.mjs), put back to the old sentences
+	const withoutWhy = text => text.replace(/ names the side, the action, on how many frames it is over 10 mm off, and what holds the limb[^]*?nothing the engine knows accounts for\./, " names the side, the action and on how many frames it is over 10 mm off. A few frames: it arrives late. Many: it is out of reach or the body has moved away.");
+	// and the SPEC words for a wrist an elbow target turns (its arm turns with it, its key's fast), put back to the old lines
+	const withoutTurned = text => text.replace(/; a wrist with no target of its own goes with it:[^]*?so the elbow points at the target/, "").replace(/ unless fast\n *\(a wrist an elbow key turns: unless that key or its hand's key says fast\)\./, " unless fast.");
+	for (const [variant, was] of Object.entries(BEFORE)) assert.equal(hash(withoutReach(withoutHands(withoutShare(withoutOver(noCount(withoutWhy(withoutTurned(systemPrompt(variant, variant === "studio" ? ["body"] : []))))))), variant)), was, `${variant}: the manual without the body step is the one of before, byte for byte`);
 	assert.ok(OFF.includes("body"), "the body step can be switched off by name");
 	const studio = systemPrompt("studio"), limits = elementByPath("character.scale");
 	assert.deepEqual(BODY_SCALE, { min: limits.min, max: limits.max }, "the sizes a body may have are the Studio's limits of a character's scale");

@@ -12,7 +12,9 @@
 //   spike: the value past which the row counts as a spike (compile-tool.mjs then shows the frames around `frame`)
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
 import { qConj, qRotate } from "../engine-simple/math.js";
-import { SOLE, TOE } from "../engine-simple/solve.js";
+import { MAX_STEP, SOLE, TOE } from "../engine-simple/solve.js";
+import { PAD } from "../engine-simple/prop-frame.js";
+import { reachWhy } from "./reach-why.mjs";
 
 const FEET = [J.LeftFoot, J.RightFoot], HANDS = [J.LeftHand, J.RightHand], SIDE = ["L", "R"];
 const MM = 1000, DEG = 180 / Math.PI;
@@ -126,16 +128,36 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 		rows.push({ key: `release:${e.prop}:posJump`, label: `release of ${e.prop}: position jump`, short: "release jump", value: Math.hypot(n[0] - 2 * b[0] + a[0], n[1] - 2 * b[1] + a[1], n[2] - 2 * b[2] + a[2]) * MM, unit: "mm", ...tag, worse: 1, spike: 10 });
 		rows.push({ key: `release:${e.prop}:speedJump`, label: `release of ${e.prop}: speed jump`, short: "release jump", value: Math.abs(dist(n, b) - dist(b, a)) * MM, unit: "mm/frame", ...tag, worse: 1, spike: 10 });
 	}
-	for (const p of aux.placed) rows.push({ key: `place:${p.prop}`, label: `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, worse: 1, spike: 30 });
+	// a place: how far the prop is from its target on the frame the place ends; who placed it, whether they held it, who holds it on
+	for (const p of aux.placed) {
+		const on = aux.holders?.[p.prop]?.[p.f], who = p.who?.join(" and "), note = [p.held === false && `${who} did not hold ${p.prop}, so the place did not move it`, on && `${on} hold it on`].filter(Boolean).join("; ");
+		rows.push({ key: `place:${p.prop}`, label: p.held === false ? `place: ${p.prop} is this far from its target` : `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, ...(note ? { note } : {}), worse: 1, spike: 30 });
+	}
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
 	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
+	// a hand that took hold of a prop short of its place on it (a reach entry's took): the prop was pulled to the hand on that
+	// frame; why (share.js): no place was asked (the prop's nearest point), the hands' top speed, a place past the arm's reach
+	const tookWhy = (w, s, prop) => [w?.near && `the hold gives no at, so its place is the point of ${prop} nearest the hand, a wrist's pad off its surface`,
+		w?.slow > 0.005 && `late: a wrist moves at most ${Math.round(MAX_STEP * s * MM)} mm a frame in the body frame unless its key says fast, and that held it ${Math.round(w.slow * MM)} mm short of its place on that frame`,
+		w?.beyond > 0.005 && `the place was ${Math.round(w.beyond * MM)} mm beyond the arm's reach from the shoulder`].filter(Boolean).map(t => `; ${t}`).join("");
+	for (const c of clip.characters) [0, 1].forEach(i => {
+		let worst = null;
+		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.took > (worst?.v ?? 0.01)) worst = { v: at[i].took, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand, the action at f${at[i].key}${tookWhy(at[i].tookWhy, c.scale ?? 1, at[i].prop)}` }; });
+		row(`reach:${c.id}:${i}:took`, "hand took hold short of its place; the prop was pulled to the hand", worst, "mm", MM, { short: "pulled", worse: 1, spike: 60 });
+		// a hand kept on its place on a prop that more hands hold, off where its own action (the hold or a later pose) puts it
+		// by more than the pad a holding wrist keeps off the prop's surface
+		let kept = null;
+		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (at[i]?.held > (kept?.v ?? PAD * (c.scale ?? 1))) kept = { v: at[i].held, f, who: c.id, prop: at[i].prop, note: `${SIDE[i]} hand; the action at f${at[i].key} has it hold ${at[i].prop}, which ${aux.holders?.[at[i].prop]?.[f]} hold on that frame, so it stays on its place on it, off where the action at f${at[i].heldKey} puts it` }; });
+		row(`reach:${c.id}:${i}:held`, "hand kept on its place on a prop that more hands hold, off where its own action puts it", kept, "mm", MM, { short: "held off", worse: 1, spike: 60 });
+	});
 	// a hand or a foot off the target its action gave it, after that action's blend has ended: the worst frame of each limb
 	const LIMB = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], PART = ["hand", "foot", "elbow"]; // elbows only for a character with elbow keys
 	for (const c of clip.characters) LIMB.forEach((limb, i) => {
 		let worst = null, frames = 0;
-		(aux.reach?.[c.id] ?? []).forEach((at, f) => { if (!at[i]) return; if (at[i].d > 0.01) frames++; if (at[i].d > (worst?.v ?? 0.001)) worst = { v: at[i].d, f, who: c.id, key: at[i].key }; });
-		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}`;
+		const list = (aux.reach?.[c.id] ?? []).map(at => at[i] ?? null);
+		list.forEach((e, f) => { if (!e) return; if (e.d > 0.01) frames++; if (e.d > (worst?.v ?? 0.001)) worst = { v: e.d, f, who: c.id, key: e.key }; });
+		if (worst) worst.note = `${limb}, the action at f${worst.key}; over 10 mm off on ${frames} frame${frames === 1 ? "" : "s"}${worst.v > 0.01 ? `; ${reachWhy(list, worst.f, i, c.scale ?? 1)}` : ""}`;
 		if (worst) row(`reach:${c.id}:${i}`, `${PART[i >> 1]} off its target`, worst, "mm", MM, { short: `${PART[i >> 1]} off`, worse: 1, spike: 60 });
 	});
 	return rows;
