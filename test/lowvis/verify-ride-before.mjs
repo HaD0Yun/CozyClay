@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Specs that use the prop words of before the ride on a joint (ride {on}, hold, carry, place, release) compile to the
 // clip and aux they compiled to before it: sha256 of the serialized clip and the aux (numbers rounded to 5 decimals, as
-// verify-hands-digest.mjs does, so the hash is the same on another CPU type), taken at the commit before the change. aux.rides, which came with it, is left out.
+// verify-hands-digest.mjs does, so the hash is the same on another CPU type), taken at the commit before the change. aux.rides, which came with it, and aux.walks (the counted walk's told lines), are left out.
 // Every scene here is made up for this test.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -35,7 +35,7 @@ const BEFORE = {
 	rollKey: "18b0abf907fcdfc7f0841505f841b12b9d3bb7d01c8403f81a1be98152791813",
 };
 const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]]) => {
-	const { clip, aux: { rides, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride)
+	const { clip, aux: { rides, walks, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride); aux.walks came with the counted walk
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));
