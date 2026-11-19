@@ -106,7 +106,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			} finally { current.installed = true; }
 		});
 		const onScene = ids => { current.held = new Set([...Object.values(ids?.characters ?? {}), ...Object.values(ids?.props ?? {}).map(prop => prop?.id)]); read(); };
-		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, changed: () => [...current.changed], exclusive, drafting, onDraft: current.onDraft });
+		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, changed: () => [...current.changed], exclusive, drafting, onDraft: (answer, watch) => { current.watch = watch; current.onDraft(answer); } });
 		current.result.catch(() => {}).finally(() => { current.installed = true; current.settled = true; read(); });
 		job = current;
 		await scene;
@@ -127,6 +127,8 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			const all = [...new Set([...touched(result), ...ids])], hit = guarded ? all.filter(id => current.held.has(id)) : [];
 			if (!hit.length) {
 				if (result?.ok !== false) for (const id of all) current.changed.add(id);
+				// a draft's stand-in a call removed: the draft reads the scene (motion-draft.mjs watch)
+				if (current.watch && all.length) try { await current.watch(all); } catch { /* a stand-in not seen gone stays the draft's */ }
 				return result;
 			}
 			// a failed script already rolled back its own edits (agent-routes.mjs scriptTool), or changed nothing; the mark is spent

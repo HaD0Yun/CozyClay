@@ -46,6 +46,15 @@ export function travelOf(clip) {
  */
 export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run, describe, readClip, addStandIn, standInOf }) {
 	let job = null; // the draft: Promise of { made: { <prop>: { id, kind, size } }, records: Map(id -> record), undo } or null
+	// stand-ins seen gone from the scene after a call: the Studio gives a removed id to the next object of its kind, so
+	// an object under that id later is another object, never the draft's
+	const gone = new Set();
+	const watch = async ids => {
+		const draft = job && await job, mine = draft ? Object.values(draft.made).map(entry => entry.id).filter(id => ids.includes(id) && !gone.has(id)) : [];
+		if (!mine.length) return;
+		const rows = byId((await describe())?.objects);
+		for (const id of mine) if (!rows.has(id)) gone.add(id);
+	};
 	const onCompiled = ({ n, scene, clip: file }) => {
 		if (!hold || job) return;
 		let clip;
@@ -64,7 +73,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 			const undo = rememberBoxes(key, scene, placed, floorCells(clip));
 			const answer = { ok: true, draft: true, installed: false, compile: n, standIns: standInLines(made, rows), used: usedText(boxesOf(key), travelOf(clip)), note: NOTE };
 			return { made, records: new Map(ids.map(id => [id, recordOf(rows.get(id))])), undo, answer };
-		}).then(draft => { try { onDraft(draft.answer); } catch { /* a failing view never fails the run */ } return draft; }, () => null);
+		}).then(draft => { try { onDraft(draft.answer, watch); } catch { /* a failing view never fails the run */ } return draft; }, () => null);
 	};
 	const plan = async props => {
 		const draft = job && await job;
@@ -72,7 +81,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 		const at = byId((await describe())?.objects), final = new Map(props.map(prop => [prop.id, prop]));
 		const out = { drafted: {}, remove: [], kept: [], lost: {}, replaced: {}, touched: [], at };
 		for (const [prop, entry] of Object.entries(draft.made)) {
-			const row = at.get(entry.id), untouched = Boolean(row) && recordOf(row) === draft.records.get(entry.id), next = final.get(prop);
+			const row = gone.has(entry.id) ? null : at.get(entry.id), untouched = Boolean(row) && recordOf(row) === draft.records.get(entry.id), next = final.get(prop);
 			if (row && !untouched) out.touched.push(entry.id);
 			if (!next) { if (untouched) out.remove.push({ prop, id: entry.id }); else if (row) out.kept.push({ prop, id: entry.id }); continue; }
 			const why = !row ? "gone" : row.parent ? "in a group" : finite(row.rotX) || finite(row.rotZ) ? "tilted" : row.attach ? "attached to a body" : null;
@@ -86,7 +95,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 		const draft = job && await job;
 		if (!draft) return error;
 		draft.undo();
-		const ids = Object.values(draft.made).map(entry => entry.id);
+		const ids = Object.values(draft.made).map(entry => entry.id).filter(id => !gone.has(id));
 		let text;
 		try {
 			text = await hold(async () => {
