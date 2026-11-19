@@ -95,7 +95,7 @@ function requestOf({ words, wordsOf, note, building }, pictures, studio, before,
  * prop ids it may use (those the scene it read does not have). At the install, a prop the writer added is taken by the
  * one object named in building and made since the scene was read whose name is its id (motion-props.mjs takenBy):
  * set to its place and turn; it keeps its own size, and motionFit names every measure where it differs from the prop's
- * box (motion-fit.mjs changedFit, whole). Nothing is taken when building names nothing (the direct key). propsSet (only
+ * box (motion-fit.mjs rememberBoxes, whole), on the result and on every later edit. Nothing is taken when building names nothing (the direct key). propsSet (only
  * when there is one): what the install set on each object, read from the scene after it (motion-props.mjs propsSetOf).
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
