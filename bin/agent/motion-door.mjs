@@ -10,7 +10,7 @@ import { runMotion } from "./motion-run.mjs";
 
 const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. Its report ends with a Missing line. images: true sends the user's pictures.";
 // A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
-const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used, motionFit, propsSet. When the motion writer's first compile goes through, the props of that compile that the scene lacks are added at once as stand-ins: a draft, which the writer is not told of. The first motion_result called before the install answers that draft as soon as it is made (draft: true, standIns, used of that compile, and a note on what the install does with the stand-ins); a later motion_result answers the installed result, waiting only for what is left of the motion. Until the motion is installed, a call that changes a character or object of the scene it read is undone and refused: the motion is written against them as they were. Any other call goes through, on the draft's stand-ins too; the result's motionFit names an object changed or added meanwhile that differs from the box the motion used or stands on floor the feet use, and propsSet what the install changed since the draft, per object. A motion that fails or is stopped after the draft removes the stand-ins not changed since it, and its error says what it removed and what it left. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
+const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used, motionFit, propsSet. When the motion writer's first compile goes through, the props of that compile that the scene lacks are added at once as stand-ins: a draft, which the writer is not told of. The first motion_result called before the install answers that draft as soon as it is made (draft: true, standIns, used of that compile, and a note on what the install does with the stand-ins); a later motion_result answers the installed result, waiting only for what is left of the motion. Until the motion is installed, a call that changes a character or object it is written against is undone and refused: of the scene it read, the visible characters it can animate and the first 40 visible, upright, unattached solid objects at least 0.03 m tall, as they were. Any other call goes through, on the draft's stand-ins too; the result's motionFit names an object changed or added meanwhile that differs from the box the motion used or stands on floor the feet use, and propsSet what the install changed since the draft, per object. A motion that fails or is stopped after the draft removes the stand-ins not changed since it, and its error says what it removed and what it left. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
 const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it. Before the install, its first call answers the draft once the motion writer's first compile has made one (draft: true); the next call waits for the install. A motion that failed answers its error.";
 // labelled as the editor's own message (session-store.mjs OBSERVATION_LABEL): a restored transcript does not show it as the user's words
 const ENDED = "Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:";
@@ -98,13 +98,14 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			try { return await steps(); } catch (error) { await rollback(); throw error; }
 		});
 		// the install holds the scene alone, under its own mark, and is rolled back when the Studio refused it
-		const exclusive = install => hold(async () => {
+		// the writer has ended once the install is asked for: motion_result no longer answers the draft (told)
+		const exclusive = install => { current.told = true; return hold(async () => {
 			try {
 				if (sceneOf() !== current.scene) throw coded("studio", "Another scene was opened while the motion was written, so it was not installed. Call motion again in the scene it belongs to.");
 				await mark();
 				try { return await install(); } catch (error) { if (error?.code === "studio") await rollback(); throw error; }
 			} finally { current.installed = true; }
-		});
+		}); };
 		const onScene = ids => { current.held = new Set([...Object.values(ids?.characters ?? {}), ...Object.values(ids?.props ?? {}).map(prop => prop?.id)]); read(); };
 		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, changed: () => [...current.changed], exclusive, drafting, onDraft: (answer, watch) => { current.watch = watch; current.onDraft(answer); } });
 		current.result.catch(() => {}).finally(() => { current.installed = true; current.settled = true; read(); });
@@ -114,21 +115,24 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		return current.held ? { ok: true, started: true } : collect(current);
 	};
 	let seen = null; // the full ids the nested calls of the guarded call changed (nested): a script's summary keeps 8 per call
+	// a draft's stand-in removed by this call or by another caller before it: the draft reads the scene before and after
+	// each call until the install (motion-draft.mjs watch)
+	const watched = async current => { if (current?.watch && !current.installed) try { await current.watch(); } catch { /* a stand-in not seen gone stays the draft's */ } };
 	const guard = tool => ({ ...tool, handler: async (args, call) => {
 		const current = job;
 		if (!current || current.installed) return tool.handler(args, call);
 		return hold(async () => {
-			if (current.installed) return tool.handler(args, call);
-			const guarded = current.held?.size > 0;
+			// a call that waited for the install runs after it unguarded; the ids it changed still reach the result (motion-run.mjs)
+			const guarded = !current.installed && current.held?.size > 0;
 			if (guarded) await mark();
+			await watched(current);
 			const ids = seen = new Set();
 			let result;
 			try { result = await tool.handler(args, call); } finally { seen = null; }
 			const all = [...new Set([...touched(result), ...ids])], hit = guarded ? all.filter(id => current.held.has(id)) : [];
 			if (!hit.length) {
 				if (result?.ok !== false) for (const id of all) current.changed.add(id);
-				// a draft's stand-in a call removed: the draft reads the scene (motion-draft.mjs watch)
-				if (current.watch && all.length) try { await current.watch(all); } catch { /* a stand-in not seen gone stays the draft's */ }
+				await watched(current);
 				return result;
 			}
 			// a failed script already rolled back its own edits (agent-routes.mjs scriptTool), or changed nothing; the mark is spent
@@ -140,7 +144,10 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	} });
 	// the tools a script calls: each records the full ids it changed for the guarded call around the script
 	const nested = list => (background ? list.map(tool => ({ ...tool, handler: async (args, call) => {
+		const current = seen ? job : null;
+		await watched(current);
 		const result = await tool.handler(args, call);
+		await watched(current);
 		if (seen && Array.isArray(result?.affectedIds)) for (const id of result.affectedIds) seen.add(id);
 		return result;
 	} })) : list);
@@ -149,7 +156,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		handler: async () => {
 			if (!job) throw coded("NO_MOTION", "No motion was started in this turn.");
 			const current = job;
-			// the first call before the install answers the draft once it is made; the result when the motion settles first
+			// the first call while the writer works answers the draft once it is made; the result when the writer ends first
 			if (!current.told && !current.settled) {
 				const draft = await Promise.race([current.draft, current.result.then(() => null, () => null)]);
 				if (draft && !current.settled && !current.told) { current.told = true; return draft; }

@@ -53,7 +53,7 @@ console.log("PASS draft edges: a motion that fails, is stopped or is refused aft
 }
 console.log("PASS draft edges: before the draft a failure adds nothing and answers as before");
 
-// at the install: a stand-in removed meanwhile, one put in a group, an untouched one whose final box is another kind
+// at the install: a stand-in removed meanwhile, one put in a group (the prop, moved as any object), an untouched one whose final box is another kind
 {
 	const studio = studioEditor();
 	const first = written(stage([prop("bench", [1.2, 0.45, 0.4], [1, 0, 1]), prop("crate", [0.5, 0.3, 0.4], [-1, 0, 1]), prop("board", [0.6, 0.2, 0.3], [0, 0, 2])]), idle);
@@ -73,18 +73,18 @@ console.log("PASS draft edges: before the draft a failure adds nothing and answe
 	const done = await t.result();
 	assert.deepEqual(shapeOf(studio.row(lamp)).base, [3, 0, -3], "the lamp under the reused id stays where the agent put it");
 	assert.equal(studio.row(lamp).name, "lamp");
-	const [bench] = studio.named("bench"), crate = studio.named("crate").find(row => row.id !== ids.crate), board = studio.named("board")[0];
-	assert.ok(studio.named("bench").length === 1 && crate && board && board.id !== ids.board && board.renderer === "cube", "new stand-ins for the removed, the grouped and the other kind");
+	const [bench] = studio.named("bench"), board = studio.named("board")[0];
+	assert.ok(studio.named("bench").length === 1 && board && board.id !== ids.board && board.renderer === "cube", "new stand-ins for the removed and the other kind");
 	assert.equal(studio.row(ids.board), undefined, "the untouched board of another kind is removed");
-	assert.equal(studio.row(ids.crate).parent, group, "the grouped crate stays where the agent put it");
+	assert.deepEqual(studio.named("crate").map(row => [row.id, row.parent]), [[ids.crate, group]], "the grouped crate is the motion's crate and stays in its group: one object");
+	assert.ok(done.used.includes(`${ids.crate} (crate)`), done.used);
 	const line = (row, why) => `${row.name} (${row.id}): the motion added it as a stand-in, ${box(shapeOf(row).size)}, base ${list(shapeOf(row).base)}; ${why}.`;
 	assert.deepEqual(done.propsSet, [
 		line(bench, `the draft's stand-in ${ids.bench} is no longer in the scene`),
-		line(crate, `the draft's stand-in ${ids.crate} is in a group and stays as it is`),
 		line(board, `it replaces the draft's stand-in ${ids.board}, removed: the final box needs another kind of object`),
 	]);
 }
-console.log("PASS draft edges: a removed, grouped or other-kind stand-in gets a new one, with a line each");
+console.log("PASS draft edges: a removed or other-kind stand-in gets a new one, with a line each; a grouped one is the motion's prop");
 
 // an edit sent while the install holds the scene runs after it: the result's motionFit is the scene after that edit,
 // its propsSet what the install itself set

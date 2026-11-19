@@ -138,12 +138,15 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	rememberBoxes(key, record.final.scene, result.placed ?? {}, floorCells(clip));
 	// what other calls changed or added while the motion was written (and the draft's stand-ins changed meanwhile, read
 	// from the scene), against the boxes and the floor it used; with a draft, what the install changed since it
-	const plan = result.plan, meanwhile = [...new Set([...changed(), ...(plan?.touched ?? [])])];
-	let motionFit = null, propsSet = null, now = null;
-	// with a draft, the calls that waited for the install (edits of its stand-ins) go first: motionFit is the scene after them
-	const readTops = () => hub.command("describe", { tops: true }, workspaceHandle);
-	if (meanwhile.length) try { now = (await (plan ? drafting(readTops) : readTops()))?.objects ?? []; } catch (error) { motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
-	if (now) motionFit = changedFit(meanwhile, now, boxesOf(key), floorCells(clip));
+	const plan = result.plan;
+	let motionFit = null, propsSet = null, now = null, unread = null;
+	const readTops = async () => { try { now = (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? []; } catch (error) { unread = error; } };
+	// with a draft, the calls that waited for the install (edits of its stand-ins) run first: the ids they changed and
+	// the scene after them are motionFit's
+	if (plan) await drafting(readTops).catch(error => { unread = error; });
+	const meanwhile = [...new Set([...changed(), ...(plan?.touched ?? [])])];
+	if (meanwhile.length && !now && !unread) await readTops();
+	if (meanwhile.length) motionFit = now ? changedFit(meanwhile, now, boxesOf(key), floorCells(clip)) : { status: "unavailable", reason: unread?.message ?? String(unread) };
 	if (result.after) propsSet = propsSetOf({ props: clip.props ?? [], placed: result.placed ?? {}, done: result, plan, start, at: plan.at, now: result.after });
 	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
 	const animated = clip.characters.map(studioId).filter(Boolean);

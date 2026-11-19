@@ -12,7 +12,7 @@
 import { boxesOf, floorCells, rememberBoxes, usedText } from "./motion-fit.mjs";
 import { standInLines } from "./motion-props.mjs";
 
-const NOTE = "A draft: the motion writer's first compiled scene. The motion is still being rewritten and is not installed. standIns are the objects added now for the props of this compile that the scene lacked, each the stand-in the install makes; used names the boxes and the floor of this compile, and an edit of one of these objects answers motionFit against its box here. At the install a stand-in is set to the final motion's place and turn, and one not changed since the draft to its size too (replaced by a new stand-in when the final box needs another kind of object); one in a group, tilted or attached stays as it is beside a new stand-in; one whose prop the final motion no longer has is removed when not changed and kept otherwise. The result's propsSet says what the install changed since the draft. motion_result answers again once the motion is installed.";
+const NOTE = "A draft: the motion writer's first compiled scene. The motion is still being rewritten and is not installed. standIns are the objects added now for the props of this compile that the scene lacked, each the stand-in the install makes; used names the boxes and the floor of this compile, and an edit of one of these objects answers motionFit against its box here. At the install a stand-in is set to the final motion's place and turn, and one not changed since the draft to its size too (replaced by a new stand-in when the final box needs another kind of object); one tilted or attached to a body stays as it is beside a new stand-in; one whose prop the final motion no longer has is removed when not changed and kept otherwise. The result's propsSet says what the install changed since the draft. motion_result answers again once the motion is installed.";
 const failure = (code, message) => Object.assign(new Error(message), { code });
 const byId = rows => new Map((Array.isArray(rows) ? rows : []).map(row => [row?.id, row]));
 const finite = v => (Number.isFinite(v) ? v : 0);
@@ -46,11 +46,11 @@ export function travelOf(clip) {
  */
 export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run, describe, readClip, addStandIn, standInOf }) {
 	let job = null; // the draft: Promise of { made: { <prop>: { id, kind, size } }, records: Map(id -> record), undo } or null
-	// stand-ins seen gone from the scene after a call: the Studio gives a removed id to the next object of its kind, so
-	// an object under that id later is another object, never the draft's
+	// stand-ins seen gone from the scene, read before and after each call of the agent (motion-door.mjs): the Studio
+	// gives a removed id to the next object of its kind, so an object under that id later is another object, never the draft's
 	const gone = new Set();
-	const watch = async ids => {
-		const draft = job && await job, mine = draft ? Object.values(draft.made).map(entry => entry.id).filter(id => ids.includes(id) && !gone.has(id)) : [];
+	const watch = async () => {
+		const draft = job && await job, mine = draft ? Object.values(draft.made).map(entry => entry.id).filter(id => !gone.has(id)) : [];
 		if (!mine.length) return;
 		const rows = byId((await describe())?.objects);
 		for (const id of mine) if (!rows.has(id)) gone.add(id);
@@ -84,7 +84,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 			const row = gone.has(entry.id) ? null : at.get(entry.id), untouched = Boolean(row) && recordOf(row) === draft.records.get(entry.id), next = final.get(prop);
 			if (row && !untouched) out.touched.push(entry.id);
 			if (!next) { if (untouched) out.remove.push({ prop, id: entry.id }); else if (row) out.kept.push({ prop, id: entry.id }); continue; }
-			const why = !row ? "gone" : row.parent ? "in a group" : finite(row.rotX) || finite(row.rotZ) ? "tilted" : row.attach ? "attached to a body" : null;
+			const why = !row ? "gone" : finite(row.rotX) || finite(row.rotZ) ? "tilted" : row.attach ? "attached to a body" : null;
 			if (why) out.lost[prop] = { id: entry.id, why };
 			else if (untouched && standInOf(next).kind !== entry.kind) { out.replaced[prop] = entry.id; out.remove.push({ prop, id: entry.id, replaced: true }); }
 			else out.drafted[prop] = { id: entry.id, untouched, size: entry.size, place: { x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot) } };

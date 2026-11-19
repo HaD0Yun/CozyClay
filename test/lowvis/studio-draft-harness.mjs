@@ -70,6 +70,8 @@ export function studioEditor({ refuse = () => false, slow = () => 0 } = {}) {
 	return {
 		run, describe, calls, topsOf, rows: () => rows, row: id => rows.find(row => row.id === id), named: name => rows.filter(row => row.name === name),
 		hub: { command: async (name, args) => describe(args) },
+		// another caller's edit (the user, a task): past the turn's tools
+		outside: fn => { rows = fn(rows); },
 		mark: async () => { marked = { rows, cast: new Map([...cast].map(([id, row]) => [id, { ...row }])) }; return {}; },
 		rollback: async () => { if (!marked) return null; rows = marked.rows; cast = new Map([...marked.cast].map(([id, row]) => [id, { ...row }])); return { receiptId: "t" }; },
 	};
@@ -138,8 +140,14 @@ export function turn({ studio, writer, key = "conv", background = true, request 
 	const deps = { runScene: writer.runScene, installClip, addStandIn, standInOf, studioScene, readClip: writer.readClip };
 	const door = createMotionDoor({ run: options => runMotion({ ...options, words: "the user's words", note: options.request, memoryKey: key, hub: studio.hub, workspaceHandle: "ws", invoke: studio.run, env: {}, deps }), mark: studio.mark, rollback: studio.rollback, background });
 	const fitted = turnFitView({ value: { sessionId: key, context: { host: { workspaceHandle: "ws" } } }, env: {}, hub: studio.hub, delayMs: 0 }).tools(ACTIONS.map(action => ({ name: action, handler: async args => studio.run(action, args) })));
-	const list = background ? door.with(fitted) : [...fitted, door];
-	const tools = Object.fromEntries(ACTIONS.map((action, k) => [action.split(".")[1], args => list[k].handler(args)]));
+	// a script: its steps run through the nested tools (door.nested), as agent-routes.mjs wraps a script's tools
+	const inner = door.nested(fitted), script = { name: "script", handler: async ({ steps }) => {
+		const calls = [];
+		for (const [action, args] of steps) calls.push({ tool: action, ok: true, affectedIds: (await inner[ACTIONS.indexOf(action)].handler(args)).affectedIds ?? [] });
+		return { ok: true, calls };
+	} };
+	const list = background ? door.with([...fitted, script]) : [...fitted, script, door];
+	const tools = Object.fromEntries([...ACTIONS, "script"].map((action, k) => [action.split(".").pop(), args => list[k].handler(args)]));
 	const call = door.handler({ request });
 	const resultTool = list.find(tool => tool.name === "motion_result");
 	return { call, tools, door, result: () => resultTool.handler() };
