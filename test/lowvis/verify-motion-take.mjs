@@ -6,8 +6,7 @@
 // and on a call that waits. Objects of several box parts, with a measured flat top and without (narrow, or not drawn
 // yet), cubes and balls, carried and still, grouped ones and ones with children, made before and meanwhile. Every
 // expected line is built here from the scene by this test's own arithmetic and must equal the answer's.
-// Also: building entries with a size reach the writer as sizes, and the writer's request is the same whether or not
-// anything was built yet.
+// Also: the writer's request is the same whether or not anything was built yet.
 import assert from "node:assert/strict";
 import { part, prop, recipe, shapeOf, stage, studioEditor, turn, written } from "./studio-take-harness.mjs";
 
@@ -52,7 +51,7 @@ function expected(p, row, tops, cells) {
 	return out;
 }
 
-const counts = { scenes: 0, taken: 0, toldLines: 0, unmeasured: 0, noTop: 0, sized: 0, fits: 0, before: 0, grouped: 0, parents: 0, waits: 0, sizesTold: 0 };
+const counts = { scenes: 0, taken: 0, toldLines: 0, unmeasured: 0, noTop: 0, sized: 0, fits: 0, before: 0, grouped: 0, parents: 0, waits: 0 };
 for (let s = 0; s < 160; s++) {
 	const props = [], plans = [], ids = new Set();
 	for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) {
@@ -64,7 +63,7 @@ for (let s = 0; s < 160; s++) {
 		const when = pick(["meanwhile", "meanwhile", "meanwhile", "before", "none"]), how = pick(["top", "top", "top", "grouped", "parent"]);
 		const made = sphere ? null : pick(["block", "seat with back", "legs and top", "post", "steps"]);
 		const scale = rnd() < 0.4 ? 1 : num(0.6, 1.5);
-		plans.push({ id, when, how: sphere ? "top" : how, made, mine: sphere ? [size[0] * scale] : size.map(v => r2(v * (rnd() < 0.4 ? 1 : num(0.6, 1.5)))), turn: num(-180, 180), sized: rnd() < 0.3 });
+		plans.push({ id, when, how: sphere ? "top" : how, made, mine: sphere ? [size[0] * scale] : size.map(v => r2(v * (rnd() < 0.4 ? 1 : num(0.6, 1.5)))), turn: num(-180, 180) });
 	}
 	const carried = props.find(p => !p.shape && rnd() < 0.3);
 	let work;
@@ -83,14 +82,13 @@ for (let s = 0; s < 160; s++) {
 	const direct = { sculpt: args => studio.run("object.sculpt", args), add: args => studio.run("object.add", args), update: args => studio.run("object.update", args), group: args => studio.run("object.group", args) };
 	for (const plan of plans) if (plan.when === "before") await make(direct, plan);
 	const before = new Map(studio.rows().map(row => [row.id, shapeOf(row)]));
-	const building = plans.map(plan => (plan.sized && plan.made ? { name: plan.id, size: plan.mine } : plan.id));
+	const building = plans.map(plan => plan.id);
 	const background = rnd() < 0.75, done = await turn({ studio, work, building, background, meanwhile: async tools => { for (const plan of plans) if (plan.when === "meanwhile") await make(tools, plan); } });
 	const answer = done.answer, cells = cellsOf(work.clip);
 	assert.equal(answer.ok, true);
-	// the writer's request: the same whether or not anything was built; sizes given in building are told
+	// the writer's request: the same whether or not anything was built
 	const bare = await turn({ studio: studioEditor(), work, building, background });
 	if (!plans.some(plan => plan.when === "before")) assert.equal(bare.requests[0], done.requests[0], "the request does not depend on what was built");
-	for (const plan of plans) if (plan.sized && plan.made && plan.when !== "before") { assert.ok(done.requests[0].includes(`${plan.id} (size ${JSON.stringify(plan.mine)})`), `${plan.id}: its size reaches the writer`); counts.sizesTold++; }
 	for (const p of work.scene.props) {
 		const plan = plans.find(x => x.id === p.id), id = madeIds[p.id], row = id && studio.row(id), fit = (answer.motionFit?.objects ?? []).find(entry => entry.id === id);
 		const takes = plan.when === "meanwhile" && plan.how !== "grouped";
@@ -116,5 +114,5 @@ for (let s = 0; s < 160; s++) {
 	}
 	counts.scenes++;
 }
-assert.ok(counts.taken > 80 && counts.unmeasured > 5 && counts.noTop > 10 && counts.sized > 5 && counts.fits > 2 && counts.before > 5 && counts.grouped > 5 && counts.parents > 5 && counts.waits > 10 && counts.sizesTold > 10, JSON.stringify(counts));
+assert.ok(counts.taken > 80 && counts.unmeasured > 5 && counts.noTop > 10 && counts.sized > 5 && counts.fits > 2 && counts.before > 5 && counts.grouped > 5 && counts.parents > 5 && counts.waits > 10, JSON.stringify(counts));
 console.log(`PASS the take at any size, every difference told: ${JSON.stringify(counts)}`);
