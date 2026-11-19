@@ -160,7 +160,7 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, b
 	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
 	// what other calls changed or added while the motion was written, against the boxes and the floor it used; what the install set on each object
 	// an object that took a prop is measured against the prop's box whether or not a call changed it (a call that waits passes none)
-	const whole = new Set(result.fitted ?? []), meanwhile = [...new Set([...changed(), ...whole])], set = [result.objectIds, result.fitted, result.moved, take.idle].some(list => list?.length);
+	const whole = new Set(result.fitted ?? []), meanwhile = [...new Set([...changed(), ...whole])], set = fresh && [result.objectIds, result.fitted, result.moved, take.idle].some(list => list?.length);
 	let motionFit = null, propsSet = null, now = null;
 	if (meanwhile.length || set) try { now = (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? []; } catch (error) { if (meanwhile.length) motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
 	if (now && meanwhile.length) motionFit = changedFit(meanwhile, now, boxesOf(memoryKey ?? name), floorCells(clip), whole);
