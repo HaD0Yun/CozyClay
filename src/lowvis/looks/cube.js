@@ -8,14 +8,14 @@
 // the thigh to the floor, 700 px) is the rig's leg (0.975 m), so 1 px = 1.39 mm. The joints stay the rig's (rig17.js),
 // so a part spans its rig joints even where the drawing's limb is shorter (the forearm).
 //
-// Plain stock parts, as the block look: a matte blue (the drawing's), a navy sole and a navy line on every edge. How
+// Plain stock parts, as the block look: a matte white, a navy sole, black eyes and a navy line on every edge. How
 // they are shaded is the stage's business (the Studio's toon finish, src/stage-finish.js, shades stock materials).
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import { createJointRig, restOf } from "./parts.js";
 
-// Colours read off the drawing.
-const BLUE = "#3b7fbc", NAVY = "#0b1c52", INK = "#0a1a50", EYE = "#050508";
+// The navy of the sole and the lines is read off the drawing.
+const WHITE = "#f4f4f2", NAVY = "#0b1c52", INK = "#0a1a50", EYE = "#050508";
 const GAP = 0.025; // metres from a joint to each of the two parts it joins
 const ORIGIN = [0, 0, 0], UP = [0, 1, 0], OUT = [1, 0, 0];
 
@@ -82,12 +82,12 @@ function layout() {
 	return parts;
 }
 
-/** colour (optional): the character's own colour; the drawing's blue otherwise. tint is not used. */
-export function cube({ colour = null } = {}) {
+/** The figure is white (the owner's pick, 2026-11-19): a character's tint and colour are not used. */
+export function cube() {
 	const rig = createJointRig();
 	// The faces sit a little behind their edge lines in depth, so the lines do not flicker.
 	const matte = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-	const body = matte(colour ?? BLUE), sole = matte(NAVY), ink = new THREE.LineBasicMaterial({ color: INK });
+	const body = matte(WHITE), sole = matte(NAVY), ink = new THREE.LineBasicMaterial({ color: INK });
 	const eye = new THREE.MeshBasicMaterial({ color: EYE, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
 	for (const { joint, geometry, dark } of layout()) {
 		rig.attach(joint, new THREE.Mesh(geometry, { sole, eye }[dark] ?? body), ORIGIN).castShadow = dark !== "eye";
