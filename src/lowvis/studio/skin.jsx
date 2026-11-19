@@ -7,7 +7,10 @@ import { useThree } from "@react-three/fiber";
 import { LOOKS } from "../looks/index.js";
 import { followBones, jointBones } from "./skin-pose.js";
 
-export function LowvisSkin({ rig, tint, colour = null, scale = 1, pickId = null, look = "block" }) {
+// ?figure=<look> (prototype): draw every rig character with that look of src/lowvis/looks instead of the block figure.
+const ASKED = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("figure");
+
+export function LowvisSkin({ rig, tint, colour = null, scale = 1, pickId = null, look = ASKED ?? "block" }) {
 	const body = useMemo(() => (LOOKS[look] ?? LOOKS.block)({ tint, colour }), [look, tint, colour]);
 	const bones = useMemo(() => (rig ? jointBones(rig) : null), [rig]);
 	const invalidate = useThree(state => state.invalidate);
