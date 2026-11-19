@@ -15,8 +15,7 @@ import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js"
 import { createJointRig, restOf } from "./parts.js";
 
 // Colours read off the drawing.
-const BLUE = "#3b7fbc", NAVY = "#0b1c52", INK = "#0a1a50";
-const EYE_LIGHTNESS = 0.2; // the eyes: the body's own hue, this dark (HSL lightness), so they belong to its colour
+const BLUE = "#3b7fbc", NAVY = "#0b1c52", INK = "#0a1a50", EYE = "#050508";
 const GAP = 0.025; // metres from a joint to each of the two parts it joins
 const ORIGIN = [0, 0, 0], UP = [0, 1, 0], OUT = [1, 0, 0];
 
@@ -89,8 +88,7 @@ export function cube({ colour = null } = {}) {
 	// The faces sit a little behind their edge lines in depth, so the lines do not flicker.
 	const matte = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 	const body = matte(colour ?? BLUE), sole = matte(NAVY), ink = new THREE.LineBasicMaterial({ color: INK });
-	const { h, s } = new THREE.Color(colour ?? BLUE).getHSL({}, THREE.SRGBColorSpace);
-	const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(h, s, EYE_LIGHTNESS, THREE.SRGBColorSpace), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+	const eye = new THREE.MeshBasicMaterial({ color: EYE, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
 	for (const { joint, geometry, dark } of layout()) {
 		rig.attach(joint, new THREE.Mesh(geometry, { sole, eye }[dark] ?? body), ORIGIN).castShadow = dark !== "eye";
 		if (dark) continue;
