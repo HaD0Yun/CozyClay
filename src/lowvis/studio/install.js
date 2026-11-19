@@ -76,9 +76,10 @@ function moves(prop) {
  * { <clip prop id>: <Studio object id> } for every prop, made, known or drafted; ok false when the Studio refused a step.
  * bodies (only when there is one): [{ id, scale?, tint? }], the cast members whose scale or tint it set, with the fields
  * it set. moved: the listed objects it moved or turned; moving: the objects a track moves (each only when there is one).
- * drafted: { <clip prop id>: { id, untouched, size } }, the stand-in an earlier compile of the same motion added for that
- * prop (addStandIn, of the kind this prop's stand-in has): it is set to the prop's place and turn, and to its size when
- * untouched (its record is still what the draft made).
+ * drafted: { <clip prop id>: { id, untouched, size, place? } }, the stand-in an earlier compile of the same motion added
+ * for that prop (addStandIn, of the kind this prop's stand-in has): it is set to the prop's place and turn, and to its
+ * size when untouched (its record is still what the draft made); place { x, y, z, rot }: where it stands now (no step
+ * when that is the prop's and the size stays).
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
  * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
@@ -108,8 +109,9 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 		} else if (draft) {
 			// the draft's stand-in of this prop: the final place and turn, and the final size while it is as the draft made it
 			const { kind, size, placement } = standInOf(prop), resize = draft.untouched && size.some((v, k) => Math.abs(v - draft.size[k]) > 1e-6);
-			const done = resize && kind === "sculpt" ? await run("object.sculpt", { id, placement, recipe: standInRecipe(size) })
-				: await run("object.update", { id, patch: { ...placement, ...(resize ? scaled(size) : {}) } });
+			const still = !resize && draft.place && ["x", "y", "z"].every(k => Math.abs(placement[k] - draft.place[k]) < EPS) && Math.abs(((placement.rot - draft.place.rot) % 360 + 540) % 360 - 180) < 0.05;
+			const done = still || (resize && kind === "sculpt" ? await run("object.sculpt", { id, placement, recipe: standInRecipe(size) })
+				: await run("object.update", { id, patch: { ...placement, ...(resize ? scaled(size) : {}) } }));
 			if (!done) return stop();
 		} else {
 			id = await addStandIn(prop, run);

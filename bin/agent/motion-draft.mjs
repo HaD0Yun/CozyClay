@@ -87,7 +87,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 			const why = !row ? "gone" : row.parent ? "in a group" : finite(row.rotX) || finite(row.rotZ) ? "tilted" : row.attach ? "attached to a body" : null;
 			if (why) out.lost[prop] = { id: entry.id, why };
 			else if (untouched && standInOf(next).kind !== entry.kind) { out.replaced[prop] = entry.id; out.remove.push({ prop, id: entry.id, replaced: true }); }
-			else out.drafted[prop] = { id: entry.id, untouched, size: entry.size };
+			else out.drafted[prop] = { id: entry.id, untouched, size: entry.size, place: { x: finite(row.x), y: finite(row.y), z: finite(row.z), rot: finite(row.rot) } };
 		}
 		return out;
 	};
@@ -106,7 +106,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 				return parts.length ? `The draft's stand-ins: ${parts.join("; ")}.` : "";
 			});
 		} catch (cause) { text = `The draft's stand-ins ${named(ids)} were left as they are (${cause?.message ?? String(cause)}).`; }
-		if (text) error.message = `${error.message} ${text}`;
+		if (text) error.message = `${error.message.replace(/\.?$/, ".")} ${text}`;
 		return error;
 	};
 	return { onCompiled, plan, failed };
