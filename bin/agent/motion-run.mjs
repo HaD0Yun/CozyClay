@@ -142,20 +142,24 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, b
 		if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
 		if (fresh) try {
 			at = byId((await hub.command("describe", {}, workspaceHandle))?.objects);
-			take = takenBy({ props, known: studio.ids.props, before: new Set(start.keys()), rows: [...at.values()], building: said });
+			// an id another call changed meanwhile may be a new object: the Studio gives a removed object's id to the next of its kind
+			const touched = new Set(changed());
+			take = takenBy({ props, known: studio.ids.props, before: new Set([...start.keys()].filter(id => !touched.has(id))), rows: [...at.values()], building: said });
 		} catch { /* unread: every added prop is a stand-in */ }
 		const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn, made: take.made });
 		if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 		return done;
 	});
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
-	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip));
+	// an object that took a prop is told whole, here and on every later edit (motion-fit.mjs fitOf)
+	const whole = new Set(result.fitted ?? []);
+	rememberBoxes(memoryKey ?? name, record.final.scene, result.placed ?? {}, floorCells(clip), whole);
 	// what other calls changed or added while the motion was written, against the boxes and the floor it used; what the install set on each object
 	// an object that took a prop is measured against the prop's box whether or not a call changed it (a call that waits passes none)
-	const whole = new Set(result.fitted ?? []), meanwhile = [...new Set([...changed(), ...whole])], set = fresh && [result.objectIds, result.fitted, result.moved, take.idle].some(list => list?.length);
+	const meanwhile = [...new Set([...changed(), ...whole])], set = fresh && [result.objectIds, result.fitted, result.moved, take.idle].some(list => list?.length);
 	let motionFit = null, propsSet = null, now = null;
 	if (meanwhile.length || set) try { now = (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? []; } catch (error) { if (meanwhile.length) motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
-	if (now && meanwhile.length) motionFit = changedFit(meanwhile, now, boxesOf(memoryKey ?? name), floorCells(clip), whole);
+	if (now && meanwhile.length) motionFit = changedFit(meanwhile, now, boxesOf(memoryKey ?? name), floorCells(clip));
 	if (now && set) propsSet = propsSetOf({ props, placed: result.placed ?? {}, done: result, take, start, at, now: byId(now) });
 	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
 	const animated = clip.characters.map(studioId).filter(Boolean);

@@ -96,7 +96,7 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 	close(shape(tall.studio.rows.get(tall.made)).base, [1, 0, 2], 1e-9, "the taller chair stands at the prop's base");
 	close(shape(tall.studio.rows.get(tall.made)).size, [0.5, 0.9, 0.42], 1e-9, "and keeps its size");
 	assert.match(tall.answer.propsSet[0], /^chair \(sculpt-\d+\), made meanwhile, took the motion's prop chair: /);
-	assert.deepEqual(tall.answer.motionFit.objects, [{ id: tall.made, name: "chair", differs: ["no flat top at the box's top (0.46 m over its base, within 0.02 m) over half its footprint; its flat tops (height over its base: width x depth m): 0.9: 0.5 x 0.42"] }]);
+	assert.deepEqual(tall.answer.motionFit.objects, [{ id: tall.made, name: "chair", differs: ["no flat top at the box's top (0.46 m over its base, within 0.02 m) over its footprint (0.5 x 0.42 m, within 0.02 m on each side); its flat tops (height over its base: width x depth m): 0.9: 0.5 x 0.42"] }]);
 	// an object of the prop's name that building does not name is not taken
 	const unnamed = await turn({ clip, building: ["lamp"], build: async agentSculpt => (await agentSculpt.handler({ name: "chair", placement: { x: 5, y: 0, z: 5, rot: 0 }, recipe: boxRecipe([0.5, 0.46, 0.42]) })).affectedIds[0] });
 	close(shape(unnamed.studio.rows.get(unnamed.made)).base, [5, 0, 5], 1e-9, "the chair building does not name stays where it was made");

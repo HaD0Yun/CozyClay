@@ -23,7 +23,7 @@ assert.equal(new Set(answer.objects).size, answer.objects.length, "no object sta
 const tops = studio.topsOf(studio.row(id));
 assert.equal(tops.length, 1);
 const t = tops[0], r2 = v => Math.round(v * 100) / 100;
-assert.deepEqual(answer.motionFit.objects, [{ id, name: "box", differs: [`no flat top at the box's top (0.2 m over its base, within 0.02 m) over half its footprint; its flat tops (height over its base: width x depth m): ${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`] }]);
+assert.deepEqual(answer.motionFit.objects, [{ id, name: "box", differs: [`no flat top at the box's top (0.2 m over its base, within 0.02 m) over its footprint (0.6 x 0.3 m, within 0.02 m on each side); its flat tops (height over its base: width x depth m): ${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`] }]);
 assert.equal(r2(t.y), 0.5, "the object's top is 0.5 m: the scene's own");
 assert.deepEqual(answer.propsSet, [`Box (${stand[0].id}): the motion added it as a stand-in, 0.4 x 0.4 x 0.4 m, base [1, 0, 1]; no object made meanwhile took it.`, `box (${id}), made meanwhile, took the motion's prop box: base [-1, 0, 1] (was [4, 0, 4]).`]);
 console.log("PASS two props spelled alike: a stand-in for Box, the agent's box takes box at its own size, the top told with the scene's numbers");

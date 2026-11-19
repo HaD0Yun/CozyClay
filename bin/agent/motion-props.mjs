@@ -4,7 +4,7 @@
 // building and made since the motion started whose name, written as an id, is the prop's id (the same spelling an id
 // gets from a name: scene.js idFor, so the next motion reads the object under that id): the object is set to the prop's
 // place and turn (install.js made) and keeps the size the agent made it. Where that size differs from the prop's box
-// where the body meets it, the answer's motionFit says so (motion-fit.mjs fitOf, whole). Only geometry and names.
+// where the body meets it, the answer's motionFit says so (motion-fit.mjs fitOf, a whole box). Only geometry and names.
 //   idOf(name)                                         the prop id a name is written as
 //   takenBy({ props, known, before, rows, building })  { made, twins, idle }: which object takes which prop
 //   propsSetOf({ props, placed, done, take, start, now }) the lines the agent reads: what the install set, per object
@@ -26,8 +26,8 @@ const shapeOf = row => ({ base: [finite(row.x), finite(row.y), finite(row.z)], s
 
 /**
  * Which object made since the motion started takes which prop the motion adds. props: the clip's props ([{ id }]);
- * known: studioScene ids.props (the props of the scene the writer read: never taken); before: the ids of every object of
- * that scene; rows: describe objects now; building: the names the agent gave the motion call.
+ * known: studioScene ids.props (the props of the scene the writer read: never taken); before: the ids of the objects of
+ * that scene that no other call changed meanwhile (a changed id may be a new object under a removed one's id); rows: describe objects now; building: the names the agent gave the motion call.
  * -> made: { <prop id>: { id } } (install.js made); twins: { <prop id>: [ids] } when more than one object has the
  * name (none takes it); idle: [{ id, name }] objects made meanwhile, named in building, that take no prop.
  */

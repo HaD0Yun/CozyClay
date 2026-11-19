@@ -45,7 +45,8 @@ function expected(p, row, tops, cells) {
 	if (!sphere && Math.abs(((own.turn - box.turn) % 360 + 540) % 360 - 180) > 0.5) out.push(`turn ${r2(own.turn)}°, the box's ${r2(box.turn)}°`);
 	const [w, h, d] = box.size;
 	if (!sphere && !tops.length) out.push(`top unmeasured (the Studio measured no flat top on it); the box's top is ${h} m over its base`);
-	if (!sphere && tops.length && !tops.some(t => Math.abs(t.y - h) <= 0.02 && ov(t.x0, t.x1, -w / 2, w / 2) * ov(t.z0, t.z1, -d / 2, d / 2) >= 0.5 * w * d)) out.push(`no flat top at the box's top (${h} m over its base, within 0.02 m) over half its footprint; its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}`);
+	// a taken object's flat top covers the box's whole footprint, within 0.02 m on each side
+	if (!sphere && tops.length && !tops.some(t => Math.abs(t.y - h) <= 0.02 && ov(t.x0, t.x1, -w / 2, w / 2) >= w - 0.02 && ov(t.z0, t.z1, -d / 2, d / 2) >= d - 0.02)) out.push(`no flat top at the box's top (${h} m over its base, within 0.02 m) over its footprint (${w} x ${d} m, within 0.02 m on each side); its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}`);
 	const on = cells.filter(c => within(c, [own.base[0], own.base[2]], own.turn, [own.size[0] / 2, own.size[2] / 2]) && !within(c, [box.base[0], box.base[2]], box.turn, [w / 2, d / 2]));
 	if (on.length) out.push(`footprint ${r2(own.size[0])} x ${r2(own.size[2])} m reaches past the box (${w} x ${d} m) onto floor the feet use (${on.length} cell${on.length === 1 ? "" : "s"} of 0.1 m)`);
 	return out;

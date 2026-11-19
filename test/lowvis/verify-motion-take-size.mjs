@@ -20,7 +20,7 @@ for (const background of [true, false]) {
 		assert.ok(Math.abs(mine.turn - 25) < 0.01, `${label}: the prop's turn`);
 		assert.deepEqual(mine.scale, [1, 1, 1]);
 		assert.deepEqual(answer.propsSet, [`crate (${id}), made meanwhile, took the motion's prop crate: base [1, 0, 1] (was [4, 0, 4]), turn ${r2(mine.turn)}° (was 0°).`]);
-		const want = top ? `no flat top at the box's top (0.2 m over its base, within 0.02 m) over half its footprint; its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}` : "top unmeasured (the Studio measured no flat top on it); the box's top is 0.2 m over its base";
+		const want = top ? `no flat top at the box's top (0.2 m over its base, within 0.02 m) over its footprint (0.6 x 0.3 m, within 0.02 m on each side); its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}` : "top unmeasured (the Studio measured no flat top on it); the box's top is 0.2 m over its base";
 		assert.equal(tops.length > 0, top, `${label}: the Studio measures a top: ${top}`);
 		assert.deepEqual(answer.motionFit, { fits: false, objects: [{ id, name: "crate", differs: [want] }], note: answer.motionFit.note }, `${label}, ${background ? "plain turn" : "a call that waits"}`);
 		if (top) assert.equal(r2(tops[0].y), r2(mine.size[1]), "the told top is the object's own height");

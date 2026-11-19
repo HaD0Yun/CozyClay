@@ -90,7 +90,7 @@ export const prop = (id, size, base, extra = {}) => ({ id, size, at: [base[0], b
 export const stage = props => ({ frames: 60, characters: [{ id: "a1", at: [0, 0], heading: 0 }], props });
 
 /**
- * One turn: motion { request, building }, then meanwhile(tools) (sculpt, add, update, group: the agent's calls while
+ * One turn: motion { request, building }, then meanwhile(tools) (sculpt, add, update, group, remove: the agent's calls while
  * the writer works), then motion_result. background false: the call waits, and meanwhile runs beside it as another
  * caller's edits. -> { answer, requests }
  */
@@ -106,7 +106,7 @@ export async function turn({ studio, work, building, meanwhile = async () => {},
 	};
 	const deps = { runScene, installClip, studioScene, readClip: () => work.clip };
 	const door = createMotionDoor({ run: options => runMotion({ ...options, words: "the user's words", note: options.request, memoryKey: key, hub: studio.hub, workspaceHandle: "ws", invoke: studio.run, env: {}, deps }), mark: studio.mark, rollback: studio.rollback, background });
-	const actions = ["object.sculpt", "object.add", "object.update", "object.group"];
+	const actions = ["object.sculpt", "object.add", "object.update", "object.group", "object.remove"];
 	const list = door.with(actions.map(action => ({ name: action, handler: async args => studio.run(action, args) })));
 	const via = background ? list : actions.map(action => ({ handler: args => studio.run(action, args) }));
 	const tools = Object.fromEntries(actions.map((action, k) => [action.split(".")[1], args => via[k].handler(args)]));
