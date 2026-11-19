@@ -8,15 +8,11 @@
 //     (the floor cells the motion's feet touch). A part that rises above the box elsewhere is no difference here; a body
 //     passing through a drawn part is the final review's finding (src/solid-contact.js).
 //   - a prop that moves (carried, pushed): where its track has it, so only its size, held by the hands, against the box's.
-//   - a ball that stays put: its place.
-// An object that took a prop at the install (motion-props.mjs) is told whole, on the result and on every later edit: a
-// ball's size too (the body meets all of it), a box's flat top must cover the box's whole footprint (within SIZE on each
-// side), and a box whose flat top the Studio did not measure is said to be unmeasured, with the box's top height.
 // Only geometry: no object kinds or names.
 // A body is as large as its character's scale: the motion is written for one scale, and a character whose scale is
 // then changed plays its take that many times as large about its place, off the floor spots and objects it was put on.
 // An edit of an animated character answers with motionFit.bodies when its scale is no longer the motion's.
-//   rememberBoxes(key, scene, placed, floor, whole) the boxes of one motion and the floor its feet use, per conversation
+//   rememberBoxes(key, scene, placed, floor)  the boxes of one motion and the floor its feet use, per conversation
 //   rememberBodies(key, list), bodiesOf(key)  the scale each animated character's motion was written for
 //   bodyFitOf(body, row)                      the difference of one describe character row from that body: [text]
 //   boxesOf(key), floorOf(key)                Map(<Studio id> -> box) and [[x, z], ...] floor cells, empty when none
@@ -32,31 +28,28 @@ const TOP = 0.02, COVER = 0.5; // a flat top within 2 cm of the box's top height
 const FLOOR_CELL = 0.1, FOOT = 0.15; // metres: the floor cells, and a joint lower than this is a foot on the floor
 const RAD = Math.PI / 180;
 const bodies = new Map(); // conversation -> Map(<Studio character id> -> { id, scale, tint })
-const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves?, whole? }), [[x, z]]
+const boxes = new Map(), floors = new Map(); // conversation -> Map(<Studio id> -> { id, name, size: [w, h, d], base: [x, y, z], turn, sphere, moves? }), [[x, z]]
 const r2 = v => Math.round(v * 100) / 100;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
 const angle = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
 
 /**
  * Keeps the boxes of a motion's scene ({ props: [{ id, size, at, turn?, shape?, moves? }] }) under key; placed:
- * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch; whole: the Studio
- * ids of the objects that took a prop, told whole (fitOf).
+ * { <prop id>: <Studio id> }; floor: the centres [x, z] of the floor cells the motion's feet touch.
+ * -> undo(): keeps again what was kept under key before (a draft of a motion that then failed: motion-draft.mjs).
  */
-export function rememberBoxes(key, scene, placed = {}, floor = [], whole = new Set()) {
-	if (key == null) return;
-	const next = new Map();
+export function rememberBoxes(key, scene, placed = {}, floor = []) {
+	if (key == null) return () => {};
+	const was = [boxes.get(key), floors.get(key)], next = new Map();
 	for (const prop of scene?.props ?? []) {
-		const id = placed[prop.id], box = boxOf(prop, id);
-		if (id && box) next.set(id, whole.has(id) ? { ...box, whole: true } : box);
+		const id = placed[prop.id];
+		if (!id || !Array.isArray(prop.size) || !Array.isArray(prop.at)) continue;
+		const sphere = prop.shape === "sphere", size = sphere ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
+		next.set(id, { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}) });
 	}
 	boxes.set(key, next);
 	floors.set(key, floor);
-}
-/** The box of one prop of a motion's scene as the Studio object id stands for it, or null when it has no size or place. */
-function boxOf(prop, id) {
-	if (!Array.isArray(prop?.size) || !Array.isArray(prop.at)) return null;
-	const sphere = prop.shape === "sphere", size = sphere ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
-	return { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}) };
+	return () => { for (const [map, value] of [[boxes, was[0]], [floors, was[1]]]) if (value === undefined) map.delete(key); else map.set(key, value); };
 }
 
 /** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key. */
@@ -78,28 +71,22 @@ function inside([x, z], [cx, cz], deg, [hw, hd]) {
 }
 const overlap = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 
-/**
- * What differs between a describe row ({ x, y, z, rot, footprint, height, scaleX.., tops, hidden }) and its box where the
- * body meets it, as short texts. A box that is whole (an object that took a prop): a ball's size too, a flat top over the
- * box's whole footprint, and a box with no measured flat top is told so.
- */
+/** What differs between a describe row ({ x, y, z, rot, footprint, height, scaleX.., tops, hidden }) and its box where the body meets it, as short texts. */
 export function fitOf(box, row, floor = []) {
 	if (!row) return ["removed: the motion uses it"];
-	const whole = box.whole === true;
 	if (row.hidden) return ["hidden: the motion uses it"];
 	const out = [], base = [finite(row.x), finite(row.y), finite(row.z)], d = base.map((v, k) => v - box.base[k]);
 	const size = [finite(row.footprint?.width, 1) * finite(row.scaleX, 1), finite(row.height, 1) * finite(row.scaleY, 1), finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1)];
-	const sized = () => ["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, the box's ${box.size[k]} m` : null).filter(Boolean);
-	if (box.moves) return sized();
+	if (box.moves) {
+		out.push(...["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, the box's ${box.size[k]} m` : null).filter(Boolean));
+		return out;
+	}
 	if (Math.hypot(...d) > PLACE) out.push(`base at [${base.map(r2).join(", ")}], the box's at [${box.base.join(", ")}]`);
-	if (box.sphere && whole) out.push(...sized()); // a ball has no flat top: the body meets all of it
 	if (!box.sphere && angle(finite(row.rot), box.turn) > TURN) out.push(`turn ${r2(finite(row.rot))}°, the box's ${r2(box.turn)}°`);
 	const tops = Array.isArray(row.tops) ? row.tops : [], [w, h, dd] = box.size;
-	if (!box.sphere && !tops.length && whole) out.push(`top unmeasured (the Studio measured no flat top on it); the box's top is ${h} m over its base`);
 	if (!box.sphere && tops.length) {
-		const across = t => [overlap(t.x0, t.x1, -w / 2, w / 2), overlap(t.z0, t.z1, -dd / 2, dd / 2)];
-		const covers = t => Math.abs(t.y - h) <= TOP && (whole ? across(t)[0] >= w - SIZE && across(t)[1] >= dd - SIZE : across(t)[0] * across(t)[1] >= COVER * w * dd);
-		if (!tops.some(covers)) out.push(`no flat top at the box's top (${h} m over its base, within ${TOP} m) over ${whole ? `its footprint (${w} x ${dd} m, within ${SIZE} m on each side)` : "half its footprint"}; its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}`);
+		const covers = t => Math.abs(t.y - h) <= TOP && overlap(t.x0, t.x1, -w / 2, w / 2) * overlap(t.z0, t.z1, -dd / 2, dd / 2) >= COVER * w * dd;
+		if (!tops.some(covers)) out.push(`no flat top at the box's top (${h} m over its base, within ${TOP} m) over half its footprint; its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}`);
 	}
 	const onFeet = floor.filter(p => inside(p, [base[0], base[2]], finite(row.rot), [size[0] / 2, size[2] / 2]) && !inside(p, [box.base[0], box.base[2]], box.turn, [w / 2, dd / 2]));
 	if (onFeet.length) out.push(`footprint ${r2(size[0])} x ${r2(size[2])} m reaches past the box (${w} x ${dd} m) onto floor the feet use (${onFeet.length} cell${onFeet.length === 1 ? "" : "s"} of ${FLOOR_CELL} m)`);

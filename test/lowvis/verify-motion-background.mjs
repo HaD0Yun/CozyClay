@@ -135,14 +135,12 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 }
 
 // 3b. The hold is the whole scene the motion read until the install: an object made meanwhile, and every later edit of
-// it, goes through and is told to the motion (changed); the motion's building names reach the run.
+// it, goes through and is told to the motion (changed).
 {
 	const motion = stubMotion({ held: { characters: { c1: "c1" }, props: { bench: { id: "bench" }, shelf: { id: "shelf" } } } }), tx = transaction();
-	const seen = [];
-	const door = createMotionDoor({ run: options => { seen.push(options.building); return motion.run(options); }, mark: tx.mark, rollback: tx.rollback, background: true });
+	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
 	const [edit] = door.with([{ name: "edit", handler: async ({ id }) => ({ ok: true, affectedIds: [id] }) }]);
-	await door.handler({ request: "c1 sits on the stool", building: ["stool"] });
-	assert.deepEqual(seen, [["stool"]], "building goes to the motion");
+	await door.handler({ request: "c1 sits on the stool" });
 	await assert.rejects(edit.handler({ id: "shelf" }), error => error.code === "MOTION_RUNNING" && /shelf/.test(error.message), "an object of the scene it read is held");
 	assert.deepEqual(await edit.handler({ id: "stool-1" }), { ok: true, affectedIds: ["stool-1"] }, "a new object goes through");
 	assert.deepEqual(await edit.handler({ id: "stool-1" }), { ok: true, affectedIds: ["stool-1"] }, "and so does its next edit");
@@ -152,6 +150,77 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	motion.gate.release();
 	assert.deepEqual(await door.with([])[1].handler(), ANSWER);
 	console.log("PASS background motion: the hold is the scene the motion read; objects made meanwhile go through and are told to the motion");
+}
+
+// 3c. The draft (motion-draft.mjs): its steps hold the scene under their own mark and are rolled back when one throws;
+// the first motion_result before the install answers the draft once (at once when it was made before the call), the
+// next waits for the install; a motion that settles first answers its result; a waiting door passes no drafting.
+{
+	const DRAFT = { ok: true, draft: true, installed: false, compile: 1, standIns: ["stool (sculpt-1): 0.4 x 0.45 x 0.4 m, base [1, 0, 1]"], used: null, note: "n" };
+	const runs = [], tx = transaction();
+	const drafty = { run: async options => { runs.push(options); options.onScene({ characters: { c1: "c1" }, props: {} }); await new Promise(resolve => { options.release = resolve; }); return options.exclusive(async () => DONE); } };
+	const door = createMotionDoor({ run: drafty.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const [edit, , resultTool] = door.with([{ name: "edit", handler: async ({ id }) => ({ ok: true, affectedIds: [id] }) }]);
+	await door.handler({ request: "c1 sits on a stool" });
+	const [options] = runs;
+	assert.equal(typeof options.drafting, "function");
+	const early = resultTool.handler();
+	let answered = null;
+	early.then(value => { answered = value; });
+	await tick();
+	assert.equal(answered, null, "motion_result called before the draft waits for it");
+	assert.equal(await options.drafting(async () => "made"), "made");
+	assert.deepEqual(tx.calls, ["mark"], "the draft's steps ran under their own mark");
+	await assert.rejects(options.drafting(async () => { throw Object.assign(new Error("refused"), { code: "studio" }); }), /refused/);
+	assert.deepEqual(tx.calls, ["mark", "mark", "rollback"], "a refused draft step is rolled back");
+	options.onDraft(DRAFT);
+	assert.deepEqual(await early, DRAFT, "the draft is answered at that moment");
+	assert.deepEqual(await edit.handler({ id: "sculpt-1" }), { ok: true, affectedIds: ["sculpt-1"] }, "a stand-in of the draft takes edits");
+	const late = resultTool.handler();
+	let installed = null;
+	late.then(value => { installed = value; });
+	await tick();
+	assert.equal(installed, null, "the next motion_result waits for the install");
+	options.release();
+	assert.deepEqual(await late, ANSWER);
+	assert.equal(await door.unfinished(), null);
+
+	// the draft made before the call: answered at once; twice in a row: the second waits for the install
+	runs.length = 0;
+	const door2 = createMotionDoor({ run: drafty.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const [, result2] = door2.with([]);
+	await door2.handler({ request: "c1 sits" });
+	runs[0].onDraft(DRAFT);
+	assert.deepEqual(await result2.handler(), DRAFT, "a draft made before the call is answered at once");
+	const second = result2.handler();
+	await tick();
+	runs[0].release();
+	assert.deepEqual(await second, ANSWER, "the second call in a row answers the installed result");
+
+	// a motion that settles before motion_result is called answers its result, never the draft
+	runs.length = 0;
+	const door3 = createMotionDoor({ run: drafty.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const [, result3] = door3.with([]);
+	await door3.handler({ request: "c1 sits" });
+	runs[0].onDraft(DRAFT);
+	runs[0].release();
+	await tick(); await tick();
+	assert.deepEqual(await result3.handler(), ANSWER, "the result once the motion has settled");
+
+	// a turn that ends after the draft is handed the installed result, not the draft
+	runs.length = 0;
+	const door4 = createMotionDoor({ run: drafty.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	await door4.handler({ request: "c1 sits" });
+	runs[0].onDraft(DRAFT);
+	setTimeout(() => runs[0].release(), 10);
+	assert.equal(await door4.unfinished(), `Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:\n${JSON.stringify(ANSWER)}`);
+
+	// a waiting door (a task's run): no drafting, no onDraft
+	const waiting = [];
+	const door5 = createMotionDoor({ run: async options => { waiting.push(options); return DONE; }, mark: tx.mark, rollback: tx.rollback });
+	await door5.handler({ request: "c1 sits" });
+	assert.equal("drafting" in waiting[0] || "onDraft" in waiting[0], false);
+	console.log("PASS background motion: the draft holds the scene under its own mark; motion_result answers it once, then the install; a waiting door makes none");
 }
 
 // 4. A task's run (background false) waits for the motion as before and has no motion_result.

@@ -8,15 +8,15 @@ import { motionEngine } from "./motion-engine.mjs";
 import { motionWriter } from "./motion-engine.mjs";
 import { runMotion } from "./motion-run.mjs";
 
-const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. Its report ends with a Missing line. images: true sends the user's pictures. building names the objects you make while the motion is written; the motion writer is told each name that has Latin letters or digits, written as an id, and may use them as prop ids. A prop the motion adds is taken by the one object named in building and made since the motion read the scene whose name is the prop's id (spaces and other marks as _; a shown solid object turned about Y only, not in a group): the install sets it to the prop's place and turn, in place of a stand-in, and leaves it the size you made it. propsSet says, per object, what the install set (base, turn, each with what it was), which props it added as stand-ins, and which objects named in building no prop took. motionFit names each object that took a prop and differs from that prop's box where the body meets it, with each measure as the object's number and the box's; a top the Studio could not measure is named with the box's top height.";
+const DESCRIPTION = "Makes the body motion of rig characters. The user's message of this turn reaches it by itself, as typed; request is your note: which body and objects, what to keep or change. It reads the scene, uses the characters and objects there, adds the characters and the objects the body touches, stands on, sits on, holds or moves that the scene lacks (each a plain box or ball at the place and size the motion needs), installs the motion and moves the objects it handles. used names the objects the motion uses as boxes and the floor the bodies cross. A body is as large as its character's scale and has its character's tint: the motion is written for the scale a character has, and sets the scale and the tint the request gives a body; bodies names each animated character's scale and tint when one has another scale than 1 or a tint, bodiesSet the scale and tint this motion set. Its report ends with a Missing line. images: true sends the user's pictures.";
 // A plain turn's motion runs while the agent works (createMotionDoor background): the facts the agent reads of it.
-const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used, propsSet. motion_result answers that result, waiting only for what is left of the motion. Until the motion is installed, a call that changes a character or object of the scene it read is undone and refused: the motion is written against them as they were. Any other call goes through, so the objects named in building can be made meanwhile; the result's motionFit names an object changed or added meanwhile that differs from the box the motion used or stands on floor the feet use. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
-const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it. A motion that failed answers its error.";
+const STARTED = " In this turn it answers started once it has read the scene; the motion is then written and installed while you go on (minutes). Its result is what it answers otherwise: the report and its Missing line, frames, the characters and objects, used, motionFit, propsSet. When the motion writer's first compile goes through, the props of that compile that the scene lacks are added at once as stand-ins: a draft, which the writer is not told of. The first motion_result called before the install answers that draft as soon as it is made (draft: true, standIns, used of that compile, and a note on what the install does with the stand-ins); a later motion_result answers the installed result, waiting only for what is left of the motion. Until the motion is installed, a call that changes a character or object of the scene it read is undone and refused: the motion is written against them as they were. Any other call goes through, on the draft's stand-ins too; the result's motionFit names an object changed or added meanwhile that differs from the box the motion used or stands on floor the feet use, and propsSet what the install changed since the draft, per object. A motion that fails or is stopped after the draft removes the stand-ins not changed since it, and its error says what it removed and what it left. The turn does not end before the result has reached you: if you end first, it comes to you as a message.";
+const RESULT_DESCRIPTION = "Answers the result of the motion that motion started in this turn (the report and its Missing line, frames, the characters and objects, used), waiting for what is left of it. Before the install, its first call answers the draft once the motion writer's first compile has made one (draft: true); the next call waits for the install. A motion that failed answers its error.";
 // labelled as the editor's own message (session-store.mjs OBSERVATION_LABEL): a restored transcript does not show it as the user's words
 const ENDED = "Studio motion observation: the motion started in this turn has ended. Its result, as motion_result answers it:";
 const PARAMETERS = {
 	type: "object",
-	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, building: { type: "array", items: { type: "string", minLength: 1, maxLength: 60 }, maxItems: 20 }, images: { type: "boolean" } },
+	properties: { request: { type: "string", minLength: 1, maxLength: 4000 }, images: { type: "boolean" } },
 	required: ["request"], additionalProperties: false,
 };
 const AVAILABLE_MS = 60_000;
@@ -60,6 +60,8 @@ const touched = result => [...(Array.isArray(result?.affectedIds) ? result.affec
  * scene one at a time, and a call that changed an id the motion is written against (every character and object id of
  * the scene it read, onScene) is rolled back and refused. changed(): the ids the calls that went through changed
  * meanwhile (motion-run.mjs checks them after the install). sceneOf(): the scene the turn's tools act on; the install is refused once it is another than at the start.
+ * drafting(steps) and onDraft(answer) go to the run only then (motion-draft.mjs): the draft's steps hold the scene like
+ * the install, and the first motion_result before the install answers the draft once it is made.
  * unfinished({ failed }) -> null, or the text of a result the agent has not collected, which the runner hands to the
  * model before the turn may end (agent-runner.mjs); failed (the turn ended on an error or a stop) stops the motion instead.
  */
@@ -73,7 +75,7 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	const waiting = async (args, { signal, toolCallId, emit } = {}) => {
 		await mark();
 		try {
-			return answerOf(await run({ request: args.request, building: args.building ?? [], images: args.images ? images() : [], signal, ...progress(toolCallId, emit) }));
+			return answerOf(await run({ request: args.request, images: args.images ? images() : [], signal, ...progress(toolCallId, emit) }));
 		} catch (error) {
 			if (error?.code === "studio") await rollback();
 			throw error;
@@ -85,9 +87,16 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 	const collect = async current => { try { return answerOf(await current.result); } finally { current.collected = true; } };
 	const starting = async (args, { signal, toolCallId, emit } = {}) => {
 		if (job && !job.collected) throw coded("MOTION_RUNNING", "A motion of this turn is still being written: motion_result answers it; a change to it is another motion call after that.");
-		const current = { stop: new AbortController(), held: null, changed: new Set(), installed: false, collected: false, scene: sceneOf() };
+		const current = { stop: new AbortController(), held: null, changed: new Set(), installed: false, settled: false, collected: false, told: false, scene: sceneOf() };
 		let read;
 		const scene = new Promise(resolve => { read = resolve; });
+		current.draft = new Promise(resolve => { current.onDraft = resolve; });
+		// the draft's editor steps (and their removal when the motion fails) hold the scene like the install, under their own mark
+		const drafting = steps => hold(async () => {
+			if (sceneOf() !== current.scene) throw coded("studio", "Another scene is open.");
+			await mark();
+			try { return await steps(); } catch (error) { await rollback(); throw error; }
+		});
 		// the install holds the scene alone, under its own mark, and is rolled back when the Studio refused it
 		const exclusive = install => hold(async () => {
 			try {
@@ -97,8 +106,8 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 			} finally { current.installed = true; }
 		});
 		const onScene = ids => { current.held = new Set([...Object.values(ids?.characters ?? {}), ...Object.values(ids?.props ?? {}).map(prop => prop?.id)]); read(); };
-		current.result = run({ request: args.request, building: args.building ?? [], images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, changed: () => [...current.changed], exclusive });
-		current.result.catch(() => {}).finally(() => { current.installed = true; read(); });
+		current.result = run({ request: args.request, images: args.images ? images() : [], signal: signal ? AbortSignal.any([signal, current.stop.signal]) : current.stop.signal, ...progress(toolCallId, emit), onScene, changed: () => [...current.changed], exclusive, drafting, onDraft: current.onDraft });
+		current.result.catch(() => {}).finally(() => { current.installed = true; current.settled = true; read(); });
 		job = current;
 		await scene;
 		// a motion that ended before it read the scene: its answer or its error is this call's
@@ -137,7 +146,13 @@ export function createMotionDoor({ run, mark, rollback, images = () => [], backg
 		name: "motion_result", label: "Motion result", description: RESULT_DESCRIPTION, parameters: { type: "object", properties: {}, additionalProperties: false },
 		handler: async () => {
 			if (!job) throw coded("NO_MOTION", "No motion was started in this turn.");
-			return collect(job);
+			const current = job;
+			// the first call before the install answers the draft once it is made; the result when the motion settles first
+			if (!current.told && !current.settled) {
+				const draft = await Promise.race([current.draft, current.result.then(() => null, () => null)]);
+				if (draft && !current.settled && !current.told) { current.told = true; return draft; }
+			}
+			return collect(current);
 		},
 	};
 	const door = {
@@ -176,8 +191,8 @@ export async function turnMotionDoor({ value, env = process.env, hub, tools, tra
 	if (value.main || motionEngine(env) !== "lowvis" || !await motionAvailable(env)) return null;
 	return createMotionDoor({
 		// the user's message as typed goes with the agent's request; a task's is the message its coordinator had (studio-task-routes.mjs)
-		run: ({ request, building, images, signal: callSignal, onCompile, onBodies, onScene, changed, exclusive }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, building, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
-			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, onBodies, onScene, changed, exclusive, deps }),
+		run: ({ request, images, signal: callSignal, onCompile, onBodies, onScene, changed, exclusive, drafting, onDraft }) => runMotion({ words: value.task ? value.task.words : value.text, wordsOf: value.task ? "task" : "turn", note: request, images, memoryKey: key, hub, workspaceHandle: value.context.host.workspaceHandle,
+			invoke: (action, args) => tools.internal.invoke("run_action", { action, args }), signal: callSignal && signal ? AbortSignal.any([callSignal, signal]) : callSignal ?? signal, env, onCompile, onBodies, onScene, changed, exclusive, drafting, onDraft, deps }),
 		mark: () => transaction.mark(), rollback: () => transaction.rollback(), images: () => pictures.get(key) ?? [],
 		background: !value.task, sceneOf: () => admission?.host?.sceneId ?? null,
 	});

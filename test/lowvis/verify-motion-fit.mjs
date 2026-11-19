@@ -65,13 +65,7 @@ const row = extra => ({ id: "s1", x: 0, y: 0, z: 1, rot: 90, footprint: { width:
 	assert.deepEqual(fitOf(seat, look({ tops: withBack, footprint: { width: 0.45, depth: 0.8 } }), feet),
 		["footprint 0.45 x 0.8 m reaches past the box (0.45 x 0.45 m) onto floor the feet use (2 cells of 0.1 m)"], "a footprint grown into where the feet stand is a difference");
 	assert.deepEqual(fitOf(seat, look({ tops: withBack, footprint: { width: 0.8, depth: 0.45 } }), feet), [], "grown away from the feet: no difference");
-	// a whole box (an object that took a prop): its flat top covers the box's footprint, within 0.02 m on each side
-	const narrow = [{ y: 0.45, x0: -0.3, z0: -0.2, x1: 0.35, z1: 0.2 }];
-	assert.deepEqual(fitOf(box, row({ tops: narrow })), [], "over half the footprint: no difference for a box of the scene");
-	assert.deepEqual(fitOf({ ...box, whole: true }, row({ tops: narrow })), ["no flat top at the box's top (0.45 m over its base, within 0.02 m) over its footprint (1.2 x 0.4 m, within 0.02 m on each side); its flat tops (height over its base: width x depth m): 0.45: 0.65 x 0.4"]);
-	assert.deepEqual(fitOf({ ...box, whole: true }, row({ tops: [{ y: 0.45, x0: -0.59, z0: -0.19, x1: 0.6, z1: 0.2 }] })), [], "a whole box: 1 cm is inside the tolerance");
-	assert.deepEqual(fitOf({ ...box, whole: true }, row({ tops: [] })), ["top unmeasured (the Studio measured no flat top on it); the box's top is 0.45 m over its base"]);
-	console.log("PASS fitOf: only where the body meets the object: place, turn, the flat top at its height, the floor the feet use; a moving prop by its size; a whole box by its whole top");
+	console.log("PASS fitOf: only where the body meets the object: place, turn, the flat top at its height, the floor the feet use; a moving prop by its size");
 }
 
 // --- turnFitView ---
@@ -97,10 +91,5 @@ const row = extra => ({ id: "s1", x: 0, y: 0, z: 1, rot: 90, footprint: { width:
 	assert.equal((await task.handler({})).motionFit.fits, true, "a task reads the boxes of its coordinator's conversation");
 	const list = [tool({ ok: true, affectedIds: ["s1"] })];
 	assert.equal(turnFitView({ value, env: { COZYCLAY_MOTION_ENGINE: "old" }, hub }).tools(list), list, "the old engine: the tools as they are");
-	// an object that took a prop is told whole on a later edit too: a ball's size, an unmeasured top
-	rememberBoxes("conv-w", { props: [{ id: "ball", size: [0.65], at: [0, 0.325, 1], shape: "sphere" }, { id: "post", size: [0.12, 1, 0.12], at: [2, 0.5, 1] }] }, { ball: "b1", post: "p1" }, [], new Set(["b1", "p1"]));
-	describe = { objects: [{ id: "b1", x: 0, y: 0, z: 1, rot: 0, footprint: { width: 1, depth: 1 }, height: 1, scaleX: 0.8, scaleY: 0.8, scaleZ: 0.8, tops: [] }, { id: "p1", x: 2, y: 0, z: 1, rot: 0, footprint: { width: 0.12, depth: 0.12 }, height: 1.3, scaleX: 1, scaleY: 1, scaleZ: 1, tops: [] }] };
-	const [edit] = turnFitView({ value: { ...value, sessionId: "conv-w" }, env: {}, hub, delayMs: 0 }).tools([tool({ ok: true, affectedIds: ["b1", "p1"] })]);
-	assert.deepEqual((await edit.handler({})).motionFit.objects, [{ id: "b1", name: "ball", differs: ["width (x) 0.8 m, the box's 0.65 m", "height 0.8 m, the box's 0.65 m", "depth (z) 0.8 m, the box's 0.65 m"] }, { id: "p1", name: "post", differs: ["top unmeasured (the Studio measured no flat top on it); the box's top is 1 m over its base"] }]);
 	console.log("PASS turnFitView: an edit of a used object answers motionFit; others, and the old engine, are unchanged");
 }

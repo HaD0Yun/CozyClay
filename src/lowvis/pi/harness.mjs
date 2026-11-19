@@ -86,8 +86,10 @@ function markCache(payload) {
  * off: the feature flags of the variant switched off by name (prompt.mjs OFF).
  * images: pictures given with the request, [{ data: <base64>, mimeType }], at most MAX_IMAGES. The record keeps their count only.
  * bodies: { <character id>: { scale?, tint? } }: what a character the request names already has (compile-tool.mjs).
+ * onCompiled({ n, scene, clip }): after each compile that went through (after its log line), with the scene it compiled
+ * (as the run's final scene holds it) and the file its clip was just written to (the next compile writes it again).
  */
-export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, signal = null }) {
+export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, effort = DEFAULT_EFFORT, keepImages = "latest", variant = "base", off = [], images = [], bodies = {}, safety = SAFETY, env = process.env, outDir = join(ROOT, "lowvis-out/pi", name), log = () => {}, onCompiled = () => {}, signal = null }) {
 	const secrets = [env.CLIPROXY_API_KEY, env.CLIPROXY_BASE_URL].filter(s => typeof s === "string" && s.length > 3);
 	const scrub = text => secrets.reduce((t, s) => t.split(s).join("<redacted>"), String(text));
 	if (!VARIANTS.includes(variant)) throw new Error(`variant: want one of ${VARIANTS.join(", ")}, got ${variant}`);
@@ -129,6 +131,7 @@ export async function runScene({ name, request, model: modelId = DEFAULT_MODEL, 
 			shots.push(entry); byToolCall.set(toolCallId, entry);
 			if (r.status === "ok") firstCompileMs ??= round(now());
 			log(`  motion ${r.n}: ${r.status}${r.error ? ` (${scrub(r.error).slice(0, 120)})` : `, build ${r.buildMs} ms, render ${r.renderMs} ms, ${r.images.length} image(s)`}`);
+			if (r.status === "ok") try { onCompiled({ n: r.n, scene: motion.state.last.scene, clip: motion.clipFile }); } catch { /* a failing listener never fails the run */ }
 			return { content: [{ type: "text", text: r.text }, ...r.images.map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }))], details: { n: r.n, status: r.status } };
 		},
 	};

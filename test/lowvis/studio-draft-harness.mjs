@@ -1,20 +1,23 @@
-// A Studio turn for the take tests (verify-motion-take*.mjs): the real motion door, runMotion, studioScene and
-// installClip, an editor made of the Studio's own object reducers (src/scene-objects.js, src/commands/object-sculpt.js),
+// A Studio turn for the draft tests (verify-motion-draft*.mjs): the real motion door, runMotion, studioScene, installClip
+// and turnFitView, an editor made of the Studio's own object reducers (src/scene-objects.js, src/commands/object-sculpt.js),
 // flat tops measured by the Studio's own tops.js over the box meshes a record draws, and a scripted motion writer whose
-// scene and spec the real engine compiles. No one-box shortcut: a record's size is what the Studio computes from its parts.
+// compiles the real engine builds and which the test steps one at a time. No one-box shortcut: a record's size is what
+// the Studio computes from its parts.
 import * as THREE from "three";
 import { createMotionDoor } from "../../bin/agent/motion-door.mjs";
+import { turnFitView } from "../../bin/agent/motion-fit.mjs";
 import { runMotion } from "../../bin/agent/motion-run.mjs";
 import { sculptMethod } from "../../src/commands/object-sculpt.js";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip } from "../../src/lowvis/clip.js";
-import { installClip } from "../../src/lowvis/studio/install.js";
+import { addStandIn, installClip, standInOf } from "../../src/lowvis/studio/install.js";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
 import { objectTops } from "../../src/lowvis/studio/tops.js";
 import * as O from "../../src/scene-objects.js";
 
 const coded = (code, message) => Object.assign(new Error(message), { code });
 const changedIds = (before, after) => [...new Set([...before, ...after].map(row => row.id))].filter(id => JSON.stringify(before.find(row => row.id === id)) !== JSON.stringify(after.find(row => row.id === id)));
+export const tick = () => new Promise(resolve => setTimeout(resolve, 2));
 
 /** The box meshes of one record as the stage draws them (box parts without rotation, and cubes), or null. */
 function groupOf(row) {
@@ -28,19 +31,23 @@ function groupOf(row) {
 	} else if (row.renderer === "cube") add([row.footprint.width, row.height, row.footprint.depth], [0, row.height / 2, 0]);
 	else return null;
 	group.position.set(row.x, row.y, row.z);
-	group.rotation.y = row.rot * Math.PI / 180;
+	group.rotation.set((row.rotX ?? 0) * Math.PI / 180, row.rot * Math.PI / 180, (row.rotZ ?? 0) * Math.PI / 180);
 	group.scale.set(row.scaleX, row.scaleY, row.scaleZ);
 	return group;
 }
 
-/** An editor of the Studio's own reducers: run(action, args) (a refusal throws), describe(args), mark / rollback; undrawn: ids whose group is not drawn yet (tops []). */
-export function studioEditor({ undrawn = new Set() } = {}) {
+/**
+ * An editor of the Studio's own reducers: run(action, args) (a refusal throws), describe(args), mark / rollback;
+ * refuse(action, args) -> true makes the editor refuse that step (a Studio refusal).
+ */
+export function studioEditor({ refuse = () => false } = {}) {
 	let rows = [], cast = new Map([["a1", { id: "a1", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }]]), marked = null;
 	const calls = [];
 	const objectOf = id => rows.find(row => row.id === id) ?? (() => { throw coded("STALE_TARGET", `Object ${id} is not in this scene.`); })();
 	const sculpt = sculptMethod({ owned: () => ({ read: () => rows, write: next => { rows = next; } }), objectOf, changed: before => changedIds(before, rows) });
 	const run = async (action, args = {}) => {
 		calls.push({ action, args });
+		if (refuse(action, args)) throw coded("INVALID_ARGUMENT", `refused ${action}`);
 		const before = rows;
 		if (action === "object.sculpt") return { ok: true, ...sculpt(args) };
 		if (action === "object.add") {
@@ -50,14 +57,14 @@ export function studioEditor({ undrawn = new Set() } = {}) {
 			return { ok: true, affectedIds: [placed.id] };
 		}
 		if (action === "object.update") { objectOf(args.id); rows = O.updateSceneObject(before, args.id, args.patch); return { ok: true, affectedIds: changedIds(before, rows) }; }
-		if (action === "object.remove") { rows = args.ids.reduce((list, id) => O.removeSceneObject(list, id), before); return { ok: true, affectedIds: changedIds(before, rows) }; }
+		if (action === "object.remove") { for (const id of args.ids) objectOf(id); rows = args.ids.reduce((list, id) => O.removeSceneObject(list, id), before); return { ok: true, affectedIds: changedIds(before, rows) }; }
 		if (action === "object.group") { rows = args.children.reduce((list, id) => O.setSceneObjectParent(list, id, args.parent), before); return { ok: true, affectedIds: changedIds(before, rows) }; }
 		if (action === "character.add") { cast.set(args.character.id, { ...args.character }); return { ok: true, affectedIds: [args.character.id] }; }
 		if (action === "character.update") { Object.assign(cast.get(args.characterId) ?? {}, args.patch); return { ok: true, affectedIds: [args.characterId] }; }
 		if (action === "character.clearWaypoints" || action === "motion.v4.install") return { ok: true, affectedIds: [args.characterId] };
 		throw coded("INVALID_ARGUMENT", `no action ${action}`);
 	};
-	const topsOf = row => (undrawn.has(row.id) ? [] : objectTops(groupOf(row)));
+	const topsOf = row => (row.hidden ? [] : objectTops(groupOf(row)));
 	const describe = (args = {}) => ({ characters: [...cast.values()].map(row => ({ ...row })), objects: rows.map(row => ({ ...structuredClone(row), ...(args.tops === true && !row.hidden ? { tops: topsOf(row) } : {}) })) });
 	return {
 		run, describe, calls, topsOf, rows: () => rows, row: id => rows.find(row => row.id === id), named: name => rows.filter(row => row.name === name),
@@ -76,7 +83,7 @@ function withMovers(scene, spec) {
 	}
 	return { ...scene, props: (scene.props ?? []).map(p => (moved.has(p.id) ? { ...p, moves: true } : p)) };
 }
-/** What the writer ends with: { scene (as the compile tool keeps it), spec, clip (the engine's, as JSON) }. */
+/** One compile of the writer: { scene (as the compile tool keeps it), spec, clip (the engine's, as JSON) }. */
 export function written(scene, spec) {
 	const def = withMovers(structuredClone(scene), spec), built = buildClip(structuredClone({ demo: "x", ...spec }), structuredClone(def));
 	return { scene: def, spec, clip: JSON.parse(serializeClip(built.clip)) };
@@ -87,35 +94,54 @@ export const part = (id, size, at) => ({ id, shape: "box", size, position: [at[0
 export const recipe = (...parts) => ({ version: 1, parts });
 /** A prop of the writer's scene by its size and base. */
 export const prop = (id, size, base, extra = {}) => ({ id, size, at: [base[0], base[1] + (extra.shape === "sphere" ? size[0] : size[1]) / 2, base[2]], ...extra });
-export const stage = props => ({ frames: 60, characters: [{ id: "a1", at: [0, 0], heading: 0 }], props });
+export const stage = (props, frames = 60) => ({ frames, characters: [{ id: "a1", at: [0, 0], heading: 0 }], props });
 
 /**
- * One turn: motion { request, building }, then meanwhile(tools) (sculpt, add, update, group, remove: the agent's calls while
- * the writer works), then motion_result. background false: the call waits, and meanwhile runs beside it as another
- * caller's edits. -> { answer, requests }
+ * A scripted motion writer: compiles [written(...) | null (a compile that fails)], stepped by the test: step() runs the
+ * next compile (or ends the run once all ran). end: "report" (the model's report), "infra" (the proxy fails), "none"
+ * (no scene, no report). The scenes it read: requests.
  */
-export async function turn({ studio, work, building, meanwhile = async () => {}, background = true, key = null }) {
-	const requests = [];
-	let release;
-	const gate = new Promise(resolve => { release = resolve; });
-	const runScene = async ({ request, log }) => {
+export function scriptedWriter(compiles, { end = "report" } = {}) {
+	const requests = [], files = new Map();
+	let gate = null, started = null;
+	const ready = new Promise(resolve => { started = resolve; });
+	const wait = () => new Promise(resolve => { gate = resolve; });
+	const runScene = async ({ request, log, onCompiled, signal }) => {
 		requests.push(request);
-		await gate;
-		log?.("  motion 1: ok frames");
-		return { wallMs: 1000, compiles: 1, report: "Made.\nMissing: nothing.", missing: "nothing.", final: { clip: "clip.json", scene: work.scene, spec: work.spec } };
+		started();
+		let last = null, n = 0;
+		for (const work of compiles) {
+			await Promise.race([wait(), new Promise(resolve => signal?.addEventListener("abort", resolve, { once: true }))]);
+			if (signal?.aborted) break;
+			n++;
+			if (!work) { log?.(`  motion ${n}: rejected (bad spec)`); continue; }
+			files.set(`clip-${n}.json`, work.clip);
+			log?.(`  motion ${n}: ok, build 1 ms, render 1 ms, 1 image(s)`);
+			last = { n, work };
+			onCompiled?.({ n, scene: work.scene, clip: `clip-${n}.json` });
+		}
+		if (!signal?.aborted) await Promise.race([wait(), new Promise(resolve => signal?.addEventListener("abort", resolve, { once: true }))]);
+		const final = last ? { clip: `clip-${last.n}.json`, scene: last.work.scene, spec: last.work.spec } : null;
+		return { wallMs: 1000, compiles: n, report: end === "report" ? "Made.\nMissing: nothing." : null, missing: end === "report" ? "nothing." : null, final, ...(end === "infra" ? { infraError: { message: "the proxy failed" } } : {}), endedBy: end };
 	};
-	const deps = { runScene, installClip, studioScene, readClip: () => work.clip };
+	return { requests, runScene, readClip: file => structuredClone(files.get(file)), started: () => ready, step: async () => { while (!gate) await tick(); const go = gate; gate = null; go(); for (let k = 0; k < 6; k++) await tick(); } };
+}
+
+const ACTIONS = ["object.sculpt", "object.add", "object.update", "object.group", "object.remove"];
+/**
+ * One turn on the real door: background true (a plain turn: the agent's tools go through turnFitView and the door's
+ * guard, as agent-routes.mjs wraps them) or false (a task's run: the call waits; tools are another caller's). -> { call,
+ * tools: { sculpt, add, update, group, remove }, result() (motion_result), door }.
+ */
+export function turn({ studio, writer, key = "conv", background = true, request = "the agent's note" }) {
+	const deps = { runScene: writer.runScene, installClip, addStandIn, standInOf, studioScene, readClip: writer.readClip };
 	const door = createMotionDoor({ run: options => runMotion({ ...options, words: "the user's words", note: options.request, memoryKey: key, hub: studio.hub, workspaceHandle: "ws", invoke: studio.run, env: {}, deps }), mark: studio.mark, rollback: studio.rollback, background });
-	const actions = ["object.sculpt", "object.add", "object.update", "object.group", "object.remove"];
-	const list = door.with(actions.map(action => ({ name: action, handler: async args => studio.run(action, args) })));
-	const via = background ? list : actions.map(action => ({ handler: args => studio.run(action, args) }));
-	const tools = Object.fromEntries(actions.map((action, k) => [action.split(".")[1], args => via[k].handler(args)]));
-	const call = door.handler({ request: "the agent's note", ...(building === undefined ? {} : { building }) });
-	if (background) await call; else await new Promise(resolve => setTimeout(resolve, 5));
-	await meanwhile(tools);
-	release();
-	const answer = background ? await list.find(tool => tool.name === "motion_result").handler() : await call;
-	return { answer, requests };
+	const fitted = turnFitView({ value: { sessionId: key, context: { host: { workspaceHandle: "ws" } } }, env: {}, hub: studio.hub, delayMs: 0 }).tools(ACTIONS.map(action => ({ name: action, handler: async args => studio.run(action, args) })));
+	const list = background ? door.with(fitted) : [...fitted, door];
+	const tools = Object.fromEntries(ACTIONS.map((action, k) => [action.split(".")[1], args => list[k].handler(args)]));
+	const call = door.handler({ request });
+	const resultTool = list.find(tool => tool.name === "motion_result");
+	return { call, tools, door, result: () => resultTool.handler() };
 }
 
 /** A record as the Studio draws it: base, size (own box x scale), turn, scale. */
