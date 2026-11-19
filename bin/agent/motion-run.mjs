@@ -35,7 +35,7 @@ const ADDED = "What your scene adds becomes Studio content: a new character a bl
 const BODIES = "A character's scale and tint are the Studio character's own scale and tint: the ones your scene gives are set on it, one it leaves out stays as the Studio has it.";
 const DRESSED = "After you, the Studio agent gives your props a look over the same box and adds what the body does not touch (background, light, camera); it keeps their place, size and turn.";
 // said when the Studio agent names the objects it builds while the motion is written (the motion tool's building)
-const BUILDING = ids => `While you write, the Studio agent builds these objects, each with its own look: ${ids.join(", ")}. When your scene needs one of them, use its name as that prop's id: at the install the object takes the size, place and turn your scene gives that prop, in place of a stand-in. Their size and place are yours to choose for the motion.`;
+const BUILDING = ids => `While you write, the Studio agent builds these objects, each with its own look: ${ids.join(", ")}. When your scene needs one of them, use its name as that prop's id: at the install the object takes the place and turn your scene gives that prop, in place of a stand-in. Their size and place are yours to choose for the motion.`;
 
 /** The floor region every joint of every body crosses during the clip: { x: [min, max], z: [min, max] } (metres), or null. */
 function travelOf(clip) {
@@ -92,8 +92,9 @@ function requestOf({ words, wordsOf, note, building }, pictures, studio, before,
  * changed(): the ids other calls changed while the motion was written; the objects among them that differ where the
  * body goes are the answer's motionFit (motion-fit.mjs changedFit).
  * building: the names of the objects the Studio agent builds while the motion is written; the writer is told them as
- * prop ids it may use. At the install, a prop the writer added is taken by the one object made since the scene was read
- * whose name is its id (motion-props.mjs takenBy): set to its place and turn and scaled to its box. propsSet (only when
+ * prop ids it may use (those the scene it read does not have). At the install, a prop the writer added is taken by the
+ * one object made since the scene was read whose name is its id (motion-props.mjs takenBy): set to its place and turn;
+ * it keeps its own size. Nothing is taken when building names nothing (the direct key). propsSet (only when
  * there is one): what the install set on each object, read from the scene after it (motion-props.mjs propsSetOf).
  * deps: { runScene, installClip, studioScene, readClip(file) } in place of the real ones (tests).
  */
@@ -103,7 +104,8 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, b
 	const name = `agent-${stamp()}-${randomBytes(2).toString("hex")}`;
 	const off = motionOff(env), turn = !off.includes("turn"), tops = !off.includes("tops"), body = !off.includes("body");
 	const read = await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), studio = studioScene(read, { turn, tops, body });
-	const start = byId(read?.objects), names = [...new Set((Array.isArray(building) ? building : []).map(idOf).filter(Boolean))];
+	const start = byId(read?.objects), said = (Array.isArray(building) ? building : []).map(name => String(name ?? "").trim()).filter(Boolean);
+	const names = [...new Set(said.map(idOf).filter(id => id && !studio.ids.props[id]))]; // a prop of the scene read is that object
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
 	const has = Object.fromEntries(studio.scene.characters.filter(c => c.scale !== undefined || c.tint !== undefined).map(c => [c.id, { scale: c.scale, tint: c.tint }]));
 	onScene(studio.ids);
@@ -133,11 +135,11 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, b
 		}
 	};
 	// a prop the writer added is taken by an object made meanwhile of its name: read the scene as it is at the install
-	const props = clip.props ?? [], fresh = props.some(prop => !studio.ids.props[prop.id]) || names.length > 0;
+	const props = clip.props ?? [], fresh = said.length > 0;
 	let take = { made: {}, twins: {}, idle: [] }, at = new Map();
 	const result = await exclusive(async () => {
 		if (signal?.aborted) throw failure("aborted", "The turn was stopped.");
-		if (fresh) try { const rows = (await hub.command("describe", {}, workspaceHandle))?.objects; at = byId(rows); take = takenBy({ props, known: studio.ids.props, before: new Set(start.keys()), rows: [...at.values()], building: names }); } catch { /* unread: every added prop is a stand-in */ }
+		if (fresh) try { const rows = (await hub.command("describe", {}, workspaceHandle))?.objects; at = byId(rows); take = takenBy({ props, known: studio.ids.props, before: new Set(start.keys()), rows: [...at.values()], building: said }); } catch { /* unread: every added prop is a stand-in */ }
 		const done = await installClip(clip, run, { label: note ?? words, existing: studio.ids, turn, made: take.made });
 		if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 		return done;

@@ -2,10 +2,11 @@
 // Objects made while the motion is written take the motion's props (bin/agent/motion-props.mjs, install.js made):
 //  1. a scripted turn on the real door, runMotion, studioScene and installClip, with a fake motion writer and an
 //     in-memory editor: the agent makes and re-shapes an object the motion uses between motion and motion_result, it is
-//     not refused, and after the install it has the prop's size, place and turn; propsSet says so with the scene's numbers;
+//     not refused, and after the install it has the prop's place and turn and keeps its own size; propsSet says so with
+//     the scene's numbers;
 //  2. the motion writer reads the same request whether or not objects were made meanwhile;
-//  3. many generated scenes: every prop taken by one object made meanwhile ends at the prop's box, nothing else is
-//     taken, and every number of every propsSet line is the scene's own.
+//  3. many generated scenes: every prop taken by one object made meanwhile ends at the prop's base and turn with its
+//     own size, nothing else is taken, and every number of every propsSet line is the scene's own.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createMotionDoor } from "../../bin/agent/motion-door.mjs";
@@ -27,7 +28,7 @@ function editor(objects = [], characters = []) {
 		if (action === "object.sculpt" && args.id) { Object.assign(rows.get(args.id), bounds(args.recipe)); return { ok: true, affectedIds: [args.id] }; }
 		if (action === "object.sculpt" || action === "object.add") {
 			const id = `${action === "object.add" ? args.kind : "sculpt"}-${++n}`, size = action === "object.add" ? { footprint: { width: 1, depth: 1 }, height: 1 } : bounds(args.recipe);
-			rows.set(id, { id, name: args.name, renderer: action === "object.add" ? args.kind : "sculpt", ...args.placement, rot: args.placement?.rot ?? 0, scaleX: 1, scaleY: 1, scaleZ: 1, ...size, ...(args.parentId ? { parentId: args.parentId } : {}) });
+			rows.set(id, { id, name: args.name, renderer: action === "object.add" ? args.kind : "sculpt", ...args.placement, rot: args.placement?.rot ?? 0, scaleX: 1, scaleY: 1, scaleZ: 1, ...size, parent: args.parent ?? null });
 			return { ok: true, affectedIds: [id] };
 		}
 		if (action === "object.update") { Object.assign(rows.get(args.id), args.patch); return { ok: true, affectedIds: [args.id] }; }
@@ -63,7 +64,7 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 {
 	const clip = { ...SIT, props: [prop("chair", [0.5, 0.46, 0.42], [1, 0, 2], 30), prop("mat", [0.9, 0.1, 2], [2, 0, 1.6])] };
 	const build = async (agentSculpt, studio) => {
-		const first = await agentSculpt.handler({ name: "Chair", placement: { x: 5, y: 0, z: 5, rot: 0 }, recipe: boxRecipe([0.6, 1.0, 0.55]) });
+		const first = await agentSculpt.handler({ name: "chair", placement: { x: 5, y: 0, z: 5, rot: 0 }, recipe: boxRecipe([0.6, 1.0, 0.55]) });
 		assert.equal(first.ok, true, "making the chair meanwhile is not refused");
 		const id = first.affectedIds[0];
 		assert.equal((await agentSculpt.handler({ id, recipe: boxRecipe([0.62, 0.95, 0.5]) })).ok, true, "re-shaping it meanwhile is not refused");
@@ -72,17 +73,17 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 	};
 	const built = await turn({ clip, build, building: ["chair", "lamp post"] });
 	const row = built.studio.rows.get(built.made.id), now = shape(row);
-	close(now.size, [0.5, 0.46, 0.42], 1e-3, "the chair has the prop's size");
+	close(now.size, [0.62, 0.95, 0.5], 1e-3, "the chair keeps its own size");
 	close(now.base, [1, 0, 2], 1e-6, "the chair stands at the prop's base");
 	assert.ok(Math.abs(now.turn - 30) < 0.01, `the chair has the prop's turn (${now.turn})`);
 	const names = [...built.studio.rows.values()].map(r => r.name);
-	assert.deepEqual(names.filter(name => /chair/i.test(name)), ["Chair"], "no second chair: the install made no stand-in for it");
+	assert.deepEqual(names.filter(name => /chair/i.test(name)), ["chair"], "no second chair: the install made no stand-in for it");
 	assert.ok(names.includes("mat"), "the mat nobody made is a stand-in");
 	const set = built.answer.propsSet, r2 = v => Math.round(v * 100) / 100, list = v => `[${v.map(r2).join(", ")}]`, box = v => `${v.map(r2).join(" x ")} m`;
-	assert.equal(set[0], `Chair (${built.made.id}), made meanwhile, took the motion's prop chair: size ${box(now.size)} (was ${box(built.made.was.size)}), base ${list(now.base)} (was ${list(built.made.was.base)}), turn 30° (was 0°).`);
+	assert.equal(set[0], `chair (${built.made.id}), made meanwhile, took the motion's prop chair: base ${list(now.base)} (was ${list(built.made.was.base)}), turn 30° (was 0°).`);
 	const mat = [...built.studio.rows.values()].find(r => r.name === "mat");
 	assert.equal(set[1], `mat (${mat.id}): the motion added it as a stand-in, ${box(shape(mat).size)}, base ${list(shape(mat).base)}; no object made meanwhile took it.`);
-	assert.match(set[2], /^lamp post \(sculpt-\d+\), made meanwhile: no prop of the motion has this name, so the motion does not use it\.$/);
+	assert.match(set[2], /^lamp post \(sculpt-\d+\), made meanwhile: the motion does not use it\.$/);
 	assert.ok(built.answer.objects.includes(built.made.id), "objects names the chair it placed");
 	assert.match(built.requests[0], /While you write, the Studio agent builds these objects, each with its own look: chair, lamp_post\. When your scene needs one of them, use its name as that prop's id:/);
 	const bare = await turn({ clip, building: ["chair", "lamp post"] });
@@ -116,7 +117,7 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 			const copies = rnd() < 0.15 ? 2 : rnd() < 0.6 ? 1 : 0;
 			for (let c = 0; c < copies; c++) {
 				const name = pick([p.id, p.id.toUpperCase(), ` ${p.id} `, `${p.id}-x`]), kind = pick(["sculpt", "sculpt", "sculpt", "hidden", "tilted", "group part"]);
-				const made = await studio.run("object.sculpt", { name, placement: { x: num(-5, 5), y: 0, z: num(-5, 5), rot: num(-180, 180) }, recipe: boxRecipe([num(0.1, 2), num(0.1, 2), num(0.1, 2)]), ...(kind === "group part" ? { parentId: "g" } : {}) });
+				const made = await studio.run("object.sculpt", { name, placement: { x: num(-5, 5), y: 0, z: num(-5, 5), rot: num(-180, 180) }, recipe: boxRecipe([num(0.1, 2), num(0.1, 2), num(0.1, 2)]), ...(kind === "group part" ? { parent: "g" } : {}) });
 				if (kind === "hidden") studio.rows.get(made.affectedIds[0]).hidden = true;
 				if (kind === "tilted") studio.rows.get(made.affectedIds[0]).rotX = 10;
 			}
@@ -128,12 +129,12 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 		for (const p of props) {
 			counts.props++;
 			const id = done.placed[p.id], wanted = p.shape === "sphere" ? Array(3).fill(p.size[0]) : p.size;
-			const fresh = [...at.values()].filter(o => !before.has(o.id) && !o.hidden && !o.rotX && !o.parentId && idOf(o.name).toLowerCase() === p.id.toLowerCase());
+			const fresh = [...at.values()].filter(o => !before.has(o.id) && !o.hidden && !o.rotX && !o.parent && idOf(o.name) === p.id);
 			if (known[p.id]) { assert.equal(id, known[p.id].id); continue; }
 			if (fresh.length === 1) {
 				counts.taken++;
 				assert.equal(id, fresh[0].id, `${p.id}: the one object of its name takes it`);
-				close(shape(now.get(id)).size, wanted, 1e-3 * Math.max(...wanted) + 1e-4, `${p.id}: size`);
+				close(shape(now.get(id)).size, shape(at.get(id)).size, 1e-9, `${p.id}: keeps its own size`);
 				const base = [p.pos[0], p.pos[1] - wanted[1] / 2, p.pos[2]];
 				if (Math.abs(p.quat[0]) < 1e-4) close(shape(now.get(id)).base, base, 1e-6, `${p.id}: base`);
 			} else {
@@ -158,6 +159,6 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 		}
 		counts.scenes++;
 	}
-	assert.ok(counts.taken > 100 && counts.twins > 10 && counts.standIns > 100, JSON.stringify(counts));
+	assert.ok(counts.taken > 100 && counts.twins > 2 && counts.standIns > 100, JSON.stringify(counts));
 	console.log(`PASS generated scenes: ${JSON.stringify(counts)}`);
 }

@@ -52,11 +52,10 @@ function moves(prop) {
  * fitted?, moved?, moving? }: what it made, the Studio ids of the cast members whose model it changed and placed:
  * { <clip prop id>: <Studio object id> } for every prop, made, known or taken; ok false when the Studio refused a step.
  * bodies (only when there is one): [{ id, scale?, tint? }], the cast members whose scale or tint it set, with the fields
- * it set. fitted: the objects of `made` it gave a prop's place, turn and size; moved: the listed objects it moved or
+ * it set. fitted: the objects of `made` it gave a prop's place and turn; moved: the listed objects it moved or
  * turned; moving: the objects a track moves (each only when there is one).
- * made: { <clip prop id>: { id: <Studio object id>, size: [w, h, d] } }, objects the Studio has that the clip did not
- * know of (size: the object's own footprint and height at scale 1): such a prop takes that object in place of a new
- * stand-in, set to the prop's place and turn and scaled to the prop's size.
+ * made: { <clip prop id>: { id: <Studio object id> } }, objects the Studio has that the clip did not know of: such a
+ * prop takes that object in place of a new stand-in, set to the prop's place and turn; the object keeps its own size.
  * run(action, args) -> the action's receipt ({ affectedIds }) or a falsy value when it was refused; it may be async.
  * remove: { characterIds, objectIds } of an earlier install, taken out first.
  * existing: the `ids` of scene.js studioScene, when the clip was written over the Studio's own scene: a clip prop or
@@ -85,9 +84,8 @@ export async function installClip(clip, run, { label = "lowvis", remove = null, 
 			if (Object.keys(patch).length) moved.push(id);
 			if (known.rot && !own) turn = [0, Math.sin(known.rot / DEG / 2), 0, Math.cos(known.rot / DEG / 2)]; // the object's own turn about Y, which the clip's box does not have
 		} else if (taken) {
-			// an object made while the motion was written takes the prop: the prop's place and turn, scaled to its box
-			const scale = [0, 1, 2].map(k => Math.round(size[k] / taken.size[k] * 1e4) / 1e4);
-			if (!await run("object.update", { id, patch: { ...placement, scaleX: scale[0], scaleY: scale[1], scaleZ: scale[2] } })) return stop();
+			// an object made while the motion was written takes the prop: the prop's place and turn; it keeps its own size
+			if (!await run("object.update", { id, patch: placement })) return stop();
 			fitted.push(id);
 		} else {
 			// a box is a sculpt of that one box at scale 1, so object.sculpt { id, recipe } can give it a look in place
