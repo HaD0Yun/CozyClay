@@ -14,6 +14,8 @@ const agentUrl = oauthUrl;
 export default defineConfig({
 	define: {
 		"import.meta.env.VITE_COZYCLAY_LIVE_PORT": JSON.stringify(livePort),
+		// the look new rig characters are drawn in (src/lowvis/studio/figure.js); "" draws the block figure
+		"import.meta.env.VITE_COZYCLAY_FIGURE": JSON.stringify(process.env.COZYCLAY_FIGURE ?? ""),
 	},
 	// Root-absolute on purpose: the site has its own apex domain, and the studio
 	// is served from "/app/" while its public assets stay at the root. A relative

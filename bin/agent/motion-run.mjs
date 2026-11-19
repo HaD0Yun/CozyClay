@@ -7,6 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { motionWriter, motionOff } from "./motion-engine.mjs";
+import { figureStature } from "../../src/lowvis/studio/figure.js";
 import { boxesOf, changedFit, floorCells, rememberBodies, rememberBoxes, usedText } from "./motion-fit.mjs";
 
 const MOTION_VARIANT = "studio";
@@ -100,6 +101,10 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	const studio = studioScene(await hub.command("describe", tops ? { tops: true } : {}, workspaceHandle), { turn, tops, body });
 	// what each listed character already has: the motion writer's scene may leave it out (compile-tool.mjs)
 	const has = Object.fromEntries(studio.scene.characters.filter(c => c.scale !== undefined || c.tint !== undefined).map(c => [c.id, { scale: c.scale, tint: c.tint }]));
+	// new figures start at the size of the look the Studio draws them in (src/lowvis/studio/figure.js): every listed
+	// character keeps its own scale, so the start size reaches only a character the motion makes
+	const start = figureStature(env.COZYCLAY_FIGURE ?? null);
+	if (body && start !== 1) { for (const c of studio.scene.characters) has[c.id] = { ...has[c.id], scale: c.scale ?? 1 }; has["*"] = { scale: start }; studio.ids.start = start; }
 	onScene(studio.ids);
 	const request = requestOf({ words, wordsOf, note }, images.length, studio.scene, memoryKey == null ? null : last.get(memoryKey), body);
 	const record = await runScene({ name, request, ...motionWriter(env), variant: MOTION_VARIANT, off, images, ...(Object.keys(has).length ? { bodies: has } : {}), env, signal, log: line => {
