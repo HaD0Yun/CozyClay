@@ -40,13 +40,14 @@ function groupOf(row) {
  * An editor of the Studio's own reducers: run(action, args) (a refusal throws), describe(args), mark / rollback;
  * refuse(action, args) -> true makes the editor refuse that step (a Studio refusal).
  */
-export function studioEditor({ refuse = () => false } = {}) {
+export function studioEditor({ refuse = () => false, slow = () => 0 } = {}) {
 	let rows = [], cast = new Map([["a1", { id: "a1", model: "x-bot-tpose", x: 0, z: 0, rot: 0, scale: 1 }]]), marked = null;
 	const calls = [];
 	const objectOf = id => rows.find(row => row.id === id) ?? (() => { throw coded("STALE_TARGET", `Object ${id} is not in this scene.`); })();
 	const sculpt = sculptMethod({ owned: () => ({ read: () => rows, write: next => { rows = next; } }), objectOf, changed: before => changedIds(before, rows) });
 	const run = async (action, args = {}) => {
 		calls.push({ action, args });
+		if (slow(action)) await new Promise(resolve => setTimeout(resolve, slow(action)));
 		if (refuse(action, args)) throw coded("INVALID_ARGUMENT", `refused ${action}`);
 		const before = rows;
 		if (action === "object.sculpt") return { ok: true, ...sculpt(args) };
@@ -124,7 +125,7 @@ export function scriptedWriter(compiles, { end = "report" } = {}) {
 		const final = last ? { clip: `clip-${last.n}.json`, scene: last.work.scene, spec: last.work.spec } : null;
 		return { wallMs: 1000, compiles: n, report: end === "report" ? "Made.\nMissing: nothing." : null, missing: end === "report" ? "nothing." : null, final, ...(end === "infra" ? { infraError: { message: "the proxy failed" } } : {}), endedBy: end };
 	};
-	return { requests, runScene, readClip: file => structuredClone(files.get(file)), started: () => ready, step: async () => { while (!gate) await tick(); const go = gate; gate = null; go(); for (let k = 0; k < 6; k++) await tick(); } };
+	return { requests, runScene, readClip: file => structuredClone(files.get(file)), started: () => ready, release: () => { const go = gate; gate = null; go?.(); }, step: async () => { while (!gate) await tick(); const go = gate; gate = null; go(); for (let k = 0; k < 6; k++) await tick(); } };
 }
 
 const ACTIONS = ["object.sculpt", "object.add", "object.update", "object.group", "object.remove"];

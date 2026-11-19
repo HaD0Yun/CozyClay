@@ -128,7 +128,10 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 			if (!done.ok) throw failure("studio", `The motion was made (${name}) but the Studio refused to install it: ${refused?.code ? `${refused.code}: ` : ""}${refused?.message ?? "unknown reason"}`);
 			// an untouched draft stand-in the final motion does not use goes once the install is in (a removal the Studio refuses is told)
 			if (plan?.remove.length) await run("object.remove", { ids: plan.remove.map(entry => entry.id) });
-			return { ...done, plan };
+			// what the install itself left, read before any other call holds the scene (propsSet)
+			let after = null;
+			if (plan) try { after = byId((await hub.command("describe", {}, workspaceHandle))?.objects); } catch { /* no propsSet */ }
+			return { ...done, plan, after };
 		});
 	} catch (error) { throw await draft.failed(error); }
 	if (memoryKey != null) last.set(memoryKey, { scene: record.final.scene, spec: record.final.spec });
@@ -137,9 +140,11 @@ export async function runMotion({ words = null, wordsOf = "turn", note = null, i
 	// from the scene), against the boxes and the floor it used; with a draft, what the install changed since it
 	const plan = result.plan, meanwhile = [...new Set([...changed(), ...(plan?.touched ?? [])])];
 	let motionFit = null, propsSet = null, now = null;
-	if (meanwhile.length || plan) try { now = (await hub.command("describe", { tops: true }, workspaceHandle))?.objects ?? []; } catch (error) { if (meanwhile.length) motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
-	if (now && meanwhile.length) motionFit = changedFit(meanwhile, now, boxesOf(key), floorCells(clip));
-	if (now && plan) propsSet = propsSetOf({ props: clip.props ?? [], placed: result.placed ?? {}, done: result, plan, start, at: plan.at, now: byId(now) });
+	// with a draft, the calls that waited for the install (edits of its stand-ins) go first: motionFit is the scene after them
+	const readTops = () => hub.command("describe", { tops: true }, workspaceHandle);
+	if (meanwhile.length) try { now = (await (plan ? drafting(readTops) : readTops()))?.objects ?? []; } catch (error) { motionFit = { status: "unavailable", reason: error?.message ?? String(error) }; }
+	if (now) motionFit = changedFit(meanwhile, now, boxesOf(key), floorCells(clip));
+	if (result.after) propsSet = propsSetOf({ props: clip.props ?? [], placed: result.placed ?? {}, done: result, plan, start, at: plan.at, now: result.after });
 	const studioId = (figure, index) => studio.ids.characters[figure.id] ?? result.characterIds.find(id => id === cast(figure, index));
 	const animated = clip.characters.map(studioId).filter(Boolean);
 	const placed = (clip.props ?? []).map(prop => studio.ids.props[prop.id]?.id ?? plan?.drafted[prop.id]?.id).filter(Boolean);

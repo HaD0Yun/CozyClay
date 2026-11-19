@@ -86,6 +86,27 @@ console.log("PASS draft edges: before the draft a failure adds nothing and answe
 }
 console.log("PASS draft edges: a removed, grouped or other-kind stand-in gets a new one, with a line each");
 
+// an edit sent while the install holds the scene runs after it: the result's motionFit is the scene after that edit,
+// its propsSet what the install itself set
+{
+	const studio = studioEditor({ slow: action => (action === "motion.v4.install" ? 60 : 0) }), writer = scriptedWriter([two]), t = turn({ studio, writer, key: "queued" });
+	await t.call;
+	await writer.step();
+	await t.result();
+	const bench = studio.named("bench")[0].id;
+	await t.tools.sculpt({ id: bench, recipe: recipe(part("seat", [1.2, 0.05, 0.4], [0, 0.3, 0]), part("legA", [0.05, 0.3, 0.4], [-0.55, 0, 0])) });
+	while (!writer.release) await tick();
+	await tick();
+	writer.release();
+	while (!studio.calls.some(call => call.action === "motion.v4.install")) await new Promise(resolve => setImmediate(resolve));
+	const fixed = t.tools.sculpt({ id: bench, recipe: look }); // the install is still running: this edit waits for it
+	const done = await t.result();
+	assert.equal((await fixed).motionFit.fits, true, "the queued edit fits");
+	assert.equal(done.motionFit, undefined, "the result measures the scene after the queued edit: nothing differs");
+	assert.equal(done.propsSet, undefined, "the install changed nothing since the draft");
+}
+console.log("PASS draft edges: an edit queued behind the install is in the result's motionFit");
+
 // a refused draft: no draft answer, the install makes the stand-ins as before
 {
 	let once = true;
