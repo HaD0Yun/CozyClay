@@ -12,6 +12,8 @@ const SWITCHABLE = new Set(["y-bot-tpose"]);
 const MAX_PROPS = 40, RAD = Math.PI / 180, BAND = 0.03; // BAND: a top this far under the box's top is lower than it
 const round = v => Math.round(v * 1000) / 1000;
 const finite = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
+/** Whether a describe object row can be a lowvis prop: shown, not attached to a body, solid, turned about Y only. */
+export const boxRow = row => Boolean(row) && !row.hidden && !row.attach && SOLID.has(row.renderer) && !finite(row.rotX) && !finite(row.rotZ);
 
 /** A name the lowvis spec can use as an id, unique among `taken` (which it joins). */
 function idFor(name, taken, fallback) {
@@ -67,7 +69,7 @@ export function studioScene(describe, { turn = false, tops = false, body = false
 	}
 	for (const row of Array.isArray(describe?.objects) ? describe.objects : []) {
 		if (props.length >= MAX_PROPS) break;
-		if (!row || row.hidden || row.attach || !SOLID.has(row.renderer) || finite(row.rotX) || finite(row.rotZ)) continue;
+		if (!boxRow(row)) continue;
 		const w = finite(row.footprint?.width, 1) * finite(row.scaleX, 1), h = finite(row.height, 1) * finite(row.scaleY, 1), d = finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1);
 		if (h < 0.03) continue;
 		const cs = Math.abs(Math.cos(finite(row.rot) * RAD)), sn = Math.abs(Math.sin(finite(row.rot) * RAD));

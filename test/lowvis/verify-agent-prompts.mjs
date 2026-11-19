@@ -42,7 +42,13 @@ assert.ok(MAIN_SYSTEM_PROMPT.includes(" a new shot or shot ranges take timeline,
 for (const gone of ["In a task the motion tool adds nothing", "When other tasks build what the motion needs", "\"make a cup, then have her pick it up\"", "a camera that frames a motion still being made", "still needs one scope key"]) assert.equal(coordinator.includes(gone), false, gone);
 assert.ok(MAIN_SYSTEM_PROMPT.includes("\"make a cup, then have her pick it up\" is one task") && MAIN_SYSTEM_PROMPT.includes("still needs one scope key"), "the old coordinator keeps its text");
 // the Studio agent: motion first, dress in place, the report is the check of the motion
-assert.match(MOTION_TOOL_PARAGRAPH, /When the user asks for body motion, call motion \{ request \} first, before you build or change the set\./);
+assert.match(MOTION_TOOL_PARAGRAPH, /When the user asks for body motion, call motion \{ request, building \} first, before you build or change the set\./);
+// the objects are made while the motion is written; the install gives them the motion's size and place (motion-props.mjs)
+assert.match(MOTION_TOOL_PARAGRAPH, /make the objects named in building then, each as one object with that name/);
+assert.match(MOTION_TOOL_PARAGRAPH, /each object made meanwhile whose name is the id of a prop the motion added takes that prop's place and turn and is scaled to its size/);
+assert.match(MOTION_TOOL_PARAGRAPH, /its propsSet says per object what the install set/);
+assert.doesNotMatch(MOTION_TOOL_PARAGRAPH, /work that does not depend on where the body goes can be done meanwhile/, "the earlier wording of the wait is gone");
+for (const motion of [true, false]) assert.ok((await studioSystemPrompt({ engine: "lowvis", motion })).includes(" receipt. Make independent calls in the same turn. People are block figures"), "the general sentence on calls stays for the lowvis agent");
 assert.match(MOTION_TOOL_PARAGRAPH, /give a stand-in its look in place with object\.sculpt \{ id, recipe \}/);
 assert.match(MOTION_TOOL_PARAGRAPH, /An edit of such an object answers motionFit/);
 assert.match(MOTION_TOOL_PARAGRAPH, /do not check the body motion again with verify_result\./);

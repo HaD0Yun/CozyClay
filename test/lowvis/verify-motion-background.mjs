@@ -134,26 +134,24 @@ const textOf = message => (Array.isArray(message?.content) ? message.content.map
 	console.log("PASS background motion: a stop stops it, a refusal rolls back its own edits, another scene refuses the install");
 }
 
-// 3b. The hold is the whole scene the motion read until the writer's first compile, then only what its compiled scenes
-// name (they grow): an edit of anything else goes through and is told to the motion (changed) for its motionFit.
+// 3b. The hold is the whole scene the motion read until the install: an object made meanwhile, and every later edit of
+// it, goes through and is told to the motion (changed); the motion's building names reach the run.
 {
 	const motion = stubMotion({ held: { characters: { c1: "c1" }, props: { bench: { id: "bench" }, shelf: { id: "shelf" } } } }), tx = transaction();
-	const door = createMotionDoor({ run: motion.run, mark: tx.mark, rollback: tx.rollback, background: true });
+	const seen = [];
+	const door = createMotionDoor({ run: options => { seen.push(options.building); return motion.run(options); }, mark: tx.mark, rollback: tx.rollback, background: true });
 	const [edit] = door.with([{ name: "edit", handler: async ({ id }) => ({ ok: true, affectedIds: [id] }) }]);
-	await door.handler({ request: "c1 sits on the bench" });
-	await assert.rejects(edit.handler({ id: "shelf" }), error => error.code === "MOTION_RUNNING", "before the first compile the whole scene is held");
-	motion.gate.onNamed(["c1", "bench"]);
-	assert.deepEqual(await edit.handler({ id: "shelf" }), { ok: true, affectedIds: ["shelf"] }, "the shelf the compiled scene does not name goes through");
-	assert.deepEqual(await edit.handler({ id: "rug-1" }), { ok: true, affectedIds: ["rug-1"] }, "a new object goes through");
-	await assert.rejects(edit.handler({ id: "bench" }), error => error.code === "MOTION_RUNNING" && /bench/.test(error.message), "the bench it names stays held");
-	await assert.rejects(edit.handler({ id: "c1" }), error => error.code === "MOTION_RUNNING", "the character it animates stays held");
-	motion.gate.onNamed(["lowvis-guest"]);
-	await assert.rejects(edit.handler({ id: "lowvis-guest" }), error => error.code === "MOTION_RUNNING", "a cast member it will add is held");
-	await assert.rejects(edit.handler({ id: "bench" }), error => error.code === "MOTION_RUNNING", "what an earlier compile named stays held");
-	assert.deepEqual(motion.gate.changed(), ["shelf", "rug-1"], "the motion is told what changed meanwhile");
+	await door.handler({ request: "c1 sits on the stool", building: ["stool"] });
+	assert.deepEqual(seen, [["stool"]], "building goes to the motion");
+	await assert.rejects(edit.handler({ id: "shelf" }), error => error.code === "MOTION_RUNNING" && /shelf/.test(error.message), "an object of the scene it read is held");
+	assert.deepEqual(await edit.handler({ id: "stool-1" }), { ok: true, affectedIds: ["stool-1"] }, "a new object goes through");
+	assert.deepEqual(await edit.handler({ id: "stool-1" }), { ok: true, affectedIds: ["stool-1"] }, "and so does its next edit");
+	await assert.rejects(edit.handler({ id: "c1" }), error => error.code === "MOTION_RUNNING", "the character stays held");
+	assert.deepEqual(motion.gate.changed(), ["stool-1"], "the motion is told what changed meanwhile");
+	assert.equal(motion.gate.onNamed, undefined, "nothing narrows the hold");
 	motion.gate.release();
 	assert.deepEqual(await door.with([])[1].handler(), ANSWER);
-	console.log("PASS background motion: the hold narrows to what the compiled scenes name; other edits go through and are told to the motion");
+	console.log("PASS background motion: the hold is the scene the motion read; objects made meanwhile go through and are told to the motion");
 }
 
 // 4. A task's run (background false) waits for the motion as before and has no motion_result.

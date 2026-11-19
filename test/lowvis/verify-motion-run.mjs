@@ -19,7 +19,7 @@ function harness({ clip = { frameCount: 48, characters: [{ id: "c1" }], props: [
 	const hub = { command: async (name, args, handle) => { seen.describe.push({ name, args, handle }); return DESCRIBE; } };
 	const deps = {
 		studioScene,
-		runScene: async options => { seen.runs.push(options); options.log("  motion 1: ok frames 48"); options.onCompiled({ n: 1, scene: { characters: clip.characters, props: clip.props } }); return { wallMs: 3200, compiles: 1, report: "He walks over.\nMissing: the fingers do not move.", missing: "the fingers do not move.", final: { clip: "clip.json", scene: SCENE, spec: SPEC }, ...record }; },
+		runScene: async options => { seen.runs.push(options); options.log("  motion 1: ok frames 48"); return { wallMs: 3200, compiles: 1, report: "He walks over.\nMissing: the fingers do not move.", missing: "the fingers do not move.", final: { clip: "clip.json", scene: SCENE, spec: SPEC }, ...record }; },
 		readClip: () => clip,
 		installClip: install ?? (async (c, run, options) => { seen.installs.push(options); return { characterIds: [], objectIds: [], switched: [], ok: true }; }),
 	};
@@ -136,8 +136,8 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 	console.log("PASS runMotion: a task adds what the scene lacks; used names the boxes and the floor the bodies cross");
 }
 
-// while the motion is written: each compile names what its clip is written against (onNamed), and the objects other
-// calls changed or added meanwhile (changed) that differ where the body goes are the answer's motionFit
+// while the motion is written: the objects other calls changed or added meanwhile (changed) that differ where the body
+// goes are the answer's motionFit
 {
 	const pos = [];
 	for (let f = 0; f < 2; f++) for (let j = 0; j < 17; j++) pos.push(f ? 1 : 0, j ? 0.9 : 0.05, 0);
@@ -148,18 +148,17 @@ const sceneJson = request => JSON.parse(request.split("\n").find(line => line.st
 		{ id: "rug-1", name: "rug", renderer: "cube", x: 0.5, y: 0, z: 0, rot: 0, footprint: { width: 2, depth: 2 }, height: 0.01 }, { id: "shelf-1", name: "shelf", renderer: "cube", x: 3, y: 0, z: 3, rot: 0, footprint: { width: 1, depth: 0.3 }, height: 2 }] };
 	let reads = 0;
 	const hub = { command: async (name, args, handle) => { seen.describe.push({ name, args, handle }); return reads++ ? now : DESCRIBE; } };
-	const named = [], clips = [];
+	const clips = [];
 	const deps = { ...base.deps, readClip: file => { clips.push(file); return base.deps.readClip(file); } };
-	const done = await runMotion({ ...base, hub, deps, words: "he walks", memoryKey: "conv-fit", onNamed: ids => named.push(ids), changed: () => ["obj-box", "stool-1", "rug-1", "shelf-1", "stool-1"] });
-	assert.deepEqual(named, [["c1", "lowvis-guest", "obj-box"]], "one compile: the scene's character and box it names, and the cast member it adds");
-	assert.deepEqual(clips, ["clip.json"], "the compiled scene comes from the writer's harness (onCompiled); only the final clip is read");
+	const done = await runMotion({ ...base, hub, deps, words: "he walks", memoryKey: "conv-fit", changed: () => ["obj-box", "stool-1", "rug-1", "shelf-1", "stool-1"] });
+	assert.deepEqual(clips, ["clip.json"], "only the final clip is read");
 	assert.deepEqual(seen.describe[1].args, { tops: true });
 	assert.deepEqual(done.motionFit.objects.map(entry => entry.id), ["obj-box", "stool-1"], "the moved box and the stool on the walk; the flat rug and the far shelf are not named");
 	assert.match(done.motionFit.objects[0].differs[0], /^base at \[1\.5, 0, 2\], the box's at \[1, 0, 2\]$/);
 	assert.match(done.motionFit.objects[1].differs[0], /^footprint 0\.4 x 0\.4 m, 0\.5 m tall, at \[0, 0\] stands on floor the feet use \(\d+ cells? of 0\.1 m\); the motion was written without it$/);
 	const quiet = await runMotion({ ...harness().base, words: "x" });
 	assert.equal("motionFit" in quiet, false, "nothing changed meanwhile: no motionFit and no second describe");
-	console.log("PASS runMotion: onNamed per compile; objects changed or added meanwhile answer motionFit");
+	console.log("PASS runMotion: objects changed or added meanwhile answer motionFit");
 }
 
 // the direct key (no note): the writer is not told of a later dressing step
