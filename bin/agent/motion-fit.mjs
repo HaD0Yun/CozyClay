@@ -8,19 +8,20 @@
 //     (the floor cells the motion's feet touch). A part that rises above the box elsewhere is no difference here; a body
 //     passing through a drawn part is the final review's finding (src/solid-contact.js).
 //   - a prop that moves (carried, pushed): where its track has it, so only its size, held by the hands, against the box's.
-//   - a ball that stays put: its place and its size (it has no flat top).
+//   - a ball that stays put: its place.
+// An object that took a prop at the install (motion-props.mjs) is told whole: a ball's size too (the body meets all of
+// it), and a box whose flat top the Studio did not measure is said to be unmeasured, with the box's top height.
 // Only geometry: no object kinds or names.
 // A body is as large as its character's scale: the motion is written for one scale, and a character whose scale is
 // then changed plays its take that many times as large about its place, off the floor spots and objects it was put on.
 // An edit of an animated character answers with motionFit.bodies when its scale is no longer the motion's.
 //   rememberBoxes(key, scene, placed, floor)  the boxes of one motion and the floor its feet use, per conversation
-//   boxOf(prop, id)                           the box of one prop of a motion's scene
 //   rememberBodies(key, list), bodiesOf(key)  the scale each animated character's motion was written for
 //   bodyFitOf(body, row)                      the difference of one describe character row from that body: [text]
 //   boxesOf(key), floorOf(key)                Map(<Studio id> -> box) and [[x, z], ...] floor cells, empty when none
-//   fitOf(box, row, floor)                    the differences of one describe row from its box: [text]
+//   fitOf(box, row, floor, whole)             the differences of one describe row from its box: [text]
 //   usedText(boxes, travel)                   one line for the agent: the objects the motion uses and the floor the bodies cross
-//   changedFit(ids, rows, boxes, floor)       the motion result's motionFit: objects changed or added while it was written
+//   changedFit(ids, rows, boxes, floor, whole) the motion result's motionFit: objects changed or added while it was written
 //   turnFitView({ value, env, hub })          { tools(list) }: under the lowvis engine, a tool result that changed a used
 //                                             object gains motionFit
 import { motionEngine } from "./motion-engine.mjs";
@@ -50,7 +51,7 @@ export function rememberBoxes(key, scene, placed = {}, floor = []) {
 	floors.set(key, floor);
 }
 /** The box of one prop of a motion's scene as the Studio object id stands for it, or null when it has no size or place. */
-export function boxOf(prop, id) {
+function boxOf(prop, id) {
 	if (!Array.isArray(prop?.size) || !Array.isArray(prop.at)) return null;
 	const sphere = prop.shape === "sphere", size = sphere ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
 	return { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}) };
@@ -75,8 +76,12 @@ function inside([x, z], [cx, cz], deg, [hw, hd]) {
 }
 const overlap = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 
-/** What differs between a describe row ({ x, y, z, rot, footprint, height, scaleX.., tops, hidden }) and its box where the body meets it, as short texts. */
-export function fitOf(box, row, floor = []) {
+/**
+ * What differs between a describe row ({ x, y, z, rot, footprint, height, scaleX.., tops, hidden }) and its box where the
+ * body meets it, as short texts. whole (an object that took a prop): a ball's size too, and a box with no measured flat
+ * top is told so.
+ */
+export function fitOf(box, row, floor = [], whole = false) {
 	if (!row) return ["removed: the motion uses it"];
 	if (row.hidden) return ["hidden: the motion uses it"];
 	const out = [], base = [finite(row.x), finite(row.y), finite(row.z)], d = base.map((v, k) => v - box.base[k]);
@@ -84,9 +89,10 @@ export function fitOf(box, row, floor = []) {
 	const sized = () => ["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, the box's ${box.size[k]} m` : null).filter(Boolean);
 	if (box.moves) return sized();
 	if (Math.hypot(...d) > PLACE) out.push(`base at [${base.map(r2).join(", ")}], the box's at [${box.base.join(", ")}]`);
-	if (box.sphere) out.push(...sized()); // a ball has no flat top: the body meets all of it
+	if (box.sphere && whole) out.push(...sized()); // a ball has no flat top: the body meets all of it
 	if (!box.sphere && angle(finite(row.rot), box.turn) > TURN) out.push(`turn ${r2(finite(row.rot))}°, the box's ${r2(box.turn)}°`);
 	const tops = Array.isArray(row.tops) ? row.tops : [], [w, h, dd] = box.size;
+	if (!box.sphere && !tops.length && whole) out.push(`top unmeasured (the Studio measured no flat top on it); the box's top is ${h} m over its base`);
 	if (!box.sphere && tops.length) {
 		const covers = t => Math.abs(t.y - h) <= TOP && overlap(t.x0, t.x1, -w / 2, w / 2) * overlap(t.z0, t.z1, -dd / 2, dd / 2) >= COVER * w * dd;
 		if (!tops.some(covers)) out.push(`no flat top at the box's top (${h} m over its base, within ${TOP} m) over half its footprint; its flat tops (height over its base: width x depth m): ${tops.map(t => `${r2(t.y)}: ${r2(t.x1 - t.x0)} x ${r2(t.z1 - t.z0)}`).join(", ")}`);
@@ -127,12 +133,13 @@ function onFeetOf(row, floor) {
  * The objects that other calls changed or added while a motion was written (ids), as the Studio now has them (rows:
  * describe objects with flat tops), against the boxes the motion used and the floor its feet use: motionFit
  * { fits: false, objects: [{ id, name, differs }], note } as turnFitView answers it, or null when none differs there.
+ * whole: the ids of objects that took a prop, told whole (fitOf).
  */
-export function changedFit(ids, rows, used, floor) {
+export function changedFit(ids, rows, used, floor, whole = new Set()) {
 	const byId = new Map(rows.map(row => [row?.id, row])), objects = [];
 	for (const id of ids) {
 		const row = byId.get(id), box = used.get(id);
-		const differs = box ? fitOf(box, row, floor) : row ? onFeetOf(row, floor) : [];
+		const differs = box ? fitOf(box, row, floor, whole.has(id)) : row ? onFeetOf(row, floor) : [];
 		if (differs.length) objects.push({ id, name: box?.name ?? String(row?.name ?? id), differs });
 	}
 	return objects.length ? { fits: false, objects, note: NOTE } : null;
