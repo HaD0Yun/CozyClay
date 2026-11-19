@@ -1,13 +1,15 @@
 // Objects made while a motion is written, and what the install set on each object (rule 6).
 // The Studio agent builds the objects while the motion writer works; the writer keeps its freedom over every prop's size
-// and place. At the install, a prop the writer added (not one of the scene it read) is taken by an object made since the
-// motion started whose name, written as an id, is the prop's id (the same spelling an id gets from a name: scene.js
-// idFor, so the next motion reads the object under that id): the object is set to the prop's place and turn
-// (install.js made) and keeps its own size. Only geometry and names: no object kinds.
+// and place. At the install, a prop the writer added (not one of the scene it read) is taken by an object named in
+// building and made since the motion started whose name, written as an id, is the prop's id (the same spelling an id
+// gets from a name: scene.js idFor, so the next motion reads the object under that id) and that, stood at the prop's
+// place and turn, fits the prop's box where the body meets it (motion-fit.mjs fitOf): the object is set to the prop's
+// place and turn (install.js made) and keeps its own size, which already is the box's there. Only geometry and names.
 //   idOf(name)                                         the prop id a name is written as
-//   takenBy({ props, known, before, rows, building })  { made, twins, idle }: which object takes which prop
+//   takenBy({ props, known, before, rows, building, boxes, floor })  { made, twins, idle }: which object takes which prop
 //   propsSetOf({ props, placed, done, take, start, now }) the lines the agent reads: what the install set, per object
 import { boxRow } from "../../src/lowvis/studio/scene.js";
+import { fitOf } from "./motion-fit.mjs";
 
 const PLACE = 0.01, TURN = 0.5; // metres, degrees: smaller differences are not told
 const r2 = v => Math.round(v * 100) / 100;
@@ -26,21 +28,23 @@ const shapeOf = row => ({ base: [finite(row.x), finite(row.y), finite(row.z)], s
 /**
  * Which object made since the motion started takes which prop the motion adds. props: the clip's props ([{ id }]);
  * known: studioScene ids.props (the props of the scene the writer read: never taken); before: the ids of every object of
- * that scene; rows: describe objects now; building: the names the agent gave the motion call.
+ * that scene; rows: describe objects now, with flat tops; building: the names the agent gave the motion call; boxes:
+ * { <prop id> -> box } (motion-fit.mjs boxOf) of the writer's scene; floor: the floor cells its feet use.
  * -> made: { <prop id>: { id } } (install.js made); twins: { <prop id>: [ids] } when more than one object has the
  * name (none takes it); idle: [{ id, name }] objects made meanwhile, named in building, that take no prop.
  */
-export function takenBy({ props = [], known = {}, before = new Set(), rows = [], building = [] }) {
+export function takenBy({ props = [], known = {}, before = new Set(), rows = [], building = [], boxes = new Map(), floor = [] }) {
+	const named = new Set(building.map(keyOf).filter(Boolean));
 	const meanwhile = rows.filter(row => row && !before.has(row.id));
-	const fresh = meanwhile.filter(row => boxRow(row) && !row.parent);
+	const fresh = meanwhile.filter(row => boxRow(row) && !row.parent && named.has(keyOf(row.name)));
+	const fits = (box, row) => box && !fitOf(box, { ...row, x: box.base[0], y: box.base[1], z: box.base[2], rot: box.turn }, floor).length;
 	const made = {}, twins = {}, used = new Set();
 	for (const prop of props) {
 		if (known[prop.id]) continue;
 		const same = fresh.filter(row => idOf(row.name) === prop.id);
-		if (same.length === 1) { made[prop.id] = { id: same[0].id }; used.add(same[0].id); }
+		if (same.length === 1 && fits(boxes.get(prop.id), same[0])) { made[prop.id] = { id: same[0].id }; used.add(same[0].id); }
 		else if (same.length > 1) { twins[prop.id] = same.map(row => row.id); for (const row of same) used.add(row.id); }
 	}
-	const named = new Set(building.map(keyOf).filter(Boolean));
 	const idle = meanwhile.filter(row => !used.has(row.id) && named.has(keyOf(row.name))).map(row => ({ id: row.id, name: String(row.name) }));
 	return { made, twins, idle };
 }

@@ -8,11 +8,13 @@
 //     (the floor cells the motion's feet touch). A part that rises above the box elsewhere is no difference here; a body
 //     passing through a drawn part is the final review's finding (src/solid-contact.js).
 //   - a prop that moves (carried, pushed): where its track has it, so only its size, held by the hands, against the box's.
+//   - a ball that stays put: its place and its size (it has no flat top).
 // Only geometry: no object kinds or names.
 // A body is as large as its character's scale: the motion is written for one scale, and a character whose scale is
 // then changed plays its take that many times as large about its place, off the floor spots and objects it was put on.
 // An edit of an animated character answers with motionFit.bodies when its scale is no longer the motion's.
 //   rememberBoxes(key, scene, placed, floor)  the boxes of one motion and the floor its feet use, per conversation
+//   boxOf(prop, id)                           the box of one prop of a motion's scene
 //   rememberBodies(key, list), bodiesOf(key)  the scale each animated character's motion was written for
 //   bodyFitOf(body, row)                      the difference of one describe character row from that body: [text]
 //   boxesOf(key), floorOf(key)                Map(<Studio id> -> box) and [[x, z], ...] floor cells, empty when none
@@ -41,13 +43,17 @@ export function rememberBoxes(key, scene, placed = {}, floor = []) {
 	if (key == null) return;
 	const next = new Map();
 	for (const prop of scene?.props ?? []) {
-		const id = placed[prop.id];
-		if (!id || !Array.isArray(prop.size) || !Array.isArray(prop.at)) continue;
-		const sphere = prop.shape === "sphere", size = sphere ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
-		next.set(id, { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}) });
+		const id = placed[prop.id], box = boxOf(prop, id);
+		if (id && box) next.set(id, box);
 	}
 	boxes.set(key, next);
 	floors.set(key, floor);
+}
+/** The box of one prop of a motion's scene as the Studio object id stands for it, or null when it has no size or place. */
+export function boxOf(prop, id) {
+	if (!Array.isArray(prop?.size) || !Array.isArray(prop.at)) return null;
+	const sphere = prop.shape === "sphere", size = sphere ? [prop.size[0], prop.size[0], prop.size[0]] : prop.size;
+	return { id, name: String(prop.id), size: size.map(r2), base: [prop.at[0], prop.at[1] - size[1] / 2, prop.at[2]].map(r2), turn: finite(prop.turn), sphere, ...(prop.moves ? { moves: true } : {}) };
 }
 
 /** Keeps the bodies of a motion ([{ id: <Studio character id>, scale, tint }]) under key. */
@@ -75,11 +81,10 @@ export function fitOf(box, row, floor = []) {
 	if (row.hidden) return ["hidden: the motion uses it"];
 	const out = [], base = [finite(row.x), finite(row.y), finite(row.z)], d = base.map((v, k) => v - box.base[k]);
 	const size = [finite(row.footprint?.width, 1) * finite(row.scaleX, 1), finite(row.height, 1) * finite(row.scaleY, 1), finite(row.footprint?.depth, 1) * finite(row.scaleZ, 1)];
-	if (box.moves) {
-		out.push(...["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, the box's ${box.size[k]} m` : null).filter(Boolean));
-		return out;
-	}
+	const sized = () => ["width (x)", "height", "depth (z)"].map((label, k) => Math.abs(size[k] - box.size[k]) > SIZE ? `${label} ${r2(size[k])} m, the box's ${box.size[k]} m` : null).filter(Boolean);
+	if (box.moves) return sized();
 	if (Math.hypot(...d) > PLACE) out.push(`base at [${base.map(r2).join(", ")}], the box's at [${box.base.join(", ")}]`);
+	if (box.sphere) out.push(...sized()); // a ball has no flat top: the body meets all of it
 	if (!box.sphere && angle(finite(row.rot), box.turn) > TURN) out.push(`turn ${r2(finite(row.rot))}°, the box's ${r2(box.turn)}°`);
 	const tops = Array.isArray(row.tops) ? row.tops : [], [w, h, dd] = box.size;
 	if (!box.sphere && tops.length) {

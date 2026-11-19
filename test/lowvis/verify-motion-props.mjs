@@ -2,15 +2,17 @@
 // Objects made while the motion is written take the motion's props (bin/agent/motion-props.mjs, install.js made):
 //  1. a scripted turn on the real door, runMotion, studioScene and installClip, with a fake motion writer and an
 //     in-memory editor: the agent makes and re-shapes an object the motion uses between motion and motion_result, it is
-//     not refused, and after the install it has the prop's place and turn and keeps its own size; propsSet says so with
-//     the scene's numbers;
+//     not refused, and after the install it has the prop's place and turn and keeps its own size, which fits the prop's
+//     box where the body meets it; propsSet says so with the scene's numbers; one that does not fit is not taken;
 //  2. the motion writer reads the same request whether or not objects were made meanwhile;
-//  3. many generated scenes: every prop taken by one object made meanwhile ends at the prop's base and turn with its
-//     own size, nothing else is taken, and every number of every propsSet line is the scene's own.
+//  3. many generated scenes: every prop taken by the one object made meanwhile of its name that fits its box (its top at
+//     the box's top over half its footprint; a ball or a prop that moves: its size) ends at the prop's base and turn with
+//     its own size, nothing else is taken, and every number of every propsSet line is the scene's own.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createMotionDoor } from "../../bin/agent/motion-door.mjs";
 import { runMotion } from "../../bin/agent/motion-run.mjs";
+import { boxOf } from "../../bin/agent/motion-fit.mjs";
 import { idOf, propsSetOf, takenBy } from "../../bin/agent/motion-props.mjs";
 import { installClip } from "../../src/lowvis/studio/install.js";
 import { studioScene } from "../../src/lowvis/studio/scene.js";
@@ -35,7 +37,9 @@ function editor(objects = [], characters = []) {
 		if (action === "character.add") { cast.set(args.character.id, { ...args.character }); return { ok: true, affectedIds: [args.character.id] }; }
 		return { ok: true, affectedIds: [args.characterId] };
 	};
-	const describe = () => ({ characters: [...cast.values()].map(row => ({ ...row })), objects: [...rows.values()].map(row => ({ ...row, footprint: { ...row.footprint } })) });
+	// a sculpt's flat top in its own frame: the top of its one centred box
+	const tops = row => (row.renderer === "sculpt" ? { tops: [{ y: row.height, x0: -row.footprint.width / 2, x1: row.footprint.width / 2, z0: -row.footprint.depth / 2, z1: row.footprint.depth / 2 }] } : {});
+	const describe = () => ({ characters: [...cast.values()].map(row => ({ ...row })), objects: [...rows.values()].map(row => ({ ...row, footprint: { ...row.footprint }, ...tops(row) })) });
 	return { run, describe, rows };
 }
 const shape = row => ({ base: [row.x, row.y, row.z], size: [row.footprint.width * row.scaleX, row.height * row.scaleY, row.footprint.depth * row.scaleZ], turn: row.rot });
@@ -67,13 +71,13 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 		const first = await agentSculpt.handler({ name: "chair", placement: { x: 5, y: 0, z: 5, rot: 0 }, recipe: boxRecipe([0.6, 1.0, 0.55]) });
 		assert.equal(first.ok, true, "making the chair meanwhile is not refused");
 		const id = first.affectedIds[0];
-		assert.equal((await agentSculpt.handler({ id, recipe: boxRecipe([0.62, 0.95, 0.5]) })).ok, true, "re-shaping it meanwhile is not refused");
+		assert.equal((await agentSculpt.handler({ id, recipe: boxRecipe([0.62, 0.46, 0.5]) })).ok, true, "re-shaping it meanwhile is not refused");
 		assert.equal((await agentSculpt.handler({ name: "lamp post", placement: { x: -3, y: 0, z: -3, rot: 0 }, recipe: boxRecipe([0.2, 2.5, 0.2]) })).ok, true);
 		return { id, was: shape(studio.rows.get(id)) };
 	};
 	const built = await turn({ clip, build, building: ["chair", "lamp post"] });
 	const row = built.studio.rows.get(built.made.id), now = shape(row);
-	close(now.size, [0.62, 0.95, 0.5], 1e-3, "the chair keeps its own size");
+	close(now.size, [0.62, 0.46, 0.5], 1e-3, "the chair keeps its own size");
 	close(now.base, [1, 0, 2], 1e-6, "the chair stands at the prop's base");
 	assert.ok(Math.abs(now.turn - 30) < 0.01, `the chair has the prop's turn (${now.turn})`);
 	const names = [...built.studio.rows.values()].map(r => r.name);
@@ -89,6 +93,14 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 	const bare = await turn({ clip, building: ["chair", "lamp post"] });
 	assert.equal(bare.requests[0], built.requests[0], "the writer reads the same request whether or not objects were made meanwhile");
 	assert.match(bare.answer.propsSet[0], /^chair \(sculpt-\d+\): the motion added it as a stand-in, 0\.5 x 0\.46 x 0\.42 m, base \[1, 0, 2\], turn 30°; no object made meanwhile took it\.$/);
+	// a chair whose top is not at the prop's top is not taken: it stays as made, and the prop is a stand-in
+	const tall = await turn({ clip, building: ["chair"], build: async agentSculpt => (await agentSculpt.handler({ name: "chair", placement: { x: 5, y: 0, z: 5, rot: 0 }, recipe: boxRecipe([0.5, 0.9, 0.42]) })).affectedIds[0] });
+	close(shape(tall.studio.rows.get(tall.made)).base, [5, 0, 5], 1e-9, "the chair that does not fit stays where it was made");
+	assert.match(tall.answer.propsSet[0], /^chair \(sculpt-\d+\): the motion added it as a stand-in, 0\.5 x 0\.46 x 0\.42 m/);
+	assert.equal(tall.answer.propsSet.at(-1), `chair (${tall.made}), made meanwhile: the motion does not use it.`);
+	// an object of the prop's name that building does not name is not taken
+	const unnamed = await turn({ clip, building: ["lamp"], build: async agentSculpt => (await agentSculpt.handler({ name: "chair", placement: { x: 5, y: 0, z: 5, rot: 0 }, recipe: boxRecipe([0.5, 0.46, 0.42]) })).affectedIds[0] });
+	close(shape(unnamed.studio.rows.get(unnamed.made)).base, [5, 0, 5], 1e-9, "the chair building does not name stays where it was made");
 	const none = await turn({ clip });
 	assert.doesNotMatch(none.requests[0], /While you write/, "no building: no line for the writer");
 	console.log(`PASS a scripted turn: the chair made meanwhile ends at ${box(now.size)}, base ${list(now.base)}, turn ${r2(now.turn)}°; the same request either way`);
@@ -98,7 +110,16 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 {
 	let seed = 7;
 	const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648, pick = list => list[Math.floor(rnd() * list.length)], num = (a, b) => Math.round((a + rnd() * (b - a)) * 1000) / 1000;
-	const counts = { scenes: 0, props: 0, taken: 0, twins: 0, standIns: 0, lines: 0, numbers: 0 };
+	const counts = { scenes: 0, props: 0, taken: 0, unfit: 0, twins: 0, standIns: 0, lines: 0, numbers: 0 };
+	const sizeOf = p => (p.shape === "sphere" ? Array(3).fill(p.size[0]) : p.size);
+	const movesOf = p => p.pos.some((v, k) => v !== p.pos[k % 3]);
+	// the object fits the prop's box where the body meets it: its top at the box's top over half the box's footprint; a
+	// ball or a prop that moves: each side within 0.02 m
+	const fits = (p, o) => {
+		const want = sizeOf(p), own = shape(o).size;
+		if (p.shape === "sphere" || movesOf(p)) return own.every((v, k) => Math.abs(v - want[k]) <= 0.02);
+		return Math.abs(own[1] - want[1]) <= 0.02 && Math.min(own[0], want[0]) * Math.min(own[2], want[2]) >= 0.5 * want[0] * want[2];
+	};
 	for (let s = 0; s < 400; s++) {
 		const F = pick([1, 2, 30]), props = [], objects = [], known = {};
 		for (let k = 0; k < 1 + Math.floor(rnd() * 4); k++) {
@@ -117,13 +138,14 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 			const copies = rnd() < 0.15 ? 2 : rnd() < 0.6 ? 1 : 0;
 			for (let c = 0; c < copies; c++) {
 				const name = pick([p.id, p.id.toUpperCase(), ` ${p.id} `, `${p.id}-x`]), kind = pick(["sculpt", "sculpt", "sculpt", "hidden", "tilted", "group part"]);
-				const made = await studio.run("object.sculpt", { name, placement: { x: num(-5, 5), y: 0, z: num(-5, 5), rot: num(-180, 180) }, recipe: boxRecipe([num(0.1, 2), num(0.1, 2), num(0.1, 2)]), ...(kind === "group part" ? { parent: "g" } : {}) });
+				const made = await studio.run("object.sculpt", { name, placement: { x: num(-5, 5), y: 0, z: num(-5, 5), rot: num(-180, 180) }, recipe: boxRecipe(rnd() < 0.7 ? sizeOf(p) : [num(0.1, 2), num(0.1, 2), num(0.1, 2)]), ...(kind === "group part" ? { parent: "g" } : {}) });
 				if (kind === "hidden") studio.rows.get(made.affectedIds[0]).hidden = true;
 				if (kind === "tilted") studio.rows.get(made.affectedIds[0]).rotX = 10;
 			}
 		}
 		const clip = { frameCount: F, characters: [], props };
-		const at = new Map(studio.describe().objects.map(o => [o.id, o])), take = takenBy({ props, known, before, rows: [...at.values()], building: props.map(p => p.id) });
+		const boxes = new Map(props.map(p => [p.id, boxOf({ id: p.id, size: p.size, at: p.pos.slice(0, 3), shape: p.shape, moves: movesOf(p) }, p.id)]));
+		const at = new Map(studio.describe().objects.map(o => [o.id, o])), take = takenBy({ props, known, before, rows: [...at.values()], building: props.map(p => p.id), boxes });
 		const done = await installClip(clip, studio.run, { existing: { characters: {}, props: known }, turn: true, made: take.made });
 		const now = new Map(studio.describe().objects.map(o => [o.id, o]));
 		for (const p of props) {
@@ -131,7 +153,7 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 			const id = done.placed[p.id], wanted = p.shape === "sphere" ? Array(3).fill(p.size[0]) : p.size;
 			const fresh = [...at.values()].filter(o => !before.has(o.id) && !o.hidden && !o.rotX && !o.parent && idOf(o.name) === p.id);
 			if (known[p.id]) { assert.equal(id, known[p.id].id); continue; }
-			if (fresh.length === 1) {
+			if (fresh.length === 1 && fits(p, at.get(fresh[0].id))) {
 				counts.taken++;
 				assert.equal(id, fresh[0].id, `${p.id}: the one object of its name takes it`);
 				close(shape(now.get(id)).size, shape(at.get(id)).size, 1e-9, `${p.id}: keeps its own size`);
@@ -140,6 +162,7 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 			} else {
 				counts.standIns++;
 				if (fresh.length > 1) counts.twins++;
+				if (fresh.length === 1) counts.unfit++;
 				assert.ok(done.objectIds.includes(id) && !before.has(id) && !fresh.some(o => o.id === id), `${p.id}: a stand-in`);
 				for (const o of fresh) assert.deepEqual(shape(now.get(o.id)), shape(at.get(o.id)), `${p.id}: an object of a twin name is left as it was`);
 			}
@@ -159,6 +182,6 @@ async function turn({ clip, build = async () => {}, building = [], objects = [] 
 		}
 		counts.scenes++;
 	}
-	assert.ok(counts.taken > 100 && counts.twins > 2 && counts.standIns > 100, JSON.stringify(counts));
+	assert.ok(counts.taken > 100 && counts.unfit > 10 && counts.twins > 2 && counts.standIns > 100, JSON.stringify(counts));
 	console.log(`PASS generated scenes: ${JSON.stringify(counts)}`);
 }
