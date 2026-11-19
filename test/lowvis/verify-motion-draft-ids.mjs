@@ -39,6 +39,35 @@ for (const how of ["script", "outside"]) {
 }
 console.log("PASS draft ids: a removed stand-in's id given to another object (one script, another caller) is not taken as the prop");
 
+// a removal undone by another caller (the stand-in back under the record it had, after an edit of it or not): the draft's
+// again, at the install (one object, its look kept, at the final place) and at a failure (removed when untouched, named)
+for (const [shaped, end] of [[true, "report"], [false, "report"], [false, "infra"], [true, "infra"]]) {
+	const studio = studioEditor(), writer = scriptedWriter([first, moved], { end }), t = turn({ studio, writer, key: `undone-${shaped}-${end}` });
+	await t.call;
+	await writer.step();
+	await t.result();
+	const bench = studio.named("bench")[0].id;
+	if (shaped) await t.tools.sculpt({ id: bench, recipe: recipe(part("seat", [1.2, 0.05, 0.4], [0, 0.4, 0]), part("leg", [0.1, 0.4, 0.4], [0, 0, 0])) });
+	let before;
+	studio.outside(rows => { before = rows; return O.removeSceneObject(rows, bench); });
+	await t.tools.add({ kind: "cube", name: "backdrop", placement: { x: 4, y: 0, z: 4 } });
+	studio.outside(() => before);
+	await writer.step(); await writer.step();
+	const label = `undone ${shaped ? "shaped" : "untouched"} ${end}`;
+	if (end === "infra") {
+		const error = await t.result().then(() => null, failure => failure);
+		assert.ok(error, `${label}: the motion fails`);
+		if (shaped) assert.deepEqual([studio.named("bench").length, error.message.includes(`left ${bench} (changed meanwhile)`)], [1, true], `${label}: ${error.message}`);
+		else assert.deepEqual([studio.named("bench").length, error.message.includes(`removed ${bench} (not changed since the draft)`)], [0, true], `${label}: ${error.message}`);
+		continue;
+	}
+	const done = await t.result(), row = studio.row(bench);
+	assert.equal(studio.named("bench").length, 1, `${label}: one object for the prop`);
+	assert.deepEqual([shapeOf(row).base.map(r3), r3(row.rot), row.recipe?.parts?.length ?? 1], [[0.5, 0, -0.9], 15, shaped ? 2 : 1], `${label}: the stand-in at the final place and turn`);
+	assert.ok(!(done.propsSet ?? []).some(line => line.includes("no longer in the scene")), `${label}: ${JSON.stringify(done.propsSet)}`);
+}
+console.log("PASS draft ids: a stand-in whose removal was undone is the draft's again, at the install and at a failure");
+
 // a shaped stand-in in a group: the motion's prop, set to the final place and turn, one object
 {
 	const studio = studioEditor(), writer = scriptedWriter([first, moved]), t = turn({ studio, writer, key: "grouped" });

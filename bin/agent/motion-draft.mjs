@@ -46,14 +46,21 @@ export function travelOf(clip) {
  */
 export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run, describe, readClip, addStandIn, standInOf }) {
 	let job = null; // the draft: Promise of { made: { <prop>: { id, kind, size } }, records: Map(id -> record), undo } or null
-	// stand-ins seen gone from the scene, read before and after each call of the agent (motion-door.mjs): the Studio
-	// gives a removed id to the next object of its kind, so an object under that id later is another object, never the draft's
-	const gone = new Set();
+	// the scene read before and after each call of the agent (motion-door.mjs), at the install and at a failure: the
+	// Studio gives a removed id to the next object of its kind, so an id seen missing is the draft's again only under a
+	// record it had as the draft's (a removal undone); under another record it is another object (gone)
+	const gone = new Set(), records = new Map(); // id -> the records the draft's stand-in had
+	const see = (draft, rows) => {
+		for (const { id } of Object.values(draft.made)) {
+			const row = rows.get(id), record = recordOf(row), had = records.get(id) ?? records.set(id, new Set([draft.records.get(id)])).get(id);
+			if (!row) gone.add(id);
+			else if (had.has(record)) gone.delete(id);
+			else if (!gone.has(id)) had.add(record);
+		}
+	};
 	const watch = async () => {
-		const draft = job && await job, mine = draft ? Object.values(draft.made).map(entry => entry.id).filter(id => !gone.has(id)) : [];
-		if (!mine.length) return;
-		const rows = byId((await describe())?.objects);
-		for (const id of mine) if (!rows.has(id)) gone.add(id);
+		const draft = job && await job;
+		if (draft) see(draft, byId((await describe())?.objects));
 	};
 	const onCompiled = ({ n, scene, clip: file }) => {
 		if (!hold || job) return;
@@ -79,6 +86,7 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 		const draft = job && await job;
 		if (!draft) return null;
 		const at = byId((await describe())?.objects), final = new Map(props.map(prop => [prop.id, prop]));
+		see(draft, at);
 		const out = { drafted: {}, remove: [], kept: [], lost: {}, replaced: {}, touched: [], at };
 		for (const [prop, entry] of Object.entries(draft.made)) {
 			const row = gone.has(entry.id) ? null : at.get(entry.id), untouched = Boolean(row) && recordOf(row) === draft.records.get(entry.id), next = final.get(prop);
@@ -95,11 +103,14 @@ export function draftOf({ hold = null, onDraft = () => {}, key, known = {}, run,
 		const draft = job && await job;
 		if (!draft) return error;
 		draft.undo();
-		const ids = Object.values(draft.made).map(entry => entry.id).filter(id => !gone.has(id));
-		let text;
+		const all = Object.values(draft.made).map(entry => entry.id);
+		let ids = all.filter(id => !gone.has(id)), text;
 		try {
 			text = await hold(async () => {
-				const at = byId((await describe())?.objects), here = ids.filter(id => at.has(id)), untouched = here.filter(id => recordOf(at.get(id)) === draft.records.get(id));
+				const at = byId((await describe())?.objects);
+				see(draft, at);
+				ids = all.filter(id => !gone.has(id));
+				const here = ids.filter(id => at.has(id)), untouched = here.filter(id => recordOf(at.get(id)) === draft.records.get(id));
 				if (untouched.length) await run("object.remove", { ids: untouched });
 				const now = byId((await describe())?.objects), removed = untouched.filter(id => !now.has(id)), stays = untouched.filter(id => now.has(id)), changed = here.filter(id => !untouched.includes(id));
 				const parts = [removed.length ? `removed ${named(removed)} (not changed since the draft)` : "", stays.length ? `could not remove ${named(stays)}` : "", changed.length ? `left ${named(changed)} (changed meanwhile)` : ""].filter(Boolean);
