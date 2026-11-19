@@ -11,7 +11,7 @@
 //   worse: 1 = a higher value is worse, -1 = a value below zero is worse, 0 = neither
 //   spike: the value past which the row counts as a spike (compile-tool.mjs then shows the frames around `frame`)
 import { INDEX as J, JOINTS, JOINT_COUNT } from "../rig17.js";
-import { qConj, qRotate } from "../engine-simple/math.js";
+import { qConj, qMul, qRotate } from "../engine-simple/math.js";
 import { MAX_STEP, SOLE, TOE } from "../engine-simple/solve.js";
 import { PAD } from "../engine-simple/prop-frame.js";
 import { reachWhy } from "./reach-why.mjs";
@@ -133,6 +133,20 @@ export function measure(clip, aux, { stretch = 0 } = {}) {
 		const on = aux.holders?.[p.prop]?.[p.f], who = p.who?.join(" and "), note = [p.held === false && `${who} did not hold ${p.prop}, so the place did not move it`, on && `${on} hold it on`].filter(Boolean).join("; ");
 		rows.push({ key: `place:${p.prop}`, label: p.held === false ? `place: ${p.prop} is this far from its target` : `place: ${p.prop} let go this far from its target`, short: "place miss", value: p.miss * MM, unit: "mm", frame: p.f, prop: p.prop, ...(note ? { note } : {}), worse: 1, spike: 30 });
 	}
+	// a ride (aux.rides, ride.js) that never began: a key of the prop written after it on its frame drives the prop, or
+	// hands held it on every frame from the key to its next key or the end (who, on which frames, as the clip has it);
+	// a ride with at: how far the prop was off that place on the frame before it began (it jumps there) and the turn
+	for (const r of aux.rides ?? []) {
+		const on = r.joint ? `${r.of}'s ${r.joint}` : r.on, tag = { frame: r.began ?? r.f, who: r.of, prop: r.prop }, end = r.next ?? F;
+		const runs = []; for (let f = r.f; f < end; f++) { const h = aux.holders[r.prop]?.[f] ?? "nobody"; if (runs.at(-1)?.h === h) runs.at(-1).b = f; else runs.push({ h, a: f, b: f }); }
+		const why = r.hidden ? `the ${r.hidden} key of ${r.prop} on that frame is written after it and drives ${r.prop}` : `who held it from that frame to ${r.next == null ? "the last frame" : `its next key at f${r.next}`}: ${runs.map(x => `${x.h} f${x.a}-${x.b}`).join(", ")}`;
+		if (r.began == null) rows.push({ key: `ride:${r.prop}:${r.f}`, label: `ride: ${r.prop} never rode on ${on}, the key at f${r.f}`, short: "no ride", value: end - r.f, unit: "frames", ...tag, note: why, worse: 1 });
+		if (!r.at || !r.began || !r.rel) continue;
+		const f = r.began - 1, car = r.joint ? { c: at(clip.characters.find(c => c.id === r.of), f, J[r.joint]), q: rot(clip.characters.find(c => c.id === r.of), f, J[r.joint]) } : propAt(clip.props.find(p => p.id === r.on), f);
+		const was = propAt(clip.props.find(p => p.id === r.prop), f), off = qRotate(car.q, r.rel.c), q = qMul(car.q, r.rel.q), d = dist(was.c, [car.c[0] + off[0], car.c[1] + off[1], car.c[2] + off[2]]);
+		const turned = 2 * Math.acos(Math.min(1, Math.abs(q[0] * was.q[0] + q[1] * was.q[1] + q[2] * was.q[2] + q[3] * was.q[3]))) * DEG;
+		if (d > 0.005 || turned > 2) rows.push({ key: `ride:${r.prop}:${r.f}`, label: `ride: ${r.prop} jumped this far onto its at on ${on} when the ride began`, short: "ride jump", value: d * MM, unit: "mm", ...tag, note: `and turned ${turned.toFixed(0)} deg; the frame before, it was there`, worse: 1, spike: 10 });
+	}
 	// a sit on a prop that did not end on it (aux.seats): the hips off the top's footprint over 10 mm, or feet inside the prop
 	for (const s of aux.seats ?? []) if (s.off > 0.01 || s.feetIn) rows.push({ key: `seat:${s.who}:${s.f}`, label: `sit: hips end this far off the top of ${s.prop}`, short: "off seat", value: s.off * MM, unit: "mm", frame: s.f, who: s.who, prop: s.prop, note: s.feetIn ? `${s.feetIn === 1 ? "a foot stands" : "both feet stand"} inside ${s.prop}` : undefined, worse: 1 });
 	row("clear", "nearest joint to a prop (hands excluded)", clear, "mm", MM, { short: "inside prop", worse: -1, spike: 30 });
@@ -182,12 +196,27 @@ export function checkValue(key, c) {
 }
 
 const MOVING = new Set(["walk", "run", "push"]), BODY = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+const m2 = v => v.toFixed(2);
+/** How a written count or stepFrames of a walk (aux.walks, gait.js fitCount) differs from what it walked, as the writer reads it. */
+const toldText = w => {
+	const [a, n] = w.steps, turned = (w.turns ?? []).reduce((k, t) => k + t.frames, 0), g = w.gait ?? w.verb, because = [w.as?.facing && "it has facing", w.as?.under != null && `it goes ${m2(w.distance)} m, under 0.5 m times its body's scale, ${m2(w.as.under)} m`].filter(Boolean).join(" and "), as = g === w.verb ? "" : ` (this ${w.verb} steps as a ${g}${because ? `: ${because}` : ""})`;
+	const lg = (k, l, why) => `longer than the longest step of a ${k} that way${why}, ${m2(l)} m`, fu = (k, r) => `further than a ${k} at a steady pace of its longest steps that way puts one, ${m2(r)} m`;
+	const longer = lg(g, w.longest, as), further = fu(g, w.reach), sp = w.split, spWhy = sp && (sp.turn ? "" : sp.gait === g ? as : "");
+	const why = [w.step > w.longest + 1e-6 && longer, w.far != null && `and put a foot up to ${m2(w.far)} m from the hips as it lands or lifts, ${further}`].filter(Boolean).join(", ");
+	return [
+		n !== a && `steps ${a} asked: ${a < 2 ? `a ${w.verb} of ${m2(w.distance)} m takes 2 plants at least (the last brings the feet together), steps no longer than the longest of a ${g} that way${as}, ${m2(w.longest)} m` : `${a} plants over ${m2(w.distance)} m make ${a - 1} step${a === 2 ? "" : "s"} of up to ${m2(w.step)} m${w.pace ? ` at the pace ${w.pace}` : ""} (the last plant brings the feet ${w.end ? "to their end spots" : "together"}), ${why}`}, so it took ${n} plants`,
+		sp && `its end spots, which the count is not fitted to, make a step of up to ${m2(sp.step)} m onto them and put a foot ${m2(sp.far)} m from the hips as it lands: ${[sp.long && `${lg(sp.gait, sp.longest, spWhy)}${sp.was != null ? `, and than a step there without its end spots, ${m2(sp.was)} m` : ""}`, sp.wide && `${fu(sp.gait, sp.reach)}${sp.own != null ? `, and than that foot lands without its end spot, ${m2(sp.own)} m` : ""}`].filter(Boolean).join(", and ")}${sp.turn ? " (it steps onto them as a walk, in its turn on the spot at the end)" : ""}`,
+		w.stepFrames[0] != null && w.stepFrames[1] < w.stepFrames[0] - 0.05 && `stepFrames ${w.stepFrames[0]} asked: ${n} plants at ${w.stepFrames[0]} frames need ${Math.round(w.need)} frames to land, the action has ${Math.round(w.room)} (up to the next body action, less 3 to stand still)${turned ? ` and turns on the spot in ${turned} of them, leaving ${Math.round(w.stepsRoom)}` : ""}, so each step took ${w.stepFrames[1].toFixed(1)}`,
+		...(w.turns ?? []).map(t => `it turned on the spot ${t.when} (${t.plants} plants in ${t.frames} frames) besides its ${n} plants`),
+	].filter(Boolean).map(t => `the ${w.verb} at f${w.f}: ${t}`).join("; ");
+};
 /**
  * What each stretch of travel came out as: one record per character and run of consecutive walk / run / push actions
  * of its body layer. spec: the spec as built (repeats written out). The Hips joint's path on the floor plane counts
  * while it moves faster than 0.05 m/s (seconds are those frames); steps are the foot plants (aux.contacts, the test
- * the foot-slide row uses) that begin inside the stretch.
- * -> [{ who, a, b, verb, distance (m), seconds, speed (m/s), steps, cadence (per minute, null under 2 steps) }]
+ * the foot-slide row uses) that begin inside the stretch. told: for each of its actions whose written count or
+ * stepFrames was not walked as written (aux.walks), the difference and why.
+ * -> [{ who, a, b, verb, distance (m), seconds, speed (m/s), steps, cadence (per minute, null under 2 steps), told: [text] }]
  */
 export function travel(clip, aux, spec) {
 	const F = clip.frameCount, fps = clip.fps ?? 24, out = [];
@@ -206,7 +235,8 @@ export function travel(clip, aux, spec) {
 				for (let side = 0; side < 2; side++) if (aux.contacts[c.id][f][side] && !aux.contacts[c.id][f - 1][side]) steps++;
 			}
 			const seconds = moving / fps;
-			out.push({ who: c.id, a, b, verb: [...verbs].join("+"), distance, seconds, speed: seconds ? distance / seconds : 0, steps, cadence: steps >= 2 && seconds ? steps / seconds * 60 : null });
+			const told = (aux.walks ?? []).filter(w => w.who === c.id && w.f >= a && w.f <= b).map(toldText);
+			out.push({ who: c.id, a, b, verb: [...verbs].join("+"), distance, seconds, speed: seconds ? distance / seconds : 0, steps, cadence: steps >= 2 && seconds ? steps / seconds * 60 : null, told });
 		}
 	}
 	return out;

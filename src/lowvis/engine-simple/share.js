@@ -12,19 +12,17 @@
 import { INDEX as J, qAxisAngle } from "../rig17.js";
 import { add, cross, dot, len, mul, norm, qConj, qMul, qRotate, qY, sub, wrap } from "./math.js";
 import { PAD } from "./prop-frame.js";
-import { moveRiders } from "./ride.js";
-import { solveSized } from "./size.js";
+import { jointFrame, moveRiders } from "./ride.js";
 import { ARM_LEN } from "./solve.js";
 
 const HAND = [J.LeftHand, J.RightHand], ARM = [J.LeftArm, J.RightArm], SIDE = ["L", "R"];
 const END = [J.LeftHand, J.RightHand, J.LeftFoot, J.RightFoot, J.LeftForeArm, J.RightForeArm]; // the joint of each reach slot
-const pointOf = (P, j, at) => add(P.pos[j], qRotate(P.quat[j], at ?? [0, 0, 0]));
 const jointOf = name => { const j = J[name]; if (j == null) throw new Error(`engine-simple: unknown joint "${name}"; want one of ${Object.keys(J).join(", ")}`); return j; };
 
 /** Each prop's place and turn at the start of the frame, after its keys and with its riders on their carriers: what
  *  the first pass reads of it. */
-export function startFrame(props, f) {
-	moveRiders(props, f);
+export function startFrame(props, f, byId) {
+	moveRiders(props, f, byId);
 	for (const p of Object.values(props)) { p.at0 = { c: p.c.slice(), q: p.q.slice() }; p.at1 = null; }
 }
 
@@ -41,11 +39,8 @@ export function onPoint(props, to, final = false) {
 export function otherPoint(byId, to, f, final = false) {
 	const o = byId[to.of], j = jointOf(to.joint);
 	if (!o) throw new Error(`engine-simple: {joint, of: ${JSON.stringify(to.of)}} wants a character id; characters: ${Object.keys(byId).join(", ")}`);
-	if (final) return pointOf(o.poseNow, j, to.at);
-	if (o.snapF === f) return pointOf(o.snap, j, to.at);
-	if (!o.world || !o.prevB) return pointOf(solveSized(o.body[f], {}, o.s), j, to.at);
-	const B = o.body[f], turn = qY(B.yaw - o.prevB.yaw); // its last pose, carried with its body to this frame
-	return add(add(B.p, qRotate(turn, sub(o.world.pos[j], o.prevB.p))), qRotate(qMul(turn, o.world.quat[j]), to.at ?? [0, 0, 0]));
+	const { c, q } = jointFrame(o, j, f, final);
+	return add(c, qRotate(q, to.at ?? [0, 0, 0]));
 }
 
 /** The shared side of a prop event (buildUpper's events) of character c at frame f. Returns true when it is handled
@@ -131,7 +126,7 @@ export function afterFirstPass(props, chars, f) {
 		const z = qRotate(p.q, [0, 0, 1]);
 		p.yaw = Math.atan2(z[0], z[2]); p.set = set; p.holder = set;
 	}
-	moveRiders(props, f); // a prop that rides on one the first pass moved goes with it
+	moveRiders(props, f, Object.fromEntries(chars.map(c => [c.id, c]))); // a prop that rides on one the first pass moved, or on a body, goes with it
 	for (const p of Object.values(props)) p.at1 = { c: p.c.slice(), q: p.q.slice() };
 }
 
