@@ -20,7 +20,7 @@ import { LIMBS, directInputs, frameOf, limbSide, specInputs } from "./knee-sweep
 
 const KNEES = LIMBS.filter(l => l.leg), len = a => Math.hypot(a[0], a[1], a[2]), sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const PLAIN = /^(idle|walk|run|push|back|sidestep|lunge|turnwalk|kneel-stand|sit-stand|kneel-lie|\w+ hands|stand tilt .* about \S+|lie tilt .*) s[\d.]+$/;
-const FOOT_TARGET_WRONG = 302;
+const FOOT_TARGET_WRONG = 298; // was 302 before the knee went on from the frame before (knee.js)
 let plain = 0, plainWrong = [], targeted = 0, targetedWrong = 0, worst = 0, reversed = [];
 for (const inp of specInputs()) {
 	const { clip } = buildClip({ demo: "sweep", ...inp.spec }, inp.def), c = clip.characters[0], isPlain = PLAIN.test(inp.tag);

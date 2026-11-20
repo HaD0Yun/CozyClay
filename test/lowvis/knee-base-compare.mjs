@@ -4,8 +4,9 @@
 // largest such twist, the largest knee jump on a path whose target moves a little each step, and which inputs differ
 // between the two with the reason.
 //   node test/lowvis/knee-base-compare.mjs <base-sha> [--quick]
-// The base tree is this tree's src/lowvis with solve.js and size.js taken from the base commit (the only files the
-// knee change touches), copied to a temporary folder.
+// The base tree is this tree's src/lowvis with solve.js, size.js and (where the base has one) knee.js taken from the base
+// commit, copied to a temporary folder. Specs here are compared as built; this tree's engine.js gives the solver the
+// frame before's knee, which a base solver without it ignores. knee-flow-compare.mjs takes a whole base checkout instead.
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,8 @@ const sha = process.argv[2], quick = process.argv.includes("--quick");
 if (!sha) throw new Error("usage: knee-base-compare.mjs <base-sha>");
 const root = new URL("../../", import.meta.url).pathname, tmp = mkdtempSync(join(tmpdir(), "knee-base-"));
 cpSync(join(root, "src/lowvis"), join(tmp, "src/lowvis"), { recursive: true });
-for (const f of ["solve.js", "size.js"]) writeFileSync(join(tmp, "src/lowvis/engine-simple", f), execFileSync("git", ["show", `${sha}:src/lowvis/engine-simple/${f}`], { cwd: root }));
+const has = f => execFileSync("git", ["ls-tree", "--name-only", sha, `src/lowvis/engine-simple/${f}`], { cwd: root, encoding: "utf8" }).trim() !== "";
+for (const f of ["solve.js", "size.js", "knee.js"].filter(has)) writeFileSync(join(tmp, "src/lowvis/engine-simple", f), execFileSync("git", ["show", `${sha}:src/lowvis/engine-simple/${f}`], { cwd: root }));
 const load = async base => ({
 	...(await import(pathToFileURL(join(base, "src/lowvis/engine-simple/engine.js")).href)),
 	...(await import(pathToFileURL(join(base, "src/lowvis/engine-simple/size.js")).href)),
