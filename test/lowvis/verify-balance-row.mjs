@@ -6,7 +6,7 @@
 // as the writer reads it and each of its numbers is computed again here from the clip and the build's aux, by this
 // file's own arithmetic: the centre of mass from the segment shares, the rest frames from the joints' steps and the
 // spec's blends, the supports from the planted feet and the spec's words, the distance outside them by the support
-// function of the points (the most p lies past them over 720 directions, then 400 about the best), the side from the hip joints. A body this
+// function of the points (the most p lies past them over 720 directions, then 400 about the best), the side from the pelvis's axes. A body this
 // file finds over the limit on a frame at rest is told; one it does not, is not. Scenes and specs are made here.
 // LOWVIS_BALANCE_N=<random cases> runs more (default 40), LOWVIS_BALANCE_SEED=<n> other ones.
 import assert from "node:assert/strict";
@@ -46,21 +46,30 @@ function expected(clip, aux, spec) {
 			for (const o of [tip, heel]) for (const w of [-FOOT / 2, FOOT / 2]) { const d = qRotate(Q(f, j), [(o[0] + w) * s, o[1] * s, o[2] * s]); all.push(P(f, j).map((v, k) => v + d[k])); }
 			const low = Math.min(...all.map(p => p[1])); return all.filter(p => p[1] - low <= 0.02 * s); };
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), body = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
+		const tiltAt = f => { const tk = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined).findLast(a => a[0] <= f); if (!tk) return false; const t = tk[2].tilt ?? []; return [t[0] ?? 0, t[1] ?? 0, ...(tk[2].shift ?? [])].some(v => Number(v) !== 0 && !Number.isNaN(Number(v))) || f < tk[0] + (tk[2].over ?? 12); };
+		// the engine's posture (spec-layers.js): a sit, kneel or lie holds through a stand of a body that never sat and through a
+		// walk, run, push or turn on which no foot's planted flag changes; a stand after a sit, or a step, ends it
+		const bodyActs = acts.filter(a => body.has(a[1])), postureOf = [], changeSpans = [];
+		for (let i = 0, cur = null, sat = false; i < bodyActs.length; i++) {
+			const [a, verb, o = {}] = bodyActs[i], end = Math.min(F, bodyActs[i + 1]?.[0] ?? F), up = verb === "stand" && sat;
+			let stepped = false;
+			for (let g = Math.max(0, a) + 1; g < end && !stepped; g++) if (!tiltAt(g) && !tiltAt(g - 1)) for (const k of [0, 1]) if (!!aux.contacts[c.id][g][k] !== !!aux.contacts[c.id][g - 1][k]) stepped = true;
+			if (["sit", "kneel", "lie"].includes(verb)) { cur = bodyActs[i]; if (verb === "sit") sat = true; } else if (up || (["walk", "run", "push", "turn"].includes(verb) && stepped)) { cur = null; sat = false; }
+			if (["sit", "kneel", "lie"].includes(verb) || up) changeSpans.push([a, o.over != null ? a + Math.round(o.over) : end]);
+			for (let f = Math.max(0, a); f < end; f++) postureOf[f] = cur;
+		}
 		const quietAt = f => {
-			for (const j of [J.Hips, J.LeftFoot, J.RightFoot]) for (const g of [f - 1, f + 1]) if (g >= 0 && g < F && Math.hypot(...P(f, j).map((v, k) => v - P(g, j)[k])) > STILL * s) return false;
-			for (const [a, verb, o = {}] of acts) {
-				if (["pose", "carry", "hold", "place"].includes(verb) && f >= a && f < a + (o.over ?? 12)) return false;
-				if (["sit", "stand", "kneel", "lie"].includes(verb)) { const end = o.over != null ? a + Math.round(o.over) : (acts.find(x => x[0] > a && body.has(x[1]))?.[0] ?? F); if (f >= a && f < end) return false; }
-			}
-			const tk = acts.filter(a => a[1] === "pose" && a[2]?.tilt).findLast(a => a[0] <= f);
-			return !(tk && (tk[2].tilt.some(Boolean) || (tk[2].shift ?? []).some(Boolean) || f < tk[0] + (tk[2].over ?? 12)));
+			for (const j of [J.Hips, J.LeftFoot, J.RightFoot]) for (const g of [f - 1, f + 1]) if (g >= 0 && g < F && Math.hypot(...P(f, j).map((v, k) => v - P(g, j)[k])) > STILL * s) return false; // to each neighbouring frame
+			for (const [a, verb, o = {}] of acts) if (["pose", "carry", "hold", "place"].includes(verb) && f >= a && f < a + (o.over ?? 12)) return false;
+			if (changeSpans.some(([a, b]) => f >= a && f < b)) return false;
+			return !tiltAt(f);
 		};
 		const quiet = Array.from({ length: F }, (_, f) => quietAt(f)), rest = [];
 		for (let f = 0; f < F; f++) { let a = f; while (a > 0 && quiet[a - 1]) a--; let b = f; while (b < F - 1 && quiet[b + 1]) b++; rest.push(quiet[f] && b - a + 1 >= FRAMES); }
 		let best = null; const frames = [], byFrame = {};
 		for (let f = 0; f < F; f++) {
 			if (!rest[f]) continue;
-			let posture = null; for (const a of acts) if (a[0] <= f) { if (["sit", "kneel", "lie"].includes(a[1])) posture = a; else if (["walk", "run", "push", "turn"].includes(a[1]) || (a[1] === "stand" && posture?.[1] === "sit")) posture = null; }
+			const posture = postureOf[f] ?? null;
 			const pts = [], names = []; let vouch = true;
 			[0, 1].forEach(i => { if (aux.contacts[c.id][f][i]) { pts.push(...soles(f, i)); names.push(`${"LR"[i]} foot planted`); } });
 			const seat = posture?.[2]?.on && clip.props.find(p => p.id === posture[2].on);
@@ -70,7 +79,7 @@ function expected(clip, aux, spec) {
 			if (posture?.[1] === "lie") { const on = Array.from({ length: JOINT_COUNT }, (_, j) => P(f, j)).filter(x => !seat || over(seat, x)); if (on.length) { pts.push(...on); names.push(seat ? `lying on ${seat.id}` : "lying"); } }
 			const FIELD = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]], NAME = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], JOINT = [J.LeftHand, J.RightHand, null, null, J.LeftForeArm, J.RightForeArm];
 			for (let i = 0; i < 6; i++) {
-				const e = aux.reach[c.id][f]?.[i]; if (!e || e.d > ON) continue;
+				const e = aux.reach[c.id][f]?.[i]; if (!e || (e.d > ON && !(i >= 2 && i <= 3 && e.floor > 0))) continue; // a foot the floor stopped short of its target lies on the floor
 				const key = acts.findLast(a => a[0] === e.key && a[1] === "pose" && FIELD[i].some(n => a[2][n] !== undefined)); if (!key) continue;
 				const t = FIELD[i].map(n => key[2][n]).find(v => v !== undefined); if (!t || typeof t !== "object") continue;
 				const id = Array.isArray(t) ? null : t.on ?? t.prop ?? t.meet ?? t.chest ?? t.of;
@@ -91,15 +100,20 @@ function expected(clip, aux, spec) {
 			if (!best || d > best.d) best = { d, f, dir, names };
 		}
 		if (!best) continue;
+		// the side: left from the hip joints; across them front and back, for a body that lies on its back its head and feet
+		// (the pelvis's own up axis, which then lies in the floor plane: the words follow where that axis points)
 		const l = P(best.f, J.LeftUpLeg), r = P(best.f, J.RightUpLeg), left = [l[0] - r[0], l[2] - r[2]], n = Math.hypot(...left), fwd = [-left[1] / n, left[0] / n];
+		const lies = postureOf[best.f]?.[1] === "lie", up = qRotate(Q(best.f, J.Hips), [0, 1, 0]), headFwd = up[0] * fwd[0] + up[2] * fwd[1] > 0;
+		const ang = Math.atan2(best.dir[0] * left[0] / n + best.dir[1] * left[1] / n, best.dir[0] * fwd[0] + best.dir[1] * fwd[1]) * 180 / Math.PI;
 		const held = clip.props.filter(p => String(aux.holders[p.id]?.[best.f] ?? "").split("+").some(h => h.split(":")[0] === c.id)).map(p => p.id);
-		out.push({ who: c.id, ...best, frames, byFrame, ang: Math.atan2(best.dir[0] * left[0] / n + best.dir[1] * left[1] / n, best.dir[0] * fwd[0] + best.dir[1] * fwd[1]) * 180 / Math.PI, held, s });
+		out.push({ who: c.id, ...best, frames, byFrame, ang, words: lies ? (headFwd ? ["head", "feet"] : ["feet", "head"]) : ["front", "back"], held, s });
 	}
 	return out;
 }
 
-const ROW = /^- at rest: centre of mass outside its supports: ([\d.]+) mm @f(\d+) (\S+) \(toward its (front|back|left|right|front left|front right|back left|back right); over (\d+) mm on (\d+) frames? at rest \(([^)]*)\); supports at f(\d+): (.*?)(?:; it holds (.*), not weighed and not a support)?\)( \[.*\])?$/;
-const sideOf = a => { const m = Math.abs(a); return m <= 22.5 ? ["front"] : m >= 157.5 ? ["back"] : m < 67.5 ? [`front ${a > 0 ? "left" : "right"}`] : m <= 112.5 ? [a > 0 ? "left" : "right"] : [`back ${a > 0 ? "left" : "right"}`]; };
+const ROW = /^- at rest: centre of mass outside its supports: ([\d.]+) mm @f(\d+) (\S+) \(toward its ([a-z ]+?); over (\d+) mm on (\d+) frames? at rest \(([^)]*)\); supports at f(\d+): (.*?)(?:; it holds (.*), not weighed and not a support)?\)( \[.*\])?$/;
+// the side words: the first axis's ends alone, the second's alone, or both ("front left"; with head or feet "head and left")
+const sideOf = (a, [ap, am]) => { const m = Math.abs(a), b = a > 0 ? "left" : "right", x = m < 90 ? ap : am, both = ap === "front" ? `${x} ${b}` : `${x} and ${b}`; return m <= 22.5 ? [ap] : m >= 157.5 ? [am] : m < 67.5 || m > 112.5 ? [both] : [b]; };
 const near = (a, lo, hi) => Math.abs(a - lo) < 0.6 || Math.abs(a - hi) < 0.6; // a side at a sector edge may round either way
 let told = 0, quietBodies = 0, checked = 0, n = 0;
 /** One case: compile with the tool and with buildClip, recompute, compare. */
@@ -125,7 +139,7 @@ function check(name, scene, spec, { off = [], expectTold } = {}) {
 		assert.equal(+count, w.frames.length, `${name}: ${count} frames against ${w.frames.length}`);
 		const runs = w.frames.reduce((o, x) => { if (o.at(-1)?.[1] === x - 1) o.at(-1)[1] = x; else o.push([x, x]); return o; }, []).map(([a, b]) => (a === b ? `f${a}` : `f${a}-${b}`));
 		assert.equal(spans, runs.slice(0, 4).join(", ") + (runs.length > 4 ? ", ..." : ""), `${name}: the spans`);
-		assert.ok(sideOf(w.ang).includes(side) || [22.5, 67.5, 112.5, 157.5].some(e => near(Math.abs(w.ang), e, e)), `${name}: toward its ${side}, recomputed ${w.ang.toFixed(1)} deg from its front`);
+		assert.ok(sideOf(w.ang, w.words).includes(side) || [22.5, 67.5, 112.5, 157.5].some(e => near(Math.abs(w.ang), e, e)), `${name}: toward its ${side}, recomputed ${w.ang.toFixed(1)} deg from its front`);
 		assert.equal(names, w.names.join(", "), `${name}: the supports named`);
 		assert.equal(held ?? "", w.held.join(" and "), `${name}: the props it holds`);
 		checked++;
@@ -150,7 +164,15 @@ try {
 	check("tilt in progress", ...solo([[0, "pose", { tilt: [30, 0], about: "feet", over: 119 }]]), { expectTold: false });
 	check("walking", ...solo([[0, "walk", { to: [0, 3] }]]), { expectTold: false });
 	check("lie on the bench", ...solo([[0, "lie", { on: "bench", head: 90, over: 30 }]], [bench]));
-	check("elbow on a table", ...solo([[0, "pose", { elbowR: { on: "table", at: [-0.2, 0.4, -0.2] }, bow: 70, over: 20 }]], [table]));
+	const box = { id: "box", size: [0.4, 0.4, 0.2], at: [0, 0.2, -0.6] };
+	check("lie on a small box, arms past the head", ...solo([[0, "lie", { on: "box", head: 0, over: 30 }], [30, "pose", { L: { world: [0.2, 0.5, 0.5] }, R: { world: [-0.2, 0.5, 0.5] }, over: 10 }]], [box], 1, 100), { expectTold: true });
+	check("sit, then a turn that takes no step", ...solo([[0, "sit", { on: "bench", over: 30 }], [50, "turn", { heading: 30 }]], [bench], 1, 100), { expectTold: false });
+	check("kneel, bow, a stand that changes nothing", ...solo([[0, "kneel", { over: 20 }], [0, "pose", { bow: 70, over: 20 }], [50, "stand"]], [], 1, 100), { expectTold: true });
+	check("a stand at the start, hips left", ...solo([[0, "stand"], [0, "pose", { hip: [0.3, 0, 0], over: 0 }]]), { expectTold: true });
+	check("sit, lie, stand, hips left", ...solo([[0, "sit", { height: 0.45, over: 20 }], [30, "lie", { at: [0, -0.8], over: 30 }], [70, "stand", { over: 30 }], [100, "pose", { hip: [0.3, 0, 0], over: 0 }]], [], 1, 160));
+	check("a foot the floor stops short", ...solo([[0, "pose", { footL: [0.1, 0, 0.45], hip: [0, 0, 0.2], over: 20 }]]));
+	for (const tilt of [30, { pitch: 30 }, "30"]) check(`tilt of another form: ${JSON.stringify(tilt)}`, ...solo([[0, "pose", { tilt, over: 0 }]], [], 1, 60));
+	check("elbow on a table",...solo([[0, "pose", { elbowR: { on: "table", at: [-0.2, 0.4, -0.2] }, bow: 70, over: 20 }]], [table]));
 	const two = order => { const cs = [{ id: "a", at: [0, 0], heading: 0 }, { id: "b", at: [0, 0.7], heading: 180, scale: 1.3 }]; return [{ frames: 100, characters: order ? cs : cs.slice().reverse(), props: [] }, { a: [[0, "pose", { hip: [0.3, 0, 0], over: 0 }]], b: [[0, "pose", { R: { joint: "Spine2", of: "a" }, bow: 50, hip: [0, 0, 0.25], over: 20 }]] }]; };
 	check("two bodies", ...two(true)); check("two bodies listed the other way", ...two(false));
 	for (let i = 0; i < N; i++) {
