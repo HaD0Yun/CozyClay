@@ -58,7 +58,7 @@ try {
 		assert.deepEqual(counts(t, SAID_IN), [1, 0], "said at the first compile only"); assert.ok(t[1].some(l => insideRow.test(l)), "the row is told again");
 		after(t[0], SAID_IN);
 		const said = t[0].find(l => SAID_IN.test(l));
-		assert.ok(said.includes(`each part as the ${figure === "cube" ? "cube" : "block"} look draws it`), `the look measured: ${said}`);
+		assert.ok(said.includes(`each part as the ${figure === "cube" ? "cube" : "block"} look draws it${figure === "no-such-look" ? ", the tool having none for the Studio's no-such-look look" : ""}, taken as the convex solid around it`), `the look measured, and that it is not the one drawn when the tool has no parts for that one: ${said}`);
 		assert.ok(said.includes(`on ${SEEN} frames or more (at ${FPS} fps the fewest that last a tenth of a second), or on the clip's first or last frame`), said);
 		assert.ok(said.includes("Not told and not counted: a body with a prop it holds, carries, pushes or places, on the frames the engine has it in that body's hands"), said);
 		// at a later compile, then gone and back: said where it first appears, once
