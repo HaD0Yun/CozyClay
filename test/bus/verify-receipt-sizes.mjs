@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { runSizeCases } from './receipt-sizes-cases.mjs';
 
 const DEG = Math.PI / 180;
-const mul = (a, b) => a.map((row, i) => [0, 1, 2].map(j => row[0] * b[0][j] + row[1] * b[1][j] + row[2] * b[2][j]));
+const mul = (a, b) => a.map(row => [0, 1, 2].map(j => row[0] * b[0][j] + row[1] * b[1][j] + row[2] * b[2][j]));
 const rx = t => [[1, 0, 0], [0, Math.cos(t), -Math.sin(t)], [0, Math.sin(t), Math.cos(t)]];
 const ry = t => [[Math.cos(t), 0, Math.sin(t)], [0, 1, 0], [-Math.sin(t), 0, Math.cos(t)]];
 const rz = t => [[Math.cos(t), -Math.sin(t), 0], [Math.sin(t), Math.cos(t), 0], [0, 0, 1]];
@@ -42,8 +42,8 @@ for (const c of cases) {
 	if (c.receipt.action === 'edit.undo') { assert.equal(sizes, undefined, 'undo answers as before'); previous = c.rows; continue; }
 	if (!expectedIds.length) assert.equal(sizes, undefined, `${c.label}: nothing created or resized, no sizes`);
 	else {
-		assert.ok(sizes, `${c.label}: sizes stated (${JSON.stringify(c.receipt.warnings)})`);
-		const listed = Object.keys(sizes);
+		assert.ok(sizes || truncated, `${c.label}: sizes stated or counted (${JSON.stringify(c.receipt.warnings)})`);
+		const listed = Object.keys(sizes ?? {});
 		assert.deepEqual(listed, expectedIds.slice(0, listed.length), `${c.label}: exactly the created or resized ids, in scene order`);
 		if (listed.length < expectedIds.length) assert.equal(truncated?.count, expectedIds.length - listed.length, `${c.label}: the missing count is stated`);
 		else assert.equal(truncated, undefined);
@@ -65,6 +65,6 @@ assert.deepEqual(Object.values(by('sculpt of one part').output.worldBoxSizeM), [
 assert.deepEqual(Object.values(by('sculpt of several parts').output.worldBoxSizeM), [[1.6, 0.45 + 0.04, 0.4]]);
 assert.equal(Object.keys(by('sixteen objects in one call').output.worldBoxSizeM).length, 16, 'all sixteen past the readback limit of 8');
 assert.equal(by('sixteen objects in one call').delta.length, 8);
-assert.ok(by('a hundred objects in one call').warnings[0].code === 'READBACK_TRUNCATED' && by('a hundred objects in one call').warnings[1].code === 'SIZES_TRUNCATED');
+assert.ok(by('a hundred objects in one call').warnings[0].code === 'READBACK_TRUNCATED' && by('a hundred objects in one call').warnings.at(-1).code === 'SIZES_TRUNCATED');
 console.log(`PASS ${checked} stated sizes agree with the rows; ids, missing counts, partial receipts and calls without a resize hold`);
 process.exit(0);

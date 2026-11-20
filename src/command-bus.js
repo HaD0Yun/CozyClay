@@ -184,8 +184,8 @@ export function createCommandBus({ registry, ports }) {
       message: [...String(error.message || error)].slice(0, 2000).join('') });
   }
   /** Findings first, toasts after; past the schema's twelve, say how many were left out. */
-  const receiptWarnings = (findings = [], toasts = [], omitted = 0, limit = 12) => {
-    const all = [...(omitted ? [{ code: 'READBACK_TRUNCATED', count: omitted, message: `Readback lists 8 of ${8 + omitted} affected ids; inspect_studio scope entities with ids for the rest.` }] : []), ...findings, ...toastWarnings(toasts)];
+  const receiptWarnings = (findings = [], toasts = [], omitted = 0, limit = 12, reads = 8) => {
+    const all = [...(omitted ? [{ code: 'READBACK_TRUNCATED', count: omitted, message: `Readback lists ${reads} of ${reads + omitted} affected ids; inspect_studio scope entities with ids for the rest.` }] : []), ...findings, ...toastWarnings(toasts)];
     return all.length <= limit ? all : [...all.slice(0, limit - 1), { code: 'WARNINGS_TRUNCATED', count: all.length - limit + 1, message: `${all.length - limit + 1} more warnings omitted.` }];
   };
   function receipt(entry, request, before, result, historyEntryId, toasts = [], turn = null) {
@@ -197,17 +197,18 @@ export function createCommandBus({ registry, ports }) {
     const completed = entry.kind === 'job' || entry.kind === 'document' || (entry.kind === 'mutation' && changed && (turn || after.revision > before.revision + 1));
     const ids = completed || changed ? result.affectedIds : entry.kind === 'transient' ? [before.host.sceneId] : [];
     if (turn && changed) for (const id of ids) { turn.affectedIds.add(id); turn.mark?.since.add(id); }
-    const build = (level, output = result.output, cut = []) => validateReceipt({ ok: true, commandId: request.commandId, receiptId: crypto.randomUUID(), host: before.host,
+    // told: lines after the level's warning cap (receipt-sizes.js); reads: how many affected ids the readback lists.
+    const build = (level, output = result.output, cut = [], told = [], reads = 8) => validateReceipt({ ok: true, commandId: request.commandId, receiptId: crypto.randomUUID(), host: before.host,
       action: entry.id, summary: result.summary, status: completed ? 'completed' : entry.kind === 'transient' ? 'transient' : changed ? 'applied' : 'noop',
       authored: changed, ...(completed ? { kind: entry.kind, ...(output === undefined ? {} : { output }), ...(same(before.host, after.host) ? {} : { nextHost: after.host }) } : entry.kind === 'transient' ? { view: { before: before.viewRevision ?? 0, after: after.viewRevision ?? 0 } } : { mutated: changed }),
       revision: { before: before.revision, after: after.revision }, affectedIds: ids,
-      delta: ids.slice(0, 8).map(id => ({ id, after: ports.readback?.(id, after, level > 0) ?? { removed: true } })),
+      delta: ids.slice(0, reads).map(id => ({ id, after: ports.readback?.(id, after, level > 0) ?? { removed: true } })),
       // The command's own measurements (an arrangement's overlap evidence) ride beside the coverage tag.
-      checks: { coverage: `studio-action:${entry.id}`, ...result.checks }, warnings: receiptWarnings([...cut, ...(result.warnings ?? [])], toasts, Math.max(0, ids.length - 8), level > 1 ? 4 : 12),
-      undo: retainedHistoryEntryId ? { historyEntryId: retainedHistoryEntryId, entries: 1, canUndoDirect: !turn } : null, ...(ids.length > 8 ? { detailCursor: request.commandId } : {}) });
+      checks: { coverage: `studio-action:${entry.id}`, ...result.checks }, warnings: [...receiptWarnings([...cut, ...(result.warnings ?? [])], toasts, Math.max(0, ids.length - reads), Math.min(level > 1 ? 4 : 12, 12 - told.length), reads), ...told],
+      undo: retainedHistoryEntryId ? { historyEntryId: retainedHistoryEntryId, entries: 1, canUndoDirect: !turn } : null, ...(ids.length > reads ? { detailCursor: request.commandId } : {}) });
     // Full readback, warnings and a long output list are richer than the 8 KiB receipt always allows; shed the
     // extras (box and children, all but the first warnings, then the list's end) rather than fail a command that ran.
-    // The agent's completed receipt (in its turn or task; output allowed) also states the size of every object it added or resized (receipt-sizes.js).
+    // The agent's completed receipt (in its turn or task) also states the size of every object it added or resized (receipt-sizes.js).
     return fitSized(build, result.output, (turn || request.taskId) && completed && changed && same(before.host, after.host) ? receiptSizes(before, after, ports.readback) : null);
   }
   function run(id, args = {}, options = {}) {

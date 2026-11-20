@@ -11,12 +11,12 @@ const MAX_AFFECTED_IDS = 8;
  * image, and the sandbox, the call summary and the model never carry it. */
 const publicData = value => value === undefined ? null : JSON.parse(JSON.stringify(value, (key, entry) => key === "dataUrl" ? undefined : entry) ?? "null");
 
-// The world box sizes a call's receipt states (src/receipt-sizes.js), every entry: a mixed patch_elements answers one receipt per domain.
-// With them, the warning that says some were left out and where to read them.
+// The object sizes a call's receipt states (src/receipt-sizes.js), every entry: a mixed patch_elements answers one receipt per domain.
+// With them, the warning that says some were left out (a bare one: its code and count).
 function sizesOf(result) {
 	const receipts = Array.isArray(result?.commands) ? result.commands.map(row => row.receipt).filter(Boolean) : [result];
 	const sizes = Object.assign({}, ...receipts.map(receipt => receipt?.output?.worldBoxSizeM ?? {}));
-	const notes = receipts.flatMap(receipt => receipt?.warnings ?? []).filter(warning => /^SIZES_/.test(warning.code)).map(warning => warning.message);
+	const notes = receipts.flatMap(receipt => receipt?.warnings ?? []).filter(warning => /^SIZES_/.test(warning.code)).map(warning => warning.message ?? `${warning.code} ${warning.count}`);
 	return { ...(Object.keys(sizes).length ? { worldBoxSizeM: sizes } : {}), ...(notes.length ? { sizesNote: notes.join(" ") } : {}) };
 }
 
