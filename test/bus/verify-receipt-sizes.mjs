@@ -1,6 +1,7 @@
-// Every object a command creates or resizes gets its world box size in the receipt (src/receipt-sizes.js), and no
-// other object does. Each stated number is computed again here from the scene rows by this test's own arithmetic
-// (box corners turned by the row's Euler angles), never by the function under test.
+// Every object a command creates or resizes gets its size in the receipt (src/receipt-sizes.js), and no other
+// object does. Each stated number is computed again here from the scene rows by this test's own arithmetic
+// (footprint x height x scale; for an empty, its parts' box corners turned by their Euler angles), never by the
+// function under test.
 import assert from 'node:assert/strict';
 import { runSizeCases } from './receipt-sizes-cases.mjs';
 
@@ -18,8 +19,10 @@ function rowBox(row) {
 	return [0, 1, 2].map(i => [Math.min(...corners.map(c => c[i])), Math.max(...corners.map(c => c[i]))]);
 }
 const isEmpty = row => row.renderer === 'empty' || row.renderer === 'light';
+// An object: its own box, whatever way it is turned. An empty: the world box of its parts together.
 function expectedSize(row, rows) {
-	const boxes = isEmpty(row) ? rows.filter(r => !isEmpty(r) && descends(r, row.id, rows)).map(rowBox) : [rowBox(row)];
+	if (!isEmpty(row)) return [row.footprint.width * row.scaleX, row.height * row.scaleY, row.footprint.depth * row.scaleZ];
+	const boxes = rows.filter(r => !isEmpty(r) && descends(r, row.id, rows)).map(rowBox);
 	if (!boxes.length) return null;
 	return [0, 1, 2].map(i => Math.max(...boxes.map(b => b[i][1])) - Math.min(...boxes.map(b => b[i][0])));
 }

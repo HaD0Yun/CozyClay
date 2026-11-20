@@ -207,8 +207,8 @@ export function createCommandBus({ registry, ports }) {
       undo: retainedHistoryEntryId ? { historyEntryId: retainedHistoryEntryId, entries: 1, canUndoDirect: !turn } : null, ...(ids.length > 8 ? { detailCursor: request.commandId } : {}) });
     // Full readback, warnings and a long output list are richer than the 8 KiB receipt always allows; shed the
     // extras (box and children, all but the first warnings, then the list's end) rather than fail a command that ran.
-    // A completed receipt (output allowed) also states the world box size of every object it created or resized (receipt-sizes.js).
-    return fitSized(build, result.output, completed && changed && same(before.host, after.host) ? receiptSizes(before, after, ports.readback) : null);
+    // The agent's completed receipt (in its turn or task; output allowed) also states the size of every object it added or resized (receipt-sizes.js).
+    return fitSized(build, result.output, (turn || request.taskId) && completed && changed && same(before.host, after.host) ? receiptSizes(before, after, ports.readback) : null);
   }
   function run(id, args = {}, options = {}) {
     const request = { origin: 'ui', commandId: crypto.randomUUID(), ...options };

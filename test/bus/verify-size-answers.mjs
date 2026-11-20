@@ -29,7 +29,7 @@ assert.equal(patched.sizesNote, "worldBoxSizeM {\"obj-1\":[4,0.01,2]}", "a parti
 assert.deepEqual(Object.keys(inspected).sort(), ["affectedIds", "code", "message", "name", "ok", "receiptId", "revision", "status"], "a call that sizes nothing gains no field");
 assert.deepEqual(split.worldBoxSizeM, { a: [1, 1, 1] }, "a split patch merges its receipts' sizes");
 assert.match(split.sizesNote, /lists 0 of 3 objects/);
-assert.match(script.description, /worldBoxSizeM when the call created or resized objects/);
+assert.match(script.description, /worldBoxSizeM when a "completed" call added or resized objects/);
 console.log("PASS a script's calls summary carries every stated size and the note on what is missing");
 
 const studio = createStudioTools({ liveHub: { command: async () => ({}) }, workspaceHandle: "w" });
