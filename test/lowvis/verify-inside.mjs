@@ -12,9 +12,12 @@
 //    agree with the line the writer reads. A body is left out with a prop on the frames the engine's own state (the
 //    build's aux.holders, built again here) names it among that prop's holders.
 // 3. A pair not told is no deeper than its limit on every frame the case does not name as a touch, or is deeper on
-//    fewer frames in a row than last a tenth of a second at the clip's rate; a told pair is deeper on that many at least.
+//    fewer frames than last a tenth of a second at the clip's rate, none of them the clip's first or last; a told pair
+//    is deeper on that many at least, or on the clip's first or last frame.
 // 4. The flag switched off by name tells no inside line; the rows are still measured. A hollow attribute that is not
 //    true or false is refused.
+// 5. The least count follows the clip's rate and is a count over the whole clip: clips written here by hand, a box in
+//    a wall on chosen frames, at 10 to 60 frames a second.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,6 +26,7 @@ import { join } from "node:path";
 import * as THREE from "../../node_modules/three/build/three.module.js";
 import { ConvexHull } from "../../node_modules/three/examples/jsm/math/ConvexHull.js";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
+import { insideRows } from "../../src/lowvis/pi/inside.mjs";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
 import { serializeClip } from "../../src/lowvis/clip.js";
 import { block } from "../../src/lowvis/looks/block.js";
@@ -88,7 +92,9 @@ const bodySolids = (ch, f, look) => SOLIDS[look].map(o => {
 const far = (o, b) => Math.hypot(...o.c.map((v, k) => v - b.c[k])) > o.r2 + (b.r ?? Math.hypot(...b.h));
 const skipped = (c, pair, f, joint) => [...(c.skip?.[pair] ?? []), ...(c.skip?.[pair.split(">").reverse().join(">")] ?? [])].some(([a, b, joints]) => f >= a && f < b && (!joints || joints.some(n => J[n] === joint)));
 
-let n = 0, lines = 0, pairs = 0, brief = 0, handled = 0;
+/** The fewest whole frames that last a tenth of a second at a rate. */
+const tenth = fps => { let k = 1; while (k / fps < 0.1 - 1e-9) k++; return k; };
+let n = 0, lines = 0, pairs = 0, brief = 0, handled = 0, ends = 0;
 for (const c of CASES) {
 	const look = c.figure ?? "block", dir = join(tmpdir(), `lowvis-inside-${process.pid}-${n++}`);
 	const tool = createCompileTool({ name: `inside-${n}`, outDir: dir, clipFile: join(dir, "clip.json"), variant: "studio", figure: look });
@@ -100,31 +106,31 @@ for (const c of CASES) {
 	const { clip: again, aux } = buildClip(structuredClone({ ...c.spec, demo: "x" }), tool.state.last.scene);
 	assert.deepEqual(JSON.parse(serializeClip(again)).characters.map(x => x.pos), clip.characters.map(x => x.pos), `${c.name}: built again the same`);
 	const holds = (who, prop, f) => String(aux.holders[prop]?.[f] ?? "").split("+").some(h => h.replace(/:[LR]$/, "") === who);
-	// the fewest whole frames that last a tenth of a second at the clip's rate
-	let seen = 1; while (seen / clip.fps < 0.1 - 1e-9) seen++;
+	const seen = tenth(clip.fps);
 	const hollow = new Set(c.scene.props.filter(p => p.hollow).map(p => p.id));
 	// every body with every prop, every moving prop with every other prop
 	const all = [...clip.characters.flatMap(ch => clip.props.map(p => ({ pair: `${ch.id}>${p.id}`, ch, p }))), ...clip.props.filter(m => m.pos.length > 3).flatMap((m, i, movers) => clip.props.filter(p => p !== m && !movers.slice(0, i).includes(p)).map(p => ({ pair: `${m.id}>${p.id}`, m, p })))]; // two moving props once, either named first
 	for (const e of all) {
 		if (hollow.has(e.p.id) || (e.m && hollow.has(e.m.id))) continue;
 		const lim = 1000 * (e.ch ? 0.025 * (e.ch.scale ?? 1) : 0.025);
-		let worst = { d: -Infinity }, frames = 0, first = null, last = null, run = 0, longest = 0, held = 0;
+		let worst = { d: -Infinity }, frames = 0, first = null, last = null, held = 0;
 		for (let f = 0; f < F; f++) {
 			const b = propSolid(e.p, f);
-			if (e.ch && holds(e.ch.id, e.p.id, f)) { held++; run = 0; continue; } // it handles the prop on this frame
+			if (e.ch && holds(e.ch.id, e.p.id, f)) { held++; continue; } // it handles the prop on this frame
 			const ds = e.ch ? bodySolids(e.ch, f, look).filter(o => !skipped(c, e.pair, f, o.joint) && !far(o, b)).map(o => 1000 * depth(o, b)) : skipped(c, e.pair, f, null) ? [] : [1000 * depth(propSolid(e.m, f), b)];
 			const d = Math.max(-Infinity, ...ds);
-			if (d > lim) { frames++; first ??= f; last = f; run++; longest = Math.max(longest, run); } else run = 0;
+			if (d > lim) { frames++; first ??= f; last = f; }
 			if (d > worst.d) worst = { d, f };
 		}
 		handled += held > 0;
-		const flip = e.m && `${e.p.id}>${e.m.id}`, row = rows.find(x => x.key === `inside:${e.pair}` || x.key === `inside:${flip}`);
+		const flip = e.m && `${e.p.id}>${e.m.id}`, row = rows.find(x => x.key === `inside:${e.pair}` || x.key === `inside:${flip}`), end = first === 0 || last === F - 1;
 		if (!row) {
-			assert.ok(worst.d <= lim + 0.01 || longest < seen, `${c.name}: ${e.pair} not told but ${worst.d.toFixed(1)} mm deep at f${worst.f} (limit ${lim}) on ${longest} frames in a row`);
-			brief += worst.d > lim + 0.01; // past the limit, but on fewer frames in a row than are seen
+			assert.ok(worst.d <= lim + 0.01 || (frames < seen && !end), `${c.name}: ${e.pair} not told but ${worst.d.toFixed(1)} mm deep at f${worst.f} (limit ${lim}) on ${frames} frames, f${first} to f${last}`);
+			brief += worst.d > lim + 0.01; // past the limit, but on fewer frames than are seen
 			continue;
 		}
-		assert.ok(longest >= seen, `${c.name}: ${e.pair} told, past its limit on ${longest} frames in a row at most`);
+		assert.ok(frames >= seen || end, `${c.name}: ${e.pair} told, past its limit on ${frames} frames, f${first} to f${last}`);
+		ends += frames < seen;
 		pairs++;
 		// the line as the writer reads it
 		const [x, y] = row.key.slice(7).split(">"), line = r.text.split("\n").find(l => l.startsWith(`- ${e.ch ? `${e.ch.id}'s body` : x} inside ${y}:`));
@@ -149,5 +155,18 @@ for (const c of CASES) {
 	assert.equal(bad.status, "rejected");
 	assert.match(bad.text, /hollow: want true or false/);
 }
-assert.ok(brief >= 4 && handled >= 4, `the cases have pairs past the limit for too few frames (${brief}) and bodies that handle a prop (${handled})`);
-console.log(`verify-inside: ${CASES.length} cases, ${pairs} told pairs, ${lines} lines recomputed, ${brief} pairs past the limit on too few frames in a row and not told, ${handled} body and prop pairs with frames it handles the prop; every other pair under its limit`);
+assert.ok(brief >= 4 && handled >= 4 && ends >= 4, `the cases have pairs past the limit for too few frames (${brief}), such pairs on the clip's first or last frame (${ends}) and bodies that handle a prop (${handled})`);
+// the least count at other rates, on clips written by hand: a 0.4 m box 120 mm in a wall on the frames given, clear on the others
+{
+	const F = 40, wall = { id: "wall", size: [2, 1, 0.4], at: [1.5, 0.5, 2] }, crate = { id: "crate", size: [0.4, 0.4, 0.4], at: [1.5, 0.2, 1], moves: true };
+	const rowsOf = (fps, inside) => insideRows({ fps, frameCount: F, characters: [], props: [{ id: "wall", size: wall.size, pos: wall.at, quat: [0, 0, 0, 1] }, { id: "crate", size: crate.size, pos: Array.from({ length: F }, (_, f) => [1.5, 0.2, inside.includes(f) ? 1.72 : 1]).flat(), quat: Array.from({ length: F }, () => [0, 0, 0, 1]).flat() }] }, { holders: {}, rides: [] }, { def: { props: [wall, crate] }, spec: {}, look: "block" });
+	const span = (a, k, step = 1) => Array.from({ length: k }, (_, i) => a + i * step);
+	for (const fps of [10, 12, 24, 25, 30, 60]) {
+		const seen = tenth(fps), row = (frames, why) => { const r = rowsOf(fps, frames); assert.equal(r.length, 1, `${fps} fps, ${why}: told`); assert.deepEqual([r[0].frames, r[0].first, r[0].last, Math.round(r[0].value)], [frames.length, frames[0], frames.at(-1), 120], `${fps} fps, ${why}: its numbers`); };
+		row(span(10, seen), "the fewest frames of a tenth of a second in a row");
+		row(span(5, seen, 5), "as many frames, five frames apart");
+		row([0], "the clip's first frame alone"); row([F - 1], "the clip's last frame alone");
+		if (seen > 1) for (const [frames, why] of [[span(10, seen - 1), "one frame fewer in a row"], [span(5, seen - 1, 5), "one frame fewer, five frames apart"], [[1], "the second frame alone"], [[F - 2], "the last but one alone"]]) assert.equal(rowsOf(fps, frames).length, 0, `${fps} fps, ${why}: not told`);
+	}
+}
+console.log(`verify-inside: ${CASES.length} cases, ${pairs} told pairs, ${lines} lines recomputed, ${brief} pairs past the limit on too few frames and not told, ${ends} told on as few that hold the clip's first or last frame, ${handled} body and prop pairs with frames it handles the prop; every other pair under its limit; the least count at 10 to 60 fps`);

@@ -14,12 +14,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
-import { OFF, VARIANTS, features, systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
+import { OFF, VARIANTS, features, seenFrames, systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
 
 const TMP = mkdtempSync(join(tmpdir(), "lowvis-told-once-"));
 const FPS = 24;
-let SEEN = 1; while (SEEN / FPS < 0.1 - 1e-9) SEEN++; // the fewest whole frames that last a tenth of a second
-const INSIDE = `- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${SEEN} frames in a row or more. The first answer with such a line says what it measures and leaves out.`;
+const tenth = fps => { let k = 1; while (k / fps < 0.1 - 1e-9) k++; return k; }; // the fewest whole frames that last a tenth of a second
+const SEEN = tenth(FPS);
+const INSIDE = `- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${SEEN} frames or more, or on the clip's first or last frame. The first answer with such a line says what it measures and leaves out.`;
 const BAL = "- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over 30 mm times its scale. The first answer with such a line says what counts as rest and as a support.";
 const SAID_IN = /^inside lines \(said once\): /, SAID_BAL = /^at rest lines \(said once\): /;
 const subsets = list => list.reduce((all, x) => [...all, ...all.map(s => [...s, x])], [[]]);
@@ -31,7 +32,7 @@ try {
 		const f = features(variant, off), text = systemPrompt(variant, off, start), lines = text.split("\n");
 		assert.equal(lines.filter(l => l === INSIDE).length, f.inside ? 1 : 0, `${variant} -${off} ${start}: the inside line`);
 		assert.equal(lines.filter(l => l === BAL).length, f.balance ? 1 : 0, `${variant} -${off} ${start}: the at rest line`);
-		assert.ok(!/said once\)|Not told: a body with|Supports: a foot/.test(text), `${variant} -${off} ${start}: no explanation in the manual`);
+		assert.ok(!/said once\)|Not told and not counted|Supports: a foot/.test(text), `${variant} -${off} ${start}: no explanation in the manual`);
 		manuals++;
 	}
 	assert.ok(INSIDE.length < 300 && BAL.length < 300, `the lines are short (${INSIDE.length}, ${BAL.length})`);
@@ -58,8 +59,8 @@ try {
 		after(t[0], SAID_IN);
 		const said = t[0].find(l => SAID_IN.test(l));
 		assert.ok(said.includes(`each part as the ${figure === "cube" ? "cube" : "block"} look draws it`), `the look measured: ${said}`);
-		assert.ok(said.includes(`on ${SEEN} frames in a row or more (at ${FPS} fps the fewest that last a tenth of a second)`), said);
-		assert.ok(said.includes("Not told: a body with a prop it holds, carries, pushes or places"), said);
+		assert.ok(said.includes(`on ${SEEN} frames or more (at ${FPS} fps the fewest that last a tenth of a second), or on the clip's first or last frame`), said);
+		assert.ok(said.includes("Not told and not counted: a body with a prop it holds, carries, pushes or places, on the frames the engine has it in that body's hands"), said);
 		// at a later compile, then gone and back: said where it first appears, once
 		t = session([{ scene: scene([]), spec: walk }, { scene: scene([wall]) }, { scene: scene([]) }, { scene: scene([wall]) }], { figure });
 		assert.deepEqual(counts(t, SAID_IN), [0, 1, 0, 0]); assert.equal(firstTold(t, insideRow), 1);
@@ -83,8 +84,11 @@ try {
 	}
 	// 3. the at rest explanation: its numbers are the row's limits (verify-balance-row.mjs states them: mm at scale 1, frames)
 	const t = session([{ scene: scene([]), spec: lean }]), said = t[0].find(l => SAID_BAL.test(l));
-	for (const part of ["lies in 12 frames in a row", "within 30 mm times its scale of one another", "at most 2 mm times its scale to each neighbouring frame", "within 100 mm times the scale of the floor", "over frames (12 when not given)", "within 10 mm times the scale of the floor", "from 60 mm behind the ankle to the toe tip, 90 mm wide", "a hand or an elbow within 10 mm of its target", "a knee within 100 mm times the scale"]) assert.ok(said.includes(part), `the at rest explanation says ${part}`);
+	for (const part of ["lies in 12 frames in a row", "within 30 mm times its scale of one another", "at most 2 mm times its scale to each neighbouring frame", "within 100 mm times the scale of the floor", "over frames (12 when not given)", "within 10 mm times the scale of the floor", "from 60 mm behind the ankle to the toe tip, 90 mm wide", "a hand or an elbow within 10 mm of its target", "a knee within 100 mm times the scale", "The side a line names is a side of its pelvis (in a lie, feet and head for front and back)"]) assert.ok(said.includes(part), `the at rest explanation says ${part}`);
 	assert.deepEqual([...new Set(said.match(/\d+/g).map(Number))].sort((a, b) => a - b), [2, 10, 12, 30, 60, 90, 100], "no other number");
+	// the least count of the inside lines at other rates: the fewest whole frames that last a tenth of a second
+	for (const fps of [1, 5, 10, 12, 15, 20, 24, 25, 30, 48, 50, 60, 120]) assert.equal(seenFrames(fps), tenth(fps), `${fps} fps`);
+	assert.equal(seenFrames(), SEEN, "the tool's own rate");
 	console.log("ok sessions: each explanation once, right after the told lines where its row first appears; never without the row or with the row off; its numbers as computed here");
 } finally {
 	rmSync(TMP, { recursive: true, force: true });

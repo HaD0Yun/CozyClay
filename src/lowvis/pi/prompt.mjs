@@ -52,13 +52,14 @@ const STARTS = s => ` That is the figure at scale 1. A new character starts at s
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
 // The inside and the at rest rows: what the writer needs before its first spec. What a row measures in full and what it
 // leaves out is said by the tool once, in the answer where such a line first appears (inside.mjs insideText, balance.mjs BALANCE_TEXT).
-/** The least time an inside pair must stay past its limit, frames in a row, to be told (inside.mjs; here because the
- *  manual states it and the sidecar imports this file without three.js): a tenth of a second. The eye sums the light of
- *  about that long into one impression (the critical duration of temporal summation), so a part that passes through a
- *  prop in less blends with the frames around it, as the one- and two-frame smears of hand-drawn animation do at 24
- *  fps. The count is the fewest whole frames that last that long at the clip's rate: 3 at 24 fps (0.125 s). */
+/** The least time an inside pair must be past its limit, in frames, to be told (inside.mjs; here because the manual
+ *  states it and the sidecar imports this file without three.js): a tenth of a second. The eye sums the light of about
+ *  that long into one impression (the critical duration of temporal summation), so a part that is through a prop for
+ *  less blends with the frames around it, as the one- and two-frame smears of hand-drawn animation do at 24 fps. The
+ *  count is the fewest whole frames that last that long at the clip's rate: 3 at 24 fps (0.125 s). It is a count over
+ *  the whole clip, not of frames in a row: a pair that comes back again and again is on screen that long in all. */
 export const seenFrames = (fps = CLIP_FPS) => Math.ceil(0.1 * fps - 1e-9);
-const INSIDE =`\n- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${seenFrames()} frames in a row or more. The first answer with such a line says what it measures and leaves out.`;
+const INSIDE = `\n- inside: how deep a body (its drawn parts, the hands left out) or a prop with moves: true is inside another prop, told when deeper than 25 mm (times the body's scale) on ${seenFrames()} frames or more, or on the clip's first or last frame. The first answer with such a line says what it measures and leaves out.`;
 const HOLLOW = ` hollow: true marks a prop that things may be inside: it is left out of the inside numbers.`;
 const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest, how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${Math.round(BALANCE.outside * 1000)} mm times its scale. The first answer with such a line says what counts as rest and as a support.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
