@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { INDEX, REST, TIPS } from "../rig17.js";
 import { EASE } from "../engine-simple/math.js";
 import { elementByPath } from "../../studio-elements.js";
+import { BALANCE } from "./balance.mjs";
 
 /** The engine's SPEC FORMAT comment block, without the comment marks. */
 export function specFormat() {
@@ -22,12 +23,13 @@ const hips = REST[INDEX.Hips][1], shoulder = REST[INDEX.LeftArm][1], arm = Math.
 // plus the edit argument of motion: single actions are changed without sending the whole spec again. "reach" is patch
 // plus the rows that say how far a hand, a foot or an elbow is from the target its action gave it. "noassist" is patch with the
 // engine's reach assist switched off: the body no longer bends or lowers itself toward a hand target. "studio" is tilt
-// plus the reach rows and four engine steps, each of which can be switched off by name (OFF): pace, turn, tops, body, and it is told the
+// plus the reach rows and five engine steps, each of which can be switched off by name (OFF): pace, turn, tops, body, balance, and it is told the
 // parts of a Studio request (words: the user's words and the Studio agent's note, bin/agent/motion-run.mjs). body: a
-// character of the scene may have a scale and a tint (engine-simple/size.js, clip.js).
-const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, reach: true, pace: true, turn: true, tops: true, body: true, words: true } };
+// character of the scene may have a scale and a tint (engine-simple/size.js, clip.js). balance: the row of a body at rest whose
+// centre of mass lies outside its supports (balance.mjs).
+const FEATURES = { base: { text: "base" }, lean: { text: "lean" }, patch: { text: "lean", edit: true }, reach: { text: "lean", edit: true, reach: true }, noassist: { text: "lean", edit: true, assist: false }, repeat: { text: "lean", edit: true, repeat: true }, kept: { text: "lean", edit: true, repeat: true }, tilt: { text: "lean", edit: true, repeat: true, tilt: true }, studio: { text: "lean", edit: true, repeat: true, tilt: true, reach: true, pace: true, turn: true, tops: true, body: true, balance: true, words: true } };
 /** The flags that can be switched off by name. */
-export const OFF = Object.freeze(["pace", "turn", "tops", "body"]);
+export const OFF = Object.freeze(["pace", "turn", "tops", "body", "balance"]);
 /** What a variant turns on: { text: "base" | "lean", edit?: true, ... }, without the flags listed in off. Throws on an unknown name. */
 export function features(variant = "base", off = []) {
 	if (!FEATURES[variant]) throw new Error(`variant: want one of ${Object.keys(FEATURES).join(", ")}, got ${variant}`);
@@ -43,6 +45,8 @@ const TURN = ` turn: degrees about Y; at 0 its d side lies along Z, at 90 along 
 export const BODY_SCALE = Object.freeze({ min: elementByPath("character.scale").min, max: elementByPath("character.scale").max });
 const BODY = ` A character's scale is the size of its body, from ${BODY_SCALE.min} to ${BODY_SCALE.max}; at 1 it is the figure of CONVENTIONS. The engine multiplies every length that belongs to that body by it: its joints and feet, its steps, where it sits and lies, the space between a wrist and what the hand holds, the most a hand moves per frame, every length the SPEC text gives as the engine's own. Lengths you write stay metres of the world, in the body frame too. tint is its colour, "#rrggbb". Left out, a character keeps the scale and tint it has; a new one has the scale new figures start at in the Studio (1 unless the tool's bodies line says otherwise) and the default grey. The sheets draw each body at its scale, and in its tint when it has one (else in a colour of the sheet's own); the tool's bodies line says both.`;
 const TOPS = `\nsit {height}: sits at that height over the floor, about 0.33 m behind where the figure stands, with no prop.`;
+const mm = v => Math.round(v * 1000), B = BALANCE;
+const BAL = `\n- at rest: centre of mass outside its supports: on the frames where a body is at rest (its Hips joint and both ankles move at most ${mm(B.still)} mm a frame times its scale, on ${B.frames} frames or more in a row, with no tilt and no pose, carry, hold or place of its own within its over frames), how far its centre of mass, dropped to the floor, lies outside the area its supports span, told when over ${mm(B.outside)} mm times its scale; the note says toward which side of the body, on how many frames, and the supports counted on the worst frame. The masses are the shares of an adult human body's segments at the body's scale; what it holds or carries is not weighed. Supports: a foot the engine holds planted (its sole from under the ankle to the toe tip, ${mm(B.foot)} mm wide times the scale), in a sit the hips and thighs (on a prop: the part over it), in a lie the whole body (on a prop: the part over it), and, within ${mm(B.near)} mm times the scale of the floor or of a prop that does not move, a knee in a kneel and a hand, an elbow or a foot on its target (within ${mm(B.on)} mm; the target lies there). Not told: a frame where a hand, an elbow or a foot is on its target on a prop that moves or on another body, or the body sits or lies on a prop that moves (supports the engine cannot vouch for), or no support is counted.`;
 const PACE = `\n- travel: for every stretch of walk, run or push, the distance, the speed and the steps per minute it came out as.`;
 const WORDS = `\n\nTHE REQUEST\nIt starts with two marked texts. USER'S WORDS is the user's message exactly as they typed it: the user judges the motion against it. STUDIO AGENT'S NOTE is from the agent that called you: which characters and objects, what to keep. Either may be missing. The lines after them come from the Studio itself: pictures, the scene, your last motion.`;
 const EDIT = ` To change single actions send edit in place of spec: edit: { <id>: [[frame, verb, options], ...] } replaces the action of that id that has the same frame and verb, or adds it when there is none; [frame, verb, null] removes it. The reply says what the edit did.`;
@@ -87,7 +91,7 @@ THE TOOL
 motion({ scene, spec }). A later call may send only what changed: the tool keeps the last scene and spec.${f.edit ? EDIT : ""} Every call compiles, checks and renders by itself. After every change you get the overview sheet (up to 8 frames at your action boundaries, three-quarter view, the whole scene in frame) and the frames around each spike of a check. look: { frames: [...], view: "three" | "side" | "front" | "top", focus: "<id>" } adds a sheet of other frames, another view or a close framing on one character or prop, in the same call or alone. Only the images of your latest call stay visible to you; the text of every call stays.
 
 THE NUMBERS
-${NUMBERS[f.text]}${f.reach ? REACH : ""}${f.pace ? PACE : ""}
+${NUMBERS[f.text]}${f.reach ? REACH : ""}${f.pace ? PACE : ""}${f.balance ? BAL : ""}
 
 HOW TO WORK
 1. Write a motion design first, 3 to 6 lines: the phases with frame ranges, the contacts, where the weight is, the key pose that must read.
