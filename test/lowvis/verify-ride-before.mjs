@@ -34,9 +34,14 @@ const BEFORE = {
 	holdShare: "a301a50f6fdf636419fbc2940aed8f28029f0e0a6fa50063d850a1f312efbae6",
 	rollKey: "18b0abf907fcdfc7f0841505f841b12b9d3bb7d01c8403f81a1be98152791813",
 };
+// the knee note said again when a knee's side came from knee.js (notes.js, stored in every clip) goes back to its text of then
+const KNEE_WAS = "knee directions come from one fixed pole hint; an elbow's too unless pose elbowL / elbowR gives it a target";
+const KNEE_NOW = "the side a knee bends to is the engine's: no spec word sets it; an elbow's too unless pose elbowL / elbowR gives it a target";
 const now = Object.fromEntries(Object.entries(CASES).map(([name, [scene, spec]]) => {
 	const { clip, aux: { rides, walks, ...aux } } = buildClip(structuredClone({ demo: name, ...spec }), scene); // aux.rides came with it (the rows of a ride); aux.walks came with the counted walk
 	assert.ok(Array.isArray(rides), `${name}: aux.rides lists its ride keys`);
+	assert.ok(clip.notes.includes(KNEE_NOW), `${name}: the clip's notes have the knee note of now`);
+	clip.notes = clip.notes.map(n => (n === KNEE_NOW ? KNEE_WAS : n));
 	return [name, createHash("sha256").update(serializeClip(clip)).update(JSON.stringify(aux, round5)).digest("hex")];
 }));
 if (process.argv.includes("--print")) { console.log(JSON.stringify(now, null, "\t")); process.exit(0); }

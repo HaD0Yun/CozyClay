@@ -13,7 +13,10 @@ import { VARIANTS } from "../../../src/lowvis/pi/prompt.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../../.."), OUT = join(ROOT, "lowvis-out/replay");
 const load = f => JSON.parse(readFileSync(f, "utf8"));
-const checksOf = clip => { const ch = clip.stats?.checks ?? {}, v = k => ch[k]?.value; return { reach: Math.max(0, ...Object.entries(ch).filter(([k]) => k.startsWith("reach:")).map(([, x]) => x.value)), floor: Math.max(0, -Math.min(v("jointLow") ?? 0, v("footLow") ?? 0)), prop: Math.max(0, -(v("clear") ?? 0)), slide: v("slide") ?? 0 }; };
+// prop: the deepest a body is inside a prop past the inside rows' limit (src/lowvis/pi/inside.mjs; 0 when no body row is
+// past it), read only from builds whose tree has that measure (_meta.json inside)
+const isBodyRow = (clip, k) => clip.characters.some(c => k.startsWith(`inside:${c.id}>`));
+const checksOf = clip => { const ch = clip.stats?.checks ?? {}, v = k => ch[k]?.value; return { reach: Math.max(0, ...Object.entries(ch).filter(([k]) => k.startsWith("reach:")).map(([, x]) => x.value)), floor: Math.max(0, -Math.min(v("jointLow") ?? 0, v("footLow") ?? 0)), prop: Math.max(0, ...Object.entries(ch).filter(([k]) => isBodyRow(clip, k)).map(([, x]) => x.value)), slide: v("slide") ?? 0 }; };
 const argv = process.argv.slice(2), opt = name => { const i = argv.indexOf(`--${name}`); return i === -1 ? undefined : argv[i + 1]; };
 const VALUED = new Set(["--runs", "--variant", "--off", "--only"]), [mode, a, b] = argv.filter((x, i) => !x.startsWith("--") && !VALUED.has(argv[i - 1]));
 
@@ -42,13 +45,15 @@ if (mode === "build" && a) {
 		if (r.status !== "ok") failed.push({ name: x.n, text: String(r.text).slice(0, 140) });
 	}
 	const unknown = Object.values(left.unknownVariant).reduce((s, k) => s + k, 0);
-	writeFileSync(join(dir, "_meta.json"), JSON.stringify({ runsDir, runs: runs.map(x => x.n), left, failed }, null, 1));
+	writeFileSync(join(dir, "_meta.json"), JSON.stringify({ runsDir, runs: runs.map(x => x.n), left, failed, inside: existsSync(join(ROOT, "src/lowvis/pi/inside.mjs")) }, null, 1));
 	console.log(`built ${runs.length} runs from ${runsDir} into ${dir}, failed ${failed.length}`);
 	console.log(`left out ${left.noFinal + unknown}: ${left.noFinal} without final.scene and final.spec, ${unknown} with a variant the prompt no longer has${unknown ? ` (${Object.entries(left.unknownVariant).map(([k, c]) => `${k} ${c}`).join(", ")})` : ""}`);
 } else if (mode === "compare" && a && b) {
 	const A = join(OUT, a), B = join(OUT, b), ma = load(join(A, "_meta.json")), mb = load(join(B, "_meta.json"));
 	const fa = new Set(ma.failed.map(f => f.name)), fb = new Set(mb.failed.map(f => f.name)), inB = new Set(mb.runs), spec = n => load(join(ma.runsDir, n, "run.json"));
-	const res = { runs: ma.runs.length, unchanged: 0, changed: 0, failedBefore: fa.size, failedAfter: fb.size, newlyFailed: [...fb].filter(n => !fa.has(n)), missingInB: ma.runs.filter(n => !inB.has(n)).length, worse: [], better: { reach: 0, floor: 0, prop: 0, slide: 0 } };
+	const noInside = [[a, ma], [b, mb]].filter(([, m]) => m.inside !== true).map(([tag]) => tag), columns = noInside.length ? ["reach", "floor", "slide"] : ["reach", "floor", "prop", "slide"];
+	if (noInside.length) console.log(`prop: not compared: ${noInside.join(" and ")} ${noInside.length > 1 ? "were" : "was"} built without the inside measure (its _meta.json has no inside: true)`);
+	const res = { runs: ma.runs.length, unchanged: 0, changed: 0, failedBefore: fa.size, failedAfter: fb.size, newlyFailed: [...fb].filter(n => !fa.has(n)), missingInB: ma.runs.filter(n => !inB.has(n)).length, worse: [], better: Object.fromEntries(columns.map(k => [k, 0])) };
 	for (const n of ma.runs) {
 		if (fa.has(n) || fb.has(n) || !inB.has(n)) continue;
 		const ca = load(join(A, `${n}.json`)), cb = load(join(B, `${n}.json`));
@@ -59,7 +64,7 @@ if (mode === "build" && a) {
 		if (d < 1e-6) { res.unchanged++; continue; }
 		res.changed++; console.log("changed:", n, "|", String(spec(n).request ?? "").slice(0, 50));
 		const x = checksOf(ca), y = checksOf(cb);
-		for (const k of ["reach", "floor", "prop", "slide"]) { if (y[k] - x[k] > 10) res.worse.push(`${n} ${k} ${x[k].toFixed(0)} -> ${y[k].toFixed(0)} mm`); if (x[k] - y[k] > 10) res.better[k]++; }
+		for (const k of columns) { if (y[k] - x[k] > 10) res.worse.push(`${n} ${k} ${x[k].toFixed(0)} -> ${y[k].toFixed(0)} mm`); if (x[k] - y[k] > 10) res.better[k]++; }
 	}
 	console.log(JSON.stringify({ ...res, worse: res.worse.length }));
 	if (res.worse.length) console.log(res.worse.join("\n"));
