@@ -220,7 +220,7 @@ export function createCompileTool({ name, outDir = join(ROOT, "lowvis-out/pi", n
 		}
 		const { clip, aux, parsed, valid, buildMs } = built, F = parsed.frameCount, checks = checkClip(parsed, aux);
 		const rows = measure(parsed, aux, { stretch: valid.stretch }), asBuilt = expandRepeats(state.spec, F).spec;
-		if (feature.balance) rows.push(...balanceRows(parsed, aux, asBuilt)); // a body at rest whose centre of mass lies outside its supports (balance.mjs)
+		if (feature.balance) rows.push(...balanceRows(parsed, aux, asBuilt, def)); // a body at rest whose centre of mass lies outside its supports (balance.mjs)
 		for (const r of rows) { const v = checkValue(r.key, checks); if (v !== undefined && Math.abs(v - r.value) > 1e-6) { r.value = v; r.frame = undefined; } } // checks.js is the reference
 		Object.assign(clip.stats, { buildMs, stretch: valid.stretch, checks: Object.fromEntries(rows.map(r => [r.key, { value: r.value, unit: r.unit, frame: r.frame }])) });
 		mkdirSync(resolve(clipFile, ".."), { recursive: true });

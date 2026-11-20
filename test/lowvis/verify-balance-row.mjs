@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serializeClip } from "../../src/lowvis/clip.js";
 import { buildClip } from "../../src/lowvis/engine-simple/engine.js";
+import { buildBodySized } from "../../src/lowvis/engine-simple/size.js";
 import { createCompileTool } from "../../src/lowvis/pi/compile-tool.mjs";
 import { systemPrompt } from "../../src/lowvis/pi/prompt.mjs";
 import { INDEX as J, JOINT_COUNT, REST, TIPS, qRotate } from "../../src/lowvis/rig17.js";
@@ -31,7 +32,7 @@ for (const s of ["Left", "Right"]) SHARE.push([0.028, `${s}Arm`, `${s}ForeArm`, 
 assert.ok(Math.abs(SHARE.reduce((n, x) => n + x[0], 0) - 1) < 1e-9, "the shares add up to the whole body");
 
 /** Everything this file recomputes for one body: [{ who, d, f, frames: [..], side, names, held }] of the bodies over the limit. */
-function expected(clip, aux, spec) {
+function expected(clip, aux, spec, def) {
 	const F = clip.frameCount, out = [];
 	const statics = clip.props.filter(p => p.pos.length === 3), moving = clip.props.filter(p => p.pos.length > 3).map(p => p.id), ids = clip.characters.map(c => c.id);
 	const inv = (q, v) => qRotate([-q[0], -q[1], -q[2], q[3]], v);
@@ -48,12 +49,15 @@ function expected(clip, aux, spec) {
 		const acts = (spec[c.id] ?? []).slice().sort((a, b) => a[0] - b[0]), body = new Set(["idle", "walk", "run", "push", "turn", "sit", "stand", "kneel", "lie"]);
 		const tiltAt = f => { const tk = acts.filter(a => a[1] === "pose" && a[2]?.tilt !== undefined).findLast(a => a[0] <= f); if (!tk) return false; const t = tk[2].tilt ?? []; return [t[0] ?? 0, t[1] ?? 0, ...(tk[2].shift ?? [])].some(v => Number(v) !== 0 && !Number.isNaN(Number(v))) || f < tk[0] + (tk[2].over ?? 12); };
 		// the engine's posture (spec-layers.js): a sit, kneel or lie holds through a stand of a body that never sat and through a
-		// walk, run, push or turn on which no foot's planted flag changes; a stand after a sit, or a step, ends it
+		// walk, run, push or turn on which the engine's stepper takes no step (no foot of its body layer, before poses and
+		// tilt, lifts or lands); a stand after a sit, or a step, ends it
+		const one = def.characters.find(x => x.id === c.id), props = Object.fromEntries(def.props.map(p => [p.id, { id: p.id, size: p.size, c: p.at, turn: 0 }]));
+		const layer = buildBodySized(one, acts, F, { props, ground: () => 0 }, s);
 		const bodyActs = acts.filter(a => body.has(a[1])), postureOf = [], changeSpans = [];
 		for (let i = 0, cur = null, sat = false; i < bodyActs.length; i++) {
 			const [a, verb, o = {}] = bodyActs[i], end = Math.min(F, bodyActs[i + 1]?.[0] ?? F), up = verb === "stand" && sat;
 			let stepped = false;
-			for (let g = Math.max(0, a) + 1; g < end && !stepped; g++) if (!tiltAt(g) && !tiltAt(g - 1)) for (const k of [0, 1]) if (!!aux.contacts[c.id][g][k] !== !!aux.contacts[c.id][g - 1][k]) stepped = true;
+			for (let g = Math.max(0, a) + 1; g < end && !stepped; g++) for (const k of [0, 1]) if (!!layer[g].feet[k].planted !== !!layer[g - 1].feet[k].planted) stepped = true;
 			if (["sit", "kneel", "lie"].includes(verb)) { cur = bodyActs[i]; if (verb === "sit") sat = true; } else if (up || (["walk", "run", "push", "turn"].includes(verb) && stepped)) { cur = null; sat = false; }
 			if (["sit", "kneel", "lie"].includes(verb) || up) changeSpans.push([a, o.over != null ? a + Math.round(o.over) : end]);
 			for (let f = Math.max(0, a); f < end; f++) postureOf[f] = cur;
@@ -79,7 +83,8 @@ function expected(clip, aux, spec) {
 			if (posture?.[1] === "lie") { const on = Array.from({ length: JOINT_COUNT }, (_, j) => P(f, j)).filter(x => !seat || over(seat, x)); if (on.length) { pts.push(...on); names.push(seat ? `lying on ${seat.id}` : "lying"); } }
 			const FIELD = [["L", "hands"], ["R", "hands"], ["footL"], ["footR"], ["elbowL"], ["elbowR"]], NAME = ["L hand", "R hand", "L foot", "R foot", "L elbow", "R elbow"], JOINT = [J.LeftHand, J.RightHand, null, null, J.LeftForeArm, J.RightForeArm];
 			for (let i = 0; i < 6; i++) {
-				const e = aux.reach[c.id][f]?.[i]; if (!e || (e.d > ON && !(i >= 2 && i <= 3 && e.floor > 0))) continue; // a foot the floor stopped short of its target lies on the floor
+				const e = aux.reach[c.id][f]?.[i], raised = e?.floor > 0 && Math.hypot(...P(f, i === 2 ? J.LeftFoot : J.RightFoot).map((v, k) => v - e.t[k] - (k === 1 ? e.floor : 0)));
+				if (!e || (raised === false ? e.d : raised) > ON) continue; // a foot the floor stops: how far its ankle is from the target raised to there
 				const key = acts.findLast(a => a[0] === e.key && a[1] === "pose" && FIELD[i].some(n => a[2][n] !== undefined)); if (!key) continue;
 				const t = FIELD[i].map(n => key[2][n]).find(v => v !== undefined); if (!t || typeof t !== "object") continue;
 				const id = Array.isArray(t) ? null : t.on ?? t.prop ?? t.meet ?? t.chest ?? t.of;
@@ -125,7 +130,7 @@ function check(name, scene, spec, { off = [], expectTold } = {}) {
 	if (off.includes("balance")) { assert.equal(lines.length, 0, `${name}: the flag off tells nothing`); return; }
 	const def = { ...scene, characters: scene.characters.map(c => ({ ...c })) }, { clip, aux } = buildClip(structuredClone({ ...spec, demo: "x" }), def), parsed = JSON.parse(serializeClip(clip));
 	assert.deepEqual(JSON.parse(readFileSync(join(TMP, `b${n - 1}.json`), "utf8")).characters.map(c => c.pos), parsed.characters.map(c => c.pos), `${name}: the tool compiled the same clip`);
-	const want = expected(parsed, aux, spec);
+	const want = expected(parsed, aux, spec, def);
 	if (expectTold !== undefined) assert.equal(want.length > 0, expectTold, `${name}: this file finds ${want.length ? "" : "no "}body over the limit`);
 	assert.equal(lines.length, want.length, `${name}: one line per body this file finds over the limit (${want.map(w => w.who)}):\n${lines.join("\n")}`);
 	for (const w of want) {
@@ -171,6 +176,9 @@ try {
 	check("a stand at the start, hips left", ...solo([[0, "stand"], [0, "pose", { hip: [0.3, 0, 0], over: 0 }]]), { expectTold: true });
 	check("sit, lie, stand, hips left", ...solo([[0, "sit", { height: 0.45, over: 20 }], [30, "lie", { at: [0, -0.8], over: 30 }], [70, "stand", { over: 30 }], [100, "pose", { hip: [0.3, 0, 0], over: 0 }]], [], 1, 160));
 	check("a foot the floor stops short", ...solo([[0, "pose", { footL: [0.1, 0, 0.45], hip: [0, 0, 0.2], over: 20 }]]));
+	check("a foot aimed at the floor past the leg's reach", ...solo([[0, "pose", { footR: [-0.1, -0.1, 0.8], hip: [0.25, 0, 0], over: 0 }]], [], 1.2), { expectTold: true });
+	check("sit, a turn that takes no step, a foot lifted", ...solo([[0, "sit", { on: "bench", over: 20 }], [40, "turn", { heading: 30 }], [55, "pose", { footR: [-0.1, 0.3, 0.4], over: 10 }]], [bench], 1, 130), { expectTold: false });
+	check("kneel, then a walk under a tilt, tilt back, hips left", ...solo([[0, "kneel", { over: 20 }], [25, "pose", { tilt: [8, 0], over: 6 }], [35, "walk", { to: [1, 1.5] }], [110, "idle"], [115, "pose", { tilt: [0, 0], over: 6 }], [125, "pose", { hip: [0.3, 0, 0], over: 10 }]], [], 1, 190), { expectTold: true });
 	for (const tilt of [30, { pitch: 30 }, "30"]) check(`tilt of another form: ${JSON.stringify(tilt)}`, ...solo([[0, "pose", { tilt, over: 0 }]], [], 1, 60));
 	check("elbow on a table",...solo([[0, "pose", { elbowR: { on: "table", at: [-0.2, 0.4, -0.2] }, bow: 70, over: 20 }]], [table]));
 	const two = order => { const cs = [{ id: "a", at: [0, 0], heading: 0 }, { id: "b", at: [0, 0.7], heading: 180, scale: 1.3 }]; return [{ frames: 100, characters: order ? cs : cs.slice().reverse(), props: [] }, { a: [[0, "pose", { hip: [0.3, 0, 0], over: 0 }]], b: [[0, "pose", { R: { joint: "Spine2", of: "a" }, bow: 50, hip: [0, 0, 0.25], over: 20 }]] }]; };
