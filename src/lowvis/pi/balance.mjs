@@ -10,15 +10,16 @@
 // At rest: a frame that lies in BALANCE.frames frames in a row over which the places of the centre of mass (in space)
 // lie within BALANCE.outside x scale metres of one another, and on each of which both ankle joints move at most
 // BALANCE.still x scale metres to each neighbouring frame, the body is not tilted (nor a tilt blends back), no hand, foot
-// or elbow is in the blend toward a target that would be a support or that the row cannot vouch for (below) or in the
-// blend away from one, and the body layer does not move the pelvis or a foot to a neighbouring frame (a step, a turn, a
-// change of posture; not the breath of an idle). So a body whose feet and posture stay while the rest of it moves where
-// it is (a breath, a look, a pose that repeats) is at rest as a still one is, and one that carries its centre of mass
-// away, across the floor or up or down, is not. Why that distance: it is the row's own limit, so a centre of mass told
-// on a frame lay outside the same supports on every one of those frames (half a second). No body does that under
-// gravity: one whose centre of mass is d outside supports that stay gains speed away from them at g / h x d or more (h:
-// its height; the inverted pendulum), so it falls or steps, it does not stay; what the row tells is a posture kept
-// there, not a move through it. How fast the centre of mass moves inside that distance is not counted.
+// or elbow is in a blend that ends on a target that would be a support or that the row cannot vouch for (below) or within
+// the over frames of the action that takes it away from one, and the body layer does not move the pelvis or a foot to a
+// neighbouring frame (a step, a turn, a change of posture; not the breath of an idle). So a body whose feet and posture
+// stay while the rest of it moves where it is (a breath, a look, a pose that repeats) is at rest as a still one is, and
+// one that carries its centre of mass away, across the floor or up or down, is not. Why that distance: it is the row's
+// own limit, so a centre of mass told on a frame lay outside that frame's supports on every one of those frames (half
+// a second). No body does that under gravity: one whose centre of mass is d outside supports that stay gains speed
+// away from them at g / h x d or more (h: its height; the inverted pendulum), so it falls or steps, it does not stay;
+// what the row tells is a posture kept there, not a move through it. How fast the centre of mass moves inside that
+// distance is not counted.
 // The posture: a sit, kneel or lie counts on a frame when it is the body action under which the body layer last moved
 // the pelvis or a foot (so until the next step or change of posture, whatever verb the spec wrote after it).
 // Supports, each dropped to the floor plane:
@@ -108,9 +109,9 @@ export function balanceRows(clip, aux, spec, scene) {
 			if (id != null && (moving.has(id) || (chars.has(id) && id !== c.id))) return "vouch";
 			return !Array.isArray(t) && t.joint && (!t.of || t.of === c.id) ? null : surface(e.t, BALANCE.near * s);
 		};
-		// a limb in the blend toward such a target (an action of it began on or before f; its reach entries, which start when
-		// the blend ends, have not) or away from one (within the over frames of the action that ended its entries there): the
-		// body is then putting weight on a support or taking it off, not at rest
+		// a limb in a blend that ends on such a target (an action of it began on or before f; its reach entries, which start
+		// when the blend ends, have not) or within the over frames of the action that takes it away from one (the action on
+		// the frame after its last entry there): the body is then putting weight on a support or taking it off, not at rest
 		const entry = (f, slot) => aux.reach[c.id]?.[f]?.[slot] ?? null;
 		const next = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = F - 1; f >= 0; f--) n[f] = entry(f, slot) ?? n[f + 1] ?? null; return n; });
 		const last = Array.from({ length: 6 }, (_, slot) => { const n = []; for (let f = 0; f < F; f++) n[f] = entry(f, slot) ? f : n[f - 1] ?? -1; return n; }); // the last frame up to f with an entry
